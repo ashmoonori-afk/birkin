@@ -1,0 +1,512 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Birkin — Your AI, wherever you are</title>
+    <meta
+      name="description"
+      content="Birkin is a personal AI agent that lives in your messaging apps. Talk to it like a person — it learns, remembers, and gets things done."
+    />
+    <meta name="theme-color" content="#2B6B5E" />
+
+    <meta property="og:title" content="Birkin — Your AI, wherever you are" />
+    <meta
+      property="og:description"
+      content="A personal AI agent that lives in your messaging apps — Telegram, WhatsApp, Discord, Slack. Talk to it like a person. It handles the rest."
+    />
+    <meta property="og:type" content="website" />
+    <meta property="og:url" content="https://getbirkin.com" />
+    <meta
+      property="og:image"
+      content="https://getbirkin.com/birkin-agent-banner.png"
+    />
+
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@600;700;800&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap"
+      rel="stylesheet"
+    />
+
+    <link rel="stylesheet" href="style.css" />
+    <link rel="icon" type="image/x-icon" href="favicon.ico" />
+    <link rel="icon" type="image/png" sizes="32x32" href="favicon-32x32.png" />
+    <link rel="icon" type="image/png" sizes="16x16" href="favicon-16x16.png" />
+    <link rel="apple-touch-icon" sizes="180x180" href="apple-touch-icon.png" />
+  </head>
+  <body>
+    <!-- Nav -->
+    <nav class="nav">
+      <div class="nav-inner">
+        <a href="#" class="nav-logo">
+          <span class="logo-mark">B</span>
+          <span class="logo-text">Birkin</span>
+        </a>
+        <div class="nav-links">
+          <a href="#install">Get Started</a>
+          <a href="#features">Features</a>
+          <a href="/docs/">Docs</a>
+          <a
+            href="https://github.com/MoonGwanghoon/birkin"
+            class="nav-github"
+            target="_blank"
+            rel="noopener"
+            aria-label="GitHub"
+          >
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor">
+              <path d="M12 0C5.37 0 0 5.37 0 12c0 5.31 3.435 9.795 8.205 11.385.6.105.825-.255.825-.57 0-.285-.015-1.23-.015-2.235-3.015.555-3.795-.735-4.035-1.41-.135-.345-.72-1.41-1.23-1.695-.42-.225-1.02-.78-.015-.795.945-.015 1.62.87 1.845 1.23 1.08 1.815 2.805 1.305 3.495.99.105-.78.42-1.305.765-1.605-2.67-.3-5.46-1.335-5.46-5.925 0-1.305.465-2.385 1.23-3.225-.12-.3-.54-1.53.12-3.18 0 0 1.005-.315 3.3 1.23.96-.27 1.98-.405 3-.405s2.04.135 3 .405c2.295-1.56 3.3-1.23 3.3-1.23.66 1.65.24 2.88.12 3.18.765.84 1.23 1.905 1.23 3.225 0 4.605-2.805 5.625-5.475 5.925.435.375.81 1.095.81 2.22 0 1.605-.015 2.895-.015 3.3 0 .315.225.69.825.57A12.02 12.02 0 0 0 24 12c0-6.63-5.37-12-12-12z"/>
+            </svg>
+          </a>
+        </div>
+        <button
+          class="nav-hamburger"
+          id="nav-hamburger"
+          onclick="toggleMobileNav()"
+          aria-label="Toggle menu"
+        >
+          <span class="hamburger-bar"></span>
+          <span class="hamburger-bar"></span>
+          <span class="hamburger-bar"></span>
+        </button>
+        <div class="nav-mobile" id="nav-mobile">
+          <a href="#install" onclick="toggleMobileNav()">Get Started</a>
+          <a href="#features" onclick="toggleMobileNav()">Features</a>
+          <a href="/docs/" onclick="toggleMobileNav()">Docs</a>
+          <a
+            href="https://github.com/MoonGwanghoon/birkin"
+            target="_blank"
+            rel="noopener"
+          >GitHub</a>
+        </div>
+      </div>
+    </nav>
+
+    <!-- Hero -->
+    <section class="hero">
+      <div class="hero-content">
+        <div class="hero-badge">
+          <span class="badge-dot"></span>
+          Open Source &bull; MIT License
+        </div>
+
+        <h1 class="hero-title">
+          Your AI,<br />
+          <span class="hero-gradient">wherever you are</span>
+        </h1>
+
+        <p class="hero-subtitle">
+          Birkin is a personal AI that lives in your messaging apps.
+          Ask it anything, teach it your way of working, and let it
+          handle the rest &mdash; from Telegram to Slack.
+        </p>
+
+        <div class="hero-actions">
+          <a href="#install" class="btn btn-primary">
+            Get Started &mdash; Free
+          </a>
+          <a href="#how-it-works" class="btn btn-secondary">
+            See How It Works
+          </a>
+        </div>
+
+        <div class="hero-platforms">
+          <span class="platform-label">Works on</span>
+          <div class="platform-icons">
+            <span class="platform-tag">Telegram</span>
+            <span class="platform-tag">Discord</span>
+            <span class="platform-tag">Slack</span>
+            <span class="platform-tag">WhatsApp</span>
+            <span class="platform-tag">CLI</span>
+          </div>
+        </div>
+      </div>
+
+      <div class="hero-visual">
+        <div class="chat-preview">
+          <div class="chat-header">
+            <div class="chat-avatar">B</div>
+            <div class="chat-header-info">
+              <span class="chat-name">Birkin</span>
+              <span class="chat-status">
+                <span class="status-dot"></span>
+                Online
+              </span>
+            </div>
+          </div>
+          <div class="chat-messages" id="hero-chat"></div>
+          <div class="chat-input-bar">
+            <span class="chat-input-placeholder">Message Birkin&hellip;</span>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- How It Works -->
+    <section class="section section-steps" id="how-it-works">
+      <div class="container">
+        <div class="section-header">
+          <span class="section-label">How It Works</span>
+          <h2>Three steps to your personal AI</h2>
+          <p class="section-desc">
+            No technical background needed. Install, connect your apps, and start talking.
+          </p>
+        </div>
+
+        <div class="steps-grid">
+          <div class="step-card fade-in">
+            <div class="step-icon">
+              <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/>
+              </svg>
+            </div>
+            <span class="step-number">Step 1</span>
+            <h3>Connect</h3>
+            <p>
+              Link Birkin to Telegram, Discord, Slack, or WhatsApp. Pick one or all of them &mdash; everything stays in sync.
+            </p>
+          </div>
+
+          <div class="step-card fade-in">
+            <div class="step-icon">
+              <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <circle cx="11" cy="11" r="8"/>
+                <line x1="21" y1="21" x2="16.65" y2="16.65"/>
+              </svg>
+            </div>
+            <span class="step-number">Step 2</span>
+            <h3>Ask</h3>
+            <p>
+              Talk to it like you would a colleague. Ask questions, give tasks, request research &mdash; in plain language.
+            </p>
+          </div>
+
+          <div class="step-card fade-in">
+            <div class="step-icon">
+              <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <polyline points="22 7 13.5 15.5 8.5 10.5 2 17"/>
+                <polyline points="16 7 22 7 22 13"/>
+              </svg>
+            </div>
+            <span class="step-number">Step 3</span>
+            <h3>Grow</h3>
+            <p>
+              Birkin remembers what works and learns new skills over time. The more you use it, the better it gets.
+            </p>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Features -->
+    <section class="section" id="features">
+      <div class="container">
+        <div class="section-header">
+          <span class="section-label">Features</span>
+          <h2>Everything you need, nothing you don't</h2>
+          <p class="section-desc">
+            Birkin handles the complexity so you can focus on what matters.
+          </p>
+        </div>
+
+        <div class="features-grid">
+          <div class="feature-card fade-in">
+            <div class="feature-icon-wrap">
+              <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/>
+              </svg>
+            </div>
+            <h3>Lives Where You Do</h3>
+            <p>
+              Telegram, Discord, Slack, WhatsApp, and CLI from a single setup. Start a conversation on one, pick it up on another.
+            </p>
+          </div>
+
+          <div class="feature-card fade-in">
+            <div class="feature-icon-wrap">
+              <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+                <polyline points="22 7 13.5 15.5 8.5 10.5 2 17"/>
+                <polyline points="16 7 22 7 22 13"/>
+              </svg>
+            </div>
+            <h3>Gets Smarter Over Time</h3>
+            <p>
+              Persistent memory and auto-generated skills. It learns your preferences, your projects, and how you like things done.
+            </p>
+          </div>
+
+          <div class="feature-card fade-in">
+            <div class="feature-icon-wrap">
+              <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+                <circle cx="12" cy="12" r="10"/>
+                <polyline points="12 6 12 12 16 14"/>
+              </svg>
+            </div>
+            <h3>Runs On a Schedule</h3>
+            <p>
+              Set up daily briefings, weekly reports, or automated backups with natural language. It runs while you sleep.
+            </p>
+          </div>
+
+          <div class="feature-card fade-in">
+            <div class="feature-icon-wrap">
+              <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+                <circle cx="18" cy="18" r="3"/>
+                <circle cx="6" cy="6" r="3"/>
+                <path d="M6 21V9a9 9 0 0 0 9 9"/>
+                <path d="M18 3v12a9 9 0 0 1-9-9"/>
+              </svg>
+            </div>
+            <h3>Handles Complex Tasks</h3>
+            <p>
+              Breaks big requests into smaller pieces, delegates to specialized sub-agents, and brings it all together.
+            </p>
+          </div>
+
+          <div class="feature-card fade-in">
+            <div class="feature-icon-wrap">
+              <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+                <rect x="3" y="11" width="18" height="11" rx="2" ry="2"/>
+                <path d="M7 11V7a5 5 0 0 1 10 0v4"/>
+              </svg>
+            </div>
+            <h3>Private and Secure</h3>
+            <p>
+              Self-hosted, open source, and under your control. Your data stays on your machine, never shared with third parties.
+            </p>
+          </div>
+
+          <div class="feature-card fade-in">
+            <div class="feature-icon-wrap">
+              <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+                <circle cx="12" cy="12" r="10"/>
+                <line x1="2" y1="12" x2="22" y2="12"/>
+                <path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/>
+              </svg>
+            </div>
+            <h3>Web, Browser, and Beyond</h3>
+            <p>
+              Searches the web, reads pages, generates images, and automates browsers. It goes wherever the task takes it.
+            </p>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Conversation Demo -->
+    <section class="section section-demo" id="demo">
+      <div class="container">
+        <div class="section-header">
+          <span class="section-label">See It In Action</span>
+          <h2>A conversation, not a command line</h2>
+          <p class="section-desc">
+            Talk naturally. Birkin figures out the rest.
+          </p>
+        </div>
+
+        <div class="demo-window">
+          <div class="demo-sidebar">
+            <div class="demo-sidebar-header">Sessions</div>
+            <div class="demo-session active">
+              <span class="demo-session-icon">&#128218;</span>
+              <div class="demo-session-info">
+                <span class="demo-session-name">Research project</span>
+                <span class="demo-session-time">Just now</span>
+              </div>
+            </div>
+            <div class="demo-session">
+              <span class="demo-session-icon">&#128736;</span>
+              <div class="demo-session-info">
+                <span class="demo-session-name">Code review</span>
+                <span class="demo-session-time">2h ago</span>
+              </div>
+            </div>
+            <div class="demo-session">
+              <span class="demo-session-icon">&#128197;</span>
+              <div class="demo-session-info">
+                <span class="demo-session-name">Meeting prep</span>
+                <span class="demo-session-time">Yesterday</span>
+              </div>
+            </div>
+          </div>
+          <div class="demo-chat">
+            <div class="demo-messages" id="demo-messages"></div>
+            <div class="demo-input">
+              <span class="demo-input-text">Ask Birkin anything&hellip;</span>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Install -->
+    <section class="section" id="install">
+      <div class="container">
+        <div class="section-header">
+          <span class="section-label">Get Started</span>
+          <h2>Up and running in under a minute</h2>
+          <p class="section-desc">
+            One command to install, one to configure, one to start.
+          </p>
+        </div>
+
+        <div class="install-card">
+          <div class="install-step-row">
+            <div class="install-step-num">1</div>
+            <div class="install-step-content">
+              <h4>Install</h4>
+              <div class="code-block">
+                <code>curl -fsSL https://raw.githubusercontent.com/MoonGwanghoon/birkin/main/scripts/install.sh | bash</code>
+                <button
+                  class="copy-btn"
+                  onclick="copyText(this)"
+                  data-text="curl -fsSL https://raw.githubusercontent.com/MoonGwanghoon/birkin/main/scripts/install.sh | bash"
+                >
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                    <rect x="9" y="9" width="13" height="13" rx="2" ry="2"/>
+                    <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/>
+                  </svg>
+                  <span class="copy-label">Copy</span>
+                </button>
+              </div>
+              <p class="install-note">
+                Works on Linux, macOS, and WSL2. No prerequisites needed.
+              </p>
+            </div>
+          </div>
+
+          <div class="install-step-row">
+            <div class="install-step-num">2</div>
+            <div class="install-step-content">
+              <h4>Configure</h4>
+              <div class="code-block">
+                <code>birkin setup</code>
+                <button
+                  class="copy-btn"
+                  onclick="copyText(this)"
+                  data-text="birkin setup"
+                >
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                    <rect x="9" y="9" width="13" height="13" rx="2" ry="2"/>
+                    <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/>
+                  </svg>
+                  <span class="copy-label">Copy</span>
+                </button>
+              </div>
+              <p class="install-note">
+                Connect to OpenRouter, OpenAI, or your own endpoint.
+              </p>
+            </div>
+          </div>
+
+          <div class="install-step-row">
+            <div class="install-step-num">3</div>
+            <div class="install-step-content">
+              <h4>Start talking</h4>
+              <div class="code-block">
+                <code>birkin</code>
+                <button
+                  class="copy-btn"
+                  onclick="copyText(this)"
+                  data-text="birkin"
+                >
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                    <rect x="9" y="9" width="13" height="13" rx="2" ry="2"/>
+                    <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/>
+                  </svg>
+                  <span class="copy-label">Copy</span>
+                </button>
+              </div>
+              <p class="install-note">
+                That's it. Full interactive AI with tools, memory, and learning built in.
+              </p>
+            </div>
+          </div>
+        </div>
+
+        <p class="install-windows-note">
+          Native Windows is experimental.
+          <a href="https://learn.microsoft.com/en-us/windows/wsl/install" target="_blank" rel="noopener">Install WSL2</a>
+          and run Birkin from there.
+        </p>
+      </div>
+    </section>
+
+    <!-- Open Source -->
+    <section class="section">
+      <div class="container">
+        <div class="oss-card">
+          <div class="oss-content">
+            <h2>Open source, open book</h2>
+            <p>
+              Birkin is MIT-licensed and fully transparent. Read every line of code,
+              host it yourself, contribute back. No black boxes, no lock-in, no surprises.
+            </p>
+            <div class="oss-actions">
+              <a
+                href="https://github.com/MoonGwanghoon/birkin"
+                class="btn btn-primary"
+                target="_blank"
+                rel="noopener"
+              >
+                View on GitHub
+              </a>
+              <a href="/docs/" class="btn btn-secondary">
+                Read the Docs
+              </a>
+            </div>
+          </div>
+          <div class="oss-stats">
+            <div class="oss-stat">
+              <span class="oss-stat-value">MIT</span>
+              <span class="oss-stat-label">License</span>
+            </div>
+            <div class="oss-stat">
+              <span class="oss-stat-value">40+</span>
+              <span class="oss-stat-label">Built-in Skills</span>
+            </div>
+            <div class="oss-stat">
+              <span class="oss-stat-value">5+</span>
+              <span class="oss-stat-label">Platforms</span>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- CTA -->
+    <section class="section section-cta">
+      <div class="container">
+        <div class="cta-content">
+          <h2>Ready to meet your AI?</h2>
+          <p>
+            Install Birkin in under a minute. It's free, open source, and yours to keep.
+          </p>
+          <a href="#install" class="btn btn-accent">
+            Get Started Now
+          </a>
+        </div>
+      </div>
+    </section>
+
+    <!-- Footer -->
+    <footer class="footer">
+      <div class="container">
+        <div class="footer-inner">
+          <div class="footer-brand">
+            <span class="logo-mark logo-mark-sm">B</span>
+            <span class="footer-name">Birkin</span>
+          </div>
+          <div class="footer-links">
+            <a href="/docs/">Docs</a>
+            <a href="https://github.com/MoonGwanghoon/birkin" target="_blank" rel="noopener">GitHub</a>
+            <a href="https://github.com/MoonGwanghoon/birkin/issues" target="_blank" rel="noopener">Issues</a>
+          </div>
+          <span class="footer-copy">MIT License &middot; 2026</span>
+        </div>
+      </div>
+    </footer>
+
+    <script src="script.js"></script>
+  </body>
+</html>
