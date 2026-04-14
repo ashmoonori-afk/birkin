@@ -6,7 +6,7 @@ description: "Reinforcement learning on agent behaviors with Tinker-Atropos — 
 
 # RL Training
 
-Hermes Agent includes an integrated RL (Reinforcement Learning) training pipeline built on **Tinker-Atropos**. This enables training language models on environment-specific tasks using GRPO (Group Relative Policy Optimization) with LoRA adapters, orchestrated entirely through the agent's tool interface.
+Birkin includes an integrated RL (Reinforcement Learning) training pipeline built on **Tinker-Atropos**. This enables training language models on environment-specific tasks using GRPO (Group Relative Policy Optimization) with LoRA adapters, orchestrated entirely through the agent's tool interface.
 
 ## Overview
 
@@ -25,12 +25,12 @@ RL training requires:
 - **Python >= 3.11** (Tinker package requirement)
 - **TINKER_API_KEY** — API key for the Tinker training service
 - **WANDB_API_KEY** — API key for Weights & Biases metrics tracking
-- The `tinker-atropos` submodule (at `tinker-atropos/` relative to the Hermes root)
+- The `tinker-atropos` submodule (at `tinker-atropos/` relative to the Birkin root)
 
 ```bash
 # Set up API keys
-hermes config set TINKER_API_KEY your-tinker-key
-hermes config set WANDB_API_KEY your-wandb-key
+birkin config set TINKER_API_KEY your-tinker-key
+birkin config set WANDB_API_KEY your-wandb-key
 ```
 
 When both keys are present and Python >= 3.11 is available, the `rl` toolset is automatically enabled.
@@ -219,7 +219,7 @@ Training runs log to Weights & Biases with these key metrics:
 
 ## Log Files
 
-Each training run generates log files in `~/.hermes/logs/rl_training/`:
+Each training run generates log files in `~/.birkin/logs/rl_training/`:
 
 ```
 logs/

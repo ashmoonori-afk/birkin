@@ -1,7 +1,7 @@
 """Honcho client initialization and configuration.
 
 Resolution order for config file:
-  1. $HERMES_HOME/honcho.json  (instance-local, enables isolated Hermes instances)
+  1. $BIRKIN_HOME/honcho.json  (instance-local, enables isolated Birkin instances)
   2. ~/.honcho/config.json     (global, shared across all Honcho-enabled apps)
   3. Environment variables     (HONCHO_API_KEY, HONCHO_ENVIRONMENT)
 
@@ -19,7 +19,7 @@ import logging
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from hermes_constants import get_hermes_home
+from birkin_constants import get_birkin_home
 from typing import Any, TYPE_CHECKING
 
 if TYPE_CHECKING:
@@ -28,23 +28,23 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 GLOBAL_CONFIG_PATH = Path.home() / ".honcho" / "config.json"
-HOST = "hermes"
+HOST = "birkin"
 
 
 def resolve_active_host() -> str:
-    """Derive the Honcho host key from the active Hermes profile.
+    """Derive the Honcho host key from the active Birkin profile.
 
     Resolution order:
-      1. HERMES_HONCHO_HOST env var (explicit override)
-      2. Active profile name via profiles system -> ``hermes.<profile>``
-      3. Fallback: ``"hermes"`` (default profile)
+      1. BIRKIN_HONCHO_HOST env var (explicit override)
+      2. Active profile name via profiles system -> ``birkin.<profile>``
+      3. Fallback: ``"birkin"`` (default profile)
     """
-    explicit = os.environ.get("HERMES_HONCHO_HOST", "").strip()
+    explicit = os.environ.get("BIRKIN_HONCHO_HOST", "").strip()
     if explicit:
         return explicit
 
     try:
-        from hermes_cli.profiles import get_active_profile_name
+        from birkin_cli.profiles import get_active_profile_name
         profile = get_active_profile_name()
         if profile and profile not in ("default", "custom"):
             return f"{HOST}.{profile}"
@@ -57,18 +57,18 @@ def resolve_config_path() -> Path:
     """Return the active Honcho config path.
 
     Resolution order:
-      1. $HERMES_HOME/honcho.json      (profile-local, if it exists)
-      2. ~/.hermes/honcho.json          (default profile — shared host blocks live here)
+      1. $BIRKIN_HOME/honcho.json      (profile-local, if it exists)
+      2. ~/.birkin/honcho.json          (default profile — shared host blocks live here)
       3. ~/.honcho/config.json          (global, cross-app interop)
 
     Returns the global path if none exist (for first-time setup writes).
     """
-    local_path = get_hermes_home() / "honcho.json"
+    local_path = get_birkin_home() / "honcho.json"
     if local_path.exists():
         return local_path
 
     # Default profile's config — host blocks accumulate here via setup/clone
-    default_path = Path.home() / ".hermes" / "honcho.json"
+    default_path = Path.home() / ".birkin" / "honcho.json"
     if default_path != local_path and default_path.exists():
         return default_path
 
@@ -154,14 +154,14 @@ class HonchoClientConfig:
     """Configuration for Honcho client, resolved for a specific host."""
 
     host: str = HOST
-    workspace_id: str = "hermes"
+    workspace_id: str = "birkin"
     api_key: str | None = None
     environment: str = "production"
     # Optional base URL for self-hosted Honcho (overrides environment mapping)
     base_url: str | None = None
     # Identity
     peer_name: str | None = None
-    ai_peer: str = "hermes"
+    ai_peer: str = "birkin"
     # Toggles
     enabled: bool = False
     save_messages: bool = True
@@ -177,7 +177,7 @@ class HonchoClientConfig:
     #   true  — low->medium (120+ chars), low->high (400+ chars), capped at "high"
     #   false — always use dialecticReasoningLevel as-is
     dialectic_dynamic: bool = True
-    # Max chars of dialectic result to inject into Hermes system prompt
+    # Max chars of dialectic result to inject into Birkin system prompt
     dialectic_max_chars: int = 600
     # Honcho API limits — configurable for self-hosted instances
     # Max chars per message sent via add_messages() (Honcho cloud: 25000)
@@ -209,7 +209,7 @@ class HonchoClientConfig:
     sessions: dict[str, str] = field(default_factory=dict)
     # Raw global config for anything else consumers need
     raw: dict[str, Any] = field(default_factory=dict)
-    # True when Honcho was explicitly configured for this host (hosts.hermes
+    # True when Honcho was explicitly configured for this host (hosts.birkin
     # block exists or enabled was set explicitly), vs auto-enabled from a
     # stray HONCHO_API_KEY env var.
     explicitly_configured: bool = False
@@ -217,7 +217,7 @@ class HonchoClientConfig:
     @classmethod
     def from_env(
         cls,
-        workspace_id: str = "hermes",
+        workspace_id: str = "birkin",
         host: str | None = None,
     ) -> HonchoClientConfig:
         """Create config from environment variables (fallback)."""
@@ -242,8 +242,8 @@ class HonchoClientConfig:
     ) -> HonchoClientConfig:
         """Create config from the resolved Honcho config path.
 
-        Resolution: $HERMES_HOME/honcho.json -> ~/.honcho/config.json -> env vars.
-        When host is None, derives it from the active Hermes profile.
+        Resolution: $BIRKIN_HOME/honcho.json -> ~/.honcho/config.json -> env vars.
+        When host is None, derives it from the active Birkin profile.
         """
         resolved_host = host or resolve_active_host()
         path = config_path or resolve_config_path()
@@ -258,7 +258,7 @@ class HonchoClientConfig:
             return cls.from_env(host=resolved_host)
 
         host_block = (raw.get("hosts") or {}).get(resolved_host, {})
-        # A hosts.hermes block or explicit enabled flag means the user
+        # A hosts.birkin block or explicit enabled flag means the user
         # intentionally configured Honcho for this host.
         _explicitly_configured = bool(host_block) or raw.get("enabled") is True
 
@@ -427,8 +427,8 @@ class HonchoClientConfig:
 
         Resolution order:
           1. Manual directory override from sessions map
-          2. Hermes session title (from /title command)
-          3. per-session strategy — Hermes session_id ({timestamp}_{hex})
+          2. Birkin session title (from /title command)
+          3. per-session strategy — Birkin session_id ({timestamp}_{hex})
           4. per-repo strategy — git repo root directory name
           5. per-directory strategy — directory basename
           6. global strategy — workspace name
@@ -451,7 +451,7 @@ class HonchoClientConfig:
                     return f"{self.peer_name}-{sanitized}"
                 return sanitized
 
-        # per-session: inherit Hermes session_id (new Honcho session each run)
+        # per-session: inherit Birkin session_id (new Honcho session each run)
         if self.session_strategy == "per-session" and session_id:
             if self.session_peer_prefix and self.peer_name:
                 return f"{self.peer_name}-{session_id}"
@@ -496,7 +496,7 @@ def get_honcho_client(config: HonchoClientConfig | None = None) -> Honcho:
         raise ValueError(
             "Honcho API key not found. "
             "Get your API key at https://app.honcho.dev, "
-            "then run 'hermes honcho setup' or set HONCHO_API_KEY. "
+            "then run 'birkin honcho setup' or set HONCHO_API_KEY. "
             "For local instances, set HONCHO_BASE_URL instead."
         )
 
@@ -514,9 +514,9 @@ def get_honcho_client(config: HonchoClientConfig | None = None) -> Honcho:
     resolved_base_url = config.base_url
     if not resolved_base_url:
         try:
-            from hermes_cli.config import load_config
-            hermes_cfg = load_config()
-            honcho_cfg = hermes_cfg.get("honcho", {})
+            from birkin_cli.config import load_config
+            birkin_cfg = load_config()
+            honcho_cfg = birkin_cfg.get("honcho", {})
             if isinstance(honcho_cfg, dict):
                 resolved_base_url = honcho_cfg.get("base_url", "").strip() or None
         except Exception:

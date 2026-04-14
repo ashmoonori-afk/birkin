@@ -72,11 +72,11 @@ def provider(tmp_path, monkeypatch):
     config_path.write_text(json.dumps(config))
 
     monkeypatch.setattr(
-        "plugins.memory.hindsight.get_hermes_home", lambda: tmp_path
+        "plugins.memory.hindsight.get_birkin_home", lambda: tmp_path
     )
 
     p = HindsightMemoryProvider()
-    p.initialize(session_id="test-session", hermes_home=str(tmp_path), platform="cli")
+    p.initialize(session_id="test-session", birkin_home=str(tmp_path), platform="cli")
     p._client = _make_mock_client()
     return p
 
@@ -99,11 +99,11 @@ def provider_with_config(tmp_path, monkeypatch):
         config_path.write_text(json.dumps(config))
 
         monkeypatch.setattr(
-            "plugins.memory.hindsight.get_hermes_home", lambda: tmp_path
+            "plugins.memory.hindsight.get_birkin_home", lambda: tmp_path
         )
 
         p = HindsightMemoryProvider()
-        p.initialize(session_id="test-session", hermes_home=str(tmp_path), platform="cli")
+        p.initialize(session_id="test-session", birkin_home=str(tmp_path), platform="cli")
         p._client = _make_mock_client()
         return p
     return _make
@@ -156,7 +156,7 @@ class TestConfig:
         assert provider._recall_tags is None
         assert provider._bank_mission == ""
         assert provider._bank_retain_mission is None
-        assert provider._retain_context == "conversation between Hermes Agent and the User"
+        assert provider._retain_context == "conversation between Birkin and the User"
 
     def test_custom_config_values(self, provider_with_config):
         p = provider_with_config(
@@ -191,7 +191,7 @@ class TestConfig:
     def test_config_from_env_fallback(self, tmp_path, monkeypatch):
         """When no config file exists, falls back to env vars."""
         monkeypatch.setattr(
-            "plugins.memory.hindsight.get_hermes_home",
+            "plugins.memory.hindsight.get_birkin_home",
             lambda: tmp_path / "nonexistent",
         )
         monkeypatch.setenv("HINDSIGHT_MODE", "cloud")
@@ -201,8 +201,8 @@ class TestConfig:
 
         cfg = _load_config()
         assert cfg["apiKey"] == "env-key"
-        assert cfg["banks"]["hermes"]["bankId"] == "env-bank"
-        assert cfg["banks"]["hermes"]["budget"] == "high"
+        assert cfg["banks"]["birkin"]["bankId"] == "env-bank"
+        assert cfg["banks"]["birkin"]["budget"] == "high"
 
 
 # ---------------------------------------------------------------------------
@@ -446,7 +446,7 @@ class TestSyncTurn:
         assert call_kwargs["document_id"] == "test-session"
         assert call_kwargs["retain_async"] is True
         assert len(call_kwargs["items"]) == 1
-        assert call_kwargs["items"][0]["context"] == "conversation between Hermes Agent and the User"
+        assert call_kwargs["items"][0]["context"] == "conversation between Birkin and the User"
 
     def test_sync_turn_custom_context(self, provider_with_config):
         p = provider_with_config(retain_context="my-agent")
@@ -573,7 +573,7 @@ class TestConfigSchema:
 class TestAvailability:
     def test_available_with_api_key(self, tmp_path, monkeypatch):
         monkeypatch.setattr(
-            "plugins.memory.hindsight.get_hermes_home",
+            "plugins.memory.hindsight.get_birkin_home",
             lambda: tmp_path / "nonexistent",
         )
         monkeypatch.setenv("HINDSIGHT_API_KEY", "test-key")
@@ -582,7 +582,7 @@ class TestAvailability:
 
     def test_not_available_without_config(self, tmp_path, monkeypatch):
         monkeypatch.setattr(
-            "plugins.memory.hindsight.get_hermes_home",
+            "plugins.memory.hindsight.get_birkin_home",
             lambda: tmp_path / "nonexistent",
         )
         p = HindsightMemoryProvider()
@@ -590,7 +590,7 @@ class TestAvailability:
 
     def test_available_in_local_mode(self, tmp_path, monkeypatch):
         monkeypatch.setattr(
-            "plugins.memory.hindsight.get_hermes_home",
+            "plugins.memory.hindsight.get_birkin_home",
             lambda: tmp_path / "nonexistent",
         )
         monkeypatch.setenv("HINDSIGHT_MODE", "local")

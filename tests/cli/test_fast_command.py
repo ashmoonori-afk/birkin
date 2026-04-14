@@ -6,7 +6,7 @@ from unittest.mock import MagicMock, patch
 
 
 def _import_cli():
-    import hermes_cli.config as config_mod
+    import birkin_cli.config as config_mod
 
     if not hasattr(config_mod, "save_env_value_secure"):
         config_mod.save_env_value_secure = lambda key, value: {
@@ -53,7 +53,7 @@ class TestHandleFastCommand(unittest.TestCase):
             patch.object(cli_mod, "_cprint") as mock_cprint,
             patch.object(cli_mod, "save_config_value") as mock_save,
         ):
-            cli_mod.HermesCLI._handle_fast_command(stub, "/fast")
+            cli_mod.BirkinCLI._handle_fast_command(stub, "/fast")
 
         # Bare /fast shows status, does not change config
         mock_save.assert_not_called()
@@ -68,7 +68,7 @@ class TestHandleFastCommand(unittest.TestCase):
             patch.object(cli_mod, "_cprint") as mock_cprint,
             patch.object(cli_mod, "save_config_value") as mock_save,
         ):
-            cli_mod.HermesCLI._handle_fast_command(stub, "/fast")
+            cli_mod.BirkinCLI._handle_fast_command(stub, "/fast")
 
         mock_save.assert_not_called()
         printed = " ".join(str(c) for c in mock_cprint.call_args_list)
@@ -81,7 +81,7 @@ class TestHandleFastCommand(unittest.TestCase):
             patch.object(cli_mod, "_cprint"),
             patch.object(cli_mod, "save_config_value", return_value=True) as mock_save,
         ):
-            cli_mod.HermesCLI._handle_fast_command(stub, "/fast normal")
+            cli_mod.BirkinCLI._handle_fast_command(stub, "/fast normal")
 
         mock_save.assert_called_once_with("agent.service_tier", "normal")
         self.assertIsNone(stub.service_tier)
@@ -102,7 +102,7 @@ class TestHandleFastCommand(unittest.TestCase):
             patch.object(cli_mod, "_cprint") as mock_cprint,
             patch.object(cli_mod, "save_config_value") as mock_save,
         ):
-            cli_mod.HermesCLI._handle_fast_command(stub, "/fast")
+            cli_mod.BirkinCLI._handle_fast_command(stub, "/fast")
 
         mock_save.assert_not_called()
         self.assertTrue(mock_cprint.called)
@@ -112,7 +112,7 @@ class TestPriorityProcessingModels(unittest.TestCase):
     """Verify the expanded Priority Processing model registry."""
 
     def test_all_documented_models_supported(self):
-        from hermes_cli.models import model_supports_fast_mode
+        from birkin_cli.models import model_supports_fast_mode
 
         # All models from OpenAI's Priority Processing pricing table
         supported = [
@@ -126,14 +126,14 @@ class TestPriorityProcessingModels(unittest.TestCase):
             assert model_supports_fast_mode(model), f"{model} should support fast mode"
 
     def test_vendor_prefix_stripped(self):
-        from hermes_cli.models import model_supports_fast_mode
+        from birkin_cli.models import model_supports_fast_mode
 
         assert model_supports_fast_mode("openai/gpt-5.4") is True
         assert model_supports_fast_mode("openai/gpt-4.1") is True
         assert model_supports_fast_mode("openai/o3") is True
 
     def test_non_priority_models_rejected(self):
-        from hermes_cli.models import model_supports_fast_mode
+        from birkin_cli.models import model_supports_fast_mode
 
         assert model_supports_fast_mode("gpt-5.3-codex") is False
         assert model_supports_fast_mode("claude-sonnet-4") is False
@@ -141,7 +141,7 @@ class TestPriorityProcessingModels(unittest.TestCase):
         assert model_supports_fast_mode(None) is False
 
     def test_resolve_overrides_returns_service_tier(self):
-        from hermes_cli.models import resolve_fast_mode_overrides
+        from birkin_cli.models import resolve_fast_mode_overrides
 
         result = resolve_fast_mode_overrides("gpt-5.4")
         assert result == {"service_tier": "priority"}
@@ -150,7 +150,7 @@ class TestPriorityProcessingModels(unittest.TestCase):
         assert result == {"service_tier": "priority"}
 
     def test_resolve_overrides_none_for_unsupported(self):
-        from hermes_cli.models import resolve_fast_mode_overrides
+        from birkin_cli.models import resolve_fast_mode_overrides
 
         assert resolve_fast_mode_overrides("gpt-5.3-codex") is None
         assert resolve_fast_mode_overrides("claude-sonnet-4") is None
@@ -161,15 +161,15 @@ class TestFastModeRouting(unittest.TestCase):
         cli_mod = _import_cli()
         stub = SimpleNamespace(provider="auto", requested_provider="auto", model="gpt-5.4", agent=None)
 
-        assert cli_mod.HermesCLI._fast_command_available(stub) is True
+        assert cli_mod.BirkinCLI._fast_command_available(stub) is True
 
     def test_fast_command_exposed_for_non_codex_models(self):
         cli_mod = _import_cli()
         stub = SimpleNamespace(provider="openai", requested_provider="openai", model="gpt-4.1", agent=None)
-        assert cli_mod.HermesCLI._fast_command_available(stub) is True
+        assert cli_mod.BirkinCLI._fast_command_available(stub) is True
 
         stub = SimpleNamespace(provider="openrouter", requested_provider="openrouter", model="o3", agent=None)
-        assert cli_mod.HermesCLI._fast_command_available(stub) is True
+        assert cli_mod.BirkinCLI._fast_command_available(stub) is True
 
     def test_turn_route_injects_overrides_without_provider_switch(self):
         """Fast mode should add request_overrides but NOT change the provider/runtime."""
@@ -203,7 +203,7 @@ class TestFastModeRouting(unittest.TestCase):
             "label": None,
             "signature": ("gpt-5.4", "openrouter", "https://openrouter.ai/api/v1", "chat_completions", None, ()),
         }):
-            route = cli_mod.HermesCLI._resolve_turn_agent_config(stub, "hi")
+            route = cli_mod.BirkinCLI._resolve_turn_agent_config(stub, "hi")
 
         # Provider should NOT have changed
         assert route["runtime"]["provider"] == "openrouter"
@@ -241,7 +241,7 @@ class TestFastModeRouting(unittest.TestCase):
             "signature": ("gpt-5.3-codex", "openrouter", "https://openrouter.ai/api/v1", "chat_completions", None, ()),
         }
         with patch("agent.smart_model_routing.resolve_turn_route", return_value=primary_route):
-            route = cli_mod.HermesCLI._resolve_turn_agent_config(stub, "hi")
+            route = cli_mod.BirkinCLI._resolve_turn_agent_config(stub, "hi")
 
         assert route["runtime"]["provider"] == "openrouter"
         assert route.get("request_overrides") is None
@@ -251,7 +251,7 @@ class TestAnthropicFastMode(unittest.TestCase):
     """Verify Anthropic Fast Mode model support and override resolution."""
 
     def test_anthropic_opus_supported(self):
-        from hermes_cli.models import model_supports_fast_mode
+        from birkin_cli.models import model_supports_fast_mode
 
         # Native Anthropic format (hyphens)
         assert model_supports_fast_mode("claude-opus-4-6") is True
@@ -262,7 +262,7 @@ class TestAnthropicFastMode(unittest.TestCase):
         assert model_supports_fast_mode("anthropic/claude-opus-4.6") is True
 
     def test_anthropic_non_opus_rejected(self):
-        from hermes_cli.models import model_supports_fast_mode
+        from birkin_cli.models import model_supports_fast_mode
 
         assert model_supports_fast_mode("claude-sonnet-4-6") is False
         assert model_supports_fast_mode("claude-sonnet-4.6") is False
@@ -270,14 +270,14 @@ class TestAnthropicFastMode(unittest.TestCase):
         assert model_supports_fast_mode("anthropic/claude-sonnet-4.6") is False
 
     def test_anthropic_variant_tags_stripped(self):
-        from hermes_cli.models import model_supports_fast_mode
+        from birkin_cli.models import model_supports_fast_mode
 
         # OpenRouter variant tags after colon should be stripped
         assert model_supports_fast_mode("claude-opus-4.6:fast") is True
         assert model_supports_fast_mode("claude-opus-4.6:beta") is True
 
     def test_resolve_overrides_returns_speed_for_anthropic(self):
-        from hermes_cli.models import resolve_fast_mode_overrides
+        from birkin_cli.models import resolve_fast_mode_overrides
 
         result = resolve_fast_mode_overrides("claude-opus-4-6")
         assert result == {"speed": "fast"}
@@ -287,13 +287,13 @@ class TestAnthropicFastMode(unittest.TestCase):
 
     def test_resolve_overrides_returns_service_tier_for_openai(self):
         """OpenAI models should still get service_tier, not speed."""
-        from hermes_cli.models import resolve_fast_mode_overrides
+        from birkin_cli.models import resolve_fast_mode_overrides
 
         result = resolve_fast_mode_overrides("gpt-5.4")
         assert result == {"service_tier": "priority"}
 
     def test_is_anthropic_fast_model(self):
-        from hermes_cli.models import _is_anthropic_fast_model
+        from birkin_cli.models import _is_anthropic_fast_model
 
         assert _is_anthropic_fast_model("claude-opus-4-6") is True
         assert _is_anthropic_fast_model("claude-opus-4.6") is True
@@ -307,7 +307,7 @@ class TestAnthropicFastMode(unittest.TestCase):
             provider="anthropic", requested_provider="anthropic",
             model="claude-opus-4-6", agent=None,
         )
-        assert cli_mod.HermesCLI._fast_command_available(stub) is True
+        assert cli_mod.BirkinCLI._fast_command_available(stub) is True
 
     def test_fast_command_hidden_for_anthropic_sonnet(self):
         cli_mod = _import_cli()
@@ -315,7 +315,7 @@ class TestAnthropicFastMode(unittest.TestCase):
             provider="anthropic", requested_provider="anthropic",
             model="claude-sonnet-4-6", agent=None,
         )
-        assert cli_mod.HermesCLI._fast_command_available(stub) is False
+        assert cli_mod.BirkinCLI._fast_command_available(stub) is False
 
     def test_turn_route_injects_speed_for_anthropic(self):
         """Anthropic models should get speed:'fast' override, not service_tier."""
@@ -349,7 +349,7 @@ class TestAnthropicFastMode(unittest.TestCase):
             "label": None,
             "signature": ("claude-opus-4-6", "anthropic", "https://api.anthropic.com", "anthropic_messages", None, ()),
         }):
-            route = cli_mod.HermesCLI._resolve_turn_agent_config(stub, "hi")
+            route = cli_mod.BirkinCLI._resolve_turn_agent_config(stub, "hi")
 
         assert route["runtime"]["provider"] == "anthropic"
         assert route["request_overrides"] == {"speed": "fast"}
@@ -423,7 +423,7 @@ class TestAnthropicFastModeAdapter(unittest.TestCase):
 
 class TestConfigDefault(unittest.TestCase):
     def test_default_config_has_service_tier(self):
-        from hermes_cli.config import DEFAULT_CONFIG
+        from birkin_cli.config import DEFAULT_CONFIG
 
         agent = DEFAULT_CONFIG.get("agent", {})
         self.assertIn("service_tier", agent)

@@ -11,15 +11,15 @@ Long-term memory with knowledge graph, entity resolution, and multi-strategy ret
 ## Setup
 
 ```bash
-hermes memory setup    # select "hindsight"
+birkin memory setup    # select "hindsight"
 ```
 
 The setup wizard will install dependencies automatically via `uv` and walk you through configuration.
 
 Or manually (cloud mode with defaults):
 ```bash
-hermes config set memory.provider hindsight
-echo "HINDSIGHT_API_KEY=your-key" >> ~/.hermes/.env
+birkin config set memory.provider hindsight
+echo "HINDSIGHT_API_KEY=your-key" >> ~/.birkin/.env
 ```
 
 ### Cloud
@@ -28,16 +28,16 @@ Connects to the Hindsight Cloud API. Requires an API key from [ui.hindsight.vect
 
 ### Local Embedded
 
-Hermes spins up a local Hindsight daemon with built-in PostgreSQL. Requires an LLM API key for memory extraction and synthesis. The daemon starts automatically in the background on first use and stops after 5 minutes of inactivity.
+Birkin spins up a local Hindsight daemon with built-in PostgreSQL. Requires an LLM API key for memory extraction and synthesis. The daemon starts automatically in the background on first use and stops after 5 minutes of inactivity.
 
 Supports any OpenAI-compatible LLM endpoint (llama.cpp, vLLM, LM Studio, etc.) — pick `openai_compatible` as the provider and enter the base URL.
 
-Daemon startup logs: `~/.hermes/logs/hindsight-embed.log`
+Daemon startup logs: `~/.birkin/logs/hindsight-embed.log`
 Daemon runtime logs: `~/.hindsight/profiles/<profile>.log`
 
 To open the Hindsight web UI (local embedded mode only):
 ```bash
-hindsight-embed -p hermes ui start
+hindsight-embed -p birkin ui start
 ```
 
 ### Local External
@@ -46,7 +46,7 @@ Points the plugin at an existing Hindsight instance you're already running (Dock
 
 ## Config
 
-Config file: `~/.hermes/hindsight/config.json`
+Config file: `~/.birkin/hindsight/config.json`
 
 ### Connection
 
@@ -59,7 +59,7 @@ Config file: `~/.hermes/hindsight/config.json`
 
 | Key | Default | Description |
 |-----|---------|-------------|
-| `bank_id` | `hermes` | Memory bank name |
+| `bank_id` | `birkin` | Memory bank name |
 | `bank_mission` | — | Reflect mission (identity/framing for reflect reasoning). Applied via Banks API. |
 | `bank_retain_mission` | — | Retain mission (steers what gets extracted). Applied via Banks API. |
 
@@ -83,7 +83,7 @@ Config file: `~/.hermes/hindsight/config.json`
 | `auto_retain` | `true` | Automatically retain conversation turns |
 | `retain_async` | `true` | Process retain asynchronously on the Hindsight server |
 | `retain_every_n_turns` | `1` | Retain every N turns (1 = every turn) |
-| `retain_context` | `conversation between Hermes Agent and the User` | Context label for retained memories |
+| `retain_context` | `conversation between Birkin and the User` | Context label for retained memories |
 | `tags` | — | Tags applied when storing memories |
 
 ### Integration
@@ -105,7 +105,7 @@ Config file: `~/.hermes/hindsight/config.json`
 | `llm_model` | per-provider | Model name (e.g. `gpt-4o-mini`, `qwen/qwen3.5-9b`) |
 | `llm_base_url` | — | Endpoint URL for `openai_compatible` (e.g. `http://192.168.1.10:8080/v1`) |
 
-The LLM API key is stored in `~/.hermes/.env` as `HINDSIGHT_LLM_API_KEY`.
+The LLM API key is stored in `~/.birkin/.env` as `HINDSIGHT_LLM_API_KEY`.
 
 ## Tools
 

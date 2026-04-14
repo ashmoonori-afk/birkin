@@ -2,34 +2,34 @@
 sidebar_position: 11
 sidebar_label: "Plugins"
 title: "Plugins"
-description: "Extend Hermes with custom tools, hooks, and integrations via the plugin system"
+description: "Extend Birkin with custom tools, hooks, and integrations via the plugin system"
 ---
 
 # Plugins
 
-Hermes has a plugin system for adding custom tools, hooks, and integrations without modifying core code.
+Birkin has a plugin system for adding custom tools, hooks, and integrations without modifying core code.
 
-**→ [Build a Hermes Plugin](/docs/guides/build-a-hermes-plugin)** — step-by-step guide with a complete working example.
+**→ [Build a Birkin Plugin](/docs/guides/build-a-birkin-plugin)** — step-by-step guide with a complete working example.
 
 ## Quick overview
 
-Drop a directory into `~/.hermes/plugins/` with a `plugin.yaml` and Python code:
+Drop a directory into `~/.birkin/plugins/` with a `plugin.yaml` and Python code:
 
 ```
-~/.hermes/plugins/my-plugin/
+~/.birkin/plugins/my-plugin/
 ├── plugin.yaml      # manifest
 ├── __init__.py      # register() — wires schemas to handlers
 ├── schemas.py       # tool schemas (what the LLM sees)
 └── tools.py         # tool handlers (what runs when called)
 ```
 
-Start Hermes — your tools appear alongside built-in tools. The model can call them immediately.
+Start Birkin — your tools appear alongside built-in tools. The model can call them immediately.
 
 ### Minimal working example
 
 Here is a complete plugin that adds a `hello_world` tool and logs every tool call via a hook.
 
-**`~/.hermes/plugins/hello-world/plugin.yaml`**
+**`~/.birkin/plugins/hello-world/plugin.yaml`**
 
 ```yaml
 name: hello-world
@@ -37,10 +37,10 @@ version: "1.0"
 description: A minimal example plugin
 ```
 
-**`~/.hermes/plugins/hello-world/__init__.py`**
+**`~/.birkin/plugins/hello-world/__init__.py`**
 
 ```python
-"""Minimal Hermes plugin — registers a tool and a hook."""
+"""Minimal Birkin plugin — registers a tool and a hook."""
 
 
 def register(ctx):
@@ -73,9 +73,9 @@ def register(ctx):
     ctx.register_hook("post_tool_call", on_tool_call)
 ```
 
-Drop both files into `~/.hermes/plugins/hello-world/`, restart Hermes, and the model can immediately call `hello_world`. The hook prints a log line after every tool invocation.
+Drop both files into `~/.birkin/plugins/hello-world/`, restart Birkin, and the model can immediately call `hello_world`. The hook prints a log line after every tool invocation.
 
-Project-local plugins under `./.hermes/plugins/` are disabled by default. Enable them only for trusted repositories by setting `HERMES_ENABLE_PROJECT_PLUGINS=true` before starting Hermes.
+Project-local plugins under `./.birkin/plugins/` are disabled by default. Enable them only for trusted repositories by setting `BIRKIN_ENABLE_PROJECT_PLUGINS=true` before starting Birkin.
 
 ## What plugins can do
 
@@ -83,20 +83,20 @@ Project-local plugins under `./.hermes/plugins/` are disabled by default. Enable
 |-----------|-----|
 | Add tools | `ctx.register_tool(name, schema, handler)` |
 | Add hooks | `ctx.register_hook("post_tool_call", callback)` |
-| Add CLI commands | `ctx.register_cli_command(name, help, setup_fn, handler_fn)` — adds `hermes <plugin> <subcommand>` |
+| Add CLI commands | `ctx.register_cli_command(name, help, setup_fn, handler_fn)` — adds `birkin <plugin> <subcommand>` |
 | Inject messages | `ctx.inject_message(content, role="user")` — see [Injecting Messages](#injecting-messages) |
 | Ship data files | `Path(__file__).parent / "data" / "file.yaml"` |
-| Bundle skills | Copy `skill.md` to `~/.hermes/skills/` at load time |
-| Gate on env vars | `requires_env: [API_KEY]` in plugin.yaml — prompted during `hermes plugins install` |
-| Distribute via pip | `[project.entry-points."hermes_agent.plugins"]` |
+| Bundle skills | Copy `skill.md` to `~/.birkin/skills/` at load time |
+| Gate on env vars | `requires_env: [API_KEY]` in plugin.yaml — prompted during `birkin plugins install` |
+| Distribute via pip | `[project.entry-points."birkin_agent.plugins"]` |
 
 ## Plugin discovery
 
 | Source | Path | Use case |
 |--------|------|----------|
-| User | `~/.hermes/plugins/` | Personal plugins |
-| Project | `.hermes/plugins/` | Project-specific plugins (requires `HERMES_ENABLE_PROJECT_PLUGINS=true`) |
-| pip | `hermes_agent.plugins` entry_points | Distributed packages |
+| User | `~/.birkin/plugins/` | Personal plugins |
+| Project | `.birkin/plugins/` | Project-specific plugins (requires `BIRKIN_ENABLE_PROJECT_PLUGINS=true`) |
+| pip | `birkin_agent.plugins` entry_points | Distributed packages |
 
 ## Available hooks
 
@@ -113,11 +113,11 @@ Plugins can register callbacks for these lifecycle events. See the **[Event Hook
 
 ## Plugin types
 
-Hermes has three kinds of plugins:
+Birkin has three kinds of plugins:
 
 | Type | What it does | Selection | Location |
 |------|-------------|-----------|----------|
-| **General plugins** | Add tools, hooks, CLI commands | Multi-select (enable/disable) | `~/.hermes/plugins/` |
+| **General plugins** | Add tools, hooks, CLI commands | Multi-select (enable/disable) | `~/.birkin/plugins/` |
 | **Memory providers** | Replace or augment built-in memory | Single-select (one active) | `plugins/memory/` |
 | **Context engines** | Replace the built-in context compressor | Single-select (one active) | `plugins/context_engine/` |
 
@@ -126,18 +126,18 @@ Memory providers and context engines are **provider plugins** — only one of ea
 ## Managing plugins
 
 ```bash
-hermes plugins                  # unified interactive UI
-hermes plugins list             # table view with enabled/disabled status
-hermes plugins install user/repo  # install from Git
-hermes plugins update my-plugin   # pull latest
-hermes plugins remove my-plugin   # uninstall
-hermes plugins enable my-plugin   # re-enable a disabled plugin
-hermes plugins disable my-plugin  # disable without removing
+birkin plugins                  # unified interactive UI
+birkin plugins list             # table view with enabled/disabled status
+birkin plugins install user/repo  # install from Git
+birkin plugins update my-plugin   # pull latest
+birkin plugins remove my-plugin   # uninstall
+birkin plugins enable my-plugin   # re-enable a disabled plugin
+birkin plugins disable my-plugin  # disable without removing
 ```
 
 ### Interactive UI
 
-Running `hermes plugins` with no arguments opens a composite interactive screen:
+Running `birkin plugins` with no arguments opens a composite interactive screen:
 
 ```
 Plugins
@@ -200,4 +200,4 @@ This enables plugins like remote control viewers, messaging bridges, or webhook 
 `inject_message` is only available in CLI mode. In gateway mode, there is no CLI reference and the method returns `False`.
 :::
 
-See the **[full guide](/docs/guides/build-a-hermes-plugin)** for handler contracts, schema format, hook behavior, error handling, and common mistakes.
+See the **[full guide](/docs/guides/build-a-birkin-plugin)** for handler contracts, schema format, hook behavior, error handling, and common mistakes.

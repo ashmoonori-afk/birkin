@@ -29,13 +29,13 @@ def _load_terminalbench_module(monkeypatch):
     class _AgentResult:
         pass
 
-    class _HermesAgentLoop:
+    class _BirkinAgentLoop:
         pass
 
-    class _HermesAgentBaseEnv:
+    class _BirkinAgentBaseEnv:
         pass
 
-    class _HermesAgentEnvConfig:
+    class _BirkinAgentEnvConfig:
         pass
 
     class _ToolContext:
@@ -56,12 +56,12 @@ def _load_terminalbench_module(monkeypatch):
         "environments.agent_loop": _stub_module(
             "environments.agent_loop",
             AgentResult=_AgentResult,
-            HermesAgentLoop=_HermesAgentLoop,
+            BirkinAgentLoop=_BirkinAgentLoop,
         ),
-        "environments.hermes_base_env": _stub_module(
-            "environments.hermes_base_env",
-            HermesAgentBaseEnv=_HermesAgentBaseEnv,
-            HermesAgentEnvConfig=_HermesAgentEnvConfig,
+        "environments.birkin_base_env": _stub_module(
+            "environments.birkin_base_env",
+            BirkinAgentBaseEnv=_BirkinAgentBaseEnv,
+            BirkinAgentEnvConfig=_BirkinAgentEnvConfig,
         ),
         "environments.tool_context": _stub_module(
             "environments.tool_context",

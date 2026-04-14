@@ -98,7 +98,7 @@ class TestSmartRoutingPoolPreservation:
         }
         # Force resolve_runtime_provider to fail so it falls back to primary
         monkeypatch.setattr(
-            "hermes_cli.runtime_provider.resolve_runtime_provider",
+            "birkin_cli.runtime_provider.resolve_runtime_provider",
             MagicMock(side_effect=RuntimeError("no credentials")),
         )
         result = resolve_turn_route("hi", routing_config, primary)
@@ -123,7 +123,7 @@ class TestCliTurnRoutePool:
             "agent.smart_model_routing.resolve_turn_route", spy_resolve
         )
 
-        # Build a minimal HermesCLI-like object with the method
+        # Build a minimal BirkinCLI-like object with the method
         shell = SimpleNamespace(
             model="gpt-5.4",
             api_key="sk-test",
@@ -137,8 +137,8 @@ class TestCliTurnRoutePool:
         )
 
         # Import and bind the real method
-        from cli import HermesCLI
-        bound = HermesCLI._resolve_turn_agent_config.__get__(shell)
+        from cli import BirkinCLI
+        bound = BirkinCLI._resolve_turn_agent_config.__get__(shell)
         bound("test message")
 
         assert "credential_pool" in captured["primary"]

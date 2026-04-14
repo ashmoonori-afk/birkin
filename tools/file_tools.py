@@ -40,7 +40,7 @@ def _get_max_read_chars() -> int:
     if _max_read_chars_cached is not None:
         return _max_read_chars_cached
     try:
-        from hermes_cli.config import load_config
+        from birkin_cli.config import load_config
         cfg = load_config()
         val = cfg.get("file_read_max_chars")
         if isinstance(val, (int, float)) and val > 0:
@@ -306,20 +306,20 @@ def read_file_tool(path: str, offset: int = 1, limit: int = 500, task_id: str = 
                 ),
             })
 
-        # ── Hermes internal path guard ────────────────────────────────
+        # ── Birkin internal path guard ────────────────────────────────
         # Prevent prompt injection via catalog or hub metadata files.
-        from hermes_constants import get_hermes_home as _get_hh
-        _hermes_home = _get_hh().resolve()
+        from birkin_constants import get_birkin_home as _get_hh
+        _birkin_home = _get_hh().resolve()
         _blocked_dirs = [
-            _hermes_home / "skills" / ".hub" / "index-cache",
-            _hermes_home / "skills" / ".hub",
+            _birkin_home / "skills" / ".hub" / "index-cache",
+            _birkin_home / "skills" / ".hub",
         ]
         for _blocked in _blocked_dirs:
             try:
                 _resolved.relative_to(_blocked)
                 return json.dumps({
                     "error": (
-                        f"Access denied: {path} is an internal Hermes cache file "
+                        f"Access denied: {path} is an internal Birkin cache file "
                         "and cannot be read directly to prevent prompt injection. "
                         "Use the skills_list or skill_view tools instead."
                     )

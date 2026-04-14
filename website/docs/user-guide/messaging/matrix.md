@@ -1,26 +1,26 @@
 ---
 sidebar_position: 9
 title: "Matrix"
-description: "Set up Hermes Agent as a Matrix bot"
+description: "Set up Birkin as a Matrix bot"
 ---
 
 # Matrix Setup
 
-Hermes Agent integrates with Matrix, the open, federated messaging protocol. Matrix lets you run your own homeserver or use a public one like matrix.org — either way, you keep control of your communications. The bot connects via the `mautrix` Python SDK, processes messages through the Hermes Agent pipeline (including tool use, memory, and reasoning), and responds in real time. It supports text, file attachments, images, audio, video, and optional end-to-end encryption (E2EE).
+Birkin integrates with Matrix, the open, federated messaging protocol. Matrix lets you run your own homeserver or use a public one like matrix.org — either way, you keep control of your communications. The bot connects via the `mautrix` Python SDK, processes messages through the Birkin pipeline (including tool use, memory, and reasoning), and responds in real time. It supports text, file attachments, images, audio, video, and optional end-to-end encryption (E2EE).
 
-Hermes works with any Matrix homeserver — Synapse, Conduit, Dendrite, or matrix.org.
+Birkin works with any Matrix homeserver — Synapse, Conduit, Dendrite, or matrix.org.
 
-Before setup, here's the part most people want to know: how Hermes behaves once it's connected.
+Before setup, here's the part most people want to know: how Birkin behaves once it's connected.
 
-## How Hermes Behaves
+## How Birkin Behaves
 
 | Context | Behavior |
 |---------|----------|
-| **DMs** | Hermes responds to every message. No `@mention` needed. Each DM has its own session. Set `MATRIX_DM_MENTION_THREADS=true` to start a thread when the bot is `@mentioned` in a DM. |
-| **Rooms** | By default, Hermes requires an `@mention` to respond. Set `MATRIX_REQUIRE_MENTION=false` or add room IDs to `MATRIX_FREE_RESPONSE_ROOMS` for free-response rooms. Room invites are auto-accepted. |
-| **Threads** | Hermes supports Matrix threads (MSC3440). If you reply in a thread, Hermes keeps the thread context isolated from the main room timeline. Threads where the bot has already participated do not require a mention. |
-| **Auto-threading** | By default, Hermes auto-creates a thread for each message it responds to in a room. This keeps conversations isolated. Set `MATRIX_AUTO_THREAD=false` to disable. |
-| **Shared rooms with multiple users** | By default, Hermes isolates session history per user inside the room. Two people talking in the same room do not share one transcript unless you explicitly disable that. |
+| **DMs** | Birkin responds to every message. No `@mention` needed. Each DM has its own session. Set `MATRIX_DM_MENTION_THREADS=true` to start a thread when the bot is `@mentioned` in a DM. |
+| **Rooms** | By default, Birkin requires an `@mention` to respond. Set `MATRIX_REQUIRE_MENTION=false` or add room IDs to `MATRIX_FREE_RESPONSE_ROOMS` for free-response rooms. Room invites are auto-accepted. |
+| **Threads** | Birkin supports Matrix threads (MSC3440). If you reply in a thread, Birkin keeps the thread context isolated from the main room timeline. Threads where the bot has already participated do not require a mention. |
+| **Auto-threading** | By default, Birkin auto-creates a thread for each message it responds to in a room. This keeps conversations isolated. Set `MATRIX_AUTO_THREAD=false` to disable. |
+| **Shared rooms with multiple users** | By default, Birkin isolates session history per user inside the room. Two people talking in the same room do not share one transcript unless you explicitly disable that. |
 
 :::tip
 The bot automatically joins rooms when invited. Just invite the bot's Matrix user to any room and it will join and start responding.
@@ -95,20 +95,20 @@ If you run your own homeserver (Synapse, Conduit, Dendrite):
 register_new_matrix_user -c /etc/synapse/homeserver.yaml http://localhost:8008
 ```
 
-2. Choose a username like `hermes` — the full user ID will be `@hermes:your-server.org`.
+2. Choose a username like `birkin` — the full user ID will be `@birkin:your-server.org`.
 
 ### Option B: Use matrix.org or Another Public Homeserver
 
 1. Go to [Element Web](https://app.element.io) and create a new account.
-2. Pick a username for your bot (e.g., `hermes-bot`).
+2. Pick a username for your bot (e.g., `birkin-bot`).
 
 ### Option C: Use Your Own Account
 
-You can also run Hermes as your own user. This means the bot posts as you — useful for personal assistants.
+You can also run Birkin as your own user. This means the bot posts as you — useful for personal assistants.
 
 ## Step 2: Get an Access Token
 
-Hermes needs an access token to authenticate with the homeserver. You have two options:
+Birkin needs an access token to authenticate with the homeserver. You have two options:
 
 ### Option A: Access Token (Recommended)
 
@@ -127,7 +127,7 @@ curl -X POST https://your-server/_matrix/client/v3/login \
   -H "Content-Type: application/json" \
   -d '{
     "type": "m.login.password",
-    "user": "@hermes:your-server.org",
+    "user": "@birkin:your-server.org",
     "password": "your-password"
   }'
 ```
@@ -140,16 +140,16 @@ The access token gives full access to the bot's Matrix account. Never share it p
 
 ### Option B: Password Login
 
-Instead of providing an access token, you can give Hermes the bot's user ID and password. Hermes will log in automatically on startup. This is simpler but means the password is stored in your `.env` file.
+Instead of providing an access token, you can give Birkin the bot's user ID and password. Birkin will log in automatically on startup. This is simpler but means the password is stored in your `.env` file.
 
 ```bash
-MATRIX_USER_ID=@hermes:your-server.org
+MATRIX_USER_ID=@birkin:your-server.org
 MATRIX_PASSWORD=your-password
 ```
 
 ## Step 3: Find Your Matrix User ID
 
-Hermes Agent uses your Matrix User ID to control who can interact with the bot. Matrix User IDs follow the format `@username:server`.
+Birkin uses your Matrix User ID to control who can interact with the bot. Matrix User IDs follow the format `@username:server`.
 
 To find yours:
 
@@ -161,21 +161,21 @@ To find yours:
 Matrix User IDs always start with `@` and contain a `:` followed by the server name. For example: `@alice:matrix.org`, `@bob:your-server.com`.
 :::
 
-## Step 4: Configure Hermes Agent
+## Step 4: Configure Birkin
 
 ### Option A: Interactive Setup (Recommended)
 
 Run the guided setup command:
 
 ```bash
-hermes gateway setup
+birkin gateway setup
 ```
 
 Select **Matrix** when prompted, then provide your homeserver URL, access token (or user ID + password), and allowed user IDs when asked.
 
 ### Option B: Manual Configuration
 
-Add the following to your `~/.hermes/.env` file:
+Add the following to your `~/.birkin/.env` file:
 
 **Using an access token:**
 
@@ -185,7 +185,7 @@ MATRIX_HOMESERVER=https://matrix.example.org
 MATRIX_ACCESS_TOKEN=***
 
 # Optional: user ID (auto-detected from token if omitted)
-# MATRIX_USER_ID=@hermes:matrix.example.org
+# MATRIX_USER_ID=@birkin:matrix.example.org
 
 # Security: restrict who can interact with the bot
 MATRIX_ALLOWED_USERS=@alice:matrix.example.org
@@ -199,14 +199,14 @@ MATRIX_ALLOWED_USERS=@alice:matrix.example.org
 ```bash
 # Required
 MATRIX_HOMESERVER=https://matrix.example.org
-MATRIX_USER_ID=@hermes:matrix.example.org
+MATRIX_USER_ID=@birkin:matrix.example.org
 MATRIX_PASSWORD=***
 
 # Security
 MATRIX_ALLOWED_USERS=@alice:matrix.example.org
 ```
 
-Optional behavior settings in `~/.hermes/config.yaml`:
+Optional behavior settings in `~/.birkin/config.yaml`:
 
 ```yaml
 group_sessions_per_user: true
@@ -219,18 +219,18 @@ group_sessions_per_user: true
 Once configured, start the Matrix gateway:
 
 ```bash
-hermes gateway
+birkin gateway
 ```
 
 The bot should connect to your homeserver and start syncing within a few seconds. Send it a message — either a DM or in a room it has joined — to test.
 
 :::tip
-You can run `hermes gateway` in the background or as a systemd service for persistent operation. See the deployment docs for details.
+You can run `birkin gateway` in the background or as a systemd service for persistent operation. See the deployment docs for details.
 :::
 
 ## End-to-End Encryption (E2EE)
 
-Hermes supports Matrix end-to-end encryption, so you can chat with your bot in encrypted rooms.
+Birkin supports Matrix end-to-end encryption, so you can chat with your bot in encrypted rooms.
 
 ### Requirements
 
@@ -240,8 +240,8 @@ E2EE requires the `mautrix` library with encryption extras and the `libolm` C li
 # Install mautrix with E2EE support
 pip install 'mautrix[encryption]'
 
-# Or install with hermes extras
-pip install 'hermes-agent[matrix]'
+# Or install with birkin extras
+pip install 'birkin-agent[matrix]'
 ```
 
 You also need `libolm` installed on your system:
@@ -259,15 +259,15 @@ sudo dnf install libolm-devel
 
 ### Enable E2EE
 
-Add to your `~/.hermes/.env`:
+Add to your `~/.birkin/.env`:
 
 ```bash
 MATRIX_ENCRYPTION=true
 ```
 
-When E2EE is enabled, Hermes:
+When E2EE is enabled, Birkin:
 
-- Stores encryption keys in `~/.hermes/platforms/matrix/store/` (legacy installs: `~/.hermes/matrix/store/`)
+- Stores encryption keys in `~/.birkin/platforms/matrix/store/` (legacy installs: `~/.birkin/matrix/store/`)
 - Uploads device keys on first connection
 - Decrypts incoming messages and encrypts outgoing messages automatically
 - Auto-joins encrypted rooms when invited
@@ -282,10 +282,10 @@ MATRIX_RECOVERY_KEY=EsT... your recovery key here
 
 **Where to find it:** In Element, go to **Settings** → **Security & Privacy** → **Encryption** → your recovery key (also called the "Security Key"). This is the key you were asked to save when you first set up cross-signing.
 
-On each startup, if `MATRIX_RECOVERY_KEY` is set, Hermes imports cross-signing keys from the homeserver's secure secret storage and signs the current device. This is idempotent and safe to leave enabled permanently.
+On each startup, if `MATRIX_RECOVERY_KEY` is set, Birkin imports cross-signing keys from the homeserver's secure secret storage and signs the current device. This is idempotent and safe to leave enabled permanently.
 
 :::warning
-If you delete the `~/.hermes/platforms/matrix/store/` directory, the bot loses its encryption keys. You'll need to verify the device again in your Matrix client. Back up this directory if you want to preserve encrypted sessions.
+If you delete the `~/.birkin/platforms/matrix/store/` directory, the bot loses its encryption keys. You'll need to verify the device again in your Matrix client. Back up this directory if you want to preserve encrypted sessions.
 :::
 
 :::info
@@ -302,7 +302,7 @@ Type `/sethome` in any Matrix room where the bot is present. That room becomes t
 
 ### Manual Configuration
 
-Add this to your `~/.hermes/.env`:
+Add this to your `~/.birkin/.env`:
 
 ```bash
 MATRIX_HOME_ROOM=!abc123def456:matrix.example.org
@@ -343,10 +343,10 @@ If this returns your user info, the token is valid. If it returns an error, gene
 pip install 'mautrix[encryption]'
 ```
 
-Or with Hermes extras:
+Or with Birkin extras:
 
 ```bash
-pip install 'hermes-agent[matrix]'
+pip install 'birkin-agent[matrix]'
 ```
 
 ### Encryption errors / "could not decrypt event"
@@ -361,7 +361,7 @@ pip install 'hermes-agent[matrix]'
 
 ### Upgrading from a previous version with E2EE
 
-If you previously used Hermes with `MATRIX_ENCRYPTION=true` and are upgrading to
+If you previously used Birkin with `MATRIX_ENCRYPTION=true` and are upgrading to
 a version that uses the new SQLite-based crypto store, the bot's encryption
 identity has changed. Your Matrix client (Element) may cache the old device keys
 and refuse to share encryption sessions with the bot.
@@ -385,22 +385,22 @@ changed identity keys for the same device as suspicious.
      -H "Content-Type: application/json" \
      -d '{
        "type": "m.login.password",
-       "identifier": {"type": "m.id.user", "user": "@hermes:your-server.org"},
+       "identifier": {"type": "m.id.user", "user": "@birkin:your-server.org"},
        "password": "***",
-       "initial_device_display_name": "Hermes Agent"
+       "initial_device_display_name": "Birkin"
      }'
    ```
 
-   Copy the new `access_token` and update `MATRIX_ACCESS_TOKEN` in `~/.hermes/.env`.
+   Copy the new `access_token` and update `MATRIX_ACCESS_TOKEN` in `~/.birkin/.env`.
 
 2. **Delete old encryption state**:
 
    ```bash
-   rm -f ~/.hermes/platforms/matrix/store/crypto.db
-   rm -f ~/.hermes/platforms/matrix/store/crypto_store.*
+   rm -f ~/.birkin/platforms/matrix/store/crypto.db
+   rm -f ~/.birkin/platforms/matrix/store/crypto_store.*
    ```
 
-3. **Set your recovery key** (if you use cross-signing — most Element users do). Add to `~/.hermes/.env`:
+3. **Set your recovery key** (if you use cross-signing — most Element users do). Add to `~/.birkin/.env`:
 
    ```bash
    MATRIX_RECOVERY_KEY=EsT... your recovery key here
@@ -415,7 +415,7 @@ changed identity keys for the same device as suspicious.
 5. **Restart the gateway**:
 
    ```bash
-   hermes gateway run
+   birkin gateway run
    ```
 
    If `MATRIX_RECOVERY_KEY` is set, you should see `Matrix: cross-signing verified via recovery key` in the logs.
@@ -430,7 +430,7 @@ normally.
 
 :::tip
 **New installations are not affected.** This migration is only needed if you had
-a working E2EE setup with a previous version of Hermes and are upgrading.
+a working E2EE setup with a previous version of Birkin and are upgrading.
 
 **Why a new access token?** Each Matrix access token is bound to a specific device
 ID. Reusing the same device ID with new encryption keys causes other Matrix
@@ -443,19 +443,19 @@ history, so other clients trust it immediately.
 
 **Cause**: Long-running tool executions can delay the sync loop, or the homeserver is slow.
 
-**Fix**: The sync loop automatically retries every 5 seconds on error. Check the Hermes logs for sync-related warnings. If the bot consistently falls behind, ensure your homeserver has adequate resources.
+**Fix**: The sync loop automatically retries every 5 seconds on error. Check the Birkin logs for sync-related warnings. If the bot consistently falls behind, ensure your homeserver has adequate resources.
 
 ### Bot is offline
 
-**Cause**: The Hermes gateway isn't running, or it failed to connect.
+**Cause**: The Birkin gateway isn't running, or it failed to connect.
 
-**Fix**: Check that `hermes gateway` is running. Look at the terminal output for error messages. Common issues: wrong homeserver URL, expired access token, homeserver unreachable.
+**Fix**: Check that `birkin gateway` is running. Look at the terminal output for error messages. Common issues: wrong homeserver URL, expired access token, homeserver unreachable.
 
 ### "User not allowed" / Bot ignores you
 
 **Cause**: Your User ID isn't in `MATRIX_ALLOWED_USERS`.
 
-**Fix**: Add your User ID to `MATRIX_ALLOWED_USERS` in `~/.hermes/.env` and restart the gateway. Use the full `@user:server` format.
+**Fix**: Add your User ID to `MATRIX_ALLOWED_USERS` in `~/.birkin/.env` and restart the gateway. Use the full `@user:server` format.
 
 ## Security
 
@@ -463,12 +463,12 @@ history, so other clients trust it immediately.
 Always set `MATRIX_ALLOWED_USERS` to restrict who can interact with the bot. Without it, the gateway denies all users by default as a safety measure. Only add User IDs of people you trust — authorized users have full access to the agent's capabilities, including tool use and system access.
 :::
 
-For more information on securing your Hermes Agent deployment, see the [Security Guide](../security.md).
+For more information on securing your Birkin deployment, see the [Security Guide](../security.md).
 
 ## Notes
 
 - **Any homeserver**: Works with Synapse, Conduit, Dendrite, matrix.org, or any spec-compliant Matrix homeserver. No specific homeserver software required.
 - **Federation**: If you're on a federated homeserver, the bot can communicate with users from other servers — just add their full `@user:server` IDs to `MATRIX_ALLOWED_USERS`.
 - **Auto-join**: The bot automatically accepts room invites and joins. It starts responding immediately after joining.
-- **Media support**: Hermes can send and receive images, audio, video, and file attachments. Media is uploaded to your homeserver using the Matrix content repository API.
+- **Media support**: Birkin can send and receive images, audio, video, and file attachments. Media is uploaded to your homeserver using the Matrix content repository API.
 - **Native voice messages (MSC3245)**: The Matrix adapter automatically tags outgoing voice messages with the `org.matrix.msc3245.voice` flag. This means TTS responses and voice audio are rendered as **native voice bubbles** in Element and other clients that support MSC3245, rather than as generic audio file attachments. Incoming voice messages with the MSC3245 flag are also correctly identified and routed to speech-to-text transcription. No configuration is needed — this works automatically.

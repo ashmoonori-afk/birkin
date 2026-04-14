@@ -1,42 +1,42 @@
 ---
 sidebar_position: 8
 title: "Open WebUI"
-description: "Connect Open WebUI to Hermes Agent via the OpenAI-compatible API server"
+description: "Connect Open WebUI to Birkin via the OpenAI-compatible API server"
 ---
 
 # Open WebUI Integration
 
-[Open WebUI](https://github.com/open-webui/open-webui) (126k★) is the most popular self-hosted chat interface for AI. With Hermes Agent's built-in API server, you can use Open WebUI as a polished web frontend for your agent — complete with conversation management, user accounts, and a modern chat interface.
+[Open WebUI](https://github.com/open-webui/open-webui) (126k★) is the most popular self-hosted chat interface for AI. With Birkin's built-in API server, you can use Open WebUI as a polished web frontend for your agent — complete with conversation management, user accounts, and a modern chat interface.
 
 ## Architecture
 
 ```mermaid
 flowchart LR
     A["Open WebUI<br/>browser UI<br/>port 3000"]
-    B["hermes-agent<br/>gateway API server<br/>port 8642"]
+    B["birkin-agent<br/>gateway API server<br/>port 8642"]
     A -->|POST /v1/chat/completions| B
     B -->|SSE streaming response| A
 ```
 
-Open WebUI connects to Hermes Agent's API server just like it would connect to OpenAI. Your agent handles the requests with its full toolset — terminal, file operations, web search, memory, skills — and returns the final response.
+Open WebUI connects to Birkin's API server just like it would connect to OpenAI. Your agent handles the requests with its full toolset — terminal, file operations, web search, memory, skills — and returns the final response.
 
-Open WebUI talks to Hermes server-to-server, so you do not need `API_SERVER_CORS_ORIGINS` for this integration.
+Open WebUI talks to Birkin server-to-server, so you do not need `API_SERVER_CORS_ORIGINS` for this integration.
 
 ## Quick Setup
 
 ### 1. Enable the API server
 
-Add to `~/.hermes/.env`:
+Add to `~/.birkin/.env`:
 
 ```bash
 API_SERVER_ENABLED=true
 API_SERVER_KEY=your-secret-key
 ```
 
-### 2. Start Hermes Agent gateway
+### 2. Start Birkin gateway
 
 ```bash
-hermes gateway
+birkin gateway
 ```
 
 You should see:
@@ -60,7 +60,7 @@ docker run -d -p 3000:8080 \
 
 ### 4. Open the UI
 
-Go to **http://localhost:3000**. Create your admin account (the first user becomes admin). You should see your agent in the model dropdown (named after your profile, or **hermes-agent** for the default profile). Start chatting!
+Go to **http://localhost:3000**. Create your admin account (the first user becomes admin). You should see your agent in the model dropdown (named after your profile, or **birkin-agent** for the default profile). Start chatting!
 
 ## Docker Compose Setup
 
@@ -106,7 +106,7 @@ If you prefer to configure the connection through the UI instead of environment 
 7. Click the **checkmark** to verify the connection
 8. **Save**
 
-Your agent model should now appear in the model dropdown (named after your profile, or **hermes-agent** for the default profile).
+Your agent model should now appear in the model dropdown (named after your profile, or **birkin-agent** for the default profile).
 
 :::warning
 Environment variables only take effect on Open WebUI's **first launch**. After that, connection settings are stored in its internal database. To change them later, use the Admin UI or delete the Docker volume and start fresh.
@@ -123,18 +123,18 @@ Open WebUI supports two API modes when connecting to a backend:
 
 ### Using Chat Completions (recommended)
 
-This is the default and requires no extra configuration. Open WebUI sends standard OpenAI-format requests and Hermes Agent responds accordingly. Each request includes the full conversation history.
+This is the default and requires no extra configuration. Open WebUI sends standard OpenAI-format requests and Birkin responds accordingly. Each request includes the full conversation history.
 
 ### Using Responses API
 
 To use the Responses API mode:
 
 1. Go to **Admin Settings** → **Connections** → **OpenAI** → **Manage**
-2. Edit your hermes-agent connection
+2. Edit your birkin-agent connection
 3. Change **API Type** from "Chat Completions" to **"Responses (Experimental)"**
 4. Save
 
-With the Responses API, Open WebUI sends requests in the Responses format (`input` array + `instructions`), and Hermes Agent can preserve full tool call history across turns via `previous_response_id`.
+With the Responses API, Open WebUI sends requests in the Responses format (`input` array + `instructions`), and Birkin can preserve full tool call history across turns via `previous_response_id`.
 
 :::note
 Open WebUI currently manages conversation history client-side even in Responses mode — it sends the full message history in each request rather than using `previous_response_id`. The Responses API mode is mainly useful for future compatibility as frontends evolve.
@@ -145,7 +145,7 @@ Open WebUI currently manages conversation history client-side even in Responses 
 When you send a message in Open WebUI:
 
 1. Open WebUI sends a `POST /v1/chat/completions` request with your message and conversation history
-2. Hermes Agent creates an AIAgent instance with its full toolset
+2. Birkin creates an AIAgent instance with its full toolset
 3. The agent processes your request — it may call tools (terminal, file operations, web search, etc.)
 4. As tools execute, **inline progress messages stream to the UI** so you can see what the agent is doing (e.g. `` `💻 ls -la` ``, `` `🔍 Python 3.12 release` ``)
 5. The agent's final text response streams back to Open WebUI
@@ -159,7 +159,7 @@ With streaming enabled (the default), you'll see brief inline indicators as tool
 
 ## Configuration Reference
 
-### Hermes Agent (API server)
+### Birkin (API server)
 
 | Variable | Default | Description |
 |----------|---------|-------------|
@@ -172,7 +172,7 @@ With streaming enabled (the default), you'll see brief inline indicators as tool
 
 | Variable | Description |
 |----------|-------------|
-| `OPENAI_API_BASE_URL` | Hermes Agent's API URL (include `/v1`) |
+| `OPENAI_API_BASE_URL` | Birkin's API URL (include `/v1`) |
 | `OPENAI_API_KEY` | Must be non-empty. Match your `API_SERVER_KEY`. |
 
 ## Troubleshooting
@@ -181,7 +181,7 @@ With streaming enabled (the default), you'll see brief inline indicators as tool
 
 - **Check the URL has `/v1` suffix**: `http://host.docker.internal:8642/v1` (not just `:8642`)
 - **Verify the gateway is running**: `curl http://localhost:8642/health` should return `{"status": "ok"}`
-- **Check model listing**: `curl http://localhost:8642/v1/models` should return a list with `hermes-agent`
+- **Check model listing**: `curl http://localhost:8642/v1/models` should return a list with `birkin-agent`
 - **Docker networking**: From inside Docker, `localhost` means the container, not your host. Use `host.docker.internal` or `--network=host`.
 
 ### Connection test passes but no models load
@@ -190,35 +190,35 @@ This is almost always the missing `/v1` suffix. Open WebUI's connection test is 
 
 ### Response takes a long time
 
-Hermes Agent may be executing multiple tool calls (reading files, running commands, searching the web) before producing its final response. This is normal for complex queries. The response appears all at once when the agent finishes.
+Birkin may be executing multiple tool calls (reading files, running commands, searching the web) before producing its final response. This is normal for complex queries. The response appears all at once when the agent finishes.
 
 ### "Invalid API key" errors
 
-Make sure your `OPENAI_API_KEY` in Open WebUI matches the `API_SERVER_KEY` in Hermes Agent.
+Make sure your `OPENAI_API_KEY` in Open WebUI matches the `API_SERVER_KEY` in Birkin.
 
 ## Multi-User Setup with Profiles
 
-To run separate Hermes instances per user — each with their own config, memory, and skills — use [profiles](/docs/user-guide/features/profiles). Each profile runs its own API server on a different port and automatically advertises the profile name as the model in Open WebUI.
+To run separate Birkin instances per user — each with their own config, memory, and skills — use [profiles](/docs/user-guide/features/profiles). Each profile runs its own API server on a different port and automatically advertises the profile name as the model in Open WebUI.
 
 ### 1. Create profiles and configure API servers
 
 ```bash
-hermes profile create alice
-hermes -p alice config set API_SERVER_ENABLED true
-hermes -p alice config set API_SERVER_PORT 8643
-hermes -p alice config set API_SERVER_KEY alice-secret
+birkin profile create alice
+birkin -p alice config set API_SERVER_ENABLED true
+birkin -p alice config set API_SERVER_PORT 8643
+birkin -p alice config set API_SERVER_KEY alice-secret
 
-hermes profile create bob
-hermes -p bob config set API_SERVER_ENABLED true
-hermes -p bob config set API_SERVER_PORT 8644
-hermes -p bob config set API_SERVER_KEY bob-secret
+birkin profile create bob
+birkin -p bob config set API_SERVER_ENABLED true
+birkin -p bob config set API_SERVER_PORT 8644
+birkin -p bob config set API_SERVER_KEY bob-secret
 ```
 
 ### 2. Start each gateway
 
 ```bash
-hermes -p alice gateway &
-hermes -p bob gateway &
+birkin -p alice gateway &
+birkin -p bob gateway &
 ```
 
 ### 3. Add connections in Open WebUI
@@ -230,12 +230,12 @@ In **Admin Settings** → **Connections** → **OpenAI API** → **Manage**, add
 | Alice | `http://host.docker.internal:8643/v1` | `alice-secret` |
 | Bob | `http://host.docker.internal:8644/v1` | `bob-secret` |
 
-The model dropdown will show `alice` and `bob` as distinct models. You can assign models to Open WebUI users via the admin panel, giving each user their own isolated Hermes agent.
+The model dropdown will show `alice` and `bob` as distinct models. You can assign models to Open WebUI users via the admin panel, giving each user their own isolated Birkin agent.
 
 :::tip Custom Model Names
 The model name defaults to the profile name. To override it, set `API_SERVER_MODEL_NAME` in the profile's `.env`:
 ```bash
-hermes -p alice config set API_SERVER_MODEL_NAME "Alice's Agent"
+birkin -p alice config set API_SERVER_MODEL_NAME "Alice's Agent"
 ```
 :::
 

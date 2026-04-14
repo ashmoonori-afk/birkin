@@ -72,15 +72,15 @@ class TestEphemeralMode:
     """Default behavior: random userId, no persistence."""
 
     def test_session_gets_random_user_id(self, tmp_path, monkeypatch):
-        monkeypatch.setenv("HERMES_HOME", str(tmp_path))
+        monkeypatch.setenv("BIRKIN_HOME", str(tmp_path))
         monkeypatch.setenv("CAMOFOX_URL", "http://localhost:9377")
 
         session = _get_session("task-1")
-        assert session["user_id"].startswith("hermes_")
+        assert session["user_id"].startswith("birkin_")
         assert session["managed"] is False
 
     def test_different_tasks_get_different_user_ids(self, tmp_path, monkeypatch):
-        monkeypatch.setenv("HERMES_HOME", str(tmp_path))
+        monkeypatch.setenv("BIRKIN_HOME", str(tmp_path))
         monkeypatch.setenv("CAMOFOX_URL", "http://localhost:9377")
 
         s1 = _get_session("task-1")
@@ -88,7 +88,7 @@ class TestEphemeralMode:
         assert s1["user_id"] != s2["user_id"]
 
     def test_session_reuse_within_same_task(self, tmp_path, monkeypatch):
-        monkeypatch.setenv("HERMES_HOME", str(tmp_path))
+        monkeypatch.setenv("BIRKIN_HOME", str(tmp_path))
         monkeypatch.setenv("CAMOFOX_URL", "http://localhost:9377")
 
         s1 = _get_session("task-1")
@@ -97,10 +97,10 @@ class TestEphemeralMode:
 
 
 class TestManagedPersistenceMode:
-    """With managed_persistence: stable userId derived from Hermes profile."""
+    """With managed_persistence: stable userId derived from Birkin profile."""
 
     def test_session_gets_stable_user_id(self, tmp_path, monkeypatch):
-        monkeypatch.setenv("HERMES_HOME", str(tmp_path))
+        monkeypatch.setenv("BIRKIN_HOME", str(tmp_path))
         monkeypatch.setenv("CAMOFOX_URL", "http://localhost:9377")
 
         with _enable_persistence():
@@ -111,7 +111,7 @@ class TestManagedPersistenceMode:
             assert session["managed"] is True
 
     def test_same_user_id_after_session_drop(self, tmp_path, monkeypatch):
-        monkeypatch.setenv("HERMES_HOME", str(tmp_path))
+        monkeypatch.setenv("BIRKIN_HOME", str(tmp_path))
         monkeypatch.setenv("CAMOFOX_URL", "http://localhost:9377")
 
         with _enable_persistence():
@@ -122,7 +122,7 @@ class TestManagedPersistenceMode:
             assert s2["user_id"] == uid1
 
     def test_same_user_id_across_tasks(self, tmp_path, monkeypatch):
-        monkeypatch.setenv("HERMES_HOME", str(tmp_path))
+        monkeypatch.setenv("BIRKIN_HOME", str(tmp_path))
         monkeypatch.setenv("CAMOFOX_URL", "http://localhost:9377")
 
         with _enable_persistence():
@@ -136,17 +136,17 @@ class TestManagedPersistenceMode:
         monkeypatch.setenv("CAMOFOX_URL", "http://localhost:9377")
 
         with _enable_persistence():
-            monkeypatch.setenv("HERMES_HOME", str(tmp_path / "profile-a"))
+            monkeypatch.setenv("BIRKIN_HOME", str(tmp_path / "profile-a"))
             s1 = _get_session("task-1")
             uid_a = s1["user_id"]
             _drop_session("task-1")
 
-            monkeypatch.setenv("HERMES_HOME", str(tmp_path / "profile-b"))
+            monkeypatch.setenv("BIRKIN_HOME", str(tmp_path / "profile-b"))
             s2 = _get_session("task-1")
             assert s2["user_id"] != uid_a
 
     def test_navigate_uses_stable_identity(self, tmp_path, monkeypatch):
-        monkeypatch.setenv("HERMES_HOME", str(tmp_path))
+        monkeypatch.setenv("BIRKIN_HOME", str(tmp_path))
         monkeypatch.setenv("CAMOFOX_URL", "http://localhost:9377")
 
         requests_seen = []
@@ -166,7 +166,7 @@ class TestManagedPersistenceMode:
         assert requests_seen[0]["userId"] == expected["user_id"]
 
     def test_navigate_reuses_identity_after_close(self, tmp_path, monkeypatch):
-        monkeypatch.setenv("HERMES_HOME", str(tmp_path))
+        monkeypatch.setenv("BIRKIN_HOME", str(tmp_path))
         monkeypatch.setenv("CAMOFOX_URL", "http://localhost:9377")
 
         requests_seen = []
@@ -227,7 +227,7 @@ class TestVncUrlDiscovery:
         assert get_vnc_url() == "http://localhost:6080"
 
     def test_navigate_includes_vnc_hint(self, tmp_path, monkeypatch):
-        monkeypatch.setenv("HERMES_HOME", str(tmp_path))
+        monkeypatch.setenv("BIRKIN_HOME", str(tmp_path))
         monkeypatch.setenv("CAMOFOX_URL", "http://localhost:9377")
         import tools.browser_camofox as mod
         mod._vnc_url = "http://localhost:6080"
@@ -246,7 +246,7 @@ class TestCamofoxSoftCleanup:
     """camofox_soft_cleanup drops local state only when managed persistence is on."""
 
     def test_returns_true_and_drops_session_when_enabled(self, tmp_path, monkeypatch):
-        monkeypatch.setenv("HERMES_HOME", str(tmp_path))
+        monkeypatch.setenv("BIRKIN_HOME", str(tmp_path))
         monkeypatch.setenv("CAMOFOX_URL", "http://localhost:9377")
 
         with _enable_persistence():
@@ -260,7 +260,7 @@ class TestCamofoxSoftCleanup:
             assert "task-1" not in mod._sessions
 
     def test_returns_false_when_disabled(self, tmp_path, monkeypatch):
-        monkeypatch.setenv("HERMES_HOME", str(tmp_path))
+        monkeypatch.setenv("BIRKIN_HOME", str(tmp_path))
         monkeypatch.setenv("CAMOFOX_URL", "http://localhost:9377")
 
         _get_session("task-1")
@@ -276,7 +276,7 @@ class TestCamofoxSoftCleanup:
 
     def test_does_not_call_server_delete(self, tmp_path, monkeypatch):
         """Soft cleanup must never hit the Camofox /sessions DELETE endpoint."""
-        monkeypatch.setenv("HERMES_HOME", str(tmp_path))
+        monkeypatch.setenv("BIRKIN_HOME", str(tmp_path))
         monkeypatch.setenv("CAMOFOX_URL", "http://localhost:9377")
 
         with (

@@ -1,4 +1,4 @@
-"""ACP tool-call helpers for mapping hermes tools to ACP ToolKind and building content."""
+"""ACP tool-call helpers for mapping birkin tools to ACP ToolKind and building content."""
 
 from __future__ import annotations
 
@@ -14,7 +14,7 @@ from acp.schema import (
 )
 
 # ---------------------------------------------------------------------------
-# Map hermes tool names -> ACP ToolKind
+# Map birkin tool names -> ACP ToolKind
 # ---------------------------------------------------------------------------
 
 TOOL_KIND_MAP: Dict[str, ToolKind] = {
@@ -51,7 +51,7 @@ TOOL_KIND_MAP: Dict[str, ToolKind] = {
 
 
 def get_tool_kind(tool_name: str) -> ToolKind:
-    """Return the ACP ToolKind for a hermes tool, defaulting to 'other'."""
+    """Return the ACP ToolKind for a birkin tool, defaulting to 'other'."""
     return TOOL_KIND_MAP.get(tool_name, "other")
 
 
@@ -106,7 +106,7 @@ def build_tool_start(
     tool_name: str,
     arguments: Dict[str, Any],
 ) -> ToolCallStart:
-    """Create a ToolCallStart event for the given hermes tool invocation."""
+    """Create a ToolCallStart event for the given birkin tool invocation."""
     kind = get_tool_kind(tool_name)
     title = build_tool_title(tool_name, arguments)
     locations = extract_locations(arguments)

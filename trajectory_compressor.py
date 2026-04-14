@@ -43,7 +43,7 @@ from datetime import datetime
 import fire
 from rich.progress import Progress, SpinnerColumn, TextColumn, BarColumn, TaskProgressColumn, TimeElapsedColumn, TimeRemainingColumn
 from rich.console import Console
-from hermes_constants import OPENROUTER_BASE_URL
+from birkin_constants import OPENROUTER_BASE_URL
 from agent.retry_utils import jittered_backoff
 
 # Load environment variables
@@ -363,7 +363,7 @@ class TrajectoryCompressor:
             if client is None:
                 raise RuntimeError(
                     f"Provider '{provider}' is not configured. "
-                    f"Check your API key or run: hermes setup")
+                    f"Check your API key or run: birkin setup")
             self.client = None  # Not used directly
             self.async_client = None  # Not used directly
         else:

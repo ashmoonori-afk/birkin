@@ -21,8 +21,8 @@ from plugins.memory.honcho.client import (
 class TestHonchoClientConfigDefaults:
     def test_default_values(self):
         config = HonchoClientConfig()
-        assert config.host == "hermes"
-        assert config.workspace_id == "hermes"
+        assert config.host == "birkin"
+        assert config.workspace_id == "birkin"
         assert config.api_key is None
         assert config.environment == "production"
         assert config.enabled is False
@@ -94,7 +94,7 @@ class TestFromGlobalConfig:
             "workspace": "my-workspace",
             "environment": "staging",
             "peerName": "alice",
-            "aiPeer": "hermes-custom",
+            "aiPeer": "birkin-custom",
             "enabled": True,
             "saveMessages": False,
             "contextTokens": 2000,
@@ -102,7 +102,7 @@ class TestFromGlobalConfig:
             "sessionPeerPrefix": True,
             "sessions": {"/home/user/proj": "my-session"},
             "hosts": {
-                "hermes": {
+                "birkin": {
                     "workspace": "override-ws",
                     "aiPeer": "override-ai",
                 }
@@ -128,7 +128,7 @@ class TestFromGlobalConfig:
             "workspace": "root-ws",
             "aiPeer": "root-ai",
             "hosts": {
-                "hermes": {
+                "birkin": {
                     "workspace": "host-ws",
                     "aiPeer": "host-ai",
                 }
@@ -164,7 +164,7 @@ class TestFromGlobalConfig:
         config_file.write_text(json.dumps({
             "apiKey": "key",
             "contextTokens": 1000,
-            "hosts": {"hermes": {"contextTokens": 2000}},
+            "hosts": {"birkin": {"contextTokens": 2000}},
         }))
         config = HonchoClientConfig.from_global_config(config_path=config_file)
         assert config.context_tokens == 2000
@@ -175,7 +175,7 @@ class TestFromGlobalConfig:
         config_file.write_text(json.dumps({
             "apiKey": "key",
             "recallMode": "tools",
-            "hosts": {"hermes": {"recallMode": "context"}},
+            "hosts": {"birkin": {"recallMode": "context"}},
         }))
         config = HonchoClientConfig.from_global_config(config_path=config_file)
         assert config.recall_mode == "context"
@@ -226,7 +226,7 @@ class TestFromGlobalConfig:
         config_file = tmp_path / "config.json"
         config_file.write_text(json.dumps({
             "baseUrl": "http://root:9000",
-            "hosts": {"hermes": {"baseUrl": "http://host-block:9001"}},
+            "hosts": {"birkin": {"baseUrl": "http://host-block:9001"}},
         }))
 
         config = HonchoClientConfig.from_global_config(config_path=config_file)
@@ -262,10 +262,10 @@ class TestResolveSessionName:
     def test_per_repo_uses_git_root(self):
         config = HonchoClientConfig(session_strategy="per-repo")
         with patch.object(
-            HonchoClientConfig, "_git_repo_name", return_value="hermes-agent"
+            HonchoClientConfig, "_git_repo_name", return_value="birkin-agent"
         ):
-            result = config.resolve_session_name("/home/user/hermes-agent/subdir")
-        assert result == "hermes-agent"
+            result = config.resolve_session_name("/home/user/birkin-agent/subdir")
+        assert result == "birkin-agent"
 
     def test_per_repo_with_peer_prefix(self):
         config = HonchoClientConfig(
@@ -295,132 +295,132 @@ class TestResolveSessionName:
 
 
 class TestResolveConfigPath:
-    def test_prefers_hermes_home_when_exists(self, tmp_path):
-        hermes_home = tmp_path / "hermes"
-        hermes_home.mkdir()
-        local_cfg = hermes_home / "honcho.json"
+    def test_prefers_birkin_home_when_exists(self, tmp_path):
+        birkin_home = tmp_path / "birkin"
+        birkin_home.mkdir()
+        local_cfg = birkin_home / "honcho.json"
         local_cfg.write_text('{"apiKey": "local"}')
 
-        with patch.dict(os.environ, {"HERMES_HOME": str(hermes_home)}):
+        with patch.dict(os.environ, {"BIRKIN_HOME": str(birkin_home)}):
             result = resolve_config_path()
         assert result == local_cfg
 
     def test_falls_back_to_global_when_no_local(self, tmp_path):
-        hermes_home = tmp_path / "hermes"
-        hermes_home.mkdir()
-        # No honcho.json in HERMES_HOME — also isolate ~/.hermes so
+        birkin_home = tmp_path / "birkin"
+        birkin_home.mkdir()
+        # No honcho.json in BIRKIN_HOME — also isolate ~/.birkin so
         # the default-profile fallback doesn't hit the real filesystem.
         fake_home = tmp_path / "fakehome"
         fake_home.mkdir()
 
-        with patch.dict(os.environ, {"HERMES_HOME": str(hermes_home)}), \
+        with patch.dict(os.environ, {"BIRKIN_HOME": str(birkin_home)}), \
              patch.object(Path, "home", return_value=fake_home):
             result = resolve_config_path()
         assert result == GLOBAL_CONFIG_PATH
 
-    def test_falls_back_to_global_without_hermes_home_env(self, tmp_path):
+    def test_falls_back_to_global_without_birkin_home_env(self, tmp_path):
         fake_home = tmp_path / "fakehome"
         fake_home.mkdir()
 
         with patch.dict(os.environ, {}, clear=False), \
              patch.object(Path, "home", return_value=fake_home):
-            os.environ.pop("HERMES_HOME", None)
+            os.environ.pop("BIRKIN_HOME", None)
             result = resolve_config_path()
         assert result == GLOBAL_CONFIG_PATH
 
     def test_from_global_config_uses_local_path(self, tmp_path):
-        hermes_home = tmp_path / "hermes"
-        hermes_home.mkdir()
-        local_cfg = hermes_home / "honcho.json"
+        birkin_home = tmp_path / "birkin"
+        birkin_home.mkdir()
+        local_cfg = birkin_home / "honcho.json"
         local_cfg.write_text(json.dumps({
             "apiKey": "local-key",
             "workspace": "local-ws",
         }))
 
-        with patch.dict(os.environ, {"HERMES_HOME": str(hermes_home)}):
+        with patch.dict(os.environ, {"BIRKIN_HOME": str(birkin_home)}):
             config = HonchoClientConfig.from_global_config()
         assert config.api_key == "local-key"
         assert config.workspace_id == "local-ws"
 
 
 class TestResolveActiveHost:
-    def test_default_returns_hermes(self):
+    def test_default_returns_birkin(self):
         with patch.dict(os.environ, {}, clear=True):
-            os.environ.pop("HERMES_HONCHO_HOST", None)
-            os.environ.pop("HERMES_HOME", None)
-            assert resolve_active_host() == "hermes"
+            os.environ.pop("BIRKIN_HONCHO_HOST", None)
+            os.environ.pop("BIRKIN_HOME", None)
+            assert resolve_active_host() == "birkin"
 
     def test_explicit_env_var_wins(self):
-        with patch.dict(os.environ, {"HERMES_HONCHO_HOST": "hermes.coder"}):
-            assert resolve_active_host() == "hermes.coder"
+        with patch.dict(os.environ, {"BIRKIN_HONCHO_HOST": "birkin.coder"}):
+            assert resolve_active_host() == "birkin.coder"
 
     def test_profile_name_derives_host(self):
         with patch.dict(os.environ, {}, clear=False):
-            os.environ.pop("HERMES_HONCHO_HOST", None)
-            with patch("hermes_cli.profiles.get_active_profile_name", return_value="coder"):
-                assert resolve_active_host() == "hermes.coder"
+            os.environ.pop("BIRKIN_HONCHO_HOST", None)
+            with patch("birkin_cli.profiles.get_active_profile_name", return_value="coder"):
+                assert resolve_active_host() == "birkin.coder"
 
-    def test_default_profile_returns_hermes(self):
+    def test_default_profile_returns_birkin(self):
         with patch.dict(os.environ, {}, clear=False):
-            os.environ.pop("HERMES_HONCHO_HOST", None)
-            with patch("hermes_cli.profiles.get_active_profile_name", return_value="default"):
-                assert resolve_active_host() == "hermes"
+            os.environ.pop("BIRKIN_HONCHO_HOST", None)
+            with patch("birkin_cli.profiles.get_active_profile_name", return_value="default"):
+                assert resolve_active_host() == "birkin"
 
-    def test_custom_profile_returns_hermes(self):
+    def test_custom_profile_returns_birkin(self):
         with patch.dict(os.environ, {}, clear=False):
-            os.environ.pop("HERMES_HONCHO_HOST", None)
-            with patch("hermes_cli.profiles.get_active_profile_name", return_value="custom"):
-                assert resolve_active_host() == "hermes"
+            os.environ.pop("BIRKIN_HONCHO_HOST", None)
+            with patch("birkin_cli.profiles.get_active_profile_name", return_value="custom"):
+                assert resolve_active_host() == "birkin"
 
     def test_profiles_import_failure_falls_back(self):
         import sys
         with patch.dict(os.environ, {}, clear=False):
-            os.environ.pop("HERMES_HONCHO_HOST", None)
-            # Temporarily remove hermes_cli.profiles to simulate import failure
-            saved = sys.modules.get("hermes_cli.profiles")
-            sys.modules["hermes_cli.profiles"] = None  # type: ignore
+            os.environ.pop("BIRKIN_HONCHO_HOST", None)
+            # Temporarily remove birkin_cli.profiles to simulate import failure
+            saved = sys.modules.get("birkin_cli.profiles")
+            sys.modules["birkin_cli.profiles"] = None  # type: ignore
             try:
-                assert resolve_active_host() == "hermes"
+                assert resolve_active_host() == "birkin"
             finally:
                 if saved is not None:
-                    sys.modules["hermes_cli.profiles"] = saved
+                    sys.modules["birkin_cli.profiles"] = saved
                 else:
-                    sys.modules.pop("hermes_cli.profiles", None)
+                    sys.modules.pop("birkin_cli.profiles", None)
 
 
 class TestProfileScopedConfig:
     def test_from_env_uses_profile_host(self):
         with patch.dict(os.environ, {"HONCHO_API_KEY": "key"}):
-            config = HonchoClientConfig.from_env(host="hermes.coder")
-        assert config.host == "hermes.coder"
-        assert config.workspace_id == "hermes"  # shared workspace
-        assert config.ai_peer == "hermes.coder"
+            config = HonchoClientConfig.from_env(host="birkin.coder")
+        assert config.host == "birkin.coder"
+        assert config.workspace_id == "birkin"  # shared workspace
+        assert config.ai_peer == "birkin.coder"
 
     def test_from_env_default_workspace_preserved_for_default_host(self):
         with patch.dict(os.environ, {"HONCHO_API_KEY": "key"}):
-            config = HonchoClientConfig.from_env(host="hermes")
-        assert config.host == "hermes"
-        assert config.workspace_id == "hermes"
+            config = HonchoClientConfig.from_env(host="birkin")
+        assert config.host == "birkin"
+        assert config.workspace_id == "birkin"
 
     def test_from_global_config_reads_profile_host_block(self, tmp_path):
         config_file = tmp_path / "config.json"
         config_file.write_text(json.dumps({
             "apiKey": "shared-key",
             "hosts": {
-                "hermes": {"aiPeer": "hermes", "peerName": "alice"},
-                "hermes.coder": {
-                    "aiPeer": "hermes.coder",
+                "birkin": {"aiPeer": "birkin", "peerName": "alice"},
+                "birkin.coder": {
+                    "aiPeer": "birkin.coder",
                     "peerName": "alice-coder",
                     "workspace": "coder-ws",
                 },
             },
         }))
         config = HonchoClientConfig.from_global_config(
-            host="hermes.coder", config_path=config_file,
+            host="birkin.coder", config_path=config_file,
         )
-        assert config.host == "hermes.coder"
+        assert config.host == "birkin.coder"
         assert config.workspace_id == "coder-ws"
-        assert config.ai_peer == "hermes.coder"
+        assert config.ai_peer == "birkin.coder"
         assert config.peer_name == "alice-coder"
 
     def test_from_global_config_auto_resolves_host(self, tmp_path):
@@ -428,12 +428,12 @@ class TestProfileScopedConfig:
         config_file.write_text(json.dumps({
             "apiKey": "key",
             "hosts": {
-                "hermes.dreamer": {"peerName": "dreamer-user"},
+                "birkin.dreamer": {"peerName": "dreamer-user"},
             },
         }))
-        with patch("plugins.memory.honcho.client.resolve_active_host", return_value="hermes.dreamer"):
+        with patch("plugins.memory.honcho.client.resolve_active_host", return_value="birkin.dreamer"):
             config = HonchoClientConfig.from_global_config(config_path=config_file)
-        assert config.host == "hermes.dreamer"
+        assert config.host == "birkin.dreamer"
         assert config.peer_name == "dreamer-user"
 
 
@@ -445,7 +445,7 @@ class TestObservationModeMigration:
         cfg_file = tmp_path / "config.json"
         cfg_file.write_text(json.dumps({
             "apiKey": "k",
-            "hosts": {"hermes": {"enabled": True, "aiPeer": "hermes"}},
+            "hosts": {"birkin": {"enabled": True, "aiPeer": "birkin"}},
         }))
         cfg = HonchoClientConfig.from_global_config(config_path=cfg_file)
         assert cfg.observation_mode == "unified"
@@ -462,7 +462,7 @@ class TestObservationModeMigration:
         cfg_file = tmp_path / "config.json"
         cfg_file.write_text(json.dumps({
             "apiKey": "k",
-            "hosts": {"hermes": {"enabled": True, "observationMode": "directional"}},
+            "hosts": {"birkin": {"enabled": True, "observationMode": "directional"}},
         }))
         cfg = HonchoClientConfig.from_global_config(config_path=cfg_file)
         assert cfg.observation_mode == "directional"
@@ -473,7 +473,7 @@ class TestObservationModeMigration:
         cfg_file.write_text(json.dumps({
             "apiKey": "k",
             "observationMode": "unified",
-            "hosts": {"hermes": {"enabled": True}},
+            "hosts": {"birkin": {"enabled": True}},
         }))
         cfg = HonchoClientConfig.from_global_config(config_path=cfg_file)
         assert cfg.observation_mode == "unified"
@@ -483,7 +483,7 @@ class TestObservationModeMigration:
         cfg_file = tmp_path / "config.json"
         cfg_file.write_text(json.dumps({
             "apiKey": "k",
-            "hosts": {"hermes": {
+            "hosts": {"birkin": {
                 "enabled": True,
                 "observation": {
                     "user": {"observeMe": True, "observeOthers": False},
@@ -521,7 +521,7 @@ class TestInitOnSessionStart:
         cfg_file.write_text(json.dumps({
             "apiKey": "k",
             "initOnSessionStart": True,
-            "hosts": {"hermes": {"initOnSessionStart": False}},
+            "hosts": {"birkin": {"initOnSessionStart": False}},
         }))
         cfg = HonchoClientConfig.from_global_config(config_path=cfg_file)
         assert cfg.init_on_session_start is False
@@ -530,7 +530,7 @@ class TestInitOnSessionStart:
         cfg_file = tmp_path / "config.json"
         cfg_file.write_text(json.dumps({
             "apiKey": "k",
-            "hosts": {"hermes": {"initOnSessionStart": True}},
+            "hosts": {"birkin": {"initOnSessionStart": True}},
         }))
         cfg = HonchoClientConfig.from_global_config(config_path=cfg_file)
         assert cfg.init_on_session_start is True

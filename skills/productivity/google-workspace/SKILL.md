@@ -10,9 +10,9 @@ required_credential_files:
   - path: google_client_secret.json
     description: Google OAuth2 client credentials (downloaded from Google Cloud Console)
 metadata:
-  hermes:
+  birkin:
     tags: [Google, Gmail, Calendar, Drive, Sheets, Docs, Contacts, Email, OAuth, gws]
-    homepage: https://github.com/NousResearch/hermes-agent
+    homepage: https://github.com/NousResearch/birkin-agent
     related_skills: [himalaya]
 ---
 
@@ -28,7 +28,7 @@ google_api.py  →  gws_bridge.py  →  gws CLI
 ```
 
 - `setup.py` handles OAuth2 (headless-compatible, works on CLI/Telegram/Discord)
-- `gws_bridge.py` refreshes the Hermes token and injects it into `gws` via `GOOGLE_WORKSPACE_CLI_TOKEN`
+- `gws_bridge.py` refreshes the Birkin token and injects it into `gws` via `GOOGLE_WORKSPACE_CLI_TOKEN`
 - `google_api.py` provides the same CLI interface as v1 but delegates to `gws`
 
 ## References
@@ -63,11 +63,11 @@ on CLI, Telegram, Discord, or any platform.
 Define a shorthand first:
 
 ```bash
-HERMES_HOME="${HERMES_HOME:-$HOME/.hermes}"
-GWORKSPACE_SKILL_DIR="$HERMES_HOME/skills/productivity/google-workspace"
-PYTHON_BIN="${HERMES_PYTHON:-python3}"
-if [ -x "$HERMES_HOME/hermes-agent/venv/bin/python" ]; then
-  PYTHON_BIN="$HERMES_HOME/hermes-agent/venv/bin/python"
+BIRKIN_HOME="${BIRKIN_HOME:-$HOME/.birkin}"
+GWORKSPACE_SKILL_DIR="$BIRKIN_HOME/skills/productivity/google-workspace"
+PYTHON_BIN="${BIRKIN_PYTHON:-python3}"
+if [ -x "$BIRKIN_HOME/birkin-agent/venv/bin/python" ]; then
+  PYTHON_BIN="$BIRKIN_HOME/birkin-agent/venv/bin/python"
 fi
 GSETUP="$PYTHON_BIN $GWORKSPACE_SKILL_DIR/scripts/setup.py"
 ```
@@ -137,11 +137,11 @@ Should print `AUTHENTICATED`. Token refreshes automatically from now on.
 All commands go through the API script:
 
 ```bash
-HERMES_HOME="${HERMES_HOME:-$HOME/.hermes}"
-GWORKSPACE_SKILL_DIR="$HERMES_HOME/skills/productivity/google-workspace"
-PYTHON_BIN="${HERMES_PYTHON:-python3}"
-if [ -x "$HERMES_HOME/hermes-agent/venv/bin/python" ]; then
-  PYTHON_BIN="$HERMES_HOME/hermes-agent/venv/bin/python"
+BIRKIN_HOME="${BIRKIN_HOME:-$HOME/.birkin}"
+GWORKSPACE_SKILL_DIR="$BIRKIN_HOME/skills/productivity/google-workspace"
+PYTHON_BIN="${BIRKIN_PYTHON:-python3}"
+if [ -x "$BIRKIN_HOME/birkin-agent/venv/bin/python" ]; then
+  PYTHON_BIN="$BIRKIN_HOME/birkin-agent/venv/bin/python"
 fi
 GAPI="$PYTHON_BIN $GWORKSPACE_SKILL_DIR/scripts/google_api.py"
 ```

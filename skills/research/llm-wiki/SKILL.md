@@ -2,10 +2,10 @@
 name: llm-wiki
 description: "Karpathy's LLM Wiki — build and maintain a persistent, interlinked markdown knowledge base. Ingest sources, query compiled knowledge, and lint for consistency."
 version: 2.0.0
-author: Hermes Agent
+author: Birkin
 license: MIT
 metadata:
-  hermes:
+  birkin:
     tags: [wiki, knowledge-base, research, notes, markdown, rag-alternative]
     category: research
     related_skills: [obsidian, arxiv, agentic-research-ideas]
@@ -39,8 +39,8 @@ Use this skill when the user:
 
 ## Wiki Location
 
-Configured via `skills.config.wiki.path` in `~/.hermes/config.yaml` (prompted
-during `hermes config migrate` or `hermes setup`):
+Configured via `skills.config.wiki.path` in `~/.birkin/config.yaml` (prompted
+during `birkin config migrate` or `birkin setup`):
 
 ```yaml
 skills:

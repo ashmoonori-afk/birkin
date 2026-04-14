@@ -263,31 +263,31 @@ class TestPendingCommandSafetyNet:
     def test_stop_command_detected(self):
         """resolve_command must recognize /stop so the safety net can
         discard it."""
-        from hermes_cli.commands import resolve_command
+        from birkin_cli.commands import resolve_command
 
         assert resolve_command("stop") is not None
         assert resolve_command("stop").name == "stop"
 
     def test_new_command_detected(self):
-        from hermes_cli.commands import resolve_command
+        from birkin_cli.commands import resolve_command
 
         assert resolve_command("new") is not None
         assert resolve_command("new").name == "new"
 
     def test_reset_alias_detected(self):
-        from hermes_cli.commands import resolve_command
+        from birkin_cli.commands import resolve_command
 
         assert resolve_command("reset") is not None
         assert resolve_command("reset").name == "new"  # alias
 
     def test_unknown_command_not_detected(self):
-        from hermes_cli.commands import resolve_command
+        from birkin_cli.commands import resolve_command
 
         assert resolve_command("foobar") is None
 
     def test_file_path_not_detected_as_command(self):
         """'/path/to/file' should not resolve as a command."""
-        from hermes_cli.commands import resolve_command
+        from birkin_cli.commands import resolve_command
 
         # The safety net splits on whitespace and takes the first word
         # after stripping '/'.  For '/path/to/file', that's 'path/to/file'.
@@ -304,26 +304,26 @@ class TestBypassWithBotnameSuffix:
 
     @pytest.mark.asyncio
     async def test_stop_with_botname(self):
-        """/stop@MyHermesBot must bypass the guard."""
+        """/stop@MyBirkinBot must bypass the guard."""
         adapter = _make_adapter()
         sk = _session_key()
         adapter._active_sessions[sk] = asyncio.Event()
 
-        await adapter.handle_message(_make_event("/stop@MyHermesBot"))
+        await adapter.handle_message(_make_event("/stop@MyBirkinBot"))
 
         assert sk not in adapter._pending_messages, (
-            "/stop@MyHermesBot was queued instead of bypassing"
+            "/stop@MyBirkinBot was queued instead of bypassing"
         )
         assert any("handled:stop" in r for r in adapter.sent_responses)
 
     @pytest.mark.asyncio
     async def test_new_with_botname(self):
-        """/new@MyHermesBot must bypass the guard."""
+        """/new@MyBirkinBot must bypass the guard."""
         adapter = _make_adapter()
         sk = _session_key()
         adapter._active_sessions[sk] = asyncio.Event()
 
-        await adapter.handle_message(_make_event("/new@MyHermesBot"))
+        await adapter.handle_message(_make_event("/new@MyBirkinBot"))
 
         assert sk not in adapter._pending_messages
         assert any("handled:new" in r for r in adapter.sent_responses)

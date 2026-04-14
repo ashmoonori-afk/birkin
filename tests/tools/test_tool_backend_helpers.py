@@ -31,20 +31,20 @@ from tools.tool_backend_helpers import (
 # managed_nous_tools_enabled
 # ---------------------------------------------------------------------------
 class TestManagedNousToolsEnabled:
-    """Feature flag driven by HERMES_ENABLE_NOUS_MANAGED_TOOLS."""
+    """Feature flag driven by BIRKIN_ENABLE_MANAGED_TOOLS."""
 
     def test_disabled_by_default(self, monkeypatch):
-        monkeypatch.delenv("HERMES_ENABLE_NOUS_MANAGED_TOOLS", raising=False)
+        monkeypatch.delenv("BIRKIN_ENABLE_MANAGED_TOOLS", raising=False)
         assert managed_nous_tools_enabled() is False
 
     @pytest.mark.parametrize("val", ["1", "true", "True", "yes"])
     def test_enabled_when_truthy(self, monkeypatch, val):
-        monkeypatch.setenv("HERMES_ENABLE_NOUS_MANAGED_TOOLS", val)
+        monkeypatch.setenv("BIRKIN_ENABLE_MANAGED_TOOLS", val)
         assert managed_nous_tools_enabled() is True
 
     @pytest.mark.parametrize("val", ["0", "false", "no", ""])
     def test_disabled_when_falsy(self, monkeypatch, val):
-        monkeypatch.setenv("HERMES_ENABLE_NOUS_MANAGED_TOOLS", val)
+        monkeypatch.setenv("BIRKIN_ENABLE_MANAGED_TOOLS", val)
         assert managed_nous_tools_enabled() is False
 
 
@@ -172,9 +172,9 @@ class TestResolveModalBackendState:
     def _resolve(monkeypatch, mode, *, has_direct, managed_ready, nous_enabled=False):
         """Helper to call resolve_modal_backend_state with feature flag control."""
         if nous_enabled:
-            monkeypatch.setenv("HERMES_ENABLE_NOUS_MANAGED_TOOLS", "1")
+            monkeypatch.setenv("BIRKIN_ENABLE_MANAGED_TOOLS", "1")
         else:
-            monkeypatch.setenv("HERMES_ENABLE_NOUS_MANAGED_TOOLS", "")
+            monkeypatch.setenv("BIRKIN_ENABLE_MANAGED_TOOLS", "")
         return resolve_modal_backend_state(
             mode, has_direct=has_direct, managed_ready=managed_ready
         )

@@ -1,8 +1,8 @@
 @import "tailwindcss";
 
 /* ------------------------------------------------------------------ */
-/* Hermes Agent — Design tokens                                        */
-/* Matched to hermes-agent.nousresearch.com (dark teal theme)          */
+/* Birkin Agent — Design tokens                                        */
+/* Matched to birkin-agent.nousresearch.com (dark teal theme)          */
 /* ------------------------------------------------------------------ */
 
 /* --- Font faces --- */
@@ -17,7 +17,7 @@
 @font-face { font-family: "Mondwest"; src: url("/fonts/Mondwest-Regular.woff2") format("woff2"); font-weight: 400; font-display: swap; }
 
 @theme {
-  /* ---- Hermes palette (dark teal, from live site) ---- */
+  /* ---- Birkin palette (dark teal, from live site) ---- */
   --color-background: #041C1C;
   --color-foreground: #ffe6cb;
   --color-card: #062424;

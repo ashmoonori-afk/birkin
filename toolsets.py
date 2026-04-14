@@ -28,7 +28,7 @@ from typing import List, Dict, Any, Set, Optional
 
 # Shared tool list for CLI and all messaging platform toolsets.
 # Edit this once to update all platforms simultaneously.
-_HERMES_CORE_TOOLS = [
+_BIRKIN_CORE_TOOLS = [
     # Web
     "web_search", "web_extract",
     # Terminal + process management
@@ -217,13 +217,13 @@ TOOLSETS = {
     },
     
     # ==========================================================================
-    # Full Hermes toolsets (CLI + messaging platforms)
+    # Full Birkin toolsets (CLI + messaging platforms)
     #
     # All platforms share the same core tools (including send_message,
     # which is gated on gateway running via its check_fn).
     # ==========================================================================
 
-    "hermes-acp": {
+    "birkin-acp": {
         "description": "Editor integration (VS Code, Zed, JetBrains) — coding-focused tools without messaging, audio, or clarify UI",
         "tools": [
             "web_search", "web_extract",
@@ -242,7 +242,7 @@ TOOLSETS = {
         "includes": []
     },
 
-    "hermes-api-server": {
+    "birkin-api-server": {
         "description": "OpenAI-compatible API server — full agent tools accessible via HTTP (no interactive UI tools like clarify or send_message)",
         "tools": [
             # Web
@@ -275,124 +275,124 @@ TOOLSETS = {
         "includes": []
     },
     
-    "hermes-cli": {
+    "birkin-cli": {
         "description": "Full interactive CLI toolset - all default tools plus cronjob management",
-        "tools": _HERMES_CORE_TOOLS,
+        "tools": _BIRKIN_CORE_TOOLS,
         "includes": []
     },
     
-    "hermes-telegram": {
+    "birkin-telegram": {
         "description": "Telegram bot toolset - full access for personal use (terminal has safety checks)",
-        "tools": _HERMES_CORE_TOOLS,
+        "tools": _BIRKIN_CORE_TOOLS,
         "includes": []
     },
     
-    "hermes-discord": {
+    "birkin-discord": {
         "description": "Discord bot toolset - full access (terminal has safety checks via dangerous command approval)",
-        "tools": _HERMES_CORE_TOOLS,
+        "tools": _BIRKIN_CORE_TOOLS,
         "includes": []
     },
     
-    "hermes-whatsapp": {
+    "birkin-whatsapp": {
         "description": "WhatsApp bot toolset - similar to Telegram (personal messaging, more trusted)",
-        "tools": _HERMES_CORE_TOOLS,
+        "tools": _BIRKIN_CORE_TOOLS,
         "includes": []
     },
     
-    "hermes-slack": {
+    "birkin-slack": {
         "description": "Slack bot toolset - full access for workspace use (terminal has safety checks)",
-        "tools": _HERMES_CORE_TOOLS,
+        "tools": _BIRKIN_CORE_TOOLS,
         "includes": []
     },
     
-    "hermes-signal": {
+    "birkin-signal": {
         "description": "Signal bot toolset - encrypted messaging platform (full access)",
-        "tools": _HERMES_CORE_TOOLS,
+        "tools": _BIRKIN_CORE_TOOLS,
         "includes": []
     },
 
-    "hermes-bluebubbles": {
+    "birkin-bluebubbles": {
         "description": "BlueBubbles iMessage bot toolset - Apple iMessage via local BlueBubbles server",
-        "tools": _HERMES_CORE_TOOLS,
+        "tools": _BIRKIN_CORE_TOOLS,
         "includes": []
     },
 
-    "hermes-homeassistant": {
+    "birkin-homeassistant": {
         "description": "Home Assistant bot toolset - smart home event monitoring and control",
-        "tools": _HERMES_CORE_TOOLS,
+        "tools": _BIRKIN_CORE_TOOLS,
         "includes": []
     },
 
-    "hermes-email": {
-        "description": "Email bot toolset - interact with Hermes via email (IMAP/SMTP)",
-        "tools": _HERMES_CORE_TOOLS,
+    "birkin-email": {
+        "description": "Email bot toolset - interact with Birkin via email (IMAP/SMTP)",
+        "tools": _BIRKIN_CORE_TOOLS,
         "includes": []
     },
 
-    "hermes-mattermost": {
+    "birkin-mattermost": {
         "description": "Mattermost bot toolset - self-hosted team messaging (full access)",
-        "tools": _HERMES_CORE_TOOLS,
+        "tools": _BIRKIN_CORE_TOOLS,
         "includes": []
     },
 
-    "hermes-matrix": {
+    "birkin-matrix": {
         "description": "Matrix bot toolset - decentralized encrypted messaging (full access)",
-        "tools": _HERMES_CORE_TOOLS,
+        "tools": _BIRKIN_CORE_TOOLS,
         "includes": []
     },
 
-    "hermes-dingtalk": {
+    "birkin-dingtalk": {
         "description": "DingTalk bot toolset - enterprise messaging platform (full access)",
-        "tools": _HERMES_CORE_TOOLS,
+        "tools": _BIRKIN_CORE_TOOLS,
         "includes": []
     },
 
-    "hermes-feishu": {
+    "birkin-feishu": {
         "description": "Feishu/Lark bot toolset - enterprise messaging via Feishu/Lark (full access)",
-        "tools": _HERMES_CORE_TOOLS,
+        "tools": _BIRKIN_CORE_TOOLS,
         "includes": []
     },
 
-    "hermes-weixin": {
+    "birkin-weixin": {
         "description": "Weixin bot toolset - personal WeChat messaging via iLink (full access)",
-        "tools": _HERMES_CORE_TOOLS,
+        "tools": _BIRKIN_CORE_TOOLS,
         "includes": []
     },
 
-    "hermes-qqbot": {
+    "birkin-qqbot": {
         "description": "QQBot toolset - QQ messaging via Official Bot API v2 (full access)",
-        "tools": _HERMES_CORE_TOOLS,
+        "tools": _BIRKIN_CORE_TOOLS,
         "includes": []
     },
 
-    "hermes-wecom": {
+    "birkin-wecom": {
         "description": "WeCom bot toolset - enterprise WeChat messaging (full access)",
-        "tools": _HERMES_CORE_TOOLS,
+        "tools": _BIRKIN_CORE_TOOLS,
         "includes": []
     },
 
-    "hermes-wecom-callback": {
+    "birkin-wecom-callback": {
         "description": "WeCom callback toolset - enterprise self-built app messaging (full access)",
-        "tools": _HERMES_CORE_TOOLS,
+        "tools": _BIRKIN_CORE_TOOLS,
         "includes": []
     },
 
-    "hermes-sms": {
-        "description": "SMS bot toolset - interact with Hermes via SMS (Twilio)",
-        "tools": _HERMES_CORE_TOOLS,
+    "birkin-sms": {
+        "description": "SMS bot toolset - interact with Birkin via SMS (Twilio)",
+        "tools": _BIRKIN_CORE_TOOLS,
         "includes": []
     },
 
-    "hermes-webhook": {
+    "birkin-webhook": {
         "description": "Webhook toolset - receive and process external webhook events",
-        "tools": _HERMES_CORE_TOOLS,
+        "tools": _BIRKIN_CORE_TOOLS,
         "includes": []
     },
 
-    "hermes-gateway": {
+    "birkin-gateway": {
         "description": "Gateway toolset - union of all messaging platform tools",
         "tools": [],
-        "includes": ["hermes-telegram", "hermes-discord", "hermes-whatsapp", "hermes-slack", "hermes-signal", "hermes-bluebubbles", "hermes-homeassistant", "hermes-email", "hermes-sms", "hermes-mattermost", "hermes-matrix", "hermes-dingtalk", "hermes-feishu", "hermes-wecom", "hermes-wecom-callback", "hermes-weixin", "hermes-qqbot", "hermes-webhook"]
+        "includes": ["birkin-telegram", "birkin-discord", "birkin-whatsapp", "birkin-slack", "birkin-signal", "birkin-bluebubbles", "birkin-homeassistant", "birkin-email", "birkin-sms", "birkin-mattermost", "birkin-matrix", "birkin-dingtalk", "birkin-feishu", "birkin-wecom", "birkin-wecom-callback", "birkin-weixin", "birkin-qqbot", "birkin-webhook"]
     }
 }
 

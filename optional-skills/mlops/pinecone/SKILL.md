@@ -6,7 +6,7 @@ author: Orchestra Research
 license: MIT
 dependencies: [pinecone-client]
 metadata:
-  hermes:
+  birkin:
     tags: [RAG, Pinecone, Vector Database, Managed Service, Serverless, Hybrid Search, Production, Auto-Scaling, Low Latency, Recommendations]
 
 ---

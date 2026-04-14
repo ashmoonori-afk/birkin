@@ -7,7 +7,7 @@ license: MIT
 prerequisites:
   env_vars: [CANVAS_API_TOKEN, CANVAS_BASE_URL]
 metadata:
-  hermes:
+  birkin:
     tags: [Canvas, LMS, Education, Courses, Assignments]
 ---
 
@@ -24,8 +24,8 @@ Read-only access to Canvas LMS for listing courses and assignments.
 1. Log in to your Canvas instance in a browser
 2. Go to **Account → Settings** (click your profile icon, then Settings)
 3. Scroll to **Approved Integrations** and click **+ New Access Token**
-4. Name the token (e.g., "Hermes Agent"), set an optional expiry, and click **Generate Token**
-5. Copy the token and add to `~/.hermes/.env`:
+4. Name the token (e.g., "Birkin"), set an optional expiry, and click **Generate Token**
+5. Copy the token and add to `~/.birkin/.env`:
 
 ```
 CANVAS_API_TOKEN=your_token_here
@@ -37,7 +37,7 @@ The base URL is whatever appears in your browser when you're logged into Canvas 
 ## Usage
 
 ```bash
-CANVAS="python $HERMES_HOME/skills/productivity/canvas/scripts/canvas_api.py"
+CANVAS="python $BIRKIN_HOME/skills/productivity/canvas/scripts/canvas_api.py"
 
 # List all active courses
 $CANVAS list_courses --enrollment-state active

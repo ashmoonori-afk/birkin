@@ -70,10 +70,10 @@ class TestParseFrontmatter:
 
     def test_nested_yaml(self):
         content = (
-            "---\nname: test\nmetadata:\n  hermes:\n    tags: [a, b]\n---\n\nBody.\n"
+            "---\nname: test\nmetadata:\n  birkin:\n    tags: [a, b]\n---\n\nBody.\n"
         )
         fm, body = _parse_frontmatter(content)
-        assert fm["metadata"]["hermes"]["tags"] == ["a", "b"]
+        assert fm["metadata"]["birkin"]["tags"] == ["a", "b"]
 
     def test_malformed_yaml_fallback(self):
         """Malformed YAML falls back to simple key:value parsing."""
@@ -347,7 +347,7 @@ class TestSkillView:
             _make_skill(
                 tmp_path,
                 "tagged",
-                frontmatter_extra="metadata:\n  hermes:\n    tags: [fine-tuning, llm]\n",
+                frontmatter_extra="metadata:\n  birkin:\n    tags: [fine-tuning, llm]\n",
             )
             raw = skill_view("tagged")
         result = json.loads(raw)
@@ -509,7 +509,7 @@ class TestSkillViewSecureSetupOnLoad:
         )
 
         with patch.dict(
-            os.environ, {"HERMES_SESSION_PLATFORM": "telegram"}, clear=False
+            os.environ, {"BIRKIN_SESSION_PLATFORM": "telegram"}, clear=False
         ):
             with patch("tools.skills_tool.SKILLS_DIR", tmp_path):
                 _make_skill(
@@ -784,7 +784,7 @@ class TestSkillViewPrerequisites:
                 "remote-ready",
                 frontmatter_extra="prerequisites:\n  env_vars: [PERSISTED_REMOTE_KEY]\n",
             )
-            from hermes_cli.config import save_env_value
+            from birkin_cli.config import save_env_value
 
             save_env_value("PERSISTED_REMOTE_KEY", "persisted-value")
             monkeypatch.delenv("PERSISTED_REMOTE_KEY", raising=False)
@@ -846,7 +846,7 @@ class TestSkillViewPrerequisites:
         monkeypatch.setenv("TERMINAL_ENV", "docker")
 
         with patch.dict(
-            os.environ, {"HERMES_SESSION_PLATFORM": "telegram"}, clear=False
+            os.environ, {"BIRKIN_SESSION_PLATFORM": "telegram"}, clear=False
         ):
             with patch("tools.skills_tool.SKILLS_DIR", tmp_path):
                 _make_skill(
@@ -936,7 +936,7 @@ class TestSkillViewPrerequisites:
 name: legacy-flat
 description: Legacy flat skill.
 metadata:
-  hermes:
+  birkin:
     tags: [legacy, flat]
 required_environment_variables:
   - name: LEGACY_KEY
@@ -969,7 +969,7 @@ Do the legacy thing.
         monkeypatch.delenv("TENOR_API_KEY", raising=False)
 
         def fake_secret_callback(var_name, prompt, metadata=None):
-            from hermes_cli.config import save_env_value
+            from birkin_cli.config import save_env_value
 
             save_env_value(var_name, "captured-value")
             return {
@@ -996,7 +996,7 @@ Do the legacy thing.
                     "    prompt: Tenor API key\n"
                 ),
             )
-            from hermes_cli.config import save_env_value
+            from birkin_cli.config import save_env_value
 
             save_env_value("TENOR_API_KEY", "")
             raw = skill_view("gif-search")

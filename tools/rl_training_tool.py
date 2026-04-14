@@ -44,7 +44,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
-from hermes_constants import get_hermes_home
+from birkin_constants import get_birkin_home
 
 logger = logging.getLogger(__name__)
 
@@ -52,12 +52,12 @@ logger = logging.getLogger(__name__)
 # Path Configuration
 # ============================================================================
 
-# Path to tinker-atropos submodule (relative to hermes-agent root)
-HERMES_ROOT = Path(__file__).parent.parent
-TINKER_ATROPOS_ROOT = HERMES_ROOT / "tinker-atropos"
+# Path to tinker-atropos submodule (relative to birkin-agent root)
+BIRKIN_ROOT = Path(__file__).parent.parent
+TINKER_ATROPOS_ROOT = BIRKIN_ROOT / "tinker-atropos"
 ENVIRONMENTS_DIR = TINKER_ATROPOS_ROOT / "tinker_atropos" / "environments"
 CONFIGS_DIR = TINKER_ATROPOS_ROOT / "configs"
-LOGS_DIR = get_hermes_home() / "logs" / "rl_training"
+LOGS_DIR = get_birkin_home() / "logs" / "rl_training"
 
 def _ensure_logs_dir():
     """Lazily create logs directory on first use (avoid side effects at import time)."""
@@ -733,7 +733,7 @@ async def rl_start_training() -> str:
     # Check API keys
     if not os.getenv("TINKER_API_KEY"):
         return json.dumps({
-            "error": "TINKER_API_KEY not set. Add it to ~/.hermes/.env",
+            "error": "TINKER_API_KEY not set. Add it to ~/.birkin/.env",
         }, indent=2)
     
     # Find environment file

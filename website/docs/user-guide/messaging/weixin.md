@@ -1,12 +1,12 @@
 ---
 sidebar_position: 15
 title: "Weixin (WeChat)"
-description: "Connect Hermes Agent to personal WeChat accounts via the iLink Bot API"
+description: "Connect Birkin to personal WeChat accounts via the iLink Bot API"
 ---
 
 # Weixin (WeChat)
 
-Connect Hermes to [WeChat](https://weixin.qq.com/) (微信), Tencent's personal messaging platform. The adapter uses Tencent's **iLink Bot API** for personal WeChat accounts — this is distinct from WeCom (Enterprise WeChat). Messages are delivered via long-polling, so no public endpoint or webhook is required.
+Connect Birkin to [WeChat](https://weixin.qq.com/) (微信), Tencent's personal messaging platform. The adapter uses Tencent's **iLink Bot API** for personal WeChat accounts — this is distinct from WeCom (Enterprise WeChat). Messages are delivered via long-polling, so no public endpoint or webhook is required.
 
 :::info
 This adapter is for **personal WeChat accounts** (微信). If you need enterprise/corporate WeChat, see the [WeCom adapter](./wecom.md) instead.
@@ -33,7 +33,7 @@ pip install qrcode
 The easiest way to connect your WeChat account is through the interactive setup:
 
 ```bash
-hermes gateway setup
+birkin gateway setup
 ```
 
 Select **Weixin** when prompted. The wizard will:
@@ -42,7 +42,7 @@ Select **Weixin** when prompted. The wizard will:
 2. Display the QR code in your terminal (or provide a URL)
 3. Wait for you to scan the QR code with the WeChat mobile app
 4. Prompt you to confirm the login on your phone
-5. Save the account credentials automatically to `~/.hermes/weixin/accounts/`
+5. Save the account credentials automatically to `~/.birkin/weixin/accounts/`
 
 Once confirmed, you'll see a message like:
 
@@ -54,7 +54,7 @@ The wizard stores the `account_id`, `token`, and `base_url` so you don't need to
 
 ### 2. Configure Environment Variables
 
-After initial QR login, set at minimum the account ID in `~/.hermes/.env`:
+After initial QR login, set at minimum the account ID in `~/.birkin/.env`:
 
 ```bash
 WEIXIN_ACCOUNT_ID=your-account-id
@@ -77,7 +77,7 @@ WEIXIN_HOME_CHANNEL_NAME=Home
 ### 3. Start the Gateway
 
 ```bash
-hermes gateway
+birkin gateway
 ```
 
 The adapter will restore saved credentials, connect to the iLink API, and begin long-polling for messages.
@@ -85,7 +85,7 @@ The adapter will restore saved credentials, connect to the iLink API, and begin 
 ## Features
 
 - **Long-poll transport** — no public endpoint, webhook, or WebSocket needed
-- **QR code login** — scan-to-connect setup via `hermes gateway setup`
+- **QR code login** — scan-to-connect setup via `birkin gateway setup`
 - **DM and group messaging** — configurable access policies
 - **Media support** — images, video, files, and voice messages
 - **AES-128-ECB encrypted CDN** — automatic encryption/decryption for all media transfers
@@ -197,7 +197,7 @@ All outbound media goes through the encrypted CDN upload flow:
 
 The iLink Bot API requires a `context_token` to be echoed back with each outbound message for a given peer. The adapter maintains a disk-backed context token store:
 
-- Tokens are saved per account+peer to `~/.hermes/weixin/accounts/<account_id>.context-tokens.json`
+- Tokens are saved per account+peer to `~/.birkin/weixin/accounts/<account_id>.context-tokens.json`
 - On startup, previously saved tokens are restored
 - Every inbound message updates the stored token for that sender
 - Outbound messages automatically include the latest context token
@@ -284,10 +284,10 @@ Only one Weixin gateway instance can use a given token at a time. The adapter ac
 | Problem | Fix |
 |---------|-----|
 | `Weixin startup failed: aiohttp and cryptography are required` | Install both: `pip install aiohttp cryptography` |
-| `Weixin startup failed: WEIXIN_TOKEN is required` | Run `hermes gateway setup` to complete QR login, or set `WEIXIN_TOKEN` manually |
-| `Weixin startup failed: WEIXIN_ACCOUNT_ID is required` | Set `WEIXIN_ACCOUNT_ID` in your `.env` or run `hermes gateway setup` |
-| `Another local Hermes gateway is already using this Weixin token` | Stop the other gateway instance first — only one poller per token is allowed |
-| Session expired (`errcode=-14`) | Your login session has expired. Re-run `hermes gateway setup` to scan a new QR code |
+| `Weixin startup failed: WEIXIN_TOKEN is required` | Run `birkin gateway setup` to complete QR login, or set `WEIXIN_TOKEN` manually |
+| `Weixin startup failed: WEIXIN_ACCOUNT_ID is required` | Set `WEIXIN_ACCOUNT_ID` in your `.env` or run `birkin gateway setup` |
+| `Another local Birkin gateway is already using this Weixin token` | Stop the other gateway instance first — only one poller per token is allowed |
+| Session expired (`errcode=-14`) | Your login session has expired. Re-run `birkin gateway setup` to scan a new QR code |
 | QR code expired during setup | The QR auto-refreshes up to 3 times. If it keeps expiring, check your network connection |
 | Bot doesn't respond to DMs | Check `WEIXIN_DM_POLICY` — if set to `allowlist`, the sender must be in `WEIXIN_ALLOWED_USERS` |
 | Bot ignores group messages | Group policy defaults to `disabled`. Set `WEIXIN_GROUP_POLICY=open` or `allowlist` |

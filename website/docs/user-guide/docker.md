@@ -1,30 +1,30 @@
 ---
 sidebar_position: 7
 title: "Docker"
-description: "Running Hermes Agent in Docker and using Docker as a terminal backend"
+description: "Running Birkin in Docker and using Docker as a terminal backend"
 ---
 
-# Hermes Agent — Docker
+# Birkin — Docker
 
-There are two distinct ways Docker intersects with Hermes Agent:
+There are two distinct ways Docker intersects with Birkin:
 
-1. **Running Hermes IN Docker** — the agent itself runs inside a container (this page's primary focus)
+1. **Running Birkin IN Docker** — the agent itself runs inside a container (this page's primary focus)
 2. **Docker as a terminal backend** — the agent runs on your host but executes commands inside a Docker sandbox (see [Configuration → terminal.backend](./configuration.md))
 
 This page covers option 1. The container stores all user data (config, API keys, sessions, skills, memories) in a single directory mounted from the host at `/opt/data`. The image itself is stateless and can be upgraded by pulling a new version without losing any configuration.
 
 ## Quick start
 
-If this is your first time running Hermes Agent, create a data directory on the host and start the container interactively to run the setup wizard:
+If this is your first time running Birkin, create a data directory on the host and start the container interactively to run the setup wizard:
 
 ```sh
-mkdir -p ~/.hermes
+mkdir -p ~/.birkin
 docker run -it --rm \
-  -v ~/.hermes:/opt/data \
-  nousresearch/hermes-agent setup
+  -v ~/.birkin:/opt/data \
+  nousresearch/birkin-agent setup
 ```
 
-This drops you into the setup wizard, which will prompt you for your API keys and write them to `~/.hermes/.env`. You only need to do this once. It is highly recommended to set up a chat system for the gateway to work with at this point.
+This drops you into the setup wizard, which will prompt you for your API keys and write them to `~/.birkin/.env`. You only need to do this once. It is highly recommended to set up a chat system for the gateway to work with at this point.
 
 ## Running in gateway mode
 
@@ -32,10 +32,10 @@ Once configured, run the container in the background as a persistent gateway (Te
 
 ```sh
 docker run -d \
-  --name hermes \
+  --name birkin \
   --restart unless-stopped \
-  -v ~/.hermes:/opt/data \
-  nousresearch/hermes-agent gateway run
+  -v ~/.birkin:/opt/data \
+  nousresearch/birkin-agent gateway run
 ```
 
 ## Running interactively (CLI chat)
@@ -44,18 +44,18 @@ To open an interactive chat session against a running data directory:
 
 ```sh
 docker run -it --rm \
-  -v ~/.hermes:/opt/data \
-  nousresearch/hermes-agent
+  -v ~/.birkin:/opt/data \
+  nousresearch/birkin-agent
 ```
 
 ## Persistent volumes
 
-The `/opt/data` volume is the single source of truth for all Hermes state. It maps to your host's `~/.hermes/` directory and contains:
+The `/opt/data` volume is the single source of truth for all Birkin state. It maps to your host's `~/.birkin/` directory and contains:
 
 | Path | Contents |
 |------|----------|
 | `.env` | API keys and secrets |
-| `config.yaml` | All Hermes configuration |
+| `config.yaml` | All Birkin configuration |
 | `SOUL.md` | Agent personality/identity |
 | `sessions/` | Conversation history |
 | `memories/` | Persistent memory store |
@@ -66,7 +66,7 @@ The `/opt/data` volume is the single source of truth for all Hermes state. It ma
 | `skins/` | Custom CLI skins |
 
 :::warning
-Never run two Hermes containers against the same data directory simultaneously — session files and memory stores are not designed for concurrent access.
+Never run two Birkin containers against the same data directory simultaneously — session files and memory stores are not designed for concurrent access.
 :::
 
 ## Environment variable forwarding
@@ -75,10 +75,10 @@ API keys are read from `/opt/data/.env` inside the container. You can also pass 
 
 ```sh
 docker run -it --rm \
-  -v ~/.hermes:/opt/data \
+  -v ~/.birkin:/opt/data \
   -e ANTHROPIC_API_KEY="sk-ant-..." \
   -e OPENAI_API_KEY="sk-..." \
-  nousresearch/hermes-agent
+  nousresearch/birkin-agent
 ```
 
 Direct `-e` flags override values from `.env`. This is useful for CI/CD or secrets-manager integrations where you don't want keys on disk.
@@ -90,13 +90,13 @@ For persistent gateway deployment, a `docker-compose.yaml` is convenient:
 ```yaml
 version: "3.8"
 services:
-  hermes:
-    image: nousresearch/hermes-agent:latest
-    container_name: hermes
+  birkin:
+    image: nousresearch/birkin-agent:latest
+    container_name: birkin
     restart: unless-stopped
     command: gateway run
     volumes:
-      - ~/.hermes:/opt/data
+      - ~/.birkin:/opt/data
     # Uncomment to forward specific env vars instead of using .env file:
     # environment:
     #   - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
@@ -109,11 +109,11 @@ services:
           cpus: "2.0"
 ```
 
-Start with `docker compose up -d` and view logs with `docker compose logs -f hermes`.
+Start with `docker compose up -d` and view logs with `docker compose logs -f birkin`.
 
 ## Resource limits
 
-The Hermes container needs moderate resources. Recommended minimums:
+The Birkin container needs moderate resources. Recommended minimums:
 
 | Resource | Minimum | Recommended |
 |----------|---------|-------------|
@@ -127,18 +127,18 @@ Set limits in Docker:
 
 ```sh
 docker run -d \
-  --name hermes \
+  --name birkin \
   --restart unless-stopped \
   --memory=4g --cpus=2 \
-  -v ~/.hermes:/opt/data \
-  nousresearch/hermes-agent gateway run
+  -v ~/.birkin:/opt/data \
+  nousresearch/birkin-agent gateway run
 ```
 
 ## What the Dockerfile does
 
 The official image is based on `debian:13.4` and includes:
 
-- Python 3 with all Hermes dependencies (`pip install -e ".[all]"`)
+- Python 3 with all Birkin dependencies (`pip install -e ".[all]"`)
 - Node.js + npm (for browser automation and WhatsApp bridge)
 - Playwright with Chromium (`npx playwright install --with-deps chromium`)
 - ripgrep and ffmpeg as system utilities
@@ -150,20 +150,20 @@ The entrypoint script (`docker/entrypoint.sh`) bootstraps the data volume on fir
 - Copies default `config.yaml` if missing
 - Copies default `SOUL.md` if missing
 - Syncs bundled skills using a manifest-based approach (preserves user edits)
-- Then runs `hermes` with whatever arguments you pass
+- Then runs `birkin` with whatever arguments you pass
 
 ## Upgrading
 
 Pull the latest image and recreate the container. Your data directory is untouched.
 
 ```sh
-docker pull nousresearch/hermes-agent:latest
-docker rm -f hermes
+docker pull nousresearch/birkin-agent:latest
+docker rm -f birkin
 docker run -d \
-  --name hermes \
+  --name birkin \
   --restart unless-stopped \
-  -v ~/.hermes:/opt/data \
-  nousresearch/hermes-agent gateway run
+  -v ~/.birkin:/opt/data \
+  nousresearch/birkin-agent gateway run
 ```
 
 Or with Docker Compose:
@@ -175,7 +175,7 @@ docker compose up -d
 
 ## Skills and credential files
 
-When using Docker as the execution environment (not the methods above, but when the agent runs commands inside a Docker sandbox), Hermes automatically bind-mounts the skills directory (`~/.hermes/skills/`) and any credential files declared by skills into the container as read-only volumes. This means skill scripts, templates, and references are available inside the sandbox without manual configuration.
+When using Docker as the execution environment (not the methods above, but when the agent runs commands inside a Docker sandbox), Birkin automatically bind-mounts the skills directory (`~/.birkin/skills/`) and any credential files declared by skills into the container as read-only volumes. This means skill scripts, templates, and references are available inside the sandbox without manual configuration.
 
 The same syncing happens for SSH and Modal backends — skills and credential files are uploaded via rsync or the Modal mount API before each command.
 
@@ -183,16 +183,16 @@ The same syncing happens for SSH and Modal backends — skills and credential fi
 
 ### Container exits immediately
 
-Check logs: `docker logs hermes`. Common causes:
+Check logs: `docker logs birkin`. Common causes:
 - Missing or invalid `.env` file — run interactively first to complete setup
 - Port conflicts if running with exposed ports
 
 ### "Permission denied" errors
 
-The container runs as root by default. If your host `~/.hermes/` was created by a non-root user, permissions should work. If you get errors, ensure the data directory is writable:
+The container runs as root by default. If your host `~/.birkin/` was created by a non-root user, permissions should work. If you get errors, ensure the data directory is writable:
 
 ```sh
-chmod -R 755 ~/.hermes
+chmod -R 755 ~/.birkin
 ```
 
 ### Browser tools not working
@@ -201,10 +201,10 @@ Playwright needs shared memory. Add `--shm-size=1g` to your Docker run command:
 
 ```sh
 docker run -d \
-  --name hermes \
+  --name birkin \
   --shm-size=1g \
-  -v ~/.hermes:/opt/data \
-  nousresearch/hermes-agent gateway run
+  -v ~/.birkin:/opt/data \
+  nousresearch/birkin-agent gateway run
 ```
 
 ### Gateway not reconnecting after network issues
@@ -212,13 +212,13 @@ docker run -d \
 The `--restart unless-stopped` flag handles most transient failures. If the gateway is stuck, restart the container:
 
 ```sh
-docker restart hermes
+docker restart birkin
 ```
 
 ### Checking container health
 
 ```sh
-docker logs --tail 50 hermes          # Recent logs
-docker run -it --rm nousresearch/hermes-agent:latest version     # Verify version
-docker stats hermes                    # Resource usage
+docker logs --tail 50 birkin          # Recent logs
+docker run -it --rm nousresearch/birkin-agent:latest version     # Verify version
+docker stats birkin                    # Resource usage
 ```

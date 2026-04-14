@@ -2,12 +2,12 @@
 sidebar_position: 8
 sidebar_label: "SMS (Twilio)"
 title: "SMS (Twilio)"
-description: "Set up Hermes Agent as an SMS chatbot via Twilio"
+description: "Set up Birkin as an SMS chatbot via Twilio"
 ---
 
 # SMS Setup (Twilio)
 
-Hermes connects to SMS through the [Twilio](https://www.twilio.com/) API. People text your Twilio phone number and get AI responses back — same conversational experience as Telegram or Discord, but over standard text messages.
+Birkin connects to SMS through the [Twilio](https://www.twilio.com/) API. People text your Twilio phone number and get AI responses back — same conversational experience as Telegram or Discord, but over standard text messages.
 
 :::info Shared Credentials
 The SMS gateway shares credentials with the optional [telephony skill](/docs/reference/skills-catalog). If you've already set up Twilio for voice calls or one-off SMS, the gateway works with the same `TWILIO_ACCOUNT_SID`, `TWILIO_AUTH_TOKEN`, and `TWILIO_PHONE_NUMBER`.
@@ -20,7 +20,7 @@ The SMS gateway shares credentials with the optional [telephony skill](/docs/ref
 - **Twilio account** — [Sign up at twilio.com](https://www.twilio.com/try-twilio) (free trial available)
 - **A Twilio phone number** with SMS capability
 - **A publicly accessible server** — Twilio sends webhooks to your server when SMS arrives
-- **aiohttp** — `pip install 'hermes-agent[sms]'`
+- **aiohttp** — `pip install 'birkin-agent[sms]'`
 
 ---
 
@@ -32,19 +32,19 @@ The SMS gateway shares credentials with the optional [telephony skill](/docs/ref
 
 ---
 
-## Step 2: Configure Hermes
+## Step 2: Configure Birkin
 
 ### Interactive setup (recommended)
 
 ```bash
-hermes gateway setup
+birkin gateway setup
 ```
 
 Select **SMS (Twilio)** from the platform list. The wizard will prompt for your credentials.
 
 ### Manual setup
 
-Add to `~/.hermes/.env`:
+Add to `~/.birkin/.env`:
 
 ```bash
 TWILIO_ACCOUNT_SID=ACxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
@@ -71,7 +71,7 @@ Twilio needs to know where to send incoming messages. In the [Twilio Console](ht
    - **HTTP Method**: `POST`
 
 :::tip Exposing Your Webhook
-If you're running Hermes locally, use a tunnel to expose the webhook:
+If you're running Birkin locally, use a tunnel to expose the webhook:
 
 ```bash
 # Using cloudflared
@@ -102,7 +102,7 @@ SMS_WEBHOOK_PORT=3000
 ## Step 4: Start the Gateway
 
 ```bash
-hermes gateway
+birkin gateway
 ```
 
 You should see:
@@ -113,7 +113,7 @@ You should see:
 
 If you see `Refusing to start: SMS_WEBHOOK_URL is required`, set `SMS_WEBHOOK_URL` to the public URL configured in your Twilio Console (see Step 3).
 
-Text your Twilio number — Hermes will respond via SMS.
+Text your Twilio number — Birkin will respond via SMS.
 
 ---
 
@@ -148,7 +148,7 @@ Text your Twilio number — Hermes will respond via SMS.
 
 ### Webhook signature validation
 
-Hermes validates that inbound webhooks genuinely originate from Twilio by verifying the `X-Twilio-Signature` header (HMAC-SHA1). This prevents attackers from injecting forged messages.
+Birkin validates that inbound webhooks genuinely originate from Twilio by verifying the `X-Twilio-Signature` header (HMAC-SHA1). This prevents attackers from injecting forged messages.
 
 **`SMS_WEBHOOK_URL` is required.** Set it to the public URL configured in your Twilio Console. The adapter will refuse to start without it.
 
@@ -190,7 +190,7 @@ SMS has no built-in encryption. Don't use SMS for sensitive operations unless yo
 
 1. Check `TWILIO_PHONE_NUMBER` is set correctly (E.164 format with `+`)
 2. Verify your Twilio account has SMS-capable numbers
-3. Check Hermes gateway logs for Twilio API errors
+3. Check Birkin gateway logs for Twilio API errors
 
 ### Webhook port conflicts
 

@@ -13,9 +13,9 @@ from dataclasses import dataclass, fields, replace
 from datetime import datetime
 from typing import Any, Dict, List, Optional, Set, Tuple
 
-from hermes_constants import OPENROUTER_BASE_URL
-import hermes_cli.auth as auth_mod
-from hermes_cli.auth import (
+from birkin_constants import OPENROUTER_BASE_URL
+import birkin_cli.auth as auth_mod
+from birkin_cli.auth import (
     CODEX_ACCESS_TOKEN_REFRESH_SKEW_SECONDS,
     DEFAULT_AGENT_KEY_MIN_TTL_SECONDS,
     PROVIDER_REGISTRY,
@@ -40,7 +40,7 @@ logger = logging.getLogger(__name__)
 def _load_config_safe() -> Optional[dict]:
     """Load config.yaml, returning None on any error."""
     try:
-        from hermes_cli.config import load_config
+        from birkin_cli.config import load_config
 
         return load_config()
     except Exception:
@@ -290,7 +290,7 @@ def _iter_custom_providers(config: Optional[dict] = None):
     if not isinstance(custom_providers, list):
         # Fall back to the v12+ providers dict via the compatibility layer
         try:
-            from hermes_cli.config import get_compatible_custom_providers
+            from birkin_cli.config import get_compatible_custom_providers
 
             custom_providers = get_compatible_custom_providers(config)
         except Exception:
@@ -461,7 +461,7 @@ class CredentialPool:
         """Sync an openai-codex pool entry from ~/.codex/auth.json if tokens differ.
 
         OpenAI OAuth refresh tokens are single-use and rotate on every refresh.
-        When the Codex CLI (or another Hermes profile) refreshes its token,
+        When the Codex CLI (or another Birkin profile) refreshes its token,
         the pool entry's refresh_token becomes stale.  This method detects that
         by comparing against ~/.codex/auth.json and syncing the fresh pair.
         """
@@ -563,7 +563,7 @@ class CredentialPool:
 
                 refreshed = refresh_anthropic_oauth_pure(
                     entry.refresh_token,
-                    use_json=entry.source.endswith("hermes_pkce"),
+                    use_json=entry.source.endswith("birkin_pkce"),
                 )
                 updated = replace(
                     entry,
@@ -586,7 +586,7 @@ class CredentialPool:
                         logger.debug("Failed to write refreshed token to credentials file: %s", wexc)
             elif self.provider == "openai-codex":
                 # Proactively sync from ~/.codex/auth.json before refresh.
-                # The Codex CLI (or another Hermes profile) may have already
+                # The Codex CLI (or another Birkin profile) may have already
                 # consumed our refresh_token.  Syncing first avoids a
                 # "refresh_token_reused" error when the CLI has a newer pair.
                 synced = self._sync_codex_entry_from_cli(entry)
@@ -648,7 +648,7 @@ class CredentialPool:
                         from agent.anthropic_adapter import refresh_anthropic_oauth_pure
                         refreshed = refresh_anthropic_oauth_pure(
                             synced.refresh_token,
-                            use_json=synced.source.endswith("hermes_pkce"),
+                            use_json=synced.source.endswith("birkin_pkce"),
                         )
                         updated = replace(
                             synced,
@@ -783,7 +783,7 @@ class CredentialPool:
         for entry in self._entries:
             # For anthropic claude_code entries, sync from the credentials file
             # before any status/refresh checks. This picks up tokens refreshed
-            # by other processes (Claude Code CLI, other Hermes profiles).
+            # by other processes (Claude Code CLI, other Birkin profiles).
             if (self.provider == "anthropic" and entry.source == "claude_code"
                     and entry.last_status == STATUS_EXHAUSTED):
                 synced = self._sync_anthropic_entry_from_credentials_file(entry)
@@ -792,7 +792,7 @@ class CredentialPool:
                     cleared_any = True
             # For openai-codex entries, sync from ~/.codex/auth.json before
             # any status/refresh checks.  This picks up tokens refreshed by
-            # the Codex CLI or another Hermes profile.
+            # the Codex CLI or another Birkin profile.
             if (self.provider == "openai-codex"
                     and entry.last_status == STATUS_EXHAUSTED
                     and entry.refresh_token):
@@ -1053,7 +1053,7 @@ def _normalize_pool_priorities(provider: str, entries: List[PooledCredential]) -
     source_rank = {
         "env:ANTHROPIC_TOKEN": 0,
         "env:CLAUDE_CODE_OAUTH_TOKEN": 1,
-        "hermes_pkce": 2,
+        "birkin_pkce": 2,
         "claude_code": 3,
         "env:ANTHROPIC_API_KEY": 4,
     }
@@ -1086,27 +1086,27 @@ def _seed_from_singletons(provider: str, entries: List[PooledCredential]) -> Tup
     auth_store = _load_auth_store()
 
     if provider == "anthropic":
-        # Only auto-discover external credentials (Claude Code, Hermes PKCE)
+        # Only auto-discover external credentials (Claude Code, Birkin PKCE)
         # when the user has explicitly configured anthropic as their provider.
         # Without this gate, auxiliary client fallback chains silently read
         # ~/.claude/.credentials.json without user consent.  See PR #4210.
         try:
-            from hermes_cli.auth import is_provider_explicitly_configured
+            from birkin_cli.auth import is_provider_explicitly_configured
             if not is_provider_explicitly_configured("anthropic"):
                 return changed, active_sources
         except ImportError:
             pass
 
-        from agent.anthropic_adapter import read_claude_code_credentials, read_hermes_oauth_credentials
+        from agent.anthropic_adapter import read_claude_code_credentials, read_birkin_oauth_credentials
 
         for source_name, creds in (
-            ("hermes_pkce", read_hermes_oauth_credentials()),
+            ("birkin_pkce", read_birkin_oauth_credentials()),
             ("claude_code", read_claude_code_credentials()),
         ):
             if creds and creds.get("accessToken"):
                 # Check if user explicitly removed this source
                 try:
-                    from hermes_cli.auth import is_source_suppressed
+                    from birkin_cli.auth import is_source_suppressed
                     if is_source_suppressed(provider, source_name):
                         continue
                 except ImportError:
@@ -1155,16 +1155,16 @@ def _seed_from_singletons(provider: str, entries: List[PooledCredential]) -> Tup
     elif provider == "openai-codex":
         state = _load_provider_state(auth_store, "openai-codex")
         tokens = state.get("tokens") if isinstance(state, dict) else None
-        # Fallback: import from Codex CLI (~/.codex/auth.json) if Hermes auth
+        # Fallback: import from Codex CLI (~/.codex/auth.json) if Birkin auth
         # store has no tokens.  This mirrors resolve_codex_runtime_credentials()
         # so that load_pool() and list_authenticated_providers() detect tokens
         # that only exist in the Codex CLI shared file.
         if not (isinstance(tokens, dict) and tokens.get("access_token")):
             try:
-                from hermes_cli.auth import _import_codex_cli_tokens, _save_codex_tokens
+                from birkin_cli.auth import _import_codex_cli_tokens, _save_codex_tokens
                 cli_tokens = _import_codex_cli_tokens()
                 if cli_tokens:
-                    logger.info("Importing Codex CLI tokens into Hermes auth store.")
+                    logger.info("Importing Codex CLI tokens into Birkin auth store.")
                     _save_codex_tokens(cli_tokens)
                     # Re-read state after import
                     auth_store = _load_auth_store()
@@ -1265,7 +1265,7 @@ def _prune_stale_seeded_entries(entries: List[PooledCredential], active_sources:
         or entry.source in active_sources
         or not (
             entry.source.startswith("env:")
-            or entry.source in {"claude_code", "hermes_pkce"}
+            or entry.source in {"claude_code", "birkin_pkce"}
         )
     ]
     if len(retained) == len(entries):

@@ -281,7 +281,7 @@ class TestTelegramApprovalCallback:
         context = MagicMock()
 
         with patch("tools.approval.resolve_gateway_approval") as mock_resolve:
-            with patch("hermes_constants.get_hermes_home", return_value=Path("/tmp/test")):
+            with patch("birkin_constants.get_birkin_home", return_value=Path("/tmp/test")):
                 try:
                     await adapter._handle_callback_query(update, context)
                 except Exception:

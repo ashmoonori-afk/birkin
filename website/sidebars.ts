@@ -17,7 +17,7 @@ const sidebars: SidebarsConfig = {
     },
     {
       type: 'category',
-      label: 'Using Hermes',
+      label: 'Using Birkin',
       collapsed: true,
       items: [
         'user-guide/cli',
@@ -148,10 +148,10 @@ const sidebars: SidebarsConfig = {
         'guides/daily-briefing-bot',
         'guides/team-telegram-assistant',
         'guides/python-library',
-        'guides/use-mcp-with-hermes',
-        'guides/use-soul-with-hermes',
-        'guides/use-voice-mode-with-hermes',
-        'guides/build-a-hermes-plugin',
+        'guides/use-mcp-with-birkin',
+        'guides/use-soul-with-birkin',
+        'guides/use-voice-mode-with-birkin',
+        'guides/build-a-birkin-plugin',
         'guides/automate-with-cron',
         'guides/cron-troubleshooting',
         'guides/work-with-skills',

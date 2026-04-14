@@ -139,7 +139,7 @@ class BrowserbaseProvider(CloudBrowserProvider):
             )
 
         session_data = response.json()
-        session_name = f"hermes_{task_id}_{uuid.uuid4().hex[:8]}"
+        session_name = f"birkin_{task_id}_{uuid.uuid4().hex[:8]}"
 
         if enable_proxies and not proxies_fallback:
             features_enabled["proxies"] = True

@@ -1,8 +1,8 @@
 """
-Session-scoped context variables for the Hermes gateway.
+Session-scoped context variables for the Birkin gateway.
 
 Replaces the previous ``os.environ``-based session state
-(``HERMES_SESSION_PLATFORM``, ``HERMES_SESSION_CHAT_ID``, etc.) with
+(``BIRKIN_SESSION_PLATFORM``, ``BIRKIN_SESSION_CHAT_ID``, etc.) with
 Python's ``contextvars.ContextVar``.
 
 **Why this matters**
@@ -10,7 +10,7 @@ Python's ``contextvars.ContextVar``.
 The gateway processes messages concurrently via ``asyncio``.  When two
 messages arrive at the same time the old code did:
 
-    os.environ["HERMES_SESSION_THREAD_ID"] = str(context.source.thread_id)
+    os.environ["BIRKIN_SESSION_THREAD_ID"] = str(context.source.thread_id)
 
 Because ``os.environ`` is *process-global*, Message A's value was
 silently overwritten by Message B before Message A's agent finished
@@ -24,16 +24,16 @@ so concurrent messages never interfere.
 **Backward compatibility**
 
 The public helper ``get_session_env(name, default="")`` mirrors the old
-``os.getenv("HERMES_SESSION_*", ...)`` calls.  Existing tool code only
+``os.getenv("BIRKIN_SESSION_*", ...)`` calls.  Existing tool code only
 needs to replace the import + call site:
 
     # before
     import os
-    platform = os.getenv("HERMES_SESSION_PLATFORM", "")
+    platform = os.getenv("BIRKIN_SESSION_PLATFORM", "")
 
     # after
     from gateway.session_context import get_session_env
-    platform = get_session_env("HERMES_SESSION_PLATFORM", "")
+    platform = get_session_env("BIRKIN_SESSION_PLATFORM", "")
 """
 
 from contextvars import ContextVar
@@ -42,22 +42,22 @@ from contextvars import ContextVar
 # Per-task session variables
 # ---------------------------------------------------------------------------
 
-_SESSION_PLATFORM: ContextVar[str] = ContextVar("HERMES_SESSION_PLATFORM", default="")
-_SESSION_CHAT_ID: ContextVar[str] = ContextVar("HERMES_SESSION_CHAT_ID", default="")
-_SESSION_CHAT_NAME: ContextVar[str] = ContextVar("HERMES_SESSION_CHAT_NAME", default="")
-_SESSION_THREAD_ID: ContextVar[str] = ContextVar("HERMES_SESSION_THREAD_ID", default="")
-_SESSION_USER_ID: ContextVar[str] = ContextVar("HERMES_SESSION_USER_ID", default="")
-_SESSION_USER_NAME: ContextVar[str] = ContextVar("HERMES_SESSION_USER_NAME", default="")
-_SESSION_KEY: ContextVar[str] = ContextVar("HERMES_SESSION_KEY", default="")
+_SESSION_PLATFORM: ContextVar[str] = ContextVar("BIRKIN_SESSION_PLATFORM", default="")
+_SESSION_CHAT_ID: ContextVar[str] = ContextVar("BIRKIN_SESSION_CHAT_ID", default="")
+_SESSION_CHAT_NAME: ContextVar[str] = ContextVar("BIRKIN_SESSION_CHAT_NAME", default="")
+_SESSION_THREAD_ID: ContextVar[str] = ContextVar("BIRKIN_SESSION_THREAD_ID", default="")
+_SESSION_USER_ID: ContextVar[str] = ContextVar("BIRKIN_SESSION_USER_ID", default="")
+_SESSION_USER_NAME: ContextVar[str] = ContextVar("BIRKIN_SESSION_USER_NAME", default="")
+_SESSION_KEY: ContextVar[str] = ContextVar("BIRKIN_SESSION_KEY", default="")
 
 _VAR_MAP = {
-    "HERMES_SESSION_PLATFORM": _SESSION_PLATFORM,
-    "HERMES_SESSION_CHAT_ID": _SESSION_CHAT_ID,
-    "HERMES_SESSION_CHAT_NAME": _SESSION_CHAT_NAME,
-    "HERMES_SESSION_THREAD_ID": _SESSION_THREAD_ID,
-    "HERMES_SESSION_USER_ID": _SESSION_USER_ID,
-    "HERMES_SESSION_USER_NAME": _SESSION_USER_NAME,
-    "HERMES_SESSION_KEY": _SESSION_KEY,
+    "BIRKIN_SESSION_PLATFORM": _SESSION_PLATFORM,
+    "BIRKIN_SESSION_CHAT_ID": _SESSION_CHAT_ID,
+    "BIRKIN_SESSION_CHAT_NAME": _SESSION_CHAT_NAME,
+    "BIRKIN_SESSION_THREAD_ID": _SESSION_THREAD_ID,
+    "BIRKIN_SESSION_USER_ID": _SESSION_USER_ID,
+    "BIRKIN_SESSION_USER_NAME": _SESSION_USER_NAME,
+    "BIRKIN_SESSION_KEY": _SESSION_KEY,
 }
 
 
@@ -108,9 +108,9 @@ def clear_session_vars(tokens: list) -> None:
 
 
 def get_session_env(name: str, default: str = "") -> str:
-    """Read a session context variable by its legacy ``HERMES_SESSION_*`` name.
+    """Read a session context variable by its legacy ``BIRKIN_SESSION_*`` name.
 
-    Drop-in replacement for ``os.getenv("HERMES_SESSION_*", default)``.
+    Drop-in replacement for ``os.getenv("BIRKIN_SESSION_*", default)``.
 
     Resolution order:
     1. Context variable (set by the gateway for concurrency-safe access)

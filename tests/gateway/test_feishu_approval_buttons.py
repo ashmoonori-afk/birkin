@@ -117,7 +117,7 @@ class TestFeishuExecApproval:
         # Check buttons
         actions = card["elements"][1]["actions"]
         assert len(actions) == 4
-        action_names = [a["value"]["hermes_action"] for a in actions]
+        action_names = [a["value"]["birkin_action"] for a in actions]
         assert action_names == [
             "approve_once", "approve_session", "approve_always", "deny"
         ]
@@ -219,7 +219,7 @@ class TestFeishuApprovalCallback:
         }
 
         data = _make_card_action_data(
-            action_value={"hermes_action": "approve_once", "approval_id": 1},
+            action_value={"birkin_action": "approve_once", "approval_id": 1},
         )
 
         with (
@@ -248,7 +248,7 @@ class TestFeishuApprovalCallback:
         }
 
         data = _make_card_action_data(
-            action_value={"hermes_action": "deny", "approval_id": 2},
+            action_value={"birkin_action": "deny", "approval_id": 2},
             token="tok_deny",
         )
 
@@ -275,7 +275,7 @@ class TestFeishuApprovalCallback:
         }
 
         data = _make_card_action_data(
-            action_value={"hermes_action": "approve_session", "approval_id": 3},
+            action_value={"birkin_action": "approve_session", "approval_id": 3},
             token="tok_ses",
         )
 
@@ -302,7 +302,7 @@ class TestFeishuApprovalCallback:
         }
 
         data = _make_card_action_data(
-            action_value={"hermes_action": "approve_always", "approval_id": 4},
+            action_value={"birkin_action": "approve_always", "approval_id": 4},
             token="tok_alw",
         )
 
@@ -324,7 +324,7 @@ class TestFeishuApprovalCallback:
         # No state for approval_id 99 — already resolved
 
         data = _make_card_action_data(
-            action_value={"hermes_action": "approve_once", "approval_id": 99},
+            action_value={"birkin_action": "approve_once", "approval_id": 99},
             token="tok_gone",
         )
 

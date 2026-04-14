@@ -1,7 +1,7 @@
 ---
 sidebar_position: 3
 title: "Updating & Uninstalling"
-description: "How to update Hermes Agent to the latest version or uninstall it"
+description: "How to update Birkin to the latest version or uninstall it"
 ---
 
 # Updating & Uninstalling
@@ -11,18 +11,18 @@ description: "How to update Hermes Agent to the latest version or uninstall it"
 Update to the latest version with a single command:
 
 ```bash
-hermes update
+birkin update
 ```
 
 This pulls the latest code, updates dependencies, and prompts you to configure any new options that were added since your last update.
 
 :::tip
-`hermes update` automatically detects new configuration options and prompts you to add them. If you skipped that prompt, you can manually run `hermes config check` to see missing options, then `hermes config migrate` to interactively add them.
+`birkin update` automatically detects new configuration options and prompts you to add them. If you skipped that prompt, you can manually run `birkin config check` to see missing options, then `birkin config migrate` to interactively add them.
 :::
 
 ### What happens during an update
 
-When you run `hermes update`, the following steps occur:
+When you run `birkin update`, the following steps occur:
 
 1. **Git pull** — pulls the latest code from the `main` branch and updates submodules
 2. **Dependency install** — runs `uv pip install -e ".[all]"` to pick up new or changed dependencies
@@ -32,8 +32,8 @@ When you run `hermes update`, the following steps occur:
 Expected output looks like:
 
 ```
-$ hermes update
-Updating Hermes Agent...
+$ birkin update
+Updating Birkin...
 📥 Pulling latest code...
 Already up to date.  (or: Updating abc1234..def5678)
 📦 Updating dependencies...
@@ -42,33 +42,33 @@ Already up to date.  (or: Updating abc1234..def5678)
 ✅ Config is up to date  (or: Found 2 new options — running migration...)
 🔄 Restarting gateway service...
 ✅ Gateway restarted
-✅ Hermes Agent updated successfully!
+✅ Birkin updated successfully!
 ```
 
 ### Recommended Post-Update Validation
 
-`hermes update` handles the main update path, but a quick validation confirms everything landed cleanly:
+`birkin update` handles the main update path, but a quick validation confirms everything landed cleanly:
 
 1. `git status --short` — if the tree is unexpectedly dirty, inspect before continuing
-2. `hermes doctor` — checks config, dependencies, and service health
-3. `hermes --version` — confirm the version bumped as expected
-4. If you use the gateway: `hermes gateway status`
+2. `birkin doctor` — checks config, dependencies, and service health
+3. `birkin --version` — confirm the version bumped as expected
+4. If you use the gateway: `birkin gateway status`
 5. If `doctor` reports npm audit issues: run `npm audit fix` in the flagged directory
 
 :::warning Dirty working tree after update
-If `git status --short` shows unexpected changes after `hermes update`, stop and inspect them before continuing. This usually means local modifications were reapplied on top of the updated code, or a dependency step refreshed lockfiles.
+If `git status --short` shows unexpected changes after `birkin update`, stop and inspect them before continuing. This usually means local modifications were reapplied on top of the updated code, or a dependency step refreshed lockfiles.
 :::
 
 ### Checking your current version
 
 ```bash
-hermes version
+birkin version
 ```
 
-Compare against the latest release at the [GitHub releases page](https://github.com/NousResearch/hermes-agent/releases) or check for available updates:
+Compare against the latest release at the [GitHub releases page](https://github.com/NousResearch/birkin-agent/releases) or check for available updates:
 
 ```bash
-hermes update --check
+birkin update --check
 ```
 
 ### Updating from Messaging Platforms
@@ -86,7 +86,7 @@ This pulls the latest code, updates dependencies, and restarts the gateway. The 
 If you installed manually (not via the quick installer):
 
 ```bash
-cd /path/to/hermes-agent
+cd /path/to/birkin-agent
 export VIRTUAL_ENV="$(pwd)/venv"
 
 # Pull latest code and submodules
@@ -98,8 +98,8 @@ uv pip install -e ".[all]"
 uv pip install -e "./tinker-atropos"
 
 # Check for new config options
-hermes config check
-hermes config migrate   # Interactively add any missing options
+birkin config check
+birkin config migrate   # Interactively add any missing options
 ```
 
 ### Rollback instructions
@@ -107,7 +107,7 @@ hermes config migrate   # Interactively add any missing options
 If an update introduces a problem, you can roll back to a previous version:
 
 ```bash
-cd /path/to/hermes-agent
+cd /path/to/birkin-agent
 
 # List recent versions
 git log --oneline -10
@@ -118,7 +118,7 @@ git submodule update --init --recursive
 uv pip install -e ".[all]"
 
 # Restart the gateway if running
-hermes gateway restart
+birkin gateway restart
 ```
 
 To roll back to a specific release tag:
@@ -130,7 +130,7 @@ uv pip install -e ".[all]"
 ```
 
 :::warning
-Rolling back may cause config incompatibilities if new options were added. Run `hermes config check` after rolling back and remove any unrecognized options from `config.yaml` if you encounter errors.
+Rolling back may cause config incompatibilities if new options were added. Run `birkin config check` after rolling back and remove any unrecognized options from `config.yaml` if you encounter errors.
 :::
 
 ### Note for Nix users
@@ -139,10 +139,10 @@ If you installed via Nix flake, updates are managed through the Nix package mana
 
 ```bash
 # Update the flake input
-nix flake update hermes-agent
+nix flake update birkin-agent
 
 # Or rebuild with the latest
-nix profile upgrade hermes-agent
+nix profile upgrade birkin-agent
 ```
 
 Nix installations are immutable — rollback is handled by Nix's generation system:
@@ -158,24 +158,24 @@ See [Nix Setup](./nix-setup.md) for more details.
 ## Uninstalling
 
 ```bash
-hermes uninstall
+birkin uninstall
 ```
 
-The uninstaller gives you the option to keep your configuration files (`~/.hermes/`) for a future reinstall.
+The uninstaller gives you the option to keep your configuration files (`~/.birkin/`) for a future reinstall.
 
 ### Manual Uninstall
 
 ```bash
-rm -f ~/.local/bin/hermes
-rm -rf /path/to/hermes-agent
-rm -rf ~/.hermes            # Optional — keep if you plan to reinstall
+rm -f ~/.local/bin/birkin
+rm -rf /path/to/birkin-agent
+rm -rf ~/.birkin            # Optional — keep if you plan to reinstall
 ```
 
 :::info
 If you installed the gateway as a system service, stop and disable it first:
 ```bash
-hermes gateway stop
-# Linux: systemctl --user disable hermes-gateway
-# macOS: launchctl remove ai.hermes.gateway
+birkin gateway stop
+# Linux: systemctl --user disable birkin-gateway
+# macOS: launchctl remove ai.birkin.gateway
 ```
 :::

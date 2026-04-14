@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Google Workspace OAuth2 setup for Hermes Agent.
+"""Google Workspace OAuth2 setup for Birkin.
 
 Fully non-interactive — designed to be driven by the agent via terminal commands.
 The agent mediates between this script and the user (works on CLI, Telegram, Discord, etc.)
@@ -29,17 +29,17 @@ import sys
 from pathlib import Path
 
 try:
-    from hermes_constants import display_hermes_home, get_hermes_home
+    from birkin_constants import display_birkin_home, get_birkin_home
 except ModuleNotFoundError:
-    HERMES_AGENT_ROOT = Path(__file__).resolve().parents[4]
-    if HERMES_AGENT_ROOT.exists():
-        sys.path.insert(0, str(HERMES_AGENT_ROOT))
-    from hermes_constants import display_hermes_home, get_hermes_home
+    BIRKIN_AGENT_ROOT = Path(__file__).resolve().parents[4]
+    if BIRKIN_AGENT_ROOT.exists():
+        sys.path.insert(0, str(BIRKIN_AGENT_ROOT))
+    from birkin_constants import display_birkin_home, get_birkin_home
 
-HERMES_HOME = get_hermes_home()
-TOKEN_PATH = HERMES_HOME / "google_token.json"
-CLIENT_SECRET_PATH = HERMES_HOME / "google_client_secret.json"
-PENDING_AUTH_PATH = HERMES_HOME / "google_oauth_pending.json"
+BIRKIN_HOME = get_birkin_home()
+TOKEN_PATH = BIRKIN_HOME / "google_token.json"
+CLIENT_SECRET_PATH = BIRKIN_HOME / "google_client_secret.json"
+PENDING_AUTH_PATH = BIRKIN_HOME / "google_oauth_pending.json"
 
 SCOPES = [
     "https://www.googleapis.com/auth/gmail.readonly",
@@ -80,7 +80,7 @@ def _format_missing_scopes(missing_scopes: list[str]) -> str:
     return (
         "Token is valid but missing required Google Workspace scopes:\n"
         f"{bullets}\n"
-        "Run the Google Workspace setup again from this same Hermes profile to refresh consent."
+        "Run the Google Workspace setup again from this same Birkin profile to refresh consent."
     )
 
 
@@ -168,7 +168,7 @@ def check_auth():
 
 
 def store_client_secret(path: str):
-    """Copy and validate client_secret.json to Hermes home."""
+    """Copy and validate client_secret.json to Birkin home."""
     src = Path(path).expanduser().resolve()
     if not src.exists():
         print(f"ERROR: File not found: {src}")
@@ -333,7 +333,7 @@ def exchange_auth_code(code: str):
     TOKEN_PATH.write_text(json.dumps(token_payload, indent=2))
     PENDING_AUTH_PATH.unlink(missing_ok=True)
     print(f"OK: Authenticated. Token saved to {TOKEN_PATH}")
-    print(f"Profile-scoped token location: {display_hermes_home()}/google_token.json")
+    print(f"Profile-scoped token location: {display_birkin_home()}/google_token.json")
 
 
 def revoke():
@@ -369,7 +369,7 @@ def revoke():
 
 
 def main():
-    parser = argparse.ArgumentParser(description="Google Workspace OAuth setup for Hermes")
+    parser = argparse.ArgumentParser(description="Google Workspace OAuth setup for Birkin")
     group = parser.add_mutually_exclusive_group(required=True)
     group.add_argument("--check", action="store_true", help="Check if auth is valid (exit 0=yes, 1=no)")
     group.add_argument("--client-secret", metavar="PATH", help="Store OAuth client_secret.json")

@@ -78,6 +78,6 @@ let
         pythonPackageOverrides
       ]);
 in
-pythonSet.mkVirtualEnv "hermes-agent-env" {
-  hermes-agent = [ "all" ];
+pythonSet.mkVirtualEnv "birkin-agent-env" {
+  birkin-agent = [ "all" ];
 }

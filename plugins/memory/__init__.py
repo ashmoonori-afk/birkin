@@ -224,7 +224,7 @@ def _get_active_memory_provider() -> Optional[str]:
     no plugin loading.
     """
     try:
-        from hermes_cli.config import load_config
+        from birkin_cli.config import load_config
         config = load_config()
         return config.get("memory", {}).get("provider") or None
     except Exception:

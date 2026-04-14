@@ -31,7 +31,7 @@ def build_plan_path(
     Relative paths are intentional: file tools are task/backend-aware and resolve
     them against the active working directory for local, docker, ssh, modal,
     daytona, and similar terminal backends. That keeps the plan with the active
-    workspace instead of the Hermes host's global home directory.
+    workspace instead of the Birkin host's global home directory.
     """
     slug_source = (user_instruction or "").strip().splitlines()[0] if user_instruction else ""
     slug = _PLAN_SLUG_RE.sub("-", slug_source.lower()).strip("-")
@@ -39,7 +39,7 @@ def build_plan_path(
         slug = "-".join(part for part in slug.split("-")[:8] if part)[:48].strip("-")
     slug = slug or "conversation-plan"
     timestamp = (now or datetime.now()).strftime("%Y-%m-%d_%H%M%S")
-    return Path(".hermes") / "plans" / f"{timestamp}-{slug}.md"
+    return Path(".birkin") / "plans" / f"{timestamp}-{slug}.md"
 
 
 def _load_skill_payload(skill_identifier: str, task_id: str | None = None) -> tuple[dict[str, Any], Path | None, str] | None:
@@ -82,7 +82,7 @@ def _load_skill_payload(skill_identifier: str, task_id: str | None = None) -> tu
 def _inject_skill_config(loaded_skill: dict[str, Any], parts: list[str]) -> None:
     """Resolve and inject skill-declared config values into the message parts.
 
-    If the loaded skill's frontmatter declares ``metadata.hermes.config``
+    If the loaded skill's frontmatter declares ``metadata.birkin.config``
     entries, their current values (from config.yaml or defaults) are appended
     as a ``[Skill config: ...]`` block so the agent knows the configured values
     without needing to read config.yaml itself.
@@ -108,7 +108,7 @@ def _inject_skill_config(loaded_skill: dict[str, Any], parts: list[str]) -> None
         if not resolved:
             return
 
-        lines = ["", "[Skill config (from ~/.hermes/config.yaml):"]
+        lines = ["", "[Skill config (from ~/.birkin/config.yaml):"]
         for key, value in resolved.items():
             display_val = str(value) if value else "(not set)"
             lines.append(f"  {key} = {display_val}")
@@ -198,7 +198,7 @@ def _build_skill_message(
 
 
 def scan_skill_commands() -> Dict[str, Dict[str, Any]]:
-    """Scan ~/.hermes/skills/ and return a mapping of /command -> skill info.
+    """Scan ~/.birkin/skills/ and return a mapping of /command -> skill info.
 
     Returns:
         Dict mapping "/skill-name" to {name, description, skill_md_path, skill_dir}.

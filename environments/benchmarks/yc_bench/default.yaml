@@ -3,7 +3,7 @@
 # Long-horizon agent benchmark: agent plays CEO of an AI startup over
 # a simulated 1-3 year run, interacting via yc-bench CLI subcommands.
 #
-# Requires: pip install "hermes-agent[yc-bench]"
+# Requires: pip install "birkin-agent[yc-bench]"
 #
 # Usage:
 #   python environments/benchmarks/yc_bench/yc_bench_env.py evaluate \

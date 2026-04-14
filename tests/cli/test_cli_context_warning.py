@@ -9,24 +9,24 @@ import pytest
 
 @pytest.fixture
 def _isolate(tmp_path, monkeypatch):
-    """Isolate HERMES_HOME so tests don't touch real config."""
-    home = tmp_path / ".hermes"
+    """Isolate BIRKIN_HOME so tests don't touch real config."""
+    home = tmp_path / ".birkin"
     home.mkdir()
-    monkeypatch.setenv("HERMES_HOME", str(home))
+    monkeypatch.setenv("BIRKIN_HOME", str(home))
 
 
 @pytest.fixture
 def cli_obj(_isolate):
-    """Create a minimal HermesCLI instance for banner testing."""
+    """Create a minimal BirkinCLI instance for banner testing."""
     with patch("cli.load_cli_config", return_value={
         "display": {"tool_progress": "new"},
         "terminal": {},
     }), patch("cli.get_tool_definitions", return_value=[]), \
          patch("cli.build_welcome_banner"):
-        from cli import HermesCLI
-        obj = HermesCLI.__new__(HermesCLI)
+        from cli import BirkinCLI
+        obj = BirkinCLI.__new__(BirkinCLI)
         obj.model = "test-model"
-        obj.enabled_toolsets = ["hermes-core"]
+        obj.enabled_toolsets = ["birkin-core"]
         obj.compact = False
         obj.console = MagicMock()
         obj.session_id = None

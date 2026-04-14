@@ -1,12 +1,12 @@
 ---
 sidebar_position: 14
 title: "WeCom (Enterprise WeChat)"
-description: "Connect Hermes Agent to WeCom via the AI Bot WebSocket gateway"
+description: "Connect Birkin to WeCom via the AI Bot WebSocket gateway"
 ---
 
 # WeCom (Enterprise WeChat)
 
-Connect Hermes to [WeCom](https://work.weixin.qq.com/) (企业微信), Tencent's enterprise messaging platform. The adapter uses WeCom's AI Bot WebSocket gateway for real-time bidirectional communication — no public endpoint or webhook needed.
+Connect Birkin to [WeCom](https://work.weixin.qq.com/) (企业微信), Tencent's enterprise messaging platform. The adapter uses WeCom's AI Bot WebSocket gateway for real-time bidirectional communication — no public endpoint or webhook needed.
 
 ## Prerequisites
 
@@ -24,17 +24,17 @@ Connect Hermes to [WeCom](https://work.weixin.qq.com/) (企业微信), Tencent's
 3. Configure the bot name and description
 4. Copy the **Bot ID** and **Secret** from the credentials page
 
-### 2. Configure Hermes
+### 2. Configure Birkin
 
 Run the interactive setup:
 
 ```bash
-hermes gateway setup
+birkin gateway setup
 ```
 
 Select **WeCom** and enter your Bot ID and Secret.
 
-Or set environment variables in `~/.hermes/.env`:
+Or set environment variables in `~/.birkin/.env`:
 
 ```bash
 WECOM_BOT_ID=your-bot-id
@@ -50,7 +50,7 @@ WECOM_HOME_CHANNEL=chat_id
 ### 3. Start the gateway
 
 ```bash
-hermes gateway
+birkin gateway
 ```
 
 ## Features

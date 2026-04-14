@@ -6,7 +6,7 @@ version: 1.0.0
 author: SHL0MS
 license: MIT
 metadata:
-  hermes:
+  birkin:
     tags: [Creative, Ideation, Projects, Brainstorming, Inspiration]
     category: creative
     requires_toolsets: []

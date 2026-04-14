@@ -12,15 +12,15 @@ import pytest
 
 
 def _make_voice_cli(**overrides):
-    """Create a minimal HermesCLI with only voice-related attrs initialized.
+    """Create a minimal BirkinCLI with only voice-related attrs initialized.
 
     Uses ``__new__()`` to bypass ``__init__`` so no config/env/API setup is
     needed.  Only the voice state attributes (from __init__ lines 3749-3758)
     are populated.
     """
-    from cli import HermesCLI
+    from cli import BirkinCLI
 
-    cli = HermesCLI.__new__(HermesCLI)
+    cli = BirkinCLI.__new__(BirkinCLI)
     cli._voice_lock = threading.Lock()
     cli._voice_mode = False
     cli._voice_tts = False
@@ -592,9 +592,9 @@ class TestDisableVoiceModeStopsTTS:
     def test_disable_voice_mode_calls_stop_playback(self):
         """Source check: _disable_voice_mode must call stop_playback()."""
         import inspect
-        from cli import HermesCLI
+        from cli import BirkinCLI
 
-        source = inspect.getsource(HermesCLI._disable_voice_mode)
+        source = inspect.getsource(BirkinCLI._disable_voice_mode)
         assert "stop_playback" in source, (
             "_disable_voice_mode must call stop_playback()"
         )
@@ -864,7 +864,7 @@ class TestEnableVoiceModeReal:
     """Tests _enable_voice_mode with real CLI instance."""
 
     @patch("cli._cprint")
-    @patch("hermes_cli.config.load_config", return_value={"voice": {}})
+    @patch("birkin_cli.config.load_config", return_value={"voice": {}})
     @patch("tools.voice_mode.check_voice_requirements",
            return_value={"available": True, "details": "OK"})
     @patch("tools.voice_mode.detect_audio_environment",
@@ -900,7 +900,7 @@ class TestEnableVoiceModeReal:
         assert cli._voice_mode is False
 
     @patch("cli._cprint")
-    @patch("hermes_cli.config.load_config", return_value={"voice": {"auto_tts": True}})
+    @patch("birkin_cli.config.load_config", return_value={"voice": {"auto_tts": True}})
     @patch("tools.voice_mode.check_voice_requirements",
            return_value={"available": True, "details": "OK"})
     @patch("tools.voice_mode.detect_audio_environment",
@@ -911,7 +911,7 @@ class TestEnableVoiceModeReal:
         assert cli._voice_tts is True
 
     @patch("cli._cprint")
-    @patch("hermes_cli.config.load_config", return_value={"voice": {}})
+    @patch("birkin_cli.config.load_config", return_value={"voice": {}})
     @patch("tools.voice_mode.check_voice_requirements",
            return_value={"available": True, "details": "OK"})
     @patch("tools.voice_mode.detect_audio_environment",
@@ -922,7 +922,7 @@ class TestEnableVoiceModeReal:
         assert cli._voice_tts is False
 
     @patch("cli._cprint")
-    @patch("hermes_cli.config.load_config", side_effect=Exception("broken config"))
+    @patch("birkin_cli.config.load_config", side_effect=Exception("broken config"))
     @patch("tools.voice_mode.check_voice_requirements",
            return_value={"available": True, "details": "OK"})
     @patch("tools.voice_mode.detect_audio_environment",
@@ -1090,7 +1090,7 @@ class TestVoiceStopAndTranscribeReal:
     @patch("cli._cprint")
     @patch("cli.os.unlink")
     @patch("cli.os.path.isfile", return_value=True)
-    @patch("hermes_cli.config.load_config", return_value={"stt": {}})
+    @patch("birkin_cli.config.load_config", return_value={"stt": {}})
     @patch("tools.voice_mode.transcribe_recording",
            return_value={"success": True, "transcript": "hello world"})
     @patch("tools.voice_mode.play_beep")
@@ -1106,7 +1106,7 @@ class TestVoiceStopAndTranscribeReal:
     @patch("cli._cprint")
     @patch("cli.os.unlink")
     @patch("cli.os.path.isfile", return_value=True)
-    @patch("hermes_cli.config.load_config", return_value={"stt": {}})
+    @patch("birkin_cli.config.load_config", return_value={"stt": {}})
     @patch("tools.voice_mode.transcribe_recording",
            return_value={"success": True, "transcript": ""})
     @patch("tools.voice_mode.play_beep")
@@ -1120,7 +1120,7 @@ class TestVoiceStopAndTranscribeReal:
     @patch("cli._cprint")
     @patch("cli.os.unlink")
     @patch("cli.os.path.isfile", return_value=True)
-    @patch("hermes_cli.config.load_config", return_value={"stt": {}})
+    @patch("birkin_cli.config.load_config", return_value={"stt": {}})
     @patch("tools.voice_mode.transcribe_recording",
            return_value={"success": False, "error": "API timeout"})
     @patch("tools.voice_mode.play_beep")
@@ -1134,7 +1134,7 @@ class TestVoiceStopAndTranscribeReal:
     @patch("cli._cprint")
     @patch("cli.os.unlink")
     @patch("cli.os.path.isfile", return_value=True)
-    @patch("hermes_cli.config.load_config", return_value={"stt": {}})
+    @patch("birkin_cli.config.load_config", return_value={"stt": {}})
     @patch("tools.voice_mode.transcribe_recording",
            side_effect=ConnectionError("network"))
     @patch("tools.voice_mode.play_beep")
@@ -1167,7 +1167,7 @@ class TestVoiceStopAndTranscribeReal:
     @patch("cli._cprint")
     @patch("cli.os.unlink")
     @patch("cli.os.path.isfile", return_value=True)
-    @patch("hermes_cli.config.load_config", return_value={"stt": {}})
+    @patch("birkin_cli.config.load_config", return_value={"stt": {}})
     @patch("tools.voice_mode.transcribe_recording",
            return_value={"success": True, "transcript": "hello"})
     @patch("tools.voice_mode.play_beep")
@@ -1185,7 +1185,7 @@ class TestVoiceStopAndTranscribeReal:
     @patch("cli._cprint")
     @patch("cli.os.unlink")
     @patch("cli.os.path.isfile", return_value=True)
-    @patch("hermes_cli.config.load_config", return_value={"stt": {"model": "whisper-large-v3"}})
+    @patch("birkin_cli.config.load_config", return_value={"stt": {"model": "whisper-large-v3"}})
     @patch("tools.voice_mode.transcribe_recording",
            return_value={"success": True, "transcript": "hi"})
     @patch("tools.voice_mode.play_beep")

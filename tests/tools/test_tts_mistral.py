@@ -8,7 +8,7 @@ import pytest
 
 @pytest.fixture(autouse=True)
 def clean_env(monkeypatch):
-    for key in ("MISTRAL_API_KEY", "HERMES_SESSION_PLATFORM"):
+    for key in ("MISTRAL_API_KEY", "BIRKIN_SESSION_PLATFORM"):
         monkeypatch.delenv(key, raising=False)
 
 
@@ -229,7 +229,7 @@ class TestMistralTtsOpus:
         from tools.tts_tool import text_to_speech_tool
 
         monkeypatch.setenv("MISTRAL_API_KEY", "test-key")
-        monkeypatch.setenv("HERMES_SESSION_PLATFORM", "telegram")
+        monkeypatch.setenv("BIRKIN_SESSION_PLATFORM", "telegram")
         mock_mistral_module.audio.speech.complete.return_value = MagicMock(
             audio_data=base64.b64encode(b"opus-audio").decode()
         )

@@ -1,24 +1,24 @@
 ---
 sidebar_position: 10
 title: "Migrate from OpenClaw"
-description: "Complete guide to migrating your OpenClaw / Clawdbot setup to Hermes Agent — what gets migrated, how config maps, and what to check after."
+description: "Complete guide to migrating your OpenClaw / Clawdbot setup to Birkin — what gets migrated, how config maps, and what to check after."
 ---
 
 # Migrate from OpenClaw
 
-`hermes claw migrate` imports your OpenClaw (or legacy Clawdbot/Moldbot) setup into Hermes. This guide covers exactly what gets migrated, the config key mappings, and what to verify after migration.
+`birkin claw migrate` imports your OpenClaw (or legacy Clawdbot/Moldbot) setup into Birkin. This guide covers exactly what gets migrated, the config key mappings, and what to verify after migration.
 
 ## Quick start
 
 ```bash
 # Preview then migrate (always shows a preview first, then asks to confirm)
-hermes claw migrate
+birkin claw migrate
 
 # Preview only, no changes
-hermes claw migrate --dry-run
+birkin claw migrate --dry-run
 
 # Full migration including API keys, skip confirmation
-hermes claw migrate --preset full --yes
+birkin claw migrate --preset full --yes
 ```
 
 The migration always shows a full preview of what will be imported before making any changes. Review the list, then confirm to proceed.
@@ -31,7 +31,7 @@ Reads from `~/.openclaw/` by default. Legacy `~/.clawdbot/` or `~/.moltbot/` dir
 |--------|-------------|
 | `--dry-run` | Preview only — stop after showing what would be migrated. |
 | `--preset <name>` | `full` (default, includes secrets) or `user-data` (excludes API keys). |
-| `--overwrite` | Overwrite existing Hermes files on conflicts (default: skip). |
+| `--overwrite` | Overwrite existing Birkin files on conflicts (default: skip). |
 | `--migrate-secrets` | Include API keys (on by default with `--preset full`). |
 | `--source <path>` | Custom OpenClaw directory. |
 | `--workspace-target <path>` | Where to place `AGENTS.md`. |
@@ -42,38 +42,38 @@ Reads from `~/.openclaw/` by default. Legacy `~/.clawdbot/` or `~/.moltbot/` dir
 
 ### Persona, memory, and instructions
 
-| What | OpenClaw source | Hermes destination | Notes |
+| What | OpenClaw source | Birkin destination | Notes |
 |------|----------------|-------------------|-------|
-| Persona | `workspace/SOUL.md` | `~/.hermes/SOUL.md` | Direct copy |
+| Persona | `workspace/SOUL.md` | `~/.birkin/SOUL.md` | Direct copy |
 | Workspace instructions | `workspace/AGENTS.md` | `AGENTS.md` in `--workspace-target` | Requires `--workspace-target` flag |
-| Long-term memory | `workspace/MEMORY.md` | `~/.hermes/memories/MEMORY.md` | Parsed into entries, merged with existing, deduped. Uses `§` delimiter. |
-| User profile | `workspace/USER.md` | `~/.hermes/memories/USER.md` | Same entry-merge logic as memory. |
-| Daily memory files | `workspace/memory/*.md` | `~/.hermes/memories/MEMORY.md` | All daily files merged into main memory. |
+| Long-term memory | `workspace/MEMORY.md` | `~/.birkin/memories/MEMORY.md` | Parsed into entries, merged with existing, deduped. Uses `§` delimiter. |
+| User profile | `workspace/USER.md` | `~/.birkin/memories/USER.md` | Same entry-merge logic as memory. |
+| Daily memory files | `workspace/memory/*.md` | `~/.birkin/memories/MEMORY.md` | All daily files merged into main memory. |
 
 Workspace files are also checked at `workspace.default/` and `workspace-main/` as fallback paths (OpenClaw renamed `workspace/` to `workspace-main/` in recent versions, and uses `workspace-{agentId}` for multi-agent setups).
 
 ### Skills (4 sources)
 
-| Source | OpenClaw location | Hermes destination |
+| Source | OpenClaw location | Birkin destination |
 |--------|------------------|-------------------|
-| Workspace skills | `workspace/skills/` | `~/.hermes/skills/openclaw-imports/` |
-| Managed/shared skills | `~/.openclaw/skills/` | `~/.hermes/skills/openclaw-imports/` |
-| Personal cross-project | `~/.agents/skills/` | `~/.hermes/skills/openclaw-imports/` |
-| Project-level shared | `workspace/.agents/skills/` | `~/.hermes/skills/openclaw-imports/` |
+| Workspace skills | `workspace/skills/` | `~/.birkin/skills/openclaw-imports/` |
+| Managed/shared skills | `~/.openclaw/skills/` | `~/.birkin/skills/openclaw-imports/` |
+| Personal cross-project | `~/.agents/skills/` | `~/.birkin/skills/openclaw-imports/` |
+| Project-level shared | `workspace/.agents/skills/` | `~/.birkin/skills/openclaw-imports/` |
 
-Skill conflicts are handled by `--skill-conflict`: `skip` leaves the existing Hermes skill, `overwrite` replaces it, `rename` creates a `-imported` copy.
+Skill conflicts are handled by `--skill-conflict`: `skip` leaves the existing Birkin skill, `overwrite` replaces it, `rename` creates a `-imported` copy.
 
 ### Model and provider configuration
 
-| What | OpenClaw config path | Hermes destination | Notes |
+| What | OpenClaw config path | Birkin destination | Notes |
 |------|---------------------|-------------------|-------|
 | Default model | `agents.defaults.model` | `config.yaml` → `model` | Can be a string or `{primary, fallbacks}` object |
 | Custom providers | `models.providers.*` | `config.yaml` → `custom_providers` | Maps `baseUrl`, `apiType`/`api` — handles both short ("openai", "anthropic") and hyphenated ("openai-completions", "anthropic-messages", "google-generative-ai") values |
-| Provider API keys | `models.providers.*.apiKey` | `~/.hermes/.env` | Requires `--migrate-secrets`. See [API key resolution](#api-key-resolution) below. |
+| Provider API keys | `models.providers.*.apiKey` | `~/.birkin/.env` | Requires `--migrate-secrets`. See [API key resolution](#api-key-resolution) below. |
 
 ### Agent behavior
 
-| What | OpenClaw config path | Hermes config path | Mapping |
+| What | OpenClaw config path | Birkin config path | Mapping |
 |------|---------------------|-------------------|---------|
 | Max turns | `agents.defaults.timeoutSeconds` | `agent.max_turns` | `timeoutSeconds / 10`, capped at 200 |
 | Verbose mode | `agents.defaults.verboseDefault` | `agent.verbose` | "off" / "on" / "full" |
@@ -89,7 +89,7 @@ Skill conflicts are handled by `--skill-conflict`: `skip` leaves the existing He
 
 ### Session reset policies
 
-| OpenClaw config path | Hermes config path | Notes |
+| OpenClaw config path | Birkin config path | Notes |
 |---------------------|-------------------|-------|
 | `session.reset.mode` | `session_reset.mode` | "daily", "idle", or both |
 | `session.reset.atHour` | `session_reset.at_hour` | Hour (0–23) for daily reset |
@@ -99,7 +99,7 @@ Note: OpenClaw also has `session.resetTriggers` (a simple string array like `["d
 
 ### MCP servers
 
-| OpenClaw field | Hermes field | Notes |
+| OpenClaw field | Birkin field | Notes |
 |----------------|-------------|-------|
 | `mcp.servers.*.command` | `mcp_servers.*.command` | Stdio transport |
 | `mcp.servers.*.args` | `mcp_servers.*.args` | |
@@ -117,7 +117,7 @@ TTS settings are read from **two** OpenClaw config locations with this priority:
 2. Top-level `talk.providers.{provider}.*` (fallback)
 3. Legacy flat keys `messages.tts.{provider}.*` (oldest format)
 
-| What | Hermes destination |
+| What | Birkin destination |
 |------|-------------------|
 | Provider name | `config.yaml` → `tts.provider` |
 | ElevenLabs voice ID | `config.yaml` → `tts.elevenlabs.voice_id` |
@@ -125,11 +125,11 @@ TTS settings are read from **two** OpenClaw config locations with this priority:
 | OpenAI model | `config.yaml` → `tts.openai.model` |
 | OpenAI voice | `config.yaml` → `tts.openai.voice` |
 | Edge TTS voice | `config.yaml` → `tts.edge.voice` (OpenClaw renamed "edge" to "microsoft" — both are recognized) |
-| TTS assets | `~/.hermes/tts/` (file copy) |
+| TTS assets | `~/.birkin/tts/` (file copy) |
 
 ### Messaging platforms
 
-| Platform | OpenClaw config path | Hermes `.env` variable | Notes |
+| Platform | OpenClaw config path | Birkin `.env` variable | Notes |
 |----------|---------------------|----------------------|-------|
 | Telegram | `channels.telegram.botToken` or `.accounts.default.botToken` | `TELEGRAM_BOT_TOKEN` | Token can be string or [SecretRef](#secretref-handling). Both flat and accounts layout supported. |
 | Telegram | `credentials/telegram-default-allowFrom.json` | `TELEGRAM_ALLOWED_USERS` | Comma-joined from `allowFrom[]` array |
@@ -147,34 +147,34 @@ TTS settings are read from **two** OpenClaw config locations with this priority:
 
 ### Other config
 
-| What | OpenClaw path | Hermes path | Notes |
+| What | OpenClaw path | Birkin path | Notes |
 |------|-------------|-------------|-------|
 | Approval mode | `approvals.exec.mode` | `config.yaml` → `approvals.mode` | "auto"→"off", "always"→"manual", "smart"→"smart" |
 | Command allowlist | `exec-approvals.json` | `config.yaml` → `command_allowlist` | Patterns merged and deduped |
 | Browser CDP URL | `browser.cdpUrl` | `config.yaml` → `browser.cdp_url` | |
 | Browser headless | `browser.headless` | `config.yaml` → `browser.headless` | |
 | Brave search key | `tools.web.search.brave.apiKey` | `.env` → `BRAVE_API_KEY` | Requires `--migrate-secrets` |
-| Gateway auth token | `gateway.auth.token` | `.env` → `HERMES_GATEWAY_TOKEN` | Requires `--migrate-secrets` |
+| Gateway auth token | `gateway.auth.token` | `.env` → `BIRKIN_GATEWAY_TOKEN` | Requires `--migrate-secrets` |
 | Working directory | `agents.defaults.workspace` | `.env` → `MESSAGING_CWD` | |
 
-### Archived (no direct Hermes equivalent)
+### Archived (no direct Birkin equivalent)
 
-These are saved to `~/.hermes/migration/openclaw/<timestamp>/archive/` for manual review:
+These are saved to `~/.birkin/migration/openclaw/<timestamp>/archive/` for manual review:
 
-| What | Archive file | How to recreate in Hermes |
+| What | Archive file | How to recreate in Birkin |
 |------|-------------|--------------------------|
 | `IDENTITY.md` | `archive/workspace/IDENTITY.md` | Merge into `SOUL.md` |
-| `TOOLS.md` | `archive/workspace/TOOLS.md` | Hermes has built-in tool instructions |
+| `TOOLS.md` | `archive/workspace/TOOLS.md` | Birkin has built-in tool instructions |
 | `HEARTBEAT.md` | `archive/workspace/HEARTBEAT.md` | Use cron jobs for periodic tasks |
 | `BOOTSTRAP.md` | `archive/workspace/BOOTSTRAP.md` | Use context files or skills |
-| Cron jobs | `archive/cron-config.json` | Recreate with `hermes cron create` |
+| Cron jobs | `archive/cron-config.json` | Recreate with `birkin cron create` |
 | Plugins | `archive/plugins-config.json` | See [plugins guide](/docs/user-guide/features/hooks) |
-| Hooks/webhooks | `archive/hooks-config.json` | Use `hermes webhook` or gateway hooks |
-| Memory backend | `archive/memory-backend-config.json` | Configure via `hermes honcho` |
-| Skills registry | `archive/skills-registry-config.json` | Use `hermes skills config` |
+| Hooks/webhooks | `archive/hooks-config.json` | Use `birkin webhook` or gateway hooks |
+| Memory backend | `archive/memory-backend-config.json` | Configure via `birkin honcho` |
+| Skills registry | `archive/skills-registry-config.json` | Use `birkin skills config` |
 | UI/identity | `archive/ui-identity-config.json` | Use `/skin` command |
 | Logging | `archive/logging-diagnostics-config.json` | Set in `config.yaml` logging section |
-| Multi-agent list | `archive/agents-list.json` | Use Hermes profiles |
+| Multi-agent list | `archive/agents-list.json` | Use Birkin profiles |
 | Channel bindings | `archive/bindings.json` | Manual setup per platform |
 | Complex channels | `archive/channels-deep-config.json` | Manual platform config |
 
@@ -210,25 +210,25 @@ OpenClaw config values for tokens and API keys can be in three formats:
 "channels": { "telegram": { "botToken": { "source": "env", "id": "TELEGRAM_BOT_TOKEN" } } }
 ```
 
-The migration resolves all three formats. For env templates and SecretRef objects with `source: "env"`, it looks up the value in `~/.openclaw/.env` and the `openclaw.json` env sub-object. SecretRef objects with `source: "file"` or `source: "exec"` can't be resolved automatically — the migration warns about these, and those values must be added to Hermes manually via `hermes config set`.
+The migration resolves all three formats. For env templates and SecretRef objects with `source: "env"`, it looks up the value in `~/.openclaw/.env` and the `openclaw.json` env sub-object. SecretRef objects with `source: "file"` or `source: "exec"` can't be resolved automatically — the migration warns about these, and those values must be added to Birkin manually via `birkin config set`.
 
 ## After migration
 
 1. **Check the migration report** — printed on completion with counts of migrated, skipped, and conflicting items.
 
-2. **Review archived files** — anything in `~/.hermes/migration/openclaw/<timestamp>/archive/` needs manual attention.
+2. **Review archived files** — anything in `~/.birkin/migration/openclaw/<timestamp>/archive/` needs manual attention.
 
 3. **Start a new session** — imported skills and memory entries take effect in new sessions, not the current one.
 
-4. **Verify API keys** — run `hermes status` to check provider authentication.
+4. **Verify API keys** — run `birkin status` to check provider authentication.
 
-5. **Test messaging** — if you migrated platform tokens, restart the gateway: `systemctl --user restart hermes-gateway`
+5. **Test messaging** — if you migrated platform tokens, restart the gateway: `systemctl --user restart birkin-gateway`
 
-6. **Check session policies** — verify `hermes config get session_reset` matches your expectations.
+6. **Check session policies** — verify `birkin config get session_reset` matches your expectations.
 
-7. **Re-pair WhatsApp** — WhatsApp uses QR code pairing (Baileys), not token migration. Run `hermes whatsapp` to pair.
+7. **Re-pair WhatsApp** — WhatsApp uses QR code pairing (Baileys), not token migration. Run `birkin whatsapp` to pair.
 
-8. **Archive cleanup** — after confirming everything works, run `hermes claw cleanup` to rename leftover OpenClaw directories to `.pre-migration/` (prevents state confusion).
+8. **Archive cleanup** — after confirming everything works, run `birkin claw cleanup` to rename leftover OpenClaw directories to `.pre-migration/` (prevents state confusion).
 
 ## Troubleshooting
 
@@ -238,12 +238,12 @@ The migration checks `~/.openclaw/`, then `~/.clawdbot/`, then `~/.moltbot/`. If
 
 ### "No provider API keys found"
 
-Keys might be stored in several places depending on your OpenClaw version: inline in `openclaw.json` under `models.providers.*.apiKey`, in `~/.openclaw/.env`, in the `openclaw.json` `"env"` sub-object, or in `agents/main/agent/auth-profiles.json`. The migration checks all four. If keys use `source: "file"` or `source: "exec"` SecretRefs, they can't be resolved automatically — add them via `hermes config set`.
+Keys might be stored in several places depending on your OpenClaw version: inline in `openclaw.json` under `models.providers.*.apiKey`, in `~/.openclaw/.env`, in the `openclaw.json` `"env"` sub-object, or in `agents/main/agent/auth-profiles.json`. The migration checks all four. If keys use `source: "file"` or `source: "exec"` SecretRefs, they can't be resolved automatically — add them via `birkin config set`.
 
 ### Skills not appearing after migration
 
-Imported skills land in `~/.hermes/skills/openclaw-imports/`. Start a new session for them to take effect, or run `/skills` to verify they're loaded.
+Imported skills land in `~/.birkin/skills/openclaw-imports/`. Start a new session for them to take effect, or run `/skills` to verify they're loaded.
 
 ### TTS voice not migrated
 
-OpenClaw stores TTS settings in two places: `messages.tts.providers.*` and the top-level `talk` config. The migration checks both. If your voice ID was set via the OpenClaw UI (stored in a different path), you may need to set it manually: `hermes config set tts.elevenlabs.voice_id YOUR_VOICE_ID`.
+OpenClaw stores TTS settings in two places: `messages.tts.providers.*` and the top-level `talk` config. The migration checks both. If your voice ID was set via the OpenClaw UI (stored in a different path), you may need to set it manually: `birkin config set tts.elevenlabs.voice_id YOUR_VOICE_ID`.

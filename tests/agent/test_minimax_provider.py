@@ -91,7 +91,7 @@ class TestMinimaxModelCatalog:
     """
 
     def test_catalog_includes_current_models(self):
-        from hermes_cli.models import _PROVIDER_MODELS
+        from birkin_cli.models import _PROVIDER_MODELS
         for provider in ("minimax", "minimax-cn"):
             models = _PROVIDER_MODELS[provider]
             assert "MiniMax-M2.7" in models
@@ -101,7 +101,7 @@ class TestMinimaxModelCatalog:
 
     def test_catalog_excludes_m1_family(self):
         """M1 models are not available on the /anthropic endpoint."""
-        from hermes_cli.models import _PROVIDER_MODELS
+        from birkin_cli.models import _PROVIDER_MODELS
         for provider in ("minimax", "minimax-cn"):
             models = _PROVIDER_MODELS[provider]
             assert "MiniMax-M1" not in models
@@ -109,7 +109,7 @@ class TestMinimaxModelCatalog:
     def test_catalog_excludes_highspeed(self):
         """Highspeed variants are available but not shown in default catalog
         (users can still specify them manually)."""
-        from hermes_cli.models import _PROVIDER_MODELS
+        from birkin_cli.models import _PROVIDER_MODELS
         for provider in ("minimax", "minimax-cn"):
             models = _PROVIDER_MODELS[provider]
             assert "MiniMax-M2.7-highspeed" not in models
@@ -223,24 +223,24 @@ class TestMinimaxApiMode:
     """
 
     def test_minimax_returns_anthropic_messages(self):
-        from hermes_cli.providers import determine_api_mode
+        from birkin_cli.providers import determine_api_mode
         assert determine_api_mode("minimax") == "anthropic_messages"
 
     def test_minimax_cn_returns_anthropic_messages(self):
-        from hermes_cli.providers import determine_api_mode
+        from birkin_cli.providers import determine_api_mode
         assert determine_api_mode("minimax-cn") == "anthropic_messages"
 
     def test_minimax_with_url_also_works(self):
-        from hermes_cli.providers import determine_api_mode
+        from birkin_cli.providers import determine_api_mode
         # Even with explicit base_url, provider lookup takes priority
         assert determine_api_mode("minimax", "https://api.minimax.io/anthropic") == "anthropic_messages"
 
     def test_anthropic_still_returns_anthropic_messages(self):
-        from hermes_cli.providers import determine_api_mode
+        from birkin_cli.providers import determine_api_mode
         assert determine_api_mode("anthropic") == "anthropic_messages"
 
     def test_openai_returns_chat_completions(self):
-        from hermes_cli.providers import determine_api_mode
+        from birkin_cli.providers import determine_api_mode
         # Sanity check: standard providers are unaffected
         result = determine_api_mode("deepseek")
         assert result == "chat_completions"

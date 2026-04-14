@@ -1,13 +1,13 @@
 # BlueBubbles (iMessage)
 
-Connect Hermes to Apple iMessage via [BlueBubbles](https://bluebubbles.app/) — a free, open-source macOS server that bridges iMessage to any device.
+Connect Birkin to Apple iMessage via [BlueBubbles](https://bluebubbles.app/) — a free, open-source macOS server that bridges iMessage to any device.
 
 ## Prerequisites
 
 - A **Mac** (always on) running [BlueBubbles Server](https://bluebubbles.app/)
 - Apple ID signed into Messages.app on that Mac
 - BlueBubbles Server v1.0.0+ (webhooks require this version)
-- Network connectivity between Hermes and the BlueBubbles server
+- Network connectivity between Birkin and the BlueBubbles server
 
 ## Setup
 
@@ -21,17 +21,17 @@ In BlueBubbles Server → **Settings → API**, note:
 - **Server URL** (e.g., `http://192.168.1.10:1234`)
 - **Server Password**
 
-### 3. Configure Hermes
+### 3. Configure Birkin
 
 Run the setup wizard:
 
 ```bash
-hermes gateway setup
+birkin gateway setup
 ```
 
 Select **BlueBubbles (iMessage)** and enter your server URL and password.
 
-Or set environment variables directly in `~/.hermes/.env`:
+Or set environment variables directly in `~/.birkin/.env`:
 
 ```bash
 BLUEBUBBLES_SERVER_URL=http://192.168.1.10:1234
@@ -43,18 +43,18 @@ BLUEBUBBLES_PASSWORD=your-server-password
 Choose one approach:
 
 **DM Pairing (recommended):**
-When someone messages your iMessage, Hermes automatically sends them a pairing code. Approve it with:
+When someone messages your iMessage, Birkin automatically sends them a pairing code. Approve it with:
 ```bash
-hermes pairing approve bluebubbles <CODE>
+birkin pairing approve bluebubbles <CODE>
 ```
-Use `hermes pairing list` to see pending codes and approved users.
+Use `birkin pairing list` to see pending codes and approved users.
 
-**Pre-authorize specific users** (in `~/.hermes/.env`):
+**Pre-authorize specific users** (in `~/.birkin/.env`):
 ```bash
 BLUEBUBBLES_ALLOWED_USERS=user@icloud.com,+15551234567
 ```
 
-**Open access** (in `~/.hermes/.env`):
+**Open access** (in `~/.birkin/.env`):
 ```bash
 BLUEBUBBLES_ALLOW_ALL_USERS=true
 ```
@@ -62,20 +62,20 @@ BLUEBUBBLES_ALLOW_ALL_USERS=true
 ### 5. Start the Gateway
 
 ```bash
-hermes gateway run
+birkin gateway run
 ```
 
-Hermes will connect to your BlueBubbles server, register a webhook, and start listening for iMessage messages.
+Birkin will connect to your BlueBubbles server, register a webhook, and start listening for iMessage messages.
 
 ## How It Works
 
 ```
-iMessage → Messages.app → BlueBubbles Server → Webhook → Hermes
-Hermes → BlueBubbles REST API → Messages.app → iMessage
+iMessage → Messages.app → BlueBubbles Server → Webhook → Birkin
+Birkin → BlueBubbles REST API → Messages.app → iMessage
 ```
 
 - **Inbound:** BlueBubbles sends webhook events to a local listener when new messages arrive. No polling — instant delivery.
-- **Outbound:** Hermes sends messages via the BlueBubbles REST API.
+- **Outbound:** Birkin sends messages via the BlueBubbles REST API.
 - **Media:** Images, voice messages, videos, and documents are supported in both directions. Inbound attachments are downloaded and cached locally for the agent to process.
 
 ## Environment Variables
@@ -113,7 +113,7 @@ Shows "typing..." in the iMessage conversation while the agent is processing. Re
 Automatically marks messages as read after processing. Requires Private API.
 
 ### Chat Addressing
-You can address chats by email or phone number — Hermes resolves them to BlueBubbles chat GUIDs automatically. No need to use raw GUID format.
+You can address chats by email or phone number — Birkin resolves them to BlueBubbles chat GUIDs automatically. No need to use raw GUID format.
 
 ## Private API
 
@@ -135,7 +135,7 @@ Without the Private API, basic text messaging and media still work.
 ### Messages not arriving
 - Check that the webhook is registered in BlueBubbles Server → Settings → API → Webhooks
 - Verify the webhook URL is reachable from the Mac
-- Check `hermes logs gateway` for webhook errors (or `hermes logs -f` to follow in real-time)
+- Check `birkin logs gateway` for webhook errors (or `birkin logs -f` to follow in real-time)
 
 ### "Private API helper not connected"
 - Install the Private API helper: [docs.bluebubbles.app](https://docs.bluebubbles.app/helper-bundle/installation)

@@ -17,7 +17,7 @@ Setup::
     # Option 2: Docker
     docker run -p 9377:9377 -e CAMOFOX_PORT=9377 jo-inc/camofox-browser
 
-Then set ``CAMOFOX_URL=http://localhost:9377`` in ``~/.hermes/.env``.
+Then set ``CAMOFOX_URL=http://localhost:9377`` in ``~/.birkin/.env``.
 """
 
 from __future__ import annotations
@@ -32,7 +32,7 @@ from typing import Any, Dict, Optional
 
 import requests
 
-from hermes_cli.config import load_config
+from birkin_cli.config import load_config
 from tools.browser_camofox_state import get_camofox_identity
 from tools.registry import tool_error
 
@@ -91,7 +91,7 @@ def get_vnc_url() -> Optional[str]:
 
 
 def _managed_persistence_enabled() -> bool:
-    """Return whether Hermes-managed persistence is enabled for Camofox.
+    """Return whether Birkin-managed persistence is enabled for Camofox.
 
     When enabled, sessions use a stable profile-scoped userId so the
     Camofox server can map it to a persistent browser profile directory.
@@ -119,7 +119,7 @@ def _get_session(task_id: Optional[str]) -> Dict[str, Any]:
     """Get or create a camofox session for the given task.
 
     When managed persistence is enabled, uses a deterministic userId
-    derived from the Hermes profile so the Camofox server can map it
+    derived from the Birkin profile so the Camofox server can map it
     to the same persistent browser profile across restarts.
     """
     task_id = task_id or "default"
@@ -136,7 +136,7 @@ def _get_session(task_id: Optional[str]) -> Dict[str, Any]:
             }
         else:
             session = {
-                "user_id": f"hermes_{uuid.uuid4().hex[:10]}",
+                "user_id": f"birkin_{uuid.uuid4().hex[:10]}",
                 "tab_id": None,
                 "session_key": f"task_{task_id[:16]}",
                 "managed": False,
@@ -497,8 +497,8 @@ def camofox_vision(question: str, annotate: bool = False,
         )
 
         # Save screenshot to cache
-        from hermes_constants import get_hermes_home
-        screenshots_dir = get_hermes_home() / "browser_screenshots"
+        from birkin_constants import get_birkin_home
+        screenshots_dir = get_birkin_home() / "browser_screenshots"
         screenshots_dir.mkdir(parents=True, exist_ok=True)
         screenshot_path = str(screenshots_dir / f"browser_screenshot_{uuid.uuid4().hex[:8]}.png")
 
@@ -535,7 +535,7 @@ def camofox_vision(question: str, annotate: bool = False,
         )
 
         try:
-            from hermes_cli.config import load_config
+            from birkin_cli.config import load_config
             _cfg = load_config()
             _vision_timeout = int(_cfg.get("auxiliary", {}).get("vision", {}).get("timeout", 120))
         except Exception:

@@ -1,6 +1,6 @@
 """Tests for /update live streaming, prompt forwarding, and gateway IPC.
 
-Tests the new --gateway mode for hermes update, including:
+Tests the new --gateway mode for birkin update, including:
 - _gateway_prompt() file-based IPC
 - _watch_update_progress() output streaming and prompt detection
 - Message interception for update prompt responses
@@ -33,7 +33,7 @@ def _make_event(text="/update", platform=Platform.TELEGRAM,
     return MessageEvent(text=text, source=source)
 
 
-def _make_runner(hermes_home=None):
+def _make_runner(birkin_home=None):
     """Create a bare GatewayRunner without calling __init__."""
     from gateway.run import GatewayRunner
     runner = object.__new__(GatewayRunner)
@@ -59,50 +59,50 @@ class TestGatewayPrompt:
     def test_writes_prompt_file_and_reads_response(self, tmp_path):
         """Writes .update_prompt.json, reads .update_response, returns answer."""
         import threading
-        hermes_home = tmp_path / ".hermes"
-        hermes_home.mkdir()
+        birkin_home = tmp_path / ".birkin"
+        birkin_home.mkdir()
 
         # Simulate the response arriving after a short delay
         def write_response():
             time.sleep(0.3)
-            (hermes_home / ".update_response").write_text("y")
+            (birkin_home / ".update_response").write_text("y")
 
         thread = threading.Thread(target=write_response)
         thread.start()
 
-        with patch.dict(os.environ, {"HERMES_HOME": str(hermes_home)}):
-            from hermes_cli.main import _gateway_prompt
+        with patch.dict(os.environ, {"BIRKIN_HOME": str(birkin_home)}):
+            from birkin_cli.main import _gateway_prompt
             result = _gateway_prompt("Restore? [Y/n]", "y", timeout=5.0)
 
         thread.join()
         assert result == "y"
         # Both files should be cleaned up
-        assert not (hermes_home / ".update_prompt.json").exists()
-        assert not (hermes_home / ".update_response").exists()
+        assert not (birkin_home / ".update_prompt.json").exists()
+        assert not (birkin_home / ".update_response").exists()
 
     def test_prompt_file_content(self, tmp_path):
         """Verifies the prompt JSON structure."""
         import threading
-        hermes_home = tmp_path / ".hermes"
-        hermes_home.mkdir()
+        birkin_home = tmp_path / ".birkin"
+        birkin_home.mkdir()
 
         prompt_data = None
 
         def capture_and_respond():
             nonlocal prompt_data
-            prompt_path = hermes_home / ".update_prompt.json"
+            prompt_path = birkin_home / ".update_prompt.json"
             for _ in range(20):
                 if prompt_path.exists():
                     prompt_data = json.loads(prompt_path.read_text())
-                    (hermes_home / ".update_response").write_text("n")
+                    (birkin_home / ".update_response").write_text("n")
                     return
                 time.sleep(0.1)
 
         thread = threading.Thread(target=capture_and_respond)
         thread.start()
 
-        with patch.dict(os.environ, {"HERMES_HOME": str(hermes_home)}):
-            from hermes_cli.main import _gateway_prompt
+        with patch.dict(os.environ, {"BIRKIN_HOME": str(birkin_home)}):
+            from birkin_cli.main import _gateway_prompt
             _gateway_prompt("Configure now? [Y/n]", "n", timeout=5.0)
 
         thread.join()
@@ -113,24 +113,24 @@ class TestGatewayPrompt:
 
     def test_timeout_returns_default(self, tmp_path):
         """Returns default when no response within timeout."""
-        hermes_home = tmp_path / ".hermes"
-        hermes_home.mkdir()
+        birkin_home = tmp_path / ".birkin"
+        birkin_home.mkdir()
 
-        with patch.dict(os.environ, {"HERMES_HOME": str(hermes_home)}):
-            from hermes_cli.main import _gateway_prompt
+        with patch.dict(os.environ, {"BIRKIN_HOME": str(birkin_home)}):
+            from birkin_cli.main import _gateway_prompt
             result = _gateway_prompt("test?", "default_val", timeout=0.5)
 
         assert result == "default_val"
 
     def test_empty_response_returns_default(self, tmp_path):
         """Empty response file returns default."""
-        hermes_home = tmp_path / ".hermes"
-        hermes_home.mkdir()
-        (hermes_home / ".update_response").write_text("")
+        birkin_home = tmp_path / ".birkin"
+        birkin_home.mkdir()
+        (birkin_home / ".update_response").write_text("")
 
         # Write prompt file so the function starts polling
-        with patch.dict(os.environ, {"HERMES_HOME": str(hermes_home)}):
-            from hermes_cli.main import _gateway_prompt
+        with patch.dict(os.environ, {"BIRKIN_HOME": str(birkin_home)}):
+            from birkin_cli.main import _gateway_prompt
             # Pre-create the response
             result = _gateway_prompt("test?", "default_val", timeout=2.0)
 
@@ -147,7 +147,7 @@ class TestRestoreStashWithInputFn:
 
     def test_uses_input_fn_when_provided(self, tmp_path):
         """When input_fn is provided, it's called instead of input()."""
-        from hermes_cli.main import _restore_stashed_changes
+        from birkin_cli.main import _restore_stashed_changes
 
         captured_args = []
 
@@ -171,7 +171,7 @@ class TestRestoreStashWithInputFn:
 
     def test_input_fn_yes_proceeds_with_restore(self, tmp_path):
         """When input_fn returns 'y', stash apply is attempted."""
-        from hermes_cli.main import _restore_stashed_changes
+        from birkin_cli.main import _restore_stashed_changes
 
         call_count = [0]
 
@@ -200,7 +200,7 @@ class TestRestoreStashWithInputFn:
 
 
 class TestUpdateCommandGatewayFlag:
-    """Verify the gateway spawns hermes update --gateway."""
+    """Verify the gateway spawns birkin update --gateway."""
 
     @pytest.mark.asyncio
     async def test_spawns_with_gateway_flag(self, tmp_path):
@@ -214,11 +214,11 @@ class TestUpdateCommandGatewayFlag:
         (fake_root / "gateway").mkdir()
         (fake_root / "gateway" / "run.py").touch()
         fake_file = str(fake_root / "gateway" / "run.py")
-        hermes_home = tmp_path / "hermes"
-        hermes_home.mkdir()
+        birkin_home = tmp_path / "birkin"
+        birkin_home.mkdir()
 
         mock_popen = MagicMock()
-        with patch("gateway.run._hermes_home", hermes_home), \
+        with patch("gateway.run._birkin_home", birkin_home), \
              patch("gateway.run.__file__", fake_file), \
              patch("shutil.which", side_effect=lambda x: f"/usr/bin/{x}"), \
              patch("subprocess.Popen", mock_popen):
@@ -244,14 +244,14 @@ class TestWatchUpdateProgress:
     async def test_streams_output_to_adapter(self, tmp_path):
         """New output is sent to the adapter periodically."""
         runner = _make_runner()
-        hermes_home = tmp_path / "hermes"
-        hermes_home.mkdir()
+        birkin_home = tmp_path / "birkin"
+        birkin_home.mkdir()
 
         pending = {"platform": "telegram", "chat_id": "111", "user_id": "222",
                    "session_key": "agent:main:telegram:dm:111"}
-        (hermes_home / ".update_pending.json").write_text(json.dumps(pending))
+        (birkin_home / ".update_pending.json").write_text(json.dumps(pending))
         # Write output
-        (hermes_home / ".update_output.txt").write_text("→ Fetching updates...\n")
+        (birkin_home / ".update_output.txt").write_text("→ Fetching updates...\n")
 
         mock_adapter = AsyncMock()
         runner.adapters = {Platform.TELEGRAM: mock_adapter}
@@ -259,12 +259,12 @@ class TestWatchUpdateProgress:
         # Write exit code after a brief delay
         async def write_exit_code():
             await asyncio.sleep(0.3)
-            (hermes_home / ".update_output.txt").write_text(
+            (birkin_home / ".update_output.txt").write_text(
                 "→ Fetching updates...\n✓ Code updated!\n"
             )
-            (hermes_home / ".update_exit_code").write_text("0")
+            (birkin_home / ".update_exit_code").write_text("0")
 
-        with patch("gateway.run._hermes_home", hermes_home):
+        with patch("gateway.run._birkin_home", birkin_home):
             task = asyncio.create_task(write_exit_code())
             await runner._watch_update_progress(
                 poll_interval=0.1,
@@ -282,13 +282,13 @@ class TestWatchUpdateProgress:
     async def test_detects_and_forwards_prompt(self, tmp_path):
         """Detects .update_prompt.json and sends it to the user."""
         runner = _make_runner()
-        hermes_home = tmp_path / "hermes"
-        hermes_home.mkdir()
+        birkin_home = tmp_path / "birkin"
+        birkin_home.mkdir()
 
         pending = {"platform": "telegram", "chat_id": "111", "user_id": "222",
                    "session_key": "agent:main:telegram:dm:111"}
-        (hermes_home / ".update_pending.json").write_text(json.dumps(pending))
-        (hermes_home / ".update_output.txt").write_text("output\n")
+        (birkin_home / ".update_pending.json").write_text(json.dumps(pending))
+        (birkin_home / ".update_output.txt").write_text("output\n")
 
         mock_adapter = AsyncMock()
         runner.adapters = {Platform.TELEGRAM: mock_adapter}
@@ -297,15 +297,15 @@ class TestWatchUpdateProgress:
         async def simulate_prompt_cycle():
             await asyncio.sleep(0.3)
             prompt = {"prompt": "Restore local changes? [Y/n]", "default": "y", "id": "test1"}
-            (hermes_home / ".update_prompt.json").write_text(json.dumps(prompt))
+            (birkin_home / ".update_prompt.json").write_text(json.dumps(prompt))
             # Simulate user responding
             await asyncio.sleep(0.5)
-            (hermes_home / ".update_response").write_text("y")
-            (hermes_home / ".update_prompt.json").unlink(missing_ok=True)
+            (birkin_home / ".update_response").write_text("y")
+            (birkin_home / ".update_prompt.json").unlink(missing_ok=True)
             await asyncio.sleep(0.3)
-            (hermes_home / ".update_exit_code").write_text("0")
+            (birkin_home / ".update_exit_code").write_text("0")
 
-        with patch("gateway.run._hermes_home", hermes_home):
+        with patch("gateway.run._birkin_home", birkin_home):
             task = asyncio.create_task(simulate_prompt_cycle())
             await runner._watch_update_progress(
                 poll_interval=0.1,
@@ -325,14 +325,14 @@ class TestWatchUpdateProgress:
     async def test_cleans_up_on_completion(self, tmp_path):
         """All marker files are cleaned up when update finishes."""
         runner = _make_runner()
-        hermes_home = tmp_path / "hermes"
-        hermes_home.mkdir()
+        birkin_home = tmp_path / "birkin"
+        birkin_home.mkdir()
 
         pending = {"platform": "telegram", "chat_id": "111", "user_id": "222",
                    "session_key": "agent:main:telegram:dm:111"}
-        pending_path = hermes_home / ".update_pending.json"
-        output_path = hermes_home / ".update_output.txt"
-        exit_code_path = hermes_home / ".update_exit_code"
+        pending_path = birkin_home / ".update_pending.json"
+        output_path = birkin_home / ".update_output.txt"
+        exit_code_path = birkin_home / ".update_exit_code"
         pending_path.write_text(json.dumps(pending))
         output_path.write_text("done\n")
         exit_code_path.write_text("0")
@@ -340,7 +340,7 @@ class TestWatchUpdateProgress:
         mock_adapter = AsyncMock()
         runner.adapters = {Platform.TELEGRAM: mock_adapter}
 
-        with patch("gateway.run._hermes_home", hermes_home):
+        with patch("gateway.run._birkin_home", birkin_home):
             await runner._watch_update_progress(
                 poll_interval=0.1,
                 stream_interval=0.2,
@@ -355,19 +355,19 @@ class TestWatchUpdateProgress:
     async def test_failure_exit_code(self, tmp_path):
         """Non-zero exit code sends failure message."""
         runner = _make_runner()
-        hermes_home = tmp_path / "hermes"
-        hermes_home.mkdir()
+        birkin_home = tmp_path / "birkin"
+        birkin_home.mkdir()
 
         pending = {"platform": "telegram", "chat_id": "111", "user_id": "222",
                    "session_key": "agent:main:telegram:dm:111"}
-        (hermes_home / ".update_pending.json").write_text(json.dumps(pending))
-        (hermes_home / ".update_output.txt").write_text("error occurred\n")
-        (hermes_home / ".update_exit_code").write_text("1")
+        (birkin_home / ".update_pending.json").write_text(json.dumps(pending))
+        (birkin_home / ".update_output.txt").write_text("error occurred\n")
+        (birkin_home / ".update_exit_code").write_text("1")
 
         mock_adapter = AsyncMock()
         runner.adapters = {Platform.TELEGRAM: mock_adapter}
 
-        with patch("gateway.run._hermes_home", hermes_home):
+        with patch("gateway.run._birkin_home", birkin_home):
             await runner._watch_update_progress(
                 poll_interval=0.1,
                 stream_interval=0.2,
@@ -381,20 +381,20 @@ class TestWatchUpdateProgress:
     async def test_falls_back_when_adapter_unavailable(self, tmp_path):
         """Falls back to legacy notification when adapter can't be resolved."""
         runner = _make_runner()
-        hermes_home = tmp_path / "hermes"
-        hermes_home.mkdir()
+        birkin_home = tmp_path / "birkin"
+        birkin_home.mkdir()
 
         # Platform doesn't match any adapter
         pending = {"platform": "discord", "chat_id": "111", "user_id": "222"}
-        (hermes_home / ".update_pending.json").write_text(json.dumps(pending))
-        (hermes_home / ".update_output.txt").write_text("done\n")
-        (hermes_home / ".update_exit_code").write_text("0")
+        (birkin_home / ".update_pending.json").write_text(json.dumps(pending))
+        (birkin_home / ".update_output.txt").write_text("done\n")
+        (birkin_home / ".update_exit_code").write_text("0")
 
         # Only telegram adapter available
         mock_adapter = AsyncMock()
         runner.adapters = {Platform.TELEGRAM: mock_adapter}
 
-        with patch("gateway.run._hermes_home", hermes_home):
+        with patch("gateway.run._birkin_home", birkin_home):
             await runner._watch_update_progress(
                 poll_interval=0.1,
                 stream_interval=0.2,
@@ -411,13 +411,13 @@ class TestWatchUpdateProgress:
         forwarding, causing the same prompt to be sent every poll_interval.
         """
         runner = _make_runner()
-        hermes_home = tmp_path / "hermes"
-        hermes_home.mkdir()
+        birkin_home = tmp_path / "birkin"
+        birkin_home.mkdir()
 
         pending = {"platform": "telegram", "chat_id": "111", "user_id": "222",
                    "session_key": "agent:main:telegram:dm:111"}
-        (hermes_home / ".update_pending.json").write_text(json.dumps(pending))
-        (hermes_home / ".update_output.txt").write_text("")
+        (birkin_home / ".update_pending.json").write_text(json.dumps(pending))
+        (birkin_home / ".update_output.txt").write_text("")
 
         mock_adapter = AsyncMock()
         runner.adapters = {Platform.TELEGRAM: mock_adapter}
@@ -426,17 +426,17 @@ class TestWatchUpdateProgress:
         # The watcher should forward it exactly once, then delete it.
         prompt = {"prompt": "Would you like to configure new options now? Y/n",
                   "default": "n", "id": "dup-test"}
-        (hermes_home / ".update_prompt.json").write_text(json.dumps(prompt))
+        (birkin_home / ".update_prompt.json").write_text(json.dumps(prompt))
 
         async def finish_after_polls():
             # Wait long enough for multiple poll cycles to occur, then
             # simulate a response + completion.
             await asyncio.sleep(1.0)
-            (hermes_home / ".update_response").write_text("n")
+            (birkin_home / ".update_response").write_text("n")
             await asyncio.sleep(0.3)
-            (hermes_home / ".update_exit_code").write_text("0")
+            (birkin_home / ".update_exit_code").write_text("0")
 
-        with patch("gateway.run._hermes_home", hermes_home):
+        with patch("gateway.run._birkin_home", birkin_home):
             task = asyncio.create_task(finish_after_polls())
             await runner._watch_update_progress(
                 poll_interval=0.1,
@@ -466,8 +466,8 @@ class TestUpdatePromptInterception:
     async def test_intercepts_response_when_prompt_pending(self, tmp_path):
         """When _update_prompt_pending is set, the next message writes .update_response."""
         runner = _make_runner()
-        hermes_home = tmp_path / "hermes"
-        hermes_home.mkdir()
+        birkin_home = tmp_path / "birkin"
+        birkin_home.mkdir()
 
         event = _make_event(text="y", chat_id="67890")
         # The session key uses the full format from build_session_key
@@ -478,12 +478,12 @@ class TestUpdatePromptInterception:
         runner._is_user_authorized = MagicMock(return_value=True)
         runner._session_key_for_source = MagicMock(return_value=session_key)
 
-        with patch("gateway.run._hermes_home", hermes_home):
+        with patch("gateway.run._birkin_home", birkin_home):
             result = await runner._handle_message(event)
 
         assert result is not None
         assert "Sent" in result
-        response_path = hermes_home / ".update_response"
+        response_path = birkin_home / ".update_response"
         assert response_path.exists()
         assert response_path.read_text() == "y"
         # Should clear the pending flag
@@ -493,8 +493,8 @@ class TestUpdatePromptInterception:
     async def test_normal_message_when_no_prompt_pending(self, tmp_path):
         """Messages pass through normally when no prompt is pending."""
         runner = _make_runner()
-        hermes_home = tmp_path / "hermes"
-        hermes_home.mkdir()
+        birkin_home = tmp_path / "birkin"
+        birkin_home.mkdir()
 
         event = _make_event(text="hello", chat_id="67890")
 
@@ -517,7 +517,7 @@ class TestCmdUpdateGatewayMode:
 
     def test_gateway_flag_enables_gateway_prompt_for_stash(self, tmp_path):
         """With --gateway, stash restore uses _gateway_prompt instead of input()."""
-        from hermes_cli.main import _restore_stashed_changes
+        from birkin_cli.main import _restore_stashed_changes
 
         # Use input_fn to verify the gateway path is taken
         calls = []

@@ -15,7 +15,7 @@ RUN apt-get update && \
         build-essential nodejs npm python3 ripgrep ffmpeg gcc python3-dev libffi-dev procps git && \
     rm -rf /var/lib/apt/lists/*
 
-# Non-root user for runtime; UID can be overridden via HERMES_UID at runtime
+# Non-root user for runtime; UID can be overridden via BIRKIN_UID at runtime
 RUN useradd -u 10000 -m -d /opt/data birkin
 
 COPY --chmod=0755 --from=gosu_source /gosu /usr/local/bin/
@@ -31,7 +31,7 @@ RUN npm install --prefer-offline --no-audit && \
     npm install --prefer-offline --no-audit && \
     npm cache clean --force
 
-# Hand ownership to hermes user, then install Python deps in a virtualenv
+# Hand ownership to birkin user, then install Python deps in a virtualenv
 RUN chown -R birkin:birkin /opt/birkin
 USER birkin
 

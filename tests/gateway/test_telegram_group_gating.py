@@ -21,7 +21,7 @@ def _make_adapter(require_mention=None, free_response_chats=None, mention_patter
     adapter = object.__new__(TelegramAdapter)
     adapter.platform = Platform.TELEGRAM
     adapter.config = PlatformConfig(enabled=True, token="***", extra=extra)
-    adapter._bot = SimpleNamespace(id=999, username="hermes_bot")
+    adapter._bot = SimpleNamespace(id=999, username="birkin_bot")
     adapter._message_handler = AsyncMock()
     adapter._pending_text_batches = {}
     adapter._pending_text_batch_tasks = {}
@@ -54,7 +54,7 @@ def _group_message(
     )
 
 
-def _mention_entity(text, mention="@hermes_bot"):
+def _mention_entity(text, mention="@birkin_bot"):
     offset = text.index(mention)
     return SimpleNamespace(type="mention", offset=offset, length=len(mention))
 
@@ -69,7 +69,7 @@ def test_group_messages_can_require_direct_trigger_via_config():
     adapter = _make_adapter(require_mention=True)
 
     assert adapter._should_process_message(_group_message("hello everyone")) is False
-    assert adapter._should_process_message(_group_message("hi @hermes_bot", entities=[_mention_entity("hi @hermes_bot")])) is True
+    assert adapter._should_process_message(_group_message("hi @birkin_bot", entities=[_mention_entity("hi @birkin_bot")])) is True
     assert adapter._should_process_message(_group_message("replying", reply_to_bot=True)) is True
     assert adapter._should_process_message(_group_message("/status"), is_command=True) is True
 
@@ -105,9 +105,9 @@ def test_invalid_regex_patterns_are_ignored():
 
 
 def test_config_bridges_telegram_group_settings(monkeypatch, tmp_path):
-    hermes_home = tmp_path / ".hermes"
-    hermes_home.mkdir()
-    (hermes_home / "config.yaml").write_text(
+    birkin_home = tmp_path / ".birkin"
+    birkin_home.mkdir()
+    (birkin_home / "config.yaml").write_text(
         "telegram:\n"
         "  require_mention: true\n"
         "  mention_patterns:\n"
@@ -117,7 +117,7 @@ def test_config_bridges_telegram_group_settings(monkeypatch, tmp_path):
         encoding="utf-8",
     )
 
-    monkeypatch.setenv("HERMES_HOME", str(hermes_home))
+    monkeypatch.setenv("BIRKIN_HOME", str(birkin_home))
     monkeypatch.delenv("TELEGRAM_REQUIRE_MENTION", raising=False)
     monkeypatch.delenv("TELEGRAM_MENTION_PATTERNS", raising=False)
     monkeypatch.delenv("TELEGRAM_FREE_RESPONSE_CHATS", raising=False)
@@ -131,9 +131,9 @@ def test_config_bridges_telegram_group_settings(monkeypatch, tmp_path):
 
 
 def test_config_bridges_telegram_ignored_threads(monkeypatch, tmp_path):
-    hermes_home = tmp_path / ".hermes"
-    hermes_home.mkdir()
-    (hermes_home / "config.yaml").write_text(
+    birkin_home = tmp_path / ".birkin"
+    birkin_home.mkdir()
+    (birkin_home / "config.yaml").write_text(
         "telegram:\n"
         "  ignored_threads:\n"
         "    - 31\n"
@@ -141,7 +141,7 @@ def test_config_bridges_telegram_ignored_threads(monkeypatch, tmp_path):
         encoding="utf-8",
     )
 
-    monkeypatch.setenv("HERMES_HOME", str(hermes_home))
+    monkeypatch.setenv("BIRKIN_HOME", str(birkin_home))
     monkeypatch.delenv("TELEGRAM_IGNORED_THREADS", raising=False)
 
     config = load_gateway_config()

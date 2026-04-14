@@ -26,7 +26,7 @@ class TestFirecrawlClientConfig:
         tools.web_tools._firecrawl_client = None
         tools.web_tools._firecrawl_client_config = None
         for key in (
-            "HERMES_ENABLE_NOUS_MANAGED_TOOLS",
+            "BIRKIN_ENABLE_MANAGED_TOOLS",
             "FIRECRAWL_API_KEY",
             "FIRECRAWL_API_URL",
             "FIRECRAWL_GATEWAY_URL",
@@ -35,7 +35,7 @@ class TestFirecrawlClientConfig:
             "TOOL_GATEWAY_USER_TOKEN",
         ):
             os.environ.pop(key, None)
-        os.environ["HERMES_ENABLE_NOUS_MANAGED_TOOLS"] = "1"
+        os.environ["BIRKIN_ENABLE_MANAGED_TOOLS"] = "1"
 
     def teardown_method(self):
         """Reset client after each test."""
@@ -43,7 +43,7 @@ class TestFirecrawlClientConfig:
         tools.web_tools._firecrawl_client = None
         tools.web_tools._firecrawl_client_config = None
         for key in (
-            "HERMES_ENABLE_NOUS_MANAGED_TOOLS",
+            "BIRKIN_ENABLE_MANAGED_TOOLS",
             "FIRECRAWL_API_KEY",
             "FIRECRAWL_API_URL",
             "FIRECRAWL_GATEWAY_URL",
@@ -173,14 +173,14 @@ class TestFirecrawlClientConfig:
                     _get_firecrawl_client()
                 mock_fc.assert_called_once_with(api_key="fc-test")
 
-    def test_nous_auth_token_respects_hermes_home_override(self, tmp_path):
-        """Auth lookup should read from HERMES_HOME/auth.json, not ~/.hermes/auth.json."""
+    def test_nous_auth_token_respects_birkin_home_override(self, tmp_path):
+        """Auth lookup should read from BIRKIN_HOME/auth.json, not ~/.birkin/auth.json."""
         real_home = tmp_path / "real-home"
-        (real_home / ".hermes").mkdir(parents=True)
+        (real_home / ".birkin").mkdir(parents=True)
 
-        hermes_home = tmp_path / "hermes-home"
-        hermes_home.mkdir()
-        (hermes_home / "auth.json").write_text(json.dumps({
+        birkin_home = tmp_path / "birkin-home"
+        birkin_home.mkdir()
+        (birkin_home / "auth.json").write_text(json.dumps({
             "providers": {
                 "nous": {
                     "access_token": "nous-token",
@@ -190,7 +190,7 @@ class TestFirecrawlClientConfig:
 
         with patch.dict(os.environ, {
             "HOME": str(real_home),
-            "HERMES_HOME": str(hermes_home),
+            "BIRKIN_HOME": str(birkin_home),
         }, clear=False):
             import tools.web_tools
             importlib.reload(tools.web_tools)
@@ -293,12 +293,12 @@ class TestBackendSelection:
     """Test suite for _get_backend() backend selection logic.
 
     The backend is configured via config.yaml (web.backend), set by
-    ``hermes tools``.  Falls back to key-based detection for legacy/manual
+    ``birkin tools``.  Falls back to key-based detection for legacy/manual
     setups.
     """
 
     _ENV_KEYS = (
-        "HERMES_ENABLE_NOUS_MANAGED_TOOLS",
+        "BIRKIN_ENABLE_MANAGED_TOOLS",
         "EXA_API_KEY",
         "PARALLEL_API_KEY",
         "FIRECRAWL_API_KEY",
@@ -311,9 +311,9 @@ class TestBackendSelection:
     )
 
     def setup_method(self):
-        os.environ["HERMES_ENABLE_NOUS_MANAGED_TOOLS"] = "1"
+        os.environ["BIRKIN_ENABLE_MANAGED_TOOLS"] = "1"
         for key in self._ENV_KEYS:
-            if key != "HERMES_ENABLE_NOUS_MANAGED_TOOLS":
+            if key != "BIRKIN_ENABLE_MANAGED_TOOLS":
                 os.environ.pop(key, None)
 
     def teardown_method(self):
@@ -523,7 +523,7 @@ class TestCheckWebApiKey:
     """Test suite for check_web_api_key() unified availability check."""
 
     _ENV_KEYS = (
-        "HERMES_ENABLE_NOUS_MANAGED_TOOLS",
+        "BIRKIN_ENABLE_MANAGED_TOOLS",
         "EXA_API_KEY",
         "PARALLEL_API_KEY",
         "FIRECRAWL_API_KEY",
@@ -536,9 +536,9 @@ class TestCheckWebApiKey:
     )
 
     def setup_method(self):
-        os.environ["HERMES_ENABLE_NOUS_MANAGED_TOOLS"] = "1"
+        os.environ["BIRKIN_ENABLE_MANAGED_TOOLS"] = "1"
         for key in self._ENV_KEYS:
-            if key != "HERMES_ENABLE_NOUS_MANAGED_TOOLS":
+            if key != "BIRKIN_ENABLE_MANAGED_TOOLS":
                 os.environ.pop(key, None)
 
     def teardown_method(self):

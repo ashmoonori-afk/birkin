@@ -47,7 +47,7 @@ def _restore_tool_and_agent_modules():
 
 @pytest.fixture(autouse=True)
 def _enable_managed_nous_tools(monkeypatch):
-    monkeypatch.setenv("HERMES_ENABLE_NOUS_MANAGED_TOOLS", "1")
+    monkeypatch.setenv("BIRKIN_ENABLE_MANAGED_TOOLS", "1")
 
 
 def _install_fake_tools_package():
@@ -123,7 +123,7 @@ def test_browser_use_explicit_local_mode_stays_local_even_when_managed_gateway_i
     env = os.environ.copy()
     env.pop("BROWSER_USE_API_KEY", None)
     env.update({
-        "HERMES_HOME": str(tmp_path),
+        "BIRKIN_HOME": str(tmp_path),
         "TOOL_GATEWAY_USER_TOKEN": "nous-token",
         "BROWSER_USE_GATEWAY_URL": "http://127.0.0.1:3009",
     })

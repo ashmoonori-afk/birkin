@@ -6,7 +6,7 @@ author: Orchestra Research
 license: MIT
 dependencies: [instructor, pydantic, openai, anthropic]
 metadata:
-  hermes:
+  birkin:
     tags: [Prompt Engineering, Instructor, Structured Output, Pydantic, Data Extraction, JSON Parsing, Type Safety, Validation, Streaming, OpenAI, Anthropic]
 
 ---

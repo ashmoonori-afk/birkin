@@ -1,12 +1,12 @@
 ---
 sidebar_position: 5
 title: "Bundled Skills Catalog"
-description: "Catalog of bundled skills that ship with Hermes Agent"
+description: "Catalog of bundled skills that ship with Birkin"
 ---
 
 # Bundled Skills Catalog
 
-Hermes ships with a large built-in skill library copied into `~/.hermes/skills/` on install. This page catalogs the bundled skills that live in the repository under `skills/`.
+Birkin ships with a large built-in skill library copied into `~/.birkin/skills/` on install. This page catalogs the bundled skills that live in the repository under `skills/`.
 
 ## apple
 
@@ -27,7 +27,7 @@ Skills for spawning and orchestrating autonomous AI coding agents and multi-agen
 |-------|-------------|------|
 | `claude-code` | Delegate coding tasks to Claude Code (Anthropic's CLI agent). Use for building features, refactoring, PR reviews, and iterative coding. Requires the claude CLI installed. | `autonomous-ai-agents/claude-code` |
 | `codex` | Delegate coding tasks to OpenAI Codex CLI agent. Use for building features, refactoring, PR reviews, and batch issue fixing. Requires the codex CLI and a git repository. | `autonomous-ai-agents/codex` |
-| `hermes-agent-spawning` | Spawn additional Hermes Agent instances as autonomous subprocesses for independent long-running tasks. Supports non-interactive one-shot mode (-q) and interactive PTY mode for multi-turn collaboration. Different from delegate_task — this runs a full separate hermes process. | `autonomous-ai-agents/hermes-agent` |
+| `birkin-agent-spawning` | Spawn additional Birkin instances as autonomous subprocesses for independent long-running tasks. Supports non-interactive one-shot mode (-q) and interactive PTY mode for multi-turn collaboration. Different from delegate_task — this runs a full separate birkin process. | `autonomous-ai-agents/birkin-agent` |
 | `opencode` | Delegate coding tasks to OpenCode CLI agent for feature implementation, refactoring, PR review, and long-running autonomous sessions. Requires the opencode CLI installed and authenticated. | `autonomous-ai-agents/opencode` |
 
 ## data-science
@@ -62,7 +62,7 @@ DevOps and infrastructure automation skills.
 | Skill | Description | Path |
 |-------|-------------|------|
 | `dogfood` | Systematic exploratory QA testing of web applications — find bugs, capture evidence, and generate structured reports. | `dogfood/dogfood` |
-| `hermes-agent-setup` | Help users configure Hermes Agent — CLI usage, setup wizard, model/provider selection, tools, skills, voice/STT/TTS, gateway, and troubleshooting. | `dogfood/hermes-agent-setup` |
+| `birkin-agent-setup` | Help users configure Birkin — CLI usage, setup wizard, model/provider selection, tools, skills, voice/STT/TTS, gateway, and troubleshooting. | `dogfood/birkin-agent-setup` |
 
 ## email
 
@@ -115,7 +115,7 @@ Skills for working with MCP (Model Context Protocol) servers, tools, and integra
 | Skill | Description | Path |
 |-------|-------------|------|
 | `mcporter` | Use the mcporter CLI to list, configure, auth, and call MCP servers/tools directly (HTTP or stdio), including ad-hoc servers, config edits, and CLI/type generation. | `mcp/mcporter` |
-| `native-mcp` | Built-in MCP (Model Context Protocol) client that connects to external MCP servers, discovers their tools, and registers them as native Hermes Agent tools. Supports stdio and HTTP transports with automatic reconnection, security filtering, and zero-config tool injection. | `mcp/native-mcp` |
+| `native-mcp` | Built-in MCP (Model Context Protocol) client that connects to external MCP servers, discovers their tools, and registers them as native Birkin tools. Supports stdio and HTTP transports with automatic reconnection, security filtering, and zero-config tool injection. | `mcp/native-mcp` |
 
 ## media
 
@@ -203,7 +203,7 @@ Fine-tuning, RLHF/DPO/GRPO training, distributed training frameworks, and optimi
 | `distributed-llm-pretraining-torchtitan` | Provides PyTorch-native distributed LLM pretraining using torchtitan with 4D parallelism (FSDP2, TP, PP, CP). Use when pretraining Llama 3.1, DeepSeek V3, or custom models at scale from 8 to 512+ GPUs with Float8, torch.compile, and distributed checkpointing. | `mlops/training/torchtitan` |
 | `fine-tuning-with-trl` | Fine-tune LLMs using reinforcement learning with TRL - SFT for instruction tuning, DPO for preference alignment, PPO/GRPO for reward optimization, and reward model training. Use when need RLHF, align model with preferences, or train from human feedback. Works with HuggingFace Tr… | `mlops/training/trl-fine-tuning` |
 | `grpo-rl-training` | Expert guidance for GRPO/RL fine-tuning with TRL for reasoning and task-specific model training | `mlops/training/grpo-rl-training` |
-| `hermes-atropos-environments` | Build, test, and debug Hermes Agent RL environments for Atropos training. Covers the HermesAgentBaseEnv interface, reward functions, agent loop integration, evaluation with tools, wandb logging, and the three CLI modes (serve/process/evaluate). Use when creating, reviewing, or f… | `mlops/training/hermes-atropos-environments` |
+| `birkin-atropos-environments` | Build, test, and debug Birkin RL environments for Atropos training. Covers the BirkinAgentBaseEnv interface, reward functions, agent loop integration, evaluation with tools, wandb logging, and the three CLI modes (serve/process/evaluate). Use when creating, reviewing, or f… | `mlops/training/birkin-atropos-environments` |
 | `huggingface-accelerate` | Simplest distributed training API. 4 lines to add distributed support to any PyTorch script. Unified API for DeepSpeed/FSDP/Megatron/DDP. Automatic device placement, mixed precision (FP16/BF16/FP8). Interactive config, single launch command. HuggingFace ecosystem standard. | `mlops/training/accelerate` |
 | `optimizing-attention-flash` | Optimizes transformer attention with Flash Attention for 2-4x speedup and 10-20x memory reduction. Use when training/running transformers with long sequences (&gt;512 tokens), encountering GPU memory issues with attention, or need faster inference. Supports PyTorch native SDPA,… | `mlops/training/flash-attention` |
 | `peft-fine-tuning` | Parameter-efficient fine-tuning for LLMs using LoRA, QLoRA, and 25+ methods. Use when fine-tuning large models (7B-70B) with limited GPU memory, when you need to train &lt;1% of parameters with minimal accuracy loss, or for multi-adapter serving. HuggingFace's official library i… | `mlops/training/peft` |
@@ -238,7 +238,7 @@ Skills for document creation, presentations, spreadsheets, and other productivit
 
 | Skill | Description | Path |
 |-------|-------------|------|
-| `google-workspace` | Gmail, Calendar, Drive, Contacts, Sheets, and Docs integration via Python. Uses OAuth2 with automatic token refresh. No external binaries needed — runs entirely with Google's Python client libraries in the Hermes venv. | `productivity/google-workspace` |
+| `google-workspace` | Gmail, Calendar, Drive, Contacts, Sheets, and Docs integration via Python. Uses OAuth2 with automatic token refresh. No external binaries needed — runs entirely with Google's Python client libraries in the Birkin venv. | `productivity/google-workspace` |
 | `linear` | Manage Linear issues, projects, and teams via the GraphQL API. Create, update, search, and organize issues. | `productivity/linear` |
 | `nano-pdf` | Edit PDFs with natural-language instructions using the nano-pdf CLI. Modify text, fix typos, update titles, and make content changes to specific pages without manual editing. | `productivity/nano-pdf` |
 | `notion` | Notion API for creating and managing pages, databases, and blocks via curl. Search, create, update, and query Notion workspaces directly from the terminal. | `productivity/notion` |
@@ -265,7 +265,7 @@ Skills for LLM red-teaming, jailbreaking, and safety filter bypass research.
 
 | Skill | Description | Path |
 |-------|-------------|------|
-| `godmode` | Jailbreak API-served LLMs using G0DM0D3 techniques — Parseltongue input obfuscation (33 techniques), GODMODE CLASSIC system prompt templates, ULTRAPLINIAN multi-model racing, encoding escalation, and Hermes-native prefill/system prompt integration. Works on any model accessible via API including closed-source models. | `red-teaming/godmode` |
+| `godmode` | Jailbreak API-served LLMs using G0DM0D3 techniques — Parseltongue input obfuscation (33 techniques), GODMODE CLASSIC system prompt templates, ULTRAPLINIAN multi-model racing, encoding escalation, and Birkin-native prefill/system prompt integration. Works on any model accessible via API including closed-source models. | `red-teaming/godmode` |
 
 ## smart-home
 
@@ -288,7 +288,7 @@ Skills for interacting with social platforms — posting, reading, monitoring, a
 | Skill | Description | Path |
 |-------|-------------|------|
 | `code-review` | Guidelines for performing thorough code reviews with security and quality focus | `software-development/code-review` |
-| `plan` | Plan mode for Hermes — inspect context, write a markdown plan into `.hermes/plans/` in the active workspace/backend working directory, and do not execute the work. | `software-development/plan` |
+| `plan` | Plan mode for Birkin — inspect context, write a markdown plan into `.birkin/plans/` in the active workspace/backend working directory, and do not execute the work. | `software-development/plan` |
 | `requesting-code-review` | Use when completing tasks, implementing major features, or before merging. Validates work meets requirements through systematic review process. | `software-development/requesting-code-review` |
 | `subagent-driven-development` | Use when executing implementation plans with independent tasks. Dispatches fresh delegate_task per task with two-stage review (spec compliance then code quality). | `software-development/subagent-driven-development` |
 | `systematic-debugging` | Use when encountering any bug, test failure, or unexpected behavior. 4-phase root cause investigation — NO fixes without understanding the problem first. | `software-development/systematic-debugging` |
@@ -302,7 +302,7 @@ Skills for interacting with social platforms — posting, reading, monitoring, a
 Optional skills ship with the repository under `optional-skills/` but are **not active by default**. They cover heavier or niche use cases. Install them with:
 
 ```bash
-hermes skills install official/<category>/<skill>
+birkin skills install official/<category>/<skill>
 ```
 
 ## autonomous-ai-agents
@@ -322,7 +322,7 @@ hermes skills install official/<category>/<skill>
 
 | Skill | Description | Path |
 |-------|-------------|------|
-| `blender-mcp` | Control Blender directly from Hermes via socket connection to the blender-mcp addon. Create 3D objects, materials, animations, and run arbitrary Blender Python (bpy) code. | `creative/blender-mcp` |
+| `blender-mcp` | Control Blender directly from Birkin via socket connection to the blender-mcp addon. Create 3D objects, materials, animations, and run arbitrary Blender Python (bpy) code. | `creative/blender-mcp` |
 | `meme-generation` | Generate real meme images by picking a template and overlaying text with Pillow. Produces actual .png meme files. | `creative/meme-generation` |
 
 ## devops
@@ -335,7 +335,7 @@ hermes skills install official/<category>/<skill>
 
 | Skill | Description | Path |
 |-------|-------------|------|
-| `agentmail` | Give the agent its own dedicated email inbox via AgentMail. Send, receive, and manage email autonomously using agent-owned email addresses (e.g. hermes-agent@agentmail.to). | `email/agentmail` |
+| `agentmail` | Give the agent its own dedicated email inbox via AgentMail. Send, receive, and manage email autonomously using agent-owned email addresses (e.g. birkin-agent@agentmail.to). | `email/agentmail` |
 
 ## health
 
@@ -353,13 +353,13 @@ hermes skills install official/<category>/<skill>
 
 | Skill | Description | Path |
 |-------|-------------|------|
-| `openclaw-migration` | Migrate a user's OpenClaw customization footprint into Hermes Agent. Imports Hermes-compatible memories, SOUL.md, command allowlists, user skills, and selected workspace assets from ~/.openclaw, then reports what could not be migrated and why. | `migration/openclaw-migration` |
+| `openclaw-migration` | Migrate a user's OpenClaw customization footprint into Birkin. Imports Birkin-compatible memories, SOUL.md, command allowlists, user skills, and selected workspace assets from ~/.openclaw, then reports what could not be migrated and why. | `migration/openclaw-migration` |
 
 ## productivity
 
 | Skill | Description | Path |
 |-------|-------------|------|
-| `telephony` | Give Hermes phone capabilities — provision and persist a Twilio number, send and receive SMS/MMS, make direct calls, and place AI-driven outbound calls through Bland.ai or Vapi. | `productivity/telephony` |
+| `telephony` | Give Birkin phone capabilities — provision and persist a Twilio number, send and receive SMS/MMS, make direct calls, and place AI-driven outbound calls through Bland.ai or Vapi. | `productivity/telephony` |
 
 ## research
 

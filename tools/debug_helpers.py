@@ -1,4 +1,4 @@
-"""Shared debug session infrastructure for Hermes tools.
+"""Shared debug session infrastructure for Birkin tools.
 
 Replaces the identical DEBUG_MODE / _log_debug_call / _save_debug_log /
 get_debug_session_info boilerplate previously duplicated across web_tools,
@@ -28,7 +28,7 @@ import os
 import uuid
 from typing import Any, Dict
 
-from hermes_constants import get_hermes_home
+from birkin_constants import get_birkin_home
 
 logger = logging.getLogger(__name__)
 
@@ -44,7 +44,7 @@ class DebugSession:
         self.tool_name = tool_name
         self.enabled = os.getenv(env_var, "false").lower() == "true"
         self.session_id = str(uuid.uuid4()) if self.enabled else ""
-        self.log_dir = get_hermes_home() / "logs"
+        self.log_dir = get_birkin_home() / "logs"
         self._calls: list[Dict[str, Any]] = []
         self._start_time = datetime.datetime.now().isoformat() if self.enabled else ""
 

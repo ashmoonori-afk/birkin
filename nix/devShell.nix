@@ -10,7 +10,7 @@
         ];
 
         shellHook = ''
-          echo "Hermes Agent dev shell"
+          echo "Birkin dev shell"
 
           # Composite stamp: changes when nix python or uv change
           STAMP_VALUE="${python}:${pkgs.uv}"
@@ -44,7 +44,7 @@
             echo "$STAMP_VALUE" > "$STAMP_FILE"
           fi
 
-          echo "Ready. Run 'hermes' to start."
+          echo "Ready. Run 'birkin' to start."
         '';
       };
     };

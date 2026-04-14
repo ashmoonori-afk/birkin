@@ -1,6 +1,6 @@
 # Adding a New Messaging Platform
 
-Checklist for integrating a new messaging platform into the Hermes gateway.
+Checklist for integrating a new messaging platform into the Birkin gateway.
 Use this as a reference when building a new adapter — every item here is a
 real integration point that exists in the codebase. Missing any of them will
 cause broken functionality, missing features, or inconsistent behavior.
@@ -145,18 +145,18 @@ inappropriate formatting (e.g., markdown on platforms that don't render it).
 Add a named toolset for your platform:
 
 ```python
-"hermes-your-platform": {
+"birkin-your-platform": {
     "description": "Your Platform bot toolset",
-    "tools": _HERMES_CORE_TOOLS,
+    "tools": _BIRKIN_CORE_TOOLS,
     "includes": []
 },
 ```
 
-And add it to the `hermes-gateway` composite:
+And add it to the `birkin-gateway` composite:
 
 ```python
-"hermes-gateway": {
-    "includes": [..., "hermes-your-platform"]
+"birkin-gateway": {
+    "includes": [..., "birkin-your-platform"]
 }
 ```
 
@@ -221,7 +221,7 @@ for plat_name in ("telegram", "whatsapp", "signal", "your_platform"):
 
 ---
 
-## 12. Status Display (`hermes_cli/status.py`)
+## 12. Status Display (`birkin_cli/status.py`)
 
 Add to the `platforms` dict in the Messaging Platforms section:
 
@@ -234,7 +234,7 @@ platforms = {
 
 ---
 
-## 13. Gateway Setup Wizard (`hermes_cli/gateway.py`)
+## 13. Gateway Setup Wizard (`birkin_cli/gateway.py`)
 
 Add to the `_PLATFORMS` list:
 
@@ -307,7 +307,7 @@ After implementing everything, verify with:
 python -m pytest tests/ -q
 
 # Grep for your platform name to find any missed integration points
-grep -r "telegram\|discord\|whatsapp\|slack" gateway/ tools/ agent/ cron/ hermes_cli/ toolsets.py \
+grep -r "telegram\|discord\|whatsapp\|slack" gateway/ tools/ agent/ cron/ birkin_cli/ toolsets.py \
   --include="*.py" -l | sort -u
 # Check each file in the output — if it mentions other platforms but not yours, you missed it
 ```

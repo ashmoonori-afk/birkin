@@ -45,11 +45,11 @@ export const en: Translations = {
   },
 
   app: {
-    brand: "Hermes Agent",
+    brand: "Birkin",
     brandShort: "HA",
     webUi: "Web UI",
     footer: {
-      name: "Hermes Agent",
+      name: "Birkin",
       org: "Nous Research",
     },
     nav: {
@@ -167,7 +167,7 @@ export const en: Translations = {
     searchPlaceholder: "Search skills and toolsets...",
     enabledOf: "{enabled}/{total} enabled",
     all: "All",
-    noSkills: "No skills found. Skills are loaded from ~/.hermes/skills/",
+    noSkills: "No skills found. Skills are loaded from ~/.birkin/skills/",
     noSkillsMatch: "No skills match your search or filter.",
     skillCount: "{count} skill{s}",
     noDescription: "No description available.",
@@ -179,7 +179,7 @@ export const en: Translations = {
   },
 
   config: {
-    configPath: "~/.hermes/config.yaml",
+    configPath: "~/.birkin/config.yaml",
     exportConfig: "Export config as JSON",
     importConfig: "Import config from JSON",
     resetDefaults: "Reset to defaults",

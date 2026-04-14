@@ -1,5 +1,5 @@
 """
-Tests for mcp_serve — Hermes MCP server.
+Tests for mcp_serve — Birkin MCP server.
 
 Three layers of tests:
 1. Unit tests — helpers, content extraction, attachment parsing
@@ -25,12 +25,12 @@ import pytest
 # ---------------------------------------------------------------------------
 
 @pytest.fixture(autouse=True)
-def _isolate_hermes_home(tmp_path, monkeypatch):
-    """Redirect HERMES_HOME to a temp directory."""
-    monkeypatch.setenv("HERMES_HOME", str(tmp_path))
+def _isolate_birkin_home(tmp_path, monkeypatch):
+    """Redirect BIRKIN_HOME to a temp directory."""
+    monkeypatch.setenv("BIRKIN_HOME", str(tmp_path))
     try:
-        import hermes_constants
-        monkeypatch.setattr(hermes_constants, "get_hermes_home", lambda: tmp_path)
+        import birkin_constants
+        monkeypatch.setattr(birkin_constants, "get_birkin_home", lambda: tmp_path)
     except (ImportError, AttributeError):
         pass
     return tmp_path
@@ -122,7 +122,7 @@ def populated_sessions_dir(sessions_dir, sample_sessions):
 
 
 def _create_test_db(db_path, session_id, messages):
-    """Create a minimal SQLite DB mimicking hermes_state schema."""
+    """Create a minimal SQLite DB mimicking birkin_state schema."""
     conn = sqlite3.connect(str(db_path))
     conn.execute("""
         CREATE TABLE IF NOT EXISTS sessions (
@@ -877,13 +877,13 @@ class TestCliIntegration:
         assert args.verbose is True
 
     def test_dispatcher_routes_serve(self, monkeypatch, tmp_path):
-        monkeypatch.setenv("HERMES_HOME", str(tmp_path))
+        monkeypatch.setenv("BIRKIN_HOME", str(tmp_path))
         mock_run = MagicMock()
         monkeypatch.setattr("mcp_serve.run_mcp_server", mock_run)
 
         import argparse
         args = argparse.Namespace(mcp_action="serve", verbose=True)
-        from hermes_cli.mcp_config import mcp_command
+        from birkin_cli.mcp_config import mcp_command
         mcp_command(args)
         mock_run.assert_called_once_with(verbose=True)
 

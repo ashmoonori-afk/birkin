@@ -1,7 +1,7 @@
 ---
 sidebar_position: 1
 title: "CLI Commands Reference"
-description: "Authoritative reference for Hermes terminal commands and command families"
+description: "Authoritative reference for Birkin terminal commands and command families"
 ---
 
 # CLI Commands Reference
@@ -13,7 +13,7 @@ For in-chat slash commands, see [Slash Commands Reference](./slash-commands.md).
 ## Global entrypoint
 
 ```bash
-hermes [global-options] <command> [subcommand/options]
+birkin [global-options] <command> [subcommand/options]
 ```
 
 ### Global options
@@ -21,7 +21,7 @@ hermes [global-options] <command> [subcommand/options]
 | Option | Description |
 |--------|-------------|
 | `--version`, `-V` | Show version and exit. |
-| `--profile <name>`, `-p <name>` | Select which Hermes profile to use for this invocation. Overrides the sticky default set by `hermes profile use`. |
+| `--profile <name>`, `-p <name>` | Select which Birkin profile to use for this invocation. Overrides the sticky default set by `birkin profile use`. |
 | `--resume <session>`, `-r <session>` | Resume a previous session by ID or title. |
 | `--continue [name]`, `-c [name]` | Resume the most recent session, or the most recent session matching a title. |
 | `--worktree`, `-w` | Start in an isolated git worktree for parallel-agent workflows. |
@@ -32,48 +32,48 @@ hermes [global-options] <command> [subcommand/options]
 
 | Command | Purpose |
 |---------|---------|
-| `hermes chat` | Interactive or one-shot chat with the agent. |
-| `hermes model` | Interactively choose the default provider and model. |
-| `hermes gateway` | Run or manage the messaging gateway service. |
-| `hermes setup` | Interactive setup wizard for all or part of the configuration. |
-| `hermes whatsapp` | Configure and pair the WhatsApp bridge. |
-| `hermes auth` | Manage credentials — add, list, remove, reset, set strategy. Handles OAuth flows for Codex/Nous/Anthropic. |
-| `hermes login` / `logout` | **Deprecated** — use `hermes auth` instead. |
-| `hermes status` | Show agent, auth, and platform status. |
-| `hermes cron` | Inspect and tick the cron scheduler. |
-| `hermes webhook` | Manage dynamic webhook subscriptions for event-driven activation. |
-| `hermes doctor` | Diagnose config and dependency issues. |
-| `hermes dump` | Copy-pasteable setup summary for support/debugging. |
-| `hermes debug` | Debug tools — upload logs and system info for support. |
-| `hermes backup` | Back up Hermes home directory to a zip file. |
-| `hermes import` | Restore a Hermes backup from a zip file. |
-| `hermes logs` | View, tail, and filter agent/gateway/error log files. |
-| `hermes config` | Show, edit, migrate, and query configuration files. |
-| `hermes pairing` | Approve or revoke messaging pairing codes. |
-| `hermes skills` | Browse, install, publish, audit, and configure skills. |
-| `hermes honcho` | Manage Honcho cross-session memory integration. |
-| `hermes memory` | Configure external memory provider. |
-| `hermes acp` | Run Hermes as an ACP server for editor integration. |
-| `hermes mcp` | Manage MCP server configurations and run Hermes as an MCP server. |
-| `hermes plugins` | Manage Hermes Agent plugins (install, enable, disable, remove). |
-| `hermes tools` | Configure enabled tools per platform. |
-| `hermes sessions` | Browse, export, prune, rename, and delete sessions. |
-| `hermes insights` | Show token/cost/activity analytics. |
-| `hermes claw` | OpenClaw migration helpers. |
-| `hermes dashboard` | Launch the web dashboard for managing config, API keys, and sessions. |
-| `hermes debug` | Debug tools — upload logs and system info for support. |
-| `hermes backup` | Back up Hermes home directory to a zip file. |
-| `hermes import` | Restore a Hermes backup from a zip file. |
-| `hermes profile` | Manage profiles — multiple isolated Hermes instances. |
-| `hermes completion` | Print shell completion scripts (bash/zsh). |
-| `hermes version` | Show version information. |
-| `hermes update` | Pull latest code and reinstall dependencies. |
-| `hermes uninstall` | Remove Hermes from the system. |
+| `birkin chat` | Interactive or one-shot chat with the agent. |
+| `birkin model` | Interactively choose the default provider and model. |
+| `birkin gateway` | Run or manage the messaging gateway service. |
+| `birkin setup` | Interactive setup wizard for all or part of the configuration. |
+| `birkin whatsapp` | Configure and pair the WhatsApp bridge. |
+| `birkin auth` | Manage credentials — add, list, remove, reset, set strategy. Handles OAuth flows for Codex/Nous/Anthropic. |
+| `birkin login` / `logout` | **Deprecated** — use `birkin auth` instead. |
+| `birkin status` | Show agent, auth, and platform status. |
+| `birkin cron` | Inspect and tick the cron scheduler. |
+| `birkin webhook` | Manage dynamic webhook subscriptions for event-driven activation. |
+| `birkin doctor` | Diagnose config and dependency issues. |
+| `birkin dump` | Copy-pasteable setup summary for support/debugging. |
+| `birkin debug` | Debug tools — upload logs and system info for support. |
+| `birkin backup` | Back up Birkin home directory to a zip file. |
+| `birkin import` | Restore a Birkin backup from a zip file. |
+| `birkin logs` | View, tail, and filter agent/gateway/error log files. |
+| `birkin config` | Show, edit, migrate, and query configuration files. |
+| `birkin pairing` | Approve or revoke messaging pairing codes. |
+| `birkin skills` | Browse, install, publish, audit, and configure skills. |
+| `birkin honcho` | Manage Honcho cross-session memory integration. |
+| `birkin memory` | Configure external memory provider. |
+| `birkin acp` | Run Birkin as an ACP server for editor integration. |
+| `birkin mcp` | Manage MCP server configurations and run Birkin as an MCP server. |
+| `birkin plugins` | Manage Birkin plugins (install, enable, disable, remove). |
+| `birkin tools` | Configure enabled tools per platform. |
+| `birkin sessions` | Browse, export, prune, rename, and delete sessions. |
+| `birkin insights` | Show token/cost/activity analytics. |
+| `birkin claw` | OpenClaw migration helpers. |
+| `birkin dashboard` | Launch the web dashboard for managing config, API keys, and sessions. |
+| `birkin debug` | Debug tools — upload logs and system info for support. |
+| `birkin backup` | Back up Birkin home directory to a zip file. |
+| `birkin import` | Restore a Birkin backup from a zip file. |
+| `birkin profile` | Manage profiles — multiple isolated Birkin instances. |
+| `birkin completion` | Print shell completion scripts (bash/zsh). |
+| `birkin version` | Show version information. |
+| `birkin update` | Pull latest code and reinstall dependencies. |
+| `birkin uninstall` | Remove Birkin from the system. |
 
-## `hermes chat`
+## `birkin chat`
 
 ```bash
-hermes chat [options]
+birkin chat [options]
 ```
 
 Common options:
@@ -99,20 +99,20 @@ Common options:
 Examples:
 
 ```bash
-hermes
-hermes chat -q "Summarize the latest PRs"
-hermes chat --provider openrouter --model anthropic/claude-sonnet-4.6
-hermes chat --toolsets web,terminal,skills
-hermes chat --quiet -q "Return only JSON"
-hermes chat --worktree -q "Review this repo and open a PR"
+birkin
+birkin chat -q "Summarize the latest PRs"
+birkin chat --provider openrouter --model anthropic/claude-sonnet-4.6
+birkin chat --toolsets web,terminal,skills
+birkin chat --quiet -q "Return only JSON"
+birkin chat --worktree -q "Review this repo and open a PR"
 ```
 
-## `hermes model`
+## `birkin model`
 
 Interactive provider + model selector.
 
 ```bash
-hermes model
+birkin model
 ```
 
 Use this when you want to:
@@ -138,10 +138,10 @@ Switch models without leaving a session:
 
 Provider and base URL changes are persisted to `config.yaml` automatically. When switching away from a custom endpoint, the stale base URL is cleared to prevent it leaking into other providers.
 
-## `hermes gateway`
+## `birkin gateway`
 
 ```bash
-hermes gateway <subcommand>
+birkin gateway <subcommand>
 ```
 
 Subcommands:
@@ -158,13 +158,13 @@ Subcommands:
 | `setup` | Interactive messaging-platform setup. |
 
 :::tip WSL users
-Use `hermes gateway run` instead of `hermes gateway start` — WSL's systemd support is unreliable. Wrap it in tmux for persistence: `tmux new -s hermes 'hermes gateway run'`. See [WSL FAQ](/docs/reference/faq#wsl-gateway-keeps-disconnecting-or-hermes-gateway-start-fails) for details.
+Use `birkin gateway run` instead of `birkin gateway start` — WSL's systemd support is unreliable. Wrap it in tmux for persistence: `tmux new -s birkin 'birkin gateway run'`. See [WSL FAQ](/docs/reference/faq#wsl-gateway-keeps-disconnecting-or-birkin-gateway-start-fails) for details.
 :::
 
-## `hermes setup`
+## `birkin setup`
 
 ```bash
-hermes setup [model|tts|terminal|gateway|tools|agent] [--non-interactive] [--reset]
+birkin setup [model|tts|terminal|gateway|tools|agent] [--non-interactive] [--reset]
 ```
 
 Use the full wizard or jump into one section:
@@ -184,40 +184,40 @@ Options:
 | `--non-interactive` | Use defaults / environment values without prompts. |
 | `--reset` | Reset configuration to defaults before setup. |
 
-## `hermes whatsapp`
+## `birkin whatsapp`
 
 ```bash
-hermes whatsapp
+birkin whatsapp
 ```
 
 Runs the WhatsApp pairing/setup flow, including mode selection and QR-code pairing.
 
-## `hermes login` / `hermes logout` *(Deprecated)*
+## `birkin login` / `birkin logout` *(Deprecated)*
 
 :::caution
-`hermes login` has been removed. Use `hermes auth` to manage OAuth credentials, `hermes model` to select a provider, or `hermes setup` for full interactive setup.
+`birkin login` has been removed. Use `birkin auth` to manage OAuth credentials, `birkin model` to select a provider, or `birkin setup` for full interactive setup.
 :::
 
-## `hermes auth`
+## `birkin auth`
 
 Manage credential pools for same-provider key rotation. See [Credential Pools](/docs/user-guide/features/credential-pools) for full documentation.
 
 ```bash
-hermes auth                                              # Interactive wizard
-hermes auth list                                         # Show all pools
-hermes auth list openrouter                              # Show specific provider
-hermes auth add openrouter --api-key sk-or-v1-xxx        # Add API key
-hermes auth add anthropic --type oauth                   # Add OAuth credential
-hermes auth remove openrouter 2                          # Remove by index
-hermes auth reset openrouter                             # Clear cooldowns
+birkin auth                                              # Interactive wizard
+birkin auth list                                         # Show all pools
+birkin auth list openrouter                              # Show specific provider
+birkin auth add openrouter --api-key sk-or-v1-xxx        # Add API key
+birkin auth add anthropic --type oauth                   # Add OAuth credential
+birkin auth remove openrouter 2                          # Remove by index
+birkin auth reset openrouter                             # Clear cooldowns
 ```
 
 Subcommands: `add`, `list`, `remove`, `reset`. When called with no subcommand, launches the interactive management wizard.
 
-## `hermes status`
+## `birkin status`
 
 ```bash
-hermes status [--all] [--deep]
+birkin status [--all] [--deep]
 ```
 
 | Option | Description |
@@ -225,10 +225,10 @@ hermes status [--all] [--deep]
 | `--all` | Show all details in a shareable redacted format. |
 | `--deep` | Run deeper checks that may take longer. |
 
-## `hermes cron`
+## `birkin cron`
 
 ```bash
-hermes cron <list|create|edit|pause|resume|run|remove|status|tick>
+birkin cron <list|create|edit|pause|resume|run|remove|status|tick>
 ```
 
 | Subcommand | Description |
@@ -243,10 +243,10 @@ hermes cron <list|create|edit|pause|resume|run|remove|status|tick>
 | `status` | Check whether the cron scheduler is running. |
 | `tick` | Run due jobs once and exit. |
 
-## `hermes webhook`
+## `birkin webhook`
 
 ```bash
-hermes webhook <subscribe|list|remove|test>
+birkin webhook <subscribe|list|remove|test>
 ```
 
 Manage dynamic webhook subscriptions for event-driven agent activation. Requires the webhook platform to be enabled in config — if not configured, prints setup instructions.
@@ -258,10 +258,10 @@ Manage dynamic webhook subscriptions for event-driven agent activation. Requires
 | `remove` / `rm` | Delete a dynamic subscription. Static routes from config.yaml are not affected. |
 | `test` | Send a test POST to verify a subscription is working. |
 
-### `hermes webhook subscribe`
+### `birkin webhook subscribe`
 
 ```bash
-hermes webhook subscribe <name> [options]
+birkin webhook subscribe <name> [options]
 ```
 
 | Option | Description |
@@ -274,25 +274,25 @@ hermes webhook subscribe <name> [options]
 | `--deliver-chat-id` | Target chat/channel ID for cross-platform delivery. |
 | `--secret` | Custom HMAC secret. Auto-generated if omitted. |
 
-Subscriptions persist to `~/.hermes/webhook_subscriptions.json` and are hot-reloaded by the webhook adapter without a gateway restart.
+Subscriptions persist to `~/.birkin/webhook_subscriptions.json` and are hot-reloaded by the webhook adapter without a gateway restart.
 
-## `hermes doctor`
+## `birkin doctor`
 
 ```bash
-hermes doctor [--fix]
+birkin doctor [--fix]
 ```
 
 | Option | Description |
 |--------|-------------|
 | `--fix` | Attempt automatic repairs where possible. |
 
-## `hermes dump`
+## `birkin dump`
 
 ```bash
-hermes dump [--show-keys]
+birkin dump [--show-keys]
 ```
 
-Outputs a compact, plain-text summary of your entire Hermes setup. Designed to be copy-pasted into Discord, GitHub issues, or Telegram when asking for support — no ANSI colors, no special formatting, just data.
+Outputs a compact, plain-text summary of your entire Birkin setup. Designed to be copy-pasted into Discord, GitHub issues, or Telegram when asking for support — no ANSI colors, no special formatting, just data.
 
 | Option | Description |
 |--------|-------------|
@@ -302,9 +302,9 @@ Outputs a compact, plain-text summary of your entire Hermes setup. Designed to b
 
 | Section | Details |
 |---------|---------|
-| **Header** | Hermes version, release date, git commit hash |
+| **Header** | Birkin version, release date, git commit hash |
 | **Environment** | OS, Python version, OpenAI SDK version |
-| **Identity** | Active profile name, HERMES_HOME path |
+| **Identity** | Active profile name, BIRKIN_HOME path |
 | **Model** | Configured default model and provider |
 | **Terminal** | Backend type (local, docker, ssh, etc.) |
 | **API keys** | Presence check for all 22 provider/tool API keys |
@@ -316,13 +316,13 @@ Outputs a compact, plain-text summary of your entire Hermes setup. Designed to b
 ### Example output
 
 ```
---- hermes dump ---
+--- birkin dump ---
 version:          0.8.0 (2026.4.8) [af4abd2f]
 os:               Linux 6.14.0-37-generic x86_64
 python:           3.11.14
 openai_sdk:       2.24.0
 profile:          default
-hermes_home:      ~/.hermes
+birkin_home:      ~/.birkin
 model:            anthropic/claude-opus-4.6
 provider:         openrouter
 terminal:         local
@@ -359,13 +359,13 @@ config_overrides:
 - Quick sanity check when something isn't working
 
 :::tip
-`hermes dump` is specifically designed for sharing. For interactive diagnostics, use `hermes doctor`. For a visual overview, use `hermes status`.
+`birkin dump` is specifically designed for sharing. For interactive diagnostics, use `birkin doctor`. For a visual overview, use `birkin status`.
 :::
 
-## `hermes debug`
+## `birkin debug`
 
 ```bash
-hermes debug share [options]
+birkin debug share [options]
 ```
 
 Upload a debug report (system info + recent logs) to a paste service and get a shareable URL. Useful for quick support requests — includes everything a helper needs to diagnose your issue.
@@ -376,63 +376,63 @@ Upload a debug report (system info + recent logs) to a paste service and get a s
 | `--expire <days>` | Paste expiry in days (default: 7). |
 | `--local` | Print the report locally instead of uploading. |
 
-The report includes system info (OS, Python version, Hermes version), recent agent and gateway logs (512 KB limit per file), and redacted API key status. Keys are always redacted — no secrets are uploaded.
+The report includes system info (OS, Python version, Birkin version), recent agent and gateway logs (512 KB limit per file), and redacted API key status. Keys are always redacted — no secrets are uploaded.
 
 Paste services tried in order: paste.rs, dpaste.com.
 
 ### Examples
 
 ```bash
-hermes debug share              # Upload debug report, print URL
-hermes debug share --lines 500  # Include more log lines
-hermes debug share --expire 30  # Keep paste for 30 days
-hermes debug share --local      # Print report to terminal (no upload)
+birkin debug share              # Upload debug report, print URL
+birkin debug share --lines 500  # Include more log lines
+birkin debug share --expire 30  # Keep paste for 30 days
+birkin debug share --local      # Print report to terminal (no upload)
 ```
 
-## `hermes backup`
+## `birkin backup`
 
 ```bash
-hermes backup [options]
+birkin backup [options]
 ```
 
-Create a zip archive of your Hermes configuration, skills, sessions, and data. The backup excludes the hermes-agent codebase itself.
+Create a zip archive of your Birkin configuration, skills, sessions, and data. The backup excludes the birkin-agent codebase itself.
 
 | Option | Description |
 |--------|-------------|
-| `-o`, `--output <path>` | Output path for the zip file (default: `~/hermes-backup-<timestamp>.zip`). |
+| `-o`, `--output <path>` | Output path for the zip file (default: `~/birkin-backup-<timestamp>.zip`). |
 | `-q`, `--quick` | Quick snapshot: only critical state files (config.yaml, state.db, .env, auth, cron jobs). Much faster than a full backup. |
 | `-l`, `--label <name>` | Label for the snapshot (only used with `--quick`). |
 
-The backup uses SQLite's `backup()` API for safe copying, so it works correctly even when Hermes is running (WAL-mode safe).
+The backup uses SQLite's `backup()` API for safe copying, so it works correctly even when Birkin is running (WAL-mode safe).
 
 ### Examples
 
 ```bash
-hermes backup                           # Full backup to ~/hermes-backup-*.zip
-hermes backup -o /tmp/hermes.zip        # Full backup to specific path
-hermes backup --quick                   # Quick state-only snapshot
-hermes backup --quick --label "pre-upgrade"  # Quick snapshot with label
+birkin backup                           # Full backup to ~/birkin-backup-*.zip
+birkin backup -o /tmp/birkin.zip        # Full backup to specific path
+birkin backup --quick                   # Quick state-only snapshot
+birkin backup --quick --label "pre-upgrade"  # Quick snapshot with label
 ```
 
-## `hermes import`
+## `birkin import`
 
 ```bash
-hermes import <zipfile> [options]
+birkin import <zipfile> [options]
 ```
 
-Restore a previously created Hermes backup into your Hermes home directory.
+Restore a previously created Birkin backup into your Birkin home directory.
 
 | Option | Description |
 |--------|-------------|
 | `-f`, `--force` | Overwrite existing files without confirmation. |
 
-## `hermes logs`
+## `birkin logs`
 
 ```bash
-hermes logs [log_name] [options]
+birkin logs [log_name] [options]
 ```
 
-View, tail, and filter Hermes log files. All logs are stored in `~/.hermes/logs/` (or `<profile>/logs/` for non-default profiles).
+View, tail, and filter Birkin log files. All logs are stored in `~/.birkin/logs/` (or `<profile>/logs/` for non-default profiles).
 
 ### Log files
 
@@ -458,25 +458,25 @@ View, tail, and filter Hermes log files. All logs are stored in `~/.hermes/logs/
 
 ```bash
 # View the last 50 lines of agent.log (default)
-hermes logs
+birkin logs
 
 # Follow agent.log in real time
-hermes logs -f
+birkin logs -f
 
 # View the last 100 lines of gateway.log
-hermes logs gateway -n 100
+birkin logs gateway -n 100
 
 # Show only warnings and errors from the last hour
-hermes logs --level WARNING --since 1h
+birkin logs --level WARNING --since 1h
 
 # Filter by a specific session
-hermes logs --session abc123
+birkin logs --session abc123
 
 # Follow errors.log, starting from 30 minutes ago
-hermes logs errors --since 30m -f
+birkin logs errors --since 30m -f
 
 # List all log files with their sizes
-hermes logs list
+birkin logs list
 ```
 
 ### Filtering
@@ -485,19 +485,19 @@ Filters can be combined. When multiple filters are active, a log line must pass 
 
 ```bash
 # WARNING+ lines from the last 2 hours containing session "tg-12345"
-hermes logs --level WARNING --since 2h --session tg-12345
+birkin logs --level WARNING --since 2h --session tg-12345
 ```
 
 Lines without a parseable timestamp are included when `--since` is active (they may be continuation lines from a multi-line log entry). Lines without a detectable level are included when `--level` is active.
 
 ### Log rotation
 
-Hermes uses Python's `RotatingFileHandler`. Old logs are rotated automatically — look for `agent.log.1`, `agent.log.2`, etc. The `hermes logs list` subcommand shows all log files including rotated ones.
+Birkin uses Python's `RotatingFileHandler`. Old logs are rotated automatically — look for `agent.log.1`, `agent.log.2`, etc. The `birkin logs list` subcommand shows all log files including rotated ones.
 
-## `hermes config`
+## `birkin config`
 
 ```bash
-hermes config <subcommand>
+birkin config <subcommand>
 ```
 
 Subcommands:
@@ -512,10 +512,10 @@ Subcommands:
 | `check` | Check for missing or stale config. |
 | `migrate` | Add newly introduced options interactively. |
 
-## `hermes pairing`
+## `birkin pairing`
 
 ```bash
-hermes pairing <list|approve|revoke|clear-pending>
+birkin pairing <list|approve|revoke|clear-pending>
 ```
 
 | Subcommand | Description |
@@ -525,10 +525,10 @@ hermes pairing <list|approve|revoke|clear-pending>
 | `revoke <platform> <user-id>` | Revoke a user's access. |
 | `clear-pending` | Clear pending pairing codes. |
 
-## `hermes skills`
+## `birkin skills`
 
 ```bash
-hermes skills <subcommand>
+birkin skills <subcommand>
 ```
 
 Subcommands:
@@ -552,29 +552,29 @@ Subcommands:
 Common examples:
 
 ```bash
-hermes skills browse
-hermes skills browse --source official
-hermes skills search react --source skills-sh
-hermes skills search https://mintlify.com/docs --source well-known
-hermes skills inspect official/security/1password
-hermes skills inspect skills-sh/vercel-labs/json-render/json-render-react
-hermes skills install official/migration/openclaw-migration
-hermes skills install skills-sh/anthropics/skills/pdf --force
-hermes skills check
-hermes skills update
-hermes skills config
+birkin skills browse
+birkin skills browse --source official
+birkin skills search react --source skills-sh
+birkin skills search https://mintlify.com/docs --source well-known
+birkin skills inspect official/security/1password
+birkin skills inspect skills-sh/vercel-labs/json-render/json-render-react
+birkin skills install official/migration/openclaw-migration
+birkin skills install skills-sh/anthropics/skills/pdf --force
+birkin skills check
+birkin skills update
+birkin skills config
 ```
 
 Notes:
 - `--force` can override non-dangerous policy blocks for third-party/community skills.
 - `--force` does not override a `dangerous` scan verdict.
 - `--source skills-sh` searches the public `skills.sh` directory.
-- `--source well-known` lets you point Hermes at a site exposing `/.well-known/skills/index.json`.
+- `--source well-known` lets you point Birkin at a site exposing `/.well-known/skills/index.json`.
 
-## `hermes honcho`
+## `birkin honcho`
 
 ```bash
-hermes honcho [--target-profile NAME] <subcommand>
+birkin honcho [--target-profile NAME] <subcommand>
 ```
 
 Manage Honcho cross-session memory integration. This command is provided by the Honcho memory provider plugin and is only available when `memory.provider` is set to `honcho` in your config.
@@ -585,7 +585,7 @@ Subcommands:
 
 | Subcommand | Description |
 |------------|-------------|
-| `setup` | Redirects to `hermes memory setup` (unified setup path). |
+| `setup` | Redirects to `birkin memory setup` (unified setup path). |
 | `status [--all]` | Show current Honcho config and connection status. `--all` shows a cross-profile overview. |
 | `peers` | Show peer identities across all profiles. |
 | `sessions` | List known Honcho session mappings. |
@@ -597,12 +597,12 @@ Subcommands:
 | `enable` | Enable Honcho for the active profile. |
 | `disable` | Disable Honcho for the active profile. |
 | `sync` | Sync Honcho config to all existing profiles (creates missing host blocks). |
-| `migrate` | Step-by-step migration guide from openclaw-honcho to Hermes Honcho. |
+| `migrate` | Step-by-step migration guide from openclaw-honcho to Birkin Honcho. |
 
-## `hermes memory`
+## `birkin memory`
 
 ```bash
-hermes memory <subcommand>
+birkin memory <subcommand>
 ```
 
 Set up and manage external memory provider plugins. Available providers: honcho, openviking, mem0, hindsight, holographic, retaindb, byterover, supermemory. Only one external provider can be active at a time. Built-in memory (MEMORY.md/USER.md) is always active.
@@ -615,18 +615,18 @@ Subcommands:
 | `status` | Show current memory provider config. |
 | `off` | Disable external provider (built-in only). |
 
-## `hermes acp`
+## `birkin acp`
 
 ```bash
-hermes acp
+birkin acp
 ```
 
-Starts Hermes as an ACP (Agent Client Protocol) stdio server for editor integration.
+Starts Birkin as an ACP (Agent Client Protocol) stdio server for editor integration.
 
 Related entrypoints:
 
 ```bash
-hermes-acp
+birkin-acp
 python -m acp_adapter
 ```
 
@@ -638,32 +638,32 @@ pip install -e '.[acp]'
 
 See [ACP Editor Integration](../user-guide/features/acp.md) and [ACP Internals](../developer-guide/acp-internals.md).
 
-## `hermes mcp`
+## `birkin mcp`
 
 ```bash
-hermes mcp <subcommand>
+birkin mcp <subcommand>
 ```
 
-Manage MCP (Model Context Protocol) server configurations and run Hermes as an MCP server.
+Manage MCP (Model Context Protocol) server configurations and run Birkin as an MCP server.
 
 | Subcommand | Description |
 |------------|-------------|
-| `serve [-v\|--verbose]` | Run Hermes as an MCP server — expose conversations to other agents. |
+| `serve [-v\|--verbose]` | Run Birkin as an MCP server — expose conversations to other agents. |
 | `add <name> [--url URL] [--command CMD] [--args ...] [--auth oauth\|header]` | Add an MCP server with automatic tool discovery. |
 | `remove <name>` (alias: `rm`) | Remove an MCP server from config. |
 | `list` (alias: `ls`) | List configured MCP servers. |
 | `test <name>` | Test connection to an MCP server. |
 | `configure <name>` (alias: `config`) | Toggle tool selection for a server. |
 
-See [MCP Config Reference](./mcp-config-reference.md), [Use MCP with Hermes](../guides/use-mcp-with-hermes.md), and [MCP Server Mode](../user-guide/features/mcp.md#running-hermes-as-an-mcp-server).
+See [MCP Config Reference](./mcp-config-reference.md), [Use MCP with Birkin](../guides/use-mcp-with-birkin.md), and [MCP Server Mode](../user-guide/features/mcp.md#running-birkin-as-an-mcp-server).
 
-## `hermes plugins`
+## `birkin plugins`
 
 ```bash
-hermes plugins [subcommand]
+birkin plugins [subcommand]
 ```
 
-Unified plugin management — general plugins, memory providers, and context engines in one place. Running `hermes plugins` with no subcommand opens a composite interactive screen with two sections:
+Unified plugin management — general plugins, memory providers, and context engines in one place. Running `birkin plugins` with no subcommand opens a composite interactive screen with two sections:
 
 - **General Plugins** — multi-select checkboxes to enable/disable installed plugins
 - **Provider Plugins** — single-select configuration for Memory Provider and Context Engine. Press ENTER on a category to open a radio picker.
@@ -684,12 +684,12 @@ Provider plugin selections are saved to `config.yaml`:
 
 General plugin disabled list is stored in `config.yaml` under `plugins.disabled`.
 
-See [Plugins](../user-guide/features/plugins.md) and [Build a Hermes Plugin](../guides/build-a-hermes-plugin.md).
+See [Plugins](../user-guide/features/plugins.md) and [Build a Birkin Plugin](../guides/build-a-birkin-plugin.md).
 
-## `hermes tools`
+## `birkin tools`
 
 ```bash
-hermes tools [--summary]
+birkin tools [--summary]
 ```
 
 | Option | Description |
@@ -698,10 +698,10 @@ hermes tools [--summary]
 
 Without `--summary`, this launches the interactive per-platform tool configuration UI.
 
-## `hermes sessions`
+## `birkin sessions`
 
 ```bash
-hermes sessions <subcommand>
+birkin sessions <subcommand>
 ```
 
 Subcommands:
@@ -716,10 +716,10 @@ Subcommands:
 | `stats` | Show session-store statistics. |
 | `rename <session-id> <title>` | Set or change a session title. |
 
-## `hermes insights`
+## `birkin insights`
 
 ```bash
-hermes insights [--days N] [--source platform]
+birkin insights [--days N] [--source platform]
 ```
 
 | Option | Description |
@@ -727,19 +727,19 @@ hermes insights [--days N] [--source platform]
 | `--days <n>` | Analyze the last `n` days (default: 30). |
 | `--source <platform>` | Filter by source such as `cli`, `telegram`, or `discord`. |
 
-## `hermes claw`
+## `birkin claw`
 
 ```bash
-hermes claw migrate [options]
+birkin claw migrate [options]
 ```
 
-Migrate your OpenClaw setup to Hermes. Reads from `~/.openclaw` (or a custom path) and writes to `~/.hermes`. Automatically detects legacy directory names (`~/.clawdbot`, `~/.moltbot`) and config filenames (`clawdbot.json`, `moltbot.json`).
+Migrate your OpenClaw setup to Birkin. Reads from `~/.openclaw` (or a custom path) and writes to `~/.birkin`. Automatically detects legacy directory names (`~/.clawdbot`, `~/.moltbot`) and config filenames (`clawdbot.json`, `moltbot.json`).
 
 | Option | Description |
 |--------|-------------|
 | `--dry-run` | Preview what would be migrated without writing anything. |
 | `--preset <name>` | Migration preset: `full` (default, includes secrets) or `user-data` (excludes API keys). |
-| `--overwrite` | Overwrite existing Hermes files on conflicts (default: skip). |
+| `--overwrite` | Overwrite existing Birkin files on conflicts (default: skip). |
 | `--migrate-secrets` | Include API keys in migration (enabled by default with `--preset full`). |
 | `--source <path>` | Custom OpenClaw directory (default: `~/.openclaw`). |
 | `--workspace-target <path>` | Target directory for workspace instructions (AGENTS.md). |
@@ -748,7 +748,7 @@ Migrate your OpenClaw setup to Hermes. Reads from `~/.openclaw` (or a custom pat
 
 ### What gets migrated
 
-The migration covers 30+ categories across persona, memory, skills, model providers, messaging platforms, agent behavior, session policies, MCP servers, TTS, and more. Items are either **directly imported** into Hermes equivalents or **archived** for manual review.
+The migration covers 30+ categories across persona, memory, skills, model providers, messaging platforms, agent behavior, session policies, MCP servers, TTS, and more. Items are either **directly imported** into Birkin equivalents or **archived** for manual review.
 
 **Directly imported:** SOUL.md, MEMORY.md, USER.md, AGENTS.md, skills (4 source directories), default model, custom providers, MCP servers, messaging platform tokens and allowlists (Telegram, Discord, Slack, WhatsApp, Signal, Matrix, Mattermost), agent defaults (reasoning effort, compression, human delay, timezone, sandbox), session reset policies, approval rules, TTS config, browser settings, tool settings, exec timeout, command allowlist, gateway config, and API keys from 3 sources.
 
@@ -762,25 +762,25 @@ For the complete config key mapping, SecretRef handling details, and post-migrat
 
 ```bash
 # Preview what would be migrated
-hermes claw migrate --dry-run
+birkin claw migrate --dry-run
 
 # Full migration including API keys
-hermes claw migrate --preset full
+birkin claw migrate --preset full
 
 # Migrate user data only (no secrets), overwrite conflicts
-hermes claw migrate --preset user-data --overwrite
+birkin claw migrate --preset user-data --overwrite
 
 # Migrate from a custom OpenClaw path
-hermes claw migrate --source /home/user/old-openclaw
+birkin claw migrate --source /home/user/old-openclaw
 ```
 
-## `hermes dashboard`
+## `birkin dashboard`
 
 ```bash
-hermes dashboard [options]
+birkin dashboard [options]
 ```
 
-Launch the web dashboard — a browser-based UI for managing configuration, API keys, and monitoring sessions. Requires `pip install hermes-agent[web]` (FastAPI + Uvicorn). See [Web Dashboard](/docs/user-guide/features/web-dashboard) for full documentation.
+Launch the web dashboard — a browser-based UI for managing configuration, API keys, and monitoring sessions. Requires `pip install birkin-agent[web]` (FastAPI + Uvicorn). See [Web Dashboard](/docs/user-guide/features/web-dashboard) for full documentation.
 
 | Option | Default | Description |
 |--------|---------|-------------|
@@ -790,19 +790,19 @@ Launch the web dashboard — a browser-based UI for managing configuration, API 
 
 ```bash
 # Default — opens browser to http://127.0.0.1:9119
-hermes dashboard
+birkin dashboard
 
 # Custom port, no browser
-hermes dashboard --port 8080 --no-open
+birkin dashboard --port 8080 --no-open
 ```
 
-## `hermes profile`
+## `birkin profile`
 
 ```bash
-hermes profile <subcommand>
+birkin profile <subcommand>
 ```
 
-Manage profiles — multiple isolated Hermes instances, each with its own config, sessions, skills, and home directory.
+Manage profiles — multiple isolated Birkin instances, each with its own config, sessions, skills, and home directory.
 
 | Subcommand | Description |
 |------------|-------------|
@@ -819,40 +819,40 @@ Manage profiles — multiple isolated Hermes instances, each with its own config
 Examples:
 
 ```bash
-hermes profile list
-hermes profile create work --clone
-hermes profile use work
-hermes profile alias work --name h-work
-hermes profile export work -o work-backup.tar.gz
-hermes profile import work-backup.tar.gz --name restored
-hermes -p work chat -q "Hello from work profile"
+birkin profile list
+birkin profile create work --clone
+birkin profile use work
+birkin profile alias work --name h-work
+birkin profile export work -o work-backup.tar.gz
+birkin profile import work-backup.tar.gz --name restored
+birkin -p work chat -q "Hello from work profile"
 ```
 
-## `hermes completion`
+## `birkin completion`
 
 ```bash
-hermes completion [bash|zsh]
+birkin completion [bash|zsh]
 ```
 
-Print a shell completion script to stdout. Source the output in your shell profile for tab-completion of Hermes commands, subcommands, and profile names.
+Print a shell completion script to stdout. Source the output in your shell profile for tab-completion of Birkin commands, subcommands, and profile names.
 
 Examples:
 
 ```bash
 # Bash
-hermes completion bash >> ~/.bashrc
+birkin completion bash >> ~/.bashrc
 
 # Zsh
-hermes completion zsh >> ~/.zshrc
+birkin completion zsh >> ~/.zshrc
 ```
 
 ## Maintenance commands
 
 | Command | Description |
 |---------|-------------|
-| `hermes version` | Print version information. |
-| `hermes update` | Pull latest changes and reinstall dependencies. |
-| `hermes uninstall [--full] [--yes]` | Remove Hermes, optionally deleting all config/data. |
+| `birkin version` | Print version information. |
+| `birkin update` | Pull latest changes and reinstall dependencies. |
+| `birkin uninstall [--full] [--yes]` | Remove Birkin, optionally deleting all config/data. |
 
 ## See also
 

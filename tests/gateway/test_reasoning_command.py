@@ -78,15 +78,15 @@ class TestReasoningCommand:
 
     @pytest.mark.asyncio
     async def test_reasoning_command_reloads_current_state_from_config(self, tmp_path, monkeypatch):
-        hermes_home = tmp_path / "hermes"
-        hermes_home.mkdir()
-        config_path = hermes_home / "config.yaml"
+        birkin_home = tmp_path / "birkin"
+        birkin_home.mkdir()
+        config_path = birkin_home / "config.yaml"
         config_path.write_text(
             "agent:\n  reasoning_effort: none\ndisplay:\n  show_reasoning: true\n",
             encoding="utf-8",
         )
 
-        monkeypatch.setattr(gateway_run, "_hermes_home", hermes_home)
+        monkeypatch.setattr(gateway_run, "_birkin_home", birkin_home)
 
         runner = _make_runner()
         runner._reasoning_config = {"enabled": True, "effort": "xhigh"}
@@ -101,12 +101,12 @@ class TestReasoningCommand:
 
     @pytest.mark.asyncio
     async def test_handle_reasoning_command_updates_config_and_cache(self, tmp_path, monkeypatch):
-        hermes_home = tmp_path / "hermes"
-        hermes_home.mkdir()
-        config_path = hermes_home / "config.yaml"
+        birkin_home = tmp_path / "birkin"
+        birkin_home.mkdir()
+        config_path = birkin_home / "config.yaml"
         config_path.write_text("agent:\n  reasoning_effort: medium\n", encoding="utf-8")
 
-        monkeypatch.setattr(gateway_run, "_hermes_home", hermes_home)
+        monkeypatch.setattr(gateway_run, "_birkin_home", birkin_home)
 
         runner = _make_runner()
         runner._reasoning_config = {"enabled": True, "effort": "medium"}
@@ -119,12 +119,12 @@ class TestReasoningCommand:
         assert "takes effect on next message" in result
 
     def test_run_agent_reloads_reasoning_config_per_message(self, tmp_path, monkeypatch):
-        hermes_home = tmp_path / "hermes"
-        hermes_home.mkdir()
-        (hermes_home / "config.yaml").write_text("agent:\n  reasoning_effort: low\n", encoding="utf-8")
+        birkin_home = tmp_path / "birkin"
+        birkin_home.mkdir()
+        (birkin_home / "config.yaml").write_text("agent:\n  reasoning_effort: low\n", encoding="utf-8")
 
-        monkeypatch.setattr(gateway_run, "_hermes_home", hermes_home)
-        monkeypatch.setattr(gateway_run, "_env_path", hermes_home / ".env")
+        monkeypatch.setattr(gateway_run, "_birkin_home", birkin_home)
+        monkeypatch.setattr(gateway_run, "_env_path", birkin_home / ".env")
         monkeypatch.setattr(gateway_run, "load_dotenv", lambda *args, **kwargs: None)
         monkeypatch.setattr(
             gateway_run,
@@ -168,9 +168,9 @@ class TestReasoningCommand:
         assert _CapturingAgent.last_init["reasoning_config"] == {"enabled": True, "effort": "low"}
 
     def test_run_agent_includes_enabled_mcp_servers_in_gateway_toolsets(self, tmp_path, monkeypatch):
-        hermes_home = tmp_path / "hermes"
-        hermes_home.mkdir()
-        (hermes_home / "config.yaml").write_text(
+        birkin_home = tmp_path / "birkin"
+        birkin_home.mkdir()
+        (birkin_home / "config.yaml").write_text(
             "platform_toolsets:\n"
             "  cli: [web, memory]\n"
             "mcp_servers:\n"
@@ -181,8 +181,8 @@ class TestReasoningCommand:
             encoding="utf-8",
         )
 
-        monkeypatch.setattr(gateway_run, "_hermes_home", hermes_home)
-        monkeypatch.setattr(gateway_run, "_env_path", hermes_home / ".env")
+        monkeypatch.setattr(gateway_run, "_birkin_home", birkin_home)
+        monkeypatch.setattr(gateway_run, "_env_path", birkin_home / ".env")
         monkeypatch.setattr(gateway_run, "load_dotenv", lambda *args, **kwargs: None)
         monkeypatch.setattr(
             gateway_run,
@@ -229,12 +229,12 @@ class TestReasoningCommand:
         assert "web-search-prime" in enabled_toolsets
 
     def test_run_agent_homeassistant_uses_default_platform_toolset(self, tmp_path, monkeypatch):
-        hermes_home = tmp_path / "hermes"
-        hermes_home.mkdir()
-        (hermes_home / "config.yaml").write_text("", encoding="utf-8")
+        birkin_home = tmp_path / "birkin"
+        birkin_home.mkdir()
+        (birkin_home / "config.yaml").write_text("", encoding="utf-8")
 
-        monkeypatch.setattr(gateway_run, "_hermes_home", hermes_home)
-        monkeypatch.setattr(gateway_run, "_env_path", hermes_home / ".env")
+        monkeypatch.setattr(gateway_run, "_birkin_home", birkin_home)
+        monkeypatch.setattr(gateway_run, "_env_path", birkin_home / ".env")
         monkeypatch.setattr(gateway_run, "load_dotenv", lambda *args, **kwargs: None)
         monkeypatch.setattr(
             gateway_run,

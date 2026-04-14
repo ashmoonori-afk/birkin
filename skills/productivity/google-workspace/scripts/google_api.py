@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
-"""Google Workspace API CLI for Hermes Agent.
+"""Google Workspace API CLI for Birkin.
 
 Thin wrapper that delegates to gws (googleworkspace/cli) via gws_bridge.py.
-Maintains the same CLI interface for backward compatibility with Hermes skills.
+Maintains the same CLI interface for backward compatibility with Birkin skills.
 
 Usage:
   python google_api.py gmail search "is:unread" [--max 10]
@@ -35,7 +35,7 @@ def gws(*args: str) -> None:
     """Call gws via the bridge and exit with its return code."""
     result = subprocess.run(
         [PYTHON, str(BRIDGE)] + list(args),
-        env={**os.environ, "HERMES_HOME": os.environ.get("HERMES_HOME", str(Path.home() / ".hermes"))},
+        env={**os.environ, "BIRKIN_HOME": os.environ.get("BIRKIN_HOME", str(Path.home() / ".birkin"))},
     )
     sys.exit(result.returncode)
 
@@ -207,7 +207,7 @@ def docs_get(args):
 # -- CLI parser (backward-compatible interface) --
 
 def main():
-    parser = argparse.ArgumentParser(description="Google Workspace API for Hermes Agent (gws backend)")
+    parser = argparse.ArgumentParser(description="Google Workspace API for Birkin (gws backend)")
     sub = parser.add_subparsers(dest="service", required=True)
 
     # --- Gmail ---

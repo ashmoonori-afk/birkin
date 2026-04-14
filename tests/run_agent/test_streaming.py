@@ -511,7 +511,7 @@ class TestStreamingFallback:
         with pytest.raises(httpx.ConnectError, match="socket closed"):
             agent._interruptible_streaming_api_call({})
 
-        # Should have retried 3 times (default HERMES_STREAM_RETRIES=2 → 3 attempts)
+        # Should have retried 3 times (default BIRKIN_STREAM_RETRIES=2 → 3 attempts)
         assert mock_client.chat.completions.create.call_count == 3
         assert mock_close.call_count >= 1
 
@@ -553,7 +553,7 @@ class TestStreamingFallback:
         with pytest.raises(OAIAPIError):
             agent._interruptible_streaming_api_call({})
 
-        # Should retry 3 times (default HERMES_STREAM_RETRIES=2 → 3 attempts)
+        # Should retry 3 times (default BIRKIN_STREAM_RETRIES=2 → 3 attempts)
         assert mock_client.chat.completions.create.call_count == 3
         # Connection cleanup should happen for each failed retry
         assert mock_close.call_count >= 2

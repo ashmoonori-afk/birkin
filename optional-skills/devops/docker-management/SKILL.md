@@ -5,7 +5,7 @@ version: 1.0.0
 author: sprmn24
 license: MIT
 metadata:
-  hermes:
+  birkin:
     tags: [docker, containers, devops, infrastructure, compose, images, volumes, networks, debugging]
     category: devops
     requires_toolsets: [terminal]

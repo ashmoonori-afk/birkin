@@ -6,7 +6,7 @@ author: Orchestra Research
 license: MIT
 dependencies: [trl, transformers, datasets, peft, accelerate, torch]
 metadata:
-  hermes:
+  birkin:
     tags: [Post-Training, TRL, Reinforcement Learning, Fine-Tuning, SFT, DPO, PPO, GRPO, RLHF, Preference Alignment, HuggingFace]
 
 ---

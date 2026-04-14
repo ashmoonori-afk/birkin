@@ -49,14 +49,14 @@ _debug = DebugSession("vision_tools", env_var="VISION_TOOLS_DEBUG")
 # Separate from auxiliary.vision.timeout which governs the LLM API call.
 # Resolution: config.yaml auxiliary.vision.download_timeout → env var → 30s default.
 def _resolve_download_timeout() -> float:
-    env_val = os.getenv("HERMES_VISION_DOWNLOAD_TIMEOUT", "").strip()
+    env_val = os.getenv("BIRKIN_VISION_DOWNLOAD_TIMEOUT", "").strip()
     if env_val:
         try:
             return float(env_val)
         except ValueError:
             pass
     try:
-        from hermes_cli.config import load_config
+        from birkin_cli.config import load_config
         cfg = load_config()
         val = cfg.get("auxiliary", {}).get("vision", {}).get("download_timeout")
         if val is not None:
@@ -554,7 +554,7 @@ async def vision_analyze_tool(
         # Local vision models (llama.cpp, ollama) can take well over 30s.
         vision_timeout = 120.0
         try:
-            from hermes_cli.config import load_config
+            from birkin_cli.config import load_config
             _cfg = load_config()
             _vt = _cfg.get("auxiliary", {}).get("vision", {}).get("timeout")
             if _vt is not None:

@@ -5,7 +5,7 @@ version: 1.0.0
 author: FEUAZUR
 license: MIT
 metadata:
-  hermes:
+  birkin:
     tags: [Web Scraping, Browser, Cloudflare, Stealth, Crawling, Spider]
     related_skills: [duckduckgo-search, domain-intel]
     homepage: https://github.com/D4Vinci/Scrapling

@@ -14,7 +14,7 @@ class _FatalAdapter(BasePlatformAdapter):
     async def connect(self) -> bool:
         self._set_fatal_error(
             "telegram_token_lock",
-            "Another local Hermes gateway is already using this Telegram bot token.",
+            "Another local Birkin gateway is already using this Telegram bot token.",
             retryable=False,
         )
         return False

@@ -1,6 +1,6 @@
-# Hermes Agent — Web UI
+# Birkin — Web UI
 
-Browser-based dashboard for managing Hermes Agent configuration, API keys, and monitoring active sessions.
+Browser-based dashboard for managing Birkin configuration, API keys, and monitoring active sessions.
 
 ## Stack
 
@@ -13,7 +13,7 @@ Browser-based dashboard for managing Hermes Agent configuration, API keys, and m
 ```bash
 # Start the backend API server
 cd ../
-python -m hermes_cli.main web --no-open
+python -m birkin_cli.main web --no-open
 
 # In another terminal, start the Vite dev server (with HMR + API proxy)
 cd web/
@@ -28,7 +28,7 @@ The Vite dev server proxies `/api` requests to `http://127.0.0.1:9119` (the Fast
 npm run build
 ```
 
-This outputs to `../hermes_cli/web_dist/`, which the FastAPI server serves as a static SPA. The built assets are included in the Python package via `pyproject.toml` package-data.
+This outputs to `../birkin_cli/web_dist/`, which the FastAPI server serves as a static SPA. The built assets are included in the Python package via `pyproject.toml` package-data.
 
 ## Structure
 

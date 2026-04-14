@@ -311,7 +311,7 @@ def build_session_context_prompt(
         lines.append(f"- `\"origin\"` → Back to this chat ({_origin_label})")
     
     # Local always available
-    lines.append("- `\"local\"` → Save to local files only (~/.hermes/cron/output/)")
+    lines.append("- `\"local\"` → Save to local files only (~/.birkin/cron/output/)")
     
     # Platform home channels
     for platform, home in context.home_channels.items():
@@ -511,7 +511,7 @@ class SessionStore:
         # Initialize SQLite session database
         self._db = None
         try:
-            from hermes_state import SessionDB
+            from birkin_state import SessionDB
             self._db = SessionDB()
         except Exception as e:
             print(f"[gateway] Warning: SQLite session store unavailable, falling back to JSONL: {e}")

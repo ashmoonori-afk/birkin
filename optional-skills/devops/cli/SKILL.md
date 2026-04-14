@@ -5,7 +5,7 @@ version: 1.0.0
 author: okaris
 license: MIT
 metadata:
-  hermes:
+  birkin:
     tags: [AI, image-generation, video, LLM, search, inference, FLUX, Veo, Claude]
     related_skills: []
 ---

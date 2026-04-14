@@ -56,9 +56,9 @@ def codex_auth_dir(tmp_path, monkeypatch):
 
 class TestReadCodexAccessToken:
     def test_valid_auth_store(self, tmp_path, monkeypatch):
-        hermes_home = tmp_path / "hermes"
-        hermes_home.mkdir(parents=True, exist_ok=True)
-        (hermes_home / "auth.json").write_text(json.dumps({
+        birkin_home = tmp_path / "birkin"
+        birkin_home.mkdir(parents=True, exist_ok=True)
+        (birkin_home / "auth.json").write_text(json.dumps({
             "version": 1,
             "providers": {
                 "openai-codex": {
@@ -66,18 +66,18 @@ class TestReadCodexAccessToken:
                 },
             },
         }))
-        monkeypatch.setenv("HERMES_HOME", str(hermes_home))
+        monkeypatch.setenv("BIRKIN_HOME", str(birkin_home))
         result = _read_codex_access_token()
         assert result == "tok-123"
 
     def test_pool_without_selected_entry_falls_back_to_auth_store(self, tmp_path, monkeypatch):
-        hermes_home = tmp_path / "hermes"
-        hermes_home.mkdir(parents=True, exist_ok=True)
-        monkeypatch.setenv("HERMES_HOME", str(hermes_home))
+        birkin_home = tmp_path / "birkin"
+        birkin_home.mkdir(parents=True, exist_ok=True)
+        monkeypatch.setenv("BIRKIN_HOME", str(birkin_home))
 
         valid_jwt = "eyJhbGciOiJSUzI1NiJ9.eyJleHAiOjk5OTk5OTk5OTl9.sig"
         with patch("agent.auxiliary_client._select_pool_entry", return_value=(True, None)), \
-             patch("hermes_cli.auth._read_codex_tokens", return_value={
+             patch("birkin_cli.auth._read_codex_tokens", return_value={
                  "tokens": {"access_token": valid_jwt, "refresh_token": "refresh"}
              }):
             result = _read_codex_access_token()
@@ -85,17 +85,17 @@ class TestReadCodexAccessToken:
         assert result == valid_jwt
 
     def test_missing_returns_none(self, tmp_path, monkeypatch):
-        hermes_home = tmp_path / "hermes"
-        hermes_home.mkdir(parents=True, exist_ok=True)
-        (hermes_home / "auth.json").write_text(json.dumps({"version": 1, "providers": {}}))
-        monkeypatch.setenv("HERMES_HOME", str(hermes_home))
+        birkin_home = tmp_path / "birkin"
+        birkin_home.mkdir(parents=True, exist_ok=True)
+        (birkin_home / "auth.json").write_text(json.dumps({"version": 1, "providers": {}}))
+        monkeypatch.setenv("BIRKIN_HOME", str(birkin_home))
         result = _read_codex_access_token()
         assert result is None
 
     def test_empty_token_returns_none(self, tmp_path, monkeypatch):
-        hermes_home = tmp_path / "hermes"
-        hermes_home.mkdir(parents=True, exist_ok=True)
-        (hermes_home / "auth.json").write_text(json.dumps({
+        birkin_home = tmp_path / "birkin"
+        birkin_home.mkdir(parents=True, exist_ok=True)
+        (birkin_home / "auth.json").write_text(json.dumps({
             "version": 1,
             "providers": {
                 "openai-codex": {
@@ -103,7 +103,7 @@ class TestReadCodexAccessToken:
                 },
             },
         }))
-        monkeypatch.setenv("HERMES_HOME", str(hermes_home))
+        monkeypatch.setenv("BIRKIN_HOME", str(birkin_home))
         result = _read_codex_access_token()
         assert result is None
 
@@ -135,9 +135,9 @@ class TestReadCodexAccessToken:
         payload = base64.urlsafe_b64encode(payload_data).rstrip(b"=").decode()
         expired_jwt = f"{header}.{payload}.fakesig"
 
-        hermes_home = tmp_path / "hermes"
-        hermes_home.mkdir(parents=True, exist_ok=True)
-        (hermes_home / "auth.json").write_text(json.dumps({
+        birkin_home = tmp_path / "birkin"
+        birkin_home.mkdir(parents=True, exist_ok=True)
+        (birkin_home / "auth.json").write_text(json.dumps({
             "version": 1,
             "providers": {
                 "openai-codex": {
@@ -145,7 +145,7 @@ class TestReadCodexAccessToken:
                 },
             },
         }))
-        monkeypatch.setenv("HERMES_HOME", str(hermes_home))
+        monkeypatch.setenv("BIRKIN_HOME", str(birkin_home))
         result = _read_codex_access_token()
         assert result is None, "Expired JWT should return None"
 
@@ -159,9 +159,9 @@ class TestReadCodexAccessToken:
         payload = base64.urlsafe_b64encode(payload_data).rstrip(b"=").decode()
         valid_jwt = f"{header}.{payload}.fakesig"
 
-        hermes_home = tmp_path / "hermes"
-        hermes_home.mkdir(parents=True, exist_ok=True)
-        (hermes_home / "auth.json").write_text(json.dumps({
+        birkin_home = tmp_path / "birkin"
+        birkin_home.mkdir(parents=True, exist_ok=True)
+        (birkin_home / "auth.json").write_text(json.dumps({
             "version": 1,
             "providers": {
                 "openai-codex": {
@@ -169,15 +169,15 @@ class TestReadCodexAccessToken:
                 },
             },
         }))
-        monkeypatch.setenv("HERMES_HOME", str(hermes_home))
+        monkeypatch.setenv("BIRKIN_HOME", str(birkin_home))
         result = _read_codex_access_token()
         assert result == valid_jwt
 
     def test_non_jwt_token_passes_through(self, tmp_path, monkeypatch):
         """Non-JWT tokens (no dots) should be returned as-is."""
-        hermes_home = tmp_path / "hermes"
-        hermes_home.mkdir(parents=True, exist_ok=True)
-        (hermes_home / "auth.json").write_text(json.dumps({
+        birkin_home = tmp_path / "birkin"
+        birkin_home.mkdir(parents=True, exist_ok=True)
+        (birkin_home / "auth.json").write_text(json.dumps({
             "version": 1,
             "providers": {
                 "openai-codex": {
@@ -185,7 +185,7 @@ class TestReadCodexAccessToken:
                 },
             },
         }))
-        monkeypatch.setenv("HERMES_HOME", str(hermes_home))
+        monkeypatch.setenv("BIRKIN_HOME", str(birkin_home))
         result = _read_codex_access_token()
         assert result == "plain-token-no-jwt"
 
@@ -277,9 +277,9 @@ class TestExpiredCodexFallback:
         payload = base64.urlsafe_b64encode(payload_data).rstrip(b"=").decode()
         expired_jwt = f"{header}.{payload}.fakesig"
 
-        hermes_home = tmp_path / "hermes"
-        hermes_home.mkdir(parents=True, exist_ok=True)
-        (hermes_home / "auth.json").write_text(json.dumps({
+        birkin_home = tmp_path / "birkin"
+        birkin_home.mkdir(parents=True, exist_ok=True)
+        (birkin_home / "auth.json").write_text(json.dumps({
             "version": 1,
             "providers": {
                 "openai-codex": {
@@ -287,7 +287,7 @@ class TestExpiredCodexFallback:
                 },
             },
         }))
-        monkeypatch.setenv("HERMES_HOME", str(hermes_home))
+        monkeypatch.setenv("BIRKIN_HOME", str(birkin_home))
 
         # Set up Anthropic as fallback
         monkeypatch.setenv("ANTHROPIC_TOKEN", "sk-ant-oat01-test-fallback")
@@ -309,9 +309,9 @@ class TestExpiredCodexFallback:
         payload = base64.urlsafe_b64encode(payload_data).rstrip(b"=").decode()
         expired_jwt = f"{header}.{payload}.fakesig"
 
-        hermes_home = tmp_path / "hermes"
-        hermes_home.mkdir(parents=True, exist_ok=True)
-        (hermes_home / "auth.json").write_text(json.dumps({
+        birkin_home = tmp_path / "birkin"
+        birkin_home.mkdir(parents=True, exist_ok=True)
+        (birkin_home / "auth.json").write_text(json.dumps({
             "version": 1,
             "providers": {
                 "openai-codex": {
@@ -319,7 +319,7 @@ class TestExpiredCodexFallback:
                 },
             },
         }))
-        monkeypatch.setenv("HERMES_HOME", str(hermes_home))
+        monkeypatch.setenv("BIRKIN_HOME", str(birkin_home))
         monkeypatch.setenv("OPENROUTER_API_KEY", "or-test-key")
 
         with patch("agent.auxiliary_client.OpenAI") as mock_openai:
@@ -340,9 +340,9 @@ class TestExpiredCodexFallback:
         payload = base64.urlsafe_b64encode(payload_data).rstrip(b"=").decode()
         expired_jwt = f"{header}.{payload}.fakesig"
 
-        hermes_home = tmp_path / "hermes"
-        hermes_home.mkdir(parents=True, exist_ok=True)
-        (hermes_home / "auth.json").write_text(json.dumps({
+        birkin_home = tmp_path / "birkin"
+        birkin_home.mkdir(parents=True, exist_ok=True)
+        (birkin_home / "auth.json").write_text(json.dumps({
             "version": 1,
             "providers": {
                 "openai-codex": {
@@ -350,7 +350,7 @@ class TestExpiredCodexFallback:
                 },
             },
         }))
-        monkeypatch.setenv("HERMES_HOME", str(hermes_home))
+        monkeypatch.setenv("BIRKIN_HOME", str(birkin_home))
 
         # Simulate Ollama or custom endpoint
         with patch("agent.auxiliary_client._resolve_custom_runtime",
@@ -362,10 +362,10 @@ class TestExpiredCodexFallback:
                 assert client is not None
 
 
-    def test_hermes_oauth_file_sets_oauth_flag(self, monkeypatch):
+    def test_birkin_oauth_file_sets_oauth_flag(self, monkeypatch):
         """OAuth-style tokens should get is_oauth=*** (token is not sk-ant-api-*)."""
         # Mock resolve_anthropic_token to return an OAuth-style token
-        with patch("agent.anthropic_adapter.resolve_anthropic_token", return_value="sk-ant-oat-hermes-token"), \
+        with patch("agent.anthropic_adapter.resolve_anthropic_token", return_value="sk-ant-oat-birkin-token"), \
              patch("agent.anthropic_adapter.build_anthropic_client") as mock_build, \
              patch("agent.auxiliary_client._select_pool_entry", return_value=(False, None)):
             mock_build.return_value = MagicMock()
@@ -383,9 +383,9 @@ class TestExpiredCodexFallback:
         payload = base64.urlsafe_b64encode(payload_data).rstrip(b"=").decode()
         no_exp_jwt = f"{header}.{payload}.fakesig"
 
-        hermes_home = tmp_path / "hermes"
-        hermes_home.mkdir(parents=True, exist_ok=True)
-        (hermes_home / "auth.json").write_text(json.dumps({
+        birkin_home = tmp_path / "birkin"
+        birkin_home.mkdir(parents=True, exist_ok=True)
+        (birkin_home / "auth.json").write_text(json.dumps({
             "version": 1,
             "providers": {
                 "openai-codex": {
@@ -393,7 +393,7 @@ class TestExpiredCodexFallback:
                 },
             },
         }))
-        monkeypatch.setenv("HERMES_HOME", str(hermes_home))
+        monkeypatch.setenv("BIRKIN_HOME", str(birkin_home))
         result = _read_codex_access_token()
         assert result == no_exp_jwt, "JWT without exp should pass through"
 
@@ -404,9 +404,9 @@ class TestExpiredCodexFallback:
         payload = base64.urlsafe_b64encode(b"not-json-content").rstrip(b"=").decode()
         bad_jwt = f"{header}.{payload}.fakesig"
 
-        hermes_home = tmp_path / "hermes"
-        hermes_home.mkdir(parents=True, exist_ok=True)
-        (hermes_home / "auth.json").write_text(json.dumps({
+        birkin_home = tmp_path / "birkin"
+        birkin_home.mkdir(parents=True, exist_ok=True)
+        (birkin_home / "auth.json").write_text(json.dumps({
             "version": 1,
             "providers": {
                 "openai-codex": {
@@ -414,7 +414,7 @@ class TestExpiredCodexFallback:
                 },
             },
         }))
-        monkeypatch.setenv("HERMES_HOME", str(hermes_home))
+        monkeypatch.setenv("BIRKIN_HOME", str(birkin_home))
         result = _read_codex_access_token()
         assert result == bad_jwt, "JWT with invalid JSON payload should pass through"
 
@@ -499,7 +499,7 @@ class TestExplicitProviderRouting:
     def test_explicit_google_alias_uses_gemini_credentials(self):
         """provider='google' should route through the gemini API-key provider."""
         with (
-            patch("hermes_cli.auth.resolve_api_key_provider_credentials", return_value={
+            patch("birkin_cli.auth.resolve_api_key_provider_credentials", return_value={
                 "api_key": "gemini-key",
                 "base_url": "https://generativelanguage.googleapis.com/v1beta/openai",
             }),
@@ -547,8 +547,8 @@ class TestGetTextAuxiliaryClient:
             }
         }
         monkeypatch.setenv("OPENAI_API_KEY", "lm-studio-key")
-        monkeypatch.setattr("hermes_cli.config.load_config", lambda: config)
-        monkeypatch.setattr("hermes_cli.runtime_provider.load_config", lambda: config)
+        monkeypatch.setattr("birkin_cli.config.load_config", lambda: config)
+        monkeypatch.setattr("birkin_cli.runtime_provider.load_config", lambda: config)
         # Override the autouse monkeypatch for codex
         monkeypatch.setattr(
             "agent.auxiliary_client._read_codex_access_token",
@@ -570,8 +570,8 @@ class TestGetTextAuxiliaryClient:
             }
         }
         monkeypatch.setenv("OPENAI_API_KEY", "lm-studio-key")
-        monkeypatch.setattr("hermes_cli.config.load_config", lambda: config)
-        monkeypatch.setattr("hermes_cli.runtime_provider.load_config", lambda: config)
+        monkeypatch.setattr("birkin_cli.config.load_config", lambda: config)
+        monkeypatch.setattr("birkin_cli.runtime_provider.load_config", lambda: config)
 
         with patch("agent.auxiliary_client._read_nous_auth", return_value=None), \
              patch("agent.auxiliary_client._read_codex_access_token", return_value=None), \
@@ -608,7 +608,7 @@ class TestGetTextAuxiliaryClient:
         with (
             patch("agent.auxiliary_client.load_pool", return_value=_Pool()),
             patch("agent.auxiliary_client.OpenAI"),
-            patch("hermes_cli.auth._read_codex_tokens", side_effect=AssertionError("legacy codex store should not run")),
+            patch("birkin_cli.auth._read_codex_tokens", side_effect=AssertionError("legacy codex store should not run")),
         ):
             from agent.auxiliary_client import _try_codex
 
@@ -709,7 +709,7 @@ class TestAuxiliaryPoolAwareness:
 
         with (
             patch(
-                "hermes_cli.auth.resolve_api_key_provider_credentials",
+                "birkin_cli.auth.resolve_api_key_provider_credentials",
                 return_value={
                     "provider": "copilot",
                     "api_key": "gh-cli-token",
@@ -735,7 +735,7 @@ class TestAuxiliaryPoolAwareness:
 
         with (
             patch(
-                "hermes_cli.auth.resolve_api_key_provider_credentials",
+                "birkin_cli.auth.resolve_api_key_provider_credentials",
                 return_value={
                     "provider": "copilot",
                     "api_key": "test-token",
@@ -758,7 +758,7 @@ class TestAuxiliaryPoolAwareness:
 
         with (
             patch(
-                "hermes_cli.auth.resolve_api_key_provider_credentials",
+                "birkin_cli.auth.resolve_api_key_provider_credentials",
                 return_value={
                     "provider": "copilot",
                     "api_key": "test-token",
@@ -831,9 +831,9 @@ class TestAuxiliaryPoolAwareness:
                 }
             }
         }
-        monkeypatch.setattr("hermes_cli.config.load_config", lambda: config)
+        monkeypatch.setattr("birkin_cli.config.load_config", lambda: config)
         with (
-            patch("hermes_cli.auth.resolve_api_key_provider_credentials", return_value={
+            patch("birkin_cli.auth.resolve_api_key_provider_credentials", return_value={
                 "api_key": "gemini-key",
                 "base_url": "https://generativelanguage.googleapis.com/v1beta/openai",
             }),
@@ -853,9 +853,9 @@ class TestTaskSpecificOverrides:
     """Integration tests for per-task provider routing via get_text_auxiliary_client(task=...)."""
 
     def test_task_direct_endpoint_from_config(self, monkeypatch, tmp_path):
-        hermes_home = tmp_path / "hermes"
-        hermes_home.mkdir(parents=True, exist_ok=True)
-        (hermes_home / "config.yaml").write_text(
+        birkin_home = tmp_path / "birkin"
+        birkin_home.mkdir(parents=True, exist_ok=True)
+        (birkin_home / "config.yaml").write_text(
             """auxiliary:
   web_extract:
     base_url: http://localhost:3456/v1
@@ -863,7 +863,7 @@ class TestTaskSpecificOverrides:
     model: config-model
 """
         )
-        monkeypatch.setenv("HERMES_HOME", str(hermes_home))
+        monkeypatch.setenv("BIRKIN_HOME", str(birkin_home))
         with patch("agent.auxiliary_client.OpenAI") as mock_openai:
             client, model = get_text_auxiliary_client("web_extract")
         assert model == "config-model"
@@ -879,15 +879,15 @@ class TestTaskSpecificOverrides:
 
     def test_resolve_auto_prefers_live_main_runtime_over_persisted_config(self, monkeypatch, tmp_path):
         """Session-only live model switches should override persisted config for auto routing."""
-        hermes_home = tmp_path / "hermes"
-        hermes_home.mkdir(parents=True, exist_ok=True)
-        (hermes_home / "config.yaml").write_text(
+        birkin_home = tmp_path / "birkin"
+        birkin_home.mkdir(parents=True, exist_ok=True)
+        (birkin_home / "config.yaml").write_text(
             """model:
   default: glm-5.1
   provider: opencode-go
 """
         )
-        monkeypatch.setenv("HERMES_HOME", str(hermes_home))
+        monkeypatch.setenv("BIRKIN_HOME", str(birkin_home))
 
         calls = []
 
@@ -912,9 +912,9 @@ class TestTaskSpecificOverrides:
 
     def test_explicit_compression_pin_still_wins_over_live_main_runtime(self, monkeypatch, tmp_path):
         """Task-level compression config should beat a live session override."""
-        hermes_home = tmp_path / "hermes"
-        hermes_home.mkdir(parents=True, exist_ok=True)
-        (hermes_home / "config.yaml").write_text(
+        birkin_home = tmp_path / "birkin"
+        birkin_home.mkdir(parents=True, exist_ok=True)
+        (birkin_home / "config.yaml").write_text(
             """auxiliary:
   compression:
     provider: openrouter
@@ -924,7 +924,7 @@ model:
   provider: opencode-go
 """
         )
-        monkeypatch.setenv("HERMES_HOME", str(hermes_home))
+        monkeypatch.setenv("BIRKIN_HOME", str(birkin_home))
 
         with patch("agent.auxiliary_client.resolve_provider_client", return_value=(MagicMock(), "google/gemini-3-flash-preview")) as mock_resolve:
             client, model = get_text_auxiliary_client(
@@ -950,7 +950,7 @@ def test_resolve_provider_client_supports_copilot_acp_external_process():
     with patch("agent.auxiliary_client._read_main_model", return_value="gpt-5.4-mini"), \
          patch("agent.auxiliary_client.CodexAuxiliaryClient", MagicMock()), \
          patch("agent.copilot_acp_client.CopilotACPClient", return_value=fake_client) as mock_acp, \
-         patch("hermes_cli.auth.resolve_external_process_provider_credentials", return_value={
+         patch("birkin_cli.auth.resolve_external_process_provider_credentials", return_value={
              "provider": "copilot-acp",
              "api_key": "copilot-acp",
              "base_url": "acp://copilot",
@@ -970,7 +970,7 @@ def test_resolve_provider_client_supports_copilot_acp_external_process():
 def test_resolve_provider_client_copilot_acp_requires_explicit_or_configured_model():
     with patch("agent.auxiliary_client._read_main_model", return_value=""), \
          patch("agent.copilot_acp_client.CopilotACPClient") as mock_acp, \
-         patch("hermes_cli.auth.resolve_external_process_provider_credentials", return_value={
+         patch("birkin_cli.auth.resolve_external_process_provider_credentials", return_value={
              "provider": "copilot-acp",
              "api_key": "copilot-acp",
              "base_url": "acp://copilot",
@@ -1241,7 +1241,7 @@ class TestCallLlmPaymentFallback:
 def test_resolve_api_key_provider_skips_unconfigured_anthropic(monkeypatch):
     """_resolve_api_key_provider must not try anthropic when user never configured it."""
     from collections import OrderedDict
-    from hermes_cli.auth import ProviderConfig
+    from birkin_cli.auth import ProviderConfig
 
     # Build a minimal registry with only "anthropic" so the loop is guaranteed
     # to reach it without being short-circuited by earlier providers.
@@ -1262,9 +1262,9 @@ def test_resolve_api_key_provider_skips_unconfigured_anthropic(monkeypatch):
         return None, None
 
     monkeypatch.setattr("agent.auxiliary_client._try_anthropic", mock_try_anthropic)
-    monkeypatch.setattr("hermes_cli.auth.PROVIDER_REGISTRY", fake_registry)
+    monkeypatch.setattr("birkin_cli.auth.PROVIDER_REGISTRY", fake_registry)
     monkeypatch.setattr(
-        "hermes_cli.auth.is_provider_explicitly_configured",
+        "birkin_cli.auth.is_provider_explicitly_configured",
         lambda pid: False,
     )
 

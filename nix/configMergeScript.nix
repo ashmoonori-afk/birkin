@@ -3,7 +3,7 @@
 # Used by the NixOS module activation script and by checks.nix tests.
 # Nix keys override; user-added keys (skills, streaming, etc.) are preserved.
 { pkgs }:
-pkgs.writeScript "hermes-config-merge" ''
+pkgs.writeScript "birkin-config-merge" ''
   #!${pkgs.python3.withPackages (ps: [ ps.pyyaml ])}/bin/python3
   import json, yaml, sys
   from pathlib import Path

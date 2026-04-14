@@ -4,7 +4,7 @@ import time
 import pytest
 from pathlib import Path
 
-from hermes_state import SessionDB
+from birkin_state import SessionDB
 from agent.insights import (
     InsightsEngine,
     _estimate_cost,
@@ -397,7 +397,7 @@ class TestTerminalFormatting:
         report = engine.generate(days=30)
         text = engine.format_terminal(report)
 
-        assert "Hermes Insights" in text
+        assert "Birkin Insights" in text
         assert "Overview" in text
         assert "Models Used" in text
         assert "Top Tools" in text

@@ -6,7 +6,7 @@ author: Orchestra Research
 license: MIT
 dependencies: [llama-cpp-python>=0.2.0]
 metadata:
-  hermes:
+  birkin:
     tags: [GGUF, Quantization, llama.cpp, CPU Inference, Apple Silicon, Model Compression, Optimization]
 
 ---

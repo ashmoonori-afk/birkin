@@ -11,7 +11,7 @@ Operational failures (spawn error, timeout, unknown exit code) respect
 the fail_open config setting. Programming errors propagate.
 
 Auto-install: if tirith is not found on PATH or at the configured path,
-it is automatically downloaded from GitHub releases to $HERMES_HOME/bin/tirith.
+it is automatically downloaded from GitHub releases to $BIRKIN_HOME/bin/tirith.
 The download always verifies SHA-256 checksums.  When cosign is available on
 PATH, provenance verification (GitHub Actions workflow signature) is also
 performed.  If cosign is not installed, the download proceeds with SHA-256
@@ -34,7 +34,7 @@ import threading
 import time
 import urllib.request
 
-from hermes_constants import get_hermes_home
+from birkin_constants import get_birkin_home
 
 logger = logging.getLogger(__name__)
 
@@ -74,7 +74,7 @@ def _load_security_config() -> dict:
         "tirith_fail_open": True,
     }
     try:
-        from hermes_cli.config import load_config
+        from birkin_cli.config import load_config
         cfg = load_config().get("security", {}) or {}
     except Exception:
         cfg = {}
@@ -105,14 +105,14 @@ _install_thread: threading.Thread | None = None
 _MARKER_TTL = 86400  # 24 hours
 
 
-def _get_hermes_home() -> str:
-    """Return the Hermes home directory, respecting HERMES_HOME env var."""
-    return str(get_hermes_home())
+def _get_birkin_home() -> str:
+    """Return the Birkin home directory, respecting BIRKIN_HOME env var."""
+    return str(get_birkin_home())
 
 
 def _failure_marker_path() -> str:
     """Return the path to the install-failure marker file."""
-    return os.path.join(_get_hermes_home(), ".tirith-install-failed")
+    return os.path.join(_get_birkin_home(), ".tirith-install-failed")
 
 
 def _read_failure_reason() -> str | None:
@@ -174,9 +174,9 @@ def _clear_install_failed():
         pass
 
 
-def _hermes_bin_dir() -> str:
-    """Return $HERMES_HOME/bin, creating it if needed."""
-    d = os.path.join(_get_hermes_home(), "bin")
+def _birkin_bin_dir() -> str:
+    """Return $BIRKIN_HOME/bin, creating it if needed."""
+    d = os.path.join(_get_birkin_home(), "bin")
     os.makedirs(d, exist_ok=True)
     return d
 
@@ -279,7 +279,7 @@ def _verify_checksum(archive_path: str, checksums_path: str, archive_name: str) 
 
 
 def _install_tirith(*, log_failures: bool = True) -> tuple[str | None, str]:
-    """Download and install tirith to $HERMES_HOME/bin/tirith.
+    """Download and install tirith to $BIRKIN_HOME/bin/tirith.
 
     Verifies provenance via cosign and SHA-256 checksum.
     Returns (installed_path, failure_reason).  On success failure_reason is "".
@@ -359,7 +359,7 @@ def _install_tirith(*, log_failures: bool = True) -> tuple[str | None, str]:
                 return None, "binary_not_in_archive"
 
         src = os.path.join(tmpdir, "tirith")
-        dest = os.path.join(_hermes_bin_dir(), "tirith")
+        dest = os.path.join(_birkin_bin_dir(), "tirith")
         shutil.move(src, dest)
         os.chmod(dest, os.stat(dest).st_mode | stat.S_IXUSR | stat.S_IXGRP | stat.S_IXOTH)
 
@@ -385,8 +385,8 @@ def _resolve_tirith_path(configured_path: str) -> str:
 
     For the default "tirith":
     1. PATH lookup via shutil.which
-    2. $HERMES_HOME/bin/tirith (previously auto-installed)
-    3. Auto-install from GitHub releases → $HERMES_HOME/bin/tirith
+    2. $BIRKIN_HOME/bin/tirith (previously auto-installed)
+    3. Auto-install from GitHub releases → $BIRKIN_HOME/bin/tirith
 
     Failed installs are cached for the process lifetime (and persisted to
     disk for 24h) to avoid repeated network attempts.
@@ -426,12 +426,12 @@ def _resolve_tirith_path(configured_path: str) -> str:
         _clear_install_failed()
         return found
 
-    hermes_bin = os.path.join(_hermes_bin_dir(), "tirith")
-    if os.path.isfile(hermes_bin) and os.access(hermes_bin, os.X_OK):
-        _resolved_path = hermes_bin
+    birkin_bin = os.path.join(_birkin_bin_dir(), "tirith")
+    if os.path.isfile(birkin_bin) and os.access(birkin_bin, os.X_OK):
+        _resolved_path = birkin_bin
         _install_failure_reason = ""
         _clear_install_failed()
-        return hermes_bin
+        return birkin_bin
 
     # Local checks failed.  If a previous install attempt already failed,
     # skip the network retry — UNLESS the failure was "cosign_missing" and
@@ -490,9 +490,9 @@ def _background_install(*, log_failures: bool = True):
             _install_failure_reason = ""
             return
 
-        hermes_bin = os.path.join(_hermes_bin_dir(), "tirith")
-        if os.path.isfile(hermes_bin) and os.access(hermes_bin, os.X_OK):
-            _resolved_path = hermes_bin
+        birkin_bin = os.path.join(_birkin_bin_dir(), "tirith")
+        if os.path.isfile(birkin_bin) and os.access(birkin_bin, os.X_OK):
+            _resolved_path = birkin_bin
             _install_failure_reason = ""
             return
 
@@ -552,12 +552,12 @@ def ensure_installed(*, log_failures: bool = True):
         _clear_install_failed()
         return found
 
-    hermes_bin = os.path.join(_hermes_bin_dir(), "tirith")
-    if os.path.isfile(hermes_bin) and os.access(hermes_bin, os.X_OK):
-        _resolved_path = hermes_bin
+    birkin_bin = os.path.join(_birkin_bin_dir(), "tirith")
+    if os.path.isfile(birkin_bin) and os.access(birkin_bin, os.X_OK):
+        _resolved_path = birkin_bin
         _install_failure_reason = ""
         _clear_install_failed()
-        return hermes_bin
+        return birkin_bin
 
     # If previously failed in-memory, check if the cause is now resolved
     if _resolved_path is _INSTALL_FAILED:

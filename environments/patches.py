@@ -1,5 +1,5 @@
 """
-Monkey patches for making hermes-agent tools work inside async frameworks (Atropos).
+Monkey patches for making birkin-agent tools work inside async frameworks (Atropos).
 
 Problem:
     Some tools use asyncio.run() internally (e.g., Modal backend via SWE-ReX,
@@ -14,7 +14,7 @@ Solution:
     This module is kept for backward compatibility. apply_patches() is a no-op.
 
 Usage:
-    Call apply_patches() once at import time (done automatically by hermes_base_env.py).
+    Call apply_patches() once at import time (done automatically by birkin_base_env.py).
     This is idempotent and safe to call multiple times.
 """
 

@@ -35,7 +35,7 @@ def work_dir(tmp_path):
 
 @pytest.fixture()
 def checkpoint_base(tmp_path):
-    """Isolated checkpoint base — never writes to ~/.hermes/."""
+    """Isolated checkpoint base — never writes to ~/.birkin/."""
     return tmp_path / "checkpoints"
 
 
@@ -131,7 +131,7 @@ class TestShadowRepoInit:
         monkeypatch.setattr("tools.checkpoint_manager.CHECKPOINT_BASE", checkpoint_base)
         shadow = _shadow_repo_path(str(work_dir))
         _init_shadow_repo(shadow, str(work_dir))
-        workdir_file = shadow / "HERMES_WORKDIR"
+        workdir_file = shadow / "BIRKIN_WORKDIR"
         assert workdir_file.exists()
         assert str(work_dir.resolve()) in workdir_file.read_text()
 

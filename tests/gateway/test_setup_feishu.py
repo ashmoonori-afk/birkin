@@ -1,4 +1,4 @@
-"""Tests for _setup_feishu() in hermes_cli/gateway.py.
+"""Tests for _setup_feishu() in birkin_cli/gateway.py.
 
 Verifies that the interactive setup writes env vars that correctly drive the
 Feishu adapter: credentials, connection mode, DM policy, and group policy.
@@ -39,19 +39,19 @@ def _run_setup_feishu(
     def mock_get(name):
         return existing_env.get(name, "")
 
-    with patch("hermes_cli.gateway.save_env_value", side_effect=mock_save), \
-         patch("hermes_cli.gateway.get_env_value", side_effect=mock_get), \
-         patch("hermes_cli.gateway.prompt_yes_no", side_effect=prompt_yes_no_responses), \
-         patch("hermes_cli.gateway.prompt_choice", side_effect=prompt_choice_responses), \
-         patch("hermes_cli.gateway.prompt", side_effect=prompt_responses), \
-         patch("hermes_cli.gateway.print_info"), \
-         patch("hermes_cli.gateway.print_success"), \
-         patch("hermes_cli.gateway.print_warning"), \
-         patch("hermes_cli.gateway.print_error"), \
-         patch("hermes_cli.gateway.color", side_effect=lambda t, c: t), \
+    with patch("birkin_cli.gateway.save_env_value", side_effect=mock_save), \
+         patch("birkin_cli.gateway.get_env_value", side_effect=mock_get), \
+         patch("birkin_cli.gateway.prompt_yes_no", side_effect=prompt_yes_no_responses), \
+         patch("birkin_cli.gateway.prompt_choice", side_effect=prompt_choice_responses), \
+         patch("birkin_cli.gateway.prompt", side_effect=prompt_responses), \
+         patch("birkin_cli.gateway.print_info"), \
+         patch("birkin_cli.gateway.print_success"), \
+         patch("birkin_cli.gateway.print_warning"), \
+         patch("birkin_cli.gateway.print_error"), \
+         patch("birkin_cli.gateway.color", side_effect=lambda t, c: t), \
          patch("gateway.platforms.feishu.qr_register", return_value=qr_result):
 
-        from hermes_cli.gateway import _setup_feishu
+        from birkin_cli.gateway import _setup_feishu
         _setup_feishu()
 
     return saved_env

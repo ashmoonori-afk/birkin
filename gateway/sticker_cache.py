@@ -5,17 +5,17 @@ When users send stickers, we describe them via the vision tool and cache
 the descriptions keyed by file_unique_id so we don't re-analyze the same
 sticker image on every send. Descriptions are concise (1-2 sentences).
 
-Cache location: ~/.hermes/sticker_cache.json
+Cache location: ~/.birkin/sticker_cache.json
 """
 
 import json
 import time
 from typing import Optional
 
-from hermes_cli.config import get_hermes_home
+from birkin_cli.config import get_birkin_home
 
 
-CACHE_PATH = get_hermes_home() / "sticker_cache.json"
+CACHE_PATH = get_birkin_home() / "sticker_cache.json"
 
 # Vision prompt for describing stickers -- kept concise to save tokens
 STICKER_VISION_PROMPT = (

@@ -6,7 +6,7 @@ author: Orchestra Research
 license: MIT
 dependencies: [lm-eval, transformers, vllm]
 metadata:
-  hermes:
+  birkin:
     tags: [Evaluation, LM Evaluation Harness, Benchmarking, MMLU, HumanEval, GSM8K, EleutherAI, Model Quality, Academic Benchmarks, Industry Standard]
 
 ---
