@@ -1,1 +1,0 @@
-# Birkin plugins package
