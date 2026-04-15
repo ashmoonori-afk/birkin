@@ -12,6 +12,7 @@ from rich.markdown import Markdown
 from birkin.core.agent import Agent
 from birkin.core.providers import create_provider
 from birkin.core.session import SessionStore
+from birkin.memory.wiki import WikiMemory
 from birkin.tools.loader import load_tools
 
 console = Console()
@@ -110,12 +111,16 @@ def cmd_chat(args: argparse.Namespace) -> None:
 
     tools = [] if args.no_tools else load_tools()
 
+    wiki = WikiMemory(root="./memory")
+    wiki.init()
+
     agent = Agent(
         provider=provider,
         tools=tools,
         session_store=store,
         session_id=args.session,
         system_prompt=args.system_prompt,
+        memory=wiki,
     )
 
     repl(agent)

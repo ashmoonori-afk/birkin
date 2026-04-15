@@ -70,6 +70,7 @@ def chat(body: ChatRequest) -> ChatResponse:
         "tools": tools,
         "session_store": store,
         "session_id": body.session_id,
+        "memory": get_wiki_memory(),
     }
     if config.get("system_prompt") is not None:
         agent_kwargs["system_prompt"] = config["system_prompt"]
@@ -131,6 +132,7 @@ async def chat_stream(body: ChatRequest) -> StreamingResponse:
         "tools": tools,
         "session_store": store,
         "session_id": body.session_id,
+        "memory": get_wiki_memory(),
     }
     if config.get("system_prompt") is not None:
         agent_kwargs["system_prompt"] = config["system_prompt"]

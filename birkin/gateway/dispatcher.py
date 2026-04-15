@@ -7,7 +7,7 @@ from typing import Any, Optional
 
 from birkin.core.agent import Agent
 from birkin.core.providers import create_provider
-from birkin.gateway.deps import get_session_store
+from birkin.gateway.deps import get_session_store, get_wiki_memory
 from birkin.tools.loader import load_tools
 
 logger = logging.getLogger(__name__)
@@ -71,6 +71,7 @@ class MessageDispatcher:
             tools=tools,
             session_store=self.session_store,
             session_id=session_id,
+            memory=get_wiki_memory(),
         )
 
         try:
