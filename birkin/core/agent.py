@@ -247,9 +247,35 @@ class Agent:
 
         # Load messages from session store
         session_messages = self._session_store.get_messages(self._session.id)
+        session_messages = self._compress_messages(session_messages)
         msgs.extend(session_messages)
 
         return msgs
+
+    @staticmethod
+    def _compress_messages(messages: list[Message]) -> list[Message]:
+        """Compress conversation history to prevent context overflow.
+
+        When total messages exceed 20, keep the first 2 (for initial
+        context) and the last 16, inserting a compression marker
+        between them.
+        """
+        _COMPRESS_THRESHOLD = 20
+        _KEEP_HEAD = 2
+        _KEEP_TAIL = 16
+
+        if len(messages) <= _COMPRESS_THRESHOLD:
+            return messages
+
+        head = messages[:_KEEP_HEAD]
+        tail = messages[-_KEEP_TAIL:]
+
+        marker = Message(
+            role="system",
+            content="[Earlier conversation compressed]",
+        )
+
+        return [*head, marker, *tail]
 
     def _execute_tool(self, tool_call: ToolCall) -> ToolResult:
         """Execute a tool synchronously.

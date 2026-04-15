@@ -66,15 +66,18 @@
 - [x] .env-based API key management from WebUI
 - [x] JSON config persistence (birkin_config.json)
 
-### Phase 1 — Remaining Work
+### Phase 1 — Completed Sprint
 - [x] **Chat bubble streaming fix** — unified SSE queue, proper finalization, no stuck states
 - [x] **Error recovery with auto-fallback** — primary provider fails → fallback provider auto-tries
+- [x] **Built-in tools** — shell, web search, file read/write (4 tools with security checks)
+- [x] **Context compression** — auto-compress conversations over 20 messages
+- [x] **Test coverage** — 99 → 121 tests (wiki API, telegram management, workflow routes)
+- [x] **Static files fix** — mount under /static to prevent 405 on API POST routes
+
+### Phase 1 — Remaining
 - [ ] **Workflow execution engine** — currently workflows are visual-only; the agent doesn't yet follow user-defined workflow graphs at runtime
-- [ ] **Built-in tools** — terminal, web search, file operations, code execution (tool interface exists but no concrete tools yet)
-- [ ] **Context compression** for long conversations
 - [ ] **Telegram webhook health monitoring** — auto-detect and report failures
 - [ ] **WebUI visual regression tests** (Playwright screenshots)
-- [ ] **Test coverage** for wiki API and telegram management routes (~99 → ~120 tests)
 
 ---
 

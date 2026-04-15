@@ -79,5 +79,14 @@ class TestToolRegistry:
 
 
 class TestLoadTools:
-    def test_returns_empty_list(self):
-        assert load_tools() == []
+    def test_loads_builtin_tools(self):
+        from birkin.tools.registry import reset_registry
+
+        reset_registry()
+        tools = load_tools()
+        names = {t.spec.name for t in tools}
+        assert "shell" in names
+        assert "web_search" in names
+        assert "file_read" in names
+        assert "file_write" in names
+        reset_registry()

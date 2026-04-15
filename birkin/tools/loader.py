@@ -115,9 +115,16 @@ class ToolLoader:
 def load_tools() -> list[Tool]:
     """Discover and instantiate all available tools.
 
-    Currently returns empty list; will be expanded to load from
-    configured directories and entry points.
+    Loads built-in tools on first call and returns all registered tools.
     """
+    from birkin.tools.builtins import ALL_BUILTIN_TOOLS
     from birkin.tools.registry import get_registry
 
-    return get_registry().list_all()
+    registry = get_registry()
+    if len(registry) == 0:
+        for tool_class in ALL_BUILTIN_TOOLS:
+            try:
+                registry.register(tool_class())
+            except ValueError:
+                pass  # already registered
+    return registry.list_all()
