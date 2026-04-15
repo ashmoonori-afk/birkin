@@ -138,22 +138,70 @@ async def chat_stream(body: ChatRequest) -> StreamingResponse:
         agent_kwargs["system_prompt"] = config["system_prompt"]
     agent = Agent(**agent_kwargs)
 
+    # Check for active workflow
+    active_wf_id = config.get("active_workflow")
+    active_workflow = None
+    if active_wf_id:
+        try:
+            from birkin.gateway.workflows import load_workflows
+
+            wf_data = load_workflows()
+            for wf in wf_data["saved"] + wf_data["samples"]:
+                if wf.get("id") == active_wf_id:
+                    active_workflow = wf
+                    break
+        except Exception:
+            pass
+
     async def event_generator() -> AsyncGenerator[str, None]:
-        # Unified queue — all events go here in order
         queue: asyncio.Queue[dict | None] = asyncio.Queue()
 
         def on_delta(delta: str | None) -> None:
             if delta is not None:
                 queue.put_nowait({"delta": delta})
-            # delta=None means stream end — we handle via task completion
 
         def on_event(evt: dict) -> None:
             queue.put_nowait(evt)
 
-        # Send session_id first
         yield f"data: {json.dumps({'session_id': agent.session_id})}\n\n"
 
         try:
+            # If a workflow is active, use the workflow engine
+            if active_workflow:
+                from birkin.core.workflow_engine import WorkflowEngine
+
+                fb_provider = None
+                fb_name = config.get("fallback_provider")
+                if fb_name:
+                    try:
+                        fb_provider = create_provider(f"{fb_name}/default")
+                    except Exception:
+                        pass
+
+                engine = WorkflowEngine(provider, fallback_provider=fb_provider, event_callback=on_event)
+                engine.load(active_workflow)
+
+                wf_task: asyncio.Task[str] = asyncio.create_task(engine.run(body.message))
+
+                while True:
+                    if wf_task.done() and queue.empty():
+                        break
+                    try:
+                        evt = await asyncio.wait_for(queue.get(), timeout=0.05)
+                        yield f"data: {json.dumps(evt)}\n\n"
+                    except asyncio.TimeoutError:
+                        continue
+
+                reply = await wf_task
+                # Store messages in session
+                from birkin.core.models import Message as Msg
+
+                store.append_message(agent.session_id, Msg(role="user", content=body.message))
+                store.append_message(agent.session_id, Msg(role="assistant", content=reply))
+                yield f"data: {json.dumps({'done': True, 'reply': reply})}\n\n"
+                return
+
+            # Normal agent flow
             task: asyncio.Task[str] = asyncio.create_task(
                 agent.astream(body.message, callback=on_delta, event_callback=on_event)
             )
@@ -518,6 +566,10 @@ def wiki_graph():
 _polling_task: Optional[asyncio.Task] = None  # type: ignore[type-arg]
 _polling_active = False
 
+# Health monitoring state
+_health_task: Optional[asyncio.Task] = None  # type: ignore[type-arg]
+_health_status: dict[str, Any] = {"ok": True, "last_check": None, "error": None}
+
 
 @router.get("/telegram/status")
 async def telegram_status():
@@ -542,6 +594,76 @@ async def telegram_status():
             "polling": False,
             "error": str(e),
         }
+
+
+@router.get("/telegram/health")
+async def telegram_health():
+    """Get Telegram connection health status."""
+    return {
+        **_health_status,
+        "polling_active": _polling_active,
+    }
+
+
+async def _health_check_loop() -> None:
+    """Background loop checking Telegram health every 60 seconds."""
+    global _polling_task  # noqa: PLW0603
+
+    import logging
+    from datetime import datetime, timezone
+
+    log = logging.getLogger("birkin.telegram.health")
+
+    while True:
+        await asyncio.sleep(60)
+        token = os.getenv("TELEGRAM_BOT_TOKEN")
+        if not token:
+            _health_status.update(
+                ok=False,
+                error="No token",
+                last_check=datetime.now(timezone.utc).isoformat(),
+            )
+            continue
+
+        try:
+            adapter = get_telegram_adapter()
+
+            # Check if polling task crashed
+            if _polling_active and _polling_task and _polling_task.done():
+                exc = _polling_task.exception() if not _polling_task.cancelled() else None
+                _health_status.update(
+                    ok=False,
+                    error=(f"Polling crashed: {exc}" if exc else "Polling stopped unexpectedly"),
+                    last_check=datetime.now(timezone.utc).isoformat(),
+                )
+                log.error("Polling task died, restarting...")
+                # Auto-restart polling
+                _polling_task = asyncio.create_task(_poll_loop(adapter))
+                continue
+
+            # Check webhook health if webhook is set
+            wh_info = await adapter.get_webhook_info()
+            result = wh_info.get("result", {})
+            if result.get("last_error_message"):
+                _health_status.update(
+                    ok=False,
+                    error=result["last_error_message"],
+                    last_check=datetime.now(timezone.utc).isoformat(),
+                )
+            else:
+                _health_status.update(
+                    ok=True,
+                    error=None,
+                    last_check=datetime.now(timezone.utc).isoformat(),
+                )
+
+        except Exception as e:
+            _health_status.update(
+                ok=False,
+                error=str(e),
+                last_check=datetime.now(timezone.utc).isoformat(),
+            )
+            log.warning("Health check failed: %s", e)
 
 
 @router.post("/telegram/webhook")

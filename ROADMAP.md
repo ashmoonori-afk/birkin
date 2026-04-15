@@ -74,10 +74,10 @@
 - [x] **Test coverage** — 99 → 121 tests (wiki API, telegram management, workflow routes)
 - [x] **Static files fix** — mount under /static to prevent 405 on API POST routes
 
-### Phase 1 — Remaining
-- [ ] **Workflow execution engine** — currently workflows are visual-only; the agent doesn't yet follow user-defined workflow graphs at runtime
-- [ ] **Telegram webhook health monitoring** — auto-detect and report failures
-- [ ] **WebUI visual regression tests** (Playwright screenshots)
+### Phase 1 — Final Sprint
+- [x] **Workflow execution engine** — agent follows user-defined node graphs at runtime (BFS traversal, 15+ node type handlers, fallback provider support)
+- [x] **Telegram health monitoring** — background check every 60s, auto-restart crashed polling, webhook error detection, GET /api/telegram/health endpoint
+- [ ] **WebUI visual regression tests** (Playwright screenshots) — deferred to Phase 2
 
 ---
 

@@ -62,6 +62,18 @@ class TestTelegramPolling:
         assert resp.status_code == 400
 
 
+class TestTelegramHealth:
+    def test_telegram_health_endpoint(self, client: TestClient):
+        """Health endpoint returns ok and polling_active fields."""
+        resp = client.get("/api/telegram/health")
+        assert resp.status_code == 200
+        body = resp.json()
+        assert "ok" in body
+        assert "polling_active" in body
+        assert body["ok"] is True
+        assert body["polling_active"] is False
+
+
 class TestTelegramSendTest:
     def test_send_test_no_token(self, client: TestClient):
         """When TELEGRAM_BOT_TOKEN is not set, send-test returns 400."""

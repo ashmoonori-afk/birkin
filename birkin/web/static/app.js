@@ -218,6 +218,20 @@ async function sendMessageStream(text) {
           // Forward all events to workflow visualizer
           if (window.birkin.workflow) window.birkin.workflow.onEvent(evt);
 
+          // Workflow step events
+          if (evt.wf_step) {
+            const step = evt.wf_step;
+            const status = step.status === "done" ? "\u2705" : step.status === "error" ? "\u274C" : "\u23F3";
+            if (step.status !== "done") {
+              removeThinkingIndicator();
+              const el = document.createElement("div");
+              el.className = "tool-call";
+              el.innerHTML = `<div class="tool-call-label">${status} ${esc(step.type)}</div>`;
+              chat.appendChild(el);
+              requestAnimationFrame(() => { chat.scrollTop = chat.scrollHeight; });
+            }
+          }
+
           if (evt.event === "fallback") {
             removeThinkingIndicator();
             addBubble("error", evt.message);

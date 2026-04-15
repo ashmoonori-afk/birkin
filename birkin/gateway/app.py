@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import asyncio
+import os
 from pathlib import Path
 
 from fastapi import FastAPI
@@ -20,6 +22,13 @@ def create_app() -> FastAPI:
         version="0.1.0",
         description="API backend for the Birkin AI agent.",
     )
+
+    @app.on_event("startup")
+    async def start_telegram_health() -> None:
+        if os.getenv("TELEGRAM_BOT_TOKEN"):
+            from birkin.gateway.routes import _health_check_loop
+
+            asyncio.create_task(_health_check_loop())
 
     # API routes first — must take priority over static files
     app.include_router(router)
