@@ -9,78 +9,86 @@
   width: 100%;
 }
 
-.tg-header {
-  text-align: center;
-  margin-bottom: 32px;
-}
-
-.tg-header-icon {
-  font-size: 40px;
-  margin-bottom: 8px;
-  opacity: 0.5;
-}
-
+.tg-header { text-align: center; margin-bottom: 24px; }
+.tg-header-icon { margin-bottom: 8px; }
 .tg-header-title {
-  font-size: 1.1rem;
-  font-weight: 700;
-  text-transform: uppercase;
-  letter-spacing: 0.96px;
+  font-size: 1.1rem; font-weight: 700;
+  text-transform: uppercase; letter-spacing: 0.96px;
   margin-bottom: 4px;
 }
+.tg-header-sub { font-size: 0.85rem; color: rgba(240, 240, 250, 0.5); }
 
-.tg-header-sub {
-  font-size: 0.85rem;
-  color: rgba(240, 240, 250, 0.5);
-}
+/* ── Progress bar ── */
 
-/* Wizard steps */
-
-.tg-wizard { display: flex; flex-direction: column; gap: 16px; }
-
-.tg-step {
-  padding: 16px;
-  border: 1px solid rgba(240, 240, 250, 0.1);
-  border-radius: 8px;
-  transition: border-color 0.2s;
-}
-
-.tg-step.active { border-color: rgba(240, 240, 250, 0.35); }
-.tg-step.complete { border-color: #4ade80; }
-
-.tg-step-header {
+.tg-progress {
   display: flex;
   align-items: center;
-  gap: 10px;
+  justify-content: center;
+  gap: 0;
+  margin-bottom: 24px;
+}
+
+.tg-progress-step {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 10px;
+  opacity: 0.3;
+  transition: opacity 0.3s;
+}
+.tg-progress-step.active { opacity: 1; }
+.tg-progress-step.complete { opacity: 0.7; }
+
+.tg-pnum {
+  width: 22px; height: 22px;
+  border-radius: 50%;
+  border: 1.5px solid rgba(240, 240, 250, 0.3);
+  display: flex; align-items: center; justify-content: center;
+  font-size: 0.65rem; font-weight: 700;
+  color: rgba(240, 240, 250, 0.5);
+  flex-shrink: 0;
+  transition: all 0.3s;
+}
+.tg-progress-step.active .tg-pnum { border-color: #f0f0fa; color: #f0f0fa; }
+.tg-progress-step.complete .tg-pnum { border-color: #4ade80; color: #4ade80; background: rgba(74,222,128,0.1); }
+
+.tg-plabel {
+  font-size: 0.6rem; font-weight: 700;
+  text-transform: uppercase; letter-spacing: 0.5px;
+  color: rgba(240, 240, 250, 0.5);
+}
+.tg-progress-step.active .tg-plabel { color: #f0f0fa; }
+.tg-progress-step.complete .tg-plabel { color: #4ade80; }
+
+.tg-progress-line {
+  width: 24px; height: 1px;
+  background: rgba(240, 240, 250, 0.15);
+  transition: background 0.3s;
+}
+.tg-progress-line.complete { background: #4ade80; }
+
+/* ── Step card ── */
+
+.tg-step-card {
+  padding: 20px;
+  border: 1px solid rgba(240, 240, 250, 0.12);
+  border-radius: 8px;
+  margin-bottom: 16px;
+}
+
+.tg-card-title {
+  font-size: 0.85rem; font-weight: 700;
+  text-transform: uppercase; letter-spacing: 0.5px;
   margin-bottom: 8px;
 }
 
-.tg-step-num {
-  width: 24px; height: 24px;
-  border-radius: 50%;
-  border: 1.5px solid rgba(240, 240, 250, 0.25);
-  display: flex; align-items: center; justify-content: center;
-  font-size: 0.7rem; font-weight: 700;
-  color: rgba(240, 240, 250, 0.5);
-  flex-shrink: 0;
-}
-
-.tg-step.complete .tg-step-num { border-color: #4ade80; color: #4ade80; }
-.tg-step.active .tg-step-num { border-color: #f0f0fa; color: #f0f0fa; }
-
-.tg-step-title {
-  font-size: 0.8rem;
-  font-weight: 700;
-  text-transform: uppercase;
-  letter-spacing: 0.5px;
-}
-
-.tg-step-body {
+.tg-card-desc {
   font-size: 0.85rem;
   color: rgba(240, 240, 250, 0.6);
   line-height: 1.6;
+  margin-bottom: 16px;
 }
-
-.tg-step-body code {
+.tg-card-desc code {
   font-family: "JetBrains Mono", monospace;
   font-size: 0.82rem;
   background: rgba(240, 240, 250, 0.08);
@@ -88,11 +96,76 @@
   border-radius: 4px;
 }
 
-.tg-input-row {
+/* ── Instructions ── */
+
+.tg-instructions { display: flex; flex-direction: column; gap: 12px; margin-bottom: 20px; }
+
+.tg-instruction {
   display: flex;
-  gap: 8px;
-  margin-top: 10px;
+  gap: 12px;
+  align-items: flex-start;
 }
+
+.tg-inst-num {
+  width: 24px; height: 24px;
+  border-radius: 50%;
+  border: 1px solid rgba(240, 240, 250, 0.2);
+  display: flex; align-items: center; justify-content: center;
+  font-size: 0.65rem; font-weight: 700;
+  color: rgba(240, 240, 250, 0.4);
+  flex-shrink: 0;
+  margin-top: 2px;
+}
+
+.tg-inst-text p {
+  font-size: 0.85rem;
+  color: rgba(240, 240, 250, 0.7);
+  line-height: 1.5;
+  margin-bottom: 4px;
+}
+.tg-inst-text p:last-child { margin-bottom: 0; }
+.tg-inst-text code {
+  font-family: "JetBrains Mono", monospace;
+  font-size: 0.82rem;
+  background: rgba(240, 240, 250, 0.08);
+  padding: 1px 5px;
+  border-radius: 4px;
+  color: #f0f0fa;
+}
+
+.tg-hint {
+  font-size: 0.78rem;
+  color: rgba(240, 240, 250, 0.35);
+  font-style: italic;
+}
+
+.tg-token-example {
+  display: inline-block;
+  margin: 6px 0;
+  padding: 6px 12px;
+  background: rgba(240, 240, 250, 0.06);
+  border: 1px solid rgba(240, 240, 250, 0.1);
+  border-radius: 6px;
+  font-family: "JetBrains Mono", monospace;
+  font-size: 0.82rem;
+  color: rgba(240, 240, 250, 0.8);
+  letter-spacing: 0.5px;
+  word-break: break-all;
+}
+
+/* ── Form elements ── */
+
+.tg-field-label {
+  display: block;
+  font-size: 0.65rem; font-weight: 700;
+  text-transform: uppercase; letter-spacing: 1px;
+  color: rgba(240, 240, 250, 0.4);
+  margin-bottom: 6px;
+}
+
+.tg-token-input-wrap { margin-bottom: 16px; }
+
+.tg-input-row { display: flex; gap: 8px; }
 
 .tg-input {
   flex: 1;
@@ -104,10 +177,72 @@
   font-family: "JetBrains Mono", monospace;
   font-size: 0.82rem;
   outline: none;
+  transition: border-color 0.15s;
 }
 .tg-input:focus { border-color: rgba(240, 240, 250, 0.35); }
+.tg-input.tg-input-lg { padding: 10px 14px; font-size: 0.88rem; border-radius: 8px; }
 
-/* Connected status */
+.tg-eye-btn {
+  width: 40px; height: 40px;
+  border: 1px solid rgba(240, 240, 250, 0.15);
+  border-radius: 8px;
+  background: transparent;
+  color: rgba(240, 240, 250, 0.4);
+  cursor: pointer;
+  font-size: 1rem;
+  display: flex; align-items: center; justify-content: center;
+  flex-shrink: 0;
+  transition: background 0.15s;
+}
+.tg-eye-btn:hover { background: rgba(240, 240, 250, 0.08); color: #f0f0fa; }
+
+/* ── Feedback ── */
+
+.tg-token-feedback, .tg-webhook-feedback {
+  margin-top: 8px;
+  font-size: 0.82rem;
+  min-height: 20px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.tg-token-feedback.error, .tg-webhook-feedback.error { color: #ef4444; }
+.tg-token-feedback.success, .tg-webhook-feedback.success { color: #4ade80; }
+.tg-token-feedback.warn, .tg-webhook-feedback.warn { color: #fbbf24; }
+.tg-token-feedback.loading, .tg-webhook-feedback.loading { color: rgba(240, 240, 250, 0.5); }
+
+.tg-token-feedback .dot, .tg-webhook-feedback .dot {
+  display: inline-block;
+  width: 8px; height: 8px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+.dot.ok { background: #4ade80; }
+
+/* ── Step actions ── */
+
+.tg-step-actions {
+  display: flex;
+  gap: 8px;
+  margin-top: 16px;
+  justify-content: flex-end;
+}
+
+/* ── Complete card ── */
+
+.tg-complete-card { text-align: center; }
+.tg-complete-icon { margin-bottom: 12px; }
+
+.tg-mini-card {
+  display: inline-block;
+  text-align: left;
+  padding: 12px 16px;
+  border: 1px solid rgba(240, 240, 250, 0.12);
+  border-radius: 8px;
+  margin-top: 12px;
+}
+
+/* ── Connected status ── */
 
 .tg-status-card {
   padding: 16px;
@@ -122,14 +257,11 @@
   gap: 8px;
   margin-bottom: 8px;
 }
-
 .tg-status-row:last-child { margin-bottom: 0; }
 
 .tg-status-label {
-  font-size: 0.65rem;
-  font-weight: 700;
-  text-transform: uppercase;
-  letter-spacing: 1px;
+  font-size: 0.65rem; font-weight: 700;
+  text-transform: uppercase; letter-spacing: 1px;
   color: rgba(240, 240, 250, 0.4);
   min-width: 80px;
 }
@@ -152,7 +284,11 @@
   margin-top: 16px;
 }
 
+/* ── Responsive ── */
+
 @media (max-width: 767px) {
   .tg-container { padding: 16px; }
   .tg-input-row { flex-direction: column; }
+  .tg-plabel { display: none; }
+  .tg-step-actions { flex-direction: column; }
 }
