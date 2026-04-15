@@ -22,8 +22,6 @@
 
 **Birkin** is an AI agent platform that makes powerful AI accessible to everyone — not just engineers. Deploy agents that learn, remember, and act on your behalf through a simple conversational interface.
 
-> Inspired by [Hermes Agent](https://github.com/NousResearch/Hermes-Agent) by Nous Research. Birkin is an independent project.
-
 ---
 
 ## Features
@@ -184,4 +182,4 @@ We welcome contributions! See [CONTRIBUTING.md](CONTRIBUTING.md) for the full gu
 
 MIT — see [LICENSE](LICENSE) for details.
 
-Copyright (c) 2026 Birkin Team. Inspired by Hermes Agent (MIT, Nous Research).
+Copyright (c) 2026 Birkin Team.

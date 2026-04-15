@@ -77,10 +77,10 @@ Your data stays on your infrastructure. Always.
 
 Fork it. Extend it. Own it.
 
-### Tweet 8 (Built on Hermes)
-7/ Birkin is built on Hermes Agent by @NousResearch — battle-tested infrastructure with a focus on approachability.
+### Tweet 8 (Origin)
+7/ Built in Korea, designed for the world.
 
-We kept the engineering depth and wrapped it in an interface anyone can use.
+We care about the people AI forgot: non-technical workers, small business owners, freelancers who need an assistant but can't hire a developer.
 
 ### Tweet 9 (Security)
 8/ For teams: Birkin Premium adds enterprise security.
@@ -131,7 +131,7 @@ I've been building Birkin, an open-source AI agent platform designed to make pow
 
 **Technical details for the curious:**
 
-- Built on Hermes Agent (MIT, Nous Research) — 40+ tools, MCP integration, subagent delegation
+- Ground-up architecture — 40+ tools, MCP integration, subagent delegation
 - Full RL training pipeline for research use
 - Python 3.11+, async throughout
 - Extensible skill system with community marketplace

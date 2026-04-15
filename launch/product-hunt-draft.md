@@ -32,7 +32,7 @@ Birkin is an open-source AI agent platform designed for people who want AI to ha
 
 - **Cybersecurity layer** — Premium tier adds vulnerability scanning, threat detection, and security policy enforcement for teams.
 
-**Built on** the MIT-licensed Hermes Agent by Nous Research, extended with an approachable interface, learning loop, and enterprise features.
+Built from the ground up with 40+ tools, MCP integration, and enterprise security — wrapped in an interface anyone can use.
 
 ## Maker Comment
 

@@ -53,14 +53,13 @@
 - Use concrete examples over abstract descriptions
 - Say "Birkin" not "our platform" or "the system"
 - Use present tense for features that exist now
-- Acknowledge Hermes Agent as inspiration where appropriate, but frame Birkin as independent
 
 ### Don't
 
 - Don't say "revolutionary," "game-changing," "cutting-edge," or "next-generation"
 - Don't assume the reader knows what LLMs, tokens, prompts, or APIs are (in user-facing content)
 - Don't use "simply" or "just" before instructions — if it were simple, they wouldn't need the instructions
-- Don't frame Birkin as a Hermes fork or derivative — it is an independent project
+- Don't frame Birkin as a fork or derivative of another project — it is built from scratch
 - Don't default to dark mode in visual assets — use the Birkin Craft warm cream light mode as primary
 - Don't use "AI" as a standalone noun ("an AI") — use "AI agent," "AI assistant," or "Birkin"
 
