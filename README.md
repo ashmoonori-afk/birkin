@@ -109,17 +109,19 @@ Or skip API keys entirely — if you have `claude` or `codex` CLI installed, Bir
 ```
 birkin/
 ├── core/               # Agent loop, models, session, providers
-│   ├── agent.py        # Conversation loop with tool dispatch
-│   ├── session.py      # SQLite session persistence (WAL mode)
-│   ├── models.py       # Message, ToolCall, ToolResult dataclasses
-│   ├── errors.py       # Error hierarchy (BirkinError → ProviderError)
-│   ├── defaults.py     # System prompt (Karpathy guidelines)
-│   └── providers/      # LLM provider abstraction
+│   ├── agent.py            # Conversation loop with tool dispatch
+│   ├── workflow_engine.py  # Workflow graph execution engine (30+ node types)
+│   ├── session.py          # SQLite session persistence (WAL mode)
+│   ├── models.py           # Message, ToolCall, ToolResult dataclasses
+│   ├── errors.py           # Error hierarchy (BirkinError → ProviderError)
+│   ├── defaults.py         # System prompt (Karpathy guidelines)
+│   └── providers/          # LLM provider abstraction
 │       ├── base.py     # Provider ABC, ProviderResponse, TokenUsage
 │       ├── anthropic.py # Anthropic Messages API
 │       ├── openai.py   # OpenAI Chat Completions (+ OpenRouter)
 │       └── local_cli.py # Claude Code / Codex CLI (streaming)
-├── tools/              # Tool interface, registry, dynamic loader
+├── tools/              # Tool interface, registry, 4 built-in tools
+│   └── builtins/       # shell, web_search, file_read, file_write
 ├── memory/             # LLM Wiki — markdown-based knowledge store
 ├── gateway/            # FastAPI backend
 │   ├── app.py          # Application factory
@@ -137,7 +139,7 @@ birkin/
 │   ├── workflow.js     # Drag-and-drop workflow editor
 │   ├── memory.js       # Force-directed wiki graph
 │   └── telegram.js     # Telegram setup wizard + dashboard
-└── tests/              # 99 tests (pytest + xdist)
+└── tests/              # 122 tests (pytest + xdist)
 ```
 
 ---

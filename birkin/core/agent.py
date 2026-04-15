@@ -13,6 +13,9 @@ from birkin.memory.wiki import WikiMemory
 from birkin.tools.base import Tool, ToolContext
 
 _DEFAULT_MAX_TURNS = 20
+_COMPRESS_THRESHOLD = 20
+_KEEP_HEAD = 2
+_KEEP_TAIL = 16
 
 
 class Agent:
@@ -58,24 +61,20 @@ class Agent:
         return self._provider
 
     def chat(self, user_input: str) -> str:
-        """Send a user message and return the assistant's text reply.
-
-        This is the synchronous, non-streaming path used by the CLI REPL.
-        Implements the conversation loop with tool dispatch.
-        """
-        # Append user message
+        """Send a user message and return the assistant's text reply."""
         user_msg = Message(role="user", content=user_input)
         self._session_store.append_message(self._session.id, user_msg)
-
-        # Run the conversation loop
         response_text = self._run_loop()
+        self._auto_save_memory(user_input, response_text)
         return response_text
 
     async def achat(self, user_input: str) -> str:
         """Async version of chat."""
         user_msg = Message(role="user", content=user_input)
         self._session_store.append_message(self._session.id, user_msg)
-        return await self._run_loop_async()
+        result = await self._run_loop_async()
+        self._auto_save_memory(user_input, result)
+        return result
 
     def stream(
         self,
@@ -100,8 +99,9 @@ class Agent:
         """Async version of stream."""
         user_msg = Message(role="user", content=user_input)
         self._session_store.append_message(self._session.id, user_msg)
-
-        return await self._run_loop_async(stream_callback=callback, event_callback=event_callback)
+        result = await self._run_loop_async(stream_callback=callback, event_callback=event_callback)
+        self._auto_save_memory(user_input, result)
+        return result
 
     def _run_loop(self, stream_callback: Optional[Callable[[str], None]] = None) -> str:
         """Synchronous conversation loop with tool dispatch."""
@@ -231,6 +231,26 @@ class Agent:
     def memory(self) -> Optional[WikiMemory]:
         return self._memory
 
+    def _auto_save_memory(self, user_input: str, response: str) -> None:
+        """Automatically save conversation turns to wiki memory.
+
+        Creates a session page that captures what was discussed,
+        so the Memory tab in WebUI always shows conversation history.
+        """
+        if not self._memory or not response:
+            return
+        try:
+            import datetime as dt
+
+            ts = dt.datetime.now(dt.timezone.utc).strftime("%Y%m%d-%H%M%S")
+            slug = f"chat-{self._session.id[:8]}-{ts}"
+            content = (
+                f"# Chat ({self._session.id[:8]})\n\n**User:** {user_input[:500]}\n\n**Assistant:** {response[:1000]}\n"
+            )
+            self._memory.ingest("sessions", slug, content)
+        except Exception:
+            pass  # Never let memory save break the chat flow
+
     def _build_messages(self) -> list[Message]:
         """Assemble the full message list including system prompt and memory."""
         prompt = self._system_prompt or ""
@@ -256,14 +276,10 @@ class Agent:
     def _compress_messages(messages: list[Message]) -> list[Message]:
         """Compress conversation history to prevent context overflow.
 
-        When total messages exceed 20, keep the first 2 (for initial
-        context) and the last 16, inserting a compression marker
-        between them.
+        When total messages exceed _COMPRESS_THRESHOLD, keep the first
+        _KEEP_HEAD (for initial context) and the last _KEEP_TAIL,
+        inserting a compression marker between them.
         """
-        _COMPRESS_THRESHOLD = 20
-        _KEEP_HEAD = 2
-        _KEEP_TAIL = 16
-
         if len(messages) <= _COMPRESS_THRESHOLD:
             return messages
 

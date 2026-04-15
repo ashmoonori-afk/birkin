@@ -4,7 +4,7 @@
 
 ---
 
-## Phase 1: Foundation (Current)
+## Phase 1: Foundation (Complete)
 
 **Goal:** Stable, self-hostable AI agent with visual WebUI and messaging integration.
 
@@ -75,8 +75,10 @@
 - [x] **Static files fix** — mount under /static to prevent 405 on API POST routes
 
 ### Phase 1 — Final Sprint
-- [x] **Workflow execution engine** — agent follows user-defined node graphs at runtime (BFS traversal, 15+ node type handlers, fallback provider support)
-- [x] **Telegram health monitoring** — background check every 60s, auto-restart crashed polling, webhook error detection, GET /api/telegram/health endpoint
+- [x] **Workflow execution engine** — BFS graph traversal, 30 node type handlers with real tool/memory/API execution, fallback provider
+- [x] **Telegram health monitoring** — 60s background check, auto-restart crashed polling, webhook error detection
+- [x] **Code review cleanup** — dead code removal, god function refactoring, duplicate consolidation, version centralization
+- [x] **CLI prompt optimization** — reduced prompt size for 3-10x faster telegram responses
 - [ ] **WebUI visual regression tests** (Playwright screenshots) — deferred to Phase 2
 
 ---
