@@ -45,6 +45,26 @@
 
 ## Quick Start
 
+### One-Click Launch (Easiest)
+
+No terminal experience needed — just download and double-click:
+
+**macOS / Linux:**
+1. Download or clone the repository
+2. Double-click **`start.sh`** (or run `./start.sh` in a terminal)
+3. The script automatically sets up everything and launches Birkin
+
+**Windows:**
+1. Download or clone the repository
+2. Double-click **`start.bat`**
+3. The script automatically sets up everything and launches Birkin
+
+> The launch scripts handle Python virtual environments, dependency installation,
+> and starting Birkin — all in one step. On the first run it may take a minute
+> to install dependencies; subsequent launches are near-instant.
+
+### Manual Setup (Developers)
+
 ```bash
 # Clone the repository
 git clone https://github.com/MoonGwanghoon/birkin.git
@@ -53,9 +73,6 @@ cd birkin
 # Install with uv (recommended) or pip
 uv pip install -e ".[all]"
 # or: pip install -e ".[all]"
-
-# Run the setup wizard
-birkin setup
 
 # Start chatting
 birkin chat

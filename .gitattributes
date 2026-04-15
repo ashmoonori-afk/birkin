@@ -1,2 +1,6 @@
 # Auto-generated files — collapse diffs and exclude from language stats
 web/package-lock.json linguist-generated=true
+
+# Ensure correct line endings for OS-specific scripts
+*.sh   text eol=lf
+*.bat  text eol=crlf
