@@ -214,7 +214,7 @@ If you've worked through this guide and the issue persists:
 
 1. Run the job with `birkin cron run <job_id>` (fires on next gateway tick) and watch for errors in the chat output
 2. Check `~/.birkin/logs/agent.log` for scheduler messages and `~/.birkin/logs/errors.log` for warnings
-3. Open an issue at [github.com/NousResearch/birkin-agent](https://github.com/NousResearch/birkin-agent) with:
+3. Open an issue at [github.com/MoonGwanghoon/birkin](https://github.com/MoonGwanghoon/birkin) with:
    - The job ID and schedule
    - The delivery target
    - What you expected vs. what happened

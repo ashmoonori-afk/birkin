@@ -13,7 +13,7 @@ Get Birkin up and running in under two minutes with the one-line installer, or f
 ### Linux / macOS / WSL2
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/NousResearch/birkin-agent/main/scripts/install.sh | bash
+curl -fsSL https://raw.githubusercontent.com/MoonGwanghoon/birkin/main/scripts/install.sh | bash
 ```
 
 ### Android / Termux
@@ -21,7 +21,7 @@ curl -fsSL https://raw.githubusercontent.com/NousResearch/birkin-agent/main/scri
 Birkin now ships a Termux-aware installer path too:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/NousResearch/birkin-agent/main/scripts/install.sh | bash
+curl -fsSL https://raw.githubusercontent.com/MoonGwanghoon/birkin/main/scripts/install.sh | bash
 ```
 
 The installer detects Termux automatically and switches to a tested Android flow:
@@ -91,7 +91,7 @@ If you prefer full control over the installation process, follow these steps.
 Clone with `--recurse-submodules` to pull the required submodules:
 
 ```bash
-git clone --recurse-submodules https://github.com/NousResearch/birkin-agent.git
+git clone --recurse-submodules https://github.com/MoonGwanghoon/birkin.git
 cd birkin-agent
 ```
 
@@ -252,7 +252,7 @@ For those who just want the commands:
 curl -LsSf https://astral.sh/uv/install.sh | sh
 
 # Clone & enter
-git clone --recurse-submodules https://github.com/NousResearch/birkin-agent.git
+git clone --recurse-submodules https://github.com/MoonGwanghoon/birkin.git
 cd birkin-agent
 
 # Create venv with Python 3.11

@@ -44,7 +44,7 @@ That does not stop Birkin from working well as a phone-native CLI agent — it j
 Birkin now ships a Termux-aware installer path:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/NousResearch/birkin-agent/main/scripts/install.sh | bash
+curl -fsSL https://raw.githubusercontent.com/MoonGwanghoon/birkin/main/scripts/install.sh | bash
 ```
 
 On Termux, the installer automatically:
@@ -78,7 +78,7 @@ Why these packages?
 ### 2. Clone Birkin
 
 ```bash
-git clone --recurse-submodules https://github.com/NousResearch/birkin-agent.git
+git clone --recurse-submodules https://github.com/MoonGwanghoon/birkin.git
 cd birkin-agent
 ```
 

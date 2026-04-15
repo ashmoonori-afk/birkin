@@ -15,19 +15,19 @@ Birkin isn't just a CLI tool. You can import `AIAgent` directly and use it progr
 Install Birkin directly from the repository:
 
 ```bash
-pip install git+https://github.com/NousResearch/birkin-agent.git
+pip install git+https://github.com/MoonGwanghoon/birkin.git
 ```
 
 Or with [uv](https://docs.astral.sh/uv/):
 
 ```bash
-uv pip install git+https://github.com/NousResearch/birkin-agent.git
+uv pip install git+https://github.com/MoonGwanghoon/birkin.git
 ```
 
 You can also pin it in your `requirements.txt`:
 
 ```text
-birkin-agent @ git+https://github.com/NousResearch/birkin-agent.git
+birkin-agent @ git+https://github.com/MoonGwanghoon/birkin.git
 ```
 
 :::tip

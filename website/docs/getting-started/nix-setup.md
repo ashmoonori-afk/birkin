@@ -35,11 +35,11 @@ No clone needed. Nix fetches, builds, and runs everything:
 
 ```bash
 # Run directly (builds on first use, cached after)
-nix run github:NousResearch/birkin-agent -- setup
-nix run github:NousResearch/birkin-agent -- chat
+nix run github:MoonGwanghoon/birkin -- setup
+nix run github:MoonGwanghoon/birkin -- chat
 
 # Or install persistently
-nix profile install github:NousResearch/birkin-agent
+nix profile install github:MoonGwanghoon/birkin
 birkin setup
 birkin chat
 ```
@@ -50,7 +50,7 @@ After `nix profile install`, `birkin`, `birkin-agent`, and `birkin-acp` are on y
 <summary><strong>Building from a local clone</strong></summary>
 
 ```bash
-git clone https://github.com/NousResearch/birkin-agent.git
+git clone https://github.com/MoonGwanghoon/birkin.git
 cd birkin-agent
 nix build
 ./result/bin/birkin setup
@@ -75,7 +75,7 @@ This module requires NixOS. For non-NixOS systems (macOS, other Linux distros), 
 {
   inputs = {
     nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
-    birkin-agent.url = "github:NousResearch/birkin-agent";
+    birkin-agent.url = "github:MoonGwanghoon/birkin";
   };
 
   outputs = { nixpkgs, birkin-agent, ... }: {

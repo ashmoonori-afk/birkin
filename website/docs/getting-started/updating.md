@@ -65,7 +65,7 @@ If `git status --short` shows unexpected changes after `birkin update`, stop and
 birkin version
 ```
 
-Compare against the latest release at the [GitHub releases page](https://github.com/NousResearch/birkin-agent/releases) or check for available updates:
+Compare against the latest release at the [GitHub releases page](https://github.com/MoonGwanghoon/birkin/releases) or check for available updates:
 
 ```bash
 birkin update --check

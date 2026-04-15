@@ -14,7 +14,7 @@ Run the one-line installer:
 
 ```bash
 # Linux / macOS / WSL2 / Android (Termux)
-curl -fsSL https://raw.githubusercontent.com/NousResearch/birkin-agent/main/scripts/install.sh | bash
+curl -fsSL https://raw.githubusercontent.com/MoonGwanghoon/birkin/main/scripts/install.sh | bash
 ```
 
 :::tip Android / Termux
@@ -45,7 +45,7 @@ birkin setup       # Or configure everything at once
 
 | Provider | What it is | How to set up |
 |----------|-----------|---------------|
-| **Nous Portal** | Subscription-based, zero-config | OAuth login via `birkin model` |
+| **Your Model Provider** | Subscription-based, zero-config | OAuth login via `birkin model` |
 | **OpenAI Codex** | ChatGPT OAuth, uses Codex models | Device code auth via `birkin model` |
 | **Anthropic** | Claude models directly (Pro/Max or API key) | `birkin model` with Claude Code auth, or an Anthropic API key |
 | **OpenRouter** | Multi-provider routing across many models | Enter your API key |

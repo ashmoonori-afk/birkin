@@ -197,7 +197,7 @@ The `browser` toolset must be included in your config's `toolsets` list or enabl
 Navigate to a URL. Must be called before any other browser tool. Initializes the Browserbase session.
 
 ```
-Navigate to https://github.com/NousResearch
+Navigate to https://github.com/MoonGwanghoon
 ```
 
 :::tip

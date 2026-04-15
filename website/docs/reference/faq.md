@@ -17,7 +17,7 @@ Quick answers and fixes for the most common questions and issues.
 Birkin works with any OpenAI-compatible API. Supported providers include:
 
 - **[OpenRouter](https://openrouter.ai/)** — access hundreds of models through one API key (recommended for flexibility)
-- **Nous Portal** — Nous Research's own inference endpoint
+- **Your model provider** — subscription-based inference endpoint
 - **OpenAI** — GPT-4o, o1, o3, etc.
 - **Anthropic** — Claude models (via OpenRouter or compatible proxy)
 - **Google** — Gemini models (via OpenRouter or compatible proxy)
@@ -33,7 +33,7 @@ Set your provider with `birkin model` or by editing `~/.birkin/.env`. See the [E
 **Not natively.** Birkin requires a Unix-like environment. On Windows, install [WSL2](https://learn.microsoft.com/en-us/windows/wsl/install) and run Birkin from inside it. The standard install command works perfectly in WSL2:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/NousResearch/birkin-agent/main/scripts/install.sh | bash
+curl -fsSL https://raw.githubusercontent.com/MoonGwanghoon/birkin/main/scripts/install.sh | bash
 ```
 
 ### Does it work on Android / Termux?
@@ -43,7 +43,7 @@ Yes — Birkin now has a tested Termux install path for Android phones.
 Quick install:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/NousResearch/birkin-agent/main/scripts/install.sh | bash
+curl -fsSL https://raw.githubusercontent.com/MoonGwanghoon/birkin/main/scripts/install.sh | bash
 ```
 
 For the fully explicit manual steps, supported extras, and current limitations, see the [Termux guide](../getting-started/termux.md).
@@ -180,7 +180,7 @@ source ~/.bashrc
 # If you previously installed with sudo, clean up:
 sudo rm /usr/local/bin/birkin
 # Then re-run the standard installer
-curl -fsSL https://raw.githubusercontent.com/NousResearch/birkin-agent/main/scripts/install.sh | bash
+curl -fsSL https://raw.githubusercontent.com/MoonGwanghoon/birkin/main/scripts/install.sh | bash
 ```
 
 ---
@@ -693,7 +693,7 @@ Skills with very long descriptions are truncated to 40 characters in the Telegra
 
 1. Install Birkin on the new machine:
    ```bash
-   curl -fsSL https://raw.githubusercontent.com/NousResearch/birkin-agent/main/scripts/install.sh | bash
+   curl -fsSL https://raw.githubusercontent.com/MoonGwanghoon/birkin/main/scripts/install.sh | bash
    ```
 
 2. Copy your entire `~/.birkin/` directory **except** the `birkin-agent` subdirectory (that's the code repo — the new install has its own):
@@ -766,6 +766,5 @@ If using OpenRouter, make sure your API key has credits. A 400 from OpenRouter o
 
 If your issue isn't covered here:
 
-1. **Search existing issues:** [GitHub Issues](https://github.com/NousResearch/birkin-agent/issues)
-2. **Ask the community:** [Nous Research Discord](https://discord.gg/nousresearch)
-3. **File a bug report:** Include your OS, Python version (`python3 --version`), Birkin version (`birkin --version`), and the full error message
+1. **Search existing issues:** [GitHub Issues](https://github.com/MoonGwanghoon/birkin/issues)
+2. **File a bug report:** Include your OS, Python version (`python3 --version`), Birkin version (`birkin --version`), and the full error message

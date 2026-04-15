@@ -40,7 +40,7 @@ We value contributions in this order:
 ### Clone and Install
 
 ```bash
-git clone --recurse-submodules https://github.com/NousResearch/birkin-agent.git
+git clone --recurse-submodules https://github.com/MoonGwanghoon/birkin.git
 cd birkin-agent
 
 # Create venv with Python 3.11
@@ -90,7 +90,7 @@ pytest tests/ -v
 - **Comments**: Only when explaining non-obvious intent, trade-offs, or API quirks
 - **Error handling**: Catch specific exceptions. Use `logger.warning()`/`logger.error()` with `exc_info=True` for unexpected errors
 - **Cross-platform**: Never assume Unix (see below)
-- **Profile-safe paths**: Never hardcode `~/.birkin` — use `get_birkin_home()` from `birkin_constants` for code paths and `display_birkin_home()` for user-facing messages. See [AGENTS.md](https://github.com/NousResearch/birkin-agent/blob/main/AGENTS.md#profiles-multi-instance-support) for full rules.
+- **Profile-safe paths**: Never hardcode `~/.birkin` — use `get_birkin_home()` from `birkin_constants` for code paths and `display_birkin_home()` for user-facing messages. See [AGENTS.md](https://github.com/MoonGwanghoon/birkin/blob/main/AGENTS.md#profiles-multi-instance-support) for full rules.
 
 ## Cross-Platform Compatibility
 
@@ -216,7 +216,7 @@ fix(security): prevent shell injection in sudo password piping
 
 ## Reporting Issues
 
-- Use [GitHub Issues](https://github.com/NousResearch/birkin-agent/issues)
+- Use [GitHub Issues](https://github.com/MoonGwanghoon/birkin/issues)
 - Include: OS, Python version, Birkin version (`birkin version`), full error traceback
 - Include steps to reproduce
 - Check existing issues before creating duplicates
@@ -224,10 +224,9 @@ fix(security): prevent shell injection in sudo password piping
 
 ## Community
 
-- **Discord**: [discord.gg/NousResearch](https://discord.gg/NousResearch)
 - **GitHub Discussions**: For design proposals and architecture discussions
 - **Skills Hub**: Upload specialized skills and share with the community
 
 ## License
 
-By contributing, you agree that your contributions will be licensed under the [MIT License](https://github.com/NousResearch/birkin-agent/blob/main/LICENSE).
+By contributing, you agree that your contributions will be licensed under the [MIT License](https://github.com/MoonGwanghoon/birkin/blob/main/LICENSE).
