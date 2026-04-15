@@ -284,6 +284,53 @@
   margin-top: 16px;
 }
 
+/* ── Mode selection cards ── */
+
+.tg-mode-card {
+  padding: 16px;
+  border: 1px solid rgba(240, 240, 250, 0.12);
+  border-radius: 8px;
+  margin-bottom: 12px;
+}
+.tg-mode-recommended {
+  border-color: rgba(34, 197, 94, 0.3);
+  background: rgba(34, 197, 94, 0.03);
+}
+
+.tg-mode-badge {
+  font-size: 0.7rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  color: #4ade80;
+  margin-bottom: 6px;
+}
+
+.tg-mode-desc {
+  font-size: 0.82rem;
+  color: rgba(240, 240, 250, 0.55);
+  line-height: 1.5;
+  margin-bottom: 10px;
+}
+
+.tg-mode-action { display: flex; gap: 8px; }
+
+.tg-mode-advanced {
+  border: 1px solid rgba(240, 240, 250, 0.08);
+  border-radius: 8px;
+  padding: 12px 14px;
+  margin-bottom: 12px;
+}
+.tg-mode-advanced summary {
+  cursor: pointer;
+  font-size: 0.75rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  color: rgba(240, 240, 250, 0.4);
+}
+.tg-mode-advanced summary:hover { color: rgba(240, 240, 250, 0.7); }
+
 /* ── Responsive ── */
 
 @media (max-width: 767px) {

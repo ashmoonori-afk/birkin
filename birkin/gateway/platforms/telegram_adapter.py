@@ -217,6 +217,29 @@ class TelegramAdapter:
         """
         return f"telegram_{user_id}"
 
+    async def get_updates(
+        self,
+        offset: Optional[int] = None,
+        timeout: int = 30,
+    ) -> list[dict[str, Any]]:
+        """Long-poll for new updates (alternative to webhooks).
+
+        Args:
+            offset: ID of the first update to be returned.
+            timeout: Timeout in seconds for long polling.
+
+        Returns:
+            List of Update dicts.
+        """
+        params: dict[str, Any] = {"timeout": timeout}
+        if offset is not None:
+            params["offset"] = offset
+        url = f"{self.api_endpoint}/getUpdates"
+        response = await self.client.get(url, params=params, timeout=timeout + 5)
+        response.raise_for_status()
+        data = response.json()
+        return data.get("result", [])
+
     async def close(self) -> None:
         """Close the HTTP client."""
         await self.client.aclose()

@@ -51,10 +51,11 @@
 
 ### Telegram
 - [x] Webhook-based bot integration
-- [x] Step-by-step setup wizard in WebUI
+- [x] Polling mode (no public URL needed — one-click start)
+- [x] Step-by-step setup wizard in WebUI (BotFather guide → token → polling/webhook)
 - [x] Session persistence per Telegram user
 - [x] Auto-split long messages (4096 char limit)
-- [x] Connection status dashboard
+- [x] Connection status dashboard with polling start/stop
 - [x] Config-based provider selection (not hardcoded)
 
 ### Infrastructure

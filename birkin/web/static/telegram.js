@@ -160,41 +160,75 @@
     const suggestedUrl = `${window.location.origin}/api/webhooks/telegram/${savedToken}`;
     wizardEl.innerHTML = `
       <div class="tg-step-card">
-        <h3 class="tg-card-title">${t("tg_step3_title")}</h3>
-        <p class="tg-card-desc">${t("tg_step3_desc")}</p>
-        <div class="tg-token-input-wrap">
-          <label class="tg-field-label">${t("tg_webhook_url")}</label>
-          <input class="tg-input tg-input-lg" type="text" id="tg-webhook-url" value="${B.esc(suggestedUrl)}" />
-          <p class="tg-hint" style="margin-top:6px">${t("tg_webhook_hint")}</p>
+        <h3 class="tg-card-title">${t("tg_step3_mode_title")}</h3>
+
+        <!-- Polling: easy mode (recommended) -->
+        <div class="tg-mode-card tg-mode-recommended" id="tg-mode-polling">
+          <div class="tg-mode-badge">\u2605 ${t("tg_polling_title")}</div>
+          <p class="tg-mode-desc">${t("tg_polling_desc")}</p>
+          <div class="tg-mode-action">
+            <button class="ghost-btn" id="tg-start-polling">${t("tg_polling_start")}</button>
+          </div>
+          <div class="tg-token-feedback" id="tg-polling-feedback"></div>
         </div>
-        <div class="tg-webhook-feedback" id="tg-webhook-feedback"></div>
-        <div class="tg-step-actions">
+
+        <!-- Webhook: advanced (collapsible) -->
+        <details class="tg-mode-advanced">
+          <summary>${t("tg_webhook_title")}</summary>
+          <p class="tg-mode-desc" style="margin-top:8px">${t("tg_webhook_advanced_desc")}</p>
+          <div class="tg-token-input-wrap" style="margin-top:8px">
+            <label class="tg-field-label">${t("tg_webhook_url")}</label>
+            <input class="tg-input tg-input-lg" type="text" id="tg-webhook-url" value="${B.esc(suggestedUrl)}" />
+            <p class="tg-hint" style="margin-top:4px">${t("tg_webhook_hint")}</p>
+          </div>
+          <div class="tg-token-feedback" id="tg-webhook-feedback"></div>
+          <div class="tg-mode-action" style="margin-top:8px">
+            <button class="ghost-btn secondary" id="tg-register-wh">${t("tg_register")}</button>
+          </div>
+        </details>
+
+        <div class="tg-step-actions" style="margin-top:16px">
           <button class="ghost-btn secondary" id="tg-back-3">&larr; ${t("back")}</button>
-          <button class="ghost-btn" id="tg-register-wh">${t("tg_register")}</button>
-          <button class="ghost-btn secondary" id="tg-skip-wh">${t("tg_skip_now")}</button>
         </div>
       </div>
     `;
     wizardEl.querySelector("#tg-back-3").onclick = () => showStep(wrap, wizardEl, 2);
-    wizardEl.querySelector("#tg-skip-wh").onclick = () => showStep(wrap, wizardEl, 4);
 
-    wizardEl.querySelector("#tg-register-wh").onclick = async () => {
-      const url = wizardEl.querySelector("#tg-webhook-url").value.trim();
-      const fb = wizardEl.querySelector("#tg-webhook-feedback");
-      if (!url) { fb.textContent = t("tg_enter_url"); fb.className = "tg-webhook-feedback error"; return; }
-      fb.textContent = t("tg_registering"); fb.className = "tg-webhook-feedback loading";
+    // Polling — one click
+    wizardEl.querySelector("#tg-start-polling").onclick = async () => {
+      const fb = wizardEl.querySelector("#tg-polling-feedback");
+      fb.textContent = t("tg_registering"); fb.className = "tg-token-feedback loading";
       try {
-        const res = await fetch("/api/telegram/webhook", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ webhook_url: url }) });
+        const res = await fetch("/api/telegram/polling/start", { method: "POST" });
         if (res.ok) {
-          const data = await res.json();
-          if (data.ok || data.result) {
-            fb.innerHTML = `<span class="dot ok"></span> ${t("tg_webhook_success")}`;
-            fb.className = "tg-webhook-feedback success";
-            setTimeout(() => showStep(wrap, wizardEl, 4), 1000);
-          } else { fb.textContent = data.description || t("tg_reg_failed"); fb.className = "tg-webhook-feedback error"; }
-        } else { fb.textContent = t("tg_webhook_failed"); fb.className = "tg-webhook-feedback error"; }
-      } catch { fb.textContent = t("tg_net_error"); fb.className = "tg-webhook-feedback error"; }
+          fb.innerHTML = `<span class="dot ok"></span> ${t("tg_polling_started")}`;
+          fb.className = "tg-token-feedback success";
+          setTimeout(() => showStep(wrap, wizardEl, 4), 1500);
+        } else {
+          const err = await res.json().catch(() => ({}));
+          fb.textContent = err.detail || t("tg_failed"); fb.className = "tg-token-feedback error";
+        }
+      } catch { fb.textContent = t("tg_net_error"); fb.className = "tg-token-feedback error"; }
     };
+
+    // Webhook — advanced
+    const regBtn = wizardEl.querySelector("#tg-register-wh");
+    if (regBtn) {
+      regBtn.onclick = async () => {
+        const url = wizardEl.querySelector("#tg-webhook-url").value.trim();
+        const fb = wizardEl.querySelector("#tg-webhook-feedback");
+        if (!url) { fb.textContent = t("tg_enter_url"); fb.className = "tg-token-feedback error"; return; }
+        fb.textContent = t("tg_registering"); fb.className = "tg-token-feedback loading";
+        try {
+          const res = await fetch("/api/telegram/webhook", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ webhook_url: url }) });
+          if (res.ok) {
+            fb.innerHTML = `<span class="dot ok"></span> ${t("tg_webhook_success")}`;
+            fb.className = "tg-token-feedback success";
+            setTimeout(() => showStep(wrap, wizardEl, 4), 1000);
+          } else { fb.textContent = t("tg_reg_failed"); fb.className = "tg-token-feedback error"; }
+        } catch { fb.textContent = t("tg_net_error"); fb.className = "tg-token-feedback error"; }
+      };
+    }
   }
 
   function renderStep4(wrap, wizardEl) {
@@ -249,7 +283,7 @@
         <div class="tg-header-sub">@${B.esc(bot.username || 'unknown')}</div>
       </div>
       <div class="tg-status-card">
-        <div class="tg-status-row"><span class="tg-status-label">${t("tg_status")}</span><span class="tg-status-value"><span class="dot" style="background:${hasWebhook ? '#4ade80' : '#fbbf24'}"></span>${hasWebhook ? t("tg_active") : t("tg_wh_not_set")}</span></div>
+        <div class="tg-status-row"><span class="tg-status-label">${t("tg_status")}</span><span class="tg-status-value"><span class="dot" style="background:${hasWebhook || status.polling ? '#4ade80' : '#fbbf24'}"></span>${status.polling ? t("tg_polling_running") : hasWebhook ? t("tg_active") : t("tg_wh_not_set")}</span></div>
         <div class="tg-status-row"><span class="tg-status-label">${t("tg_bot")}</span><span class="tg-status-value">@${B.esc(bot.username || '?')}</span></div>
         <div class="tg-status-row"><span class="tg-status-label">${t("tg_name")}</span><span class="tg-status-value">${B.esc(bot.first_name || '')}</span></div>
         ${whUrl ? `<div class="tg-status-row"><span class="tg-status-label">${t("tg_webhook")}</span><span class="tg-status-value" style="word-break:break-all;font-size:0.75rem">${B.esc(whUrl)}</span></div>` : ''}
@@ -268,6 +302,10 @@
         </div>
       ` : ''}
       <div class="tg-actions">
+        ${status.polling
+          ? `<button class="ghost-btn secondary" id="tg-dash-stop-poll">${t("tg_polling_stop")}</button>`
+          : `<button class="ghost-btn" id="tg-dash-start-poll">${t("tg_polling_start")}</button>`
+        }
         ${hasWebhook ? `<button class="ghost-btn secondary" id="tg-dash-remove">${t("tg_remove_wh")}</button>` : ''}
         <button class="ghost-btn secondary" id="tg-dash-reconfig">${t("tg_reconfig")}</button>
         <button class="ghost-btn secondary" id="tg-dash-refresh">${t("refresh")}</button>
@@ -286,6 +324,22 @@
           fb.innerHTML = `<span class="dot ok"></span> ${t("tg_done")}`; fb.className = "tg-webhook-feedback success";
           setTimeout(render, 800);
         } catch { fb.textContent = t("tg_failed"); fb.className = "tg-webhook-feedback error"; }
+      };
+    }
+
+    const startPollBtn = wrap.querySelector("#tg-dash-start-poll");
+    if (startPollBtn) {
+      startPollBtn.onclick = async () => {
+        try { await fetch("/api/telegram/polling/start", { method: "POST" }); } catch { /* */ }
+        setTimeout(render, 500);
+      };
+    }
+
+    const stopPollBtn = wrap.querySelector("#tg-dash-stop-poll");
+    if (stopPollBtn) {
+      stopPollBtn.onclick = async () => {
+        try { await fetch("/api/telegram/polling/stop", { method: "POST" }); } catch { /* */ }
+        setTimeout(render, 500);
       };
     }
 

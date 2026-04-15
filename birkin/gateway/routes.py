@@ -5,7 +5,7 @@ from __future__ import annotations
 import asyncio
 import json
 import os
-from typing import AsyncGenerator
+from typing import Any, AsyncGenerator, Optional
 
 from fastapi import APIRouter, HTTPException
 from starlette.responses import StreamingResponse
@@ -491,6 +491,10 @@ def wiki_graph():
 
 # --- Telegram Management ------------------------------------------------------
 
+# Polling state
+_polling_task: Optional[asyncio.Task] = None  # type: ignore[type-arg]
+_polling_active = False
+
 
 @router.get("/telegram/status")
 async def telegram_status():
@@ -505,12 +509,14 @@ async def telegram_status():
             "configured": True,
             "bot_info": bot_info.get("result"),
             "webhook_info": webhook_info.get("result"),
+            "polling": _polling_active,
         }
     except Exception as e:
         return {
             "configured": False,
             "bot_info": None,
             "webhook_info": None,
+            "polling": False,
             "error": str(e),
         }
 
@@ -536,6 +542,98 @@ async def telegram_delete_webhook():
         raise HTTPException(status_code=400, detail=str(exc))
     result = await adapter.delete_webhook()
     return result
+
+
+# --- Telegram Polling ----------------------------------------------------------
+
+
+@router.post("/telegram/polling/start")
+async def telegram_start_polling():
+    """Start long-polling for Telegram updates (no public URL needed)."""
+    global _polling_task, _polling_active  # noqa: PLW0603
+
+    if _polling_active:
+        return {"status": "already_running"}
+
+    token = os.getenv("TELEGRAM_BOT_TOKEN")
+    if not token:
+        raise HTTPException(status_code=400, detail="TELEGRAM_BOT_TOKEN not set")
+
+    try:
+        adapter = get_telegram_adapter()
+        # Delete any existing webhook so polling works
+        await adapter.delete_webhook()
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+
+    _polling_active = True
+    _polling_task = asyncio.create_task(_poll_loop(adapter))
+    return {"status": "started"}
+
+
+@router.post("/telegram/polling/stop")
+async def telegram_stop_polling():
+    """Stop the polling loop."""
+    global _polling_active  # noqa: PLW0603
+
+    _polling_active = False
+    if _polling_task and not _polling_task.done():
+        _polling_task.cancel()
+    return {"status": "stopped"}
+
+
+async def _poll_loop(adapter: Any) -> None:
+    """Background loop that long-polls Telegram for updates."""
+    global _polling_active  # noqa: PLW0603
+
+    import logging
+
+    log = logging.getLogger("birkin.telegram.polling")
+    offset = None
+    dispatcher = get_dispatcher()
+
+    log.info("Telegram polling started")
+
+    while _polling_active:
+        try:
+            updates = await adapter.get_updates(offset=offset, timeout=25)
+            for raw_update in updates:
+                offset = raw_update.get("update_id", 0) + 1
+                update = adapter.parse_update(raw_update)
+                if not update:
+                    continue
+                msg_info = adapter.extract_message(update)
+                if not msg_info:
+                    continue
+
+                session_key = adapter.format_session_key(msg_info["user_id"])
+                try:
+                    reply = await dispatcher.dispatch_message(
+                        text=msg_info["text"],
+                        session_key=session_key,
+                    )
+                    await adapter.send_message(
+                        chat_id=msg_info["chat_id"],
+                        text=reply,
+                        reply_to_message_id=msg_info["message_id"],
+                    )
+                except Exception as e:
+                    log.error(f"Failed to process message: {e}")
+                    try:
+                        await adapter.send_message(
+                            chat_id=msg_info["chat_id"],
+                            text=f"Error: {str(e)[:200]}",
+                        )
+                    except Exception:
+                        pass
+        except asyncio.CancelledError:
+            break
+        except Exception as e:
+            log.error(f"Polling error: {e}")
+            await asyncio.sleep(3)
+
+    _polling_active = False
+    log.info("Telegram polling stopped")
 
 
 # --- Webhooks (Platform Adapters) -----------------------------------------------
