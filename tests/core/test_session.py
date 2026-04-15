@@ -67,23 +67,39 @@ class TestSessionStore:
         assert messages[1].content == "second"
 
     def test_list_sessions(self, store):
-        store = SessionStore()
         s1 = store.create()
         s2 = store.create()
-        ids = {s.id for s in store.list_all()}
+        sessions = store.list_sessions()
+        ids = {s.id for s in sessions}
         assert s1.id in ids
         assert s2.id in ids
 
-    def test_delete_removes_session(self):
-        store = SessionStore()
+    def test_delete_removes_session(self, store):
         session = store.create()
-        store.delete(session.id)
-        assert len(store.list_all()) == 0
+        store.delete_session(session.id)
+        sessions = store.list_sessions()
+        assert session.id not in {s.id for s in sessions}
 
-    def test_save_persists_messages(self):
-        store = SessionStore()
+    def test_get_message_count(self, store):
         session = store.create()
-        session.append(Message(role="user", content="hi"))
-        store.save(session)
-        loaded = store.load(session.id)
-        assert loaded.message_count == 1
+        store.append_message(session.id, Message(role="user", content="hi"))
+        store.append_message(session.id, Message(role="assistant", content="hello"))
+        count = store.get_message_count(session.id)
+        assert count == 2
+
+    def test_pagination(self, store):
+        session = store.create()
+        for i in range(5):
+            store.append_message(
+                session.id, Message(role="user", content=f"msg {i}")
+            )
+
+        # Get first 2
+        messages = store.get_messages(session.id, limit=2, offset=0)
+        assert len(messages) == 2
+        assert messages[0].content == "msg 0"
+
+        # Get next 2
+        messages = store.get_messages(session.id, limit=2, offset=2)
+        assert len(messages) == 2
+        assert messages[0].content == "msg 2"
