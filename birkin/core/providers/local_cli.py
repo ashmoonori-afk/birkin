@@ -173,27 +173,36 @@ class LocalCLIProvider(Provider):
             raise ProviderError(f"{self._cli} timed out after 120 seconds", ProviderErrorKind.SERVER)
 
     def _extract_prompt(self, messages: list[Message]) -> str:
-        """Build prompt from conversation history.
+        """Build a compact prompt for the CLI.
 
-        Includes system prompt and recent messages for context,
-        not just the last user message.
+        Only sends the last user message plus minimal recent context
+        (last 2 assistant turns) to keep the CLI call fast.
+        System prompts and wiki memory are excluded — the CLI
+        doesn't need them and they add massive latency.
         """
-        parts: list[str] = []
-        for msg in messages:
-            if msg.role == "system":
-                parts.append(f"[System]\n{msg.content}\n")
-            elif msg.role == "user":
-                parts.append(f"[User]\n{msg.content}\n")
-            elif msg.role == "assistant":
-                parts.append(f"[Assistant]\n{msg.content}\n")
+        # Find the last user message
+        last_user = ""
+        for msg in reversed(messages):
+            if msg.role == "user":
+                last_user = msg.content
+                break
 
-        # If the conversation is very long, only keep last ~10 messages + system
-        if len(parts) > 12:
-            system = [p for p in parts if p.startswith("[System]")]
-            recent = parts[-10:]
-            parts = system + recent
+        if not last_user:
+            return ""
 
-        return "\n".join(parts)
+        # Collect last 2 assistant messages for minimal context
+        recent_context: list[str] = []
+        for msg in reversed(messages):
+            if msg.role == "assistant" and msg.content:
+                recent_context.insert(0, msg.content)
+                if len(recent_context) >= 2:
+                    break
+
+        if recent_context:
+            ctx = "\n".join(f"[Previous reply]\n{r}" for r in recent_context)
+            return f"{ctx}\n\n[Current question]\n{last_user}"
+
+        return last_user
 
     def _build_command(self, prompt: str) -> list[str]:
         """Build the CLI command."""
