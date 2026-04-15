@@ -5,12 +5,13 @@ from __future__ import annotations
 import asyncio
 from typing import Any, Callable
 
+from birkin.core.defaults import DEFAULT_SYSTEM_PROMPT
 from birkin.core.models import Message, ToolCall, ToolResult
 from birkin.core.providers.base import Provider, ProviderResponse
 from birkin.core.session import Session, SessionStore
+from birkin.memory.wiki import WikiMemory
 from birkin.tools.base import Tool
 
-_DEFAULT_SYSTEM_PROMPT = "You are Birkin, a helpful AI assistant."
 _DEFAULT_MAX_TURNS = 20
 
 
@@ -25,13 +26,15 @@ class Agent:
         session_store: SessionStore | None = None,
         session_id: str | None = None,
         system_prompt: str | None = None,
+        memory: WikiMemory | None = None,
         max_turns: int = _DEFAULT_MAX_TURNS,
     ) -> None:
         self._provider = provider
         self._tools = tools or []
         self._tool_registry = {t.spec.name: t for t in self._tools}
         self._session_store = session_store or SessionStore()
-        self._system_prompt = system_prompt or _DEFAULT_SYSTEM_PROMPT
+        self._system_prompt = system_prompt or DEFAULT_SYSTEM_PROMPT
+        self._memory = memory
         self._max_turns = max_turns
 
         if session_id:
@@ -207,11 +210,23 @@ class Agent:
 
         return final_text
 
+    @property
+    def memory(self) -> WikiMemory | None:
+        return self._memory
+
     def _build_messages(self) -> list[Message]:
-        """Assemble the full message list including system prompt."""
+        """Assemble the full message list including system prompt and memory."""
+        prompt = self._system_prompt or ""
+
+        # Append memory context when a WikiMemory backend is attached
+        if self._memory:
+            memory_ctx = self._memory.build_context()
+            if memory_ctx:
+                prompt = f"{prompt}\n\n{memory_ctx}"
+
         msgs: list[Message] = []
-        if self._system_prompt:
-            msgs.append(Message(role="system", content=self._system_prompt))
+        if prompt:
+            msgs.append(Message(role="system", content=prompt))
 
         # Load messages from session store
         session_messages = self._session_store.get_messages(self._session.id)

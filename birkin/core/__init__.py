@@ -1,6 +1,7 @@
 """Core agent runtime -- conversation loop, session, providers."""
 
 from birkin.core.agent import Agent
+from birkin.core.defaults import DEFAULT_SYSTEM_PROMPT, KARPATHY_GUIDELINES
 from birkin.core.errors import BirkinError, ProviderError, SessionError, ToolExecutionError
 from birkin.core.models import (
     AgentResponse,
@@ -18,6 +19,8 @@ __all__ = [
     "AgentResponse",
     "BirkinError",
     "ConversationContext",
+    "DEFAULT_SYSTEM_PROMPT",
+    "KARPATHY_GUIDELINES",
     "Message",
     "ProviderConfig",
     "ProviderError",
