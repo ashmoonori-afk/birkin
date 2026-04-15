@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from enum import Enum
 from typing import Optional
 
 
@@ -11,12 +12,29 @@ class BirkinError(Exception):
     pass
 
 
-class ProviderError(BirkinError):
-    """Error from an LLM provider."""
+class ProviderErrorKind(Enum):
+    """Classification of provider errors for retry/backoff logic."""
 
-    def __init__(self, message: str, provider: Optional[str] = None) -> None:
+    RATE_LIMIT = "rate_limit"
+    AUTH = "auth"
+    CONTEXT_OVERFLOW = "context_overflow"
+    SERVER = "server"
+    NETWORK = "network"
+    UNKNOWN = "unknown"
+
+
+class ProviderError(BirkinError):
+    """Exception raised by provider operations."""
+
+    def __init__(
+        self,
+        message: str,
+        kind: ProviderErrorKind = ProviderErrorKind.UNKNOWN,
+        original_error: Optional[Exception] = None,
+    ) -> None:
         self.message = message
-        self.provider = provider
+        self.kind = kind
+        self.original_error = original_error
         super().__init__(message)
 
 

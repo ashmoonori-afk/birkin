@@ -1,0 +1,158 @@
+/* ── Telegram Integration Panel ── */
+
+.tg-container {
+  flex: 1;
+  overflow-y: auto;
+  padding: 24px;
+  max-width: 560px;
+  margin: 0 auto;
+  width: 100%;
+}
+
+.tg-header {
+  text-align: center;
+  margin-bottom: 32px;
+}
+
+.tg-header-icon {
+  font-size: 40px;
+  margin-bottom: 8px;
+  opacity: 0.5;
+}
+
+.tg-header-title {
+  font-size: 1.1rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.96px;
+  margin-bottom: 4px;
+}
+
+.tg-header-sub {
+  font-size: 0.85rem;
+  color: rgba(240, 240, 250, 0.5);
+}
+
+/* Wizard steps */
+
+.tg-wizard { display: flex; flex-direction: column; gap: 16px; }
+
+.tg-step {
+  padding: 16px;
+  border: 1px solid rgba(240, 240, 250, 0.1);
+  border-radius: 8px;
+  transition: border-color 0.2s;
+}
+
+.tg-step.active { border-color: rgba(240, 240, 250, 0.35); }
+.tg-step.complete { border-color: #4ade80; }
+
+.tg-step-header {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 8px;
+}
+
+.tg-step-num {
+  width: 24px; height: 24px;
+  border-radius: 50%;
+  border: 1.5px solid rgba(240, 240, 250, 0.25);
+  display: flex; align-items: center; justify-content: center;
+  font-size: 0.7rem; font-weight: 700;
+  color: rgba(240, 240, 250, 0.5);
+  flex-shrink: 0;
+}
+
+.tg-step.complete .tg-step-num { border-color: #4ade80; color: #4ade80; }
+.tg-step.active .tg-step-num { border-color: #f0f0fa; color: #f0f0fa; }
+
+.tg-step-title {
+  font-size: 0.8rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.tg-step-body {
+  font-size: 0.85rem;
+  color: rgba(240, 240, 250, 0.6);
+  line-height: 1.6;
+}
+
+.tg-step-body code {
+  font-family: "JetBrains Mono", monospace;
+  font-size: 0.82rem;
+  background: rgba(240, 240, 250, 0.08);
+  padding: 1px 5px;
+  border-radius: 4px;
+}
+
+.tg-input-row {
+  display: flex;
+  gap: 8px;
+  margin-top: 10px;
+}
+
+.tg-input {
+  flex: 1;
+  padding: 8px 12px;
+  background: rgba(240, 240, 250, 0.05);
+  border: 1px solid rgba(240, 240, 250, 0.15);
+  border-radius: 6px;
+  color: #f0f0fa;
+  font-family: "JetBrains Mono", monospace;
+  font-size: 0.82rem;
+  outline: none;
+}
+.tg-input:focus { border-color: rgba(240, 240, 250, 0.35); }
+
+/* Connected status */
+
+.tg-status-card {
+  padding: 16px;
+  border: 1px solid rgba(240, 240, 250, 0.15);
+  border-radius: 8px;
+  margin-bottom: 16px;
+}
+
+.tg-status-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+
+.tg-status-row:last-child { margin-bottom: 0; }
+
+.tg-status-label {
+  font-size: 0.65rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 1px;
+  color: rgba(240, 240, 250, 0.4);
+  min-width: 80px;
+}
+
+.tg-status-value {
+  font-size: 0.85rem;
+  color: rgba(240, 240, 250, 0.8);
+}
+
+.tg-status-value .dot {
+  display: inline-block;
+  width: 8px; height: 8px;
+  border-radius: 50%;
+  margin-right: 6px;
+}
+
+.tg-actions {
+  display: flex;
+  gap: 8px;
+  margin-top: 16px;
+}
+
+@media (max-width: 767px) {
+  .tg-container { padding: 16px; }
+  .tg-input-row { flex-direction: column; }
+}

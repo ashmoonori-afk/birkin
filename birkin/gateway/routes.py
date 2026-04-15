@@ -2,16 +2,22 @@
 
 from __future__ import annotations
 
+import asyncio
+import json
 import os
-from typing import Optional
+from typing import AsyncGenerator
 
 from fastapi import APIRouter, HTTPException
+from starlette.responses import StreamingResponse
 
 from birkin.core.agent import Agent
 from birkin.core.providers import create_provider
-from birkin.gateway.deps import get_session_store
-from birkin.gateway.dispatcher import MessageDispatcher
-from birkin.gateway.platforms.telegram_adapter import TelegramAdapter
+from birkin.gateway.deps import (
+    get_dispatcher,
+    get_session_store,
+    get_telegram_adapter,
+    get_wiki_memory,
+)
 from birkin.gateway.schemas import (
     ChatRequest,
     ChatResponse,
@@ -23,29 +29,6 @@ from birkin.gateway.schemas import (
 from birkin.tools.loader import load_tools
 
 router = APIRouter(prefix="/api")
-
-# Platform adapters (lazy-initialized)
-_telegram_adapter: Optional[TelegramAdapter] = None
-_dispatcher: Optional[MessageDispatcher] = None
-
-
-def get_telegram_adapter() -> TelegramAdapter:
-    """Get or create Telegram adapter."""
-    global _telegram_adapter  # noqa: PLW0603
-    if _telegram_adapter is None:
-        token = os.getenv("TELEGRAM_BOT_TOKEN")
-        if not token:
-            raise ValueError("TELEGRAM_BOT_TOKEN not set")
-        _telegram_adapter = TelegramAdapter(token)
-    return _telegram_adapter
-
-
-def get_dispatcher() -> MessageDispatcher:
-    """Get or create message dispatcher."""
-    global _dispatcher  # noqa: PLW0603
-    if _dispatcher is None:
-        _dispatcher = MessageDispatcher()
-    return _dispatcher
 
 
 # --- Health ----------------------------------------------------------------
@@ -62,7 +45,10 @@ def health() -> HealthResponse:
 @router.post("/chat", response_model=ChatResponse)
 def chat(body: ChatRequest) -> ChatResponse:
     """Send a message and receive the agent's reply."""
+    from birkin.gateway.config import load_config
+
     store = get_session_store()
+    config = load_config()
 
     # Validate existing session if provided
     if body.session_id:
@@ -75,24 +61,259 @@ def chat(body: ChatRequest) -> ChatResponse:
     model_str = (
         f"{body.provider}/{body.model}" if body.model else f"{body.provider}/default"
     )
-    provider = create_provider(model_str)
+    try:
+        provider = create_provider(model_str)
+    except (ValueError, TypeError) as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
     tools = load_tools()
-    agent = Agent(
-        provider=provider,
-        tools=tools,
-        session_store=store,
-        session_id=body.session_id,
-    )
+
+    agent_kwargs: dict = {
+        "provider": provider,
+        "tools": tools,
+        "session_store": store,
+        "session_id": body.session_id,
+    }
+    if config.get("system_prompt") is not None:
+        agent_kwargs["system_prompt"] = config["system_prompt"]
+    agent = Agent(**agent_kwargs)
 
     try:
         reply = agent.chat(body.message)
     except NotImplementedError as exc:
         raise HTTPException(status_code=501, detail=str(exc))
+    except TypeError as exc:
+        # Catches missing API key errors from provider SDKs
+        msg = str(exc)
+        if "api_key" in msg or "auth" in msg.lower():
+            raise HTTPException(
+                status_code=401,
+                detail=(
+                    f"API key not configured for provider '{body.provider}'. "
+                    "Set the appropriate environment variable "
+                    "(ANTHROPIC_API_KEY or OPENAI_API_KEY) in your .env file."
+                ),
+            )
+        raise HTTPException(status_code=500, detail=msg)
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=str(exc))
 
     return ChatResponse(
         session_id=agent.session_id,
         reply=reply,
     )
+
+
+# --- Chat SSE Stream -------------------------------------------------------
+
+
+@router.post("/chat/stream")
+async def chat_stream(body: ChatRequest) -> StreamingResponse:
+    """Send a message and stream the agent's reply via Server-Sent Events."""
+    from birkin.gateway.config import load_config
+
+    store = get_session_store()
+    config = load_config()
+
+    if body.session_id:
+        try:
+            store.load(body.session_id)
+        except KeyError:
+            raise HTTPException(status_code=404, detail="Session not found")
+
+    model_str = (
+        f"{body.provider}/{body.model}" if body.model else f"{body.provider}/default"
+    )
+    try:
+        provider = create_provider(model_str)
+    except (ValueError, TypeError) as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+
+    tools = load_tools()
+
+    agent_kwargs: dict = {
+        "provider": provider,
+        "tools": tools,
+        "session_store": store,
+        "session_id": body.session_id,
+    }
+    if config.get("system_prompt") is not None:
+        agent_kwargs["system_prompt"] = config["system_prompt"]
+    agent = Agent(**agent_kwargs)
+
+    async def event_generator() -> AsyncGenerator[str, None]:
+        delta_queue: asyncio.Queue[str | None] = asyncio.Queue()
+        event_queue: asyncio.Queue[dict | None] = asyncio.Queue()
+
+        def on_delta(delta: str | None) -> None:
+            delta_queue.put_nowait(delta)
+
+        def on_event(evt: dict) -> None:
+            event_queue.put_nowait(evt)
+
+        # Send session_id first
+        yield f"data: {json.dumps({'session_id': agent.session_id})}\n\n"
+
+        try:
+            # Run agent.astream in a task so events can be yielded in real-time
+            task: asyncio.Task[str] = asyncio.create_task(
+                agent.astream(
+                    body.message, callback=on_delta, event_callback=on_event
+                )
+            )
+
+            # Drain both queues interleaving deltas and structured events
+            while not task.done():
+                await asyncio.sleep(0.01)
+                while not delta_queue.empty():
+                    delta = delta_queue.get_nowait()
+                    if delta is not None:
+                        yield f"data: {json.dumps({'delta': delta})}\n\n"
+                while not event_queue.empty():
+                    evt = event_queue.get_nowait()
+                    if evt is not None:
+                        yield f"data: {json.dumps(evt)}\n\n"
+
+            # Task is done — drain remaining items
+            reply = await task
+            while not delta_queue.empty():
+                delta = delta_queue.get_nowait()
+                if delta is not None:
+                    yield f"data: {json.dumps({'delta': delta})}\n\n"
+            while not event_queue.empty():
+                evt = event_queue.get_nowait()
+                if evt is not None:
+                    yield f"data: {json.dumps(evt)}\n\n"
+
+            # Final event with full reply
+            yield f"data: {json.dumps({'done': True, 'reply': reply})}\n\n"
+
+        except TypeError as exc:
+            msg = str(exc)
+            if "api_key" in msg or "auth" in msg.lower():
+                yield f"data: {json.dumps({'error': f'API key not configured for {body.provider}'})}\n\n"
+            else:
+                yield f"data: {json.dumps({'error': msg})}\n\n"
+        except Exception as exc:
+            yield f"data: {json.dumps({'error': str(exc)})}\n\n"
+
+    return StreamingResponse(
+        event_generator(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "X-Accel-Buffering": "no",
+        },
+    )
+
+
+# --- Settings ---------------------------------------------------------------
+
+
+@router.get("/settings")
+def get_settings() -> dict:
+    """Get current configuration."""
+    from birkin.gateway.config import load_config
+    return load_config()
+
+
+@router.put("/settings")
+def update_settings(body: dict) -> dict:
+    """Update configuration."""
+    from birkin.gateway.config import load_config, save_config
+    config = load_config()
+    config.update(body)
+    save_config(config)
+    return config
+
+
+_ALLOWED_KEY_NAMES = frozenset({"ANTHROPIC_API_KEY", "OPENAI_API_KEY", "TELEGRAM_BOT_TOKEN"})
+
+
+@router.put("/settings/keys")
+def update_api_keys(body: dict) -> dict:
+    """Write API keys to the .env file and update os.environ.
+
+    Accepts ``{"ANTHROPIC_API_KEY": "sk-...", "OPENAI_API_KEY": "sk-..."}``.
+    Only key names in the allow-list are accepted.
+    """
+    from pathlib import Path
+
+    invalid = set(body.keys()) - _ALLOWED_KEY_NAMES
+    if invalid:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Invalid key names: {sorted(invalid)}. Allowed: {sorted(_ALLOWED_KEY_NAMES)}",
+        )
+
+    # Read existing .env (preserving unrelated lines)
+    env_path = Path(".env")
+    existing_lines: list[str] = []
+    if env_path.exists():
+        existing_lines = env_path.read_text(encoding="utf-8").splitlines()
+
+    # Parse existing key=value pairs and rebuild
+    updated_keys: set[str] = set()
+    new_lines: list[str] = []
+    for line in existing_lines:
+        stripped = line.strip()
+        if stripped and not stripped.startswith("#"):
+            key_part = stripped.split("=", 1)[0]
+            if key_part in body:
+                new_lines.append(f"{key_part}={body[key_part]}")
+                updated_keys.add(key_part)
+                continue
+        new_lines.append(line)
+
+    # Append keys not yet present
+    for key_name, key_value in body.items():
+        if key_name not in updated_keys:
+            new_lines.append(f"{key_name}={key_value}")
+
+    env_path.write_text("\n".join(new_lines) + "\n", encoding="utf-8")
+
+    # Set in current process immediately
+    saved: list[str] = []
+    for key_name, key_value in body.items():
+        os.environ[key_name] = key_value
+        saved.append(key_name)
+
+    return {"saved": sorted(saved)}
+
+
+@router.get("/settings/providers")
+def detect_providers() -> dict:
+    """Detect available providers (API keys, local CLIs)."""
+    import shutil
+
+    results = {
+        "anthropic": {
+            "available": bool(os.getenv("ANTHROPIC_API_KEY")),
+            "type": "api",
+            "needs_key": True,
+            "key_env": "ANTHROPIC_API_KEY",
+            "models": ["claude-opus-4-20250805", "claude-sonnet-4-20250514"],
+        },
+        "openai": {
+            "available": bool(os.getenv("OPENAI_API_KEY")),
+            "type": "api",
+            "needs_key": True,
+            "key_env": "OPENAI_API_KEY",
+            "models": ["gpt-4o", "gpt-4-turbo", "gpt-3.5-turbo"],
+        },
+        "claude-cli": {
+            "available": shutil.which("claude") is not None,
+            "type": "local",
+            "needs_key": False,
+            "description": "Claude Code CLI (local)",
+        },
+        "codex-cli": {
+            "available": shutil.which("codex") is not None,
+            "type": "local",
+            "needs_key": False,
+            "description": "OpenAI Codex CLI (local)",
+        },
+    }
+    return results
 
 
 # --- Sessions --------------------------------------------------------------
@@ -143,6 +364,126 @@ def get_session(session_id: str) -> SessionDetail:
 def delete_session(session_id: str) -> None:
     store = get_session_store()
     store.delete_session(session_id)
+
+
+# --- Wiki Memory ---------------------------------------------------------------
+
+
+@router.get("/wiki/pages")
+def wiki_list_pages():
+    wiki = get_wiki_memory()
+    return wiki.list_pages()
+
+
+@router.get("/wiki/pages/{category}/{slug}")
+def wiki_get_page(category: str, slug: str):
+    wiki = get_wiki_memory()
+    content = wiki.get_page(category, slug)
+    if content is None:
+        raise HTTPException(status_code=404, detail="Page not found")
+    return {"category": category, "slug": slug, "content": content}
+
+
+@router.put("/wiki/pages/{category}/{slug}")
+def wiki_put_page(category: str, slug: str, body: dict):
+    wiki = get_wiki_memory()
+    wiki.ingest(category, slug, body.get("content", ""))
+    return {"status": "ok"}
+
+
+@router.delete("/wiki/pages/{category}/{slug}", status_code=204)
+def wiki_delete_page(category: str, slug: str):
+    wiki = get_wiki_memory()
+    wiki.delete_page(category, slug)
+
+
+@router.get("/wiki/search")
+def wiki_search(q: str = ""):
+    wiki = get_wiki_memory()
+    return wiki.query(q) if q else []
+
+
+@router.get("/wiki/lint")
+def wiki_lint():
+    wiki = get_wiki_memory()
+    return {"warnings": wiki.lint()}
+
+
+@router.get("/wiki/graph")
+def wiki_graph():
+    """Build node-link graph data from wiki pages."""
+    import re
+
+    wiki = get_wiki_memory()
+    pages = wiki.list_pages()
+    wikilink_re = re.compile(r"\[\[([^\]]+)\]\]")
+
+    nodes = []
+    edges = []
+    all_slugs = set()
+    referenced = set()
+
+    for p in pages:
+        slug = p["slug"]
+        cat = p["category"]
+        all_slugs.add(slug)
+        nodes.append({"slug": slug, "category": cat})
+
+        content = wiki.get_page(cat, slug) or ""
+        for m in wikilink_re.finditer(content):
+            target = m.group(1).strip()
+            referenced.add(target)
+            edges.append({"source": slug, "target": target})
+
+    orphans = list(all_slugs - referenced)
+    # Add nodes for broken link targets
+    for ref in referenced - all_slugs:
+        nodes.append({"slug": ref, "category": "broken"})
+
+    return {"nodes": nodes, "edges": edges, "orphans": orphans}
+
+
+# --- Telegram Management ------------------------------------------------------
+
+
+@router.get("/telegram/status")
+async def telegram_status():
+    token = os.getenv("TELEGRAM_BOT_TOKEN")
+    if not token:
+        return {"configured": False, "bot_info": None, "webhook_info": None}
+    try:
+        adapter = get_telegram_adapter()
+        bot_info = await adapter.get_me()
+        webhook_info = await adapter.get_webhook_info()
+        return {
+            "configured": True,
+            "bot_info": bot_info.get("result"),
+            "webhook_info": webhook_info.get("result"),
+        }
+    except Exception as e:
+        return {
+            "configured": False,
+            "bot_info": None,
+            "webhook_info": None,
+            "error": str(e),
+        }
+
+
+@router.post("/telegram/webhook")
+async def telegram_set_webhook(body: dict):
+    webhook_url = body.get("webhook_url", "")
+    if not webhook_url:
+        raise HTTPException(status_code=400, detail="webhook_url required")
+    adapter = get_telegram_adapter()
+    result = await adapter.set_webhook(webhook_url)
+    return result
+
+
+@router.delete("/telegram/webhook")
+async def telegram_delete_webhook():
+    adapter = get_telegram_adapter()
+    result = await adapter.delete_webhook()
+    return result
 
 
 # --- Webhooks (Platform Adapters) -----------------------------------------------

@@ -6,7 +6,7 @@ from typing import Any
 
 import pytest
 
-from birkin.tools.base import Tool, ToolParameter, ToolSpec
+from birkin.tools.base import Tool, ToolContext, ToolOutput, ToolParameter, ToolSpec
 from birkin.tools.loader import load_tools
 from birkin.tools.registry import ToolRegistry
 
@@ -24,8 +24,11 @@ class DummyTool(Tool):
             ],
         )
 
-    async def execute(self, **kwargs: Any) -> str:
-        return f"echo: {kwargs.get('input', '')}"
+    async def execute(self, args: dict[str, Any], context: ToolContext) -> ToolOutput:
+        return ToolOutput(
+            success=True,
+            output=f"echo: {args.get('input', '')}",
+        )
 
 
 class TestToolSpec:

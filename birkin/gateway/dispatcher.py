@@ -63,7 +63,8 @@ class MessageDispatcher:
             session_id = session.id
 
         # Create provider and agent
-        provider_instance = create_provider(provider, model=model)
+        model_str = f"{provider}/{model}" if model else f"{provider}/default"
+        provider_instance = create_provider(model_str)
         tools = self._load_tools()
         agent = Agent(
             provider=provider_instance,

@@ -10,8 +10,13 @@ from pydantic import BaseModel
 
 
 @dataclass(frozen=True)
-class ToolResult:
-    """Result of executing a tool."""
+class ToolOutput:
+    """Result returned by a Tool.execute() implementation.
+
+    This is the tool-side return type. The agent wraps it into a
+    conversation-compatible ``core.models.ToolResult`` with the
+    ``tool_call_id`` and ``name`` filled in.
+    """
 
     success: bool
     output: str
@@ -66,15 +71,15 @@ class Tool(ABC):
         ...
 
     @abstractmethod
-    async def execute(self, args: dict[str, Any], context: ToolContext) -> ToolResult:
-        """Run the tool and return a ToolResult.
+    async def execute(self, args: dict[str, Any], context: ToolContext) -> ToolOutput:
+        """Run the tool and return a ToolOutput.
 
         Args:
             args: Arguments passed to the tool (validated against spec.parameters).
             context: Execution context (task_id, session_id, platform, etc).
 
         Returns:
-            ToolResult indicating success/failure and output.
+            ToolOutput indicating success/failure and output.
         """
         ...
 

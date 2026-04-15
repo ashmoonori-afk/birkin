@@ -73,8 +73,13 @@ def create_provider(
             api_key=api_key,
             base_url=base_url or "https://openrouter.ai/api/v1",
         )
+    elif provider_name in ("claude-cli", "codex-cli"):
+        from birkin.core.providers.local_cli import LocalCLIProvider
+
+        cli_name = provider_name.replace("-cli", "")
+        return LocalCLIProvider(cli=cli_name, model=model_name)
     else:
         raise ValueError(
             f"Unknown provider: {provider_name}. "
-            "Use 'anthropic', 'openai', or 'openrouter'."
+            "Use 'anthropic', 'openai', 'openrouter', 'claude-cli', or 'codex-cli'."
         )

@@ -4,10 +4,20 @@ from __future__ import annotations
 
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
-from enum import Enum
 from typing import Any, Callable, Optional
 
+from birkin.core.errors import ProviderError, ProviderErrorKind
 from birkin.core.models import Message, ToolCall
+
+# Re-export so existing `from birkin.core.providers.base import ...` still works.
+__all__ = [
+    "TokenUsage",
+    "ModelCapabilities",
+    "ProviderResponse",
+    "ProviderError",
+    "ProviderErrorKind",
+    "Provider",
+]
 
 
 @dataclass(frozen=True)
@@ -44,32 +54,6 @@ class ProviderResponse:
     usage: Optional[TokenUsage] = None
     stop_reason: Optional[str] = None
     model: Optional[str] = None
-
-
-class ProviderErrorKind(Enum):
-    """Classification of provider errors for retry/backoff logic."""
-
-    RATE_LIMIT = "rate_limit"
-    AUTH = "auth"
-    CONTEXT_OVERFLOW = "context_overflow"
-    SERVER = "server"
-    NETWORK = "network"
-    UNKNOWN = "unknown"
-
-
-class ProviderError(Exception):
-    """Exception raised by provider operations."""
-
-    def __init__(
-        self,
-        message: str,
-        kind: ProviderErrorKind = ProviderErrorKind.UNKNOWN,
-        original_error: Optional[Exception] = None,
-    ) -> None:
-        self.message = message
-        self.kind = kind
-        self.original_error = original_error
-        super().__init__(message)
 
 
 class Provider(ABC):

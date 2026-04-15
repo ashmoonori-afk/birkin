@@ -76,13 +76,21 @@ if not exist "%VENV_DIR%\.deps_installed" (
 )
 
 REM -- Launch --------------------------------------------------------
+set "HOST=127.0.0.1"
+set "PORT=8321"
+set "URL=http://%HOST%:%PORT%"
+
 echo.
 echo =======================================
-echo   Birkin is starting ...
+echo   Birkin WebUI starting ...
+echo   %URL%
 echo =======================================
 echo.
 
-birkin chat
+REM Auto-open browser after 2 seconds
+start /b cmd /c "timeout /t 2 /nobreak >nul & start %URL%"
+
+birkin serve --host %HOST% --port %PORT%
 
 REM Keep window open if birkin exits
 pause

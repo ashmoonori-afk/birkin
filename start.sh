@@ -78,10 +78,18 @@ else
 fi
 
 # ── Launch ───────────────────────────────────────────────────
+HOST="${BIRKIN_HOST:-127.0.0.1}"
+PORT="${BIRKIN_PORT:-8321}"
+URL="http://${HOST}:${PORT}"
+
 echo ""
 printf "${BOLD}───────────────────────────────────────${NC}\n"
-printf "${BOLD}  Birkin${NC} is starting ...              \n"
+printf "${BOLD}  Birkin${NC} WebUI starting ...            \n"
+printf "${BOLD}  ${CYAN}${URL}${NC}                      \n"
 printf "${BOLD}───────────────────────────────────────${NC}\n"
 echo ""
 
-birkin chat
+# Auto-open browser after a short delay
+(sleep 2 && open "$URL" 2>/dev/null || xdg-open "$URL" 2>/dev/null) &
+
+birkin serve --host "$HOST" --port "$PORT"

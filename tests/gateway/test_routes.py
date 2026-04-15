@@ -29,7 +29,6 @@ class FakeProvider(Provider):
     def model(self) -> str:
         return "fake-v1"
 
-    @property
     def capabilities(self) -> ModelCapabilities:
         return ModelCapabilities(context_window=4096)
 

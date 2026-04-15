@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import os
 from typing import Any, Callable, Optional
 
@@ -175,8 +176,8 @@ class OpenAIProvider(Provider):
                             "id": tc.get("id"),
                             "type": "function",
                             "function": {
-                                "name": tc.get("function_name"),
-                                "arguments": str(tc.get("arguments", {})),
+                                "name": tc.get("name"),
+                                "arguments": json.dumps(tc.get("input", {})),
                             },
                         }
                         for tc in msg.tool_calls
@@ -236,8 +237,10 @@ class OpenAIProvider(Provider):
         tool_choice: Optional[str],
         stream_callback: Callable[[Optional[str]], None],
     ) -> ProviderResponse:
-        """Handle streaming completion."""
+        """Handle streaming completion with tool call accumulation."""
         accumulated_text = ""
+        tc_accum: dict[int, dict[str, Any]] = {}
+        finish_reason = "stop"
 
         stream = self._client.chat.completions.create(
             model=self._model,
@@ -249,22 +252,35 @@ class OpenAIProvider(Provider):
         )
 
         for chunk in stream:
-            if chunk.choices[0].delta.content:
-                accumulated_text += chunk.choices[0].delta.content
-                stream_callback(chunk.choices[0].delta.content)
+            choice = chunk.choices[0]
+            if choice.finish_reason:
+                finish_reason = choice.finish_reason
+            delta = choice.delta
+            if delta.content:
+                accumulated_text += delta.content
+                stream_callback(delta.content)
+            if delta.tool_calls:
+                for tc_delta in delta.tool_calls:
+                    idx = tc_delta.index
+                    if idx not in tc_accum:
+                        tc_accum[idx] = {"id": "", "name": "", "arguments": ""}
+                    if tc_delta.id:
+                        tc_accum[idx]["id"] = tc_delta.id
+                    if tc_delta.function:
+                        if tc_delta.function.name:
+                            tc_accum[idx]["name"] = tc_delta.function.name
+                        if tc_delta.function.arguments:
+                            tc_accum[idx]["arguments"] += tc_delta.function.arguments
 
         stream_callback(None)
 
-        usage = TokenUsage(
-            prompt_tokens=0,  # Streaming doesn't provide usage in deltas
-            completion_tokens=0,
-        )
+        tool_calls = _assemble_tool_calls(tc_accum) or None
 
         return ProviderResponse(
             content=accumulated_text if accumulated_text else None,
-            tool_calls=None,
-            usage=usage,
-            stop_reason="stop",
+            tool_calls=tool_calls,
+            usage=TokenUsage(prompt_tokens=0, completion_tokens=0),
+            stop_reason=finish_reason,
             model=self._model,
         )
 
@@ -275,8 +291,10 @@ class OpenAIProvider(Provider):
         tool_choice: Optional[str],
         stream_callback: Callable[[Optional[str]], None],
     ) -> ProviderResponse:
-        """Handle async streaming completion."""
+        """Handle async streaming completion with tool call accumulation."""
         accumulated_text = ""
+        tc_accum: dict[int, dict[str, Any]] = {}
+        finish_reason = "stop"
 
         stream = await self._async_client.chat.completions.create(
             model=self._model,
@@ -288,21 +306,58 @@ class OpenAIProvider(Provider):
         )
 
         async for chunk in stream:
-            if chunk.choices[0].delta.content:
-                accumulated_text += chunk.choices[0].delta.content
-                stream_callback(chunk.choices[0].delta.content)
+            choice = chunk.choices[0]
+            if choice.finish_reason:
+                finish_reason = choice.finish_reason
+            delta = choice.delta
+            if delta.content:
+                accumulated_text += delta.content
+                stream_callback(delta.content)
+            if delta.tool_calls:
+                for tc_delta in delta.tool_calls:
+                    idx = tc_delta.index
+                    if idx not in tc_accum:
+                        tc_accum[idx] = {"id": "", "name": "", "arguments": ""}
+                    if tc_delta.id:
+                        tc_accum[idx]["id"] = tc_delta.id
+                    if tc_delta.function:
+                        if tc_delta.function.name:
+                            tc_accum[idx]["name"] = tc_delta.function.name
+                        if tc_delta.function.arguments:
+                            tc_accum[idx]["arguments"] += tc_delta.function.arguments
 
         stream_callback(None)
 
-        usage = TokenUsage(
-            prompt_tokens=0,
-            completion_tokens=0,
-        )
+        tool_calls = _assemble_tool_calls(tc_accum) or None
 
         return ProviderResponse(
             content=accumulated_text if accumulated_text else None,
-            tool_calls=None,
-            usage=usage,
-            stop_reason="stop",
+            tool_calls=tool_calls,
+            usage=TokenUsage(prompt_tokens=0, completion_tokens=0),
+            stop_reason=finish_reason,
             model=self._model,
         )
+
+
+def _assemble_tool_calls(
+    accum: dict[int, dict[str, Any]],
+) -> Optional[list[ToolCall]]:
+    """Assemble accumulated streaming tool call deltas into ToolCall objects."""
+    if not accum:
+        return None
+    result = []
+    for idx in sorted(accum):
+        tc = accum[idx]
+        args_str = tc.get("arguments", "")
+        try:
+            parsed_args = json.loads(args_str) if args_str else {}
+        except json.JSONDecodeError:
+            parsed_args = {"_raw": args_str}
+        result.append(
+            ToolCall(
+                id=tc["id"],
+                name=tc["name"],
+                input=parsed_args,
+            )
+        )
+    return result if result else None

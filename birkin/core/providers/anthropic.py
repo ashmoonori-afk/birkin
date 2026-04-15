@@ -203,8 +203,8 @@ class AnthropicProvider(Provider):
                             {
                                 "type": "tool_use",
                                 "id": tc.get("id"),
-                                "name": tc.get("function_name"),
-                                "input": tc.get("arguments", {}),
+                                "name": tc.get("name"),
+                                "input": tc.get("input", {}),
                             }
                         )
                 result.append({"role": "assistant", "content": content})
@@ -254,7 +254,6 @@ class AnthropicProvider(Provider):
     ) -> ProviderResponse:
         """Handle streaming completion."""
         accumulated_text = ""
-        tool_calls = []
 
         with self._client.messages.stream(
             model=self._model,
@@ -275,19 +274,13 @@ class AnthropicProvider(Provider):
 
         # Parse the final response to extract tool calls
         response = stream.get_final_message()
-        _, extracted_tools = self._parse_response(response)
-        tool_calls = extracted_tools or []
-
-        usage = TokenUsage(
-            prompt_tokens=response.usage.input_tokens,
-            completion_tokens=response.usage.output_tokens,
-        )
+        parsed = self._parse_response(response)
 
         return ProviderResponse(
             content=accumulated_text if accumulated_text else None,
-            tool_calls=tool_calls if tool_calls else None,
-            usage=usage,
-            stop_reason=response.stop_reason,
+            tool_calls=parsed.tool_calls,
+            usage=parsed.usage,
+            stop_reason=parsed.stop_reason,
             model=self._model,
         )
 
@@ -317,17 +310,12 @@ class AnthropicProvider(Provider):
         stream_callback(None)
 
         response = await stream.get_final_message()
-        _, tool_calls = self._parse_response(response)
-
-        usage = TokenUsage(
-            prompt_tokens=response.usage.input_tokens,
-            completion_tokens=response.usage.output_tokens,
-        )
+        parsed = self._parse_response(response)
 
         return ProviderResponse(
             content=accumulated_text if accumulated_text else None,
-            tool_calls=tool_calls,
-            usage=usage,
-            stop_reason=response.stop_reason,
+            tool_calls=parsed.tool_calls,
+            usage=parsed.usage,
+            stop_reason=parsed.stop_reason,
             model=self._model,
         )

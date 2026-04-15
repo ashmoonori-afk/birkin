@@ -74,5 +74,8 @@ birkin_sessions.db
 birkin_sessions.db-wal
 birkin_sessions.db-shm
 
+# User config
+birkin_config.json
+
 # IDE
 .idea/

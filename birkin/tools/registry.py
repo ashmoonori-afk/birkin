@@ -5,7 +5,7 @@ from __future__ import annotations
 import threading
 from typing import Any, Optional
 
-from birkin.tools.base import Tool, ToolContext, ToolResult
+from birkin.tools.base import Tool, ToolContext, ToolOutput
 
 
 class ToolRegistry:
@@ -70,7 +70,7 @@ class ToolRegistry:
         tool_name: str,
         args: dict[str, Any],
         context: Optional[ToolContext] = None,
-    ) -> ToolResult:
+    ) -> ToolOutput:
         """Execute a tool by name.
 
         Args:
@@ -79,7 +79,7 @@ class ToolRegistry:
             context: Execution context (optional).
 
         Returns:
-            ToolResult from the tool execution.
+            ToolOutput from the tool execution.
 
         Raises:
             ValueError: If tool not found.
@@ -95,7 +95,7 @@ class ToolRegistry:
             result = await tool.execute(args, context)
             return result
         except Exception as e:
-            return ToolResult(
+            return ToolOutput(
                 success=False,
                 output="",
                 error=str(e),
@@ -127,3 +127,15 @@ _registry = ToolRegistry()
 def get_registry() -> ToolRegistry:
     """Get the module-level singleton registry."""
     return _registry
+
+
+def set_registry(registry: ToolRegistry) -> None:
+    """Inject a custom ToolRegistry (useful for testing)."""
+    global _registry  # noqa: PLW0603
+    _registry = registry
+
+
+def reset_registry() -> None:
+    """Reset for testing — clears all registered tools."""
+    global _registry  # noqa: PLW0603
+    _registry = ToolRegistry()

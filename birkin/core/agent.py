@@ -3,14 +3,14 @@
 from __future__ import annotations
 
 import asyncio
-from typing import Callable, Optional
+from typing import Any, Callable, Optional
 
 from birkin.core.defaults import DEFAULT_SYSTEM_PROMPT
 from birkin.core.models import Message, ToolCall, ToolResult
 from birkin.core.providers.base import Provider
 from birkin.core.session import Session, SessionStore
 from birkin.memory.wiki import WikiMemory
-from birkin.tools.base import Tool
+from birkin.tools.base import Tool, ToolContext
 
 _DEFAULT_MAX_TURNS = 20
 
@@ -95,12 +95,15 @@ class Agent:
         self,
         user_input: str,
         callback: Optional[Callable[[str], None]] = None,
+        event_callback: Optional[Callable[[dict], None]] = None,
     ) -> str:
         """Async version of stream."""
         user_msg = Message(role="user", content=user_input)
         self._session_store.append_message(self._session.id, user_msg)
 
-        return await self._run_loop_async(stream_callback=callback)
+        return await self._run_loop_async(
+            stream_callback=callback, event_callback=event_callback
+        )
 
     def _run_loop(
         self, stream_callback: Optional[Callable[[str], None]] = None
@@ -160,7 +163,9 @@ class Agent:
         return final_text
 
     async def _run_loop_async(
-        self, stream_callback: Optional[Callable[[str], None]] = None
+        self,
+        stream_callback: Optional[Callable[[str], None]] = None,
+        event_callback: Optional[Callable[[dict], None]] = None,
     ) -> str:
         """Asynchronous conversation loop with tool dispatch."""
         turn = 0
@@ -174,11 +179,17 @@ class Agent:
                 [t.to_provider_schema() for t in self._tools] if self._tools else None
             )
 
+            if event_callback is not None:
+                event_callback({"thinking": True})
+
             response = await self._provider.acomplete(
                 messages,
                 tools=tool_schemas,
                 stream_callback=stream_callback,
             )
+
+            if event_callback is not None:
+                event_callback({"thinking": False})
 
             # Create and store assistant message
             assistant_msg = Message(
@@ -193,8 +204,30 @@ class Agent:
 
             if response.tool_calls:
                 final_text = ""
+                if event_callback is not None:
+                    for tc in response.tool_calls:
+                        event_callback(
+                            {
+                                "tool_call": {
+                                    "id": tc.id,
+                                    "name": tc.name,
+                                    "input": tc.input,
+                                }
+                            }
+                        )
                 for tool_call in response.tool_calls:
                     result = await self._execute_tool_async(tool_call)
+                    if event_callback is not None:
+                        event_callback(
+                            {
+                                "tool_result": {
+                                    "id": tool_call.id,
+                                    "name": tool_call.name,
+                                    "output": result.content,
+                                    "is_error": result.is_error,
+                                }
+                            }
+                        )
                     tool_result_msg = Message(
                         role="tool",
                         content=result.content,
@@ -235,7 +268,12 @@ class Agent:
         return msgs
 
     def _execute_tool(self, tool_call: ToolCall) -> ToolResult:
-        """Execute a tool synchronously."""
+        """Execute a tool synchronously.
+
+        Uses a dedicated thread with its own event loop to safely bridge
+        sync → async, avoiding crashes when an event loop is already running
+        (e.g. inside FastAPI).
+        """
         tool = self._tool_registry.get(tool_call.name)
         if not tool:
             return ToolResult(
@@ -245,14 +283,15 @@ class Agent:
                 is_error=True,
             )
 
+        ctx = ToolContext(session_id=self._session.id)
         try:
-            # Execute synchronously (blocking)
-            result = asyncio.run(tool.execute(**tool_call.input))
+            result = _run_async(tool.execute(args=tool_call.input, context=ctx))
+            content = result.output if result.success else (result.error or "Unknown error")
             return ToolResult(
                 tool_call_id=tool_call.id,
                 name=tool_call.name,
-                content=result,
-                is_error=False,
+                content=content,
+                is_error=not result.success,
             )
         except Exception as e:
             return ToolResult(
@@ -273,13 +312,15 @@ class Agent:
                 is_error=True,
             )
 
+        ctx = ToolContext(session_id=self._session.id)
         try:
-            result = await tool.execute(**tool_call.input)
+            result = await tool.execute(args=tool_call.input, context=ctx)
+            content = result.output if result.success else (result.error or "Unknown error")
             return ToolResult(
                 tool_call_id=tool_call.id,
                 name=tool_call.name,
-                content=result,
-                is_error=False,
+                content=content,
+                is_error=not result.success,
             )
         except Exception as e:
             return ToolResult(
@@ -288,3 +329,31 @@ class Agent:
                 content=f"Tool execution failed: {str(e)}",
                 is_error=True,
             )
+
+
+def _run_async(coro: Any) -> Any:
+    """Run an async coroutine from sync context, safe even if a loop is running."""
+    import threading
+
+    try:
+        asyncio.get_running_loop()
+        # Loop is running (e.g. FastAPI) — use a thread with its own loop.
+        result = None
+        exc = None
+
+        def _run() -> None:
+            nonlocal result, exc
+            try:
+                result = asyncio.run(coro)
+            except Exception as e:
+                exc = e
+
+        t = threading.Thread(target=_run)
+        t.start()
+        t.join()
+        if exc is not None:
+            raise exc
+        return result
+    except RuntimeError:
+        # No running loop — safe to use asyncio.run directly.
+        return asyncio.run(coro)

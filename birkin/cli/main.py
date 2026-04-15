@@ -30,8 +30,8 @@ def create_parser() -> argparse.ArgumentParser:
     )
     sub = parser.add_subparsers(dest="command")
 
-    # ── birkin chat (default REPL) ──
-    chat_p = sub.add_parser("chat", help="Interactive chat REPL (default)")
+    # ── birkin chat ──
+    chat_p = sub.add_parser("chat", help="Interactive chat REPL")
     chat_p.add_argument(
         "--provider",
         choices=["openai", "anthropic"],
@@ -46,8 +46,8 @@ def create_parser() -> argparse.ArgumentParser:
     # ── birkin sessions ──
     sub.add_parser("sessions", help="List saved sessions")
 
-    # ── birkin serve ──
-    serve_p = sub.add_parser("serve", help="Start the web UI and API server")
+    # ── birkin serve (default) ──
+    serve_p = sub.add_parser("serve", help="Start the web UI and API server (default)")
     serve_p.add_argument("--host", type=str, default="127.0.0.1", help="Bind host (default: 127.0.0.1)")
     serve_p.add_argument("--port", type=int, default=8321, help="Bind port (default: 8321)")
     serve_p.add_argument("--reload", action="store_true", help="Enable auto-reload for development")
@@ -140,13 +140,43 @@ def cmd_sessions(_args: argparse.Namespace) -> None:
 
 
 def cmd_serve(args: argparse.Namespace) -> None:
-    """Handle ``birkin serve`` — start FastAPI + uvicorn."""
+    """Handle ``birkin serve`` — start FastAPI + uvicorn and open browser."""
+    import os
+    import threading
+    import time
+    import webbrowser
+
     import uvicorn
 
+    url = f"http://{args.host}:{args.port}"
     console.print(
-        f"[bold]Birkin[/bold] web server starting on "
-        f"[cyan]http://{args.host}:{args.port}[/cyan]"
+        f"[bold]Birkin[/bold] WebUI starting on [cyan]{url}[/cyan]\n"
+        f"Press [bold]Ctrl+C[/bold] to stop.\n"
     )
+
+    # Show API key status
+    anthropic_ok = bool(os.getenv("ANTHROPIC_API_KEY"))
+    openai_ok = bool(os.getenv("OPENAI_API_KEY"))
+    if anthropic_ok:
+        console.print("  [green]ANTHROPIC_API_KEY[/green]  configured")
+    else:
+        console.print("  [red]ANTHROPIC_API_KEY[/red]  not set")
+    if openai_ok:
+        console.print("  [green]OPENAI_API_KEY[/green]    configured")
+    else:
+        console.print("  [dim]OPENAI_API_KEY[/dim]    not set")
+
+    if not anthropic_ok and not openai_ok:
+        console.print(
+            "\n[yellow]No API keys found.[/yellow] "
+            "Copy [bold].env.example[/bold] to [bold].env[/bold] and add your key.\n"
+        )
+
+    def _open_browser() -> None:
+        time.sleep(1.5)
+        webbrowser.open(url)
+
+    threading.Thread(target=_open_browser, daemon=True).start()
 
     uvicorn.run(
         "birkin.gateway.app:create_app",
@@ -175,20 +205,25 @@ def main() -> None:
         "serve": cmd_serve,
     }
 
-    command = args.command or "chat"
+    command = args.command or "serve"
     handler = handlers.get(command)
     if handler is None:
         parser.print_help()
         sys.exit(1)
 
-    # When no subcommand is given, argparse won't populate chat-specific attrs.
-    # Fill in defaults so cmd_chat works for bare ``birkin`` invocations.
-    if command == "chat" and args.command is None:
-        args.provider = "anthropic"
-        args.model = None
-        args.session = None
-        args.no_tools = False
-        args.system_prompt = None
+    # When no subcommand is given, argparse won't populate subcommand-specific
+    # attrs. Fill in defaults so the handler works for bare ``birkin``.
+    if args.command is None:
+        if command == "serve":
+            args.host = "127.0.0.1"
+            args.port = 8321
+            args.reload = False
+        elif command == "chat":
+            args.provider = "anthropic"
+            args.model = None
+            args.session = None
+            args.no_tools = False
+            args.system_prompt = None
 
     handler(args)
 
