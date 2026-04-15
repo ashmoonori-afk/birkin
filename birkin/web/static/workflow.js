@@ -1,264 +1,701 @@
-/* Birkin — Workflow Visualizer (SVG pipeline with real-time SSE highlighting) */
+/* Birkin — Visual Workflow Editor (drag-and-drop canvas) */
 
 (function () {
   const B = window.birkin;
   const container = B.$("view-workflow");
   let initialized = false;
-  let nodeEls = {};
-  let arrowEls = {};
-  let tooltipEl = null;
-  let tgRow = null;
-  let activeNode = null;
+  let canvas, ctx;
+  let nodes = [], edges = [];
+  let pan = { x: 0, y: 0 }, zoom = 1;
+  let drag = null, connecting = null, hoveredNode = null, selectedNode = null;
+  let samplesOpen = false;
+  let currentWorkflowId = null;
+  let configPanel = null, samplesPanel = null;
 
-  const NODES = [
-    { id: "input",    label: "Input",    icon: "\u2709", desc: "Your message is received and prepared for the AI" },
-    { id: "provider", label: "Provider", icon: "\u26A1", desc: "Connecting to the AI provider (e.g., Claude, GPT)" },
-    { id: "llm",      label: "LLM",      icon: "\u2728", desc: "The AI model is thinking about your request" },
-    { id: "tools",    label: "Tools",    icon: "\u2699", desc: "The AI is using tools to look up info or perform actions" },
-    { id: "memory",   label: "Memory",   icon: "\u{1F4BE}", desc: "The AI is checking or updating its knowledge base" },
-    { id: "response", label: "Response", icon: "\u2705", desc: "The answer is being assembled and sent to you" },
+  const NODE_W = 140, NODE_H = 56, PORT_R = 6;
+
+  /* ── Node Palette Definition ── */
+  const PALETTE = [
+    { group: "I/O", items: [
+      { type: "input",           icon: "\u2709",     label: "User Input",        color: "nc-io",       desc: "Message from user" },
+      { type: "output",          icon: "\u2705",     label: "Output",            color: "nc-io",       desc: "Final response" },
+      { type: "webhook-trigger", icon: "\u{1F310}",  label: "Webhook Trigger",   color: "nc-platform", desc: "HTTP/Telegram trigger" },
+    ]},
+    { group: "AI Models", items: [
+      { type: "llm",             icon: "\u2728",     label: "LLM Call",          color: "nc-ai",       desc: "Call language model" },
+      { type: "llm-stream",      icon: "\u{1F4A8}",  label: "LLM Stream",        color: "nc-ai",       desc: "Streaming LLM call" },
+      { type: "classifier",      icon: "\u{1F3AF}",  label: "Classifier",        color: "nc-ai",       desc: "Categorize input" },
+      { type: "embedder",        icon: "\u{1F9F2}",  label: "Embedder",          color: "nc-ai",       desc: "Generate embeddings" },
+      { type: "summarizer",      icon: "\u{1F4DD}",  label: "Summarizer",        color: "nc-ai",       desc: "Condense text" },
+      { type: "translator",      icon: "\u{1F30D}",  label: "Translator",        color: "nc-ai",       desc: "Translate language" },
+    ]},
+    { group: "Tools", items: [
+      { type: "tool-dispatch",   icon: "\u2699",     label: "Tool Dispatch",     color: "nc-tool",     desc: "Run a registered tool" },
+      { type: "web-search",      icon: "\u{1F50D}",  label: "Web Search",        color: "nc-tool",     desc: "Search the internet" },
+      { type: "code-exec",       icon: "\u{1F4BB}",  label: "Code Executor",     color: "nc-tool",     desc: "Run code snippet" },
+      { type: "api-call",        icon: "\u{1F517}",  label: "API Call",          color: "nc-tool",     desc: "External HTTP request" },
+      { type: "file-read",       icon: "\u{1F4C4}",  label: "File Read",         color: "nc-tool",     desc: "Read a file" },
+      { type: "file-write",      icon: "\u{1F4BE}",  label: "File Write",        color: "nc-tool",     desc: "Write to file" },
+    ]},
+    { group: "Memory", items: [
+      { type: "memory-search",   icon: "\u{1F50E}",  label: "Memory Search",     color: "nc-memory",   desc: "Search wiki pages" },
+      { type: "memory-write",    icon: "\u{1F4DD}",  label: "Memory Write",      color: "nc-memory",   desc: "Save to wiki" },
+      { type: "context-inject",  icon: "\u{1F4E5}",  label: "Context Inject",    color: "nc-memory",   desc: "Add context to prompt" },
+      { type: "knowledge-extract", icon: "\u{1F9E0}", label: "Knowledge Extract", color: "nc-memory",   desc: "Extract facts from text" },
+    ]},
+    { group: "Control Flow", items: [
+      { type: "condition",       icon: "\u2747",     label: "Condition",         color: "nc-control",  desc: "If/else branch" },
+      { type: "merge",           icon: "\u{1F500}",  label: "Merge",             color: "nc-control",  desc: "Combine multiple inputs" },
+      { type: "loop",            icon: "\u{1F504}",  label: "Loop",              color: "nc-control",  desc: "Repeat N times" },
+      { type: "delay",           icon: "\u23F3",     label: "Delay",             color: "nc-control",  desc: "Wait before continuing" },
+      { type: "parallel",        icon: "\u2261",     label: "Parallel",          color: "nc-control",  desc: "Run branches in parallel" },
+      { type: "prompt-template", icon: "\u{1F4CB}",  label: "Prompt Template",   color: "nc-control",  desc: "Format text with variables" },
+    ]},
+    { group: "Quality Gates", items: [
+      { type: "code-review",     icon: "\u{1F50F}",  label: "Code Review",       color: "nc-gate",     desc: "Human code review gate" },
+      { type: "human-review",    icon: "\u{1F464}",  label: "Human Review",      color: "nc-gate",     desc: "Manual approval step" },
+      { type: "guardrail",       icon: "\u{1F6E1}",  label: "Guardrail",         color: "nc-gate",     desc: "Safety/content filter" },
+      { type: "validator",       icon: "\u2714",     label: "Validator",         color: "nc-gate",     desc: "Check output format" },
+      { type: "test-runner",     icon: "\u{1F9EA}",  label: "Test Runner",       color: "nc-gate",     desc: "Run automated tests" },
+    ]},
+    { group: "Platform", items: [
+      { type: "telegram-send",   icon: "\u2708",     label: "Telegram Send",     color: "nc-platform", desc: "Send Telegram message" },
+      { type: "email-send",      icon: "\u2709",     label: "Email Send",        color: "nc-platform", desc: "Send email" },
+      { type: "notify",          icon: "\u{1F514}",  label: "Notification",      color: "nc-platform", desc: "Push notification" },
+    ]},
   ];
 
-  const ARROWS = [
-    ["input", "provider"], ["provider", "llm"], ["llm", "tools"],
-    ["tools", "memory"], ["llm", "response"], ["memory", "llm"],
-  ];
+  const PALETTE_FLAT = {};
+  PALETTE.forEach((g) => g.items.forEach((it) => { PALETTE_FLAT[it.type] = it; }));
 
   function init() {
     if (initialized) return;
     initialized = true;
 
-    const W = 700, H = 320;
-    const nodeW = 80, nodeH = 60, gap = 30;
-    const startX = 30;
+    container.innerHTML = "";
+    const editor = document.createElement("div");
+    editor.className = "wf-editor";
 
-    // Build SVG
-    const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
-    svg.setAttribute("viewBox", `0 0 ${W} ${H}`);
-    svg.classList.add("wf-svg");
+    // ── Build palette ──
+    const palette = document.createElement("div");
+    palette.className = "wf-palette";
+    palette.innerHTML = `<div class="wf-palette-header">Node Palette</div><input class="wf-palette-search" placeholder="Search nodes..." id="wf-pal-search" />`;
 
-    // Defs (glow filter + arrowhead)
-    svg.innerHTML = `
-      <defs>
-        <filter id="glow" x="-50%" y="-50%" width="200%" height="200%">
-          <feGaussianBlur stdDeviation="4" result="blur"/>
-          <feComposite in="SourceGraphic" in2="blur" operator="over"/>
-        </filter>
-        <marker id="arrowhead" markerWidth="8" markerHeight="6" refX="8" refY="3" orient="auto">
-          <path d="M0 0L8 3L0 6" fill="rgba(240,240,250,0.25)"/>
-        </marker>
-      </defs>
+    const palList = document.createElement("div");
+    palList.className = "wf-palette-list";
+    palList.id = "wf-pal-list";
+    buildPaletteList(palList, "");
+    palette.appendChild(palList);
+    editor.appendChild(palette);
+
+    // ── Canvas area ──
+    const canvasArea = document.createElement("div");
+    canvasArea.className = "wf-canvas-area";
+
+    // Toolbar
+    canvasArea.innerHTML = `
+      <div class="wf-toolbar">
+        <span class="wf-toolbar-title" id="wf-title">Untitled Workflow</span>
+        <button class="wf-tb-btn" id="wf-btn-samples">Samples</button>
+        <button class="wf-tb-btn" id="wf-btn-save">Save</button>
+        <button class="wf-tb-btn" id="wf-btn-load">Load</button>
+        <button class="wf-tb-btn" id="wf-btn-clear" >Clear</button>
+      </div>
     `;
 
-    // Position nodes: main row (input, provider, llm, response) + branch (tools, memory)
-    const positions = {
-      input:    { x: startX,                y: 80 },
-      provider: { x: startX + nodeW + gap,  y: 80 },
-      llm:      { x: startX + 2*(nodeW+gap), y: 80 },
-      response: { x: startX + 4*(nodeW+gap), y: 80 },
-      tools:    { x: startX + 3*(nodeW+gap), y: 30 },
-      memory:   { x: startX + 3*(nodeW+gap), y: 130 },
+    const canvasWrap = document.createElement("div");
+    canvasWrap.className = "wf-canvas-wrap";
+    canvas = document.createElement("canvas");
+    canvasWrap.appendChild(canvas);
+
+    // Samples panel
+    samplesPanel = document.createElement("div");
+    samplesPanel.className = "wf-samples";
+    samplesPanel.id = "wf-samples-panel";
+    canvasWrap.appendChild(samplesPanel);
+
+    // Config panel
+    configPanel = document.createElement("div");
+    configPanel.className = "wf-config";
+    configPanel.id = "wf-config-panel";
+    canvasWrap.appendChild(configPanel);
+
+    canvasArea.appendChild(canvasWrap);
+    editor.appendChild(canvasArea);
+    container.appendChild(editor);
+
+    ctx = canvas.getContext("2d");
+
+    // Wire events
+    palette.querySelector("#wf-pal-search").oninput = (e) => {
+      buildPaletteList(palList, e.target.value.toLowerCase());
     };
 
-    // Draw arrows first (behind nodes)
-    ARROWS.forEach(([from, to]) => {
-      const a = positions[from], b = positions[to];
-      const line = document.createElementNS("http://www.w3.org/2000/svg", "line");
-      line.setAttribute("x1", a.x + nodeW/2);
-      line.setAttribute("y1", a.y + nodeH/2);
-      line.setAttribute("x2", b.x + nodeW/2);
-      line.setAttribute("y2", b.y + nodeH/2);
-      line.classList.add("wf-arrow");
-      svg.appendChild(line);
-      arrowEls[`${from}-${to}`] = line;
+    canvasArea.querySelector("#wf-btn-samples").onclick = toggleSamples;
+    canvasArea.querySelector("#wf-btn-save").onclick = saveCurrentWorkflow;
+    canvasArea.querySelector("#wf-btn-load").onclick = loadWorkflowPrompt;
+    canvasArea.querySelector("#wf-btn-clear").onclick = clearCanvas;
+
+    canvas.onmousedown = onCanvasMouseDown;
+    canvas.onmousemove = onCanvasMouseMove;
+    canvas.onmouseup = onCanvasMouseUp;
+    canvas.ondblclick = onCanvasDblClick;
+    canvas.onwheel = onCanvasWheel;
+    canvas.oncontextmenu = (e) => e.preventDefault();
+
+    // Palette drag-to-canvas
+    palList.onmousedown = onPaletteDragStart;
+
+    resizeCanvas();
+    window.addEventListener("resize", resizeCanvas);
+    draw();
+  }
+
+  /* ── Palette rendering ── */
+
+  function buildPaletteList(el, filter) {
+    el.innerHTML = "";
+    PALETTE.forEach((group) => {
+      const items = group.items.filter((it) => !filter || it.label.toLowerCase().includes(filter) || it.type.includes(filter));
+      if (!items.length) return;
+      const gDiv = document.createElement("div");
+      gDiv.className = "wf-palette-group";
+      gDiv.innerHTML = `<div class="wf-palette-group-title">${group.group}</div>`;
+      items.forEach((it) => {
+        const item = document.createElement("div");
+        item.className = "wf-palette-item";
+        item.dataset.type = it.type;
+        item.innerHTML = `<span class="wf-palette-icon ${it.color}">${it.icon}</span><span class="wf-palette-label">${it.label}</span>`;
+        item.title = it.desc;
+        gDiv.appendChild(item);
+      });
+      el.appendChild(gDiv);
     });
+  }
+
+  /* ── Palette drag to canvas ── */
+
+  function onPaletteDragStart(e) {
+    const item = e.target.closest(".wf-palette-item");
+    if (!item) return;
+    e.preventDefault();
+    const type = item.dataset.type;
+    const rect = canvas.getBoundingClientRect();
+
+    const onMove = (ev) => {
+      canvas.style.cursor = "copy";
+      draw();
+      // Draw ghost node at cursor
+      const mx = ev.clientX - rect.left;
+      const my = ev.clientY - rect.top;
+      drawGhostNode(mx, my, type);
+    };
+
+    const onUp = (ev) => {
+      document.removeEventListener("mousemove", onMove);
+      document.removeEventListener("mouseup", onUp);
+      canvas.style.cursor = "default";
+      const mx = ev.clientX - rect.left;
+      const my = ev.clientY - rect.top;
+      if (mx > 0 && my > 0) {
+        addNode(type, (mx - pan.x) / zoom, (my - pan.y) / zoom);
+      }
+      draw();
+    };
+
+    document.addEventListener("mousemove", onMove);
+    document.addEventListener("mouseup", onUp);
+  }
+
+  /* ── Node management ── */
+
+  let nodeIdCounter = 0;
+
+  function addNode(type, x, y) {
+    nodeIdCounter++;
+    const info = PALETTE_FLAT[type] || { icon: "?", label: type, color: "nc-io" };
+    nodes.push({
+      id: `n${nodeIdCounter}`,
+      type,
+      x: x - NODE_W / 2,
+      y: y - NODE_H / 2,
+      config: {},
+      label: info.label,
+    });
+    draw();
+  }
+
+  function deleteNode(nodeId) {
+    nodes = nodes.filter((n) => n.id !== nodeId);
+    edges = edges.filter((e) => e.from !== nodeId && e.to !== nodeId);
+    if (selectedNode?.id === nodeId) { selectedNode = null; closeConfig(); }
+    draw();
+  }
+
+  /* ── Drawing ── */
+
+  function resizeCanvas() {
+    if (!canvas) return;
+    const rect = canvas.parentElement.getBoundingClientRect();
+    canvas.width = rect.width * devicePixelRatio;
+    canvas.height = rect.height * devicePixelRatio;
+    canvas.style.width = rect.width + "px";
+    canvas.style.height = rect.height + "px";
+    draw();
+  }
+
+  function draw() {
+    if (!ctx) return;
+    const w = canvas.width / devicePixelRatio;
+    const h = canvas.height / devicePixelRatio;
+    ctx.save();
+    ctx.setTransform(devicePixelRatio, 0, 0, devicePixelRatio, 0, 0);
+    ctx.clearRect(0, 0, w, h);
+    ctx.save();
+    ctx.translate(pan.x, pan.y);
+    ctx.scale(zoom, zoom);
+
+    // Draw edges
+    edges.forEach((e) => {
+      const from = nodes.find((n) => n.id === e.from);
+      const to = nodes.find((n) => n.id === e.to);
+      if (!from || !to) return;
+      drawEdge(from, to, e.label);
+    });
+
+    // Draw connecting line
+    if (connecting) {
+      ctx.beginPath();
+      ctx.moveTo(connecting.startX, connecting.startY);
+      const mx = (connecting.curX - pan.x) / zoom;
+      const my = (connecting.curY - pan.y) / zoom;
+      ctx.lineTo(mx, my);
+      ctx.strokeStyle = "rgba(240, 240, 250, 0.4)";
+      ctx.lineWidth = 2;
+      ctx.setLineDash([6, 4]);
+      ctx.stroke();
+      ctx.setLineDash([]);
+    }
 
     // Draw nodes
-    NODES.forEach((n) => {
-      const pos = positions[n.id];
-      const g = document.createElementNS("http://www.w3.org/2000/svg", "g");
-      g.classList.add("wf-node");
-      g.setAttribute("data-id", n.id);
+    nodes.forEach((n) => drawNode(n));
 
-      const rect = document.createElementNS("http://www.w3.org/2000/svg", "rect");
-      rect.setAttribute("x", pos.x); rect.setAttribute("y", pos.y);
-      rect.setAttribute("width", nodeW); rect.setAttribute("height", nodeH);
-      g.appendChild(rect);
+    ctx.restore();
+    ctx.restore();
+  }
 
-      const icon = document.createElementNS("http://www.w3.org/2000/svg", "text");
-      icon.classList.add("wf-icon");
-      icon.setAttribute("x", pos.x + nodeW/2); icon.setAttribute("y", pos.y + 22);
-      icon.textContent = n.icon;
-      g.appendChild(icon);
+  function drawNode(n) {
+    const info = PALETTE_FLAT[n.type] || { icon: "?", color: "nc-io" };
+    const isSelected = selectedNode?.id === n.id;
+    const isHovered = hoveredNode?.id === n.id;
 
-      const label = document.createElementNS("http://www.w3.org/2000/svg", "text");
-      label.classList.add("wf-label");
-      label.setAttribute("x", pos.x + nodeW/2); label.setAttribute("y", pos.y + nodeH - 8);
-      label.textContent = n.label;
-      g.appendChild(label);
+    // Background
+    const colors = {
+      "nc-io": [99, 102, 241], "nc-ai": [168, 85, 247], "nc-tool": [34, 197, 94],
+      "nc-control": [251, 191, 36], "nc-gate": [239, 68, 68], "nc-memory": [45, 212, 191],
+      "nc-platform": [96, 165, 250],
+    };
+    const rgb = colors[info.color] || [240, 240, 250];
+    const alpha = isSelected ? 0.2 : isHovered ? 0.12 : 0.06;
 
-      // Hover tooltip
-      g.onmouseenter = () => showTooltip(n);
-      g.onmouseleave = () => hideTooltip();
-      g.style.cursor = "pointer";
+    ctx.fillStyle = `rgba(${rgb.join(",")}, ${alpha})`;
+    ctx.strokeStyle = isSelected ? `rgba(${rgb.join(",")}, 0.8)` : `rgba(${rgb.join(",")}, 0.3)`;
+    ctx.lineWidth = isSelected ? 2 : 1;
 
-      svg.appendChild(g);
-      nodeEls[n.id] = g;
-    });
+    roundRect(ctx, n.x, n.y, NODE_W, NODE_H, 8);
+    ctx.fill();
+    ctx.stroke();
 
-    // Telegram sub-flow (below main)
-    const tgG = document.createElementNS("http://www.w3.org/2000/svg", "g");
-    tgG.classList.add("wf-tg-row");
-    const tgLabels = ["Telegram", "Webhook", "Dispatcher"];
-    const tgY = 220;
-    tgLabels.forEach((lbl, i) => {
-      const x = startX + i * (nodeW + gap);
-      const rect = document.createElementNS("http://www.w3.org/2000/svg", "rect");
-      rect.setAttribute("x", x); rect.setAttribute("y", tgY);
-      rect.setAttribute("width", nodeW); rect.setAttribute("height", 40);
-      rect.setAttribute("rx", "6"); rect.setAttribute("fill", "rgba(240,240,250,0.03)");
-      rect.setAttribute("stroke", "rgba(240,240,250,0.1)"); rect.setAttribute("stroke-width", "1");
-      tgG.appendChild(rect);
+    // Icon
+    ctx.font = "18px sans-serif";
+    ctx.textAlign = "left";
+    ctx.textBaseline = "middle";
+    ctx.fillStyle = `rgba(${rgb.join(",")}, 0.8)`;
+    ctx.fillText(info.icon, n.x + 10, n.y + NODE_H / 2);
 
-      const text = document.createElementNS("http://www.w3.org/2000/svg", "text");
-      text.setAttribute("x", x + nodeW/2); text.setAttribute("y", tgY + 24);
-      text.setAttribute("text-anchor", "middle");
-      text.setAttribute("fill", "rgba(240,240,250,0.4)");
-      text.setAttribute("font-size", "9"); text.setAttribute("font-weight", "700");
-      text.setAttribute("letter-spacing", "0.5");
-      text.textContent = lbl.toUpperCase();
-      tgG.appendChild(text);
+    // Label
+    ctx.font = '700 10px "D-DIN", Arial, sans-serif';
+    ctx.fillStyle = "rgba(240, 240, 250, 0.7)";
+    ctx.textAlign = "left";
+    const label = n.config?.label || n.label || info.label;
+    ctx.fillText(label.substring(0, 14), n.x + 34, n.y + NODE_H / 2 - 6);
 
-      if (i < tgLabels.length - 1) {
-        const line = document.createElementNS("http://www.w3.org/2000/svg", "line");
-        line.setAttribute("x1", x + nodeW); line.setAttribute("y1", tgY + 20);
-        line.setAttribute("x2", x + nodeW + gap); line.setAttribute("y2", tgY + 20);
-        line.setAttribute("stroke", "rgba(240,240,250,0.1)"); line.setAttribute("stroke-width", "1");
-        line.setAttribute("stroke-dasharray", "3,3");
-        tgG.appendChild(line);
+    // Type
+    ctx.font = '9px "D-DIN", Arial, sans-serif';
+    ctx.fillStyle = "rgba(240, 240, 250, 0.3)";
+    ctx.fillText(n.type, n.x + 34, n.y + NODE_H / 2 + 8);
+
+    // Output port (right)
+    ctx.beginPath();
+    ctx.arc(n.x + NODE_W, n.y + NODE_H / 2, PORT_R, 0, Math.PI * 2);
+    ctx.fillStyle = `rgba(${rgb.join(",")}, 0.4)`;
+    ctx.fill();
+
+    // Input port (left)
+    ctx.beginPath();
+    ctx.arc(n.x, n.y + NODE_H / 2, PORT_R, 0, Math.PI * 2);
+    ctx.fillStyle = `rgba(${rgb.join(",")}, 0.4)`;
+    ctx.fill();
+
+    // Delete button (top-right) when hovered
+    if (isHovered || isSelected) {
+      ctx.font = "12px sans-serif";
+      ctx.fillStyle = "rgba(239, 68, 68, 0.6)";
+      ctx.textAlign = "center";
+      ctx.fillText("\u2715", n.x + NODE_W - 8, n.y + 10);
+    }
+  }
+
+  function drawEdge(from, to, label) {
+    const x1 = from.x + NODE_W, y1 = from.y + NODE_H / 2;
+    const x2 = to.x, y2 = to.y + NODE_H / 2;
+
+    ctx.beginPath();
+    // Bezier curve
+    const dx = Math.abs(x2 - x1) * 0.5;
+    ctx.moveTo(x1, y1);
+    ctx.bezierCurveTo(x1 + dx, y1, x2 - dx, y2, x2, y2);
+    ctx.strokeStyle = "rgba(240, 240, 250, 0.2)";
+    ctx.lineWidth = 1.5;
+    ctx.stroke();
+
+    // Arrowhead
+    const angle = Math.atan2(y2 - y1, x2 - x1);
+    ctx.beginPath();
+    ctx.moveTo(x2 - 8 * Math.cos(angle - 0.4), y2 - 8 * Math.sin(angle - 0.4));
+    ctx.lineTo(x2, y2);
+    ctx.lineTo(x2 - 8 * Math.cos(angle + 0.4), y2 - 8 * Math.sin(angle + 0.4));
+    ctx.strokeStyle = "rgba(240, 240, 250, 0.3)";
+    ctx.lineWidth = 1.5;
+    ctx.stroke();
+
+    // Label
+    if (label) {
+      const mx = (x1 + x2) / 2, my = (y1 + y2) / 2 - 8;
+      ctx.font = '9px "D-DIN", Arial, sans-serif';
+      ctx.fillStyle = "rgba(240, 240, 250, 0.35)";
+      ctx.textAlign = "center";
+      ctx.fillText(label, mx, my);
+    }
+  }
+
+  function drawGhostNode(mx, my, type) {
+    ctx.save();
+    ctx.setTransform(devicePixelRatio, 0, 0, devicePixelRatio, 0, 0);
+    ctx.globalAlpha = 0.5;
+    const info = PALETTE_FLAT[type] || { icon: "?", label: type };
+    ctx.fillStyle = "rgba(240, 240, 250, 0.1)";
+    ctx.strokeStyle = "rgba(240, 240, 250, 0.3)";
+    roundRect(ctx, mx - NODE_W / 2, my - NODE_H / 2, NODE_W, NODE_H, 8);
+    ctx.fill();
+    ctx.stroke();
+    ctx.font = "18px sans-serif";
+    ctx.textAlign = "center";
+    ctx.fillStyle = "rgba(240, 240, 250, 0.6)";
+    ctx.fillText(info.icon, mx, my + 5);
+    ctx.restore();
+  }
+
+  function roundRect(c, x, y, w, h, r) {
+    c.beginPath();
+    c.moveTo(x + r, y);
+    c.lineTo(x + w - r, y); c.quadraticCurveTo(x + w, y, x + w, y + r);
+    c.lineTo(x + w, y + h - r); c.quadraticCurveTo(x + w, y + h, x + w - r, y + h);
+    c.lineTo(x + r, y + h); c.quadraticCurveTo(x, y + h, x, y + h - r);
+    c.lineTo(x, y + r); c.quadraticCurveTo(x, y, x + r, y);
+    c.closePath();
+  }
+
+  /* ── Canvas interaction ── */
+
+  function canvasCoords(e) {
+    const rect = canvas.getBoundingClientRect();
+    return { x: e.clientX - rect.left, y: e.clientY - rect.top };
+  }
+
+  function worldCoords(cx, cy) {
+    return { x: (cx - pan.x) / zoom, y: (cy - pan.y) / zoom };
+  }
+
+  function getNodeAt(wx, wy) {
+    for (let i = nodes.length - 1; i >= 0; i--) {
+      const n = nodes[i];
+      if (wx >= n.x && wx <= n.x + NODE_W && wy >= n.y && wy <= n.y + NODE_H) return n;
+    }
+    return null;
+  }
+
+  function isOnOutputPort(n, wx, wy) {
+    return Math.hypot(wx - (n.x + NODE_W), wy - (n.y + NODE_H / 2)) < PORT_R + 4;
+  }
+
+  function isOnDeleteBtn(n, wx, wy) {
+    return Math.hypot(wx - (n.x + NODE_W - 8), wy - (n.y + 8)) < 10;
+  }
+
+  function onCanvasMouseDown(e) {
+    const c = canvasCoords(e);
+    const w = worldCoords(c.x, c.y);
+    const node = getNodeAt(w.x, w.y);
+
+    if (node) {
+      if (isOnDeleteBtn(node, w.x, w.y)) {
+        deleteNode(node.id);
+        return;
       }
-    });
-    // Dashed connector from Dispatcher to Input
-    const dashLine = document.createElementNS("http://www.w3.org/2000/svg", "line");
-    dashLine.setAttribute("x1", startX + 2*(nodeW+gap) + nodeW/2); dashLine.setAttribute("y1", tgY);
-    dashLine.setAttribute("x2", positions.input.x + nodeW/2); dashLine.setAttribute("y2", positions.input.y + nodeH);
-    dashLine.setAttribute("stroke", "rgba(240,240,250,0.1)"); dashLine.setAttribute("stroke-width", "1");
-    dashLine.setAttribute("stroke-dasharray", "4,4");
-    tgG.appendChild(dashLine);
+      if (isOnOutputPort(node, w.x, w.y)) {
+        connecting = { from: node.id, startX: node.x + NODE_W, startY: node.y + NODE_H / 2, curX: c.x, curY: c.y };
+        return;
+      }
+      selectedNode = node;
+      drag = { node, offX: w.x - node.x, offY: w.y - node.y };
+      showConfig(node);
+    } else {
+      selectedNode = null;
+      closeConfig();
+      drag = { pan: true, startX: c.x, startY: c.y, px: pan.x, py: pan.y };
+    }
+    draw();
+  }
 
-    svg.appendChild(tgG);
-    tgRow = tgG;
+  function onCanvasMouseMove(e) {
+    const c = canvasCoords(e);
+    const w = worldCoords(c.x, c.y);
 
-    // Container
-    const wrap = document.createElement("div");
-    wrap.className = "wf-container";
-    wrap.appendChild(svg);
+    if (connecting) {
+      connecting.curX = c.x;
+      connecting.curY = c.y;
+      draw();
+      return;
+    }
 
-    // Tooltip
-    tooltipEl = document.createElement("div");
-    tooltipEl.className = "wf-tooltip";
-    wrap.appendChild(tooltipEl);
-    wrap.style.position = "relative";
+    if (drag?.node) {
+      drag.node.x = w.x - drag.offX;
+      drag.node.y = w.y - drag.offY;
+      draw();
+    } else if (drag?.pan) {
+      pan.x = drag.px + (c.x - drag.startX);
+      pan.y = drag.py + (c.y - drag.startY);
+      draw();
+    } else {
+      const prev = hoveredNode;
+      hoveredNode = getNodeAt(w.x, w.y);
+      if (hoveredNode) {
+        canvas.style.cursor = isOnOutputPort(hoveredNode, w.x, w.y) ? "crosshair" : "move";
+      } else {
+        canvas.style.cursor = "default";
+      }
+      if (prev !== hoveredNode) draw();
+    }
+  }
 
-    // Legend
-    const legend = document.createElement("div");
-    legend.className = "wf-legend";
-    legend.innerHTML = `
-      <span class="wf-legend-item"><span class="wf-legend-dot" style="background:rgba(240,240,250,0.15)"></span> Idle</span>
-      <span class="wf-legend-item"><span class="wf-legend-dot" style="background:rgba(240,240,250,0.6)"></span> Active</span>
-      <span class="wf-legend-item"><span class="wf-legend-dot" style="background:#4ade80"></span> Complete</span>
-      <span class="wf-legend-item"><span class="wf-legend-dot" style="background:#ef4444"></span> Error</span>
+  function onCanvasMouseUp(e) {
+    if (connecting) {
+      const c = canvasCoords(e);
+      const w = worldCoords(c.x, c.y);
+      const target = getNodeAt(w.x, w.y);
+      if (target && target.id !== connecting.from) {
+        // Check no duplicate edge
+        const exists = edges.some((ed) => ed.from === connecting.from && ed.to === target.id);
+        if (!exists) {
+          edges.push({ from: connecting.from, to: target.id });
+        }
+      }
+      connecting = null;
+      draw();
+    }
+    drag = null;
+  }
+
+  function onCanvasDblClick(e) {
+    const c = canvasCoords(e);
+    const w = worldCoords(c.x, c.y);
+    const node = getNodeAt(w.x, w.y);
+    if (node) {
+      selectedNode = node;
+      showConfig(node);
+      draw();
+    }
+  }
+
+  function onCanvasWheel(e) {
+    e.preventDefault();
+    const c = canvasCoords(e);
+    const delta = e.deltaY > 0 ? 0.92 : 1.08;
+    const nz = Math.max(0.3, Math.min(4, zoom * delta));
+    pan.x = c.x - (c.x - pan.x) * (nz / zoom);
+    pan.y = c.y - (c.y - pan.y) * (nz / zoom);
+    zoom = nz;
+    draw();
+  }
+
+  /* ── Node config panel ── */
+
+  function showConfig(node) {
+    if (!configPanel) return;
+    const info = PALETTE_FLAT[node.type] || { label: node.type, desc: "" };
+    configPanel.className = "wf-config open";
+    configPanel.innerHTML = `
+      <div class="wf-config-title">${B.esc(info.label)} — ${B.esc(node.id)}</div>
+      <div class="wf-config-field">
+        <label class="wf-config-label">Label</label>
+        <input class="wf-config-input" id="wf-cfg-label" value="${B.esc(node.config?.label || node.label || info.label)}" />
+      </div>
+      ${node.type === "llm" || node.type === "llm-stream" ? `
+        <div class="wf-config-field">
+          <label class="wf-config-label">Provider</label>
+          <select class="wf-config-select" id="wf-cfg-provider">
+            <option value="anthropic">Anthropic</option>
+            <option value="openai">OpenAI</option>
+            <option value="claude-cli">Claude CLI</option>
+            <option value="codex-cli">Codex CLI</option>
+          </select>
+        </div>
+      ` : ""}
+      ${node.type === "prompt-template" ? `
+        <div class="wf-config-field">
+          <label class="wf-config-label">Template</label>
+          <input class="wf-config-input" id="wf-cfg-template" value="${B.esc(node.config?.template || "")}" placeholder="{input}" />
+        </div>
+      ` : ""}
+      ${node.type === "condition" ? `
+        <div class="wf-config-field">
+          <label class="wf-config-label">Check</label>
+          <input class="wf-config-input" id="wf-cfg-check" value="${B.esc(node.config?.check || "")}" placeholder="e.g., has_tool_calls" />
+        </div>
+      ` : ""}
+      ${node.type === "delay" ? `
+        <div class="wf-config-field">
+          <label class="wf-config-label">Seconds</label>
+          <input class="wf-config-input" type="number" id="wf-cfg-seconds" value="${node.config?.seconds || 1}" min="0" />
+        </div>
+      ` : ""}
+      ${node.type === "loop" ? `
+        <div class="wf-config-field">
+          <label class="wf-config-label">Max Iterations</label>
+          <input class="wf-config-input" type="number" id="wf-cfg-max" value="${node.config?.max || 5}" min="1" />
+        </div>
+      ` : ""}
+      <div style="display:flex;gap:6px;margin-top:8px">
+        <button class="wf-tb-btn" id="wf-cfg-apply">Apply</button>
+        <button class="wf-tb-btn danger" id="wf-cfg-delete">Delete Node</button>
+        <button class="wf-tb-btn" id="wf-cfg-close">Close</button>
+      </div>
     `;
-    wrap.appendChild(legend);
 
-    container.appendChild(wrap);
-
-    // Check Telegram status
-    checkTelegram();
+    configPanel.querySelector("#wf-cfg-apply").onclick = () => {
+      node.config = node.config || {};
+      const lbl = configPanel.querySelector("#wf-cfg-label");
+      if (lbl) node.config.label = lbl.value;
+      const prov = configPanel.querySelector("#wf-cfg-provider");
+      if (prov) node.config.provider = prov.value;
+      const tmpl = configPanel.querySelector("#wf-cfg-template");
+      if (tmpl) node.config.template = tmpl.value;
+      const chk = configPanel.querySelector("#wf-cfg-check");
+      if (chk) node.config.check = chk.value;
+      const sec = configPanel.querySelector("#wf-cfg-seconds");
+      if (sec) node.config.seconds = parseInt(sec.value);
+      const mx = configPanel.querySelector("#wf-cfg-max");
+      if (mx) node.config.max = parseInt(mx.value);
+      node.label = node.config.label;
+      draw();
+      closeConfig();
+    };
+    configPanel.querySelector("#wf-cfg-delete").onclick = () => deleteNode(node.id);
+    configPanel.querySelector("#wf-cfg-close").onclick = closeConfig;
   }
 
-  function showTooltip(node) {
-    if (!tooltipEl) return;
-    tooltipEl.innerHTML = `<strong>${node.label}</strong><br>${node.desc}`;
-    tooltipEl.classList.add("visible");
-  }
-  function hideTooltip() {
-    if (tooltipEl) tooltipEl.classList.remove("visible");
+  function closeConfig() {
+    if (configPanel) configPanel.className = "wf-config";
   }
 
-  function setNodeState(id, state) {
-    const el = nodeEls[id];
-    if (!el) return;
-    el.classList.remove("active", "complete", "error");
-    if (state) el.classList.add(state);
-  }
+  /* ── Samples panel ── */
 
-  function resetAll() {
-    Object.keys(nodeEls).forEach((id) => setNodeState(id, null));
-  }
+  async function toggleSamples() {
+    samplesOpen = !samplesOpen;
+    if (!samplesOpen) { samplesPanel.className = "wf-samples"; return; }
 
-  function onSSEEvent(evt) {
-    if (!initialized) return;
+    samplesPanel.className = "wf-samples open";
+    samplesPanel.innerHTML = '<div class="wf-samples-title">Sample Workflows</div>';
 
-    // User sent message
-    if (evt.session_id) { setNodeState("input", "active"); activeNode = "input"; }
-
-    if (evt.thinking === true) {
-      setNodeState("input", "complete");
-      setNodeState("provider", "active");
-      setNodeState("llm", "active");
-      activeNode = "llm";
-    }
-    if (evt.thinking === false && activeNode === "llm") {
-      setNodeState("provider", "complete");
-    }
-
-    if (evt.tool_call) {
-      setNodeState("llm", "complete");
-      setNodeState("tools", "active");
-      activeNode = "tools";
-    }
-
-    if (evt.tool_result) {
-      setNodeState("tools", "complete");
-      setNodeState("memory", "active");
-      activeNode = "memory";
-      setTimeout(() => { setNodeState("memory", "complete"); }, 500);
-    }
-
-    if (evt.delta && !activeNode?.startsWith("response")) {
-      if (activeNode === "memory") setNodeState("memory", "complete");
-      if (activeNode === "llm") { setNodeState("provider", "complete"); setNodeState("llm", "complete"); }
-      setNodeState("response", "active");
-      activeNode = "response";
-    }
-
-    if (evt.done) {
-      setNodeState("response", "complete");
-      setTimeout(resetAll, 2000);
-      activeNode = null;
-    }
-
-    if (evt.error) {
-      if (activeNode) setNodeState(activeNode, "error");
-      setTimeout(resetAll, 3000);
-      activeNode = null;
-    }
-  }
-
-  async function checkTelegram() {
     try {
-      const res = await fetch("/api/telegram/status");
+      const res = await fetch("/api/workflows");
+      if (!res.ok) return;
+      const data = await res.json();
+      const all = [...(data.samples || []), ...(data.saved || [])];
+
+      all.forEach((wf) => {
+        const item = document.createElement("div");
+        item.className = "wf-sample-item";
+        item.innerHTML = `<div class="wf-sample-name">${B.esc(wf.name || wf.id)}</div><div class="wf-sample-desc">${B.esc(wf.description || "")}</div>`;
+        item.onclick = () => loadWorkflow(wf);
+        samplesPanel.appendChild(item);
+      });
+    } catch { samplesPanel.innerHTML += '<div class="wf-sample-desc">Failed to load</div>'; }
+  }
+
+  function loadWorkflow(wf) {
+    nodes = (wf.nodes || []).map((n) => ({ ...n, label: n.config?.label || PALETTE_FLAT[n.type]?.label || n.type }));
+    edges = [...(wf.edges || [])];
+    currentWorkflowId = wf.id;
+    nodeIdCounter = nodes.length;
+
+    const title = container.querySelector("#wf-title");
+    if (title) title.textContent = wf.name || wf.id;
+
+    samplesOpen = false;
+    samplesPanel.className = "wf-samples";
+    closeConfig();
+    selectedNode = null;
+
+    // Auto-fit
+    if (nodes.length) {
+      const minX = Math.min(...nodes.map((n) => n.x));
+      const minY = Math.min(...nodes.map((n) => n.y));
+      pan.x = 40 - minX * zoom;
+      pan.y = 40 - minY * zoom;
+    }
+
+    draw();
+  }
+
+  async function saveCurrentWorkflow() {
+    const name = prompt("Workflow name:", currentWorkflowId || "my-workflow");
+    if (!name) return;
+    const wf = {
+      id: currentWorkflowId || name.toLowerCase().replace(/\s+/g, "-"),
+      name,
+      description: "",
+      nodes: nodes.map((n) => ({ id: n.id, type: n.type, x: Math.round(n.x), y: Math.round(n.y), config: n.config || {} })),
+      edges: edges.map((e) => ({ from: e.from, to: e.to, label: e.label })),
+    };
+    try {
+      const res = await fetch("/api/workflows", { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(wf) });
       if (res.ok) {
         const data = await res.json();
-        if (data.configured && tgRow) tgRow.classList.add("configured");
+        currentWorkflowId = data.id;
+        const title = container.querySelector("#wf-title");
+        if (title) title.textContent = name;
       }
     } catch { /* */ }
   }
 
-  // Register with app.js
-  B.viewHooks.workflow = { onActivate: init };
+  async function loadWorkflowPrompt() {
+    toggleSamples();
+  }
 
-  // Expose for SSE event forwarding
-  B.workflow = { onEvent: onSSEEvent };
+  function clearCanvas() {
+    if (nodes.length && !confirm("Clear all nodes?")) return;
+    nodes = [];
+    edges = [];
+    currentWorkflowId = null;
+    selectedNode = null;
+    closeConfig();
+    const title = container.querySelector("#wf-title");
+    if (title) title.textContent = "Untitled Workflow";
+    draw();
+  }
+
+  /* ── Register ── */
+  B.viewHooks.workflow = { onActivate: init };
 })();

@@ -76,6 +76,7 @@ birkin_sessions.db-shm
 
 # User config
 birkin_config.json
+birkin_workflows.json
 
 # IDE
 .idea/
