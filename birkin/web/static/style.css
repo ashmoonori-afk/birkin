@@ -199,6 +199,22 @@ html, body {
 .view-container { display: none; flex-direction: column; flex: 1; overflow: hidden; }
 .view-container.active { display: flex; }
 
+.lang-toggle {
+  padding: 3px 8px;
+  border: 1px solid rgba(240, 240, 250, 0.2);
+  border-radius: 4px;
+  background: transparent;
+  color: rgba(240, 240, 250, 0.5);
+  font-family: var(--font);
+  font-size: 0.6rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 1px;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+.lang-toggle:hover { background: rgba(240, 240, 250, 0.08); color: #f0f0fa; border-color: rgba(240, 240, 250, 0.35); }
+
 .topbar-spacer { flex: 1; }
 
 .provider-badge {

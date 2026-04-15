@@ -106,7 +106,7 @@ function createThinkingIndicator() {
   const el = document.createElement("div");
   el.className = "thinking-indicator";
   el.id = "agent-thinking";
-  el.textContent = "Reasoning...";
+  el.textContent = t("reasoning");
   chat.appendChild(el);
   chat.scrollTop = chat.scrollHeight;
   return el;
@@ -118,9 +118,9 @@ function createToolCallBlock(name, inputData) {
   const el = document.createElement("div");
   el.className = "tool-call";
   el.innerHTML = `
-    <div class="tool-call-label">Using Tool</div>
+    <div class="tool-call-label">${t("using_tool")}</div>
     <div class="tool-call-name">${esc(name)}</div>
-    <details><summary>Input</summary><pre>${esc(JSON.stringify(inputData, null, 2))}</pre></details>
+    <details><summary>${t("tool_input")}</summary><pre>${esc(JSON.stringify(inputData, null, 2))}</pre></details>
   `;
   chat.appendChild(el);
   chat.scrollTop = chat.scrollHeight;
@@ -131,7 +131,7 @@ function appendToolResult(parentEl, name, output, isError) {
   const el = document.createElement("div");
   el.className = "tool-result" + (isError ? " error" : "");
   el.innerHTML = `
-    <div class="tool-result-label">${isError ? "Error" : "Result"}</div>
+    <div class="tool-result-label">${isError ? t("tool_error") : t("tool_result")}</div>
     <details><summary>${esc(name)}</summary><pre>${esc(output)}</pre></details>
   `;
   parentEl.appendChild(el);
@@ -168,7 +168,7 @@ async function sendMessageStream(text) {
     if (!res.ok) {
       hideThinking();
       const err = await res.json().catch(() => ({ detail: res.statusText }));
-      addBubble("error", err.detail || "Something went wrong.");
+      addBubble("error", err.detail || t("something_wrong"));
       setLoading(false); input.focus();
       return;
     }
@@ -241,7 +241,7 @@ async function sendMessageStream(text) {
     loadSessions();
   } catch {
     hideThinking(); removeThinkingIndicator();
-    addBubble("error", "Network error \u2014 is the server running?");
+    addBubble("error", t("network_error"));
   } finally { setLoading(false); input.focus(); }
 }
 
@@ -254,14 +254,14 @@ async function loadSessions() {
     const sessions = await res.json();
     sessionList.innerHTML = "";
     if (!sessions.length) {
-      sessionList.innerHTML = '<li class="session-empty">No conversations yet</li>';
+      sessionList.innerHTML = `<li class="session-empty">${t("no_conversations")}</li>`;
       return;
     }
     sessions.sort((a, b) => new Date(b.created_at) - new Date(a.created_at)).forEach((s) => {
       const li = document.createElement("li");
       li.className = "session-item" + (s.id === sessionId ? " active" : "");
       li.setAttribute("role", "button"); li.setAttribute("tabindex", "0");
-      li.innerHTML = `<span class="session-item-text">Chat (${s.message_count} msgs)</span><span class="session-item-meta">${fmtDate(s.created_at)}</span>`;
+      li.innerHTML = `<span class="session-item-text">${t("chat")} (${s.message_count} ${t("chat_msgs")})</span><span class="session-item-meta">${fmtDate(s.created_at)}</span>`;
       const del = document.createElement("button");
       del.className = "session-item-delete"; del.textContent = "\u2715"; del.setAttribute("aria-label", "Delete");
       del.onclick = (e) => { e.stopPropagation(); deleteSession(s.id); };
@@ -298,15 +298,14 @@ function startNewChat() {
   w.className = "welcome"; w.id = "welcome";
   w.innerHTML = `
     <div class="welcome-icon" aria-hidden="true"><svg width="48" height="48" viewBox="0 0 48 48" fill="none"><rect x="4" y="8" width="40" height="28" rx="6" stroke="currentColor" stroke-width="2.5"/><path d="M14 20h8M14 26h16" stroke="currentColor" stroke-width="2" stroke-linecap="round"/><path d="M16 36l-4 6M32 36l4 6" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"/></svg></div>
-    <p class="welcome-title">Birkin</p>
-    <p class="welcome-sub">Your AI assistant. Try one of these to get started:</p>
+    <p class="welcome-title">${t("welcome_title")}</p>
+    <p class="welcome-sub">${t("welcome_sub")}</p>
     <div class="suggestions">
-      <button class="suggestion" type="button">Explain what you can do</button>
-      <button class="suggestion" type="button">Help me draft an email</button>
-      <button class="suggestion" type="button">Summarize a topic for me</button>
-      <button class="suggestion" type="button">Brainstorm ideas</button>
+      <button class="suggestion" type="button">${t("suggest_explain")}</button>
+      <button class="suggestion" type="button">${t("suggest_email")}</button>
+      <button class="suggestion" type="button">${t("suggest_brainstorm")}</button>
     </div>
-    <button class="welcome-help-link" type="button">Need help? Open the guide</button>`;
+    <button class="welcome-help-link" type="button">${t("welcome_help_link")}</button>`;
   chat.appendChild(w);
   bindSuggestions(w);
   w.querySelector(".welcome-help-link").onclick = openHelp;
@@ -316,7 +315,7 @@ function startNewChat() {
 function fmtDate(d) {
   const ms = Date.now() - new Date(d);
   const m = Math.floor(ms / 60000);
-  if (m < 1) return "just now";
+  if (m < 1) return t("just_now");
   if (m < 60) return `${m}m`;
   const h = Math.floor(ms / 3600000);
   if (h < 24) return `${h}h`;
@@ -360,71 +359,71 @@ async function loadSettingsPanel() {
 
   const providers = providersCache || {};
   const cfg = currentConfig;
-  const labels = { anthropic: "Anthropic (Claude)", openai: "OpenAI (GPT)", "claude-cli": "Claude Code", "codex-cli": "Codex CLI" };
+  const labels = { anthropic: t("anthropic_claude"), openai: t("openai_gpt"), "claude-cli": t("claude_code"), "codex-cli": t("codex_cli") };
 
   settingsContent.innerHTML = `
     <div class="settings-section">
-      <div class="settings-section-title">Provider</div>
+      <div class="settings-section-title">${t("provider")}</div>
       <div class="settings-provider-list" id="s-providers">
         ${Object.entries(providers).map(([k, v]) => `
           <label class="settings-provider-opt ${v.available ? '' : 'unavailable'}">
             <input type="radio" name="s-provider" value="${k}" ${k === cfg.provider ? 'checked' : ''} ${v.available ? '' : 'disabled'} />
             <span class="dot ${v.available ? 'ok' : ''}"></span>
             <span class="settings-provider-name">${labels[k] || k}</span>
-            <span class="settings-provider-meta">${v.type === 'local' ? 'Local' : v.key_env || ''}</span>
+            <span class="settings-provider-meta">${v.type === 'local' ? t("local_no_key") : v.key_env || ''}</span>
           </label>`).join("")}
       </div>
     </div>
 
     <div class="settings-section">
-      <div class="settings-section-title">API Keys</div>
+      <div class="settings-section-title">${t("api_keys")}</div>
       <div class="settings-field">
-        <label class="settings-label">Anthropic API Key</label>
+        <label class="settings-label">${t("anthropic_key")}</label>
         <div class="settings-key-wrap">
           <input class="settings-input" type="password" id="s-key-anthropic" placeholder="sk-ant-..." value="" autocomplete="off" />
-          <button class="settings-key-toggle" type="button" data-target="s-key-anthropic" aria-label="Toggle visibility">&#128065;</button>
+          <button class="settings-key-toggle" type="button" data-target="s-key-anthropic" aria-label="${t("toggle_vis")}">&#128065;</button>
         </div>
       </div>
       <div class="settings-field">
-        <label class="settings-label">OpenAI API Key</label>
+        <label class="settings-label">${t("openai_key")}</label>
         <div class="settings-key-wrap">
           <input class="settings-input" type="password" id="s-key-openai" placeholder="sk-..." value="" autocomplete="off" />
-          <button class="settings-key-toggle" type="button" data-target="s-key-openai" aria-label="Toggle visibility">&#128065;</button>
+          <button class="settings-key-toggle" type="button" data-target="s-key-openai" aria-label="${t("toggle_vis")}">&#128065;</button>
         </div>
       </div>
     </div>
 
     <div class="settings-section">
-      <div class="settings-section-title">Model</div>
+      <div class="settings-section-title">${t("model")}</div>
       <div class="settings-field">
-        <label class="settings-label">Primary Model</label>
+        <label class="settings-label">${t("primary_model")}</label>
         <select class="settings-select" id="s-model">
-          <option value="">Default</option>
+          <option value="">${t("default")}</option>
         </select>
       </div>
     </div>
 
     <div class="settings-section">
-      <div class="settings-section-title">Fallback</div>
+      <div class="settings-section-title">${t("fallback")}</div>
       <div class="settings-field">
-        <label class="settings-label">Fallback Provider</label>
+        <label class="settings-label">${t("fallback_provider")}</label>
         <select class="settings-select" id="s-fallback">
-          <option value="">None</option>
+          <option value="">${t("none")}</option>
           ${Object.entries(providers).filter(([,v]) => v.available).map(([k]) => `<option value="${k}" ${k === cfg.fallback_provider ? 'selected' : ''}>${labels[k] || k}</option>`).join("")}
         </select>
       </div>
     </div>
 
     <div class="settings-section">
-      <div class="settings-section-title">System Prompt</div>
+      <div class="settings-section-title">${t("system_prompt")}</div>
       <div class="settings-field">
-        <textarea class="settings-textarea" id="s-system-prompt" placeholder="Leave empty for default...">${esc(cfg.system_prompt || "")}</textarea>
+        <textarea class="settings-textarea" id="s-system-prompt" placeholder="${t("system_prompt_ph")}">${esc(cfg.system_prompt || "")}</textarea>
       </div>
     </div>
 
     <div class="settings-actions">
-      <button class="ghost-btn" id="s-save" type="button">Save</button>
-      <button class="ghost-btn secondary" id="s-reset" type="button">Reset</button>
+      <button class="ghost-btn" id="s-save" type="button">${t("save")}</button>
+      <button class="ghost-btn secondary" id="s-reset" type="button">${t("reset")}</button>
     </div>
   `;
 
@@ -550,29 +549,29 @@ function showOnboarding(providers) {
   overlay.className = "onboarding-overlay";
   const modal = document.createElement("div");
   modal.className = "onboarding-modal";
-  const labels = { anthropic: "Anthropic (Claude)", openai: "OpenAI (GPT)", "claude-cli": "Claude Code (local)", "codex-cli": "Codex CLI (local)" };
+  const labels = { anthropic: t("anthropic_claude"), openai: t("openai_gpt"), "claude-cli": t("claude_code_local"), "codex-cli": t("codex_cli_local") };
   const first = Object.entries(providers).find(([, v]) => v.available);
   const def = first ? first[0] : "anthropic";
 
   modal.innerHTML = `
-    <h2 class="ob-title">Welcome to Birkin</h2>
-    <p class="ob-sub">Select your AI provider to get started.</p>
+    <h2 class="ob-title">${t("ob_welcome")}</h2>
+    <p class="ob-sub">${t("ob_select_provider")}</p>
     <div class="ob-providers">${Object.entries(providers).map(([k, v]) => `
       <label class="ob-provider ${v.available ? '' : 'unavailable'}">
         <input type="radio" name="ob-prov" value="${k}" ${v.available ? '' : 'disabled'} ${k === def ? 'checked' : ''} />
         <div class="ob-provider-info">
           <strong>${labels[k] || k}</strong>
-          ${v.available ? '<span class="ob-status ok">Ready</span>' : v.needs_key ? '<span class="ob-status warn">Key needed</span>' : '<span class="ob-status off">Not found</span>'}
-          <small>${v.type === 'local' ? 'No API key required' : `Env: ${v.key_env}`}</small>
+          ${v.available ? `<span class="ob-status ok">${t("ob_ready")}</span>` : v.needs_key ? `<span class="ob-status warn">${t("ob_key_needed")}</span>` : `<span class="ob-status off">${t("ob_not_found")}</span>`}
+          <small>${v.type === 'local' ? t("local_no_key") : `Env: ${v.key_env}`}</small>
         </div>
       </label>`).join("")}</div>
-    <details class="ob-advanced"><summary>Fallback model</summary>
-      <p class="ob-hint">Birkin will try this provider if the primary one fails.</p>
-      <select id="ob-fallback" class="ob-select"><option value="">None</option>${Object.entries(providers).filter(([,v]) => v.available).map(([k]) => `<option value="${k}">${labels[k] || k}</option>`).join("")}</select>
+    <details class="ob-advanced"><summary>${t("ob_fallback_title")}</summary>
+      <p class="ob-hint">${t("ob_fallback_desc")}</p>
+      <select id="ob-fallback" class="ob-select"><option value="">${t("none")}</option>${Object.entries(providers).filter(([,v]) => v.available).map(([k]) => `<option value="${k}">${labels[k] || k}</option>`).join("")}</select>
     </details>
     <div class="ob-actions">
-      <button class="ob-btn primary" id="ob-save">Start</button>
-      <button class="ob-btn secondary" id="ob-skip">Skip</button>
+      <button class="ob-btn primary" id="ob-save">${t("ob_start")}</button>
+      <button class="ob-btn secondary" id="ob-skip">${t("ob_skip")}</button>
     </div>`;
 
   overlay.appendChild(modal);
@@ -608,18 +607,74 @@ document.querySelectorAll(".view-nav-btn").forEach((btn) => {
   btn.onclick = () => switchView(btn.dataset.view);
 });
 
+/* ── Language Toggle ── */
+
+const langToggle = $("lang-toggle");
+const t = window.birkin.t;
+
+function updateLangButton() {
+  const lang = window.birkin.getLang();
+  langToggle.textContent = lang === "ko" ? "\uD55C" : "EN";
+}
+
+langToggle.onclick = () => {
+  const next = window.birkin.getLang() === "en" ? "ko" : "en";
+  window.birkin.setLang(next);
+  updateLangButton();
+  refreshTranslatedUI();
+};
+
+function refreshTranslatedUI() {
+  // Static HTML elements
+  const map = {
+    ".sidebar-title": "conversations",
+    ".welcome-title": "welcome_title",
+    ".welcome-sub": "welcome_sub",
+    "#user-input": { attr: "placeholder", key: "input_placeholder" },
+    ".input-hint": { html: true, key: "input_hint_html" },
+  };
+
+  // Sidebar title
+  const sidebarTitle = document.querySelector(".sidebar-title");
+  if (sidebarTitle) sidebarTitle.textContent = t("conversations");
+
+  // Input placeholder
+  const inp = $("user-input");
+  if (inp) inp.placeholder = t("input_placeholder");
+
+  // Nav buttons
+  document.querySelectorAll(".view-nav-btn").forEach((btn) => {
+    const view = btn.dataset.view;
+    const span = btn.querySelector("span");
+    if (span && view) span.textContent = t(view);
+  });
+
+  // Help panel title
+  const helpTitle = document.querySelector(".help-title");
+  if (helpTitle) helpTitle.textContent = t("help");
+
+  // Settings panel title
+  const settingsTitle = document.querySelector(".settings-title");
+  if (settingsTitle) settingsTitle.textContent = t("settings");
+}
+
 /* ── Global Namespace ── */
 
-window.birkin = {
+Object.assign(window.birkin, {
   $, md, esc, switchView, currentConfig,
-  get sessionId() { return sessionId; },
-  set sessionId(v) { sessionId = v; },
   viewHooks,
   updateProviderBadge,
-};
+  refreshTranslatedUI,
+});
+Object.defineProperty(window.birkin, "sessionId", {
+  get() { return sessionId; },
+  set(v) { sessionId = v; },
+});
 
 /* ── Init ── */
 
+updateLangButton();
+refreshTranslatedUI();
 loadSessions();
 updateProviderBadge();
 checkOnboarding();
