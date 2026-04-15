@@ -1,4 +1,4 @@
-"""Local CLI provider — shells out to claude or codex commands."""
+"""Local CLI provider — shells out to claude or codex with real-time streaming."""
 
 from __future__ import annotations
 
@@ -19,8 +19,9 @@ from birkin.core.providers.base import (
 class LocalCLIProvider(Provider):
     """Provider that delegates to a local CLI tool (claude or codex).
 
-    Requires no API key — uses whatever authentication the CLI
-    already has configured (e.g., `claude` uses the user's session).
+    Supports real-time stdout streaming so the UI shows output as it arrives.
+    Each call spawns a fresh CLI process (no session state in the CLI),
+    but Birkin's own session store and WikiMemory persist across calls.
     """
 
     def __init__(
@@ -29,7 +30,7 @@ class LocalCLIProvider(Provider):
         cli: str = "claude",
         model: Optional[str] = None,
     ) -> None:
-        self._cli = cli  # "claude" or "codex"
+        self._cli = cli
         self._model = model or f"{cli}-local"
 
         binary = shutil.which(cli)
@@ -52,7 +53,7 @@ class LocalCLIProvider(Provider):
         return ModelCapabilities(
             context_window=100000,
             supports_tools=False,
-            supports_streaming=False,
+            supports_streaming=True,
         )
 
     def complete(
@@ -62,31 +63,45 @@ class LocalCLIProvider(Provider):
         tools: Optional[list[dict[str, Any]]] = None,
         stream_callback: Optional[Callable[[Optional[str]], None]] = None,
     ) -> ProviderResponse:
-        """Run the CLI synchronously with the last user message."""
+        """Run the CLI synchronously."""
+        import subprocess
+
         prompt = self._extract_prompt(messages)
+        cmd = self._build_command(prompt)
 
         try:
-            import subprocess
-
-            cmd = self._build_command(prompt)
-            result = subprocess.run(
-                cmd,
-                capture_output=True,
-                text=True,
-                timeout=120,
-            )
-
-            if result.returncode != 0:
-                error_text = result.stderr.strip() or f"CLI exited with code {result.returncode}"
-                raise ProviderError(
-                    f"{self._cli} error: {error_text}",
-                    ProviderErrorKind.SERVER,
-                )
-
-            output = result.stdout.strip()
             if stream_callback:
-                stream_callback(output)
+                # Stream stdout line by line
+                proc = subprocess.Popen(
+                    cmd,
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.PIPE,
+                    text=True,
+                    bufsize=1,
+                )
+                output_parts: list[str] = []
+                assert proc.stdout is not None
+                for line in proc.stdout:
+                    output_parts.append(line)
+                    stream_callback(line)
+                proc.wait(timeout=120)
                 stream_callback(None)
+
+                stderr = proc.stderr.read() if proc.stderr else ""
+                if proc.returncode != 0:
+                    raise ProviderError(
+                        f"{self._cli} error: {stderr.strip() or f'exit code {proc.returncode}'}",
+                        ProviderErrorKind.SERVER,
+                    )
+                output = "".join(output_parts).strip()
+            else:
+                result = subprocess.run(cmd, capture_output=True, text=True, timeout=120)
+                if result.returncode != 0:
+                    raise ProviderError(
+                        f"{self._cli} error: {result.stderr.strip() or f'exit code {result.returncode}'}",
+                        ProviderErrorKind.SERVER,
+                    )
+                output = result.stdout.strip()
 
             return ProviderResponse(
                 content=output,
@@ -97,15 +112,9 @@ class LocalCLIProvider(Provider):
             )
 
         except subprocess.TimeoutExpired:
-            raise ProviderError(
-                f"{self._cli} timed out after 120 seconds",
-                ProviderErrorKind.SERVER,
-            )
+            raise ProviderError(f"{self._cli} timed out after 120 seconds", ProviderErrorKind.SERVER)
         except FileNotFoundError:
-            raise ProviderError(
-                f"CLI tool '{self._cli}' not found",
-                ProviderErrorKind.AUTH,
-            )
+            raise ProviderError(f"CLI tool '{self._cli}' not found", ProviderErrorKind.AUTH)
 
     async def acomplete(
         self,
@@ -114,7 +123,7 @@ class LocalCLIProvider(Provider):
         tools: Optional[list[dict[str, Any]]] = None,
         stream_callback: Optional[Callable[[Optional[str]], None]] = None,
     ) -> ProviderResponse:
-        """Async version — runs CLI in a subprocess."""
+        """Async version — streams stdout chunks in real-time."""
         prompt = self._extract_prompt(messages)
         cmd = self._build_command(prompt)
 
@@ -124,19 +133,33 @@ class LocalCLIProvider(Provider):
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE,
             )
-            stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=120)
+
+            output_parts: list[str] = []
+
+            if stream_callback and proc.stdout:
+                # Read and stream chunks as they arrive
+                while True:
+                    chunk = await asyncio.wait_for(proc.stdout.read(256), timeout=120)
+                    if not chunk:
+                        break
+                    text = chunk.decode("utf-8", errors="replace")
+                    output_parts.append(text)
+                    stream_callback(text)
+
+                stream_callback(None)
+                await proc.wait()
+            else:
+                stdout, _ = await asyncio.wait_for(proc.communicate(), timeout=120)
+                output_parts.append(stdout.decode("utf-8", errors="replace"))
 
             if proc.returncode != 0:
-                error_text = stderr.decode().strip() or f"CLI exited with code {proc.returncode}"
-                raise ProviderError(
-                    f"{self._cli} error: {error_text}",
-                    ProviderErrorKind.SERVER,
-                )
+                stderr_data = b""
+                if proc.stderr:
+                    stderr_data = await proc.stderr.read()
+                error_text = stderr_data.decode().strip() or f"exit code {proc.returncode}"
+                raise ProviderError(f"{self._cli} error: {error_text}", ProviderErrorKind.SERVER)
 
-            output = stdout.decode().strip()
-            if stream_callback:
-                stream_callback(output)
-                stream_callback(None)
+            output = "".join(output_parts).strip()
 
             return ProviderResponse(
                 content=output,
@@ -147,17 +170,30 @@ class LocalCLIProvider(Provider):
             )
 
         except asyncio.TimeoutError:
-            raise ProviderError(
-                f"{self._cli} timed out after 120 seconds",
-                ProviderErrorKind.SERVER,
-            )
+            raise ProviderError(f"{self._cli} timed out after 120 seconds", ProviderErrorKind.SERVER)
 
     def _extract_prompt(self, messages: list[Message]) -> str:
-        """Get the last user message as the prompt."""
-        for msg in reversed(messages):
-            if msg.role == "user":
-                return msg.content
-        return ""
+        """Build prompt from conversation history.
+
+        Includes system prompt and recent messages for context,
+        not just the last user message.
+        """
+        parts: list[str] = []
+        for msg in messages:
+            if msg.role == "system":
+                parts.append(f"[System]\n{msg.content}\n")
+            elif msg.role == "user":
+                parts.append(f"[User]\n{msg.content}\n")
+            elif msg.role == "assistant":
+                parts.append(f"[Assistant]\n{msg.content}\n")
+
+        # If the conversation is very long, only keep last ~10 messages + system
+        if len(parts) > 12:
+            system = [p for p in parts if p.startswith("[System]")]
+            recent = parts[-10:]
+            parts = system + recent
+
+        return "\n".join(parts)
 
     def _build_command(self, prompt: str) -> list[str]:
         """Build the CLI command."""
