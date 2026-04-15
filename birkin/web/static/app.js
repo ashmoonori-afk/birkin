@@ -72,10 +72,13 @@ function addBubble(role, text) {
   if (welcome && welcome.parentNode) welcome.remove();
   const el = document.createElement("div");
   el.className = `bubble ${role}`;
-  el.innerHTML = role === "assistant" ? md(text) : "";
-  if (role !== "assistant") el.textContent = text;
+  if (role === "assistant") {
+    el.innerHTML = md(text || "");
+  } else {
+    el.textContent = text;
+  }
   chat.appendChild(el);
-  chat.scrollTop = chat.scrollHeight;
+  requestAnimationFrame(() => { chat.scrollTop = chat.scrollHeight; });
   return el;
 }
 
@@ -83,10 +86,19 @@ function createStreamBubble() {
   if (welcome && welcome.parentNode) welcome.remove();
   const el = document.createElement("div");
   el.className = "bubble assistant streaming";
+  el.dataset.streaming = "1";
   el.innerHTML = '<span class="cursor">|</span>';
   chat.appendChild(el);
-  chat.scrollTop = chat.scrollHeight;
+  requestAnimationFrame(() => { chat.scrollTop = chat.scrollHeight; });
   return el;
+}
+
+function finalizeStreamBubble(bubble, text) {
+  if (!bubble) return;
+  bubble.classList.remove("streaming");
+  delete bubble.dataset.streaming;
+  bubble.innerHTML = md(text || "");
+  requestAnimationFrame(() => { chat.scrollTop = chat.scrollHeight; });
 }
 
 function showThinking() {
@@ -206,6 +218,12 @@ async function sendMessageStream(text) {
           // Forward all events to workflow visualizer
           if (window.birkin.workflow) window.birkin.workflow.onEvent(evt);
 
+          if (evt.event === "fallback") {
+            removeThinkingIndicator();
+            addBubble("error", evt.message);
+            showThinking();
+          }
+
           if (evt.thinking === true) { removeThinkingIndicator(); createThinkingIndicator(); }
           if (evt.thinking === false) { removeThinkingIndicator(); }
 
@@ -222,13 +240,13 @@ async function sendMessageStream(text) {
             if (!bubble) bubble = createStreamBubble();
             accumulated += evt.delta;
             bubble.innerHTML = md(accumulated) + '<span class="cursor">|</span>';
-            chat.scrollTop = chat.scrollHeight;
+            requestAnimationFrame(() => { chat.scrollTop = chat.scrollHeight; });
           }
 
           if (evt.done) {
             accumulated = evt.reply || accumulated;
-            if (bubble) { bubble.classList.remove("streaming"); bubble.innerHTML = md(accumulated); }
-            chat.scrollTop = chat.scrollHeight;
+            finalizeStreamBubble(bubble, accumulated);
+            bubble = null;
           }
 
           if (evt.error) {
@@ -239,10 +257,8 @@ async function sendMessageStream(text) {
       }
     }
 
-    if (bubble && bubble.classList.contains("streaming")) {
-      bubble.classList.remove("streaming");
-      bubble.innerHTML = md(accumulated);
-    }
+    // Safety: finalize any stuck streaming bubble
+    if (bubble) finalizeStreamBubble(bubble, accumulated);
     removeThinkingIndicator();
     loadSessions();
   } catch {
@@ -317,7 +333,10 @@ async function switchSession(id) {
     const data = await res.json();
     sessionId = id;
     chat.innerHTML = "";
-    (data.messages || []).forEach((m) => addBubble(m.role, m.content));
+    (data.messages || []).forEach((m) => {
+      // Skip tool/system messages — only render user + assistant
+      if (m.role === "user" || m.role === "assistant") addBubble(m.role, m.content);
+    });
     loadSessions(); closeSidebar(); input.focus();
   } catch { /* */ }
 }

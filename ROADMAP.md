@@ -67,11 +67,11 @@
 - [x] JSON config persistence (birkin_config.json)
 
 ### Phase 1 — Remaining Work
+- [x] **Chat bubble streaming fix** — unified SSE queue, proper finalization, no stuck states
+- [x] **Error recovery with auto-fallback** — primary provider fails → fallback provider auto-tries
 - [ ] **Workflow execution engine** — currently workflows are visual-only; the agent doesn't yet follow user-defined workflow graphs at runtime
 - [ ] **Built-in tools** — terminal, web search, file operations, code execution (tool interface exists but no concrete tools yet)
-- [ ] **Auto-tunnel webhook** — detect ngrok/cloudflared, auto-start tunnel, register webhook with public URL (zero-config webhook for local users)
 - [ ] **Context compression** for long conversations
-- [ ] **Error recovery and retry** logic for provider failures (auto-fallback)
 - [ ] **Telegram webhook health monitoring** — auto-detect and report failures
 - [ ] **WebUI visual regression tests** (Playwright screenshots)
 - [ ] **Test coverage** for wiki API and telegram management routes (~99 → ~120 tests)

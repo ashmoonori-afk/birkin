@@ -139,58 +139,81 @@ async def chat_stream(body: ChatRequest) -> StreamingResponse:
     agent = Agent(**agent_kwargs)
 
     async def event_generator() -> AsyncGenerator[str, None]:
-        delta_queue: asyncio.Queue[str | None] = asyncio.Queue()
-        event_queue: asyncio.Queue[dict | None] = asyncio.Queue()
+        # Unified queue — all events go here in order
+        queue: asyncio.Queue[dict | None] = asyncio.Queue()
 
         def on_delta(delta: str | None) -> None:
-            delta_queue.put_nowait(delta)
+            if delta is not None:
+                queue.put_nowait({"delta": delta})
+            # delta=None means stream end — we handle via task completion
 
         def on_event(evt: dict) -> None:
-            event_queue.put_nowait(evt)
+            queue.put_nowait(evt)
 
         # Send session_id first
         yield f"data: {json.dumps({'session_id': agent.session_id})}\n\n"
 
         try:
-            # Run agent.astream in a task so events can be yielded in real-time
             task: asyncio.Task[str] = asyncio.create_task(
                 agent.astream(body.message, callback=on_delta, event_callback=on_event)
             )
 
-            # Drain both queues interleaving deltas and structured events
-            while not task.done():
-                await asyncio.sleep(0.01)
-                while not delta_queue.empty():
-                    delta = delta_queue.get_nowait()
-                    if delta is not None:
-                        yield f"data: {json.dumps({'delta': delta})}\n\n"
-                while not event_queue.empty():
-                    evt = event_queue.get_nowait()
-                    if evt is not None:
-                        yield f"data: {json.dumps(evt)}\n\n"
-
-            # Task is done — drain remaining items
-            reply = await task
-            while not delta_queue.empty():
-                delta = delta_queue.get_nowait()
-                if delta is not None:
-                    yield f"data: {json.dumps({'delta': delta})}\n\n"
-            while not event_queue.empty():
-                evt = event_queue.get_nowait()
-                if evt is not None:
+            # Drain queue in real-time using get() with timeout
+            while True:
+                if task.done() and queue.empty():
+                    break
+                try:
+                    evt = await asyncio.wait_for(queue.get(), timeout=0.05)
                     yield f"data: {json.dumps(evt)}\n\n"
+                except asyncio.TimeoutError:
+                    continue
 
-            # Final event with full reply
+            reply = await task
             yield f"data: {json.dumps({'done': True, 'reply': reply})}\n\n"
 
-        except TypeError as exc:
-            msg = str(exc)
+        except Exception as primary_exc:
+            # Try fallback provider if configured
+            fallback_prov = config.get("fallback_provider")
+            if fallback_prov and fallback_prov != body.provider:
+                fb_msg = f"Primary failed, trying {fallback_prov}..."
+                yield f"data: {json.dumps({'event': 'fallback', 'message': fb_msg})}\n\n"
+                try:
+                    fb_model = f"{fallback_prov}/default"
+                    fb_provider = create_provider(fb_model)
+                    fb_kwargs = dict(agent_kwargs)
+                    fb_kwargs["provider"] = fb_provider
+                    fb_agent = Agent(**fb_kwargs)
+                    fb_queue: asyncio.Queue[dict | None] = asyncio.Queue()
+
+                    def fb_on_delta(d: str | None) -> None:
+                        if d is not None:
+                            fb_queue.put_nowait({"delta": d})
+
+                    fb_task = asyncio.create_task(fb_agent.astream(body.message, callback=fb_on_delta))
+
+                    while True:
+                        if fb_task.done() and fb_queue.empty():
+                            break
+                        try:
+                            evt = await asyncio.wait_for(fb_queue.get(), timeout=0.05)
+                            yield f"data: {json.dumps(evt)}\n\n"
+                        except asyncio.TimeoutError:
+                            continue
+
+                    reply = await fb_task
+                    yield f"data: {json.dumps({'done': True, 'reply': reply})}\n\n"
+                    return
+                except Exception as fb_exc:
+                    err = f"Both providers failed. Primary: {primary_exc}, Fallback: {fb_exc}"
+                    yield f"data: {json.dumps({'error': err})}\n\n"
+                    return
+
+            # No fallback — report primary error
+            msg = str(primary_exc)
             if "api_key" in msg or "auth" in msg.lower():
                 yield f"data: {json.dumps({'error': f'API key not configured for {body.provider}'})}\n\n"
             else:
                 yield f"data: {json.dumps({'error': msg})}\n\n"
-        except Exception as exc:
-            yield f"data: {json.dumps({'error': str(exc)})}\n\n"
 
     return StreamingResponse(
         event_generator(),
