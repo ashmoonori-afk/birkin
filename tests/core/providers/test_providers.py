@@ -29,9 +29,7 @@ class TestProviderResponse:
 
     def test_with_usage(self):
         usage = TokenUsage(prompt_tokens=10, completion_tokens=5)
-        resp = ProviderResponse(
-            content="ok", tool_calls=None, stop_reason="end_turn", usage=usage
-        )
+        resp = ProviderResponse(content="ok", tool_calls=None, stop_reason="end_turn", usage=usage)
         assert resp.usage.prompt_tokens == 10
         assert resp.usage.completion_tokens == 5
         assert resp.usage.total_tokens == 15

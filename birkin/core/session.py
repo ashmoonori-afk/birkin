@@ -178,9 +178,7 @@ class SessionStore:
         )
         conn.commit()
 
-    def get_messages(
-        self, session_id: str, limit: Optional[int] = None, offset: int = 0
-    ) -> list[Message]:
+    def get_messages(self, session_id: str, limit: Optional[int] = None, offset: int = 0) -> list[Message]:
         """Retrieve messages from a session with pagination."""
         conn = self._get_connection()
         query = """

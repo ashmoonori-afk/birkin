@@ -80,6 +80,5 @@ def create_provider(
         return LocalCLIProvider(cli=cli_name, model=model_name)
     else:
         raise ValueError(
-            f"Unknown provider: {provider_name}. "
-            "Use 'anthropic', 'openai', 'openrouter', 'claude-cli', or 'codex-cli'."
+            f"Unknown provider: {provider_name}. Use 'anthropic', 'openai', 'openrouter', 'claude-cli', or 'codex-cli'."
         )

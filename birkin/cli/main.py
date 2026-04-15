@@ -131,11 +131,7 @@ def cmd_sessions(_args: argparse.Namespace) -> None:
     else:
         for s in sessions:
             count = store.get_message_count(s.id)
-            console.print(
-                f"  [bold]{s.id}[/bold]  "
-                f"{s.created_at:%Y-%m-%d %H:%M}  "
-                f"({count} msgs)"
-            )
+            console.print(f"  [bold]{s.id}[/bold]  {s.created_at:%Y-%m-%d %H:%M}  ({count} msgs)")
     store.close()
 
 
@@ -149,10 +145,7 @@ def cmd_serve(args: argparse.Namespace) -> None:
     import uvicorn
 
     url = f"http://{args.host}:{args.port}"
-    console.print(
-        f"[bold]Birkin[/bold] WebUI starting on [cyan]{url}[/cyan]\n"
-        f"Press [bold]Ctrl+C[/bold] to stop.\n"
-    )
+    console.print(f"[bold]Birkin[/bold] WebUI starting on [cyan]{url}[/cyan]\nPress [bold]Ctrl+C[/bold] to stop.\n")
 
     # Show API key status
     anthropic_ok = bool(os.getenv("ANTHROPIC_API_KEY"))

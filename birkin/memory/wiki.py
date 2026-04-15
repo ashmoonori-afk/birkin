@@ -67,9 +67,7 @@ class WikiMemory:
 
         index_path = self.wiki_dir / "index.md"
         if not index_path.exists():
-            index_path.write_text(
-                "# Memory Index\n\nNo pages yet.\n", encoding="utf-8"
-            )
+            index_path.write_text("# Memory Index\n\nNo pages yet.\n", encoding="utf-8")
 
         log_path = self.wiki_dir / "log.md"
         if not log_path.exists():

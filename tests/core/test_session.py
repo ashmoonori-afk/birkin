@@ -90,9 +90,7 @@ class TestSessionStore:
     def test_pagination(self, store):
         session = store.create()
         for i in range(5):
-            store.append_message(
-                session.id, Message(role="user", content=f"msg {i}")
-            )
+            store.append_message(session.id, Message(role="user", content=f"msg {i}"))
 
         # Get first 2
         messages = store.get_messages(session.id, limit=2, offset=0)

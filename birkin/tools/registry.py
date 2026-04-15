@@ -50,9 +50,7 @@ class ToolRegistry:
         with self._lock:
             return list(set(t.spec.toolset for t in self._tools.values()))
 
-    def list_by_toolset(
-        self, toolset: str, available_only: bool = False
-    ) -> list[Tool]:
+    def list_by_toolset(self, toolset: str, available_only: bool = False) -> list[Tool]:
         """Return tools in a specific toolset.
 
         Args:

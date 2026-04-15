@@ -30,9 +30,7 @@ class TokenUsage:
 
     def __post_init__(self) -> None:
         if self.total_tokens == 0:
-            object.__setattr__(
-                self, "total_tokens", self.prompt_tokens + self.completion_tokens
-            )
+            object.__setattr__(self, "total_tokens", self.prompt_tokens + self.completion_tokens)
 
 
 @dataclass(frozen=True)

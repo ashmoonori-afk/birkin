@@ -101,13 +101,9 @@ class Agent:
         user_msg = Message(role="user", content=user_input)
         self._session_store.append_message(self._session.id, user_msg)
 
-        return await self._run_loop_async(
-            stream_callback=callback, event_callback=event_callback
-        )
+        return await self._run_loop_async(stream_callback=callback, event_callback=event_callback)
 
-    def _run_loop(
-        self, stream_callback: Optional[Callable[[str], None]] = None
-    ) -> str:
+    def _run_loop(self, stream_callback: Optional[Callable[[str], None]] = None) -> str:
         """Synchronous conversation loop with tool dispatch."""
         turn = 0
         final_text = ""
@@ -117,9 +113,7 @@ class Agent:
 
             # Build message list for completion
             messages = self._build_messages()
-            tool_schemas = (
-                [t.to_provider_schema() for t in self._tools] if self._tools else None
-            )
+            tool_schemas = [t.to_provider_schema() for t in self._tools] if self._tools else None
 
             # Request completion
             response = self._provider.complete(
@@ -132,10 +126,8 @@ class Agent:
             assistant_msg = Message(
                 role="assistant",
                 content=response.content or "",
-                tool_calls=[
-                    {"id": tc.id, "name": tc.name, "input": tc.input}
-                    for tc in (response.tool_calls or [])
-                ] or None,
+                tool_calls=[{"id": tc.id, "name": tc.name, "input": tc.input} for tc in (response.tool_calls or [])]
+                or None,
             )
             self._session_store.append_message(self._session.id, assistant_msg)
 
@@ -150,9 +142,7 @@ class Agent:
                         content=result.content,
                         tool_call_id=result.tool_call_id,
                     )
-                    self._session_store.append_message(
-                        self._session.id, tool_result_msg
-                    )
+                    self._session_store.append_message(self._session.id, tool_result_msg)
                 # Continue loop to handle tool results
                 continue
 
@@ -175,9 +165,7 @@ class Agent:
             turn += 1
 
             messages = self._build_messages()
-            tool_schemas = (
-                [t.to_provider_schema() for t in self._tools] if self._tools else None
-            )
+            tool_schemas = [t.to_provider_schema() for t in self._tools] if self._tools else None
 
             if event_callback is not None:
                 event_callback({"thinking": True})
@@ -195,10 +183,8 @@ class Agent:
             assistant_msg = Message(
                 role="assistant",
                 content=response.content or "",
-                tool_calls=[
-                    {"id": tc.id, "name": tc.name, "input": tc.input}
-                    for tc in (response.tool_calls or [])
-                ] or None,
+                tool_calls=[{"id": tc.id, "name": tc.name, "input": tc.input} for tc in (response.tool_calls or [])]
+                or None,
             )
             self._session_store.append_message(self._session.id, assistant_msg)
 
@@ -233,9 +219,7 @@ class Agent:
                         content=result.content,
                         tool_call_id=result.tool_call_id,
                     )
-                    self._session_store.append_message(
-                        self._session.id, tool_result_msg
-                    )
+                    self._session_store.append_message(self._session.id, tool_result_msg)
                 continue
 
             final_text = response.content or ""

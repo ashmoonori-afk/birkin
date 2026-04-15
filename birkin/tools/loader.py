@@ -60,20 +60,14 @@ class ToolLoader:
 
                 # Find Tool subclasses in the module
                 for name, obj in inspect.getmembers(module):
-                    if (
-                        inspect.isclass(obj)
-                        and issubclass(obj, Tool)
-                        and obj is not Tool
-                    ):
+                    if inspect.isclass(obj) and issubclass(obj, Tool) and obj is not Tool:
                         try:
                             tool_instance = obj()
                             registry.register(tool_instance)
                             loaded_names.append(tool_instance.spec.name)
                             logger.info(f"Loaded tool: {tool_instance.spec.name}")
                         except Exception as e:
-                            logger.error(
-                                f"Failed to instantiate {name} from {py_file}: {e}"
-                            )
+                            logger.error(f"Failed to instantiate {name} from {py_file}: {e}")
             except Exception as e:
                 logger.error(f"Failed to load module {py_file}: {e}")
 
@@ -104,20 +98,14 @@ class ToolLoader:
             module = importlib.import_module(module_path)
 
             for name, obj in inspect.getmembers(module):
-                if (
-                    inspect.isclass(obj)
-                    and issubclass(obj, Tool)
-                    and obj is not Tool
-                ):
+                if inspect.isclass(obj) and issubclass(obj, Tool) and obj is not Tool:
                     try:
                         tool_instance = obj()
                         registry.register(tool_instance)
                         loaded_names.append(tool_instance.spec.name)
                         logger.info(f"Loaded tool: {tool_instance.spec.name}")
                     except Exception as e:
-                        logger.error(
-                            f"Failed to instantiate {name} from {module_path}: {e}"
-                        )
+                        logger.error(f"Failed to instantiate {name} from {module_path}: {e}")
         except ImportError as e:
             logger.error(f"Failed to import module {module_path}: {e}")
 

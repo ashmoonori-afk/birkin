@@ -58,9 +58,7 @@ def chat(body: ChatRequest) -> ChatResponse:
             raise HTTPException(status_code=404, detail="Session not found")
 
     # Build model string: "provider/model" or "provider/default"
-    model_str = (
-        f"{body.provider}/{body.model}" if body.model else f"{body.provider}/default"
-    )
+    model_str = f"{body.provider}/{body.model}" if body.model else f"{body.provider}/default"
     try:
         provider = create_provider(model_str)
     except (ValueError, TypeError) as exc:
@@ -120,9 +118,7 @@ async def chat_stream(body: ChatRequest) -> StreamingResponse:
         except KeyError:
             raise HTTPException(status_code=404, detail="Session not found")
 
-    model_str = (
-        f"{body.provider}/{body.model}" if body.model else f"{body.provider}/default"
-    )
+    model_str = f"{body.provider}/{body.model}" if body.model else f"{body.provider}/default"
     try:
         provider = create_provider(model_str)
     except (ValueError, TypeError) as exc:
@@ -156,9 +152,7 @@ async def chat_stream(body: ChatRequest) -> StreamingResponse:
         try:
             # Run agent.astream in a task so events can be yielded in real-time
             task: asyncio.Task[str] = asyncio.create_task(
-                agent.astream(
-                    body.message, callback=on_delta, event_callback=on_event
-                )
+                agent.astream(body.message, callback=on_delta, event_callback=on_event)
             )
 
             # Drain both queues interleaving deltas and structured events
@@ -213,6 +207,7 @@ async def chat_stream(body: ChatRequest) -> StreamingResponse:
 def get_settings() -> dict:
     """Get current configuration."""
     from birkin.gateway.config import load_config
+
     return load_config()
 
 
@@ -220,6 +215,7 @@ def get_settings() -> dict:
 def update_settings(body: dict) -> dict:
     """Update configuration."""
     from birkin.gateway.config import load_config, save_config
+
     config = load_config()
     config.update(body)
     save_config(config)
@@ -354,9 +350,7 @@ def get_session(session_id: str) -> SessionDetail:
     return SessionDetail(
         id=session.id,
         created_at=session.created_at,
-        messages=[
-            MessageOut(role=m.role, content=m.content) for m in messages
-        ],
+        messages=[MessageOut(role=m.role, content=m.content) for m in messages],
     )
 
 
