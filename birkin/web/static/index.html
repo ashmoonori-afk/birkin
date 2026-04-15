@@ -8,31 +8,157 @@
 </head>
 <body>
   <div class="app">
-    <header class="topbar">
-      <h1 class="logo">Birkin</h1>
-      <span class="version">v0.1.0</span>
-    </header>
-
-    <main class="chat" id="chat">
-      <div class="welcome" id="welcome">
-        <p class="welcome-title">Hello, I'm Birkin.</p>
-        <p class="welcome-sub">Ask me anything to get started.</p>
+    <!-- Sidebar: session history -->
+    <aside class="sidebar" id="sidebar" aria-label="Conversation history">
+      <div class="sidebar-header">
+        <h2 class="sidebar-title">Conversations</h2>
+        <button class="btn-icon" id="new-chat-btn" aria-label="Start new conversation" title="New chat">
+          <svg width="18" height="18" viewBox="0 0 18 18" fill="none">
+            <path d="M9 3v12M3 9h12" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+          </svg>
+        </button>
       </div>
-    </main>
+      <ul class="session-list" id="session-list" role="list" aria-label="Past conversations">
+        <li class="session-empty" id="session-empty">No conversations yet</li>
+      </ul>
+    </aside>
 
-    <form class="input-bar" id="input-form">
-      <textarea
-        id="user-input"
-        rows="1"
-        placeholder="Type a message..."
-        autocomplete="off"
-      ></textarea>
-      <button type="submit" id="send-btn" aria-label="Send">
-        <svg width="20" height="20" viewBox="0 0 20 20" fill="none">
-          <path d="M3 10h14M12 5l5 5-5 5" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
-        </svg>
-      </button>
-    </form>
+    <!-- Sidebar overlay (mobile) -->
+    <div class="sidebar-overlay" id="sidebar-overlay" aria-hidden="true"></div>
+
+    <!-- Main content -->
+    <div class="main">
+      <header class="topbar">
+        <button class="btn-icon" id="sidebar-toggle" aria-label="Toggle sidebar" title="Conversations">
+          <svg width="20" height="20" viewBox="0 0 20 20" fill="none">
+            <path d="M3 5h14M3 10h14M3 15h14" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+          </svg>
+        </button>
+        <h1 class="logo">Birkin</h1>
+        <span class="version">v0.1.0</span>
+        <div class="topbar-spacer"></div>
+        <button class="btn-icon" id="help-toggle" aria-label="Open help" title="Help &amp; Documentation">
+          <svg width="20" height="20" viewBox="0 0 20 20" fill="none">
+            <circle cx="10" cy="10" r="8" stroke="currentColor" stroke-width="1.6"/>
+            <path d="M7.5 7.5a2.5 2.5 0 0 1 4.5 1.5c0 1.5-2 2-2 3" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/>
+            <circle cx="10" cy="14.5" r="0.8" fill="currentColor"/>
+          </svg>
+        </button>
+      </header>
+
+      <main class="chat" id="chat" role="log" aria-label="Chat messages" aria-live="polite">
+        <div class="welcome" id="welcome">
+          <div class="welcome-icon" aria-hidden="true">
+            <svg width="48" height="48" viewBox="0 0 48 48" fill="none">
+              <rect x="4" y="8" width="40" height="28" rx="6" stroke="currentColor" stroke-width="2.5"/>
+              <path d="M14 20h8M14 26h16" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+              <path d="M16 36l-4 6M32 36l4 6" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"/>
+            </svg>
+          </div>
+          <p class="welcome-title">Hello, I'm Birkin.</p>
+          <p class="welcome-sub">Your AI assistant. Try one of these to get started:</p>
+          <div class="suggestions" id="suggestions">
+            <button class="suggestion" type="button">Explain what you can do</button>
+            <button class="suggestion" type="button">Help me draft an email</button>
+            <button class="suggestion" type="button">Summarize a topic for me</button>
+            <button class="suggestion" type="button">Brainstorm ideas</button>
+          </div>
+          <button class="welcome-help-link" id="welcome-help" type="button">
+            Need help? Open the guide
+          </button>
+        </div>
+      </main>
+
+      <form class="input-bar" id="input-form">
+        <textarea
+          id="user-input"
+          rows="1"
+          placeholder="Type a message..."
+          autocomplete="off"
+          aria-label="Message input"
+        ></textarea>
+        <button type="submit" id="send-btn" aria-label="Send message">
+          <svg width="20" height="20" viewBox="0 0 20 20" fill="none">
+            <path d="M3 10h14M12 5l5 5-5 5" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+          </svg>
+        </button>
+      </form>
+      <div class="input-hint" aria-hidden="true">
+        <kbd>Enter</kbd> to send &middot; <kbd>Shift+Enter</kbd> for newline
+      </div>
+    </div>
+
+    <!-- Help panel (slides from right) -->
+    <aside class="help-panel" id="help-panel" aria-label="Help and documentation" aria-hidden="true">
+      <div class="help-header">
+        <h2 class="help-title">Help &amp; Guide</h2>
+        <button class="btn-icon" id="help-close" aria-label="Close help">
+          <svg width="20" height="20" viewBox="0 0 20 20" fill="none">
+            <path d="M5 5l10 10M15 5L5 15" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+          </svg>
+        </button>
+      </div>
+      <div class="help-content">
+        <section class="help-section">
+          <h3>Getting Started</h3>
+          <p>Birkin is your personal AI assistant. Just type a message and press <kbd>Enter</kbd> to chat.</p>
+          <p>You can ask questions, get help with writing, brainstorm ideas, analyze information, and much more.</p>
+        </section>
+
+        <section class="help-section">
+          <h3>What Can Birkin Do?</h3>
+          <ul>
+            <li><strong>Answer questions</strong> &mdash; Ask about any topic and get clear explanations</li>
+            <li><strong>Write &amp; edit</strong> &mdash; Draft emails, documents, messages, or creative content</li>
+            <li><strong>Brainstorm</strong> &mdash; Generate ideas for projects, names, plans, and more</li>
+            <li><strong>Summarize</strong> &mdash; Condense long text into key points</li>
+            <li><strong>Analyze</strong> &mdash; Break down complex topics into simple language</li>
+            <li><strong>Code help</strong> &mdash; Write, debug, or explain programming code</li>
+          </ul>
+        </section>
+
+        <section class="help-section">
+          <h3>Tips for Best Results</h3>
+          <ul>
+            <li>Be specific about what you need &mdash; the more detail, the better the response</li>
+            <li>Ask follow-up questions to refine answers</li>
+            <li>Start a new conversation for a different topic to keep context clean</li>
+            <li>Use the sidebar to revisit past conversations</li>
+          </ul>
+        </section>
+
+        <section class="help-section">
+          <h3>Managing Conversations</h3>
+          <p>Click the <strong>menu icon</strong> (top-left) to open the sidebar. There you can:</p>
+          <ul>
+            <li>See all your past conversations</li>
+            <li>Click any conversation to continue it</li>
+            <li>Start a fresh chat with the <strong>+</strong> button</li>
+            <li>Delete old conversations you no longer need</li>
+          </ul>
+        </section>
+
+        <section class="help-section">
+          <h3>Keyboard Shortcuts</h3>
+          <table class="help-shortcuts">
+            <tbody>
+              <tr><td><kbd>Enter</kbd></td><td>Send your message</td></tr>
+              <tr><td><kbd>Shift+Enter</kbd></td><td>Add a new line</td></tr>
+              <tr><td><kbd>Esc</kbd></td><td>Close help panel or sidebar</td></tr>
+            </tbody>
+          </table>
+        </section>
+
+        <section class="help-section">
+          <h3>About Birkin</h3>
+          <p>Birkin is an open-source AI agent designed to be simple, approachable, and useful for everyone &mdash; whether you're tech-savvy or just getting started with AI.</p>
+          <p class="help-version">Version 0.1.0</p>
+        </section>
+      </div>
+    </aside>
+
+    <!-- Help panel overlay -->
+    <div class="help-overlay" id="help-overlay" aria-hidden="true"></div>
   </div>
 
   <script src="/app.js"></script>
