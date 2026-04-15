@@ -106,204 +106,250 @@ class WorkflowEngine:
 
         return final_output
 
+    # ── Dispatch table ────────────────────────────────────────────────────
+    _NODE_HANDLERS: dict[str, str] = {
+        # I/O
+        "input": "_handle_passthrough",
+        "output": "_handle_passthrough",
+        "webhook-trigger": "_handle_passthrough",
+        "merge": "_handle_passthrough",
+        "parallel": "_handle_passthrough",
+        # AI models
+        "llm": "_handle_llm",
+        "llm-stream": "_handle_llm",
+        "classifier": "_handle_classifier",
+        "embedder": "_handle_embedder",
+        "summarizer": "_handle_summarizer",
+        "translator": "_handle_translator",
+        "knowledge-extract": "_handle_knowledge_extract",
+        # Tools
+        "tool-dispatch": "_handle_tool_dispatch",
+        "web-search": "_handle_web_search",
+        "code-exec": "_handle_shell",
+        "shell": "_handle_shell",
+        "api-call": "_handle_api_call",
+        "file-read": "_handle_file_read",
+        "file-write": "_handle_file_write",
+        # Memory
+        "memory-search": "_handle_memory_search",
+        "memory-write": "_handle_memory_write",
+        "context-inject": "_handle_context_inject",
+        # Control flow
+        "condition": "_handle_condition",
+        "loop": "_handle_loop",
+        "delay": "_handle_delay",
+        "prompt-template": "_handle_prompt_template",
+        # Quality gates
+        "code-review": "_handle_code_review",
+        "human-review": "_handle_human_review",
+        "guardrail": "_handle_guardrail",
+        "validator": "_handle_validator",
+        "test-runner": "_handle_test_runner",
+        # Platform
+        "telegram-send": "_handle_telegram_send",
+        "email-send": "_handle_email_send",
+        "notify": "_handle_notify",
+    }
+
     async def _execute_node(self, node: dict, input_text: str) -> str:
         """Execute a single node and return its output."""
         ntype = node.get("type", "")
+        handler_name = self._NODE_HANDLERS.get(ntype, "_handle_unknown")
+        handler = getattr(self, handler_name)
+        return await handler(node, input_text)
+
+    # ── I/O handlers ──────────────────────────────────────────────────
+
+    async def _handle_passthrough(self, node: dict, input_text: str) -> str:
+        return input_text
+
+    async def _handle_unknown(self, node: dict, input_text: str) -> str:
+        logger.warning(f"Unknown node type: {node.get('type')}, passing through")
+        return input_text
+
+    # ── AI model handlers ─────────────────────────────────────────────
+
+    async def _handle_llm(self, node: dict, input_text: str) -> str:
+        return await self._run_llm(input_text, node.get("config", {}))
+
+    async def _handle_classifier(self, node: dict, input_text: str) -> str:
         config = node.get("config", {})
+        cats = config.get("categories", [])
+        cat_str = ", ".join(cats) if cats else "positive, negative, neutral"
+        return await self._run_llm(
+            f"Classify into one of [{cat_str}]. Reply with only the category name.\n\nText: {input_text}",
+            config,
+        )
 
-        # ── I/O ──
-        if ntype in ("input", "output", "webhook-trigger"):
+    async def _handle_embedder(self, node: dict, input_text: str) -> str:
+        return await self._run_llm(
+            "Represent the semantic meaning of this text as a structured description:\n\n" + input_text,
+            node.get("config", {}),
+        )
+
+    async def _handle_summarizer(self, node: dict, input_text: str) -> str:
+        return await self._run_llm(f"Summarize concisely:\n\n{input_text}", node.get("config", {}))
+
+    async def _handle_translator(self, node: dict, input_text: str) -> str:
+        config = node.get("config", {})
+        lang = config.get("target_language", "English")
+        return await self._run_llm(f"Translate to {lang}:\n\n{input_text}", config)
+
+    async def _handle_knowledge_extract(self, node: dict, input_text: str) -> str:
+        return await self._run_llm(
+            f"Extract key facts and entities from this text as bullet points:\n\n{input_text}",
+            node.get("config", {}),
+        )
+
+    # ── Tool handlers ─────────────────────────────────────────────────
+
+    async def _handle_tool_dispatch(self, node: dict, input_text: str) -> str:
+        tool_name = node.get("config", {}).get("tool", "")
+        return await self._run_tool(tool_name, {"input": input_text})
+
+    async def _handle_web_search(self, node: dict, input_text: str) -> str:
+        return await self._run_tool("web_search", {"query": input_text.strip()[:200]})
+
+    async def _handle_shell(self, node: dict, input_text: str) -> str:
+        return await self._run_tool("shell", {"command": input_text.strip()})
+
+    async def _handle_api_call(self, node: dict, input_text: str) -> str:
+        url = node.get("config", {}).get("url", input_text.strip())
+        import httpx
+
+        try:
+            async with httpx.AsyncClient(timeout=15) as client:
+                resp = await client.get(url)
+                return f"HTTP {resp.status_code}\n{resp.text[:5000]}"
+        except Exception as e:
+            return f"API call failed: {e}"
+
+    async def _handle_file_read(self, node: dict, input_text: str) -> str:
+        path = node.get("config", {}).get("path", input_text.strip())
+        return await self._run_tool("file_read", {"path": path})
+
+    async def _handle_file_write(self, node: dict, input_text: str) -> str:
+        path = node.get("config", {}).get("path", "output.txt")
+        return await self._run_tool("file_write", {"path": path, "content": input_text})
+
+    # ── Memory handlers ───────────────────────────────────────────────
+
+    async def _handle_memory_search(self, node: dict, input_text: str) -> str:
+        if self._wiki:
+            results = self._wiki.query(input_text.strip()[:100])
+            if results:
+                return "\n\n".join(f"**{r['slug']}**: {r['snippet']}" for r in results)
+            return "(No matching memory pages found)"
+        return input_text
+
+    async def _handle_memory_write(self, node: dict, input_text: str) -> str:
+        if self._wiki:
+            slug = input_text.strip().split("\n")[0][:40].lower().replace(" ", "-")
+            slug = "".join(c for c in slug if c.isalnum() or c == "-")[:30] or "note"
+            self._wiki.ingest("concepts", slug, input_text)
+            return f"Saved to memory: concepts/{slug}"
+        return input_text
+
+    async def _handle_context_inject(self, node: dict, input_text: str) -> str:
+        if self._wiki:
+            ctx = self._wiki.build_context(max_pages=5)
+            if ctx:
+                return f"{ctx}\n\n---\n\n{input_text}"
+        return input_text
+
+    # ── Control flow handlers ─────────────────────────────────────────
+
+    async def _handle_condition(self, node: dict, input_text: str) -> str:
+        config = node.get("config", {})
+        check = config.get("check", "")
+        if not check:
             return input_text
+        await self._run_llm(
+            f"Evaluate: {check}\nInput: {input_text}\nReply YES or NO only.",
+            config,
+        )
+        return input_text
 
-        # ── AI Models ──
-        elif ntype in ("llm", "llm-stream"):
-            return await self._run_llm(input_text, config)
+    async def _handle_loop(self, node: dict, input_text: str) -> str:
+        config = node.get("config", {})
+        max_iter = min(config.get("max", 3), 10)
+        result = input_text
+        for i in range(max_iter):
+            result = await self._run_llm(f"Iteration {i + 1}/{max_iter}. Refine:\n\n{result}", config)
+        return result
 
-        elif ntype == "classifier":
-            cats = config.get("categories", [])
-            cat_str = ", ".join(cats) if cats else "positive, negative, neutral"
-            return await self._run_llm(
-                f"Classify into one of [{cat_str}]. Reply with only the category name.\n\nText: {input_text}",
-                config,
-            )
+    async def _handle_delay(self, node: dict, input_text: str) -> str:
+        seconds = min(node.get("config", {}).get("seconds", 1), 30)
+        await asyncio.sleep(seconds)
+        return input_text
 
-        elif ntype == "embedder":
-            # Embeddings require a vector API; use LLM to describe the semantic content instead
-            return await self._run_llm(
-                "Represent the semantic meaning of this text as a structured description:\n\n" + input_text,
-                config,
-            )
+    async def _handle_prompt_template(self, node: dict, input_text: str) -> str:
+        template = node.get("config", {}).get("template", "{input}")
+        return template.replace("{input}", input_text)
 
-        elif ntype == "summarizer":
-            return await self._run_llm(f"Summarize concisely:\n\n{input_text}", config)
+    # ── Quality gate handlers ─────────────────────────────────────────
 
-        elif ntype == "translator":
-            lang = config.get("target_language", "English")
-            return await self._run_llm(f"Translate to {lang}:\n\n{input_text}", config)
+    async def _handle_code_review(self, node: dict, input_text: str) -> str:
+        review = await self._run_llm(
+            "You are a code reviewer. Review this code for bugs, security issues, and improvements:\n\n" + input_text,
+            node.get("config", {}),
+        )
+        return f"--- Code Review ---\n{review}\n\n--- Original ---\n{input_text}"
 
-        # ── Tools (real execution via builtins) ──
-        elif ntype == "tool-dispatch":
-            tool_name = config.get("tool", "")
-            return await self._run_tool(tool_name, {"input": input_text})
+    async def _handle_human_review(self, node: dict, input_text: str) -> str:
+        review = await self._run_llm(
+            "Review this content. Flag any issues, then say APPROVED or NEEDS_CHANGES:\n\n" + input_text,
+            node.get("config", {}),
+        )
+        return f"--- Review ---\n{review}\n\n--- Content ---\n{input_text}"
 
-        elif ntype == "web-search":
-            return await self._run_tool("web_search", {"query": input_text.strip()[:200]})
+    async def _handle_guardrail(self, node: dict, input_text: str) -> str:
+        config = node.get("config", {})
+        check = config.get("check", "input")
+        result = await self._run_llm(
+            f"Check if this {check} is safe and appropriate. Reply PASS or FAIL with reason.\n\n{input_text}",
+            config,
+        )
+        if "FAIL" in result.upper():
+            raise ValueError(f"Guardrail blocked: {result}")
+        return input_text
 
-        elif ntype in ("code-exec", "shell"):
-            return await self._run_tool("shell", {"command": input_text.strip()})
+    async def _handle_validator(self, node: dict, input_text: str) -> str:
+        config = node.get("config", {})
+        fmt = config.get("format", "any")
+        validation = await self._run_llm(
+            f"Validate this output (expected format: {fmt}). Reply VALID or INVALID with details:\n\n{input_text}",
+            config,
+        )
+        if "INVALID" in validation.upper():
+            raise ValueError(f"Validation failed: {validation}")
+        return input_text
 
-        elif ntype == "api-call":
-            url = config.get("url", input_text.strip())
-            import httpx
+    async def _handle_test_runner(self, node: dict, input_text: str) -> str:
+        test_cmd = node.get("config", {}).get("command", f"echo 'Testing: {input_text[:50]}'")
+        return await self._run_tool("shell", {"command": test_cmd})
 
+    # ── Platform handlers ─────────────────────────────────────────────
+
+    async def _handle_telegram_send(self, node: dict, input_text: str) -> str:
+        chat_id = node.get("config", {}).get("chat_id", "")
+        if chat_id:
             try:
-                async with httpx.AsyncClient(timeout=15) as client:
-                    resp = await client.get(url)
-                    return f"HTTP {resp.status_code}\n{resp.text[:5000]}"
+                from birkin.gateway.deps import get_telegram_adapter
+
+                adapter = get_telegram_adapter()
+                await adapter.send_message(chat_id=int(chat_id), text=input_text)
+                return f"Sent to Telegram chat {chat_id}"
             except Exception as e:
-                return f"API call failed: {e}"
+                return f"Telegram send failed: {e}"
+        return input_text
 
-        elif ntype == "file-read":
-            path = config.get("path", input_text.strip())
-            return await self._run_tool("file_read", {"path": path})
+    async def _handle_email_send(self, node: dict, input_text: str) -> str:
+        return f"[Email would be sent: {input_text[:100]}...] (email not configured)"
 
-        elif ntype == "file-write":
-            path = config.get("path", "output.txt")
-            return await self._run_tool("file_write", {"path": path, "content": input_text})
-
-        # ── Memory (real wiki operations) ──
-        elif ntype == "memory-search":
-            if self._wiki:
-                results = self._wiki.query(input_text.strip()[:100])
-                if results:
-                    return "\n\n".join(f"**{r['slug']}**: {r['snippet']}" for r in results)
-                return "(No matching memory pages found)"
-            return input_text
-
-        elif ntype == "memory-write":
-            if self._wiki:
-                # Extract a slug from the first line or first few words
-                slug = input_text.strip().split("\n")[0][:40].lower().replace(" ", "-")
-                slug = "".join(c for c in slug if c.isalnum() or c == "-")[:30] or "note"
-                self._wiki.ingest("concepts", slug, input_text)
-                return f"Saved to memory: concepts/{slug}"
-            return input_text
-
-        elif ntype == "context-inject":
-            if self._wiki:
-                ctx = self._wiki.build_context(max_pages=5)
-                if ctx:
-                    return f"{ctx}\n\n---\n\n{input_text}"
-            return input_text
-
-        elif ntype == "knowledge-extract":
-            return await self._run_llm(
-                f"Extract key facts and entities from this text as bullet points:\n\n{input_text}",
-                config,
-            )
-
-        # ── Control Flow ──
-        elif ntype == "condition":
-            check = config.get("check", "")
-            if not check:
-                return input_text
-            result = await self._run_llm(
-                f"Evaluate: {check}\nInput: {input_text}\nReply YES or NO only.",
-                config,
-            )
-            # Store the condition result for edge routing (future: use labels)
-            return input_text
-
-        elif ntype == "merge":
-            return input_text
-
-        elif ntype == "loop":
-            max_iter = min(config.get("max", 3), 10)
-            result = input_text
-            for i in range(max_iter):
-                result = await self._run_llm(f"Iteration {i + 1}/{max_iter}. Refine:\n\n{result}", config)
-            return result
-
-        elif ntype == "delay":
-            seconds = min(config.get("seconds", 1), 30)
-            await asyncio.sleep(seconds)
-            return input_text
-
-        elif ntype == "parallel":
-            # Execute all next nodes concurrently (simplified: just pass through)
-            return input_text
-
-        elif ntype == "prompt-template":
-            template = config.get("template", "{input}")
-            return template.replace("{input}", input_text)
-
-        # ── Quality Gates ──
-        elif ntype == "code-review":
-            review = await self._run_llm(
-                "You are a code reviewer. Review this code for bugs, security issues, and improvements:\n\n"
-                + input_text,
-                config,
-            )
-            return f"--- Code Review ---\n{review}\n\n--- Original ---\n{input_text}"
-
-        elif ntype == "human-review":
-            # In a real system this would pause and wait for approval.
-            # For now, the LLM acts as reviewer and always passes.
-            review = await self._run_llm(
-                "Review this content. Flag any issues, then say APPROVED or NEEDS_CHANGES:\n\n" + input_text,
-                config,
-            )
-            return f"--- Review ---\n{review}\n\n--- Content ---\n{input_text}"
-
-        elif ntype == "guardrail":
-            check = config.get("check", "input")
-            result = await self._run_llm(
-                f"Check if this {check} is safe and appropriate. Reply PASS or FAIL with reason.\n\n{input_text}",
-                config,
-            )
-            if "FAIL" in result.upper():
-                raise ValueError(f"Guardrail blocked: {result}")
-            return input_text
-
-        elif ntype == "validator":
-            fmt = config.get("format", "any")
-            validation = await self._run_llm(
-                f"Validate this output (expected format: {fmt}). Reply VALID or INVALID with details:\n\n{input_text}",
-                config,
-            )
-            if "INVALID" in validation.upper():
-                raise ValueError(f"Validation failed: {validation}")
-            return input_text
-
-        elif ntype == "test-runner":
-            # Run the input as a shell test command
-            test_cmd = config.get("command", f"echo 'Testing: {input_text[:50]}'")
-            return await self._run_tool("shell", {"command": test_cmd})
-
-        # ── Platform ──
-        elif ntype == "telegram-send":
-            chat_id = config.get("chat_id", "")
-            if chat_id:
-                try:
-                    from birkin.gateway.deps import get_telegram_adapter
-
-                    adapter = get_telegram_adapter()
-                    await adapter.send_message(chat_id=int(chat_id), text=input_text)
-                    return f"Sent to Telegram chat {chat_id}"
-                except Exception as e:
-                    return f"Telegram send failed: {e}"
-            return input_text
-
-        elif ntype == "email-send":
-            return f"[Email would be sent: {input_text[:100]}...] (email not configured)"
-
-        elif ntype == "notify":
-            logger.info(f"Notification: {input_text[:200]}")
-            return f"[Notification sent] {input_text[:100]}"
-
-        else:
-            logger.warning(f"Unknown node type: {ntype}, passing through")
-            return input_text
+    async def _handle_notify(self, node: dict, input_text: str) -> str:
+        logger.info(f"Notification: {input_text[:200]}")
+        return f"[Notification sent] {input_text[:100]}"
 
     async def _run_llm(self, prompt: str, config: dict) -> str:
         """Call the LLM provider."""

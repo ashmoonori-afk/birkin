@@ -127,12 +127,6 @@ def get_registry() -> ToolRegistry:
     return _registry
 
 
-def set_registry(registry: ToolRegistry) -> None:
-    """Inject a custom ToolRegistry (useful for testing)."""
-    global _registry  # noqa: PLW0603
-    _registry = registry
-
-
 def reset_registry() -> None:
     """Reset for testing — clears all registered tools."""
     global _registry  # noqa: PLW0603

@@ -1,5 +1,7 @@
 """Tests for CLI argument parsing and wiring."""
 
+import pytest
+
 from birkin.cli.main import create_parser
 
 
@@ -41,11 +43,8 @@ class TestCreateParser:
 
     def test_chat_invalid_provider_rejected(self):
         parser = create_parser()
-        try:
+        with pytest.raises(SystemExit):
             parser.parse_args(["chat", "--provider", "gemini"])
-            assert False, "Expected SystemExit"
-        except SystemExit:
-            pass
 
     def test_sessions_subcommand(self):
         parser = create_parser()

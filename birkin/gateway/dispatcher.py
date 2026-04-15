@@ -71,7 +71,7 @@ class MessageDispatcher:
             )
             session_id = session.id
 
-        # Use config provider if available
+        # Load config once and apply overrides
         try:
             from birkin.gateway.config import load_config
 
@@ -81,7 +81,8 @@ class MessageDispatcher:
             if config.get("model"):
                 model = config["model"]
         except Exception:
-            pass
+            logger.warning("Failed to load gateway config, using defaults")
+            config = {}
 
         # Create provider and agent
         model_str = f"{provider}/{model}" if model else f"{provider}/default"
@@ -97,14 +98,8 @@ class MessageDispatcher:
         }
 
         # Apply system prompt from config
-        try:
-            from birkin.gateway.config import load_config
-
-            config = load_config()
-            if config.get("system_prompt"):
-                agent_kwargs["system_prompt"] = config["system_prompt"]
-        except Exception:
-            pass
+        if config.get("system_prompt"):
+            agent_kwargs["system_prompt"] = config["system_prompt"]
 
         agent = Agent(**agent_kwargs)
 

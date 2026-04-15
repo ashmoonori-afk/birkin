@@ -2,56 +2,11 @@
 
 from __future__ import annotations
 
-from typing import Any, Callable, Optional
-
 import pytest
 
 from birkin.core.agent import Agent
-from birkin.core.models import Message
-from birkin.core.providers.base import ModelCapabilities, Provider, ProviderResponse
 from birkin.core.session import SessionStore
-
-
-class FakeProvider(Provider):
-    """In-memory provider for testing."""
-
-    def __init__(self, reply: str = "fake reply") -> None:
-        self._reply = reply
-        self.last_messages: list[Message] = []
-
-    @property
-    def name(self) -> str:
-        return "fake"
-
-    @property
-    def model(self) -> str:
-        return "fake-v1"
-
-    def capabilities(self) -> ModelCapabilities:
-        return ModelCapabilities(context_window=2000)
-
-    def complete(
-        self,
-        messages: list[Message],
-        *,
-        tools: Optional[list[dict[str, Any]]] = None,
-        stream_callback: Optional[Callable[[Optional[str]], None]] = None,
-    ) -> ProviderResponse:
-        self.last_messages = messages
-        return ProviderResponse(
-            content=self._reply,
-            tool_calls=None,
-            stop_reason="end_turn",
-        )
-
-    async def acomplete(
-        self,
-        messages: list[Message],
-        *,
-        tools: Optional[list[dict[str, Any]]] = None,
-        stream_callback: Optional[Callable[[Optional[str]], None]] = None,
-    ) -> ProviderResponse:
-        return self.complete(messages, tools=tools, stream_callback=stream_callback)
+from tests.fakes import FakeProvider
 
 
 @pytest.fixture

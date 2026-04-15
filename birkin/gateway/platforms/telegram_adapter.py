@@ -22,14 +22,14 @@ class TelegramAdapter:
         Args:
             bot_token: Telegram Bot API token (from BotFather).
         """
-        self.bot_token = bot_token
+        self._bot_token = bot_token
         self.api_base = "https://api.telegram.org"
         self.client = httpx.AsyncClient(timeout=30.0)
 
     @property
     def api_endpoint(self) -> str:
         """Construct base API URL."""
-        return f"{self.api_base}/bot{self.bot_token}"
+        return f"{self.api_base}/bot{self._bot_token}"
 
     _MAX_MSG_LEN = 4096
 
@@ -143,24 +143,6 @@ class TelegramAdapter:
         response = await self.client.get(url)
         response.raise_for_status()
         return response.json()
-
-    def verify_webhook_signature(self, body: bytes, signature: str) -> bool:
-        """Verify Telegram webhook signature using bot token as secret.
-
-        Telegram doesn't use signatures in the same way as Slack,
-        but this method can be extended for additional security.
-
-        Args:
-            body: Raw request body bytes.
-            signature: Signature header value (if using custom verification).
-
-        Returns:
-            True if signature is valid, False otherwise.
-        """
-        # Telegram webhooks don't include signatures by default.
-        # This is a placeholder for potential custom verification.
-        # For now, we verify via the webhook URL containing the token.
-        return True
 
     def parse_update(self, data: dict[str, Any]) -> Optional[Update]:
         """Parse incoming webhook data into an Update object.

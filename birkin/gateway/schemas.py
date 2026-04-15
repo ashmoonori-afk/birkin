@@ -7,6 +7,8 @@ from typing import Optional
 
 from pydantic import BaseModel, Field
 
+from birkin import __version__
+
 # --- Chat ---
 
 
@@ -63,4 +65,4 @@ class HealthResponse(BaseModel):
     """Response from GET /api/health."""
 
     status: str = "ok"
-    version: str = "0.1.0"
+    version: str = __version__

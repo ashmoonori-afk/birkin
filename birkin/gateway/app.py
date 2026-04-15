@@ -10,6 +10,7 @@ from fastapi import FastAPI
 from fastapi.staticfiles import StaticFiles
 from starlette.responses import FileResponse
 
+from birkin import __version__
 from birkin.gateway.routes import router
 
 _WEB_DIR = Path(__file__).resolve().parent.parent / "web" / "static"
@@ -19,7 +20,7 @@ def create_app() -> FastAPI:
     """Build and return the configured FastAPI application."""
     app = FastAPI(
         title="Birkin Agent",
-        version="0.1.0",
+        version=__version__,
         description="API backend for the Birkin AI agent.",
     )
 

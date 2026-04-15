@@ -2,53 +2,15 @@
 
 from __future__ import annotations
 
-from typing import Any, Optional
 from unittest.mock import patch
 
 import pytest
 from fastapi.testclient import TestClient
 
-from birkin.core.models import Message
-from birkin.core.providers.base import ModelCapabilities, Provider, ProviderResponse
 from birkin.core.session import SessionStore
 from birkin.gateway.app import create_app
 from birkin.gateway.deps import reset_session_store, set_session_store
-
-
-class FakeProvider(Provider):
-    """In-memory provider for testing."""
-
-    def __init__(self, reply: str = "test reply") -> None:
-        self._reply = reply
-
-    @property
-    def name(self) -> str:
-        return "fake"
-
-    @property
-    def model(self) -> str:
-        return "fake-v1"
-
-    def capabilities(self) -> ModelCapabilities:
-        return ModelCapabilities(context_window=4096)
-
-    def complete(
-        self,
-        messages: list[Message],
-        *,
-        tools: Optional[list[dict[str, Any]]] = None,
-        stream_callback: Any = None,
-    ) -> ProviderResponse:
-        return ProviderResponse(content=self._reply)
-
-    async def acomplete(
-        self,
-        messages: list[Message],
-        *,
-        tools: Optional[list[dict[str, Any]]] = None,
-        stream_callback: Any = None,
-    ) -> ProviderResponse:
-        return self.complete(messages, tools=tools)
+from tests.fakes import FakeProvider
 
 
 @pytest.fixture(autouse=True)

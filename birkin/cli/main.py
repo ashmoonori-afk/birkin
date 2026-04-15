@@ -9,6 +9,7 @@ from dotenv import load_dotenv
 from rich.console import Console
 from rich.markdown import Markdown
 
+from birkin import __version__
 from birkin.core.agent import Agent
 from birkin.core.providers import create_provider
 from birkin.core.session import SessionStore
@@ -64,7 +65,7 @@ def create_parser() -> argparse.ArgumentParser:
 def repl(agent: Agent) -> None:
     """Interactive read-eval-print loop."""
     console.print(
-        f"[bold]Birkin[/bold] v0.1.0  |  "
+        f"[bold]Birkin[/bold] v{__version__}  |  "
         f"provider=[cyan]{agent.provider.name}[/cyan]  "
         f"model=[cyan]{agent.provider.model}[/cyan]"
     )

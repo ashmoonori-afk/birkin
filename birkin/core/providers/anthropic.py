@@ -267,8 +267,6 @@ class AnthropicProvider(Provider):
                     if event.delta.type == "text_delta":
                         accumulated_text += event.delta.text
                         stream_callback(event.delta.text)
-                elif event.type == "content_block_start":
-                    pass
 
         stream_callback(None)  # Signal end
 

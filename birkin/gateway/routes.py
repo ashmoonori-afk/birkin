@@ -572,7 +572,6 @@ _polling_task: Optional[asyncio.Task] = None  # type: ignore[type-arg]
 _polling_active = False
 
 # Health monitoring state
-_health_task: Optional[asyncio.Task] = None  # type: ignore[type-arg]
 _health_status: dict[str, Any] = {"ok": True, "last_check": None, "error": None}
 
 
