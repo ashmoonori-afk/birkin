@@ -2,10 +2,12 @@
 
 from __future__ import annotations
 
+from typing import Optional
+
 from birkin.core.session import SessionStore
 
 # Module-level singletons — initialised once when the app starts.
-_session_store: SessionStore | None = None
+_session_store: Optional[SessionStore] = None
 
 
 def get_session_store() -> SessionStore:
