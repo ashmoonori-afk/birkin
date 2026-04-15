@@ -1,0 +1,40 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Birkin Agent</title>
+  <link rel="stylesheet" href="/style.css" />
+</head>
+<body>
+  <div class="app">
+    <header class="topbar">
+      <h1 class="logo">Birkin</h1>
+      <span class="version">v0.1.0</span>
+    </header>
+
+    <main class="chat" id="chat">
+      <div class="welcome" id="welcome">
+        <p class="welcome-title">Hello, I'm Birkin.</p>
+        <p class="welcome-sub">Ask me anything to get started.</p>
+      </div>
+    </main>
+
+    <form class="input-bar" id="input-form">
+      <textarea
+        id="user-input"
+        rows="1"
+        placeholder="Type a message..."
+        autocomplete="off"
+      ></textarea>
+      <button type="submit" id="send-btn" aria-label="Send">
+        <svg width="20" height="20" viewBox="0 0 20 20" fill="none">
+          <path d="M3 10h14M12 5l5 5-5 5" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+        </svg>
+      </button>
+    </form>
+  </div>
+
+  <script src="/app.js"></script>
+</body>
+</html>

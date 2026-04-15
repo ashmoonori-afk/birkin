@@ -1,1 +1,1 @@
-"""Gateway — multi-platform messaging bridge."""
+"""Gateway — FastAPI-based API backend for Birkin agent."""

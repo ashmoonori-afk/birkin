@@ -17,47 +17,47 @@ from birkin.tools.loader import load_tools
 console = Console()
 
 
+# ---------------------------------------------------------------------------
+# Argument parsing
+# ---------------------------------------------------------------------------
+
+
 def create_parser() -> argparse.ArgumentParser:
-    """Build the CLI argument parser."""
+    """Build the CLI argument parser with subcommands."""
     parser = argparse.ArgumentParser(
         prog="birkin",
         description="Birkin -- AI agent CLI",
     )
-    parser.add_argument(
+    sub = parser.add_subparsers(dest="command")
+
+    # ── birkin chat (default REPL) ──
+    chat_p = sub.add_parser("chat", help="Interactive chat REPL (default)")
+    chat_p.add_argument(
         "--provider",
         choices=["openai", "anthropic"],
         default="anthropic",
         help="LLM provider (default: anthropic)",
     )
-    parser.add_argument(
-        "--model",
-        type=str,
-        default=None,
-        help="Model name override",
-    )
-    parser.add_argument(
-        "--session",
-        type=str,
-        default=None,
-        help="Resume a session by ID",
-    )
-    parser.add_argument(
-        "--list-sessions",
-        action="store_true",
-        help="List saved sessions and exit",
-    )
-    parser.add_argument(
-        "--no-tools",
-        action="store_true",
-        help="Disable tool loading",
-    )
-    parser.add_argument(
-        "--system-prompt",
-        type=str,
-        default=None,
-        help="Override the default system prompt",
-    )
+    chat_p.add_argument("--model", type=str, default=None, help="Model name override")
+    chat_p.add_argument("--session", type=str, default=None, help="Resume a session by ID")
+    chat_p.add_argument("--no-tools", action="store_true", help="Disable tool loading")
+    chat_p.add_argument("--system-prompt", type=str, default=None, help="Override system prompt")
+
+    # ── birkin sessions ──
+    sub.add_parser("sessions", help="List saved sessions")
+
+    # ── birkin serve ──
+    serve_p = sub.add_parser("serve", help="Start the web UI and API server")
+    serve_p.add_argument("--host", type=str, default="127.0.0.1", help="Bind host (default: 127.0.0.1)")
+    serve_p.add_argument("--port", type=int, default=8321, help="Bind port (default: 8321)")
+    serve_p.add_argument("--reload", action="store_true", help="Enable auto-reload for development")
+
     return parser
+
+
+# ---------------------------------------------------------------------------
+# REPL
+# ---------------------------------------------------------------------------
 
 
 def repl(agent: Agent) -> None:
@@ -94,31 +94,17 @@ def repl(agent: Agent) -> None:
             console.print(f"[red]Error:[/red] {exc}\n")
 
 
-def main() -> None:
-    """Entry point for the ``birkin`` console script."""
-    load_dotenv()
+# ---------------------------------------------------------------------------
+# Subcommand handlers
+# ---------------------------------------------------------------------------
 
-    parser = create_parser()
-    args = parser.parse_args()
 
+def cmd_chat(args: argparse.Namespace) -> None:
+    """Handle ``birkin chat``."""
     store = SessionStore()
-
-    if args.list_sessions:
-        sessions = store.list_all()
-        if not sessions:
-            console.print("[dim]No saved sessions.[/dim]")
-        else:
-            for s in sessions:
-                console.print(
-                    f"  [bold]{s.id}[/bold]  "
-                    f"{s.created_at:%Y-%m-%d %H:%M}  "
-                    f"({s.message_count} msgs)"
-                )
-        return
 
     provider = create_provider(args.provider, model=args.model)
     tools = [] if args.no_tools else load_tools()
-
     session = store.load(args.session) if args.session else store.create()
 
     agent = Agent(
@@ -130,6 +116,75 @@ def main() -> None:
 
     repl(agent)
     store.save(session)
+
+
+def cmd_sessions(_args: argparse.Namespace) -> None:
+    """Handle ``birkin sessions``."""
+    store = SessionStore()
+    sessions = store.list_all()
+    if not sessions:
+        console.print("[dim]No saved sessions.[/dim]")
+    else:
+        for s in sessions:
+            console.print(
+                f"  [bold]{s.id}[/bold]  "
+                f"{s.created_at:%Y-%m-%d %H:%M}  "
+                f"({s.message_count} msgs)"
+            )
+
+
+def cmd_serve(args: argparse.Namespace) -> None:
+    """Handle ``birkin serve`` — start FastAPI + uvicorn."""
+    import uvicorn
+
+    console.print(
+        f"[bold]Birkin[/bold] web server starting on "
+        f"[cyan]http://{args.host}:{args.port}[/cyan]"
+    )
+
+    uvicorn.run(
+        "birkin.gateway.app:create_app",
+        factory=True,
+        host=args.host,
+        port=args.port,
+        reload=args.reload,
+    )
+
+
+# ---------------------------------------------------------------------------
+# Entry point
+# ---------------------------------------------------------------------------
+
+
+def main() -> None:
+    """Entry point for the ``birkin`` console script."""
+    load_dotenv()
+
+    parser = create_parser()
+    args = parser.parse_args()
+
+    handlers = {
+        "chat": cmd_chat,
+        "sessions": cmd_sessions,
+        "serve": cmd_serve,
+    }
+
+    command = args.command or "chat"
+    handler = handlers.get(command)
+    if handler is None:
+        parser.print_help()
+        sys.exit(1)
+
+    # When no subcommand is given, argparse won't populate chat-specific attrs.
+    # Fill in defaults so cmd_chat works for bare ``birkin`` invocations.
+    if command == "chat" and args.command is None:
+        args.provider = "anthropic"
+        args.model = None
+        args.session = None
+        args.no_tools = False
+        args.system_prompt = None
+
+    handler(args)
 
 
 if __name__ == "__main__":
