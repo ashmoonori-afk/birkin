@@ -148,7 +148,9 @@
 
     resizeCanvas();
     window.addEventListener("resize", resizeCanvas);
-    draw();
+
+    // Show samples gallery on first load (empty canvas)
+    showSamplesGallery();
   }
 
   /* ── Palette rendering ── */
@@ -695,6 +697,148 @@
     if (title) title.textContent = "Untitled Workflow";
     draw();
   }
+
+  /* ── Samples Gallery (shown when canvas is empty) ── */
+
+  let galleryEl = null;
+
+  async function showSamplesGallery() {
+    if (nodes.length) return; // Canvas has nodes, skip gallery
+
+    try {
+      const res = await fetch("/api/workflows");
+      if (!res.ok) return;
+      const data = await res.json();
+      const all = [...(data.samples || []), ...(data.saved || [])];
+      if (!all.length) return;
+
+      // Create gallery overlay on the canvas
+      galleryEl = document.createElement("div");
+      galleryEl.className = "wf-gallery";
+      galleryEl.innerHTML = `
+        <div class="wf-gallery-header">
+          <div class="wf-gallery-title">Choose a Workflow</div>
+          <div class="wf-gallery-sub">Select a template to start, or drag nodes from the palette to build your own</div>
+        </div>
+        <div class="wf-gallery-grid" id="wf-gallery-grid"></div>
+      `;
+
+      const grid = galleryEl.querySelector("#wf-gallery-grid");
+
+      // Category icons for samples
+      const icons = {
+        "simple-chat": "\u2709", "code-review-gate": "\u{1F50F}", "rag-pipeline": "\u{1F50E}",
+        "multi-model-consensus": "\u{1F500}", "safety-filter": "\u{1F6E1}", "tool-loop": "\u2699",
+        "chain-of-thought": "\u{1F9E0}", "translate-review": "\u{1F30D}", "memory-write-loop": "\u{1F4BE}",
+        "telegram-auto-reply": "\u2708",
+      };
+
+      all.forEach((wf) => {
+        const card = document.createElement("div");
+        card.className = "wf-gallery-card";
+        const icon = icons[wf.id] || "\u{1F4CB}";
+        const nodeCount = (wf.nodes || []).length;
+        card.innerHTML = `
+          <div class="wf-gallery-card-icon">${icon}</div>
+          <div class="wf-gallery-card-name">${B.esc(wf.name || wf.id)}</div>
+          <div class="wf-gallery-card-desc">${B.esc(wf.description || "")}</div>
+          <div class="wf-gallery-card-meta">${nodeCount} nodes</div>
+        `;
+        card.onclick = () => {
+          galleryEl.remove();
+          galleryEl = null;
+          loadWorkflow(wf);
+        };
+        grid.appendChild(card);
+      });
+
+      // "Blank" card
+      const blank = document.createElement("div");
+      blank.className = "wf-gallery-card wf-gallery-card-blank";
+      blank.innerHTML = `
+        <div class="wf-gallery-card-icon">+</div>
+        <div class="wf-gallery-card-name">Blank Canvas</div>
+        <div class="wf-gallery-card-desc">Start from scratch</div>
+      `;
+      blank.onclick = () => { galleryEl.remove(); galleryEl = null; draw(); };
+      grid.appendChild(blank);
+
+      const canvasWrap = canvas.parentElement;
+      canvasWrap.appendChild(galleryEl);
+    } catch { /* silent */ }
+  }
+
+  function hideGallery() {
+    if (galleryEl) { galleryEl.remove(); galleryEl = null; }
+  }
+
+  /* ── Chat-based Workflow Recommendation ── */
+
+  const RECOMMEND_RULES = [
+    { keywords: ["code review", "코드 리뷰", "review my code", "PR review"], workflow: "code-review-gate", reason: "Code review workflow" },
+    { keywords: ["translate", "번역", "translation"], workflow: "translate-review", reason: "Translation workflow" },
+    { keywords: ["search", "검색", "find information", "look up", "RAG"], workflow: "rag-pipeline", reason: "RAG search pipeline" },
+    { keywords: ["safety", "moderation", "filter", "guardrail", "안전"], workflow: "safety-filter", reason: "Safety filter" },
+    { keywords: ["step by step", "단계별", "chain of thought", "think through"], workflow: "chain-of-thought", reason: "Chain of thought" },
+    { keywords: ["compare models", "모델 비교", "consensus", "multiple models"], workflow: "multi-model-consensus", reason: "Multi-model consensus" },
+    { keywords: ["remember", "기억", "save this", "learn", "memorize"], workflow: "memory-write-loop", reason: "Learn & remember" },
+    { keywords: ["telegram", "텔레그램", "bot message"], workflow: "telegram-auto-reply", reason: "Telegram auto-reply" },
+    { keywords: ["tool", "도구", "use tool", "execute", "run code", "API call"], workflow: "tool-loop", reason: "Agentic tool loop" },
+    { keywords: ["automate", "자동화", "workflow", "워크플로우", "pipeline"], workflow: "simple-chat", reason: "Build your own workflow" },
+  ];
+
+  function checkRecommendation(userMessage) {
+    const msg = userMessage.toLowerCase();
+    for (const rule of RECOMMEND_RULES) {
+      for (const kw of rule.keywords) {
+        if (msg.includes(kw.toLowerCase())) {
+          return { workflowId: rule.workflow, reason: rule.reason };
+        }
+      }
+    }
+    return null;
+  }
+
+  function showRecommendBanner(rec) {
+    // Remove existing banner
+    const existing = document.querySelector(".wf-recommend");
+    if (existing) existing.remove();
+
+    const banner = document.createElement("div");
+    banner.className = "wf-recommend";
+    banner.innerHTML = `
+      <span class="wf-recommend-icon">\u{1F4A1}</span>
+      <span class="wf-recommend-text">This looks like a <strong>${B.esc(rec.reason)}</strong> task.</span>
+      <button class="wf-recommend-btn" id="wf-rec-use">Use Workflow</button>
+      <button class="wf-recommend-dismiss" id="wf-rec-dismiss">\u2715</button>
+    `;
+
+    const chatEl = B.$("chat");
+    chatEl.appendChild(banner);
+    chatEl.scrollTop = chatEl.scrollHeight;
+
+    banner.querySelector("#wf-rec-use").onclick = async () => {
+      banner.remove();
+      // Load the workflow and switch to workflow view
+      try {
+        const res = await fetch(`/api/workflows/${rec.workflowId}`);
+        if (res.ok) {
+          const wf = await res.json();
+          B.switchView("workflow");
+          // Wait for init then load
+          setTimeout(() => loadWorkflow(wf), 100);
+        }
+      } catch { /* */ }
+    };
+
+    banner.querySelector("#wf-rec-dismiss").onclick = () => banner.remove();
+
+    // Auto-dismiss after 15s
+    setTimeout(() => { if (banner.parentNode) banner.remove(); }, 15000);
+  }
+
+  // Expose for app.js
+  B.workflow = { checkRecommendation, showRecommendBanner };
 
   /* ── Register ── */
   B.viewHooks.workflow = { onActivate: init };

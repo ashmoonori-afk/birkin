@@ -145,6 +145,12 @@ async function sendMessageStream(text) {
   input.value = ""; input.style.height = "auto";
   setLoading(true); showThinking();
 
+  // Check for workflow recommendation
+  if (window.birkin.workflow?.checkRecommendation) {
+    const rec = window.birkin.workflow.checkRecommendation(text);
+    if (rec) setTimeout(() => window.birkin.workflow.showRecommendBanner(rec), 2000);
+  }
+
   let currentToolBlock = null;
 
   try {
