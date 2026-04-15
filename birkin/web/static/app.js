@@ -145,8 +145,14 @@ async function sendMessageStream(text) {
   input.value = ""; input.style.height = "auto";
   setLoading(true); showThinking();
 
-  // Check for workflow recommendation
-  if (window.birkin.workflow?.checkRecommendation) {
+  // Check active workflow — show apply banner
+  const activeWf = currentConfig.active_workflow;
+  if (activeWf && !document.querySelector(".wf-active-banner")) {
+    showActiveWorkflowBanner(activeWf);
+  }
+
+  // Check for workflow recommendation (only if no active workflow)
+  if (!activeWf && window.birkin.workflow?.checkRecommendation) {
     const rec = window.birkin.workflow.checkRecommendation(text);
     if (rec) setTimeout(() => window.birkin.workflow.showRecommendBanner(rec), 2000);
   }
@@ -243,6 +249,38 @@ async function sendMessageStream(text) {
     hideThinking(); removeThinkingIndicator();
     addBubble("error", t("network_error"));
   } finally { setLoading(false); input.focus(); }
+}
+
+/* ── Active Workflow Banner ── */
+
+async function showActiveWorkflowBanner(workflowId) {
+  let wfName = workflowId;
+  try {
+    const res = await fetch(`/api/workflows/${workflowId}`);
+    if (res.ok) { const wf = await res.json(); wfName = wf.name || workflowId; }
+  } catch { /* */ }
+
+  const banner = document.createElement("div");
+  banner.className = "wf-active-banner";
+  banner.innerHTML = `
+    <span class="wf-active-icon">\u26A1</span>
+    <span class="wf-active-text">${t("wf_active_using")} <strong>${esc(wfName)}</strong></span>
+    <button class="wf-active-btn view" id="wf-ab-view">${t("wf_active_view")}</button>
+    <button class="wf-active-btn off" id="wf-ab-off">${t("wf_active_disable")}</button>
+    <button class="wf-active-dismiss" id="wf-ab-dismiss">\u2715</button>
+  `;
+  chat.appendChild(banner);
+  chat.scrollTop = chat.scrollHeight;
+
+  banner.querySelector("#wf-ab-view").onclick = () => { banner.remove(); switchView("workflow"); };
+  banner.querySelector("#wf-ab-off").onclick = async () => {
+    try {
+      await fetch("/api/settings", { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ active_workflow: null }) });
+      currentConfig.active_workflow = null;
+    } catch { /* */ }
+    banner.remove();
+  };
+  banner.querySelector("#wf-ab-dismiss").onclick = () => banner.remove();
 }
 
 /* ── Session Management ── */

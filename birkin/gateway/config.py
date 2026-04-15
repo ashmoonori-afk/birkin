@@ -15,6 +15,7 @@ _DEFAULTS: dict[str, Any] = {
     "fallback_model": None,
     "onboarding_complete": False,
     "system_prompt": None,
+    "active_workflow": None,
 }
 
 

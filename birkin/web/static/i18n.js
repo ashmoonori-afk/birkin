@@ -129,6 +129,16 @@
       "rec_task": "task.",
       "rec_use": "Use Workflow",
 
+      // Workflow activation
+      "wf_activate": "Activate",
+      "wf_deactivate": "Active \u2714",
+      "wf_activate_prompt": "Use this workflow when chatting?",
+      "wf_activate_yes": "Yes, activate",
+      "wf_activate_no": "Not now",
+      "wf_active_using": "Active workflow:",
+      "wf_active_view": "View",
+      "wf_active_disable": "Disable",
+
       // Workflow node types
       "nt_input": "User Input",
       "nt_output": "Output",
@@ -377,6 +387,15 @@
       "rec_looks_like": "\uC774\uAC83\uC740",
       "rec_task": "\uC791\uC5C5\uC73C\uB85C \uBCF4\uC785\uB2C8\uB2E4.",
       "rec_use": "\uC6CC\uD06C\uD50C\uB85C\uC6B0 \uC0AC\uC6A9",
+
+      "wf_activate": "\uD65C\uC131\uD654",
+      "wf_deactivate": "\uD65C\uC131 \u2714",
+      "wf_activate_prompt": "\uCC44\uD305 \uC2DC \uC774 \uC6CC\uD06C\uD50C\uB85C\uC6B0\uB97C \uC0AC\uC6A9\uD560\uAE4C\uC694?",
+      "wf_activate_yes": "\uB124, \uD65C\uC131\uD654",
+      "wf_activate_no": "\uB098\uC911\uC5D0",
+      "wf_active_using": "\uD65C\uC131 \uC6CC\uD06C\uD50C\uB85C\uC6B0:",
+      "wf_active_view": "\uBCF4\uAE30",
+      "wf_active_disable": "\uBE44\uD65C\uC131\uD654",
 
       "nt_input": "\uC0AC\uC6A9\uC790 \uC785\uB825",
       "nt_output": "\uCD9C\uB825",

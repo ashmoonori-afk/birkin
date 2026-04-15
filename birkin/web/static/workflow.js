@@ -14,59 +14,72 @@
 
   const NODE_W = 140, NODE_H = 56, PORT_R = 6;
 
-  /* ── Node Palette Definition ── */
-  const PALETTE = [
-    { group: "I/O", items: [
-      { type: "input",           icon: "\u2709",     label: "User Input",        color: "nc-io",       desc: "Message from user" },
-      { type: "output",          icon: "\u2705",     label: "Output",            color: "nc-io",       desc: "Final response" },
-      { type: "webhook-trigger", icon: "\u{1F310}",  label: "Webhook Trigger",   color: "nc-platform", desc: "HTTP/Telegram trigger" },
+  /* ── Node Palette Definition (i18n key references) ── */
+  // Each item uses i18n keys: label → "nt_xxx", group → "ng_xxx"
+  const PALETTE_DEF = [
+    { groupKey: "ng_io", items: [
+      { type: "input",           icon: "\u2709",    labelKey: "nt_input",         color: "nc-io" },
+      { type: "output",          icon: "\u2705",    labelKey: "nt_output",        color: "nc-io" },
+      { type: "webhook-trigger", icon: "\u{1F310}", labelKey: "nt_webhook",       color: "nc-platform" },
     ]},
-    { group: "AI Models", items: [
-      { type: "llm",             icon: "\u2728",     label: "LLM Call",          color: "nc-ai",       desc: "Call language model" },
-      { type: "llm-stream",      icon: "\u{1F4A8}",  label: "LLM Stream",        color: "nc-ai",       desc: "Streaming LLM call" },
-      { type: "classifier",      icon: "\u{1F3AF}",  label: "Classifier",        color: "nc-ai",       desc: "Categorize input" },
-      { type: "embedder",        icon: "\u{1F9F2}",  label: "Embedder",          color: "nc-ai",       desc: "Generate embeddings" },
-      { type: "summarizer",      icon: "\u{1F4DD}",  label: "Summarizer",        color: "nc-ai",       desc: "Condense text" },
-      { type: "translator",      icon: "\u{1F30D}",  label: "Translator",        color: "nc-ai",       desc: "Translate language" },
+    { groupKey: "ng_ai", items: [
+      { type: "llm",             icon: "\u2728",    labelKey: "nt_llm",           color: "nc-ai" },
+      { type: "llm-stream",      icon: "\u{1F4A8}", labelKey: "nt_llm_stream",    color: "nc-ai" },
+      { type: "classifier",      icon: "\u{1F3AF}", labelKey: "nt_classifier",    color: "nc-ai" },
+      { type: "embedder",        icon: "\u{1F9F2}", labelKey: "nt_embedder",      color: "nc-ai" },
+      { type: "summarizer",      icon: "\u{1F4DD}", labelKey: "nt_summarizer",    color: "nc-ai" },
+      { type: "translator",      icon: "\u{1F30D}", labelKey: "nt_translator",    color: "nc-ai" },
     ]},
-    { group: "Tools", items: [
-      { type: "tool-dispatch",   icon: "\u2699",     label: "Tool Dispatch",     color: "nc-tool",     desc: "Run a registered tool" },
-      { type: "web-search",      icon: "\u{1F50D}",  label: "Web Search",        color: "nc-tool",     desc: "Search the internet" },
-      { type: "code-exec",       icon: "\u{1F4BB}",  label: "Code Executor",     color: "nc-tool",     desc: "Run code snippet" },
-      { type: "api-call",        icon: "\u{1F517}",  label: "API Call",          color: "nc-tool",     desc: "External HTTP request" },
-      { type: "file-read",       icon: "\u{1F4C4}",  label: "File Read",         color: "nc-tool",     desc: "Read a file" },
-      { type: "file-write",      icon: "\u{1F4BE}",  label: "File Write",        color: "nc-tool",     desc: "Write to file" },
+    { groupKey: "ng_tools", items: [
+      { type: "tool-dispatch",   icon: "\u2699",    labelKey: "nt_tool_dispatch", color: "nc-tool" },
+      { type: "web-search",      icon: "\u{1F50D}", labelKey: "nt_web_search",    color: "nc-tool" },
+      { type: "code-exec",       icon: "\u{1F4BB}", labelKey: "nt_code_exec",     color: "nc-tool" },
+      { type: "api-call",        icon: "\u{1F517}", labelKey: "nt_api_call",      color: "nc-tool" },
+      { type: "file-read",       icon: "\u{1F4C4}", labelKey: "nt_file_read",     color: "nc-tool" },
+      { type: "file-write",      icon: "\u{1F4BE}", labelKey: "nt_file_write",    color: "nc-tool" },
     ]},
-    { group: "Memory", items: [
-      { type: "memory-search",   icon: "\u{1F50E}",  label: "Memory Search",     color: "nc-memory",   desc: "Search wiki pages" },
-      { type: "memory-write",    icon: "\u{1F4DD}",  label: "Memory Write",      color: "nc-memory",   desc: "Save to wiki" },
-      { type: "context-inject",  icon: "\u{1F4E5}",  label: "Context Inject",    color: "nc-memory",   desc: "Add context to prompt" },
-      { type: "knowledge-extract", icon: "\u{1F9E0}", label: "Knowledge Extract", color: "nc-memory",   desc: "Extract facts from text" },
+    { groupKey: "ng_memory", items: [
+      { type: "memory-search",     icon: "\u{1F50E}", labelKey: "nt_mem_search",  color: "nc-memory" },
+      { type: "memory-write",      icon: "\u{1F4DD}", labelKey: "nt_mem_write",   color: "nc-memory" },
+      { type: "context-inject",    icon: "\u{1F4E5}", labelKey: "nt_ctx_inject",  color: "nc-memory" },
+      { type: "knowledge-extract", icon: "\u{1F9E0}", labelKey: "nt_knowledge",   color: "nc-memory" },
     ]},
-    { group: "Control Flow", items: [
-      { type: "condition",       icon: "\u2747",     label: "Condition",         color: "nc-control",  desc: "If/else branch" },
-      { type: "merge",           icon: "\u{1F500}",  label: "Merge",             color: "nc-control",  desc: "Combine multiple inputs" },
-      { type: "loop",            icon: "\u{1F504}",  label: "Loop",              color: "nc-control",  desc: "Repeat N times" },
-      { type: "delay",           icon: "\u23F3",     label: "Delay",             color: "nc-control",  desc: "Wait before continuing" },
-      { type: "parallel",        icon: "\u2261",     label: "Parallel",          color: "nc-control",  desc: "Run branches in parallel" },
-      { type: "prompt-template", icon: "\u{1F4CB}",  label: "Prompt Template",   color: "nc-control",  desc: "Format text with variables" },
+    { groupKey: "ng_control", items: [
+      { type: "condition",       icon: "\u2747",    labelKey: "nt_condition",      color: "nc-control" },
+      { type: "merge",           icon: "\u{1F500}", labelKey: "nt_merge",          color: "nc-control" },
+      { type: "loop",            icon: "\u{1F504}", labelKey: "nt_loop",           color: "nc-control" },
+      { type: "delay",           icon: "\u23F3",    labelKey: "nt_delay",          color: "nc-control" },
+      { type: "parallel",        icon: "\u2261",    labelKey: "nt_parallel",       color: "nc-control" },
+      { type: "prompt-template", icon: "\u{1F4CB}", labelKey: "nt_prompt_tpl",     color: "nc-control" },
     ]},
-    { group: "Quality Gates", items: [
-      { type: "code-review",     icon: "\u{1F50F}",  label: "Code Review",       color: "nc-gate",     desc: "Human code review gate" },
-      { type: "human-review",    icon: "\u{1F464}",  label: "Human Review",      color: "nc-gate",     desc: "Manual approval step" },
-      { type: "guardrail",       icon: "\u{1F6E1}",  label: "Guardrail",         color: "nc-gate",     desc: "Safety/content filter" },
-      { type: "validator",       icon: "\u2714",     label: "Validator",         color: "nc-gate",     desc: "Check output format" },
-      { type: "test-runner",     icon: "\u{1F9EA}",  label: "Test Runner",       color: "nc-gate",     desc: "Run automated tests" },
+    { groupKey: "ng_gates", items: [
+      { type: "code-review",    icon: "\u{1F50F}", labelKey: "nt_code_review",    color: "nc-gate" },
+      { type: "human-review",   icon: "\u{1F464}", labelKey: "nt_human_review",   color: "nc-gate" },
+      { type: "guardrail",      icon: "\u{1F6E1}", labelKey: "nt_guardrail",      color: "nc-gate" },
+      { type: "validator",      icon: "\u2714",    labelKey: "nt_validator",       color: "nc-gate" },
+      { type: "test-runner",    icon: "\u{1F9EA}", labelKey: "nt_test_runner",     color: "nc-gate" },
     ]},
-    { group: "Platform", items: [
-      { type: "telegram-send",   icon: "\u2708",     label: "Telegram Send",     color: "nc-platform", desc: "Send Telegram message" },
-      { type: "email-send",      icon: "\u2709",     label: "Email Send",        color: "nc-platform", desc: "Send email" },
-      { type: "notify",          icon: "\u{1F514}",  label: "Notification",      color: "nc-platform", desc: "Push notification" },
+    { groupKey: "ng_platform", items: [
+      { type: "telegram-send",  icon: "\u2708",    labelKey: "nt_tg_send",        color: "nc-platform" },
+      { type: "email-send",     icon: "\u2709",    labelKey: "nt_email_send",     color: "nc-platform" },
+      { type: "notify",         icon: "\u{1F514}", labelKey: "nt_notify",          color: "nc-platform" },
     ]},
   ];
 
-  const PALETTE_FLAT = {};
-  PALETTE.forEach((g) => g.items.forEach((it) => { PALETTE_FLAT[it.type] = it; }));
+  // Resolve i18n at access time
+  function getPalette() {
+    const t = B.t;
+    return PALETTE_DEF.map((g) => ({
+      group: t(g.groupKey),
+      items: g.items.map((it) => ({ ...it, label: t(it.labelKey), desc: t(it.labelKey) })),
+    }));
+  }
+
+  function getPaletteFlat() {
+    const flat = {};
+    getPalette().forEach((g) => g.items.forEach((it) => { flat[it.type] = it; }));
+    return flat;
+  }
 
   function init() {
     if (initialized) return;
@@ -79,7 +92,8 @@
     // ── Build palette ──
     const palette = document.createElement("div");
     palette.className = "wf-palette";
-    palette.innerHTML = `<div class="wf-palette-header">Node Palette</div><input class="wf-palette-search" placeholder="Search nodes..." id="wf-pal-search" />`;
+    const t = B.t;
+    palette.innerHTML = `<div class="wf-palette-header">${t("node_palette")}</div><input class="wf-palette-search" placeholder="${t("search_nodes")}" id="wf-pal-search" />`;
 
     const palList = document.createElement("div");
     palList.className = "wf-palette-list";
@@ -99,6 +113,7 @@
         <button class="wf-tb-btn" id="wf-btn-samples">Samples</button>
         <button class="wf-tb-btn" id="wf-btn-save">Save</button>
         <button class="wf-tb-btn" id="wf-btn-load">Load</button>
+        <button class="wf-tb-btn" id="wf-btn-activate">Activate</button>
         <button class="wf-tb-btn" id="wf-btn-clear" >Clear</button>
       </div>
     `;
@@ -135,6 +150,7 @@
     canvasArea.querySelector("#wf-btn-save").onclick = saveCurrentWorkflow;
     canvasArea.querySelector("#wf-btn-load").onclick = loadWorkflowPrompt;
     canvasArea.querySelector("#wf-btn-clear").onclick = clearCanvas;
+    updateActivateButton();
 
     canvas.onmousedown = onCanvasMouseDown;
     canvas.onmousemove = onCanvasMouseMove;
@@ -157,7 +173,7 @@
 
   function buildPaletteList(el, filter) {
     el.innerHTML = "";
-    PALETTE.forEach((group) => {
+    getPalette().forEach((group) => {
       const items = group.items.filter((it) => !filter || it.label.toLowerCase().includes(filter) || it.type.includes(filter));
       if (!items.length) return;
       const gDiv = document.createElement("div");
@@ -215,7 +231,7 @@
 
   function addNode(type, x, y) {
     nodeIdCounter++;
-    const info = PALETTE_FLAT[type] || { icon: "?", label: type, color: "nc-io" };
+    const info = getPaletteFlat()[type] || { icon: "?", label: type, color: "nc-io" };
     nodes.push({
       id: `n${nodeIdCounter}`,
       type,
@@ -287,7 +303,7 @@
   }
 
   function drawNode(n) {
-    const info = PALETTE_FLAT[n.type] || { icon: "?", color: "nc-io" };
+    const info = getPaletteFlat()[n.type] || { icon: "?", color: "nc-io" };
     const isSelected = selectedNode?.id === n.id;
     const isHovered = hoveredNode?.id === n.id;
 
@@ -385,7 +401,7 @@
     ctx.save();
     ctx.setTransform(devicePixelRatio, 0, 0, devicePixelRatio, 0, 0);
     ctx.globalAlpha = 0.5;
-    const info = PALETTE_FLAT[type] || { icon: "?", label: type };
+    const info = getPaletteFlat()[type] || { icon: "?", label: type };
     ctx.fillStyle = "rgba(240, 240, 250, 0.1)";
     ctx.strokeStyle = "rgba(240, 240, 250, 0.3)";
     roundRect(ctx, mx - NODE_W / 2, my - NODE_H / 2, NODE_W, NODE_H, 8);
@@ -535,7 +551,7 @@
 
   function showConfig(node) {
     if (!configPanel) return;
-    const info = PALETTE_FLAT[node.type] || { label: node.type, desc: "" };
+    const info = getPaletteFlat()[node.type] || { label: node.type, desc: "" };
     configPanel.className = "wf-config open";
     configPanel.innerHTML = `
       <div class="wf-config-title">${B.esc(info.label)} — ${B.esc(node.id)}</div>
@@ -637,7 +653,7 @@
   }
 
   function loadWorkflow(wf) {
-    nodes = (wf.nodes || []).map((n) => ({ ...n, label: n.config?.label || PALETTE_FLAT[n.type]?.label || n.type }));
+    nodes = (wf.nodes || []).map((n) => ({ ...n, label: n.config?.label || getPaletteFlat()[n.type]?.label || n.type }));
     edges = [...(wf.edges || [])];
     currentWorkflowId = wf.id;
     nodeIdCounter = nodes.length;
@@ -662,7 +678,8 @@
   }
 
   async function saveCurrentWorkflow() {
-    const name = prompt("Workflow name:", currentWorkflowId || "my-workflow");
+    const t = B.t;
+    const name = prompt(t("workflow_name_prompt"), currentWorkflowId || "my-workflow");
     if (!name) return;
     const wf = {
       id: currentWorkflowId || name.toLowerCase().replace(/\s+/g, "-"),
@@ -678,8 +695,70 @@
         currentWorkflowId = data.id;
         const title = container.querySelector("#wf-title");
         if (title) title.textContent = name;
+
+        // Prompt to activate this workflow for chat
+        showActivatePrompt(data.id, name);
       }
     } catch { /* */ }
+  }
+
+  async function showActivatePrompt(workflowId, workflowName) {
+    const t = B.t;
+    const bar = document.createElement("div");
+    bar.className = "wf-activate-bar";
+    bar.innerHTML = `
+      <span class="wf-activate-text">${t("wf_activate_prompt")} <strong>${B.esc(workflowName)}</strong></span>
+      <button class="wf-activate-btn yes" id="wf-act-yes">${t("wf_activate_yes")}</button>
+      <button class="wf-activate-btn no" id="wf-act-no">${t("wf_activate_no")}</button>
+    `;
+
+    const canvasWrap = canvas.parentElement;
+    canvasWrap.appendChild(bar);
+
+    bar.querySelector("#wf-act-yes").onclick = async () => {
+      await setActiveWorkflow(workflowId);
+      bar.remove();
+      updateActivateButton();
+    };
+
+    bar.querySelector("#wf-act-no").onclick = () => bar.remove();
+
+    setTimeout(() => { if (bar.parentNode) bar.remove(); }, 15000);
+  }
+
+  async function setActiveWorkflow(workflowId) {
+    try {
+      await fetch("/api/settings", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ active_workflow: workflowId }),
+      });
+      if (B.currentConfig) B.currentConfig.active_workflow = workflowId;
+    } catch { /* */ }
+  }
+
+  async function deactivateWorkflow() {
+    await setActiveWorkflow(null);
+    updateActivateButton();
+  }
+
+  function updateActivateButton() {
+    const btn = container.querySelector("#wf-btn-activate");
+    if (!btn) return;
+    const activeId = B.currentConfig?.active_workflow;
+    if (activeId && activeId === currentWorkflowId) {
+      btn.textContent = B.t("wf_deactivate");
+      btn.classList.add("active");
+      btn.onclick = deactivateWorkflow;
+    } else if (currentWorkflowId && nodes.length) {
+      btn.textContent = B.t("wf_activate");
+      btn.classList.remove("active");
+      btn.onclick = () => { setActiveWorkflow(currentWorkflowId); updateActivateButton(); };
+    } else {
+      btn.textContent = B.t("wf_activate");
+      btn.classList.remove("active");
+      btn.onclick = () => {};
+    }
   }
 
   async function loadWorkflowPrompt() {
