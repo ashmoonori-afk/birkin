@@ -4,11 +4,13 @@ from __future__ import annotations
 
 from typing import Optional
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 
 class User(BaseModel):
     """Telegram User object."""
+
+    model_config = ConfigDict(populate_by_name=True)
 
     id: int
     is_bot: bool
@@ -19,6 +21,8 @@ class User(BaseModel):
 
 class Chat(BaseModel):
     """Telegram Chat object."""
+
+    model_config = ConfigDict(populate_by_name=True)
 
     id: int
     type: str  # "private", "group", "supergroup", "channel"
@@ -52,6 +56,8 @@ class Document(BaseModel):
 class Message(BaseModel):
     """Telegram Message object (subset of fields)."""
 
+    model_config = ConfigDict(populate_by_name=True)
+
     message_id: int
     date: int
     chat: Chat
@@ -65,8 +71,7 @@ class Message(BaseModel):
 class Update(BaseModel):
     """Telegram Update object (webhook payload)."""
 
+    model_config = ConfigDict(populate_by_name=True)
+
     update_id: int
     message: Optional[Message] = None
-
-    class Config:
-        populate_by_name = True

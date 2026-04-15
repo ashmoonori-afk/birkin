@@ -19,14 +19,24 @@ class MessageDispatcher:
     def __init__(self) -> None:
         """Initialize dispatcher."""
         self.session_store = get_session_store()
-        self._cached_tools = None
-        self._cached_provider_name = None
+        self._cached_tools: Optional[list[Any]] = None
 
     def _load_tools(self) -> list[Any]:
         """Load tools (cached to avoid reloading)."""
         if self._cached_tools is None:
             self._cached_tools = load_tools()
         return self._cached_tools
+
+    def _find_session_by_key(self, session_key: str) -> Optional[str]:
+        """Find a session ID by its platform key (stored as title).
+
+        Returns the session ID if found, None otherwise.
+        """
+        sessions = self.session_store.list_sessions(limit=200)
+        for s in sessions:
+            if s.title == session_key:
+                return s.id
+        return None
 
     async def dispatch_message(
         self,
@@ -50,34 +60,56 @@ class MessageDispatcher:
         Raises:
             Exception: If agent execution fails.
         """
-        # Load or create session
-        try:
-            session = self.session_store.load(session_key)
-            session_id = session.id
-        except KeyError:
+        # Look up existing session by platform key (stored as title)
+        session_id = self._find_session_by_key(session_key)
+
+        if session_id is None:
             # Create new session for this platform user
-            session = self.session_store.create()
-            # Store custom session key as title for lookup
-            session.title = session_key
-            self.session_store.save_session_metadata(session)
+            session = self.session_store.create(
+                title=session_key,
+                provider=provider,
+            )
             session_id = session.id
+
+        # Use config provider if available
+        try:
+            from birkin.gateway.config import load_config
+
+            config = load_config()
+            if config.get("provider"):
+                provider = config["provider"]
+            if config.get("model"):
+                model = config["model"]
+        except Exception:
+            pass
 
         # Create provider and agent
         model_str = f"{provider}/{model}" if model else f"{provider}/default"
         provider_instance = create_provider(model_str)
         tools = self._load_tools()
-        agent = Agent(
-            provider=provider_instance,
-            tools=tools,
-            session_store=self.session_store,
-            session_id=session_id,
-            memory=get_wiki_memory(),
-        )
+
+        agent_kwargs: dict[str, Any] = {
+            "provider": provider_instance,
+            "tools": tools,
+            "session_store": self.session_store,
+            "session_id": session_id,
+            "memory": get_wiki_memory(),
+        }
+
+        # Apply system prompt from config
+        try:
+            from birkin.gateway.config import load_config
+
+            config = load_config()
+            if config.get("system_prompt"):
+                agent_kwargs["system_prompt"] = config["system_prompt"]
+        except Exception:
+            pass
+
+        agent = Agent(**agent_kwargs)
 
         try:
-            # Run agent with message (async version)
             reply = await agent.achat(text)
-
             return reply
         except Exception as e:
             logger.error(f"Agent execution failed: {e}")

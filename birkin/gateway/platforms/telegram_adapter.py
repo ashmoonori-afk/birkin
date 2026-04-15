@@ -31,6 +31,8 @@ class TelegramAdapter:
         """Construct base API URL."""
         return f"{self.api_base}/bot{self.bot_token}"
 
+    _MAX_MSG_LEN = 4096
+
     async def send_message(
         self,
         chat_id: int,
@@ -39,28 +41,47 @@ class TelegramAdapter:
     ) -> dict[str, Any]:
         """Send a text message to a Telegram chat.
 
+        Automatically splits messages exceeding Telegram's 4096-char limit.
+
         Args:
             chat_id: Telegram chat ID.
             text: Message text.
             reply_to_message_id: Optional message ID to reply to.
 
         Returns:
-            API response dict.
+            API response dict (from the last chunk sent).
 
         Raises:
             httpx.HTTPError: If API call fails.
         """
-        payload = {
-            "chat_id": chat_id,
-            "text": text,
-        }
-        if reply_to_message_id:
-            payload["reply_to_message_id"] = reply_to_message_id
+        # Split long messages
+        chunks = []
+        while len(text) > self._MAX_MSG_LEN:
+            # Try to split at a newline near the limit
+            split_at = text.rfind("\n", 0, self._MAX_MSG_LEN)
+            if split_at < self._MAX_MSG_LEN // 2:
+                split_at = self._MAX_MSG_LEN
+            chunks.append(text[:split_at])
+            text = text[split_at:].lstrip("\n")
+        if text:
+            chunks.append(text)
 
-        url = f"{self.api_endpoint}/sendMessage"
-        response = await self.client.post(url, json=payload)
-        response.raise_for_status()
-        return response.json()
+        result: dict[str, Any] = {}
+        for i, chunk in enumerate(chunks):
+            payload: dict[str, Any] = {
+                "chat_id": chat_id,
+                "text": chunk,
+            }
+            # Only reply to the original message on the first chunk
+            if i == 0 and reply_to_message_id:
+                payload["reply_to_message_id"] = reply_to_message_id
+
+            url = f"{self.api_endpoint}/sendMessage"
+            response = await self.client.post(url, json=payload)
+            response.raise_for_status()
+            result = response.json()
+
+        return result
 
     async def set_webhook(self, webhook_url: str) -> dict[str, Any]:
         """Register webhook URL with Telegram.

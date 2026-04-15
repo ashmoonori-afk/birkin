@@ -275,6 +275,12 @@ def update_api_keys(body: dict) -> dict:
         os.environ[key_name] = key_value
         saved.append(key_name)
 
+    # Reset Telegram adapter if token changed (so it picks up the new one)
+    if "TELEGRAM_BOT_TOKEN" in body:
+        from birkin.gateway.deps import reset_telegram_adapter
+
+        reset_telegram_adapter()
+
     return {"saved": sorted(saved)}
 
 
@@ -514,14 +520,20 @@ async def telegram_set_webhook(body: dict):
     webhook_url = body.get("webhook_url", "")
     if not webhook_url:
         raise HTTPException(status_code=400, detail="webhook_url required")
-    adapter = get_telegram_adapter()
+    try:
+        adapter = get_telegram_adapter()
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
     result = await adapter.set_webhook(webhook_url)
     return result
 
 
 @router.delete("/telegram/webhook")
 async def telegram_delete_webhook():
-    adapter = get_telegram_adapter()
+    try:
+        adapter = get_telegram_adapter()
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
     result = await adapter.delete_webhook()
     return result
 
@@ -565,11 +577,10 @@ async def telegram_webhook(bot_token: str, data: dict) -> dict[str, str]:
         # Generate session key from Telegram user ID
         session_key = adapter.format_session_key(msg_info["user_id"])
 
-        # Dispatch message to agent
+        # Dispatch message to agent (provider from config)
         reply = await dispatcher.dispatch_message(
             text=msg_info["text"],
             session_key=session_key,
-            provider="anthropic",
         )
 
         # Send reply back to Telegram
