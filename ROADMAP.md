@@ -85,17 +85,28 @@
 
 ## Phase 2: Polish & Community (Next)
 
-**Goal:** Production-ready experience, contributor-friendly ecosystem.
+**Goal:** Production-ready experience, smarter memory, contributor-friendly ecosystem.
 
+### Memory Enhancements
+- [ ] **File upload to memory** — drag-and-drop md/csv/xls/pdf files into the Memory tab, auto-parse and ingest as wiki pages
+- [ ] **Smart categorization** — AI auto-classifies conversations into entities/concepts (not just sessions/)
+- [ ] **Auto wikilink** — detect related pages and auto-insert `[[links]]` between them
+- [ ] **Session summarization** — periodically summarize old session pages into condensed knowledge pages
+- [ ] **Memory search in chat** — `@memory` command to search wiki during conversation
+
+### Platform & Deployment
 - [ ] Discord, Slack, WhatsApp messaging adapters
+- [ ] Docker one-command deployment
 - [ ] Landing page and documentation site
+
+### Developer Experience
 - [ ] Plugin marketplace / community skill registry
 - [ ] Skill system (bundled + community skills)
 - [ ] Subagent delegation and parallel task execution
 - [ ] Scheduled tasks and automation workflows
-- [ ] Docker one-command deployment
-- [ ] Comprehensive test suite (80%+ coverage)
 - [ ] MCP integration
+- [ ] WebUI visual regression tests (Playwright screenshots)
+- [ ] Comprehensive test suite (80%+ coverage)
 
 ---
 
