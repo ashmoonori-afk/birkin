@@ -59,6 +59,10 @@ def create_provider(
         provider_name = "openai"
         model_name = model
 
+    # "default" means let the provider pick its own default model
+    if model_name == "default":
+        model_name = None
+
     if provider_name == "anthropic":
         return AnthropicProvider(model=model_name, api_key=api_key)
     elif provider_name == "openai":

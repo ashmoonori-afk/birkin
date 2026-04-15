@@ -4,50 +4,63 @@ from birkin.cli.main import create_parser
 
 
 class TestCreateParser:
-    def test_defaults(self):
+    def test_chat_defaults(self):
         parser = create_parser()
-        args = parser.parse_args([])
+        args = parser.parse_args(["chat"])
+        assert args.command == "chat"
         assert args.provider == "anthropic"
         assert args.model is None
         assert args.session is None
-        assert args.list_sessions is False
         assert args.no_tools is False
         assert args.system_prompt is None
 
-    def test_provider_openai(self):
+    def test_chat_provider_openai(self):
         parser = create_parser()
-        args = parser.parse_args(["--provider", "openai"])
+        args = parser.parse_args(["chat", "--provider", "openai"])
         assert args.provider == "openai"
 
-    def test_model_override(self):
+    def test_chat_model_override(self):
         parser = create_parser()
-        args = parser.parse_args(["--model", "gpt-4o-mini"])
+        args = parser.parse_args(["chat", "--model", "gpt-4o-mini"])
         assert args.model == "gpt-4o-mini"
 
-    def test_session_resume(self):
+    def test_chat_session_resume(self):
         parser = create_parser()
-        args = parser.parse_args(["--session", "abc123"])
+        args = parser.parse_args(["chat", "--session", "abc123"])
         assert args.session == "abc123"
 
-    def test_list_sessions_flag(self):
+    def test_chat_no_tools_flag(self):
         parser = create_parser()
-        args = parser.parse_args(["--list-sessions"])
-        assert args.list_sessions is True
-
-    def test_no_tools_flag(self):
-        parser = create_parser()
-        args = parser.parse_args(["--no-tools"])
+        args = parser.parse_args(["chat", "--no-tools"])
         assert args.no_tools is True
 
-    def test_system_prompt(self):
+    def test_chat_system_prompt(self):
         parser = create_parser()
-        args = parser.parse_args(["--system-prompt", "Be concise."])
+        args = parser.parse_args(["chat", "--system-prompt", "Be concise."])
         assert args.system_prompt == "Be concise."
 
-    def test_invalid_provider_rejected(self):
+    def test_chat_invalid_provider_rejected(self):
         parser = create_parser()
         try:
-            parser.parse_args(["--provider", "gemini"])
+            parser.parse_args(["chat", "--provider", "gemini"])
             assert False, "Expected SystemExit"
         except SystemExit:
             pass
+
+    def test_sessions_subcommand(self):
+        parser = create_parser()
+        args = parser.parse_args(["sessions"])
+        assert args.command == "sessions"
+
+    def test_serve_defaults(self):
+        parser = create_parser()
+        args = parser.parse_args(["serve"])
+        assert args.command == "serve"
+        assert args.host == "127.0.0.1"
+        assert args.port == 8321
+        assert args.reload is False
+
+    def test_no_subcommand_defaults_to_none(self):
+        parser = create_parser()
+        args = parser.parse_args([])
+        assert args.command is None

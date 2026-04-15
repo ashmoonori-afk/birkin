@@ -88,8 +88,7 @@ def repl(agent: Agent) -> None:
             console.print(Markdown(response))
             console.print()
         except NotImplementedError as exc:
-            console.print(f"[red]Provider not yet implemented:[/red] {exc}")
-            console.print("[dim]Waiting on BRA-59 for provider backends.[/dim]\n")
+            console.print(f"[red]Provider not yet implemented:[/red] {exc}\n")
         except Exception as exc:  # noqa: BLE001
             console.print(f"[red]Error:[/red] {exc}\n")
 
@@ -103,34 +102,41 @@ def cmd_chat(args: argparse.Namespace) -> None:
     """Handle ``birkin chat``."""
     store = SessionStore()
 
-    provider = create_provider(args.provider, model=args.model)
+    # Build model ID from provider + optional model override
+    model_id = args.model or f"{args.provider}/default"
+    if "/" not in model_id:
+        model_id = f"{args.provider}/{model_id}"
+    provider = create_provider(model_id)
+
     tools = [] if args.no_tools else load_tools()
-    session = store.load(args.session) if args.session else store.create()
 
     agent = Agent(
         provider=provider,
         tools=tools,
-        session=session,
+        session_store=store,
+        session_id=args.session,
         system_prompt=args.system_prompt,
     )
 
     repl(agent)
-    store.save(session)
+    store.close()
 
 
 def cmd_sessions(_args: argparse.Namespace) -> None:
     """Handle ``birkin sessions``."""
     store = SessionStore()
-    sessions = store.list_all()
+    sessions = store.list_sessions()
     if not sessions:
         console.print("[dim]No saved sessions.[/dim]")
     else:
         for s in sessions:
+            count = store.get_message_count(s.id)
             console.print(
                 f"  [bold]{s.id}[/bold]  "
                 f"{s.created_at:%Y-%m-%d %H:%M}  "
-                f"({s.message_count} msgs)"
+                f"({count} msgs)"
             )
+    store.close()
 
 
 def cmd_serve(args: argparse.Namespace) -> None:

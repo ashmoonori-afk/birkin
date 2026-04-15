@@ -157,7 +157,8 @@ class SessionStore:
             "SELECT MAX(seq) as max_seq FROM messages WHERE session_id = ?",
             (session_id,),
         ).fetchone()
-        seq = (row["max_seq"] or -1) + 1
+        max_seq = row["max_seq"]
+        seq = (max_seq + 1) if max_seq is not None else 0
 
         conn.execute(
             """
