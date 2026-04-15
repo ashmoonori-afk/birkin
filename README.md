@@ -6,40 +6,52 @@
 <p align="center">
   <a href="#quick-start">Quick Start</a> &bull;
   <a href="#features">Features</a> &bull;
-  <a href="docs/">Documentation</a> &bull;
   <a href="ROADMAP.md">Roadmap</a> &bull;
-  <a href="CONTRIBUTING.md">Contributing</a> &bull;
-  <a href="#community">Community</a>
+  <a href="CONTRIBUTING.md">Contributing</a>
 </p>
 
 <p align="center">
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-blue.svg" alt="MIT License"></a>
   <img src="https://img.shields.io/badge/python-3.11%2B-blue" alt="Python 3.11+">
-  <img src="https://img.shields.io/badge/models-200%2B-green" alt="200+ Models">
 </p>
 
 ---
 
-**Birkin** is an AI agent platform that makes powerful AI accessible to everyone — not just engineers. Deploy agents that learn, remember, and act on your behalf through a simple conversational interface.
+**Birkin** is an AI agent platform with a visual WebUI. Chat with AI, design workflows, manage memory, and connect Telegram — all from a cinematic dark-themed interface.
 
 ---
 
 ## Features
 
-| For Everyone | For Developers |
-|--------------|---------------|
-| Plain-language commands — no code required | 200+ model providers, zero vendor lock-in |
-| Works from Telegram, Discord, Slack, WhatsApp | MIT-licensed core — fork, extend, own it |
-| Agents that learn and improve over time | 40+ built-in tools, MCP integration, subagent delegation |
-| Schedule tasks, automate workflows, manage reports | Built-in RL training pipeline, research-ready |
-| Enterprise-grade security out of the box | Runs on a $5 VPS or a GPU cluster |
+### WebUI (4-Tab Interface)
 
-### What Makes Birkin Different
+| Tab | What It Does |
+|-----|-------------|
+| **Chat** | SSE streaming chat with real-time token rendering, agentic flow visualization (tool calls, thinking indicator) |
+| **Workflow** | Drag-and-drop workflow editor — 30+ node types, 10 sample flows, activate workflows for chat |
+| **Memory** | Obsidian-style knowledge graph — force-directed canvas, view/edit/search wiki pages, orphan detection |
+| **Telegram** | Step-by-step bot setup wizard, webhook management, connection status dashboard |
 
-- **Self-improving agents** — Built-in learning loop creates skills from experience. Your agent gets better the more you use it.
-- **Messaging-first** — Talk to your agent from Telegram, WhatsApp, Discord, or Slack. Not just a terminal.
-- **Cybersecurity management** — Premium tier addresses enterprise vulnerability scanning, threat detection, and security policy enforcement.
-- **Serverless-ready** — Deploy on Modal or Daytona for near-zero cost when idle. Scale up when you need it.
+### Core
+
+| Feature | Description |
+|---------|-------------|
+| **Multi-provider** | Anthropic Claude, OpenAI GPT, Claude Code CLI, Codex CLI — switch providers from the settings panel |
+| **Local CLI support** | Use `claude` or `codex` CLI without API keys — real-time stdout streaming |
+| **Session persistence** | SQLite-backed conversation history with full session management |
+| **LLM Wiki Memory** | Markdown-based persistent knowledge store — agents remember across sessions |
+| **Tool system** | Abstract tool interface with registry, loader, and provider-agnostic schema export |
+| **Fallback chain** | Configure a fallback provider if the primary one fails |
+| **i18n** | Korean + English UI — toggle instantly from the topbar |
+| **Onboarding** | First-launch wizard auto-detects available providers and guides setup |
+
+### Messaging
+
+| Platform | Status |
+|----------|--------|
+| **Telegram** | Working — webhook-based, auto-split long messages, session persistence per user |
+| **CLI** | Working — `birkin chat` for terminal REPL |
+| Discord / Slack / WhatsApp | Planned (Phase 2) |
 
 ---
 
@@ -47,66 +59,48 @@
 
 ### One-Click Launch (Easiest)
 
-No terminal experience needed — just download and double-click:
-
-**macOS / Linux:**
+**macOS:**
 1. Download or clone the repository
-2. Double-click **`start.sh`** (or run `./start.sh` in a terminal)
-3. The script automatically sets up everything and launches Birkin
+2. Double-click **`Birkin.command`** (or `start.sh`)
+3. Browser opens automatically at `http://127.0.0.1:8321`
 
 **Windows:**
 1. Download or clone the repository
 2. Double-click **`start.bat`**
-3. The script automatically sets up everything and launches Birkin
+3. Browser opens automatically
 
-> The launch scripts handle Python virtual environments, dependency installation,
-> and starting Birkin — all in one step. On the first run it may take a minute
-> to install dependencies; subsequent launches are near-instant.
+**What happens:** The script creates a virtual environment, installs dependencies, starts the WebUI server, and opens your browser. First run takes ~1 minute; subsequent launches are instant.
 
-### Manual Setup (Developers)
+### Manual Setup
 
 ```bash
-# Clone the repository
-git clone https://github.com/MoonGwanghoon/birkin.git
+git clone https://github.com/ashmoonori-afk/birkin.git
 cd birkin
 
-# Install with uv (recommended) or pip
-uv pip install -e ".[all]"
-# or: pip install -e ".[all]"
+python3 -m venv .venv && source .venv/bin/activate
+pip install -e "."
 
-# Start chatting
+# Launch WebUI (default)
+birkin
+
+# Or CLI chat
 birkin chat
 ```
 
-**Requirements:** Python 3.11+ &bull; Node.js 18+ (for browser tools)
+### Configuration
 
----
+Copy `.env.example` to `.env` and add your API key(s):
 
-## How It Works
-
+```bash
+cp .env.example .env
+# Edit .env — add at least one:
+# ANTHROPIC_API_KEY=sk-ant-...
+# OPENAI_API_KEY=sk-...
 ```
-You (plain language)  →  Birkin Agent  →  Action
-     ↑                       ↓
-     └── Response ← Skills + Tools + Memory
-```
 
-1. **Tell Birkin what you need** in plain language — from your terminal or messaging app.
-2. **Birkin plans and acts** using 40+ tools: web search, file operations, code execution, browser automation, and more.
-3. **Birkin learns** from every interaction, building skills and memory that make it better over time.
+Or skip API keys entirely — if you have `claude` or `codex` CLI installed, Birkin can use them directly (select "Claude Code" or "Codex CLI" in the onboarding wizard or settings).
 
----
-
-## Comparison
-
-| Feature | **Birkin** | AutoGPT | CrewAI | LangChain Agents |
-|---------|-----------|---------|--------|-----------------:|
-| Target user | Everyone | Developers | Developers | Developers |
-| Setup difficulty | One command | High | Medium | High |
-| Learning loop | Built-in | Limited | None | None |
-| Messaging platforms | Telegram, Discord, Slack, WhatsApp | None | None | None |
-| Model providers | 200+ | OpenAI-centric | Multiple | Multiple |
-| Serverless deploy | Modal, Daytona | No | No | No |
-| Cybersecurity focus | Premium tier | No | No | No |
+**Requirements:** Python 3.11+
 
 ---
 
@@ -114,84 +108,77 @@ You (plain language)  →  Birkin Agent  →  Action
 
 ```
 birkin/
-├── agent/          # Core agent loop, context management, memory
-├── tools/          # 40+ built-in tools (terminal, web, files, browser, etc.)
-├── skills/         # Bundled skill library
-├── gateway/        # Multi-platform messaging (Telegram, Discord, Slack, WhatsApp)
-├── birkin_cli/     # CLI interface and setup wizard
-├── web/            # Web UI components
-└── tests/          # Test suite
+├── core/               # Agent loop, models, session, providers
+│   ├── agent.py        # Conversation loop with tool dispatch
+│   ├── session.py      # SQLite session persistence (WAL mode)
+│   ├── models.py       # Message, ToolCall, ToolResult dataclasses
+│   ├── errors.py       # Error hierarchy (BirkinError → ProviderError)
+│   ├── defaults.py     # System prompt (Karpathy guidelines)
+│   └── providers/      # LLM provider abstraction
+│       ├── base.py     # Provider ABC, ProviderResponse, TokenUsage
+│       ├── anthropic.py # Anthropic Messages API
+│       ├── openai.py   # OpenAI Chat Completions (+ OpenRouter)
+│       └── local_cli.py # Claude Code / Codex CLI (streaming)
+├── tools/              # Tool interface, registry, dynamic loader
+├── memory/             # LLM Wiki — markdown-based knowledge store
+├── gateway/            # FastAPI backend
+│   ├── app.py          # Application factory
+│   ├── routes.py       # API routes (chat, SSE, sessions, wiki, telegram, workflows, settings)
+│   ├── config.py       # JSON config persistence
+│   ├── workflows.py    # Workflow definitions + 10 samples
+│   ├── dispatcher.py   # Platform message routing
+│   └── platforms/      # Telegram adapter + schemas
+├── cli/                # CLI entry point (chat REPL, serve)
+├── web/static/         # WebUI (vanilla JS, SpaceX dark theme)
+│   ├── index.html      # 4-tab SPA shell
+│   ├── style.css       # SpaceX cinematic dark design system
+│   ├── i18n.js         # Korean/English translations (185+ keys)
+│   ├── app.js          # Chat, settings, onboarding, view router
+│   ├── workflow.js     # Drag-and-drop workflow editor
+│   ├── memory.js       # Force-directed wiki graph
+│   └── telegram.js     # Telegram setup wizard + dashboard
+└── tests/              # 99 tests (pytest + xdist)
 ```
 
 ---
 
-## Messaging Platforms
+## API Endpoints
 
-Connect Birkin to your preferred messaging platform:
-
-| Platform | Status | Setup Guide |
-|----------|--------|-------------|
-| **Telegram** | Stable | `birkin gateway --platform telegram` |
-| **Discord** | Stable | `birkin gateway --platform discord` |
-| **Slack** | Stable | `birkin gateway --platform slack` |
-| **WhatsApp** | Stable | `birkin gateway --platform whatsapp` |
-| **Signal** | Beta | `birkin gateway --platform signal` |
-| **CLI** | Stable | `birkin chat` |
-
----
-
-## Self-Hosting
-
-Birkin runs anywhere Python runs:
-
-| Environment | Cost | Best For |
-|------------|------|----------|
-| Local machine | Free | Development, testing |
-| $5/mo VPS | ~$5/mo | Personal agent, always-on |
-| Modal | Pay-per-use | Serverless, scales to zero |
-| Daytona | Pay-per-use | Cloud dev environments |
-| GPU cluster | Varies | Local model inference, RL training |
-
----
-
-## Premium Features
-
-Start free with the full open-source core. Upgrade when you need:
-
-| Feature | Free (OSS) | Premium |
-|---------|:----------:|:-------:|
-| All 200+ model providers | Yes | Yes |
-| CLI + messaging platforms | Yes | Yes |
-| Learning loop, skills, memory | Yes | Yes |
-| Community support | Yes | Yes |
-| Cybersecurity management harness | — | Yes |
-| Team workspace with RBAC | — | Yes |
-| Analytics dashboard | — | Yes |
-| Managed hosting with SLA | — | Yes |
-| Priority support (24h SLA) | — | Yes |
+| Method | Path | Description |
+|--------|------|-------------|
+| POST | `/api/chat` | Send message, get reply (blocking) |
+| POST | `/api/chat/stream` | SSE streaming chat |
+| GET | `/api/sessions` | List all sessions |
+| POST | `/api/sessions` | Create new session |
+| GET | `/api/sessions/{id}` | Get session with messages |
+| DELETE | `/api/sessions/{id}` | Delete session |
+| GET/PUT | `/api/settings` | Read/write config |
+| PUT | `/api/settings/keys` | Save API keys to .env |
+| GET | `/api/settings/providers` | Detect available providers |
+| GET/PUT/DELETE | `/api/workflows` | Workflow CRUD |
+| GET | `/api/wiki/pages` | List wiki pages |
+| GET/PUT/DELETE | `/api/wiki/pages/{cat}/{slug}` | Wiki page CRUD |
+| GET | `/api/wiki/graph` | Node-link graph data |
+| GET | `/api/wiki/search?q=` | Search wiki |
+| GET | `/api/telegram/status` | Bot + webhook status |
+| POST/DELETE | `/api/telegram/webhook` | Webhook management |
+| POST | `/api/webhooks/telegram/{token}` | Telegram webhook receiver |
+| GET | `/api/health` | Health check |
 
 ---
 
 ## Contributing
 
-We welcome contributions! See [CONTRIBUTING.md](CONTRIBUTING.md) for the full guide.
+See [CONTRIBUTING.md](CONTRIBUTING.md) for the full guide.
 
-**Quick version:**
+```bash
+# Run tests
+pytest tests/ -q
 
-1. Fork the repo and create a feature branch
-2. Make your changes (skills are usually better than tools — see the guide)
-3. Run tests: `pytest tests/ -q`
-4. Submit a PR with clear description
-
-**Good first issues** are labeled [`good-first-issue`](https://github.com/MoonGwanghoon/birkin/labels/good-first-issue).
-
----
-
-## Community
-
-- **Discord** — Questions, showcasing projects, sharing skills <!-- TODO: Add Discord invite link -->
-- **GitHub Issues** — Bug reports and feature requests
-- **GitHub Discussions** — Ideas, Q&A, community showcase
+# Lint
+ruff check .
+ruff format --check .
+```
 
 ---
 
