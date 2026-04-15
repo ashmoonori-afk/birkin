@@ -178,7 +178,12 @@ async def chat_stream(body: ChatRequest) -> StreamingResponse:
                     except Exception:
                         pass
 
-                engine = WorkflowEngine(provider, fallback_provider=fb_provider, event_callback=on_event)
+                engine = WorkflowEngine(
+                    provider,
+                    fallback_provider=fb_provider,
+                    event_callback=on_event,
+                    wiki_memory=get_wiki_memory(),
+                )
                 engine.load(active_workflow)
 
                 wf_task: asyncio.Task[str] = asyncio.create_task(engine.run(body.message))
