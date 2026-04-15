@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import asyncio
-from typing import Any, Callable
+from typing import Any, Callable, Optional
 
 from birkin.core.defaults import DEFAULT_SYSTEM_PROMPT
 from birkin.core.models import Message, ToolCall, ToolResult
@@ -22,11 +22,11 @@ class Agent:
         self,
         provider: Provider,
         *,
-        tools: list[Tool] | None = None,
-        session_store: SessionStore | None = None,
-        session_id: str | None = None,
-        system_prompt: str | None = None,
-        memory: WikiMemory | None = None,
+        tools: Optional[list[Tool]] = None,
+        session_store: Optional[SessionStore] = None,
+        session_id: Optional[str] = None,
+        system_prompt: Optional[str] = None,
+        memory: Optional[WikiMemory] = None,
         max_turns: int = _DEFAULT_MAX_TURNS,
     ) -> None:
         self._provider = provider
@@ -80,7 +80,7 @@ class Agent:
     def stream(
         self,
         user_input: str,
-        callback: Callable[[str], None] | None = None,
+        callback: Optional[Callable[[str], None]] = None,
     ) -> str:
         """Send a user message with streaming deltas.
 
@@ -94,7 +94,7 @@ class Agent:
     async def astream(
         self,
         user_input: str,
-        callback: Callable[[str], None] | None = None,
+        callback: Optional[Callable[[str], None]] = None,
     ) -> str:
         """Async version of stream."""
         user_msg = Message(role="user", content=user_input)
@@ -103,7 +103,7 @@ class Agent:
         return await self._run_loop_async(stream_callback=callback)
 
     def _run_loop(
-        self, stream_callback: Callable[[str], None] | None = None
+        self, stream_callback: Optional[Callable[[str], None]] = None
     ) -> str:
         """Synchronous conversation loop with tool dispatch."""
         turn = 0
@@ -160,7 +160,7 @@ class Agent:
         return final_text
 
     async def _run_loop_async(
-        self, stream_callback: Callable[[str], None] | None = None
+        self, stream_callback: Optional[Callable[[str], None]] = None
     ) -> str:
         """Asynchronous conversation loop with tool dispatch."""
         turn = 0
@@ -211,7 +211,7 @@ class Agent:
         return final_text
 
     @property
-    def memory(self) -> WikiMemory | None:
+    def memory(self) -> Optional[WikiMemory]:
         return self._memory
 
     def _build_messages(self) -> list[Message]:

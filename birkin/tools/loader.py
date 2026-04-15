@@ -6,6 +6,7 @@ import importlib
 import inspect
 import logging
 from pathlib import Path
+from typing import Optional
 
 from birkin.tools.base import Tool
 from birkin.tools.registry import ToolRegistry
@@ -19,7 +20,7 @@ class ToolLoader:
     @staticmethod
     def load_from_directory(
         path: Path,
-        registry: ToolRegistry | None = None,
+        registry: Optional[ToolRegistry] = None,
     ) -> list[str]:
         """Load all Tool subclasses from Python files in a directory.
 
@@ -81,7 +82,7 @@ class ToolLoader:
     @staticmethod
     def load_from_module(
         module_path: str,
-        registry: ToolRegistry | None = None,
+        registry: Optional[ToolRegistry] = None,
     ) -> list[str]:
         """Load Tool subclasses from a module by dotted path.
 

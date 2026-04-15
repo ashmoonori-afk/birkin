@@ -5,7 +5,7 @@ from __future__ import annotations
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from enum import Enum
-from typing import Any, Callable
+from typing import Any, Callable, Optional
 
 from birkin.core.models import Message, ToolCall
 
@@ -39,11 +39,11 @@ class ModelCapabilities:
 class ProviderResponse:
     """Response returned by a provider after completion."""
 
-    content: str | None = None
-    tool_calls: list[ToolCall] | None = None
-    usage: TokenUsage | None = None
-    stop_reason: str | None = None
-    model: str | None = None
+    content: Optional[str] = None
+    tool_calls: Optional[list[ToolCall]] = None
+    usage: Optional[TokenUsage] = None
+    stop_reason: Optional[str] = None
+    model: Optional[str] = None
 
 
 class ProviderErrorKind(Enum):
@@ -64,7 +64,7 @@ class ProviderError(Exception):
         self,
         message: str,
         kind: ProviderErrorKind = ProviderErrorKind.UNKNOWN,
-        original_error: Exception | None = None,
+        original_error: Optional[Exception] = None,
     ) -> None:
         self.message = message
         self.kind = kind
@@ -109,8 +109,8 @@ class Provider(ABC):
         self,
         messages: list[Message],
         *,
-        tools: list[dict[str, Any]] | None = None,
-        stream_callback: Callable[[str | None], None] | None = None,
+        tools: Optional[list[dict[str, Any]]] = None,
+        stream_callback: Optional[Callable[[Optional[str]], None]] = None,
     ) -> ProviderResponse:
         """Synchronous completion.
 
@@ -132,8 +132,8 @@ class Provider(ABC):
         self,
         messages: list[Message],
         *,
-        tools: list[dict[str, Any]] | None = None,
-        stream_callback: Callable[[str | None], None] | None = None,
+        tools: Optional[list[dict[str, Any]]] = None,
+        stream_callback: Optional[Callable[[Optional[str]], None]] = None,
     ) -> ProviderResponse:
         """Asynchronous completion.
 

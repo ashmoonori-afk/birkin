@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from datetime import datetime
+from typing import Optional
 
 from pydantic import BaseModel, Field
 
@@ -13,13 +14,13 @@ from pydantic import BaseModel, Field
 class ChatRequest(BaseModel):
     """Payload for POST /api/chat."""
 
-    session_id: str | None = Field(
+    session_id: Optional[str] = Field(
         default=None,
         description="Session to continue. A new session is created when omitted.",
     )
     message: str = Field(..., min_length=1, description="User message text.")
     provider: str = Field(default="anthropic", description="LLM provider name.")
-    model: str | None = Field(default=None, description="Model override.")
+    model: Optional[str] = Field(default=None, description="Model override.")
 
 
 class ChatResponse(BaseModel):

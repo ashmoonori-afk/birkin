@@ -10,7 +10,7 @@ from __future__ import annotations
 import datetime as dt
 import re
 from pathlib import Path
-from typing import Any
+from typing import Any, Optional, Union
 
 from birkin.core.defaults import DEFAULT_MEMORY_SCHEMA
 
@@ -22,14 +22,14 @@ class WikiMemory:
 
     Parameters
     ----------
-    root : str | Path
+    root : Union[str, Path]
         Root directory for the memory store. Created on first write.
-    schema : str | None
+    schema : Optional[str]
         Optional override for the memory schema. Uses the Birkin default
         schema if not provided.
     """
 
-    def __init__(self, root: str | Path, *, schema: str | None = None) -> None:
+    def __init__(self, root: Union[str, Path], *, schema: Optional[str] = None) -> None:
         self._root = Path(root)
         self._schema = schema or DEFAULT_MEMORY_SCHEMA
 
@@ -145,7 +145,7 @@ class WikiMemory:
                     )
         return results
 
-    def get_page(self, category: str, slug: str) -> str | None:
+    def get_page(self, category: str, slug: str) -> Optional[str]:
         """Read a single wiki page. Returns ``None`` if it doesn't exist."""
         page_path = self.wiki_dir / category / f"{slug}.md"
         if page_path.is_file():

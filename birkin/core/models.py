@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Any, AsyncIterator, Iterator
+from typing import Any, AsyncIterator, Iterator, Optional
 
 
 @dataclass(frozen=True)
@@ -12,8 +12,8 @@ class Message:
 
     role: str  # "system" | "user" | "assistant" | "tool"
     content: str
-    tool_calls: list[dict[str, Any]] | None = None
-    tool_call_id: str | None = None
+    tool_calls: Optional[list[dict[str, Any]]] = None
+    tool_call_id: Optional[str] = None
 
 
 @dataclass(frozen=True)
@@ -40,9 +40,9 @@ class StreamDelta:
     """A delta (partial update) in a streaming response."""
 
     type: str  # "text_delta" | "tool_call_start" | "tool_call_delta" | "stop"
-    content: str | None = None
-    tool_call: ToolCall | None = None
-    stop_reason: str | None = None
+    content: Optional[str] = None
+    tool_call: Optional[ToolCall] = None
+    stop_reason: Optional[str] = None
 
 
 @dataclass
@@ -60,10 +60,10 @@ class ProviderConfig:
 
     name: str  # "anthropic" | "openai"
     model: str
-    api_key: str | None = None
-    base_url: str | None = None
+    api_key: Optional[str] = None
+    base_url: Optional[str] = None
     temperature: float = 1.0
-    max_tokens: int | None = None
+    max_tokens: Optional[int] = None
 
 
 @dataclass(frozen=True)
@@ -72,4 +72,4 @@ class AgentResponse:
 
     message: Message
     usage: dict[str, int] = field(default_factory=dict)
-    stop_reason: str | None = None
+    stop_reason: Optional[str] = None

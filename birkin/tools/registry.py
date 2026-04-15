@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import threading
-from typing import Any
+from typing import Any, Optional
 
 from birkin.tools.base import Tool, ToolContext, ToolResult
 
@@ -28,7 +28,7 @@ class ToolRegistry:
         with self._lock:
             self._tools.pop(name, None)
 
-    def get(self, name: str) -> Tool | None:
+    def get(self, name: str) -> Optional[Tool]:
         """Look up a tool by name."""
         with self._lock:
             return self._tools.get(name)
@@ -69,7 +69,7 @@ class ToolRegistry:
         self,
         tool_name: str,
         args: dict[str, Any],
-        context: ToolContext | None = None,
+        context: Optional[ToolContext] = None,
     ) -> ToolResult:
         """Execute a tool by name.
 

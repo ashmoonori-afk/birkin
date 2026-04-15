@@ -9,6 +9,7 @@ import uuid
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
+from typing import Optional, Union
 
 from birkin.core.models import Message
 
@@ -19,17 +20,17 @@ class Session:
 
     id: str
     created_at: datetime
-    title: str | None = None
-    provider: str | None = None
-    model: str | None = None
+    title: Optional[str] = None
+    provider: Optional[str] = None
+    model: Optional[str] = None
 
     @classmethod
     def new(
         cls,
         *,
-        title: str | None = None,
-        provider: str | None = None,
-        model: str | None = None,
+        title: Optional[str] = None,
+        provider: Optional[str] = None,
+        model: Optional[str] = None,
     ) -> Session:
         """Create a new session."""
         return cls(
@@ -44,7 +45,7 @@ class Session:
 class SessionStore:
     """SQLite-backed session store with thread-safe access via WAL mode."""
 
-    def __init__(self, db_path: str | Path = "birkin_sessions.db") -> None:
+    def __init__(self, db_path: Union[str, Path] = "birkin_sessions.db") -> None:
         self._db_path = Path(db_path)
         self._local = threading.local()
         self._init_schema()
@@ -93,9 +94,9 @@ class SessionStore:
     def create(
         self,
         *,
-        title: str | None = None,
-        provider: str | None = None,
-        model: str | None = None,
+        title: Optional[str] = None,
+        provider: Optional[str] = None,
+        model: Optional[str] = None,
     ) -> Session:
         """Create a new session."""
         session = Session.new(title=title, provider=provider, model=model)
@@ -177,7 +178,7 @@ class SessionStore:
         conn.commit()
 
     def get_messages(
-        self, session_id: str, limit: int | None = None, offset: int = 0
+        self, session_id: str, limit: Optional[int] = None, offset: int = 0
     ) -> list[Message]:
         """Retrieve messages from a session with pagination."""
         conn = self._get_connection()

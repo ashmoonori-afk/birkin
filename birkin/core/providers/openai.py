@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import os
-from typing import Any, Callable
+from typing import Any, Callable, Optional
 
 from openai import AsyncOpenAI, OpenAI
 
@@ -34,9 +34,9 @@ class OpenAIProvider(Provider):
     def __init__(
         self,
         *,
-        model: str | None = None,
-        api_key: str | None = None,
-        base_url: str | None = None,
+        model: Optional[str] = None,
+        api_key: Optional[str] = None,
+        base_url: Optional[str] = None,
     ) -> None:
         self._model = model or _DEFAULT_MODEL
         api_key = api_key or os.getenv("OPENAI_API_KEY")
@@ -67,8 +67,8 @@ class OpenAIProvider(Provider):
         self,
         messages: list[Message],
         *,
-        tools: list[dict[str, Any]] | None = None,
-        stream_callback: Callable[[str | None], None] | None = None,
+        tools: Optional[list[dict[str, Any]]] = None,
+        stream_callback: Optional[Callable[[Optional[str]], None]] = None,
     ) -> ProviderResponse:
         """Synchronous completion using OpenAI Chat Completions API."""
         try:
@@ -116,8 +116,8 @@ class OpenAIProvider(Provider):
         self,
         messages: list[Message],
         *,
-        tools: list[dict[str, Any]] | None = None,
-        stream_callback: Callable[[str | None], None] | None = None,
+        tools: Optional[list[dict[str, Any]]] = None,
+        stream_callback: Optional[Callable[[Optional[str]], None]] = None,
     ) -> ProviderResponse:
         """Asynchronous completion using OpenAI Chat Completions API."""
         try:
@@ -232,9 +232,9 @@ class OpenAIProvider(Provider):
     def _complete_stream(
         self,
         messages: list[dict[str, Any]],
-        tools: list[dict[str, Any]] | None,
-        tool_choice: str | None,
-        stream_callback: Callable[[str | None], None],
+        tools: Optional[list[dict[str, Any]]],
+        tool_choice: Optional[str],
+        stream_callback: Callable[[Optional[str]], None],
     ) -> ProviderResponse:
         """Handle streaming completion."""
         accumulated_text = ""
@@ -271,9 +271,9 @@ class OpenAIProvider(Provider):
     async def _acomplete_stream(
         self,
         messages: list[dict[str, Any]],
-        tools: list[dict[str, Any]] | None,
-        tool_choice: str | None,
-        stream_callback: Callable[[str | None], None],
+        tools: Optional[list[dict[str, Any]]],
+        tool_choice: Optional[str],
+        stream_callback: Callable[[Optional[str]], None],
     ) -> ProviderResponse:
         """Handle async streaming completion."""
         accumulated_text = ""

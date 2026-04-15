@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Any, Callable
+from typing import Any, Callable, Optional
 
 import pytest
 
@@ -34,8 +34,8 @@ class FakeProvider(Provider):
         self,
         messages: list[Message],
         *,
-        tools: list[dict[str, Any]] | None = None,
-        stream_callback: Callable[[str | None], None] | None = None,
+        tools: Optional[list[dict[str, Any]]] = None,
+        stream_callback: Optional[Callable[[Optional[str]], None]] = None,
     ) -> ProviderResponse:
         self.last_messages = messages
         return ProviderResponse(
@@ -48,8 +48,8 @@ class FakeProvider(Provider):
         self,
         messages: list[Message],
         *,
-        tools: list[dict[str, Any]] | None = None,
-        stream_callback: Callable[[str | None], None] | None = None,
+        tools: Optional[list[dict[str, Any]]] = None,
+        stream_callback: Optional[Callable[[Optional[str]], None]] = None,
     ) -> ProviderResponse:
         return self.complete(messages, tools=tools, stream_callback=stream_callback)
 

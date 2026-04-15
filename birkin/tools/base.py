@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, Optional
 
 from pydantic import BaseModel
 
@@ -15,8 +15,8 @@ class ToolResult:
 
     success: bool
     output: str
-    error: str | None = None
-    metadata: dict[str, Any] | None = None
+    error: Optional[str] = None
+    metadata: Optional[dict[str, Any]] = None
 
 
 class ToolParameter(BaseModel, frozen=True):
@@ -26,8 +26,8 @@ class ToolParameter(BaseModel, frozen=True):
     type: str
     description: str
     required: bool = True
-    default: Any | None = None
-    enum: list[str] | None = None
+    default: Optional[Any] = None
+    enum: Optional[list[str]] = None
 
 
 class ToolSpec(BaseModel, frozen=True):
@@ -44,11 +44,11 @@ class ToolSpec(BaseModel, frozen=True):
 class ToolContext:
     """Context provided to a tool during execution."""
 
-    task_id: str | None = None
-    session_id: str | None = None
-    platform: str | None = None
-    working_dir: str | None = None
-    user_id: str | None = None
+    task_id: Optional[str] = None
+    session_id: Optional[str] = None
+    platform: Optional[str] = None
+    working_dir: Optional[str] = None
+    user_id: Optional[str] = None
 
 
 class Tool(ABC):

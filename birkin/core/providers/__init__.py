@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from typing import Optional
+
 from birkin.core.providers.anthropic import AnthropicProvider
 from birkin.core.providers.base import (
     ModelCapabilities,
@@ -29,8 +31,8 @@ __all__ = [
 def create_provider(
     model: str,
     *,
-    api_key: str | None = None,
-    base_url: str | None = None,
+    api_key: Optional[str] = None,
+    base_url: Optional[str] = None,
 ) -> Provider:
     """Factory function to create a provider based on model ID.
 

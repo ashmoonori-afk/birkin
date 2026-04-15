@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from typing import Optional
+
 
 class BirkinError(Exception):
     """Base exception for all Birkin errors."""
@@ -12,7 +14,7 @@ class BirkinError(Exception):
 class ProviderError(BirkinError):
     """Error from an LLM provider."""
 
-    def __init__(self, message: str, provider: str | None = None) -> None:
+    def __init__(self, message: str, provider: Optional[str] = None) -> None:
         self.message = message
         self.provider = provider
         super().__init__(message)
