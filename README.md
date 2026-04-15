@@ -7,6 +7,7 @@
   <a href="#quick-start">Quick Start</a> &bull;
   <a href="#features">Features</a> &bull;
   <a href="docs/">Documentation</a> &bull;
+  <a href="ROADMAP.md">Roadmap</a> &bull;
   <a href="CONTRIBUTING.md">Contributing</a> &bull;
   <a href="#community">Community</a>
 </p>

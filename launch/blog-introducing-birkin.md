@@ -82,11 +82,11 @@ For teams that need more, Birkin's premium tier adds:
 - Team workspaces with role-based access control
 - Analytics and audit logs
 
-## Built on Hermes Agent
+## Built from the Ground Up
 
-Birkin is built on [Hermes Agent](https://github.com/NousResearch/Hermes-Agent) by Nous Research — an MIT-licensed foundation with 40+ tools, MCP integration, and a built-in RL training pipeline.
+Birkin is a ground-up AI agent platform with 40+ tools, MCP integration, and a built-in skill system. Inspired by the open-source AI agent community — and designed with a singular focus on accessibility.
 
-We took that powerful core and wrapped it in an interface that anyone can use. The engineering depth is still there for developers who want it. But you don't need to see it to benefit from it.
+The engineering depth is there for developers who want it. But you don't need to see it to benefit from it.
 
 ## Who Is Birkin For?
 

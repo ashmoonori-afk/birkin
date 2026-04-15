@@ -649,8 +649,9 @@ test(tools): add unit tests for file_operations
 
 ## Community
 
-- **Discord**: [discord.gg/NousResearch](https://discord.gg/NousResearch) — for questions, showcasing projects, and sharing skills
-- **GitHub Discussions**: For design proposals and architecture discussions
+- **Discord**: <!-- TODO: Add Birkin Discord invite link --> — Questions, project showcases, sharing skills
+- **GitHub Discussions**: Design proposals, architecture discussions, Q&A
+- **GitHub Issues**: Bug reports, feature requests, setup help
 - **Skills Hub**: Upload specialized skills to a registry and share them with the community
 
 ---
