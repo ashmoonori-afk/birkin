@@ -594,6 +594,29 @@ async def telegram_start_polling():
     return {"status": "started"}
 
 
+@router.post("/telegram/send-test")
+async def telegram_send_test(body: dict):
+    """Send a test message to a specific chat_id."""
+    chat_id = body.get("chat_id")
+    if not chat_id:
+        raise HTTPException(status_code=400, detail="chat_id required")
+    try:
+        chat_id = int(chat_id)
+    except (ValueError, TypeError):
+        raise HTTPException(status_code=400, detail="chat_id must be a number")
+    try:
+        adapter = get_telegram_adapter()
+        result = await adapter.send_message(
+            chat_id=chat_id,
+            text="Birkin is connected! \u2705\nYou can now send messages to this bot.",
+        )
+        return {"status": "ok", "result": result.get("result", {})}
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=str(exc))
+
+
 @router.post("/telegram/polling/stop")
 async def telegram_stop_polling():
     """Stop the polling loop."""
