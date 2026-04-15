@@ -3,11 +3,11 @@
 from __future__ import annotations
 
 import asyncio
-from typing import Any, Callable, Optional
+from typing import Callable, Optional
 
 from birkin.core.defaults import DEFAULT_SYSTEM_PROMPT
 from birkin.core.models import Message, ToolCall, ToolResult
-from birkin.core.providers.base import Provider, ProviderResponse
+from birkin.core.providers.base import Provider
 from birkin.core.session import Session, SessionStore
 from birkin.memory.wiki import WikiMemory
 from birkin.tools.base import Tool

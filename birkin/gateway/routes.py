@@ -11,6 +11,7 @@ from birkin.core.agent import Agent
 from birkin.core.providers import create_provider
 from birkin.gateway.deps import get_session_store
 from birkin.gateway.dispatcher import MessageDispatcher
+from birkin.gateway.platforms.telegram_adapter import TelegramAdapter
 from birkin.gateway.schemas import (
     ChatRequest,
     ChatResponse,
@@ -19,7 +20,6 @@ from birkin.gateway.schemas import (
     SessionDetail,
     SessionSummary,
 )
-from birkin.gateway.platforms.telegram_adapter import TelegramAdapter
 from birkin.tools.loader import load_tools
 
 router = APIRouter(prefix="/api")
@@ -207,7 +207,7 @@ async def telegram_webhook(bot_token: str, data: dict) -> dict[str, str]:
                 chat_id=msg_info["chat_id"],
                 text="Sorry, I encountered an error processing your message.",
             )
-        except Exception as send_error:
+        except Exception:
             # If we can't even send error, just log it
             pass
         raise HTTPException(status_code=500, detail=error_msg)

@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-import tempfile
-from pathlib import Path
 from typing import Any, Optional
 from unittest.mock import patch
 
@@ -12,8 +10,8 @@ from fastapi.testclient import TestClient
 
 from birkin.core.models import Message
 from birkin.core.providers.base import ModelCapabilities, Provider, ProviderResponse
-from birkin.gateway.app import create_app
 from birkin.core.session import SessionStore
+from birkin.gateway.app import create_app
 from birkin.gateway.deps import reset_session_store, set_session_store
 
 

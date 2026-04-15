@@ -1,0 +1,19 @@
+#!/usr/bin/env bash
+# Pre-push hook: run ruff lint check before pushing
+# Install: ./scripts/install-hooks.sh
+
+set -euo pipefail
+
+echo "Running ruff lint check..."
+
+if command -v ruff &>/dev/null; then
+    ruff check .
+elif python3 -m ruff check . &>/dev/null 2>&1; then
+    python3 -m ruff check .
+else
+    echo "WARNING: ruff not found, skipping lint check"
+    echo "Install with: pip install ruff"
+    exit 0
+fi
+
+echo "Lint check passed."

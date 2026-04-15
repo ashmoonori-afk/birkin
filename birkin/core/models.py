@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Any, AsyncIterator, Iterator, Optional
+from typing import Any, Optional
 
 
 @dataclass(frozen=True)

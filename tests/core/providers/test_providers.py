@@ -4,13 +4,12 @@ import pytest
 
 from birkin.core.models import Message
 from birkin.core.providers import create_provider
+from birkin.core.providers.anthropic import AnthropicProvider
 from birkin.core.providers.base import (
     ModelCapabilities,
-    Provider,
     ProviderResponse,
     TokenUsage,
 )
-from birkin.core.providers.anthropic import AnthropicProvider
 from birkin.core.providers.openai import OpenAIProvider
 
 

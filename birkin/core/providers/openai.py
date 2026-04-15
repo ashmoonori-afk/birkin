@@ -10,12 +10,12 @@ from openai import AsyncOpenAI, OpenAI
 from birkin.core.models import Message, ToolCall
 from birkin.core.providers.base import (
     ModelCapabilities,
+    Provider,
     ProviderError,
     ProviderErrorKind,
     ProviderResponse,
     TokenUsage,
 )
-from birkin.core.providers.base import Provider
 
 _DEFAULT_MODEL = "gpt-4o"
 

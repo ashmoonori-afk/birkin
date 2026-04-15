@@ -10,12 +10,12 @@ import anthropic
 from birkin.core.models import Message, ToolCall
 from birkin.core.providers.base import (
     ModelCapabilities,
+    Provider,
     ProviderError,
     ProviderErrorKind,
     ProviderResponse,
     TokenUsage,
 )
-from birkin.core.providers.base import Provider
 
 _DEFAULT_MODEL = "claude-opus-4-20250805"
 
@@ -255,7 +255,6 @@ class AnthropicProvider(Provider):
         """Handle streaming completion."""
         accumulated_text = ""
         tool_calls = []
-        current_tool = None
 
         with self._client.messages.stream(
             model=self._model,
@@ -270,13 +269,7 @@ class AnthropicProvider(Provider):
                         accumulated_text += event.delta.text
                         stream_callback(event.delta.text)
                 elif event.type == "content_block_start":
-                    if hasattr(event.content_block, "type"):
-                        if event.content_block.type == "tool_use":
-                            current_tool = {
-                                "id": event.content_block.id,
-                                "name": event.content_block.name,
-                                "input": {},
-                            }
+                    pass
 
         stream_callback(None)  # Signal end
 

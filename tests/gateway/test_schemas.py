@@ -5,7 +5,7 @@ from __future__ import annotations
 import pytest
 from pydantic import ValidationError
 
-from birkin.gateway.schemas import ChatRequest, ChatResponse, HealthResponse, SessionSummary
+from birkin.gateway.schemas import ChatRequest, ChatResponse, HealthResponse
 
 
 class TestChatRequest:

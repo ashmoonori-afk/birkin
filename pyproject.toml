@@ -36,6 +36,13 @@ birkin = "birkin.cli.main:main"
 [tool.setuptools.packages.find]
 include = ["birkin", "birkin.*"]
 
+[tool.ruff]
+target-version = "py311"
+line-length = 120
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I"]
+
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 addopts = "-n auto"

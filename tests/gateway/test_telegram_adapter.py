@@ -6,10 +6,8 @@ import pytest
 
 from birkin.gateway.platforms.telegram_adapter import TelegramAdapter
 from birkin.gateway.platforms.telegram_schemas import (
-    Chat,
     Message,
     Update,
-    User,
 )
 
 

@@ -2,16 +2,12 @@
 
 from __future__ import annotations
 
-import hashlib
-import hmac
-import json
 import logging
 from datetime import datetime, timezone
 from typing import Any, Optional
 
 import httpx
 
-from birkin.core.models import Message
 from birkin.gateway.platforms.telegram_schemas import Update
 
 logger = logging.getLogger(__name__)
