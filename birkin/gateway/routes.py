@@ -64,26 +64,33 @@ def chat(body: ChatRequest) -> ChatResponse:
     """Send a message and receive the agent's reply."""
     store = get_session_store()
 
+    # Validate existing session if provided
     if body.session_id:
         try:
-            session = store.load(body.session_id)
+            store.load(body.session_id)
         except KeyError:
             raise HTTPException(status_code=404, detail="Session not found")
-    else:
-        session = store.create()
 
-    provider = create_provider(body.provider, model=body.model)
+    # Build model string: "provider/model" or "provider/default"
+    model_str = (
+        f"{body.provider}/{body.model}" if body.model else f"{body.provider}/default"
+    )
+    provider = create_provider(model_str)
     tools = load_tools()
-    agent = Agent(provider=provider, tools=tools, session=session)
+    agent = Agent(
+        provider=provider,
+        tools=tools,
+        session_store=store,
+        session_id=body.session_id,
+    )
 
     try:
         reply = agent.chat(body.message)
     except NotImplementedError as exc:
         raise HTTPException(status_code=501, detail=str(exc))
 
-    store.save(session)
     return ChatResponse(
-        session_id=session.id,
+        session_id=agent.session_id,
         reply=reply,
     )
 
@@ -98,9 +105,9 @@ def list_sessions() -> list[SessionSummary]:
         SessionSummary(
             id=s.id,
             created_at=s.created_at,
-            message_count=s.message_count,
+            message_count=store.get_message_count(s.id),
         )
-        for s in store.list_all()
+        for s in store.list_sessions()
     ]
 
 
@@ -111,7 +118,7 @@ def create_session() -> SessionSummary:
     return SessionSummary(
         id=session.id,
         created_at=session.created_at,
-        message_count=session.message_count,
+        message_count=store.get_message_count(session.id),
     )
 
 
@@ -122,11 +129,12 @@ def get_session(session_id: str) -> SessionDetail:
         session = store.load(session_id)
     except KeyError:
         raise HTTPException(status_code=404, detail="Session not found")
+    messages = store.get_messages(session_id)
     return SessionDetail(
         id=session.id,
         created_at=session.created_at,
         messages=[
-            MessageOut(role=m.role, content=m.content) for m in session.messages
+            MessageOut(role=m.role, content=m.content) for m in messages
         ],
     )
 
@@ -134,7 +142,7 @@ def get_session(session_id: str) -> SessionDetail:
 @router.delete("/sessions/{session_id}", status_code=204)
 def delete_session(session_id: str) -> None:
     store = get_session_store()
-    store.delete(session_id)
+    store.delete_session(session_id)
 
 
 # --- Webhooks (Platform Adapters) -----------------------------------------------

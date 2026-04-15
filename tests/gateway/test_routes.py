@@ -2,15 +2,19 @@
 
 from __future__ import annotations
 
-from typing import Any
+import tempfile
+from pathlib import Path
+from typing import Any, Optional
 from unittest.mock import patch
 
 import pytest
 from fastapi.testclient import TestClient
 
-from birkin.core.providers.base import Message, Provider, ProviderResponse
+from birkin.core.models import Message
+from birkin.core.providers.base import ModelCapabilities, Provider, ProviderResponse
 from birkin.gateway.app import create_app
-from birkin.gateway.deps import get_session_store, reset_session_store
+from birkin.core.session import SessionStore
+from birkin.gateway.deps import reset_session_store, set_session_store
 
 
 class FakeProvider(Provider):
@@ -27,35 +31,40 @@ class FakeProvider(Provider):
     def model(self) -> str:
         return "fake-v1"
 
+    @property
+    def capabilities(self) -> ModelCapabilities:
+        return ModelCapabilities(context_window=4096)
+
     def complete(
         self,
         messages: list[Message],
         *,
-        tools: list[dict[str, Any]] | None = None,
+        tools: Optional[list[dict[str, Any]]] = None,
+        stream_callback: Any = None,
     ) -> ProviderResponse:
-        return ProviderResponse(
-            message=Message(role="assistant", content=self._reply),
-        )
+        return ProviderResponse(content=self._reply)
 
     async def acomplete(
         self,
         messages: list[Message],
         *,
-        tools: list[dict[str, Any]] | None = None,
+        tools: Optional[list[dict[str, Any]]] = None,
+        stream_callback: Any = None,
     ) -> ProviderResponse:
         return self.complete(messages, tools=tools)
 
 
 @pytest.fixture(autouse=True)
-def _clean_store():
-    """Reset the session store before each test."""
-    reset_session_store()
+def _clean_store(tmp_path):
+    """Inject a fresh isolated session store for each test."""
+    db_file = tmp_path / "test_sessions.db"
+    set_session_store(SessionStore(db_path=db_file))
     yield
     reset_session_store()
 
 
 @pytest.fixture()
-def client():
+def client(_clean_store):
     app = create_app()
     return TestClient(app)
 
