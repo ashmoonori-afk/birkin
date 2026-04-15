@@ -150,9 +150,39 @@ function appendToolResult(parentEl, name, output, isError) {
   chat.scrollTop = chat.scrollHeight;
 }
 
+/* ── @memory search command ── */
+
+async function handleMemorySearch(query) {
+  addBubble("user", `@memory ${query}`);
+  input.value = ""; input.style.height = "auto";
+  setLoading(true); showThinking();
+
+  try {
+    const res = await fetch(`/api/wiki/search?q=${encodeURIComponent(query)}`);
+    hideThinking();
+    if (!res.ok) { addBubble("error", t("something_wrong")); return; }
+    const results = await res.json();
+
+    if (!results.length) {
+      addBubble("assistant", t("mem_no_results").replace("{q}", query));
+    } else {
+      const lines = results.map((r) => `**${r.slug}** (${r.category})\n${r.snippet}`);
+      addBubble("assistant", `${t("mem_found")} ${results.length} ${t("mem_pages")}:\n\n${lines.join("\n\n---\n\n")}`);
+    }
+  } catch {
+    hideThinking();
+    addBubble("error", t("network_error"));
+  } finally { setLoading(false); input.focus(); }
+}
+
 /* ── SSE Streaming Chat ── */
 
 async function sendMessageStream(text) {
+  // Handle @memory command
+  if (text.startsWith("@memory ")) {
+    return handleMemorySearch(text.slice(8).trim());
+  }
+
   addBubble("user", text);
   input.value = ""; input.style.height = "auto";
   setLoading(true); showThinking();

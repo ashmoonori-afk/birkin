@@ -7,7 +7,7 @@ import json
 import os
 from typing import Any, AsyncGenerator, Optional
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, File, HTTPException, UploadFile
 from starlette.responses import StreamingResponse
 
 from birkin.core.agent import Agent
@@ -563,6 +563,135 @@ def wiki_graph():
         nodes.append({"slug": ref, "category": "broken"})
 
     return {"nodes": nodes, "edges": edges, "orphans": orphans}
+
+
+# --- Wiki: File Upload --------------------------------------------------------
+
+
+@router.post("/wiki/upload")
+async def wiki_upload_file(file: UploadFile = File(...)):
+    """Upload a file (md, csv, xls/xlsx, txt, pdf) and ingest into wiki memory."""
+    import csv
+    import io
+    import re
+
+    wiki = get_wiki_memory()
+
+    if not file.filename:
+        raise HTTPException(status_code=400, detail="No filename provided")
+
+    raw = await file.read()
+    content_bytes = raw
+    ext = file.filename.rsplit(".", 1)[-1].lower() if "." in file.filename else ""
+
+    allowed_exts = {"md", "txt", "csv", "xls", "xlsx", "pdf"}
+    if ext not in allowed_exts:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Unsupported file type '.{ext}'. Allowed: {sorted(allowed_exts)}",
+        )
+
+    # Parse content based on extension
+    if ext in ("md", "txt"):
+        content = content_bytes.decode("utf-8", errors="replace")
+
+    elif ext == "csv":
+        text = content_bytes.decode("utf-8", errors="replace")
+        reader = csv.reader(io.StringIO(text))
+        rows = list(reader)
+        if not rows:
+            content = "(empty CSV)"
+        else:
+            # Build markdown table
+            header = rows[0]
+            lines = ["| " + " | ".join(header) + " |"]
+            lines.append("| " + " | ".join("---" for _ in header) + " |")
+            for row in rows[1:]:
+                # Pad short rows
+                padded = row + [""] * (len(header) - len(row))
+                lines.append("| " + " | ".join(padded[: len(header)]) + " |")
+            content = "\n".join(lines)
+
+    elif ext in ("xlsx", "xls"):
+        try:
+            import openpyxl
+
+            wb = openpyxl.load_workbook(io.BytesIO(content_bytes), read_only=True)
+            sheets_content: list[str] = []
+            for ws in wb.worksheets:
+                rows = list(ws.iter_rows(values_only=True))
+                if not rows:
+                    continue
+                header = [str(c) if c is not None else "" for c in rows[0]]
+                lines = [f"## {ws.title}\n"]
+                lines.append("| " + " | ".join(header) + " |")
+                lines.append("| " + " | ".join("---" for _ in header) + " |")
+                for row in rows[1:]:
+                    cells = [str(c) if c is not None else "" for c in row]
+                    padded = cells + [""] * (len(header) - len(cells))
+                    lines.append("| " + " | ".join(padded[: len(header)]) + " |")
+                sheets_content.append("\n".join(lines))
+            wb.close()
+            content = "\n\n".join(sheets_content) if sheets_content else "(empty spreadsheet)"
+        except ImportError:
+            content = "(Excel support requires openpyxl: pip install openpyxl)"
+        except Exception as exc:
+            content = f"(Failed to parse Excel file: {exc})"
+
+    elif ext == "pdf":
+        try:
+            from pypdf import PdfReader
+
+            reader = PdfReader(io.BytesIO(content_bytes))
+            pages_text = [page.extract_text() or "" for page in reader.pages]
+            content = "\n\n---\n\n".join(pages_text).strip()
+            if not content:
+                content = "(PDF contained no extractable text)"
+        except ImportError:
+            content = "(PDF support requires pypdf: pip install pypdf)"
+        except Exception as exc:
+            content = f"(Failed to parse PDF: {exc})"
+    else:
+        content = content_bytes.decode("utf-8", errors="replace")
+
+    # Determine category
+    name_lower = file.filename.lower()
+    entity_hints = ["people", "team", "person", "contact", "employee", "org", "company", "member"]
+    category = "entities" if any(h in name_lower for h in entity_hints) else "concepts"
+
+    # Generate sanitized slug from filename
+    stem = file.filename.rsplit(".", 1)[0] if "." in file.filename else file.filename
+    slug = re.sub(r"[^a-zA-Z0-9_-]", "-", stem).strip("-").lower()
+    slug = re.sub(r"-+", "-", slug)
+    if not slug:
+        slug = "uploaded-file"
+
+    wiki.ingest(category, slug, content)
+
+    preview = content[:300] + ("..." if len(content) > 300 else "")
+    return {"status": "ok", "category": category, "slug": slug, "preview": preview}
+
+
+# --- Wiki: Auto-Link ----------------------------------------------------------
+
+
+@router.post("/wiki/auto-link")
+def wiki_auto_link():
+    """Scan all pages and auto-insert [[wikilinks]] where page slugs appear in text."""
+    wiki = get_wiki_memory()
+    count = wiki.auto_link()
+    return {"links_added": count}
+
+
+# --- Wiki: Summarize Sessions -------------------------------------------------
+
+
+@router.post("/wiki/summarize")
+def wiki_summarize():
+    """Merge old session pages into date-grouped summaries."""
+    wiki = get_wiki_memory()
+    deleted = wiki.summarize_old_sessions(max_age_hours=24)
+    return {"summarized": len(deleted), "deleted_slugs": deleted}
 
 
 # --- Telegram Management ------------------------------------------------------

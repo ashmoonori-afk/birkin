@@ -269,6 +269,102 @@ class WikiMemory:
         index_path = self.wiki_dir / "index.md"
         index_path.write_text("\n".join(lines) + "\n", encoding="utf-8")
 
+    def auto_link(self) -> int:
+        """Scan all pages and auto-insert [[wikilinks]] where page slugs appear in text.
+
+        Returns the number of links added.
+        """
+        pages = self.list_pages()
+        all_slugs = [p["slug"] for p in pages]
+
+        if not all_slugs:
+            return 0
+
+        links_added = 0
+
+        for page in pages:
+            cat = page["category"]
+            slug = page["slug"]
+            page_path = self.wiki_dir / cat / f"{slug}.md"
+            if not page_path.is_file():
+                continue
+
+            content = page_path.read_text(encoding="utf-8")
+            modified = content
+
+            for target_slug in all_slugs:
+                if target_slug == slug:
+                    continue  # Don't self-link
+
+                # Build a pattern that finds the slug text NOT already wrapped in [[]]
+                # Negative lookbehind for [[ and negative lookahead for ]]
+                pattern = re.compile(
+                    r"(?<!\[\[)\b(" + re.escape(target_slug) + r")\b(?!\]\])",
+                    re.IGNORECASE,
+                )
+
+                def _wrap_link(m: re.Match) -> str:  # type: ignore[type-arg]
+                    return f"[[{m.group(1)}]]"
+
+                new_content, count = pattern.subn(_wrap_link, modified)
+                if count > 0:
+                    links_added += count
+                    modified = new_content
+
+            if modified != content:
+                page_path.write_text(modified, encoding="utf-8")
+
+        return links_added
+
+    def summarize_old_sessions(self, max_age_hours: int = 24) -> list[str]:
+        """Find session pages older than max_age_hours, merge them into a summary page,
+        and delete the originals.
+
+        Returns list of deleted slugs.
+        """
+        self.init()
+        sessions_dir = self.wiki_dir / "sessions"
+        if not sessions_dir.is_dir():
+            return []
+
+        now = dt.datetime.now(dt.timezone.utc)
+        cutoff = now - dt.timedelta(hours=max_age_hours)
+        cutoff_ts = cutoff.timestamp()
+
+        # Collect old session files grouped by date
+        old_sessions: dict[str, list[tuple[str, str]]] = {}  # date_str -> [(slug, content)]
+        deleted_slugs: list[str] = []
+
+        for md_file in sorted(sessions_dir.glob("*.md")):
+            mtime = md_file.stat().st_mtime
+            if mtime < cutoff_ts:
+                slug = md_file.stem
+                content = md_file.read_text(encoding="utf-8")
+                # Group by date from file modification time
+                date_str = dt.datetime.fromtimestamp(mtime, tz=dt.timezone.utc).strftime("%Y-%m-%d")
+                if date_str not in old_sessions:
+                    old_sessions[date_str] = []
+                old_sessions[date_str].append((slug, content))
+                deleted_slugs.append(slug)
+
+        if not old_sessions:
+            return []
+
+        # Create summary pages and delete originals
+        for date_str, sessions in old_sessions.items():
+            summary_slug = f"summary-{date_str}"
+            parts = [f"# Session Summary ({date_str})\n"]
+            for slug, content in sessions:
+                parts.append(f"## {slug}\n\n{content}\n\n---\n")
+            summary_content = "\n".join(parts)
+            self.ingest("concepts", summary_slug, summary_content)
+
+            # Delete original session pages
+            for slug, _ in sessions:
+                self.delete_page("sessions", slug)
+
+        return deleted_slugs
+
     def _append_log(self, entry: str) -> None:
         """Append a timestamped entry to log.md."""
         log_path = self.wiki_dir / "log.md"

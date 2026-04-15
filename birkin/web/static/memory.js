@@ -40,6 +40,12 @@
     toolbar.className = "mem-toolbar";
     toolbar.innerHTML = `
       <input class="mem-search" type="text" placeholder="${t("search_memory")}" id="mem-search-input" />
+      <label class="mem-upload-btn" title="${t("mem_upload_title")}">
+        <input type="file" id="mem-file-input" accept=".md,.txt,.csv,.xlsx,.xls,.pdf" style="display:none" />
+        \u{1F4CE} ${t("mem_upload")}
+      </label>
+      <button class="mem-refresh" id="mem-auto-link" title="${t("mem_auto_link_title")}">\u{1F517}</button>
+      <button class="mem-refresh" id="mem-summarize" title="${t("mem_summarize_title")}">\u{1F4E6}</button>
       <button class="mem-refresh" id="mem-refresh-btn">${t("refresh")}</button>
     `;
     wrap.appendChild(toolbar);
@@ -65,6 +71,36 @@
 
     toolbar.querySelector("#mem-search-input").oninput = (e) => { searchTerm = e.target.value.toLowerCase(); };
     toolbar.querySelector("#mem-refresh-btn").onclick = refresh;
+
+    // File upload
+    toolbar.querySelector("#mem-file-input").onchange = async (e) => {
+      const file = e.target.files?.[0];
+      if (!file) return;
+      const formData = new FormData();
+      formData.append("file", file);
+      try {
+        const res = await fetch("/api/wiki/upload", { method: "POST", body: formData });
+        if (res.ok) { const data = await res.json(); alert(`${t("mem_uploaded")}: ${data.category}/${data.slug}`); refresh(); }
+        else { const err = await res.json().catch(() => ({})); alert(err.detail || t("something_wrong")); }
+      } catch { alert(t("network_error")); }
+      e.target.value = "";
+    };
+
+    // Auto-link
+    toolbar.querySelector("#mem-auto-link").onclick = async () => {
+      try {
+        const res = await fetch("/api/wiki/auto-link", { method: "POST" });
+        if (res.ok) { const data = await res.json(); alert(`${t("mem_links_added")}: ${data.links_added}`); refresh(); }
+      } catch { /* */ }
+    };
+
+    // Summarize old sessions
+    toolbar.querySelector("#mem-summarize").onclick = async () => {
+      try {
+        const res = await fetch("/api/wiki/summarize", { method: "POST" });
+        if (res.ok) { const data = await res.json(); alert(`${t("mem_summarized")}: ${data.summarized} ${t("mem_pages")}`); refresh(); }
+      } catch { /* */ }
+    };
     canvas.onmousedown = onMouseDown;
     canvas.onmousemove = onMouseMove;
     canvas.onmouseup = onMouseUp;

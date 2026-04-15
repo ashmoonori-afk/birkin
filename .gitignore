@@ -78,5 +78,10 @@ birkin_sessions.db-shm
 birkin_config.json
 birkin_workflows.json
 
+# Wiki memory data (user-specific)
+memory/wiki/sessions/
+memory/wiki/entities/
+memory/wiki/concepts/
+
 # IDE
 .idea/

@@ -29,6 +29,22 @@
 .mem-search:focus { border-color: rgba(240, 240, 250, 0.35); }
 .mem-search::placeholder { color: rgba(240, 240, 250, 0.25); }
 
+.mem-upload-btn {
+  padding: 6px 12px;
+  border: 1px solid rgba(240, 240, 250, 0.15);
+  border-radius: 32px;
+  background: transparent;
+  color: rgba(240, 240, 250, 0.5);
+  font-family: "D-DIN", Arial, sans-serif;
+  font-size: 0.7rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 1px;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+.mem-upload-btn:hover { background: rgba(240, 240, 250, 0.08); color: #f0f0fa; }
+
 .mem-refresh {
   padding: 6px 12px;
   border: 1px solid rgba(240, 240, 250, 0.15);

@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+import os
+import time
+
 import pytest
 
 from birkin.memory.wiki import WikiMemory
@@ -137,3 +140,75 @@ class TestBuildContext:
         ctx = wiki.build_context(max_pages=2)
         # Should only include 2 pages
         assert ctx.count("###") == 2
+
+
+class TestAutoLink:
+    def test_inserts_wikilinks(self, wiki):
+        wiki.ingest("concepts", "python", "# Python\n\nA programming language.")
+        wiki.ingest("concepts", "fastapi", "# FastAPI\n\nBuilt with python for web apps.")
+        count = wiki.auto_link()
+        assert count >= 1
+        content = wiki.get_page("concepts", "fastapi")
+        assert "[[python]]" in content.lower() or "[[Python]]" in content
+
+    def test_no_self_links(self, wiki):
+        wiki.ingest("concepts", "python", "# python\n\nPython is great.")
+        wiki.auto_link()
+        content = wiki.get_page("concepts", "python")
+        assert "[[python]]" not in content.lower()
+
+    def test_does_not_double_wrap(self, wiki):
+        wiki.ingest("concepts", "python", "# Python\n\nA language.")
+        wiki.ingest("concepts", "fastapi", "# FastAPI\n\nUses [[python]] already.")
+        wiki.auto_link()
+        content = wiki.get_page("concepts", "fastapi")
+        # Should not produce [[[[python]]]]
+        assert "[[[[" not in content
+
+    def test_returns_zero_when_no_matches(self, wiki):
+        wiki.ingest("concepts", "alpha", "# Alpha\n\nUnique content.")
+        wiki.ingest("concepts", "beta", "# Beta\n\nDifferent content.")
+        count = wiki.auto_link()
+        assert count == 0
+
+    def test_empty_wiki(self, wiki):
+        count = wiki.auto_link()
+        assert count == 0
+
+
+class TestSummarizeOldSessions:
+    def test_merges_old_sessions(self, wiki):
+        # Create session pages with old modification times
+        wiki.ingest("sessions", "chat-old-1", "# Chat 1\n\nOld session.")
+        wiki.ingest("sessions", "chat-old-2", "# Chat 2\n\nAnother old session.")
+
+        # Set file mtimes to 48 hours ago
+        for slug in ("chat-old-1", "chat-old-2"):
+            path = wiki.wiki_dir / "sessions" / f"{slug}.md"
+            old_time = time.time() - 48 * 3600
+            os.utime(path, (old_time, old_time))
+
+        deleted = wiki.summarize_old_sessions(max_age_hours=24)
+        assert len(deleted) == 2
+        assert "chat-old-1" in deleted
+        assert "chat-old-2" in deleted
+
+        # Original session pages should be gone
+        assert wiki.get_page("sessions", "chat-old-1") is None
+        assert wiki.get_page("sessions", "chat-old-2") is None
+
+        # Summary page should exist in concepts
+        pages = wiki.list_pages()
+        concept_slugs = [p["slug"] for p in pages if p["category"] == "concepts"]
+        assert any(s.startswith("summary-") for s in concept_slugs)
+
+    def test_does_not_touch_recent_sessions(self, wiki):
+        wiki.ingest("sessions", "chat-recent", "# Recent\n\nJust happened.")
+        deleted = wiki.summarize_old_sessions(max_age_hours=24)
+        assert deleted == []
+        # Page should still exist
+        assert wiki.get_page("sessions", "chat-recent") is not None
+
+    def test_returns_empty_when_no_sessions(self, wiki):
+        deleted = wiki.summarize_old_sessions(max_age_hours=24)
+        assert deleted == []

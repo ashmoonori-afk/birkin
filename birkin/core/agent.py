@@ -231,23 +231,154 @@ class Agent:
     def memory(self) -> Optional[WikiMemory]:
         return self._memory
 
-    def _auto_save_memory(self, user_input: str, response: str) -> None:
-        """Automatically save conversation turns to wiki memory.
+    @staticmethod
+    def _pick_category(user_input: str, response: str) -> str:
+        """Pick the best wiki category based on content heuristics.
 
-        Creates a session page that captures what was discussed,
-        so the Memory tab in WebUI always shows conversation history.
+        Uses keyword signals to classify into entities, concepts, or sessions.
+        Fast path -- no LLM call required.
+        """
+        text = (user_input + " " + response).lower()
+
+        entity_signals = [
+            "who is",
+            "about ",
+            "@",
+            "company",
+            "team",
+            "person",
+            "organization",
+            "project",
+            "founded",
+            "ceo",
+            "cto",
+            "employee",
+        ]
+        concept_signals = [
+            "how to",
+            "pattern",
+            "algorithm",
+            "concept",
+            "architecture",
+            "design",
+            "principle",
+            "tutorial",
+            "explain",
+            "difference between",
+            "best practice",
+        ]
+
+        entity_score = sum(1 for s in entity_signals if s in text)
+        concept_score = sum(1 for s in concept_signals if s in text)
+
+        if entity_score > concept_score and entity_score >= 2:
+            return "entities"
+        elif concept_score > entity_score and concept_score >= 2:
+            return "concepts"
+        return "sessions"
+
+    @staticmethod
+    def _make_slug(user_input: str, session_id: str) -> str:
+        """Generate a meaningful slug from user input.
+
+        Extracts the first few meaningful words rather than using only timestamps.
+        """
+        import re
+
+        # Remove special characters and normalize whitespace
+        cleaned = re.sub(r"[^a-zA-Z0-9\s]", "", user_input.lower())
+        words = cleaned.split()
+
+        # Filter out very short / stopword-like tokens
+        stopwords = frozenset(
+            {"a", "an", "the", "is", "are", "was", "were", "be", "to", "of", "and", "or", "in", "on", "it", "i", "my"}
+        )
+        meaningful = [w for w in words if w not in stopwords and len(w) > 1]
+
+        if meaningful:
+            slug_words = meaningful[:4]
+            slug_base = "-".join(slug_words)
+        else:
+            slug_base = "chat"
+
+        # Append short session id to ensure uniqueness
+        return f"{slug_base}-{session_id[:6]}"
+
+    # Conversations shorter than this are not worth remembering
+    _MIN_MEMORABLE_USER_LEN = 20
+    _MIN_MEMORABLE_RESPONSE_LEN = 50
+
+    # Trivial messages that should never be saved
+    _TRIVIAL_PATTERNS = frozenset(
+        {
+            "hi",
+            "hello",
+            "hey",
+            "thanks",
+            "thank you",
+            "ok",
+            "okay",
+            "yes",
+            "no",
+            "bye",
+            "good",
+            "great",
+            "nice",
+            "안녕",
+            "감사",
+            "고마워",
+            "네",
+            "응",
+            "ㅇㅇ",
+            "ㄱㅅ",
+            "ㅎㅇ",
+        }
+    )
+
+    def _is_memorable(self, user_input: str, response: str) -> bool:
+        """Decide whether a conversation turn is worth saving to memory.
+
+        Filters out greetings, one-word replies, and trivial exchanges
+        so memory stays clean and useful.
+        """
+        # Too short to be meaningful
+        if len(user_input.strip()) < self._MIN_MEMORABLE_USER_LEN:
+            return False
+        if len(response.strip()) < self._MIN_MEMORABLE_RESPONSE_LEN:
+            return False
+
+        # Trivial greeting/acknowledgment
+        normalized = user_input.strip().lower().rstrip("!?.,")
+        if normalized in self._TRIVIAL_PATTERNS:
+            return False
+
+        # Must be categorizable (entities or concepts) to be worth saving
+        category = self._pick_category(user_input, response)
+        if category == "sessions":
+            # Only save sessions that are substantive (long enough response)
+            return len(response.strip()) >= 200
+
+        return True
+
+    def _auto_save_memory(self, user_input: str, response: str) -> None:
+        """Save meaningful conversation turns to wiki memory.
+
+        Skips trivial exchanges (greetings, short replies) to keep
+        memory clean. Only saves content that's worth remembering.
         """
         if not self._memory or not response:
             return
+        if not self._is_memorable(user_input, response):
+            return
         try:
-            import datetime as dt
-
-            ts = dt.datetime.now(dt.timezone.utc).strftime("%Y%m%d-%H%M%S")
-            slug = f"chat-{self._session.id[:8]}-{ts}"
+            category = self._pick_category(user_input, response)
+            slug = self._make_slug(user_input, self._session.id)
             content = (
-                f"# Chat ({self._session.id[:8]})\n\n**User:** {user_input[:500]}\n\n**Assistant:** {response[:1000]}\n"
+                f"# {category.title()}: {user_input[:80]}\n\n"
+                f"**User:** {user_input[:500]}\n\n"
+                f"**Assistant:** {response[:1000]}\n"
             )
-            self._memory.ingest("sessions", slug, content)
+            self._memory.ingest(category, slug, content)
         except Exception:
             pass  # Never let memory save break the chat flow
 

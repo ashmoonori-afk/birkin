@@ -58,3 +58,42 @@ class TestAgent:
         agent = Agent(provider=provider, session_store=session_store)
         agent.chat("test")
         assert "Birkin" in provider.last_messages[0].content
+
+
+class TestPickCategory:
+    def test_entity_signals(self):
+        assert Agent._pick_category("who is the CEO of the company", "The CEO is...") == "entities"
+
+    def test_concept_signals(self):
+        assert Agent._pick_category("how to implement the pattern", "The design pattern...") == "concepts"
+
+    def test_default_sessions(self):
+        assert Agent._pick_category("hello there", "hi!") == "sessions"
+
+    def test_entity_needs_two_signals(self):
+        # Only one signal should not trigger entity
+        assert Agent._pick_category("company overview", "plain reply") == "sessions"
+
+    def test_concept_needs_two_signals(self):
+        # Only one signal should not trigger concept
+        assert Agent._pick_category("pattern", "ok") == "sessions"
+
+
+class TestMakeSlug:
+    def test_meaningful_words(self):
+        slug = Agent._make_slug("How to build a REST API", "abc123")
+        assert slug.startswith("how-build-rest-api")
+        assert "abc123" in slug
+
+    def test_strips_stopwords(self):
+        slug = Agent._make_slug("the best way to do it", "xyz789")
+        assert "the" not in slug.split("-")[:4]
+
+    def test_fallback_for_empty(self):
+        slug = Agent._make_slug("", "sess01")
+        assert slug.startswith("chat-")
+
+    def test_special_characters_removed(self):
+        slug = Agent._make_slug("What is @user's project?", "aaa111")
+        assert "@" not in slug
+        assert "'" not in slug

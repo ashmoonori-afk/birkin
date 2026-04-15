@@ -2,12 +2,16 @@
 
 from __future__ import annotations
 
+import os
+import time
+
 import pytest
 from fastapi.testclient import TestClient
 
 from birkin.core.session import SessionStore
 from birkin.gateway.app import create_app
 from birkin.gateway.deps import (
+    get_wiki_memory,
     reset_session_store,
     reset_wiki_memory,
     set_session_store,
@@ -178,3 +182,105 @@ class TestWikiLint:
         warnings = resp.json()["warnings"]
         broken = [w for w in warnings if "nonexistent-target" in w]
         assert len(broken) >= 1
+
+
+# -- Upload --
+
+
+class TestWikiUpload:
+    def test_upload_txt(self, client: TestClient):
+        resp = client.post(
+            "/api/wiki/upload",
+            files={"file": ("notes.txt", b"Hello world content", "text/plain")},
+        )
+        assert resp.status_code == 200
+        body = resp.json()
+        assert body["status"] == "ok"
+        assert body["slug"] == "notes"
+        assert body["category"] == "concepts"
+        assert "Hello world" in body["preview"]
+
+    def test_upload_md(self, client: TestClient):
+        resp = client.post(
+            "/api/wiki/upload",
+            files={"file": ("readme.md", b"# Title\n\nMarkdown body.", "text/markdown")},
+        )
+        assert resp.status_code == 200
+        assert resp.json()["slug"] == "readme"
+
+    def test_upload_csv(self, client: TestClient):
+        csv_content = b"name,age\nAlice,30\nBob,25\n"
+        resp = client.post(
+            "/api/wiki/upload",
+            files={"file": ("data.csv", csv_content, "text/csv")},
+        )
+        assert resp.status_code == 200
+        body = resp.json()
+        assert body["status"] == "ok"
+        assert "Alice" in body["preview"]
+        assert "|" in body["preview"]  # markdown table
+
+    def test_upload_entity_filename(self, client: TestClient):
+        resp = client.post(
+            "/api/wiki/upload",
+            files={"file": ("team-members.txt", b"John, Jane", "text/plain")},
+        )
+        assert resp.status_code == 200
+        assert resp.json()["category"] == "entities"
+
+    def test_upload_unsupported_ext(self, client: TestClient):
+        resp = client.post(
+            "/api/wiki/upload",
+            files={"file": ("image.png", b"\x89PNG", "image/png")},
+        )
+        assert resp.status_code == 400
+        assert "Unsupported" in resp.json()["detail"]
+
+
+# -- Auto-Link --
+
+
+class TestWikiAutoLink:
+    def test_auto_link_endpoint(self, client: TestClient):
+        client.put("/api/wiki/pages/concepts/python", json={"content": "# Python\n\nA language."})
+        client.put("/api/wiki/pages/concepts/fastapi", json={"content": "# FastAPI\n\nBuilt with python."})
+        resp = client.post("/api/wiki/auto-link")
+        assert resp.status_code == 200
+        body = resp.json()
+        assert "links_added" in body
+        assert body["links_added"] >= 1
+
+    def test_auto_link_no_pages(self, client: TestClient):
+        resp = client.post("/api/wiki/auto-link")
+        assert resp.status_code == 200
+        assert resp.json()["links_added"] == 0
+
+
+# -- Summarize --
+
+
+class TestWikiSummarize:
+    def test_summarize_old_sessions(self, client: TestClient):
+        # Create session pages
+        client.put("/api/wiki/pages/sessions/old-chat-1", json={"content": "# Old 1\n\nOld content."})
+        client.put("/api/wiki/pages/sessions/old-chat-2", json={"content": "# Old 2\n\nMore old content."})
+
+        # Set file mtimes to 48 hours ago
+        wiki = get_wiki_memory()
+        for slug in ("old-chat-1", "old-chat-2"):
+            path = wiki.wiki_dir / "sessions" / f"{slug}.md"
+            old_time = time.time() - 48 * 3600
+            os.utime(path, (old_time, old_time))
+
+        resp = client.post("/api/wiki/summarize")
+        assert resp.status_code == 200
+        body = resp.json()
+        assert body["summarized"] == 2
+        assert len(body["deleted_slugs"]) == 2
+
+    def test_summarize_no_old_sessions(self, client: TestClient):
+        resp = client.post("/api/wiki/summarize")
+        assert resp.status_code == 200
+        body = resp.json()
+        assert body["summarized"] == 0
+        assert body["deleted_slugs"] == []
