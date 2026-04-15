@@ -69,5 +69,10 @@ website/static/api/skills-index.json
 .DS_Store
 Thumbs.db
 
+# SQLite session databases
+birkin_sessions.db
+birkin_sessions.db-wal
+birkin_sessions.db-shm
+
 # IDE
 .idea/
