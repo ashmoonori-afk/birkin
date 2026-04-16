@@ -17,6 +17,14 @@ __pycache__/web_tools.cpython-310.pyc
 logs/
 data/
 .pytest_cache/
+build/
+dist/
+*.spec
+start.exe
+exe_output.log
+exe_error.log
+bat_output.log
+serve_output.log
 tmp/
 temp_vision_images/
 birkin-*/*
