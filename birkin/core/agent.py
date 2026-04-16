@@ -13,6 +13,8 @@ from birkin.core.defaults import DEFAULT_SYSTEM_PROMPT
 from birkin.core.models import Message, ToolCall, ToolResult
 from birkin.core.providers.base import Provider
 from birkin.core.session import Session, SessionStore
+from birkin.mcp.adapter import MCPToolAdapter
+from birkin.mcp.registry import MCPRegistry
 from birkin.memory.wiki import WikiMemory
 from birkin.tools.base import Tool, ToolContext
 
@@ -40,9 +42,18 @@ class Agent:
         system_prompt: Optional[str] = None,
         memory: Optional[WikiMemory] = None,
         max_turns: int = _DEFAULT_MAX_TURNS,
+        mcp_registry: Optional[MCPRegistry] = None,
     ) -> None:
         self._provider = provider
         self._tools = tools or []
+
+        # Merge MCP tools into the tool list via adapters
+        if mcp_registry is not None:
+            for info in mcp_registry.list_all_tools():
+                client = mcp_registry.get_client(info.server_name)
+                if client is not None:
+                    self._tools.append(MCPToolAdapter(info, client))
+
         self._tool_registry = {t.spec.name: t for t in self._tools}
         self._session_store = session_store or SessionStore()
         self._system_prompt = system_prompt or DEFAULT_SYSTEM_PROMPT

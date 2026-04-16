@@ -9,6 +9,8 @@ from typing import Any
 
 from pydantic import BaseModel, ConfigDict, ValidationError
 
+from birkin.mcp.types import MCPServerConfig
+
 logger = logging.getLogger(__name__)
 
 _CONFIG_PATH = Path("birkin_config.json")
@@ -22,6 +24,7 @@ _DEFAULTS: dict[str, Any] = {
     "system_prompt": None,
     "active_workflow": None,
     "telegram_webhook_secret": None,
+    "mcp_servers": [],
 }
 
 
@@ -38,6 +41,7 @@ class BirkinConfig(BaseModel):
     system_prompt: str | None = None
     active_workflow: str | None = None
     telegram_webhook_secret: str | None = None
+    mcp_servers: list[MCPServerConfig] = []
 
 
 def load_config() -> dict[str, Any]:
