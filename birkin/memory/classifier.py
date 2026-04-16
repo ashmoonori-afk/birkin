@@ -139,5 +139,5 @@ class MemoryClassifier:
             "category": result["category"],
             "slug": result["slug"],
             "title": result["title"],
-            "tags": list(result["tags"]),
+            "tags": result["tags"],
         }

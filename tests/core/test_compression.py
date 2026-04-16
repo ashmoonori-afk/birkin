@@ -14,7 +14,6 @@ from birkin.core.compression import (
 from birkin.core.models import Message
 from tests.fakes import FakeProvider
 
-
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------

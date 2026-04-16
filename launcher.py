@@ -81,7 +81,7 @@ def launch_server() -> None:
     url = f"http://{HOST}:{PORT}"
     print()
     print("=" * 40)
-    print(f"  Birkin WebUI starting...")
+    print("  Birkin WebUI starting...")
     print(f"  {url}")
     print("=" * 40)
     print()
