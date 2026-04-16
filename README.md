@@ -15,6 +15,13 @@
   <img src="https://img.shields.io/badge/python-3.11%2B-blue" alt="Python 3.11+">
 </p>
 
+██████╗ ██╗██████╗ ██╗  ██╗██╗███╗   ██╗
+██╔══██╗██║██╔══██╗██║ ██╔╝██║████╗  ██║
+██████╔╝██║██████╔╝█████╔╝ ██║██╔██╗ ██║
+██╔══██╗██║██╔══██╗██╔═██╗ ██║██║╚██╗██║
+██████╔╝██║██║  ██║██║  ██╗██║██║ ╚████║
+╚═════╝ ╚═╝╚═╝  ╚═╝╚═╝  ╚═╝╚═╝╚═╝  ╚═══╝
+
 ---
 
 **Birkin** is an AI agent platform with a visual WebUI. Chat with AI, design workflows, manage memory, and connect Telegram — all from a cinematic dark-themed interface.
