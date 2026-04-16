@@ -6,6 +6,7 @@ from birkin.gateway.routers.approvals import router as approvals_router
 from birkin.gateway.routers.auth import router as auth_router
 from birkin.gateway.routers.chat import router as chat_router
 from birkin.gateway.routers.health import router as health_router
+from birkin.gateway.routers.observability import router as observability_router
 from birkin.gateway.routers.sessions import router as sessions_router
 from birkin.gateway.routers.settings import router as settings_router
 from birkin.gateway.routers.skills import router as skills_router
@@ -32,4 +33,5 @@ all_routers = [
     triggers_router,
     voice_router,
     approvals_router,
+    observability_router,
 ]

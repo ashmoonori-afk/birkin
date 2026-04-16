@@ -1,0 +1,1 @@
+"""Observability dashboard — metrics aggregation."""
