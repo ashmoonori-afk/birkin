@@ -71,9 +71,9 @@ Every Phase 2 item below maps back to at least one of these three.
 - [x] Config-based provider selection (not hardcoded)
 
 ### Infrastructure
-- [x] 99 passing tests (pytest + xdist)
+- [x] 206 passing tests (pytest + xdist)
 - [x] ruff lint + format clean
-- [x] One-click launchers (Birkin.command, start.sh, start.bat)
+- [x] One-click launchers (Birkin.command, start.sh, start.bat, start.exe)
 - [x] Auto-open browser on server start
 - [x] .env-based API key management from WebUI
 - [x] JSON config persistence (birkin_config.json)
@@ -82,8 +82,8 @@ Every Phase 2 item below maps back to at least one of these three.
 - [x] **Chat bubble streaming fix** — unified SSE queue, proper finalization, no stuck states
 - [x] **Error recovery with auto-fallback** — primary provider fails → fallback provider auto-tries
 - [x] **Built-in tools** — shell, web search, file read/write (4 tools with security checks)
-- [x] **Context compression** — auto-compress conversations over 20 messages
-- [x] **Test coverage** — 99 → 121 tests (wiki API, telegram management, workflow routes)
+- [x] **Context compression** — auto-compress conversations over 20 messages with LLM summarization
+- [x] **Test coverage** — 99 → 206 tests (wiki API, telegram management, workflow routes, auth, compression, shell)
 - [x] **Static files fix** — mount under /static to prevent 405 on API POST routes
 
 ### Phase 1 — Final Sprint
@@ -91,6 +91,13 @@ Every Phase 2 item below maps back to at least one of these three.
 - [x] **Telegram health monitoring** — 60s background check, auto-restart crashed polling, webhook error detection
 - [x] **Code review cleanup** — dead code removal, god function refactoring, duplicate consolidation, version centralization
 - [x] **CLI prompt optimization** — reduced prompt size for 3-10x faster telegram responses
+- [x] **Security hardening** — Bearer token auth middleware, shell tool allowlist, Telegram webhook secret_token verification
+- [x] **Anthropic model IDs** — updated to claude-opus-4-6, claude-sonnet-4-6, claude-haiku-4-5
+- [x] **SQLite lifespan** — proper FastAPI lifespan with clean shutdown and WAL lock cleanup
+- [x] **Router modularization** — split 1004-line routes.py into 10 focused router modules
+- [x] **Async chat endpoint** — non-blocking /api/chat with await agent.achat()
+- [x] **ThreadPoolExecutor reuse** — shared 4-worker pool instead of per-call thread creation
+- [x] **LLM memory classifier** — bilingual (KO+EN) auto-categorization replacing English-only heuristics
 - [ ] **WebUI visual regression tests** (Playwright screenshots) — deferred to Phase 2
 
 ---
@@ -164,23 +171,14 @@ Every Phase 2 item below maps back to at least one of these three.
 
 ## Phase 4: Future (Deferred)
 
-Monetization and business-model decisions are intentionally deferred. Birkin stays focused on a single-user, self-hosted, open-source experience through Phase 2 and Phase 3. Revenue direction — OSS + consulting, hosted SaaS, paid plugin marketplace, or something else — will be revisited after Phase 3 ships.
+Monetization and business-model decisions are intentionally deferred. Birkin stays focused on a single-user, self-hosted, open-source experience through Phase 3.
 
-Explicitly **out of scope for now**:
+### Out of scope (by design)
 
-- Multi-user workspaces, RBAC, SSO
-- Managed cloud hosting with SLA
-- Team collaboration features
-- Enterprise cybersecurity harness
+- Multi-user workspaces / team collaboration
+- Role-based access control (RBAC)
+- SSO / enterprise identity
+- Managed cloud hosting
+- Multi-tenant billing
 
----
-
-## How to Influence the Roadmap
-
-- **Feature requests:** Open a [GitHub Issue](https://github.com/ashmoonori-afk/birkin/issues/new)
-- **Discussion:** Join [GitHub Discussions](https://github.com/ashmoonori-afk/birkin/discussions)
-- **Contribute:** Check issues labeled [`good-first-issue`](https://github.com/ashmoonori-afk/birkin/labels/good-first-issue)
-
----
-
-*Built in Korea, designed for the world.*
+These may be revisited if the project's direction changes, but they are explicitly excluded from current planning to keep scope tight.
