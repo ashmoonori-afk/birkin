@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import logging
 import sqlite3
 import threading
 import uuid
@@ -12,6 +13,8 @@ from pathlib import Path
 from typing import Optional, Union
 
 from birkin.core.models import Message
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -267,8 +270,8 @@ class SessionStore:
             for conn in self._all_connections:
                 try:
                     conn.close()
-                except Exception:  # noqa: BLE001
-                    pass
+                except sqlite3.Error:
+                    logger.debug("Failed to close SQLite connection", exc_info=True)
             self._all_connections.clear()
         # Also clear the thread-local reference if present
         if hasattr(self._local, "connection"):

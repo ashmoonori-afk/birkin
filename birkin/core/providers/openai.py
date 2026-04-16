@@ -6,7 +6,7 @@ import json
 import os
 from typing import Any, Callable, Optional
 
-from openai import AsyncOpenAI, OpenAI
+from openai import APIConnectionError, APITimeoutError, AsyncOpenAI, AuthenticationError, OpenAI, RateLimitError
 
 from birkin.core.models import Message, ToolCall
 from birkin.core.providers.base import (
@@ -95,7 +95,7 @@ class OpenAIProvider(Provider):
                 )
                 return self._parse_response(response)
 
-        except Exception as e:
+        except (APIConnectionError, APITimeoutError, AuthenticationError, RateLimitError) as e:
             # Categorize OpenAI errors
             error_name = type(e).__name__
             if "rate" in str(e).lower():
@@ -142,7 +142,7 @@ class OpenAIProvider(Provider):
                 )
                 return self._parse_response(response)
 
-        except Exception as e:
+        except (APIConnectionError, APITimeoutError, AuthenticationError, RateLimitError) as e:
             error_name = type(e).__name__
             if "rate" in str(e).lower():
                 kind = ProviderErrorKind.RATE_LIMIT

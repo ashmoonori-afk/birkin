@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import logging
 from collections import OrderedDict
 from typing import TYPE_CHECKING
 
@@ -64,7 +65,8 @@ def summarize_messages(
         if content and content.strip():
             return content.strip()
         return None
-    except Exception:
+    except (ConnectionError, TimeoutError, RuntimeError, ValueError) as exc:
+        logging.getLogger(__name__).debug("Summarization failed: %s", exc)
         return None
 
 

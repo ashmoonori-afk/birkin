@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import datetime as dt
 import re
+import threading
 from pathlib import Path
 from typing import Any, Optional, Union
 
@@ -32,6 +33,7 @@ class WikiMemory:
     def __init__(self, root: Union[str, Path], *, schema: Optional[str] = None) -> None:
         self._root = Path(root)
         self._schema = schema or DEFAULT_MEMORY_SCHEMA
+        self._lock = threading.RLock()
 
     @property
     def root(self) -> Path:
@@ -51,30 +53,31 @@ class WikiMemory:
 
     def init(self) -> None:
         """Create the directory structure and seed files if they don't exist."""
-        for d in (
-            self._root,
-            self.wiki_dir,
-            self.wiki_dir / "entities",
-            self.wiki_dir / "concepts",
-            self.wiki_dir / "sessions",
-            self.raw_dir,
-        ):
-            d.mkdir(parents=True, exist_ok=True)
+        with self._lock:
+            for d in (
+                self._root,
+                self.wiki_dir,
+                self.wiki_dir / "entities",
+                self.wiki_dir / "concepts",
+                self.wiki_dir / "sessions",
+                self.raw_dir,
+            ):
+                d.mkdir(parents=True, exist_ok=True)
 
-        schema_path = self._root / "schema.md"
-        if not schema_path.exists():
-            schema_path.write_text(self._schema, encoding="utf-8")
+            schema_path = self._root / "schema.md"
+            if not schema_path.exists():
+                schema_path.write_text(self._schema, encoding="utf-8")
 
-        index_path = self.wiki_dir / "index.md"
-        if not index_path.exists():
-            index_path.write_text("# Memory Index\n\nNo pages yet.\n", encoding="utf-8")
+            index_path = self.wiki_dir / "index.md"
+            if not index_path.exists():
+                index_path.write_text("# Memory Index\n\nNo pages yet.\n", encoding="utf-8")
 
-        log_path = self.wiki_dir / "log.md"
-        if not log_path.exists():
-            log_path.write_text(
-                "# Memory Log\n\nAppend-only record of operations.\n",
-                encoding="utf-8",
-            )
+            log_path = self.wiki_dir / "log.md"
+            if not log_path.exists():
+                log_path.write_text(
+                    "# Memory Log\n\nAppend-only record of operations.\n",
+                    encoding="utf-8",
+                )
 
     # ------------------------------------------------------------------
     # Core operations
@@ -97,17 +100,18 @@ class WikiMemory:
         Path
             Absolute path to the written file.
         """
-        self.init()  # ensure dirs exist
+        with self._lock:
+            self.init()  # ensure dirs exist
 
-        page_path = self.wiki_dir / category / f"{slug}.md"
-        is_update = page_path.exists()
-        page_path.write_text(content, encoding="utf-8")
+            page_path = self.wiki_dir / category / f"{slug}.md"
+            is_update = page_path.exists()
+            page_path.write_text(content, encoding="utf-8")
 
-        self._update_index()
-        action = "updated" if is_update else "created"
-        self._append_log(f"{action} {category}/{slug}.md")
+            self._update_index()
+            action = "updated" if is_update else "created"
+            self._append_log(f"{action} {category}/{slug}.md")
 
-        return page_path
+            return page_path
 
     def query(self, term: str) -> list[dict[str, Any]]:
         """Search wiki pages for *term* (case-insensitive substring match).
@@ -163,13 +167,14 @@ class WikiMemory:
 
     def delete_page(self, category: str, slug: str) -> bool:
         """Remove a wiki page. Returns True if it existed."""
-        page_path = self.wiki_dir / category / f"{slug}.md"
-        if page_path.is_file():
-            page_path.unlink()
-            self._update_index()
-            self._append_log(f"deleted {category}/{slug}.md")
-            return True
-        return False
+        with self._lock:
+            page_path = self.wiki_dir / category / f"{slug}.md"
+            if page_path.is_file():
+                page_path.unlink()
+                self._update_index()
+                self._append_log(f"deleted {category}/{slug}.md")
+                return True
+            return False
 
     def lint(self) -> list[str]:
         """Check for broken wikilinks and orphaned pages.
@@ -274,47 +279,48 @@ class WikiMemory:
 
         Returns the number of links added.
         """
-        pages = self.list_pages()
-        all_slugs = [p["slug"] for p in pages]
+        with self._lock:
+            pages = self.list_pages()
+            all_slugs = [p["slug"] for p in pages]
 
-        if not all_slugs:
-            return 0
+            if not all_slugs:
+                return 0
 
-        links_added = 0
+            links_added = 0
 
-        for page in pages:
-            cat = page["category"]
-            slug = page["slug"]
-            page_path = self.wiki_dir / cat / f"{slug}.md"
-            if not page_path.is_file():
-                continue
+            for page in pages:
+                cat = page["category"]
+                slug = page["slug"]
+                page_path = self.wiki_dir / cat / f"{slug}.md"
+                if not page_path.is_file():
+                    continue
 
-            content = page_path.read_text(encoding="utf-8")
-            modified = content
+                content = page_path.read_text(encoding="utf-8")
+                modified = content
 
-            for target_slug in all_slugs:
-                if target_slug == slug:
-                    continue  # Don't self-link
+                for target_slug in all_slugs:
+                    if target_slug == slug:
+                        continue  # Don't self-link
 
-                # Build a pattern that finds the slug text NOT already wrapped in [[]]
-                # Negative lookbehind for [[ and negative lookahead for ]]
-                pattern = re.compile(
-                    r"(?<!\[\[)\b(" + re.escape(target_slug) + r")\b(?!\]\])",
-                    re.IGNORECASE,
-                )
+                    # Build a pattern that finds the slug text NOT already wrapped in [[]]
+                    # Negative lookbehind for [[ and negative lookahead for ]]
+                    pattern = re.compile(
+                        r"(?<!\[\[)\b(" + re.escape(target_slug) + r")\b(?!\]\])",
+                        re.IGNORECASE,
+                    )
 
-                def _wrap_link(m: re.Match) -> str:  # type: ignore[type-arg]
-                    return f"[[{m.group(1)}]]"
+                    def _wrap_link(m: re.Match) -> str:  # type: ignore[type-arg]
+                        return f"[[{m.group(1)}]]"
 
-                new_content, count = pattern.subn(_wrap_link, modified)
-                if count > 0:
-                    links_added += count
-                    modified = new_content
+                    new_content, count = pattern.subn(_wrap_link, modified)
+                    if count > 0:
+                        links_added += count
+                        modified = new_content
 
-            if modified != content:
-                page_path.write_text(modified, encoding="utf-8")
+                if modified != content:
+                    page_path.write_text(modified, encoding="utf-8")
 
-        return links_added
+            return links_added
 
     def summarize_old_sessions(self, max_age_hours: int = 24) -> list[str]:
         """Find session pages older than max_age_hours, merge them into a summary page,
@@ -322,48 +328,49 @@ class WikiMemory:
 
         Returns list of deleted slugs.
         """
-        self.init()
-        sessions_dir = self.wiki_dir / "sessions"
-        if not sessions_dir.is_dir():
-            return []
+        with self._lock:
+            self.init()
+            sessions_dir = self.wiki_dir / "sessions"
+            if not sessions_dir.is_dir():
+                return []
 
-        now = dt.datetime.now(dt.timezone.utc)
-        cutoff = now - dt.timedelta(hours=max_age_hours)
-        cutoff_ts = cutoff.timestamp()
+            now = dt.datetime.now(dt.timezone.utc)
+            cutoff = now - dt.timedelta(hours=max_age_hours)
+            cutoff_ts = cutoff.timestamp()
 
-        # Collect old session files grouped by date
-        old_sessions: dict[str, list[tuple[str, str]]] = {}  # date_str -> [(slug, content)]
-        deleted_slugs: list[str] = []
+            # Collect old session files grouped by date
+            old_sessions: dict[str, list[tuple[str, str]]] = {}  # date_str -> [(slug, content)]
+            deleted_slugs: list[str] = []
 
-        for md_file in sorted(sessions_dir.glob("*.md")):
-            mtime = md_file.stat().st_mtime
-            if mtime < cutoff_ts:
-                slug = md_file.stem
-                content = md_file.read_text(encoding="utf-8")
-                # Group by date from file modification time
-                date_str = dt.datetime.fromtimestamp(mtime, tz=dt.timezone.utc).strftime("%Y-%m-%d")
-                if date_str not in old_sessions:
-                    old_sessions[date_str] = []
-                old_sessions[date_str].append((slug, content))
-                deleted_slugs.append(slug)
+            for md_file in sorted(sessions_dir.glob("*.md")):
+                mtime = md_file.stat().st_mtime
+                if mtime < cutoff_ts:
+                    slug = md_file.stem
+                    content = md_file.read_text(encoding="utf-8")
+                    # Group by date from file modification time
+                    date_str = dt.datetime.fromtimestamp(mtime, tz=dt.timezone.utc).strftime("%Y-%m-%d")
+                    if date_str not in old_sessions:
+                        old_sessions[date_str] = []
+                    old_sessions[date_str].append((slug, content))
+                    deleted_slugs.append(slug)
 
-        if not old_sessions:
-            return []
+            if not old_sessions:
+                return []
 
-        # Create summary pages and delete originals
-        for date_str, sessions in old_sessions.items():
-            summary_slug = f"summary-{date_str}"
-            parts = [f"# Session Summary ({date_str})\n"]
-            for slug, content in sessions:
-                parts.append(f"## {slug}\n\n{content}\n\n---\n")
-            summary_content = "\n".join(parts)
-            self.ingest("concepts", summary_slug, summary_content)
+            # Create summary pages and delete originals
+            for date_str, sessions in old_sessions.items():
+                summary_slug = f"summary-{date_str}"
+                parts = [f"# Session Summary ({date_str})\n"]
+                for slug, content in sessions:
+                    parts.append(f"## {slug}\n\n{content}\n\n---\n")
+                summary_content = "\n".join(parts)
+                self.ingest("concepts", summary_slug, summary_content)
 
-            # Delete original session pages
-            for slug, _ in sessions:
-                self.delete_page("sessions", slug)
+                # Delete original session pages
+                for slug, _ in sessions:
+                    self.delete_page("sessions", slug)
 
-        return deleted_slugs
+            return deleted_slugs
 
     def _append_log(self, entry: str) -> None:
         """Append a timestamped entry to log.md."""

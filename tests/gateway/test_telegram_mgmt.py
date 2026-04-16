@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+import asyncio
+from unittest.mock import AsyncMock, patch
+
 import pytest
 from fastapi.testclient import TestClient
 
@@ -88,3 +91,40 @@ class TestTelegramSendTest:
         resp = client.post("/api/telegram/send-test", json={})
         assert resp.status_code == 400
         assert "chat_id" in resp.json()["detail"]
+
+
+class TestPollingIdempotent:
+    def test_start_polling_twice_returns_already_running(self, client: TestClient, monkeypatch):
+        """Calling start_polling twice should return already_running on the second call."""
+        monkeypatch.setenv("TELEGRAM_BOT_TOKEN", "fake-token")
+
+        import birkin.gateway.routers.telegram as tg_mod
+
+        mock_adapter = AsyncMock()
+        mock_adapter.delete_webhook = AsyncMock(return_value={"ok": True})
+        # Make get_updates immediately stop the polling loop
+        mock_adapter.get_updates = AsyncMock(side_effect=asyncio.CancelledError)
+
+        with patch(
+            "birkin.gateway.routers.telegram.get_telegram_adapter",
+            return_value=mock_adapter,
+        ):
+            # Reset polling state before test
+            tg_mod._polling_active = False
+            tg_mod._polling_task = None
+
+            resp1 = client.post("/api/telegram/polling/start")
+            assert resp1.status_code == 200
+            assert resp1.json()["status"] == "started"
+
+            # Force _polling_active to True so second call returns already_running
+            tg_mod._polling_active = True
+
+            resp2 = client.post("/api/telegram/polling/start")
+            assert resp2.status_code == 200
+            assert resp2.json()["status"] == "already_running"
+
+            # Cleanup
+            tg_mod._polling_active = False
+            if tg_mod._polling_task and not tg_mod._polling_task.done():
+                tg_mod._polling_task.cancel()

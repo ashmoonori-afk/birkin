@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+import threading
 import time
 
 import pytest
@@ -212,3 +213,34 @@ class TestSummarizeOldSessions:
     def test_returns_empty_when_no_sessions(self, wiki):
         deleted = wiki.summarize_old_sessions(max_age_hours=24)
         assert deleted == []
+
+
+class TestConcurrentIngest:
+    def test_concurrent_threads_ingest_safely(self, wiki):
+        """Launch 5 threads that each ingest a different page; all must exist after."""
+        errors: list[Exception] = []
+
+        def _ingest(idx: int) -> None:
+            try:
+                wiki.ingest("concepts", f"page-{idx}", f"# Page {idx}\n\nContent for {idx}.")
+            except Exception as exc:
+                errors.append(exc)
+
+        threads = [threading.Thread(target=_ingest, args=(i,)) for i in range(5)]
+        for t in threads:
+            t.start()
+        for t in threads:
+            t.join()
+
+        assert errors == [], f"Threads raised errors: {errors}"
+
+        # All 5 pages must exist
+        pages = wiki.list_pages()
+        concept_slugs = {p["slug"] for p in pages if p["category"] == "concepts"}
+        for i in range(5):
+            assert f"page-{i}" in concept_slugs
+
+        # Index must reference all 5 pages
+        index_text = (wiki.wiki_dir / "index.md").read_text(encoding="utf-8")
+        for i in range(5):
+            assert f"page-{i}" in index_text

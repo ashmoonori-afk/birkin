@@ -66,10 +66,10 @@ class ToolLoader:
                             registry.register(tool_instance)
                             loaded_names.append(tool_instance.spec.name)
                             logger.info(f"Loaded tool: {tool_instance.spec.name}")
-                        except Exception as e:
-                            logger.error(f"Failed to instantiate {name} from {py_file}: {e}")
-            except Exception as e:
-                logger.error(f"Failed to load module {py_file}: {e}")
+                        except (TypeError, ValueError, RuntimeError, OSError) as e:
+                            logger.error("Failed to instantiate %s from %s: %s", name, py_file, e)
+            except (ImportError, OSError, RuntimeError) as e:
+                logger.error("Failed to load module %s: %s", py_file, e)
 
         return loaded_names
 
@@ -104,8 +104,8 @@ class ToolLoader:
                         registry.register(tool_instance)
                         loaded_names.append(tool_instance.spec.name)
                         logger.info(f"Loaded tool: {tool_instance.spec.name}")
-                    except Exception as e:
-                        logger.error(f"Failed to instantiate {name} from {module_path}: {e}")
+                    except (TypeError, ValueError, RuntimeError, OSError) as e:
+                        logger.error("Failed to instantiate %s from %s: %s", name, module_path, e)
         except ImportError as e:
             logger.error(f"Failed to import module {module_path}: {e}")
 

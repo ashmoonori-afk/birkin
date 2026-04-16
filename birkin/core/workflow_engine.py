@@ -93,9 +93,9 @@ class WorkflowEngine:
                 self._results[nid] = output
                 final_output = output
                 self._emit({"wf_step": {"id": nid, "type": node["type"], "status": "done"}})
-            except Exception as e:
+            except (OSError, RuntimeError, ValueError, TimeoutError, ConnectionError) as e:
                 self._emit({"wf_step": {"id": nid, "type": node["type"], "status": "error", "error": str(e)}})
-                logger.error(f"Workflow node {nid} ({node['type']}) failed: {e}")
+                logger.error("Workflow node %s (%s) failed: %s", nid, node["type"], e)
                 final_output = f"Error at {node['type']}: {e}"
                 break
 
@@ -221,7 +221,7 @@ class WorkflowEngine:
             async with httpx.AsyncClient(timeout=15) as client:
                 resp = await client.get(url)
                 return f"HTTP {resp.status_code}\n{resp.text[:5000]}"
-        except Exception as e:
+        except (httpx.HTTPError, OSError, TimeoutError) as e:
             return f"API call failed: {e}"
 
     async def _handle_file_read(self, node: dict, input_text: str) -> str:
@@ -340,7 +340,7 @@ class WorkflowEngine:
                 adapter = get_telegram_adapter()
                 await adapter.send_message(chat_id=int(chat_id), text=input_text)
                 return f"Sent to Telegram chat {chat_id}"
-            except Exception as e:
+            except (ConnectionError, TimeoutError, OSError, ValueError) as e:
                 return f"Telegram send failed: {e}"
         return input_text
 
@@ -357,7 +357,8 @@ class WorkflowEngine:
         try:
             response: ProviderResponse = await self._provider.acomplete(messages)
             return response.content or ""
-        except Exception:
+        except (ConnectionError, TimeoutError, RuntimeError) as exc:
+            logger.debug("Primary LLM failed (%s), trying fallback", exc)
             if self._fallback:
                 response = await self._fallback.acomplete(messages)
                 return response.content or ""
@@ -377,5 +378,5 @@ class WorkflowEngine:
             ctx = ToolContext(working_dir=".")
             result = await tool.execute(args=args, context=ctx)
             return result.output if result.success else (result.error or "Tool failed")
-        except Exception as e:
+        except (OSError, RuntimeError, ValueError, TimeoutError) as e:
             return f"Tool '{tool_name}' error: {e}"

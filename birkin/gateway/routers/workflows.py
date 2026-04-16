@@ -8,7 +8,7 @@ router = APIRouter(prefix="/api", tags=["workflows"])
 
 
 @router.get("/workflows")
-def list_workflows():
+def list_workflows() -> dict:
     """List all workflows (saved + samples)."""
     from birkin.gateway.workflows import load_workflows
 
@@ -16,7 +16,7 @@ def list_workflows():
 
 
 @router.get("/workflows/{workflow_id}")
-def get_workflow(workflow_id: str):
+def get_workflow(workflow_id: str) -> dict:
     """Get a single workflow by ID."""
     from birkin.gateway.workflows import load_workflows
 
@@ -28,7 +28,7 @@ def get_workflow(workflow_id: str):
 
 
 @router.put("/workflows")
-def put_workflow(body: dict):
+def put_workflow(body: dict) -> dict:
     """Save or update a workflow."""
     import uuid
 
@@ -41,7 +41,7 @@ def put_workflow(body: dict):
 
 
 @router.delete("/workflows/{workflow_id}", status_code=204)
-def remove_workflow(workflow_id: str):
+def remove_workflow(workflow_id: str) -> None:
     """Delete a saved workflow."""
     from birkin.gateway.workflows import delete_workflow
 

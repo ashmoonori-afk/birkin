@@ -48,8 +48,8 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     logger.info("Shutting down: closing all SQLite connections")
     try:
         get_session_store().close_all()
-    except Exception:  # noqa: BLE001
-        logger.warning("Error closing session store connections", exc_info=True)
+    except (OSError, RuntimeError) as exc:
+        logger.warning("Error closing session store connections: %s", exc, exc_info=True)
 
     reset_session_store()
     reset_wiki_memory()

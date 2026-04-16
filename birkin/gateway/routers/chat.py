@@ -86,7 +86,7 @@ async def chat(body: ChatRequest) -> ChatResponse:
                 ),
             )
         raise HTTPException(status_code=500, detail=msg)
-    except Exception as exc:
+    except (ConnectionError, TimeoutError, RuntimeError, TypeError, ValueError) as exc:
         raise HTTPException(status_code=500, detail=str(exc))
 
     return ChatResponse(
@@ -115,8 +115,8 @@ async def chat_stream(body: ChatRequest) -> StreamingResponse:
                 if wf.get("id") == active_wf_id:
                     active_workflow = wf
                     break
-        except Exception:
-            logger.warning("Failed to load active workflow %s", active_wf_id, exc_info=True)
+        except (OSError, json.JSONDecodeError, KeyError) as exc:
+            logger.warning("Failed to load active workflow %s: %s", active_wf_id, exc, exc_info=True)
 
     async def event_generator() -> AsyncGenerator[str, None]:
         queue: asyncio.Queue[dict | None] = asyncio.Queue()
@@ -151,7 +151,7 @@ async def chat_stream(body: ChatRequest) -> StreamingResponse:
             reply = await task
             yield f"data: {json.dumps({'done': True, 'reply': reply})}\n\n"
 
-        except Exception as primary_exc:
+        except (ConnectionError, TimeoutError, RuntimeError, TypeError, ValueError) as primary_exc:
             async for line in _stream_fallback(body, agent, config, primary_exc):
                 yield line
 
@@ -182,8 +182,8 @@ async def _stream_workflow(
     if fb_name:
         try:
             fb_provider = create_provider(f"{fb_name}/default")
-        except Exception:
-            logger.warning("Failed to create fallback provider %s", fb_name, exc_info=True)
+        except (ConnectionError, ValueError, RuntimeError) as exc:
+            logger.warning("Failed to create fallback provider %s: %s", fb_name, exc, exc_info=True)
 
     engine = WorkflowEngine(
         provider,
@@ -239,7 +239,7 @@ async def _stream_fallback(
             reply = await fb_task
             yield f"data: {json.dumps({'done': True, 'reply': reply})}\n\n"
             return
-        except Exception as fb_exc:
+        except (ConnectionError, TimeoutError, RuntimeError, TypeError, ValueError) as fb_exc:
             err = f"Both providers failed. Primary: {primary_exc}, Fallback: {fb_exc}"
             yield f"data: {json.dumps({'error': err})}\n\n"
             return

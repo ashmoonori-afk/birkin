@@ -10,13 +10,13 @@ router = APIRouter(prefix="/api", tags=["wiki"])
 
 
 @router.get("/wiki/pages")
-def wiki_list_pages():
+def wiki_list_pages() -> list[dict]:
     wiki = get_wiki_memory()
     return wiki.list_pages()
 
 
 @router.get("/wiki/pages/{category}/{slug}")
-def wiki_get_page(category: str, slug: str):
+def wiki_get_page(category: str, slug: str) -> dict:
     wiki = get_wiki_memory()
     content = wiki.get_page(category, slug)
     if content is None:
@@ -25,32 +25,32 @@ def wiki_get_page(category: str, slug: str):
 
 
 @router.put("/wiki/pages/{category}/{slug}")
-def wiki_put_page(category: str, slug: str, body: dict):
+def wiki_put_page(category: str, slug: str, body: dict) -> dict:
     wiki = get_wiki_memory()
     wiki.ingest(category, slug, body.get("content", ""))
     return {"status": "ok"}
 
 
 @router.delete("/wiki/pages/{category}/{slug}", status_code=204)
-def wiki_delete_page(category: str, slug: str):
+def wiki_delete_page(category: str, slug: str) -> None:
     wiki = get_wiki_memory()
     wiki.delete_page(category, slug)
 
 
 @router.get("/wiki/search")
-def wiki_search(q: str = ""):
+def wiki_search(q: str = "") -> list[dict]:
     wiki = get_wiki_memory()
     return wiki.query(q) if q else []
 
 
 @router.get("/wiki/lint")
-def wiki_lint():
+def wiki_lint() -> dict:
     wiki = get_wiki_memory()
     return {"warnings": wiki.lint()}
 
 
 @router.get("/wiki/graph")
-def wiki_graph():
+def wiki_graph() -> dict:
     """Build node-link graph data from wiki pages."""
     import re
 
@@ -84,7 +84,7 @@ def wiki_graph():
 
 
 @router.post("/wiki/upload")
-async def wiki_upload_file(file: UploadFile = File(...)):
+async def wiki_upload_file(file: UploadFile = File(...)) -> dict:
     """Upload a file (md, csv, xls/xlsx, txt, pdf) and ingest into wiki memory."""
     import csv
     import io
@@ -150,7 +150,7 @@ async def wiki_upload_file(file: UploadFile = File(...)):
             content = "\n\n".join(sheets_content) if sheets_content else "(empty spreadsheet)"
         except ImportError:
             content = "(Excel support requires openpyxl: pip install openpyxl)"
-        except Exception as exc:
+        except (ValueError, KeyError, IndexError, OSError) as exc:
             content = f"(Failed to parse Excel file: {exc})"
 
     elif ext == "pdf":
@@ -164,7 +164,7 @@ async def wiki_upload_file(file: UploadFile = File(...)):
                 content = "(PDF contained no extractable text)"
         except ImportError:
             content = "(PDF support requires pypdf: pip install pypdf)"
-        except Exception as exc:
+        except (ValueError, OSError) as exc:
             content = f"(Failed to parse PDF: {exc})"
     else:
         content = content_bytes.decode("utf-8", errors="replace")
@@ -188,7 +188,7 @@ async def wiki_upload_file(file: UploadFile = File(...)):
 
 
 @router.post("/wiki/auto-link")
-def wiki_auto_link():
+def wiki_auto_link() -> dict:
     """Scan all pages and auto-insert [[wikilinks]] where page slugs appear in text."""
     wiki = get_wiki_memory()
     count = wiki.auto_link()
@@ -196,7 +196,7 @@ def wiki_auto_link():
 
 
 @router.post("/wiki/summarize")
-def wiki_summarize():
+def wiki_summarize() -> dict:
     """Merge old session pages into date-grouped summaries."""
     wiki = get_wiki_memory()
     deleted = wiki.summarize_old_sessions(max_age_hours=24)

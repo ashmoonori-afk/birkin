@@ -161,8 +161,8 @@ class TelegramAdapter:
         try:
             update = Update(**data)
             return update
-        except Exception as e:
-            logger.warning(f"Failed to parse Telegram update: {e}")
+        except (TypeError, ValueError, KeyError) as e:
+            logger.warning("Failed to parse Telegram update: %s", e)
             return None
 
     def extract_message(self, update: Update) -> Optional[dict[str, Any]]:

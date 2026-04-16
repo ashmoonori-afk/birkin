@@ -211,17 +211,43 @@ class TestWebhookSecretVerification:
 
     def test_correct_secret_header(self, webhook_client: TestClient) -> None:
         """Webhook with correct secret header returns 200."""
+        from unittest.mock import AsyncMock, MagicMock, patch
+
         secret = "test-secret-value"
         _set_webhook_secret(secret)
 
-        resp = webhook_client.post(
-            f"/api/webhooks/telegram/{_BOT_TOKEN}",
-            json=_VALID_UPDATE,
-            headers=self._auth_headers({"X-Telegram-Bot-Api-Secret-Token": secret}),
-        )
-        # Should pass secret check and token check; may fail on dispatch
-        # but should NOT be 403
+        mock_adapter = MagicMock()
+        mock_adapter.parse_update.return_value = MagicMock()
+        mock_adapter.extract_message.return_value = {
+            "chat_id": 123,
+            "user_id": 456,
+            "text": "Hello",
+            "message_id": 1,
+        }
+        mock_adapter.format_session_key.return_value = "tg_456"
+        mock_adapter.send_message = AsyncMock()
+
+        mock_dispatcher = AsyncMock()
+        mock_dispatcher.dispatch_message = AsyncMock(return_value="mocked reply")
+
+        with (
+            patch(
+                "birkin.gateway.routers.webhooks.get_dispatcher",
+                return_value=mock_dispatcher,
+            ),
+            patch(
+                "birkin.gateway.routers.webhooks.get_telegram_adapter",
+                return_value=mock_adapter,
+            ),
+        ):
+            resp = webhook_client.post(
+                f"/api/webhooks/telegram/{_BOT_TOKEN}",
+                json=_VALID_UPDATE,
+                headers=self._auth_headers({"X-Telegram-Bot-Api-Secret-Token": secret}),
+            )
+        # Should pass secret check and token check
         assert resp.status_code != 403
+        assert resp.status_code == 200
 
     def test_wrong_secret_header(self, webhook_client: TestClient) -> None:
         """Webhook with wrong secret header returns 403."""
@@ -247,16 +273,43 @@ class TestWebhookSecretVerification:
 
     def test_no_secret_in_config_legacy(self, webhook_client: TestClient) -> None:
         """When no secret in config (legacy), bot_token path check still works."""
+        from unittest.mock import AsyncMock, MagicMock, patch
+
         _set_webhook_secret(None)
 
-        # Correct bot token should pass (not 401 or 403)
-        resp = webhook_client.post(
-            f"/api/webhooks/telegram/{_BOT_TOKEN}",
-            json=_VALID_UPDATE,
-            headers=self._auth_headers(),
-        )
+        mock_adapter = MagicMock()
+        mock_adapter.parse_update.return_value = MagicMock()
+        mock_adapter.extract_message.return_value = {
+            "chat_id": 123,
+            "user_id": 456,
+            "text": "Hello",
+            "message_id": 1,
+        }
+        mock_adapter.format_session_key.return_value = "tg_456"
+        mock_adapter.send_message = AsyncMock()
+
+        mock_dispatcher = AsyncMock()
+        mock_dispatcher.dispatch_message = AsyncMock(return_value="mocked reply")
+
+        with (
+            patch(
+                "birkin.gateway.routers.webhooks.get_dispatcher",
+                return_value=mock_dispatcher,
+            ),
+            patch(
+                "birkin.gateway.routers.webhooks.get_telegram_adapter",
+                return_value=mock_adapter,
+            ),
+        ):
+            # Correct bot token should pass (not 401 or 403)
+            resp = webhook_client.post(
+                f"/api/webhooks/telegram/{_BOT_TOKEN}",
+                json=_VALID_UPDATE,
+                headers=self._auth_headers(),
+            )
         assert resp.status_code != 401
         assert resp.status_code != 403
+        assert resp.status_code == 200
 
     def test_no_secret_in_config_wrong_token(self, webhook_client: TestClient) -> None:
         """When no secret in config, wrong bot_token still returns 401."""

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import logging
 from typing import Any, Optional
 
@@ -80,8 +81,8 @@ class MessageDispatcher:
                 provider = config["provider"]
             if config.get("model"):
                 model = config["model"]
-        except Exception:
-            logger.warning("Failed to load gateway config, using defaults")
+        except (OSError, json.JSONDecodeError, KeyError) as exc:
+            logger.warning("Failed to load gateway config (%s), using defaults", exc)
             config = {}
 
         # Create provider and agent
@@ -106,6 +107,6 @@ class MessageDispatcher:
         try:
             reply = await agent.achat(text)
             return reply
-        except Exception as e:
-            logger.error(f"Agent execution failed: {e}")
+        except (ConnectionError, TimeoutError, RuntimeError, TypeError, ValueError) as e:
+            logger.error("Agent execution failed: %s", e)
             raise

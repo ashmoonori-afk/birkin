@@ -96,7 +96,7 @@ class MemoryClassifier:
         except (json.JSONDecodeError, TypeError) as exc:
             logger.debug("Classifier JSON parse failed: %s", exc)
             return None
-        except Exception as exc:
+        except (ConnectionError, TimeoutError, RuntimeError, ValueError) as exc:
             logger.debug("Classifier provider call failed: %s", exc)
             return None
 

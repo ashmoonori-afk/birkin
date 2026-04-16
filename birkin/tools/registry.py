@@ -92,7 +92,7 @@ class ToolRegistry:
         try:
             result = await tool.execute(args, context)
             return result
-        except Exception as e:
+        except (OSError, RuntimeError, ValueError, TimeoutError) as e:
             return ToolOutput(
                 success=False,
                 output="",

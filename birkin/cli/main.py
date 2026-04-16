@@ -91,7 +91,7 @@ def repl(agent: Agent) -> None:
             console.print()
         except NotImplementedError as exc:
             console.print(f"[red]Provider not yet implemented:[/red] {exc}\n")
-        except Exception as exc:  # noqa: BLE001
+        except (ConnectionError, TimeoutError, RuntimeError, ValueError, OSError) as exc:
             console.print(f"[red]Error:[/red] {exc}\n")
 
 

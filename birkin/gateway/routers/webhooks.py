@@ -75,13 +75,13 @@ async def telegram_webhook(bot_token: str, request: Request, data: dict) -> dict
 
         return {"status": "ok", "reply": reply}
 
-    except Exception as e:
+    except (ConnectionError, TimeoutError, RuntimeError, TypeError, ValueError, OSError) as e:
         error_msg = f"Error processing message: {str(e)}"
         try:
             await adapter.send_message(
                 chat_id=msg_info["chat_id"],
                 text="Sorry, I encountered an error processing your message.",
             )
-        except Exception:
+        except (ConnectionError, TimeoutError, OSError):
             logging.getLogger(__name__).warning("Failed to send error reply via webhook", exc_info=True)
         raise HTTPException(status_code=500, detail=error_msg)

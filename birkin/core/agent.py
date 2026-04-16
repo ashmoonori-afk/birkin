@@ -421,8 +421,8 @@ class Agent:
                 f"**Assistant:** {response[:1000]}\n"
             )
             self._memory.ingest(category, slug, content)
-        except Exception:
-            logger.warning("Auto-save memory failed", exc_info=True)
+        except (OSError, ValueError, TypeError) as exc:
+            logger.warning("Auto-save memory failed: %s", exc, exc_info=True)
 
     def _build_messages(self) -> list[Message]:
         """Assemble the full message list including system prompt and memory."""
@@ -515,7 +515,7 @@ class Agent:
                 content=content,
                 is_error=not result.success,
             )
-        except Exception as e:
+        except (OSError, RuntimeError, ValueError, TimeoutError) as e:
             return ToolResult(
                 tool_call_id=tool_call.id,
                 name=tool_call.name,
@@ -544,7 +544,7 @@ class Agent:
                 content=content,
                 is_error=not result.success,
             )
-        except Exception as e:
+        except (OSError, RuntimeError, ValueError, TimeoutError) as e:
             return ToolResult(
                 tool_call_id=tool_call.id,
                 name=tool_call.name,

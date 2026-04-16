@@ -182,3 +182,15 @@ Monetization and business-model decisions are intentionally deferred. Birkin sta
 - Multi-tenant billing
 
 These may be revisited if the project's direction changes, but they are explicitly excluded from current planning to keep scope tight.
+
+---
+
+## How to Influence the Roadmap
+
+- **Feature requests & ideas** — [open a GitHub Issue](https://github.com/your-org/birkin/issues)
+- **Bug reports** — [open a GitHub Issue](https://github.com/your-org/birkin/issues) with reproduction steps
+- **Pull requests welcome** — especially for Phase 2A and Phase 2B items
+
+---
+
+*Built in Korea, designed for the world.* 🇰🇷
