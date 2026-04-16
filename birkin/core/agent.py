@@ -6,7 +6,7 @@ import asyncio
 import logging
 import os
 from concurrent.futures import ThreadPoolExecutor
-from typing import Any, Callable, Optional
+from typing import TYPE_CHECKING, Any, Callable, Optional
 
 from birkin.core.compression import summarize_or_cache
 from birkin.core.defaults import DEFAULT_SYSTEM_PROMPT
@@ -15,8 +15,10 @@ from birkin.core.providers.base import Provider
 from birkin.core.session import Session, SessionStore
 from birkin.mcp.adapter import MCPToolAdapter
 from birkin.mcp.registry import MCPRegistry
-from birkin.memory.wiki import WikiMemory
 from birkin.tools.base import Tool, ToolContext
+
+if TYPE_CHECKING:
+    from birkin.memory.wiki import WikiMemory
 
 logger = logging.getLogger(__name__)
 

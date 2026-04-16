@@ -3,6 +3,7 @@
 from birkin.mcp.adapter import MCPToolAdapter
 from birkin.mcp.client import MCPClient
 from birkin.mcp.registry import MCPRegistry
+from birkin.mcp.server import create_mcp_server, run_stdio_server
 from birkin.mcp.types import MCPServerConfig, MCPToolCallResult, MCPToolInfo, TransportType
 
 __all__ = [
@@ -13,4 +14,6 @@ __all__ = [
     "MCPToolCallResult",
     "MCPToolInfo",
     "TransportType",
+    "create_mcp_server",
+    "run_stdio_server",
 ]

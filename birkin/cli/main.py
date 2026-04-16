@@ -48,6 +48,13 @@ def create_parser() -> argparse.ArgumentParser:
     # ── birkin sessions ──
     sub.add_parser("sessions", help="List saved sessions")
 
+    # ── birkin mcp ──
+    mcp_p = sub.add_parser("mcp", help="MCP server commands")
+    mcp_sub = mcp_p.add_subparsers(dest="mcp_command")
+    mcp_serve_p = mcp_sub.add_parser("serve", help="Start Birkin as an MCP server (stdio)")
+    mcp_serve_p.add_argument("--no-tools", action="store_true", help="Don't expose built-in tools")
+    mcp_serve_p.add_argument("--memory-dir", type=str, default="./memory", help="Wiki memory directory")
+
     # ── birkin serve (default) ──
     serve_p = sub.add_parser("serve", help="Start the web UI and API server (default)")
     serve_p.add_argument("--host", type=str, default="127.0.0.1", help="Bind host (default: 127.0.0.1)")
@@ -141,6 +148,29 @@ def cmd_sessions(_args: argparse.Namespace) -> None:
     store.close()
 
 
+def cmd_mcp(args: argparse.Namespace) -> None:
+    """Handle ``birkin mcp serve`` — start Birkin as an MCP server on stdio."""
+    import asyncio
+
+    from birkin.mcp.server import run_stdio_server
+    from birkin.tools.loader import load_tools as load_builtin_tools
+
+    mcp_command = getattr(args, "mcp_command", "serve")
+    if mcp_command != "serve":
+        console.print("[red]Unknown mcp subcommand.[/red] Use: birkin mcp serve")
+        sys.exit(1)
+
+    tools = None if not args.no_tools else []
+    if tools is None:
+        tools = load_builtin_tools()
+
+    memory_dir = getattr(args, "memory_dir", "./memory")
+    wiki = WikiMemory(root=memory_dir)
+    wiki.init()
+
+    asyncio.run(run_stdio_server(tools=tools, memory=wiki))
+
+
 def cmd_serve(args: argparse.Namespace) -> None:
     """Handle ``birkin serve`` — start FastAPI + uvicorn and open browser."""
     import os
@@ -215,6 +245,7 @@ def main() -> None:
     handlers = {
         "chat": cmd_chat,
         "sessions": cmd_sessions,
+        "mcp": cmd_mcp,
         "serve": cmd_serve,
     }
 
