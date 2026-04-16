@@ -316,20 +316,26 @@ class CompiledGraph:
             data={"parallel_nodes": group.nodes},
         )
 
-        async def _run_one(node_name: str) -> tuple[str, NodeResult | None, str | None]:
+        async def _run_one(node_name: str, node_ctx: GraphContext) -> tuple[str, NodeResult | None, str | None, dict]:
             node = self._nodes.get(node_name)
             if node is None:
-                return (node_name, None, f"Node not found: {node_name}")
+                return (node_name, None, f"Node not found: {node_name}", {})
             try:
-                result = await node.run(ctx)
-                return (node_name, result, None)
+                result = await node.run(node_ctx)
+                return (node_name, result, None, dict(node_ctx.state))
             except (OSError, RuntimeError, ValueError, TimeoutError) as exc:
-                return (node_name, None, str(exc))
+                return (node_name, None, str(exc), {})
 
-        tasks = [_run_one(n) for n in group.nodes]
+        # Give each parallel node a snapshot to prevent data races
+        tasks = [_run_one(n, GraphContext(state=dict(ctx.state))) for n in group.nodes]
         results = await asyncio.gather(*tasks)
 
-        for node_name, result, error in results:
+        # Merge results back into shared context
+        for node_name, result, error, state_update in results:
+            if not error:
+                ctx.state.update(state_update)
+
+        for node_name, result, error, _ in results:
             if error:
                 yield Event(type=EventType.NODE_ERROR, node_name=node_name, data={"error": error})
             else:

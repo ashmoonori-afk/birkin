@@ -3,20 +3,13 @@
 from __future__ import annotations
 
 import os
-from typing import Any, Callable, Optional
+from typing import Optional
 
 from openai import AsyncOpenAI, OpenAI
 
-from birkin.core.models import Message
-from birkin.core.providers.base import (
-    ModelCapabilities,
-    Provider,
-    ProviderError,
-    ProviderErrorKind,
-    ProviderResponse,
-    TokenUsage,
-)
+from birkin.core.providers.base import ModelCapabilities, ProviderError, ProviderErrorKind
 from birkin.core.providers.capabilities import Capability, ProviderProfile
+from birkin.core.providers.openai_compat import OpenAICompatProvider
 
 _DEFAULT_MODEL = "gemini-2.5-flash"
 _BASE_URL = "https://generativelanguage.googleapis.com/v1beta/openai/"
@@ -28,11 +21,11 @@ _MODEL_CAPS = {
 }
 
 
-class GeminiProvider(Provider):
+class GeminiProvider(OpenAICompatProvider):
     """Google Gemini API provider (OpenAI-compatible endpoint)."""
 
     def __init__(self, *, model: Optional[str] = None, api_key: Optional[str] = None) -> None:
-        self._model = model or _DEFAULT_MODEL
+        self._model_str = model or _DEFAULT_MODEL
         api_key = api_key or os.getenv("GEMINI_API_KEY") or os.getenv("GOOGLE_API_KEY")
         if not api_key:
             raise ProviderError("GEMINI_API_KEY not set", ProviderErrorKind.AUTH)
@@ -45,17 +38,17 @@ class GeminiProvider(Provider):
 
     @property
     def model(self) -> str:
-        return self._model
+        return self._model_str
 
     def capabilities(self) -> ModelCapabilities:
-        return _MODEL_CAPS.get(self._model, ModelCapabilities(context_window=1000000, supports_vision=True))
+        return _MODEL_CAPS.get(self._model_str, ModelCapabilities(context_window=1000000, supports_vision=True))
 
     @property
     def profile(self) -> ProviderProfile:
         caps = self.capabilities()
         return ProviderProfile(
             name="gemini",
-            model=self._model,
+            model=self._model_str,
             capabilities=frozenset(
                 {
                     Capability.REASONING,
@@ -66,70 +59,8 @@ class GeminiProvider(Provider):
                     Capability.STRUCTURED_OUTPUT,
                 }
             ),
-            cost_per_1k_input=0.15 if "flash" in self._model else 1.25,
-            cost_per_1k_output=0.60 if "flash" in self._model else 10.0,
+            cost_per_1k_input=0.15 if "flash" in self._model_str else 1.25,
+            cost_per_1k_output=0.60 if "flash" in self._model_str else 10.0,
             max_context=caps.context_window,
-            latency_tier="low" if "flash" in self._model else "medium",
+            latency_tier="low" if "flash" in self._model_str else "medium",
         )
-
-    def _build_messages(self, messages: list[Message]) -> list[dict[str, str]]:
-        result: list[dict[str, str]] = []
-        for m in messages:
-            if m.role == "tool":
-                continue
-            result.append({"role": m.role, "content": m.content})
-        return result
-
-    def complete(
-        self,
-        messages: list[Message],
-        *,
-        tools: Optional[list[dict[str, Any]]] = None,
-        stream_callback: Optional[Callable[[Optional[str]], None]] = None,
-    ) -> ProviderResponse:
-        try:
-            response = self._client.chat.completions.create(
-                model=self._model,
-                messages=self._build_messages(messages),
-            )
-            choice = response.choices[0]
-            usage = None
-            if response.usage:
-                usage = TokenUsage(
-                    prompt_tokens=response.usage.prompt_tokens,
-                    completion_tokens=response.usage.completion_tokens,
-                )
-            return ProviderResponse(
-                content=choice.message.content,
-                usage=usage,
-                model=response.model,
-            )
-        except Exception as exc:
-            raise ProviderError(str(exc), ProviderErrorKind.API) from exc
-
-    async def acomplete(
-        self,
-        messages: list[Message],
-        *,
-        tools: Optional[list[dict[str, Any]]] = None,
-        stream_callback: Optional[Callable[[Optional[str]], None]] = None,
-    ) -> ProviderResponse:
-        try:
-            response = await self._async_client.chat.completions.create(
-                model=self._model,
-                messages=self._build_messages(messages),
-            )
-            choice = response.choices[0]
-            usage = None
-            if response.usage:
-                usage = TokenUsage(
-                    prompt_tokens=response.usage.prompt_tokens,
-                    completion_tokens=response.usage.completion_tokens,
-                )
-            return ProviderResponse(
-                content=choice.message.content,
-                usage=usage,
-                model=response.model,
-            )
-        except Exception as exc:
-            raise ProviderError(str(exc), ProviderErrorKind.API) from exc

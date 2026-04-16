@@ -68,3 +68,10 @@ class Trigger(ABC):
     def is_running(self) -> bool:
         """Check if the trigger is currently active and watching."""
         ...
+
+    async def fire(self) -> bool:
+        """Manually fire this trigger. Returns True if fired."""
+        if not self.is_running() or not self._on_fire:
+            return False
+        await self._on_fire(self._config)
+        return True

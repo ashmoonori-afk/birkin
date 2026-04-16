@@ -53,6 +53,7 @@ class SemanticSearch:
             if content:
                 self.index_page(page["category"], page["slug"], content)
                 count += 1
+        self._store.flush()
         logger.info("Indexed %d wiki pages", count)
         return count
 

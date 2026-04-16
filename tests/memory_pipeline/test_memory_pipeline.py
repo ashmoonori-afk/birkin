@@ -183,6 +183,7 @@ class TestNumpyVectorStore:
         path = tmp_path / "vectors.json"
         store = NumpyVectorStore(persist_path=path)
         store.upsert("a", [1.0, 0.0], {"x": 1})
+        store.flush()
         assert path.is_file()
 
         store2 = NumpyVectorStore(persist_path=path)

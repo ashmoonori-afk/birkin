@@ -76,14 +76,20 @@ class NumpyVectorStore(VectorStore):
         self._vectors: dict[str, Vector] = {}
         self._metadata: dict[str, dict[str, Any]] = {}
         self._persist_path = persist_path
+        self._dirty = False
         if persist_path and persist_path.is_file():
             self._load()
 
     def upsert(self, id: str, vector: Vector, metadata: Optional[dict[str, Any]] = None) -> None:
         self._vectors[id] = vector
         self._metadata[id] = metadata or {}
-        if self._persist_path:
+        self._dirty = True
+
+    def flush(self) -> None:
+        """Persist pending changes to disk."""
+        if self._dirty and self._persist_path:
             self._save()
+            self._dirty = False
 
     def search(self, query_vec: Vector, k: int = 10) -> list[SearchResult]:
         if not self._vectors:
@@ -105,8 +111,7 @@ class NumpyVectorStore(VectorStore):
         if id in self._vectors:
             del self._vectors[id]
             self._metadata.pop(id, None)
-            if self._persist_path:
-                self._save()
+            self._dirty = True
             return True
         return False
 

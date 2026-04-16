@@ -124,12 +124,6 @@ async def fire_trigger(trigger_id: str) -> dict[str, Any]:
     if trigger is None:
         raise HTTPException(status_code=404, detail=f"Trigger not found: {trigger_id}")
 
-    if hasattr(trigger, "fire"):
-        fired = await trigger.fire()
-    elif trigger._on_fire:
-        await trigger._on_fire(trigger.config)
-        fired = True
-    else:
-        fired = False
+    fired = await trigger.fire()
 
     return {"id": trigger_id, "fired": fired}
