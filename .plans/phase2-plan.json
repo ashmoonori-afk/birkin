@@ -1,340 +1,187 @@
 {
   "plan": "phase2-agent-runtime",
-  "version": "2.0.0",
+  "version": "3.0.0",
   "created": "2026-04-16",
-  "vision": "Turn Birkin from a chat UI with tools into a programmable agent runtime — MCP-compatible, schedulable, observable, capable of executing real work.",
-  "goals": ["token_savings", "work_automation", "personalized_evolution"],
-  "ordering_principle": "MCP first. Every later item sits on top of the MCP layer.",
+  "updated": "2026-04-16",
+  "vision": "Birkin is a personal agent OS — a memory layer and orchestrator sitting on top of multiple LLMs and external agents. Runs locally, scoped per-device, templates are shared but data belongs to the user.",
+  "goals": ["token_efficiency", "work_automation", "personalized_evolution"],
+  "north_star": {
+    "token_efficiency": "Minimize repeated context injection via memory compilation",
+    "work_automation": "Cron + trigger-based scheduled execution, execution-to-judgment level action",
+    "personalized_evolution": "Every LLM interaction compiles into the user's knowledge asset"
+  },
+  "ordering_principle": "Dependency-driven. 2A.1 Multi-LLM + 2A.2 MCP (done) unlock the Graph Engine. Graph Engine unlocks Triggers and Budget. Memory Pipeline runs in parallel after Observability.",
   "sprints": [
     {
       "id": "S0",
       "name": "Phase 1 Debt Cleanup",
+      "status": "complete",
       "goal": "Fix review findings that block Phase 2 work",
-      "estimated_days": 3,
-      "tasks": [
-        {
-          "id": "P2-S0-1",
-          "title": "Fix ROADMAP.md truncation",
-          "priority": "critical",
-          "branch": "fix/roadmap-truncation",
-          "estimated_hours": 0.5,
-          "rationale": "ROADMAP.md Phase 4 section is truncated mid-sentence. Must restore.",
-          "files": ["ROADMAP.md"],
-          "subtasks": [
-            {"id": "P2-S0-1a", "desc": "Restore Phase 4 content (deferred monetization, out-of-scope list)"},
-            {"id": "P2-S0-1b", "desc": "Verify markdown renders correctly end-to-end"}
-          ],
-          "verification": ["cat ROADMAP.md | tail -20"],
-          "acceptance_criteria": ["Phase 4 section complete with out-of-scope list"]
-        },
-        {
-          "id": "P2-S0-2",
-          "title": "Narrow broad exception handlers (10 instances)",
-          "priority": "high",
-          "branch": "fix/narrow-exceptions",
-          "estimated_hours": 3,
-          "rationale": "10 bare 'except Exception:' blocks mask errors and block observability logging in Phase 2A.",
-          "files": [
-            "birkin/core/agent.py",
-            "birkin/core/compression.py",
-            "birkin/core/session.py",
-            "birkin/core/workflow_engine.py",
-            "birkin/gateway/app.py",
-            "birkin/gateway/dispatcher.py",
-            "birkin/gateway/routers/chat.py",
-            "birkin/gateway/routers/telegram.py",
-            "birkin/gateway/routers/webhooks.py"
-          ],
-          "subtasks": [
-            {"id": "P2-S0-2a", "desc": "Audit all 10 except-Exception sites, determine correct specific exception types"},
-            {"id": "P2-S0-2b", "desc": "Replace with specific types (ConnectionError, TimeoutError, json.JSONDecodeError, sqlite3.Error, etc.)"},
-            {"id": "P2-S0-2c", "desc": "Add structured logging with exc_info=True where missing"},
-            {"id": "P2-S0-2d", "desc": "Add tests for error paths"}
-          ],
-          "verification": ["ruff check .", "grep -rn 'except Exception' birkin/ | wc -l"],
-          "acceptance_criteria": ["Zero bare except-Exception in birkin/", "All error paths logged with specific type"]
-        },
-        {
-          "id": "P2-S0-3",
-          "title": "Add config schema validation (Pydantic)",
-          "priority": "high",
-          "branch": "fix/config-validation",
-          "estimated_hours": 2,
-          "rationale": "gateway/config.py accepts arbitrary JSON. Invalid state propagates silently.",
-          "files": ["birkin/gateway/config.py", "birkin/gateway/schemas.py"],
-          "subtasks": [
-            {"id": "P2-S0-3a", "desc": "Define BirkinConfig Pydantic model (provider, model, api keys, fallback, system_prompt)"},
-            {"id": "P2-S0-3b", "desc": "Validate on load and save in config.py"},
-            {"id": "P2-S0-3c", "desc": "Add migration path for existing birkin_config.json files"},
-            {"id": "P2-S0-3d", "desc": "Tests: invalid config rejected, valid config round-trips"}
-          ],
-          "verification": ["pytest tests/gateway/ -q"],
-          "acceptance_criteria": ["Invalid config raises ValidationError", "Existing configs load without breaking"]
-        },
-        {
-          "id": "P2-S0-4",
-          "title": "Add concurrency locks (WikiMemory + Telegram polling)",
-          "priority": "medium",
-          "branch": "fix/concurrency-locks",
-          "estimated_hours": 2,
-          "rationale": "WikiMemory file ops and Telegram global polling state have race conditions.",
-          "files": [
-            "birkin/memory/wiki.py",
-            "birkin/gateway/routers/telegram.py"
-          ],
-          "subtasks": [
-            {"id": "P2-S0-4a", "desc": "Add threading.Lock to WikiMemory for ingest/delete/update_index"},
-            {"id": "P2-S0-4b", "desc": "Add asyncio.Lock to Telegram polling start/stop/health_check"},
-            {"id": "P2-S0-4c", "desc": "Tests: concurrent wiki writes don't corrupt index"}
-          ],
-          "verification": ["pytest tests/memory/ tests/gateway/test_telegram_adapter.py -q"],
-          "acceptance_criteria": ["No race condition on concurrent wiki ingest", "Telegram state transitions are atomic"]
-        },
-        {
-          "id": "P2-S0-5",
-          "title": "Add return type annotations to all router functions",
-          "priority": "low",
-          "branch": "fix/router-types",
-          "estimated_hours": 1,
-          "rationale": "Missing return types in wiki, settings, workflows routers reduce type safety.",
-          "files": [
-            "birkin/gateway/routers/wiki.py",
-            "birkin/gateway/routers/settings.py",
-            "birkin/gateway/routers/workflows.py"
-          ],
-          "subtasks": [
-            {"id": "P2-S0-5a", "desc": "Add return type annotations to all endpoint functions"},
-            {"id": "P2-S0-5b", "desc": "Run mypy or pyright spot-check"}
-          ],
-          "verification": ["ruff check ."],
-          "acceptance_criteria": ["All router functions have return type annotations"]
-        }
-      ]
+      "completed_at": "2026-04-16",
+      "tasks_completed": 5
     },
     {
       "id": "S1",
-      "name": "MCP Foundation",
+      "name": "MCP Foundation (2A.2)",
+      "status": "complete",
       "goal": "First-class MCP client/server — Birkin can consume and expose MCP",
-      "estimated_days": 10,
-      "depends_on": ["S0"],
-      "tasks": [
-        {
-          "id": "P2-S1-1",
-          "title": "MCP client: consume external MCP servers",
-          "priority": "critical",
-          "branch": "feat/mcp-client",
-          "estimated_hours": 16,
-          "rationale": "Core MCP layer. All Phase 2 features build on this. Tool ABC becomes thin adapter over MCP.",
-          "files": [
-            "birkin/mcp/__init__.py",
-            "birkin/mcp/client.py",
-            "birkin/mcp/registry.py",
-            "birkin/mcp/transport.py",
-            "birkin/mcp/types.py"
-          ],
-          "subtasks": [
-            {"id": "P2-S1-1a", "desc": "Create birkin/mcp/ package structure"},
-            {"id": "P2-S1-1b", "desc": "Implement MCPClient with stdio and SSE transports"},
-            {"id": "P2-S1-1c", "desc": "Implement MCPRegistry — discover, connect, list tools from multiple servers"},
-            {"id": "P2-S1-1d", "desc": "Create MCPToolAdapter: wraps MCP tool as Birkin Tool (bridging Tool ABC)"},
-            {"id": "P2-S1-1e", "desc": "Wire MCPRegistry into Agent.__init__ so MCP tools appear alongside built-in tools"},
-            {"id": "P2-S1-1f", "desc": "Config: mcp_servers list in birkin_config.json [{name, command, args, env}]"},
-            {"id": "P2-S1-1g", "desc": "Tests: mock MCP server, tool discovery, tool execution round-trip"}
-          ],
-          "verification": ["pytest tests/mcp/ -q", "ruff check birkin/mcp/"],
-          "acceptance_criteria": [
-            "Agent can discover and call tools from an external MCP server",
-            "MCP tools show in /api/tools alongside built-ins",
-            "stdio and SSE transports both work"
-          ]
-        },
-        {
-          "id": "P2-S1-2",
-          "title": "MCP server: expose Birkin capabilities as MCP",
-          "priority": "high",
-          "branch": "feat/mcp-server",
-          "estimated_hours": 12,
-          "depends_on": ["P2-S1-1"],
-          "rationale": "Birkin becomes composable — Claude Code, Cursor, etc. can use Birkin as an MCP server.",
-          "files": [
-            "birkin/mcp/server.py",
-            "birkin/mcp/server_tools.py",
-            "birkin/cli/main.py"
-          ],
-          "subtasks": [
-            {"id": "P2-S1-2a", "desc": "Implement MCPServer (stdio transport for CLI integration)"},
-            {"id": "P2-S1-2b", "desc": "Expose built-in tools (shell, file_ops, web_search) as MCP tools"},
-            {"id": "P2-S1-2c", "desc": "Expose wiki memory as MCP resources (list, read, search)"},
-            {"id": "P2-S1-2d", "desc": "Expose sessions as MCP resources"},
-            {"id": "P2-S1-2e", "desc": "Add `birkin mcp serve` CLI command"},
-            {"id": "P2-S1-2f", "desc": "Tests: connect to Birkin MCP server from test client, call tools, read resources"}
-          ],
-          "verification": ["pytest tests/mcp/ -q"],
-          "acceptance_criteria": [
-            "`birkin mcp serve` starts an MCP server on stdio",
-            "External client can list tools and call them",
-            "Wiki pages accessible as MCP resources"
-          ]
-        },
-        {
-          "id": "P2-S1-3",
-          "title": "Skills system (MCP-native)",
-          "priority": "high",
-          "branch": "feat/skills-system",
-          "estimated_hours": 10,
-          "depends_on": ["P2-S1-1"],
-          "rationale": "Bundled + community skills as MCP servers. SKILL.md + resources format for discoverability.",
-          "files": [
-            "birkin/skills/__init__.py",
-            "birkin/skills/loader.py",
-            "birkin/skills/registry.py",
-            "birkin/skills/schema.py"
-          ],
-          "subtasks": [
-            {"id": "P2-S1-3a", "desc": "Define Skill schema: SKILL.md (name, desc, triggers, tools) + resources dir"},
-            {"id": "P2-S1-3b", "desc": "SkillLoader: scan skills/ directory, parse SKILL.md, register as MCP server"},
-            {"id": "P2-S1-3c", "desc": "SkillRegistry: list installed skills, enable/disable per session"},
-            {"id": "P2-S1-3d", "desc": "Create 2 example skills: (1) code-review, (2) web-summarizer"},
-            {"id": "P2-S1-3e", "desc": "WebUI: skills panel showing installed skills with toggle"},
-            {"id": "P2-S1-3f", "desc": "Tests: skill discovery, activation, tool routing through skill"}
-          ],
-          "verification": ["pytest tests/skills/ -q"],
-          "acceptance_criteria": [
-            "Skills loaded from SKILL.md format",
-            "Skills register as MCP servers consumed by Agent",
-            "Example skills work end-to-end"
-          ]
-        }
-      ]
+      "completed_at": "2026-04-16",
+      "tasks_completed": 3,
+      "commits": [
+        "5f09306 feat: MCP client integration (P2-S1-1)",
+        "095c758 feat: MCP server (P2-S1-2)",
+        "7a9a279 feat: Skills system (P2-S1-3)"
+      ],
+      "test_count": 71
     },
     {
       "id": "S2",
-      "name": "Execution Engine",
-      "goal": "State graph + triggers + cron = workflows that run themselves",
-      "estimated_days": 10,
-      "depends_on": ["S1"],
+      "name": "Multi-LLM Connector Layer (2A.1)",
+      "status": "pending",
+      "goal": "Unified connector layer calling multiple LLM providers through the same interface with capability metadata and routing",
+      "estimated_days": 8,
+      "depends_on": [],
       "tasks": [
         {
           "id": "P2-S2-1",
-          "title": "State graph execution engine (LangGraph-style)",
+          "title": "Provider capability metadata (ProviderProfile)",
+          "ref": "2A.1",
           "priority": "critical",
-          "branch": "feat/state-graph",
-          "estimated_hours": 16,
-          "rationale": "Current BFS executor lacks conditionals, loops, parallel fan-out. State graph is the foundation for all complex workflows.",
+          "estimated_hours": 6,
+          "rationale": "Foundation for model routing. Each provider declares capabilities (reasoning, search, code, vision), cost, latency tier, context window.",
           "files": [
-            "birkin/core/state_graph.py",
-            "birkin/core/graph_nodes.py",
-            "birkin/core/graph_checkpoint.py",
-            "birkin/core/workflow_engine.py"
+            "birkin/core/providers/capabilities.py",
+            "birkin/core/providers/base.py",
+            "birkin/core/providers/anthropic.py",
+            "birkin/core/providers/openai_provider.py"
           ],
           "subtasks": [
-            {"id": "P2-S2-1a", "desc": "Define StateGraph class: nodes, edges, conditional edges, entry/end points"},
-            {"id": "P2-S2-1b", "desc": "Implement graph execution with state dict passing between nodes"},
-            {"id": "P2-S2-1c", "desc": "Add conditional branching (if/else edges based on state)"},
-            {"id": "P2-S2-1d", "desc": "Add parallel fan-out / fan-in (concurrent node execution)"},
-            {"id": "P2-S2-1e", "desc": "Add cycle detection with max-iteration guard"},
-            {"id": "P2-S2-1f", "desc": "Implement checkpoints: save graph state to SQLite, resume from checkpoint"},
-            {"id": "P2-S2-1g", "desc": "Coexist with existing BFS simple mode (mode: 'simple' | 'graph')"},
-            {"id": "P2-S2-1h", "desc": "Migrate 2 sample workflows to graph mode as proof"},
-            {"id": "P2-S2-1i", "desc": "Tests: linear, branching, parallel, loop-with-guard, checkpoint/resume"}
+            "Define Capability enum and ProviderProfile Pydantic model",
+            "Extend Provider ABC with profile property and supports() method",
+            "Add ProviderProfile to existing Anthropic and OpenAI providers",
+            "Add ProviderProfile to OpenRouter and CLI providers",
+            "Tests: profile validation, supports() checks"
           ],
-          "verification": ["pytest tests/core/test_state_graph.py -q"],
           "acceptance_criteria": [
-            "Graph mode supports conditional edges, parallel fan-out, loops with guard",
-            "Checkpoints persist and resume correctly",
-            "Existing simple mode workflows unaffected"
+            "Every provider has a ProviderProfile with capabilities, cost, latency",
+            "provider.supports(Capability.REASONING) works correctly"
           ]
         },
         {
           "id": "P2-S2-2",
-          "title": "Trigger abstraction + Cron scheduler",
-          "priority": "critical",
-          "branch": "feat/triggers-cron",
-          "estimated_hours": 12,
+          "title": "New LLM providers (Perplexity, Gemini, Ollama, Groq)",
+          "ref": "2A.1",
+          "priority": "high",
+          "estimated_hours": 16,
           "depends_on": ["P2-S2-1"],
-          "rationale": "Workflows fire on triggers (time, file, webhook, message, custom event). Core automation primitive.",
+          "rationale": "Different tasks need different models. Perplexity for search, Gemini for multimodal, Ollama for fully local, Groq for low-latency.",
           "files": [
-            "birkin/triggers/__init__.py",
-            "birkin/triggers/base.py",
-            "birkin/triggers/cron.py",
-            "birkin/triggers/file_watch.py",
-            "birkin/triggers/webhook.py",
-            "birkin/triggers/scheduler.py"
+            "birkin/core/providers/perplexity.py",
+            "birkin/core/providers/gemini.py",
+            "birkin/core/providers/ollama.py",
+            "birkin/core/providers/groq.py"
           ],
           "subtasks": [
-            {"id": "P2-S2-2a", "desc": "Define Trigger ABC: type, config, match(event) -> bool, linked_workflow_id"},
-            {"id": "P2-S2-2b", "desc": "CronTrigger: APScheduler or asyncio-based cron expressions"},
-            {"id": "P2-S2-2c", "desc": "FileWatchTrigger: watchdog-based file change detection"},
-            {"id": "P2-S2-2d", "desc": "WebhookTrigger: generic webhook endpoint that routes to workflows"},
-            {"id": "P2-S2-2e", "desc": "TriggerScheduler: manages active triggers, starts/stops with app lifespan"},
-            {"id": "P2-S2-2f", "desc": "API: CRUD endpoints for triggers (/api/triggers)"},
-            {"id": "P2-S2-2g", "desc": "WebUI: trigger config in workflow editor (cron expression builder)"},
-            {"id": "P2-S2-2h", "desc": "Tests: cron fires at expected time, file trigger detects change, webhook routes correctly"}
+            "Implement PerplexityProvider (search capability)",
+            "Implement GeminiProvider (multimodal + long context)",
+            "Implement OllamaProvider (local, zero API key)",
+            "Implement GroqProvider (low-latency)",
+            "Tests: each provider completes with mock, profile correct"
           ],
-          "verification": ["pytest tests/triggers/ -q"],
           "acceptance_criteria": [
-            "Cron trigger fires workflows on schedule",
-            "File watch trigger detects changes",
-            "Webhook trigger routes inbound to correct workflow",
-            "Triggers persist across restart"
+            "4 new providers implement Provider ABC",
+            "Each has correct ProviderProfile with capabilities"
           ]
         },
         {
           "id": "P2-S2-3",
-          "title": "Evaluation framework",
+          "title": "Provider routing (auto model selection)",
+          "ref": "2A.1",
           "priority": "high",
-          "branch": "feat/eval-framework",
           "estimated_hours": 8,
-          "rationale": "Fixed question sets + snapshot diff + per-provider cost tracking. Feeds observability dashboard.",
+          "depends_on": ["P2-S2-2"],
+          "rationale": "Birkin routes to the right model based on task requirements. Manual override always available.",
           "files": [
-            "birkin/eval/__init__.py",
-            "birkin/eval/runner.py",
-            "birkin/eval/datasets.py",
-            "birkin/eval/metrics.py",
-            "birkin/eval/report.py"
+            "birkin/core/providers/router.py",
+            "birkin/core/providers/registry.py"
           ],
           "subtasks": [
-            {"id": "P2-S2-3a", "desc": "Define EvalDataset: JSONL format with question, expected_answer, tags"},
-            {"id": "P2-S2-3b", "desc": "EvalRunner: run dataset against provider, capture response + latency + tokens"},
-            {"id": "P2-S2-3c", "desc": "Metrics: exact match, fuzzy match, LLM-as-judge, cost per answer"},
-            {"id": "P2-S2-3d", "desc": "Snapshot diff: compare current run vs baseline, flag regressions"},
-            {"id": "P2-S2-3e", "desc": "Output JSONL report for downstream analysis"},
-            {"id": "P2-S2-3f", "desc": "CLI: `birkin eval run <dataset.jsonl> --provider anthropic`"},
-            {"id": "P2-S2-3g", "desc": "Tests: eval run produces valid JSONL, regression detection works"}
+            "ProviderRegistry: register all available providers, query by capability",
+            "ProviderRouter: select best provider given required capabilities + budget constraints",
+            "Fallback chain respects capabilities (don't fall back to a provider that can't do the task)",
+            "Config: default routing preferences in birkin_config.json",
+            "Tests: routing selects correct provider, fallback works"
           ],
-          "verification": ["pytest tests/eval/ -q"],
           "acceptance_criteria": [
-            "Eval runs produce JSONL with latency, tokens, cost per question",
-            "Snapshot diff detects regressions",
-            "CLI command works end-to-end"
+            "Auto-routing selects provider based on capability match",
+            "Manual override bypasses routing",
+            "Fallback chain filters by capability"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "S3",
+      "name": "Graph Engine + Observability (2A.3 + 2A.8)",
+      "status": "pending",
+      "goal": "State graph execution engine with structured observability logging",
+      "estimated_days": 12,
+      "depends_on": ["S2"],
+      "tasks": [
+        {
+          "id": "P2-S3-1",
+          "title": "State graph execution engine (graph mode)",
+          "ref": "2A.3",
+          "priority": "critical",
+          "estimated_hours": 20,
+          "rationale": "Mutable shared context (B model) + per-node checkpoints. Coexists with existing BFS simple mode. Enables conditional transitions, loops, parallel fan-out.",
+          "files": [
+            "birkin/core/graph/state.py",
+            "birkin/core/graph/node.py",
+            "birkin/core/graph/engine.py",
+            "birkin/core/graph/executor.py",
+            "birkin/core/graph/checkpoint.py",
+            "birkin/core/graph/checkpoints/sqlite.py"
+          ],
+          "subtasks": [
+            "GraphContext: mutable shared state with snapshot/restore",
+            "GraphNode protocol + NodeResult model",
+            "StateGraph: add_node, add_edge, add_conditional_edge, add_parallel, compile",
+            "CompiledGraph: ainvoke, astream, resume from checkpoint",
+            "SQLiteCheckpointer: save/load/list_thread",
+            "LegacyNodeAdapter: wrap existing 30 nodes for graph mode",
+            "Coexistence: workflow.mode 'simple' | 'graph' branches engine",
+            "Tests: linear, branching, parallel, loop-with-guard, checkpoint/resume"
+          ],
+          "acceptance_criteria": [
+            "Graph mode supports conditional edges, parallel fan-out, loops with guard",
+            "Checkpoints persist to SQLite and resume correctly",
+            "Existing simple mode workflows unaffected",
+            "Legacy nodes usable in graph mode via adapter"
           ]
         },
         {
-          "id": "P2-S2-4",
-          "title": "Observability logging (structured traces)",
+          "id": "P2-S3-2",
+          "title": "Structured observability logging",
+          "ref": "2A.8",
           "priority": "high",
-          "branch": "feat/observability",
-          "estimated_hours": 6,
-          "depends_on": ["P2-S0-2"],
-          "rationale": "Structured traces for every turn: provider, tokens, tool calls, latency, outcome. Same data source as Evaluation.",
+          "estimated_hours": 8,
+          "rationale": "Structured traces for every execution turn. Same data source for eval framework and dashboard. Trace → Span hierarchy.",
           "files": [
-            "birkin/observability/__init__.py",
-            "birkin/observability/tracer.py",
-            "birkin/observability/storage.py",
-            "birkin/core/agent.py",
-            "birkin/core/providers/base.py"
+            "birkin/observability/trace.py",
+            "birkin/observability/logger.py",
+            "birkin/observability/storage.py"
           ],
           "subtasks": [
-            {"id": "P2-S2-4a", "desc": "Define Trace model: session_id, turn_id, provider, model, tokens_in, tokens_out, tool_calls, latency_ms, outcome"},
-            {"id": "P2-S2-4b", "desc": "Tracer: context-manager that wraps provider.complete() and tool execution"},
-            {"id": "P2-S2-4c", "desc": "TraceStorage: append to JSONL file per session, with rotation"},
-            {"id": "P2-S2-4d", "desc": "Wire tracer into Agent._run_loop and Provider.complete"},
-            {"id": "P2-S2-4e", "desc": "API: /api/traces?session_id=x for dashboard consumption"},
-            {"id": "P2-S2-4f", "desc": "Tests: trace emitted on chat, trace contains correct fields"}
+            "Define Trace and Span models (provider, tokens, latency, status)",
+            "StructuredLogger: start_trace, start_span, end_span",
+            "TraceStorage: JSONL append with rotation",
+            "Wire into GraphContext.logger and Agent._run_loop",
+            "API: GET /api/traces?session_id=x",
+            "Tests: trace emitted on execution, correct fields"
           ],
-          "verification": ["pytest tests/observability/ -q"],
           "acceptance_criteria": [
-            "Every agent turn emits a structured trace",
+            "Every agent turn / graph node emits a structured span",
             "Traces include provider, tokens, latency, tool calls",
             "Traces queryable via API"
           ]
@@ -342,202 +189,348 @@
       ]
     },
     {
-      "id": "S3",
-      "name": "Agent Capabilities",
-      "goal": "Computer use, voice, semantic memory — make the agent do real work",
-      "estimated_days": 12,
-      "depends_on": ["S1"],
+      "id": "S4",
+      "name": "Triggers + Token Budget (2A.5 + 2A.6)",
+      "status": "pending",
+      "goal": "Workflows fire on triggers. Token budget enforces efficiency inline.",
+      "estimated_days": 10,
+      "depends_on": ["S3"],
       "tasks": [
         {
-          "id": "P2-S3-1",
-          "title": "Computer Use (Playwright MCP server)",
-          "priority": "high",
-          "branch": "feat/computer-use",
+          "id": "P2-S4-1",
+          "title": "Trigger abstraction + Cron scheduler",
+          "ref": "2A.5",
+          "priority": "critical",
           "estimated_hours": 14,
-          "rationale": "Headless browser as MCP server. Unlocks 'monitor → summarize → notify' workflows.",
+          "rationale": "Core automation primitive. Cron, file watch, webhook, message triggers fire workflows.",
           "files": [
-            "birkin/mcp/servers/browser/__init__.py",
-            "birkin/mcp/servers/browser/server.py",
-            "birkin/mcp/servers/browser/tools.py",
-            "birkin/mcp/servers/browser/SKILL.md"
+            "birkin/triggers/base.py",
+            "birkin/triggers/cron.py",
+            "birkin/triggers/file_watch.py",
+            "birkin/triggers/webhook.py",
+            "birkin/triggers/message.py",
+            "birkin/triggers/scheduler.py",
+            "birkin/gateway/routers/triggers.py"
           ],
           "subtasks": [
-            {"id": "P2-S3-1a", "desc": "Create browser MCP server with Playwright backend"},
-            {"id": "P2-S3-1b", "desc": "Tools: navigate, screenshot, click, type, extract_text, wait_for_selector"},
-            {"id": "P2-S3-1c", "desc": "Security: domain allowlist, max page load time, resource limits"},
-            {"id": "P2-S3-1d", "desc": "Package as SKILL.md (triggers: 'browse', 'screenshot', 'scrape')"},
-            {"id": "P2-S3-1e", "desc": "Example workflow: daily site check → summary → telegram notification"},
-            {"id": "P2-S3-1f", "desc": "Tests: navigate + screenshot + extract text round-trip"}
+            "Trigger ABC: id, workflow_id, start/stop",
+            "CronTrigger with cron expression + timezone",
+            "FileWatchTrigger with watchdog",
+            "WebhookTrigger: generic endpoint routing to workflows",
+            "MessageTrigger: platform + filter",
+            "TriggerScheduler: manages active triggers, lifespan integration",
+            "API: CRUD /api/triggers + manual fire",
+            "Tests: cron fires, file trigger detects change, webhook routes"
           ],
-          "verification": ["pytest tests/mcp/servers/test_browser.py -q"],
           "acceptance_criteria": [
-            "Browser MCP server starts and exposes tools",
-            "Agent can navigate, screenshot, extract text from a page",
-            "Domain allowlist enforced"
+            "Cron trigger fires workflows on schedule",
+            "File watch detects changes",
+            "Webhook routes to correct workflow",
+            "Triggers persist across restart"
           ]
         },
         {
-          "id": "P2-S3-2",
-          "title": "Voice I/O (Whisper STT + TTS)",
-          "priority": "medium",
-          "branch": "feat/voice-io",
+          "id": "P2-S4-2",
+          "title": "Token Budget Manager",
+          "ref": "2A.6",
+          "priority": "high",
           "estimated_hours": 10,
-          "rationale": "STT input + TTS output. WebUI mic button + Telegram voice messages. Korean-language strength.",
+          "rationale": "In-execution enforcement of token efficiency. Hard caps per node/workflow/session with auto-compress, downgrade, or stop.",
           "files": [
-            "birkin/voice/__init__.py",
-            "birkin/voice/stt.py",
-            "birkin/voice/tts.py",
-            "birkin/gateway/routers/voice.py",
-            "birkin/web/static/app.js"
+            "birkin/core/budget/policy.py",
+            "birkin/core/budget/manager.py",
+            "birkin/core/budget/compressor.py"
           ],
           "subtasks": [
-            {"id": "P2-S3-2a", "desc": "STT: Whisper API or local whisper.cpp integration"},
-            {"id": "P2-S3-2b", "desc": "TTS: OpenAI TTS API or local Piper/Coqui"},
-            {"id": "P2-S3-2c", "desc": "Voice router: POST /api/voice/stt (audio→text), POST /api/voice/tts (text→audio)"},
-            {"id": "P2-S3-2d", "desc": "WebUI: mic button in chat input, audio playback for TTS responses"},
-            {"id": "P2-S3-2e", "desc": "Telegram: handle voice messages → STT → agent → TTS → voice reply"},
-            {"id": "P2-S3-2f", "desc": "Tests: STT produces text from audio, TTS produces audio from text"}
+            "BudgetPolicy model: max tokens per node/workflow/session, cost caps",
+            "TokenBudget: check_before_call, record_usage, remaining",
+            "BudgetDecision: proceed / compress_first / downgrade / abort",
+            "ContextCompressor: auto-summarize when budget is tight",
+            "Wire into GraphContext and provider call pipeline",
+            "Tests: budget exceeded triggers correct action, downgrade chain works"
           ],
-          "verification": ["pytest tests/voice/ -q"],
           "acceptance_criteria": [
-            "Voice input transcribed to text via Whisper",
-            "Text responses can be played as audio",
-            "Telegram voice messages handled end-to-end"
-          ]
-        },
-        {
-          "id": "P2-S3-3",
-          "title": "Semantic memory (local embeddings)",
-          "priority": "medium",
-          "branch": "feat/semantic-memory",
-          "estimated_hours": 8,
-          "rationale": "Offline embedding via sentence-transformers/BGE-m3. Zero-dependency semantic search over wiki. Token savings + personalization.",
-          "files": [
-            "birkin/memory/embeddings.py",
-            "birkin/memory/vector_store.py",
-            "birkin/memory/wiki.py"
-          ],
-          "subtasks": [
-            {"id": "P2-S3-3a", "desc": "EmbeddingEngine: sentence-transformers with BGE-m3 (bilingual KO+EN)"},
-            {"id": "P2-S3-3b", "desc": "VectorStore: numpy-based cosine similarity (no heavy deps like faiss initially)"},
-            {"id": "P2-S3-3c", "desc": "Auto-embed wiki pages on ingest, update on edit"},
-            {"id": "P2-S3-3d", "desc": "Semantic search API: /api/memory/search?q=... returns ranked results"},
-            {"id": "P2-S3-3e", "desc": "Agent integration: @memory search uses semantic when available, falls back to keyword"},
-            {"id": "P2-S3-3f", "desc": "Tests: embed, store, retrieve, relevance ranking"}
-          ],
-          "verification": ["pytest tests/memory/test_embeddings.py -q"],
-          "acceptance_criteria": [
-            "Wiki pages auto-embedded on ingest",
-            "Semantic search returns relevant results for KO and EN queries",
-            "Graceful fallback when model not downloaded"
+            "Budget checks run before every provider call",
+            "Exceeding budget triggers compress/downgrade/stop per policy",
+            "Downgrade chain respects capability requirements"
           ]
         }
       ]
     },
     {
-      "id": "S4",
-      "name": "UX & Intelligence",
-      "goal": "Dashboard, session fork, NL workflow builder — power-user features",
-      "estimated_days": 8,
-      "depends_on": ["S2"],
+      "id": "S5",
+      "name": "Memory Pipeline (2A.4 + 2B.3 + 2A.7)",
+      "status": "pending",
+      "goal": "Raw event log → compiled knowledge. Semantic search over wiki. Evaluation framework.",
+      "estimated_days": 12,
+      "depends_on": ["S3"],
+      "parallel_with": ["S4"],
       "tasks": [
         {
-          "id": "P2-S4-1",
-          "title": "Observability dashboard",
+          "id": "P2-S5-1",
+          "title": "Memory Compiler v1",
+          "ref": "2A.4",
+          "priority": "critical",
+          "estimated_hours": 16,
+          "rationale": "Records every interaction as raw event, periodically compiles into structured wiki pages. Core of 'knowledge accumulation' vision.",
+          "files": [
+            "birkin/memory/events.py",
+            "birkin/memory/event_store.py",
+            "birkin/memory/compiler.py",
+            "birkin/memory/compile_jobs.py"
+          ],
+          "subtasks": [
+            "RawEvent model: session_id, event_type, provider, payload, tokens, outcome",
+            "EventStore: append, query, since (SQLite)",
+            "MemoryCompiler: compile_session, extract_entities, extract_decisions, identify_patterns",
+            "CompileJob: scheduled compilation (session/daily/weekly scopes)",
+            "Wiki structure extension: decisions/, patterns/, digests/",
+            "Wire event recording into Agent._run_loop",
+            "Tests: events recorded, compilation produces wiki pages"
+          ],
+          "acceptance_criteria": [
+            "Every LLM/tool call records a RawEvent",
+            "Compiler produces structured wiki pages from events",
+            "Scheduled compilation jobs work"
+          ]
+        },
+        {
+          "id": "P2-S5-2",
+          "title": "Semantic memory (local embeddings)",
+          "ref": "2B.3",
           "priority": "high",
-          "branch": "feat/observability-dashboard",
           "estimated_hours": 10,
-          "depends_on": ["P2-S2-4"],
-          "rationale": "New WebUI tab: token spend, per-session latency, tool failure rate, cron job history.",
+          "rationale": "BGE-m3 or sentence-transformers for bilingual KO+EN embedding. Semantic search over wiki. Token savings via accurate context retrieval.",
+          "files": [
+            "birkin/memory/embeddings/encoder.py",
+            "birkin/memory/embeddings/store.py",
+            "birkin/memory/semantic_search.py"
+          ],
+          "subtasks": [
+            "Encoder ABC + BGEM3Encoder + SentenceTransformerEncoder",
+            "VectorStore ABC + SQLiteVectorStore (sqlite-vec)",
+            "Auto-embed wiki pages on ingest, update on edit",
+            "SemanticSearch: search_wiki, find_related",
+            "API: GET /api/memory/search?q=... with semantic mode",
+            "Graceful fallback when model not downloaded",
+            "Tests: embed, store, retrieve, relevance ranking"
+          ],
+          "acceptance_criteria": [
+            "Wiki pages auto-embedded on ingest",
+            "Semantic search returns relevant results for KO and EN",
+            "Graceful fallback to keyword search"
+          ]
+        },
+        {
+          "id": "P2-S5-3",
+          "title": "Evaluation framework",
+          "ref": "2A.7",
+          "priority": "high",
+          "estimated_hours": 10,
+          "rationale": "Compare responses across providers/workflows. Snapshot diff, latency, token/cost tracking. Evidence base for personalization.",
+          "files": [
+            "birkin/eval/dataset.py",
+            "birkin/eval/runner.py",
+            "birkin/eval/storage.py"
+          ],
+          "subtasks": [
+            "EvalCase + EvalDataset models (JSONL format)",
+            "EvalRunner: run_case, run_dataset against provider/workflow targets",
+            "EvalResult: output, latency_ms, tokens, cost_usd, judge_score",
+            "EvalStorage: JSONL append + query",
+            "Snapshot diff: compare current vs baseline, flag regressions",
+            "CLI: birkin eval run <dataset.jsonl> --provider anthropic",
+            "Tests: eval produces valid results, regression detection"
+          ],
+          "acceptance_criteria": [
+            "Eval runs produce JSONL with latency, tokens, cost",
+            "Snapshot diff detects regressions",
+            "CLI command works end-to-end"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "S6",
+      "name": "Agent Capabilities (2B.1 + 2B.2 + 2B.4 + 2B.5)",
+      "status": "pending",
+      "goal": "Computer use, voice, context injection, approval gates — the agent does real work safely",
+      "estimated_days": 14,
+      "depends_on": ["S4", "S5"],
+      "tasks": [
+        {
+          "id": "P2-S6-1",
+          "title": "Computer Use (Playwright MCP server)",
+          "ref": "2B.1",
+          "priority": "high",
+          "estimated_hours": 14,
+          "rationale": "Headless browser as MCP server. Unlocks 'monitor → summarize → notify' class of workflows.",
+          "files": [
+            "birkin/mcp/servers/computer_use/server.py",
+            "birkin/mcp/servers/computer_use/browser.py"
+          ],
+          "subtasks": [
+            "Create browser MCP server with Playwright backend",
+            "Tools: navigate, screenshot, click, type, extract, wait_for",
+            "Security: domain allowlist, max page load time, resource limits",
+            "Tests: navigate + screenshot + extract round-trip"
+          ]
+        },
+        {
+          "id": "P2-S6-2",
+          "title": "Voice I/O (Whisper STT + TTS)",
+          "ref": "2B.2",
+          "priority": "medium",
+          "estimated_hours": 10,
+          "rationale": "STT input + TTS output. Korean-language strength. WebUI mic + Telegram voice.",
+          "files": [
+            "birkin/voice/stt.py",
+            "birkin/voice/tts.py",
+            "birkin/gateway/routers/voice.py"
+          ],
+          "subtasks": [
+            "STT ABC + WhisperLocalSTT + OpenAIWhisperSTT",
+            "TTS ABC + LocalTTS + CloudTTS",
+            "Voice router: POST /api/voice/stt, POST /api/voice/tts",
+            "WebUI: mic button in chat input",
+            "Telegram: voice message handling",
+            "Tests: STT produces text, TTS produces audio"
+          ]
+        },
+        {
+          "id": "P2-S6-3",
+          "title": "Context Injection Layer",
+          "ref": "2B.4",
+          "priority": "high",
+          "estimated_hours": 10,
+          "depends_on": ["P2-S5-2"],
+          "rationale": "Auto-inject relevant user context before agent calls via semantic search. Core of 'agent that knows me.'",
+          "files": [
+            "birkin/core/context/injector.py",
+            "birkin/core/context/profile.py"
+          ],
+          "subtasks": [
+            "ContextInjector: build_context, select_relevant_pages, format_for_prompt",
+            "UserProfile: compiled from wiki, loaded at session start",
+            "InjectedContext model with source traceability",
+            "Wire into Agent._build_messages",
+            "Tests: relevant pages selected, context injected correctly"
+          ]
+        },
+        {
+          "id": "P2-S6-4",
+          "title": "Approval Gates & Trust Boundaries",
+          "ref": "2B.5",
+          "priority": "high",
+          "estimated_hours": 8,
+          "rationale": "Safety boundary for execution-to-judgment level. Approval required before external effects.",
+          "files": [
+            "birkin/core/approval/gate.py",
+            "birkin/gateway/routers/approvals.py"
+          ],
+          "subtasks": [
+            "ApprovalGate: request, approve, reject, modify",
+            "ProposedAction model with impact estimation",
+            "API: GET /api/approvals/pending, POST approve/reject/modify",
+            "Telegram notification for pending approvals",
+            "Tests: approval flow, timeout handling"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "S7",
+      "name": "UX & Intelligence (2C.1–2C.5)",
+      "status": "pending",
+      "goal": "Command bar, fork/replay, dashboard, NL builder, insights — daily-use experience",
+      "estimated_days": 14,
+      "depends_on": ["S6"],
+      "tasks": [
+        {
+          "id": "P2-S7-1",
+          "title": "Command Bar (natural language entry)",
+          "ref": "2C.1",
+          "priority": "high",
+          "estimated_hours": 10,
+          "rationale": "Raycast-style NL command bar. Routes to right workflow/agent. Removes context-switching cost.",
+          "files": [
+            "birkin/core/command/parser.py",
+            "birkin/core/command/router.py"
+          ]
+        },
+        {
+          "id": "P2-S7-2",
+          "title": "Session Fork & Replay",
+          "ref": "2C.2",
+          "priority": "medium",
+          "estimated_hours": 8,
+          "rationale": "Branch conversation, re-run from edited past turn. Built on Checkpointer from S3.",
+          "files": [
+            "birkin/core/session/fork.py",
+            "birkin/gateway/routers/sessions.py"
+          ]
+        },
+        {
+          "id": "P2-S7-3",
+          "title": "Observability Dashboard",
+          "ref": "2C.3",
+          "priority": "high",
+          "estimated_hours": 12,
+          "depends_on": ["P2-S3-2"],
+          "rationale": "Visualize trace/eval/budget data. Token spend, latency, error rate, cron history.",
           "files": [
             "birkin/gateway/routers/observability.py",
-            "birkin/web/static/app.js"
-          ],
-          "subtasks": [
-            {"id": "P2-S4-1a", "desc": "API: /api/observability/summary (aggregated stats), /api/observability/traces (paginated)"},
-            {"id": "P2-S4-1b", "desc": "Dashboard page: token spend chart, latency histogram, tool success/failure pie, cron history table"},
-            {"id": "P2-S4-1c", "desc": "Filter by date range, session, provider"},
-            {"id": "P2-S4-1d", "desc": "Auto-refresh via SSE or polling"},
-            {"id": "P2-S4-1e", "desc": "Tests: API returns correct aggregated data"}
-          ],
-          "verification": ["pytest tests/gateway/test_observability.py -q"],
-          "acceptance_criteria": [
-            "Dashboard shows real-time token spend and latency",
-            "Drill-down to individual session traces",
-            "Cron job history visible"
+            "birkin/gateway/observability/aggregator.py"
           ]
         },
         {
-          "id": "P2-S4-2",
-          "title": "Session fork & replay",
+          "id": "P2-S7-4",
+          "title": "Natural Language Workflow Builder",
+          "ref": "2C.4",
           "priority": "medium",
-          "branch": "feat/session-fork",
           "estimated_hours": 8,
-          "rationale": "Branch conversation from any message; re-run from edited past turn. Power-user / prompt-engineering feature.",
+          "depends_on": ["P2-S3-1"],
+          "rationale": "Describe automation in a sentence → generate graph workflow. Entry point for non-developers.",
           "files": [
-            "birkin/core/session.py",
-            "birkin/gateway/routers/sessions.py",
-            "birkin/web/static/app.js"
-          ],
-          "subtasks": [
-            {"id": "P2-S4-2a", "desc": "SQLite schema: add parent_session_id, fork_from_seq columns"},
-            {"id": "P2-S4-2b", "desc": "Session.fork(from_seq): create new session with messages up to seq"},
-            {"id": "P2-S4-2c", "desc": "Session.replay(from_seq, new_message): re-run from edited point"},
-            {"id": "P2-S4-2d", "desc": "API: POST /api/sessions/{id}/fork, POST /api/sessions/{id}/replay"},
-            {"id": "P2-S4-2e", "desc": "WebUI: right-click message → 'Fork from here' / 'Edit & replay'"},
-            {"id": "P2-S4-2f", "desc": "Tests: fork preserves messages, replay produces different continuation"}
-          ],
-          "verification": ["pytest tests/core/test_session.py -q"],
-          "acceptance_criteria": [
-            "Fork creates new session with correct message history",
-            "Replay re-runs agent from edited message",
-            "Parent/child session relationship tracked"
+            "birkin/core/workflow/nl_builder.py",
+            "birkin/gateway/routers/workflows.py"
           ]
         },
         {
-          "id": "P2-S4-3",
-          "title": "Natural language workflow builder",
+          "id": "P2-S7-5",
+          "title": "Personal Insights Engine",
+          "ref": "2C.5",
           "priority": "medium",
-          "branch": "feat/nl-workflow-builder",
-          "estimated_hours": 8,
-          "depends_on": ["P2-S2-1"],
-          "rationale": "Describe automation in a sentence → generate node graph. Depends on stabilized state-graph schema.",
+          "estimated_hours": 10,
+          "depends_on": ["P2-S5-1"],
+          "rationale": "Periodic insights from compiled memory. Weekly/monthly auto-reviews, pattern detection, goal progress.",
           "files": [
-            "birkin/workflows/nl_builder.py",
-            "birkin/gateway/routers/workflows.py",
-            "birkin/web/static/app.js"
-          ],
-          "subtasks": [
-            {"id": "P2-S4-3a", "desc": "NLWorkflowBuilder: LLM call that takes description → produces graph JSON"},
-            {"id": "P2-S4-3b", "desc": "Prompt template with state-graph schema, available node types, examples"},
-            {"id": "P2-S4-3c", "desc": "API: POST /api/workflows/generate {description} → {workflow_json}"},
-            {"id": "P2-S4-3d", "desc": "WebUI: text input in workflow editor → 'Generate' button → renders graph"},
-            {"id": "P2-S4-3e", "desc": "Validation: generated graph must pass schema validation before rendering"},
-            {"id": "P2-S4-3f", "desc": "Tests: description → valid graph, invalid output → error message"}
-          ],
-          "verification": ["pytest tests/workflows/ -q"],
-          "acceptance_criteria": [
-            "Natural language description generates valid workflow graph",
-            "Generated graph renders in workflow editor",
-            "Invalid LLM output caught by validation"
+            "birkin/memory/insights/engine.py"
           ]
         }
       ]
     }
   ],
-  "discovery_track": [
-    {"id": "P2-D1", "title": "Auto wikilink detection", "status": "pending", "sprint": "parallel"},
-    {"id": "P2-D2", "title": "Session summarization (via triggers)", "status": "pending", "sprint": "parallel", "depends_on": ["P2-S2-2"]}
-  ],
+  "webui_tab_evolution": {
+    "phase1": ["Chat", "Workflow", "Memory", "Telegram"],
+    "phase2a": ["Chat", "Workflow", "Memory", "Telegram", "Triggers"],
+    "phase2b": ["+ Inbox (approval queue)"],
+    "phase2c": ["+ Dashboard", "+ Insights"]
+  },
+  "dependency_map": {
+    "critical_path": "S0 → S1(MCP) → S2(Multi-LLM) → S3(Graph+Obs) → S4(Triggers+Budget) → S7(UX)",
+    "parallel_tracks": [
+      "S5(Memory Pipeline) runs parallel to S4 after S3 completes",
+      "S6(Agent Capabilities) runs after S4+S5"
+    ]
+  },
   "metadata": {
-    "total_tasks": 18,
-    "total_subtasks": 95,
-    "total_estimated_hours": 166,
-    "critical_path": ["S0 → S1 (MCP) → S2 (State Graph + Triggers) → S4 (Dashboard + NL Builder)"],
-    "parallel_tracks": ["S3 (Capabilities) runs parallel to S2 after S1 completes"],
-    "cleanup_on_completion": {
-      "delete": [".plans/fix-plan.json"],
-      "archive": ["ROADMAP.md → docs/archive/ROADMAP-phase1.md"]
-    }
+    "total_sprints": 8,
+    "total_tasks": 21,
+    "total_estimated_hours": 228,
+    "completed_sprints": ["S0", "S1"],
+    "completed_tasks": 8,
+    "completed_test_count": 286,
+    "next_sprint": "S2"
   }
 }
