@@ -70,7 +70,7 @@ class TestCreateProvider:
 
     def test_unknown_raises(self):
         with pytest.raises(ValueError, match="Unknown provider"):
-            create_provider("gemini/model")
+            create_provider("nonexistent/model")
 
     def test_openrouter(self, monkeypatch):
         monkeypatch.setenv("OPENAI_API_KEY", "test-key")

@@ -73,6 +73,22 @@ def create_provider(
             api_key=api_key,
             base_url=base_url or "https://openrouter.ai/api/v1",
         )
+    elif provider_name == "perplexity":
+        from birkin.core.providers.perplexity import PerplexityProvider
+
+        return PerplexityProvider(model=model_name, api_key=api_key)
+    elif provider_name == "gemini":
+        from birkin.core.providers.gemini import GeminiProvider
+
+        return GeminiProvider(model=model_name, api_key=api_key)
+    elif provider_name == "ollama":
+        from birkin.core.providers.ollama import OllamaProvider
+
+        return OllamaProvider(model=model_name, base_url=base_url)
+    elif provider_name == "groq":
+        from birkin.core.providers.groq import GroqProvider
+
+        return GroqProvider(model=model_name, api_key=api_key)
     elif provider_name in ("claude-cli", "codex-cli"):
         from birkin.core.providers.local_cli import LocalCLIProvider
 
@@ -80,5 +96,7 @@ def create_provider(
         return LocalCLIProvider(cli=cli_name, model=model_name)
     else:
         raise ValueError(
-            f"Unknown provider: {provider_name}. Use 'anthropic', 'openai', 'openrouter', 'claude-cli', or 'codex-cli'."
+            f"Unknown provider: {provider_name}. "
+            "Use 'anthropic', 'openai', 'openrouter', 'perplexity', "
+            "'gemini', 'ollama', 'groq', 'claude-cli', or 'codex-cli'."
         )

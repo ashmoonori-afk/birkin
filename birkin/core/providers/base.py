@@ -8,11 +8,14 @@ from typing import Any, Callable, Optional
 
 from birkin.core.errors import ProviderError, ProviderErrorKind
 from birkin.core.models import Message, ToolCall
+from birkin.core.providers.capabilities import Capability, ProviderProfile
 
 # Re-export so existing `from birkin.core.providers.base import ...` still works.
 __all__ = [
+    "Capability",
     "TokenUsage",
     "ModelCapabilities",
+    "ProviderProfile",
     "ProviderResponse",
     "ProviderError",
     "ProviderErrorKind",
@@ -77,6 +80,30 @@ class Provider(ABC):
     def capabilities(self) -> ModelCapabilities:
         """Return the capabilities of the active model."""
         ...
+
+    @property
+    def profile(self) -> ProviderProfile:
+        """Return the provider's capability profile for routing.
+
+        Default implementation builds from capabilities(). Override in
+        subclasses for accurate cost/latency metadata.
+        """
+        caps = self.capabilities()
+        cap_set: set[Capability] = set()
+        if caps.supports_tools:
+            cap_set.add(Capability.TOOL_USE)
+        if caps.supports_vision:
+            cap_set.add(Capability.VISION)
+        return ProviderProfile(
+            name=self.name,
+            model=self.model,
+            capabilities=frozenset(cap_set),
+            max_context=caps.context_window,
+        )
+
+    def supports(self, capability: Capability) -> bool:
+        """Check if this provider supports a given capability."""
+        return self.profile.supports(capability)
 
     def supports_tools(self) -> bool:
         """Check if the active model supports tool use."""

@@ -14,6 +14,7 @@ from birkin.core.providers.base import (
     ProviderResponse,
     TokenUsage,
 )
+from birkin.core.providers.capabilities import Capability, ProviderProfile
 
 
 class LocalCLIProvider(Provider):
@@ -54,6 +55,19 @@ class LocalCLIProvider(Provider):
             context_window=100000,
             supports_tools=False,
             supports_streaming=True,
+        )
+
+    @property
+    def profile(self) -> ProviderProfile:
+        return ProviderProfile(
+            name=f"{self._cli}-cli",
+            model=self._model,
+            capabilities=frozenset({Capability.REASONING, Capability.CODE}),
+            cost_per_1k_input=0.0,
+            cost_per_1k_output=0.0,
+            max_context=100000,
+            latency_tier="high",
+            local=True,
         )
 
     def complete(

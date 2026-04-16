@@ -17,6 +17,7 @@ from birkin.core.providers.base import (
     ProviderResponse,
     TokenUsage,
 )
+from birkin.core.providers.capabilities import Capability, ProviderProfile
 
 _DEFAULT_MODEL = "gpt-4o"
 
@@ -62,6 +63,28 @@ class OpenAIProvider(Provider):
         return _MODEL_CAPS.get(
             self._model,
             ModelCapabilities(context_window=128000),  # Default
+        )
+
+    @property
+    def profile(self) -> ProviderProfile:
+        caps = self.capabilities()
+        is_openrouter = self._model.startswith("openrouter/")
+        return ProviderProfile(
+            name="openrouter" if is_openrouter else "openai",
+            model=self._model,
+            capabilities=frozenset(
+                {
+                    Capability.REASONING,
+                    Capability.CODE,
+                    Capability.TOOL_USE,
+                    Capability.VISION,
+                    Capability.STRUCTURED_OUTPUT,
+                }
+            ),
+            cost_per_1k_input=2.5,
+            cost_per_1k_output=10.0,
+            max_context=caps.context_window,
+            latency_tier="medium",
         )
 
     def complete(

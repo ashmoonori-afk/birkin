@@ -16,6 +16,7 @@ from birkin.core.providers.base import (
     ProviderResponse,
     TokenUsage,
 )
+from birkin.core.providers.capabilities import Capability, ProviderProfile
 
 _DEFAULT_MODEL = "claude-sonnet-4-6"
 
@@ -49,6 +50,28 @@ class AnthropicProvider(Provider):
         return _MODEL_CAPS.get(
             self._model,
             ModelCapabilities(context_window=100000),  # Default fallback
+        )
+
+    @property
+    def profile(self) -> ProviderProfile:
+        caps = self.capabilities()
+        return ProviderProfile(
+            name="anthropic",
+            model=self._model,
+            capabilities=frozenset(
+                {
+                    Capability.REASONING,
+                    Capability.CODE,
+                    Capability.TOOL_USE,
+                    Capability.LONG_CONTEXT,
+                    Capability.STRUCTURED_OUTPUT,
+                    *({Capability.VISION} if caps.supports_vision else set()),
+                }
+            ),
+            cost_per_1k_input=3.0 if "opus" in self._model else 1.0,
+            cost_per_1k_output=15.0 if "opus" in self._model else 5.0,
+            max_context=caps.context_window,
+            latency_tier="high" if "opus" in self._model else "medium",
         )
 
     def complete(
