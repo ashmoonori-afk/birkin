@@ -1,0 +1,269 @@
+/* ── Phase 2 Tabs — SpaceX Cinematic Dark Theme ── */
+
+/* ── Shared panel layout ── */
+
+.p2-panel {
+  padding: 24px 20px;
+  overflow-y: auto;
+  height: calc(100dvh - 52px);
+}
+
+.p2-title {
+  font-family: var(--font);
+  font-size: 13px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 1.17px;
+  color: var(--text);
+  margin-bottom: 20px;
+}
+
+.p2-subtitle {
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 1px;
+  color: var(--text-dim);
+  margin: 20px 0 12px;
+}
+
+/* ── Ghost cards ── */
+
+.p2-card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 16px;
+  margin-bottom: 12px;
+  transition: border-color 150ms;
+}
+.p2-card:hover {
+  border-color: var(--ghost-border);
+}
+
+.p2-card-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 8px;
+}
+
+.p2-card-title {
+  font-size: 13px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.96px;
+  color: var(--text);
+}
+
+.p2-card-meta {
+  font-size: 11px;
+  color: var(--text-dim);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.p2-card-body {
+  font-size: 13px;
+  color: var(--text-dim);
+  line-height: 1.5;
+}
+
+/* ── Ghost badges ── */
+
+.p2-badge {
+  display: inline-block;
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 1px;
+  padding: 3px 8px;
+  border-radius: 12px;
+  border: 1px solid var(--border);
+  background: var(--surface);
+  color: var(--text-dim);
+}
+.p2-badge--ok { color: var(--ok); border-color: rgba(74, 222, 128, 0.3); background: var(--ok-bg); }
+.p2-badge--warn { color: var(--warn); border-color: rgba(251, 191, 36, 0.3); background: var(--warn-bg); }
+.p2-badge--danger { color: var(--danger); border-color: var(--danger-border); background: var(--danger-bg); }
+
+/* ── Ghost buttons ── */
+
+.p2-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-family: var(--font);
+  font-size: 12px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 1px;
+  padding: 8px 18px;
+  border-radius: var(--radius-btn);
+  border: 1px solid var(--ghost-border);
+  background: rgba(240, 240, 250, 0.1);
+  color: var(--text);
+  cursor: pointer;
+  transition: background 150ms, color 150ms;
+}
+.p2-btn:hover { background: rgba(240, 240, 250, 0.2); }
+.p2-btn--sm { font-size: 10px; padding: 5px 12px; }
+.p2-btn--danger { border-color: var(--danger-border); color: var(--danger); }
+.p2-btn--danger:hover { background: var(--danger-bg); }
+.p2-btn--ok { border-color: rgba(74, 222, 128, 0.3); color: var(--ok); }
+.p2-btn--ok:hover { background: var(--ok-bg); }
+
+/* ── Toggle switch ── */
+
+.p2-toggle {
+  position: relative;
+  width: 36px;
+  height: 20px;
+  background: var(--surface-alt);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  cursor: pointer;
+  transition: background 150ms;
+  flex-shrink: 0;
+}
+.p2-toggle::after {
+  content: "";
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: var(--text-dim);
+  transition: transform 150ms, background 150ms;
+}
+.p2-toggle.active { background: var(--ok-bg); border-color: rgba(74, 222, 128, 0.3); }
+.p2-toggle.active::after { transform: translateX(16px); background: var(--ok); }
+
+/* ── Stat grid (dashboard) ── */
+
+.p2-stats {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+  gap: 12px;
+  margin-bottom: 20px;
+}
+
+.p2-stat {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 16px;
+  text-align: center;
+}
+
+.p2-stat-value {
+  font-size: 24px;
+  font-weight: 700;
+  color: var(--text);
+  letter-spacing: 0.5px;
+}
+
+.p2-stat-label {
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 1px;
+  color: var(--text-dim);
+  margin-top: 4px;
+}
+
+/* ── Bar chart (pure CSS) ── */
+
+.p2-bars {
+  display: flex;
+  align-items: flex-end;
+  gap: 6px;
+  height: 120px;
+  padding: 0 4px;
+  margin-bottom: 20px;
+}
+
+.p2-bar {
+  flex: 1;
+  min-width: 0;
+  background: rgba(240, 240, 250, 0.15);
+  border-radius: 3px 3px 0 0;
+  position: relative;
+  transition: height 300ms var(--ease);
+}
+.p2-bar:hover { background: rgba(240, 240, 250, 0.3); }
+
+.p2-bar-label {
+  position: absolute;
+  bottom: -18px;
+  left: 50%;
+  transform: translateX(-50%);
+  font-size: 9px;
+  color: var(--text-faint);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  white-space: nowrap;
+}
+
+/* ── Table ── */
+
+.p2-table {
+  width: 100%;
+  border-collapse: collapse;
+  margin-bottom: 20px;
+}
+.p2-table th {
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 1px;
+  color: var(--text-dim);
+  text-align: left;
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--border);
+}
+.p2-table td {
+  font-size: 13px;
+  color: var(--text);
+  padding: 10px 12px;
+  border-bottom: 1px solid var(--border-light);
+}
+.p2-table tr:hover td { background: var(--surface); }
+
+/* ── Empty state ── */
+
+.p2-empty {
+  text-align: center;
+  padding: 40px 20px;
+  color: var(--text-dim);
+}
+.p2-empty-icon {
+  font-size: 32px;
+  margin-bottom: 12px;
+  opacity: 0.3;
+}
+.p2-empty-text {
+  font-size: 13px;
+  text-transform: uppercase;
+  letter-spacing: 0.96px;
+}
+
+/* ── Loading ── */
+
+.p2-loading {
+  text-align: center;
+  padding: 40px;
+  color: var(--text-faint);
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 1px;
+}
+
+/* ── Scrollable nav overflow ── */
+
+.view-nav {
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+.view-nav::-webkit-scrollbar { display: none; }

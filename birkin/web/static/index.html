@@ -8,6 +8,7 @@
   <link rel="stylesheet" href="/static/workflow.css" />
   <link rel="stylesheet" href="/static/memory.css" />
   <link rel="stylesheet" href="/static/telegram.css" />
+  <link rel="stylesheet" href="/static/phase2.css" />
 </head>
 <body>
   <div class="app">
@@ -49,6 +50,26 @@
           <button class="view-nav-btn" data-view="telegram" aria-label="Telegram">
             <svg width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M1 7l14-5-4 13-3-5-7-3z" stroke="currentColor" stroke-width="1.2" stroke-linejoin="round"/><path d="M8 10l3-4" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"/></svg>
             <span>Telegram</span>
+          </button>
+          <button class="view-nav-btn" data-view="triggers" aria-label="Triggers">
+            <svg width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M8 1v6l4 2" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round"/><circle cx="8" cy="8" r="7" stroke="currentColor" stroke-width="1.2"/></svg>
+            <span>Triggers</span>
+          </button>
+          <button class="view-nav-btn" data-view="skills" aria-label="Skills">
+            <svg width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M8 1l2 4h4l-3 3 1 4-4-2-4 2 1-4-3-3h4z" stroke="currentColor" stroke-width="1.2" stroke-linejoin="round"/></svg>
+            <span>Skills</span>
+          </button>
+          <button class="view-nav-btn" data-view="dashboard" aria-label="Dashboard">
+            <svg width="16" height="16" viewBox="0 0 16 16" fill="none"><rect x="1" y="8" width="3" height="6" rx="0.5" stroke="currentColor" stroke-width="1.2"/><rect x="6" y="4" width="3" height="10" rx="0.5" stroke="currentColor" stroke-width="1.2"/><rect x="11" y="1" width="3" height="13" rx="0.5" stroke="currentColor" stroke-width="1.2"/></svg>
+            <span>Dashboard</span>
+          </button>
+          <button class="view-nav-btn" data-view="approvals" aria-label="Approvals">
+            <svg width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M2 8l4 4 8-8" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/></svg>
+            <span>Approvals</span>
+          </button>
+          <button class="view-nav-btn" data-view="insights" aria-label="Insights">
+            <svg width="16" height="16" viewBox="0 0 16 16" fill="none"><circle cx="8" cy="6" r="3" stroke="currentColor" stroke-width="1.2"/><path d="M8 9v3M6 14h4" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"/></svg>
+            <span>Insights</span>
           </button>
         </nav>
 
@@ -93,6 +114,21 @@
 
       <!-- === VIEW: TELEGRAM === -->
       <div id="view-telegram" class="view-container"></div>
+
+      <!-- === VIEW: TRIGGERS === -->
+      <div id="view-triggers" class="view-container"></div>
+
+      <!-- === VIEW: SKILLS === -->
+      <div id="view-skills" class="view-container"></div>
+
+      <!-- === VIEW: DASHBOARD === -->
+      <div id="view-dashboard" class="view-container"></div>
+
+      <!-- === VIEW: APPROVALS === -->
+      <div id="view-approvals" class="view-container"></div>
+
+      <!-- === VIEW: INSIGHTS === -->
+      <div id="view-insights" class="view-container"></div>
     </div>
 
     <!-- Help panel -->
@@ -127,5 +163,10 @@
   <script src="/static/workflow.js"></script>
   <script src="/static/memory.js"></script>
   <script src="/static/telegram.js"></script>
+  <script src="/static/triggers.js"></script>
+  <script src="/static/skills.js"></script>
+  <script src="/static/dashboard.js"></script>
+  <script src="/static/approvals.js"></script>
+  <script src="/static/insights.js"></script>
 </body>
 </html>
