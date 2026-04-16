@@ -21,7 +21,8 @@ def _make_info(
         server_name=server,
         name=name,
         description=f"{name} description",
-        input_schema=schema or {
+        input_schema=schema
+        or {
             "type": "object",
             "properties": {"path": {"type": "string", "description": "File path"}},
             "required": ["path"],
@@ -38,14 +39,16 @@ def _make_client(name: str = "fs", connected: bool = True) -> MCPClient:
 
 class TestJsonSchemaToParams:
     def test_basic_conversion(self) -> None:
-        params = _json_schema_to_params({
-            "type": "object",
-            "properties": {
-                "path": {"type": "string", "description": "A path"},
-                "recursive": {"type": "boolean", "description": "Recurse", "default": False},
-            },
-            "required": ["path"],
-        })
+        params = _json_schema_to_params(
+            {
+                "type": "object",
+                "properties": {
+                    "path": {"type": "string", "description": "A path"},
+                    "recursive": {"type": "boolean", "description": "Recurse", "default": False},
+                },
+                "required": ["path"],
+            }
+        )
         assert len(params) == 2
         assert params[0].name == "path"
         assert params[0].required is True
@@ -54,12 +57,14 @@ class TestJsonSchemaToParams:
         assert params[1].default is False
 
     def test_enum_field(self) -> None:
-        params = _json_schema_to_params({
-            "type": "object",
-            "properties": {
-                "format": {"type": "string", "description": "Output format", "enum": ["json", "csv"]},
-            },
-        })
+        params = _json_schema_to_params(
+            {
+                "type": "object",
+                "properties": {
+                    "format": {"type": "string", "description": "Output format", "enum": ["json", "csv"]},
+                },
+            }
+        )
         assert params[0].enum == ["json", "csv"]
 
     def test_empty_schema(self) -> None:
@@ -108,9 +113,7 @@ class TestMCPToolAdapterExecute:
     @pytest.mark.asyncio
     async def test_execute_success(self) -> None:
         client = _make_client()
-        client.call_tool = AsyncMock(
-            return_value=MCPToolCallResult(content="file contents here", is_error=False)
-        )
+        client.call_tool = AsyncMock(return_value=MCPToolCallResult(content="file contents here", is_error=False))
         adapter = MCPToolAdapter(_make_info(), client)
 
         result = await adapter.execute({"path": "/tmp/test"}, ToolContext())
@@ -121,9 +124,7 @@ class TestMCPToolAdapterExecute:
     @pytest.mark.asyncio
     async def test_execute_error(self) -> None:
         client = _make_client()
-        client.call_tool = AsyncMock(
-            return_value=MCPToolCallResult(content="permission denied", is_error=True)
-        )
+        client.call_tool = AsyncMock(return_value=MCPToolCallResult(content="permission denied", is_error=True))
         adapter = MCPToolAdapter(_make_info(), client)
 
         result = await adapter.execute({"path": "/secret"}, ToolContext())

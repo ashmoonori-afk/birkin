@@ -94,7 +94,9 @@ class MCPToolAdapter(Tool):
         return {
             "name": self._qualified_name,
             "description": f"[MCP:{self._info.server_name}] {self._info.description}",
-            "parameters": self._info.input_schema if self._info.input_schema else {
+            "parameters": self._info.input_schema
+            if self._info.input_schema
+            else {
                 "type": "object",
                 "properties": {},
             },

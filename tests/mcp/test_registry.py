@@ -66,9 +66,7 @@ class TestMCPRegistryAddRemove:
         mock_client = AsyncMock()
         mock_client.name = "rm"
         mock_client.connect = AsyncMock()
-        mock_client.list_tools = AsyncMock(
-            return_value=[_make_tool_info("rm", "tool1")]
-        )
+        mock_client.list_tools = AsyncMock(return_value=[_make_tool_info("rm", "tool1")])
         mock_client.disconnect = AsyncMock()
 
         with patch("birkin.mcp.registry.MCPClient", return_value=mock_client):
@@ -89,9 +87,7 @@ class TestMCPRegistryToolLookup:
         mock_client = AsyncMock()
         mock_client.name = "s1"
         mock_client.connect = AsyncMock()
-        mock_client.list_tools = AsyncMock(
-            return_value=[_make_tool_info("s1", "search")]
-        )
+        mock_client.list_tools = AsyncMock(return_value=[_make_tool_info("s1", "search")])
 
         with patch("birkin.mcp.registry.MCPClient", return_value=mock_client):
             await registry.add_server(_make_config("s1"))
@@ -121,9 +117,7 @@ class TestMCPRegistryLoadFromConfigs:
         mock_client = AsyncMock()
         mock_client.name = "on"
         mock_client.connect = AsyncMock()
-        mock_client.list_tools = AsyncMock(
-            return_value=[_make_tool_info("on", "t1")]
-        )
+        mock_client.list_tools = AsyncMock(return_value=[_make_tool_info("on", "t1")])
 
         with patch("birkin.mcp.registry.MCPClient", return_value=mock_client):
             tools = await registry.load_from_configs([disabled, enabled])
