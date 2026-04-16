@@ -41,7 +41,7 @@
     toolbar.innerHTML = `
       <input class="mem-search" type="text" placeholder="${t("search_memory")}" id="mem-search-input" />
       <label class="mem-upload-btn" title="${t("mem_upload_title")}">
-        <input type="file" id="mem-file-input" accept=".md,.txt,.csv,.xlsx,.xls,.pdf" style="display:none" />
+        <input type="file" id="mem-file-input" accept=".md,.txt,.csv,.xlsx,.xls,.pdf,.json" style="display:none" />
         \u{1F4CE} ${t("mem_upload")}
       </label>
       <button class="mem-refresh" id="mem-auto-link" title="${t("mem_auto_link_title")}">\u{1F517}</button>

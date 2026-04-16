@@ -693,7 +693,7 @@ function showOnboarding(providers) {
 /* ── View Router ── */
 
 let currentView = "chat";
-const viewContainers = { chat: $("view-chat"), workflow: $("view-workflow"), memory: $("view-memory"), telegram: $("view-telegram") };
+const viewContainers = { chat: $("view-chat"), workflow: $("view-workflow"), memory: $("view-memory"), telegram: $("view-telegram"), triggers: $("view-triggers"), skills: $("view-skills"), dashboard: $("view-dashboard"), approvals: $("view-approvals"), insights: $("view-insights") };
 const viewHooks = {};  // { viewName: { onActivate: fn } }
 
 function switchView(name) {

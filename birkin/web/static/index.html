@@ -135,10 +135,22 @@
     <aside class="help-panel" id="help-panel" aria-hidden="true">
       <div class="help-header"><h2 class="help-title">Help</h2><button class="btn-icon" id="help-close" aria-label="Close"><svg width="20" height="20" viewBox="0 0 20 20" fill="none"><path d="M5 5l10 10M15 5L5 15" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg></button></div>
       <div class="help-content">
-        <section class="help-section"><h3>Getting Started</h3><p>Type a message and press Enter to chat with Birkin.</p></section>
-        <section class="help-section"><h3>Views</h3><ul><li><strong>Chat</strong> &mdash; Conversation with AI</li><li><strong>Workflow</strong> &mdash; See how the agent processes your request</li><li><strong>Memory</strong> &mdash; Browse the agent's knowledge graph</li><li><strong>Telegram</strong> &mdash; Connect a Telegram bot</li></ul></section>
-        <section class="help-section"><h3>Shortcuts</h3><table class="help-shortcuts"><tbody><tr><td><kbd>Enter</kbd></td><td>Send</td></tr><tr><td><kbd>Shift+Enter</kbd></td><td>New line</td></tr><tr><td><kbd>Esc</kbd></td><td>Close panel</td></tr></tbody></table></section>
-        <section class="help-section"><p class="help-version">Birkin v0.1.0</p></section>
+        <section class="help-section"><h3>Getting Started</h3><p>Type a message and press Enter to chat with Birkin. Use <kbd>@memory</kbd> in your message to search your knowledge base.</p></section>
+        <section class="help-section"><h3>Views</h3><ul>
+          <li><strong>Chat</strong> &mdash; Conversation with AI (SSE streaming, tool calls, thinking indicator)</li>
+          <li><strong>Workflow</strong> &mdash; Drag-and-drop workflow editor with 30+ node types</li>
+          <li><strong>Memory</strong> &mdash; Knowledge graph (entities, concepts, sessions) — upload files or create pages</li>
+          <li><strong>Telegram</strong> &mdash; Connect a Telegram bot (webhook or polling)</li>
+          <li><strong>Triggers</strong> &mdash; Schedule workflows with cron, file watch, webhook, or message triggers</li>
+          <li><strong>Skills</strong> &mdash; Browse and toggle installed skill plugins</li>
+          <li><strong>Dashboard</strong> &mdash; Token spend, latency stats, error rates across providers</li>
+          <li><strong>Approvals</strong> &mdash; Review and approve/reject pending agent actions</li>
+          <li><strong>Insights</strong> &mdash; Weekly usage digest, provider distribution, cost tracking</li>
+        </ul></section>
+        <section class="help-section"><h3>Providers</h3><p>9 LLM providers supported: Anthropic, OpenAI, Perplexity, Gemini, Ollama (local), Groq, OpenRouter, Claude CLI, Codex CLI. Switch in Settings.</p></section>
+        <section class="help-section"><h3>Memory</h3><p>Upload markdown or text files to Memory. The agent auto-saves important conversations. Use <kbd>@memory search term</kbd> in chat to search. Memory pages are injected into the system prompt for context.</p></section>
+        <section class="help-section"><h3>Shortcuts</h3><table class="help-shortcuts"><tbody><tr><td><kbd>Enter</kbd></td><td>Send message</td></tr><tr><td><kbd>Shift+Enter</kbd></td><td>New line</td></tr><tr><td><kbd>Esc</kbd></td><td>Close panel</td></tr></tbody></table></section>
+        <section class="help-section"><p class="help-version">Birkin v0.3.0</p></section>
       </div>
     </aside>
     <div class="help-overlay" id="help-overlay"></div>

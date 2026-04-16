@@ -99,7 +99,7 @@ async def wiki_upload_file(file: UploadFile = File(...)) -> dict:
     content_bytes = raw
     ext = file.filename.rsplit(".", 1)[-1].lower() if "." in file.filename else ""
 
-    allowed_exts = {"md", "txt", "csv", "xls", "xlsx", "pdf"}
+    allowed_exts = {"md", "txt", "csv", "xls", "xlsx", "pdf", "json"}
     if ext not in allowed_exts:
         raise HTTPException(
             status_code=400,
@@ -107,7 +107,16 @@ async def wiki_upload_file(file: UploadFile = File(...)) -> dict:
         )
 
     # Parse content based on extension
-    if ext in ("md", "txt"):
+    if ext == "json":
+        import json as json_mod
+
+        text = content_bytes.decode("utf-8", errors="replace")
+        try:
+            parsed = json_mod.loads(text)
+            content = f"# {file.filename}\n\n```json\n{json_mod.dumps(parsed, indent=2, ensure_ascii=False)}\n```"
+        except json_mod.JSONDecodeError:
+            content = f"# {file.filename}\n\n```\n{text}\n```"
+    elif ext in ("md", "txt"):
         content = content_bytes.decode("utf-8", errors="replace")
 
     elif ext == "csv":
