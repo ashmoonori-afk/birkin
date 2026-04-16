@@ -102,49 +102,54 @@ Every Phase 2 item below maps back to at least one of these three.
 
 ---
 
-## Phase 2: Agent Runtime (In Progress)
+## Phase 2: Agent Runtime (Complete, v0.3.0)
 
-**Goal:** Turn Birkin from a chat UI with tools into a programmable agent runtime — MCP-compatible, schedulable, observable, and capable of executing real work.
+**Goal:** Turn Birkin from a chat UI with tools into a personal agent OS — MCP-compatible, schedulable, observable, and capable of executing real work.
 
-**Ordering principle:** MCP first. Every later item (skills, tools, computer use, evaluation) sits on top of the MCP layer, so getting that boundary right unblocks everything else.
+### Sprint 0 — Debt Cleanup (Complete)
 
-### Sprint 0 — Debt Cleanup (Complete, v0.2.0)
-
-- [x] **ROADMAP restoration** — Phase 4 truncation fixed, out-of-scope section added
-- [x] **Exception narrowing** — replaced 22 bare `except Exception` with specific types across 14 files
+- [x] **Exception narrowing** — replaced 22 bare `except Exception` with specific types
 - [x] **Config validation** — Pydantic schema validation for birkin_config.json
 - [x] **Concurrency locks** — asyncio locks on WikiMemory and Telegram polling
 - [x] **Return type annotations** — wiki and workflows routers fully typed
-- [x] **Test hardening** — webhook mock isolation, polling loop hang fix, 215+ tests passing
+- [x] **Test hardening** — 215+ tests passing
 
-### Phase 2A — Runtime Core (MCP First)
+### Phase 2A — Orchestration Core (Complete)
 
-- [ ] **MCP client & server support** — first-class Model Context Protocol integration. Existing `Tool` ABC becomes a thin adapter over MCP. Birkin can consume any MCP server and expose its own capabilities as one.
-- [ ] **Skills system (MCP-native)** — bundled + community skills packaged as MCP servers. Skill layout = `SKILL.md` + resources, discoverable via registry.
-- [ ] **State graph execution engine** — LangGraph-style state machine for workflows. Coexists with the current BFS `simple` mode; new `graph` mode supports conditionals, loops, parallel fan-out, and checkpoints. Existing 10 sample flows migrate gradually.
-- [ ] **Trigger abstraction + Cron** — workflows are fired by triggers, not just manual input. Triggers include time (cron), file change, webhook, incoming message, and custom events. Cron is one trigger implementation among many.
-- [ ] **Evaluation framework** — fixed question sets with snapshot diff, per-provider latency, token/cost tracking. Outputs JSONL for regression analysis. Feeds the Observability dashboard.
-- [ ] **Observability logging** — structured traces for every turn: provider, tokens in/out, tool calls, latency, outcome. Same data source as Evaluation.
+- [x] **Multi-LLM connector** — 9 providers (Anthropic, OpenAI, Perplexity, Gemini, Ollama, Groq, OpenRouter, Claude CLI, Codex CLI) with capability metadata and auto-routing
+- [x] **MCP client & server** — consume external MCP servers, expose Birkin tools/memory as MCP. `birkin mcp serve` CLI command
+- [x] **Skills system (MCP-native)** — SKILL.md schema, auto-discovery, enable/disable. 2 bundled skills (code-review, web-summarizer)
+- [x] **State graph execution engine** — conditional edges, parallel fan-out, loops with guard, SQLite checkpoints. Coexists with BFS simple mode
+- [x] **Trigger abstraction** — cron, file watch, webhook, message triggers with scheduler
+- [x] **Token budget manager** — inline enforcement (compress/downgrade/abort per policy)
+- [x] **Evaluation framework** — JSONL datasets, runner, storage, snapshot diff
+- [x] **Observability logging** — structured traces (Trace → Span), JSONL storage, API
 
-### Phase 2B — Agent Capabilities
+### Phase 2B — Agent Capabilities (Complete)
 
-- [ ] **Computer Use (Playwright MCP)** — headless browser automation delivered as an MCP server. Unlocks "monitor site → summarize → notify" class of workflows. Runs locally to preserve the self-hosted ethos.
-- [ ] **Voice I/O** — Whisper STT for input, TTS for output. Integrated in WebUI (mic button) and Telegram (voice messages in, voice replies out). Leverages the project's Korean-language strength.
-- [ ] **Semantic memory (local embeddings)** — offline embedding via sentence-transformers or BGE-m3. Zero-dependency semantic search over wiki. Pulled forward from Phase 3 because it directly serves the token-savings and personalization goals.
+- [x] **Computer Use (Playwright)** — 6 browser tools (navigate, screenshot, click, type, extract, wait)
+- [x] **Voice I/O** — Whisper STT + OpenAI TTS with API endpoints
+- [x] **Semantic memory** — local embeddings (BGE-m3 / hash fallback), vector store, semantic search
+- [x] **Context injection** — auto-inject relevant wiki context via semantic search + UserProfile
+- [x] **Approval gates** — safety boundary for external actions with async wait + timeout
+- [x] **Memory compiler** — raw event log → compiled wiki pages (session/daily)
 
-### Phase 2C — UX & Intelligence
+### Phase 2C — UX & Intelligence (Complete)
 
-- [ ] **Session fork & replay** — branch a conversation from any message; re-run from an edited past turn. SQLite schema adds `parent_session_id` + `fork_from_seq`. Power-user / prompt-engineering feature.
-- [ ] **Observability dashboard** — new tab surfacing token spend, per-session latency, tool failure rate, and cron job history. Reads the Phase 2A telemetry.
-- [ ] **Natural language workflow builder** — describe an automation in a sentence → generate the node graph. Depends on stabilized state-graph schema from 2A.
+- [x] **Command bar** — natural language intent parsing + routing
+- [x] **Session fork** — branch conversations from any message
+- [x] **Observability dashboard** — token spend, latency stats, error rates via API
+- [x] **NL workflow builder** — describe automation → generate graph workflow
+- [x] **Insights engine** — weekly digest, pattern detection, usage trends
+- [x] **WebUI integration** — 5 new tabs (Triggers, Skills, Dashboard, Approvals, Insights) with SpaceX dark theme
 
-### Phase 2 — Discovery track (parallel, mostly done)
+### Phase 2 — Discovery track
 
 - [x] File upload to memory
 - [x] Smart memory categorization (LLM-based)
-- [ ] Auto wikilink detection
-- [ ] Session summarization (scheduled via Phase 2A triggers)
 - [x] `@memory` search command in chat
+- [ ] Auto wikilink detection
+- [ ] Session summarization (scheduled via triggers)
 
 ---
 
@@ -154,7 +159,7 @@ Every Phase 2 item below maps back to at least one of these three.
 
 ### Platform breadth
 
-- [ ] **Ollama first-class provider** — direct REST integration. Completes the "zero API key, fully local" story.
+- [x] **Ollama first-class provider** — direct REST integration (completed in Phase 2A).
 - [ ] **Email adapter (IMAP/SMTP)** — inbox summarization, draft replies, auto-triage. Natural pair with Phase 2A scheduling.
 - [ ] **RSS / web change monitor** — register feeds or URLs; fire workflows on change.
 - [ ] **Discord, Slack, WhatsApp adapters** — same pattern as Telegram, one at a time.
