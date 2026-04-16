@@ -13,11 +13,12 @@
 <p align="center">
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-blue.svg" alt="MIT License"></a>
   <img src="https://img.shields.io/badge/python-3.11%2B-blue" alt="Python 3.11+">
+  <img src="https://img.shields.io/badge/version-v0.2.0-green" alt="v0.2.0">
 </p>
 
 ---
 
-**Birkin** is an AI agent platform with a visual WebUI. Chat with AI, design workflows, manage memory, and connect Telegram — all from a cinematic dark-themed interface.
+**Birkin** is a self-hosted AI agent platform with a visual WebUI. Chat with AI, design workflows, manage memory, and connect Telegram — all from a cinematic dark-themed interface. Phase 1 complete, Phase 2 (MCP agent runtime) in progress.
 
 ---
 
@@ -51,7 +52,7 @@
 |----------|--------|
 | **Telegram** | Working — webhook-based, auto-split long messages, session persistence per user |
 | **CLI** | Working — `birkin chat` for terminal REPL |
-| Discord / Slack / WhatsApp | Planned (Phase 2) |
+| Discord / Slack / WhatsApp | Planned (Phase 3) |
 
 ---
 
@@ -139,7 +140,7 @@ birkin/
 │   ├── workflow.js     # Drag-and-drop workflow editor
 │   ├── memory.js       # Force-directed wiki graph
 │   └── telegram.js     # Telegram setup wizard + dashboard
-└── tests/              # 122 tests (pytest + xdist)
+└── tests/              # 215+ tests (pytest)
 ```
 
 ---

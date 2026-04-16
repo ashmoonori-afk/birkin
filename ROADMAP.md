@@ -71,7 +71,7 @@ Every Phase 2 item below maps back to at least one of these three.
 - [x] Config-based provider selection (not hardcoded)
 
 ### Infrastructure
-- [x] 206 passing tests (pytest + xdist)
+- [x] 215+ passing tests (pytest)
 - [x] ruff lint + format clean
 - [x] One-click launchers (Birkin.command, start.sh, start.bat, start.exe)
 - [x] Auto-open browser on server start
@@ -107,6 +107,15 @@ Every Phase 2 item below maps back to at least one of these three.
 **Goal:** Turn Birkin from a chat UI with tools into a programmable agent runtime — MCP-compatible, schedulable, observable, and capable of executing real work.
 
 **Ordering principle:** MCP first. Every later item (skills, tools, computer use, evaluation) sits on top of the MCP layer, so getting that boundary right unblocks everything else.
+
+### Sprint 0 — Debt Cleanup (Complete, v0.2.0)
+
+- [x] **ROADMAP restoration** — Phase 4 truncation fixed, out-of-scope section added
+- [x] **Exception narrowing** — replaced 22 bare `except Exception` with specific types across 14 files
+- [x] **Config validation** — Pydantic schema validation for birkin_config.json
+- [x] **Concurrency locks** — asyncio locks on WikiMemory and Telegram polling
+- [x] **Return type annotations** — wiki and workflows routers fully typed
+- [x] **Test hardening** — webhook mock isolation, polling loop hang fix, 215+ tests passing
 
 ### Phase 2A — Runtime Core (MCP First)
 
@@ -187,8 +196,8 @@ These may be revisited if the project's direction changes, but they are explicit
 
 ## How to Influence the Roadmap
 
-- **Feature requests & ideas** — [open a GitHub Issue](https://github.com/your-org/birkin/issues)
-- **Bug reports** — [open a GitHub Issue](https://github.com/your-org/birkin/issues) with reproduction steps
+- **Feature requests & ideas** — [open a GitHub Issue](https://github.com/ashmoonori-afk/birkin/issues)
+- **Bug reports** — [open a GitHub Issue](https://github.com/ashmoonori-afk/birkin/issues) with reproduction steps
 - **Pull requests welcome** — especially for Phase 2A and Phase 2B items
 
 ---
