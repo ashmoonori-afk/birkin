@@ -10,6 +10,7 @@ from birkin.gateway.routers.settings import router as settings_router
 from birkin.gateway.routers.skills import router as skills_router
 from birkin.gateway.routers.telegram import router as telegram_router
 from birkin.gateway.routers.traces import router as traces_router
+from birkin.gateway.routers.triggers import router as triggers_router
 from birkin.gateway.routers.webhooks import router as webhooks_router
 from birkin.gateway.routers.wiki import router as wiki_router
 from birkin.gateway.routers.workflows import router as workflows_router
@@ -26,4 +27,5 @@ all_routers = [
     webhooks_router,
     skills_router,
     traces_router,
+    triggers_router,
 ]
