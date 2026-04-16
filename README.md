@@ -62,12 +62,12 @@
 
 **macOS:**
 1. Download or clone the repository
-2. Double-click **`Birkin.command`** (or `start.sh`)
+2. Double-click **`scripts/Birkin.command`** (or run `scripts/start.sh`)
 3. Browser opens automatically at `http://127.0.0.1:8321`
 
 **Windows:**
 1. Download or clone the repository
-2. Double-click **`start.bat`**
+2. Double-click **`scripts/start.bat`**
 3. Browser opens automatically
 
 **What happens:** The script creates a virtual environment, installs dependencies, starts the WebUI server, and opens your browser. First run takes ~1 minute; subsequent launches are instant.
@@ -140,7 +140,9 @@ birkin/
 │   ├── workflow.js     # Drag-and-drop workflow editor
 │   ├── memory.js       # Force-directed wiki graph
 │   └── telegram.js     # Telegram setup wizard + dashboard
-└── tests/              # 215+ tests (pytest)
+├── tests/              # 215+ tests (pytest)
+├── scripts/            # Launchers (start.sh, start.bat, Birkin.command, launcher.py)
+└── docs/               # Archive, site (landingpage, website)
 ```
 
 ---

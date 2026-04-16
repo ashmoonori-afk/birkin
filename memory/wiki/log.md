@@ -14,3 +14,6 @@ Append-only record of operations.
 - [2026-04-15 17:27:41 UTC] created sessions/one-17acdd.md
 - [2026-04-15 17:27:41 UTC] created sessions/two-17acdd.md
 - [2026-04-15 17:27:41 UTC] created sessions/hello-f8123f.md
+- [2026-04-16 08:36:11 UTC] created concepts/prompt.md
+- [2026-04-16 08:36:21 UTC] created concepts/study.md
+- [2026-04-16 08:36:44 UTC] created concepts/13-section-guide.md

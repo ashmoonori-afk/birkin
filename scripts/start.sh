@@ -10,9 +10,9 @@
 # ─────────────────────────────────────────────────────────────
 set -euo pipefail
 
-# Resolve the directory this script lives in (handles symlinks)
+# Resolve the project root (one level up from scripts/)
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-cd "$SCRIPT_DIR"
+cd "$SCRIPT_DIR/.."
 
 VENV_DIR=".venv"
 MIN_PYTHON_MAJOR=3

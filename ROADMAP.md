@@ -73,7 +73,7 @@ Every Phase 2 item below maps back to at least one of these three.
 ### Infrastructure
 - [x] 215+ passing tests (pytest)
 - [x] ruff lint + format clean
-- [x] One-click launchers (Birkin.command, start.sh, start.bat, start.exe)
+- [x] One-click launchers (scripts/Birkin.command, scripts/start.sh, scripts/start.bat)
 - [x] Auto-open browser on server start
 - [x] .env-based API key management from WebUI
 - [x] JSON config persistence (birkin_config.json)

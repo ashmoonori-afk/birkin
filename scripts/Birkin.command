@@ -6,8 +6,8 @@
 # in Finder, then launches Birkin and opens the browser.
 # ─────────────────────────────────────────────────────────────
 
-# Resolve the directory this script lives in
-cd "$(dirname "$0")" || exit 1
+# Resolve the project root (one level up from scripts/)
+cd "$(dirname "$0")/.." || exit 1
 
 # Delegate to start.sh which handles venv, deps, and launch
-exec ./start.sh
+exec ./scripts/start.sh

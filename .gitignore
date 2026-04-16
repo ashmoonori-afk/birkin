@@ -70,7 +70,7 @@ mini-swe-agent/
 # Nix
 .direnv/
 result
-website/static/api/skills-index.json
+docs/site/website/static/api/skills-index.json
 
 # OS
 .DS_Store
@@ -85,10 +85,8 @@ birkin_sessions.db-shm
 birkin_config.json
 birkin_workflows.json
 
-# Wiki memory data (user-specific)
-memory/wiki/sessions/
-memory/wiki/entities/
-memory/wiki/concepts/
+# Wiki memory data (runtime, user-specific)
+memory/
 
 # IDE
 .idea/

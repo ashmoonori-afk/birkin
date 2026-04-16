@@ -10,8 +10,8 @@ REM    4. Launch Birkin
 REM -----------------------------------------------------------------
 setlocal enabledelayedexpansion
 
-REM  Resolve script directory
-cd /d "%~dp0"
+REM  Resolve project root (one level up from scripts\)
+cd /d "%~dp0\.."
 
 set "VENV_DIR=.venv"
 set "MIN_MAJOR=3"

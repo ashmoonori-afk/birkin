@@ -1,14 +1,8 @@
 # Memory Index
 
 
-## Sessions
+## Concepts
 
-- [[chat-073670c3-20260415-171808]] — **User:** two
-- [[chat-799f98b3-20260415-171853]] — **User:** two
-- [[chat-ad53562a-20260415-171930]] — **User:** hello
-- [[chat-ecd451c8-20260415-171853]] — **User:** hello
-- [[chat-f0188348-20260415-171930]] — **User:** two
-- [[chat-f627829a-20260415-171808]] — **User:** hello
-- [[hello-f8123f]] — **User:** hello
-- [[one-17acdd]] — **User:** one
-- [[two-17acdd]] — **User:** two
+- [[13-section-guide]] — 고전환 상세페이지의 13개 섹션 구조와 각 섹션의 역할을 설명합니다.
+- [[prompt]] — ---
+- [[study]] — ---
