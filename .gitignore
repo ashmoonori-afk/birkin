@@ -3,6 +3,15 @@
 *.pyc*
 __pycache__/
 .venv/
+.omc/
+build/
+dist/
+*.spec
+start.exe
+exe_output.log
+exe_error.log
+bat_output.log
+serve_output.log
 .vscode/
 .env
 .env.local
@@ -17,14 +26,6 @@ __pycache__/web_tools.cpython-310.pyc
 logs/
 data/
 .pytest_cache/
-build/
-dist/
-*.spec
-start.exe
-exe_output.log
-exe_error.log
-bat_output.log
-serve_output.log
 tmp/
 temp_vision_images/
 birkin-*/*
@@ -35,7 +36,6 @@ run_datagen_kimik2-thinking.sh
 run_datagen_megascience_glm4-6.sh
 run_datagen_sonnet.sh
 source-data/*
-run_datagen_megascience_glm4-6.sh
 data/*
 node_modules/
 browser-use/
@@ -45,7 +45,6 @@ agent-browser/
 *.pem
 privvy*
 images/
-__pycache__/
 birkin-agent.egg-info/
 birkin_agent.egg-info/
 *.egg-info/
@@ -93,4 +92,3 @@ memory/wiki/concepts/
 
 # IDE
 .idea/
-.omc/ 
