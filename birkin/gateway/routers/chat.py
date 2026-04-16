@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import logging
 from typing import AsyncGenerator
 
 from fastapi import APIRouter, HTTPException
@@ -15,42 +16,58 @@ from birkin.gateway.deps import get_session_store, get_wiki_memory
 from birkin.gateway.schemas import ChatRequest, ChatResponse
 from birkin.tools.loader import load_tools
 
+logger = logging.getLogger(__name__)
+
 router = APIRouter(prefix="/api", tags=["chat"])
 
 
-@router.post("/chat", response_model=ChatResponse)
-async def chat(body: ChatRequest) -> ChatResponse:
-    """Send a message and receive the agent's reply."""
+def _build_agent(body: ChatRequest) -> Agent:
+    """Build an Agent instance from a chat request. Shared by sync and stream endpoints."""
     from birkin.gateway.config import load_config
 
     store = get_session_store()
     config = load_config()
 
-    # Validate existing session if provided
     if body.session_id:
         try:
             store.load(body.session_id)
         except KeyError:
             raise HTTPException(status_code=404, detail="Session not found")
 
-    # Build model string: "provider/model" or "provider/default"
     model_str = f"{body.provider}/{body.model}" if body.model else f"{body.provider}/default"
     try:
         provider = create_provider(model_str)
     except (ValueError, TypeError) as exc:
         raise HTTPException(status_code=400, detail=str(exc))
-    tools = load_tools()
 
     agent_kwargs: dict = {
         "provider": provider,
-        "tools": tools,
+        "tools": load_tools(),
         "session_store": store,
         "session_id": body.session_id,
         "memory": get_wiki_memory(),
     }
     if config.get("system_prompt") is not None:
         agent_kwargs["system_prompt"] = config["system_prompt"]
-    agent = Agent(**agent_kwargs)
+    return Agent(**agent_kwargs)
+
+
+async def _drain_queue(queue: asyncio.Queue, task: asyncio.Task) -> AsyncGenerator[str, None]:
+    """Drain an asyncio queue while a task is running, yielding SSE data lines."""
+    while True:
+        if task.done() and queue.empty():
+            break
+        try:
+            evt = await asyncio.wait_for(queue.get(), timeout=0.05)
+            yield f"data: {json.dumps(evt)}\n\n"
+        except asyncio.TimeoutError:
+            continue
+
+
+@router.post("/chat", response_model=ChatResponse)
+async def chat(body: ChatRequest) -> ChatResponse:
+    """Send a message and receive the agent's reply."""
+    agent = _build_agent(body)
 
     try:
         reply = await agent.achat(body.message)
@@ -83,33 +100,8 @@ async def chat_stream(body: ChatRequest) -> StreamingResponse:
     """Send a message and stream the agent's reply via Server-Sent Events."""
     from birkin.gateway.config import load_config
 
-    store = get_session_store()
+    agent = _build_agent(body)
     config = load_config()
-
-    if body.session_id:
-        try:
-            store.load(body.session_id)
-        except KeyError:
-            raise HTTPException(status_code=404, detail="Session not found")
-
-    model_str = f"{body.provider}/{body.model}" if body.model else f"{body.provider}/default"
-    try:
-        provider = create_provider(model_str)
-    except (ValueError, TypeError) as exc:
-        raise HTTPException(status_code=400, detail=str(exc))
-
-    tools = load_tools()
-
-    agent_kwargs: dict = {
-        "provider": provider,
-        "tools": tools,
-        "session_store": store,
-        "session_id": body.session_id,
-        "memory": get_wiki_memory(),
-    }
-    if config.get("system_prompt") is not None:
-        agent_kwargs["system_prompt"] = config["system_prompt"]
-    agent = Agent(**agent_kwargs)
 
     # Check for active workflow
     active_wf_id = config.get("active_workflow")
@@ -124,7 +116,7 @@ async def chat_stream(body: ChatRequest) -> StreamingResponse:
                     active_workflow = wf
                     break
         except Exception:
-            pass
+            logger.warning("Failed to load active workflow %s", active_wf_id, exc_info=True)
 
     async def event_generator() -> AsyncGenerator[str, None]:
         queue: asyncio.Queue[dict | None] = asyncio.Queue()
@@ -139,107 +131,26 @@ async def chat_stream(body: ChatRequest) -> StreamingResponse:
         yield f"data: {json.dumps({'session_id': agent.session_id})}\n\n"
 
         try:
-            # If a workflow is active, use the workflow engine
             if active_workflow:
-                from birkin.core.workflow_engine import WorkflowEngine
-
-                fb_provider = None
-                fb_name = config.get("fallback_provider")
-                if fb_name:
-                    try:
-                        fb_provider = create_provider(f"{fb_name}/default")
-                    except Exception:
-                        pass
-
-                engine = WorkflowEngine(
-                    provider,
-                    fallback_provider=fb_provider,
-                    event_callback=on_event,
-                    wiki_memory=get_wiki_memory(),
-                )
-                engine.load(active_workflow)
-
-                wf_task: asyncio.Task[str] = asyncio.create_task(engine.run(body.message))
-
-                while True:
-                    if wf_task.done() and queue.empty():
-                        break
-                    try:
-                        evt = await asyncio.wait_for(queue.get(), timeout=0.05)
-                        yield f"data: {json.dumps(evt)}\n\n"
-                    except asyncio.TimeoutError:
-                        continue
-
-                reply = await wf_task
-                # Store messages in session
-                from birkin.core.models import Message as Msg
-
-                store.append_message(agent.session_id, Msg(role="user", content=body.message))
-                store.append_message(agent.session_id, Msg(role="assistant", content=reply))
-                yield f"data: {json.dumps({'done': True, 'reply': reply})}\n\n"
+                async for line in _stream_workflow(
+                    body, agent, active_workflow, config, queue, on_event,
+                ):
+                    yield line
                 return
 
             # Normal agent flow
-            task: asyncio.Task[str] = asyncio.create_task(
+            task = asyncio.create_task(
                 agent.astream(body.message, callback=on_delta, event_callback=on_event)
             )
-
-            # Drain queue in real-time using get() with timeout
-            while True:
-                if task.done() and queue.empty():
-                    break
-                try:
-                    evt = await asyncio.wait_for(queue.get(), timeout=0.05)
-                    yield f"data: {json.dumps(evt)}\n\n"
-                except asyncio.TimeoutError:
-                    continue
+            async for line in _drain_queue(queue, task):
+                yield line
 
             reply = await task
             yield f"data: {json.dumps({'done': True, 'reply': reply})}\n\n"
 
         except Exception as primary_exc:
-            # Try fallback provider if configured
-            fallback_prov = config.get("fallback_provider")
-            if fallback_prov and fallback_prov != body.provider:
-                fb_msg = f"Primary failed, trying {fallback_prov}..."
-                yield f"data: {json.dumps({'event': 'fallback', 'message': fb_msg})}\n\n"
-                try:
-                    fb_model = f"{fallback_prov}/default"
-                    fb_provider = create_provider(fb_model)
-                    fb_kwargs = dict(agent_kwargs)
-                    fb_kwargs["provider"] = fb_provider
-                    fb_agent = Agent(**fb_kwargs)
-                    fb_queue: asyncio.Queue[dict | None] = asyncio.Queue()
-
-                    def fb_on_delta(d: str | None) -> None:
-                        if d is not None:
-                            fb_queue.put_nowait({"delta": d})
-
-                    fb_task = asyncio.create_task(fb_agent.astream(body.message, callback=fb_on_delta))
-
-                    while True:
-                        if fb_task.done() and fb_queue.empty():
-                            break
-                        try:
-                            evt = await asyncio.wait_for(fb_queue.get(), timeout=0.05)
-                            yield f"data: {json.dumps(evt)}\n\n"
-                        except asyncio.TimeoutError:
-                            continue
-
-                    reply = await fb_task
-                    yield f"data: {json.dumps({'done': True, 'reply': reply})}\n\n"
-                    return
-                except Exception as fb_exc:
-                    err = f"Both providers failed. Primary: {primary_exc}, Fallback: {fb_exc}"
-                    yield f"data: {json.dumps({'error': err})}\n\n"
-                    return
-
-            # No fallback — report primary error
-            msg = str(primary_exc)
-            if "api_key" in msg or "auth" in msg.lower():
-                yield f"data: {json.dumps({'error': f'API key not configured for {body.provider}'})}\n\n"
-            else:
-                yield f"data: {json.dumps({'error': msg})}\n\n"
+            async for line in _stream_fallback(body, agent, config, primary_exc):
+                yield line
 
     return StreamingResponse(
         event_generator(),
@@ -249,3 +160,90 @@ async def chat_stream(body: ChatRequest) -> StreamingResponse:
             "X-Accel-Buffering": "no",
         },
     )
+
+
+async def _stream_workflow(
+    body: ChatRequest,
+    agent: Agent,
+    workflow: dict,
+    config: dict,
+    queue: asyncio.Queue,
+    on_event,
+) -> AsyncGenerator[str, None]:
+    """Stream a workflow execution via SSE."""
+    from birkin.core.workflow_engine import WorkflowEngine
+
+    provider = agent.provider
+    fb_provider = None
+    fb_name = config.get("fallback_provider")
+    if fb_name:
+        try:
+            fb_provider = create_provider(f"{fb_name}/default")
+        except Exception:
+            logger.warning("Failed to create fallback provider %s", fb_name, exc_info=True)
+
+    engine = WorkflowEngine(
+        provider,
+        fallback_provider=fb_provider,
+        event_callback=on_event,
+        wiki_memory=get_wiki_memory(),
+    )
+    engine.load(workflow)
+
+    wf_task = asyncio.create_task(engine.run(body.message))
+    async for line in _drain_queue(queue, wf_task):
+        yield line
+
+    reply = await wf_task
+    from birkin.core.models import Message as Msg
+
+    store = get_session_store()
+    store.append_message(agent.session_id, Msg(role="user", content=body.message))
+    store.append_message(agent.session_id, Msg(role="assistant", content=reply))
+    yield f"data: {json.dumps({'done': True, 'reply': reply})}\n\n"
+
+
+async def _stream_fallback(
+    body: ChatRequest,
+    agent: Agent,
+    config: dict,
+    primary_exc: Exception,
+) -> AsyncGenerator[str, None]:
+    """Try a fallback provider after primary failure, yielding SSE lines."""
+    fallback_prov = config.get("fallback_provider")
+    if fallback_prov and fallback_prov != body.provider:
+        fb_msg = f"Primary failed, trying {fallback_prov}..."
+        yield f"data: {json.dumps({'event': 'fallback', 'message': fb_msg})}\n\n"
+        try:
+            fb_provider = create_provider(f"{fallback_prov}/default")
+            fb_agent = Agent(
+                provider=fb_provider,
+                tools=load_tools(),
+                session_store=get_session_store(),
+                session_id=body.session_id,
+                memory=get_wiki_memory(),
+            )
+            fb_queue: asyncio.Queue[dict | None] = asyncio.Queue()
+
+            def fb_on_delta(d: str | None) -> None:
+                if d is not None:
+                    fb_queue.put_nowait({"delta": d})
+
+            fb_task = asyncio.create_task(fb_agent.astream(body.message, callback=fb_on_delta))
+            async for line in _drain_queue(fb_queue, fb_task):
+                yield line
+
+            reply = await fb_task
+            yield f"data: {json.dumps({'done': True, 'reply': reply})}\n\n"
+            return
+        except Exception as fb_exc:
+            err = f"Both providers failed. Primary: {primary_exc}, Fallback: {fb_exc}"
+            yield f"data: {json.dumps({'error': err})}\n\n"
+            return
+
+    # No fallback — report primary error
+    msg = str(primary_exc)
+    if "api_key" in msg or "auth" in msg.lower():
+        yield f"data: {json.dumps({'error': f'API key not configured for {body.provider}'})}\n\n"
+    else:
+        yield f"data: {json.dumps({'error': msg})}\n\n"

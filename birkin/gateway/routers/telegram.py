@@ -242,18 +242,18 @@ async def _poll_loop(adapter: Any) -> None:
                         reply_to_message_id=msg_info["message_id"],
                     )
                 except Exception as e:
-                    log.error(f"Failed to process message: {e}")
+                    log.error("Failed to process message: %s", e)
                     try:
                         await adapter.send_message(
                             chat_id=msg_info["chat_id"],
                             text=f"Error: {str(e)[:200]}",
                         )
                     except Exception:
-                        pass
+                        log.warning("Failed to send error reply to user", exc_info=True)
         except asyncio.CancelledError:
             break
         except Exception as e:
-            log.error(f"Polling error: {e}")
+            log.error("Polling error: %s", e)
             await asyncio.sleep(3)
 
     _polling_active = False

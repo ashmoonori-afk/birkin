@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 import os
 
 from fastapi import APIRouter, HTTPException, Request
@@ -82,6 +83,5 @@ async def telegram_webhook(bot_token: str, request: Request, data: dict) -> dict
                 text="Sorry, I encountered an error processing your message.",
             )
         except Exception:
-            # If we can't even send error, just log it
-            pass
+            logging.getLogger(__name__).warning("Failed to send error reply via webhook", exc_info=True)
         raise HTTPException(status_code=500, detail=error_msg)
