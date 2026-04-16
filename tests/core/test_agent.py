@@ -2,9 +2,20 @@
 
 from __future__ import annotations
 
+import threading
+from unittest.mock import patch
+
 import pytest
 
-from birkin.core.agent import Agent
+from birkin.core.agent import (
+    _KEEP_HEAD,
+    _KEEP_TAIL,
+    Agent,
+    _executor,
+    _run_async,
+    shutdown_executor,
+)
+from birkin.core.models import Message
 from birkin.core.session import SessionStore
 from tests.fakes import FakeProvider
 
@@ -97,3 +108,98 @@ class TestMakeSlug:
         slug = Agent._make_slug("What is @user's project?", "aaa111")
         assert "@" not in slug
         assert "'" not in slug
+
+
+class TestRunAsync:
+    def test_run_async_returns_result(self):
+        async def _add():
+            return 1 + 2
+
+        assert _run_async(_add()) == 3
+
+    def test_executor_thread_names(self):
+        """Verify the shared pool uses 'birkin-tool' prefixed threads."""
+        captured: list[str] = []
+
+        def _capture():
+            captured.append(threading.current_thread().name)
+
+        future = _executor.submit(_capture)
+        future.result()
+        assert len(captured) == 1
+        assert captured[0].startswith("birkin-tool")
+
+    def test_shutdown_executor_is_callable(self):
+        """shutdown_executor can be called without error.
+
+        We call with wait=True on a fresh executor state; the pool stays
+        usable for subsequent tests because CPython allows resubmission
+        only before shutdown, so we re-initialise the module-level object.
+        """
+        # Just verify it does not raise.
+        shutdown_executor(wait=True)
+
+        # Re-initialise so other tests are not affected.
+        from concurrent.futures import ThreadPoolExecutor as _TPE
+
+        import birkin.core.agent as _mod
+
+        _mod._executor = _TPE(max_workers=4, thread_name_prefix="birkin-tool")
+
+
+def _make_messages(count: int, char_per_msg: int = 10) -> list[Message]:
+    """Helper: generate *count* user messages with given content length."""
+    return [Message(role="user", content=f"msg-{i} " + "x" * char_per_msg) for i in range(count)]
+
+
+class TestCompressMessages:
+    """Tests for the LLM-based message compression path."""
+
+    def test_short_history_no_compression(self):
+        """Messages under the token budget are returned unchanged."""
+        msgs = _make_messages(5, char_per_msg=10)
+        provider = FakeProvider()
+        result = Agent._compress_messages(msgs, provider)
+        assert result == msgs
+
+    def test_long_history_uses_summarization(self):
+        """When over budget, summarize_or_cache is called and its result
+        is inserted as a system message between head and tail."""
+        # Each message ~1000 chars => ~250 tokens; 25 msgs => ~6250 tokens.
+        # We patch the budget to 1000 so compression triggers.
+        msgs = _make_messages(25, char_per_msg=1000)
+        summary_text = "User discussed topics A, B, and C."
+        provider = FakeProvider(reply=summary_text)
+
+        with patch("birkin.core.agent._CONTEXT_BUDGET_TOKENS", 1000):
+            result = Agent._compress_messages(msgs, provider)
+
+        assert len(result) == _KEEP_HEAD + 1 + _KEEP_TAIL
+        # Head preserved
+        assert result[:_KEEP_HEAD] == msgs[:_KEEP_HEAD]
+        # Summary message
+        summary_msg = result[_KEEP_HEAD]
+        assert summary_msg.role == "system"
+        assert "[Summary of earlier conversation]" in summary_msg.content
+        assert summary_text in summary_msg.content
+        # Tail preserved
+        assert result[_KEEP_HEAD + 1 :] == msgs[-_KEEP_TAIL:]
+
+    def test_summarization_failure_falls_back_to_marker(self):
+        """When summarize_or_cache returns None, the old marker behavior
+        is used as a fallback."""
+        msgs = _make_messages(25, char_per_msg=1000)
+
+        with (
+            patch("birkin.core.agent._CONTEXT_BUDGET_TOKENS", 1000),
+            patch(
+                "birkin.core.agent.summarize_or_cache",
+                return_value=None,
+            ),
+        ):
+            result = Agent._compress_messages(msgs, FakeProvider())
+
+        assert len(result) == _KEEP_HEAD + 1 + _KEEP_TAIL
+        marker = result[_KEEP_HEAD]
+        assert marker.role == "system"
+        assert marker.content == "[Earlier conversation compressed]"

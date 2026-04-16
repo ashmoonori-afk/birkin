@@ -150,6 +150,20 @@ def cmd_serve(args: argparse.Namespace) -> None:
 
     import uvicorn
 
+    # Auth token check
+    auth_token = os.getenv("BIRKIN_AUTH_TOKEN")
+    is_localhost = args.host in ("127.0.0.1", "localhost", "::1")
+
+    if not auth_token and not is_localhost:
+        console.print(
+            "[red]ERROR:[/red] BIRKIN_AUTH_TOKEN must be set when binding to a non-localhost address.\n"
+            "Set the variable in your .env file or environment, then try again."
+        )
+        sys.exit(1)
+
+    if not auth_token and is_localhost:
+        console.print("[yellow][birkin] Running in dev mode (no auth)[/yellow]")
+
     url = f"http://{args.host}:{args.port}"
     console.print(f"[bold]Birkin[/bold] WebUI starting on [cyan]{url}[/cyan]\nPress [bold]Ctrl+C[/bold] to stop.\n")
 

@@ -4,6 +4,18 @@
 
 ---
 
+## Vision
+
+Birkin exists to deliver three outcomes for its user:
+
+1. **Token savings (토큰 절약)** — smart context compression, memory compilation, local models, and cheap-model routing so the user spends less per outcome.
+2. **Work automation (업무 자동화)** — scheduled tasks, event-driven triggers, and computer use so the agent executes real work without supervision.
+3. **Personalized evolution (개인 맞춤 진화)** — persistent memory, trajectory collection, and evaluation loops so the agent gets better at *your* work over time.
+
+Every Phase 2 item below maps back to at least one of these three.
+
+---
+
 ## Phase 1: Foundation (Complete)
 
 **Goal:** Stable, self-hostable AI agent with visual WebUI and messaging integration.
@@ -83,54 +95,83 @@
 
 ---
 
-## Phase 2: Polish & Community (Next)
+## Phase 2: Agent Runtime (In Progress)
 
-**Goal:** Production-ready experience, smarter memory, contributor-friendly ecosystem.
+**Goal:** Turn Birkin from a chat UI with tools into a programmable agent runtime — MCP-compatible, schedulable, observable, and capable of executing real work.
 
-### Memory Enhancements
-- [ ] **File upload to memory** — drag-and-drop md/csv/xls/pdf files into the Memory tab, auto-parse and ingest as wiki pages
-- [ ] **Smart categorization** — AI auto-classifies conversations into entities/concepts (not just sessions/)
-- [ ] **Auto wikilink** — detect related pages and auto-insert `[[links]]` between them
-- [ ] **Session summarization** — periodically summarize old session pages into condensed knowledge pages
-- [ ] **Memory search in chat** — `@memory` command to search wiki during conversation
+**Ordering principle:** MCP first. Every later item (skills, tools, computer use, evaluation) sits on top of the MCP layer, so getting that boundary right unblocks everything else.
 
-### Platform & Deployment
-- [ ] Discord, Slack, WhatsApp messaging adapters
-- [ ] Docker one-command deployment
-- [ ] Landing page and documentation site
+### Phase 2A — Runtime Core (MCP First)
 
-### Developer Experience
-- [ ] Plugin marketplace / community skill registry
-- [ ] Skill system (bundled + community skills)
-- [ ] Subagent delegation and parallel task execution
-- [ ] Scheduled tasks and automation workflows
-- [ ] MCP integration
-- [ ] WebUI visual regression tests (Playwright screenshots)
-- [ ] Comprehensive test suite (80%+ coverage)
+- [ ] **MCP client & server support** — first-class Model Context Protocol integration. Existing `Tool` ABC becomes a thin adapter over MCP. Birkin can consume any MCP server and expose its own capabilities as one.
+- [ ] **Skills system (MCP-native)** — bundled + community skills packaged as MCP servers. Skill layout = `SKILL.md` + resources, discoverable via registry.
+- [ ] **State graph execution engine** — LangGraph-style state machine for workflows. Coexists with the current BFS `simple` mode; new `graph` mode supports conditionals, loops, parallel fan-out, and checkpoints. Existing 10 sample flows migrate gradually.
+- [ ] **Trigger abstraction + Cron** — workflows are fired by triggers, not just manual input. Triggers include time (cron), file change, webhook, incoming message, and custom events. Cron is one trigger implementation among many.
+- [ ] **Evaluation framework** — fixed question sets with snapshot diff, per-provider latency, token/cost tracking. Outputs JSONL for regression analysis. Feeds the Observability dashboard.
+- [ ] **Observability logging** — structured traces for every turn: provider, tokens in/out, tool calls, latency, outcome. Same data source as Evaluation.
 
----
+### Phase 2B — Agent Capabilities
 
-## Phase 3: Learning & Intelligence (Planned)
+- [ ] **Computer Use (Playwright MCP)** — headless browser automation delivered as an MCP server. Unlocks "monitor site → summarize → notify" class of workflows. Runs locally to preserve the self-hosted ethos.
+- [ ] **Voice I/O** — Whisper STT for input, TTS for output. Integrated in WebUI (mic button) and Telegram (voice messages in, voice replies out). Leverages the project's Korean-language strength.
+- [ ] **Semantic memory (local embeddings)** — offline embedding via sentence-transformers or BGE-m3. Zero-dependency semantic search over wiki. Pulled forward from Phase 3 because it directly serves the token-savings and personalization goals.
 
-**Goal:** Agents that genuinely improve over time.
+### Phase 2C — UX & Intelligence
 
-- [ ] Built-in skill creation from experience
-- [ ] Reinforcement learning training pipeline
-- [ ] Trajectory collection and evaluation
-- [ ] Multi-agent collaboration patterns
-- [ ] Knowledge graph enhancements (semantic search, embeddings)
+- [ ] **Session fork & replay** — branch a conversation from any message; re-run from an edited past turn. SQLite schema adds `parent_session_id` + `fork_from_seq`. Power-user / prompt-engineering feature.
+- [ ] **Observability dashboard** — new tab surfacing token spend, per-session latency, tool failure rate, and cron job history. Reads the Phase 2A telemetry.
+- [ ] **Natural language workflow builder** — describe an automation in a sentence → generate the node graph. Depends on stabilized state-graph schema from 2A.
+
+### Phase 2 — Discovery track (parallel, mostly done)
+
+- [x] File upload to memory
+- [x] Smart memory categorization (LLM-based)
+- [ ] Auto wikilink detection
+- [ ] Session summarization (scheduled via Phase 2A triggers)
+- [x] `@memory` search command in chat
 
 ---
 
-## Phase 4: Enterprise & Security (Planned)
+## Phase 3: Ecosystem & Learning
 
-**Goal:** Premium features for teams and businesses.
+**Goal:** Expand the surface area of what Birkin can automate, and what it can learn from the work it has already done.
 
-- [ ] Cybersecurity management harness (vulnerability scanning, threat detection)
-- [ ] Team workspaces with role-based access control
-- [ ] Analytics dashboard and audit logging
-- [ ] Enterprise SSO integration
-- [ ] Managed cloud hosting with SLA
+### Platform breadth
+
+- [ ] **Ollama first-class provider** — direct REST integration. Completes the "zero API key, fully local" story.
+- [ ] **Email adapter (IMAP/SMTP)** — inbox summarization, draft replies, auto-triage. Natural pair with Phase 2A scheduling.
+- [ ] **RSS / web change monitor** — register feeds or URLs; fire workflows on change.
+- [ ] **Discord, Slack, WhatsApp adapters** — same pattern as Telegram, one at a time.
+- [ ] **Desktop notifications** — beyond Telegram.
+
+### Intelligence
+
+- [ ] **Artifacts (inline canvas)** — editable code/doc/diagram panel. Builds on the existing workflow canvas engine.
+- [ ] **Memory auto-consolidation (scheduled)** — weekly pass to merge duplicates, update stale entries, and summarize old session pages in the wiki.
+- [ ] **Trajectory collection** — export (conversation, outcome) pairs as datasets for DPO / preference learning. No training pipeline in-house; emit data in a standard format.
+- [ ] **Knowledge graph enhancements** — semantic search upgrades, cross-reference scoring, entity linking.
+- [ ] **Multi-agent / sub-agent delegation** — parallel task execution, sub-agent handoff.
+
+### Operability
+
+- [ ] **Docker one-command deployment**
+- [ ] **Encrypted backup/export** — `birkin export` to single encrypted archive (sessions + wiki + config).
+- [ ] **Plugin marketplace / community skill registry** (MCP-native).
+- [ ] **Playwright visual regression tests** for WebUI.
+- [ ] **Landing page and documentation site**.
+
+---
+
+## Phase 4: Future (Deferred)
+
+Monetization and business-model decisions are intentionally deferred. Birkin stays focused on a single-user, self-hosted, open-source experience through Phase 2 and Phase 3. Revenue direction — OSS + consulting, hosted SaaS, paid plugin marketplace, or something else — will be revisited after Phase 3 ships.
+
+Explicitly **out of scope for now**:
+
+- Multi-user workspaces, RBAC, SSO
+- Managed cloud hosting with SLA
+- Team collaboration features
+- Enterprise cybersecurity harness
 
 ---
 

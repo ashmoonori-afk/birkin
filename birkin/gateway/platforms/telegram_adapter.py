@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import hmac
 import logging
+import secrets
 from datetime import datetime, timezone
 from typing import Any, Optional
 
@@ -96,11 +98,14 @@ class TelegramAdapter:
         Raises:
             httpx.HTTPError: If API call fails.
         """
-        payload = {"url": webhook_url}
+        webhook_secret = secrets.token_urlsafe(32)
+        payload = {"url": webhook_url, "secret_token": webhook_secret}
         url = f"{self.api_endpoint}/setWebhook"
         response = await self.client.post(url, json=payload)
         response.raise_for_status()
-        return response.json()
+        result = response.json()
+        result["webhook_secret"] = webhook_secret
+        return result
 
     async def delete_webhook(self) -> dict[str, Any]:
         """Delete the registered webhook.
@@ -221,6 +226,19 @@ class TelegramAdapter:
         response.raise_for_status()
         data = response.json()
         return data.get("result", [])
+
+    @staticmethod
+    def verify_secret(header_value: str, expected: str) -> bool:
+        """Verify the webhook secret token using constant-time comparison.
+
+        Args:
+            header_value: Value from X-Telegram-Bot-Api-Secret-Token header.
+            expected: The secret token that was registered with Telegram.
+
+        Returns:
+            True if the values match, False otherwise.
+        """
+        return hmac.compare_digest(header_value, expected)
 
     async def close(self) -> None:
         """Close the HTTP client."""

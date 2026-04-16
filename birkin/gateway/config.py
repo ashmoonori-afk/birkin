@@ -16,6 +16,7 @@ _DEFAULTS: dict[str, Any] = {
     "onboarding_complete": False,
     "system_prompt": None,
     "active_workflow": None,
+    "telegram_webhook_secret": None,
 }
 
 

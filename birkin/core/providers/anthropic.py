@@ -17,12 +17,12 @@ from birkin.core.providers.base import (
     TokenUsage,
 )
 
-_DEFAULT_MODEL = "claude-opus-4-20250805"
+_DEFAULT_MODEL = "claude-sonnet-4-6"
 
 # Model capabilities lookup
 _MODEL_CAPS = {
-    "claude-opus-4-20250805": ModelCapabilities(context_window=200000),
-    "claude-sonnet-4-20250514": ModelCapabilities(context_window=200000),
+    "claude-opus-4-6": ModelCapabilities(context_window=200000),
+    "claude-sonnet-4-6": ModelCapabilities(context_window=200000),
     "claude-haiku-4-5-20251001": ModelCapabilities(context_window=200000),
 }
 

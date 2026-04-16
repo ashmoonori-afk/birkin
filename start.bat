@@ -18,19 +18,11 @@ set "MIN_MAJOR=3"
 set "MIN_MINOR=11"
 
 REM -- Find Python ---------------------------------------------------
+REM Try py launcher first (most reliable on Windows), then python, python3
 set "PYTHON="
-for %%P in (python py python3) do (
-    where %%P >nul 2>&1 && (
-        for /f "tokens=*" %%V in ('%%P -c "import sys; print(f'{sys.version_info.major}.{sys.version_info.minor}')" 2^>nul') do (
-            for /f "tokens=1,2 delims=." %%A in ("%%V") do (
-                if %%A GEQ %MIN_MAJOR% if %%B GEQ %MIN_MINOR% (
-                    set "PYTHON=%%P"
-                    goto :found_python
-                )
-            )
-        )
-    )
-)
+where py >nul 2>&1 && ( set "PYTHON=py" & goto :check_version )
+where python >nul 2>&1 && ( set "PYTHON=python" & goto :check_version )
+where python3 >nul 2>&1 && ( set "PYTHON=python3" & goto :check_version )
 
 echo.
 echo [birkin] ERROR: Python %MIN_MAJOR%.%MIN_MINOR%+ is required but was not found.
@@ -40,8 +32,17 @@ echo.
 pause
 exit /b 1
 
-:found_python
+:check_version
 for /f "tokens=*" %%V in ('%PYTHON% --version 2^>^&1') do set "PYVER=%%V"
+echo [birkin] Found %PYVER%
+
+REM Verify minimum version using a simple Python check
+%PYTHON% -c "import sys; exit(0 if sys.version_info >= (3, 11) else 1)" 2>nul
+if errorlevel 1 (
+    echo [birkin] ERROR: Python %MIN_MAJOR%.%MIN_MINOR%+ is required. Found %PYVER%.
+    pause
+    exit /b 1
+)
 echo [birkin] Using %PYVER%
 
 REM -- Virtual environment -------------------------------------------
@@ -75,6 +76,24 @@ if not exist "%VENV_DIR%\.deps_installed" (
     echo [birkin] Dependencies already installed.
 )
 
+REM -- Auth token ----------------------------------------------------
+REM Ensure BIRKIN_AUTH_TOKEN exists in .env
+set "HAS_AUTH_TOKEN=0"
+if exist ".env" (
+    findstr /C:"BIRKIN_AUTH_TOKEN" ".env" >nul 2>&1 && set "HAS_AUTH_TOKEN=1"
+)
+if "!HAS_AUTH_TOKEN!"=="0" (
+    echo [birkin] Generating auth token ...
+    for /f "tokens=*" %%T in ('"%VENV_DIR%\Scripts\python.exe" -c "import secrets; print(secrets.token_urlsafe(32))"') do set "NEW_TOKEN=%%T"
+    echo BIRKIN_AUTH_TOKEN=!NEW_TOKEN!>> ".env"
+    echo [birkin] Auth token written to .env
+    echo.
+    echo   BIRKIN_AUTH_TOKEN=!NEW_TOKEN!
+    echo.
+    echo   Save this token -- you will need it to access the web UI.
+    echo.
+)
+
 REM -- Launch --------------------------------------------------------
 set "HOST=127.0.0.1"
 set "PORT=8321"
@@ -87,10 +106,8 @@ echo   %URL%
 echo =======================================
 echo.
 
-REM Auto-open browser after 2 seconds
-start /b cmd /c "timeout /t 2 /nobreak >nul & start %URL%"
-
-birkin serve --host %HOST% --port %PORT%
+REM Launch via Python module (more reliable than relying on Scripts/birkin.exe)
+"%VENV_DIR%\Scripts\python.exe" -m birkin.cli.main serve --host %HOST% --port %PORT%
 
 REM Keep window open if birkin exits
 pause

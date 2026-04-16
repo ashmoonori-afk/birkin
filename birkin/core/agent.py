@@ -3,8 +3,12 @@
 from __future__ import annotations
 
 import asyncio
+import logging
+import os
+from concurrent.futures import ThreadPoolExecutor
 from typing import Any, Callable, Optional
 
+from birkin.core.compression import summarize_or_cache
 from birkin.core.defaults import DEFAULT_SYSTEM_PROMPT
 from birkin.core.models import Message, ToolCall, ToolResult
 from birkin.core.providers.base import Provider
@@ -12,10 +16,15 @@ from birkin.core.session import Session, SessionStore
 from birkin.memory.wiki import WikiMemory
 from birkin.tools.base import Tool, ToolContext
 
+logger = logging.getLogger(__name__)
+
+_executor = ThreadPoolExecutor(max_workers=4, thread_name_prefix="birkin-tool")
+
 _DEFAULT_MAX_TURNS = 20
 _COMPRESS_THRESHOLD = 20
 _KEEP_HEAD = 2
 _KEEP_TAIL = 16
+_CONTEXT_BUDGET_TOKENS = int(os.environ.get("BIRKIN_CONTEXT_BUDGET_TOKENS", "60000"))
 
 
 class Agent:
@@ -39,6 +48,16 @@ class Agent:
         self._system_prompt = system_prompt or DEFAULT_SYSTEM_PROMPT
         self._memory = memory
         self._max_turns = max_turns
+
+        # LLM-based memory classifier (bilingual Korean/English support)
+        # Lazy import to avoid circular dependency: memory → core → memory
+        smart_memory = os.environ.get("BIRKIN_SMART_MEMORY", "on").lower()
+        if smart_memory != "off" and provider is not None:
+            from birkin.memory.classifier import MemoryClassifier
+
+            self._classifier: Optional[Any] = MemoryClassifier(provider)
+        else:
+            self._classifier = None
 
         if session_id:
             self._session = self._session_store.load(session_id)
@@ -363,14 +382,37 @@ class Agent:
     def _auto_save_memory(self, user_input: str, response: str) -> None:
         """Save meaningful conversation turns to wiki memory.
 
-        Skips trivial exchanges (greetings, short replies) to keep
-        memory clean. Only saves content that's worth remembering.
+        Tries LLM-based classifier first (bilingual Korean/English).
+        Falls back to heuristic classification on classifier error.
         """
         if not self._memory or not response:
             return
-        if not self._is_memorable(user_input, response):
-            return
+
         try:
+            # --- LLM classifier path (bilingual) ---
+            if self._classifier is not None:
+                result = self._classifier.classify(user_input, response)
+
+                if result is not None:
+                    if not result["should_save"]:
+                        return
+                    category = result["category"]
+                    slug = result["slug"] or self._make_slug(user_input, self._session.id)
+                    title = result["title"] or user_input[:80]
+                    content = (
+                        f"# {category.title()}: {title}\n\n"
+                        f"**User:** {user_input[:500]}\n\n"
+                        f"**Assistant:** {response[:1000]}\n"
+                    )
+                    self._memory.ingest(category, slug, content)
+                    return
+
+                # result is None → classifier failed, fall through to heuristic
+                logger.debug("Classifier returned None, falling back to heuristic")
+
+            # --- Heuristic fallback path ---
+            if not self._is_memorable(user_input, response):
+                return
             category = self._pick_category(user_input, response)
             slug = self._make_slug(user_input, self._session.id)
             content = (
@@ -380,7 +422,7 @@ class Agent:
             )
             self._memory.ingest(category, slug, content)
         except Exception:
-            pass  # Never let memory save break the chat flow
+            logger.warning("Auto-save memory failed", exc_info=True)
 
     def _build_messages(self) -> list[Message]:
         """Assemble the full message list including system prompt and memory."""
@@ -398,30 +440,53 @@ class Agent:
 
         # Load messages from session store
         session_messages = self._session_store.get_messages(self._session.id)
-        session_messages = self._compress_messages(session_messages)
+        session_messages = self._compress_messages(session_messages, self._provider)
         msgs.extend(session_messages)
 
         return msgs
 
     @staticmethod
-    def _compress_messages(messages: list[Message]) -> list[Message]:
+    def _compress_messages(
+        messages: list[Message],
+        provider: Provider | None = None,
+    ) -> list[Message]:
         """Compress conversation history to prevent context overflow.
 
-        When total messages exceed _COMPRESS_THRESHOLD, keep the first
-        _KEEP_HEAD (for initial context) and the last _KEEP_TAIL,
-        inserting a compression marker between them.
+        Uses an approximate token count (len // 4) to decide whether
+        compression is needed.  When it is, the middle messages are
+        summarized via the provider; if summarization fails the method
+        falls back to the old head+tail truncation with a marker.
         """
+        # Approximate token budget check
+        total_chars = sum(len(m.content) for m in messages)
+        approx_tokens = total_chars // 4
+        if approx_tokens <= _CONTEXT_BUDGET_TOKENS:
+            return messages
+
         if len(messages) <= _COMPRESS_THRESHOLD:
             return messages
 
         head = messages[:_KEEP_HEAD]
         tail = messages[-_KEEP_TAIL:]
+        middle = messages[_KEEP_HEAD : len(messages) - _KEEP_TAIL]
 
+        # Try LLM-based summarization
+        summary: str | None = None
+        if provider is not None and middle:
+            summary = summarize_or_cache(middle, provider)
+
+        if summary is not None:
+            summary_msg = Message(
+                role="system",
+                content=f"[Summary of earlier conversation]\n{summary}",
+            )
+            return [*head, summary_msg, *tail]
+
+        # Fallback: simple marker
         marker = Message(
             role="system",
             content="[Earlier conversation compressed]",
         )
-
         return [*head, marker, *tail]
 
     def _execute_tool(self, tool_call: ToolCall) -> ToolResult:
@@ -488,29 +553,22 @@ class Agent:
             )
 
 
+def shutdown_executor(wait: bool = True) -> None:
+    """Shut down the shared thread-pool executor.
+
+    Called during application shutdown (e.g. FastAPI lifespan) to cleanly
+    release worker threads.
+    """
+    _executor.shutdown(wait=wait)
+
+
 def _run_async(coro: Any) -> Any:
     """Run an async coroutine from sync context, safe even if a loop is running."""
-    import threading
-
     try:
         asyncio.get_running_loop()
-        # Loop is running (e.g. FastAPI) — use a thread with its own loop.
-        result = None
-        exc = None
-
-        def _run() -> None:
-            nonlocal result, exc
-            try:
-                result = asyncio.run(coro)
-            except Exception as e:
-                exc = e
-
-        t = threading.Thread(target=_run)
-        t.start()
-        t.join()
-        if exc is not None:
-            raise exc
-        return result
+        # Loop is running (e.g. FastAPI) — offload to the shared pool.
+        future = _executor.submit(asyncio.run, coro)
+        return future.result()
     except RuntimeError:
         # No running loop — safe to use asyncio.run directly.
         return asyncio.run(coro)

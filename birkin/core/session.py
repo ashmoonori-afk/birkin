@@ -48,6 +48,8 @@ class SessionStore:
     def __init__(self, db_path: Union[str, Path] = "birkin_sessions.db") -> None:
         self._db_path = Path(db_path)
         self._local = threading.local()
+        self._all_connections: list[sqlite3.Connection] = []
+        self._conn_lock = threading.Lock()
         self._init_schema()
 
     def _get_connection(self) -> sqlite3.Connection:
@@ -59,6 +61,8 @@ class SessionStore:
             conn.execute("PRAGMA journal_mode=WAL;")
             conn.execute("PRAGMA synchronous=NORMAL;")
             self._local.connection = conn
+            with self._conn_lock:
+                self._all_connections.append(conn)
         return self._local.connection
 
     def _init_schema(self) -> None:
@@ -252,7 +256,20 @@ class SessionStore:
         conn.commit()
 
     def close(self) -> None:
-        """Close the database connection."""
+        """Close the current thread's database connection."""
         if hasattr(self._local, "connection") and self._local.connection:
             self._local.connection.close()
+            self._local.connection = None
+
+    def close_all(self) -> None:
+        """Close all tracked database connections across all threads."""
+        with self._conn_lock:
+            for conn in self._all_connections:
+                try:
+                    conn.close()
+                except Exception:  # noqa: BLE001
+                    pass
+            self._all_connections.clear()
+        # Also clear the thread-local reference if present
+        if hasattr(self._local, "connection"):
             self._local.connection = None

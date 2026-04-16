@@ -1,0 +1,698 @@
+{
+  "project": "birkin",
+  "repo": "https://github.com/ashmoonori-afk/birkin",
+  "base_branch": "main",
+  "generated_at": "2026-04-16",
+  "meta": {
+    "description": "Critical + High priority fixes for Birkin agent platform. Each task maps to one branch and one PR. Subtasks are ordered by dependency.",
+    "execution_style": "Claude Code should complete tasks in `order` sequence. Each task has its own branch. After subtasks complete, run `verification` commands; if green, commit per `commit_message` and open PR.",
+    "conventions": {
+      "commit_format": "conventional-commits",
+      "test_runner": "pytest -q",
+      "linter": "ruff check . && ruff format --check .",
+      "python_version": "3.11+"
+    }
+  },
+  "tasks": [
+    {
+      "id": "T1",
+      "order": 1,
+      "sprint": "A",
+      "title": "Fix Anthropic model IDs",
+      "issue_ref": "1-1",
+      "priority": "critical",
+      "branch": "fix/anthropic-model-ids",
+      "estimated_loc": 30,
+      "estimated_hours": 0.5,
+      "rationale": "Hardcoded model strings (claude-opus-4-20250805 etc.) do not exist in Anthropic API. Any call with the default model returns 404. This blocks verification of every other task.",
+      "depends_on": [],
+      "files": [
+        "birkin/core/providers/anthropic.py",
+        "birkin/web/static/app.js",
+        "tests/core/providers/test_providers.py"
+      ],
+      "subtasks": [
+        {
+          "id": "T1.1",
+          "action": "edit",
+          "file": "birkin/core/providers/anthropic.py",
+          "detail": "Replace _DEFAULT_MODEL with 'claude-sonnet-4-6' (cheaper than opus for default). Update _MODEL_CAPS dict keys to the three real model IDs: claude-opus-4-6, claude-sonnet-4-6, claude-haiku-4-5-20251001. Keep context_window=200000 for all three."
+        },
+        {
+          "id": "T1.2",
+          "action": "edit",
+          "file": "birkin/web/static/app.js",
+          "detail": "Find the Anthropic model dropdown options (search for 'claude-opus' or 'claude-sonnet'). Replace old model IDs with the three new ones. Add a friendly display name map: opus-4-6 → 'Claude Opus 4.6', sonnet-4-6 → 'Claude Sonnet 4.6', haiku-4-5 → 'Claude Haiku 4.5'."
+        },
+        {
+          "id": "T1.3",
+          "action": "edit",
+          "file": "tests/core/providers/test_providers.py",
+          "detail": "Update any assertions that reference old model strings. Add a parameterized test that the three new model IDs resolve to a valid ModelCapabilities entry."
+        },
+        {
+          "id": "T1.4",
+          "action": "verify",
+          "command": "pytest tests/core/providers -q"
+        }
+      ],
+      "verification": [
+        "pytest tests/core/providers -q",
+        "ruff check birkin/core/providers/anthropic.py"
+      ],
+      "acceptance_criteria": [
+        "_DEFAULT_MODEL is 'claude-sonnet-4-6'",
+        "_MODEL_CAPS contains exactly the three real model IDs",
+        "All tests pass",
+        "WebUI model dropdown shows the three new options"
+      ],
+      "commit_message": "fix: update Anthropic model IDs to claude-{opus,sonnet,haiku}-4.x",
+      "rollback_notes": "Single-file revert. No data migration needed."
+    },
+
+    {
+      "id": "T2",
+      "order": 2,
+      "sprint": "A",
+      "title": "Wire SQLite close into FastAPI lifespan",
+      "issue_ref": "2-6",
+      "priority": "high",
+      "branch": "fix/sqlite-lifespan",
+      "estimated_loc": 60,
+      "estimated_hours": 1,
+      "rationale": "Thread-local SQLite connections are never explicitly closed. WAL lock files can persist across restarts. Also foundation for #7 (executor shutdown) and #3 (auth init).",
+      "depends_on": [],
+      "files": [
+        "birkin/core/session.py",
+        "birkin/gateway/app.py",
+        "birkin/gateway/deps.py"
+      ],
+      "subtasks": [
+        {
+          "id": "T2.1",
+          "action": "edit",
+          "file": "birkin/core/session.py",
+          "detail": "Add `close_all()` method that iterates all thread-local connections created by this store and closes them. Track connections in a WeakSet or module-level list keyed by thread ID. The existing close() only closes current thread's connection — keep it but add close_all() for shutdown."
+        },
+        {
+          "id": "T2.2",
+          "action": "edit",
+          "file": "birkin/gateway/deps.py",
+          "detail": "Add module-level reset functions: reset_session_store(), reset_wiki_memory(), reset_telegram_adapter(), reset_dispatcher() — each sets the singleton back to None so garbage collection runs. reset_telegram_adapter already exists; align the rest."
+        },
+        {
+          "id": "T2.3",
+          "action": "edit",
+          "file": "birkin/gateway/app.py",
+          "detail": "Replace startup/shutdown event handlers (or add, if missing) with a FastAPI lifespan async context manager. On shutdown: call get_session_store().close_all(), stop telegram polling if running, reset all singletons. Wire lifespan into FastAPI app factory."
+        },
+        {
+          "id": "T2.4",
+          "action": "add-test",
+          "file": "tests/gateway/test_lifespan.py",
+          "detail": "New test file. Test: create TestClient with FastAPI app, make a chat request, close client, verify SQLite WAL file is cleanly released (no .db-wal lingering or assert it can be reopened in exclusive mode)."
+        },
+        {
+          "id": "T2.5",
+          "action": "verify",
+          "command": "pytest tests/gateway -q"
+        }
+      ],
+      "verification": [
+        "pytest tests/gateway -q",
+        "python -c \"from birkin.gateway.app import create_app; app = create_app(); print('ok')\"",
+        "Manual: start uvicorn, Ctrl+C, restart — no WAL lock errors"
+      ],
+      "acceptance_criteria": [
+        "FastAPI lifespan is registered on the app",
+        "SessionStore.close_all() exists and closes all thread connections",
+        "Server shutdown cleanly releases SQLite locks",
+        "All existing tests still pass"
+      ],
+      "commit_message": "fix: wire SQLite connections into FastAPI lifespan for clean shutdown",
+      "rollback_notes": "Revert app.py changes; fall back to no-op shutdown."
+    },
+
+    {
+      "id": "T3",
+      "order": 3,
+      "sprint": "B",
+      "title": "Add Bearer token auth middleware",
+      "issue_ref": "1-4",
+      "priority": "critical",
+      "branch": "feat/auth-middleware",
+      "estimated_loc": 200,
+      "estimated_hours": 4,
+      "rationale": "Any endpoint (shell tool, API keys, wiki edit) is unauthenticated. Required before Docker / 0.0.0.0 binding is safe.",
+      "depends_on": ["T2"],
+      "files": [
+        "birkin/gateway/auth.py (NEW)",
+        "birkin/gateway/app.py",
+        "birkin/gateway/routes.py",
+        "birkin/cli/main.py",
+        ".env.example",
+        "start.sh",
+        "start.bat",
+        "birkin/web/static/app.js",
+        "tests/gateway/test_auth.py (NEW)"
+      ],
+      "subtasks": [
+        {
+          "id": "T3.1",
+          "action": "create",
+          "file": "birkin/gateway/auth.py",
+          "detail": "Define `require_auth` FastAPI dependency: reads `Authorization: Bearer <token>` header OR `birkin_session` cookie; compares to env var BIRKIN_AUTH_TOKEN (via hmac.compare_digest). If token env is unset and host is 127.0.0.1, allow (dev mode). Raise HTTPException(401) on mismatch. Also expose `exempt_paths` list: /api/health, /static/*, /webhooks/telegram/*, /api/auth/bootstrap."
+        },
+        {
+          "id": "T3.2",
+          "action": "create-endpoint",
+          "file": "birkin/gateway/routes.py",
+          "detail": "Add POST /api/auth/bootstrap: accepts {token: string}; if token matches BIRKIN_AUTH_TOKEN, set HttpOnly secure cookie `birkin_session=<token>` with SameSite=Lax; returns {ok: true}. Also GET /api/auth/status for UI to check if auth is configured."
+        },
+        {
+          "id": "T3.3",
+          "action": "edit",
+          "file": "birkin/gateway/app.py",
+          "detail": "Register a global middleware that checks require_auth for non-exempt paths. Alternative: use FastAPI Depends on router include. Prefer middleware to keep routes clean."
+        },
+        {
+          "id": "T3.4",
+          "action": "edit",
+          "file": "birkin/cli/main.py",
+          "detail": "On `birkin` / `birkin serve` startup: if BIRKIN_AUTH_TOKEN is not set AND host != 127.0.0.1, print warning and refuse to start. If token not set and host is localhost, print informational notice about dev mode."
+        },
+        {
+          "id": "T3.5",
+          "action": "edit",
+          "file": "start.sh",
+          "detail": "On first run, if .env has no BIRKIN_AUTH_TOKEN, generate one via `python -c 'import secrets; print(secrets.token_urlsafe(32))'` and append to .env. Print the token to stdout for the user."
+        },
+        {
+          "id": "T3.6",
+          "action": "edit",
+          "file": "start.bat",
+          "detail": "Mirror start.sh behavior on Windows using Python to generate the token."
+        },
+        {
+          "id": "T3.7",
+          "action": "edit",
+          "file": ".env.example",
+          "detail": "Add BIRKIN_AUTH_TOKEN= line with comment explaining auto-generation."
+        },
+        {
+          "id": "T3.8",
+          "action": "edit",
+          "file": "birkin/web/static/app.js",
+          "detail": "On first load, check /api/auth/status. If auth required, read token from URL query param `?token=...` (passed by start script) and call /api/auth/bootstrap to set cookie. Strip token from URL after. If cookie exists, proceed normally."
+        },
+        {
+          "id": "T3.9",
+          "action": "add-test",
+          "file": "tests/gateway/test_auth.py",
+          "detail": "Test cases: (1) no token env + localhost → 200; (2) token env set + no header → 401; (3) token env set + correct header → 200; (4) token env set + correct cookie → 200; (5) exempt path /api/health → always 200; (6) bootstrap endpoint sets cookie correctly."
+        },
+        {
+          "id": "T3.10",
+          "action": "verify",
+          "command": "pytest tests/gateway/test_auth.py -q && pytest tests/ -q"
+        }
+      ],
+      "verification": [
+        "pytest tests/ -q",
+        "curl http://127.0.0.1:8321/api/health # should be 200",
+        "BIRKIN_AUTH_TOKEN=test curl http://127.0.0.1:8321/api/sessions # should be 401",
+        "BIRKIN_AUTH_TOKEN=test curl -H 'Authorization: Bearer test' http://127.0.0.1:8321/api/sessions # should be 200"
+      ],
+      "acceptance_criteria": [
+        "Requests without valid token are rejected (401) when BIRKIN_AUTH_TOKEN is set",
+        "Localhost dev mode (no token env) still works for first-time users",
+        "WebUI transparently authenticates via cookie",
+        "Telegram webhook endpoint remains accessible (its own auth)"
+      ],
+      "commit_message": "feat(security): add Bearer token auth middleware for API endpoints",
+      "rollback_notes": "Remove auth.py and middleware registration. Existing unauthenticated behavior restored."
+    },
+
+    {
+      "id": "T4",
+      "order": 4,
+      "sprint": "B",
+      "title": "Harden Shell tool with allowlist",
+      "issue_ref": "1-3",
+      "priority": "critical",
+      "branch": "security/shell-allowlist",
+      "estimated_loc": 150,
+      "estimated_hours": 3,
+      "rationale": "Current blocklist is trivially bypassable (bash -c, variable expansion, busybox prefix). Switch to explicit allowlist + shell metachar detection. Document as 'not a sandbox'.",
+      "depends_on": [],
+      "files": [
+        "birkin/tools/builtins/shell.py",
+        "tests/tools/test_tools.py",
+        "README.md"
+      ],
+      "subtasks": [
+        {
+          "id": "T4.1",
+          "action": "edit",
+          "file": "birkin/tools/builtins/shell.py",
+          "detail": "Replace _BLOCKED_PATTERNS/_BLOCKED_PREFIXES logic with: (1) parse command via shlex.split; (2) check first token (command name) is in _ALLOWED_COMMANDS = {'ls','cat','grep','rg','find','git','head','tail','wc','pwd','echo','date','which','file','stat'}; (3) reject if command contains shell metachars: ; && || | > < ` $( ${ (scan raw string); (4) keep existing timeout and output truncation. Add env var BIRKIN_SHELL_ALLOWLIST to extend the set. Add BIRKIN_SHELL_SANDBOX=off to bypass (logs a WARNING). Keep the old block patterns as an additional defense-in-depth layer after allowlist check."
+        },
+        {
+          "id": "T4.2",
+          "action": "edit",
+          "file": "tests/tools/test_tools.py",
+          "detail": "Add test cases: (1) 'ls -la' → allowed; (2) 'rm -rf /' → denied (not in allowlist); (3) 'bash -c \"ls\"' → denied (bash not in allowlist); (4) 'ls | grep foo' → denied (pipe metachar); (5) 'ls $(whoami)' → denied (subshell); (6) 'ls && echo done' → denied (chain); (7) BIRKIN_SHELL_ALLOWLIST=curl,ls → curl allowed; (8) BIRKIN_SHELL_SANDBOX=off → rm denied only by legacy blocklist."
+        },
+        {
+          "id": "T4.3",
+          "action": "edit",
+          "file": "README.md",
+          "detail": "Add new section '## Security model' near the end. State: (a) shell tool uses an allowlist, not a sandbox; (b) LLM-generated commands are still code execution — run only on trusted deployments; (c) link to #1-3 fix for future Phase 2 sandbox plans. Explicitly say 'Do not expose the API server to the public internet without BIRKIN_AUTH_TOKEN set'."
+        },
+        {
+          "id": "T4.4",
+          "action": "verify",
+          "command": "pytest tests/tools -q"
+        }
+      ],
+      "verification": [
+        "pytest tests/tools -q",
+        "ruff check birkin/tools/builtins/shell.py"
+      ],
+      "acceptance_criteria": [
+        "Only allowlisted commands execute",
+        "Shell metacharacters trigger rejection with clear error",
+        "BIRKIN_SHELL_ALLOWLIST env var extends the set",
+        "README Security section present",
+        "New test cases all pass"
+      ],
+      "commit_message": "security(shell): replace blocklist with allowlist + metachar rejection",
+      "rollback_notes": "Single file revert. Legacy blocklist still present as second layer."
+    },
+
+    {
+      "id": "T5",
+      "order": 5,
+      "sprint": "B",
+      "title": "Add Telegram secret_token header verification",
+      "issue_ref": "2-5",
+      "priority": "high",
+      "branch": "security/telegram-secret-token",
+      "estimated_loc": 80,
+      "estimated_hours": 2,
+      "rationale": "Webhook URL leaks bot_token if logged. Telegram recommends X-Telegram-Bot-Api-Secret-Token header for webhook authentication.",
+      "depends_on": ["T2"],
+      "files": [
+        "birkin/gateway/platforms/telegram_adapter.py",
+        "birkin/gateway/routes.py",
+        "birkin/gateway/config.py",
+        "tests/gateway/test_telegram_adapter.py"
+      ],
+      "subtasks": [
+        {
+          "id": "T5.1",
+          "action": "edit",
+          "file": "birkin/gateway/platforms/telegram_adapter.py",
+          "detail": "Modify set_webhook(): generate a random secret via secrets.token_urlsafe(32), pass as 'secret_token' to Telegram setWebhook API, return it in response dict. Add new method verify_secret(header_value: str, expected: str) using hmac.compare_digest."
+        },
+        {
+          "id": "T5.2",
+          "action": "edit",
+          "file": "birkin/gateway/config.py",
+          "detail": "Add 'telegram_webhook_secret' field to config schema. Save the secret returned from set_webhook here."
+        },
+        {
+          "id": "T5.3",
+          "action": "edit",
+          "file": "birkin/gateway/routes.py",
+          "detail": "In POST /telegram/webhook (set_webhook endpoint): persist returned secret to config. In POST /webhooks/telegram/{bot_token}: read X-Telegram-Bot-Api-Secret-Token header, compare to config['telegram_webhook_secret'] via hmac.compare_digest. If missing or mismatch AND secret is configured → 403. Keep bot_token path check as defense-in-depth."
+        },
+        {
+          "id": "T5.4",
+          "action": "edit",
+          "file": "tests/gateway/test_telegram_adapter.py",
+          "detail": "Test cases: (1) webhook with correct secret header → 200; (2) wrong header → 403; (3) missing header when secret configured → 403; (4) no secret in config (legacy) → path bot_token check still works."
+        },
+        {
+          "id": "T5.5",
+          "action": "verify",
+          "command": "pytest tests/gateway/test_telegram_adapter.py tests/gateway/test_telegram_mgmt.py -q"
+        }
+      ],
+      "verification": [
+        "pytest tests/gateway -q",
+        "Manual: re-register webhook via WebUI, check Telegram admin log"
+      ],
+      "acceptance_criteria": [
+        "Webhook registration stores a per-install secret",
+        "Incoming webhook requests without correct header are rejected",
+        "Legacy installs without secret still function via bot_token path check"
+      ],
+      "commit_message": "security(telegram): verify X-Telegram-Bot-Api-Secret-Token on webhook receive",
+      "rollback_notes": "Remove secret verification; bot_token path match restored as only check."
+    },
+
+    {
+      "id": "T6",
+      "order": 6,
+      "sprint": "C",
+      "title": "Split routes.py into modular routers",
+      "issue_ref": "2-1",
+      "priority": "high",
+      "branch": "refactor/routers-split",
+      "estimated_loc": 0,
+      "estimated_loc_moved": 1004,
+      "estimated_hours": 3,
+      "rationale": "routes.py is a 1004-line god file. Split for maintainability and to unblock plugin system (Phase 2). This PR is pure file movement, no behavior change.",
+      "depends_on": ["T3", "T5"],
+      "files": [
+        "birkin/gateway/routes.py (REMOVED)",
+        "birkin/gateway/routers/__init__.py (NEW)",
+        "birkin/gateway/routers/health.py (NEW)",
+        "birkin/gateway/routers/chat.py (NEW)",
+        "birkin/gateway/routers/settings.py (NEW)",
+        "birkin/gateway/routers/sessions.py (NEW)",
+        "birkin/gateway/routers/wiki.py (NEW)",
+        "birkin/gateway/routers/workflows.py (NEW)",
+        "birkin/gateway/routers/telegram.py (NEW)",
+        "birkin/gateway/routers/webhooks.py (NEW)",
+        "birkin/gateway/app.py"
+      ],
+      "subtasks": [
+        {
+          "id": "T6.1",
+          "action": "create",
+          "file": "birkin/gateway/routers/__init__.py",
+          "detail": "Export a single `all_routers` list containing each submodule's `router`. Makes app.py registration a one-liner."
+        },
+        {
+          "id": "T6.2",
+          "action": "create",
+          "file": "birkin/gateway/routers/health.py",
+          "detail": "Move /health endpoint. prefix='/api'."
+        },
+        {
+          "id": "T6.3",
+          "action": "create",
+          "file": "birkin/gateway/routers/chat.py",
+          "detail": "Move /chat and /chat/stream endpoints (routes.py lines ~45-278). prefix='/api'. Move related helpers if any are chat-specific."
+        },
+        {
+          "id": "T6.4",
+          "action": "create",
+          "file": "birkin/gateway/routers/settings.py",
+          "detail": "Move /settings, /settings/keys, /settings/providers endpoints + _ALLOWED_KEY_NAMES constant."
+        },
+        {
+          "id": "T6.5",
+          "action": "create",
+          "file": "birkin/gateway/routers/sessions.py",
+          "detail": "Move /sessions/* endpoints."
+        },
+        {
+          "id": "T6.6",
+          "action": "create",
+          "file": "birkin/gateway/routers/wiki.py",
+          "detail": "Move /wiki/* endpoints including upload."
+        },
+        {
+          "id": "T6.7",
+          "action": "create",
+          "file": "birkin/gateway/routers/workflows.py",
+          "detail": "Move /workflows/* endpoints."
+        },
+        {
+          "id": "T6.8",
+          "action": "create",
+          "file": "birkin/gateway/routers/telegram.py",
+          "detail": "Move /telegram/* endpoints (status, health, webhook mgmt, polling, send-test)."
+        },
+        {
+          "id": "T6.9",
+          "action": "create",
+          "file": "birkin/gateway/routers/webhooks.py",
+          "detail": "Move /webhooks/telegram/{bot_token} endpoint."
+        },
+        {
+          "id": "T6.10",
+          "action": "edit",
+          "file": "birkin/gateway/app.py",
+          "detail": "Replace `from birkin.gateway.routes import router` with `from birkin.gateway.routers import all_routers` and iterate include_router."
+        },
+        {
+          "id": "T6.11",
+          "action": "delete",
+          "file": "birkin/gateway/routes.py",
+          "detail": "Remove after all content migrated."
+        },
+        {
+          "id": "T6.12",
+          "action": "edit",
+          "file": "tests/gateway/test_routes.py",
+          "detail": "Update imports if any tests import from birkin.gateway.routes. URL paths stay identical so HTTP-level tests need no change."
+        },
+        {
+          "id": "T6.13",
+          "action": "verify",
+          "command": "pytest tests/ -q"
+        }
+      ],
+      "verification": [
+        "pytest tests/ -q (all 122+ tests green)",
+        "ruff check birkin/gateway",
+        "Manual: hit each endpoint group via WebUI"
+      ],
+      "acceptance_criteria": [
+        "routes.py no longer exists",
+        "Each router file < 300 LOC",
+        "All tests pass without path changes",
+        "All URL paths unchanged"
+      ],
+      "commit_message": "refactor(gateway): split routes.py into modular routers",
+      "rollback_notes": "Merge router files back into routes.py via git revert."
+    },
+
+    {
+      "id": "T7",
+      "order": 7,
+      "sprint": "C",
+      "title": "Reuse ThreadPoolExecutor in _run_async",
+      "issue_ref": "2-4",
+      "priority": "medium",
+      "branch": "perf/agent-executor",
+      "estimated_loc": 30,
+      "estimated_hours": 1,
+      "rationale": "Current sync→async bridge spawns a fresh thread+event-loop per tool call. Reuse an executor for lower latency and GC pressure.",
+      "depends_on": ["T2"],
+      "files": [
+        "birkin/core/agent.py",
+        "birkin/gateway/app.py",
+        "tests/core/test_agent.py"
+      ],
+      "subtasks": [
+        {
+          "id": "T7.1",
+          "action": "edit",
+          "file": "birkin/core/agent.py",
+          "detail": "Replace the `_run_async` helper that creates threading.Thread per call. Use a module-level ThreadPoolExecutor(max_workers=4, thread_name_prefix='birkin-tool'). Submit asyncio.run as a job, .result() to wait. Expose module-level `shutdown_executor()` for lifespan hook."
+        },
+        {
+          "id": "T7.2",
+          "action": "edit",
+          "file": "birkin/gateway/app.py",
+          "detail": "In lifespan shutdown (from T2), call shutdown_executor(wait=True)."
+        },
+        {
+          "id": "T7.3",
+          "action": "add-test",
+          "file": "tests/core/test_agent.py",
+          "detail": "Benchmark-style test: execute 10 tool calls via sync agent.chat, assert total time < threshold (loose threshold, goal is regression detection not performance claim). Verify executor is reused (thread names repeat)."
+        },
+        {
+          "id": "T7.4",
+          "action": "verify",
+          "command": "pytest tests/core -q"
+        }
+      ],
+      "verification": [
+        "pytest tests/core -q",
+        "Manual: run agent with 10+ tool calls, check process thread count stays flat"
+      ],
+      "acceptance_criteria": [
+        "_run_async uses a shared executor",
+        "Executor is cleanly shut down on server stop",
+        "Tests pass"
+      ],
+      "commit_message": "perf(agent): reuse ThreadPoolExecutor for sync tool dispatch",
+      "rollback_notes": "Single file revert — behavior identical, just less efficient."
+    },
+
+    {
+      "id": "T8",
+      "order": 8,
+      "sprint": "D",
+      "title": "Upgrade auto-memory with LLM-based classifier",
+      "issue_ref": "2-3",
+      "priority": "medium",
+      "branch": "feat/smart-memory",
+      "estimated_loc": 200,
+      "estimated_hours": 4,
+      "rationale": "Current heuristics are English-only keyword scoring. Korean (the primary UI language) is misclassified. Use one cheap LLM call for category+slug+should_save. Also fix silent exception swallowing.",
+      "depends_on": ["T1"],
+      "files": [
+        "birkin/memory/classifier.py (NEW)",
+        "birkin/core/agent.py",
+        "tests/memory/test_classifier.py (NEW)"
+      ],
+      "subtasks": [
+        {
+          "id": "T8.1",
+          "action": "create",
+          "file": "birkin/memory/classifier.py",
+          "detail": "New module. Class MemoryClassifier takes a Provider. Method classify(user_input, response) → dict {should_save: bool, category: 'entities'|'concepts'|'sessions', slug: str, title: str, tags: list[str]}. Prompt is bilingual (KO+EN) with few-shot examples. Output JSON strict. Timeout 5s. Fallback to heuristic on error or JSON parse failure."
+        },
+        {
+          "id": "T8.2",
+          "action": "edit",
+          "file": "birkin/core/agent.py",
+          "detail": "In _auto_save_memory: if classifier available, call classify(); use its fields. If should_save=False, skip. Fallback to existing _is_memorable + _pick_category + _make_slug on any exception. Replace `except Exception: pass` with logger.warning(..., exc_info=True). Add env var BIRKIN_SMART_MEMORY=off to disable classifier."
+        },
+        {
+          "id": "T8.3",
+          "action": "add-test",
+          "file": "tests/memory/test_classifier.py",
+          "detail": "Test with FakeProvider returning canned JSON. Cases: (1) valid classification → saved; (2) should_save=false → skipped; (3) invalid JSON → falls back to heuristic; (4) Korean input classified non-'sessions' when appropriate."
+        },
+        {
+          "id": "T8.4",
+          "action": "verify",
+          "command": "pytest tests/memory -q"
+        }
+      ],
+      "verification": [
+        "pytest tests/memory -q",
+        "Manual: have 5 Korean + 5 English conversations, verify memory/wiki/ has sensible categorization"
+      ],
+      "acceptance_criteria": [
+        "Korean input no longer defaults to 'sessions' when concept-like",
+        "Silent exception swallow replaced by logger.warning",
+        "BIRKIN_SMART_MEMORY=off disables LLM call path",
+        "Fallback path still works"
+      ],
+      "commit_message": "feat(memory): add LLM-based classifier for auto-save categorization",
+      "rollback_notes": "Set BIRKIN_SMART_MEMORY=off or revert to restore heuristic-only path."
+    },
+
+    {
+      "id": "T9",
+      "order": 9,
+      "sprint": "D",
+      "title": "Make /api/chat async and non-blocking",
+      "issue_ref": "1-2",
+      "priority": "high",
+      "branch": "perf/chat-async",
+      "estimated_loc": 15,
+      "estimated_hours": 0.5,
+      "rationale": "Sync def chat() blocks the event loop when provider HTTP calls are slow. agent.achat and provider.acomplete are already implemented.",
+      "depends_on": ["T6"],
+      "files": [
+        "birkin/gateway/routers/chat.py"
+      ],
+      "subtasks": [
+        {
+          "id": "T9.1",
+          "action": "edit",
+          "file": "birkin/gateway/routers/chat.py",
+          "detail": "Change `def chat(body: ChatRequest)` → `async def chat(body: ChatRequest)`. Replace `agent.chat(body.message)` with `await agent.achat(body.message)`. Keep all error handling blocks intact."
+        },
+        {
+          "id": "T9.2",
+          "action": "edit",
+          "file": "tests/gateway/test_routes.py",
+          "detail": "If any chat test uses sync TestClient patterns, verify they still work (FastAPI TestClient handles async endpoints transparently)."
+        },
+        {
+          "id": "T9.3",
+          "action": "verify",
+          "command": "pytest tests/gateway -q"
+        }
+      ],
+      "verification": [
+        "pytest tests/gateway -q",
+        "Load test: 10 concurrent POST /api/chat, verify no thread pool exhaustion"
+      ],
+      "acceptance_criteria": [
+        "chat endpoint is declared async",
+        "uses agent.achat",
+        "tests still pass"
+      ],
+      "commit_message": "perf(chat): convert /api/chat to async for non-blocking I/O",
+      "rollback_notes": "Revert to sync def chat + agent.chat."
+    },
+
+    {
+      "id": "T10",
+      "order": 10,
+      "sprint": "D",
+      "title": "Replace context compression with summarization",
+      "issue_ref": "2-2",
+      "priority": "high",
+      "branch": "feat/smart-context-compression",
+      "estimated_loc": 150,
+      "estimated_hours": 3,
+      "rationale": "Current 'keep head+tail' loses all middle context. Summarize via cheap model to preserve decisions and facts.",
+      "depends_on": ["T1"],
+      "files": [
+        "birkin/core/agent.py",
+        "birkin/core/compression.py (NEW)",
+        "tests/core/test_agent.py"
+      ],
+      "subtasks": [
+        {
+          "id": "T10.1",
+          "action": "create",
+          "file": "birkin/core/compression.py",
+          "detail": "New module. Function summarize_messages(messages: list[Message], provider: Provider, model: Optional[str] = None) → str. Uses the provider's lightweight model (for anthropic, haiku-4-5). Prompt: 'Summarize the following conversation in 3-5 sentences, preserving: user goals, decisions made, key facts, unresolved questions.'  Return plain text. Cache by hash(tuple(msg.content for msg in messages)) to avoid re-summarizing same block."
+        },
+        {
+          "id": "T10.2",
+          "action": "edit",
+          "file": "birkin/core/agent.py",
+          "detail": "Rewrite _compress_messages: count tokens (approximate via len(content)//4). If total > BIRKIN_CONTEXT_BUDGET_TOKENS (default 60000), split into head(KEEP_HEAD=2), mid (messages to compress), tail(KEEP_TAIL=16). Call summarize_messages(mid, self._provider). Insert summary as Message(role='system', content='[Conversation summary of earlier turns]\\n{summary}'). Fallback to old slice-only behavior on summarization error."
+        },
+        {
+          "id": "T10.3",
+          "action": "add-test",
+          "file": "tests/core/test_agent.py",
+          "detail": "Test with FakeProvider that records compression calls. Cases: (1) short history → no compression; (2) long history → summary call issued; (3) summarize fails → falls back to head+tail. Verify summary message is inserted between head and tail."
+        },
+        {
+          "id": "T10.4",
+          "action": "verify",
+          "command": "pytest tests/core -q"
+        }
+      ],
+      "verification": [
+        "pytest tests/core -q",
+        "Manual: 50-turn conversation, ask about fact from turn 5, verify still answered"
+      ],
+      "acceptance_criteria": [
+        "Long conversations trigger summarization not deletion",
+        "Summary is cached to prevent re-work",
+        "Fallback to head+tail slice on error",
+        "Configurable via env var"
+      ],
+      "commit_message": "feat(agent): replace truncation with LLM summarization for long context",
+      "rollback_notes": "Revert compression.py import and restore static _compress_messages."
+    }
+  ],
+  "post_completion": {
+    "final_checks": [
+      "pytest tests/ -q  (expect 130+ tests)",
+      "ruff check . && ruff format --check .",
+      "Update ROADMAP.md — check off completed items",
+      "Update README — mention BIRKIN_AUTH_TOKEN, security model section"
+    ],
+    "release_proposal": "Tag v0.2.0 after T10. Write release notes covering: new auth layer (breaking for exposed deployments), Anthropic model ID migration (breaking), smart context + memory."
+  }
+}

@@ -184,6 +184,17 @@ ruff format --check .
 
 ---
 
+## Security Model
+
+The Shell tool uses an **allowlist** (not a sandbox) to restrict which commands the LLM may execute. Only a small set of read-only commands (`ls`, `cat`, `grep`, `git`, `find`, etc.) are permitted by default. Shell metacharacters (`|`, `&&`, `>`, `` ` ``, `$(`, etc.) are rejected outright to prevent chaining or redirection.
+
+- **Extend the allowlist** by setting `BIRKIN_SHELL_ALLOWLIST=curl,python` (comma-separated) in your environment.
+- **Bypass the allowlist** (development only) with `BIRKIN_SHELL_SANDBOX=off`. A legacy blocklist still catches catastrophic patterns (`rm -rf /`, `sudo`, etc.) as defense-in-depth.
+- **LLM-generated commands are code execution.** Deploy Birkin only in trusted environments.
+- **Do not expose the API to the public internet** without setting `BIRKIN_AUTH_TOKEN`.
+
+---
+
 ## License
 
 MIT — see [LICENSE](LICENSE) for details.

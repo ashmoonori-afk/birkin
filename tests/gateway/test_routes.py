@@ -88,8 +88,8 @@ class TestSessions:
 
 
 class TestChat:
-    @patch("birkin.gateway.routes.create_provider")
-    @patch("birkin.gateway.routes.load_tools", return_value=[])
+    @patch("birkin.gateway.routers.chat.create_provider")
+    @patch("birkin.gateway.routers.chat.load_tools", return_value=[])
     def test_chat_creates_session(self, _mock_tools, mock_provider, client: TestClient):
         mock_provider.return_value = FakeProvider(reply="hi there")
 
@@ -99,8 +99,8 @@ class TestChat:
         assert body["reply"] == "hi there"
         assert "session_id" in body
 
-    @patch("birkin.gateway.routes.create_provider")
-    @patch("birkin.gateway.routes.load_tools", return_value=[])
+    @patch("birkin.gateway.routers.chat.create_provider")
+    @patch("birkin.gateway.routers.chat.load_tools", return_value=[])
     def test_chat_continues_session(self, _mock_tools, mock_provider, client: TestClient):
         mock_provider.return_value = FakeProvider(reply="first")
 
@@ -116,8 +116,8 @@ class TestChat:
         detail = client.get(f"/api/sessions/{sid}")
         assert len(detail.json()["messages"]) == 4  # 2 user + 2 assistant
 
-    @patch("birkin.gateway.routes.create_provider")
-    @patch("birkin.gateway.routes.load_tools", return_value=[])
+    @patch("birkin.gateway.routers.chat.create_provider")
+    @patch("birkin.gateway.routers.chat.load_tools", return_value=[])
     def test_chat_not_found_session(self, _mock_tools, mock_provider, client: TestClient):
         mock_provider.return_value = FakeProvider()
         resp = client.post("/api/chat", json={"message": "hi", "session_id": "bad_id"})

@@ -772,10 +772,97 @@ Object.defineProperty(window.birkin, "sessionId", {
   set(v) { sessionId = v; },
 });
 
+/* ── Auth Gate ── */
+
+async function checkAuth() {
+  try {
+    const res = await fetch("/api/auth/status");
+    if (!res.ok) return;
+    const data = await res.json();
+    if (!data.auth_required || data.authenticated) return;
+
+    // Check for ?token= query param
+    const params = new URLSearchParams(window.location.search);
+    const urlToken = params.get("token");
+    if (urlToken) {
+      const bRes = await fetch("/api/auth/bootstrap", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ token: urlToken }),
+      });
+      if (bRes.ok) {
+        // Strip token from URL
+        params.delete("token");
+        const newUrl = params.toString()
+          ? `${window.location.pathname}?${params}`
+          : window.location.pathname;
+        history.replaceState(null, "", newUrl);
+        return;
+      }
+    }
+
+    // Show login prompt
+    showLoginOverlay();
+  } catch { /* silent */ }
+}
+
+function showLoginOverlay() {
+  const overlay = document.createElement("div");
+  overlay.className = "onboarding-overlay";
+  overlay.id = "auth-overlay";
+  const modal = document.createElement("div");
+  modal.className = "onboarding-modal";
+  modal.innerHTML = `
+    <h2 class="ob-title">Authentication Required</h2>
+    <p class="ob-sub">Enter your access token to continue.</p>
+    <div class="settings-field" style="margin:1rem 0">
+      <input class="settings-input" type="password" id="auth-token-input" placeholder="Paste token..." autocomplete="off" />
+    </div>
+    <p id="auth-error" style="color:var(--accent-red,#e74c3c);display:none;margin-bottom:0.5rem"></p>
+    <div class="ob-actions">
+      <button class="ob-btn primary" id="auth-submit">Sign In</button>
+    </div>`;
+  overlay.appendChild(modal);
+  document.body.appendChild(overlay);
+
+  const inp = modal.querySelector("#auth-token-input");
+  const errEl = modal.querySelector("#auth-error");
+  const btn = modal.querySelector("#auth-submit");
+
+  async function doLogin() {
+    const token = inp.value.trim();
+    if (!token) return;
+    btn.disabled = true;
+    try {
+      const res = await fetch("/api/auth/bootstrap", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ token }),
+      });
+      if (res.ok) {
+        overlay.remove();
+        return;
+      }
+      errEl.textContent = "Invalid token. Please try again.";
+      errEl.style.display = "block";
+    } catch {
+      errEl.textContent = "Network error.";
+      errEl.style.display = "block";
+    } finally {
+      btn.disabled = false;
+    }
+  }
+
+  btn.onclick = doLogin;
+  inp.onkeydown = (e) => { if (e.key === "Enter") doLogin(); };
+  inp.focus();
+}
+
 /* ── Init ── */
 
 updateLangButton();
 refreshTranslatedUI();
 loadSessions();
 updateProviderBadge();
+checkAuth();
 checkOnboarding();

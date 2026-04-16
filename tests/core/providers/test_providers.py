@@ -51,10 +51,10 @@ class TestCreateProvider:
 
     def test_creates_anthropic(self, monkeypatch):
         monkeypatch.setenv("ANTHROPIC_API_KEY", "test-key")
-        p = create_provider("anthropic/claude-sonnet-4-20250514")
+        p = create_provider("anthropic/claude-sonnet-4-6")
         assert isinstance(p, AnthropicProvider)
         assert p.name == "anthropic"
-        assert p.model == "claude-sonnet-4-20250514"
+        assert p.model == "claude-sonnet-4-6"
 
     def test_bare_model_defaults_to_openai(self, monkeypatch):
         monkeypatch.setenv("OPENAI_API_KEY", "test-key")
@@ -66,7 +66,7 @@ class TestCreateProvider:
         monkeypatch.setenv("ANTHROPIC_API_KEY", "test-key")
         p = create_provider("anthropic/default")
         assert isinstance(p, AnthropicProvider)
-        assert p.model == "claude-opus-4-20250805"
+        assert p.model == "claude-sonnet-4-6"
 
     def test_unknown_raises(self):
         with pytest.raises(ValueError, match="Unknown provider"):
@@ -80,9 +80,9 @@ class TestCreateProvider:
 
 class TestProviderInstantiation:
     def test_anthropic_with_key(self):
-        p = AnthropicProvider(model="claude-sonnet-4-20250514", api_key="test-key")
+        p = AnthropicProvider(model="claude-sonnet-4-6", api_key="test-key")
         assert p.name == "anthropic"
-        assert p.model == "claude-sonnet-4-20250514"
+        assert p.model == "claude-sonnet-4-6"
 
     def test_openai_with_key(self):
         p = OpenAIProvider(model="gpt-4o", api_key="test-key")
@@ -91,7 +91,7 @@ class TestProviderInstantiation:
 
     def test_anthropic_default_model(self):
         p = AnthropicProvider(api_key="test-key")
-        assert p.model == "claude-opus-4-20250805"
+        assert p.model == "claude-sonnet-4-6"
 
     def test_openai_default_model(self):
         p = OpenAIProvider(api_key="test-key")
@@ -106,3 +106,17 @@ class TestProviderInstantiation:
         p = OpenAIProvider(api_key="test-key")
         caps = p.capabilities()
         assert caps.context_window > 0
+
+    @pytest.mark.parametrize(
+        "model_id",
+        [
+            "claude-opus-4-6",
+            "claude-sonnet-4-6",
+            "claude-haiku-4-5-20251001",
+        ],
+    )
+    def test_anthropic_model_capabilities(self, model_id: str):
+        p = AnthropicProvider(model=model_id, api_key="test-key")
+        caps = p.capabilities()
+        assert isinstance(caps, ModelCapabilities)
+        assert caps.context_window == 200000
