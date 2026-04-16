@@ -58,8 +58,9 @@ def install_deps() -> None:
         return
     print("[birkin] Installing dependencies (first run, this may take a minute)...")
     subprocess.run([str(VENV_PYTHON), "-m", "pip", "install", "--upgrade", "pip", "--quiet"], check=True)
-    result = subprocess.run([str(VENV_PYTHON), "-m", "pip", "install", "-e", ".[all]", "--quiet"],
-                            capture_output=True, text=True)
+    result = subprocess.run(
+        [str(VENV_PYTHON), "-m", "pip", "install", "-e", ".[all]", "--quiet"], capture_output=True, text=True
+    )
     if result.returncode != 0:
         subprocess.run([str(VENV_PYTHON), "-m", "pip", "install", "-e", ".", "--quiet"], check=True)
     DEPS_MARKER.touch()
@@ -72,6 +73,7 @@ def ensure_env_file() -> None:
     env_example = SCRIPT_DIR / ".env.example"
     if not env_file.exists() and env_example.exists():
         import shutil
+
         shutil.copy2(env_example, env_file)
         print("[birkin] Created .env from .env.example")
 

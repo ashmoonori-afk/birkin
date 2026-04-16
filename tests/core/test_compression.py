@@ -18,6 +18,7 @@ from tests.fakes import FakeProvider
 # Helpers
 # ---------------------------------------------------------------------------
 
+
 def _make_messages(*pairs: tuple[str, str]) -> list[Message]:
     """Build a list of Messages from (role, content) pairs."""
     return [Message(role=role, content=content) for role, content in pairs]
@@ -26,6 +27,7 @@ def _make_messages(*pairs: tuple[str, str]) -> list[Message]:
 # ---------------------------------------------------------------------------
 # _cache_key
 # ---------------------------------------------------------------------------
+
 
 class TestCacheKey:
     def test_cache_key_deterministic(self) -> None:
@@ -42,6 +44,7 @@ class TestCacheKey:
 # _build_transcript
 # ---------------------------------------------------------------------------
 
+
 class TestBuildTranscript:
     def test_build_transcript_formats_correctly(self) -> None:
         msgs = _make_messages(("user", "What is 2+2?"), ("assistant", "4"))
@@ -52,6 +55,7 @@ class TestBuildTranscript:
 # ---------------------------------------------------------------------------
 # summarize_messages
 # ---------------------------------------------------------------------------
+
 
 class TestSummarizeMessages:
     def test_summarize_messages_returns_content(self) -> None:
@@ -77,6 +81,7 @@ class TestSummarizeMessages:
 # ---------------------------------------------------------------------------
 # summarize_or_cache
 # ---------------------------------------------------------------------------
+
 
 class TestSummarizeOrCache:
     @pytest.fixture(autouse=True)

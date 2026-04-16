@@ -133,15 +133,18 @@ async def chat_stream(body: ChatRequest) -> StreamingResponse:
         try:
             if active_workflow:
                 async for line in _stream_workflow(
-                    body, agent, active_workflow, config, queue, on_event,
+                    body,
+                    agent,
+                    active_workflow,
+                    config,
+                    queue,
+                    on_event,
                 ):
                     yield line
                 return
 
             # Normal agent flow
-            task = asyncio.create_task(
-                agent.astream(body.message, callback=on_delta, event_callback=on_event)
-            )
+            task = asyncio.create_task(agent.astream(body.message, callback=on_delta, event_callback=on_event))
             async for line in _drain_queue(queue, task):
                 yield line
 
