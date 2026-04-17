@@ -122,7 +122,12 @@ function finalizeStreamBubble(bubble, text) {
   if (!bubble) return;
   bubble.classList.remove("streaming");
   delete bubble.dataset.streaming;
-  bubble.innerHTML = md(text || "");
+  const rendered = md(text || "");
+  bubble.innerHTML = rendered;
+  // Fallback: if md() produced empty HTML but we have text, use plain text
+  if (!bubble.textContent.trim() && text && text.trim()) {
+    bubble.textContent = text;
+  }
   requestAnimationFrame(() => { chat.scrollTop = chat.scrollHeight; });
 }
 

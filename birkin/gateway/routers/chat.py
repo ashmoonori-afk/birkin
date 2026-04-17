@@ -20,6 +20,10 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api", tags=["chat"])
 
+# Hold references to background agent tasks so they aren't garbage-collected
+# when the SSE generator exits due to client disconnect.
+_background_tasks: set[asyncio.Task] = set()
+
 
 def _build_agent(body: ChatRequest) -> Agent:
     """Build an Agent instance from a chat request. Shared by sync and stream endpoints."""
@@ -162,13 +166,20 @@ async def chat_stream(body: ChatRequest) -> StreamingResponse:
                     yield line
                 return
 
-            # Normal agent flow
+            # Normal agent flow — shield task so client disconnect won't cancel it.
+            # The agent always saves its response to the session store on completion,
+            # so even if the user closes the tab, the reply is persisted.
             task = asyncio.create_task(agent.astream(body.message, callback=on_delta, event_callback=on_event))
-            async for line in _drain_queue(queue, task):
-                yield line
+            try:
+                async for line in _drain_queue(queue, task):
+                    yield line
 
-            reply = await task
-            yield f"data: {json.dumps({'done': True, 'reply': reply})}\n\n"
+                reply = await asyncio.shield(task)
+                yield f"data: {json.dumps({'done': True, 'reply': reply})}\n\n"
+            except asyncio.CancelledError:
+                # Client disconnected — let the agent finish in the background
+                logger.info("Client disconnected, agent task continues for session %s", agent.session_id)
+                return
 
         except (ConnectionError, TimeoutError, RuntimeError, TypeError, ValueError) as primary_exc:
             async for line in _stream_fallback(body, agent, config, primary_exc):
