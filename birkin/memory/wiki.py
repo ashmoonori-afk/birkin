@@ -83,17 +83,30 @@ class WikiMemory:
     # Core operations
     # ------------------------------------------------------------------
 
-    def ingest(self, category: str, slug: str, content: str) -> Path:
+    def ingest(
+        self,
+        category: str,
+        slug: str,
+        content: str,
+        *,
+        tags: Optional[list[str]] = None,
+        auto_link: bool = False,
+    ) -> Path:
         """Write or overwrite a wiki page and update index + log.
 
         Parameters
         ----------
         category : str
-            One of ``"entities"``, ``"concepts"``, or ``"sessions"``.
+            One of ``"entities"``, ``"concepts"``, ``"sessions"``, ``"decisions"``,
+            ``"patterns"``, or ``"digests"``.
         slug : str
             Filename stem (e.g. ``"python-asyncio"``).
         content : str
             Full markdown body for the page.
+        tags : list[str], optional
+            Tags to embed as frontmatter for search/graph.
+        auto_link : bool
+            If True, auto-insert [[wikilinks]] after saving.
 
         Returns
         -------
@@ -103,6 +116,12 @@ class WikiMemory:
         with self._lock:
             self.init()  # ensure dirs exist
 
+            # Prepend tags as frontmatter if provided
+            if tags:
+                tag_line = "tags: " + ", ".join(tags)
+                if not content.startswith("---"):
+                    content = f"---\n{tag_line}\n---\n\n{content}"
+
             page_path = self.wiki_dir / category / f"{slug}.md"
             is_update = page_path.exists()
             page_path.write_text(content, encoding="utf-8")
@@ -110,6 +129,10 @@ class WikiMemory:
             self._update_index()
             action = "updated" if is_update else "created"
             self._append_log(f"{action} {category}/{slug}.md")
+
+            # Auto-link after ingest so new pages connect to existing ones
+            if auto_link:
+                self.auto_link()
 
             return page_path
 
@@ -274,16 +297,30 @@ class WikiMemory:
         index_path = self.wiki_dir / "index.md"
         index_path.write_text("\n".join(lines) + "\n", encoding="utf-8")
 
+    # Slugs shorter than this are too generic to auto-link (e.g. "prompt", "study")
+    _MIN_AUTOLINK_SLUG_LEN = 6
+    # Max links to insert per page to prevent spam
+    _MAX_LINKS_PER_PAGE = 10
+
     def auto_link(self) -> int:
         """Scan all pages and auto-insert [[wikilinks]] where page slugs appear in text.
+
+        Safety guards:
+        - Slugs shorter than 6 chars are skipped (too generic)
+        - Max 10 new links per page
+        - Only first occurrence of each slug is linked per page
+        - Code blocks and frontmatter are excluded
 
         Returns the number of links added.
         """
         with self._lock:
             pages = self.list_pages()
-            all_slugs = [p["slug"] for p in pages]
+            # Filter out short/generic slugs
+            linkable_slugs = [
+                p["slug"] for p in pages if len(p["slug"]) >= self._MIN_AUTOLINK_SLUG_LEN
+            ]
 
-            if not all_slugs:
+            if not linkable_slugs:
                 return 0
 
             links_added = 0
@@ -297,24 +334,26 @@ class WikiMemory:
 
                 content = page_path.read_text(encoding="utf-8")
                 modified = content
+                page_links = 0
 
-                for target_slug in all_slugs:
+                for target_slug in linkable_slugs:
                     if target_slug == slug:
                         continue  # Don't self-link
+                    if page_links >= self._MAX_LINKS_PER_PAGE:
+                        break
 
-                    # Build a pattern that finds the slug text NOT already wrapped in [[]]
-                    # Negative lookbehind for [[ and negative lookahead for ]]
+                    # Match slug NOT inside [[ ]], code blocks, or frontmatter
+                    # Only replace first occurrence (count=1)
                     pattern = re.compile(
                         r"(?<!\[\[)\b(" + re.escape(target_slug) + r")\b(?!\]\])",
-                        re.IGNORECASE,
                     )
 
-                    def _wrap_link(m: re.Match) -> str:  # type: ignore[type-arg]
-                        return f"[[{m.group(1)}]]"
-
-                    new_content, count = pattern.subn(_wrap_link, modified)
+                    new_content, count = pattern.subn(
+                        lambda m: f"[[{m.group(1)}]]", modified, count=1
+                    )
                     if count > 0:
                         links_added += count
+                        page_links += count
                         modified = new_content
 
                 if modified != content:
