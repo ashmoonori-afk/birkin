@@ -37,7 +37,9 @@ class TestHealth:
         assert resp.status_code == 200
         body = resp.json()
         assert body["status"] == "ok"
-        assert body["version"] == "0.3.0"
+        from birkin import __version__
+
+        assert body["version"] == __version__
 
 
 # ── Sessions CRUD ──

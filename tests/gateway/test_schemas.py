@@ -38,4 +38,6 @@ class TestHealthResponse:
     def test_defaults(self):
         h = HealthResponse()
         assert h.status == "ok"
-        assert h.version == "0.3.0"
+        from birkin import __version__
+
+        assert h.version == __version__
