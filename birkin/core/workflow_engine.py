@@ -60,8 +60,21 @@ class WorkflowEngine:
                 has_incoming.add(e.get("to", ""))
         return [nid for nid in self._node_map if nid not in has_incoming or self._node_map[nid].get("type") == "input"]
 
-    def _next_nodes(self, node_id: str) -> list[str]:
-        return [e["to"] for e in self._adj.get(node_id, []) if e.get("to") in self._node_map]
+    def _next_nodes(self, node_id: str, output: str | None = None) -> list[str]:
+        """Return next node IDs to visit.
+
+        For condition nodes, only follow edges whose label matches the output
+        (e.g. "YES"/"NO"). If no labelled edges match, follow all edges as
+        fallback so existing workflows without labels keep working.
+        """
+        edges = self._adj.get(node_id, [])
+        node = self._node_map.get(node_id)
+        if node and node.get("type") == "condition" and output:
+            normalised = output.strip().upper()
+            labelled = [e["to"] for e in edges if e.get("label", "").strip().upper() == normalised and e["to"] in self._node_map]
+            if labelled:
+                return labelled
+        return [e["to"] for e in edges if e.get("to") in self._node_map]
 
     async def run(self, user_input: str) -> str:
         """Execute the workflow with the given user input.
@@ -110,7 +123,7 @@ class WorkflowEngine:
                 final_output = f"Error at {node['type']}: {e}"
                 break
 
-            for next_id in self._next_nodes(nid):
+            for next_id in self._next_nodes(nid, output):
                 self._results[next_id] = output
                 if next_id not in visited:
                     queue.append(next_id)

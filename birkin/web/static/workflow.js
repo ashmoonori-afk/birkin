@@ -281,13 +281,14 @@
       drawEdge(from, to, e.label);
     });
 
-    // Draw connecting line
+    // Draw connecting line (convert viewport coords to world coords)
     if (connecting) {
       ctx.beginPath();
       ctx.moveTo(connecting.startX, connecting.startY);
       const mx = (connecting.curX - pan.x) / zoom;
       const my = (connecting.curY - pan.y) / zoom;
       ctx.lineTo(mx, my);
+
       ctx.strokeStyle = "rgba(240, 240, 250, 0.4)";
       ctx.lineWidth = 2;
       ctx.setLineDash([6, 4]);
@@ -656,7 +657,11 @@
     nodes = (wf.nodes || []).map((n) => ({ ...n, label: n.config?.label || getPaletteFlat()[n.type]?.label || n.type }));
     edges = [...(wf.edges || [])];
     currentWorkflowId = wf.id;
-    nodeIdCounter = nodes.length;
+    // Extract max numeric ID to prevent collision when adding new nodes
+    nodeIdCounter = nodes.reduce((max, n) => {
+      const m = n.id.match(/\d+$/);
+      return m ? Math.max(max, parseInt(m[0], 10)) : max;
+    }, 0);
 
     const title = container.querySelector("#wf-title");
     if (title) title.textContent = wf.name || wf.id;
@@ -686,7 +691,7 @@
       name,
       description: "",
       nodes: nodes.map((n) => ({ id: n.id, type: n.type, x: Math.round(n.x), y: Math.round(n.y), config: n.config || {} })),
-      edges: edges.map((e) => ({ from: e.from, to: e.to, label: e.label })),
+      edges: edges.map((e) => ({ ...e })),
     };
     try {
       const res = await fetch("/api/workflows", { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(wf) });
@@ -698,8 +703,12 @@
 
         // Prompt to activate this workflow for chat
         showActivatePrompt(data.id, name);
+      } else {
+        alert(B.t("wf_save_failed") || "Failed to save workflow");
       }
-    } catch { /* */ }
+    } catch (err) {
+      alert(B.t("wf_save_failed") || "Failed to save workflow");
+    }
   }
 
   async function showActivatePrompt(workflowId, workflowName) {
