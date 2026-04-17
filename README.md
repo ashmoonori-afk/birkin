@@ -19,8 +19,8 @@
 <p align="center">
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-blue.svg" alt="MIT License"></a>
   <img src="https://img.shields.io/badge/python-3.11%2B-blue" alt="Python 3.11+">
-  <img src="https://img.shields.io/badge/version-v0.3.0-green" alt="v0.3.0">
-  <img src="https://img.shields.io/badge/tests-461%2B-brightgreen" alt="461+ tests">
+  <img src="https://img.shields.io/badge/version-v0.4.0-green" alt="v0.4.0">
+  <img src="https://img.shields.io/badge/tests-502%2B-brightgreen" alt="502+ tests">
   <img src="https://img.shields.io/badge/providers-9-orange" alt="9 Providers">
 </p>
 
@@ -48,6 +48,16 @@ Most AI tools forget you the moment the conversation ends. Birkin doesn't.
 
 Browser opens at `http://127.0.0.1:8321`. First run ~1 minute (creates venv + installs deps). After that, instant.
 
+### Docker (One Command)
+
+```bash
+git clone https://github.com/ashmoonori-afk/birkin.git && cd birkin
+cp .env.example .env   # Add your API keys
+docker compose up -d   # http://localhost:8321
+```
+
+See [QUICKSTART.md](QUICKSTART.md) for details.
+
 ### Manual
 
 ```bash
@@ -58,6 +68,9 @@ pip install -e "."
 birkin                # WebUI at :8321
 birkin chat           # Terminal REPL
 birkin mcp serve      # MCP server (for Claude Code, Cursor, etc.)
+birkin eval run ...   # Evaluation framework
+birkin skill install  # Install community skills
+birkin export         # Backup all data
 ```
 
 ### API Keys
@@ -164,14 +177,17 @@ Every session enforces a budget. When tokens run low, Birkin auto-compresses con
 | **Sessions** | `GET/POST/DELETE /api/sessions` | Conversation management |
 | **Memory** | `GET/PUT/DELETE /api/wiki/*` | Wiki CRUD + graph + search |
 | **Triggers** | `GET/POST/DELETE /api/triggers` | CRUD + manual fire |
-| **Skills** | `GET/POST /api/skills` | List + toggle |
-| **Dashboard** | `GET /api/observability/*` | Spend, latency, errors |
+| **Skills** | `GET/POST /api/skills` | List + toggle + install |
+| **Workflows** | `GET/PUT/DELETE /api/workflows` | CRUD + NL generate |
+| **Insights** | `GET /api/insights/*` | Weekly digest, patterns, trends |
+| **Dashboard** | `GET /api/observability/*` | Spend, latency, errors, hero metrics |
 | **Approvals** | `GET/POST /api/approvals` | Pending actions |
+| **Eval** | `birkin eval run/list/diff` | CLI evaluation framework |
 | **Voice** | `POST /api/voice/stt`, `/tts` | Speech-to-text, text-to-speech |
 | **MCP** | `birkin mcp serve` | Expose as MCP server |
 | **Settings** | `GET/PUT /api/settings` | Config, keys, providers |
 
-Full API: 69 endpoints across 15 routers.
+Full API: 57 endpoints across 16 routers.
 
 ---
 
@@ -189,7 +205,7 @@ birkin/
   voice/          Whisper STT + TTS
   gateway/        FastAPI backend (15 routers)
   web/            9-tab WebUI (vanilla JS, cinematic dark theme)
-  tests/          461+ tests (pytest)
+  tests/          502+ tests (pytest)
 ```
 
 ---
