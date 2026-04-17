@@ -7,6 +7,7 @@ from typing import Any
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
+from birkin.core.errors import BirkinError
 from birkin.triggers import (
     CronTrigger,
     FileWatchTrigger,
@@ -15,6 +16,7 @@ from birkin.triggers import (
     TriggerScheduler,
     WebhookTrigger,
 )
+from birkin.triggers.storage import TriggerStore
 
 router = APIRouter(prefix="/api/triggers", tags=["triggers"])
 
@@ -67,7 +69,7 @@ def _get_scheduler() -> TriggerScheduler:
                 _logger.info(
                     "Trigger %s → workflow %s completed: %s", config.id, workflow_id, result[:100] if result else "ok"
                 )
-            except (OSError, RuntimeError, ValueError, TypeError) as exc:
+            except (OSError, RuntimeError, ValueError, TypeError, BirkinError) as exc:
                 _logger.error("Trigger %s → workflow %s failed: %s", config.id, workflow_id, exc)
 
         _scheduler.set_default_callback(_default_on_fire)
@@ -117,6 +119,17 @@ async def create_trigger(body: CreateTriggerRequest) -> dict[str, Any]:
         trigger = await scheduler.add(config)
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc))
+
+    # Persist to SQLite so trigger survives restart
+    try:
+        store = TriggerStore()
+        store.save(config)
+        store.close()
+    except (OSError, RuntimeError) as exc:
+        import logging
+
+        logging.getLogger(__name__).warning("Failed to persist trigger: %s", exc)
+
     return {
         "id": trigger.id,
         "type": trigger.trigger_type,
@@ -150,6 +163,17 @@ async def delete_trigger(trigger_id: str) -> dict[str, str]:
     removed = await scheduler.remove(trigger_id)
     if not removed:
         raise HTTPException(status_code=404, detail=f"Trigger not found: {trigger_id}")
+
+    # Remove from SQLite so it doesn't reappear on restart
+    try:
+        store = TriggerStore()
+        store.remove(trigger_id)
+        store.close()
+    except (OSError, RuntimeError) as exc:
+        import logging
+
+        logging.getLogger(__name__).warning("Failed to remove trigger from DB: %s", exc)
+
     return {"status": "deleted", "id": trigger_id}
 
 

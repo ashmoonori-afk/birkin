@@ -74,23 +74,45 @@
   }
 
   async function createTrigger() {
+    let config;
+    try {
+      config = JSON.parse(document.getElementById("tf-config").value || "{}");
+    } catch {
+      alert("Invalid JSON in config field");
+      return;
+    }
+    const wfId = document.getElementById("tf-workflow").value.trim();
+    if (!wfId) { alert("Workflow ID is required"); return; }
     const body = {
       type: document.getElementById("tf-type").value,
-      workflow_id: document.getElementById("tf-workflow").value,
-      config: JSON.parse(document.getElementById("tf-config").value || "{}"),
+      workflow_id: wfId,
+      config,
     };
-    await fetch("/api/triggers", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+    try {
+      const res = await fetch("/api/triggers", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        alert(err.detail || "Failed to create trigger");
+        return;
+      }
+    } catch { alert("Network error"); return; }
     document.getElementById("trigger-form-area").style.display = "none";
     fetchTriggers();
   }
 
   window.deleteTrigger = async function (id) {
-    await fetch(`/api/triggers/${id}`, { method: "DELETE" });
+    try {
+      const res = await fetch(`/api/triggers/${id}`, { method: "DELETE" });
+      if (!res.ok) { const err = await res.json().catch(() => ({})); alert(err.detail || "Failed to delete"); }
+    } catch { alert("Network error"); }
     fetchTriggers();
   };
 
   window.fireTrigger = async function (id) {
-    await fetch(`/api/triggers/${id}/fire`, { method: "POST" });
+    try {
+      const res = await fetch(`/api/triggers/${id}/fire`, { method: "POST" });
+      if (!res.ok) { const err = await res.json().catch(() => ({})); alert(err.detail || "Failed to fire"); }
+    } catch { alert("Network error"); }
   };
 
   const observer = new MutationObserver(() => {
