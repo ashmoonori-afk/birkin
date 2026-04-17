@@ -8,6 +8,7 @@ from typing import Any, Optional
 
 from fastapi import APIRouter, HTTPException
 
+from birkin.core.errors import BirkinError
 from birkin.gateway.deps import get_dispatcher, get_telegram_adapter
 
 router = APIRouter(prefix="/api", tags=["telegram"])
@@ -59,7 +60,7 @@ async def telegram_health() -> dict:
 
 async def _health_check_loop() -> None:
     """Background loop checking Telegram health every 60 seconds."""
-    global _polling_task  # noqa: PLW0603
+    global _polling_task, _polling_active  # noqa: PLW0603
 
     import logging
     from datetime import datetime, timezone
@@ -89,7 +90,8 @@ async def _health_check_loop() -> None:
                     last_check=datetime.now(timezone.utc).isoformat(),
                 )
                 log.error("Polling task died, restarting...")
-                # Auto-restart polling
+                # Auto-restart polling — ensure _polling_active is True
+                _polling_active = True
                 _polling_task = asyncio.create_task(_poll_loop(adapter))
                 continue
 
@@ -246,7 +248,7 @@ async def _poll_loop(adapter: Any) -> None:
                         text=reply,
                         reply_to_message_id=msg_info["message_id"],
                     )
-                except (ConnectionError, TimeoutError, RuntimeError, TypeError, ValueError, OSError) as e:
+                except (ConnectionError, TimeoutError, RuntimeError, TypeError, ValueError, OSError, BirkinError) as e:
                     log.error("Failed to process message: %s", e, exc_info=True)
                     try:
                         await adapter.send_message(

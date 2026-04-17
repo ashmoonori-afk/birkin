@@ -7,6 +7,7 @@ import logging
 from typing import Any, Optional
 
 from birkin.core.agent import Agent
+from birkin.core.errors import BirkinError
 from birkin.core.providers import create_provider
 from birkin.gateway.deps import get_session_store, get_skill_registry, get_wiki_memory
 from birkin.tools.loader import load_tools
@@ -20,14 +21,11 @@ class MessageDispatcher:
     def __init__(self) -> None:
         """Initialize dispatcher."""
         self.session_store = get_session_store()
-        self._cached_tools: Optional[list[Any]] = None
 
     def _load_tools(self) -> list[Any]:
-        """Load builtin tools + enabled skill tools."""
-        if self._cached_tools is None:
-            skill_tools = get_skill_registry().get_enabled_tools()
-            self._cached_tools = load_tools() + skill_tools
-        return self._cached_tools
+        """Load builtin tools + enabled skill tools (refreshed each call)."""
+        skill_tools = get_skill_registry().get_enabled_tools()
+        return load_tools() + skill_tools
 
     def _find_session_by_key(self, session_key: str) -> Optional[str]:
         """Find a session ID by its platform key (stored as title).
@@ -108,6 +106,6 @@ class MessageDispatcher:
         try:
             reply = await agent.achat(text)
             return reply
-        except (ConnectionError, TimeoutError, RuntimeError, TypeError, ValueError) as e:
+        except (ConnectionError, TimeoutError, RuntimeError, TypeError, ValueError, BirkinError) as e:
             logger.error("Agent execution failed: %s", e)
             raise
