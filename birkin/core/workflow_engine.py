@@ -45,6 +45,7 @@ class WorkflowEngine:
 
     def load(self, workflow: dict) -> None:
         """Load a workflow definition."""
+        self._mode = workflow.get("mode", "simple")
         self._node_map = {n["id"]: n for n in workflow.get("nodes", [])}
         self._adj = {}
         for edge in workflow.get("edges", []):
@@ -62,7 +63,16 @@ class WorkflowEngine:
         return [e["to"] for e in self._adj.get(node_id, []) if e.get("to") in self._node_map]
 
     async def run(self, user_input: str) -> str:
-        """Execute the workflow with the given user input."""
+        """Execute the workflow with the given user input.
+
+        Supports two modes:
+        - 'simple' (default): BFS traversal of node graph
+        - 'graph': StateGraph engine with conditionals, parallel, loops
+        """
+        # Check if this is a graph-mode workflow
+        if getattr(self, "_mode", "simple") == "graph":
+            return await self._run_graph_mode(user_input)
+
         self._results = {}
         starts = self._find_start_nodes()
         if not starts:
@@ -380,3 +390,59 @@ class WorkflowEngine:
             return result.output if result.success else (result.error or "Tool failed")
         except (OSError, RuntimeError, ValueError, TimeoutError) as e:
             return f"Tool '{tool_name}' error: {e}"
+
+    async def _run_graph_mode(self, user_input: str) -> str:
+        """Execute workflow using the StateGraph engine.
+
+        Converts the loaded node_map/adj into a StateGraph, compiles,
+        and runs with the user input as initial state.
+        """
+        from birkin.core.graph.engine import END, StateGraph
+        from birkin.core.graph.node import FunctionNode, NodeResult
+        from birkin.core.graph.state import GraphContext
+
+        graph = StateGraph()
+
+        # Create FunctionNode for each workflow node
+        for nid, node in self._node_map.items():
+            node_type = node.get("type", "llm_call")
+            handler = getattr(self, f"_handle_{node_type}", None)
+
+            if handler:
+                _h, _n = handler, node
+
+                async def _node_run(ctx: GraphContext, h=_h, n=_n) -> NodeResult:
+                    input_text = ctx.get("input", "")
+                    result = await h(n, input_text)
+                    ctx.set("input", result)
+                    return NodeResult()
+
+                graph.add_node(FunctionNode(nid, _node_run))
+            else:
+
+                async def _passthrough(ctx: GraphContext) -> NodeResult:
+                    return NodeResult()
+
+                graph.add_node(FunctionNode(nid, _passthrough))
+
+        # Add edges
+        for src, edges in self._adj.items():
+            for edge in edges:
+                dst = edge.get("to", "")
+                if dst in self._node_map:
+                    graph.add_edge(src, dst)
+
+        # Set entry point
+        starts = self._find_start_nodes()
+        if not starts:
+            return "Graph workflow has no entry nodes."
+        graph.set_entry(starts[0])
+
+        # Last node → END
+        terminals = [nid for nid in self._node_map if nid not in self._adj or not self._adj[nid]]
+        for t in terminals:
+            graph.add_edge(t, END)
+
+        compiled = graph.compile()
+        result = await compiled.ainvoke({"input": user_input})
+        return result.get("input", "")
