@@ -187,36 +187,33 @@ class LocalCLIProvider(Provider):
             raise ProviderError(f"{self._cli} timed out after 120 seconds", ProviderErrorKind.SERVER)
 
     def _extract_prompt(self, messages: list[Message]) -> str:
-        """Build a compact prompt for the CLI.
+        """Build a full-context prompt for the CLI.
 
-        Only sends the last user message plus minimal recent context
-        (last 2 assistant turns) to keep the CLI call fast.
-        System prompts and wiki memory are excluded — the CLI
-        doesn't need them and they add massive latency.
+        Includes system prompt, memory index, and conversation history
+        so the CLI has the same context as API providers. Truncates
+        older messages if total exceeds ~50k chars to keep CLI responsive.
         """
-        # Find the last user message
-        last_user = ""
-        for msg in reversed(messages):
-            if msg.role == "user":
-                last_user = msg.content
+        parts: list[str] = []
+        _MAX_CHARS = 50000
+
+        # Include system prompt (contains memory index)
+        for msg in messages:
+            if msg.role == "system":
+                parts.append(f"[System]\n{msg.content}\n")
                 break
 
-        if not last_user:
-            return ""
+        # Include conversation history (recent turns)
+        conv_msgs = [m for m in messages if m.role in ("user", "assistant") and m.content]
 
-        # Collect last 2 assistant messages for minimal context
-        recent_context: list[str] = []
-        for msg in reversed(messages):
-            if msg.role == "assistant" and msg.content:
-                recent_context.insert(0, msg.content)
-                if len(recent_context) >= 2:
-                    break
+        # If too long, keep first 2 + last 8 messages
+        if sum(len(m.content) for m in conv_msgs) > _MAX_CHARS:
+            conv_msgs = conv_msgs[:2] + conv_msgs[-8:]
 
-        if recent_context:
-            ctx = "\n".join(f"[Previous reply]\n{r}" for r in recent_context)
-            return f"{ctx}\n\n[Current question]\n{last_user}"
+        for msg in conv_msgs:
+            label = "User" if msg.role == "user" else "Assistant"
+            parts.append(f"[{label}]\n{msg.content}\n")
 
-        return last_user
+        return "\n".join(parts) if parts else ""
 
     def _build_command(self, prompt: str) -> list[str]:
         """Build the CLI command."""
