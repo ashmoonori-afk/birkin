@@ -501,11 +501,22 @@ class Agent:
         # Smart context injection: relevance-scored pages instead of full dump
         if self._memory:
             from birkin.core.context.injector import ContextInjector
-            from birkin.memory.embeddings.encoder import SimpleHashEncoder
             from birkin.memory.semantic_search import SemanticSearch
 
+            # Prefer real embeddings when available, fallback to hash
+            try:
+                from birkin.memory.embeddings.encoder import SentenceTransformerEncoder
+
+                encoder = SentenceTransformerEncoder()
+                if not encoder.available:
+                    raise ImportError("model not available")
+            except (ImportError, OSError):
+                from birkin.memory.embeddings.encoder import SimpleHashEncoder
+
+                encoder = SimpleHashEncoder()
+
             if last_user_msg:
-                search = SemanticSearch(self._memory, SimpleHashEncoder())
+                search = SemanticSearch(self._memory, encoder)
                 search.index_all()
                 injector = ContextInjector(self._memory, search=search)
                 ctx = injector.build_context(last_user_msg, budget_tokens=2000, style="xml")

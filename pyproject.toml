@@ -34,6 +34,12 @@ dev = [
 korean = [
   "kiwipiepy>=0.17",
 ]
+embeddings = [
+  "sentence-transformers>=2.2,<4",
+]
+all = [
+  "birkin-agent[korean,embeddings]",
+]
 
 [project.scripts]
 birkin = "birkin.cli.main:main"
