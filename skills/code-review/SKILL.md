@@ -1,7 +1,7 @@
 ---
 name: code-review
 description: Review code for quality, security, and best practice issues
-version: "0.1.0"
+version: "0.3.0"
 triggers:
   - review
   - code review

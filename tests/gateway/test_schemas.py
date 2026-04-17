@@ -38,4 +38,4 @@ class TestHealthResponse:
     def test_defaults(self):
         h = HealthResponse()
         assert h.status == "ok"
-        assert h.version == "0.1.0"
+        assert h.version == "0.3.0"

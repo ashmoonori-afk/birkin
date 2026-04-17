@@ -35,6 +35,7 @@ class WorkflowEngine:
         self._fallback = fallback_provider
         self._event_cb = event_callback
         self._wiki = wiki_memory
+        self._mode: str = "simple"
         self._node_map: dict[str, dict] = {}
         self._adj: dict[str, list[dict]] = {}
         self._results: dict[str, str] = {}
@@ -156,6 +157,7 @@ class WorkflowEngine:
         "validator": "_handle_validator",
         "test-runner": "_handle_test_runner",
         # Platform
+        "hn-fetch": "_handle_hn_fetch",
         "telegram-send": "_handle_telegram_send",
         "email-send": "_handle_email_send",
         "notify": "_handle_notify",
@@ -274,11 +276,12 @@ class WorkflowEngine:
         check = config.get("check", "")
         if not check:
             return input_text
-        await self._run_llm(
+        result = await self._run_llm(
             f"Evaluate: {check}\nInput: {input_text}\nReply YES or NO only.",
             config,
         )
-        return input_text
+        # Return the evaluation result so edge routing can use it
+        return result.strip().upper() if result else input_text
 
     async def _handle_loop(self, node: dict, input_text: str) -> str:
         config = node.get("config", {})
@@ -341,6 +344,36 @@ class WorkflowEngine:
 
     # ── Platform handlers ─────────────────────────────────────────────
 
+    async def _handle_hn_fetch(self, node: dict, input_text: str) -> str:
+        """Fetch top HackerNews stories and format as numbered list."""
+        import httpx
+
+        config = node.get("config", {})
+        count = min(config.get("count", 10), 50)
+
+        try:
+            async with httpx.AsyncClient(timeout=15) as client:
+                resp = await client.get("https://hacker-news.firebaseio.com/v0/topstories.json")
+                resp.raise_for_status()
+                story_ids = resp.json()[:count]
+
+                tasks = [client.get(f"https://hacker-news.firebaseio.com/v0/item/{sid}.json") for sid in story_ids]
+                responses = await asyncio.gather(*tasks, return_exceptions=True)
+
+                lines: list[str] = []
+                for i, r in enumerate(responses, 1):
+                    if isinstance(r, BaseException):
+                        continue
+                    story = r.json()
+                    title = story.get("title", "Untitled")
+                    score = story.get("score", 0)
+                    url = story.get("url", f"https://news.ycombinator.com/item?id={story_ids[i - 1]}")
+                    lines.append(f"{i}. {title} ({score} pts) - {url}")
+
+                return "\n".join(lines) if lines else "No stories fetched."
+        except (httpx.HTTPError, OSError, TimeoutError) as e:
+            return f"HN fetch failed: {e}"
+
     async def _handle_telegram_send(self, node: dict, input_text: str) -> str:
         chat_id = node.get("config", {}).get("chat_id", "")
         if chat_id:
@@ -401,12 +434,15 @@ class WorkflowEngine:
         from birkin.core.graph.node import FunctionNode, NodeResult
         from birkin.core.graph.state import GraphContext
 
+        self._results = {}
         graph = StateGraph()
 
         # Create FunctionNode for each workflow node
         for nid, node in self._node_map.items():
             node_type = node.get("type", "llm_call")
-            handler = getattr(self, f"_handle_{node_type}", None)
+            # Use dispatch table (handles hyphenated names like hn-fetch, web-search)
+            handler_name = self._NODE_HANDLERS.get(node_type)
+            handler = getattr(self, handler_name, None) if handler_name else None
 
             if handler:
                 _h, _n = handler, node

@@ -13,7 +13,7 @@ The SKILL.md frontmatter is YAML between ``---`` fences::
     ---
     name: code-review
     description: Review code for quality and security issues
-    version: "0.1.0"
+    version: "0.3.0"
     triggers:
       - review
       - code review
@@ -48,7 +48,7 @@ class SkillSpec(BaseModel, frozen=True):
 
     name: str
     description: str
-    version: str = "0.1.0"
+    version: str = "0.3.0"
     triggers: list[str] = []
     tools: list[str] = []
     enabled: bool = True

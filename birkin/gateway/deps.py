@@ -211,3 +211,41 @@ def reset_provider_router() -> None:
     """Reset for testing."""
     global _provider_router  # noqa: PLW0603
     _provider_router = None
+
+
+# ---------------------------------------------------------------------------
+# InsightsEngine
+# ---------------------------------------------------------------------------
+
+_insights_engine = None
+_insights_event_store = None
+
+
+def get_insights_engine():
+    """Return the global InsightsEngine, creating it lazily."""
+    global _insights_engine, _insights_event_store  # noqa: PLW0603
+    if _insights_engine is None:
+        from birkin.memory.event_store import EventStore
+        from birkin.memory.insights.engine import InsightsEngine
+
+        _insights_event_store = EventStore()
+        _insights_engine = InsightsEngine(_insights_event_store)
+    return _insights_engine
+
+
+def set_insights_engine(engine) -> None:
+    """Inject a custom InsightsEngine (useful for testing)."""
+    global _insights_engine  # noqa: PLW0603
+    _insights_engine = engine
+
+
+def reset_insights_engine() -> None:
+    """Reset and close underlying EventStore."""
+    global _insights_engine, _insights_event_store  # noqa: PLW0603
+    if _insights_event_store is not None:
+        try:
+            _insights_event_store.close()
+        except (OSError, AttributeError):
+            pass
+    _insights_event_store = None
+    _insights_engine = None

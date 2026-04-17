@@ -290,6 +290,30 @@ _SAMPLES: list[dict[str, Any]] = [
             {"from": "n5", "to": "n6"},
         ],
     },
+    {
+        "id": "hackernews-daily-telegram",
+        "name": "HackerNews Daily Digest",
+        "description": "Fetch top HN stories, summarize, send to Telegram",
+        "nodes": [
+            {"id": "n1", "type": "input", "x": 60, "y": 200, "config": {}},
+            {"id": "n2", "type": "hn-fetch", "x": 240, "y": 200, "config": {"count": 10}},
+            {"id": "n3", "type": "summarizer", "x": 420, "y": 200, "config": {}},
+            {
+                "id": "n4",
+                "type": "telegram-send",
+                "x": 600,
+                "y": 200,
+                "config": {"chat_id": ""},
+            },
+            {"id": "n5", "type": "output", "x": 780, "y": 200, "config": {}},
+        ],
+        "edges": [
+            {"from": "n1", "to": "n2"},
+            {"from": "n2", "to": "n3"},
+            {"from": "n3", "to": "n4"},
+            {"from": "n4", "to": "n5"},
+        ],
+    },
 ]
 
 

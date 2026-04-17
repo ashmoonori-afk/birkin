@@ -37,7 +37,7 @@ class TestHealth:
         assert resp.status_code == 200
         body = resp.json()
         assert body["status"] == "ok"
-        assert body["version"] == "0.1.0"
+        assert body["version"] == "0.3.0"
 
 
 # ── Sessions CRUD ──

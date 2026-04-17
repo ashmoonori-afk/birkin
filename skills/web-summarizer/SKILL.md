@@ -1,7 +1,7 @@
 ---
 name: web-summarizer
 description: Summarize web pages and articles into concise bullet points
-version: "0.1.0"
+version: "0.3.0"
 triggers:
   - summarize
   - summary

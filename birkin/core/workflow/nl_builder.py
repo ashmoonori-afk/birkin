@@ -8,9 +8,12 @@ from __future__ import annotations
 
 import logging
 import re
-from typing import Any, Optional
+from typing import TYPE_CHECKING, Any, Optional
 
 from pydantic import BaseModel, Field
+
+if TYPE_CHECKING:
+    from birkin.core.providers.base import Provider
 
 logger = logging.getLogger(__name__)
 
@@ -146,3 +149,31 @@ class NLWorkflowBuilder:
                 if kw in text_lower:
                     return step_type
         return "llm_call"  # default
+
+
+async def build_workflow(
+    description: str,
+    provider: Optional[Provider] = None,
+) -> dict[str, Any]:
+    """Facade: generate a workflow graph from natural language.
+
+    If a *provider* is given, uses :class:`LLMWorkflowBuilder` for
+    higher-quality generation.  Otherwise falls back to the keyword-based
+    :class:`NLWorkflowBuilder`.
+
+    Args:
+        description: Free-text description of the desired workflow.
+        provider: Optional LLM provider for LLM-powered generation.
+
+    Returns:
+        Workflow graph dict loadable by ``WorkflowEngine.load()``.
+    """
+    if provider is not None:
+        from birkin.core.workflow.nl_builder_llm import LLMWorkflowBuilder
+
+        builder = LLMWorkflowBuilder(provider)
+        return await builder.generate(description)
+
+    keyword_builder = NLWorkflowBuilder()
+    draft = keyword_builder.generate(description)
+    return draft.to_graph_json()

@@ -92,7 +92,7 @@ class TestSkillSpec:
     def test_basic(self) -> None:
         spec = SkillSpec(name="x", description="X skill")
         assert spec.name == "x"
-        assert spec.version == "0.1.0"
+        assert spec.version == "0.3.0"
         assert spec.triggers == []
         assert spec.enabled is True
 

@@ -55,6 +55,43 @@ def create_parser() -> argparse.ArgumentParser:
     mcp_serve_p.add_argument("--no-tools", action="store_true", help="Don't expose built-in tools")
     mcp_serve_p.add_argument("--memory-dir", type=str, default="./memory", help="Wiki memory directory")
 
+    # ── birkin eval ──
+    eval_p = sub.add_parser("eval", help="Evaluation framework commands")
+    eval_sub = eval_p.add_subparsers(dest="eval_command")
+
+    eval_run_p = eval_sub.add_parser("run", help="Run eval dataset against a provider")
+    eval_run_p.add_argument("dataset", type=str, help="Path to JSONL dataset file")
+    eval_run_p.add_argument(
+        "--provider",
+        type=str,
+        default="anthropic",
+        help="Provider name or model ID (default: anthropic)",
+    )
+    eval_run_p.add_argument(
+        "--output-dir",
+        type=str,
+        default=None,
+        help="Directory to save results (default: eval_results)",
+    )
+    eval_run_p.add_argument(
+        "--memory",
+        action="store_true",
+        default=False,
+        help="Enable memory-aware eval (ingest memory_setup per case)",
+    )
+
+    eval_list_p = eval_sub.add_parser("list", help="List saved eval results")
+    eval_list_p.add_argument(
+        "--output-dir",
+        type=str,
+        default=None,
+        help="Directory with saved results (default: eval_results)",
+    )
+
+    eval_diff_p = eval_sub.add_parser("diff", help="Compare two eval result files")
+    eval_diff_p.add_argument("file_a", type=str, help="Baseline result file (JSONL)")
+    eval_diff_p.add_argument("file_b", type=str, help="Current result file (JSONL)")
+
     # ── birkin serve (default) ──
     serve_p = sub.add_parser("serve", help="Start the web UI and API server (default)")
     serve_p.add_argument("--host", type=str, default="127.0.0.1", help="Bind host (default: 127.0.0.1)")
@@ -171,6 +208,35 @@ def cmd_mcp(args: argparse.Namespace) -> None:
     asyncio.run(run_stdio_server(tools=tools, memory=wiki))
 
 
+def cmd_eval(args: argparse.Namespace) -> None:
+    """Handle ``birkin eval`` subcommands (run, list, diff)."""
+    import asyncio
+
+    from birkin.eval.cli import cmd_eval_diff, cmd_eval_list, cmd_eval_run
+
+    eval_command = getattr(args, "eval_command", None)
+    if eval_command is None:
+        console.print("[red]Usage:[/red] birkin eval {run,list,diff}")
+        sys.exit(1)
+
+    if eval_command == "run":
+        asyncio.run(
+            cmd_eval_run(
+                dataset_path=args.dataset,
+                provider_name=args.provider,
+                output_dir=args.output_dir,
+                use_memory=getattr(args, "memory", False),
+            )
+        )
+    elif eval_command == "list":
+        cmd_eval_list(output_dir=args.output_dir)
+    elif eval_command == "diff":
+        cmd_eval_diff(baseline_path=args.file_a, current_path=args.file_b)
+    else:
+        console.print(f"[red]Unknown eval subcommand:[/red] {eval_command}")
+        sys.exit(1)
+
+
 def cmd_serve(args: argparse.Namespace) -> None:
     """Handle ``birkin serve`` — start FastAPI + uvicorn and open browser."""
     import os
@@ -246,6 +312,7 @@ def main() -> None:
         "chat": cmd_chat,
         "sessions": cmd_sessions,
         "mcp": cmd_mcp,
+        "eval": cmd_eval,
         "serve": cmd_serve,
     }
 

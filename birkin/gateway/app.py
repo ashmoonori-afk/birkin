@@ -18,6 +18,7 @@ from birkin.gateway.auth import require_auth
 from birkin.gateway.deps import (
     get_session_store,
     reset_dispatcher,
+    reset_insights_engine,
     reset_mcp_registry,
     reset_session_store,
     reset_skill_registry,
@@ -67,6 +68,20 @@ async def _daily_memory_loop() -> None:
             if deleted:
                 logger.info("Session cleanup: %d old sessions archived", len(deleted))
 
+            # Weekly insights digest on Sundays
+            if dt.datetime.now().weekday() == 6:
+                try:
+                    from birkin.memory.insights.engine import InsightsEngine
+
+                    end = dt.datetime.now(dt.timezone.utc).strftime("%Y-%m-%d")
+                    start = (dt.datetime.now(dt.timezone.utc) - dt.timedelta(days=6)).strftime("%Y-%m-%d")
+                    insights = InsightsEngine(store)
+                    digest = insights.weekly_digest(start, end)
+                    wiki.ingest("insights", f"weekly-{end}", digest.summary)
+                    logger.info("Weekly insights digest saved: insights/weekly-%s", end)
+                except (OSError, RuntimeError, ValueError) as exc:
+                    logger.error("Weekly insights digest failed: %s", exc)
+
             store.close()
         except (OSError, RuntimeError, ValueError) as exc:
             logger.error("Daily memory loop failed: %s", exc)
@@ -103,6 +118,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     reset_dispatcher()
     reset_skill_registry()
     reset_mcp_registry()
+    reset_insights_engine()
 
 
 def create_app() -> FastAPI:

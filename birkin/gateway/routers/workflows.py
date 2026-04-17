@@ -3,8 +3,15 @@
 from __future__ import annotations
 
 from fastapi import APIRouter, HTTPException
+from pydantic import BaseModel, Field
 
 router = APIRouter(prefix="/api", tags=["workflows"])
+
+
+class GenerateRequest(BaseModel):
+    """Request body for workflow generation from natural language."""
+
+    description: str = Field(..., min_length=1, max_length=2000)
 
 
 @router.get("/workflows")
@@ -46,3 +53,27 @@ def remove_workflow(workflow_id: str) -> None:
     from birkin.gateway.workflows import delete_workflow
 
     delete_workflow(workflow_id)
+
+
+@router.post("/workflows/generate")
+async def generate_workflow(body: GenerateRequest) -> dict:
+    """Generate a workflow graph from a natural language description.
+
+    Uses the LLM provider when available, otherwise falls back to
+    keyword-based generation.
+    """
+    from birkin.core.workflow.nl_builder import build_workflow
+
+    try:
+        from birkin.core.providers import create_provider
+
+        provider = create_provider("cli/default")
+    except (ImportError, RuntimeError, ValueError, OSError):
+        provider = None
+
+    try:
+        graph = await build_workflow(body.description, provider=provider)
+    except (RuntimeError, ValueError, OSError) as exc:
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+    return graph
