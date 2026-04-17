@@ -83,6 +83,39 @@ class WikiMemory:
     # Core operations
     # ------------------------------------------------------------------
 
+    # Prompt injection patterns to detect and neutralize
+    _INJECTION_PATTERNS = [
+        "ignore previous",
+        "ignore all previous",
+        "you are now",
+        "[SYSTEM]",
+        "<<SYS>>",
+        "new instructions:",
+        "override:",
+        "disregard",
+    ]
+
+    def _sanitize_content(self, content: str) -> str:
+        """Detect and neutralize prompt injection patterns in memory content.
+
+        Wraps suspicious instruction-like content in code blocks so it
+        cannot be interpreted as system instructions.
+        """
+        content_lower = content.lower()
+        for pattern in self._INJECTION_PATTERNS:
+            if pattern.lower() in content_lower:
+                # Don't flag content already inside code blocks
+                in_code = False
+                lines = content.splitlines()
+                for i, line in enumerate(lines):
+                    if line.strip().startswith("```"):
+                        in_code = not in_code
+                    if not in_code and pattern.lower() in line.lower():
+                        lines[i] = f"`{line}`"
+                content = "\n".join(lines)
+                break
+        return content
+
     def ingest(
         self,
         category: str,
@@ -90,6 +123,7 @@ class WikiMemory:
         content: str,
         *,
         tags: Optional[list[str]] = None,
+        source: str = "auto_classified",
         auto_link: bool = False,
     ) -> Path:
         """Write or overwrite a wiki page and update index + log.
@@ -116,11 +150,17 @@ class WikiMemory:
         with self._lock:
             self.init()  # ensure dirs exist
 
-            # Prepend tags as frontmatter if provided
-            if tags:
-                tag_line = "tags: " + ", ".join(tags)
-                if not content.startswith("---"):
-                    content = f"---\n{tag_line}\n---\n\n{content}"
+            # Sanitize against prompt injection
+            content = self._sanitize_content(content)
+
+            # Prepend frontmatter (tags + source) if not already present
+            if not content.startswith("---"):
+                fm_lines = []
+                if tags:
+                    fm_lines.append("tags: " + ", ".join(tags))
+                fm_lines.append(f"source: {source}")
+                if fm_lines:
+                    content = "---\n" + "\n".join(fm_lines) + "\n---\n\n" + content
 
             page_path = self.wiki_dir / category / f"{slug}.md"
             is_update = page_path.exists()

@@ -29,6 +29,47 @@ _WEB_DIR = Path(__file__).resolve().parent.parent / "web" / "static"
 logger = logging.getLogger(__name__)
 
 
+def _seconds_until_3am() -> float:
+    """Calculate seconds until next 3:00 AM."""
+    import datetime as dt
+
+    now = dt.datetime.now()
+    target = now.replace(hour=3, minute=0, second=0, microsecond=0)
+    if now >= target:
+        target += dt.timedelta(days=1)
+    return (target - now).total_seconds()
+
+
+async def _daily_memory_loop() -> None:
+    """Run daily memory compilation + session cleanup at 3 AM."""
+    from birkin.gateway.deps import get_wiki_memory
+    from birkin.memory.compiler import MemoryCompiler
+    from birkin.memory.event_store import EventStore
+
+    while True:
+        await asyncio.sleep(_seconds_until_3am())
+        try:
+            import datetime as dt
+
+            wiki = get_wiki_memory()
+            today = dt.datetime.now(dt.timezone.utc).strftime("%Y-%m-%d")
+
+            # Compile daily digest
+            store = EventStore()
+            compiler = MemoryCompiler(store, wiki)
+            result = compiler.compile_daily(today)
+            logger.info("Daily compile: %d events processed", result.events_processed)
+
+            # Cleanup old sessions (>30 days)
+            deleted = wiki.summarize_old_sessions(max_age_hours=720)
+            if deleted:
+                logger.info("Session cleanup: %d old sessions archived", len(deleted))
+
+            store.close()
+        except (OSError, RuntimeError, ValueError) as exc:
+            logger.error("Daily memory loop failed: %s", exc)
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     """Manage startup and shutdown for the FastAPI application."""
@@ -37,6 +78,9 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         from birkin.gateway.routers.telegram import _health_check_loop
 
         asyncio.create_task(_health_check_loop())
+
+    # Daily memory compilation + session cleanup (runs at 3 AM)
+    asyncio.create_task(_daily_memory_loop())
 
     yield
 

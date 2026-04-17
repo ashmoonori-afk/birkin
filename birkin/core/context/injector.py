@@ -105,7 +105,7 @@ class ContextInjector:
                     "content": r.metadata.get("preview", ""),
                 }
                 for r in results
-                if r.score > 0.1
+                if r.score > -1.0  # include all results; ranking handles relevance
             ]
 
         # Fallback to keyword search

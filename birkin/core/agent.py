@@ -444,19 +444,39 @@ class Agent:
         """Assemble the full message list including system prompt and memory."""
         prompt = self._system_prompt or ""
 
-        # Append memory context when a WikiMemory backend is attached
+        # Load session messages first (need last user message for relevance)
+        session_messages = self._session_store.get_messages(self._session.id)
+        session_messages = self._compress_messages(session_messages, self._provider)
+
+        # Extract last user message for relevance-based memory injection
+        last_user_msg = ""
+        for m in reversed(session_messages):
+            if m.role == "user":
+                last_user_msg = m.content
+                break
+
+        # Smart context injection: relevance-scored pages instead of full dump
         if self._memory:
-            memory_ctx = self._memory.build_context()
-            if memory_ctx:
-                prompt = f"{prompt}\n\n{memory_ctx}"
+            from birkin.core.context.injector import ContextInjector
+            from birkin.memory.embeddings.encoder import SimpleHashEncoder
+            from birkin.memory.semantic_search import SemanticSearch
+
+            if last_user_msg:
+                search = SemanticSearch(self._memory, SimpleHashEncoder())
+                search.index_all()
+                injector = ContextInjector(self._memory, search=search)
+                ctx = injector.build_context(last_user_msg, budget_tokens=2000, style="xml")
+                if ctx.system_addition:
+                    prompt = f"{prompt}\n\n{ctx.system_addition}"
+            else:
+                # No user message yet — fall back to compact index
+                memory_ctx = self._memory.build_context(max_pages=5)
+                if memory_ctx:
+                    prompt = f"{prompt}\n\n{memory_ctx}"
 
         msgs: list[Message] = []
         if prompt:
             msgs.append(Message(role="system", content=prompt))
-
-        # Load messages from session store
-        session_messages = self._session_store.get_messages(self._session.id)
-        session_messages = self._compress_messages(session_messages, self._provider)
         msgs.extend(session_messages)
 
         return msgs

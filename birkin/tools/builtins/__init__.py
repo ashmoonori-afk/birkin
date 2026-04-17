@@ -5,8 +5,9 @@ from __future__ import annotations
 from birkin.tools.builtins.file_ops import FileReadTool, FileWriteTool
 from birkin.tools.builtins.shell import ShellTool
 from birkin.tools.builtins.web_search import WebSearchTool
+from birkin.tools.builtins.wiki_read import WikiReadTool
 
-ALL_BUILTIN_TOOLS = [ShellTool, WebSearchTool, FileReadTool, FileWriteTool]
+ALL_BUILTIN_TOOLS = [ShellTool, WebSearchTool, FileReadTool, FileWriteTool, WikiReadTool]
 
 __all__ = [
     "ALL_BUILTIN_TOOLS",
