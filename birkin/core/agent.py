@@ -500,8 +500,7 @@ class Agent:
                         f"**Assistant:** {response[:1000]}\n"
                     )
                     tags = result.get("tags", [])
-                    self._memory.ingest(category, slug, content, tags=tags)
-                    self._memory.auto_link()
+                    self._memory.ingest(category, slug, content, tags=tags, auto_link=True)
                     return
 
                 # result is None → classifier failed, fall through to heuristic
@@ -517,8 +516,7 @@ class Agent:
                 f"**User:** {user_input[:500]}\n\n"
                 f"**Assistant:** {response[:1000]}\n"
             )
-            self._memory.ingest(category, slug, content)
-            self._memory.auto_link()
+            self._memory.ingest(category, slug, content, auto_link=True)
         except (OSError, ValueError, TypeError, BirkinError) as exc:
             logger.warning("Auto-save memory failed: %s", exc, exc_info=True)
 

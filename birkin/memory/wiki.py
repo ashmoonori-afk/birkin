@@ -249,34 +249,40 @@ class WikiMemory:
         """Bump reference_count and last_referenced for a page.
 
         Called when a page is included in build_context or read via wiki_read.
+        Initializes frontmatter if the page lacks it.
         """
         page_path = self.wiki_dir / category / f"{slug}.md"
         if not page_path.is_file():
             return
-        content = page_path.read_text(encoding="utf-8")
-        today = dt.datetime.now(dt.timezone.utc).strftime("%Y-%m-%d")
+        with self._lock:
+            content = page_path.read_text(encoding="utf-8")
+            today = dt.datetime.now(dt.timezone.utc).strftime("%Y-%m-%d")
 
-        if content.startswith("---"):
-            end = content.find("---", 3)
-            if end != -1:
-                fm = content[3:end]
-                body = content[end + 3 :]
-                # Update or add last_referenced
-                if "last_referenced:" in fm:
-                    fm = re.sub(r"last_referenced:.*", f"last_referenced: {today}", fm)
-                else:
-                    fm = fm.rstrip() + f"\nlast_referenced: {today}\n"
-                # Update or add reference_count
-                import re as _re
-
-                match = _re.search(r"reference_count:\s*(\d+)", fm)
-                if match:
-                    count = int(match.group(1)) + 1
-                    fm = _re.sub(r"reference_count:\s*\d+", f"reference_count: {count}", fm)
-                else:
-                    fm = fm.rstrip() + "\nreference_count: 1\n"
-                content = f"---{fm}---{body}"
+            if not content.startswith("---"):
+                # Initialize frontmatter for pages that lack it
+                content = f"---\nlast_referenced: {today}\nreference_count: 1\n---\n\n{content}"
                 page_path.write_text(content, encoding="utf-8")
+                return
+
+            end = content.find("---", 3)
+            if end == -1:
+                return
+            fm = content[3:end]
+            body = content[end + 3 :]
+            # Update or add last_referenced
+            if "last_referenced:" in fm:
+                fm = re.sub(r"last_referenced:.*", f"last_referenced: {today}", fm)
+            else:
+                fm = fm.rstrip() + f"\nlast_referenced: {today}\n"
+            # Update or add reference_count
+            match = re.search(r"reference_count:\s*(\d+)", fm)
+            if match:
+                count = int(match.group(1)) + 1
+                fm = re.sub(r"reference_count:\s*\d+", f"reference_count: {count}", fm)
+            else:
+                fm = fm.rstrip() + "\nreference_count: 1\n"
+            content = f"---{fm}---{body}"
+            page_path.write_text(content, encoding="utf-8")
 
     def get_page_confidence(self, category: str, slug: str) -> float:
         """Extract confidence score from page frontmatter. Default 0.5."""
@@ -346,7 +352,7 @@ class WikiMemory:
         content = page_path.read_text(encoding="utf-8")
         confidence = 0.5
         ref_count = 1
-        days_since = 7  # default if no metadata
+        days_since = 0  # default: treat as new (no penalty)
 
         if content.startswith("---"):
             end = content.find("---", 3)
@@ -401,6 +407,13 @@ class WikiMemory:
             if len(text) > 2000:
                 text = text[:2000] + "\n[...truncated]"
             sections.append(f"### {rel}\n{text}\n")
+            # Touch page to update reference tracking for decay scoring
+            category = page_path.parent.name
+            slug = page_path.stem
+            try:
+                self.touch_page(category, slug)
+            except (OSError, ValueError):
+                pass  # non-critical — don't break context building
 
         return "\n".join(sections)
 
