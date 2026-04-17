@@ -8,7 +8,16 @@ from fastapi import APIRouter, HTTPException
 
 router = APIRouter(prefix="/api", tags=["settings"])
 
-_ALLOWED_KEY_NAMES = frozenset({"ANTHROPIC_API_KEY", "OPENAI_API_KEY", "TELEGRAM_BOT_TOKEN"})
+_ALLOWED_KEY_NAMES = frozenset(
+    {
+        "ANTHROPIC_API_KEY",
+        "OPENAI_API_KEY",
+        "PERPLEXITY_API_KEY",
+        "GEMINI_API_KEY",
+        "GROQ_API_KEY",
+        "TELEGRAM_BOT_TOKEN",
+    }
+)
 
 
 @router.get("/settings")
@@ -118,6 +127,42 @@ def detect_providers() -> dict:
             "type": "local",
             "needs_key": False,
             "description": "OpenAI Codex CLI (local)",
+        },
+        "perplexity": {
+            "available": bool(os.getenv("PERPLEXITY_API_KEY")),
+            "type": "api",
+            "needs_key": True,
+            "key_env": "PERPLEXITY_API_KEY",
+            "models": ["sonar-pro", "sonar", "sonar-reasoning-pro", "sonar-reasoning"],
+        },
+        "gemini": {
+            "available": bool(os.getenv("GEMINI_API_KEY") or os.getenv("GOOGLE_API_KEY")),
+            "type": "api",
+            "needs_key": True,
+            "key_env": "GEMINI_API_KEY",
+            "models": ["gemini-2.5-flash", "gemini-2.5-pro", "gemini-2.0-flash"],
+        },
+        "ollama": {
+            "available": shutil.which("ollama") is not None,
+            "type": "local",
+            "needs_key": False,
+            "description": "Ollama (local, zero API key)",
+            "models": ["llama3.1", "mistral", "gemma2"],
+        },
+        "groq": {
+            "available": bool(os.getenv("GROQ_API_KEY")),
+            "type": "api",
+            "needs_key": True,
+            "key_env": "GROQ_API_KEY",
+            "models": ["llama-3.3-70b-versatile", "llama-3.1-8b-instant", "mixtral-8x7b-32768"],
+        },
+        "openrouter": {
+            "available": bool(os.getenv("OPENAI_API_KEY")),
+            "type": "api",
+            "needs_key": True,
+            "key_env": "OPENAI_API_KEY",
+            "description": "OpenRouter (uses OpenAI key)",
+            "models": ["openrouter/anthropic/claude-3.5-sonnet", "openrouter/meta-llama/llama-3-70b"],
         },
     }
     return results

@@ -460,7 +460,7 @@ async function loadSettingsPanel() {
 
   const providers = providersCache || {};
   const cfg = currentConfig;
-  const labels = { anthropic: t("anthropic_claude"), openai: t("openai_gpt"), "claude-cli": t("claude_code"), "codex-cli": t("codex_cli") };
+  const labels = { anthropic: t("anthropic_claude"), openai: t("openai_gpt"), "claude-cli": t("claude_code"), "codex-cli": t("codex_cli"), perplexity: "Perplexity (Search)", gemini: "Google Gemini", ollama: "Ollama (Local)", groq: "Groq (Fast)", openrouter: "OpenRouter" };
 
   settingsContent.innerHTML = `
     <div class="settings-section">
