@@ -40,12 +40,19 @@ def _build_agent(body: ChatRequest) -> Agent:
     except (ValueError, TypeError) as exc:
         raise HTTPException(status_code=400, detail=str(exc))
 
+    from birkin.gateway.deps import get_mcp_registry, get_skill_registry
+
+    # Merge built-in tools + skill tools
+    skill_tools = get_skill_registry().get_enabled_tools()
+    all_tools = load_tools() + skill_tools
+
     agent_kwargs: dict = {
         "provider": provider,
-        "tools": load_tools(),
+        "tools": all_tools,
         "session_store": store,
         "session_id": body.session_id,
         "memory": get_wiki_memory(),
+        "mcp_registry": get_mcp_registry(),
     }
     if config.get("system_prompt") is not None:
         agent_kwargs["system_prompt"] = config["system_prompt"]

@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-from pathlib import Path
 from typing import Any
 
 from fastapi import APIRouter, HTTPException
@@ -12,16 +11,11 @@ from birkin.skills.registry import SkillRegistry
 
 router = APIRouter(prefix="/api/skills", tags=["skills"])
 
-# Module-level singleton — initialized once, reused across requests
-_registry: SkillRegistry | None = None
-
 
 def _get_registry() -> SkillRegistry:
-    global _registry  # noqa: PLW0603
-    if _registry is None:
-        _registry = SkillRegistry(skills_dir=Path("skills"))
-        _registry.load_all()
-    return _registry
+    from birkin.gateway.deps import get_skill_registry
+
+    return get_skill_registry()
 
 
 class SkillToggleRequest(BaseModel):

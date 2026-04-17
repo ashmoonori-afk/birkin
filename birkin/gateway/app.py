@@ -18,7 +18,9 @@ from birkin.gateway.auth import require_auth
 from birkin.gateway.deps import (
     get_session_store,
     reset_dispatcher,
+    reset_mcp_registry,
     reset_session_store,
+    reset_skill_registry,
     reset_telegram_adapter,
     reset_wiki_memory,
 )
@@ -99,6 +101,8 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     reset_wiki_memory()
     reset_telegram_adapter()
     reset_dispatcher()
+    reset_skill_registry()
+    reset_mcp_registry()
 
 
 def create_app() -> FastAPI:

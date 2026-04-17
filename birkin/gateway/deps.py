@@ -133,3 +133,50 @@ def reset_dispatcher() -> None:
     """Reset for testing."""
     global _dispatcher  # noqa: PLW0603
     _dispatcher = None
+
+
+# ---------------------------------------------------------------------------
+# SkillRegistry
+# ---------------------------------------------------------------------------
+
+_skill_registry = None
+
+
+def get_skill_registry():
+    """Return the global SkillRegistry, creating it lazily."""
+    global _skill_registry  # noqa: PLW0603
+    if _skill_registry is None:
+        from birkin.skills.registry import SkillRegistry
+
+        _skill_registry = SkillRegistry(skills_dir=Path("skills"))
+        _skill_registry.load_all()
+    return _skill_registry
+
+
+def reset_skill_registry() -> None:
+    """Reset for testing."""
+    global _skill_registry  # noqa: PLW0603
+    _skill_registry = None
+
+
+# ---------------------------------------------------------------------------
+# MCPRegistry
+# ---------------------------------------------------------------------------
+
+_mcp_registry = None
+
+
+def get_mcp_registry():
+    """Return the global MCPRegistry (sync — does not auto-connect servers)."""
+    global _mcp_registry  # noqa: PLW0603
+    if _mcp_registry is None:
+        from birkin.mcp.registry import MCPRegistry
+
+        _mcp_registry = MCPRegistry()
+    return _mcp_registry
+
+
+def reset_mcp_registry() -> None:
+    """Reset for testing."""
+    global _mcp_registry  # noqa: PLW0603
+    _mcp_registry = None
