@@ -88,5 +88,8 @@ birkin_workflows.json
 # Wiki memory data (runtime, user-specific)
 memory/
 
+# Observability traces (runtime)
+traces/
+
 # IDE
 .idea/

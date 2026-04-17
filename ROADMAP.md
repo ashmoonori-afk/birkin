@@ -153,33 +153,54 @@ Every Phase 2 item below maps back to at least one of these three.
 
 ---
 
-## Phase 3: Ecosystem & Learning
+## Phase 3: Measure, Loop, Onboard (In Progress)
 
-**Goal:** Expand the surface area of what Birkin can automate, and what it can learn from the work it has already done.
+**Goal:** Close the gap between "modules exist" and "the product delivers measurable value." Phase 2 built the parts; Phase 3 wires them end-to-end, proves they work with real data, and makes the first-run experience undeniable.
 
-### Platform breadth
+**North Star score:** 53.5 → **73 (B)** after wiring sprint. Target: 85 (A-).
 
-- [x] **Ollama first-class provider** — direct REST integration (completed in Phase 2A).
-- [ ] **Email adapter (IMAP/SMTP)** — inbox summarization, draft replies, auto-triage. Natural pair with Phase 2A scheduling.
-- [ ] **RSS / web change monitor** — register feeds or URLs; fire workflows on change.
-- [ ] **Discord, Slack, WhatsApp adapters** — same pattern as Telegram, one at a time.
-- [ ] **Desktop notifications** — beyond Telegram.
+### Sprint 3A — Wire & Measure (Complete)
 
-### Intelligence
+- [x] **MCP + Skills → Agent gateway** — shared singletons in deps.py, skill tools + mcp_registry passed to Agent
+- [x] **ProviderRouter → auto-routing** — `provider: "auto"` selects cheapest available provider
+- [x] **TokenBudget → Agent run loop** — check_before_call + record_usage on every turn
+- [x] **StructuredLogger → Agent** — Trace + Span per LLM call and tool execution, JSONL storage
+- [x] **SemanticSearch caching** — skip re-index when page count unchanged
+- [x] **Trigger → Workflow execution** — noop callback replaced with real WorkflowEngine.execute()
+- [x] **Trigger persistence** — SQLite TriggerStore survives restart
+- [x] **Graph ↔ WorkflowEngine** — mode='graph' delegates to StateGraph engine
+- [x] **sentence-transformers optional** — auto-detect, fallback to hash encoder
+- [x] **Memory improvements** — relevance scoring, decay, poisoning protection, Korean NER, aliases, wiki_read tool
 
-- [ ] **Artifacts (inline canvas)** — editable code/doc/diagram panel. Builds on the existing workflow canvas engine.
-- [ ] **Memory auto-consolidation (scheduled)** — weekly pass to merge duplicates, update stale entries, and summarize old session pages in the wiki.
-- [ ] **Trajectory collection** — export (conversation, outcome) pairs as datasets for DPO / preference learning. No training pipeline in-house; emit data in a standard format.
-- [ ] **Knowledge graph enhancements** — semantic search upgrades, cross-reference scoring, entity linking.
-- [ ] **Multi-agent / sub-agent delegation** — parallel task execution, sub-agent handoff.
+### Sprint 3B — End-to-End Automation (Next)
 
-### Operability
+- [ ] **NL workflow builder LLM upgrade** — replace keyword parser with LLM structured output
+- [ ] **E2E demo workflow** — "HackerNews daily to Telegram" (CronTrigger → web_search → summarize → send)
+- [ ] **Memory flywheel instrumentation** — trace spans for memory ops, weekly health metric
+- [ ] **P3-3C-3: Eval CLI + baseline dataset** — Add `birkin eval run <dataset.jsonl> --provider anthropic` subcommand to `cli/main.py`. Create `eval/datasets/baseline-10.jsonl` with 10 diverse test cases (factual recall, Korean, code, summarization). Run baseline eval, save results as `eval/results/baseline.jsonl`. Add `birkin eval diff <baseline> <current>` for regression detection. *(Files: `cli/main.py`, new `eval/datasets/baseline-10.jsonl`, `eval/runner.py`)*
+- [ ] **P3-3C-4: Memory-aware eval** — Create `eval/datasets/memory-recall-10.jsonl` with 10 cases that require information from previous sessions (e.g., "What was my API key provider last week?"). Run eval with memory ON vs OFF. The score delta proves the flywheel works. Document results in `eval/results/memory-impact.md`. *(Files: new `eval/datasets/memory-recall-10.jsonl`, new `eval/results/memory-impact.md`)*
+- [ ] **P3-3C-5: Insights engine → API + scheduled generation** — `InsightsEngine` (`memory/insights/engine.py` lines 39–170) has `weekly_digest()`, `identify_patterns()`, and `usage_trend()` but is orphaned. Create `gateway/routers/insights.py` with `GET /api/insights/weekly`, `GET /api/insights/patterns`, `GET /api/insights/trend`. Schedule weekly digest generation in `_daily_memory_loop()` on Sundays. *(Files: new `gateway/routers/insights.py`, `gateway/app.py`)*
 
-- [ ] **Docker one-command deployment**
-- [ ] **Encrypted backup/export** — `birkin export` to single encrypted archive (sessions + wiki + config).
-- [ ] **Plugin marketplace / community skill registry** (MCP-native).
-- [ ] **Playwright visual regression tests** for WebUI.
-- [ ] **Landing page and documentation site**.
+### Sprint 3D — Onboarding & Deployment (est. 3 days)
+
+> New user gets value in 5 minutes. Deployable anywhere with one command.
+
+- [ ] **P3-3D-1: First-run "wow" experience** — Detect first launch (onboarding_complete == false). Show a guided prompt: "Try saying: 매일 아침 8시에 뉴스 요약해서 텔레그램으로 보내줘". If Telegram is configured, auto-create the HN daily workflow from P3-3B-5. Show a success toast: "Your first automation is live. Check Telegram tomorrow at 8 AM." *(Files: `web/static/app.js` onboarding section, `gateway/routers/chat.py`)*
+- [ ] **P3-3D-2: Dashboard "prove it" metrics** — On the observability dashboard tab, show three hero numbers: (1) tokens saved this week (context injection savings vs full dump), (2) automations run (trigger fire count), (3) memory pages (total + this week delta). These prove the three North Stars. *(Files: `web/static/app.js` dashboard section, `gateway/routers/observability.py`)*
+- [ ] **P3-3D-3: Docker one-command deployment** — Create `Dockerfile` (Python 3.11-slim, pip install, uvicorn) and `docker-compose.yml` (app + volume mounts for memory/sessions/config). Add `QUICKSTART.md` with `docker compose up` instructions. Verify .env injection works. *(Files: new `Dockerfile`, new `docker-compose.yml`, new `QUICKSTART.md`)*
+- [ ] **P3-3D-4: birkin export/import** — Add `birkin export` CLI command: creates encrypted zip of sessions DB, wiki pages, config, traces. Add `birkin import <archive.zip>`: restores everything. Uses `zipfile` + `cryptography.fernet` (optional dep). *(Files: `cli/main.py`, new `cli/backup.py`)*
+- [ ] **P3-3D-5: Skill install CLI + community registry** — Add `birkin skill install <git-url>` that clones a skill repo into `skills/` directory and loads it. Add `birkin skill list` to show installed skills. Create `SKILL-AUTHORING.md` guide for community contributors. This is the seed for an ecosystem. *(Files: `cli/main.py`, `skills/loader.py`, new `docs/SKILL-AUTHORING.md`)*
+
+### Phase 3 — Score Projection
+
+| Sprint | Tasks | Score Impact | Running Total |
+|--------|-------|-------------|---------------|
+| 3A (Wire & Measure) | 5 | +17 | 70.5 |
+| 3B (E2E Automation) | 5 | +12 | 82.5 |
+| 3C (Memory Flywheel) | 5 | +8 | 90.5 |
+| 3D (Onboarding & Deploy) | 5 | +5 | 95.5 |
+
+**Total: 20 tasks, ~14 days, projected score 85+ (A-)**
 
 ---
 
@@ -203,7 +224,7 @@ These may be revisited if the project's direction changes, but they are explicit
 
 - **Feature requests & ideas** — [open a GitHub Issue](https://github.com/ashmoonori-afk/birkin/issues)
 - **Bug reports** — [open a GitHub Issue](https://github.com/ashmoonori-afk/birkin/issues) with reproduction steps
-- **Pull requests welcome** — especially for Phase 2A and Phase 2B items
+- **Pull requests welcome** — especially for Phase 3 sprint items
 
 ---
 

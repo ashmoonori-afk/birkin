@@ -18,7 +18,7 @@
 
 ---
 
-**Birkin** is a personal agent OS — a memory layer and orchestrator sitting on top of multiple LLMs and external agents. Runs locally, scoped per-device. 9-provider multi-LLM routing, MCP client/server, state graph engine, triggers, semantic memory, and a SpaceX-themed 9-tab WebUI.
+**Birkin** is a personal agent OS — a memory layer and orchestrator sitting on top of multiple LLMs and external agents. Runs locally, scoped per-device. Auto-routing across 9 providers, MCP client/server, state graph engine, trigger→workflow automation, token budget enforcement, structured tracing, semantic memory with decay scoring, and a cinematic dark-themed 9-tab WebUI. 461+ tests.
 
 ---
 
@@ -173,7 +173,7 @@ birkin/
 ├── voice/              # STT (Whisper) + TTS
 ├── gateway/            # FastAPI backend (15 routers)
 ├── cli/                # CLI: chat, serve, mcp serve
-├── web/static/         # WebUI (9-tab SPA, SpaceX dark theme)
+├── web/static/         # WebUI (9-tab SPA, cinematic dark theme)
 ├── tests/              # 461+ tests (pytest)
 └── docs/               # Archive, site
 ```
