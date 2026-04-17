@@ -192,8 +192,12 @@ class Agent:
         event_callback: Optional[Callable[[dict], None]] = None,
     ) -> str:
         """Asynchronous conversation loop with tool dispatch."""
+        from birkin.observability.logger import StructuredLogger
+        from birkin.observability.storage import TraceStorage
+
         turn = 0
         final_text = ""
+        trace = StructuredLogger.start_trace(session_id=self._session.id)
 
         while turn < self._max_turns:
             turn += 1
@@ -213,10 +217,22 @@ class Agent:
                     break
                 self._budget.reset_node()
 
+            # Trace: LLM call span
+            llm_span = StructuredLogger.start_span(
+                trace, "llm_call", provider=self._provider.name, model=self._provider.model
+            )
+
             response = await self._provider.acomplete(
                 messages,
                 tools=tool_schemas,
                 stream_callback=stream_callback,
+            )
+
+            StructuredLogger.end_span(
+                llm_span,
+                tokens_in=response.usage.prompt_tokens if response.usage else 0,
+                tokens_out=response.usage.completion_tokens if response.usage else 0,
+                status="ok",
             )
 
             # Record token usage
@@ -252,7 +268,9 @@ class Agent:
                             }
                         )
                 for tool_call in response.tool_calls:
+                    tool_span = StructuredLogger.start_span(trace, f"tool:{tool_call.name}")
                     result = await self._execute_tool_async(tool_call)
+                    StructuredLogger.end_span(tool_span, status="ok" if not result.is_error else "error")
                     if event_callback is not None:
                         event_callback(
                             {
@@ -274,6 +292,13 @@ class Agent:
 
             final_text = response.content or ""
             break
+
+        # Finalize and persist trace
+        StructuredLogger.end_trace(trace)
+        try:
+            TraceStorage().append(trace)
+        except (OSError, RuntimeError):
+            pass  # trace storage failure should not break chat
 
         return final_text
 
