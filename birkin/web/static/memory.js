@@ -173,33 +173,40 @@
     simRunning = true;
     let iter = 0;
     const maxIter = 300;
+    const MAX_VEL = 8; // clamp velocity to prevent explosion
 
     function step() {
       if (iter++ > maxIter || !simRunning) { simRunning = false; draw(); return; }
       const cx = (canvas.width / devicePixelRatio) / 2;
       const cy = (canvas.height / devicePixelRatio) / 2;
 
+      // Repulsion — capped force, softer at close range
       for (let i = 0; i < nodes.length; i++) {
         for (let j = i + 1; j < nodes.length; j++) {
           let dx = nodes[j].x - nodes[i].x, dy = nodes[j].y - nodes[i].y;
           let d = Math.sqrt(dx * dx + dy * dy) || 1;
-          let f = 2000 / (d * d);
+          let f = Math.min(500 / (d * d), 4); // capped repulsion
           nodes[i].vx -= dx / d * f; nodes[i].vy -= dy / d * f;
           nodes[j].vx += dx / d * f; nodes[j].vy += dy / d * f;
         }
       }
 
+      // Spring attraction along edges
       edges.forEach((e) => {
         let dx = e.target.x - e.source.x, dy = e.target.y - e.source.y;
         let d = Math.sqrt(dx * dx + dy * dy) || 1;
-        let f = (d - 80) * 0.02;
+        let f = (d - 100) * 0.01;
         e.source.vx += dx / d * f; e.source.vy += dy / d * f;
         e.target.vx -= dx / d * f; e.target.vy -= dy / d * f;
       });
 
+      // Center gravity + damping + velocity clamp
       nodes.forEach((n) => {
-        n.vx += (cx - n.x) * 0.005; n.vy += (cy - n.y) * 0.005;
-        n.vx *= 0.9; n.vy *= 0.9;
+        n.vx += (cx - n.x) * 0.01; n.vy += (cy - n.y) * 0.01;
+        n.vx *= 0.85; n.vy *= 0.85;
+        // Clamp velocity
+        n.vx = Math.max(-MAX_VEL, Math.min(MAX_VEL, n.vx));
+        n.vy = Math.max(-MAX_VEL, Math.min(MAX_VEL, n.vy));
         if (n !== drag?.node) { n.x += n.vx; n.y += n.vy; }
       });
       draw();

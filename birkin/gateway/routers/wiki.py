@@ -72,13 +72,17 @@ def wiki_graph() -> dict:
         content = wiki.get_page(cat, slug) or ""
         for m in wikilink_re.finditer(content):
             target = m.group(1).strip()
+            # Skip malformed targets (contains brackets, spaces-only, too short)
+            if not target or "[" in target or "]" in target or len(target) < 2:
+                continue
             referenced.add(target)
             edges.append({"source": slug, "target": target})
 
     orphans = list(all_slugs - referenced)
-    # Add nodes for broken link targets
+    # Add nodes for broken link targets (only valid-looking slugs)
     for ref in referenced - all_slugs:
-        nodes.append({"slug": ref, "category": "broken"})
+        if ref.replace("-", "").replace("_", "").isalnum():
+            nodes.append({"slug": ref, "category": "broken"})
 
     return {"nodes": nodes, "edges": edges, "orphans": orphans}
 
