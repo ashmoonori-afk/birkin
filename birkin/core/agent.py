@@ -25,7 +25,7 @@ logger = logging.getLogger(__name__)
 _executor = ThreadPoolExecutor(max_workers=4, thread_name_prefix="birkin-tool")
 
 _DEFAULT_MAX_TURNS = 20
-_COMPRESS_THRESHOLD = 20
+_COMPRESS_THRESHOLD = 12
 _KEEP_HEAD = 2
 _KEEP_TAIL = 16
 _CONTEXT_BUDGET_TOKENS = int(os.environ.get("BIRKIN_CONTEXT_BUDGET_TOKENS", "60000"))
@@ -487,46 +487,17 @@ class Agent:
         """Assemble the full message list including system prompt and memory."""
         prompt = self._system_prompt or ""
 
-        # Load session messages first (need last user message for relevance)
+        # Load session messages
         session_messages = self._session_store.get_messages(self._session.id)
         session_messages = self._compress_messages(session_messages, self._provider)
 
-        # Extract last user message for relevance-based memory injection
-        last_user_msg = ""
-        for m in reversed(session_messages):
-            if m.role == "user":
-                last_user_msg = m.content
-                break
-
-        # Smart context injection: relevance-scored pages instead of full dump
+        # 2-tier memory: compact index (always) + wiki_read tool (on-demand)
+        # Tier 1: title+tags index (~200t instead of ~5000t full dump)
+        # Tier 2: agent calls wiki_read tool when it needs full content
         if self._memory:
-            from birkin.core.context.injector import ContextInjector
-            from birkin.memory.semantic_search import SemanticSearch
-
-            # Prefer real embeddings when available, fallback to hash
-            try:
-                from birkin.memory.embeddings.encoder import SentenceTransformerEncoder
-
-                encoder = SentenceTransformerEncoder()
-                if not encoder.available:
-                    raise ImportError("model not available")
-            except (ImportError, OSError):
-                from birkin.memory.embeddings.encoder import SimpleHashEncoder
-
-                encoder = SimpleHashEncoder()
-
-            if last_user_msg:
-                search = SemanticSearch(self._memory, encoder)
-                search.index_all()
-                injector = ContextInjector(self._memory, search=search)
-                ctx = injector.build_context(last_user_msg, budget_tokens=2000, style="xml")
-                if ctx.system_addition:
-                    prompt = f"{prompt}\n\n{ctx.system_addition}"
-            else:
-                # No user message yet — fall back to compact index
-                memory_ctx = self._memory.build_context(max_pages=5)
-                if memory_ctx:
-                    prompt = f"{prompt}\n\n{memory_ctx}"
+            index = self._build_memory_index()
+            if index:
+                prompt = f"{prompt}\n\n{index}"
 
         msgs: list[Message] = []
         if prompt:
@@ -534,6 +505,46 @@ class Agent:
         msgs.extend(session_messages)
 
         return msgs
+
+    def _build_memory_index(self) -> str:
+        """Build a compact title+tags index of memory pages.
+
+        Returns ~200 tokens instead of ~5000 tokens (full page dump).
+        The agent uses the wiki_read tool to load full content on demand.
+        """
+        if not self._memory:
+            return ""
+        import re as _re
+
+        pages = self._memory.list_pages()
+        if not pages:
+            return ""
+
+        lines = [
+            "## Memory Index",
+            "Use the `wiki_read` tool to read full page content when needed.\n",
+        ]
+        for p in pages:
+            cat, slug = p["category"], p["slug"]
+            # Extract tags from frontmatter
+            content = self._memory.get_page(cat, slug) or ""
+            tags = ""
+            if content.startswith("---"):
+                end = content.find("---", 3)
+                if end != -1:
+                    fm = content[3:end]
+                    tm = _re.search(r"tags:\s*(.+)", fm)
+                    if tm:
+                        tags = f" [{tm.group(1).strip()}]"
+            # Extract first heading as title
+            title = slug
+            for line in content.splitlines():
+                if line.startswith("# "):
+                    title = line[2:].strip()[:60]
+                    break
+            lines.append(f"- {cat}/{slug}: {title}{tags}")
+
+        return "\n".join(lines)
 
     @staticmethod
     def _compress_messages(
