@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 from pathlib import Path
 from typing import Any, Optional
 
@@ -88,8 +89,6 @@ class SkillRegistry:
 
     @staticmethod
     def _config_path() -> Path:
-        import os
-
         return Path(os.environ.get("BIRKIN_CONFIG_PATH", "birkin_config.json"))
 
     def _load_disabled_set(self) -> set[str]:

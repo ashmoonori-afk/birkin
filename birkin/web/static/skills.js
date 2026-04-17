@@ -13,26 +13,32 @@
   }
 
   async function fetchSkills() {
+    const esc = window.birkin.esc;
     const list = document.getElementById("skills-list");
     try {
       const res = await fetch("/api/skills");
+      if (!res.ok) throw new Error(res.statusText);
       const skills = await res.json();
-      if (skills.length === 0) {
+      if (!Array.isArray(skills) || skills.length === 0) {
         list.innerHTML = '<div class="p2-empty"><div class="p2-empty-text">NO SKILLS INSTALLED</div></div>';
         return;
       }
-      list.innerHTML = skills.map(s => `
-        <div class="p2-card">
+      list.innerHTML = "";
+      skills.forEach(s => {
+        const card = document.createElement("div");
+        card.className = "p2-card";
+        card.innerHTML = `
           <div class="p2-card-header">
-            <span class="p2-card-title">${s.name}</span>
-            <div class="p2-toggle ${s.enabled ? "active" : ""}" data-skill="${s.name}" onclick="toggleSkill('${s.name}', ${!s.enabled})"></div>
+            <span class="p2-card-title">${esc(s.name)}</span>
+            <div class="p2-toggle ${s.enabled ? "active" : ""}" data-skill="${esc(s.name)}"></div>
           </div>
-          <div class="p2-card-body">${s.description}</div>
+          <div class="p2-card-body">${esc(s.description)}</div>
           <div class="p2-card-meta" style="margin-top:8px">
-            V${s.version} &middot; ${s.tool_count} TOOLS &middot; TRIGGERS: ${s.triggers.join(", ") || "NONE"}
-          </div>
-        </div>
-      `).join("");
+            V${esc(s.version)} &middot; ${s.tool_count} TOOLS &middot; TRIGGERS: ${esc(s.triggers.join(", ") || "NONE")}
+          </div>`;
+        card.querySelector(".p2-toggle").onclick = () => toggleSkill(s.name, !s.enabled);
+        list.appendChild(card);
+      });
     } catch (e) {
       list.innerHTML = '<div class="p2-empty"><div class="p2-empty-text">FAILED TO LOAD</div></div>';
     }
@@ -48,11 +54,12 @@
       if (!res.ok) {
         const err = await res.json().catch(() => ({}));
         alert(err.detail || "Failed to toggle skill");
+        return;
       }
+      fetchSkills();
     } catch {
       alert("Network error — failed to toggle skill");
     }
-    fetchSkills();
   };
 
   const observer = new MutationObserver(() => {

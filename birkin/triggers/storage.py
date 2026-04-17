@@ -20,13 +20,25 @@ CREATE TABLE IF NOT EXISTS triggers (
 
 
 class TriggerStore:
-    """SQLite-backed persistence for trigger configurations."""
+    """SQLite-backed persistence for trigger configurations.
+
+    Supports use as a context manager::
+
+        with TriggerStore() as store:
+            store.save(config)
+    """
 
     def __init__(self, db_path: Path | str = _DEFAULT_DB) -> None:
         self._conn = sqlite3.connect(str(db_path))
         self._conn.execute("PRAGMA journal_mode=WAL")
         self._conn.executescript(_SCHEMA)
         self._conn.commit()
+
+    def __enter__(self) -> "TriggerStore":
+        return self
+
+    def __exit__(self, *exc: object) -> None:
+        self.close()
 
     def save(self, config: TriggerConfig) -> None:
         self._conn.execute(

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 from typing import Any
 
 from fastapi import APIRouter, HTTPException
@@ -17,6 +18,8 @@ from birkin.triggers import (
     WebhookTrigger,
 )
 from birkin.triggers.storage import TriggerStore
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/triggers", tags=["triggers"])
 
@@ -122,13 +125,10 @@ async def create_trigger(body: CreateTriggerRequest) -> dict[str, Any]:
 
     # Persist to SQLite so trigger survives restart
     try:
-        store = TriggerStore()
-        store.save(config)
-        store.close()
+        with TriggerStore() as store:
+            store.save(config)
     except (OSError, RuntimeError) as exc:
-        import logging
-
-        logging.getLogger(__name__).warning("Failed to persist trigger: %s", exc)
+        logger.warning("Failed to persist trigger: %s", exc)
 
     return {
         "id": trigger.id,
@@ -166,13 +166,10 @@ async def delete_trigger(trigger_id: str) -> dict[str, str]:
 
     # Remove from SQLite so it doesn't reappear on restart
     try:
-        store = TriggerStore()
-        store.remove(trigger_id)
-        store.close()
+        with TriggerStore() as store:
+            store.remove(trigger_id)
     except (OSError, RuntimeError) as exc:
-        import logging
-
-        logging.getLogger(__name__).warning("Failed to remove trigger from DB: %s", exc)
+        logger.warning("Failed to remove trigger from DB: %s", exc)
 
     return {"status": "deleted", "id": trigger_id}
 

@@ -44,30 +44,42 @@
   }
 
   async function fetchTriggers() {
+    const esc = window.birkin.esc;
     const list = document.getElementById("trigger-list");
     try {
       const res = await fetch("/api/triggers");
+      if (!res.ok) throw new Error(res.statusText);
       const triggers = await res.json();
-      if (triggers.length === 0) {
+      if (!Array.isArray(triggers) || triggers.length === 0) {
         list.innerHTML = '<div class="p2-empty"><div class="p2-empty-text">NO TRIGGERS CONFIGURED</div></div>';
         return;
       }
-      list.innerHTML = triggers.map(t => `
-        <div class="p2-card">
+      list.innerHTML = "";
+      triggers.forEach(t => {
+        const card = document.createElement("div");
+        card.className = "p2-card";
+        card.innerHTML = `
           <div class="p2-card-header">
-            <span class="p2-card-title">${t.type.toUpperCase()}</span>
+            <span class="p2-card-title">${esc(t.type.toUpperCase())}</span>
             <span class="p2-badge ${t.running ? "p2-badge--ok" : ""}">${t.running ? "RUNNING" : "STOPPED"}</span>
           </div>
           <div class="p2-card-body">
-            <div class="p2-card-meta">WORKFLOW: ${t.workflow_id}</div>
-            <div class="p2-card-meta" style="margin-top:4px">CONFIG: ${JSON.stringify(t.config)}</div>
+            <div class="p2-card-meta">WORKFLOW: ${esc(t.workflow_id)}</div>
+            <div class="p2-card-meta" style="margin-top:4px">CONFIG: ${esc(JSON.stringify(t.config))}</div>
           </div>
-          <div style="margin-top:10px;display:flex;gap:8px">
-            <button class="p2-btn p2-btn--sm p2-btn--danger" onclick="deleteTrigger('${t.id}')">DELETE</button>
-            <button class="p2-btn p2-btn--sm" onclick="fireTrigger('${t.id}')">FIRE</button>
-          </div>
-        </div>
-      `).join("");
+          <div style="margin-top:10px;display:flex;gap:8px"></div>`;
+        const actions = card.querySelector("div:last-child");
+        const delBtn = document.createElement("button");
+        delBtn.className = "p2-btn p2-btn--sm p2-btn--danger";
+        delBtn.textContent = "DELETE";
+        delBtn.onclick = () => deleteTrigger(t.id);
+        const fireBtn = document.createElement("button");
+        fireBtn.className = "p2-btn p2-btn--sm";
+        fireBtn.textContent = "FIRE";
+        fireBtn.onclick = () => fireTrigger(t.id);
+        actions.append(delBtn, fireBtn);
+        list.appendChild(card);
+      });
     } catch (e) {
       list.innerHTML = '<div class="p2-empty"><div class="p2-empty-text">FAILED TO LOAD</div></div>';
     }
@@ -103,9 +115,9 @@
   window.deleteTrigger = async function (id) {
     try {
       const res = await fetch(`/api/triggers/${id}`, { method: "DELETE" });
-      if (!res.ok) { const err = await res.json().catch(() => ({})); alert(err.detail || "Failed to delete"); }
+      if (!res.ok) { const err = await res.json().catch(() => ({})); alert(err.detail || "Failed to delete"); return; }
+      fetchTriggers();
     } catch { alert("Network error"); }
-    fetchTriggers();
   };
 
   window.fireTrigger = async function (id) {

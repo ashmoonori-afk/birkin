@@ -5,6 +5,8 @@ from __future__ import annotations
 import asyncio
 import logging
 import os
+import re
+import unicodedata
 from concurrent.futures import ThreadPoolExecutor
 from typing import TYPE_CHECKING, Any, Callable, Optional
 
@@ -309,16 +311,8 @@ class Agent:
     def memory(self) -> Optional[WikiMemory]:
         return self._memory
 
-    @staticmethod
-    def _pick_category(user_input: str, response: str) -> str:
-        """Pick the best wiki category based on content heuristics.
-
-        Uses keyword signals to classify into entities, concepts, or sessions.
-        Fast path -- no LLM call required.
-        """
-        text = (user_input + " " + response).lower()
-
-        entity_signals = [
+    _ENTITY_SIGNALS = frozenset(
+        {
             "who is",
             "about ",
             "@",
@@ -331,7 +325,6 @@ class Agent:
             "ceo",
             "cto",
             "employee",
-            # Korean
             "누구",
             "회사",
             "팀",
@@ -341,8 +334,11 @@ class Agent:
             "설립",
             "대표",
             "에 대해",
-        ]
-        concept_signals = [
+        }
+    )
+
+    _CONCEPT_SIGNALS = frozenset(
+        {
             "how to",
             "pattern",
             "algorithm",
@@ -354,7 +350,6 @@ class Agent:
             "explain",
             "difference between",
             "best practice",
-            # Korean
             "방법",
             "패턴",
             "알고리즘",
@@ -366,10 +361,15 @@ class Agent:
             "차이",
             "하는 법",
             "어떻게",
-        ]
+        }
+    )
 
-        entity_score = sum(1 for s in entity_signals if s in text)
-        concept_score = sum(1 for s in concept_signals if s in text)
+    @staticmethod
+    def _pick_category(user_input: str, response: str) -> str:
+        """Pick the best wiki category based on content heuristics."""
+        text = (user_input + " " + response).lower()
+        entity_score = sum(1 for s in Agent._ENTITY_SIGNALS if s in text)
+        concept_score = sum(1 for s in Agent._CONCEPT_SIGNALS if s in text)
 
         if entity_score > concept_score and entity_score >= 1:
             return "entities"
@@ -384,9 +384,6 @@ class Agent:
         Extracts the first few meaningful words rather than using only timestamps.
         Supports Korean by romanizing key characters when no ASCII words are found.
         """
-        import re
-        import unicodedata
-
         # Try ASCII words first
         cleaned = re.sub(r"[^a-zA-Z0-9\s]", "", user_input.lower())
         words = cleaned.split()
@@ -565,7 +562,6 @@ class Agent:
         """
         if not self._memory:
             return ""
-        import re as _re
 
         pages = self._memory.list_pages()
         if not pages:
@@ -584,7 +580,7 @@ class Agent:
                 end = content.find("---", 3)
                 if end != -1:
                     fm = content[3:end]
-                    tm = _re.search(r"tags:\s*(.+)", fm)
+                    tm = re.search(r"tags:\s*(.+)", fm)
                     if tm:
                         tags = f" [{tm.group(1).strip()}]"
             # Extract first heading as title

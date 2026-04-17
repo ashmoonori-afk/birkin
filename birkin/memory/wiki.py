@@ -18,6 +18,19 @@ from birkin.core.defaults import DEFAULT_MEMORY_SCHEMA
 _WIKILINK_RE = re.compile(r"\[\[([^\]]+)\]\]")
 
 
+def _parse_frontmatter(content: str) -> tuple[str, str] | None:
+    """Extract frontmatter and body from markdown content.
+
+    Returns (frontmatter_text, body) or None if no valid frontmatter.
+    """
+    if not content.startswith("---"):
+        return None
+    end = content.find("---", 3)
+    if end == -1:
+        return None
+    return content[3:end], content[end + 3 :]
+
+
 class WikiMemory:
     """File-backed wiki memory with ingest, query, and lint operations.
 
@@ -258,41 +271,34 @@ class WikiMemory:
             content = page_path.read_text(encoding="utf-8")
             today = dt.datetime.now(dt.timezone.utc).strftime("%Y-%m-%d")
 
-            if not content.startswith("---"):
-                # Initialize frontmatter for pages that lack it
+            parsed = _parse_frontmatter(content)
+            if parsed is None:
                 content = f"---\nlast_referenced: {today}\nreference_count: 1\n---\n\n{content}"
                 page_path.write_text(content, encoding="utf-8")
                 return
 
-            end = content.find("---", 3)
-            if end == -1:
-                return
-            fm = content[3:end]
-            body = content[end + 3 :]
-            # Update or add last_referenced
+            fm, body = parsed
             if "last_referenced:" in fm:
                 fm = re.sub(r"last_referenced:.*", f"last_referenced: {today}", fm)
             else:
                 fm = fm.rstrip() + f"\nlast_referenced: {today}\n"
-            # Update or add reference_count
             match = re.search(r"reference_count:\s*(\d+)", fm)
             if match:
                 count = int(match.group(1)) + 1
                 fm = re.sub(r"reference_count:\s*\d+", f"reference_count: {count}", fm)
             else:
                 fm = fm.rstrip() + "\nreference_count: 1\n"
-            content = f"---{fm}---{body}"
-            page_path.write_text(content, encoding="utf-8")
+            page_path.write_text(f"---{fm}---{body}", encoding="utf-8")
 
     def get_page_confidence(self, category: str, slug: str) -> float:
         """Extract confidence score from page frontmatter. Default 0.5."""
         content = self.get_page(category, slug)
-        if not content or not content.startswith("---"):
+        if not content:
             return 0.5
-        end = content.find("---", 3)
-        if end == -1:
+        parsed = _parse_frontmatter(content)
+        if parsed is None:
             return 0.5
-        fm = content[3:end]
+        fm, _ = parsed
         match = re.search(r"confidence:\s*([\d.]+)", fm)
         return float(match.group(1)) if match else 0.5
 
@@ -354,23 +360,22 @@ class WikiMemory:
         ref_count = 1
         days_since = 0  # default: treat as new (no penalty)
 
-        if content.startswith("---"):
-            end = content.find("---", 3)
-            if end != -1:
-                fm = content[3:end]
-                cm = re.search(r"confidence:\s*([\d.]+)", fm)
-                if cm:
-                    confidence = float(cm.group(1))
-                rm = re.search(r"reference_count:\s*(\d+)", fm)
-                if rm:
-                    ref_count = int(rm.group(1))
-                lm = re.search(r"last_referenced:\s*(\S+)", fm)
-                if lm:
-                    try:
-                        last = dt.datetime.strptime(lm.group(1), "%Y-%m-%d")
-                        days_since = (dt.datetime.now() - last).days
-                    except ValueError:
-                        pass
+        parsed = _parse_frontmatter(content)
+        if parsed is not None:
+            fm, _ = parsed
+            cm = re.search(r"confidence:\s*([\d.]+)", fm)
+            if cm:
+                confidence = float(cm.group(1))
+            rm = re.search(r"reference_count:\s*(\d+)", fm)
+            if rm:
+                ref_count = int(rm.group(1))
+            lm = re.search(r"last_referenced:\s*(\S+)", fm)
+            if lm:
+                try:
+                    last = dt.datetime.strptime(lm.group(1), "%Y-%m-%d").replace(tzinfo=dt.timezone.utc)
+                    days_since = (dt.datetime.now(dt.timezone.utc) - last).days
+                except ValueError:
+                    pass
 
         time_decay = math.exp(-0.05 * days_since)  # ~20-day half-life
         return confidence * max(ref_count, 1) * time_decay
