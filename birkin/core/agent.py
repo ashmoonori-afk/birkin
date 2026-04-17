@@ -502,6 +502,20 @@ class Agent:
         msgs: list[Message] = []
         if prompt:
             msgs.append(Message(role="system", content=prompt))
+
+        # If resuming a session with history, add a context marker so the model
+        # knows this is a continuation and should answer the latest message directly.
+        if session_messages and len(session_messages) > 1:
+            msgs.append(
+                Message(
+                    role="system",
+                    content=(
+                        "[Continuing conversation. The messages below are prior context. "
+                        "Focus on answering the user's latest message substantively.]"
+                    ),
+                )
+            )
+
         msgs.extend(session_messages)
 
         return msgs

@@ -80,8 +80,8 @@ class LocalCLIProvider(Provider):
         """Run the CLI synchronously."""
         import subprocess
 
-        prompt = self._extract_prompt(messages)
-        cmd = self._build_command(prompt)
+        system, prompt = self._extract_prompt_parts(messages)
+        cmd = self._build_command(prompt, system=system)
 
         try:
             if stream_callback:
@@ -138,8 +138,8 @@ class LocalCLIProvider(Provider):
         stream_callback: Optional[Callable[[Optional[str]], None]] = None,
     ) -> ProviderResponse:
         """Async version — streams stdout chunks in real-time."""
-        prompt = self._extract_prompt(messages)
-        cmd = self._build_command(prompt)
+        system, prompt = self._extract_prompt_parts(messages)
+        cmd = self._build_command(prompt, system=system)
 
         try:
             proc = await asyncio.create_subprocess_exec(
@@ -186,39 +186,57 @@ class LocalCLIProvider(Provider):
         except asyncio.TimeoutError:
             raise ProviderError(f"{self._cli} timed out after 120 seconds", ProviderErrorKind.SERVER)
 
-    def _extract_prompt(self, messages: list[Message]) -> str:
-        """Build a full-context prompt for the CLI.
+    def _extract_prompt_parts(self, messages: list[Message]) -> tuple[str, str]:
+        """Extract system prompt and user prompt separately.
 
-        Includes system prompt, memory index, and conversation history
-        so the CLI has the same context as API providers. Truncates
-        older messages if total exceeds ~50k chars to keep CLI responsive.
+        Returns (system_prompt, user_prompt) so _build_command can pass them
+        as separate CLI flags (--append-system-prompt vs -p).
+
+        Conversation history goes into the system prompt so the CLI
+        doesn't confuse it with session management directives.
+        Only the latest user message goes into -p.
         """
-        parts: list[str] = []
         _MAX_CHARS = 50000
 
-        # Include system prompt (contains memory index)
+        # Collect system messages (skip session markers)
+        system_parts: list[str] = []
         for msg in messages:
-            if msg.role == "system":
-                parts.append(f"[System]\n{msg.content}\n")
-                break
+            if msg.role == "system" and not msg.content.startswith("[Continuing"):
+                system_parts.append(msg.content)
 
-        # Include conversation history (recent turns)
+        # Separate conversation history from the latest user message
         conv_msgs = [m for m in messages if m.role in ("user", "assistant") and m.content]
 
-        # If too long, keep first 2 + last 8 messages
-        if sum(len(m.content) for m in conv_msgs) > _MAX_CHARS:
-            conv_msgs = conv_msgs[:2] + conv_msgs[-8:]
+        if not conv_msgs:
+            return "\n".join(system_parts), ""
 
-        for msg in conv_msgs:
-            label = "User" if msg.role == "user" else "Assistant"
-            parts.append(f"[{label}]\n{msg.content}\n")
+        latest_user = conv_msgs[-1] if conv_msgs[-1].role == "user" else None
+        if not latest_user:
+            return "\n".join(system_parts), conv_msgs[-1].content
 
-        return "\n".join(parts) if parts else ""
+        history = conv_msgs[:-1]
 
-    def _build_command(self, prompt: str) -> list[str]:
-        """Build the CLI command."""
+        # Append conversation history to system prompt as context
+        if history:
+            if sum(len(m.content) for m in history) > _MAX_CHARS:
+                history = history[:2] + history[-6:]
+
+            history_lines = ["", "Conversation history (for reference):"]
+            for msg in history:
+                role = "User" if msg.role == "user" else "Assistant"
+                history_lines.append(f"{role}: {msg.content}")
+            system_parts.append("\n".join(history_lines))
+
+        # Only the latest user message goes to -p
+        return "\n".join(system_parts), latest_user.content
+
+    def _build_command(self, prompt: str, *, system: str = "") -> list[str]:
+        """Build the CLI command with separate system prompt."""
         if self._cli == "claude":
-            return [self._binary, "-p", prompt]
+            cmd = [self._binary, "-p", prompt]
+            if system:
+                cmd.extend(["--append-system-prompt", system])
+            return cmd
         elif self._cli == "codex":
             return [self._binary, "-q", prompt]
         else:

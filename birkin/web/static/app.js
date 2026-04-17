@@ -27,6 +27,31 @@ let sessionId = null;
 let currentConfig = {};
 let providersCache = null;
 
+/* ── Session Persistence Helpers ── */
+
+function setActiveSession(id) {
+  sessionId = id;
+  if (id) {
+    localStorage.setItem("birkin_active_session", id);
+    history.replaceState(null, "", `#session=${id}`);
+  } else {
+    localStorage.removeItem("birkin_active_session");
+    history.replaceState(null, "", window.location.pathname);
+  }
+}
+
+function getRestoredSessionId() {
+  const hash = window.location.hash.slice(1);
+  const params = new URLSearchParams(hash);
+  const hashId = params.get("session");
+  if (hashId) return hashId;
+  return localStorage.getItem("birkin_active_session") || null;
+}
+
+/* ── Session Message Cache ── */
+
+const sessionCache = new Map();
+
 /* ── Markdown Parser ── */
 
 function esc(s) {
@@ -196,6 +221,7 @@ async function sendMessageStream(text) {
 
   addBubble("user", text);
   input.value = ""; input.style.height = "auto";
+  sessionStorage.removeItem("birkin_draft");
   setLoading(true); showThinking();
 
   // Check active workflow — show apply banner
@@ -255,7 +281,7 @@ async function sendMessageStream(text) {
         try {
           const evt = JSON.parse(raw);
 
-          if (evt.session_id) { sessionId = evt.session_id; }
+          if (evt.session_id) { setActiveSession(evt.session_id); }
 
           // Forward all events to workflow visualizer
           if (window.birkin.workflow) window.birkin.workflow.onEvent(evt);
@@ -308,7 +334,11 @@ async function sendMessageStream(text) {
           if (evt.done) {
             removeWritingIndicator();
             accumulated = evt.reply || accumulated;
-            finalizeStreamBubble(bubble, accumulated);
+            if (!bubble && accumulated) {
+              addBubble("assistant", accumulated);
+            } else {
+              finalizeStreamBubble(bubble, accumulated);
+            }
             bubble = null;
           }
 
@@ -323,6 +353,7 @@ async function sendMessageStream(text) {
     // Safety: finalize any stuck streaming bubble
     if (bubble) finalizeStreamBubble(bubble, accumulated);
     removeThinkingIndicator(); removeWritingIndicator();
+    if (sessionId) sessionCache.delete(sessionId);
     loadSessions();
   } catch {
     hideThinking(); removeThinkingIndicator(); removeWritingIndicator();
@@ -389,17 +420,27 @@ async function loadSessions() {
   } catch { /* silent */ }
 }
 
+function renderSessionMessages(messages) {
+  chat.innerHTML = "";
+  (messages || []).forEach((m) => {
+    if (m.role === "user" || m.role === "assistant") addBubble(m.role, m.content);
+  });
+}
+
 async function switchSession(id) {
   try {
+    if (sessionCache.has(id)) {
+      setActiveSession(id);
+      renderSessionMessages(sessionCache.get(id));
+      loadSessions(); closeSidebar(); input.focus();
+      return;
+    }
     const res = await fetch(`/api/sessions/${id}`);
     if (!res.ok) return;
     const data = await res.json();
-    sessionId = id;
-    chat.innerHTML = "";
-    (data.messages || []).forEach((m) => {
-      // Skip tool/system messages — only render user + assistant
-      if (m.role === "user" || m.role === "assistant") addBubble(m.role, m.content);
-    });
+    sessionCache.set(id, data.messages || []);
+    setActiveSession(id);
+    renderSessionMessages(data.messages);
     loadSessions(); closeSidebar(); input.focus();
   } catch { /* */ }
 }
@@ -407,13 +448,14 @@ async function switchSession(id) {
 async function deleteSession(id) {
   try {
     await fetch(`/api/sessions/${id}`, { method: "DELETE" });
+    sessionCache.delete(id);
     if (id === sessionId) startNewChat();
     loadSessions();
   } catch { /* */ }
 }
 
 function startNewChat() {
-  sessionId = null; chat.innerHTML = "";
+  setActiveSession(null); chat.innerHTML = "";
   const w = document.createElement("div");
   w.className = "welcome"; w.id = "welcome";
   w.innerHTML = `
@@ -788,8 +830,21 @@ Object.assign(window.birkin, {
 });
 Object.defineProperty(window.birkin, "sessionId", {
   get() { return sessionId; },
-  set(v) { sessionId = v; },
+  set(v) { setActiveSession(v); },
 });
+
+/* ── Draft Message Backup ── */
+
+input.addEventListener("input", () => {
+  const val = input.value;
+  if (val) sessionStorage.setItem("birkin_draft", val);
+  else sessionStorage.removeItem("birkin_draft");
+});
+
+(() => {
+  const draft = sessionStorage.getItem("birkin_draft");
+  if (draft) { input.value = draft; sessionStorage.removeItem("birkin_draft"); }
+})();
 
 /* ── Auth Gate ── */
 
@@ -885,3 +940,12 @@ loadSessions();
 updateProviderBadge();
 checkAuth();
 checkOnboarding();
+
+/* ── Auto-restore last active session ── */
+const _restoreId = getRestoredSessionId();
+if (_restoreId) {
+  fetch(`/api/sessions/${_restoreId}`).then((r) => {
+    if (r.ok) switchSession(_restoreId);
+    else setActiveSession(null);
+  }).catch(() => setActiveSession(null));
+}
