@@ -34,11 +34,19 @@ def _build_agent(body: ChatRequest) -> Agent:
         except KeyError:
             raise HTTPException(status_code=404, detail="Session not found")
 
-    model_str = f"{body.provider}/{body.model}" if body.model else f"{body.provider}/default"
-    try:
-        provider = create_provider(model_str)
-    except (ValueError, TypeError) as exc:
-        raise HTTPException(status_code=400, detail=str(exc))
+    if body.provider == "auto" or not body.provider:
+        from birkin.gateway.deps import get_provider_router
+
+        router = get_provider_router()
+        provider = router.select(prefer="cost")
+        if provider is None:
+            raise HTTPException(status_code=400, detail="No provider available. Configure at least one API key.")
+    else:
+        model_str = f"{body.provider}/{body.model}" if body.model else f"{body.provider}/default"
+        try:
+            provider = create_provider(model_str)
+        except (ValueError, TypeError) as exc:
+            raise HTTPException(status_code=400, detail=str(exc))
 
     from birkin.gateway.deps import get_mcp_registry, get_skill_registry
 

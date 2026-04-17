@@ -180,3 +180,34 @@ def reset_mcp_registry() -> None:
     """Reset for testing."""
     global _mcp_registry  # noqa: PLW0603
     _mcp_registry = None
+
+
+# ---------------------------------------------------------------------------
+# ProviderRouter
+# ---------------------------------------------------------------------------
+
+_provider_router = None
+
+
+def get_provider_router():
+    """Return the global ProviderRouter, auto-registering available providers."""
+    global _provider_router  # noqa: PLW0603
+    if _provider_router is None:
+        from birkin.core.providers import create_provider
+        from birkin.core.providers.registry import ProviderRegistry, ProviderRouter
+
+        registry = ProviderRegistry()
+        for name in ["anthropic", "openai", "perplexity", "gemini", "ollama", "groq"]:
+            try:
+                p = create_provider(f"{name}/default")
+                registry.register(p)
+            except (ValueError, TypeError, KeyError, Exception):
+                pass  # provider not configured (no API key, etc.)
+        _provider_router = ProviderRouter(registry)
+    return _provider_router
+
+
+def reset_provider_router() -> None:
+    """Reset for testing."""
+    global _provider_router  # noqa: PLW0603
+    _provider_router = None
