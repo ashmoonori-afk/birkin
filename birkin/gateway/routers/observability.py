@@ -8,8 +8,8 @@ from typing import Any, Optional
 
 from fastapi import APIRouter, Query
 
+from birkin.gateway.deps import get_wiki_memory
 from birkin.gateway.observability.aggregator import MetricsAggregator
-from birkin.memory.wiki import WikiMemory
 from birkin.observability.storage import TraceStorage
 
 logger = logging.getLogger(__name__)
@@ -17,7 +17,6 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/observability", tags=["observability"])
 
 _aggregator: MetricsAggregator | None = None
-_wiki: WikiMemory | None = None
 
 
 def _get_aggregator() -> MetricsAggregator:
@@ -25,19 +24,6 @@ def _get_aggregator() -> MetricsAggregator:
     if _aggregator is None:
         _aggregator = MetricsAggregator(TraceStorage())
     return _aggregator
-
-
-def _get_wiki() -> WikiMemory:
-    global _wiki  # noqa: PLW0603
-    if _wiki is None:
-        _wiki = WikiMemory("memory")
-    return _wiki
-
-
-def set_wiki(wiki: WikiMemory) -> None:
-    """Override the wiki instance (used in tests)."""
-    global _wiki  # noqa: PLW0603
-    _wiki = wiki
 
 
 @router.get("/spend")
@@ -81,31 +67,41 @@ async def hero_metrics() -> dict[str, int]:
                     continue
                 for span in trace.spans:
                     attrs = span.attributes or {}
+                    # Count tokens_saved from compression spans
                     if attrs.get("compression") or "compress" in span.name.lower():
                         tokens_saved += attrs.get("tokens_saved", 0)
-    except Exception:
-        logger.debug("hero: could not compute tokens_saved", exc_info=True)
+                    # Estimate savings from context injection (tokens_in reduction)
+                    if "context" in span.name.lower() or "memory" in span.name.lower():
+                        tokens_saved += attrs.get("tokens_reduced", 0)
+    except (OSError, AttributeError, RuntimeError) as exc:
+        logger.warning("hero: could not compute tokens_saved: %s", exc)
 
-    # --- automations run (traces with workflow_id in last 7 days) ---
+    # --- automations run (workflow/trigger traces in last 7 days) ---
     automations_run = 0
     try:
         storage = _get_aggregator()._storage  # noqa: SLF001
         for sid in storage.list_sessions():
             for trace in storage.query(sid):
-                if trace.workflow_id:
+                # Count traces that have workflow_id OR contain workflow/trigger spans
+                if getattr(trace, "workflow_id", None):
                     automations_run += 1
-    except Exception:
-        logger.debug("hero: could not compute automations_run", exc_info=True)
+                    continue
+                for span in trace.spans:
+                    if "workflow" in span.name.lower() or "trigger" in span.name.lower():
+                        automations_run += 1
+                        break
+    except (OSError, AttributeError, RuntimeError) as exc:
+        logger.warning("hero: could not compute automations_run: %s", exc)
 
     # --- memory pages ---
     memory_total = 0
     memory_delta = 0
     try:
-        wiki = _get_wiki()
+        wiki = get_wiki_memory()
         memory_total = wiki.page_count()
         memory_delta = wiki.pages_created_since(week_ago)
-    except Exception:
-        logger.debug("hero: could not compute memory metrics", exc_info=True)
+    except (OSError, AttributeError, RuntimeError) as exc:
+        logger.warning("hero: could not compute memory metrics: %s", exc)
 
     return {
         "tokens_saved_this_week": tokens_saved,

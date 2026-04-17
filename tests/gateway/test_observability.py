@@ -8,7 +8,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from birkin.gateway.app import create_app
-from birkin.gateway.routers.observability import set_wiki
+from birkin.gateway.deps import set_wiki_memory
 from birkin.memory.wiki import WikiMemory
 
 
@@ -22,10 +22,10 @@ def wiki(tmp_path):
 
 @pytest.fixture()
 def client(wiki):
-    set_wiki(wiki)
+    set_wiki_memory(wiki)
     app = create_app()
     yield TestClient(app)
-    set_wiki(None)  # type: ignore[arg-type]
+    set_wiki_memory(None)  # type: ignore[arg-type]
 
 
 class TestHeroReturnsStructure:

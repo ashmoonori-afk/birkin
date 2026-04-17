@@ -50,15 +50,20 @@ def _get_scheduler() -> TriggerScheduler:
                 provider_name = config.config.get("provider", cfg.get("provider", "anthropic"))
                 provider = create_provider(f"{provider_name}/default")
 
-                from birkin.gateway.workflows import WORKFLOWS
+                from birkin.gateway.workflows import load_workflows
 
-                workflow = next((w for w in WORKFLOWS if w.get("id") == workflow_id), None)
+                wf_data = load_workflows()
+                workflow = next(
+                    (w for w in wf_data["saved"] + wf_data["samples"] if w.get("id") == workflow_id),
+                    None,
+                )
                 if workflow is None:
                     _logger.error("Trigger %s: workflow %s not found", config.id, workflow_id)
                     return
 
-                engine = WorkflowEngine(provider=provider, memory=get_wiki_memory())
-                result = await engine.execute(workflow, input_text=f"Triggered by {config.type}")
+                engine = WorkflowEngine(provider=provider, wiki_memory=get_wiki_memory())
+                engine.load(workflow)
+                result = await engine.run(f"Triggered by {config.type}")
                 _logger.info(
                     "Trigger %s → workflow %s completed: %s", config.id, workflow_id, result[:100] if result else "ok"
                 )

@@ -58,7 +58,7 @@ def get_wiki_memory() -> WikiMemory:
     """Return the global WikiMemory, creating it lazily."""
     global _wiki_memory  # noqa: PLW0603
     if _wiki_memory is None:
-        _wiki_memory = WikiMemory(root=Path("./memory"))
+        _wiki_memory = WikiMemory(root=Path(os.environ.get("BIRKIN_MEMORY_DIR", "./memory")))
         _wiki_memory.init()
     return _wiki_memory
 

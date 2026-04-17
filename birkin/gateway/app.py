@@ -99,6 +99,22 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     # Daily memory compilation + session cleanup (runs at 3 AM)
     asyncio.create_task(_daily_memory_loop())
 
+    # Hydrate trigger scheduler with persisted triggers
+    try:
+        from birkin.gateway.routers.triggers import _get_scheduler
+        from birkin.triggers.storage import TriggerStore
+
+        trigger_store = TriggerStore()
+        active_triggers = trigger_store.load_all_active()
+        if active_triggers:
+            scheduler = _get_scheduler()
+            for cfg in active_triggers:
+                await scheduler.add(cfg)
+            logger.info("Loaded %d active triggers from storage", len(active_triggers))
+        trigger_store.close()
+    except (OSError, RuntimeError, ValueError, ImportError) as exc:
+        logger.warning("Failed to load persisted triggers: %s", exc)
+
     yield
 
     # ── Shutdown ──
