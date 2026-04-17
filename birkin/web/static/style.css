@@ -453,6 +453,9 @@ html, body {
   color: var(--text-dim);
   animation: pulse-think 1.5s ease-in-out infinite;
 }
+.thinking-indicator.writing {
+  color: var(--ok);
+}
 @keyframes pulse-think {
   0%, 100% { opacity: 0.3; }
   50% { opacity: 1; }

@@ -125,6 +125,17 @@ function createThinkingIndicator() {
 }
 function removeThinkingIndicator() { const el = $("agent-thinking"); if (el) el.remove(); }
 
+function showWritingIndicator() {
+  removeWritingIndicator();
+  const el = document.createElement("div");
+  el.className = "thinking-indicator writing";
+  el.id = "agent-writing";
+  el.textContent = t("writing");
+  chat.appendChild(el);
+  chat.scrollTop = chat.scrollHeight;
+}
+function removeWritingIndicator() { const el = $("agent-writing"); if (el) el.remove(); }
+
 function createToolCallBlock(name, inputData) {
   if (welcome && welcome.parentNode) welcome.remove();
   const el = document.createElement("div");
@@ -221,9 +232,10 @@ async function sendMessageStream(text) {
       return;
     }
 
-    hideThinking();
+    // Keep thinking until first content arrives
     let bubble = null;
     let accumulated = "";
+    let firstContentReceived = false;
 
     const reader = res.body.getReader();
     const decoder = new TextDecoder();
@@ -268,10 +280,15 @@ async function sendMessageStream(text) {
             showThinking();
           }
 
-          if (evt.thinking === true) { removeThinkingIndicator(); createThinkingIndicator(); }
+          if (evt.thinking === true) {
+            if (!firstContentReceived) { hideThinking(); firstContentReceived = true; }
+            removeThinkingIndicator();
+            createThinkingIndicator();
+          }
           if (evt.thinking === false) { removeThinkingIndicator(); }
 
           if (evt.tool_call) {
+            if (!firstContentReceived) { hideThinking(); firstContentReceived = true; }
             removeThinkingIndicator();
             currentToolBlock = createToolCallBlock(evt.tool_call.name, evt.tool_call.input);
           }
@@ -281,13 +298,15 @@ async function sendMessageStream(text) {
           }
 
           if (evt.delta) {
-            if (!bubble) bubble = createStreamBubble();
+            if (!firstContentReceived) { hideThinking(); removeThinkingIndicator(); showWritingIndicator(); firstContentReceived = true; }
+            if (!bubble) { removeWritingIndicator(); bubble = createStreamBubble(); }
             accumulated += evt.delta;
             bubble.innerHTML = md(accumulated) + '<span class="cursor">|</span>';
             requestAnimationFrame(() => { chat.scrollTop = chat.scrollHeight; });
           }
 
           if (evt.done) {
+            removeWritingIndicator();
             accumulated = evt.reply || accumulated;
             finalizeStreamBubble(bubble, accumulated);
             bubble = null;
@@ -303,10 +322,10 @@ async function sendMessageStream(text) {
 
     // Safety: finalize any stuck streaming bubble
     if (bubble) finalizeStreamBubble(bubble, accumulated);
-    removeThinkingIndicator();
+    removeThinkingIndicator(); removeWritingIndicator();
     loadSessions();
   } catch {
-    hideThinking(); removeThinkingIndicator();
+    hideThinking(); removeThinkingIndicator(); removeWritingIndicator();
     addBubble("error", t("network_error"));
   } finally { setLoading(false); input.focus(); }
 }
