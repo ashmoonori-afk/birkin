@@ -45,8 +45,13 @@ class SemanticSearch:
         return self._store.count()
 
     def index_all(self) -> int:
-        """Index all wiki pages. Returns count of pages indexed."""
+        """Index all wiki pages. Skips re-indexing if page count unchanged."""
         pages = self._memory.list_pages()
+        current_count = len(pages)
+
+        if current_count == self._store.count() and self._store.count() > 0:
+            return self._store.count()  # skip — already indexed
+
         count = 0
         for page in pages:
             content = self._memory.get_page(page["category"], page["slug"])
