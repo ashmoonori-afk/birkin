@@ -10,6 +10,7 @@ from typing import TYPE_CHECKING, Any, Callable, Optional
 
 from birkin.core.compression import summarize_or_cache
 from birkin.core.defaults import DEFAULT_SYSTEM_PROMPT
+from birkin.core.errors import BirkinError
 from birkin.core.models import Message, ToolCall, ToolResult
 from birkin.core.providers.base import Provider
 from birkin.core.session import Session, SessionStore
@@ -122,7 +123,9 @@ class Agent:
         user_msg = Message(role="user", content=user_input)
         self._session_store.append_message(self._session.id, user_msg)
 
-        return self._run_loop(stream_callback=callback)
+        result = self._run_loop(stream_callback=callback)
+        self._auto_save_memory(user_input, result)
+        return result
 
     async def astream(
         self,
@@ -328,6 +331,16 @@ class Agent:
             "ceo",
             "cto",
             "employee",
+            # Korean
+            "누구",
+            "회사",
+            "팀",
+            "사람",
+            "조직",
+            "프로젝트",
+            "설립",
+            "대표",
+            "에 대해",
         ]
         concept_signals = [
             "how to",
@@ -341,14 +354,26 @@ class Agent:
             "explain",
             "difference between",
             "best practice",
+            # Korean
+            "방법",
+            "패턴",
+            "알고리즘",
+            "개념",
+            "아키텍처",
+            "설계",
+            "원리",
+            "설명",
+            "차이",
+            "하는 법",
+            "어떻게",
         ]
 
         entity_score = sum(1 for s in entity_signals if s in text)
         concept_score = sum(1 for s in concept_signals if s in text)
 
-        if entity_score > concept_score and entity_score >= 2:
+        if entity_score > concept_score and entity_score >= 1:
             return "entities"
-        elif concept_score > entity_score and concept_score >= 2:
+        elif concept_score > entity_score and concept_score >= 1:
             return "concepts"
         return "sessions"
 
@@ -357,14 +382,15 @@ class Agent:
         """Generate a meaningful slug from user input.
 
         Extracts the first few meaningful words rather than using only timestamps.
+        Supports Korean by romanizing key characters when no ASCII words are found.
         """
         import re
+        import unicodedata
 
-        # Remove special characters and normalize whitespace
+        # Try ASCII words first
         cleaned = re.sub(r"[^a-zA-Z0-9\s]", "", user_input.lower())
         words = cleaned.split()
 
-        # Filter out very short / stopword-like tokens
         stopwords = frozenset(
             {"a", "an", "the", "is", "are", "was", "were", "be", "to", "of", "and", "or", "in", "on", "it", "i", "my"}
         )
@@ -374,7 +400,20 @@ class Agent:
             slug_words = meaningful[:4]
             slug_base = "-".join(slug_words)
         else:
-            slug_base = "chat"
+            # Fallback: extract Korean/CJK tokens and transliterate to ASCII
+            # Use Unicode normalization to decompose Hangul jamo
+            nfkd = unicodedata.normalize("NFKD", user_input)
+            ascii_chars = nfkd.encode("ascii", "ignore").decode("ascii").strip()
+            ascii_words = [w for w in re.sub(r"[^a-z0-9\s]", "", ascii_chars.lower()).split() if len(w) > 1]
+            if ascii_words:
+                slug_base = "-".join(ascii_words[:4])
+            else:
+                # Last resort: use first few Korean syllables as hex-safe identifier
+                korean_chars = re.findall(r"[\uAC00-\uD7A3]", user_input)
+                if korean_chars:
+                    slug_base = "-".join(f"k{ord(c):x}" for c in korean_chars[:4])
+                else:
+                    slug_base = "chat"
 
         # Append short session id to ensure uniqueness
         return f"{slug_base}-{session_id[:6]}"
@@ -431,7 +470,7 @@ class Agent:
         category = self._pick_category(user_input, response)
         if category == "sessions":
             # Only save sessions that are substantive (long enough response)
-            return len(response.strip()) >= 200
+            return len(response.strip()) >= 100
 
         return True
 
@@ -480,7 +519,7 @@ class Agent:
             )
             self._memory.ingest(category, slug, content)
             self._memory.auto_link()
-        except (OSError, ValueError, TypeError) as exc:
+        except (OSError, ValueError, TypeError, BirkinError) as exc:
             logger.warning("Auto-save memory failed: %s", exc, exc_info=True)
 
     def _build_messages(self) -> list[Message]:

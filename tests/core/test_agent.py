@@ -81,13 +81,19 @@ class TestPickCategory:
     def test_default_sessions(self):
         assert Agent._pick_category("hello there", "hi!") == "sessions"
 
-    def test_entity_needs_two_signals(self):
-        # Only one signal should not trigger entity
-        assert Agent._pick_category("company overview", "plain reply") == "sessions"
+    def test_entity_single_signal(self):
+        # Single signal now triggers entity (threshold lowered to 1 for Korean support)
+        assert Agent._pick_category("company overview", "plain reply") == "entities"
 
-    def test_concept_needs_two_signals(self):
-        # Only one signal should not trigger concept
-        assert Agent._pick_category("pattern", "ok") == "sessions"
+    def test_concept_single_signal(self):
+        # Single signal now triggers concept (threshold lowered to 1 for Korean support)
+        assert Agent._pick_category("pattern", "ok") == "concepts"
+
+    def test_korean_entity_signals(self):
+        assert Agent._pick_category("이 회사에 대해 알려줘", "삼성전자는...") == "entities"
+
+    def test_korean_concept_signals(self):
+        assert Agent._pick_category("트랜스포머 원리 설명해줘", "트랜스포머는...") == "concepts"
 
 
 class TestMakeSlug:

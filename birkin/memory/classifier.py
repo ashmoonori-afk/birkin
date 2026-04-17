@@ -11,6 +11,7 @@ import json
 import logging
 from typing import Any, Optional
 
+from birkin.core.errors import BirkinError
 from birkin.core.models import Message
 from birkin.core.providers.base import Provider
 
@@ -96,7 +97,7 @@ class MemoryClassifier:
         except (json.JSONDecodeError, TypeError) as exc:
             logger.debug("Classifier JSON parse failed: %s", exc)
             return None
-        except (ConnectionError, TimeoutError, RuntimeError, ValueError) as exc:
+        except (ConnectionError, TimeoutError, RuntimeError, ValueError, BirkinError) as exc:
             logger.debug("Classifier provider call failed: %s", exc)
             return None
 
