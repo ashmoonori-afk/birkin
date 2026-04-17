@@ -93,6 +93,14 @@ function md(text) {
 
 /* ── Chat Helpers ── */
 
+function isNearBottom() {
+  return chat.scrollHeight - chat.scrollTop - chat.clientHeight < 150;
+}
+
+function scrollToBottom() {
+  if (isNearBottom()) requestAnimationFrame(() => { scrollToBottom(); });
+}
+
 function addBubble(role, text) {
   if (welcome && welcome.parentNode) welcome.remove();
   const el = document.createElement("div");
@@ -103,7 +111,9 @@ function addBubble(role, text) {
     el.textContent = text;
   }
   chat.appendChild(el);
-  requestAnimationFrame(() => { chat.scrollTop = chat.scrollHeight; });
+  // User messages always force scroll; assistant messages respect scroll-lock
+  if (role === "user") requestAnimationFrame(() => { chat.scrollTop = chat.scrollHeight; });
+  else scrollToBottom();
   return el;
 }
 
@@ -112,9 +122,9 @@ function createStreamBubble() {
   const el = document.createElement("div");
   el.className = "bubble assistant streaming";
   el.dataset.streaming = "1";
-  el.innerHTML = '<span class="cursor">|</span>';
+  el.innerHTML = '<span class="cursor" aria-hidden="true">|</span>';
   chat.appendChild(el);
-  requestAnimationFrame(() => { chat.scrollTop = chat.scrollHeight; });
+  scrollToBottom();
   return el;
 }
 
@@ -128,16 +138,17 @@ function finalizeStreamBubble(bubble, text) {
   if (!bubble.textContent.trim() && text && text.trim()) {
     bubble.textContent = text;
   }
-  requestAnimationFrame(() => { chat.scrollTop = chat.scrollHeight; });
+  scrollToBottom();
 }
 
 function showThinking() {
   const el = document.createElement("div");
   el.className = "thinking"; el.id = "thinking";
   el.setAttribute("role", "status");
-  el.innerHTML = "<span></span><span></span><span></span>";
+  el.setAttribute("aria-label", "Loading");
+  el.innerHTML = '<span aria-hidden="true"></span><span aria-hidden="true"></span><span aria-hidden="true"></span>';
   chat.appendChild(el);
-  chat.scrollTop = chat.scrollHeight;
+  scrollToBottom();
 }
 function hideThinking() { const el = $("thinking"); if (el) el.remove(); }
 function setLoading(on) { sendBtn.disabled = on; input.disabled = on; }
@@ -148,9 +159,11 @@ function createThinkingIndicator() {
   const el = document.createElement("div");
   el.className = "thinking-indicator";
   el.id = "agent-thinking";
+  el.setAttribute("role", "status");
+  el.setAttribute("aria-live", "polite");
   el.textContent = t("reasoning");
   chat.appendChild(el);
-  chat.scrollTop = chat.scrollHeight;
+  scrollToBottom();
   return el;
 }
 function removeThinkingIndicator() { const el = $("agent-thinking"); if (el) el.remove(); }
@@ -160,9 +173,11 @@ function showWritingIndicator() {
   const el = document.createElement("div");
   el.className = "thinking-indicator writing";
   el.id = "agent-writing";
+  el.setAttribute("role", "status");
+  el.setAttribute("aria-live", "polite");
   el.textContent = t("writing");
   chat.appendChild(el);
-  chat.scrollTop = chat.scrollHeight;
+  scrollToBottom();
 }
 function removeWritingIndicator() { const el = $("agent-writing"); if (el) el.remove(); }
 
@@ -176,7 +191,7 @@ function createToolCallBlock(name, inputData) {
     <details><summary>${t("tool_input")}</summary><pre>${esc(JSON.stringify(inputData, null, 2))}</pre></details>
   `;
   chat.appendChild(el);
-  chat.scrollTop = chat.scrollHeight;
+  scrollToBottom();
   return el;
 }
 
@@ -188,7 +203,7 @@ function appendToolResult(parentEl, name, output, isError) {
     <details><summary>${esc(name)}</summary><pre>${esc(output)}</pre></details>
   `;
   parentEl.appendChild(el);
-  chat.scrollTop = chat.scrollHeight;
+  scrollToBottom();
 }
 
 /* ── @memory search command ── */
@@ -301,7 +316,7 @@ async function sendMessageStream(text) {
               el.className = "tool-call";
               el.innerHTML = `<div class="tool-call-label">${status} ${esc(step.type)}</div>`;
               chat.appendChild(el);
-              requestAnimationFrame(() => { chat.scrollTop = chat.scrollHeight; });
+              requestAnimationFrame(() => { scrollToBottom(); });
             }
           }
 
@@ -330,10 +345,17 @@ async function sendMessageStream(text) {
 
           if (evt.delta) {
             if (!firstContentReceived) { hideThinking(); removeThinkingIndicator(); showWritingIndicator(); firstContentReceived = true; }
-            if (!bubble) { removeWritingIndicator(); bubble = createStreamBubble(); }
+            if (!bubble) { removeWritingIndicator(); bubble = createStreamBubble(); bubble._rafPending = false; }
             accumulated += evt.delta;
-            bubble.innerHTML = md(accumulated) + '<span class="cursor">|</span>';
-            requestAnimationFrame(() => { chat.scrollTop = chat.scrollHeight; });
+            // Throttle md() rendering: at most once per animation frame
+            if (!bubble._rafPending) {
+              bubble._rafPending = true;
+              requestAnimationFrame(() => {
+                bubble.innerHTML = md(accumulated) + '<span class="cursor" aria-hidden="true">|</span>';
+                scrollToBottom();
+                bubble._rafPending = false;
+              });
+            }
           }
 
           if (evt.done) {
@@ -362,7 +384,16 @@ async function sendMessageStream(text) {
     loadSessions();
   } catch {
     hideThinking(); removeThinkingIndicator(); removeWritingIndicator();
-    addBubble("error", t("network_error"));
+    // Preserve partial response if available
+    if (bubble && accumulated) {
+      finalizeStreamBubble(bubble, accumulated);
+    }
+    const retryEl = document.createElement("div");
+    retryEl.className = "bubble error";
+    retryEl.innerHTML = `${esc(t("network_error"))} <button class="retry-btn" type="button">${t("retry") || "Retry"}</button>`;
+    chat.appendChild(retryEl);
+    retryEl.querySelector(".retry-btn").onclick = () => { retryEl.remove(); sendMessageStream(text); };
+    requestAnimationFrame(() => { scrollToBottom(); });
   } finally { setLoading(false); input.focus(); }
 }
 
@@ -385,7 +416,7 @@ async function showActiveWorkflowBanner(workflowId) {
     <button class="wf-active-dismiss" id="wf-ab-dismiss">\u2715</button>
   `;
   chat.appendChild(banner);
-  chat.scrollTop = chat.scrollHeight;
+  scrollToBottom();
 
   banner.querySelector("#wf-ab-view").onclick = () => { banner.remove(); switchView("workflow"); };
   banner.querySelector("#wf-ab-off").onclick = async () => {
@@ -800,7 +831,7 @@ function appendSystemNotice(text) {
   el.className = "msg system-notice";
   el.textContent = text;
   chat.appendChild(el);
-  chat.scrollTop = chat.scrollHeight;
+  scrollToBottom();
 }
 
 /* ── View Router ── */

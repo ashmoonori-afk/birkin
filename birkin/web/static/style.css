@@ -345,6 +345,21 @@ html, body {
   font-size: 0.85rem;
 }
 
+.retry-btn {
+  margin-left: 12px;
+  padding: 4px 12px;
+  border: 1px solid var(--danger-border);
+  border-radius: var(--radius-btn);
+  background: transparent;
+  color: var(--danger);
+  font-family: var(--font);
+  font-size: 0.8rem;
+  cursor: pointer;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+.retry-btn:hover { background: var(--danger-bg); }
+
 /* ── Thinking indicator ── */
 
 .thinking {
@@ -364,6 +379,10 @@ html, body {
 @keyframes dot-blink {
   0%, 80%, 100% { opacity: 0.25; }
   40% { opacity: 1; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .thinking span, .bubble.streaming .cursor { animation: none; }
 }
 
 /* ── Streaming cursor ── */

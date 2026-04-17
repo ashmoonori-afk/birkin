@@ -78,15 +78,30 @@ def _build_agent(body: ChatRequest) -> Agent:
 
 
 async def _drain_queue(queue: asyncio.Queue, task: asyncio.Task) -> AsyncGenerator[str, None]:
-    """Drain an asyncio queue while a task is running, yielding SSE data lines."""
+    """Drain an asyncio queue while a task is running, yielding SSE data lines.
+
+    Blocks on queue.get() instead of polling with a timeout, so events
+    are forwarded with zero artificial delay and no risk of loss.
+    """
     while True:
         if task.done() and queue.empty():
             break
-        try:
-            evt = await asyncio.wait_for(queue.get(), timeout=0.05)
+        # Create a waiter for the next queue item
+        get_task = asyncio.ensure_future(queue.get())
+        # Wait until either an item arrives or the agent task finishes
+        done_set, _ = await asyncio.wait([get_task, task], return_when=asyncio.FIRST_COMPLETED)
+        if get_task in done_set:
+            evt = get_task.result()
             yield f"data: {json.dumps(evt)}\n\n"
-        except asyncio.TimeoutError:
-            continue
+        else:
+            # Agent task finished — cancel the pending get and drain remaining
+            get_task.cancel()
+            break
+
+    # Drain any remaining events left in the queue after task completion
+    while not queue.empty():
+        evt = queue.get_nowait()
+        yield f"data: {json.dumps(evt)}\n\n"
 
 
 @router.post("/chat", response_model=ChatResponse)
