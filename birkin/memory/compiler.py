@@ -131,6 +131,28 @@ class MemoryCompiler:
                                 "context": content[:100],
                             })
 
+        # Korean proper noun extraction (optional kiwipiepy)
+        try:
+            from kiwipiepy import Kiwi
+
+            kiwi = Kiwi()
+            for event in events:
+                content = event.payload.get("content", "")
+                if not content or len(content) < 10:
+                    continue
+                for token in kiwi.tokenize(content):
+                    if token.tag == "NNP" and len(token.form) >= 2:
+                        name = token.form
+                        if name not in seen:
+                            seen.add(name)
+                            entities.append({
+                                "name": name,
+                                "category": "entities",
+                                "context": content[:100],
+                            })
+        except ImportError:
+            pass  # kiwipiepy not installed — skip Korean NER
+
         return entities
 
     def compile_daily(self, date_str: str) -> CompileResult:

@@ -228,6 +228,51 @@ class WikiMemory:
                 pages.append({"category": category, "slug": md_file.stem})
         return pages
 
+    def touch_page(self, category: str, slug: str) -> None:
+        """Bump reference_count and last_referenced for a page.
+
+        Called when a page is included in build_context or read via wiki_read.
+        """
+        page_path = self.wiki_dir / category / f"{slug}.md"
+        if not page_path.is_file():
+            return
+        content = page_path.read_text(encoding="utf-8")
+        today = dt.datetime.now(dt.timezone.utc).strftime("%Y-%m-%d")
+
+        if content.startswith("---"):
+            end = content.find("---", 3)
+            if end != -1:
+                fm = content[3:end]
+                body = content[end + 3:]
+                # Update or add last_referenced
+                if "last_referenced:" in fm:
+                    fm = re.sub(r"last_referenced:.*", f"last_referenced: {today}", fm)
+                else:
+                    fm = fm.rstrip() + f"\nlast_referenced: {today}\n"
+                # Update or add reference_count
+                import re as _re
+
+                match = _re.search(r"reference_count:\s*(\d+)", fm)
+                if match:
+                    count = int(match.group(1)) + 1
+                    fm = _re.sub(r"reference_count:\s*\d+", f"reference_count: {count}", fm)
+                else:
+                    fm = fm.rstrip() + "\nreference_count: 1\n"
+                content = f"---{fm}---{body}"
+                page_path.write_text(content, encoding="utf-8")
+
+    def get_page_confidence(self, category: str, slug: str) -> float:
+        """Extract confidence score from page frontmatter. Default 0.5."""
+        content = self.get_page(category, slug)
+        if not content or not content.startswith("---"):
+            return 0.5
+        end = content.find("---", 3)
+        if end == -1:
+            return 0.5
+        fm = content[3:end]
+        match = re.search(r"confidence:\s*([\d.]+)", fm)
+        return float(match.group(1)) if match else 0.5
+
     def delete_page(self, category: str, slug: str) -> bool:
         """Remove a wiki page. Returns True if it existed."""
         with self._lock:
@@ -273,11 +318,45 @@ class WikiMemory:
     # Context builder (for injection into system prompt)
     # ------------------------------------------------------------------
 
+    def _decay_score(self, page_path: Path) -> float:
+        """Compute decay score: confidence * reference_count * time_decay.
+
+        Pages that are high-confidence, frequently referenced, and recently
+        touched rank highest. Unreferenced old pages naturally fade.
+        """
+        import math
+
+        content = page_path.read_text(encoding="utf-8")
+        confidence = 0.5
+        ref_count = 1
+        days_since = 7  # default if no metadata
+
+        if content.startswith("---"):
+            end = content.find("---", 3)
+            if end != -1:
+                fm = content[3:end]
+                cm = re.search(r"confidence:\s*([\d.]+)", fm)
+                if cm:
+                    confidence = float(cm.group(1))
+                rm = re.search(r"reference_count:\s*(\d+)", fm)
+                if rm:
+                    ref_count = int(rm.group(1))
+                lm = re.search(r"last_referenced:\s*(\S+)", fm)
+                if lm:
+                    try:
+                        last = dt.datetime.strptime(lm.group(1), "%Y-%m-%d")
+                        days_since = (dt.datetime.now() - last).days
+                    except ValueError:
+                        pass
+
+        time_decay = math.exp(-0.05 * days_since)  # ~20-day half-life
+        return confidence * max(ref_count, 1) * time_decay
+
     def build_context(self, max_pages: int = 10) -> str:
         """Build a concise memory context string for system prompt injection.
 
-        Reads up to *max_pages* most recently modified pages and returns
-        them as a single string block suitable for appending to a system prompt.
+        Ranks pages by decay score (confidence * references * time_decay)
+        instead of simple recency. Returns top N as a string block.
         """
         if not self.wiki_dir.is_dir():
             return ""
@@ -288,12 +367,13 @@ class WikiMemory:
             if not cat_dir.is_dir():
                 continue
             for md_file in cat_dir.glob("*.md"):
-                pages.append((md_file.stat().st_mtime, md_file))
+                score = self._decay_score(md_file)
+                pages.append((score, md_file))
 
         if not pages:
             return ""
 
-        # Sort by most recently modified, take top N
+        # Sort by decay score (highest first), take top N
         pages.sort(key=lambda x: x[0], reverse=True)
         selected = pages[:max_pages]
 
@@ -301,7 +381,6 @@ class WikiMemory:
         for _, page_path in selected:
             rel = page_path.relative_to(self.wiki_dir)
             text = page_path.read_text(encoding="utf-8").strip()
-            # Truncate very long pages
             if len(text) > 2000:
                 text = text[:2000] + "\n[...truncated]"
             sections.append(f"### {rel}\n{text}\n")
@@ -337,31 +416,63 @@ class WikiMemory:
         index_path = self.wiki_dir / "index.md"
         index_path.write_text("\n".join(lines) + "\n", encoding="utf-8")
 
-    # Slugs shorter than this are too generic to auto-link (e.g. "prompt", "study")
+    # Slugs shorter than this are too generic to auto-link
     _MIN_AUTOLINK_SLUG_LEN = 4
     # Max links to insert per page to prevent spam
     _MAX_LINKS_PER_PAGE = 10
 
+    def _get_aliases(self, category: str, slug: str) -> list[str]:
+        """Extract aliases from page frontmatter.
+
+        Frontmatter format::
+
+            ---
+            aliases: ["오픈AI", "GPT company"]
+            ---
+        """
+        content = self.get_page(category, slug)
+        if not content or not content.startswith("---"):
+            return []
+        end = content.find("---", 3)
+        if end == -1:
+            return []
+        fm = content[3:end]
+        match = re.search(r"aliases:\s*\[([^\]]*)\]", fm)
+        if not match:
+            return []
+        raw = match.group(1)
+        return [a.strip().strip('"').strip("'") for a in raw.split(",") if a.strip()]
+
     def auto_link(self) -> int:
-        """Scan all pages and auto-insert [[wikilinks]] where page slugs appear in text.
+        """Scan all pages and auto-insert [[wikilinks]] where page slugs or aliases appear.
 
         Safety guards:
-        - Slugs shorter than 6 chars are skipped (too generic)
+        - Slugs/aliases shorter than 4 chars are skipped
         - Max 10 new links per page
-        - Only first occurrence of each slug is linked per page
-        - Code blocks and frontmatter are excluded
+        - Only first occurrence of each target is linked per page
+        - Longest match first to prevent partial matches
 
         Returns the number of links added.
         """
         with self._lock:
             pages = self.list_pages()
-            # Filter out short/generic slugs
-            linkable_slugs = [
-                p["slug"] for p in pages if len(p["slug"]) >= self._MIN_AUTOLINK_SLUG_LEN
-            ]
 
-            if not linkable_slugs:
+            # Build target -> slug mapping (slug + aliases)
+            targets: list[tuple[str, str]] = []  # (match_text, slug)
+            for p in pages:
+                slug = p["slug"]
+                if len(slug) >= self._MIN_AUTOLINK_SLUG_LEN:
+                    targets.append((slug, slug))
+                # Add aliases
+                for alias in self._get_aliases(p["category"], slug):
+                    if len(alias) >= self._MIN_AUTOLINK_SLUG_LEN:
+                        targets.append((alias, slug))
+
+            if not targets:
                 return 0
+
+            # Sort by length descending to match longest first
+            targets.sort(key=lambda x: len(x[0]), reverse=True)
 
             links_added = 0
 
@@ -376,20 +487,20 @@ class WikiMemory:
                 modified = content
                 page_links = 0
 
-                for target_slug in linkable_slugs:
+                for match_text, target_slug in targets:
                     if target_slug == slug:
                         continue  # Don't self-link
                     if page_links >= self._MAX_LINKS_PER_PAGE:
                         break
 
-                    # Match slug NOT inside [[ ]], code blocks, or frontmatter
-                    # Only replace first occurrence (count=1)
                     pattern = re.compile(
-                        r"(?<!\[\[)\b(" + re.escape(target_slug) + r")\b(?!\]\])",
+                        r"(?<!\[\[)(" + re.escape(match_text) + r")(?!\]\])",
                     )
 
                     new_content, count = pattern.subn(
-                        lambda m: f"[[{m.group(1)}]]", modified, count=1
+                        lambda m, ts=target_slug: f"[[{ts}|{m.group(1)}]]" if m.group(1) != ts else f"[[{ts}]]",
+                        modified,
+                        count=1,
                     )
                     if count > 0:
                         links_added += count

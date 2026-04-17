@@ -51,6 +51,9 @@ class WikiReadTool(Tool):
                 error=f"Page not found: {category}/{slug}",
             )
 
+        # Bump reference tracking
+        wiki.touch_page(category, slug)
+
         return ToolOutput(
             success=True,
             output=content[:5000],
