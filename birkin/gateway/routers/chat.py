@@ -54,6 +54,9 @@ def _build_agent(body: ChatRequest) -> Agent:
     skill_tools = get_skill_registry().get_enabled_tools()
     all_tools = load_tools() + skill_tools
 
+    from birkin.core.budget.manager import TokenBudget
+    from birkin.core.budget.policy import BudgetPolicy
+
     agent_kwargs: dict = {
         "provider": provider,
         "tools": all_tools,
@@ -61,6 +64,7 @@ def _build_agent(body: ChatRequest) -> Agent:
         "session_id": body.session_id,
         "memory": get_wiki_memory(),
         "mcp_registry": get_mcp_registry(),
+        "budget": TokenBudget(BudgetPolicy()),
     }
     if config.get("system_prompt") is not None:
         agent_kwargs["system_prompt"] = config["system_prompt"]

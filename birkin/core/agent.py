@@ -45,8 +45,10 @@ class Agent:
         memory: Optional[WikiMemory] = None,
         max_turns: int = _DEFAULT_MAX_TURNS,
         mcp_registry: Optional[MCPRegistry] = None,
+        budget: Optional[Any] = None,
     ) -> None:
         self._provider = provider
+        self._budget = budget
         self._tools = tools or []
 
         # Merge MCP tools into the tool list via adapters
@@ -202,11 +204,27 @@ class Agent:
             if event_callback is not None:
                 event_callback({"thinking": True})
 
+            # Budget check before provider call
+            if self._budget is not None:
+                estimated = sum(len(m.content) for m in messages) // 4
+                decision = self._budget.check_before_call(estimated)
+                if decision.action == "abort":
+                    final_text = f"[Budget exceeded: {decision.reason}]"
+                    break
+                self._budget.reset_node()
+
             response = await self._provider.acomplete(
                 messages,
                 tools=tool_schemas,
                 stream_callback=stream_callback,
             )
+
+            # Record token usage
+            if self._budget is not None and response.usage is not None:
+                self._budget.record_usage(
+                    tokens_in=response.usage.prompt_tokens,
+                    tokens_out=response.usage.completion_tokens,
+                )
 
             if event_callback is not None:
                 event_callback({"thinking": False})
