@@ -71,7 +71,9 @@ class WorkflowEngine:
         node = self._node_map.get(node_id)
         if node and node.get("type") == "condition" and output:
             normalised = output.strip().upper()
-            labelled = [e["to"] for e in edges if e.get("label", "").strip().upper() == normalised and e["to"] in self._node_map]
+            labelled = [
+                e["to"] for e in edges if e.get("label", "").strip().upper() == normalised and e["to"] in self._node_map
+            ]
             if labelled:
                 return labelled
         return [e["to"] for e in edges if e.get("to") in self._node_map]
