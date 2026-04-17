@@ -12,6 +12,7 @@ from fastapi import APIRouter, HTTPException
 from starlette.responses import StreamingResponse
 
 from birkin.core.agent import Agent
+from birkin.core.errors import BirkinError
 from birkin.core.providers import create_provider
 from birkin.gateway.deps import get_session_store, get_wiki_memory
 from birkin.gateway.schemas import ChatRequest, ChatResponse
@@ -182,7 +183,7 @@ async def chat_stream(body: ChatRequest) -> StreamingResponse:
                 logger.info("Client disconnected, agent task continues for session %s", agent.session_id)
                 return
 
-        except (ConnectionError, TimeoutError, RuntimeError, TypeError, ValueError) as primary_exc:
+        except (ConnectionError, TimeoutError, RuntimeError, TypeError, ValueError, BirkinError) as primary_exc:
             async for line in _stream_fallback(body, agent, config, primary_exc):
                 yield line
 

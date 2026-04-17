@@ -289,7 +289,7 @@ async function sendMessageStream(text) {
           if (evt.session_id) { setActiveSession(evt.session_id); }
 
           // Forward all events to workflow visualizer
-          if (window.birkin.workflow) window.birkin.workflow.onEvent(evt);
+          if (window.birkin.workflow?.onEvent) window.birkin.workflow.onEvent(evt);
 
           // Workflow step events
           if (evt.wf_step) {
