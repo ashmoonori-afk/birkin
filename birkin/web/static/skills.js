@@ -39,11 +39,19 @@
   }
 
   window.toggleSkill = async function (name, enabled) {
-    await fetch(`/api/skills/${name}/toggle`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ enabled }),
-    });
+    try {
+      const res = await fetch(`/api/skills/${name}/toggle`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ enabled }),
+      });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        alert(err.detail || "Failed to toggle skill");
+      }
+    } catch {
+      alert("Network error — failed to toggle skill");
+    }
     fetchSkills();
   };
 

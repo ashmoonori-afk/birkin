@@ -2,15 +2,18 @@
 
 from __future__ import annotations
 
+import json
 import logging
 from pathlib import Path
-from typing import Optional
+from typing import Any, Optional
 
 from birkin.skills.loader import SkillLoader
 from birkin.skills.schema import Skill
 from birkin.tools.base import Tool
 
 logger = logging.getLogger(__name__)
+
+_SKILL_STATE_KEY = "disabled_skills"
 
 
 class SkillRegistry:
@@ -35,13 +38,18 @@ class SkillRegistry:
     def load_all(self) -> list[Skill]:
         """Discover and load all skills from the skills directory.
 
-        Returns:
-            List of all discovered skills.
+        Restores persisted enable/disable state from config.
         """
         skills = self._loader.discover()
         for skill in skills:
             self._skills[skill.name] = skill
             self._tools[skill.name] = self._loader.load_tools(skill)
+
+        # Restore persisted disabled state
+        disabled = self._load_disabled_set()
+        for name in disabled:
+            if name in self._skills:
+                self._skills[name].enabled = False
 
         logger.info(
             "Loaded %d skills with %d total tools",
@@ -59,20 +67,54 @@ class SkillRegistry:
         return self._skills.get(name)
 
     def enable(self, name: str) -> bool:
-        """Enable a skill. Returns True if found."""
+        """Enable a skill. Persists state to config."""
         skill = self._skills.get(name)
         if skill is None:
             return False
         skill.enabled = True
+        self._persist_disabled_set()
         return True
 
     def disable(self, name: str) -> bool:
-        """Disable a skill. Returns True if found."""
+        """Disable a skill. Persists state to config."""
         skill = self._skills.get(name)
         if skill is None:
             return False
         skill.enabled = False
+        self._persist_disabled_set()
         return True
+
+    # ── Persistence helpers ──
+
+    @staticmethod
+    def _config_path() -> Path:
+        import os
+
+        return Path(os.environ.get("BIRKIN_CONFIG_PATH", "birkin_config.json"))
+
+    def _load_disabled_set(self) -> set[str]:
+        """Load the set of disabled skill names from config."""
+        path = self._config_path()
+        if not path.exists():
+            return set()
+        try:
+            data = json.loads(path.read_text(encoding="utf-8"))
+            return set(data.get(_SKILL_STATE_KEY, []))
+        except (json.JSONDecodeError, OSError):
+            return set()
+
+    def _persist_disabled_set(self) -> None:
+        """Save the set of disabled skill names to config."""
+        path = self._config_path()
+        try:
+            data: dict[str, Any] = {}
+            if path.exists():
+                data = json.loads(path.read_text(encoding="utf-8"))
+            disabled = [n for n, s in self._skills.items() if not s.enabled]
+            data[_SKILL_STATE_KEY] = disabled
+            path.write_text(json.dumps(data, indent=2, ensure_ascii=False), encoding="utf-8")
+        except (OSError, json.JSONDecodeError) as exc:
+            logger.warning("Failed to persist skill state: %s", exc)
 
     def get_skill_tools(self, name: str) -> list[Tool]:
         """Get tools for a specific skill."""

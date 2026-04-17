@@ -8,7 +8,7 @@ from typing import Any, Optional
 
 from birkin.core.agent import Agent
 from birkin.core.providers import create_provider
-from birkin.gateway.deps import get_session_store, get_wiki_memory
+from birkin.gateway.deps import get_session_store, get_skill_registry, get_wiki_memory
 from birkin.tools.loader import load_tools
 
 logger = logging.getLogger(__name__)
@@ -23,9 +23,10 @@ class MessageDispatcher:
         self._cached_tools: Optional[list[Any]] = None
 
     def _load_tools(self) -> list[Any]:
-        """Load tools (cached to avoid reloading)."""
+        """Load builtin tools + enabled skill tools."""
         if self._cached_tools is None:
-            self._cached_tools = load_tools()
+            skill_tools = get_skill_registry().get_enabled_tools()
+            self._cached_tools = load_tools() + skill_tools
         return self._cached_tools
 
     def _find_session_by_key(self, session_key: str) -> Optional[str]:
