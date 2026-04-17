@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 from pathlib import Path
 from typing import Optional
 
@@ -11,7 +12,7 @@ from birkin.observability.trace import Trace
 
 logger = logging.getLogger(__name__)
 
-_DEFAULT_DIR = Path("traces")
+_DEFAULT_DIR = Path(os.environ.get("BIRKIN_TRACES_DIR", "traces"))
 
 
 class TraceStorage:

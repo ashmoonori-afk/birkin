@@ -228,6 +228,23 @@ class WikiMemory:
                 pages.append({"category": category, "slug": md_file.stem})
         return pages
 
+    def page_count(self) -> int:
+        """Return the total number of wiki pages."""
+        return len(self.list_pages())
+
+    def pages_created_since(self, since: dt.datetime) -> int:
+        """Count wiki files with modification time after *since*."""
+        cutoff_ts = since.timestamp()
+        count = 0
+        for category in ("entities", "concepts", "sessions"):
+            cat_dir = self.wiki_dir / category
+            if not cat_dir.is_dir():
+                continue
+            for md_file in cat_dir.glob("*.md"):
+                if md_file.stat().st_mtime >= cutoff_ts:
+                    count += 1
+        return count
+
     def touch_page(self, category: str, slug: str) -> None:
         """Bump reference_count and last_referenced for a page.
 
@@ -243,7 +260,7 @@ class WikiMemory:
             end = content.find("---", 3)
             if end != -1:
                 fm = content[3:end]
-                body = content[end + 3:]
+                body = content[end + 3 :]
                 # Update or add last_referenced
                 if "last_referenced:" in fm:
                     fm = re.sub(r"last_referenced:.*", f"last_referenced: {today}", fm)

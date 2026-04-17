@@ -13,4 +13,21 @@ node_modules
 # Environment files
 .env
 
-*.md
+# Python artifacts
+__pycache__
+*.pyc
+*.egg-info
+
+# Data files (managed via volumes)
+birkin_sessions.db
+traces/
+
+# Dev/docs
+tests/
+docs/
+.plans/
+
+# Documentation (except README.md needed by setuptools)
+QUICKSTART.md
+CHANGELOG.md
+ROADMAP.md

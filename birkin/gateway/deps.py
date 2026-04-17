@@ -28,7 +28,8 @@ def get_session_store() -> SessionStore:
     """Return the global SessionStore, creating it lazily."""
     global _session_store  # noqa: PLW0603
     if _session_store is None:
-        _session_store = SessionStore()
+        db_path = os.environ.get("BIRKIN_DB_PATH", "birkin_sessions.db")
+        _session_store = SessionStore(db_path=db_path)
     return _session_store
 
 

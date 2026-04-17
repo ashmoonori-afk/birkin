@@ -37,8 +37,11 @@ korean = [
 embeddings = [
   "sentence-transformers>=2.2,<4",
 ]
+backup = [
+  "cryptography>=43.0,<45",
+]
 all = [
-  "birkin-agent[korean,embeddings]",
+  "birkin-agent[korean,embeddings,backup]",
 ]
 
 [project.scripts]

@@ -92,6 +92,26 @@ def create_parser() -> argparse.ArgumentParser:
     eval_diff_p.add_argument("file_a", type=str, help="Baseline result file (JSONL)")
     eval_diff_p.add_argument("file_b", type=str, help="Current result file (JSONL)")
 
+    # ── birkin export ──
+    export_p = sub.add_parser("export", help="Export workspace data to a portable archive")
+    export_p.add_argument("--output", type=str, default=None, help="Output file path")
+    export_p.add_argument("--password", type=str, default=None, help="Encrypt archive with password")
+
+    # ── birkin import ──
+    import_p = sub.add_parser("import", help="Restore workspace data from an archive")
+    import_p.add_argument("archive", type=str, help="Path to .zip or .birkin archive")
+    import_p.add_argument("--password", type=str, default=None, help="Decrypt archive with password")
+    import_p.add_argument("--force", action="store_true", help="Overwrite existing files without prompting")
+
+    # ── birkin skill ──
+    skill_p = sub.add_parser("skill", help="Manage installed skills")
+    skill_sub = skill_p.add_subparsers(dest="skill_command")
+    skill_install_p = skill_sub.add_parser("install", help="Install a skill from a git repository")
+    skill_install_p.add_argument("git_url", type=str, help="Git repository URL")
+    skill_sub.add_parser("list", help="List installed skills")
+    skill_remove_p = skill_sub.add_parser("remove", help="Remove an installed skill")
+    skill_remove_p.add_argument("name", type=str, help="Skill name to remove")
+
     # ── birkin serve (default) ──
     serve_p = sub.add_parser("serve", help="Start the web UI and API server (default)")
     serve_p.add_argument("--host", type=str, default="127.0.0.1", help="Bind host (default: 127.0.0.1)")
@@ -237,6 +257,106 @@ def cmd_eval(args: argparse.Namespace) -> None:
         sys.exit(1)
 
 
+def cmd_export(args: argparse.Namespace) -> None:
+    """Handle ``birkin export``."""
+    from birkin.cli.backup import export_archive
+
+    try:
+        result = export_archive(
+            output_path=args.output,
+            password=args.password,
+        )
+        console.print(f"[green]Exported[/green] workspace to [bold]{result}[/bold]")
+    except Exception as exc:
+        console.print(f"[red]Export failed:[/red] {exc}")
+        sys.exit(1)
+
+
+def cmd_import(args: argparse.Namespace) -> None:
+    """Handle ``birkin import``."""
+    from birkin.cli.backup import import_archive
+
+    try:
+        summary = import_archive(
+            archive_path=args.archive,
+            password=args.password,
+        )
+        console.print("[green]Import complete.[/green]")
+        console.print(f"  Files restored : {summary['files_restored']}")
+        console.print(f"  Sessions DB    : {'yes' if summary['sessions_db'] else 'no'}")
+        console.print(f"  Wiki pages     : {summary['wiki_pages']}")
+        console.print(f"  Config         : {'yes' if summary['config'] else 'no'}")
+    except FileNotFoundError as exc:
+        console.print(f"[red]Not found:[/red] {exc}")
+        sys.exit(1)
+    except ValueError as exc:
+        console.print(f"[red]Decryption error:[/red] {exc}")
+        sys.exit(1)
+    except Exception as exc:
+        console.print(f"[red]Import failed:[/red] {exc}")
+        sys.exit(1)
+
+
+def cmd_skill(args: argparse.Namespace) -> None:
+    """Handle ``birkin skill`` subcommands (install, list, remove)."""
+    from pathlib import Path
+
+    from rich.table import Table
+
+    from birkin.skills.loader import SkillLoader
+
+    skill_command = getattr(args, "skill_command", None)
+    if skill_command is None:
+        console.print("[red]Usage:[/red] birkin skill {install,list,remove}")
+        sys.exit(1)
+
+    loader = SkillLoader(Path("skills"))
+
+    if skill_command == "install":
+        try:
+            skill = loader.install_from_git(args.git_url)
+            console.print(
+                f"[green]Installed[/green] skill [bold]{skill.name}[/bold] "
+                f"v{skill.spec.version} — {skill.spec.description}"
+            )
+        except ValueError as exc:
+            console.print(f"[red]Install failed:[/red] {exc}")
+            sys.exit(1)
+        except RuntimeError as exc:
+            console.print(f"[red]Install failed:[/red] {exc}")
+            sys.exit(1)
+
+    elif skill_command == "list":
+        skills = loader.discover()
+        if not skills:
+            console.print("[dim]No skills installed.[/dim]")
+            return
+
+        table = Table(title="Installed Skills")
+        table.add_column("Name", style="bold")
+        table.add_column("Version", style="cyan")
+        table.add_column("Description")
+        for skill in skills:
+            table.add_row(skill.name, skill.spec.version, skill.spec.description)
+        console.print(table)
+
+    elif skill_command == "remove":
+        try:
+            removed = loader.uninstall(args.name)
+            if removed:
+                console.print(f"[green]Removed[/green] skill [bold]{args.name}[/bold]")
+            else:
+                console.print(f"[yellow]Skill not found:[/yellow] {args.name}")
+                sys.exit(1)
+        except ValueError as exc:
+            console.print(f"[red]Invalid skill name:[/red] {exc}")
+            sys.exit(1)
+
+    else:
+        console.print(f"[red]Unknown skill subcommand:[/red] {skill_command}")
+        sys.exit(1)
+
+
 def cmd_serve(args: argparse.Namespace) -> None:
     """Handle ``birkin serve`` — start FastAPI + uvicorn and open browser."""
     import os
@@ -313,6 +433,9 @@ def main() -> None:
         "sessions": cmd_sessions,
         "mcp": cmd_mcp,
         "eval": cmd_eval,
+        "export": cmd_export,
+        "import": cmd_import,
+        "skill": cmd_skill,
         "serve": cmd_serve,
     }
 

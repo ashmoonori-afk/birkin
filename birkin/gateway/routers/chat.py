@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import os
 from typing import AsyncGenerator
 
 from fastapi import APIRouter, HTTPException
@@ -280,3 +281,63 @@ async def _stream_fallback(
         yield f"data: {json.dumps({'error': f'API key not configured for {body.provider}'})}\n\n"
     else:
         yield f"data: {json.dumps({'error': msg})}\n\n"
+
+
+# ── Onboarding Action ──
+
+
+@router.post("/chat/onboarding-action")
+async def onboarding_action() -> dict:
+    """First-run helper: create HackerNews daily workflow + cron trigger if Telegram is configured."""
+    telegram_token = os.getenv("TELEGRAM_BOT_TOKEN")
+    telegram_configured = bool(telegram_token)
+
+    if not telegram_configured:
+        return {"telegram_configured": False, "workflow_created": False}
+
+    try:
+        from birkin.gateway.workflows import load_workflows, save_workflow
+
+        wf_data = load_workflows()
+        # Check if already created (idempotent)
+        existing_ids = {w.get("id") for w in wf_data["saved"]}
+        if "hackernews-daily-telegram" in existing_ids:
+            return {"telegram_configured": True, "workflow_created": True}
+
+        # Find the sample workflow
+        sample = None
+        for s in wf_data["samples"]:
+            if s.get("id") == "hackernews-daily-telegram":
+                sample = s
+                break
+
+        if sample is None:
+            logger.warning("hackernews-daily-telegram sample not found")
+            return {"telegram_configured": True, "workflow_created": False}
+
+        # Save a copy as a user workflow
+        save_workflow({**sample})
+
+        # Create a cron trigger for daily 9AM UTC (0 9 * * *)
+        try:
+            from birkin.triggers.base import TriggerConfig
+            from birkin.triggers.storage import TriggerStore
+
+            trigger_cfg = TriggerConfig(
+                id="onboarding-hn-cron",
+                type="cron",
+                workflow_id="hackernews-daily-telegram",
+                active=True,
+                config={"expression": "0 9 * * *"},
+            )
+            store = TriggerStore()
+            store.save(trigger_cfg)
+            store.close()
+        except (OSError, RuntimeError, ValueError) as exc:
+            logger.warning("Failed to create cron trigger: %s", exc)
+
+        return {"telegram_configured": True, "workflow_created": True}
+
+    except (OSError, json.JSONDecodeError, RuntimeError, ValueError) as exc:
+        logger.error("onboarding-action failed: %s", exc)
+        return {"telegram_configured": True, "workflow_created": False}

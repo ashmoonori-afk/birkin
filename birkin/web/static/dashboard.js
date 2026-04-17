@@ -8,6 +8,11 @@
     container.innerHTML = `
       <div class="p2-panel">
         <div class="p2-title">OBSERVABILITY DASHBOARD</div>
+        <div class="p2-hero" id="dash-hero">
+          <div class="p2-hero-card"><div class="p2-hero-value" id="hero-tokens">0</div><div class="p2-hero-label">TOKENS SAVED</div><div class="p2-hero-sub">THIS WEEK</div></div>
+          <div class="p2-hero-card"><div class="p2-hero-value" id="hero-automations">0</div><div class="p2-hero-label">AUTOMATIONS RUN</div><div class="p2-hero-sub">ALL TIME</div></div>
+          <div class="p2-hero-card"><div class="p2-hero-value" id="hero-memory">0</div><div class="p2-hero-label">MEMORY PAGES</div><div class="p2-hero-sub"><span id="hero-memory-delta">+0</span> THIS WEEK</div></div>
+        </div>
         <div class="p2-stats" id="dash-stats">
           <div class="p2-stat"><div class="p2-stat-value" id="dash-tokens">—</div><div class="p2-stat-label">TOTAL TOKENS</div></div>
           <div class="p2-stat"><div class="p2-stat-value" id="dash-cost">—</div><div class="p2-stat-label">COST (USD)</div></div>
@@ -32,11 +37,19 @@
 
   async function fetchAll() {
     try {
-      const [spend, latency, errors] = await Promise.all([
+      const [spend, latency, errors, hero] = await Promise.all([
         fetch("/api/observability/spend").then(r => r.json()),
         fetch("/api/observability/latency").then(r => r.json()),
         fetch("/api/observability/errors").then(r => r.json()),
+        fetch("/api/observability/hero").then(r => r.json()),
       ]);
+
+      // Hero metrics
+      document.getElementById("hero-tokens").textContent = (hero.tokens_saved_this_week || 0).toLocaleString();
+      document.getElementById("hero-automations").textContent = (hero.automations_run || 0).toLocaleString();
+      document.getElementById("hero-memory").textContent = (hero.memory_pages_total || 0).toLocaleString();
+      const delta = hero.memory_pages_delta_week || 0;
+      document.getElementById("hero-memory-delta").textContent = (delta >= 0 ? "+" : "") + delta;
 
       document.getElementById("dash-tokens").textContent = spend.total_tokens.toLocaleString();
       document.getElementById("dash-cost").textContent = "$" + spend.total_cost_usd.toFixed(4);

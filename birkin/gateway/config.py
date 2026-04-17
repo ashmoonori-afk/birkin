@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 from pathlib import Path
 from typing import Any
 
@@ -13,7 +14,7 @@ from birkin.mcp.types import MCPServerConfig
 
 logger = logging.getLogger(__name__)
 
-_CONFIG_PATH = Path("birkin_config.json")
+_CONFIG_PATH = Path(os.environ.get("BIRKIN_CONFIG_PATH", "birkin_config.json"))
 
 _DEFAULTS: dict[str, Any] = {
     "provider": "anthropic",

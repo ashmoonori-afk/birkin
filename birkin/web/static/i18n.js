@@ -337,6 +337,15 @@
       "rec_telegram": "Telegram auto-reply",
       "rec_tool": "Agentic tool loop",
       "rec_automate": "Build your own workflow",
+
+      // Guided first-run
+      "guided_title": "Your first automation",
+      "guided_prompt": "\uB9E4\uC77C \uC544\uCE68 8\uC2DC\uC5D0 \uB274\uC2A4 \uC694\uC57D\uD574\uC11C \uD154\uB808\uADF8\uB7A8\uC73C\uB85C \uBCF4\uB0B4\uC918",
+      "guided_desc": "Summarize news every morning at 8 AM and send via Telegram",
+      "guided_try": "Try it",
+      "guided_skip": "Skip",
+      "guided_success": "Your first automation is live!",
+      "guided_no_telegram": "Configure Telegram first in Settings",
     },
 
     ko: {
@@ -658,6 +667,15 @@
       "rec_telegram": "\uD154\uB808\uADF8\uB7A8 \uC790\uB3D9 \uC751\uB2F5",
       "rec_tool": "\uC5D0\uC774\uC804\uD2B8 \uB3C4\uAD6C \uB8E8\uD504",
       "rec_automate": "\uB098\uB9CC\uC758 \uC6CC\uD06C\uD50C\uB85C\uC6B0 \uB9CC\uB4E4\uAE30",
+
+      // Guided first-run
+      "guided_title": "\uCCAB \uBC88\uC9F8 \uC790\uB3D9\uD654",
+      "guided_prompt": "\uB9E4\uC77C \uC544\uCE68 8\uC2DC\uC5D0 \uB274\uC2A4 \uC694\uC57D\uD574\uC11C \uD154\uB808\uADF8\uB7A8\uC73C\uB85C \uBCF4\uB0B4\uC918",
+      "guided_desc": "\uB9E4\uC77C \uC544\uCE68 8\uC2DC\uC5D0 \uB274\uC2A4\uB97C \uC694\uC57D\uD574\uC11C \uD154\uB808\uADF8\uB7A8\uC73C\uB85C \uBCF4\uB0C5\uB2C8\uB2E4",
+      "guided_try": "\uC2DC\uB3C4\uD558\uAE30",
+      "guided_skip": "\uAC74\uB108\uB6F0\uAE30",
+      "guided_success": "\uCCAB \uC790\uB3D9\uD654\uAC00 \uD65C\uC131\uD654\uB418\uC5C8\uC2B5\uB2C8\uB2E4!",
+      "guided_no_telegram": "\uBA3C\uC800 \uC124\uC815\uC5D0\uC11C \uD154\uB808\uADF8\uB7A8\uC744 \uAD6C\uC131\uD558\uC138\uC694",
     },
   };
 

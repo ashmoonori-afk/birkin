@@ -748,12 +748,59 @@ function showOnboarding(providers) {
     const prov = modal.querySelector('input[name="ob-prov"]:checked')?.value || def;
     const fb = modal.querySelector("#ob-fallback")?.value || null;
     try { await fetch("/api/settings", { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ provider: prov, fallback_provider: fb, onboarding_complete: true }) }); currentConfig = { ...currentConfig, provider: prov, onboarding_complete: true }; } catch {}
-    overlay.remove(); updateProviderBadge(); input.focus();
+    overlay.remove(); updateProviderBadge(); input.focus(); showGuidedPrompt();
   };
   modal.querySelector("#ob-skip").onclick = async () => {
     try { await fetch("/api/settings", { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ onboarding_complete: true }) }); } catch {}
     overlay.remove(); input.focus();
   };
+}
+
+/* ── Guided First-Run Prompt ── */
+
+function showGuidedPrompt() {
+  const banner = document.createElement("div");
+  banner.className = "guided-banner";
+  banner.innerHTML = `
+    <div class="guided-inner">
+      <strong class="guided-title">${t("guided_title")}</strong>
+      <p class="guided-desc">${t("guided_desc")}</p>
+      <code class="guided-code">${t("guided_prompt")}</code>
+      <div class="guided-actions">
+        <button class="ob-btn primary" id="guided-try">${t("guided_try")}</button>
+        <button class="ob-btn secondary" id="guided-skip">${t("guided_skip")}</button>
+      </div>
+    </div>`;
+  chat.prepend(banner);
+
+  banner.querySelector("#guided-try").onclick = async () => {
+    banner.remove();
+    try {
+      const res = await fetch("/api/chat/onboarding-action", { method: "POST", headers: { "Content-Type": "application/json" } });
+      if (res.ok) {
+        const data = await res.json();
+        if (data.workflow_created) {
+          appendSystemNotice(t("guided_success"));
+        } else if (!data.telegram_configured) {
+          appendSystemNotice(t("guided_no_telegram"));
+        }
+      }
+    } catch { /* best-effort */ }
+    input.value = t("guided_prompt");
+    input.style.height = "auto";
+    input.style.height = Math.min(input.scrollHeight, 160) + "px";
+    sendMessageStream(t("guided_prompt"));
+  };
+
+  banner.querySelector("#guided-skip").onclick = () => { banner.remove(); };
+}
+
+function appendSystemNotice(text) {
+  const el = document.createElement("div");
+  el.className = "msg system-notice";
+  el.textContent = text;
+  chat.appendChild(el);
+  chat.scrollTop = chat.scrollHeight;
 }
 
 /* ── View Router ── */

@@ -1,0 +1,19 @@
+services:
+  birkin:
+    build: .
+    ports:
+      - "8321:8321"
+    volumes:
+      - ./memory:/app/memory
+      - ./skills:/app/skills
+      - birkin-data:/app/data
+    env_file:
+      - .env
+    environment:
+      - BIRKIN_DB_PATH=/app/data/birkin_sessions.db
+      - BIRKIN_TRACES_DIR=/app/data/traces
+      - BIRKIN_CONFIG_PATH=/app/data/birkin_config.json
+    restart: unless-stopped
+
+volumes:
+  birkin-data:

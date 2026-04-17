@@ -738,6 +738,27 @@ html, body {
 .ob-btn.secondary { background: transparent; color: var(--text-dim); border-color: var(--border); }
 .ob-btn.secondary:hover { background: var(--surface-alt); }
 
+/* ── Guided First-Run Banner ── */
+.guided-banner {
+  margin: 1rem auto; max-width: 520px; padding: 1.25rem 1.5rem;
+  background: var(--surface-alt); border: 1px solid var(--ghost-border);
+  border-radius: var(--radius); animation: guidedFadeIn 0.3s ease;
+}
+.guided-inner { display: flex; flex-direction: column; gap: 0.5rem; }
+.guided-title { font-size: 0.95rem; color: var(--text); }
+.guided-desc { font-size: 0.8rem; color: var(--text-dim); margin: 0; }
+.guided-code {
+  display: block; padding: 0.6rem 0.8rem; margin: 0.25rem 0;
+  background: var(--surface); border: 1px solid var(--border);
+  border-radius: var(--radius-btn); font-size: 0.8rem; color: var(--accent);
+}
+.guided-actions { display: flex; gap: 0.75rem; margin-top: 0.25rem; }
+.system-notice {
+  text-align: center; font-size: 0.78rem; color: var(--accent);
+  padding: 0.5rem; opacity: 0.85;
+}
+@keyframes guidedFadeIn { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: translateY(0); } }
+
 /* ── Responsive ── */
 
 @media (min-width: 768px) {
