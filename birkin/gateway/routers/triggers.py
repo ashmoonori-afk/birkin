@@ -31,7 +31,39 @@ def _get_scheduler() -> TriggerScheduler:
         _scheduler.register_type("message", MessageTrigger)
 
         async def _default_on_fire(config: TriggerConfig) -> None:
-            pass  # Placeholder — will be wired to workflow execution
+            """Execute the linked workflow when a trigger fires."""
+            import logging
+
+            _logger = logging.getLogger(__name__)
+            workflow_id = config.workflow_id
+            if not workflow_id:
+                _logger.warning("Trigger %s fired but has no workflow_id", config.id)
+                return
+
+            try:
+                from birkin.core.providers import create_provider
+                from birkin.core.workflow_engine import WorkflowEngine
+                from birkin.gateway.config import load_config
+                from birkin.gateway.deps import get_wiki_memory
+
+                cfg = load_config()
+                provider_name = config.config.get("provider", cfg.get("provider", "anthropic"))
+                provider = create_provider(f"{provider_name}/default")
+
+                from birkin.gateway.workflows import WORKFLOWS
+
+                workflow = next((w for w in WORKFLOWS if w.get("id") == workflow_id), None)
+                if workflow is None:
+                    _logger.error("Trigger %s: workflow %s not found", config.id, workflow_id)
+                    return
+
+                engine = WorkflowEngine(provider=provider, memory=get_wiki_memory())
+                result = await engine.execute(workflow, input_text=f"Triggered by {config.type}")
+                _logger.info(
+                    "Trigger %s → workflow %s completed: %s", config.id, workflow_id, result[:100] if result else "ok"
+                )
+            except (OSError, RuntimeError, ValueError, TypeError) as exc:
+                _logger.error("Trigger %s → workflow %s failed: %s", config.id, workflow_id, exc)
 
         _scheduler.set_default_callback(_default_on_fire)
     return _scheduler
