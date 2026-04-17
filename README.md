@@ -1,133 +1,177 @@
+<h1 align="center">Birkin</h1>
+
 <p align="center">
-  <strong>Birkin</strong><br>
-  <em>AI that works for you, not the other way around.</em>
+  <strong>Your personal agent OS that remembers, learns, and works for you.</strong>
 </p>
 
 <p align="center">
-  <a href="#quick-start">Quick Start</a> &bull;
-  <a href="#features">Features</a> &bull;
-  <a href="ROADMAP.md">Roadmap</a> &bull;
-  <a href="CONTRIBUTING.md">Contributing</a>
+  <a href="#-quick-start">Quick Start</a> &bull;
+  <a href="#-what-birkin-does">What It Does</a> &bull;
+  <a href="#-9-tab-webui">WebUI</a> &bull;
+  <a href="#-providers">Providers</a> &bull;
+  <a href="#-memory-system">Memory</a> &bull;
+  <a href="#-automation">Automation</a> &bull;
+  <a href="#-api">API</a> &bull;
+  <a href="#-architecture">Architecture</a> &bull;
+  <a href="README-ko.md">한국어</a>
 </p>
 
 <p align="center">
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-blue.svg" alt="MIT License"></a>
   <img src="https://img.shields.io/badge/python-3.11%2B-blue" alt="Python 3.11+">
   <img src="https://img.shields.io/badge/version-v0.3.0-green" alt="v0.3.0">
+  <img src="https://img.shields.io/badge/tests-461%2B-brightgreen" alt="461+ tests">
+  <img src="https://img.shields.io/badge/providers-9-orange" alt="9 Providers">
 </p>
 
 ---
 
-**Birkin** is a personal agent OS — a memory layer and orchestrator sitting on top of multiple LLMs and external agents. Runs locally, scoped per-device. Auto-routing across 9 providers, MCP client/server, state graph engine, trigger→workflow automation, token budget enforcement, structured tracing, semantic memory with decay scoring, and a cinematic dark-themed 9-tab WebUI. 461+ tests.
+## What is Birkin?
 
----
+Most AI tools forget you the moment the conversation ends. Birkin doesn't.
 
-## Features
+**Birkin is a personal agent OS** that sits on your machine, connects to any LLM, and builds a persistent knowledge base from every interaction. It routes tasks to the right model, automates workflows on triggers, and gets better at helping *you* over time.
 
-### WebUI (9-Tab Interface)
-
-| Tab | What It Does |
-|-----|-------------|
-| **Chat** | SSE streaming chat with real-time token rendering, agentic flow visualization |
-| **Workflow** | Drag-and-drop workflow editor — 30+ node types, 10 sample flows |
-| **Memory** | Obsidian-style knowledge graph — force-directed canvas, wiki CRUD |
-| **Telegram** | Bot setup wizard, webhook management, connection dashboard |
-| **Triggers** | Create/manage cron, file watch, webhook, message triggers |
-| **Skills** | Browse and toggle installed skills with tool counts |
-| **Dashboard** | Token spend, latency stats, error rates, provider breakdown |
-| **Approvals** | Review and approve/reject pending agent actions |
-| **Insights** | Weekly usage digest, provider distribution, cost tracking |
-
-### Orchestration Core
-
-| Feature | Description |
-|---------|-------------|
-| **9 LLM providers** | Anthropic, OpenAI, Perplexity (search), Gemini (multimodal), Ollama (local), Groq (low-latency), OpenRouter, Claude CLI, Codex CLI |
-| **Capability routing** | Auto-select provider by capability (reasoning, search, code, vision, low-latency) with cost/speed preference |
-| **MCP client/server** | Consume external MCP servers + expose Birkin tools/memory as MCP |
-| **Skills system** | MCP-native skills with SKILL.md schema, auto-discovery, enable/disable |
-| **State graph engine** | Conditional edges, parallel fan-out, loops with guard, SQLite checkpoints |
-| **Trigger system** | Cron, file watch, webhook, message triggers with scheduler |
-| **Token budget** | Inline enforcement — compress/downgrade/abort when budget exceeded |
-
-### Memory & Intelligence
-
-| Feature | Description |
-|---------|-------------|
-| **Event store** | SQLite raw event log for every LLM/tool interaction |
-| **Memory compiler** | Session/daily compilation from raw events to wiki pages |
-| **Semantic search** | Local embeddings (BGE-m3 / hash fallback) + vector store |
-| **Context injection** | Auto-inject relevant wiki context into system prompts |
-| **Evaluation framework** | JSONL eval datasets, runner, snapshot diff, regression detection |
-| **Insights engine** | Weekly digest, pattern detection, usage trends |
-
-### Agent Capabilities
-
-| Feature | Description |
-|---------|-------------|
-| **Computer use** | Playwright browser automation (navigate, screenshot, click, extract) |
-| **Voice I/O** | Whisper STT + OpenAI TTS with API endpoints |
-| **Approval gates** | Safety boundary — require user approval before external actions |
-| **Command bar** | Natural language intent parsing + routing |
-| **Session fork** | Branch conversations from any message |
-| **NL workflow builder** | Describe automation in a sentence → generate graph workflow |
-
-### Messaging
-
-| Platform | Status |
-|----------|--------|
-| **Telegram** | Working — webhook-based, auto-split long messages, session persistence per user |
-| **CLI** | Working — `birkin chat` for terminal REPL |
-| Discord / Slack / WhatsApp | Planned (Phase 3) |
+- **One interface, many LLMs** — Talk to Claude, GPT, Gemini, Perplexity, Groq, Ollama, or OpenRouter. Birkin picks the best one for each task.
+- **Memory that compounds** — Every conversation compiles into a searchable wiki. Relevant context is injected automatically.
+- **Automation that runs itself** — Set up triggers (cron, file changes, webhooks) and let workflows execute without you.
+- **100% local, 100% yours** — Self-hosted. No cloud dependency. Your data never leaves your machine.
 
 ---
 
 ## Quick Start
 
-### One-Click Launch (Easiest)
+### One-Click (Recommended)
 
-**macOS:**
-1. Download or clone the repository
-2. Double-click **`scripts/Birkin.command`** (or run `scripts/start.sh`)
-3. Browser opens automatically at `http://127.0.0.1:8321`
+**Windows:** Double-click `scripts/start.bat`
+**macOS/Linux:** Double-click `scripts/Birkin.command` or run `scripts/start.sh`
 
-**Windows:**
-1. Download or clone the repository
-2. Double-click **`scripts/start.bat`**
-3. Browser opens automatically
+Browser opens at `http://127.0.0.1:8321`. First run ~1 minute (creates venv + installs deps). After that, instant.
 
-**What happens:** The script creates a virtual environment, installs dependencies, starts the WebUI server, and opens your browser. First run takes ~1 minute; subsequent launches are instant.
-
-### Manual Setup
+### Manual
 
 ```bash
 git clone https://github.com/ashmoonori-afk/birkin.git
 cd birkin
-
 python3 -m venv .venv && source .venv/bin/activate
 pip install -e "."
-
-# Launch WebUI (default)
-birkin
-
-# Or CLI chat
-birkin chat
+birkin                # WebUI at :8321
+birkin chat           # Terminal REPL
+birkin mcp serve      # MCP server (for Claude Code, Cursor, etc.)
 ```
 
-### Configuration
+### API Keys
 
-Copy `.env.example` to `.env` and add your API key(s):
+Copy `.env.example` to `.env` and add at least one key:
 
 ```bash
-cp .env.example .env
-# Edit .env — add at least one:
-# ANTHROPIC_API_KEY=sk-ant-...
-# OPENAI_API_KEY=sk-...
+ANTHROPIC_API_KEY=sk-ant-...    # Claude
+OPENAI_API_KEY=sk-...           # GPT + OpenRouter
+PERPLEXITY_API_KEY=pplx-...     # Search-augmented
+GEMINI_API_KEY=...              # Multimodal + 1M context
+GROQ_API_KEY=gsk_...            # Ultra low-latency
 ```
 
-Or skip API keys entirely — if you have `claude` or `codex` CLI installed, Birkin can use them directly (select "Claude Code" or "Codex CLI" in the onboarding wizard or settings).
+**No API key?** Use Ollama (local) or Claude Code CLI — zero cost, zero setup.
 
-**Requirements:** Python 3.11+
+---
+
+## 9-Tab WebUI
+
+| Tab | What You Get |
+|-----|-------------|
+| **Chat** | Streaming conversation with tool calls, thinking indicators, and auto-memory |
+| **Workflow** | Visual editor — drag 30+ node types, connect them, run complex automations |
+| **Memory** | Interactive knowledge graph — see what Birkin remembers, edit pages, upload files (.md, .json, .csv, .pdf) |
+| **Telegram** | Connect a bot in 3 steps — works over polling (no public URL needed) |
+| **Triggers** | Schedule anything — cron, file watchers, webhooks, message filters |
+| **Skills** | Install and toggle skill plugins (code-review, web-summarizer, or build your own) |
+| **Dashboard** | Real-time observability — token spend, latency, error rates per provider |
+| **Approvals** | Safety layer — review and approve agent actions before they execute |
+| **Insights** | Weekly digest — where your tokens went, which providers you used, patterns detected |
+
+---
+
+## Providers
+
+Birkin auto-selects the best provider for each task based on capability, cost, and latency.
+
+| Provider | Strength | API Key | Local? |
+|----------|----------|---------|--------|
+| **Anthropic** | Reasoning, code | `ANTHROPIC_API_KEY` | |
+| **OpenAI** | General purpose | `OPENAI_API_KEY` | |
+| **Perplexity** | Web search | `PERPLEXITY_API_KEY` | |
+| **Gemini** | Vision, 1M context | `GEMINI_API_KEY` | |
+| **Groq** | Ultra low-latency | `GROQ_API_KEY` | |
+| **Ollama** | Fully local, free | — | Yes |
+| **OpenRouter** | 100+ models | `OPENAI_API_KEY` | |
+| **Claude CLI** | Claude Code local | — | Yes |
+| **Codex CLI** | Codex local | — | Yes |
+
+Set `provider: "auto"` in settings and Birkin routes to the cheapest available model that fits the task.
+
+---
+
+## Memory System
+
+Birkin's memory is what makes it different from a chatbot.
+
+**How it works:**
+1. Every conversation is scored by an LLM classifier (bilingual KO/EN)
+2. Important exchanges are saved as wiki pages with tags and category
+3. On the next conversation, relevant pages are pulled via semantic search and injected as context
+4. Over time, pages that aren't referenced decay naturally — high-value knowledge stays, noise fades
+
+**Features:**
+- Relevance-scored context injection (not full dump)
+- Memory decay with 20-day half-life (confidence x references x time)
+- Prompt injection protection on auto-saved content
+- Korean NER support (optional `kiwipiepy`)
+- Wikilink aliases for multilingual synonyms
+- `wiki_read` tool for on-demand lazy loading
+- Daily compilation cron (3 AM) + session cleanup
+
+---
+
+## Automation
+
+### Triggers
+
+| Type | Example |
+|------|---------|
+| **Cron** | "Every Monday 9 AM, summarize last week" |
+| **File Watch** | "When `reports/` changes, analyze the new file" |
+| **Webhook** | "When deploy webhook fires, run smoke tests" |
+| **Message** | "When Telegram message contains 'urgent', notify" |
+
+### Workflows
+
+- **Simple mode:** BFS node graph (30+ node types, drag-and-drop)
+- **Graph mode:** Conditional branches, parallel fan-out, loops with guards, checkpoints
+- **NL builder:** Describe what you want in a sentence — Birkin generates the workflow
+
+### Token Budget
+
+Every session enforces a budget. When tokens run low, Birkin auto-compresses context or downgrades to a cheaper model. No surprise bills.
+
+---
+
+## API
+
+| Group | Endpoints | What For |
+|-------|-----------|----------|
+| **Chat** | `POST /api/chat`, `/api/chat/stream` | Blocking + SSE streaming |
+| **Sessions** | `GET/POST/DELETE /api/sessions` | Conversation management |
+| **Memory** | `GET/PUT/DELETE /api/wiki/*` | Wiki CRUD + graph + search |
+| **Triggers** | `GET/POST/DELETE /api/triggers` | CRUD + manual fire |
+| **Skills** | `GET/POST /api/skills` | List + toggle |
+| **Dashboard** | `GET /api/observability/*` | Spend, latency, errors |
+| **Approvals** | `GET/POST /api/approvals` | Pending actions |
+| **Voice** | `POST /api/voice/stt`, `/tts` | Speech-to-text, text-to-speech |
+| **MCP** | `birkin mcp serve` | Expose as MCP server |
+| **Settings** | `GET/PUT /api/settings` | Config, keys, providers |
+
+Full API: 69 endpoints across 15 routers.
 
 ---
 
@@ -135,99 +179,45 @@ Or skip API keys entirely — if you have `claude` or `codex` CLI installed, Bir
 
 ```
 birkin/
-├── core/               # Agent loop, models, session, providers
-│   ├── agent.py            # Conversation loop with tool dispatch
-│   ├── providers/          # 9 LLM providers + capability routing
-│   │   ├── base.py             # Provider ABC, ProviderProfile
-│   │   ├── capabilities.py     # Capability enum, ProviderProfile model
-│   │   ├── registry.py         # ProviderRegistry + ProviderRouter
-│   │   ├── openai_compat.py    # Base class for OpenAI-compatible providers
-│   │   ├── anthropic.py, openai.py, perplexity.py, gemini.py, ollama.py, groq.py
-│   │   └── local_cli.py        # Claude Code / Codex CLI (streaming)
-│   ├── graph/              # State graph execution engine
-│   │   ├── engine.py           # StateGraph builder + CompiledGraph executor
-│   │   ├── node.py             # GraphNode protocol, FunctionNode
-│   │   ├── state.py            # GraphContext (mutable shared state)
-│   │   └── checkpoints/        # SQLiteCheckpointer
-│   ├── budget/             # Token budget enforcement
-│   ├── command/            # NL command parser + router
-│   ├── context/            # Context injection + UserProfile
-│   ├── approval/           # Approval gates for safe external actions
-│   └── workflow/           # NL workflow builder
-├── mcp/                # MCP client, server, adapter, registry
-│   ├── client.py, server.py, adapter.py, registry.py, transport.py
-│   └── servers/            # MCP server implementations
-│       └── computer_use/   # Playwright browser automation
-├── triggers/           # Cron, file watch, webhook, message triggers
-├── skills/             # MCP-native skill system (SKILL.md schema)
-├── tools/              # Tool interface, registry, 4 built-in tools
-├── memory/             # LLM Wiki + semantic search + event store
-│   ├── wiki.py             # Markdown-based knowledge store
-│   ├── event_store.py      # SQLite raw event log
-│   ├── compiler.py         # Event → wiki compilation
-│   ├── semantic_search.py  # Embedding-based search
-│   ├── embeddings/         # Encoder ABC + vector store
-│   └── insights/           # Weekly digest, pattern detection
-├── eval/               # Evaluation framework (JSONL datasets, runner)
-├── observability/      # Structured tracing (Trace, Span, JSONL storage)
-├── voice/              # STT (Whisper) + TTS
-├── gateway/            # FastAPI backend (15 routers)
-├── cli/                # CLI: chat, serve, mcp serve
-├── web/static/         # WebUI (9-tab SPA, cinematic dark theme)
-├── tests/              # 461+ tests (pytest)
-└── docs/               # Archive, site
+  core/           Agent loop, 9 providers, graph engine, budget, approval gates
+  mcp/            MCP client + server + Playwright browser automation
+  triggers/       Cron, file watch, webhook, message + SQLite persistence
+  skills/         SKILL.md plugin system (code-review, web-summarizer)
+  memory/         Wiki, event store, compiler, semantic search, decay, insights
+  eval/           JSONL evaluation framework with regression detection
+  observability/  Structured tracing (Trace > Span > JSONL)
+  voice/          Whisper STT + TTS
+  gateway/        FastAPI backend (15 routers)
+  web/            9-tab WebUI (vanilla JS, cinematic dark theme)
+  tests/          461+ tests (pytest)
 ```
 
 ---
 
-## API Endpoints
+## Security
 
-| Group | Method | Path | Description |
-|-------|--------|------|-------------|
-| Chat | POST | `/api/chat`, `/api/chat/stream` | Blocking + SSE streaming chat |
-| Sessions | GET/POST/DELETE | `/api/sessions` | Session CRUD |
-| Settings | GET/PUT | `/api/settings` | Config + API keys + providers |
-| Workflows | GET/PUT/DELETE | `/api/workflows` | Workflow CRUD |
-| Wiki | GET/PUT/DELETE | `/api/wiki/pages`, `/api/wiki/graph` | Wiki CRUD + graph |
-| Telegram | GET/POST/DELETE | `/api/telegram/*` | Bot + webhook management |
-| **Triggers** | GET/POST/DELETE | `/api/triggers` | Trigger CRUD + manual fire |
-| **Skills** | GET/POST | `/api/skills` | List + toggle skills |
-| **Dashboard** | GET | `/api/observability/spend,latency,errors` | Token spend, latency, errors |
-| **Traces** | GET | `/api/traces` | Structured trace data |
-| **Approvals** | GET/POST | `/api/approvals` | Pending actions + approve/reject |
-| **Voice** | POST | `/api/voice/stt`, `/api/voice/tts` | Speech-to-text + text-to-speech |
-| Health | GET | `/api/health` | Health check |
+- Shell tool uses an **allowlist** — only safe read-only commands allowed by default
+- Shell metacharacters (`|`, `&&`, `>`, `` ` ``) are rejected
+- Extend with `BIRKIN_SHELL_ALLOWLIST=curl,python`
+- Set `BIRKIN_AUTH_TOKEN` before exposing to network
+- Memory auto-sanitizes prompt injection patterns
 
 ---
 
 ## Contributing
 
-See [CONTRIBUTING.md](CONTRIBUTING.md) for the full guide.
-
 ```bash
-# Run tests
-pytest tests/ -q
-
-# Lint
-ruff check .
-ruff format --check .
+pytest tests/ -q          # Run tests
+ruff check .              # Lint
+ruff format --check .     # Format check
 ```
 
----
-
-## Security Model
-
-The Shell tool uses an **allowlist** (not a sandbox) to restrict which commands the LLM may execute. Only a small set of read-only commands (`ls`, `cat`, `grep`, `git`, `find`, etc.) are permitted by default. Shell metacharacters (`|`, `&&`, `>`, `` ` ``, `$(`, etc.) are rejected outright to prevent chaining or redirection.
-
-- **Extend the allowlist** by setting `BIRKIN_SHELL_ALLOWLIST=curl,python` (comma-separated) in your environment.
-- **Bypass the allowlist** (development only) with `BIRKIN_SHELL_SANDBOX=off`. A legacy blocklist still catches catastrophic patterns (`rm -rf /`, `sudo`, etc.) as defense-in-depth.
-- **LLM-generated commands are code execution.** Deploy Birkin only in trusted environments.
-- **Do not expose the API to the public internet** without setting `BIRKIN_AUTH_TOKEN`.
+See [CONTRIBUTING.md](CONTRIBUTING.md) for the full guide.
 
 ---
 
 ## License
 
-MIT — see [LICENSE](LICENSE) for details.
+MIT — see [LICENSE](LICENSE).
 
 Copyright (c) 2026 Birkin Team.
