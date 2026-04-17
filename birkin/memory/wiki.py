@@ -298,7 +298,7 @@ class WikiMemory:
         index_path.write_text("\n".join(lines) + "\n", encoding="utf-8")
 
     # Slugs shorter than this are too generic to auto-link (e.g. "prompt", "study")
-    _MIN_AUTOLINK_SLUG_LEN = 6
+    _MIN_AUTOLINK_SLUG_LEN = 4
     # Max links to insert per page to prevent spam
     _MAX_LINKS_PER_PAGE = 10
 
