@@ -11,6 +11,8 @@ from birkin.core.providers.base import Provider, ProviderResponse
 
 logger = logging.getLogger(__name__)
 
+_LLM_TIMEOUT_SECONDS = 120  # Default timeout for LLM calls in workflow nodes
+
 
 class WorkflowEngine:
     """Executes a workflow graph step-by-step.
@@ -122,7 +124,22 @@ class WorkflowEngine:
             except (OSError, RuntimeError, ValueError, TimeoutError, ConnectionError) as e:
                 self._emit({"wf_step": {"id": nid, "type": node["type"], "status": "error", "error": str(e)}})
                 logger.error("Workflow node %s (%s) failed: %s", nid, node["type"], e)
-                final_output = f"Error at {node['type']}: {e}"
+                error_msg = f"Error at {node['type']}: {e}"
+
+                # Check for error-recovery edges (label="ERROR")
+                error_edges = self._next_nodes(nid, "ERROR")
+                normal_edges = [e_to for e_to in self._next_nodes(nid) if e_to not in error_edges]
+                if error_edges and error_edges != normal_edges:
+                    # Route to error-handling path instead of stopping
+                    for next_id in error_edges:
+                        self._results[next_id] = error_msg
+                        if next_id not in visited:
+                            queue.append(next_id)
+                    final_output = error_msg
+                    continue
+
+                # No error path — stop workflow
+                final_output = error_msg
                 break
 
             for next_id in self._next_nodes(nid, output):
@@ -302,8 +319,14 @@ class WorkflowEngine:
         config = node.get("config", {})
         max_iter = min(config.get("max", 3), 10)
         result = input_text
+        prev_result = None
         for i in range(max_iter):
             result = await self._run_llm(f"Iteration {i + 1}/{max_iter}. Refine:\n\n{result}", config)
+            # Early exit if output converged (same result twice in a row)
+            if result == prev_result:
+                logger.info("Loop converged at iteration %d/%d", i + 1, max_iter)
+                break
+            prev_result = result
         return result
 
     async def _handle_delay(self, node: dict, input_text: str) -> str:
@@ -412,9 +435,16 @@ class WorkflowEngine:
     async def _run_llm(self, prompt: str, config: dict) -> str:
         """Call the LLM provider."""
         messages = [Message(role="user", content=prompt)]
+        timeout = config.get("timeout", _LLM_TIMEOUT_SECONDS)
         try:
-            response: ProviderResponse = await self._provider.acomplete(messages)
+            response: ProviderResponse = await asyncio.wait_for(self._provider.acomplete(messages), timeout=timeout)
             return response.content or ""
+        except asyncio.TimeoutError:
+            logger.warning("LLM call timed out after %ds", timeout)
+            if self._fallback:
+                response = await asyncio.wait_for(self._fallback.acomplete(messages), timeout=timeout)
+                return response.content or ""
+            return f"[LLM timeout after {timeout}s]"
         except (ConnectionError, TimeoutError, RuntimeError) as exc:
             logger.debug("Primary LLM failed (%s), trying fallback", exc)
             if self._fallback:
