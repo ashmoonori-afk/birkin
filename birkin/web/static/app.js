@@ -870,15 +870,53 @@ const t = window.birkin.t;
 
 function updateLangButton() {
   const lang = window.birkin.getLang();
-  langToggle.textContent = lang === "ko" ? "\uD55C" : "EN";
+  if (window.birkin.getLangMeta) {
+    langToggle.textContent = window.birkin.getLangMeta(lang).flag;
+  } else {
+    langToggle.textContent = lang === "ko" ? "\uD55C" : "EN";
+  }
 }
 
-langToggle.onclick = () => {
-  const next = window.birkin.getLang() === "en" ? "ko" : "en";
-  window.birkin.setLang(next);
-  updateLangButton();
-  refreshTranslatedUI();
-};
+function buildLangDropdown() {
+  // Remove existing dropdown if any
+  const existing = document.querySelector(".lang-dropdown");
+  if (existing) { existing.remove(); return; }
+
+  const langs = window.birkin.getAvailableLangs();
+  const dropdown = document.createElement("div");
+  dropdown.className = "lang-dropdown";
+  dropdown.setAttribute("role", "listbox");
+  dropdown.setAttribute("aria-label", "Language selection");
+
+  langs.forEach((code) => {
+    const meta = window.birkin.getLangMeta(code);
+    const item = document.createElement("button");
+    item.className = "lang-dropdown-item" + (code === window.birkin.getLang() ? " active" : "");
+    item.setAttribute("role", "option");
+    item.setAttribute("aria-selected", code === window.birkin.getLang() ? "true" : "false");
+    item.textContent = `${meta.flag} ${meta.native}`;
+    item.onclick = (e) => {
+      e.stopPropagation();
+      window.birkin.setLang(code);
+      updateLangButton();
+      refreshTranslatedUI();
+      dropdown.remove();
+    };
+    dropdown.appendChild(item);
+  });
+
+  langToggle.parentElement.appendChild(dropdown);
+  // Close on outside click
+  const closeHandler = (e) => {
+    if (!dropdown.contains(e.target) && e.target !== langToggle) {
+      dropdown.remove();
+      document.removeEventListener("click", closeHandler);
+    }
+  };
+  setTimeout(() => document.addEventListener("click", closeHandler), 0);
+}
+
+langToggle.onclick = (e) => { e.stopPropagation(); buildLangDropdown(); };
 
 function refreshTranslatedUI() {
   // Static HTML elements

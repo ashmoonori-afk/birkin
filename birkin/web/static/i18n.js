@@ -679,6 +679,12 @@
     },
   };
 
+  // Language metadata for UI display
+  const LANG_META = {
+    en: { label: "English", flag: "EN", native: "English" },
+    ko: { label: "한국어", flag: "한", native: "한국어" },
+  };
+
   let currentLang = localStorage.getItem("birkin_lang") || "en";
 
   function t(key) {
@@ -689,18 +695,19 @@
     if (!STRINGS[lang]) return;
     currentLang = lang;
     localStorage.setItem("birkin_lang", lang);
-    // Notify all modules
     if (window.birkin._onLangChange) window.birkin._onLangChange.forEach((fn) => fn(lang));
   }
 
   function getLang() { return currentLang; }
   function getAvailableLangs() { return Object.keys(STRINGS); }
+  function getLangMeta(lang) { return LANG_META[lang] || { label: lang, flag: lang.slice(0, 2).toUpperCase(), native: lang }; }
 
-  // Expose globally — must load before other scripts
+  // Expose globally
   window.birkin = window.birkin || {};
   window.birkin.t = t;
   window.birkin.setLang = setLang;
   window.birkin.getLang = getLang;
   window.birkin.getAvailableLangs = getAvailableLangs;
+  window.birkin.getLangMeta = getLangMeta;
   window.birkin._onLangChange = [];
 })();
