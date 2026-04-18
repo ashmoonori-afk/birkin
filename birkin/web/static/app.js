@@ -155,6 +155,8 @@ function setLoading(on) { sendBtn.disabled = on; input.disabled = on; }
 
 /* ── Agentic Flow Rendering ── */
 
+let _thinkingTimer = null;
+
 function createThinkingIndicator() {
   const el = document.createElement("div");
   el.className = "thinking-indicator";
@@ -164,9 +166,18 @@ function createThinkingIndicator() {
   el.textContent = t("reasoning");
   chat.appendChild(el);
   scrollToBottom();
+  // Show elapsed time after 5 seconds
+  const start = Date.now();
+  _thinkingTimer = setInterval(() => {
+    const sec = Math.floor((Date.now() - start) / 1000);
+    el.textContent = `${t("reasoning")} (${sec}s)`;
+  }, 1000);
   return el;
 }
-function removeThinkingIndicator() { const el = $("agent-thinking"); if (el) el.remove(); }
+function removeThinkingIndicator() {
+  if (_thinkingTimer) { clearInterval(_thinkingTimer); _thinkingTimer = null; }
+  const el = $("agent-thinking"); if (el) el.remove();
+}
 
 function showWritingIndicator() {
   removeWritingIndicator();

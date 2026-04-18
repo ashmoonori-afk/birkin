@@ -34,6 +34,10 @@
       </div>`;
 
     document.getElementById("trigger-create-btn").addEventListener("click", () => {
+      // Reset form fields when opening
+      document.getElementById("tf-type").selectedIndex = 0;
+      document.getElementById("tf-workflow").value = "";
+      document.getElementById("tf-config").value = "";
       document.getElementById("trigger-form-area").style.display = "block";
     });
     document.getElementById("tf-cancel").addEventListener("click", () => {
