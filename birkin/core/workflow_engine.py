@@ -92,6 +92,7 @@ class WorkflowEngine:
             return await self._run_graph_mode(user_input)
 
         self._results = {}
+        self._merge_inputs: dict[str, list[str]] = {}
         starts = self._find_start_nodes()
         if not starts:
             return "Workflow has no entry nodes."
@@ -142,7 +143,34 @@ class WorkflowEngine:
                 final_output = error_msg
                 break
 
-            for next_id in self._next_nodes(nid, output):
+            next_ids = self._next_nodes(nid, output)
+
+            # Parallel node: execute all children concurrently
+            if node.get("type") == "parallel" and len(next_ids) > 1:
+                child_tasks = []
+                for cid in next_ids:
+                    child_node = self._node_map.get(cid)
+                    if child_node:
+                        child_tasks.append(self._execute_node(child_node, output))
+                if child_tasks:
+                    self._emit({"wf_step": {"id": nid, "type": "parallel", "status": "forking", "children": next_ids}})
+                    results = await asyncio.gather(*child_tasks, return_exceptions=True)
+                    for i, cid in enumerate(next_ids):
+                        r = results[i]
+                        child_output = str(r) if isinstance(r, BaseException) else r
+                        self._results[cid] = child_output
+                        visited.add(cid)
+                        self._emit({"wf_step": {"id": cid, "type": self._node_map[cid]["type"], "status": "done"}})
+                        # Collect outputs for downstream merge nodes
+                        for grandchild in self._next_nodes(cid, child_output):
+                            if self._node_map.get(grandchild, {}).get("type") == "merge":
+                                self._merge_inputs.setdefault(grandchild, []).append(child_output)
+                            self._results[grandchild] = child_output
+                            if grandchild not in visited:
+                                queue.append(grandchild)
+                    continue
+
+            for next_id in next_ids:
                 self._results[next_id] = output
                 if next_id not in visited:
                     queue.append(next_id)
@@ -155,8 +183,8 @@ class WorkflowEngine:
         "input": "_handle_passthrough",
         "output": "_handle_passthrough",
         "webhook-trigger": "_handle_passthrough",
-        "merge": "_handle_passthrough",
-        "parallel": "_handle_passthrough",
+        "merge": "_handle_merge",
+        "parallel": "_handle_parallel",
         # AI models
         "llm": "_handle_llm",
         "llm-stream": "_handle_llm",
@@ -337,6 +365,25 @@ class WorkflowEngine:
     async def _handle_prompt_template(self, node: dict, input_text: str) -> str:
         template = node.get("config", {}).get("template", "{input}")
         return template.replace("{input}", input_text)
+
+    async def _handle_parallel(self, node: dict, input_text: str) -> str:
+        """Fork input to all child nodes and execute concurrently.
+
+        Returns input unchanged — actual parallel work happens in run()
+        which detects parallel nodes and uses asyncio.gather on children.
+        The output is passed to all outgoing edges as-is.
+        """
+        return input_text
+
+    async def _handle_merge(self, node: dict, input_text: str) -> str:
+        """Merge multiple inputs from parallel branches.
+
+        Collects all inputs stored in _merge_inputs[node_id] by the
+        run() loop and joins them with separators.
+        """
+        inputs = self._merge_inputs.get(node["id"], [input_text])
+        separator = node.get("config", {}).get("separator", "\n\n---\n\n")
+        return separator.join(inputs)
 
     # ── Quality gate handlers ─────────────────────────────────────────
 
