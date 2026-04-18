@@ -7,7 +7,7 @@
 <p align="center">
   <a href="#-quick-start">Quick Start</a> &bull;
   <a href="#-what-birkin-does">What It Does</a> &bull;
-  <a href="#-9-tab-webui">WebUI</a> &bull;
+  <a href="#-10-tab-webui">WebUI</a> &bull;
   <a href="#-providers">Providers</a> &bull;
   <a href="#-memory-system">Memory</a> &bull;
   <a href="#-automation">Automation</a> &bull;
@@ -19,8 +19,8 @@
 <p align="center">
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-blue.svg" alt="MIT License"></a>
   <img src="https://img.shields.io/badge/python-3.11%2B-blue" alt="Python 3.11+">
-  <img src="https://img.shields.io/badge/version-v0.5.3-green" alt="v0.5.3">
-  <img src="https://img.shields.io/badge/tests-607%2B-brightgreen" alt="607+ tests">
+  <img src="https://img.shields.io/badge/version-v0.6.0-green" alt="v0.6.0">
+  <img src="https://img.shields.io/badge/tests-675%2B-brightgreen" alt="675+ tests">
   <img src="https://img.shields.io/badge/providers-9-orange" alt="9 Providers">
 </p>
 
@@ -123,13 +123,14 @@ GROQ_API_KEY=gsk_...            # Ultra low-latency
 
 ---
 
-## 9-Tab WebUI
+## 10-Tab WebUI
 
 | Tab | What You Get |
 |-----|-------------|
 | **Chat** | SSE streaming with scroll-lock, retry on disconnect, elapsed-time indicator, and auto-memory |
 | **Workflow** | Visual editor — drag 40+ node types, parallel execution, condition routing, error recovery paths |
 | **Memory** | Interactive knowledge graph — see what Birkin remembers, edit pages, upload files (.md, .json, .csv, .pdf) |
+| **Profile** | Import ChatGPT/Claude conversations — Birkin builds a profile of you (role, expertise, interests, projects, style) |
 | **Telegram** | Connect a bot in 3 steps — works over polling (no public URL needed) |
 | **Triggers** | Schedule anything — cron, file watchers, webhooks, message filters |
 | **Skills** | Install and toggle skill plugins (code-review, web-summarizer, or build your own) |
@@ -220,9 +221,10 @@ Every session enforces a budget. When tokens run low, Birkin auto-compresses con
 | **Eval** | `birkin eval run/list/diff` | CLI evaluation framework |
 | **Voice** | `POST /api/voice/stt`, `/tts` | Speech-to-text, text-to-speech |
 | **MCP** | `birkin mcp serve` | Expose as MCP server |
+| **Profile** | `POST /api/profile/import`, `GET/DELETE /api/profile` | Conversation import + user profile |
 | **Settings** | `GET/PUT /api/settings` | Config, keys, providers |
 
-Full API: 57 endpoints across 16 routers.
+Full API: 61 endpoints across 17 routers.
 
 ---
 
@@ -234,13 +236,13 @@ birkin/
   mcp/            MCP client + server + Playwright browser automation
   triggers/       Cron, file watch, webhook, message + SQLite persistence
   skills/         SKILL.md plugin system (code-review, web-summarizer)
-  memory/         Wiki, event store, compiler, semantic search, decay, insights
+  memory/         Wiki, event store, compiler, importers (ChatGPT/Claude), profile, semantic search, decay
   eval/           JSONL evaluation framework with regression detection
   observability/  Structured tracing (Trace > Span > JSONL)
   voice/          Whisper STT + TTS
-  gateway/        FastAPI backend (15 routers)
-  web/            9-tab WebUI (vanilla JS, cinematic dark theme, 4-tier responsive)
-  tests/          607+ tests (pytest)
+  gateway/        FastAPI backend (17 routers)
+  web/            10-tab WebUI (vanilla JS, cinematic dark theme, 4-tier responsive)
+  tests/          675+ tests (pytest)
 ```
 
 ---

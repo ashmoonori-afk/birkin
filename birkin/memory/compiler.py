@@ -7,10 +7,11 @@ many agents consolidate into the user's knowledge asset.
 from __future__ import annotations
 
 import logging
-from typing import Optional
+from typing import Any, Callable
 
 from birkin.memory.event_store import EventStore
 from birkin.memory.events import RawEvent
+from birkin.memory.importers.base import ParsedConversation
 from birkin.memory.wiki import WikiMemory
 
 logger = logging.getLogger(__name__)
@@ -125,11 +126,13 @@ class MemoryCompiler:
                         name = " ".join(phrase_words)
                         if name not in seen:
                             seen.add(name)
-                            entities.append({
-                                "name": name,
-                                "category": "entities",
-                                "context": content[:100],
-                            })
+                            entities.append(
+                                {
+                                    "name": name,
+                                    "category": "entities",
+                                    "context": content[:100],
+                                }
+                            )
 
         # Korean proper noun extraction (optional kiwipiepy)
         try:
@@ -145,11 +148,13 @@ class MemoryCompiler:
                         name = token.form
                         if name not in seen:
                             seen.add(name)
-                            entities.append({
-                                "name": name,
-                                "category": "entities",
-                                "context": content[:100],
-                            })
+                            entities.append(
+                                {
+                                    "name": name,
+                                    "category": "entities",
+                                    "context": content[:100],
+                                }
+                            )
         except ImportError:
             pass  # kiwipiepy not installed — skip Korean NER
 
@@ -195,4 +200,43 @@ class MemoryCompiler:
         result.pages_created.append(slug)
 
         logger.info("Compiled daily digest %s: %d events", date_str, len(events))
+        return result
+
+    def import_conversations(
+        self,
+        conversations: list[ParsedConversation],
+        provider: Any,
+        *,
+        on_progress: Callable | None = None,
+    ) -> CompileResult:
+        """Import external conversations and compile into user profile wiki pages.
+
+        Delegates to ProfileCompiler for LLM analysis and wiki page creation.
+
+        Args:
+            conversations: Parsed conversations from ChatGPT/Claude imports.
+            provider: LLM provider for analysis.
+            on_progress: Optional progress callback.
+
+        Returns:
+            CompileResult with created/updated page lists.
+        """
+        from birkin.memory.profile_compiler import ProfileCompiler
+
+        compiler = ProfileCompiler(provider, self._memory)
+        profile_result = compiler.compile_profile(
+            conversations,
+            on_progress=on_progress,
+        )
+
+        result = CompileResult()
+        result.pages_created = profile_result.pages_created
+        result.events_processed = profile_result.conversations_processed
+
+        logger.info(
+            "Imported %d conversations → %d profile pages (%d batch errors)",
+            profile_result.conversations_processed,
+            len(profile_result.pages_created),
+            profile_result.batches_failed,
+        )
         return result
