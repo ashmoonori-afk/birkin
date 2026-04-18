@@ -19,8 +19,8 @@
 <p align="center">
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-blue.svg" alt="MIT License"></a>
   <img src="https://img.shields.io/badge/python-3.11%2B-blue" alt="Python 3.11+">
-  <img src="https://img.shields.io/badge/version-v0.4.0-green" alt="v0.4.0">
-  <img src="https://img.shields.io/badge/tests-502%2B-brightgreen" alt="502+ tests">
+  <img src="https://img.shields.io/badge/version-v0.5.3-green" alt="v0.5.3">
+  <img src="https://img.shields.io/badge/tests-607%2B-brightgreen" alt="607+ tests">
   <img src="https://img.shields.io/badge/providers-9-orange" alt="9 Providers">
 </p>
 
@@ -93,8 +93,8 @@ GROQ_API_KEY=gsk_...            # Ultra low-latency
 
 | Tab | What You Get |
 |-----|-------------|
-| **Chat** | Streaming conversation with tool calls, thinking indicators, and auto-memory |
-| **Workflow** | Visual editor — drag 30+ node types, connect them, run complex automations |
+| **Chat** | SSE streaming with scroll-lock, retry on disconnect, elapsed-time indicator, and auto-memory |
+| **Workflow** | Visual editor — drag 40+ node types, parallel execution, condition routing, error recovery paths |
 | **Memory** | Interactive knowledge graph — see what Birkin remembers, edit pages, upload files (.md, .json, .csv, .pdf) |
 | **Telegram** | Connect a bot in 3 steps — works over polling (no public URL needed) |
 | **Triggers** | Schedule anything — cron, file watchers, webhooks, message filters |
@@ -159,9 +159,10 @@ Birkin's memory is what makes it different from a chatbot.
 
 ### Workflows
 
-- **Simple mode:** BFS node graph (30+ node types, drag-and-drop)
-- **Graph mode:** Conditional branches, parallel fan-out, loops with guards, checkpoints
+- **Simple mode:** BFS node graph (40+ node types, drag-and-drop, 5-module architecture)
+- **Graph mode:** Conditional routing (YES/NO labels), true parallel execution (`asyncio.gather`) + merge, loops with convergence detection, error recovery paths (ERROR label edges)
 - **NL builder:** Describe what you want in a sentence — Birkin generates the workflow
+- **LLM timeout:** Configurable per-node timeout (default 120s) with fallback provider
 
 ### Token Budget
 
@@ -204,8 +205,8 @@ birkin/
   observability/  Structured tracing (Trace > Span > JSONL)
   voice/          Whisper STT + TTS
   gateway/        FastAPI backend (15 routers)
-  web/            9-tab WebUI (vanilla JS, cinematic dark theme)
-  tests/          502+ tests (pytest)
+  web/            9-tab WebUI (vanilla JS, cinematic dark theme, 4-tier responsive)
+  tests/          607+ tests (pytest)
 ```
 
 ---

@@ -200,9 +200,69 @@ Every Phase 2 item below maps back to at least one of these three.
 
 ---
 
-## Phase 4: Future (Deferred)
+## Phase 4: Hardening & Polish (Complete, v0.5.3)
 
-Monetization and business-model decisions are intentionally deferred. Birkin stays focused on a single-user, self-hosted, open-source experience through Phase 3.
+**Goal:** Fix every bug found via smoke testing, improve SSE chat quality, harden the workflow engine, modernize the UI, and achieve 607+ test coverage.
+
+**Tests: 502 → 607 (+105). 14 releases (v0.4.1 → v0.5.3).**
+
+### Sprint 4A — Critical Bug Fixes (v0.4.1 → v0.4.7)
+
+- [x] **SSE chat bubble not rendering** — `workflow.onEvent` undefined crashed all SSE event processing silently (v0.4.1)
+- [x] **Memory not saving conversations** — `stream()` missing `_auto_save_memory()`, Korean signals absent, slug generation broken for Korean, decay defaults wrong (v0.4.2)
+- [x] **Workflow node ID collision** — `nodeIdCounter = nodes.length` instead of max ID; edge metadata loss on save; condition routing not implemented (v0.4.3)
+- [x] **Memory decay feedback loop broken** — `build_context()` never called `touch_page()`; `touch_page()` silently failed on pages without frontmatter (v0.4.4)
+- [x] **Skill toggle not persisted** — enable/disable lost on restart; dispatcher missing skill tools for Telegram (v0.4.5)
+- [x] **Telegram polling crash on ProviderError** — `BirkinError` not caught; health check auto-restart didn't set `_polling_active` (v0.4.6)
+- [x] **Trigger CRUD not persisted** — create/delete only in-memory, lost on restart; frontend JSON parse crash (v0.4.7)
+
+### Sprint 4B — Code Quality & Security (v0.4.8)
+
+- [x] **XSS vulnerability** — triggers.js and skills.js rendered server data in innerHTML without escaping → `esc()` + DOM event listeners
+- [x] **Spaghetti code cleanup** — frontmatter parsing 5x duplication → `_parse_frontmatter()` helper; signals lists rebuilt per call → class frozenset constants; deferred imports → module-level; TriggerStore → context manager; timezone naive/aware mismatch → UTC unified
+
+### Sprint 4C — SSE Chat Quality (v0.4.9)
+
+- [x] **Event-driven queue** — replaced 50ms polling with `asyncio.wait` (zero-delay, zero-loss)
+- [x] **Network error retry** — partial response preserved + Retry button
+- [x] **md() rendering throttle** — rAF batching (1 render/frame, prevents O(n²) jank)
+- [x] **Scroll-lock** — auto-scroll stops when user scrolls up 150px+
+- [x] **Accessibility** — aria-live on thinking/writing indicators, aria-hidden on cursor, prefers-reduced-motion
+
+### Sprint 4D — Workflow Engine (v0.5.0 → v0.5.1)
+
+- [x] **Loop convergence** — early exit on 2x consecutive identical output (saves LLM tokens)
+- [x] **LLM timeout** — `asyncio.wait_for` with 120s default; fallback on timeout; per-node configurable
+- [x] **Error recovery paths** — `ERROR` label edges route to recovery nodes instead of breaking workflow
+- [x] **True parallel execution** — `asyncio.gather` on parallel node children; merge node collects outputs
+- [x] **37 handler unit tests** — LLM, classifier, loop, condition, guardrail, validator, memory, parallel/merge, timeout, error recovery
+- [x] **workflow.js module split** — 933-line monolith → 5 files (state, canvas, events, config, main)
+
+### Sprint 4E — UI & E2E (v0.5.2 → v0.5.3)
+
+- [x] **Browser E2E smoke test** — 22 steps via Playwright MCP across all 9 views + mobile
+- [x] **Trigger form reset bug** — form retained previous values on reopen
+- [x] **Elapsed time indicator** — thinking indicator shows seconds ("Reasoning... (15s)")
+- [x] **Layout overhaul** — removed `max-width: 720px` dead space; persistent sidebar on 1024px+
+- [x] **4-tier responsive** — 480 / 768 / 1024 / 1440px breakpoints with adaptive spacing
+- [x] **Language dropdown** — EN/KO toggle → extensible dropdown with LANG_META system; aria-haspopup + listbox accessibility
+- [x] **4px spacing scale** — CSS custom properties (--sp-1 through --sp-10) per ui-ux-pro-max guidelines
+
+### Phase 4 — Summary
+
+| Sprint | Releases | Tests Added | Key Impact |
+|--------|----------|-------------|------------|
+| 4A (Bug Fixes) | v0.4.1–v0.4.7 | +4 | 7 critical bugs across all subsystems |
+| 4B (Code Quality) | v0.4.8 | +0 | XSS fix, 5x code dedup, timezone fix |
+| 4C (SSE Quality) | v0.4.9 | +0 | Chat reliability 6→8, latency 7→9 |
+| 4D (Workflow Engine) | v0.5.0–v0.5.1 | +37 | Parallel exec, error recovery, 37 tests |
+| 4E (UI & E2E) | v0.5.2–v0.5.3 | +0 | Responsive layout, language dropdown |
+
+---
+
+## Phase 5: Future (Deferred)
+
+Monetization and business-model decisions are intentionally deferred. Birkin stays focused on a single-user, self-hosted, open-source experience.
 
 ### Out of scope (by design)
 
