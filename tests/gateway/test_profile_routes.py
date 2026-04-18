@@ -1,9 +1,7 @@
 """Tests for profile API routes."""
 
-import io
 import json
 import tempfile
-from pathlib import Path
 
 import pytest
 from fastapi.testclient import TestClient
