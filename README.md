@@ -89,6 +89,40 @@ GROQ_API_KEY=gsk_...            # Ultra low-latency
 
 ---
 
+## Screenshots
+
+<p align="center">
+  <img src="docs/screenshots/01-chat.png" alt="Chat View" width="720"><br>
+  <em>Chat — SSE streaming with persistent sidebar, suggestion prompts, scroll-lock</em>
+</p>
+
+<p align="center">
+  <img src="docs/screenshots/02-workflow.png" alt="Workflow Editor" width="720"><br>
+  <em>Workflow — 40+ node palette, 11 sample templates, drag-and-drop canvas editor</em>
+</p>
+
+<p align="center">
+  <img src="docs/screenshots/03-dashboard.png" alt="Dashboard" width="720"><br>
+  <em>Dashboard — Token spend, latency distribution, error rates, provider breakdown</em>
+</p>
+
+<details>
+<summary>More screenshots</summary>
+
+<p align="center">
+  <img src="docs/screenshots/04-skills.png" alt="Skills" width="720"><br>
+  <em>Skills — Install and toggle skill plugins with one click</em>
+</p>
+
+<p align="center">
+  <img src="docs/screenshots/05-mobile.png" alt="Mobile View" width="360"><br>
+  <em>Mobile — Fully responsive at 375px with adaptive navigation</em>
+</p>
+
+</details>
+
+---
+
 ## 9-Tab WebUI
 
 | Tab | What You Get |
