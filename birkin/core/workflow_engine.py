@@ -499,11 +499,23 @@ class WorkflowEngine:
         return f"[Notification sent] {input_text[:100]}"
 
     async def _run_llm(self, prompt: str, config: dict) -> str:
-        """Call the LLM provider."""
+        """Call the LLM provider. Supports per-node provider override via config."""
         messages = [Message(role="user", content=prompt)]
         timeout = config.get("timeout", _LLM_TIMEOUT_SECONDS)
+
+        # Per-node provider override
+        provider = self._provider
+        provider_name = config.get("provider", "")
+        if provider_name:
+            try:
+                from birkin.core.providers import create_provider
+
+                provider = create_provider(f"{provider_name}/default")
+            except (ValueError, TypeError, ImportError, OSError):
+                logger.debug("Node provider '%s' unavailable, using default", provider_name)
+
         try:
-            response: ProviderResponse = await asyncio.wait_for(self._provider.acomplete(messages), timeout=timeout)
+            response: ProviderResponse = await asyncio.wait_for(provider.acomplete(messages), timeout=timeout)
             return response.content or ""
         except TimeoutError:
             logger.warning("LLM call timed out after %ds", timeout)

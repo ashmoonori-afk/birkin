@@ -16,14 +16,20 @@
         <label class="wf-config-label">Label</label>
         <input class="wf-config-input" id="wf-cfg-label" value="${B.esc(node.config?.label || node.label || info.label)}" />
       </div>
-      ${node.type === "llm" || node.type === "llm-stream" ? `
+      ${["llm","llm-stream","classifier","embedder","summarizer","translator","knowledge-extract"].includes(node.type) ? `
         <div class="wf-config-field">
           <label class="wf-config-label">Provider</label>
           <select class="wf-config-select" id="wf-cfg-provider">
-            <option value="anthropic">Anthropic</option>
-            <option value="openai">OpenAI</option>
-            <option value="claude-cli">Claude CLI</option>
-            <option value="codex-cli">Codex CLI</option>
+            <option value="">Default</option>
+            <option value="anthropic">Anthropic (Claude)</option>
+            <option value="openai">OpenAI (GPT)</option>
+            <option value="gemini">Gemini</option>
+            <option value="perplexity">Perplexity</option>
+            <option value="groq">Groq</option>
+            <option value="ollama">Ollama (Local)</option>
+            <option value="openrouter">OpenRouter</option>
+            <option value="claude-cli">Claude CLI (Local)</option>
+            <option value="codex-cli">Codex CLI (Local)</option>
           </select>
         </div>
       ` : ""}
@@ -57,6 +63,10 @@
         <button class="wf-tb-btn" id="wf-cfg-close">Close</button>
       </div>
     `;
+
+    // Restore saved provider selection
+    const provSelect = S.configPanel.querySelector("#wf-cfg-provider");
+    if (provSelect && node.config?.provider) provSelect.value = node.config.provider;
 
     S.configPanel.querySelector("#wf-cfg-apply").onclick = () => {
       node.config = node.config || {};
