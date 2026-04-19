@@ -339,3 +339,48 @@
   .tg-plabel { display: none; }
   .tg-step-actions { flex-direction: column; }
 }
+
+/* ── Remote Control Tabs ── */
+
+.rc-header {
+  padding: 20px 24px 0;
+  max-width: 560px;
+  margin: 0 auto;
+}
+.rc-title {
+  font-size: 1.1rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 1.5px;
+  color: var(--text);
+  margin-bottom: 16px;
+}
+.rc-tabs {
+  display: flex;
+  gap: 4px;
+  border-bottom: 1px solid var(--border);
+  padding-bottom: 0;
+}
+.rc-tab {
+  padding: 8px 20px;
+  background: none;
+  border: none;
+  border-bottom: 2px solid transparent;
+  color: var(--text-dim);
+  font-family: var(--font);
+  font-size: 0.82rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  cursor: pointer;
+  transition: color 0.15s, border-color 0.15s;
+}
+.rc-tab:hover { color: var(--text); }
+.rc-tab.active {
+  color: var(--text);
+  border-bottom-color: #0a84ff;
+}
+.rc-content {
+  max-width: 560px;
+  margin: 0 auto;
+}

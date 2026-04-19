@@ -9,6 +9,7 @@ from birkin.gateway.routers.health import router as health_router
 from birkin.gateway.routers.insights import router as insights_router
 from birkin.gateway.routers.observability import router as observability_router
 from birkin.gateway.routers.profile import router as profile_router
+from birkin.gateway.routers.remote import router as remote_router
 from birkin.gateway.routers.security import router as security_router
 from birkin.gateway.routers.sessions import router as sessions_router
 from birkin.gateway.routers.settings import router as settings_router
@@ -40,4 +41,5 @@ all_routers = [
     insights_router,
     profile_router,
     security_router,
+    remote_router,
 ]

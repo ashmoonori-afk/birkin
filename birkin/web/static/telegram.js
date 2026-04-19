@@ -1,36 +1,187 @@
-/* Birkin — Telegram Integration (token + chat_id = done) */
+/* Birkin — Remote Control (Telegram + Slack + Discord) */
 
 (function () {
   const B = window.birkin;
   const container = B.$("view-telegram");
   let initialized = false;
   let savedToken = "";
+  let _activePlatform = "telegram";
 
   function t(k) { return B.t(k); }
 
   async function init() {
-    if (initialized) { await render(); return; }
+    if (initialized) { renderPlatformTabs(); return; }
     initialized = true;
-    await render();
+    renderPlatformTabs();
   }
 
-  async function render() {
+  function renderPlatformTabs() {
     container.innerHTML = "";
+    const header = document.createElement("div");
+    header.className = "rc-header";
+    header.innerHTML = `
+      <h2 class="rc-title">Remote Control</h2>
+      <div class="rc-tabs">
+        <button class="rc-tab ${_activePlatform === "telegram" ? "active" : ""}" data-platform="telegram">Telegram</button>
+        <button class="rc-tab ${_activePlatform === "slack" ? "active" : ""}" data-platform="slack">Slack</button>
+        <button class="rc-tab ${_activePlatform === "discord" ? "active" : ""}" data-platform="discord">Discord</button>
+      </div>
+    `;
+    container.appendChild(header);
+
+    header.querySelectorAll(".rc-tab").forEach((btn) => {
+      btn.onclick = () => { _activePlatform = btn.dataset.platform; renderPlatformTabs(); };
+    });
+
+    const content = document.createElement("div");
+    content.className = "rc-content";
+    container.appendChild(content);
+
+    if (_activePlatform === "telegram") renderTelegram(content);
+    else if (_activePlatform === "slack") renderSlack(content);
+    else if (_activePlatform === "discord") renderDiscord(content);
+  }
+
+  /* ── Slack ── */
+  async function renderSlack(el) {
+    let status = { configured: false };
+    try { const r = await fetch("/api/remote/slack/status"); if (r.ok) status = await r.json(); } catch {}
+
+    if (status.configured) {
+      el.innerHTML = `<div class="tg-container"><div class="tg-dashboard">
+        <div class="tg-dash-status"><span class="tg-status-dot connected"></span> Slack Connected</div>
+        <p style="color:var(--text-dim);font-size:0.85rem;margin:12px 0">${status.channel ? "Channel: " + B.esc(status.channel) : "Default channel"}</p>
+        <div style="display:flex;gap:8px;margin-top:12px">
+          <button class="tg-btn" id="rc-slack-test">Send Test</button>
+          <button class="tg-btn secondary" id="rc-slack-reconfig">Reconfigure</button>
+        </div>
+      </div></div>`;
+      el.querySelector("#rc-slack-test").onclick = async () => {
+        const r = await fetch("/api/remote/slack/test", { method: "POST" });
+        const d = await r.json();
+        alert(d.message);
+      };
+      el.querySelector("#rc-slack-reconfig").onclick = () => { renderSlackSetup(el); };
+    } else {
+      renderSlackSetup(el);
+    }
+  }
+
+  function renderSlackSetup(el) {
+    el.innerHTML = `<div class="tg-container">
+      <div class="tg-header">
+        <div class="tg-header-title">Connect Slack</div>
+        <div class="tg-header-sub">Paste your Slack Incoming Webhook URL</div>
+      </div>
+      <div class="tg-steps">
+        <div class="tg-step"><div class="tg-step-num">1</div><div class="tg-step-content">
+          <div class="tg-step-title">Create Incoming Webhook</div>
+          <div class="tg-step-desc">Go to <a href="https://api.slack.com/messaging/webhooks" target="_blank" style="color:var(--text)">Slack API → Incoming Webhooks</a> and create a new webhook for your workspace.</div>
+        </div></div>
+        <div class="tg-step"><div class="tg-step-num">2</div><div class="tg-step-content">
+          <div class="tg-step-title">Paste Webhook URL</div>
+          <div class="tg-step-desc"><input class="tg-input" id="rc-slack-url" placeholder="https://hooks.slack.com/services/T.../B.../xxx" /></div>
+        </div></div>
+        <div class="tg-step"><div class="tg-step-num">3</div><div class="tg-step-content">
+          <div class="tg-step-title">Channel (optional)</div>
+          <div class="tg-step-desc"><input class="tg-input" id="rc-slack-channel" placeholder="#general" /></div>
+        </div></div>
+      </div>
+      <button class="tg-btn primary" id="rc-slack-save" style="margin-top:16px;width:100%">Connect Slack</button>
+    </div>`;
+    el.querySelector("#rc-slack-save").onclick = async () => {
+      const url = el.querySelector("#rc-slack-url").value.trim();
+      const channel = el.querySelector("#rc-slack-channel").value.trim();
+      const r = await fetch("/api/remote/slack/configure", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ webhook_url: url, channel }),
+      });
+      const d = await r.json();
+      if (d.status === "ok") renderSlack(el);
+      else alert(d.message);
+    };
+  }
+
+  /* ── Discord ── */
+  async function renderDiscord(el) {
+    let status = { configured: false };
+    try { const r = await fetch("/api/remote/discord/status"); if (r.ok) status = await r.json(); } catch {}
+
+    if (status.configured) {
+      el.innerHTML = `<div class="tg-container"><div class="tg-dashboard">
+        <div class="tg-dash-status"><span class="tg-status-dot connected"></span> Discord Connected</div>
+        <p style="color:var(--text-dim);font-size:0.85rem;margin:12px 0">Bot name: ${B.esc(status.username || "Birkin")}</p>
+        <div style="display:flex;gap:8px;margin-top:12px">
+          <button class="tg-btn" id="rc-discord-test">Send Test</button>
+          <button class="tg-btn secondary" id="rc-discord-reconfig">Reconfigure</button>
+        </div>
+      </div></div>`;
+      el.querySelector("#rc-discord-test").onclick = async () => {
+        const r = await fetch("/api/remote/discord/test", { method: "POST" });
+        const d = await r.json();
+        alert(d.message);
+      };
+      el.querySelector("#rc-discord-reconfig").onclick = () => { renderDiscordSetup(el); };
+    } else {
+      renderDiscordSetup(el);
+    }
+  }
+
+  function renderDiscordSetup(el) {
+    el.innerHTML = `<div class="tg-container">
+      <div class="tg-header">
+        <div class="tg-header-title">Connect Discord</div>
+        <div class="tg-header-sub">Paste your Discord Webhook URL</div>
+      </div>
+      <div class="tg-steps">
+        <div class="tg-step"><div class="tg-step-num">1</div><div class="tg-step-content">
+          <div class="tg-step-title">Create Webhook</div>
+          <div class="tg-step-desc">In your Discord server: Server Settings → Integrations → Webhooks → New Webhook</div>
+        </div></div>
+        <div class="tg-step"><div class="tg-step-num">2</div><div class="tg-step-content">
+          <div class="tg-step-title">Copy Webhook URL</div>
+          <div class="tg-step-desc"><input class="tg-input" id="rc-discord-url" placeholder="https://discord.com/api/webhooks/..." /></div>
+        </div></div>
+        <div class="tg-step"><div class="tg-step-num">3</div><div class="tg-step-content">
+          <div class="tg-step-title">Bot Name (optional)</div>
+          <div class="tg-step-desc"><input class="tg-input" id="rc-discord-name" placeholder="Birkin" value="Birkin" /></div>
+        </div></div>
+      </div>
+      <button class="tg-btn primary" id="rc-discord-save" style="margin-top:16px;width:100%">Connect Discord</button>
+    </div>`;
+    el.querySelector("#rc-discord-save").onclick = async () => {
+      const url = el.querySelector("#rc-discord-url").value.trim();
+      const username = el.querySelector("#rc-discord-name").value.trim();
+      const r = await fetch("/api/remote/discord/configure", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ webhook_url: url, username }),
+      });
+      const d = await r.json();
+      if (d.status === "ok") renderDiscord(el);
+      else alert(d.message);
+    };
+  }
+
+  /* ── Telegram (existing) ── */
+  function renderTelegram(el) {
     const wrap = document.createElement("div");
     wrap.className = "tg-container";
+    renderTelegramContent(wrap);
+    el.appendChild(wrap);
+  }
 
+  async function renderTelegramContent(wrap) {
     let status = { configured: false, polling: false };
     try {
       const res = await fetch("/api/telegram/status");
       if (res.ok) status = await res.json();
-    } catch { /* */ }
+    } catch {}
 
     if (status.configured) {
       renderDashboard(wrap, status);
     } else {
       renderSetup(wrap);
     }
-    container.appendChild(wrap);
   }
 
   /* ── Simple Setup: Token → Auto Connect → Test ── */
@@ -236,7 +387,7 @@
 
     // Refresh
     const refreshBtn = wrap.querySelector("#tg-dash-refresh");
-    if (refreshBtn) { refreshBtn.onclick = render; }
+    if (refreshBtn) { refreshBtn.onclick = renderPlatformTabs; }
   }
 
   B.viewHooks.telegram = { onActivate: init };
