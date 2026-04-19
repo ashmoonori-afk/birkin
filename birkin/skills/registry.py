@@ -27,10 +27,16 @@ class SkillRegistry:
         tools = registry.get_enabled_tools()
     """
 
-    def __init__(self, skills_dir: Optional[Path] = None) -> None:
+    def __init__(
+        self,
+        skills_dir: Optional[Path] = None,
+        semantic_search: Optional[Any] = None,
+    ) -> None:
         self._loader = SkillLoader(skills_dir)
         self._skills: dict[str, Skill] = {}
         self._tools: dict[str, list[Tool]] = {}  # skill_name -> tools
+        self._semantic: Optional[Any] = semantic_search  # SemanticSearch
+        self._trigger_index_built = False
 
     @property
     def skills_dir(self) -> Path:
@@ -134,8 +140,33 @@ class SkillRegistry:
     def match_triggers(self, text: str) -> list[Skill]:
         """Find skills whose triggers match the given text.
 
-        Simple case-insensitive substring match against trigger keywords.
+        Uses a hybrid approach:
+        1. Exact case-insensitive substring match (fast path)
+        2. Semantic fallback when no exact match and SemanticSearch is available
         """
+        exact = self._exact_match_triggers(text)
+        if exact or self._semantic is None:
+            return exact
+
+        # Semantic fallback
+        self._build_trigger_index()
+        results = self._semantic.search(text, k=3)
+        seen_names = {s.name for s in exact}
+        semantic_matches: list[Skill] = []
+        for r in results:
+            if r.score <= 0.6:
+                continue
+            skill_name = r.metadata.get("slug", "")
+            if skill_name in seen_names:
+                continue
+            skill = self._skills.get(skill_name)
+            if skill and skill.enabled:
+                semantic_matches.append(skill)
+                seen_names.add(skill_name)
+        return exact + semantic_matches
+
+    def _exact_match_triggers(self, text: str) -> list[Skill]:
+        """Original substring matching logic."""
         text_lower = text.lower()
         matches: list[Skill] = []
         for skill in self._skills.values():
@@ -146,6 +177,16 @@ class SkillRegistry:
                     matches.append(skill)
                     break
         return matches
+
+    def _build_trigger_index(self) -> None:
+        """Pre-compute embeddings for all skill triggers + descriptions."""
+        if self._semantic is None or self._trigger_index_built:
+            return
+        for skill in self._skills.values():
+            texts = [skill.spec.description] + list(skill.spec.triggers)
+            combined = "\n".join(texts)
+            self._semantic.index_page("triggers", skill.name, combined)
+        self._trigger_index_built = True
 
     def to_summary(self) -> list[dict]:
         """Export skill summaries for API responses."""
