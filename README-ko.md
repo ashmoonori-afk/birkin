@@ -1,177 +1,222 @@
-<h1 align="center">Birkin</h1>
-
 <p align="center">
-  <strong>기억하고, 학습하고, 당신을 위해 일하는 개인 에이전트 OS.</strong>
+<pre align="center">
+ ██████╗ ██╗██████╗ ██╗  ██╗██╗███╗   ██╗
+ ██╔══██╗██║██╔══██╗██║ ██╔╝██║████╗  ██║
+ ██████╔╝██║██████╔╝█████╔╝ ██║██╔██╗ ██║
+ ██╔══██╗██║██╔══██╗██╔═██╗ ██║██║╚██╗██║
+ ██████╔╝██║██║  ██║██║  ██╗██║██║ ╚████║
+ ╚═════╝ ╚═╝╚═╝  ╚═╝╚═╝  ╚═╝╚═╝╚═╝  ╚═══╝
+</pre>
+  <b>당신을 진짜로 기억하는 AI 에이전트.</b><br>
+  셀프 호스팅 · 멀티 LLM · 영속 메모리 · 워크플로우 자동화
 </p>
 
 <p align="center">
-  <a href="#-빠른-시작">빠른 시작</a> &bull;
-  <a href="#-birkin이-하는-일">소개</a> &bull;
-  <a href="#-9탭-webui">WebUI</a> &bull;
-  <a href="#-프로바이더">프로바이더</a> &bull;
-  <a href="#-메모리-시스템">메모리</a> &bull;
-  <a href="#-자동화">자동화</a> &bull;
-  <a href="#-api">API</a> &bull;
-  <a href="#-아키텍처">아키텍처</a> &bull;
-  <a href="README.md">English</a>
+  <a href="#-빠른-시작">빠른 시작</a> · <a href="#-왜-birkin인가">왜 Birkin</a> · <a href="#-메모리-시스템">메모리</a> · <a href="#-워크플로우-자동화">자동화</a> · <a href="#-아키텍처">아키텍처</a> · <a href="README.md">English</a>
 </p>
 
 <p align="center">
-  <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-blue.svg" alt="MIT License"></a>
-  <img src="https://img.shields.io/badge/python-3.11%2B-blue" alt="Python 3.11+">
-  <img src="https://img.shields.io/badge/version-v0.3.0-green" alt="v0.3.0">
-  <img src="https://img.shields.io/badge/tests-461%2B-brightgreen" alt="461+ tests">
-  <img src="https://img.shields.io/badge/providers-9-orange" alt="9 Providers">
+  <img src="https://img.shields.io/badge/license-MIT-blue.svg" alt="MIT License" />
+  <img src="https://img.shields.io/badge/python-3.11%2B-blue" alt="Python 3.11+" />
+  <img src="https://img.shields.io/badge/version-v0.7.0-green" alt="v0.7.0" />
+  <img src="https://img.shields.io/badge/tests-706%2B-brightgreen" alt="706+ tests" />
+  <img src="https://img.shields.io/badge/providers-9-orange" alt="9 Providers" />
 </p>
 
 ---
 
-## Birkin이 하는 일
+> **모든 AI 도구는 대화가 끝나면 당신을 잊습니다.**
+> Birkin은 다릅니다. 대화를 살아있는 위키로 컴파일하고,
+> 당신의 패턴을 감지하고, 반복 작업을 자동화합니다 —
+> 모두 당신의 컴퓨터에서, 당신의 통제 하에.
 
-대부분의 AI 도구는 대화가 끝나면 당신을 잊습니다. Birkin은 다릅니다.
+<p align="center">
+  <img src="docs/screenshots/01-chat.png" width="720" alt="Birkin Chat UI" />
+</p>
 
-**Birkin은 개인 에이전트 OS입니다.** 당신의 컴퓨터에서 실행되며, 모든 LLM에 연결하고, 모든 대화에서 지식을 축적합니다. 작업에 맞는 최적의 모델을 자동 선택하고, 트리거로 워크플로우를 자동 실행하며, 시간이 갈수록 당신에게 더 잘 맞는 에이전트가 됩니다.
+---
 
-- **하나의 인터페이스, 모든 LLM** — Claude, GPT, Gemini, Perplexity, Groq, Ollama, OpenRouter. Birkin이 각 작업에 최적의 모델을 선택합니다.
-- **축적되는 메모리** — 모든 대화가 검색 가능한 위키로 컴파일됩니다. 관련 컨텍스트가 자동으로 주입됩니다.
-- **스스로 실행되는 자동화** — 트리거(크론, 파일 변경, 웹훅)를 설정하면 워크플로우가 알아서 실행됩니다.
-- **100% 로컬, 100% 당신의 것** — 셀프 호스팅. 클라우드 의존 없음. 데이터는 절대 외부로 나가지 않습니다.
+## 왜 Birkin인가?
+
+### 문제
+
+ChatGPT, Claude, Gemini를 써봤을 겁니다. 매번 세션이 0에서 시작합니다. 역할, 프로젝트, 선호도를 매번 다시 설명해야 합니다. AI가 기억상실증에 걸려 있는 겁니다.
+
+Open WebUI 같은 셀프 호스팅 대안도 로컬 인터페이스일 뿐 — 같은 건망증입니다. 게다가 [63일 만에 138개 CVE](https://www.horizon3.ai/)가 발견되면서, "셀프 호스팅"이 곧 "안전"을 의미하지도 않습니다.
+
+### 해결책
+
+Birkin은 당신의 컴퓨터에서 실행되며 모든 대화에서 지속적인 지식을 쌓는 **개인 에이전트 OS**입니다.
+
+| | ChatGPT / Claude | Open WebUI | **Birkin** |
+|---|---|---|---|
+| 메모리 | 세션 단위 | 벡터 검색 (저장 & 조회) | **위키로 컴파일** (정리, 연결, 감쇠) |
+| 자동화 | 없음 | 기본 파이프라인 | **47노드 워크플로우 엔진** + 트리거 |
+| 학습 | 안 함 | 안 함 | **패턴 감지 → 선제적 제안** |
+| 데이터 | 클라우드 | 로컬이지만 노출됨 | **로컬, 최소 공격 표면** |
+| 프로바이더 | 단일 | 멀티 LLM | **9개 프로바이더**, 자동 라우팅 |
+
+---
+
+## 핵심 기능
+
+### 축적되는 메모리
+
+Birkin은 대화를 그냥 저장하지 않습니다 — **컴파일**합니다.
+
+```
+대화 → LLM 분류기 → 위키 페이지 (entities, concepts, sessions)
+                          ↓
+                  [[위키링크]]로 관련 지식 연결
+                          ↓
+                  감쇠 알고리즘: 가치 있는 건 남고, 노이즈는 사라짐
+                          ↓
+                  다음 세션: 관련 컨텍스트 자동 주입
+```
+
+- **덤프가 아닌 컴파일** — 대화가 벡터 DB에 투척되는 게 아니라, 구조화된 위키 페이지로 정제됩니다
+- **자연스러운 망각** — 20일 반감기. 자주 참조되는 지식은 강화되고, 안 쓰이는 건 퇴색
+- **이중 언어** — 한국어 + 영어 고유명사 추출, 분류, 검색
+- **투명성** — 모든 메모리 페이지가 무엇을, 왜, 어디서 기억했는지 보여줌
+
+### 워크플로우 자동화
+
+원하는 걸 자연어로 설명하면 Birkin이 만들어줍니다.
+
+```
+"매일 아침 HN 탑 뉴스 요약해서 텔레그램으로 보내줘"
+→ 크론 트리거 + 웹 스크래퍼 + LLM 요약기 + 텔레그램 발송 워크플로우 자동 생성
+```
+
+- **47종 노드 타입** — LLM 호출, API 요청, 조건 분기, 루프, 병렬 실행, 품질 게이트
+- **4종 트리거** — 크론 스케줄, 파일 감시, 웹훅, 메시지 필터
+- **비주얼 에디터** — WebUI에서 드래그 앤 드롭으로 워크플로우 구성
+- **자연어 빌더** — 한국어 또는 영어로 설명하면 실행 가능한 그래프로 변환
+
+### 멀티 프로바이더 인텔리전스
+
+하나의 인터페이스. 9개 LLM 프로바이더. 자동 라우팅.
+
+| 프로바이더 | 강점 | 용도 |
+|---|---|---|
+| Claude | 추론, 코딩 | 복잡한 분석 |
+| GPT-4 | 범용, 도구 활용 | 일상 작업 |
+| Gemini | 멀티모달, 100만 컨텍스트 | 긴 문서 |
+| Perplexity | 웹 검색 | 최신 이슈 |
+| Groq | 초고속 추론 | 빠른 응답 |
+| Ollama | 로컬, 비공개 | 오프라인 사용 |
+| OpenRouter | 모델 마켓플레이스 | 특화 모델 |
 
 ---
 
 ## 빠른 시작
 
-### 원클릭 (권장)
+### 방법 1: 원클릭 (권장)
 
 **Windows:** `scripts/start.bat` 더블클릭
-**macOS/Linux:** `scripts/Birkin.command` 더블클릭 또는 `scripts/start.sh` 실행
+**macOS/Linux:** `scripts/start.sh`
 
-브라우저가 `http://127.0.0.1:8321`에서 자동 열림. 첫 실행 ~1분 (venv 생성 + 의존성 설치). 이후 즉시 시작.
+`http://127.0.0.1:8321`에서 열림. 첫 실행 ~1분.
 
-### 수동 설치
+### 방법 2: Docker
 
 ```bash
-git clone https://github.com/ashmoonori-afk/birkin.git
-cd birkin
+git clone https://github.com/ashmoonori-afk/birkin.git && cd birkin
+cp .env.example .env   # API 키 추가
+docker compose up -d   # → http://localhost:8321
+```
+
+### 방법 3: 수동 설치
+
+```bash
+git clone https://github.com/ashmoonori-afk/birkin.git && cd birkin
 python3 -m venv .venv && source .venv/bin/activate
 pip install -e "."
 birkin                # WebUI (:8321)
-birkin chat           # 터미널 채팅
-birkin mcp serve      # MCP 서버 (Claude Code, Cursor 등에서 사용)
 ```
 
-### API 키 설정
+### CLI 명령어
 
-`.env.example`을 `.env`로 복사하고 키 추가:
+```bash
+birkin              # WebUI 실행
+birkin chat         # 터미널 REPL
+birkin mcp serve    # MCP 서버 (Claude Code, Cursor 등)
+birkin eval run     # 평가 실행
+birkin skill install <url>  # 커뮤니티 스킬 설치
+birkin export       # 전체 데이터 백업
+```
+
+### API 키
+
+`.env`에 사용하는 프로바이더만 추가:
 
 ```bash
 ANTHROPIC_API_KEY=sk-ant-...    # Claude
 OPENAI_API_KEY=sk-...           # GPT + OpenRouter
+GEMINI_API_KEY=...              # Gemini
 PERPLEXITY_API_KEY=pplx-...     # 검색 특화
-GEMINI_API_KEY=...              # 멀티모달 + 100만 컨텍스트
-GROQ_API_KEY=gsk_...            # 초저지연
+GROQ_API_KEY=gsk_...            # 고속 추론
 ```
-
-**API 키 없어도 OK!** Ollama(로컬) 또는 Claude Code CLI를 사용하면 비용 0원.
-
----
-
-## 9탭 WebUI
-
-| 탭 | 기능 |
-|----|------|
-| **Chat** | 스트리밍 대화, 도구 호출 시각화, 자동 메모리 저장 |
-| **Workflow** | 비주얼 에디터 — 30+ 노드 타입 드래그 앤 드롭 |
-| **Memory** | 지식 그래프 — 기억 확인, 페이지 편집, 파일 업로드 (.md, .json, .csv, .pdf) |
-| **Telegram** | 3단계 봇 연결 — 폴링 모드 지원 (공개 URL 불필요) |
-| **Triggers** | 스케줄 자동화 — 크론, 파일 감시, 웹훅, 메시지 필터 |
-| **Skills** | 스킬 플러그인 설치/토글 (code-review, web-summarizer 등) |
-| **Dashboard** | 실시간 모니터링 — 토큰 사용량, 지연시간, 에러율 |
-| **Approvals** | 안전 장치 — 에이전트 액션 승인/거부 |
-| **Insights** | 주간 리포트 — 토큰 사용 추이, 프로바이더 분포, 패턴 감지 |
-
----
-
-## 프로바이더
-
-Birkin은 작업의 특성, 비용, 속도에 따라 최적의 프로바이더를 자동 선택합니다.
-
-| 프로바이더 | 강점 | API 키 | 로컬? |
-|-----------|------|--------|-------|
-| **Anthropic** | 추론, 코딩 | `ANTHROPIC_API_KEY` | |
-| **OpenAI** | 범용 | `OPENAI_API_KEY` | |
-| **Perplexity** | 웹 검색 | `PERPLEXITY_API_KEY` | |
-| **Gemini** | 비전, 100만 컨텍스트 | `GEMINI_API_KEY` | |
-| **Groq** | 초저지연 | `GROQ_API_KEY` | |
-| **Ollama** | 완전 로컬, 무료 | — | O |
-| **OpenRouter** | 100+ 모델 | `OPENAI_API_KEY` | |
-| **Claude CLI** | Claude Code 로컬 | — | O |
-| **Codex CLI** | Codex 로컬 | — | O |
-
-설정에서 `provider: "auto"`로 지정하면 가장 저렴한 적합 모델이 자동 선택됩니다.
 
 ---
 
 ## 메모리 시스템
 
-Birkin의 메모리는 일반 챗봇과의 결정적 차이입니다.
+### 작동 원리
 
-**작동 방식:**
-1. 모든 대화를 LLM 분류기가 평가 (한국어/영어 이중 언어 지원)
-2. 중요한 대화는 태그 + 카테고리와 함께 위키 페이지로 저장
-3. 다음 대화 시 시맨틱 검색으로 관련 페이지를 찾아 컨텍스트에 자동 주입
-4. 참조되지 않는 페이지는 시간이 지나면서 자연스럽게 감쇠 — 가치 있는 지식만 남음
+```
+┌─────────────┐     ┌──────────────┐     ┌─────────────────┐
+│ 대화         │ ──→ │ LLM          │ ──→ │ 위키 페이지      │
+│              │     │ 분류기       │     │ - entities/     │
+│              │     │ (한/영)      │     │ - concepts/     │
+│              │     │              │     │ - sessions/     │
+└─────────────┘     └──────────────┘     └────────┬────────┘
+                                                   │
+                    ┌──────────────┐     ┌─────────▼────────┐
+                    │ 시맨틱       │ ←── │ [[위키링크]]      │
+                    │ 검색         │     │ + 감쇠 점수       │
+                    │              │     │ + 신뢰도          │
+                    └──────┬───────┘     └──────────────────┘
+                           │
+                    ┌──────▼───────┐
+                    │ 다음 세션     │
+                    │ 컨텍스트      │
+                    │ 자동 주입     │
+                    └──────────────┘
+```
 
-**핵심 기능:**
-- 관련성 기반 컨텍스트 주입 (전체 덤프가 아님)
-- 20일 반감기 메모리 감쇠 (신뢰도 x 참조횟수 x 시간)
-- 프롬프트 인젝션 자동 방어
-- 한국어 고유명사 인식 (kiwipiepy 옵션)
-- 다국어 위키링크 별칭 시스템
-- `wiki_read` 도구로 온디맨드 페이지 조회 (토큰 절약)
-- 매일 새벽 3시 자동 컴파일 + 세션 정리
+### 메모리 기능
+
+- **관련성 기반 주입** — 관련 지식만 프롬프트에 포함, 토큰 절약
+- **자연 감쇠** — 20일 반감기로 메모리를 최신 상태로 유지
+- **위키링크 그래프** — 페이지 간 `[[링크]]`로 지식 네트워크 구성
+- **프로필 컴파일** — ChatGPT/Claude 대화 기록을 가져와 프로필 자동 구축
+- **일일 컴파일** — 새벽 3시 크론 작업으로 세션을 영구 지식으로 정제
+- **레이지 로딩** — 프롬프트에 축약 인덱스, `wiki_read` 도구로 전체 페이지 온디맨드 조회
 
 ---
 
-## 자동화
+## 워크플로우 자동화
+
+### 노드 타입 (47종)
+
+| 카테고리 | 노드 |
+|---|---|
+| **AI** | LLM, 분류기, 임베더, 요약기, 번역기, 지식 추출 |
+| **도구** | 웹 검색, 코드 실행, API 호출, 파일 작업 |
+| **제어** | 조건 분기, 루프, 지연, 병렬, 병합 |
+| **품질** | 코드 리뷰, 사람 검토, 가드레일, 검증기, 테스트 러너 |
+| **I/O** | 입력, 출력, 웹훅 트리거 |
+| **플랫폼** | 텔레그램, 이메일, HackerNews, 알림 |
 
 ### 트리거
 
 | 타입 | 예시 |
-|------|------|
-| **크론** | "매주 월요일 9시, 지난 주 요약해줘" |
-| **파일 감시** | "reports/ 폴더에 변경이 생기면 분석 실행" |
-| **웹훅** | "배포 웹훅이 오면 스모크 테스트 실행" |
-| **메시지** | "텔레그램에 '긴급' 포함된 메시지 오면 알림" |
-
-### 워크플로우
-
-- **Simple 모드:** BFS 노드 그래프 (30+ 노드 타입, 드래그 앤 드롭)
-- **Graph 모드:** 조건 분기, 병렬 실행, 루프, 체크포인트
-- **NL 빌더:** 원하는 자동화를 한 문장으로 설명하면 워크플로우를 생성
-
-### 토큰 예산
-
-모든 세션에 예산이 적용됩니다. 토큰이 부족하면 자동으로 컨텍스트를 압축하거나 저렴한 모델로 전환합니다. 예상치 못한 비용 없음.
-
----
-
-## API
-
-| 그룹 | 엔드포인트 | 용도 |
-|------|----------|------|
-| **채팅** | `POST /api/chat`, `/api/chat/stream` | 블로킹 + SSE 스트리밍 |
-| **세션** | `GET/POST/DELETE /api/sessions` | 대화 관리 |
-| **메모리** | `GET/PUT/DELETE /api/wiki/*` | 위키 CRUD + 그래프 + 검색 |
-| **트리거** | `GET/POST/DELETE /api/triggers` | CRUD + 수동 실행 |
-| **스킬** | `GET/POST /api/skills` | 목록 + 토글 |
-| **대시보드** | `GET /api/observability/*` | 사용량, 지연, 에러 |
-| **승인** | `GET/POST /api/approvals` | 대기중 액션 |
-| **음성** | `POST /api/voice/stt`, `/tts` | 음성→텍스트, 텍스트→음성 |
-| **MCP** | `birkin mcp serve` | MCP 서버로 노출 |
-| **설정** | `GET/PUT /api/settings` | 설정, 키, 프로바이더 |
-
-15개 라우터, 69개 엔드포인트.
+|---|---|
+| **크론** | `0 9 * * 1-5` — 평일 매일 오전 9시 |
+| **파일 감시** | `~/notes/` 폴더의 `*.md` 변경 시 |
+| **웹훅** | `/api/triggers/webhooks/{id}`로 POST |
+| **메시지** | 채팅에서 키워드 또는 패턴 감지 |
 
 ---
 
@@ -179,40 +224,62 @@ Birkin의 메모리는 일반 챗봇과의 결정적 차이입니다.
 
 ```
 birkin/
-  core/           에이전트 루프, 9 프로바이더, 그래프 엔진, 예산, 승인 게이트
-  mcp/            MCP 클라이언트 + 서버 + Playwright 브라우저 자동화
-  triggers/       크론, 파일 감시, 웹훅, 메시지 + SQLite 영구 저장
-  skills/         SKILL.md 플러그인 시스템
-  memory/         위키, 이벤트 스토어, 컴파일러, 시맨틱 검색, 감쇠, 인사이트
-  eval/           JSONL 평가 프레임워크 (회귀 감지)
-  observability/  구조화된 트레이싱 (Trace > Span > JSONL)
-  voice/          Whisper STT + TTS
-  gateway/        FastAPI 백엔드 (15 라우터)
-  web/            9탭 WebUI
-  tests/          461+ 테스트 (pytest)
+├── core/           에이전트 루프, 프로바이더, 그래프 엔진, 승인 게이트
+├── memory/         위키, 컴파일러, 분류기, 시맨틱 검색, 감사 추적
+├── gateway/        FastAPI (18 라우터, 66 엔드포인트)
+├── triggers/       크론, 파일 감시, 웹훅, 메시지
+├── skills/         SKILL.md 플러그인 시스템 + AST 샌드박싱
+├── tools/          쉘, 파일 작업, 웹 검색, 위키 조회
+├── mcp/            MCP 클라이언트 + 서버 + 브라우저 자동화
+├── eval/           JSONL 평가 프레임워크
+├── observability/  구조화 트레이싱 (span, trace)
+├── voice/          Whisper STT + TTS
+├── web/            10탭 WebUI
+└── tests/          706+ 테스트
 ```
+
+### 설계 원칙
+
+1. **로컬 우선** — SQLite WAL, 네트워크 DB 없음, 데이터는 절대 외부로 나가지 않음
+2. **검색이 아닌 컴파일** — 원본 대화를 검색하지 않고, 구조화된 지식으로 정제
+3. **투명성** — 모든 메모리 페이지가 출처, 신뢰도, 접근 이력을 보여줌
+4. **최소 공격 표면** — 마켓플레이스 없음, WebSocket 노출 없음, 쉘 명령어 화이트리스트
+
+### 보안
+
+- **프롬프트 인젝션 방어** — 9개 정규식 패턴으로 위키에 주입된 지시를 무력화
+- **스킬 샌드박싱** — AST 정적 분석으로 `subprocess`, `eval`, `exec`, `socket` 설치 전 차단
+- **메모리 감사 추적** — 모든 쓰기/읽기를 출처, 신뢰도, 이유와 함께 기록
+- **자가 점검 엔드포인트** — `GET /api/security/check`로 보안 상태 검증 가능 (점수 + 등급)
+- **쉘 화이트리스트** — 기본 읽기 전용 명령만 허용, 메타문자 차단
+- **승인 게이트** — 외부 작업은 사용자 명시적 승인 필요
 
 ---
 
-## 보안
+## 비교
 
-- Shell 도구는 **화이트리스트** 방식 — 읽기 전용 명령만 기본 허용
-- Shell 메타문자 (`|`, `&&`, `>`, `` ` ``) 차단
-- `BIRKIN_SHELL_ALLOWLIST=curl,python`으로 확장 가능
-- 네트워크 노출 전 `BIRKIN_AUTH_TOKEN` 설정 필수
-- 메모리 자동 저장 시 프롬프트 인젝션 패턴 자동 필터링
+| 기능 | Open WebUI | LobeChat | **Birkin** |
+|---|---|---|---|
+| 메모리 | 벡터 RAG | 없음 | **컴파일 위키 + 감쇠** |
+| 워크플로우 엔진 | 파이프라인 | 없음 | **47노드 그래프 + 트리거** |
+| 패턴 감지 | 없음 | 없음 | **있음** |
+| 선제적 제안 | 없음 | 없음 | **있음** |
+| 한국어 NER | 없음 | 없음 | **네이티브** |
+| 셀프 호스팅 보안 | 138 CVE (2026 Q1) | 제한적 | **최소 표면** |
+| 프로바이더 | 멀티 | 멀티 | **9개 + 자동 라우팅** |
+| 테스트 | ~200 | ~100 | **706+** |
 
 ---
 
 ## 기여
 
-```bash
-pytest tests/ -q          # 테스트 실행
-ruff check .              # 린트
-ruff format --check .     # 포맷 체크
-```
-
 자세한 내용은 [CONTRIBUTING.md](CONTRIBUTING.md)를 참조하세요.
+
+```bash
+pip install -e ".[dev]"
+pytest                    # 테스트 실행
+ruff check . && ruff format --check .  # 린트
+```
 
 ---
 
@@ -220,4 +287,4 @@ ruff format --check .     # 포맷 체크
 
 MIT — [LICENSE](LICENSE) 참조.
 
-Copyright (c) 2026 Birkin Team.
+AI에게 매번 자기소개하는 게 지겨운 사람들이 만들었습니다.
