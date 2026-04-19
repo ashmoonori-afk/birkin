@@ -313,30 +313,67 @@ html, body {
 
 /* ── Bubbles ── */
 
+/* ── iMessage-grade bubble animations ── */
+@keyframes bubble-pop {
+  0% { opacity: 0; transform: translateY(12px) scale(0.96); }
+  60% { transform: translateY(-2px) scale(1.01); }
+  100% { opacity: 1; transform: translateY(0) scale(1); }
+}
+
 .bubble {
   max-width: 85%;
-  padding: 12px 16px;
-  border-radius: var(--radius);
+  padding: 10px 16px;
   word-wrap: break-word;
   text-transform: none;
   letter-spacing: normal;
+  animation: bubble-pop 0.3s cubic-bezier(0.16, 1, 0.3, 1) both;
 }
 
 .bubble.user {
   align-self: flex-end;
-  background: var(--accent);
-  border: 1px solid var(--ghost-border);
-  color: var(--text);
-  border-bottom-right-radius: 4px;
+  max-width: 75%;
+  background: linear-gradient(135deg, #0a84ff 0%, #0066d6 100%);
+  border: none;
+  color: #fff;
+  border-radius: 18px 18px 4px 18px;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.3);
   white-space: pre-wrap;
 }
 
 .bubble.assistant {
   align-self: flex-start;
-  background: rgba(240, 240, 250, 0.03);
-  border: 1px solid var(--border);
-  border-bottom-left-radius: 4px;
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 18px 18px 18px 4px;
 }
+
+/* Tighter spacing for consecutive same-sender */
+.bubble + .bubble.user { margin-top: -6px; }
+.bubble + .bubble.assistant { margin-top: -2px; }
+.bubble.user + .bubble.assistant,
+.bubble.assistant + .bubble.user { margin-top: 14px; }
+
+/* Streaming cursor */
+.streaming-cursor::after {
+  content: '\2588';
+  animation: cursor-blink 0.6s step-end infinite;
+  color: rgba(255, 255, 255, 0.5);
+  font-weight: 300;
+  margin-left: 1px;
+}
+@keyframes cursor-blink { 0%, 100% { opacity: 1; } 50% { opacity: 0; } }
+
+/* Message metadata */
+.msg-meta {
+  font-size: 11px;
+  color: rgba(255, 255, 255, 0.2);
+  margin-top: 3px;
+  padding: 0 4px;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+.bubble.user + .msg-meta { justify-content: flex-end; }
 
 .bubble.assistant h1, .bubble.assistant h2, .bubble.assistant h3, .bubble.assistant h4 {
   margin-top: 12px; margin-bottom: 4px; line-height: 1.3;
@@ -486,6 +523,29 @@ html, body {
   font-weight: 700;
 }
 
+/* ── Typing indicator (iMessage bouncing dots) ── */
+.typing-dots {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 12px 16px;
+  background: rgba(255, 255, 255, 0.06);
+  border-radius: 18px 18px 18px 4px;
+  width: fit-content;
+  align-self: flex-start;
+}
+.typing-dots .dot {
+  width: 8px; height: 8px;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.4);
+  animation: bounce 1.4s ease-in-out infinite;
+}
+.typing-dots .dot:nth-child(2) { animation-delay: 0.2s; }
+.typing-dots .dot:nth-child(3) { animation-delay: 0.4s; }
+@keyframes bounce { 0%, 60%, 100% { transform: translateY(0); } 30% { transform: translateY(-8px); } }
+.typing-dots .typing-status { font-size: 11px; color: rgba(255,255,255,0.3); margin-left: 8px; }
+
+/* Legacy thinking indicator (fallback) */
 .thinking-indicator {
   align-self: flex-start;
   padding: 8px 14px;
@@ -496,13 +556,46 @@ html, body {
   color: var(--text-dim);
   animation: pulse-think 1.5s ease-in-out infinite;
 }
-.thinking-indicator.writing {
-  color: var(--ok);
+.thinking-indicator.writing { color: var(--ok); }
+@keyframes pulse-think { 0%, 100% { opacity: 0.3; } 50% { opacity: 1; } }
+
+/* ── Tool chips (compact inline) ── */
+.tool-chip {
+  display: inline-flex; align-items: center; gap: 6px;
+  padding: 4px 10px;
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 12px;
+  font-size: 12px; color: rgba(255, 255, 255, 0.5);
+  cursor: pointer; transition: background 0.15s; margin: 4px 0;
 }
-@keyframes pulse-think {
-  0%, 100% { opacity: 0.3; }
-  50% { opacity: 1; }
+.tool-chip:hover { background: rgba(255, 255, 255, 0.1); }
+.tool-chip .tool-icon { font-size: 11px; }
+.tool-chip.success .tool-icon { color: #4ade80; }
+.tool-chip.error .tool-icon { color: #ef4444; }
+.tool-chip.pending .tool-icon { color: #fbbf24; }
+.tool-detail {
+  display: none; margin-top: 4px; padding: 8px 12px;
+  background: rgba(0, 0, 0, 0.3); border-radius: 8px;
+  font-size: 12px; font-family: var(--mono);
+  color: rgba(255, 255, 255, 0.4); white-space: pre-wrap; max-height: 200px; overflow-y: auto;
 }
+.tool-detail.expanded { display: block; }
+
+/* ── Toast notifications ── */
+.toast-container {
+  position: fixed; top: 16px; left: 50%; transform: translateX(-50%);
+  z-index: 9999; display: flex; flex-direction: column; gap: 8px; pointer-events: none;
+}
+.toast {
+  padding: 10px 20px; border-radius: 12px; font-size: 13px; color: #fff;
+  pointer-events: auto; animation: toast-in 0.3s ease-out, toast-out 0.3s ease-in 3.7s forwards; max-width: 400px;
+}
+.toast.error { background: rgba(239, 68, 68, 0.9); backdrop-filter: blur(10px); }
+.toast.warning { background: rgba(251, 191, 36, 0.9); color: #000; }
+.toast.info { background: rgba(10, 132, 255, 0.9); }
+@keyframes toast-in { from { opacity: 0; transform: translateY(-12px); } to { opacity: 1; transform: translateY(0); } }
+@keyframes toast-out { from { opacity: 1; } to { opacity: 0; transform: translateY(-8px); } }
 
 /* ── Input bar ── */
 
@@ -510,43 +603,46 @@ html, body {
   display: flex;
   align-items: flex-end;
   gap: 8px;
-  padding: 12px 20px 4px;
-  border-top: 1px solid var(--border);
-  background: var(--bg);
+  padding: 12px 16px;
+  background: rgba(0, 0, 0, 0.5);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  border-top: 1px solid rgba(255, 255, 255, 0.06);
 }
 
 #user-input {
   flex: 1;
   resize: none;
-  border: 1px solid var(--border);
-  border-radius: var(--radius-btn);
+  background: rgba(255, 255, 255, 0.08);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 20px;
   padding: 10px 16px;
   font-family: var(--font);
-  font-size: 0.95rem;
-  line-height: 1.5;
-  background: var(--surface);
-  color: var(--text);
+  font-size: 15px;
+  line-height: 1.4;
+  color: #e0e0e0;
   outline: none;
-  max-height: 160px;
-  transition: border-color 150ms;
+  max-height: 120px;
+  transition: border-color 0.2s, background 0.2s;
 }
-#user-input:focus { border-color: var(--ghost-border); }
-#user-input::placeholder { color: var(--text-faint); }
+#user-input:focus { border-color: rgba(10, 132, 255, 0.5); background: rgba(255, 255, 255, 0.1); }
+#user-input::placeholder { color: rgba(255, 255, 255, 0.3); }
 
 #send-btn {
   flex-shrink: 0;
-  width: 40px; height: 40px;
+  width: 36px; height: 36px;
   display: flex; align-items: center; justify-content: center;
-  border: 1px solid var(--ghost-border);
-  border-radius: var(--radius-btn);
-  background: var(--accent);
-  color: var(--text);
+  border: none;
+  border-radius: 50%;
+  background: #0a84ff;
+  color: #fff;
   cursor: pointer;
-  transition: background 150ms;
+  transition: transform 0.15s, background 0.15s;
 }
-#send-btn:hover { background: var(--accent-hover); }
-#send-btn:disabled { opacity: 0.3; cursor: not-allowed; }
-#send-btn:focus-visible { outline: 2px solid var(--ghost-border); outline-offset: 2px; }
+#send-btn:hover { transform: scale(1.05); background: #0077e6; }
+#send-btn:active { transform: scale(0.95); }
+#send-btn:disabled { background: rgba(255, 255, 255, 0.1); cursor: default; transform: none; }
+#send-btn:focus-visible { outline: 2px solid rgba(10, 132, 255, 0.5); outline-offset: 2px; }
 
 .input-hint {
   text-align: center;

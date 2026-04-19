@@ -98,7 +98,17 @@ function isNearBottom() {
 }
 
 function scrollToBottom() {
-  if (isNearBottom()) requestAnimationFrame(() => { scrollToBottom(); });
+  if (isNearBottom()) chat.scrollTo({ top: chat.scrollHeight, behavior: "smooth" });
+}
+
+function showToast(message, type = "error") {
+  const container = document.getElementById("toast-container");
+  if (!container) return;
+  const toast = document.createElement("div");
+  toast.className = `toast ${type}`;
+  toast.textContent = message;
+  container.appendChild(toast);
+  setTimeout(() => toast.remove(), 4000);
 }
 
 function addBubble(role, text) {
@@ -111,7 +121,15 @@ function addBubble(role, text) {
     el.textContent = text;
   }
   chat.appendChild(el);
-  // User messages always force scroll; assistant messages respect scroll-lock
+
+  // Timestamp metadata
+  if (role === "user" || role === "assistant") {
+    const meta = document.createElement("div");
+    meta.className = "msg-meta";
+    meta.textContent = new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+    chat.appendChild(meta);
+  }
+
   if (role === "user") requestAnimationFrame(() => { chat.scrollTop = chat.scrollHeight; });
   else scrollToBottom();
   return el;
@@ -120,9 +138,8 @@ function addBubble(role, text) {
 function createStreamBubble() {
   if (welcome && welcome.parentNode) welcome.remove();
   const el = document.createElement("div");
-  el.className = "bubble assistant streaming";
+  el.className = "bubble assistant streaming streaming-cursor";
   el.dataset.streaming = "1";
-  el.innerHTML = '<span class="cursor" aria-hidden="true">|</span>';
   chat.appendChild(el);
   scrollToBottom();
   return el;
@@ -130,7 +147,7 @@ function createStreamBubble() {
 
 function finalizeStreamBubble(bubble, text) {
   if (!bubble) return;
-  bubble.classList.remove("streaming");
+  bubble.classList.remove("streaming", "streaming-cursor");
   delete bubble.dataset.streaming;
   const rendered = md(text || "");
   bubble.innerHTML = rendered;
