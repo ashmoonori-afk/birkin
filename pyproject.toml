@@ -70,6 +70,7 @@ select = [
     "RUF",    # ruff-specific
     "PIE",    # misc lints
     "RET",    # flake8-return
+    "T20",    # no print() in library code
 ]
 ignore = [
     "E501",   # line length handled by formatter
@@ -84,8 +85,20 @@ ignore = [
 max-complexity = 15
 
 [tool.ruff.lint.per-file-ignores]
-"birkin/cli/*" = ["B"]
-"tests/*" = ["B", "SIM", "RUF"]
+"birkin/cli/*" = ["B", "T201"]
+"tests/*" = ["B", "SIM", "RUF", "T201"]
+"scripts/*" = ["T201"]
+
+[tool.coverage.run]
+source = ["birkin"]
+omit = ["birkin/web/*", "tests/*"]
+
+[tool.coverage.report]
+exclude_lines = [
+    "pragma: no cover",
+    "if TYPE_CHECKING:",
+    "if __name__",
+]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
