@@ -250,3 +250,44 @@ def reset_insights_engine() -> None:
             pass
     _insights_event_store = None
     _insights_engine = None
+
+
+# ---------------------------------------------------------------------------
+# WorkflowRecommender
+# ---------------------------------------------------------------------------
+
+_workflow_recommender = None
+_recommender_event_store = None
+
+
+def get_workflow_recommender():
+    """Return the global WorkflowRecommender, creating it lazily."""
+    global _workflow_recommender, _recommender_event_store  # noqa: PLW0603
+    if _workflow_recommender is None:
+        from birkin.core.workflow.recommender import WorkflowRecommender
+        from birkin.memory.event_store import EventStore
+
+        _recommender_event_store = EventStore()
+        _workflow_recommender = WorkflowRecommender(
+            event_store=_recommender_event_store,
+            wiki=get_wiki_memory(),
+        )
+    return _workflow_recommender
+
+
+def set_workflow_recommender(recommender) -> None:
+    """Inject a custom WorkflowRecommender (useful for testing)."""
+    global _workflow_recommender  # noqa: PLW0603
+    _workflow_recommender = recommender
+
+
+def reset_workflow_recommender() -> None:
+    """Reset and close underlying EventStore."""
+    global _workflow_recommender, _recommender_event_store  # noqa: PLW0603
+    if _recommender_event_store is not None:
+        try:
+            _recommender_event_store.close()
+        except (OSError, AttributeError):
+            pass
+    _recommender_event_store = None
+    _workflow_recommender = None
