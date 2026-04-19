@@ -3,9 +3,9 @@
 from __future__ import annotations
 
 import datetime as dt
+import hashlib
 import logging
 import math
-import uuid
 from collections import Counter
 from typing import TYPE_CHECKING, Optional
 
@@ -36,7 +36,7 @@ class RepetitionSignal(BaseModel, frozen=True):
 class WorkflowSuggestion(BaseModel):
     """A scored workflow recommendation."""
 
-    id: str = Field(default_factory=lambda: uuid.uuid4().hex[:12])
+    id: str = ""
     title: str = ""
     description: str = ""
     confidence: float = 0.0
@@ -51,7 +51,7 @@ class WorkflowSuggestion(BaseModel):
 
 _TOOL_REPEAT_THRESHOLD = 3
 _TOPIC_REPEAT_THRESHOLD = 5
-_SCORE_CLAMP_MAX = 1.0
+_SCORE_CLAMP_MAX = 10.0
 
 
 class WorkflowRecommender:
@@ -85,8 +85,10 @@ class WorkflowRecommender:
             score = self._score_suggestion(sig)
             if score <= 0:
                 continue
+            sig_id = hashlib.sha256(sig.description.encode()).hexdigest()[:12]
             suggestions.append(
                 WorkflowSuggestion(
+                    id=sig_id,
                     title=self._title_from_signal(sig),
                     description=sig.description,
                     confidence=score,
