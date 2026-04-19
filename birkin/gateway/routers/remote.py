@@ -135,10 +135,13 @@ async def discord_test() -> dict[str, str]:
 
     try:
         async with httpx.AsyncClient(timeout=10) as client:
-            resp = await client.post(url, json={
-                "content": "Birkin connected successfully!",
-                "username": username,
-            })
+            resp = await client.post(
+                url,
+                json={
+                    "content": "Birkin connected successfully!",
+                    "username": username,
+                },
+            )
             if resp.status_code in (200, 204):
                 return {"status": "ok", "message": "Test message sent"}
             return {"status": "error", "message": f"HTTP {resp.status_code}"}
