@@ -15,6 +15,7 @@ class BirkinError(Exception):
 class ProviderErrorKind(Enum):
     """Classification of provider errors for retry/backoff logic."""
 
+    API = "api"
     RATE_LIMIT = "rate_limit"
     AUTH = "auth"
     CONTEXT_OVERFLOW = "context_overflow"

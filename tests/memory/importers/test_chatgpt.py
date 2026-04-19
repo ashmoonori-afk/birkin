@@ -68,9 +68,10 @@ class TestChatGPTDetect:
         data = [{"current_node": "x"}]
         assert ChatGPTImporter.detect(data) is False
 
-    def test_detect_missing_current_node(self):
-        data = [{"mapping": {}}]
-        assert ChatGPTImporter.detect(data) is False
+    def test_detect_mapping_without_current_node(self):
+        """mapping only (no current_node) should still detect as ChatGPT."""
+        data = [{"mapping": {"root": {}}}]
+        assert ChatGPTImporter.detect(data) is True
 
     def test_detect_claude_format(self):
         data = [{"chat_messages": [{"sender": "human", "text": "hi"}]}]

@@ -21,11 +21,11 @@ class ChatGPTImporter(ConversationImporter):
 
     @classmethod
     def detect(cls, data: dict | list) -> bool:
-        """Detect ChatGPT format by checking for mapping + current_node."""
+        """Detect ChatGPT format by checking for mapping (current_node optional)."""
         if not isinstance(data, list) or len(data) == 0:
             return False
         sample = data[0]
-        return isinstance(sample, dict) and "mapping" in sample and "current_node" in sample
+        return isinstance(sample, dict) and "mapping" in sample
 
     def parse(self, data: dict | list) -> list[ParsedConversation]:
         if not isinstance(data, list):
@@ -40,20 +40,25 @@ class ChatGPTImporter(ConversationImporter):
 
     def _parse_one(self, obj: dict[str, Any]) -> Optional[ParsedConversation]:
         mapping = obj.get("mapping")
-        current_node = obj.get("current_node")
-        if not mapping or not current_node:
+        if not mapping:
             return None
 
-        # Walk from current_node backward to root to get the active thread
-        chain: list[str] = []
-        node_id = current_node
-        visited: set[str] = set()
-        while node_id and node_id not in visited:
-            visited.add(node_id)
-            chain.append(node_id)
-            node = mapping.get(node_id, {})
-            node_id = node.get("parent")
-        chain.reverse()
+        current_node = obj.get("current_node")
+
+        if current_node:
+            # Walk from current_node backward to root to get the active thread
+            chain: list[str] = []
+            node_id = current_node
+            visited: set[str] = set()
+            while node_id and node_id not in visited:
+                visited.add(node_id)
+                chain.append(node_id)
+                node = mapping.get(node_id, {})
+                node_id = node.get("parent")
+            chain.reverse()
+        else:
+            # Fallback: iterate mapping in insertion order (all nodes)
+            chain = list(mapping.keys())
 
         # Extract messages from chain
         messages: list[ParsedMessage] = []

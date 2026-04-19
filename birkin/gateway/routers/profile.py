@@ -233,8 +233,18 @@ async def delete_profile() -> dict[str, str]:
 # ---------------------------------------------------------------------------
 
 
+def _strip_frontmatter(content: str) -> str:
+    """Remove YAML frontmatter (---...---) from wiki page content."""
+    if content.startswith("---"):
+        parts = content.split("---", 2)
+        if len(parts) >= 3:
+            return parts[2].strip()
+    return content
+
+
 def _extract_field(content: str, field_name: str) -> str | None:
     """Extract a **Field:** value from markdown."""
+    content = _strip_frontmatter(content)
     for line in content.split("\n"):
         if f"**{field_name}:**" in line:
             parts = line.split(f"**{field_name}:**", 1)
@@ -244,7 +254,8 @@ def _extract_field(content: str, field_name: str) -> str | None:
 
 
 def _extract_bullets(content: str) -> list[str]:
-    """Extract bullet-point items from markdown."""
+    """Extract bullet-point items from markdown (skips frontmatter tags line)."""
+    content = _strip_frontmatter(content)
     items = []
     for line in content.split("\n"):
         line = line.strip()
@@ -255,6 +266,7 @@ def _extract_bullets(content: str) -> list[str]:
 
 def _extract_list(content: str, section_name: str) -> list[str]:
     """Extract a list from a named section."""
+    content = _strip_frontmatter(content)
     in_section = False
     items = []
     for line in content.split("\n"):

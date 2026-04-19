@@ -19,17 +19,28 @@ class ClaudeImporter(ConversationImporter):
 
     @classmethod
     def detect(cls, data: dict | list) -> bool:
-        """Detect Claude format by checking for chat_messages with sender fields."""
+        """Detect Claude format by checking for chat_messages with sender fields.
+
+        Scans up to the first 5 conversations since some may have empty messages.
+        """
         if not isinstance(data, list) or len(data) == 0:
             return False
-        sample = data[0]
-        if not isinstance(sample, dict):
-            return False
-        messages = sample.get("chat_messages", [])
-        if not isinstance(messages, list) or len(messages) == 0:
-            return False
-        first_msg = messages[0]
-        return isinstance(first_msg, dict) and "sender" in first_msg
+
+        for sample in data[:5]:
+            if not isinstance(sample, dict):
+                continue
+            messages = sample.get("chat_messages", [])
+            if not isinstance(messages, list) or len(messages) == 0:
+                continue
+            first_msg = messages[0]
+            if isinstance(first_msg, dict) and "sender" in first_msg:
+                return True
+
+        # Fallback: if conversations have "chat_messages" key at all, it's likely Claude
+        if isinstance(data[0], dict) and "chat_messages" in data[0] and "uuid" in data[0]:
+            return True
+
+        return False
 
     def parse(self, data: dict | list) -> list[ParsedConversation]:
         if not isinstance(data, list):
@@ -58,6 +69,10 @@ class ClaudeImporter(ConversationImporter):
                 continue
 
             text = msg.get("text", "")
+            # Fallback: extract from content array if text is empty
+            if not text and isinstance(msg.get("content"), list):
+                parts = [c.get("text", "") for c in msg["content"] if isinstance(c, dict) and c.get("text")]
+                text = "\n".join(parts)
             if not text or not text.strip():
                 continue
 
