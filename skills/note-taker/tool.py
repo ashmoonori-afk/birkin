@@ -15,10 +15,7 @@ class TakeNotesTool(Tool):
     def spec(self) -> ToolSpec:
         return ToolSpec(
             name="take_notes",
-            description=(
-                "Convert raw text into structured notes using the chosen style "
-                "(bullet or outline)."
-            ),
+            description=("Convert raw text into structured notes using the chosen style (bullet or outline)."),
             parameters=[
                 ToolParameter(
                     name="content",

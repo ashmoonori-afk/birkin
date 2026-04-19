@@ -15,8 +15,7 @@ class DailyDigestTool(Tool):
         return ToolSpec(
             name="daily_digest",
             description=(
-                "Return a daily digest summary. Currently a placeholder — "
-                "actual news fetching requires network access."
+                "Return a daily digest summary. Currently a placeholder — actual news fetching requires network access."
             ),
             parameters=[
                 ToolParameter(
@@ -58,8 +57,5 @@ class DailyDigestTool(Tool):
 
         return ToolOutput(
             success=True,
-            output=(
-                f"Daily digest (top {num} items) requires LLM context. "
-                "Use in chat: 'Give me today's digest'"
-            ),
+            output=(f"Daily digest (top {num} items) requires LLM context. Use in chat: 'Give me today's digest'"),
         )

@@ -16,10 +16,7 @@ class ExplainCodeTool(Tool):
     def spec(self) -> ToolSpec:
         return ToolSpec(
             name="explain_code",
-            description=(
-                "Analyze code and return a structured summary of its "
-                "classes, functions, and imports."
-            ),
+            description=("Analyze code and return a structured summary of its classes, functions, and imports."),
             parameters=[
                 ToolParameter(
                     name="code",
@@ -77,10 +74,7 @@ class ExplainCodeTool(Tool):
                 for alias in node.names:
                     imports.append(f"{module}.{alias.name}")
             elif isinstance(node, ast.ClassDef):
-                bases = [
-                    getattr(b, "id", getattr(b, "attr", "?"))
-                    for b in node.bases
-                ]
+                bases = [getattr(b, "id", getattr(b, "attr", "?")) for b in node.bases]
                 base_str = f"({', '.join(bases)})" if bases else ""
                 classes.append(f"{node.name}{base_str}")
             elif isinstance(node, ast.FunctionDef | ast.AsyncFunctionDef):

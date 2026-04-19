@@ -34,8 +34,7 @@ class DraftEmailTool(Tool):
         return ToolSpec(
             name="draft_email",
             description=(
-                "Draft an email with the given recipient, subject, context, "
-                "and tone. Returns formatted email text."
+                "Draft an email with the given recipient, subject, context, and tone. Returns formatted email text."
             ),
             parameters=[
                 ToolParameter(
@@ -86,15 +85,7 @@ class DraftEmailTool(Tool):
         recipient_name = to.split("@")[0] if "@" in to else to
 
         email = (
-            f"To: {to}\n"
-            f"Subject: {subject}\n"
-            f"\n"
-            f"{greeting} {recipient_name},\n"
-            f"\n"
-            f"{body_context}\n"
-            f"\n"
-            f"{signoff},\n"
-            f"[Your Name]"
+            f"To: {to}\nSubject: {subject}\n\n{greeting} {recipient_name},\n\n{body_context}\n\n{signoff},\n[Your Name]"
         )
 
         return ToolOutput(success=True, output=email)
