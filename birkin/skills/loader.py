@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import ast
 import importlib
 import inspect
 import logging
@@ -54,6 +55,66 @@ class SkillLoader:
 
         return skills
 
+    # Dangerous imports/calls that skills should never use
+    _BLOCKED_IMPORTS = frozenset(
+        {
+            "subprocess",
+            "ctypes",
+            "socket",
+            "http.server",
+            "multiprocessing",
+            "shutil",
+        }
+    )
+    _BLOCKED_CALLS = frozenset(
+        {
+            "eval",
+            "exec",
+            "compile",
+            "__import__",
+            "os.popen",
+            "os.system",
+            "os.exec",
+            "os.spawn",
+        }
+    )
+
+    def validate_skill_code(self, skill_dir: Path) -> tuple[bool, list[str]]:
+        """Static analysis of skill Python files before loading.
+
+        Returns (is_safe, list_of_violations).
+        """
+        violations: list[str] = []
+        for py_file in skill_dir.glob("**/*.py"):
+            try:
+                tree = ast.parse(py_file.read_text(encoding="utf-8"))
+            except SyntaxError:
+                violations.append(f"{py_file.name}: syntax error")
+                continue
+
+            for node in ast.walk(tree):
+                if isinstance(node, ast.Import):
+                    for alias in node.names:
+                        if alias.name in self._BLOCKED_IMPORTS:
+                            violations.append(f"{py_file.name}: blocked import '{alias.name}'")
+                elif isinstance(node, ast.ImportFrom) and node.module:
+                    if node.module in self._BLOCKED_IMPORTS:
+                        violations.append(f"{py_file.name}: blocked import '{node.module}'")
+                if isinstance(node, ast.Call):
+                    name = self._get_call_name(node)
+                    if name in self._BLOCKED_CALLS:
+                        violations.append(f"{py_file.name}: blocked call '{name}'")
+
+        return (len(violations) == 0, violations)
+
+    @staticmethod
+    def _get_call_name(node: ast.Call) -> str:
+        if isinstance(node.func, ast.Name):
+            return node.func.id
+        if isinstance(node.func, ast.Attribute) and isinstance(node.func.value, ast.Name):
+            return f"{node.func.value.id}.{node.func.attr}"
+        return ""
+
     def install_from_git(self, git_url: str) -> Skill:
         """Clone a skill repo into skills directory and load it.
 
@@ -99,6 +160,12 @@ class SkillLoader:
         if not (target_dir / "SKILL.md").is_file():
             shutil.rmtree(target_dir)
             raise ValueError(f"Cloned repository does not contain SKILL.md: {git_url}")
+
+        # Validate code safety before loading
+        is_safe, violations = self.validate_skill_code(target_dir)
+        if not is_safe:
+            shutil.rmtree(target_dir)
+            raise ValueError(f"Skill blocked — security violations: {violations}")
 
         skill = parse_skill_md(target_dir)
         if skill is None:
