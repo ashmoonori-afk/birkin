@@ -32,6 +32,23 @@ async def get_suggestions(top_k: int = 3) -> list[dict]:
     return [s.model_dump() for s in suggestions]
 
 
+class FeedbackRequest(BaseModel):
+    """Request body for suggestion feedback."""
+
+    action: str = Field(..., pattern="^(accepted|dismissed|modified|deleted_after_use)$")
+    metadata: dict = Field(default_factory=dict)
+
+
+@router.post("/workflows/suggestions/{suggestion_id}/feedback")
+async def suggestion_feedback(suggestion_id: str, body: FeedbackRequest) -> dict:
+    """Record user feedback on a workflow suggestion."""
+    from birkin.gateway.deps import get_workflow_recommender
+
+    recommender = get_workflow_recommender()
+    recommender.record_feedback(suggestion_id, body.action, body.metadata)
+    return {"status": "ok"}
+
+
 @router.get("/workflows/{workflow_id}")
 def get_workflow(workflow_id: str) -> dict:
     """Get a single workflow by ID."""

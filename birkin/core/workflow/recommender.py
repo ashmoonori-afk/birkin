@@ -80,12 +80,19 @@ class WorkflowRecommender:
         if not signals:
             return []
 
+        # Refresh dismissed set from wiki
+        self._dismissed_ids |= self._load_dismissed()
+
         suggestions: list[WorkflowSuggestion] = []
         for sig in signals:
-            score = self._score_suggestion(sig)
+            sig_id = hashlib.sha256(sig.description.encode()).hexdigest()[:12]
+            if sig_id in self._dismissed_ids:
+                continue
+            # Apply feedback-weighted scoring
+            feedback = self._get_feedback_action(sig_id)
+            score = self._score_suggestion(sig, feedback_action=feedback)
             if score <= 0:
                 continue
-            sig_id = hashlib.sha256(sig.description.encode()).hexdigest()[:12]
             suggestions.append(
                 WorkflowSuggestion(
                     id=sig_id,
@@ -98,10 +105,6 @@ class WorkflowRecommender:
             )
 
         suggestions.sort(key=lambda s: s.confidence, reverse=True)
-
-        # filter dismissed
-        suggestions = [s for s in suggestions if s.id not in self._dismissed_ids]
-
         return suggestions[:top_k]
 
     async def check_and_notify(self) -> list[WorkflowSuggestion]:
@@ -165,6 +168,87 @@ class WorkflowRecommender:
                 )
 
         return signals
+
+    # -- feedback -----------------------------------------------------------
+
+    _VALID_ACTIONS = {"accepted", "dismissed", "modified", "deleted_after_use"}
+
+    def record_feedback(self, suggestion_id: str, action: str, metadata: Optional[dict] = None) -> None:
+        """Record user feedback on a suggestion.
+
+        Stores feedback as a wiki page in category 'meta'.
+        """
+        if action not in self._VALID_ACTIONS:
+            raise ValueError(f"Invalid action '{action}'. Must be one of {self._VALID_ACTIONS}")
+
+        if self._wiki is None:
+            logger.warning("Cannot record feedback: wiki not configured")
+            return
+
+        import json
+
+        content = json.dumps(
+            {
+                "suggestion_id": suggestion_id,
+                "action": action,
+                "metadata": metadata or {},
+                "timestamp": dt.datetime.now(dt.timezone.utc).isoformat(),
+            }
+        )
+        slug = f"feedback-{suggestion_id}"
+        self._wiki.ingest("meta", slug, content, tags=["feedback", action])
+
+        # Update in-memory cache
+        if action in ("dismissed", "deleted_after_use"):
+            self._dismissed_ids.add(suggestion_id)
+
+    def _load_dismissed(self) -> set[str]:
+        """Load previously dismissed/deleted suggestion IDs from wiki."""
+        if self._wiki is None:
+            return set()
+
+        import json
+
+        dismissed: set[str] = set()
+        for page_info in self._wiki.list_pages():
+            if page_info["category"] != "meta" or not page_info["slug"].startswith("feedback-"):
+                continue
+            content = self._wiki.get_page("meta", page_info["slug"])
+            if not content:
+                continue
+            try:
+                body = self._strip_frontmatter(content)
+                data = json.loads(body)
+                if data.get("action") in ("dismissed", "deleted_after_use"):
+                    dismissed.add(data["suggestion_id"])
+            except (json.JSONDecodeError, KeyError):
+                continue
+        return dismissed
+
+    def _get_feedback_action(self, suggestion_id: str) -> Optional[str]:
+        """Get the feedback action for a suggestion, if any."""
+        if self._wiki is None:
+            return None
+
+        import json
+
+        content = self._wiki.get_page("meta", f"feedback-{suggestion_id}")
+        if not content:
+            return None
+        try:
+            body = self._strip_frontmatter(content)
+            return json.loads(body).get("action")
+        except (json.JSONDecodeError, KeyError):
+            return None
+
+    @staticmethod
+    def _strip_frontmatter(text: str) -> str:
+        """Remove YAML frontmatter (---...---) from wiki page content."""
+        if text.startswith("---"):
+            parts = text.split("---", 2)
+            if len(parts) >= 3:
+                return parts[2].strip()
+        return text
 
     # -- scoring ------------------------------------------------------------
 
