@@ -63,6 +63,46 @@ VALID_NODE_TYPES: frozenset[str] = frozenset(
         "telegram-send",
         "email-send",
         "notify",
+        # Control flow extensions
+        "switch",
+        "for-each",
+        "try-catch",
+        "cron-trigger",
+        # Data transformation
+        "csv-parse",
+        "json-transform",
+        "pdf-extract",
+        "data-format",
+        # Scheduling
+        "datetime",
+        "rate-limit",
+        # Communication
+        "slack-send",
+        "discord-send",
+        "sms-send",
+        "webhook-send",
+        "email-read",
+        # Image & media
+        "image-resize",
+        "image-generate",
+        "vision-analyze",
+        "audio-transcribe",
+        # Database
+        "db-query",
+        "db-write",
+        "cloud-storage",
+        # Web & RSS
+        "rss-fetch",
+        "web-scrape",
+        "html-parse",
+        # Calendar & tasks
+        "calendar-event",
+        "task-create",
+        # Document generation
+        "pdf-generate",
+        "spreadsheet-write",
+        # Security
+        "secret-inject",
     ]
 )
 

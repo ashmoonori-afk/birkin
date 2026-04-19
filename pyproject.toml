@@ -43,8 +43,20 @@ backup = [
 scale = [
   "faiss-cpu>=1.7",
 ]
+pdf = [
+  "pymupdf>=1.24.0",
+]
+image = [
+  "Pillow>=10.0.0",
+]
+excel = [
+  "openpyxl>=3.1.0",
+]
+reporting = [
+  "reportlab>=4.0.0",
+]
 all = [
-  "birkin-agent[korean,embeddings,backup,scale]",
+  "birkin-agent[korean,embeddings,backup,scale,pdf,image,excel,reporting]",
 ]
 
 [project.scripts]

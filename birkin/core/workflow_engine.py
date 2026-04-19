@@ -65,16 +65,24 @@ class WorkflowEngine:
     def _next_nodes(self, node_id: str, output: str | None = None) -> list[str]:
         """Return next node IDs to visit.
 
-        For condition nodes, only follow edges whose label matches the output
-        (e.g. "YES"/"NO"). If no labelled edges match, follow all edges as
-        fallback so existing workflows without labels keep working.
+        For condition/switch nodes, only follow edges whose label matches the
+        output. For try-catch, route based on _last_try_catch_status.
+        If no labelled edges match, follow all edges as fallback.
         """
         edges = self._adj.get(node_id, [])
         node = self._node_map.get(node_id)
-        if node and node.get("type") == "condition" and output:
+        ntype = node.get("type", "") if node else ""
+        if ntype in ("condition", "switch") and output:
             normalised = output.strip().upper()
             labelled = [
                 e["to"] for e in edges if e.get("label", "").strip().upper() == normalised and e["to"] in self._node_map
+            ]
+            if labelled:
+                return labelled
+        if ntype == "try-catch":
+            status = getattr(self, "_last_try_catch_status", "success").upper()
+            labelled = [
+                e["to"] for e in edges if e.get("label", "").strip().upper() == status and e["to"] in self._node_map
             ]
             if labelled:
                 return labelled
@@ -231,6 +239,46 @@ class WorkflowEngine:
         "telegram-send": "_handle_telegram_send",
         "email-send": "_handle_email_send",
         "notify": "_handle_notify",
+        # ── Extended control flow ──────────────────────────────────────
+        "switch": "_handle_switch",
+        "for-each": "_handle_for_each",
+        "try-catch": "_handle_try_catch",
+        "cron-trigger": "_handle_passthrough",
+        # ── Data transformation ────────────────────────────────────────
+        "csv-parse": "_handle_csv_parse",
+        "json-transform": "_handle_json_transform",
+        "pdf-extract": "_handle_pdf_extract",
+        "data-format": "_handle_data_format",
+        # ── Scheduling ─────────────────────────────────────────────────
+        "datetime": "_handle_datetime",
+        "rate-limit": "_handle_rate_limit",
+        # ── Communication ──────────────────────────────────────────────
+        "slack-send": "_handle_slack_send",
+        "discord-send": "_handle_discord_send",
+        "sms-send": "_handle_sms_send",
+        "webhook-send": "_handle_webhook_send",
+        "email-read": "_handle_email_read",
+        # ── Image & Media ──────────────────────────────────────────────
+        "image-resize": "_handle_image_resize",
+        "image-generate": "_handle_image_generate",
+        "vision-analyze": "_handle_vision_analyze",
+        "audio-transcribe": "_handle_audio_transcribe",
+        # ── Database ───────────────────────────────────────────────────
+        "db-query": "_handle_db_query",
+        "db-write": "_handle_db_write",
+        "cloud-storage": "_handle_cloud_storage",
+        # ── Web & RSS ──────────────────────────────────────────────────
+        "rss-fetch": "_handle_rss_fetch",
+        "web-scrape": "_handle_web_scrape",
+        "html-parse": "_handle_html_parse",
+        # ── Calendar & Tasks ───────────────────────────────────────────
+        "calendar-event": "_handle_calendar_event",
+        "task-create": "_handle_task_create",
+        # ── Document Generation ────────────────────────────────────────
+        "pdf-generate": "_handle_pdf_generate",
+        "spreadsheet-write": "_handle_spreadsheet_write",
+        # ── Security ───────────────────────────────────────────────────
+        "secret-inject": "_handle_secret_inject",
     }
 
     async def _execute_node(self, node: dict, input_text: str) -> str:
@@ -498,6 +546,766 @@ class WorkflowEngine:
         logger.info("Notification: %s", input_text[:200])
         return f"[Notification sent] {input_text[:100]}"
 
+    # ── Control Flow (extended) ──────────────────────────────────────
+
+    async def _handle_switch(self, node: dict, input_text: str) -> str:
+        """Multi-way branch via LLM classification against config.cases."""
+        try:
+            config = node.get("config", {})
+            cases = config.get("cases", {})
+            case_labels = ", ".join(cases.keys()) if cases else "A, B, C"
+            result = await self._run_llm(
+                f"Classify into one of [{case_labels}]. Reply with only the label.\n\nText: {input_text}",
+                config,
+            )
+            return result.strip()
+        except Exception as e:
+            return f"[switch error] {e}"
+
+    async def _handle_for_each(self, node: dict, input_text: str) -> str:
+        """Iterate over items (JSON array or lines)."""
+        try:
+            import json as _json
+
+            config = node.get("config", {})
+            max_items = min(config.get("max_items", 20), 100)
+            try:
+                items = _json.loads(input_text)
+                if not isinstance(items, list):
+                    items = [str(items)]
+            except (ValueError, TypeError):
+                items = input_text.strip().splitlines()
+            items = items[:max_items]
+            children = config.get("children", [])
+            results: list[str] = []
+            for item in items:
+                item_str = item if isinstance(item, str) else _json.dumps(item)
+                if children:
+                    out = await self._execute_subgraph(children, item_str)
+                else:
+                    out = item_str
+                results.append(out)
+            return "\n".join(results)
+        except Exception as e:
+            return f"[for-each error] {e}"
+
+    async def _handle_try_catch(self, node: dict, input_text: str) -> str:
+        """Execute subgraph; capture errors instead of raising."""
+        try:
+            config = node.get("config", {})
+            children = config.get("children", [])
+            result = await self._execute_subgraph(children, input_text)
+            self._last_try_catch_status = "success"
+            return result
+        except Exception as e:
+            self._last_try_catch_status = "error"
+            return f"[try-catch error] {e}"
+
+    # ── Data Transformation ────────────────────────────────────────────
+
+    async def _handle_csv_parse(self, node: dict, input_text: str) -> str:
+        """Parse CSV input into JSON, markdown, or summary."""
+        try:
+            import csv
+            import io
+            import json as _json
+
+            config = node.get("config", {})
+            fmt = config.get("format", "json")
+            reader = csv.DictReader(io.StringIO(input_text))
+            rows = list(reader)
+            if fmt == "markdown":
+                if not rows:
+                    return "(empty CSV)"
+                headers = list(rows[0].keys())
+                lines = ["| " + " | ".join(headers) + " |"]
+                lines.append("| " + " | ".join("---" for _ in headers) + " |")
+                for r in rows:
+                    lines.append("| " + " | ".join(str(r.get(h, "")) for h in headers) + " |")
+                return "\n".join(lines)
+            if fmt == "summary":
+                return f"CSV: {len(rows)} rows, columns: {list(rows[0].keys()) if rows else []}"
+            return _json.dumps(rows, ensure_ascii=False, indent=2)
+        except Exception as e:
+            return f"[csv-parse error] {e}"
+
+    async def _handle_json_transform(self, node: dict, input_text: str) -> str:
+        """Extract a dot-path expression from JSON input."""
+        try:
+            import json as _json
+
+            config = node.get("config", {})
+            expression = config.get("expression", "")
+            fmt = config.get("format", "json")
+            data = _json.loads(input_text)
+            if expression:
+                for key in expression.split("."):
+                    if isinstance(data, dict):
+                        data = data.get(key)
+                    elif isinstance(data, list) and key.isdigit():
+                        data = data[int(key)]
+                    else:
+                        data = None
+                        break
+            if fmt == "lines" and isinstance(data, list):
+                return "\n".join(str(item) for item in data)
+            return _json.dumps(data, ensure_ascii=False, indent=2)
+        except Exception as e:
+            return f"[json-transform error] {e}"
+
+    async def _handle_pdf_extract(self, node: dict, input_text: str) -> str:
+        """Extract text from a PDF file using pymupdf."""
+        try:
+            try:
+                import fitz
+            except ImportError:
+                return "[pdf-extract] pymupdf not installed. Run: pip install pymupdf"
+            config = node.get("config", {})
+            path = config.get("path", input_text.strip())
+            doc = fitz.open(path)
+            pages: list[str] = []
+            max_pages = min(config.get("max_pages", 50), 200)
+            for i, page in enumerate(doc):
+                if i >= max_pages:
+                    break
+                pages.append(page.get_text())
+            doc.close()
+            return "\n\n".join(pages) if pages else "(empty PDF)"
+        except Exception as e:
+            return f"[pdf-extract error] {e}"
+
+    async def _handle_data_format(self, node: dict, input_text: str) -> str:
+        """Auto-detect JSON/CSV input and convert to target format."""
+        try:
+            import csv
+            import io
+            import json as _json
+
+            config = node.get("config", {})
+            to_fmt = config.get("to", "json")
+            # Try JSON first
+            try:
+                data = _json.loads(input_text)
+                rows = data if isinstance(data, list) else [data]
+            except (ValueError, TypeError):
+                reader = csv.DictReader(io.StringIO(input_text))
+                rows = list(reader)
+            if to_fmt == "csv":
+                if not rows:
+                    return ""
+                output = io.StringIO()
+                writer = csv.DictWriter(output, fieldnames=list(rows[0].keys()))
+                writer.writeheader()
+                writer.writerows(rows)
+                return output.getvalue()
+            if to_fmt == "markdown":
+                if not rows:
+                    return "(empty)"
+                headers = list(rows[0].keys())
+                lines = ["| " + " | ".join(headers) + " |"]
+                lines.append("| " + " | ".join("---" for _ in headers) + " |")
+                for r in rows:
+                    lines.append("| " + " | ".join(str(r.get(h, "")) for h in headers) + " |")
+                return "\n".join(lines)
+            return _json.dumps(rows, ensure_ascii=False, indent=2)
+        except Exception as e:
+            return f"[data-format error] {e}"
+
+    # ── Scheduling ─────────────────────────────────────────────────────
+
+    async def _handle_datetime(self, node: dict, input_text: str) -> str:
+        """Datetime operations: now, format, add, parse."""
+        try:
+            from datetime import datetime, timedelta
+
+            config = node.get("config", {})
+            op = config.get("operation", "now")
+            if op == "now":
+                fmt = config.get("format", "%Y-%m-%d %H:%M:%S")
+                return datetime.now().strftime(fmt)
+            if op == "format":
+                fmt = config.get("format", "%Y-%m-%d")
+                dt = datetime.fromisoformat(input_text.strip())
+                return dt.strftime(fmt)
+            if op == "add":
+                days = config.get("days", 0)
+                hours = config.get("hours", 0)
+                dt = datetime.fromisoformat(input_text.strip())
+                dt += timedelta(days=days, hours=hours)
+                return dt.isoformat()
+            if op == "parse":
+                dt = datetime.fromisoformat(input_text.strip())
+                return dt.isoformat()
+            return input_text
+        except Exception as e:
+            return f"[datetime error] {e}"
+
+    async def _handle_rate_limit(self, node: dict, input_text: str) -> str:
+        """Rate-limit node execution by calls_per_minute."""
+        try:
+            import time
+
+            config = node.get("config", {})
+            cpm = config.get("calls_per_minute", 60)
+            node_id = node.get("id", "unknown")
+            if not hasattr(self, "_rate_limit_log"):
+                self._rate_limit_log: dict[str, list[float]] = {}
+            now = time.time()
+            log = self._rate_limit_log.setdefault(node_id, [])
+            # Purge entries older than 60s
+            log[:] = [t for t in log if now - t < 60]
+            if len(log) >= cpm:
+                wait = 60 - (now - log[0])
+                if wait > 0:
+                    await asyncio.sleep(min(wait, 30))
+            log.append(time.time())
+            return input_text
+        except Exception as e:
+            return f"[rate-limit error] {e}"
+
+    # ── Communication ──────────────────────────────────────────────────
+
+    async def _handle_slack_send(self, node: dict, input_text: str) -> str:
+        """Send message to Slack via incoming webhook."""
+        try:
+            import os
+
+            import httpx
+
+            config = node.get("config", {})
+            url = config.get("webhook_url") or os.environ.get("SLACK_WEBHOOK_URL", "")
+            if not url:
+                return "[slack] No webhook URL configured"
+            async with httpx.AsyncClient(timeout=10) as client:
+                resp = await client.post(url, json={"text": input_text[:4000]})
+                return f"Slack: HTTP {resp.status_code}"
+        except Exception as e:
+            return f"[slack error] {e}"
+
+    async def _handle_discord_send(self, node: dict, input_text: str) -> str:
+        """Send message to Discord via webhook."""
+        try:
+            import os
+
+            import httpx
+
+            config = node.get("config", {})
+            url = config.get("webhook_url") or os.environ.get("DISCORD_WEBHOOK_URL", "")
+            if not url:
+                return "[discord] No webhook URL configured"
+            async with httpx.AsyncClient(timeout=10) as client:
+                resp = await client.post(url, json={"content": input_text[:2000]})
+                return f"Discord: HTTP {resp.status_code}"
+        except Exception as e:
+            return f"[discord error] {e}"
+
+    async def _handle_sms_send(self, node: dict, input_text: str) -> str:
+        """Send SMS via Twilio API."""
+        try:
+            import os
+
+            import httpx
+
+            config = node.get("config", {})
+            account_sid = os.environ.get("TWILIO_ACCOUNT_SID", "")
+            auth_token = os.environ.get("TWILIO_AUTH_TOKEN", "")
+            from_number = os.environ.get("TWILIO_FROM_NUMBER", "")
+            to_number = config.get("to", "")
+            if not all([account_sid, auth_token, from_number, to_number]):
+                return "[sms] Missing Twilio configuration"
+            url = f"https://api.twilio.com/2010-04-01/Accounts/{account_sid}/Messages.json"
+            async with httpx.AsyncClient(timeout=15) as client:
+                resp = await client.post(
+                    url,
+                    auth=(account_sid, auth_token),
+                    data={"From": from_number, "To": to_number, "Body": input_text[:1600]},
+                )
+                return f"SMS: HTTP {resp.status_code}"
+        except Exception as e:
+            return f"[sms error] {e}"
+
+    async def _handle_webhook_send(self, node: dict, input_text: str) -> str:
+        """Send HTTP request to a configured webhook URL."""
+        try:
+            import httpx
+
+            config = node.get("config", {})
+            url = config.get("url", "")
+            if not url:
+                return "[webhook] No URL configured"
+            method = config.get("method", "POST").upper()
+            headers = config.get("headers", {})
+            async with httpx.AsyncClient(timeout=15) as client:
+                resp = await client.request(method, url, headers=headers, content=input_text)
+                return f"Webhook: HTTP {resp.status_code}\n{resp.text[:2000]}"
+        except Exception as e:
+            return f"[webhook error] {e}"
+
+    async def _handle_email_read(self, node: dict, input_text: str) -> str:
+        """Read emails via IMAP."""
+        try:
+            import email
+            import imaplib
+            import os
+
+            config = node.get("config", {})
+            host = config.get("host") or os.environ.get("IMAP_HOST", "")
+            user = config.get("user") or os.environ.get("IMAP_USER", "")
+            password = config.get("password") or os.environ.get("IMAP_PASSWORD", "")
+            folder = config.get("folder", "INBOX")
+            count = min(config.get("count", 5), 20)
+            if not all([host, user, password]):
+                return "[email-read] Missing IMAP configuration"
+            loop = asyncio.get_event_loop()
+
+            def _fetch():
+                mail = imaplib.IMAP4_SSL(host)
+                mail.login(user, password)
+                mail.select(folder)
+                _, data = mail.search(None, "ALL")
+                ids = data[0].split()[-count:]
+                results = []
+                for mid in ids:
+                    _, msg_data = mail.fetch(mid, "(RFC822)")
+                    msg = email.message_from_bytes(msg_data[0][1])
+                    subj = msg.get("Subject", "(no subject)")
+                    frm = msg.get("From", "")
+                    results.append(f"From: {frm}\nSubject: {subj}")
+                mail.logout()
+                return "\n---\n".join(results)
+
+            return await loop.run_in_executor(None, _fetch)
+        except Exception as e:
+            return f"[email-read error] {e}"
+
+    # ── Image & Media ──────────────────────────────────────────────────
+
+    async def _handle_image_resize(self, node: dict, input_text: str) -> str:
+        """Resize an image using Pillow."""
+        try:
+            try:
+                from PIL import Image
+            except ImportError:
+                return "[image-resize] Pillow not installed. Run: pip install Pillow"
+            config = node.get("config", {})
+            path = config.get("path", input_text.strip())
+            width = config.get("width", 800)
+            height = config.get("height", 600)
+            output = config.get("output", path)
+            img = Image.open(path)
+            img = img.resize((width, height))
+            img.save(output)
+            return f"Resized to {width}x{height}: {output}"
+        except Exception as e:
+            return f"[image-resize error] {e}"
+
+    async def _handle_image_generate(self, node: dict, input_text: str) -> str:
+        """Generate an image via OpenAI DALL-E API."""
+        try:
+            import os
+
+            import httpx
+
+            config = node.get("config", {})
+            api_key = os.environ.get("OPENAI_API_KEY", "")
+            if not api_key:
+                return "[image-generate] OPENAI_API_KEY not set"
+            prompt = config.get("prompt", input_text[:1000])
+            size = config.get("size", "1024x1024")
+            output_path = config.get("output", "generated_image.png")
+            async with httpx.AsyncClient(timeout=60) as client:
+                resp = await client.post(
+                    "https://api.openai.com/v1/images/generations",
+                    headers={"Authorization": f"Bearer {api_key}"},
+                    json={"prompt": prompt, "n": 1, "size": size, "response_format": "url"},
+                )
+                resp.raise_for_status()
+                url = resp.json()["data"][0]["url"]
+                img_resp = await client.get(url)
+                with open(output_path, "wb") as f:
+                    f.write(img_resp.content)
+            return f"Image saved: {output_path}"
+        except Exception as e:
+            return f"[image-generate error] {e}"
+
+    async def _handle_vision_analyze(self, node: dict, input_text: str) -> str:
+        """Analyze an image via OpenAI Vision API."""
+        try:
+            import base64
+            import os
+
+            import httpx
+
+            config = node.get("config", {})
+            api_key = os.environ.get("OPENAI_API_KEY", "")
+            if not api_key:
+                return "[vision] OPENAI_API_KEY not set"
+            path = config.get("path", input_text.strip())
+            prompt = config.get("prompt", "Describe this image in detail.")
+            with open(path, "rb") as f:
+                b64 = base64.b64encode(f.read()).decode()
+            async with httpx.AsyncClient(timeout=60) as client:
+                resp = await client.post(
+                    "https://api.openai.com/v1/chat/completions",
+                    headers={"Authorization": f"Bearer {api_key}"},
+                    json={
+                        "model": config.get("model", "gpt-4o"),
+                        "messages": [
+                            {
+                                "role": "user",
+                                "content": [
+                                    {"type": "text", "text": prompt},
+                                    {"type": "image_url", "image_url": {"url": f"data:image/png;base64,{b64}"}},
+                                ],
+                            }
+                        ],
+                        "max_tokens": 1000,
+                    },
+                )
+                resp.raise_for_status()
+                return resp.json()["choices"][0]["message"]["content"]
+        except Exception as e:
+            return f"[vision error] {e}"
+
+    async def _handle_audio_transcribe(self, node: dict, input_text: str) -> str:
+        """Transcribe audio via OpenAI Whisper API."""
+        try:
+            import os
+
+            import httpx
+
+            config = node.get("config", {})
+            api_key = os.environ.get("OPENAI_API_KEY", "")
+            if not api_key:
+                return "[audio-transcribe] OPENAI_API_KEY not set"
+            path = config.get("path", input_text.strip())
+            async with httpx.AsyncClient(timeout=120) as client:
+                with open(path, "rb") as f:
+                    resp = await client.post(
+                        "https://api.openai.com/v1/audio/transcriptions",
+                        headers={"Authorization": f"Bearer {api_key}"},
+                        files={"file": (os.path.basename(path), f, "audio/mpeg")},
+                        data={"model": "whisper-1"},
+                    )
+                resp.raise_for_status()
+                return resp.json().get("text", "")
+        except Exception as e:
+            return f"[audio-transcribe error] {e}"
+
+    # ── Database ───────────────────────────────────────────────────────
+
+    async def _handle_db_query(self, node: dict, input_text: str) -> str:
+        """Execute a SELECT-only SQLite query."""
+        try:
+            import json as _json
+            import sqlite3
+
+            config = node.get("config", {})
+            db_path = config.get("db", ":memory:")
+            query = config.get("query", input_text.strip())
+            # Block dangerous statements
+            upper_q = query.upper().strip()
+            if any(kw in upper_q for kw in ["DROP", "DELETE", "ALTER", "INSERT", "UPDATE"]):
+                return "[db-query] Only SELECT queries allowed"
+            loop = asyncio.get_event_loop()
+
+            def _run():
+                conn = sqlite3.connect(db_path)
+                conn.row_factory = sqlite3.Row
+                cur = conn.execute(query)
+                rows = [dict(r) for r in cur.fetchall()]
+                conn.close()
+                return _json.dumps(rows, ensure_ascii=False, default=str)
+
+            return await loop.run_in_executor(None, _run)
+        except Exception as e:
+            return f"[db-query error] {e}"
+
+    async def _handle_db_write(self, node: dict, input_text: str) -> str:
+        """Execute INSERT/UPDATE SQLite statements."""
+        try:
+            import sqlite3
+
+            config = node.get("config", {})
+            db_path = config.get("db", ":memory:")
+            query = config.get("query", input_text.strip())
+            upper_q = query.upper().strip()
+            if any(kw in upper_q for kw in ["DROP", "SELECT", "ALTER"]):
+                return "[db-write] Only INSERT/UPDATE queries allowed"
+            loop = asyncio.get_event_loop()
+
+            def _run():
+                conn = sqlite3.connect(db_path)
+                conn.execute(query)
+                conn.commit()
+                changes = conn.total_changes
+                conn.close()
+                return f"DB write OK. Rows affected: {changes}"
+
+            return await loop.run_in_executor(None, _run)
+        except Exception as e:
+            return f"[db-write error] {e}"
+
+    async def _handle_cloud_storage(self, node: dict, input_text: str) -> str:
+        """AWS S3 operations via CLI subprocess."""
+        try:
+            import subprocess
+
+            config = node.get("config", {})
+            operation = config.get("operation", "list")
+            bucket = config.get("bucket", "")
+            path = config.get("path", input_text.strip())
+            if operation == "upload":
+                cmd = ["aws", "s3", "cp", path, f"s3://{bucket}/"]
+            elif operation == "download":
+                local = config.get("local_path", "./download")
+                cmd = ["aws", "s3", "cp", f"s3://{bucket}/{path}", local]
+            else:
+                cmd = ["aws", "s3", "ls", f"s3://{bucket}/{path}" if bucket else ""]
+            loop = asyncio.get_event_loop()
+            result = await loop.run_in_executor(
+                None, lambda: subprocess.run(cmd, capture_output=True, text=True, timeout=30)
+            )
+            return result.stdout or result.stderr or "(no output)"
+        except Exception as e:
+            return f"[cloud-storage error] {e}"
+
+    # ── Web & RSS ──────────────────────────────────────────────────────
+
+    async def _handle_rss_fetch(self, node: dict, input_text: str) -> str:
+        """Fetch and parse RSS/Atom feed."""
+        try:
+            import xml.etree.ElementTree as ET
+
+            import httpx
+
+            config = node.get("config", {})
+            url = config.get("url", input_text.strip())
+            count = min(config.get("count", 10), 50)
+            async with httpx.AsyncClient(timeout=15) as client:
+                resp = await client.get(url)
+                resp.raise_for_status()
+            root = ET.fromstring(resp.text)
+            items: list[str] = []
+            # RSS 2.0
+            for item in root.iter("item"):
+                title = item.findtext("title", "")
+                link = item.findtext("link", "")
+                items.append(f"- {title} ({link})")
+                if len(items) >= count:
+                    break
+            # Atom fallback
+            if not items:
+                ns = {"atom": "http://www.w3.org/2005/Atom"}
+                for entry in root.findall(".//atom:entry", ns):
+                    title = entry.findtext("atom:title", "", ns)
+                    link_el = entry.find("atom:link", ns)
+                    link = link_el.get("href", "") if link_el is not None else ""
+                    items.append(f"- {title} ({link})")
+                    if len(items) >= count:
+                        break
+            return "\n".join(items) if items else "(no items found)"
+        except Exception as e:
+            return f"[rss-fetch error] {e}"
+
+    async def _handle_web_scrape(self, node: dict, input_text: str) -> str:
+        """Scrape text content from a URL using regex extraction."""
+        try:
+            import re
+
+            import httpx
+
+            config = node.get("config", {})
+            url = config.get("url", input_text.strip())
+            async with httpx.AsyncClient(timeout=15, follow_redirects=True) as client:
+                resp = await client.get(url)
+                resp.raise_for_status()
+            html = resp.text
+            # Remove script/style
+            html = re.sub(r"<(script|style)[^>]*>.*?</\1>", "", html, flags=re.DOTALL | re.IGNORECASE)
+            # Remove tags
+            text = re.sub(r"<[^>]+>", " ", html)
+            # Collapse whitespace
+            text = re.sub(r"\s+", " ", text).strip()
+            max_len = config.get("max_length", 5000)
+            return text[:max_len]
+        except Exception as e:
+            return f"[web-scrape error] {e}"
+
+    async def _handle_html_parse(self, node: dict, input_text: str) -> str:
+        """Extract tags/attributes from HTML input via regex."""
+        try:
+            import re
+
+            config = node.get("config", {})
+            tag = config.get("tag", "a")
+            attr = config.get("attribute", "href")
+            pattern = rf'<{tag}[^>]*{attr}=["\']([^"\']*)["\'][^>]*>'
+            matches = re.findall(pattern, input_text, re.IGNORECASE)
+            return "\n".join(matches) if matches else f"(no <{tag} {attr}=> found)"
+        except Exception as e:
+            return f"[html-parse error] {e}"
+
+    # ── Calendar & Tasks ───────────────────────────────────────────────
+
+    async def _handle_calendar_event(self, node: dict, input_text: str) -> str:
+        """Generate an iCal VCALENDAR event."""
+        try:
+            from datetime import datetime
+
+            config = node.get("config", {})
+            summary = config.get("summary", input_text[:100])
+            dtstart = config.get("dtstart", datetime.now().strftime("%Y%m%dT%H%M%S"))
+            dtend = config.get("dtend", "")
+            location = config.get("location", "")
+            lines = [
+                "BEGIN:VCALENDAR",
+                "VERSION:2.0",
+                "BEGIN:VEVENT",
+                f"SUMMARY:{summary}",
+                f"DTSTART:{dtstart}",
+            ]
+            if dtend:
+                lines.append(f"DTEND:{dtend}")
+            if location:
+                lines.append(f"LOCATION:{location}")
+            lines.append(f"DESCRIPTION:{input_text[:500]}")
+            lines.extend(["END:VEVENT", "END:VCALENDAR"])
+            return "\n".join(lines)
+        except Exception as e:
+            return f"[calendar-event error] {e}"
+
+    async def _handle_task_create(self, node: dict, input_text: str) -> str:
+        """Create a task via Todoist or Linear API."""
+        try:
+            import os
+
+            import httpx
+
+            config = node.get("config", {})
+            provider = config.get("provider", "todoist")
+            title = config.get("title", input_text[:200])
+            if provider == "todoist":
+                token = os.environ.get("TODOIST_API_TOKEN", "")
+                if not token:
+                    return "[task-create] TODOIST_API_TOKEN not set"
+                async with httpx.AsyncClient(timeout=10) as client:
+                    resp = await client.post(
+                        "https://api.todoist.com/rest/v2/tasks",
+                        headers={"Authorization": f"Bearer {token}"},
+                        json={"content": title, "description": input_text[:1000]},
+                    )
+                    return f"Todoist: HTTP {resp.status_code}"
+            elif provider == "linear":
+                token = os.environ.get("LINEAR_API_KEY", "")
+                team_id = config.get("team_id", "")
+                if not token:
+                    return "[task-create] LINEAR_API_KEY not set"
+                async with httpx.AsyncClient(timeout=10) as client:
+                    resp = await client.post(
+                        "https://api.linear.app/graphql",
+                        headers={"Authorization": token},
+                        json={
+                            "query": "mutation($input:IssueCreateInput!){issueCreate(input:$input){success}}",
+                            "variables": {"input": {"title": title, "teamId": team_id}},
+                        },
+                    )
+                    return f"Linear: HTTP {resp.status_code}"
+            return f"[task-create] Unknown provider: {provider}"
+        except Exception as e:
+            return f"[task-create error] {e}"
+
+    # ── Document Generation ────────────────────────────────────────────
+
+    async def _handle_pdf_generate(self, node: dict, input_text: str) -> str:
+        """Generate a PDF from text using reportlab."""
+        try:
+            try:
+                from reportlab.lib.pagesizes import letter
+                from reportlab.pdfgen import canvas
+            except ImportError:
+                return "[pdf-generate] reportlab not installed. Run: pip install reportlab"
+            config = node.get("config", {})
+            output_path = config.get("output", "output.pdf")
+            c = canvas.Canvas(output_path, pagesize=letter)
+            _width, height = letter
+            y = height - 50
+            for line in input_text.split("\n"):
+                if y < 50:
+                    c.showPage()
+                    y = height - 50
+                c.drawString(50, y, line[:100])
+                y -= 14
+            c.save()
+            return f"PDF generated: {output_path}"
+        except Exception as e:
+            return f"[pdf-generate error] {e}"
+
+    async def _handle_spreadsheet_write(self, node: dict, input_text: str) -> str:
+        """Write JSON/CSV data to an xlsx file using openpyxl."""
+        try:
+            try:
+                from openpyxl import Workbook
+            except ImportError:
+                return "[spreadsheet-write] openpyxl not installed. Run: pip install openpyxl"
+            import csv
+            import io
+            import json as _json
+
+            config = node.get("config", {})
+            output_path = config.get("output", "output.xlsx")
+            # Parse input
+            try:
+                rows = _json.loads(input_text)
+                if isinstance(rows, list) and rows and isinstance(rows[0], dict):
+                    headers = list(rows[0].keys())
+                    data = [[r.get(h, "") for h in headers] for r in rows]
+                else:
+                    headers = []
+                    data = [[str(item)] for item in rows] if isinstance(rows, list) else [[str(rows)]]
+            except (ValueError, TypeError):
+                reader = csv.reader(io.StringIO(input_text))
+                all_rows = list(reader)
+                headers = all_rows[0] if all_rows else []
+                data = all_rows[1:] if len(all_rows) > 1 else []
+            wb = Workbook()
+            ws = wb.active
+            if headers:
+                ws.append(headers)
+            for row in data:
+                ws.append(row)
+            wb.save(output_path)
+            return f"Spreadsheet saved: {output_path} ({len(data)} rows)"
+        except Exception as e:
+            return f"[spreadsheet-write error] {e}"
+
+    # ── Security ───────────────────────────────────────────────────────
+
+    async def _handle_secret_inject(self, node: dict, input_text: str) -> str:
+        """Replace {{PLACEHOLDER}} with environment variable values."""
+        try:
+            import os
+            import re
+
+            config = node.get("config", {})
+            secrets = config.get("secrets", {})
+            result = input_text
+            for placeholder, env_var in secrets.items():
+                value = os.environ.get(env_var, "")
+                result = result.replace(f"{{{{{placeholder}}}}}", value)
+
+            # Also replace any remaining {{VAR}} patterns from env
+            def _replace(match):
+                key = match.group(1)
+                return os.environ.get(key, match.group(0))
+
+            result = re.sub(r"\{\{(\w+)\}\}", _replace, result)
+            return result
+        except Exception as e:
+            return f"[secret-inject error] {e}"
+
+    # ── LLM & Tool helpers ─────────────────────────────────────────────
+
     async def _run_llm(self, prompt: str, config: dict) -> str:
         """Call the LLM provider. Supports per-node provider override via config."""
         messages = [Message(role="user", content=prompt)]
@@ -529,6 +1337,15 @@ class WorkflowEngine:
                 response = await self._fallback.acomplete(messages)
                 return response.content or ""
             raise
+
+    async def _execute_subgraph(self, child_ids: list[str], input_text: str) -> str:
+        """Run a sub-sequence of nodes and return the last output."""
+        result = input_text
+        for cid in child_ids:
+            child_node = self._node_map.get(cid)
+            if child_node:
+                result = await self._execute_node(child_node, result)
+        return result
 
     async def _run_tool(self, tool_name: str, args: dict) -> str:
         """Execute a built-in tool by name."""

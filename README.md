@@ -43,7 +43,7 @@ Birkin does two things other AI tools don't:
 | | What others do | What Birkin does |
 |---|---|---|
 | **Memory** | Forget after session / dump into vector DB | **Compile into linked wiki** — organized, decaying, transparent |
-| **Workflows** | Nothing / basic pipelines | **47-node graph engine** — triggers, parallel exec, quality gates |
+| **Workflows** | Nothing / basic pipelines | **65-node graph engine** — triggers, parallel exec, quality gates |
 
 Everything else — 9 LLM providers, 10 skills, visual editor, Telegram bot — exists to serve these two.
 
@@ -267,7 +267,7 @@ birkin/
 | | Open WebUI | LobeChat | **Birkin** |
 |---|---|---|---|
 | Memory | Vector RAG | None | **Compiled wiki + decay + wikilinks** |
-| Workflows | Pipelines | None | **47-node graph + 4 trigger types** |
+| Workflows | Pipelines | None | **65-node graph + 4 trigger types** |
 | Learns you | No | No | **Pattern detection → proactive suggestions** |
 | Korean NER | No | No | **Native bilingual** |
 | Security | 138 CVEs (Q1 2026) | Limited | **8-point self-check, AST sandbox** |

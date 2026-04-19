@@ -65,9 +65,14 @@ class WorkflowDraft(BaseModel):
 _STEP_PATTERNS: list[tuple[str, list[str]]] = [
     ("llm_call", ["summarize", "analyze", "generate", "write", "translate", "요약", "분석", "작성"]),
     ("tool_call", ["search", "fetch", "scrape", "download", "read file", "검색", "가져와"]),
-    ("notify", ["send", "notify", "email", "telegram", "slack", "알림", "보내"]),
+    ("notify", ["send", "notify", "email", "telegram", "slack", "discord", "sms", "알림", "보내"]),
     ("condition", ["if ", "when ", "check ", "만약", "확인"]),
-    ("schedule", ["every ", "daily", "weekly", "매일", "매주"]),
+    ("schedule", ["every ", "daily", "weekly", "매일", "매주", "cron"]),
+    ("data", ["csv", "json", "spreadsheet", "excel", "pdf", "데이터", "변환"]),
+    ("database", ["database", "sql", "query", "db", "데이터베이스", "쿼리"]),
+    ("media", ["image", "resize", "transcribe", "audio", "vision", "이미지", "음성"]),
+    ("web", ["rss", "feed", "scrape", "crawl", "피드", "크롤링"]),
+    ("task", ["task", "todo", "calendar", "할일", "일정"]),
 ]
 
 
