@@ -198,7 +198,7 @@ def get_provider_router():
         from birkin.core.providers.registry import ProviderRegistry, ProviderRouter
 
         registry = ProviderRegistry()
-        for name in ["anthropic", "openai", "perplexity", "gemini", "ollama", "groq"]:
+        for name in ["anthropic", "openai", "perplexity", "gemini", "ollama", "groq", "claude-cli", "codex-cli"]:
             try:
                 p = create_provider(f"{name}/default")
                 registry.register(p)

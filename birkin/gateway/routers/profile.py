@@ -113,13 +113,25 @@ async def _run_import(job_id: str, conversations: list) -> None:
         job.progress_total = info.total
 
     try:
-        # Get provider for analysis
+        # Get provider for analysis — try each candidate until one works
         from birkin.gateway.deps import get_provider_router
 
         router_obj = get_provider_router()
-        provider = router_obj.select()
-
         wiki = get_wiki_memory()
+
+        provider = None
+        for candidate in router_obj.select_with_fallback(max_fallbacks=5):
+            try:
+                from birkin.core.models import Message as Msg
+
+                test_resp = candidate.complete([Msg(role="user", content="Reply OK")])
+                if test_resp and test_resp.content:
+                    provider = candidate
+                    logger.info("Profile import using provider: %s/%s", candidate.name, candidate.model)
+                    break
+            except Exception as probe_exc:
+                logger.debug("Provider %s probe failed: %s", candidate.name, probe_exc)
+                continue
 
         if provider is None:
             # No LLM provider — use stats-based fallback
