@@ -148,6 +148,12 @@
       "wf_no_suggestions": "No suggestions yet — keep chatting!",
       "chat_suggestion_banner": "Birkin suggests a workflow for you",
 
+      // Profile review
+      "profile_review_title": "Here's what I learned about you",
+      "profile_review_pages": "knowledge pages generated",
+      "profile_confirm_all": "Confirm All",
+      "profile_confirmed": "Profile confirmed!",
+
       // Workflow activation
       "wf_activate": "Activate",
       "wf_deactivate": "Active \u2714",
@@ -519,6 +525,11 @@
       "wf_suggestion_confidence": "\uC2E0\uB8B0\uB3C4",
       "wf_no_suggestions": "\uC544\uC9C1 \uCD94\uCC9C\uC774 \uC5C6\uC2B5\uB2C8\uB2E4 \u2014 \uB300\uD654\uB97C \uACC4\uC18D\uD574\uBCF4\uC138\uC694!",
       "chat_suggestion_banner": "Birkin\uC774 \uC6CC\uD06C\uD50C\uB85C\uC6B0\uB97C \uCD94\uCC9C\uD569\uB2C8\uB2E4",
+
+      "profile_review_title": "\uB2F9\uC2E0\uC5D0 \uB300\uD574 \uC54C\uAC8C \uB41C \uAC83\uB4E4\uC785\uB2C8\uB2E4",
+      "profile_review_pages": "\uAC1C \uC9C0\uC2DD \uD398\uC774\uC9C0 \uC0DD\uC131",
+      "profile_confirm_all": "\uC804\uCCB4 \uD655\uC778",
+      "profile_confirmed": "\uD504\uB85C\uD544\uC774 \uD655\uC815\uB418\uC5C8\uC2B5\uB2C8\uB2E4!",
 
       "wf_activate": "\uD65C\uC131\uD654",
       "wf_deactivate": "\uD65C\uC131 \u2714",

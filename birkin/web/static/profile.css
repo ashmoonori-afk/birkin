@@ -277,3 +277,48 @@
 @media (max-width: 479px) {
   .profile-drop-zone { padding: var(--sp-6, 24px) var(--sp-3, 12px); }
 }
+
+/* ── Profile Review Wizard ── */
+
+.profile-review { animation: fadeIn 0.3s ease; }
+.profile-review-header { margin-bottom: var(--sp-5, 20px); }
+.profile-review-header h3 { font-size: 1.1rem; font-weight: 700; color: var(--text); margin-bottom: 4px; }
+.profile-review-sub { font-size: 0.8rem; color: var(--text-dim); }
+
+.profile-review-list {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+  gap: var(--sp-3, 12px);
+  margin-bottom: var(--sp-5, 20px);
+}
+.profile-review-card {
+  padding: 12px 14px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--surface);
+  transition: opacity 0.2s;
+}
+.profile-review-card-title { font-size: 0.85rem; font-weight: 600; margin-bottom: 6px; }
+.profile-review-card-preview { font-size: 0.72rem; color: var(--text-dim); line-height: 1.5; margin-bottom: 10px; max-height: 60px; overflow: hidden; }
+.profile-review-card-actions { display: flex; gap: 6px; }
+.profile-rv-btn {
+  flex: 1;
+  padding: 5px 0;
+  border-radius: 6px;
+  font-size: 0.68rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  cursor: pointer;
+  text-align: center;
+  font-family: var(--font);
+  transition: background 0.15s;
+}
+.profile-rv-btn.confirm { background: rgba(74, 222, 128, 0.12); border: 1px solid rgba(74, 222, 128, 0.3); color: #4ade80; }
+.profile-rv-btn.confirm:hover { background: rgba(74, 222, 128, 0.22); }
+.profile-rv-btn.delete { background: transparent; border: 1px solid rgba(239, 68, 68, 0.2); color: rgba(239, 68, 68, 0.6); }
+.profile-rv-btn.delete:hover { background: rgba(239, 68, 68, 0.08); }
+
+.profile-review-footer { text-align: center; }
+
+@keyframes fadeIn { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: none; } }

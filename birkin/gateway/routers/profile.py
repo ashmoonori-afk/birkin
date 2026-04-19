@@ -308,6 +308,73 @@ async def delete_profile() -> dict[str, str]:
     return {"status": "ok", "pages_deleted": str(deleted)}
 
 
+@router.get("/review")
+async def review_profile() -> dict[str, Any]:
+    """Return all profile pages for user review after import."""
+    wiki = get_wiki_memory()
+    from birkin.memory.utils import strip_frontmatter
+
+    pages = []
+    prefixes = ("project-", "tool-", "skill-", "person-", "interest-", "user-")
+    for p in wiki.list_pages():
+        if not any(p["slug"].startswith(px) for px in prefixes):
+            continue
+        content = wiki.get_page(p["category"], p["slug"]) or ""
+        body = strip_frontmatter(content)
+        title = ""
+        for line in body.split("\n"):
+            if line.strip().startswith("# "):
+                title = line.strip()[2:]
+                break
+        pages.append(
+            {
+                "category": p["category"],
+                "slug": p["slug"],
+                "title": title or p["slug"],
+                "preview": body[:200],
+            }
+        )
+
+    return {"pages": pages, "total": len(pages)}
+
+
+@router.post("/confirm")
+async def confirm_profile(body: dict[str, Any]) -> dict[str, Any]:
+    """User confirms, edits, or deletes profile pages after review.
+
+    body: { "confirmed": ["slug1"], "edited": {"slug2": "new content"}, "deleted": ["slug3"] }
+    """
+    wiki = get_wiki_memory()
+    confirmed = 0
+    edited = 0
+    deleted = 0
+
+    for slug in body.get("deleted", []):
+        # Find page category
+        for p in wiki.list_pages():
+            if p["slug"] == slug:
+                wiki.delete_page(p["category"], slug)
+                deleted += 1
+                break
+
+    for slug, content in body.get("edited", {}).items():
+        for p in wiki.list_pages():
+            if p["slug"] == slug:
+                wiki.ingest(
+                    p["category"],
+                    slug,
+                    content,
+                    tags=["profile", "user_confirmed"],
+                    source="user_confirmed",
+                )
+                edited += 1
+                break
+
+    confirmed = len(body.get("confirmed", []))
+
+    return {"status": "ok", "confirmed": confirmed, "edited": edited, "deleted": deleted}
+
+
 # ---------------------------------------------------------------------------
 # Stats-based fallback (no LLM required)
 # ---------------------------------------------------------------------------

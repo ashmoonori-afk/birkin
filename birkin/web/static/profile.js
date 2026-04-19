@@ -181,7 +181,7 @@
           showToast(t("import_done"), "success");
           setTimeout(() => {
             document.querySelector("#profile-progress").style.display = "none";
-            loadProfile();
+            showProfileReview();
           }, 1500);
         } else if (job.status === "error") {
           clearInterval(_pollTimer);
@@ -292,6 +292,80 @@
     return `<ul class="profile-list">${items.map(i =>
       `<li>${esc(i)}</li>`
     ).join("")}</ul>`;
+  }
+
+  async function showProfileReview() {
+    try {
+      const res = await fetch("/api/profile/review");
+      if (!res.ok) { loadProfile(); return; }
+      const data = await res.json();
+      if (!data.pages || !data.pages.length) { loadProfile(); return; }
+
+      const content = document.querySelector("#profile-content");
+      if (!content) { loadProfile(); return; }
+
+      let html = `<div class="profile-review">
+        <div class="profile-review-header">
+          <h3>${esc(t("profile_review_title"))}</h3>
+          <p class="profile-review-sub">${data.total} ${esc(t("profile_review_pages"))}</p>
+        </div>
+        <div class="profile-review-list">`;
+
+      data.pages.forEach((p) => {
+        html += `<div class="profile-review-card" data-slug="${esc(p.slug)}" data-cat="${esc(p.category)}">
+          <div class="profile-review-card-title">${esc(p.title)}</div>
+          <div class="profile-review-card-preview">${esc(p.preview)}</div>
+          <div class="profile-review-card-actions">
+            <button class="profile-rv-btn confirm" data-action="confirm">${esc(t("wf_suggestion_accept"))}</button>
+            <button class="profile-rv-btn delete" data-action="delete">${esc(t("wf_suggestion_dismiss"))}</button>
+          </div>
+        </div>`;
+      });
+
+      html += `</div>
+        <div class="profile-review-footer">
+          <button class="profile-btn" id="profile-confirm-all">${esc(t("profile_confirm_all"))}</button>
+        </div>
+      </div>`;
+
+      content.innerHTML = html;
+
+      // Per-card actions
+      content.querySelectorAll(".profile-rv-btn").forEach((btn) => {
+        btn.addEventListener("click", (e) => {
+          const card = e.target.closest(".profile-review-card");
+          if (e.target.dataset.action === "delete") {
+            card.style.opacity = "0.3";
+            card.dataset.deleted = "true";
+          } else {
+            card.style.opacity = "1";
+            card.dataset.deleted = "";
+          }
+        });
+      });
+
+      // Confirm all
+      content.querySelector("#profile-confirm-all").addEventListener("click", async () => {
+        const cards = content.querySelectorAll(".profile-review-card");
+        const confirmed = [];
+        const deleted = [];
+        cards.forEach((c) => {
+          if (c.dataset.deleted === "true") { deleted.push(c.dataset.slug); }
+          else { confirmed.push(c.dataset.slug); }
+        });
+
+        try {
+          await fetch("/api/profile/confirm", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ confirmed, deleted }),
+          });
+          showToast(t("profile_confirmed"), "success");
+        } catch { showToast("Failed", "error"); }
+
+        loadProfile();
+      });
+    } catch { loadProfile(); }
   }
 
   function showToast(message, type) {
