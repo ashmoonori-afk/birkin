@@ -260,7 +260,61 @@ Every Phase 2 item below maps back to at least one of these three.
 
 ---
 
-## Phase 5: Future (Deferred)
+## Phase 4F: Conversation Import & Profile Compilation (Complete, v0.6.0)
+
+**Goal:** Let users import their ChatGPT/Claude conversation history so Birkin can build a user profile from day one.
+
+- [x] **Conversation importers** — ChatGPT JSON and Claude JSON parsers extract messages, metadata, timestamps
+- [x] **Profile compiler** — LLM-based analysis of imported conversations to extract role, expertise, interests, projects, communication style
+- [x] **Profile tab in WebUI** — drag-and-drop import, progress indicator, compiled profile display with edit capability
+- [x] **Profile API** — `POST /api/profile/import`, `GET /api/profile`, `DELETE /api/profile`
+- [x] **Tests: 607 → 655 (+48)**
+
+---
+
+## Phase 5: Intelligent Workflows (Complete, v0.7.0)
+
+**Goal:** Make workflows proactive and adaptive — the system detects user patterns, suggests automations, integrates memory bidirectionally, and learns from feedback.
+
+**Tests: 655 → 685 (+30). 8 commits. 6 new files, 8 modified files.**
+
+### Sprint 5A — Recommender Engine + Semantic Skills (Complete)
+
+- [x] **Workflow Recommender Engine** — `WorkflowRecommender` analyzes EventStore for repeated tool calls (freq >= 3) and topic patterns (freq >= 5), generates scored `WorkflowSuggestion` with draft templates. Deterministic IDs via SHA-256 hash.
+- [x] **Recommender DI singleton** — `get/set/reset_workflow_recommender()` in deps.py, lazy initialization with EventStore + WikiMemory
+- [x] **Suggestions API** — `GET /api/workflows/suggestions?top_k=3` endpoint, placed before `/{workflow_id}` to avoid route collision
+- [x] **Intent-based skill matching** — `SkillRegistry` accepts optional `SemanticSearch`, hybrid `match_triggers()`: exact substring first, semantic fallback (threshold > 0.6). `_build_trigger_index()` pre-computes embeddings. Supports Korean intent ("견적서 전달해" → email skill)
+- [x] **13 tests** — 8 recommender tests (detection, scoring, dismissal, empty history) + 5 semantic matching tests (exact preserved, fallback, threshold, skip-when-exact)
+
+### Sprint 5B — Memory-Workflow Bridge + Proactive Discovery (Complete)
+
+- [x] **Memory → Workflow** — `_handle_llm()` auto-injects `wiki.build_context(max_pages=3)` as `[Memory Context]` prefix. Opt-out via `inject_memory: false` per node config.
+- [x] **Workflow → Memory** — `run()` saves final output to wiki `"workflows"` category as `wf-{node_id}-{timestamp}` page. Wrapped in try/except, non-blocking.
+- [x] **Wiki categories expanded** — Added `"workflows"` and `"meta"` categories. `_CATEGORIES` constant replaces 6 hardcoded tuples. `_CONTEXT_CATEGORIES` excludes `"meta"` from `build_context()`.
+- [x] **Proactive discovery** — `check_and_notify()` filters suggestions to confidence > 0.7. Hooked into daily 3AM cron in `app.py`. ChatResponse includes `suggestions: list[dict]` field (10% sampling rate in `/api/chat`).
+- [x] **10 tests** — 5 bridge tests (injection, opt-out, result capture, no-wiki, no-save-unchanged) + 5 discovery tests (notify, empty, low-confidence, schema field, schema with data)
+
+### Sprint 5C — Suggestion Feedback Loop (Complete)
+
+- [x] **Feedback recording** — `record_feedback(id, action, metadata)` stores to wiki `"meta"` category as JSON page with frontmatter. Validates action in {accepted, dismissed, modified, deleted_after_use}.
+- [x] **Dismissed loading** — `_load_dismissed()` scans meta pages, strips frontmatter, parses JSON, returns dismissed/deleted IDs. Cached in `_dismissed_ids`.
+- [x] **Feedback-weighted scoring** — `_score_suggestion()` applies multipliers: dismissed=0.0, deleted=0.2x, accepted=0.5x, modified=1.3x. `suggest()` refreshes dismissed set and applies feedback per signal.
+- [x] **Feedback API** — `POST /api/workflows/suggestions/{suggestion_id}/feedback` with Pydantic-validated `FeedbackRequest` body.
+- [x] **7 tests** — feedback persistence, invalid action rejection, dismissed cache, wiki load, suggest-excludes-dismissed, accepted-lowers-score, API endpoint
+
+### Phase 5 — Summary
+
+| Sprint | Features | Tests Added | Key Impact |
+|--------|----------|-------------|------------|
+| 5A (Recommender + Skills) | 4 | +13 | Pattern detection, semantic intent matching |
+| 5B (Bridge + Discovery) | 4 | +10 | Bidirectional memory-workflow, proactive suggestions |
+| 5C (Feedback Loop) | 4 | +7 | Adaptive scoring, user feedback persistence |
+
+**Total: 12 features completed. Tests: 655 → 685 (+30). New API endpoints: 2.**
+
+---
+
+## Phase 6: Future (Deferred)
 
 Monetization and business-model decisions are intentionally deferred. Birkin stays focused on a single-user, self-hosted, open-source experience.
 

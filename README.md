@@ -19,8 +19,8 @@
 <p align="center">
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-blue.svg" alt="MIT License"></a>
   <img src="https://img.shields.io/badge/python-3.11%2B-blue" alt="Python 3.11+">
-  <img src="https://img.shields.io/badge/version-v0.6.0-green" alt="v0.6.0">
-  <img src="https://img.shields.io/badge/tests-675%2B-brightgreen" alt="675+ tests">
+  <img src="https://img.shields.io/badge/version-v0.7.0-green" alt="v0.7.0">
+  <img src="https://img.shields.io/badge/tests-685%2B-brightgreen" alt="685+ tests">
   <img src="https://img.shields.io/badge/providers-9-orange" alt="9 Providers">
 </p>
 
@@ -178,6 +178,8 @@ Birkin's memory is what makes it different from a chatbot.
 - Wikilink aliases for multilingual synonyms
 - `wiki_read` tool for on-demand lazy loading
 - Daily compilation cron (3 AM) + session cleanup
+- **Memory ↔ Workflow bridge** — LLM nodes auto-receive memory context; workflow results write back to wiki
+- 5 wiki categories: entities, concepts, sessions, workflows, meta
 
 ---
 
@@ -198,6 +200,14 @@ Birkin's memory is what makes it different from a chatbot.
 - **Graph mode:** Conditional routing (YES/NO labels), true parallel execution (`asyncio.gather`) + merge, loops with convergence detection, error recovery paths (ERROR label edges)
 - **NL builder:** Describe what you want in a sentence — Birkin generates the workflow
 - **LLM timeout:** Configurable per-node timeout (default 120s) with fallback provider
+- **Workflow recommender** — detects repeated patterns in your behaviour and suggests new workflows automatically
+- **Proactive discovery** — suggestions surface in chat responses and run on the daily cron
+- **Feedback loop** — accept, dismiss, or modify suggestions; Birkin learns from your choices
+
+### Skill Matching
+
+- **Hybrid trigger matching** — exact substring first, semantic fallback via local embeddings (threshold 0.6)
+- Supports Korean intent matching ("견적서 전달해" → email skill)
 
 ### Token Budget
 
@@ -214,7 +224,7 @@ Every session enforces a budget. When tokens run low, Birkin auto-compresses con
 | **Memory** | `GET/PUT/DELETE /api/wiki/*` | Wiki CRUD + graph + search |
 | **Triggers** | `GET/POST/DELETE /api/triggers` | CRUD + manual fire |
 | **Skills** | `GET/POST /api/skills` | List + toggle + install |
-| **Workflows** | `GET/PUT/DELETE /api/workflows` | CRUD + NL generate |
+| **Workflows** | `GET/PUT/DELETE /api/workflows` | CRUD + NL generate + suggestions + feedback |
 | **Insights** | `GET /api/insights/*` | Weekly digest, patterns, trends |
 | **Dashboard** | `GET /api/observability/*` | Spend, latency, errors, hero metrics |
 | **Approvals** | `GET/POST /api/approvals` | Pending actions |
@@ -224,7 +234,7 @@ Every session enforces a budget. When tokens run low, Birkin auto-compresses con
 | **Profile** | `POST /api/profile/import`, `GET/DELETE /api/profile` | Conversation import + user profile |
 | **Settings** | `GET/PUT /api/settings` | Config, keys, providers |
 
-Full API: 61 endpoints across 17 routers.
+Full API: 63 endpoints across 17 routers.
 
 ---
 
@@ -232,17 +242,17 @@ Full API: 61 endpoints across 17 routers.
 
 ```
 birkin/
-  core/           Agent loop, 9 providers, graph engine, budget, approval gates
+  core/           Agent loop, 9 providers, graph engine, budget, approval gates, workflow recommender
   mcp/            MCP client + server + Playwright browser automation
   triggers/       Cron, file watch, webhook, message + SQLite persistence
   skills/         SKILL.md plugin system (code-review, web-summarizer)
-  memory/         Wiki, event store, compiler, importers (ChatGPT/Claude), profile, semantic search, decay
+  memory/         Wiki (5 categories), event store, compiler, importers, profile, semantic search, decay
   eval/           JSONL evaluation framework with regression detection
   observability/  Structured tracing (Trace > Span > JSONL)
   voice/          Whisper STT + TTS
   gateway/        FastAPI backend (17 routers)
   web/            10-tab WebUI (vanilla JS, cinematic dark theme, 4-tier responsive)
-  tests/          675+ tests (pytest)
+  tests/          685+ tests (pytest)
 ```
 
 ---
