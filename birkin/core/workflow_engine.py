@@ -246,7 +246,7 @@ class WorkflowEngine:
         return input_text
 
     async def _handle_unknown(self, node: dict, input_text: str) -> str:
-        logger.warning(f"Unknown node type: {node.get('type')}, passing through")
+        logger.warning("Unknown node type: %s, passing through", node.get("type"))
         return input_text
 
     # ── AI model handlers ─────────────────────────────────────────────
@@ -495,7 +495,7 @@ class WorkflowEngine:
         return f"[Email would be sent: {input_text[:100]}...] (email not configured)"
 
     async def _handle_notify(self, node: dict, input_text: str) -> str:
-        logger.info(f"Notification: {input_text[:200]}")
+        logger.info("Notification: %s", input_text[:200])
         return f"[Notification sent] {input_text[:100]}"
 
     async def _run_llm(self, prompt: str, config: dict) -> str:

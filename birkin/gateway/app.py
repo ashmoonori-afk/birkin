@@ -72,11 +72,11 @@ async def _daily_memory_loop() -> None:
             # Weekly insights digest on Sundays
             if dt.datetime.now().weekday() == 6:
                 try:
-                    from birkin.memory.insights.engine import InsightsEngine
+                    from birkin.gateway.deps import get_insights_engine
 
                     end = dt.datetime.now(dt.timezone.utc).strftime("%Y-%m-%d")
                     start = (dt.datetime.now(dt.timezone.utc) - dt.timedelta(days=6)).strftime("%Y-%m-%d")
-                    insights = InsightsEngine(store)
+                    insights = get_insights_engine()
                     digest = insights.weekly_digest(start, end)
                     wiki.ingest("insights", f"weekly-{end}", digest.summary)
                     logger.info("Weekly insights digest saved: insights/weekly-%s", end)

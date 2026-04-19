@@ -10,7 +10,8 @@ from typing import Any
 from fastapi import APIRouter, File, HTTPException, UploadFile
 
 from birkin.gateway.deps import get_wiki_memory
-from birkin.memory.import_job import ImportJobManager
+from birkin.memory.import_job import ImportJobManager, ImportStatus
+from birkin.memory.utils import strip_frontmatter
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/profile", tags=["profile"])
@@ -56,20 +57,17 @@ async def import_conversations(file: UploadFile = File(...)) -> dict[str, Any]:
     try:
         raw = await file.read()
         if len(raw) > 200 * 1024 * 1024:  # 200MB limit
-            job.status = __import__("birkin.memory.import_job", fromlist=["ImportStatus"]).ImportStatus.ERROR
+            job.status = ImportStatus.ERROR
             job.errors.append("File too large (max 200MB)")
             raise HTTPException(413, "File too large (max 200MB)")
 
         data = json.loads(raw)
     except json.JSONDecodeError:
-        from birkin.memory.import_job import ImportStatus
-
         job.status = ImportStatus.ERROR
         job.errors.append("Invalid JSON file")
         raise HTTPException(400, "Invalid JSON file")
 
     # Parse conversations
-    from birkin.memory.import_job import ImportStatus
     from birkin.memory.importers.base import auto_detect_and_parse
 
     job.status = ImportStatus.PARSING
@@ -97,7 +95,6 @@ async def import_conversations(file: UploadFile = File(...)) -> dict[str, Any]:
 
 async def _run_import(job_id: str, conversations: list) -> None:
     """Background task: run ProfileCompiler and update job status."""
-    from birkin.memory.import_job import ImportStatus
     from birkin.memory.profile_compiler import ProfileCompiler, ProgressInfo
 
     manager = _get_import_manager()
@@ -215,35 +212,25 @@ async def get_profile() -> dict[str, Any]:
         profile["job_role"] = _extract_field(user_page, "Role")
 
     # Scan all profile-tagged pages for granular graph data
+    _PREFIX_FIELD_MAP = [
+        ("project-", "active_projects"),
+        ("tool-", "tools_and_tech"),
+        ("skill-", "expertise_areas"),
+        ("person-", "key_people"),
+        ("interest-", "interests"),
+    ]
+
     all_pages = wiki.list_pages()
     profile_pages = []
-    for p in all_pages:
-        slug = p["slug"]
-        if slug.startswith("project-"):
-            title = _title_from_page(wiki, p["category"], slug)
-            if title:
-                profile["active_projects"].append(title)
-            profile_pages.append(p)
-        elif slug.startswith("tool-"):
-            title = _title_from_page(wiki, p["category"], slug)
-            if title:
-                profile["tools_and_tech"].append(title)
-            profile_pages.append(p)
-        elif slug.startswith("skill-"):
-            title = _title_from_page(wiki, p["category"], slug)
-            if title:
-                profile["expertise_areas"].append(title)
-            profile_pages.append(p)
-        elif slug.startswith("person-"):
-            title = _title_from_page(wiki, p["category"], slug)
-            if title:
-                profile["key_people"].append(title)
-            profile_pages.append(p)
-        elif slug.startswith("interest-"):
-            title = _title_from_page(wiki, p["category"], slug)
-            if title:
-                profile["interests"].append(title)
-            profile_pages.append(p)
+    for page_info in all_pages:
+        slug = page_info["slug"]
+        for prefix, field in _PREFIX_FIELD_MAP:
+            if slug.startswith(prefix):
+                title = _title_from_page(wiki, page_info["category"], slug)
+                if title:
+                    profile[field].append(title)
+                profile_pages.append(page_info)
+                break
 
     if profile_pages:
         profile["exists"] = True
@@ -281,7 +268,7 @@ async def get_profile() -> dict[str, Any]:
     style = wiki.get_page("concepts", "user-style")
     if style:
         profile["exists"] = True
-        body = _strip_frontmatter(style)
+        body = strip_frontmatter(style)
         if not profile["tools_and_tech"]:
             profile["tools_and_tech"] = _extract_list(style, "Tools & Technologies")
         for line in body.split("\n"):
@@ -421,7 +408,7 @@ def _title_from_page(wiki: Any, category: str, slug: str) -> str | None:
     content = wiki.get_page(category, slug)
     if not content:
         return None
-    body = _strip_frontmatter(content)
+    body = strip_frontmatter(content)
     for line in body.split("\n"):
         line = line.strip()
         if line.startswith("# "):
@@ -429,18 +416,9 @@ def _title_from_page(wiki: Any, category: str, slug: str) -> str | None:
     return None
 
 
-def _strip_frontmatter(content: str) -> str:
-    """Remove YAML frontmatter (---...---) from wiki page content."""
-    if content.startswith("---"):
-        parts = content.split("---", 2)
-        if len(parts) >= 3:
-            return parts[2].strip()
-    return content
-
-
 def _extract_field(content: str, field_name: str) -> str | None:
     """Extract a **Field:** value from markdown."""
-    content = _strip_frontmatter(content)
+    content = strip_frontmatter(content)
     for line in content.split("\n"):
         if f"**{field_name}:**" in line:
             parts = line.split(f"**{field_name}:**", 1)
@@ -451,7 +429,7 @@ def _extract_field(content: str, field_name: str) -> str | None:
 
 def _extract_bullets(content: str) -> list[str]:
     """Extract bullet-point items from markdown (skips frontmatter tags line)."""
-    content = _strip_frontmatter(content)
+    content = strip_frontmatter(content)
     items = []
     for line in content.split("\n"):
         line = line.strip()
@@ -462,7 +440,7 @@ def _extract_bullets(content: str) -> list[str]:
 
 def _extract_list(content: str, section_name: str) -> list[str]:
     """Extract a list from a named section."""
-    content = _strip_frontmatter(content)
+    content = strip_frontmatter(content)
     in_section = False
     items = []
     for line in content.split("\n"):

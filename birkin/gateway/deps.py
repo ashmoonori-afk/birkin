@@ -154,6 +154,12 @@ def get_skill_registry():
     return _skill_registry
 
 
+def set_skill_registry(registry) -> None:
+    """Inject a custom SkillRegistry (useful for testing)."""
+    global _skill_registry  # noqa: PLW0603
+    _skill_registry = registry
+
+
 def reset_skill_registry() -> None:
     """Reset for testing."""
     global _skill_registry  # noqa: PLW0603
@@ -175,6 +181,12 @@ def get_mcp_registry():
 
         _mcp_registry = MCPRegistry()
     return _mcp_registry
+
+
+def set_mcp_registry(registry) -> None:
+    """Inject a custom MCPRegistry (useful for testing)."""
+    global _mcp_registry  # noqa: PLW0603
+    _mcp_registry = registry
 
 
 def reset_mcp_registry() -> None:

@@ -11,6 +11,8 @@ from typing import TYPE_CHECKING, Optional
 
 from pydantic import BaseModel, Field
 
+from birkin.memory.utils import strip_frontmatter
+
 if TYPE_CHECKING:
     from birkin.memory.event_store import EventStore
     from birkin.memory.wiki import WikiMemory
@@ -217,7 +219,7 @@ class WorkflowRecommender:
             if not content:
                 continue
             try:
-                body = self._strip_frontmatter(content)
+                body = strip_frontmatter(content)
                 data = json.loads(body)
                 if data.get("action") in ("dismissed", "deleted_after_use"):
                     dismissed.add(data["suggestion_id"])
@@ -236,19 +238,10 @@ class WorkflowRecommender:
         if not content:
             return None
         try:
-            body = self._strip_frontmatter(content)
+            body = strip_frontmatter(content)
             return json.loads(body).get("action")
         except (json.JSONDecodeError, KeyError):
             return None
-
-    @staticmethod
-    def _strip_frontmatter(text: str) -> str:
-        """Remove YAML frontmatter (---...---) from wiki page content."""
-        if text.startswith("---"):
-            parts = text.split("---", 2)
-            if len(parts) >= 3:
-                return parts[2].strip()
-        return text
 
     # -- scoring ------------------------------------------------------------
 
