@@ -40,8 +40,11 @@ embeddings = [
 backup = [
   "cryptography>=43.0,<45",
 ]
+scale = [
+  "faiss-cpu>=1.7",
+]
 all = [
-  "birkin-agent[korean,embeddings,backup]",
+  "birkin-agent[korean,embeddings,backup,scale]",
 ]
 
 [project.scripts]
