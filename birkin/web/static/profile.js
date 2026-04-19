@@ -83,7 +83,10 @@
       fileInput.click();
     });
     fileInput.addEventListener("change", () => {
-      if (fileInput.files.length > 0) uploadFile(fileInput.files[0]);
+      if (fileInput.files.length > 0) {
+        uploadFile(fileInput.files[0]);
+        fileInput.value = "";  // reset so same file can be re-selected
+      }
     });
 
     // Import button

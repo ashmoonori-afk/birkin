@@ -68,7 +68,12 @@
 }
 
 .profile-drop-input {
-  display: none;
+  position: absolute;
+  width: 0;
+  height: 0;
+  opacity: 0;
+  overflow: hidden;
+  pointer-events: none;
 }
 
 /* Progress */

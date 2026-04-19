@@ -120,6 +120,17 @@ async def _run_import(job_id: str, conversations: list) -> None:
         provider = router_obj.select()
 
         wiki = get_wiki_memory()
+
+        if provider is None:
+            # No LLM provider — use stats-based fallback
+            logger.warning("No LLM provider available, using stats-based profile")
+            result = _compile_stats_fallback(conversations, wiki)
+            job.pages_created = result.pages_created
+            job.errors = result.errors
+            job.status = ImportStatus.DONE
+            logger.info("Import job %s (stats fallback): %d pages", job_id, len(result.pages_created))
+            return
+
         compiler = ProfileCompiler(provider, wiki)
 
         # Run in thread pool to not block event loop (provider.complete is sync)
@@ -129,15 +140,29 @@ async def _run_import(job_id: str, conversations: list) -> None:
             lambda: compiler.compile_profile(conversations, on_progress=on_progress),
         )
 
+        # If LLM analysis failed entirely, fall back to stats
+        if not result.pages_created and result.batches_failed > 0:
+            logger.warning("LLM analysis failed, falling back to stats: %s", result.errors)
+            result = _compile_stats_fallback(conversations, wiki)
+
         job.pages_created = result.pages_created
         job.errors = result.errors
         job.status = ImportStatus.DONE
         logger.info("Import job %s completed: %d pages", job_id, len(result.pages_created))
 
     except Exception as exc:
-        job.status = ImportStatus.ERROR
-        job.errors.append(f"Import failed: {exc!s}")
-        logger.error("Import job %s failed: %s", job_id, exc)
+        # Last resort: try stats fallback even on unexpected errors
+        try:
+            wiki = get_wiki_memory()
+            result = _compile_stats_fallback(conversations, wiki)
+            job.pages_created = result.pages_created
+            job.errors = [f"LLM failed ({exc!s}), used stats fallback."] + result.errors
+            job.status = ImportStatus.DONE
+            logger.warning("Import job %s LLM failed, stats fallback used", job_id)
+        except Exception as fb_exc:
+            job.status = ImportStatus.ERROR
+            job.errors.append(f"Import failed: {exc!s}, fallback also failed: {fb_exc!s}")
+            logger.error("Import job %s failed: %s", job_id, exc)
 
 
 @router.get("/import/{job_id}")
@@ -226,6 +251,96 @@ async def delete_profile() -> dict[str, str]:
             deleted += 1
 
     return {"status": "ok", "pages_deleted": str(deleted)}
+
+
+# ---------------------------------------------------------------------------
+# Stats-based fallback (no LLM required)
+# ---------------------------------------------------------------------------
+
+
+def _compile_stats_fallback(conversations: list, wiki: Any) -> Any:
+    """Build a basic profile from conversation statistics when no LLM is available."""
+    from collections import Counter
+
+    from birkin.memory.profile_compiler import ProfileCompileResult
+
+    result = ProfileCompileResult()
+    result.conversations_processed = len(conversations)
+
+    all_words: Counter[str] = Counter()
+    topics: list[str] = []
+    total_msgs = 0
+
+    for conv in conversations:
+        total_msgs += len(conv.user_messages)
+        topics.append(conv.title)
+        for msg in conv.user_messages:
+            words = [w.lower() for w in msg.content.split() if len(w) > 3]
+            all_words.update(words)
+
+    interests = [t for t in topics if t and t != "Untitled"][:15]
+
+    stop = {
+        "this",
+        "that",
+        "with",
+        "from",
+        "have",
+        "what",
+        "about",
+        "when",
+        "your",
+        "they",
+        "will",
+        "been",
+        "their",
+        "more",
+        "there",
+        "which",
+        "would",
+        "could",
+        "should",
+    }
+    keywords = [w for w, _ in all_words.most_common(50) if w not in stop][:15]
+
+    pages: list[str] = []
+
+    role_text = f"**Role:** (Imported from {len(conversations)} conversations, {total_msgs} messages)"
+    parts = ["# User Profile\n", role_text + "\n"]
+    wiki.ingest(
+        "entities",
+        "user-profile",
+        "\n".join(parts),
+        tags=["profile", "imported"],
+        source="stats_fallback",
+    )
+    pages.append("entities/user-profile")
+
+    if interests:
+        parts = ["# User Interests\n"] + [f"- {t}" for t in interests]
+        wiki.ingest(
+            "concepts",
+            "user-interests",
+            "\n".join(parts),
+            tags=["profile", "interests", "imported"],
+            source="stats_fallback",
+        )
+        pages.append("concepts/user-interests")
+
+    if keywords:
+        parts = ["# User Expertise\n"] + [f"- {k}" for k in keywords]
+        wiki.ingest(
+            "concepts",
+            "user-expertise",
+            "\n".join(parts),
+            tags=["profile", "expertise", "imported"],
+            source="stats_fallback",
+        )
+        pages.append("concepts/user-expertise")
+
+    result.pages_created = pages
+    result.errors.append("No LLM provider — profile built from stats. Configure an API key for deeper analysis.")
+    return result
 
 
 # ---------------------------------------------------------------------------
