@@ -12,7 +12,7 @@
 </p>
 
 <p align="center">
-  <a href="#-quick-start">Quick Start</a> · <a href="#-why-birkin">Why Birkin</a> · <a href="#-memory-system">Memory</a> · <a href="#-workflow-automation">Automation</a> · <a href="#-architecture">Architecture</a> · <a href="README-ko.md">한국어</a>
+  <a href="#-memory">Memory</a> · <a href="#-workflows">Workflows</a> · <a href="#-quick-start">Quick Start</a> · <a href="#-security">Security</a> · <a href="#-architecture">Architecture</a> · <a href="README-ko.md">한국어</a>
 </p>
 
 <p align="center">
@@ -27,7 +27,7 @@
 
 > **Every AI tool forgets you the moment the conversation ends.**
 > Birkin doesn't. It compiles your conversations into a living wiki,
-> detects your patterns, and automates your repetitive work —
+> detects your patterns, and builds workflows to automate your repetitive work —
 > all on your machine, under your control.
 
 <p align="center">
@@ -36,131 +36,39 @@
 
 ---
 
-## Why Birkin?
+## The Two Pillars
 
-### The Problem
+Birkin does two things other AI tools don't:
 
-You've used ChatGPT, Claude, Gemini. Every session starts from zero. You re-explain your role, your project, your preferences. Your AI has amnesia.
-
-Self-hosted alternatives like Open WebUI give you a local interface — but the same forgetful brain. And [138 CVEs in 63 days](https://www.horizon3.ai/) later, "self-hosted" doesn't mean "safe" either.
-
-### The Solution
-
-Birkin is a **personal agent OS** that sits on your machine and builds persistent knowledge from every interaction.
-
-| | ChatGPT / Claude | Open WebUI | **Birkin** |
-|---|---|---|---|
-| Memory | Per-session | Vector search (store & retrieve) | **Compile to wiki** (organize, link, decay) |
-| Automation | None | Basic pipelines | **47-node workflow engine** with triggers |
-| Learns you | No | No | **Pattern detection → proactive suggestions** |
-| Data | Cloud | Local but exposed | **Local, minimal attack surface** |
-| Providers | Single | Multi-LLM | **9 providers**, auto-routing |
-
----
-
-## Key Features
-
-### Memory That Compounds
-
-Birkin doesn't just store conversations — it **compiles** them.
-
-```
-Conversation → LLM Classifier → Wiki Pages (entities, concepts, sessions)
-                                      ↓
-                              [[wikilinks]] connect related knowledge
-                                      ↓
-                              Decay algorithm: high-value stays, noise fades
-                                      ↓
-                              Next session: relevant context auto-injected
-```
-
-- **Compile, don't dump** — Conversations are distilled into structured wiki pages, not thrown into a vector database
-- **Natural forgetting** — 20-day half-life. Frequently referenced knowledge strengthens; unused knowledge fades
-- **Bilingual** — Korean and English entity extraction, classification, and search
-- **Transparent** — Every memory page shows what it knows, why, and where it came from
-
-### Workflow Automation
-
-Describe what you want in plain language. Birkin builds it.
-
-```
-"매일 아침 HN 탑 뉴스 요약해서 텔레그램으로 보내줘"
-→ Auto-generates a workflow graph with cron trigger + web scraper + LLM summarizer + Telegram sender
-```
-
-- **47 node types** — LLM calls, API requests, conditionals, loops, parallel execution, quality gates
-- **4 trigger types** — Cron schedules, file watchers, webhooks, message filters
-- **Visual editor** — Drag-and-drop workflow builder in the WebUI
-- **Natural language builder** — Describe in Korean or English, get an executable graph
-
-### Multi-Provider Intelligence
-
-One interface. Nine LLM providers. Automatic routing.
-
-| Provider | Strength | Use Case |
+| | What others do | What Birkin does |
 |---|---|---|
-| Claude | Reasoning, code | Complex analysis |
-| GPT-4 | General, tools | Everyday tasks |
-| Gemini | Multimodal, 1M context | Long documents |
-| Perplexity | Web search | Current events |
-| Groq | Ultra-fast inference | Quick responses |
-| Ollama | Local, private | Offline use |
-| OpenRouter | Model marketplace | Specialized models |
+| **Memory** | Forget after session / dump into vector DB | **Compile into linked wiki** — organized, decaying, transparent |
+| **Workflows** | Nothing / basic pipelines | **47-node graph engine** — triggers, parallel exec, quality gates |
+
+Everything else — 9 LLM providers, 10 skills, visual editor, Telegram bot — exists to serve these two.
 
 ---
 
-## Quick Start
+## Memory
 
-### Option 1: One-Click (Recommended)
+### The Problem with RAG
 
-**Windows:** Double-click `scripts/start.bat`
-**macOS/Linux:** `scripts/start.sh`
+Vector databases store everything and retrieve by similarity. The result: bloated context, irrelevant chunks, no structure, no forgetting. Your AI drowns in its own memories.
 
-Opens at `http://127.0.0.1:8321`. First run takes ~1 minute.
+### Birkin's Approach: Compile, Don't Dump
 
-### Option 2: Docker
+```
+Day 1: "I'm a marketer at Iris Corp working on project Chumori"
+        → wiki page: entities/user-profile (confidence: 0.8)
 
-```bash
-git clone https://github.com/ashmoonori-afk/birkin.git && cd birkin
-cp .env.example .env   # Add your API keys
-docker compose up -d   # → http://localhost:8321
+Day 5: User asks about Chumori again
+        → user-profile.confidence += 0.1, reference_count += 1
+
+Day 30: Old session about weather
+        → decayed below threshold, naturally forgotten
 ```
 
-### Option 3: Manual
-
-```bash
-git clone https://github.com/ashmoonori-afk/birkin.git && cd birkin
-python3 -m venv .venv && source .venv/bin/activate
-pip install -e "."
-birkin                # WebUI at :8321
-```
-
-### CLI Commands
-
-```bash
-birkin              # Launch WebUI
-birkin chat         # Terminal REPL
-birkin mcp serve    # MCP server (Claude Code, Cursor, etc.)
-birkin eval run     # Run evaluations
-birkin skill install <url>  # Install community skills
-birkin export       # Backup all data
-```
-
-### API Keys
-
-Add to `.env` — only the providers you use:
-
-```bash
-ANTHROPIC_API_KEY=sk-ant-...    # Claude
-OPENAI_API_KEY=sk-...           # GPT + OpenRouter
-GEMINI_API_KEY=...              # Gemini
-PERPLEXITY_API_KEY=pplx-...     # Search-augmented
-GROQ_API_KEY=gsk_...            # Fast inference
-```
-
----
-
-## Memory System
+Every conversation passes through an **LLM classifier** that decides what's worth keeping, categorizes it, and writes structured wiki pages with `[[wikilinks]]` connecting related knowledge.
 
 ### How It Works
 
@@ -170,7 +78,8 @@ GROQ_API_KEY=gsk_...            # Fast inference
 │              │     │ Classifier   │     │ - entities/     │
 │              │     │ (KO/EN)      │     │ - concepts/     │
 │              │     │              │     │ - sessions/     │
-└─────────────┘     └──────────────┘     └────────┬────────┘
+└─────────────┘     └──────────────┘     │ - workflows/    │
+                                          └────────┬────────┘
                                                    │
                     ┌──────────────┐     ┌─────────▼────────┐
                     │ Semantic     │ ←── │ [[wikilinks]]    │
@@ -187,36 +96,144 @@ GROQ_API_KEY=gsk_...            # Fast inference
 
 ### Memory Features
 
-- **Relevance-scored injection** — Only related knowledge enters the prompt, saving tokens
-- **Natural decay** — 20-day half-life keeps memory fresh
-- **Wikilink graph** — Pages connect via `[[links]]`, building a knowledge network
-- **Profile compilation** — Import ChatGPT/Claude history to bootstrap your profile
-- **Daily compilation** — Cron job at 3 AM distills sessions into permanent knowledge
-- **Lazy loading** — Compact index in prompt, `wiki_read` tool fetches full pages on demand
+| Feature | What It Does |
+|---|---|
+| **Compile, don't dump** | Conversations distilled into structured wiki pages, not thrown into a vector DB |
+| **Natural decay** | 20-day half-life — frequently referenced knowledge strengthens, noise fades |
+| **Wikilink graph** | Pages connect via `[[links]]` — your knowledge forms a navigable network |
+| **Profile import** | Drop your ChatGPT/Claude export JSON → Birkin builds 35+ linked profile pages instantly |
+| **Memory ↔ Workflow bridge** | LLM workflow nodes auto-receive memory context; results write back to wiki |
+| **Audit trail** | Every page shows what it knows, why, where it came from, how many times accessed |
+| **Daily compilation** | 3 AM cron distills sessions into permanent knowledge + cleans old sessions |
+| **Bilingual** | Korean + English entity extraction, classification, and semantic search |
+
+### What This Looks Like
+
+Import 26 Claude conversations → Birkin creates **35 interconnected wiki pages**:
+
+```
+entities/user-profile  ──→ [[skill-퍼포먼스마케팅]] [[project-birkin]] [[tool-claude-code]]
+concepts/project-birkin ──→ [[tool-python]] [[tool-github]] [[skill-ai에이전트]]
+concepts/skill-퍼포먼스마케팅 ──→ [[tool-meta-ads]] [[project-추모리]]
+entities/person-조상민 ──→ [[project-vws]]
+```
+
+Each page is a node in the Memory tab's force-directed graph. Click any node to read, edit, or delete.
 
 ---
 
-## Workflow Automation
+## Workflows
 
-### Node Types (47)
+### The Problem
+
+You do the same 5-step process every Monday. Summarize → draft → review → send → log. Your AI can do each step — but can't chain them, trigger them on schedule, or recover when step 3 fails.
+
+### Birkin's Approach: Visual Graph Engine
+
+Describe what you want. Birkin builds it.
+
+```
+"매일 아침 HN 탑 뉴스 요약해서 텔레그램으로 보내줘"
+
+→ Cron trigger (0 9 * * *)
+  → HN Fetch node
+    → Summarizer node
+      → Telegram Send node
+```
+
+<p align="center">
+  <img src="docs/screenshots/02-workflow.png" width="720" alt="Workflow Editor" />
+</p>
+
+### 47 Node Types
 
 | Category | Nodes |
 |---|---|
 | **AI** | LLM, classifier, embedder, summarizer, translator, knowledge-extract |
-| **Tools** | Web search, code execution, API calls, file operations |
-| **Control** | Conditions, loops, delays, parallel, merge |
-| **Quality** | Code review, human review, guardrails, validators, test runners |
-| **I/O** | Input, output, webhook trigger |
-| **Platform** | Telegram, email, HackerNews, notifications |
+| **Tools** | Web search, code execution, API calls, file read/write |
+| **Control** | Conditions (YES/NO routing), loops, delays, parallel fan-out, merge |
+| **Quality** | Code review gate, human review, guardrails, validators, test runners |
+| **I/O** | Input, output, prompt template, webhook trigger |
+| **Platform** | Telegram send, email send, HackerNews fetch, notifications |
 
-### Triggers
+### 4 Trigger Types
 
 | Type | Example |
 |---|---|
-| **Cron** | `0 9 * * 1-5` — Every weekday at 9 AM |
-| **File Watch** | `*.md` changed in `~/notes/` |
-| **Webhook** | POST to `/api/triggers/webhooks/{id}` |
-| **Message** | Keyword or pattern in incoming chat |
+| **Cron** | `0 9 * * 1-5` — every weekday at 9 AM |
+| **File Watch** | `*.md` changed in `~/notes/` → run analysis |
+| **Webhook** | POST to `/api/triggers/webhooks/{id}` → execute workflow |
+| **Message** | "urgent" in Telegram message → notify + escalate |
+
+### Workflow Intelligence
+
+Birkin doesn't just run workflows — it **suggests** them:
+
+1. **Pattern detection** — Detects repeated tool calls (e.g., `web_search` used 5x this week)
+2. **Proactive suggestion** — "You search for news daily. Want me to automate this?"
+3. **Feedback loop** — Accept, dismiss, or modify suggestions. Birkin learns from your choices
+4. **Memory bridge** — Workflow results automatically write back to wiki as knowledge pages
+
+---
+
+## Quick Start
+
+```bash
+# One-liner
+git clone https://github.com/ashmoonori-afk/birkin.git && cd birkin
+scripts/start.sh          # → http://127.0.0.1:8321
+
+# Or Docker
+cp .env.example .env && docker compose up -d
+
+# Or manual
+python3 -m venv .venv && source .venv/bin/activate
+pip install -e "." && birkin
+```
+
+### API Keys
+
+Add to `.env` — only the ones you use:
+
+```bash
+ANTHROPIC_API_KEY=sk-ant-...    # Claude
+OPENAI_API_KEY=sk-...           # GPT + OpenRouter
+GEMINI_API_KEY=...              # Gemini
+GROQ_API_KEY=gsk_...            # Fast inference
+```
+
+**No API key?** Birkin auto-detects local Claude CLI and Ollama. Zero cost, zero setup.
+
+### 9 Providers, Auto-Routing
+
+Set `provider: "auto"` and Birkin picks the cheapest model that fits the task.
+
+| Provider | Strength | Local? |
+|---|---|---|
+| Claude | Reasoning, code | |
+| GPT-4 | General, tools | |
+| Gemini | Multimodal, 1M context | |
+| Perplexity | Web search | |
+| Groq | Ultra-fast | |
+| Ollama | Private, free | Yes |
+| OpenRouter | 100+ models | |
+| Claude CLI | Claude Code local | Yes |
+| Codex CLI | Codex local | Yes |
+
+---
+
+## Security
+
+Birkin runs on your machine. We take that seriously.
+
+| Layer | How |
+|---|---|
+| **Memory** | 9 regex patterns neutralize prompt injection before wiki save |
+| **Skills** | AST static analysis blocks `subprocess`, `eval`, `exec`, `socket` before install |
+| **Shell** | Command allowlist — only safe read-only commands; metacharacters rejected |
+| **Actions** | External actions require explicit user approval via ApprovalGate |
+| **Audit** | Every memory write/read logged with source, confidence, and reason |
+| **Self-check** | `GET /api/security/check` — 8-point diagnostic with score + grade |
 
 ---
 
@@ -224,62 +241,49 @@ GROQ_API_KEY=gsk_...            # Fast inference
 
 ```
 birkin/
-├── core/           Agent loop, providers, graph engine, approval gates
-├── memory/         Wiki, compiler, classifier, semantic search, audit trail
+├── core/           Agent loop, 9 providers, graph engine, recommender
+├── memory/         Wiki (5 categories), compiler, classifier, semantic search, audit
 ├── gateway/        FastAPI (18 routers, 66 endpoints)
 ├── triggers/       Cron, file watch, webhook, message
 ├── skills/         10 built-in skills + AST sandboxing
 ├── tools/          Shell, file ops, web search, wiki read
 ├── mcp/            MCP client + server + browser automation
-├── eval/           JSONL evaluation framework
-├── observability/  Structured tracing (spans, traces)
-├── voice/          Whisper STT + TTS
-├── web/            10-tab WebUI
+├── eval/           Evaluation framework + recommender quality harness
+├── web/            10-tab WebUI (iMessage-grade chat)
 └── tests/          724+ tests
 ```
 
 ### Design Principles
 
-1. **Local-first** — SQLite WAL, no network database, data never leaves your machine
-2. **Compile over retrieve** — Don't search raw conversations; distill them into structured knowledge
+1. **Compile over retrieve** — Don't search raw conversations; distill them into structured knowledge
+2. **Local-first** — SQLite WAL, no network database, data never leaves your machine
 3. **Transparent** — Every memory page shows its source, confidence, and access history
-4. **Minimal attack surface** — No marketplace, no WebSocket exposure, allowlisted shell commands
-
-### Security
-
-- **Prompt injection guard** — 9 regex patterns neutralize injected instructions in wiki content
-- **Skill sandboxing** — AST static analysis blocks `subprocess`, `eval`, `exec`, `socket` before install
-- **Memory audit trail** — Every write/read logged with source, confidence, and reason
-- **Self-check endpoint** — `GET /api/security/check` returns verifiable security posture (score + grade)
-- **Shell allowlist** — Only safe read-only commands by default; metacharacters rejected
-- **Approval gates** — External actions require explicit user approval
+4. **Minimal surface** — No marketplace, no WebSocket, allowlisted commands, AST-validated skills
 
 ---
 
 ## Compared To
 
-| Feature | Open WebUI | LobeChat | **Birkin** |
+| | Open WebUI | LobeChat | **Birkin** |
 |---|---|---|---|
-| Memory | Vector RAG | None | **Compiled wiki + decay** |
-| Workflow engine | Pipelines | None | **47-node graph + triggers** |
-| Pattern detection | No | No | **Yes** |
-| Proactive suggestions | No | No | **Yes** |
-| Korean NER | No | No | **Native** |
-| Self-hosted security | 138 CVEs (2026 Q1) | Limited | **Minimal surface** |
-| Providers | Multi | Multi | **9 + auto-routing** |
+| Memory | Vector RAG | None | **Compiled wiki + decay + wikilinks** |
+| Workflows | Pipelines | None | **47-node graph + 4 trigger types** |
+| Learns you | No | No | **Pattern detection → proactive suggestions** |
+| Korean NER | No | No | **Native bilingual** |
+| Security | 138 CVEs (Q1 2026) | Limited | **8-point self-check, AST sandbox** |
 | Tests | ~200 | ~100 | **724+** |
 
 ---
 
 ## Contributing
 
-See [CONTRIBUTING.md](CONTRIBUTING.md) for guidelines.
-
 ```bash
 pip install -e ".[dev]"
 pytest                    # Run tests
 ruff check . && ruff format --check .  # Lint
 ```
+
+See [CONTRIBUTING.md](CONTRIBUTING.md) for guidelines.
 
 ---
 
