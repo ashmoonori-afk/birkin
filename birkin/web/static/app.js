@@ -213,26 +213,39 @@ function removeWritingIndicator() { const el = $("agent-writing"); if (el) el.re
 
 function createToolCallBlock(name, inputData) {
   if (welcome && welcome.parentNode) welcome.remove();
-  const el = document.createElement("div");
-  el.className = "tool-call";
-  el.innerHTML = `
-    <div class="tool-call-label">${t("using_tool")}</div>
-    <div class="tool-call-name">${esc(name)}</div>
-    <details><summary>${t("tool_input")}</summary><pre>${esc(JSON.stringify(inputData, null, 2))}</pre></details>
-  `;
-  chat.appendChild(el);
+  const wrapper = document.createElement("div");
+  wrapper.className = "tool-call-wrapper";
+
+  const chip = document.createElement("div");
+  chip.className = "tool-chip pending";
+  chip.innerHTML = `<span class="tool-icon">\u23F3</span><span class="tool-name">${esc(name)}</span>`;
+
+  const detail = document.createElement("div");
+  detail.className = "tool-detail";
+  try {
+    detail.textContent = typeof inputData === "string" ? inputData : JSON.stringify(inputData, null, 2);
+  } catch { detail.textContent = String(inputData); }
+
+  chip.addEventListener("click", () => detail.classList.toggle("expanded"));
+
+  wrapper.appendChild(chip);
+  wrapper.appendChild(detail);
+  chat.appendChild(wrapper);
   scrollToBottom();
-  return el;
+  return wrapper;
 }
 
-function appendToolResult(parentEl, name, output, isError) {
-  const el = document.createElement("div");
-  el.className = "tool-result" + (isError ? " error" : "");
-  el.innerHTML = `
-    <div class="tool-result-label">${isError ? t("tool_error") : t("tool_result")}</div>
-    <details><summary>${esc(name)}</summary><pre>${esc(output)}</pre></details>
-  `;
-  parentEl.appendChild(el);
+function appendToolResult(wrapper, name, output, isError) {
+  const chip = wrapper.querySelector(".tool-chip");
+  if (chip) {
+    chip.classList.remove("pending");
+    chip.classList.add(isError ? "error" : "success");
+    chip.querySelector(".tool-icon").textContent = isError ? "\u2717" : "\u2713";
+  }
+  const detail = wrapper.querySelector(".tool-detail");
+  if (detail && output) {
+    detail.textContent += "\n\n--- Result ---\n" + (typeof output === "string" ? output : JSON.stringify(output, null, 2));
+  }
   scrollToBottom();
 }
 
