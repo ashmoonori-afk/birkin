@@ -8,12 +8,15 @@ All storage is plain markdown files — no vector DB, no infrastructure.
 from __future__ import annotations
 
 import datetime as dt
+import logging
 import re
 import threading
 from pathlib import Path
 from typing import Any, Optional, Union
 
 from birkin.core.defaults import DEFAULT_MEMORY_SCHEMA
+
+logger = logging.getLogger(__name__)
 
 _WIKILINK_RE = re.compile(r"\[\[([^\]]+)\]\]")
 
@@ -104,37 +107,42 @@ class WikiMemory:
     # ------------------------------------------------------------------
 
     # Prompt injection patterns to detect and neutralize
-    _INJECTION_PATTERNS = [
-        "ignore previous",
-        "ignore all previous",
-        "you are now",
-        "[SYSTEM]",
-        "<<SYS>>",
-        "new instructions:",
-        "override:",
-        "disregard",
+    _INJECTION_RE = [
+        re.compile(r"(?i)\[?\s*system\s*\]"),
+        re.compile(r"(?i)you\s+are\s+now\b"),
+        re.compile(r"(?i)ignore\s+(all\s+)?previous"),
+        re.compile(r"(?i)forget\s+(all\s+)?previous"),
+        re.compile(r"(?i)new\s+instructions?\s*:"),
+        re.compile(r"(?i)override\s+(system|instructions?)"),
+        re.compile(r"(?i)<\s*system\s*>"),
+        re.compile(r"(?i)<<\s*SYS\s*>>"),
+        re.compile(r"(?i)disregard\s+(all\s+)?(previous|above)"),
     ]
 
-    def _sanitize_content(self, content: str) -> str:
+    def _sanitize_content(self, content: str) -> tuple[str, list[str]]:
         """Detect and neutralize prompt injection patterns in memory content.
 
-        Wraps suspicious instruction-like content in code blocks so it
-        cannot be interpreted as system instructions.
+        Wraps suspicious patterns in inline code blocks so they cannot be
+        interpreted as system instructions. Skips content inside fenced
+        code blocks to avoid false positives on technical documentation.
+
+        Returns (sanitized_content, list_of_warning_strings).
         """
-        content_lower = content.lower()
-        for pattern in self._INJECTION_PATTERNS:
-            if pattern.lower() in content_lower:
-                # Don't flag content already inside code blocks
-                in_code = False
-                lines = content.splitlines()
-                for i, line in enumerate(lines):
-                    if line.strip().startswith("```"):
-                        in_code = not in_code
-                    if not in_code and pattern.lower() in line.lower():
-                        lines[i] = f"`{line}`"
-                content = "\n".join(lines)
-                break
-        return content
+        warnings: list[str] = []
+
+        # Split into code-fenced and non-fenced regions
+        parts = re.split(r"(```[\s\S]*?```)", content)
+        for i, part in enumerate(parts):
+            if part.startswith("```"):
+                continue  # skip fenced code blocks
+            for pattern in self._INJECTION_RE:
+                for match in pattern.finditer(part):
+                    matched = match.group()
+                    warnings.append(f"Neutralized: {matched!r}")
+                    part = part.replace(matched, f"`{matched}`", 1)
+            parts[i] = part
+
+        return "".join(parts), warnings
 
     def ingest(
         self,
@@ -171,7 +179,14 @@ class WikiMemory:
             self.init()  # ensure dirs exist
 
             # Sanitize against prompt injection
-            content = self._sanitize_content(content)
+            content, injection_warnings = self._sanitize_content(content)
+            if injection_warnings:
+                logger.warning(
+                    "Memory sanitization on %s/%s: %s",
+                    category,
+                    slug,
+                    injection_warnings,
+                )
 
             # Prepend frontmatter (tags + source) if not already present
             if not content.startswith("---"):
