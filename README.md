@@ -18,8 +18,8 @@
 <p align="center">
   <img src="https://img.shields.io/badge/license-MIT-blue.svg" alt="MIT License" />
   <img src="https://img.shields.io/badge/python-3.11%2B-blue" alt="Python 3.11+" />
-  <img src="https://img.shields.io/badge/version-v0.7.0-green" alt="v0.7.0" />
-  <img src="https://img.shields.io/badge/tests-706%2B-brightgreen" alt="706+ tests" />
+  <img src="https://img.shields.io/badge/version-v0.8.0-green" alt="v0.8.0" />
+  <img src="https://img.shields.io/badge/tests-724%2B-brightgreen" alt="724+ tests" />
   <img src="https://img.shields.io/badge/providers-9-orange" alt="9 Providers" />
 </p>
 
@@ -228,14 +228,14 @@ birkin/
 ├── memory/         Wiki, compiler, classifier, semantic search, audit trail
 ├── gateway/        FastAPI (18 routers, 66 endpoints)
 ├── triggers/       Cron, file watch, webhook, message
-├── skills/         SKILL.md plugin system + AST sandboxing
+├── skills/         10 built-in skills + AST sandboxing
 ├── tools/          Shell, file ops, web search, wiki read
 ├── mcp/            MCP client + server + browser automation
 ├── eval/           JSONL evaluation framework
 ├── observability/  Structured tracing (spans, traces)
 ├── voice/          Whisper STT + TTS
 ├── web/            10-tab WebUI
-└── tests/          706+ tests
+└── tests/          724+ tests
 ```
 
 ### Design Principles
@@ -267,7 +267,7 @@ birkin/
 | Korean NER | No | No | **Native** |
 | Self-hosted security | 138 CVEs (2026 Q1) | Limited | **Minimal surface** |
 | Providers | Multi | Multi | **9 + auto-routing** |
-| Tests | ~200 | ~100 | **706+** |
+| Tests | ~200 | ~100 | **724+** |
 
 ---
 

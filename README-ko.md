@@ -18,8 +18,8 @@
 <p align="center">
   <img src="https://img.shields.io/badge/license-MIT-blue.svg" alt="MIT License" />
   <img src="https://img.shields.io/badge/python-3.11%2B-blue" alt="Python 3.11+" />
-  <img src="https://img.shields.io/badge/version-v0.7.0-green" alt="v0.7.0" />
-  <img src="https://img.shields.io/badge/tests-706%2B-brightgreen" alt="706+ tests" />
+  <img src="https://img.shields.io/badge/version-v0.8.0-green" alt="v0.8.0" />
+  <img src="https://img.shields.io/badge/tests-724%2B-brightgreen" alt="724+ tests" />
   <img src="https://img.shields.io/badge/providers-9-orange" alt="9 Providers" />
 </p>
 
@@ -228,14 +228,14 @@ birkin/
 ├── memory/         위키, 컴파일러, 분류기, 시맨틱 검색, 감사 추적
 ├── gateway/        FastAPI (18 라우터, 66 엔드포인트)
 ├── triggers/       크론, 파일 감시, 웹훅, 메시지
-├── skills/         SKILL.md 플러그인 시스템 + AST 샌드박싱
+├── skills/         10개 내장 스킬 + AST 샌드박싱
 ├── tools/          쉘, 파일 작업, 웹 검색, 위키 조회
 ├── mcp/            MCP 클라이언트 + 서버 + 브라우저 자동화
 ├── eval/           JSONL 평가 프레임워크
 ├── observability/  구조화 트레이싱 (span, trace)
 ├── voice/          Whisper STT + TTS
 ├── web/            10탭 WebUI
-└── tests/          706+ 테스트
+└── tests/          724+ 테스트
 ```
 
 ### 설계 원칙
@@ -267,7 +267,7 @@ birkin/
 | 한국어 NER | 없음 | 없음 | **네이티브** |
 | 셀프 호스팅 보안 | 138 CVE (2026 Q1) | 제한적 | **최소 표면** |
 | 프로바이더 | 멀티 | 멀티 | **9개 + 자동 라우팅** |
-| 테스트 | ~200 | ~100 | **706+** |
+| 테스트 | ~200 | ~100 | **724+** |
 
 ---
 

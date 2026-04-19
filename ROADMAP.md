@@ -314,7 +314,64 @@ Every Phase 2 item below maps back to at least one of these three.
 
 ---
 
-## Phase 6: Future (Deferred)
+## Phase 6: Stability, Quality, UX (Complete, v0.8.0)
+
+**Goal:** Close quality gaps, enforce code health, add first-run experience, and upgrade chat to iMessage grade.
+
+**Tests: 685 → 724 (+39). 10 commits.**
+
+### Security Hardening (Complete)
+
+- [x] **Memory poisoning defense** — 9 regex patterns for prompt injection, code-block-aware, warning logs
+- [x] **Skill loader sandboxing** — AST static analysis blocks subprocess, eval, exec, socket before install
+- [x] **Memory audit trail** — MemoryAuditor logs writes/accesses, explain_memory API, 3 new endpoints
+- [x] **Security self-check** — `GET /api/security/check` returns 8-point score + grade (shell, files, data, sanitization, skills, approval, audit, network)
+
+### Stability (Complete)
+
+- [x] **E2E flywheel tests** — 6 integration tests: pattern→suggestion, dismiss→never returns, workflow→wiki, memory injection, sanitization, feedback scoring
+- [x] **ErrorReporter** — Non-fatal error surfacing via SSE stream, wired into Agent memory save failures
+- [x] **Recommender eval dataset** — 20 labeled scenarios, precision/recall harness, both > 0.7
+
+### First Experience (Complete)
+
+- [x] **10 seed skills** — code-explainer, daily-digest, data-analyzer, email-drafter, file-organizer, meeting-prep, note-taker, translator (+ 2 existing). All with tool.py + bilingual triggers
+- [x] **Post-import review wizard** — `GET /api/profile/review` + `POST /api/profile/confirm`. Card grid UI with Accept/Delete per page after profile compilation
+- [x] **FAISS vector store** — Optional `faiss-cpu` for 10k+ items, auto-fallback to NumpyVectorStore
+
+### Code Quality Gates (Complete)
+
+- [x] **Ruff rules expanded** — C90 (complexity ≤15), B (bugbear), SIM, UP, RUF, PIE, RET, T20 (no-print). 471 violations fixed
+- [x] **Pre-commit hook** — ruff lint + format + selective test on every commit
+- [x] **File size limits** — 400-line max with `.file-size-exceptions`
+- [x] **CI hardening** — lint-first, coverage --cov-fail-under=60, file size check, multi-Python (3.11/3.12/3.13)
+- [x] **AGENTS.md rewrite** — Current codebase structure, golden rules, anti-patterns
+
+### iMessage-Grade Chat UX (Complete)
+
+- [x] **Gradient user bubbles** — Blue gradient + pop animation + rounded corners (18px/4px)
+- [x] **Bouncing dots typing indicator** — ●●● with elapsed time, replaces text blink
+- [x] **Streaming cursor** — Blinking block cursor during SSE streaming
+- [x] **Timestamps** — HH:MM under each message
+- [x] **Frosted input bar** — Rounded 20px + backdrop-blur + circular blue send button
+- [x] **Tool chips** — Compact inline chips with click-to-expand detail
+- [x] **Toast notifications** — Top-center system error toasts with auto-dismiss
+
+### Phase 6 — Summary
+
+| Sprint | Features | Tests | Key Impact |
+|--------|----------|-------|------------|
+| Security | 4 | +21 | Injection guard, skill sandbox, audit, self-check |
+| Stability | 3 | +13 | E2E flywheel, error reporter, eval dataset |
+| First Experience | 3 | +5 | 10 skills, review wizard, FAISS |
+| Quality Gates | 5 | +0 | Ruff rules, hooks, CI, file limits |
+| Chat UX | 7 | +0 | iMessage-grade bubbles, dots, cursor, toasts |
+
+**Total: 22 features. Tests: 685 → 724 (+39). Ruff 0 errors across 202 files.**
+
+---
+
+## Phase 7: Future (Deferred)
 
 Monetization and business-model decisions are intentionally deferred. Birkin stays focused on a single-user, self-hosted, open-source experience.
 
