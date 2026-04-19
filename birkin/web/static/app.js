@@ -160,10 +160,10 @@ function finalizeStreamBubble(bubble, text) {
 
 function showThinking() {
   const el = document.createElement("div");
-  el.className = "thinking"; el.id = "thinking";
+  el.className = "typing-dots"; el.id = "thinking";
   el.setAttribute("role", "status");
   el.setAttribute("aria-label", "Loading");
-  el.innerHTML = '<span aria-hidden="true"></span><span aria-hidden="true"></span><span aria-hidden="true"></span>';
+  el.innerHTML = '<span class="dot"></span><span class="dot"></span><span class="dot"></span>';
   chat.appendChild(el);
   scrollToBottom();
 }
@@ -176,18 +176,20 @@ let _thinkingTimer = null;
 
 function createThinkingIndicator() {
   const el = document.createElement("div");
-  el.className = "thinking-indicator";
+  el.className = "typing-dots";
   el.id = "agent-thinking";
   el.setAttribute("role", "status");
   el.setAttribute("aria-live", "polite");
-  el.textContent = t("reasoning");
+  el.innerHTML = '<span class="dot"></span><span class="dot"></span><span class="dot"></span>';
   chat.appendChild(el);
   scrollToBottom();
   // Show elapsed time after 5 seconds
   const start = Date.now();
   _thinkingTimer = setInterval(() => {
     const sec = Math.floor((Date.now() - start) / 1000);
-    el.textContent = `${t("reasoning")} (${sec}s)`;
+    let status = el.querySelector(".typing-status");
+    if (!status) { status = document.createElement("span"); status.className = "typing-status"; el.appendChild(status); }
+    status.textContent = `${sec}s`;
   }, 1000);
   return el;
 }
