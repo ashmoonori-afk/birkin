@@ -53,7 +53,7 @@ class GraphContext:
         return ContextSnapshot(
             state=copy.deepcopy(self.state),
             node_name=node_name,
-            timestamp=dt.datetime.now(dt.timezone.utc).isoformat(),
+            timestamp=dt.datetime.now(dt.UTC).isoformat(),
             metadata=copy.deepcopy(self.metadata),
         )
 

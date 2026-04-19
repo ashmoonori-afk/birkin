@@ -5,7 +5,7 @@ from __future__ import annotations
 import hmac
 import logging
 import secrets
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import Any, Optional
 
 import httpx
@@ -187,7 +187,7 @@ class TelegramAdapter:
             "chat_id": msg.chat.id,
             "text": msg.text,
             "message_id": msg.message_id,
-            "timestamp": datetime.fromtimestamp(msg.date, tz=timezone.utc),
+            "timestamp": datetime.fromtimestamp(msg.date, tz=UTC),
             "username": msg.from_user.username,
         }
 

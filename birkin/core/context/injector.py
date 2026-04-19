@@ -39,8 +39,8 @@ class ContextInjector:
 
     def __init__(
         self,
-        memory: "WikiMemory",
-        search: "Optional[SemanticSearch]" = None,
+        memory: WikiMemory,
+        search: Optional[SemanticSearch] = None,
         profile: Optional[UserProfile] = None,
     ) -> None:
         self._memory = memory

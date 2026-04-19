@@ -16,14 +16,14 @@ from birkin.core.providers.base import (
 from birkin.core.providers.openai import OpenAIProvider
 
 __all__ = [
+    "AnthropicProvider",
+    "ModelCapabilities",
+    "OpenAIProvider",
     "Provider",
-    "ProviderResponse",
     "ProviderError",
     "ProviderErrorKind",
+    "ProviderResponse",
     "TokenUsage",
-    "ModelCapabilities",
-    "AnthropicProvider",
-    "OpenAIProvider",
     "create_provider",
 ]
 
@@ -65,38 +65,37 @@ def create_provider(
 
     if provider_name == "anthropic":
         return AnthropicProvider(model=model_name, api_key=api_key)
-    elif provider_name == "openai":
+    if provider_name == "openai":
         return OpenAIProvider(model=model_name, api_key=api_key, base_url=base_url)
-    elif provider_name == "openrouter":
+    if provider_name == "openrouter":
         return OpenAIProvider(
             model=f"openrouter/{model_name}",
             api_key=api_key,
             base_url=base_url or "https://openrouter.ai/api/v1",
         )
-    elif provider_name == "perplexity":
+    if provider_name == "perplexity":
         from birkin.core.providers.perplexity import PerplexityProvider
 
         return PerplexityProvider(model=model_name, api_key=api_key)
-    elif provider_name == "gemini":
+    if provider_name == "gemini":
         from birkin.core.providers.gemini import GeminiProvider
 
         return GeminiProvider(model=model_name, api_key=api_key)
-    elif provider_name == "ollama":
+    if provider_name == "ollama":
         from birkin.core.providers.ollama import OllamaProvider
 
         return OllamaProvider(model=model_name, base_url=base_url)
-    elif provider_name == "groq":
+    if provider_name == "groq":
         from birkin.core.providers.groq import GroqProvider
 
         return GroqProvider(model=model_name, api_key=api_key)
-    elif provider_name in ("claude-cli", "codex-cli"):
+    if provider_name in ("claude-cli", "codex-cli"):
         from birkin.core.providers.local_cli import LocalCLIProvider
 
         cli_name = provider_name.replace("-cli", "")
         return LocalCLIProvider(cli=cli_name, model=model_name)
-    else:
-        raise ValueError(
-            f"Unknown provider: {provider_name}. "
-            "Use 'anthropic', 'openai', 'openrouter', 'perplexity', "
-            "'gemini', 'ollama', 'groq', 'claude-cli', or 'codex-cli'."
-        )
+    raise ValueError(
+        f"Unknown provider: {provider_name}. "
+        "Use 'anthropic', 'openai', 'openrouter', 'perplexity', "
+        "'gemini', 'ollama', 'groq', 'claude-cli', or 'codex-cli'."
+    )

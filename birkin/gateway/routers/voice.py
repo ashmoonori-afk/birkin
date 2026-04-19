@@ -28,7 +28,7 @@ async def speech_to_text(file: UploadFile, language: str = "ko") -> dict[str, An
         text = await stt.transcribe(audio, language=language)
         return {"text": text, "language": language}
     except RuntimeError as exc:
-        raise HTTPException(status_code=503, detail=str(exc))
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
 
 
 @router.post("/tts")
@@ -39,4 +39,4 @@ async def text_to_speech(body: TTSRequest) -> Response:
         audio = await tts.synthesize(body.text, voice=body.voice)
         return Response(content=audio, media_type="audio/mpeg")
     except RuntimeError as exc:
-        raise HTTPException(status_code=503, detail=str(exc))
+        raise HTTPException(status_code=503, detail=str(exc)) from exc

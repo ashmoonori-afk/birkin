@@ -106,7 +106,7 @@ class UserProfile(BaseModel):
                 stripped = line.strip()
                 if not stripped:
                     continue
-                if stripped.startswith("#") or stripped.startswith("-") or stripped.startswith("---"):
+                if stripped.startswith(("#", "-", "---")):
                     continue
                 profile.communication_style = stripped
                 break

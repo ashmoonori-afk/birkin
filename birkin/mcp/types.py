@@ -9,7 +9,7 @@ from typing import Any, Optional
 from pydantic import BaseModel, ConfigDict
 
 
-class TransportType(str, Enum):
+class TransportType(str, Enum):  # noqa: UP042
     """Supported MCP transport types."""
 
     STDIO = "stdio"

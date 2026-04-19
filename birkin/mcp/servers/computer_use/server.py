@@ -20,7 +20,7 @@ _session: BrowserSession | None = None
 
 
 async def _get_session() -> BrowserSession:
-    global _session  # noqa: PLW0603
+    global _session
     if _session is None:
         _session = BrowserSession(headless=True)
         await _session.__aenter__()

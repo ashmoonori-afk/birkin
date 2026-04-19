@@ -27,7 +27,7 @@ _scheduler: TriggerScheduler | None = None
 
 
 def _get_scheduler() -> TriggerScheduler:
-    global _scheduler  # noqa: PLW0603
+    global _scheduler
     if _scheduler is None:
         _scheduler = TriggerScheduler()
         _scheduler.register_type("cron", CronTrigger)
@@ -121,7 +121,7 @@ async def create_trigger(body: CreateTriggerRequest) -> dict[str, Any]:
     try:
         trigger = await scheduler.add(config)
     except ValueError as exc:
-        raise HTTPException(status_code=400, detail=str(exc))
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
 
     # Persist to SQLite so trigger survives restart
     try:

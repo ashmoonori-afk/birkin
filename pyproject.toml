@@ -58,7 +58,34 @@ target-version = "py311"
 line-length = 120
 
 [tool.ruff.lint]
-select = ["E", "F", "W", "I"]
+select = [
+    "E",      # pycodestyle errors
+    "F",      # pyflakes
+    "W",      # pycodestyle warnings
+    "I",      # isort
+    "C90",    # mccabe complexity
+    "B",      # flake8-bugbear
+    "SIM",    # flake8-simplify
+    "UP",     # pyupgrade
+    "RUF",    # ruff-specific
+    "PIE",    # misc lints
+    "RET",    # flake8-return
+]
+ignore = [
+    "E501",   # line length handled by formatter
+    "RET504", # unnecessary assignment before return
+    "UP007",  # keep Optional[] for readability
+    "UP045",  # keep Optional[] syntax (270 instances, cosmetic)
+    "SIM108", # ternary not always clearer
+    "B905",   # zip strict — not needed everywhere
+]
+
+[tool.ruff.lint.mccabe]
+max-complexity = 15
+
+[tool.ruff.lint.per-file-ignores]
+"birkin/cli/*" = ["B"]
+"tests/*" = ["B", "SIM", "RUF"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

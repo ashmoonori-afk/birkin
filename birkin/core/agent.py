@@ -3,12 +3,14 @@
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import logging
 import os
 import re
 import unicodedata
+from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor
-from typing import TYPE_CHECKING, Any, Callable, Optional
+from typing import TYPE_CHECKING, Any, Optional
 
 from birkin.core.compression import summarize_or_cache
 from birkin.core.defaults import DEFAULT_SYSTEM_PROMPT
@@ -302,10 +304,8 @@ class Agent:
 
         # Finalize and persist trace
         StructuredLogger.end_trace(trace)
-        try:
+        with contextlib.suppress(OSError, RuntimeError):
             TraceStorage().append(trace)
-        except (OSError, RuntimeError):
-            pass  # trace storage failure should not break chat
 
         return final_text
 
@@ -375,7 +375,7 @@ class Agent:
 
         if entity_score > concept_score and entity_score >= 1:
             return "entities"
-        elif concept_score > entity_score and concept_score >= 1:
+        if concept_score > entity_score and concept_score >= 1:
             return "concepts"
         return "sessions"
 
@@ -678,7 +678,7 @@ class Agent:
             return ToolResult(
                 tool_call_id=tool_call.id,
                 name=tool_call.name,
-                content=f"Tool execution failed: {str(e)}",
+                content=f"Tool execution failed: {e!s}",
                 is_error=True,
             )
 
@@ -707,7 +707,7 @@ class Agent:
             return ToolResult(
                 tool_call_id=tool_call.id,
                 name=tool_call.name,
-                content=f"Tool execution failed: {str(e)}",
+                content=f"Tool execution failed: {e!s}",
                 is_error=True,
             )
 

@@ -15,7 +15,7 @@ from pydantic import BaseModel
 from birkin.core.graph.state import GraphContext
 
 
-class EventType(str, Enum):
+class EventType(str, Enum):  # noqa: UP042
     """Types of events emitted during graph execution."""
 
     NODE_START = "node_start"

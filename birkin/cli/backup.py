@@ -5,7 +5,7 @@ from __future__ import annotations
 import base64
 import os
 import zipfile
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 
 MAGIC_HEADER = b"BIRKIN_EXPORT_V1"
@@ -144,7 +144,7 @@ def export_archive(
 
     # Determine output path
     if output_path is None:
-        today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+        today = datetime.now(UTC).strftime("%Y-%m-%d")
         ext = ".birkin" if encrypted else ".zip"
         output_path_resolved = base / f"birkin-export-{today}{ext}"
     else:

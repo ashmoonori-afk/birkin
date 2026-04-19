@@ -39,8 +39,8 @@ def get_session(session_id: str) -> SessionDetail:
     store = get_session_store()
     try:
         session = store.load(session_id)
-    except KeyError:
-        raise HTTPException(status_code=404, detail="Session not found")
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail="Session not found") from exc
     messages = store.get_messages(session_id)
     return SessionDetail(
         id=session.id,

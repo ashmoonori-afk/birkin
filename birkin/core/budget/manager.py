@@ -82,33 +82,36 @@ class TokenBudget:
                     action="compress_first",
                     reason=f"Node budget would exceed {policy.max_tokens_per_node} tokens",
                 )
-            elif policy.on_node_exceeded == "downgrade":
+            if policy.on_node_exceeded == "downgrade":
                 suggested = self._next_downgrade()
                 return BudgetDecision(
                     action="downgrade",
                     suggested_model=suggested,
                     reason=f"Node budget exceeded, downgrading to {suggested}",
                 )
-            elif policy.on_node_exceeded == "stop":
+            if policy.on_node_exceeded == "stop":
                 return BudgetDecision(action="abort", reason="Node token budget exceeded")
             # "warn" falls through to proceed
 
         # Check workflow-level budget
-        if policy.max_tokens_per_workflow is not None:
-            if self._used_tokens + estimated_tokens > policy.max_tokens_per_workflow:
-                if policy.on_workflow_exceeded == "stop":
-                    return BudgetDecision(action="abort", reason="Workflow token budget exceeded")
-                return BudgetDecision(action="abort", reason="Workflow budget exceeded, pausing")
+        if (
+            policy.max_tokens_per_workflow is not None
+            and self._used_tokens + estimated_tokens > policy.max_tokens_per_workflow
+        ):
+            if policy.on_workflow_exceeded == "stop":
+                return BudgetDecision(action="abort", reason="Workflow token budget exceeded")
+            return BudgetDecision(action="abort", reason="Workflow budget exceeded, pausing")
 
         # Check session-level budget
-        if policy.max_tokens_per_session is not None:
-            if self._used_tokens + estimated_tokens > policy.max_tokens_per_session:
-                return BudgetDecision(action="abort", reason="Session token budget exceeded")
+        if (
+            policy.max_tokens_per_session is not None
+            and self._used_tokens + estimated_tokens > policy.max_tokens_per_session
+        ):
+            return BudgetDecision(action="abort", reason="Session token budget exceeded")
 
         # Check cost cap
-        if policy.max_cost_usd is not None:
-            if self._used_cost_usd >= policy.max_cost_usd:
-                return BudgetDecision(action="abort", reason=f"Cost cap ${policy.max_cost_usd} reached")
+        if policy.max_cost_usd is not None and self._used_cost_usd >= policy.max_cost_usd:
+            return BudgetDecision(action="abort", reason=f"Cost cap ${policy.max_cost_usd} reached")
 
         return BudgetDecision(action="proceed")
 

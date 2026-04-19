@@ -3,9 +3,11 @@
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import logging
-from datetime import datetime, timezone
-from typing import Callable, Coroutine, Optional
+from collections.abc import Callable, Coroutine
+from datetime import UTC, datetime
+from typing import Optional
 
 from birkin.triggers.base import Trigger, TriggerConfig
 
@@ -97,10 +99,8 @@ class CronTrigger(Trigger):
         self._running = False
         if self._task and not self._task.done():
             self._task.cancel()
-            try:
+            with contextlib.suppress(asyncio.CancelledError):
                 await self._task
-            except asyncio.CancelledError:
-                pass
         self._task = None
         logger.info("CronTrigger %s stopped", self.id)
 
@@ -112,7 +112,7 @@ class CronTrigger(Trigger):
         last_fired_minute: Optional[int] = None
         while self._running:
             try:
-                now = datetime.now(timezone.utc)
+                now = datetime.now(UTC)
                 current_minute = now.hour * 60 + now.minute
 
                 if current_minute != last_fired_minute and cron_matches(self._expression, now):

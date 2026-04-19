@@ -20,7 +20,7 @@ _aggregator: MetricsAggregator | None = None
 
 
 def _get_aggregator() -> MetricsAggregator:
-    global _aggregator  # noqa: PLW0603
+    global _aggregator
     if _aggregator is None:
         _aggregator = MetricsAggregator(TraceStorage())
     return _aggregator
@@ -53,14 +53,14 @@ async def error_summary(session_id: Optional[str] = Query(None)) -> dict[str, An
 @router.get("/hero")
 async def hero_metrics() -> dict[str, int]:
     """Dashboard hero metrics — 'prove it' numbers for the landing panel."""
-    now = dt.datetime.now(dt.timezone.utc)
+    now = dt.datetime.now(dt.UTC)
     week_ago = now - dt.timedelta(days=7)
 
     # --- tokens saved (compression spans in last 7 days) ---
     tokens_saved = 0
     try:
         agg = _get_aggregator()
-        storage = agg._storage  # noqa: SLF001
+        storage = agg._storage
         for sid in storage.list_sessions():
             for trace in storage.query(sid):
                 if not trace.started_at:
@@ -79,7 +79,7 @@ async def hero_metrics() -> dict[str, int]:
     # --- automations run (workflow/trigger traces in last 7 days) ---
     automations_run = 0
     try:
-        storage = _get_aggregator()._storage  # noqa: SLF001
+        storage = _get_aggregator()._storage
         for sid in storage.list_sessions():
             for trace in storage.query(sid):
                 # Count traces that have workflow_id OR contain workflow/trigger spans

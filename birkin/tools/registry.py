@@ -129,5 +129,5 @@ def get_registry() -> ToolRegistry:
 
 def reset_registry() -> None:
     """Reset for testing — clears all registered tools."""
-    global _registry  # noqa: PLW0603
+    global _registry
     _registry = ToolRegistry()

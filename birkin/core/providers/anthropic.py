@@ -3,7 +3,8 @@
 from __future__ import annotations
 
 import os
-from typing import Any, Callable, Optional
+from collections.abc import Callable
+from typing import Any, Optional
 
 import anthropic
 
@@ -108,34 +109,33 @@ class AnthropicProvider(Provider):
                     anthropic_tools,
                     stream_callback,
                 )
-            else:
-                response = self._client.messages.create(
-                    model=self._model,
-                    max_tokens=4096,
-                    system=system_str,
-                    messages=conversation_msgs,
-                    tools=anthropic_tools,
-                )
-                return self._parse_response(response)
+            response = self._client.messages.create(
+                model=self._model,
+                max_tokens=4096,
+                system=system_str,
+                messages=conversation_msgs,
+                tools=anthropic_tools,
+            )
+            return self._parse_response(response)
 
         except anthropic.RateLimitError as e:
             raise ProviderError(
                 f"Anthropic rate limit: {e}",
                 ProviderErrorKind.RATE_LIMIT,
                 e,
-            )
+            ) from e
         except anthropic.AuthenticationError as e:
             raise ProviderError(
                 f"Anthropic auth error: {e}",
                 ProviderErrorKind.AUTH,
                 e,
-            )
+            ) from e
         except anthropic.APIError as e:
             raise ProviderError(
                 f"Anthropic API error: {e}",
                 ProviderErrorKind.SERVER,
                 e,
-            )
+            ) from e
 
     async def acomplete(
         self,
@@ -168,34 +168,33 @@ class AnthropicProvider(Provider):
                     anthropic_tools,
                     stream_callback,
                 )
-            else:
-                response = await self._async_client.messages.create(
-                    model=self._model,
-                    max_tokens=4096,
-                    system=system_str,
-                    messages=conversation_msgs,
-                    tools=anthropic_tools,
-                )
-                return self._parse_response(response)
+            response = await self._async_client.messages.create(
+                model=self._model,
+                max_tokens=4096,
+                system=system_str,
+                messages=conversation_msgs,
+                tools=anthropic_tools,
+            )
+            return self._parse_response(response)
 
         except anthropic.RateLimitError as e:
             raise ProviderError(
                 f"Anthropic rate limit: {e}",
                 ProviderErrorKind.RATE_LIMIT,
                 e,
-            )
+            ) from e
         except anthropic.AuthenticationError as e:
             raise ProviderError(
                 f"Anthropic auth error: {e}",
                 ProviderErrorKind.AUTH,
                 e,
-            )
+            ) from e
         except anthropic.APIError as e:
             raise ProviderError(
                 f"Anthropic API error: {e}",
                 ProviderErrorKind.SERVER,
                 e,
-            )
+            ) from e
 
     def _convert_messages(self, messages: list[Message]) -> list[dict[str, Any]]:
         """Convert generic messages to Anthropic format."""
@@ -203,7 +202,7 @@ class AnthropicProvider(Provider):
         for msg in messages:
             if msg.role == "system":
                 continue  # System handled separately
-            elif msg.role == "tool":
+            if msg.role == "tool":
                 # Tool result message
                 result.append(
                     {
@@ -286,10 +285,9 @@ class AnthropicProvider(Provider):
             tools=tools,
         ) as stream:
             for event in stream:
-                if event.type == "content_block_delta":
-                    if event.delta.type == "text_delta":
-                        accumulated_text += event.delta.text
-                        stream_callback(event.delta.text)
+                if event.type == "content_block_delta" and event.delta.type == "text_delta":
+                    accumulated_text += event.delta.text
+                    stream_callback(event.delta.text)
 
         stream_callback(None)  # Signal end
 
@@ -323,10 +321,9 @@ class AnthropicProvider(Provider):
             tools=tools,
         ) as stream:
             async for event in stream:
-                if event.type == "content_block_delta":
-                    if event.delta.type == "text_delta":
-                        accumulated_text += event.delta.text
-                        stream_callback(event.delta.text)
+                if event.type == "content_block_delta" and event.delta.type == "text_delta":
+                    accumulated_text += event.delta.text
+                    stream_callback(event.delta.text)
 
         stream_callback(None)
 

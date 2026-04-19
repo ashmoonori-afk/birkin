@@ -88,7 +88,7 @@ def wiki_graph() -> dict:
 
 
 @router.post("/wiki/upload")
-async def wiki_upload_file(file: UploadFile = File(...)) -> dict:
+async def wiki_upload_file(file: UploadFile = File(...)) -> dict:  # noqa: B008, C901
     """Upload a file (md, csv, xls/xlsx, txt, pdf) and ingest into wiki memory."""
     import csv
     import io

@@ -53,8 +53,8 @@ class CloudTTS(TextToSpeech):
             audio_bytes = response.content
             logger.info("TTS: synthesized %d chars → %d bytes", len(text), len(audio_bytes))
             return audio_bytes
-        except ImportError:
-            raise RuntimeError("openai package not installed")
+        except ImportError as exc:
+            raise RuntimeError("openai package not installed") from exc
         except (OSError, RuntimeError) as exc:
             logger.error("TTS failed: %s", exc)
             raise

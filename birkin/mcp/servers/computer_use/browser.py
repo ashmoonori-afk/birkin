@@ -10,7 +10,7 @@ logger = logging.getLogger(__name__)
 # Playwright is an optional heavy dependency
 _playwright_available = False
 try:
-    from playwright.async_api import async_playwright  # noqa: F401
+    from playwright.async_api import async_playwright
 
     _playwright_available = True
 except ImportError:

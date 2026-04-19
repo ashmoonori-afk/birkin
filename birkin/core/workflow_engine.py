@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from typing import Any, Optional
+from typing import Any, ClassVar, Optional
 
 from birkin.core.models import Message
 from birkin.core.providers.base import Provider, ProviderResponse
@@ -80,7 +80,7 @@ class WorkflowEngine:
                 return labelled
         return [e["to"] for e in edges if e.get("to") in self._node_map]
 
-    async def run(self, user_input: str) -> str:
+    async def run(self, user_input: str) -> str:  # noqa: C901
         """Execute the workflow with the given user input.
 
         Supports two modes:
@@ -182,13 +182,13 @@ class WorkflowEngine:
 
                 slug = f"wf-{starts[0]}-{datetime.now():%Y%m%d-%H%M}"
                 self._wiki.ingest("workflows", slug, final_output, tags=["workflow-result"])
-            except Exception:  # noqa: BLE001
+            except Exception:
                 logger.debug("Failed to save workflow result to wiki", exc_info=True)
 
         return final_output
 
     # ── Dispatch table ────────────────────────────────────────────────────
-    _NODE_HANDLERS: dict[str, str] = {
+    _NODE_HANDLERS: ClassVar[dict[str, str]] = {
         # I/O
         "input": "_handle_passthrough",
         "output": "_handle_passthrough",
@@ -259,7 +259,7 @@ class WorkflowEngine:
                 ctx = self._wiki.build_context(max_pages=3)
                 if ctx:
                     input_text = f"[Memory Context]\n{ctx}\n\n[User Request]\n{input_text}"
-            except Exception:  # noqa: BLE001
+            except Exception:
                 pass  # never break workflow for memory failure
         return await self._run_llm(input_text, config)
 
@@ -505,13 +505,13 @@ class WorkflowEngine:
         try:
             response: ProviderResponse = await asyncio.wait_for(self._provider.acomplete(messages), timeout=timeout)
             return response.content or ""
-        except asyncio.TimeoutError:
+        except TimeoutError:
             logger.warning("LLM call timed out after %ds", timeout)
             if self._fallback:
                 response = await asyncio.wait_for(self._fallback.acomplete(messages), timeout=timeout)
                 return response.content or ""
             return f"[LLM timeout after {timeout}s]"
-        except (ConnectionError, TimeoutError, RuntimeError) as exc:
+        except (ConnectionError, RuntimeError) as exc:
             logger.debug("Primary LLM failed (%s), trying fallback", exc)
             if self._fallback:
                 response = await self._fallback.acomplete(messages)

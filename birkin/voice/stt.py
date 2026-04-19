@@ -59,8 +59,8 @@ class OpenAIWhisperSTT(SpeechToText):
             result = transcript.text
             logger.info("Whisper STT: transcribed %d bytes → %d chars", len(audio), len(result))
             return result
-        except ImportError:
-            raise RuntimeError("openai package not installed")
+        except ImportError as exc:
+            raise RuntimeError("openai package not installed") from exc
         except (OSError, RuntimeError) as exc:
             logger.error("Whisper STT failed: %s", exc)
             raise

@@ -131,7 +131,7 @@ class TestSuggest:
 class TestScoring:
     def test_tool_repeat_scores_higher_than_topic(self):
         rec = WorkflowRecommender(event_store=EventStore(":memory:"))
-        now = dt.datetime.now(dt.timezone.utc).isoformat()
+        now = dt.datetime.now(dt.UTC).isoformat()
 
         tool_sig = RepetitionSignal(
             pattern_type="tool_repeat",
@@ -156,7 +156,7 @@ class TestScoring:
             pattern_type="tool_repeat",
             description="test",
             frequency=10,
-            last_seen=dt.datetime.now(dt.timezone.utc).isoformat(),
+            last_seen=dt.datetime.now(dt.UTC).isoformat(),
         )
         score = rec._score_suggestion(sig, feedback_action="dismissed")
         assert score == 0.0

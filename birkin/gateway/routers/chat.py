@@ -6,7 +6,7 @@ import asyncio
 import json
 import logging
 import os
-from typing import AsyncGenerator
+from collections.abc import AsyncGenerator
 
 from fastapi import APIRouter, HTTPException
 from starlette.responses import StreamingResponse
@@ -37,8 +37,8 @@ def _build_agent(body: ChatRequest) -> Agent:
     if body.session_id:
         try:
             store.load(body.session_id)
-        except KeyError:
-            raise HTTPException(status_code=404, detail="Session not found")
+        except KeyError as exc:
+            raise HTTPException(status_code=404, detail="Session not found") from exc
 
     if body.provider == "auto" or not body.provider:
         from birkin.gateway.deps import get_provider_router
@@ -52,7 +52,7 @@ def _build_agent(body: ChatRequest) -> Agent:
         try:
             provider = create_provider(model_str)
         except (ValueError, TypeError) as exc:
-            raise HTTPException(status_code=400, detail=str(exc))
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
 
     from birkin.gateway.deps import get_mcp_registry, get_skill_registry
 
@@ -115,7 +115,7 @@ async def chat(body: ChatRequest) -> ChatResponse:
     try:
         reply = await agent.achat(body.message)
     except NotImplementedError as exc:
-        raise HTTPException(status_code=501, detail=str(exc))
+        raise HTTPException(status_code=501, detail=str(exc)) from exc
     except TypeError as exc:
         # Catches missing API key errors from provider SDKs
         msg = str(exc)
@@ -127,22 +127,22 @@ async def chat(body: ChatRequest) -> ChatResponse:
                     "Set the appropriate environment variable "
                     "(ANTHROPIC_API_KEY or OPENAI_API_KEY) in your .env file."
                 ),
-            )
-        raise HTTPException(status_code=500, detail=msg)
-    except (ConnectionError, TimeoutError, RuntimeError, TypeError, ValueError) as exc:
-        raise HTTPException(status_code=500, detail=str(exc))
+            ) from exc
+        raise HTTPException(status_code=500, detail=msg) from exc
+    except (ConnectionError, TimeoutError, RuntimeError, ValueError) as exc:
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
 
     # Proactive workflow suggestions (sampled to avoid perf overhead)
     suggestions: list[dict] = []
     try:
         import random
 
-        if random.random() < 0.1:  # noqa: S311
+        if random.random() < 0.1:
             from birkin.gateway.deps import get_workflow_recommender
 
             recs = await get_workflow_recommender().suggest(top_k=2)
             suggestions = [s.model_dump() for s in recs]
-    except Exception:  # noqa: BLE001
+    except Exception:
         pass  # never break chat for suggestion failure
 
     return ChatResponse(

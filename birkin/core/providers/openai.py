@@ -4,7 +4,8 @@ from __future__ import annotations
 
 import json
 import os
-from typing import Any, Callable, Optional
+from collections.abc import Callable
+from typing import Any, Optional
 
 from openai import APIConnectionError, APITimeoutError, AsyncOpenAI, AuthenticationError, OpenAI, RateLimitError
 
@@ -108,15 +109,14 @@ class OpenAIProvider(Provider):
                     tool_choice,
                     stream_callback,
                 )
-            else:
-                response = self._client.chat.completions.create(
-                    model=self._model,
-                    messages=openai_messages,
-                    tools=tools,
-                    tool_choice=tool_choice,
-                    temperature=1.0,
-                )
-                return self._parse_response(response)
+            response = self._client.chat.completions.create(
+                model=self._model,
+                messages=openai_messages,
+                tools=tools,
+                tool_choice=tool_choice,
+                temperature=1.0,
+            )
+            return self._parse_response(response)
 
         except (APIConnectionError, APITimeoutError, AuthenticationError, RateLimitError) as e:
             # Categorize OpenAI errors
@@ -134,7 +134,7 @@ class OpenAIProvider(Provider):
                 f"OpenAI API error: {e}",
                 kind,
                 e,
-            )
+            ) from e
 
     async def acomplete(
         self,
@@ -155,15 +155,14 @@ class OpenAIProvider(Provider):
                     tool_choice,
                     stream_callback,
                 )
-            else:
-                response = await self._async_client.chat.completions.create(
-                    model=self._model,
-                    messages=openai_messages,
-                    tools=tools,
-                    tool_choice=tool_choice,
-                    temperature=1.0,
-                )
-                return self._parse_response(response)
+            response = await self._async_client.chat.completions.create(
+                model=self._model,
+                messages=openai_messages,
+                tools=tools,
+                tool_choice=tool_choice,
+                temperature=1.0,
+            )
+            return self._parse_response(response)
 
         except (APIConnectionError, APITimeoutError, AuthenticationError, RateLimitError) as e:
             error_name = type(e).__name__
@@ -180,7 +179,7 @@ class OpenAIProvider(Provider):
                 f"OpenAI API error: {e}",
                 kind,
                 e,
-            )
+            ) from e
 
     def _convert_messages(self, messages: list[Message]) -> list[dict[str, Any]]:
         """Convert generic messages to OpenAI Chat Completions format."""

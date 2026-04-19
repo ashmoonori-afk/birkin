@@ -34,7 +34,7 @@ class TriggerStore:
         self._conn.executescript(_SCHEMA)
         self._conn.commit()
 
-    def __enter__(self) -> "TriggerStore":
+    def __enter__(self) -> TriggerStore:
         return self
 
     def __exit__(self, *exc: object) -> None:

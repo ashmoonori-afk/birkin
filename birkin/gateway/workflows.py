@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import contextlib
 import json
 from pathlib import Path
 from typing import Any
@@ -321,10 +322,8 @@ def load_workflows() -> dict[str, Any]:
     """Load saved workflows + samples."""
     saved: list[dict] = []
     if _WORKFLOWS_PATH.exists():
-        try:
+        with contextlib.suppress(json.JSONDecodeError, OSError):
             saved = json.loads(_WORKFLOWS_PATH.read_text(encoding="utf-8"))
-        except (json.JSONDecodeError, OSError):
-            pass
     return {"saved": saved, "samples": _SAMPLES}
 
 

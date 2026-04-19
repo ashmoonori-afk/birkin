@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import logging
 import re
-from typing import Callable, Coroutine
+from collections.abc import Callable, Coroutine
 
 from birkin.triggers.base import Trigger, TriggerConfig
 
@@ -69,10 +69,7 @@ class MessageTrigger(Trigger):
                 return True
 
         # No patterns/keywords = match everything for this platform
-        if not self._patterns and not self._keywords:
-            return True
-
-        return False
+        return bool(not self._patterns and not self._keywords)
 
     async def check_and_fire(self, text: str, platform: str) -> bool:
         """Check message and fire if it matches.

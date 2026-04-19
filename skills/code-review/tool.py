@@ -47,9 +47,12 @@ class ReviewCodeTool(Tool):
             stripped = line.strip()
 
             # Security checks
-            if any(kw in stripped.lower() for kw in ("password=", "secret=", "api_key=")):
-                if "os.environ" not in stripped and "getenv" not in stripped:
-                    issues.append(f"[CRITICAL] Line {i}: Possible hardcoded secret")
+            if (
+                any(kw in stripped.lower() for kw in ("password=", "secret=", "api_key="))
+                and "os.environ" not in stripped
+                and "getenv" not in stripped
+            ):
+                issues.append(f"[CRITICAL] Line {i}: Possible hardcoded secret")
 
             if "eval(" in stripped or "exec(" in stripped:
                 issues.append(f"[HIGH] Line {i}: Use of eval/exec — potential code injection")

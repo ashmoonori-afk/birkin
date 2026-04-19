@@ -3,7 +3,8 @@
 from __future__ import annotations
 
 import logging
-from typing import Callable, Coroutine, Optional
+from collections.abc import Callable, Coroutine
+from typing import Optional
 
 from birkin.triggers.base import Trigger, TriggerConfig
 

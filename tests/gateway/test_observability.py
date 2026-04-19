@@ -81,7 +81,7 @@ class TestHeroMemoryDelta:
     def test_pages_created_since(self, wiki: WikiMemory) -> None:
         wiki.ingest("entities", "recent-page", "# Recent")
         # All pages created just now should count
-        now = dt.datetime.now(dt.timezone.utc)
+        now = dt.datetime.now(dt.UTC)
         week_ago = now - dt.timedelta(days=7)
         assert wiki.pages_created_since(week_ago) == 1
         # Far future cutoff should return 0

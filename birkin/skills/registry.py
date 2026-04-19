@@ -183,7 +183,7 @@ class SkillRegistry:
         if self._semantic is None or self._trigger_index_built:
             return
         for skill in self._skills.values():
-            texts = [skill.spec.description] + list(skill.spec.triggers)
+            texts = [skill.spec.description, *skill.spec.triggers]
             combined = "\n".join(texts)
             self._semantic.index_page("triggers", skill.name, combined)
         self._trigger_index_built = True

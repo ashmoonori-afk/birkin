@@ -8,7 +8,7 @@ import sqlite3
 import threading
 import uuid
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Optional, Union
 
@@ -38,7 +38,7 @@ class Session:
         """Create a new session."""
         return cls(
             id=uuid.uuid4().hex[:12],
-            created_at=datetime.now(timezone.utc),
+            created_at=datetime.now(UTC),
             title=title,
             provider=provider,
             model=model,
@@ -180,7 +180,7 @@ class SessionStore:
                 message.content,
                 json.dumps(message.tool_calls) if message.tool_calls else None,
                 message.tool_call_id,
-                datetime.now(timezone.utc).isoformat(),
+                datetime.now(UTC).isoformat(),
             ),
         )
         conn.commit()

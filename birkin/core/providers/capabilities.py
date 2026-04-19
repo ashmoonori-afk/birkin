@@ -13,7 +13,7 @@ from typing import Literal
 from pydantic import BaseModel, ConfigDict
 
 
-class Capability(str, Enum):
+class Capability(str, Enum):  # noqa: UP042
     """Capabilities a provider can declare."""
 
     REASONING = "reasoning"

@@ -97,9 +97,8 @@ class SkillLoader:
                     for alias in node.names:
                         if alias.name in self._BLOCKED_IMPORTS:
                             violations.append(f"{py_file.name}: blocked import '{alias.name}'")
-                elif isinstance(node, ast.ImportFrom) and node.module:
-                    if node.module in self._BLOCKED_IMPORTS:
-                        violations.append(f"{py_file.name}: blocked import '{node.module}'")
+                elif isinstance(node, ast.ImportFrom) and node.module and node.module in self._BLOCKED_IMPORTS:
+                    violations.append(f"{py_file.name}: blocked import '{node.module}'")
                 if isinstance(node, ast.Call):
                     name = self._get_call_name(node)
                     if name in self._BLOCKED_CALLS:

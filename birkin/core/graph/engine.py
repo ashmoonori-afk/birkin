@@ -8,7 +8,8 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from typing import Any, Callable, Optional
+from collections.abc import Callable
+from typing import Any, Optional
 
 from birkin.core.graph.node import Event, EventType, FunctionNode, GraphNode, NodeResult
 from birkin.core.graph.state import ContextSnapshot, GraphContext
@@ -25,7 +26,7 @@ _MAX_ITERATIONS = 100
 class Edge:
     """A simple directed edge from source to destination."""
 
-    __slots__ = ("src", "dst")
+    __slots__ = ("dst", "src")
 
     def __init__(self, src: str, dst: str) -> None:
         self.src = src
@@ -35,7 +36,7 @@ class Edge:
 class ConditionalEdge:
     """An edge that routes based on a function evaluating the context."""
 
-    __slots__ = ("src", "router", "mapping")
+    __slots__ = ("mapping", "router", "src")
 
     def __init__(
         self,
@@ -51,7 +52,7 @@ class ConditionalEdge:
 class ParallelGroup:
     """A group of nodes to execute concurrently, joining at a target node."""
 
-    __slots__ = ("nodes", "join_node")
+    __slots__ = ("join_node", "nodes")
 
     def __init__(self, nodes: list[str], join_node: str) -> None:
         self.nodes = nodes
@@ -331,7 +332,7 @@ class CompiledGraph:
         results = await asyncio.gather(*tasks)
 
         # Merge results back into shared context
-        for node_name, result, error, state_update in results:
+        for _node_name, _result, error, state_update in results:
             if not error:
                 ctx.state.update(state_update)
 

@@ -192,7 +192,7 @@ class ShellTool(Tool):
                 proc.communicate(),
                 timeout=_TIMEOUT_SECONDS,
             )
-        except asyncio.TimeoutError:
+        except TimeoutError:
             return ToolOutput(
                 success=False,
                 output="",

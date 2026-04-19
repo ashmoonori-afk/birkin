@@ -36,7 +36,7 @@ def create_mcp_server(
     *,
     name: str = "birkin",
     tools: list[Tool] | None = None,
-    memory: "WikiMemory | None" = None,
+    memory: WikiMemory | None = None,
 ) -> Server:
     """Create and configure a Birkin MCP server.
 
@@ -157,7 +157,7 @@ def create_mcp_server(
 async def run_stdio_server(
     *,
     tools: list[Tool] | None = None,
-    memory: "WikiMemory | None" = None,
+    memory: WikiMemory | None = None,
 ) -> None:
     """Run the Birkin MCP server on stdio transport.
 

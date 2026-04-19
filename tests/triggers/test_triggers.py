@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 from unittest.mock import AsyncMock
 
@@ -22,40 +22,40 @@ from birkin.triggers.webhook import WebhookTrigger
 
 class TestCronMatches:
     def test_every_minute(self) -> None:
-        dt = datetime(2026, 4, 16, 10, 30, tzinfo=timezone.utc)
+        dt = datetime(2026, 4, 16, 10, 30, tzinfo=UTC)
         assert cron_matches("* * * * *", dt) is True
 
     def test_specific_minute_hour(self) -> None:
-        dt = datetime(2026, 4, 16, 9, 0, tzinfo=timezone.utc)
+        dt = datetime(2026, 4, 16, 9, 0, tzinfo=UTC)
         assert cron_matches("0 9 * * *", dt) is True
         assert cron_matches("30 9 * * *", dt) is False
 
     def test_step(self) -> None:
-        dt5 = datetime(2026, 4, 16, 10, 15, tzinfo=timezone.utc)
+        dt5 = datetime(2026, 4, 16, 10, 15, tzinfo=UTC)
         assert cron_matches("*/5 * * * *", dt5) is True
-        dt7 = datetime(2026, 4, 16, 10, 7, tzinfo=timezone.utc)
+        dt7 = datetime(2026, 4, 16, 10, 7, tzinfo=UTC)
         assert cron_matches("*/5 * * * *", dt7) is False
 
     def test_range(self) -> None:
-        dt = datetime(2026, 4, 16, 10, 0, tzinfo=timezone.utc)
+        dt = datetime(2026, 4, 16, 10, 0, tzinfo=UTC)
         assert cron_matches("0 9-17 * * *", dt) is True
-        dt_early = datetime(2026, 4, 16, 5, 0, tzinfo=timezone.utc)
+        dt_early = datetime(2026, 4, 16, 5, 0, tzinfo=UTC)
         assert cron_matches("0 9-17 * * *", dt_early) is False
 
     def test_day_of_week(self) -> None:
         # 2026-04-20 is Monday (weekday=0)
-        dt_mon = datetime(2026, 4, 20, 9, 0, tzinfo=timezone.utc)
+        dt_mon = datetime(2026, 4, 20, 9, 0, tzinfo=UTC)
         assert cron_matches("0 9 * * 0", dt_mon) is True
         assert cron_matches("0 9 * * 1", dt_mon) is False
 
     def test_comma_list(self) -> None:
-        dt = datetime(2026, 4, 16, 10, 0, tzinfo=timezone.utc)
+        dt = datetime(2026, 4, 16, 10, 0, tzinfo=UTC)
         assert cron_matches("0 10,14,18 * * *", dt) is True
         assert cron_matches("0 11,14,18 * * *", dt) is False
 
     def test_invalid_expression(self) -> None:
         with pytest.raises(ValueError, match="expected 5 fields"):
-            cron_matches("* * *", datetime.now(timezone.utc))
+            cron_matches("* * *", datetime.now(UTC))
 
 
 # ---------------------------------------------------------------------------

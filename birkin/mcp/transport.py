@@ -3,8 +3,8 @@
 from __future__ import annotations
 
 import logging
+from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
-from typing import AsyncGenerator
 
 from mcp.client.session import ClientSession
 from mcp.client.sse import sse_client
@@ -54,11 +54,10 @@ async def _open_stdio(config: MCPServerConfig) -> AsyncGenerator[ClientSession, 
 
     logger.info("Connecting to MCP server %r via stdio: %s %s", config.name, config.command, config.args)
 
-    async with stdio_client(params) as (read_stream, write_stream):
-        async with ClientSession(read_stream, write_stream) as session:
-            await session.initialize()
-            logger.info("MCP server %r initialized (stdio)", config.name)
-            yield session
+    async with stdio_client(params) as (read_stream, write_stream), ClientSession(read_stream, write_stream) as session:
+        await session.initialize()
+        logger.info("MCP server %r initialized (stdio)", config.name)
+        yield session
 
 
 @asynccontextmanager
@@ -69,8 +68,10 @@ async def _open_sse(config: MCPServerConfig) -> AsyncGenerator[ClientSession, No
 
     logger.info("Connecting to MCP server %r via SSE: %s", config.name, config.url)
 
-    async with sse_client(config.url) as (read_stream, write_stream):
-        async with ClientSession(read_stream, write_stream) as session:
-            await session.initialize()
-            logger.info("MCP server %r initialized (SSE)", config.name)
-            yield session
+    async with (
+        sse_client(config.url) as (read_stream, write_stream),
+        ClientSession(read_stream, write_stream) as session,
+    ):
+        await session.initialize()
+        logger.info("MCP server %r initialized (SSE)", config.name)
+        yield session

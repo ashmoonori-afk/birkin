@@ -7,7 +7,7 @@ import hashlib
 import logging
 import math
 from collections import Counter
-from typing import TYPE_CHECKING, Optional
+from typing import TYPE_CHECKING, ClassVar, Optional
 
 from pydantic import BaseModel, Field
 
@@ -119,7 +119,7 @@ class WorkflowRecommender:
 
     async def detect_repetitions(self, days: int = 14) -> list[RepetitionSignal]:
         """Scan EventStore for repeated action patterns."""
-        cutoff = (dt.datetime.now(dt.timezone.utc) - dt.timedelta(days=days)).isoformat()
+        cutoff = (dt.datetime.now(dt.UTC) - dt.timedelta(days=days)).isoformat()
         events = self._store.since(cutoff)
         if not events:
             return []
@@ -173,7 +173,7 @@ class WorkflowRecommender:
 
     # -- feedback -----------------------------------------------------------
 
-    _VALID_ACTIONS = {"accepted", "dismissed", "modified", "deleted_after_use"}
+    _VALID_ACTIONS: ClassVar[set[str]] = {"accepted", "dismissed", "modified", "deleted_after_use"}
 
     def record_feedback(self, suggestion_id: str, action: str, metadata: Optional[dict] = None) -> None:
         """Record user feedback on a suggestion.
@@ -194,7 +194,7 @@ class WorkflowRecommender:
                 "suggestion_id": suggestion_id,
                 "action": action,
                 "metadata": metadata or {},
-                "timestamp": dt.datetime.now(dt.timezone.utc).isoformat(),
+                "timestamp": dt.datetime.now(dt.UTC).isoformat(),
             }
         )
         slug = f"feedback-{suggestion_id}"
@@ -259,9 +259,9 @@ class WorkflowRecommender:
         if signal.last_seen:
             try:
                 last = dt.datetime.fromisoformat(signal.last_seen)
-                now = dt.datetime.now(dt.timezone.utc)
+                now = dt.datetime.now(dt.UTC)
                 if last.tzinfo is None:
-                    last = last.replace(tzinfo=dt.timezone.utc)
+                    last = last.replace(tzinfo=dt.UTC)
                 days_ago = max((now - last).total_seconds() / 86400, 0)
             except (ValueError, TypeError):
                 days_ago = 7.0

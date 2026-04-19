@@ -9,8 +9,6 @@ from typing import Optional
 class BirkinError(Exception):
     """Base exception for all Birkin errors."""
 
-    pass
-
 
 class ProviderErrorKind(Enum):
     """Classification of provider errors for retry/backoff logic."""
@@ -41,8 +39,6 @@ class ProviderError(BirkinError):
 
 class SessionError(BirkinError):
     """Error related to session management."""
-
-    pass
 
 
 class ToolExecutionError(BirkinError):

@@ -15,7 +15,7 @@ _gate: ApprovalGate | None = None
 
 
 def _get_gate() -> ApprovalGate:
-    global _gate  # noqa: PLW0603
+    global _gate
     if _gate is None:
         _gate = ApprovalGate()
     return _gate

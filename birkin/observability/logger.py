@@ -33,7 +33,7 @@ class StructuredLogger:
             trace_id=str(uuid.uuid4()),
             session_id=session_id,
             workflow_id=workflow_id,
-            started_at=dt.datetime.now(dt.timezone.utc).isoformat(),
+            started_at=dt.datetime.now(dt.UTC).isoformat(),
         )
 
     @staticmethod
@@ -54,7 +54,7 @@ class StructuredLogger:
             node_name=node_name,
             provider=provider,
             model=model,
-            started_at=dt.datetime.now(dt.timezone.utc).isoformat(),
+            started_at=dt.datetime.now(dt.UTC).isoformat(),
         )
         trace.spans.append(span)
         return span
@@ -65,7 +65,7 @@ class StructuredLogger:
 
         Common attrs: tokens_in, tokens_out, status, error.
         """
-        span.ended_at = dt.datetime.now(dt.timezone.utc).isoformat()
+        span.ended_at = dt.datetime.now(dt.UTC).isoformat()
 
         # Calculate latency from timestamps
         if span.started_at and span.ended_at:
@@ -82,4 +82,4 @@ class StructuredLogger:
     @staticmethod
     def end_trace(trace: Trace) -> None:
         """Finalize a trace."""
-        trace.ended_at = dt.datetime.now(dt.timezone.utc).isoformat()
+        trace.ended_at = dt.datetime.now(dt.UTC).isoformat()

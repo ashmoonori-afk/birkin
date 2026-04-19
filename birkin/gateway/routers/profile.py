@@ -16,6 +16,8 @@ from birkin.memory.utils import strip_frontmatter
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/profile", tags=["profile"])
 
+_background_tasks: set[asyncio.Task] = set()  # prevent GC of background tasks
+
 # ---------------------------------------------------------------------------
 # Import Job Manager singleton
 # ---------------------------------------------------------------------------
@@ -24,14 +26,14 @@ _import_manager: ImportJobManager | None = None
 
 
 def _get_import_manager() -> ImportJobManager:
-    global _import_manager  # noqa: PLW0603
+    global _import_manager
     if _import_manager is None:
         _import_manager = ImportJobManager()
     return _import_manager
 
 
 def reset_import_manager() -> None:
-    global _import_manager  # noqa: PLW0603
+    global _import_manager
     _import_manager = None
 
 
@@ -41,7 +43,7 @@ def reset_import_manager() -> None:
 
 
 @router.post("/import")
-async def import_conversations(file: UploadFile = File(...)) -> dict[str, Any]:
+async def import_conversations(file: UploadFile = File(...)) -> dict[str, Any]:  # noqa: B008
     """Upload a ChatGPT or Claude export JSON and start background analysis."""
     if not file.filename or not file.filename.endswith(".json"):
         raise HTTPException(400, "Only .json files are supported")
@@ -51,7 +53,7 @@ async def import_conversations(file: UploadFile = File(...)) -> dict[str, Any]:
     try:
         job = manager.create_job()
     except ValueError as exc:
-        raise HTTPException(409, str(exc))
+        raise HTTPException(409, str(exc)) from exc
 
     # Read file
     try:
@@ -62,10 +64,10 @@ async def import_conversations(file: UploadFile = File(...)) -> dict[str, Any]:
             raise HTTPException(413, "File too large (max 200MB)")
 
         data = json.loads(raw)
-    except json.JSONDecodeError:
+    except json.JSONDecodeError as exc:
         job.status = ImportStatus.ERROR
         job.errors.append("Invalid JSON file")
-        raise HTTPException(400, "Invalid JSON file")
+        raise HTTPException(400, "Invalid JSON file") from exc
 
     # Parse conversations
     from birkin.memory.importers.base import auto_detect_and_parse
@@ -76,14 +78,16 @@ async def import_conversations(file: UploadFile = File(...)) -> dict[str, Any]:
     except ValueError as exc:
         job.status = ImportStatus.ERROR
         job.errors.append(str(exc))
-        raise HTTPException(400, str(exc))
+        raise HTTPException(400, str(exc)) from exc
 
     job.conversations_found = len(conversations)
     if conversations:
         job.source_format = conversations[0].source
 
     # Start background analysis
-    asyncio.create_task(_run_import(job.id, conversations))
+    task = asyncio.create_task(_run_import(job.id, conversations))
+    _background_tasks.add(task)
+    task.add_done_callback(_background_tasks.discard)
 
     return {
         "job_id": job.id,
@@ -165,7 +169,7 @@ async def _run_import(job_id: str, conversations: list) -> None:
             wiki = get_wiki_memory()
             result = _compile_stats_fallback(conversations, wiki)
             job.pages_created = result.pages_created
-            job.errors = [f"LLM failed ({exc!s}), used stats fallback."] + result.errors
+            job.errors = [f"LLM failed ({exc!s}), used stats fallback.", *result.errors]
             job.status = ImportStatus.DONE
             logger.warning("Import job %s LLM failed, stats fallback used", job_id)
         except Exception as fb_exc:
@@ -185,7 +189,7 @@ async def get_import_status(job_id: str) -> dict[str, Any]:
 
 
 @router.get("")
-async def get_profile() -> dict[str, Any]:
+async def get_profile() -> dict[str, Any]:  # noqa: C901
     """Read the compiled user profile from wiki pages.
 
     Supports both legacy flat pages and granular graph pages.
@@ -289,9 +293,8 @@ async def delete_profile() -> dict[str, str]:
     # Delete all profile-tagged granular pages
     prefixes = ("project-", "tool-", "skill-", "person-", "interest-")
     for page in wiki.list_pages():
-        if any(page["slug"].startswith(p) for p in prefixes):
-            if wiki.delete_page(page["category"], page["slug"]):
-                deleted += 1
+        if any(page["slug"].startswith(p) for p in prefixes) and wiki.delete_page(page["category"], page["slug"]):
+            deleted += 1
 
     # Delete flat pages
     for category, slug in [

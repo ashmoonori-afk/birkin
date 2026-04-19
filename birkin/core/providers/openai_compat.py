@@ -6,7 +6,8 @@ Perplexity, Gemini, Ollama, Groq, and any future compatible provider.
 
 from __future__ import annotations
 
-from typing import Any, Callable, Optional
+from collections.abc import Callable
+from typing import Any, Optional
 
 from openai import AsyncOpenAI, OpenAI
 

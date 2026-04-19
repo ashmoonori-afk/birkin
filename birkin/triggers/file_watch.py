@@ -3,10 +3,12 @@
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import logging
+from collections.abc import Callable, Coroutine
 from fnmatch import fnmatch
 from pathlib import Path
-from typing import Callable, Coroutine, Optional
+from typing import Optional
 
 from birkin.triggers.base import Trigger, TriggerConfig
 
@@ -44,10 +46,8 @@ class FileWatchTrigger(Trigger):
         self._running = False
         if self._task and not self._task.done():
             self._task.cancel()
-            try:
+            with contextlib.suppress(asyncio.CancelledError):
                 await self._task
-            except asyncio.CancelledError:
-                pass
         self._task = None
         logger.info("FileWatchTrigger %s stopped", self.id)
 

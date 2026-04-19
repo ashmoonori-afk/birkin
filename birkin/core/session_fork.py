@@ -35,7 +35,7 @@ class SessionForker:
         # result.new_session_id contains the forked session
     """
 
-    def __init__(self, store: "SessionStore") -> None:
+    def __init__(self, store: SessionStore) -> None:
         self._store = store
 
     def fork(

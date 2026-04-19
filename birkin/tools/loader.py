@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import contextlib
 import importlib
 import inspect
 import logging
@@ -123,8 +124,6 @@ def load_tools() -> list[Tool]:
     registry = get_registry()
     if len(registry) == 0:
         for tool_class in ALL_BUILTIN_TOOLS:
-            try:
+            with contextlib.suppress(ValueError):
                 registry.register(tool_class())
-            except ValueError:
-                pass  # already registered
     return registry.list_all()

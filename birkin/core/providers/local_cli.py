@@ -4,7 +4,8 @@ from __future__ import annotations
 
 import asyncio
 import shutil
-from typing import Any, Callable, Optional
+from collections.abc import Callable
+from typing import Any, Optional
 
 from birkin.core.errors import ProviderError, ProviderErrorKind
 from birkin.core.models import Message
@@ -125,10 +126,10 @@ class LocalCLIProvider(Provider):
                 model=self._model,
             )
 
-        except subprocess.TimeoutExpired:
-            raise ProviderError(f"{self._cli} timed out after 120 seconds", ProviderErrorKind.SERVER)
-        except FileNotFoundError:
-            raise ProviderError(f"CLI tool '{self._cli}' not found", ProviderErrorKind.AUTH)
+        except subprocess.TimeoutExpired as exc:
+            raise ProviderError(f"{self._cli} timed out after 120 seconds", ProviderErrorKind.SERVER) from exc
+        except FileNotFoundError as exc:
+            raise ProviderError(f"CLI tool '{self._cli}' not found", ProviderErrorKind.AUTH) from exc
 
     async def acomplete(
         self,
@@ -183,8 +184,8 @@ class LocalCLIProvider(Provider):
                 model=self._model,
             )
 
-        except asyncio.TimeoutError:
-            raise ProviderError(f"{self._cli} timed out after 120 seconds", ProviderErrorKind.SERVER)
+        except TimeoutError as exc:
+            raise ProviderError(f"{self._cli} timed out after 120 seconds", ProviderErrorKind.SERVER) from exc
 
     def _extract_prompt_parts(self, messages: list[Message]) -> tuple[str, str]:
         """Extract system prompt and user prompt separately.
@@ -237,7 +238,6 @@ class LocalCLIProvider(Provider):
             if system:
                 cmd.extend(["--append-system-prompt", system])
             return cmd
-        elif self._cli == "codex":
+        if self._cli == "codex":
             return [self._binary, "-q", prompt]
-        else:
-            return [self._binary, prompt]
+        return [self._binary, prompt]

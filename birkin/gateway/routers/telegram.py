@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import os
+from datetime import UTC
 from typing import Any, Optional
 
 from fastapi import APIRouter, HTTPException
@@ -60,10 +61,10 @@ async def telegram_health() -> dict:
 
 async def _health_check_loop() -> None:
     """Background loop checking Telegram health every 60 seconds."""
-    global _polling_task, _polling_active  # noqa: PLW0603
+    global _polling_task, _polling_active
 
     import logging
-    from datetime import datetime, timezone
+    from datetime import datetime
 
     log = logging.getLogger("birkin.telegram.health")
 
@@ -74,7 +75,7 @@ async def _health_check_loop() -> None:
             _health_status.update(
                 ok=False,
                 error="No token",
-                last_check=datetime.now(timezone.utc).isoformat(),
+                last_check=datetime.now(UTC).isoformat(),
             )
             continue
 
@@ -87,7 +88,7 @@ async def _health_check_loop() -> None:
                 _health_status.update(
                     ok=False,
                     error=(f"Polling crashed: {exc}" if exc else "Polling stopped unexpectedly"),
-                    last_check=datetime.now(timezone.utc).isoformat(),
+                    last_check=datetime.now(UTC).isoformat(),
                 )
                 log.error("Polling task died, restarting...")
                 # Auto-restart polling — ensure _polling_active is True
@@ -102,20 +103,20 @@ async def _health_check_loop() -> None:
                 _health_status.update(
                     ok=False,
                     error=result["last_error_message"],
-                    last_check=datetime.now(timezone.utc).isoformat(),
+                    last_check=datetime.now(UTC).isoformat(),
                 )
             else:
                 _health_status.update(
                     ok=True,
                     error=None,
-                    last_check=datetime.now(timezone.utc).isoformat(),
+                    last_check=datetime.now(UTC).isoformat(),
                 )
 
         except (ConnectionError, TimeoutError, OSError) as e:
             _health_status.update(
                 ok=False,
                 error=str(e),
-                last_check=datetime.now(timezone.utc).isoformat(),
+                last_check=datetime.now(UTC).isoformat(),
             )
             log.warning("Health check failed: %s", e, exc_info=True)
 
@@ -130,7 +131,7 @@ async def telegram_set_webhook(body: dict) -> dict:
     try:
         adapter = get_telegram_adapter()
     except ValueError as exc:
-        raise HTTPException(status_code=400, detail=str(exc))
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
     result = await adapter.set_webhook(webhook_url)
 
     # Persist the generated webhook secret so incoming requests can be verified
@@ -148,7 +149,7 @@ async def telegram_delete_webhook() -> dict:
     try:
         adapter = get_telegram_adapter()
     except ValueError as exc:
-        raise HTTPException(status_code=400, detail=str(exc))
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
     result = await adapter.delete_webhook()
     return result
 
@@ -156,7 +157,7 @@ async def telegram_delete_webhook() -> dict:
 @router.post("/telegram/polling/start")
 async def telegram_start_polling() -> dict:
     """Start long-polling for Telegram updates (no public URL needed)."""
-    global _polling_task, _polling_active  # noqa: PLW0603
+    global _polling_task, _polling_active
 
     async with _polling_lock:
         if _polling_active:
@@ -171,7 +172,7 @@ async def telegram_start_polling() -> dict:
             # Delete any existing webhook so polling works
             await adapter.delete_webhook()
         except ValueError as exc:
-            raise HTTPException(status_code=400, detail=str(exc))
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
 
         _polling_active = True
         _polling_task = asyncio.create_task(_poll_loop(adapter))
@@ -186,8 +187,8 @@ async def telegram_send_test(body: dict) -> dict:
         raise HTTPException(status_code=400, detail="chat_id required")
     try:
         chat_id = int(chat_id)
-    except (ValueError, TypeError):
-        raise HTTPException(status_code=400, detail="chat_id must be a number")
+    except (ValueError, TypeError) as exc:
+        raise HTTPException(status_code=400, detail="chat_id must be a number") from exc
     try:
         adapter = get_telegram_adapter()
         result = await adapter.send_message(
@@ -196,15 +197,15 @@ async def telegram_send_test(body: dict) -> dict:
         )
         return {"status": "ok", "result": result.get("result", {})}
     except ValueError as exc:
-        raise HTTPException(status_code=400, detail=str(exc))
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
     except (ConnectionError, TimeoutError, OSError) as exc:
-        raise HTTPException(status_code=500, detail=str(exc))
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
 
 
 @router.post("/telegram/polling/stop")
 async def telegram_stop_polling() -> dict:
     """Stop the polling loop."""
-    global _polling_active  # noqa: PLW0603
+    global _polling_active
 
     async with _polling_lock:
         _polling_active = False
@@ -215,7 +216,7 @@ async def telegram_stop_polling() -> dict:
 
 async def _poll_loop(adapter: Any) -> None:
     """Background loop that long-polls Telegram for updates."""
-    global _polling_active  # noqa: PLW0603
+    global _polling_active
 
     import logging
 

@@ -14,7 +14,7 @@ _storage: TraceStorage | None = None
 
 
 def _get_storage() -> TraceStorage:
-    global _storage  # noqa: PLW0603
+    global _storage
     if _storage is None:
         _storage = TraceStorage()
     return _storage

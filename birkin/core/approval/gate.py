@@ -22,7 +22,7 @@ class ProposedAction(BaseModel, frozen=True):
     payload: dict[str, Any] = {}
     reversible: bool = True
     estimated_impact: Literal["low", "medium", "high"] = "medium"
-    created_at: str = Field(default_factory=lambda: dt.datetime.now(dt.timezone.utc).isoformat())
+    created_at: str = Field(default_factory=lambda: dt.datetime.now(dt.UTC).isoformat())
 
 
 class ApprovalDecision(BaseModel):
@@ -31,7 +31,7 @@ class ApprovalDecision(BaseModel):
     approved: bool
     modified_payload: Optional[dict[str, Any]] = None
     user_note: Optional[str] = None
-    decided_at: str = Field(default_factory=lambda: dt.datetime.now(dt.timezone.utc).isoformat())
+    decided_at: str = Field(default_factory=lambda: dt.datetime.now(dt.UTC).isoformat())
 
 
 class ApprovalGate:

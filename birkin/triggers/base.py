@@ -4,7 +4,8 @@ from __future__ import annotations
 
 import uuid
 from abc import ABC, abstractmethod
-from typing import Any, Callable, Coroutine, Optional
+from collections.abc import Callable, Coroutine
+from typing import Any, Optional
 
 from pydantic import BaseModel, Field
 
