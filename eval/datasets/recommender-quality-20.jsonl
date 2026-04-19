@@ -1,0 +1,20 @@
+{"id":"rec-01","events":[{"type":"tool_call","name":"web_search","count":5}],"expect_match":"web_search","expect_min":1}
+{"id":"rec-02","events":[{"type":"tool_call","name":"web_search","count":1}],"expect_match":null,"expect_min":0}
+{"id":"rec-03","events":[{"type":"tool_call","name":"code_exec","count":8}],"expect_match":"code_exec","expect_min":1}
+{"id":"rec-04","events":[{"type":"tool_call","name":"translate","count":4}],"expect_match":"translate","expect_min":1}
+{"id":"rec-05","events":[{"type":"tool_call","name":"summarize","count":6}],"expect_match":"summarize","expect_min":1}
+{"id":"rec-06","events":[{"type":"tool_call","name":"file_read","count":2}],"expect_match":null,"expect_min":0}
+{"id":"rec-07","events":[{"type":"tool_call","name":"web_search","count":3}],"expect_match":"web_search","expect_min":1}
+{"id":"rec-08","events":[{"type":"tool_call","name":"shell","count":10}],"expect_match":"shell","expect_min":1}
+{"id":"rec-09","events":[{"type":"tool_call","name":"wiki_read","count":7}],"expect_match":"wiki_read","expect_min":1}
+{"id":"rec-10","events":[{"type":"tool_call","name":"rare_tool","count":1}],"expect_match":null,"expect_min":0}
+{"id":"rec-11","events":[{"type":"user_message","content":"market analysis","count":6}],"expect_match":"market","expect_min":1}
+{"id":"rec-12","events":[{"type":"user_message","content":"daily standup notes","count":8}],"expect_match":"standup","expect_min":1}
+{"id":"rec-13","events":[{"type":"user_message","content":"random chat","count":2}],"expect_match":null,"expect_min":0}
+{"id":"rec-14","events":[{"type":"tool_call","name":"web_search","count":5},{"type":"tool_call","name":"summarize","count":4}],"expect_match":"web_search","expect_min":2}
+{"id":"rec-15","events":[{"type":"tool_call","name":"translate","count":3},{"type":"user_message","content":"번역 요청","count":5}],"expect_match":"translate","expect_min":1}
+{"id":"rec-16","events":[{"type":"tool_call","name":"code_exec","count":3}],"expect_match":"code_exec","expect_min":1}
+{"id":"rec-17","events":[{"type":"tool_call","name":"email_send","count":4}],"expect_match":"email","expect_min":1}
+{"id":"rec-18","events":[{"type":"user_message","content":"weekly report summary","count":7}],"expect_match":"weekly","expect_min":1}
+{"id":"rec-19","events":[{"type":"tool_call","name":"api_call","count":6}],"expect_match":"api_call","expect_min":1}
+{"id":"rec-20","events":[{"type":"tool_call","name":"web_search","count":2},{"type":"tool_call","name":"file_read","count":1}],"expect_match":null,"expect_min":0}
