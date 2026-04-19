@@ -392,6 +392,19 @@ async function sendMessageStream(text) {
             if (bubble) { bubble.remove(); bubble = null; }
             addBubble("error", evt.error);
           }
+
+          // Non-fatal error notifications
+          if (evt.errors && Array.isArray(evt.errors)) {
+            evt.errors.forEach((e) => {
+              const sev = e.severity || "warning";
+              const el = document.createElement("div");
+              el.className = `bubble ${sev === "error" ? "error" : "info"}`;
+              el.style.cssText = "font-size:0.78rem;opacity:0.85;padding:6px 12px";
+              el.textContent = `[${e.component}] ${e.message}`;
+              chat.appendChild(el);
+            });
+            scrollToBottom();
+          }
         } catch { /* skip malformed */ }
       }
     }

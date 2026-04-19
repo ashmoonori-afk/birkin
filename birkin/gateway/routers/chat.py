@@ -62,7 +62,9 @@ def _build_agent(body: ChatRequest) -> Agent:
 
     from birkin.core.budget.manager import TokenBudget
     from birkin.core.budget.policy import BudgetPolicy
+    from birkin.core.error_reporter import ErrorReporter
 
+    error_reporter = ErrorReporter()
     agent_kwargs: dict = {
         "provider": provider,
         "tools": all_tools,
@@ -71,6 +73,7 @@ def _build_agent(body: ChatRequest) -> Agent:
         "memory": get_wiki_memory(),
         "mcp_registry": get_mcp_registry(),
         "budget": TokenBudget(BudgetPolicy()),
+        "error_reporter": error_reporter,
     }
     if config.get("system_prompt") is not None:
         agent_kwargs["system_prompt"] = config["system_prompt"]

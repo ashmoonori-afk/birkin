@@ -49,9 +49,11 @@ class Agent:
         max_turns: int = _DEFAULT_MAX_TURNS,
         mcp_registry: Optional[MCPRegistry] = None,
         budget: Optional[Any] = None,
+        error_reporter: Optional[Any] = None,
     ) -> None:
         self._provider = provider
         self._budget = budget
+        self._error_reporter = error_reporter
         self._tools = tools or []
 
         # Merge MCP tools into the tool list via adapters
@@ -516,6 +518,15 @@ class Agent:
             self._memory.ingest(category, slug, content, auto_link=True)
         except (OSError, ValueError, TypeError, BirkinError) as exc:
             logger.warning("Auto-save memory failed: %s", exc, exc_info=True)
+            if self._error_reporter:
+                from birkin.core.error_reporter import ErrorSeverity
+
+                self._error_reporter.add(
+                    ErrorSeverity.WARNING,
+                    "memory",
+                    "Memory save failed — conversation continues but this exchange won't be remembered.",
+                    detail=str(exc),
+                )
 
     def _build_messages(self) -> list[Message]:
         """Assemble the full message list including system prompt and memory."""
