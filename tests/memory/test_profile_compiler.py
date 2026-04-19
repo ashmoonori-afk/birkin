@@ -2,10 +2,7 @@
 
 import json
 import tempfile
-from pathlib import Path
 from unittest.mock import MagicMock
-
-import pytest
 
 from birkin.memory.importers.base import ParsedConversation, ParsedMessage
 from birkin.memory.profile_compiler import ProfileCompiler, ProfileCompileResult, ProgressInfo
@@ -22,9 +19,9 @@ def _make_conversations(count: int = 5) -> list[ParsedConversation]:
                 title=f"Conversation {i}",
                 created_at=f"2024-06-{15 + i}T10:00:00Z",
                 messages=[
-                    ParsedMessage(role="user", content=f"I'm working on project Alpha using Python and FastAPI"),
-                    ParsedMessage(role="assistant", content=f"That sounds great! Let me help."),
-                    ParsedMessage(role="user", content=f"I need to optimize the database queries"),
+                    ParsedMessage(role="user", content="I'm working on project Alpha using Python and FastAPI"),
+                    ParsedMessage(role="assistant", content="That sounds great! Let me help."),
+                    ParsedMessage(role="user", content="I need to optimize the database queries"),
                 ],
                 source="chatgpt",
             )
@@ -85,35 +82,36 @@ class TestProfileCompilerBasic:
         assert page is not None
         assert "Backend Developer" in page
 
-    def test_expertise_page_created(self):
+    def test_expertise_pages_created(self):
         wiki = _make_wiki()
         provider = _make_fake_provider()
         compiler = ProfileCompiler(provider, wiki)
         compiler.compile_profile(_make_conversations(2), batch_size=10)
 
-        page = wiki.get_page("concepts", "user-expertise")
-        assert page is not None
-        assert "Python" in page
+        # Granular: individual skill-* pages
+        pages = wiki.list_pages()
+        skill_pages = [p for p in pages if p["slug"].startswith("skill-")]
+        assert len(skill_pages) >= 1
 
-    def test_interests_page_created(self):
+    def test_interest_pages_created(self):
         wiki = _make_wiki()
         provider = _make_fake_provider()
         compiler = ProfileCompiler(provider, wiki)
         compiler.compile_profile(_make_conversations(2), batch_size=10)
 
-        page = wiki.get_page("concepts", "user-interests")
-        assert page is not None
-        assert "AI" in page
+        pages = wiki.list_pages()
+        interest_pages = [p for p in pages if p["slug"].startswith("interest-")]
+        assert len(interest_pages) >= 1
 
-    def test_projects_page_created(self):
+    def test_project_pages_created(self):
         wiki = _make_wiki()
         provider = _make_fake_provider()
         compiler = ProfileCompiler(provider, wiki)
         compiler.compile_profile(_make_conversations(2), batch_size=10)
 
-        page = wiki.get_page("concepts", "user-projects")
-        assert page is not None
-        assert "Project Alpha" in page
+        pages = wiki.list_pages()
+        project_pages = [p for p in pages if p["slug"].startswith("project-")]
+        assert len(project_pages) >= 1
 
     def test_style_page_created(self):
         wiki = _make_wiki()
@@ -156,9 +154,7 @@ class TestProfileCompilerBatching:
         provider = _make_fake_provider()
         compiler = ProfileCompiler(provider, wiki)
 
-        result = compiler.compile_profile(
-            _make_conversations(100), batch_size=50, max_conversations=20
-        )
+        result = compiler.compile_profile(_make_conversations(100), batch_size=50, max_conversations=20)
 
         assert result.conversations_processed == 20
 
@@ -186,16 +182,18 @@ class TestProfileCompilerErrors:
         wiki = _make_wiki()
         provider = MagicMock()
         response_ok = MagicMock()
-        response_ok.content = json.dumps({
-            "job_role": "Developer",
-            "expertise_areas": ["Python"],
-            "interests": [],
-            "active_projects": [],
-            "tools_and_tech": [],
-            "decision_patterns": [],
-            "communication_style": None,
-            "key_people": [],
-        })
+        response_ok.content = json.dumps(
+            {
+                "job_role": "Developer",
+                "expertise_areas": ["Python"],
+                "interests": [],
+                "active_projects": [],
+                "tools_and_tech": [],
+                "decision_patterns": [],
+                "communication_style": None,
+                "key_people": [],
+            }
+        )
 
         # First batch fails, second succeeds
         provider.complete.side_effect = [
@@ -240,16 +238,18 @@ class TestProfileCompilerErrors:
         provider = MagicMock()
 
         batch_response = MagicMock()
-        batch_response.content = json.dumps({
-            "job_role": "Engineer",
-            "expertise_areas": ["Go"],
-            "interests": [],
-            "active_projects": [],
-            "tools_and_tech": [],
-            "decision_patterns": [],
-            "communication_style": None,
-            "key_people": [],
-        })
+        batch_response.content = json.dumps(
+            {
+                "job_role": "Engineer",
+                "expertise_areas": ["Go"],
+                "interests": [],
+                "active_projects": [],
+                "tools_and_tech": [],
+                "decision_patterns": [],
+                "communication_style": None,
+                "key_people": [],
+            }
+        )
 
         merge_fail = MagicMock()
         merge_fail.content = "NOT VALID JSON"
@@ -283,7 +283,7 @@ class TestProfileCompilerJSON:
         assert result is None
 
     def test_parse_json_array_rejected(self):
-        result = ProfileCompiler._parse_json_response('[1, 2, 3]')
+        result = ProfileCompiler._parse_json_response("[1, 2, 3]")
         assert result is None
 
 

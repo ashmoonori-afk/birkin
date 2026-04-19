@@ -189,7 +189,10 @@ async def get_import_status(job_id: str) -> dict[str, Any]:
 
 @router.get("")
 async def get_profile() -> dict[str, Any]:
-    """Read the compiled user profile from wiki pages."""
+    """Read the compiled user profile from wiki pages.
+
+    Supports both legacy flat pages and granular graph pages.
+    """
     wiki = get_wiki_memory()
 
     profile: dict[str, Any] = {
@@ -202,43 +205,88 @@ async def get_profile() -> dict[str, Any]:
         "communication_style": None,
         "tools_and_tech": [],
         "key_people": [],
+        "graph_pages": 0,
     }
 
-    # Read each profile page
+    # Hub page — always check first
     user_page = wiki.get_page("entities", "user-profile")
     if user_page:
         profile["exists"] = True
         profile["job_role"] = _extract_field(user_page, "Role")
+
+    # Scan all profile-tagged pages for granular graph data
+    all_pages = wiki.list_pages()
+    profile_pages = []
+    for p in all_pages:
+        slug = p["slug"]
+        if slug.startswith("project-"):
+            title = _title_from_page(wiki, p["category"], slug)
+            if title:
+                profile["active_projects"].append(title)
+            profile_pages.append(p)
+        elif slug.startswith("tool-"):
+            title = _title_from_page(wiki, p["category"], slug)
+            if title:
+                profile["tools_and_tech"].append(title)
+            profile_pages.append(p)
+        elif slug.startswith("skill-"):
+            title = _title_from_page(wiki, p["category"], slug)
+            if title:
+                profile["expertise_areas"].append(title)
+            profile_pages.append(p)
+        elif slug.startswith("person-"):
+            title = _title_from_page(wiki, p["category"], slug)
+            if title:
+                profile["key_people"].append(title)
+            profile_pages.append(p)
+        elif slug.startswith("interest-"):
+            title = _title_from_page(wiki, p["category"], slug)
+            if title:
+                profile["interests"].append(title)
+            profile_pages.append(p)
+
+    if profile_pages:
+        profile["exists"] = True
+        profile["graph_pages"] = len(profile_pages)
+
+    # Fallback: read legacy flat pages if granular pages not found
+    if not profile["expertise_areas"]:
+        page = wiki.get_page("concepts", "user-expertise")
+        if page:
+            profile["exists"] = True
+            profile["expertise_areas"] = _extract_bullets(page)
+
+    if not profile["interests"]:
+        page = wiki.get_page("concepts", "user-interests")
+        if page:
+            profile["exists"] = True
+            profile["interests"] = _extract_bullets(page)
+
+    if not profile["active_projects"]:
+        page = wiki.get_page("concepts", "user-projects")
+        if page:
+            profile["exists"] = True
+            profile["active_projects"] = _extract_bullets(page)
+
+    if not profile["key_people"] and user_page:
         profile["key_people"] = _extract_list(user_page, "Key People")
 
-    expertise = wiki.get_page("concepts", "user-expertise")
-    if expertise:
-        profile["exists"] = True
-        profile["expertise_areas"] = _extract_bullets(expertise)
-
-    interests = wiki.get_page("concepts", "user-interests")
-    if interests:
-        profile["exists"] = True
-        profile["interests"] = _extract_bullets(interests)
-
-    projects = wiki.get_page("concepts", "user-projects")
-    if projects:
-        profile["exists"] = True
-        profile["active_projects"] = _extract_bullets(projects)
-
+    # Decision patterns (always single page)
     patterns = wiki.get_page("concepts", "user-patterns")
     if patterns:
         profile["exists"] = True
         profile["decision_patterns"] = _extract_bullets(patterns)
 
+    # Communication style
     style = wiki.get_page("concepts", "user-style")
     if style:
         profile["exists"] = True
-        profile["tools_and_tech"] = _extract_list(style, "Tools & Technologies")
-        # Communication style is the first non-header paragraph
-        for line in style.split("\n"):
+        body = _strip_frontmatter(style)
+        if not profile["tools_and_tech"]:
+            profile["tools_and_tech"] = _extract_list(style, "Tools & Technologies")
+        for line in body.split("\n"):
             line = line.strip()
-            if line and not line.startswith("#") and not line.startswith("-") and not line.startswith("---"):
+            if line and not line.startswith("#") and not line.startswith("-"):
                 profile["communication_style"] = line
                 break
 
@@ -247,18 +295,26 @@ async def get_profile() -> dict[str, Any]:
 
 @router.delete("")
 async def delete_profile() -> dict[str, str]:
-    """Delete all user profile wiki pages (reset)."""
+    """Delete all user profile wiki pages (reset) — flat + granular."""
     wiki = get_wiki_memory()
-    slugs = [
+    deleted = 0
+
+    # Delete all profile-tagged granular pages
+    prefixes = ("project-", "tool-", "skill-", "person-", "interest-")
+    for page in wiki.list_pages():
+        if any(page["slug"].startswith(p) for p in prefixes):
+            if wiki.delete_page(page["category"], page["slug"]):
+                deleted += 1
+
+    # Delete flat pages
+    for category, slug in [
         ("entities", "user-profile"),
         ("concepts", "user-expertise"),
         ("concepts", "user-interests"),
         ("concepts", "user-projects"),
         ("concepts", "user-patterns"),
         ("concepts", "user-style"),
-    ]
-    deleted = 0
-    for category, slug in slugs:
+    ]:
         if wiki.delete_page(category, slug):
             deleted += 1
 
@@ -358,6 +414,19 @@ def _compile_stats_fallback(conversations: list, wiki: Any) -> Any:
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
+
+
+def _title_from_page(wiki: Any, category: str, slug: str) -> str | None:
+    """Extract the H1 title from a wiki page, stripping frontmatter."""
+    content = wiki.get_page(category, slug)
+    if not content:
+        return None
+    body = _strip_frontmatter(content)
+    for line in body.split("\n"):
+        line = line.strip()
+        if line.startswith("# "):
+            return line[2:].strip()
+    return None
 
 
 def _strip_frontmatter(content: str) -> str:

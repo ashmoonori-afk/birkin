@@ -8,6 +8,8 @@ from __future__ import annotations
 
 import json
 import logging
+import re as _re
+import unicodedata as _ud
 from dataclasses import dataclass, field
 from typing import Any, Callable, Optional
 
@@ -220,108 +222,156 @@ class ProfileCompiler:
         return result
 
     def _write_profile_pages(self, profile: dict[str, Any]) -> list[str]:
-        """Write the merged profile data into wiki pages."""
-        pages_created: list[str] = []
+        """Write granular profile pages with [[wikilink]] connections."""
+        pages: list[str] = []
+        slug_map: dict[str, str] = {}  # display_name -> slug
 
-        # 1. User Profile (entities)
-        job_role = profile.get("job_role", "Unknown")
-        key_people = profile.get("key_people", [])
-        parts = ["# User Profile\n"]
-        parts.append(f"**Role:** {job_role}\n")
-        if key_people:
-            parts.append("## Key People\n")
-            for person in key_people:
-                parts.append(f"- {person}")
-        self._memory.ingest(
-            "entities",
-            "user-profile",
-            "\n".join(parts),
-            tags=["profile", "imported"],
-            source="conversation_import",
-        )
-        pages_created.append("entities/user-profile")
-
-        # 2. Expertise (concepts)
-        expertise = profile.get("expertise_areas", [])
-        if expertise:
-            parts = ["# User Expertise\n"]
-            for area in expertise:
-                parts.append(f"- {area}")
-            self._memory.ingest(
-                "concepts",
-                "user-expertise",
-                "\n".join(parts),
-                tags=["profile", "expertise", "imported"],
-                source="conversation_import",
-            )
-            pages_created.append("concepts/user-expertise")
-
-        # 3. Interests (concepts)
-        interests = profile.get("interests", [])
-        if interests:
-            parts = ["# User Interests\n"]
-            for interest in interests:
-                parts.append(f"- {interest}")
-            self._memory.ingest(
-                "concepts",
-                "user-interests",
-                "\n".join(parts),
-                tags=["profile", "interests", "imported"],
-                source="conversation_import",
-            )
-            pages_created.append("concepts/user-interests")
-
-        # 4. Projects (concepts)
+        # -- 1. Individual project pages (concepts/project-*) ----------------
         projects = profile.get("active_projects", [])
-        if projects:
-            parts = ["# User Projects\n"]
-            for proj in projects:
-                parts.append(f"- {proj}")
+        for proj in projects:
+            slug = _slugify(f"project-{proj}")
+            slug_map[proj] = slug
             self._memory.ingest(
                 "concepts",
-                "user-projects",
-                "\n".join(parts),
-                tags=["profile", "projects", "imported"],
+                slug,
+                f"# {proj}\n\nActive project.",
+                tags=["profile", "project", "imported"],
                 source="conversation_import",
             )
-            pages_created.append("concepts/user-projects")
+            pages.append(f"concepts/{slug}")
 
-        # 5. Decision Patterns (concepts)
+        # -- 2. Individual tool pages (concepts/tool-*) ----------------------
+        tools = profile.get("tools_and_tech", [])
+        for tool in tools:
+            slug = _slugify(f"tool-{tool}")
+            slug_map[tool] = slug
+            self._memory.ingest(
+                "concepts",
+                slug,
+                f"# {tool}\n\nTool / technology used.",
+                tags=["profile", "tool", "imported"],
+                source="conversation_import",
+            )
+            pages.append(f"concepts/{slug}")
+
+        # -- 3. Individual skill pages (concepts/skill-*) --------------------
+        expertise = profile.get("expertise_areas", [])
+        for skill in expertise:
+            slug = _slugify(f"skill-{skill}")
+            slug_map[skill] = slug
+            # Link to related projects & tools via keyword overlap
+            links = _find_related(skill, projects + tools, slug_map)
+            body = f"# {skill}\n\nExpertise area."
+            if links:
+                body += "\n\n## Related\n" + "\n".join(f"- [[{s}]]" for s in links)
+            self._memory.ingest(
+                "concepts",
+                slug,
+                body,
+                tags=["profile", "skill", "imported"],
+                source="conversation_import",
+            )
+            pages.append(f"concepts/{slug}")
+
+        # -- 4. Individual person pages (entities/person-*) ------------------
+        people = profile.get("key_people", [])
+        for person in people:
+            slug = _slugify(f"person-{person}")
+            slug_map[person] = slug
+            links = _find_related(person, projects, slug_map)
+            body = f"# {person}\n\nKey contact."
+            if links:
+                body += "\n\n## Related\n" + "\n".join(f"- [[{s}]]" for s in links)
+            self._memory.ingest(
+                "entities",
+                slug,
+                body,
+                tags=["profile", "person", "imported"],
+                source="conversation_import",
+            )
+            pages.append(f"entities/{slug}")
+
+        # -- 5. Interest pages (concepts/interest-*) -------------------------
+        interests = profile.get("interests", [])
+        for interest in interests:
+            slug = _slugify(f"interest-{interest}")
+            slug_map[interest] = slug
+            links = _find_related(interest, projects + tools, slug_map)
+            body = f"# {interest}\n\nArea of interest."
+            if links:
+                body += "\n\n## Related\n" + "\n".join(f"- [[{s}]]" for s in links)
+            self._memory.ingest(
+                "concepts",
+                slug,
+                body,
+                tags=["profile", "interest", "imported"],
+                source="conversation_import",
+            )
+            pages.append(f"concepts/{slug}")
+
+        # -- 6. Decision patterns (single page, links to projects) -----------
         patterns = profile.get("decision_patterns", [])
         if patterns:
-            parts = ["# Decision Patterns\n"]
-            for p in patterns:
-                parts.append(f"- {p}")
+            proj_links = [f"[[{slug_map[p]}]]" for p in projects if p in slug_map]
+            body = "# Decision Patterns\n\n"
+            body += "\n".join(f"- {p}" for p in patterns)
+            if proj_links:
+                body += "\n\n## Applied in\n" + "\n".join(f"- {lk}" for lk in proj_links)
             self._memory.ingest(
                 "concepts",
                 "user-patterns",
-                "\n".join(parts),
+                body,
                 tags=["profile", "patterns", "imported"],
                 source="conversation_import",
             )
-            pages_created.append("concepts/user-patterns")
+            pages.append("concepts/user-patterns")
 
-        # 6. Communication Style (concepts)
+        # -- 7. Communication style (single page) ---------------------------
         style = profile.get("communication_style")
-        tools = profile.get("tools_and_tech", [])
-        if style or tools:
-            parts = ["# Communication Style\n"]
-            if style:
-                parts.append(f"{style}\n")
-            if tools:
-                parts.append("## Tools & Technologies\n")
-                for t in tools:
-                    parts.append(f"- {t}")
+        if style:
             self._memory.ingest(
                 "concepts",
                 "user-style",
-                "\n".join(parts),
+                f"# Communication Style\n\n{style}",
                 tags=["profile", "style", "imported"],
                 source="conversation_import",
             )
-            pages_created.append("concepts/user-style")
+            pages.append("concepts/user-style")
 
-        return pages_created
+        # -- 8. Hub page: user-profile (links to everything) -----------------
+        job_role = profile.get("job_role", "Unknown")
+        hub = ["# User Profile\n", f"**Role:** {job_role}\n"]
+
+        if expertise:
+            hub.append("## Expertise")
+            hub.extend(f"- [[{slug_map[s]}]]" for s in expertise if s in slug_map)
+        if projects:
+            hub.append("\n## Projects")
+            hub.extend(f"- [[{slug_map[p]}]]" for p in projects if p in slug_map)
+        if tools:
+            hub.append("\n## Tools & Tech")
+            hub.extend(f"- [[{slug_map[t]}]]" for t in tools if t in slug_map)
+        if people:
+            hub.append("\n## Key People")
+            hub.extend(f"- [[{slug_map[p]}]]" for p in people if p in slug_map)
+        if interests:
+            hub.append("\n## Interests")
+            hub.extend(f"- [[{slug_map[i]}]]" for i in interests if i in slug_map)
+        if patterns:
+            hub.append("\n## Decision Patterns → [[user-patterns]]")
+        if style:
+            hub.append("\n## Communication → [[user-style]]")
+
+        self._memory.ingest(
+            "entities",
+            "user-profile",
+            "\n".join(hub),
+            tags=["profile", "hub", "imported"],
+            source="conversation_import",
+        )
+        pages.append("entities/user-profile")
+
+        return pages
 
     @staticmethod
     def _parse_json_response(text: str) -> Optional[dict[str, Any]]:
@@ -342,3 +392,43 @@ class ProfileCompiler:
             logger.warning("Failed to parse LLM JSON response: %s", text[:200])
 
         return None
+
+
+# ---------------------------------------------------------------------------
+# Helpers for graph-based profile pages
+# ---------------------------------------------------------------------------
+
+
+def _slugify(text: str, max_len: int = 60) -> str:
+    """Turn a display name into a URL-safe slug for wiki pages.
+
+    Keeps Korean characters, lowercases Latin, replaces whitespace/symbols
+    with hyphens.
+    """
+    text = text.strip()
+    # Remove parenthetical notes like "(GitHub: ...)"
+    text = _re.sub(r"\(.*?\)", "", text).strip()
+    text = _ud.normalize("NFC", text)
+    text = _re.sub(r"[\s/\\,;:]+", "-", text)
+    text = _re.sub(r"[^\w가-힣-]", "", text)
+    text = _re.sub(r"-{2,}", "-", text).strip("-")
+    text = text.lower()
+    return text[:max_len] or "unnamed"
+
+
+def _find_related(
+    name: str,
+    candidates: list[str],
+    slug_map: dict[str, str],
+    min_overlap: int = 2,
+) -> list[str]:
+    """Find candidates sharing keywords with *name*. Return their slugs."""
+    name_words = {w.lower() for w in _re.split(r"[\s/,()]+", name) if len(w) > 1}
+    related: list[str] = []
+    for cand in candidates:
+        if cand == name:
+            continue
+        cand_words = {w.lower() for w in _re.split(r"[\s/,()]+", cand) if len(w) > 1}
+        if len(name_words & cand_words) >= min_overlap and cand in slug_map:
+            related.append(slug_map[cand])
+    return related
