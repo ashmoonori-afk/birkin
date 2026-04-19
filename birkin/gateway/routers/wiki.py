@@ -214,3 +214,32 @@ def wiki_summarize() -> dict:
     wiki = get_wiki_memory()
     deleted = wiki.summarize_old_sessions(max_age_hours=24)
     return {"summarized": len(deleted), "deleted_slugs": deleted}
+
+
+# -- Memory Audit Trail --
+
+
+def _get_auditor():
+    from birkin.memory.audit import MemoryAuditor
+    from birkin.memory.event_store import EventStore
+
+    return MemoryAuditor(EventStore())
+
+
+@router.get("/memory/audit")
+def memory_audit(limit: int = 200) -> list[dict]:
+    """Full audit trail of memory operations."""
+    return _get_auditor().get_full_audit(limit=limit)
+
+
+@router.get("/memory/{category}/{slug}/explain")
+def explain_memory(category: str, slug: str) -> dict:
+    """Human-readable explanation: what, why, source, confidence, usage."""
+    wiki = get_wiki_memory()
+    return _get_auditor().explain_memory(category, slug, wiki)
+
+
+@router.get("/memory/{category}/{slug}/history")
+def memory_history(category: str, slug: str) -> list[dict]:
+    """Audit trail for a specific memory page."""
+    return _get_auditor().get_page_history(category, slug)
