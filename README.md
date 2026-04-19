@@ -145,7 +145,7 @@ Describe what you want. Birkin builds it.
   <img src="docs/screenshots/02-workflow.png" width="720" alt="Workflow Editor" />
 </p>
 
-### 47 Node Types
+### 65 Node Types
 
 | Category | Nodes |
 |---|---|
