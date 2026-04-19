@@ -30,6 +30,7 @@ class ChatResponse(BaseModel):
     session_id: str
     reply: str
     usage: dict[str, int] = Field(default_factory=dict)
+    suggestions: list[dict] = Field(default_factory=list)
 
 
 # --- Sessions ---

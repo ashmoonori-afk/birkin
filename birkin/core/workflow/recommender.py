@@ -104,6 +104,14 @@ class WorkflowRecommender:
 
         return suggestions[:top_k]
 
+    async def check_and_notify(self) -> list[WorkflowSuggestion]:
+        """Run after session end or daily cron. Returns new high-confidence suggestions."""
+        suggestions = await self.suggest(top_k=5)
+        high_conf = [s for s in suggestions if s.confidence > 0.7]
+        if high_conf:
+            logger.info("Found %d workflow suggestions", len(high_conf))
+        return high_conf
+
     async def detect_repetitions(self, days: int = 14) -> list[RepetitionSignal]:
         """Scan EventStore for repeated action patterns."""
         cutoff = (dt.datetime.now(dt.timezone.utc) - dt.timedelta(days=days)).isoformat()

@@ -24,6 +24,7 @@ from birkin.gateway.deps import (
     reset_skill_registry,
     reset_telegram_adapter,
     reset_wiki_memory,
+    reset_workflow_recommender,
 )
 from birkin.gateway.routers import all_routers
 
@@ -83,6 +84,18 @@ async def _daily_memory_loop() -> None:
                     logger.error("Weekly insights digest failed: %s", exc)
 
             store.close()
+
+            # Workflow suggestion check
+            try:
+                from birkin.gateway.deps import get_workflow_recommender
+
+                recommender = get_workflow_recommender()
+                suggestions = await recommender.check_and_notify()
+                if suggestions:
+                    logger.info("Daily cron: %d workflow suggestions generated", len(suggestions))
+            except (OSError, RuntimeError, ValueError, ImportError) as exc:
+                logger.debug("Workflow recommender check failed: %s", exc)
+
         except (OSError, RuntimeError, ValueError) as exc:
             logger.error("Daily memory loop failed: %s", exc)
 
@@ -135,6 +148,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     reset_skill_registry()
     reset_mcp_registry()
     reset_insights_engine()
+    reset_workflow_recommender()
 
 
 def create_app() -> FastAPI:

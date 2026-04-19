@@ -129,9 +129,23 @@ async def chat(body: ChatRequest) -> ChatResponse:
     except (ConnectionError, TimeoutError, RuntimeError, TypeError, ValueError) as exc:
         raise HTTPException(status_code=500, detail=str(exc))
 
+    # Proactive workflow suggestions (sampled to avoid perf overhead)
+    suggestions: list[dict] = []
+    try:
+        import random
+
+        if random.random() < 0.1:  # noqa: S311
+            from birkin.gateway.deps import get_workflow_recommender
+
+            recs = await get_workflow_recommender().suggest(top_k=2)
+            suggestions = [s.model_dump() for s in recs]
+    except Exception:  # noqa: BLE001
+        pass  # never break chat for suggestion failure
+
     return ChatResponse(
         session_id=agent.session_id,
         reply=reply,
+        suggestions=suggestions,
     )
 
 

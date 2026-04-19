@@ -31,6 +31,7 @@ class TestChatResponse:
             "session_id": "s1",
             "reply": "ok",
             "usage": {},
+            "suggestions": [],
         }
 
 
