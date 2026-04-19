@@ -175,6 +175,16 @@ class WorkflowEngine:
                 if next_id not in visited:
                     queue.append(next_id)
 
+        # Workflow → Memory: capture results as wiki page
+        if self._wiki and final_output and final_output != user_input:
+            try:
+                from datetime import datetime
+
+                slug = f"wf-{starts[0]}-{datetime.now():%Y%m%d-%H%M}"
+                self._wiki.ingest("workflows", slug, final_output, tags=["workflow-result"])
+            except Exception:  # noqa: BLE001
+                logger.debug("Failed to save workflow result to wiki", exc_info=True)
+
         return final_output
 
     # ── Dispatch table ────────────────────────────────────────────────────
@@ -242,7 +252,16 @@ class WorkflowEngine:
     # ── AI model handlers ─────────────────────────────────────────────
 
     async def _handle_llm(self, node: dict, input_text: str) -> str:
-        return await self._run_llm(input_text, node.get("config", {}))
+        config = node.get("config", {})
+        # Memory → Workflow: inject relevant memory context
+        if self._wiki and config.get("inject_memory", True):
+            try:
+                ctx = self._wiki.build_context(max_pages=3)
+                if ctx:
+                    input_text = f"[Memory Context]\n{ctx}\n\n[User Request]\n{input_text}"
+            except Exception:  # noqa: BLE001
+                pass  # never break workflow for memory failure
+        return await self._run_llm(input_text, config)
 
     async def _handle_classifier(self, node: dict, input_text: str) -> str:
         config = node.get("config", {})

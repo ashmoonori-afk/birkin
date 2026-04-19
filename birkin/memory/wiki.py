@@ -17,6 +17,11 @@ from birkin.core.defaults import DEFAULT_MEMORY_SCHEMA
 
 _WIKILINK_RE = re.compile(r"\[\[([^\]]+)\]\]")
 
+# Categories available for wiki pages
+_CATEGORIES = ("entities", "concepts", "sessions", "workflows", "meta")
+# Categories included in build_context (meta excluded — internal bookkeeping)
+_CONTEXT_CATEGORIES = ("entities", "concepts", "sessions", "workflows")
+
 
 def _parse_frontmatter(content: str) -> tuple[str, str] | None:
     """Extract frontmatter and body from markdown content.
@@ -73,6 +78,8 @@ class WikiMemory:
                 self.wiki_dir / "entities",
                 self.wiki_dir / "concepts",
                 self.wiki_dir / "sessions",
+                self.wiki_dir / "workflows",
+                self.wiki_dir / "meta",
                 self.raw_dir,
             ):
                 d.mkdir(parents=True, exist_ok=True)
@@ -198,7 +205,7 @@ class WikiMemory:
         results: list[dict[str, Any]] = []
         pattern = re.compile(re.escape(term), re.IGNORECASE)
 
-        for category in ("entities", "concepts", "sessions"):
+        for category in _CATEGORIES:
             cat_dir = self.wiki_dir / category
             if not cat_dir.is_dir():
                 continue
@@ -233,7 +240,7 @@ class WikiMemory:
     def list_pages(self) -> list[dict[str, str]]:
         """Return metadata for every page in the wiki."""
         pages: list[dict[str, str]] = []
-        for category in ("entities", "concepts", "sessions"):
+        for category in _CATEGORIES:
             cat_dir = self.wiki_dir / category
             if not cat_dir.is_dir():
                 continue
@@ -249,7 +256,7 @@ class WikiMemory:
         """Count wiki files with modification time after *since*."""
         cutoff_ts = since.timestamp()
         count = 0
-        for category in ("entities", "concepts", "sessions"):
+        for category in _CATEGORIES:
             cat_dir = self.wiki_dir / category
             if not cat_dir.is_dir():
                 continue
@@ -322,7 +329,7 @@ class WikiMemory:
         all_slugs: set[str] = set()
         referenced_slugs: set[str] = set()
 
-        for category in ("entities", "concepts", "sessions"):
+        for category in _CATEGORIES:
             cat_dir = self.wiki_dir / category
             if not cat_dir.is_dir():
                 continue
@@ -390,7 +397,7 @@ class WikiMemory:
             return ""
 
         pages: list[tuple[float, Path]] = []
-        for category in ("entities", "concepts", "sessions"):
+        for category in _CONTEXT_CATEGORIES:
             cat_dir = self.wiki_dir / category
             if not cat_dir.is_dir():
                 continue
@@ -429,7 +436,7 @@ class WikiMemory:
     def _update_index(self) -> None:
         """Rewrite index.md from current wiki contents."""
         lines = ["# Memory Index\n"]
-        for category in ("entities", "concepts", "sessions"):
+        for category in _CATEGORIES:
             cat_dir = self.wiki_dir / category
             if not cat_dir.is_dir():
                 continue
