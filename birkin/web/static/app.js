@@ -380,6 +380,14 @@ async function sendMessageStream(text) {
             bubble = null;
           }
 
+          // Proactive workflow suggestions (sampled)
+          if (evt.done && Math.random() < 0.15) {
+            fetch("/api/workflows/suggestions?top_k=2")
+              .then((r) => r.ok ? r.json() : [])
+              .then((sug) => { if (sug.length) showChatSuggestionChips(sug); })
+              .catch(() => {});
+          }
+
           if (evt.error) {
             if (bubble) { bubble.remove(); bubble = null; }
             addBubble("error", evt.error);
@@ -406,6 +414,52 @@ async function sendMessageStream(text) {
     retryEl.querySelector(".retry-btn").onclick = () => { retryEl.remove(); sendMessageStream(text); };
     requestAnimationFrame(() => { scrollToBottom(); });
   } finally { setLoading(false); input.focus(); }
+}
+
+/* ── Chat Suggestion Chips ── */
+
+function showChatSuggestionChips(suggestions) {
+  const existing = document.querySelector(".chat-suggestion-chips");
+  if (existing) existing.remove();
+
+  const wrap = document.createElement("div");
+  wrap.className = "chat-suggestion-chips";
+
+  suggestions.forEach((s) => {
+    const chip = document.createElement("div");
+    chip.className = "chat-suggestion-chip";
+    chip.innerHTML = `<span>\u{1F4A1} ${esc(s.title)}</span><span class="chip-dismiss">\u2715</span>`;
+    chip.querySelector(".chip-dismiss").onclick = (e) => {
+      e.stopPropagation();
+      fetch(`/api/workflows/suggestions/${s.id}/feedback`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "dismissed" }),
+      }).catch(() => {});
+      chip.remove();
+      if (!wrap.children.length) wrap.remove();
+    };
+    chip.onclick = () => {
+      fetch(`/api/workflows/suggestions/${s.id}/feedback`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "accepted" }),
+      }).catch(() => {});
+      wrap.remove();
+      if (s.draft_workflow) {
+        window.birkin.switchView("workflow");
+        setTimeout(() => {
+          const S = window.birkin._wf;
+          if (S && S.loadWorkflow) S.loadWorkflow(s.draft_workflow);
+        }, 200);
+      }
+    };
+    wrap.appendChild(chip);
+  });
+
+  chat.appendChild(wrap);
+  scrollToBottom();
+  setTimeout(() => { if (wrap.parentNode) wrap.remove(); }, 20000);
 }
 
 /* ── Active Workflow Banner ── */

@@ -140,6 +140,14 @@
       "rec_task": "task.",
       "rec_use": "Use Workflow",
 
+      // Workflow suggestions
+      "wf_suggestions": "Suggested Workflows",
+      "wf_suggestion_accept": "Accept",
+      "wf_suggestion_dismiss": "Dismiss",
+      "wf_suggestion_confidence": "confidence",
+      "wf_no_suggestions": "No suggestions yet — keep chatting!",
+      "chat_suggestion_banner": "Birkin suggests a workflow for you",
+
       // Workflow activation
       "wf_activate": "Activate",
       "wf_deactivate": "Active \u2714",
@@ -504,6 +512,13 @@
       "rec_looks_like": "\uC774\uAC83\uC740",
       "rec_task": "\uC791\uC5C5\uC73C\uB85C \uBCF4\uC785\uB2C8\uB2E4.",
       "rec_use": "\uC6CC\uD06C\uD50C\uB85C\uC6B0 \uC0AC\uC6A9",
+
+      "wf_suggestions": "\uCD94\uCC9C \uC6CC\uD06C\uD50C\uB85C\uC6B0",
+      "wf_suggestion_accept": "\uC218\uB77D",
+      "wf_suggestion_dismiss": "\uAC70\uBD80",
+      "wf_suggestion_confidence": "\uC2E0\uB8B0\uB3C4",
+      "wf_no_suggestions": "\uC544\uC9C1 \uCD94\uCC9C\uC774 \uC5C6\uC2B5\uB2C8\uB2E4 \u2014 \uB300\uD654\uB97C \uACC4\uC18D\uD574\uBCF4\uC138\uC694!",
+      "chat_suggestion_banner": "Birkin\uC774 \uC6CC\uD06C\uD50C\uB85C\uC6B0\uB97C \uCD94\uCC9C\uD569\uB2C8\uB2E4",
 
       "wf_activate": "\uD65C\uC131\uD654",
       "wf_deactivate": "\uD65C\uC131 \u2714",

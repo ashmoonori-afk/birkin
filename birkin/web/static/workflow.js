@@ -62,6 +62,7 @@
     canvasArea.innerHTML = `
       <div class="wf-toolbar">
         <span class="wf-toolbar-title" id="wf-title">Untitled Workflow</span>
+        <button class="wf-tb-btn" id="wf-btn-suggest" style="color:#c084fc">\u{1F4A1} Suggest</button>
         <button class="wf-tb-btn" id="wf-btn-samples">Samples</button>
         <button class="wf-tb-btn" id="wf-btn-save">Save</button>
         <button class="wf-tb-btn" id="wf-btn-load">Load</button>
@@ -85,6 +86,13 @@
     S.configPanel.id = "wf-config-panel";
     canvasWrap.appendChild(S.configPanel);
 
+    // Suggestions panel
+    S.suggestionsPanel = document.createElement("div");
+    S.suggestionsPanel.className = "wf-suggestions";
+    S.suggestionsPanel.id = "wf-suggestions-panel";
+    S.suggestionsPanel.style.display = "none";
+    canvasWrap.appendChild(S.suggestionsPanel);
+
     canvasArea.appendChild(canvasWrap);
     editor.appendChild(canvasArea);
     S.container.appendChild(editor);
@@ -93,6 +101,7 @@
 
     // Wire events
     palette.querySelector("#wf-pal-search").oninput = (e) => buildPaletteList(palList, e.target.value.toLowerCase());
+    canvasArea.querySelector("#wf-btn-suggest").onclick = toggleSuggestions;
     canvasArea.querySelector("#wf-btn-samples").onclick = S.toggleSamples;
     canvasArea.querySelector("#wf-btn-save").onclick = S.saveCurrentWorkflow;
     canvasArea.querySelector("#wf-btn-load").onclick = S.toggleSamples;
@@ -111,6 +120,76 @@
     window.addEventListener("resize", S.resizeCanvas);
 
     S.showSamplesGallery();
+  }
+
+  /* ── Workflow Suggestions Panel ── */
+
+  let suggestionsVisible = false;
+
+  async function toggleSuggestions() {
+    suggestionsVisible = !suggestionsVisible;
+    const panel = S.suggestionsPanel;
+    if (!suggestionsVisible) { panel.style.display = "none"; return; }
+    panel.style.display = "block";
+    panel.innerHTML = `<div class="wf-suggestions-header"><span>${B.t("wf_suggestions")}</span><button class="wf-suggestions-close">\u2715</button></div><div style="text-align:center;padding:12px;color:var(--text-faint);font-size:0.75rem">Loading...</div>`;
+    panel.querySelector(".wf-suggestions-close").onclick = () => { suggestionsVisible = false; panel.style.display = "none"; };
+    try {
+      const res = await fetch("/api/workflows/suggestions?top_k=5");
+      const data = await res.json();
+      renderSuggestions(data);
+    } catch { renderSuggestions([]); }
+  }
+
+  function renderSuggestions(suggestions) {
+    const panel = S.suggestionsPanel;
+    const header = panel.querySelector(".wf-suggestions-header");
+    panel.innerHTML = "";
+    panel.appendChild(header);
+    header.querySelector(".wf-suggestions-close").onclick = () => { suggestionsVisible = false; panel.style.display = "none"; };
+
+    if (!suggestions.length) {
+      const empty = document.createElement("div");
+      empty.className = "wf-suggestions-empty";
+      empty.textContent = B.t("wf_no_suggestions");
+      panel.appendChild(empty);
+      return;
+    }
+
+    suggestions.forEach((s) => {
+      const card = document.createElement("div");
+      card.className = "wf-suggestion-card";
+      const pct = Math.round((s.confidence || 0) * 100);
+      card.innerHTML = `
+        <div class="wf-suggestion-title">${B.esc(s.title)}</div>
+        <div class="wf-suggestion-desc">${B.esc(s.description)}</div>
+        <div class="wf-suggestion-meta"><span class="wf-suggestion-score">${pct}% ${B.t("wf_suggestion_confidence")}</span></div>
+        <div class="wf-suggestion-actions">
+          <button class="wf-suggestion-btn accept">${B.t("wf_suggestion_accept")}</button>
+          <button class="wf-suggestion-btn dismiss">${B.t("wf_suggestion_dismiss")}</button>
+        </div>
+      `;
+      card.querySelector(".accept").onclick = () => handleFeedback(s, "accepted", card);
+      card.querySelector(".dismiss").onclick = () => handleFeedback(s, "dismissed", card);
+      panel.appendChild(card);
+    });
+  }
+
+  async function handleFeedback(suggestion, action, cardEl) {
+    try {
+      await fetch(`/api/workflows/suggestions/${suggestion.id}/feedback`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action }),
+      });
+    } catch { /* non-blocking */ }
+    if (action === "accepted" && suggestion.draft_workflow) {
+      S.loadWorkflow(suggestion.draft_workflow);
+      suggestionsVisible = false;
+      S.suggestionsPanel.style.display = "none";
+    }
+    cardEl.style.opacity = "0.3";
+    cardEl.style.pointerEvents = "none";
+    setTimeout(() => cardEl.remove(), 500);
   }
 
   /* ── Chat-based Workflow Recommendation ── */

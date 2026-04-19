@@ -512,6 +512,151 @@
 }
 .wf-recommend-dismiss:hover { color: rgba(240, 240, 250, 0.6); }
 
+/* ── Workflow Suggestions Panel ── */
+
+.wf-suggestions {
+  position: absolute;
+  top: 8px;
+  left: 8px;
+  width: 280px;
+  max-height: 360px;
+  overflow-y: auto;
+  background: rgba(10, 10, 20, 0.95);
+  border: 1px solid rgba(168, 85, 247, 0.2);
+  border-radius: 10px;
+  z-index: 5;
+  padding: 12px;
+  backdrop-filter: blur(12px);
+  animation: wf-rec-in 0.3s ease;
+}
+.wf-suggestions-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 10px;
+  font-size: 0.78rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 1px;
+  color: #c084fc;
+}
+.wf-suggestions-close {
+  background: none;
+  border: none;
+  color: rgba(240, 240, 250, 0.3);
+  cursor: pointer;
+  font-size: 14px;
+}
+.wf-suggestions-close:hover { color: rgba(240, 240, 250, 0.6); }
+
+.wf-suggestion-card {
+  padding: 10px 12px;
+  margin-bottom: 8px;
+  border: 1px solid rgba(168, 85, 247, 0.15);
+  border-radius: 8px;
+  background: rgba(168, 85, 247, 0.04);
+  transition: border-color 0.15s, background 0.15s;
+}
+.wf-suggestion-card:hover {
+  border-color: rgba(168, 85, 247, 0.35);
+  background: rgba(168, 85, 247, 0.08);
+}
+.wf-suggestion-title {
+  font-size: 0.82rem;
+  font-weight: 600;
+  color: var(--text);
+  margin-bottom: 4px;
+}
+.wf-suggestion-desc {
+  font-size: 0.72rem;
+  color: var(--text-dim);
+  margin-bottom: 8px;
+  line-height: 1.4;
+}
+.wf-suggestion-meta {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 8px;
+}
+.wf-suggestion-score {
+  font-size: 0.65rem;
+  color: #c084fc;
+  background: rgba(168, 85, 247, 0.12);
+  padding: 2px 8px;
+  border-radius: 20px;
+  font-weight: 600;
+}
+.wf-suggestion-actions {
+  display: flex;
+  gap: 6px;
+}
+.wf-suggestion-btn {
+  flex: 1;
+  padding: 5px 0;
+  border-radius: 6px;
+  font-family: var(--font);
+  font-size: 0.68rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  cursor: pointer;
+  transition: background 0.15s;
+  text-align: center;
+}
+.wf-suggestion-btn.accept {
+  background: rgba(74, 222, 128, 0.12);
+  border: 1px solid rgba(74, 222, 128, 0.3);
+  color: #4ade80;
+}
+.wf-suggestion-btn.accept:hover { background: rgba(74, 222, 128, 0.22); }
+.wf-suggestion-btn.dismiss {
+  background: transparent;
+  border: 1px solid rgba(240, 240, 250, 0.12);
+  color: rgba(240, 240, 250, 0.4);
+}
+.wf-suggestion-btn.dismiss:hover { background: rgba(240, 240, 250, 0.06); }
+
+.wf-suggestions-empty {
+  text-align: center;
+  color: var(--text-faint);
+  font-size: 0.75rem;
+  padding: 20px 0;
+}
+
+/* ── Chat Suggestion Chips ── */
+
+.chat-suggestion-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  padding: 6px 0;
+  animation: wf-rec-in 0.3s ease;
+}
+.chat-suggestion-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 12px;
+  border: 1px solid rgba(168, 85, 247, 0.25);
+  border-radius: 20px;
+  background: rgba(168, 85, 247, 0.06);
+  font-size: 0.75rem;
+  color: #c084fc;
+  cursor: pointer;
+  transition: background 0.15s, border-color 0.15s;
+}
+.chat-suggestion-chip:hover {
+  background: rgba(168, 85, 247, 0.14);
+  border-color: rgba(168, 85, 247, 0.4);
+}
+.chat-suggestion-chip .chip-dismiss {
+  font-size: 10px;
+  opacity: 0.5;
+  cursor: pointer;
+}
+.chat-suggestion-chip .chip-dismiss:hover { opacity: 1; }
+
 /* ── Responsive ── */
 
 @media (max-width: 767px) {
