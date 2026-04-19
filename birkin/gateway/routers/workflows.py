@@ -22,6 +22,16 @@ def list_workflows() -> dict:
     return load_workflows()
 
 
+@router.get("/workflows/suggestions")
+async def get_suggestions(top_k: int = 3) -> list[dict]:
+    """Return workflow suggestions based on behavioural patterns."""
+    from birkin.gateway.deps import get_workflow_recommender
+
+    recommender = get_workflow_recommender()
+    suggestions = await recommender.suggest(top_k=top_k)
+    return [s.model_dump() for s in suggestions]
+
+
 @router.get("/workflows/{workflow_id}")
 def get_workflow(workflow_id: str) -> dict:
     """Get a single workflow by ID."""
