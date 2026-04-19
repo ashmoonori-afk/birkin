@@ -132,6 +132,31 @@ async def security_check() -> dict:
             }
         )
 
+    # 8. Network exposure
+    host = os.getenv("BIRKIN_HOST", "127.0.0.1")
+    auth_token = os.getenv("BIRKIN_AUTH_TOKEN", "")
+    is_network = host not in ("127.0.0.1", "localhost", "::1")
+    if is_network:
+        checks.append(
+            {
+                "name": "Network Exposure",
+                "status": "pass" if auth_token else "fail",
+                "detail": (
+                    "Network mode with auth token"
+                    if auth_token
+                    else "Network mode WITHOUT auth token — set BIRKIN_AUTH_TOKEN!"
+                ),
+            }
+        )
+    else:
+        checks.append(
+            {
+                "name": "Network Exposure",
+                "status": "pass",
+                "detail": "Localhost only",
+            }
+        )
+
     # Summary
     passed = sum(1 for c in checks if c["status"] == "pass")
     total = len(checks)
