@@ -1,0 +1,43 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+echo "Pre-commit: lint + format + test..."
+
+# 1. Ruff lint + format
+if [ -f .venv/bin/ruff ]; then
+    .venv/bin/ruff check --fix .
+    .venv/bin/ruff format .
+elif command -v ruff &>/dev/null; then
+    ruff check --fix .
+    ruff format .
+else
+    echo "ruff not found. Install: pip install ruff"
+    exit 1
+fi
+
+# 2. Re-stage auto-fixed files
+git diff --name-only | xargs -r git add 2>/dev/null || true
+
+# 3. File size check
+bash scripts/check-file-sizes.sh 2>/dev/null || true
+
+# 4. Run tests for changed files
+CHANGED=$(git diff --cached --name-only --diff-filter=ACMR -- '*.py' | head -20)
+if [ -n "$CHANGED" ]; then
+    TEST_FILES=""
+    for f in $CHANGED; do
+        TEST_PATH=$(echo "$f" | sed 's|^birkin/|tests/|' | sed 's|/\([^/]*\)\.py$|/test_\1.py|')
+        if [ -f "$TEST_PATH" ]; then
+            TEST_FILES="$TEST_FILES $TEST_PATH"
+        fi
+    done
+    if [ -n "$TEST_FILES" ]; then
+        echo "Testing changed modules..."
+        .venv/bin/pytest $TEST_FILES --tb=short -q --no-header 2>/dev/null || {
+            echo "Tests failed. Fix before committing."
+            exit 1
+        }
+    fi
+fi
+
+echo "Pre-commit passed."

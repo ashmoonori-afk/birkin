@@ -1,0 +1,6 @@
+# Files allowed to exceed 400 lines with justification
+birkin/core/workflow_engine.py    # 47 node type handlers require many dispatch methods
+birkin/core/agent.py              # Core loop with compression + memory + tools + streaming
+birkin/memory/wiki.py             # WikiMemory with 5 categories, decay, sanitization, auto-link
+birkin/cli/main.py                # CLI entry point with 8 subcommands
+birkin/gateway/routers/profile.py # Import + review + stats fallback + helpers
