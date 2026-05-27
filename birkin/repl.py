@@ -60,12 +60,23 @@ def _stream(piece: str) -> None:
     sys.stdout.flush()
 
 
+_ASCII = r"""
+ ██████╗ ██╗██████╗ ██╗  ██╗██╗███╗   ██╗
+ ██╔══██╗██║██╔══██╗██║ ██╔╝██║████╗  ██║
+ ██████╔╝██║██████╔╝█████╔╝ ██║██╔██╗ ██║
+ ██╔══██╗██║██╔══██╗██╔═██╗ ██║██║╚██╗██║
+ ██████╔╝██║██║  ██║██║  ██╗██║██║ ╚████║
+ ╚═════╝ ╚═╝╚═╝  ╚═╝╚═╝  ╚═╝╚═╝╚═╝  ╚═══╝"""
+
+
 def _banner(session: Session) -> None:
     cfg = session.cfg
     n = len(session.skills.skills)
-    print(f"{BOLD}birkin{RESET} — model {CYAN}{cfg.get('model')}{RESET}, "
-          f"{n} skill(s) loaded. Type {YELLOW}/help{RESET} or just chat. "
-          f"Ctrl-C to quit.")
+    print(f"{CYAN}{_ASCII}{RESET}")
+    print(f" {DIM}The AI agent that actually remembers you.{RESET}\n")
+    print(f" model {CYAN}{cfg.get('model')}{RESET} · {n} skill(s) · "
+          f"vault {DIM}{session.memory.vault}{RESET}")
+    print(f" type {YELLOW}/help{RESET} or just chat · Ctrl-C to quit.")
 
 
 def _save_session(session: Session) -> str:
