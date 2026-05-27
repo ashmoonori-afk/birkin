@@ -86,8 +86,19 @@ birkin permission      # see / change which actions auto-apply
 birkin setup           # configure provider, model, vault, nightly hour
 ```
 
-In chat, slash commands: `/help` `/skills` `/new` `/model` `/learn`
-`/permission` `/save` `/quit`.
+### In-chat slash commands
+
+A broad, self-documenting set (`/help <name>` for detail):
+
+| | |
+|---|---|
+| **Conversation** | `/new` · `/retry` · `/undo` · `/compact` · `/clear` |
+| **Model** | `/model` · `/models` · `/provider` · `/temp` |
+| **Skills** | `/skills` · `/skill <name>` · `/reload` · `/learn` |
+| **Memory** | `/memory <query>` · `/remember <text>` · `/vault` |
+| **Autonomy** | `/nightly` · `/review` · `/cron` · `/permission` |
+| **Session** | `/save` · `/load` · `/sessions` |
+| **System** | `/tools` · `/system` · `/config` · `/update` · `/help` · `/quit` |
 
 ## 🧠 How memory works
 

@@ -36,9 +36,12 @@ DEFAULT_CONFIG: dict[str, Any] = {
     # --- Nightly 04:00 self-improvement routine ---
     "nightly_hour": 4,
     "nightly_minute": 0,
-    # Categories that the agent/nightly routine may apply WITHOUT asking.
-    # Everything else (e.g. "cron", "shell") is queued for approval.
-    # Adjust at runtime with the REPL /permission command.
+    # Governs the UNATTENDED path (nightly routine's propose_action): these
+    # categories are applied automatically; everything else (e.g. "cron",
+    # "shell") is queued for approval (`birkin review`). Note: in an INTERACTIVE
+    # chat the user is present, so run_shell executes directly — the nightly
+    # routine itself is denied shell/subagent tools (see nightly.py).
+    # Adjust with the REPL /permission command or `birkin permission`.
     "auto_approve": ["memory", "skills"],
 }
 
@@ -149,6 +152,11 @@ def load_config() -> dict[str, Any]:
 def save_config(cfg: dict[str, Any]) -> Path:
     path = config_path()
     path.write_text(json.dumps(cfg, indent=2, ensure_ascii=False), encoding="utf-8")
+    # config.json may hold an API key — restrict to the owner where supported.
+    try:
+        os.chmod(path, 0o600)
+    except OSError:
+        pass
     return path
 
 

@@ -71,6 +71,7 @@
 </div>
 
 <script>
+const BIRKIN_TOKEN = "__BIRKIN_TOKEN__";
 const $ = (s)=>document.querySelector(s);
 const esc = (s)=>(s==null?"":(""+s)).replace(/[&<>]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;"}[c]));
 function fmt(t){ if(!t) return "—"; try{ return new Date(t).toLocaleString(); }catch{ return t; } }
@@ -112,7 +113,8 @@ ${esc(JSON.stringify(a.payload||{}))}</div></div>`).join("");
   }catch(e){ $("#approvals").textContent="error"; }
 }
 async function act(id, action){
-  await fetch("/api/approvals",{method:"POST",headers:{"Content-Type":"application/json"},
+  await fetch("/api/approvals",{method:"POST",
+    headers:{"Content-Type":"application/json","X-Birkin-Token":BIRKIN_TOKEN},
     body:JSON.stringify({id,action})});
   await Promise.all([loadApprovals(), loadStatus(), loadJobs(), loadRuns()]);
 }

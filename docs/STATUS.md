@@ -25,7 +25,21 @@ design see [DESIGN.md](./DESIGN.md); for rationale see [DECISIONS.md](./DECISION
 | **Monitoring dashboard** (not chat) | `web/` | ✅ (endpoints verified) |
 | Cross-platform install one-liners | `scripts/install.sh`, `scripts/install.ps1` | ✅ |
 | Seed skills (6, diverse skillsets) | `skills/` | ✅ |
+| Rich slash commands (29, registry-based) | `slashcommands.py`, `ui.py` | ✅ |
+| CLI model picker (`birkin model`) | `cli.py` | ✅ |
 | Design + decision docs | `docs/` | ✅ |
+
+## Security review (addressed)
+
+A multi-agent code review flagged 3 CRITICAL issues; all fixed:
+- **Unattended shell** — the nightly routine now runs with a restricted toolset
+  (no `run_shell`/`spawn_subagent`); consequential actions go through approval.
+- **Plaintext API key** — `birkin setup` now warns, and `config.json` is written
+  `chmod 600`.
+- **Dashboard approve without auth** — POST now requires a per-process token
+  (embedded in the page) and a localhost `Host` header (blocks DNS rebinding).
+Also fixed: Anthropic SSE parser now maps deltas by block index (parallel
+tool_use), `/permission add shell|cron` warns, `cron.mark_ran` is immutable.
 
 ## Verified (without an API key)
 

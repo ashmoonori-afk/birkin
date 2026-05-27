@@ -40,7 +40,7 @@ def _read_json(path: Path, default: Any) -> Any:
 # -- run summaries ---------------------------------------------------------
 
 def save_run(kind: str, summary: str, details: dict[str, Any] | None = None) -> Path:
-    ts = datetime.now().strftime("%Y%m%d-%H%M%S")
+    ts = datetime.now(timezone.utc).strftime("%Y%m%d-%H%M%S")
     rec = {"id": ts, "kind": kind, "at": _now(), "summary": summary,
            "details": details or {}}
     path = config.runs_dir() / f"{ts}-{kind}.json"

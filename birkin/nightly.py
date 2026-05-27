@@ -107,6 +107,14 @@ def run_once(dry_run: bool = False) -> int:
     files_text = _gather_changed_files(cwd)
     activity = store.read_recent_activity() or "(empty)"
 
+    # SECURITY: the nightly routine runs unattended, so it must NOT have direct
+    # shell or subagent access. It may read/write files, browse, and update
+    # memory/skills (all reversible); anything consequential goes through
+    # propose_action -> the approval queue.
+    from .tools import build_registry
+    session.agent.registry = build_registry(
+        session.ctx, include={"files", "web", "skills", "memory"})
+
     proposals: list[dict[str, Any]] = []
     _attach_propose_tool(session, cfg, proposals, dry_run)
 

@@ -19,6 +19,7 @@ No API key is required to view the dashboard (it does not call the LLM).
 from __future__ import annotations
 
 import json
+import secrets
 import webbrowser
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from pathlib import Path
@@ -28,6 +29,12 @@ from .. import approvals, config, cron, store
 from ..skills import build_manager
 
 _STATIC = Path(__file__).resolve().parent / "static"
+
+# A per-process token embedded in the page and required on mutating POSTs.
+# Combined with a Host-header check this blocks DNS-rebinding and other local
+# processes from approving queued actions.
+_TOKEN = secrets.token_urlsafe(18)
+_ALLOWED_HOSTS = {"127.0.0.1", "localhost"}
 
 
 def _status_payload() -> dict[str, Any]:
@@ -68,10 +75,18 @@ class Handler(BaseHTTPRequestHandler):
         self._send(code, json.dumps(obj, ensure_ascii=False).encode("utf-8"),
                    "application/json; charset=utf-8")
 
+    def _host_ok(self) -> bool:
+        host = (self.headers.get("Host", "") or "").rsplit(":", 1)[0]
+        return host in _ALLOWED_HOSTS or host == ""
+
     def do_GET(self) -> None:
+        if not self._host_ok():
+            self._send(403, b"forbidden host", "text/plain")
+            return
         if self.path in ("/", "/index.html"):
-            self._send(200, (_STATIC / "index.html").read_bytes(),
-                       "text/html; charset=utf-8")
+            html = (_STATIC / "index.html").read_text(encoding="utf-8")
+            html = html.replace("__BIRKIN_TOKEN__", _TOKEN)
+            self._send(200, html.encode("utf-8"), "text/html; charset=utf-8")
         elif self.path == "/api/status":
             self._json(_status_payload())
         elif self.path == "/api/jobs":
@@ -93,6 +108,12 @@ class Handler(BaseHTTPRequestHandler):
             self._send(404, b"not found", "text/plain")
 
     def do_POST(self) -> None:
+        if not self._host_ok():
+            self._send(403, b"forbidden host", "text/plain")
+            return
+        if self.headers.get("X-Birkin-Token", "") != _TOKEN:
+            self._json({"error": "missing or invalid token"}, code=403)
+            return
         if self.path != "/api/approvals":
             self._send(404, b"not found", "text/plain")
             return

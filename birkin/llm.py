@@ -119,10 +119,15 @@ class LLMClient:
 
     @staticmethod
     def _read_anthropic_stream(resp, on_text) -> dict[str, Any]:
+        # Blocks are tracked by their stream ``index`` (not "last appended"), so
+        # multiple/parallel tool_use blocks accumulate their JSON correctly.
         content: list[dict[str, Any]] = []
         stop_reason = "end_turn"
-        cur_index: int | None = None
-        cur_json_parts: list[str] = []
+        json_parts: dict[int, list[str]] = {}
+
+        def ensure(idx: int) -> None:
+            while len(content) <= idx:
+                content.append({"type": "text", "text": ""})
 
         for raw in resp:
             line = raw.decode("utf-8", "replace").strip()
@@ -138,32 +143,35 @@ class LLMClient:
             etype = event.get("type")
 
             if etype == "content_block_start":
-                cur_index = event.get("index")
+                idx = event.get("index", len(content))
+                ensure(idx)
                 block = event.get("content_block", {})
                 if block.get("type") == "tool_use":
-                    content.append({"type": "tool_use", "id": block.get("id"),
-                                    "name": block.get("name"), "input": {}})
-                    cur_json_parts = []
-                elif block.get("type") == "text":
-                    content.append({"type": "text", "text": ""})
+                    content[idx] = {"type": "tool_use", "id": block.get("id"),
+                                    "name": block.get("name"), "input": {}}
+                    json_parts[idx] = []
+                else:
+                    content[idx] = {"type": "text", "text": ""}
             elif etype == "content_block_delta":
+                idx = event.get("index", len(content) - 1)
                 delta = event.get("delta", {})
                 if delta.get("type") == "text_delta":
                     piece = delta.get("text", "")
-                    if content and content[-1].get("type") == "text":
-                        content[-1]["text"] += piece
+                    if 0 <= idx < len(content) and content[idx].get("type") == "text":
+                        content[idx]["text"] += piece
                     if on_text and piece:
                         on_text(piece)
                 elif delta.get("type") == "input_json_delta":
-                    cur_json_parts.append(delta.get("partial_json", ""))
+                    json_parts.setdefault(idx, []).append(delta.get("partial_json", ""))
             elif etype == "content_block_stop":
-                if content and content[-1].get("type") == "tool_use":
-                    raw_json = "".join(cur_json_parts).strip()
+                idx = event.get("index")
+                if idx is not None and 0 <= idx < len(content) \
+                        and content[idx].get("type") == "tool_use":
+                    raw_json = "".join(json_parts.get(idx, [])).strip()
                     try:
-                        content[-1]["input"] = json.loads(raw_json) if raw_json else {}
+                        content[idx]["input"] = json.loads(raw_json) if raw_json else {}
                     except json.JSONDecodeError:
-                        content[-1]["input"] = {}
-                cur_json_parts = []
+                        content[idx]["input"] = {}
             elif etype == "message_delta":
                 sr = event.get("delta", {}).get("stop_reason")
                 if sr:
@@ -173,6 +181,9 @@ class LLMClient:
                 raise LLMError(f"anthropic stream error: {msg}")
             # message_start / message_stop / ping: ignored
 
+        # Drop any empty trailing text blocks we pre-allocated but never filled.
+        content = [b for b in content
+                   if not (b.get("type") == "text" and not b.get("text"))]
         return {"role": "assistant", "content": content, "stop_reason": stop_reason}
 
     # -- OpenAI-compatible (non-streaming adapter) -------------------------

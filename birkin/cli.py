@@ -63,12 +63,63 @@ def _cmd_setup(args: argparse.Namespace) -> int:
     ask("Obsidian vault path", "vault_path")
     ask("Nightly hour (0-23)", "nightly_hour")
 
+    print("\nThe API key is best provided via the ANTHROPIC_API_KEY environment "
+          "variable. If you enter it here it will be stored in plaintext in "
+          "config.json (readable by your user only).")
     key = input("API key (leave blank to use the environment variable): ").strip()
     if key:
         cfg["api_key"] = key
 
     path = config.save_config(cfg)
     print(f"\nSaved to {path}")
+    return 0
+
+
+# Curated, current model choices (see CLAUDE model guidance). Free text also OK.
+_KNOWN_MODELS = {
+    "anthropic": [
+        ("claude-opus-4-7", "deepest reasoning"),
+        ("claude-sonnet-4-6", "best all-round coding (default)"),
+        ("claude-haiku-4-5-20251001", "fast & cheap (good for subagents)"),
+    ],
+    "openai": [
+        ("gpt-4o", "OpenAI-compatible"),
+        ("gpt-4o-mini", "OpenAI-compatible, cheaper"),
+    ],
+}
+
+
+def _cmd_model(args: argparse.Namespace) -> int:
+    """Pick the model from the CLI, hermes-style (`birkin model`)."""
+    from . import config
+    cfg = config.load_config()
+    provider = cfg.get("provider", "anthropic")
+
+    if args.name:  # non-interactive: set directly
+        cfg["model"] = args.name
+        config.save_config(cfg)
+        print(f"Model set to {args.name}")
+        return 0
+
+    choices = _KNOWN_MODELS.get(provider, _KNOWN_MODELS["anthropic"])
+    print(f"Current model: {cfg.get('model')}  (provider: {provider})\n")
+    for i, (name, note) in enumerate(choices, 1):
+        marker = "*" if name == cfg.get("model") else " "
+        print(f"  {marker} {i}. {name}  — {note}")
+    print("    Or type a model name directly.")
+    try:
+        sel = input("\nChoose [number or name, blank to keep]: ").strip()
+    except (EOFError, KeyboardInterrupt):
+        print()
+        return 0
+    if not sel:
+        return 0
+    if sel.isdigit() and 1 <= int(sel) <= len(choices):
+        cfg["model"] = choices[int(sel) - 1][0]
+    else:
+        cfg["model"] = sel
+    config.save_config(cfg)
+    print(f"Model set to {cfg['model']}")
     return 0
 
 
@@ -94,6 +145,11 @@ def _cmd_permission(args: argparse.Namespace) -> int:
     cfg = config.load_config()
     auto = list(cfg.get("auto_approve", []))
     if args.add:
+        if args.add in ("shell", "cron"):
+            print("⚠  Warning: auto-approving '" + args.add + "' lets the agent "
+                  "and the unattended nightly routine run it WITHOUT asking — "
+                  "including arbitrary shell commands at 04:00. Only do this if "
+                  "you fully trust the setup.")
         if args.add not in auto:
             auto.append(args.add)
     if args.remove and args.remove in auto:
@@ -140,6 +196,10 @@ def build_parser() -> argparse.ArgumentParser:
     wp.set_defaults(func=_cmd_web)
 
     sub.add_parser("setup", help="configure provider/model/key").set_defaults(func=_cmd_setup)
+
+    mp = sub.add_parser("model", help="choose the model (interactive, like `hermes model`)")
+    mp.add_argument("name", nargs="?", help="set this model directly (skips the picker)")
+    mp.set_defaults(func=_cmd_model)
 
     npar = sub.add_parser("nightly", help="run the self-improvement routine now")
     npar.add_argument("--dry-run", action="store_true", help="analyze but propose nothing for execution")

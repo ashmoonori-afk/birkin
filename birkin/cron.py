@@ -52,10 +52,11 @@ def remove_job(job_id: str) -> bool:
 
 
 def mark_ran(job_id: str) -> None:
-    jobs = load_jobs()
-    for j in jobs:
-        if j.get("id") == job_id:
-            j["last_run"] = datetime.now().isoformat(timespec="seconds")
+    now = datetime.now().isoformat(timespec="seconds")
+    jobs = [
+        {**j, "last_run": now} if j.get("id") == job_id else j
+        for j in load_jobs()
+    ]
     save_jobs(jobs)
 
 
