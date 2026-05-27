@@ -1,0 +1,165 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>birkin · dashboard</title>
+<style>
+  :root{ --bg:#0f1115; --panel:#161922; --panel2:#1d212c; --border:#272c39;
+    --text:#e6e9ef; --muted:#8b93a7; --accent:#7aa2f7; --green:#9ece6a;
+    --red:#f7768e; --amber:#e0af68; }
+  *{ box-sizing:border-box; }
+  body{ margin:0; min-height:100vh; background:var(--bg); color:var(--text);
+    font:14px/1.55 ui-sans-serif,system-ui,-apple-system,Segoe UI,Roboto,sans-serif; }
+  header{ display:flex; align-items:baseline; gap:14px; padding:18px 24px;
+    border-bottom:1px solid var(--border); position:sticky; top:0; background:var(--bg); }
+  header h1{ margin:0; font-size:20px; letter-spacing:.5px; }
+  header .sub{ color:var(--muted); font-size:13px; }
+  header .dot{ margin-left:auto; font-size:12px; color:var(--muted); }
+  .grid{ display:grid; grid-template-columns:repeat(auto-fit,minmax(320px,1fr));
+    gap:16px; padding:20px 24px; }
+  .card{ background:var(--panel); border:1px solid var(--border); border-radius:14px;
+    padding:16px 18px; }
+  .card h2{ margin:0 0 12px; font-size:12px; text-transform:uppercase;
+    letter-spacing:.08em; color:var(--muted); }
+  .kv{ display:flex; justify-content:space-between; gap:12px; padding:4px 0;
+    border-bottom:1px dashed var(--border); }
+  .kv:last-child{ border-bottom:none; }
+  .kv .k{ color:var(--muted); } .kv .v{ text-align:right; word-break:break-all; }
+  .pill{ display:inline-block; padding:1px 9px; border-radius:999px; font-size:12px;
+    border:1px solid var(--border); }
+  .pill.on{ color:var(--green); border-color:var(--green); }
+  .pill.off{ color:var(--muted); }
+  .pill.warn{ color:var(--amber); border-color:var(--amber); }
+  .item{ padding:10px 0; border-bottom:1px solid var(--border); }
+  .item:last-child{ border-bottom:none; }
+  .item .t{ font-weight:600; }
+  .item .d{ color:var(--muted); font-size:13px; white-space:pre-wrap; }
+  .row{ display:flex; gap:8px; align-items:center; }
+  .row .t{ flex:1; }
+  button{ border:1px solid var(--border); background:var(--panel2); color:var(--text);
+    border-radius:8px; padding:5px 12px; cursor:pointer; font-size:13px; }
+  button.approve{ border-color:var(--green); color:var(--green); }
+  button.reject{ border-color:var(--red); color:var(--red); }
+  button:hover{ filter:brightness(1.15); }
+  .empty{ color:var(--muted); font-style:italic; }
+  .skill .n{ font-weight:600; } .skill .dsc{ color:var(--muted); font-size:13px; }
+  time{ color:var(--muted); font-size:12px; }
+  .span2{ grid-column:1 / -1; }
+  details summary{ cursor:pointer; color:var(--muted); }
+</style>
+</head>
+<body>
+<header>
+  <h1>birkin</h1>
+  <span class="sub">self-improving agent workspace · dashboard</span>
+  <span class="dot" id="clock"></span>
+</header>
+
+<div class="grid">
+  <section class="card" id="statusCard"><h2>Status</h2><div id="status" class="empty">loading…</div></section>
+
+  <section class="card" id="approvalsCard">
+    <h2>Pending approvals</h2><div id="approvals" class="empty">loading…</div>
+  </section>
+
+  <section class="card"><h2>Scheduled jobs</h2><div id="jobs" class="empty">loading…</div></section>
+
+  <section class="card span2"><h2>Recent runs</h2><div id="runs" class="empty">loading…</div></section>
+
+  <section class="card span2"><h2>Skills</h2><div id="skills" class="empty">loading…</div></section>
+</div>
+
+<script>
+const $ = (s)=>document.querySelector(s);
+const esc = (s)=>(s==null?"":(""+s)).replace(/[&<>]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;"}[c]));
+function fmt(t){ if(!t) return "—"; try{ return new Date(t).toLocaleString(); }catch{ return t; } }
+
+async function getJSON(u){ const r = await fetch(u); return r.json(); }
+
+async function loadStatus(){
+  try{
+    const s = await getJSON("/api/status");
+    $("#status").className = "";
+    $("#status").innerHTML = `
+      ${kv("Provider / model", esc(s.provider)+" · "+esc(s.model))}
+      ${kv("Vault", esc(s.vault))}
+      ${kv("Skills", esc(s.skills_count))}
+      ${kv("Daemon", s.daemon?'<span class="pill on">running</span>':'<span class="pill off">stopped</span>')}
+      ${kv("Next nightly", fmt(s.next_nightly)+" (≈"+esc(s.nightly_hour)+":00)")}
+      ${kv("Auto-approve", (s.auto_approve||[]).map(esc).join(", ")||"(none)")}
+      ${kv("Pending", s.pending_count>0?`<span class="pill warn">${s.pending_count}</span>`:"0")}
+      ${kv("Heartbeat", fmt(s.heartbeat))}`;
+  }catch(e){ $("#status").textContent = "Cannot reach server."; }
+}
+function kv(k,v){ return `<div class="kv"><span class="k">${k}</span><span class="v">${v}</span></div>`; }
+
+async function loadApprovals(){
+  try{
+    const list = await getJSON("/api/approvals");
+    const el = $("#approvals");
+    if(!list.length){ el.className="empty"; el.textContent="Nothing awaiting approval."; return; }
+    el.className="";
+    el.innerHTML = list.map(a=>`
+      <div class="item"><div class="row">
+        <span class="t">[${esc(a.category)}] ${esc(a.title)}</span>
+        <button class="approve" data-id="${a.id}" data-act="approve">Approve</button>
+        <button class="reject" data-id="${a.id}" data-act="reject">Reject</button>
+      </div>
+      <div class="d">${esc(a.description||"")}
+${esc(JSON.stringify(a.payload||{}))}</div></div>`).join("");
+    el.querySelectorAll("button").forEach(b=>b.onclick=()=>act(b.dataset.id,b.dataset.act));
+  }catch(e){ $("#approvals").textContent="error"; }
+}
+async function act(id, action){
+  await fetch("/api/approvals",{method:"POST",headers:{"Content-Type":"application/json"},
+    body:JSON.stringify({id,action})});
+  await Promise.all([loadApprovals(), loadStatus(), loadJobs(), loadRuns()]);
+}
+
+async function loadJobs(){
+  try{
+    const {jobs} = await getJSON("/api/jobs");
+    const el = $("#jobs");
+    if(!jobs.length){ el.className="empty"; el.textContent="No cron jobs yet."; return; }
+    el.className="";
+    el.innerHTML = jobs.map(j=>`<div class="item"><div class="row">
+      <span class="t"><b>${esc(j.name)}</b> · ${String(j.hour).padStart(2,"0")}:${String(j.minute).padStart(2,"0")}
+      <span class="pill ${j.enabled?'on':'off'}">${j.enabled?'on':'off'}</span></span>
+      <span>${esc(j.type)}</span></div>
+      <div class="d">last run: ${fmt(j.last_run)}</div></div>`).join("");
+  }catch(e){ $("#jobs").textContent="error"; }
+}
+
+async function loadRuns(){
+  try{
+    const runs = await getJSON("/api/runs");
+    const el = $("#runs");
+    if(!runs.length){ el.className="empty"; el.textContent="No runs recorded yet. The nightly routine writes summaries here."; return; }
+    el.className="";
+    el.innerHTML = runs.map(r=>`<div class="item">
+      <div class="row"><span class="t"><b>${esc(r.kind)}</b> <time>${fmt(r.at)}</time></span></div>
+      <div class="d">${esc(r.summary||"").slice(0,600)}</div></div>`).join("");
+  }catch(e){ $("#runs").textContent="error"; }
+}
+
+async function loadSkills(){
+  try{
+    const list = await getJSON("/api/skills");
+    const el = $("#skills");
+    if(!Array.isArray(list)||!list.length){ el.className="empty"; el.textContent="No skills installed."; return; }
+    el.className="";
+    el.innerHTML = list.map(s=>`<div class="item skill">
+      <div class="n">${esc(s.name)} <span class="pill off">${esc(s.source)}</span></div>
+      <div class="dsc">${esc(s.description||"")}</div></div>`).join("");
+  }catch(e){ $("#skills").textContent="error"; }
+}
+
+function tick(){ $("#clock").textContent = new Date().toLocaleTimeString(); }
+async function refresh(){ await Promise.all([loadStatus(),loadApprovals(),loadJobs(),loadRuns()]); }
+loadSkills(); refresh(); tick();
+setInterval(tick, 1000);
+setInterval(refresh, 5000);
+</script>
+</body>
+</html>

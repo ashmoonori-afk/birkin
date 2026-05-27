@@ -1,0 +1,166 @@
+"""Configuration and runtime paths for birkin.
+
+All persistent state lives under the *birkin home* directory (default
+``~/.birkin``, override with ``$BIRKIN_HOME``), mirroring hermes' ``~/.hermes``
+convention. Secrets are never written to the repo; API keys are read from the
+environment first and only fall back to ``config.json`` when explicitly set.
+
+This module is pure standard library and has no side effects on import beyond
+reading environment variables.
+"""
+
+from __future__ import annotations
+
+import json
+import os
+from pathlib import Path
+from typing import Any
+
+# --- Defaults -------------------------------------------------------------
+
+DEFAULT_CONFIG: dict[str, Any] = {
+    "provider": "anthropic",  # "anthropic" | "openai" (OpenAI-compatible)
+    "model": "claude-sonnet-4-6",
+    "subagent_model": "claude-haiku-4-5-20251001",
+    "base_url": "",  # empty -> provider default
+    "api_key": None,  # prefer env var; only set here if you must
+    "max_tokens": 4096,
+    "temperature": 1.0,
+    "max_turns": 24,  # safety guard on the agent tool-calling loop
+    "max_depth": 2,  # subagent recursion bound
+    "extra_skill_dirs": [],  # additional directories to scan for SKILL.md
+    "self_improve": True,  # allow the agent to write/refine skills after tasks
+    "web_port": 8787,
+    # --- Obsidian-vault semantic memory ---
+    "vault_path": "",  # empty -> <birkin_home>/vault
+    # --- Nightly 04:00 self-improvement routine ---
+    "nightly_hour": 4,
+    "nightly_minute": 0,
+    # Categories that the agent/nightly routine may apply WITHOUT asking.
+    # Everything else (e.g. "cron", "shell") is queued for approval.
+    # Adjust at runtime with the REPL /permission command.
+    "auto_approve": ["memory", "skills"],
+}
+
+PROVIDER_DEFAULT_BASE_URL = {
+    "anthropic": "https://api.anthropic.com",
+    "openai": "https://api.openai.com",
+}
+
+PROVIDER_API_KEY_ENV = {
+    "anthropic": "ANTHROPIC_API_KEY",
+    "openai": "OPENAI_API_KEY",
+}
+
+
+# --- Paths ----------------------------------------------------------------
+
+def birkin_home() -> Path:
+    """Return the birkin home directory, creating it if necessary."""
+    raw = os.environ.get("BIRKIN_HOME")
+    home = Path(raw).expanduser() if raw else Path.home() / ".birkin"
+    home.mkdir(parents=True, exist_ok=True)
+    return home
+
+
+def config_path() -> Path:
+    return birkin_home() / "config.json"
+
+
+def user_skills_dir() -> Path:
+    """User/agent-created skills (writable)."""
+    d = birkin_home() / "skills"
+    d.mkdir(parents=True, exist_ok=True)
+    return d
+
+
+def sessions_dir() -> Path:
+    d = birkin_home() / "sessions"
+    d.mkdir(parents=True, exist_ok=True)
+    return d
+
+
+def vault_dir(cfg: dict[str, Any] | None = None) -> Path:
+    """Obsidian semantic-memory vault directory."""
+    raw = (cfg or {}).get("vault_path") if cfg else None
+    d = Path(raw).expanduser() if raw else birkin_home() / "vault"
+    d.mkdir(parents=True, exist_ok=True)
+    return d
+
+
+def runs_dir() -> Path:
+    """Nightly/cron run summaries (surfaced on the dashboard)."""
+    d = birkin_home() / "runs"
+    d.mkdir(parents=True, exist_ok=True)
+    return d
+
+
+def pending_dir() -> Path:
+    """Proposed actions awaiting user approval."""
+    d = birkin_home() / "pending"
+    d.mkdir(parents=True, exist_ok=True)
+    return d
+
+
+def cron_path() -> Path:
+    return birkin_home() / "cron.json"
+
+
+def status_path() -> Path:
+    return birkin_home() / "status.json"
+
+
+def activity_log_path() -> Path:
+    """Rolling activity log used as nightly-routine input."""
+    return birkin_home() / "activity.log"
+
+
+def bundled_skills_dirs() -> list[Path]:
+    """Candidate locations for skills shipped with birkin.
+
+    Checks both the source layout (``<repo>/skills``) and the installed-wheel
+    layout (``birkin/_bundled_skills``). Returns existing directories only.
+    """
+    pkg_dir = Path(__file__).resolve().parent
+    candidates = [
+        pkg_dir / "_bundled_skills",  # installed wheel (see pyproject force-include)
+        pkg_dir.parent / "skills",  # editable / source checkout
+    ]
+    return [c for c in candidates if c.is_dir()]
+
+
+# --- Load / save ----------------------------------------------------------
+
+def load_config() -> dict[str, Any]:
+    """Load config merged over defaults. Missing file -> defaults."""
+    cfg = dict(DEFAULT_CONFIG)
+    path = config_path()
+    if path.is_file():
+        try:
+            data = json.loads(path.read_text(encoding="utf-8"))
+            if isinstance(data, dict):
+                cfg.update(data)
+        except (json.JSONDecodeError, OSError) as exc:
+            # Fail loud but non-fatal: a corrupt config should not brick the CLI.
+            print(f"[birkin] warning: could not read config ({exc}); using defaults")
+    return cfg
+
+
+def save_config(cfg: dict[str, Any]) -> Path:
+    path = config_path()
+    path.write_text(json.dumps(cfg, indent=2, ensure_ascii=False), encoding="utf-8")
+    return path
+
+
+def resolve_base_url(cfg: dict[str, Any]) -> str:
+    if cfg.get("base_url"):
+        return str(cfg["base_url"]).rstrip("/")
+    provider = cfg.get("provider", "anthropic")
+    return PROVIDER_DEFAULT_BASE_URL.get(provider, PROVIDER_DEFAULT_BASE_URL["anthropic"])
+
+
+def get_api_key(cfg: dict[str, Any]) -> str | None:
+    """Resolve the API key: env var first, then config file."""
+    provider = cfg.get("provider", "anthropic")
+    env_name = PROVIDER_API_KEY_ENV.get(provider, "ANTHROPIC_API_KEY")
+    return os.environ.get(env_name) or cfg.get("api_key")

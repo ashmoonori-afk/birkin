@@ -1,0 +1,73 @@
+# birkin — Build Status
+
+> Snapshot: 2026-05-27 · v0.1 (initial rebuild)
+
+A concise, kept-current summary of what exists and how to run it. For the full
+design see [DESIGN.md](./DESIGN.md); for rationale see [DECISIONS.md](./DECISIONS.md).
+
+## What's built (v0.1)
+
+| Area | Module(s) | State |
+|---|---|---|
+| CLI entry (single command) | `cli.py`, `__main__.py`, `pyproject` console script | ✅ |
+| Agent loop (tool-calling, streaming) | `agent.py`, `llm.py` | ✅ (logic; live LLM untested — needs key) |
+| LLM client (Anthropic default + OpenAI adapter) | `llm.py` | ✅ |
+| Core tools (files, shell, web) | `tools/` | ✅ |
+| Skills system (`SKILL.md`, hermes-compatible) | `skills/` | ✅ |
+| Subagents (isolated, scoped, depth-bounded) | `subagent.py`, `tools/subagent_tool.py` | ✅ |
+| **Obsidian-vault semantic memory** | `memory.py` | ✅ |
+| Self-improvement (in-session `/learn`) | `selfimprove.py` | ✅ |
+| **Nightly 04:00 routine** | `nightly.py` | ✅ (dry-run + no-key handled) |
+| Scheduler daemon + OS-register option | `scheduler.py` | ✅ (heartbeat verified) |
+| Daily cron jobs | `cron.py` | ✅ |
+| **Approval gate (human-in-the-loop)** | `approvals.py`, `store.py` | ✅ |
+| Permission policy (`/permission`) | `repl.py`, `cli.py` | ✅ (memory+skills auto; rest gated) |
+| **Monitoring dashboard** (not chat) | `web/` | ✅ (endpoints verified) |
+| Cross-platform install one-liners | `scripts/install.sh`, `scripts/install.ps1` | ✅ |
+| Seed skills (6, diverse skillsets) | `skills/` | ✅ |
+| Design + decision docs | `docs/` | ✅ |
+
+## Verified (without an API key)
+
+- All module imports clean; `birkin --help`.
+- `birkin skills` lists 6 bundled skills (source layout **and** installed wheel).
+- `uv build` produces a wheel that bundles skills under `birkin/_bundled_skills`;
+  `pip install <wheel>` exposes a working `birkin` console command.
+- Obsidian memory: write / list / `memory_search` / `[[wikilink]]` neighbors /
+  prompt digest.
+- Frontmatter parser handles real hermes nested `metadata.hermes.tags`.
+- Approvals: non-auto category (`cron`) queues; auto category applies; approve
+  registers a cron job and clears the pending item.
+- Dashboard: `/`, `/api/status|jobs|runs|approvals|skills` all respond.
+- `birkin nightly --dry-run` degrades gracefully with no key.
+- `birkin daemon` writes a status heartbeat with the correct next-nightly time.
+
+## Not yet verified (requires `ANTHROPIC_API_KEY`)
+
+- End-to-end chat: live streaming, multi-tool turns, subagent spawning.
+- A real nightly run authoring memory/skills and proposing actions.
+
+## Quick start
+
+```bash
+# from this repo
+uv run birkin                 # chat   (or: python -m birkin)
+uv run birkin web             # dashboard at http://127.0.0.1:8787
+uv run birkin daemon          # nightly 04:00 + cron scheduler
+uv run birkin nightly         # run the routine now
+uv run birkin review          # approve/reject proposed actions
+uv run birkin permission      # see/adjust auto-approved categories
+
+export ANTHROPIC_API_KEY=sk-ant-...   # required for chat/nightly
+```
+
+## Known limitations / next
+
+- Daemon clears its status only on Ctrl-C (SIGINT); a hard kill (SIGTERM) leaves
+  a stale `daemon: true`. Mitigation: treat a stale `heartbeat` as stopped, or
+  add a SIGTERM handler.
+- Memory search is keyword + `[[wikilink]]` graph (per decision); embeddings are
+  a future optional upgrade.
+- No automated test suite yet (manual smoke tests above). Adding `pytest`
+  coverage for `frontmatter`, `memory`, `approvals`, `llm` stream parsing is the
+  recommended next step.
