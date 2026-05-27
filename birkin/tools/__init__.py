@@ -96,10 +96,13 @@ def build_registry(ctx: ToolContext, *, include: Optional[set[str]] = None) -> T
     if ctx.depth < ctx.max_depth:
         groups["subagent"] = subagent_tools()
 
+    disabled = set(ctx.cfg.get("disabled_tools", []) or [])
     registry = ToolRegistry(ctx)
     for group, tools_ in groups.items():
         if include is not None and group not in include:
             continue
         for t in tools_:
+            if t.name in disabled:
+                continue
             registry.register(t)
     return registry

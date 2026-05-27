@@ -178,9 +178,8 @@ def _model(session: Any, arg: str) -> None:
 
 @command("models", "List known model choices.", "/models")
 def _models(session: Any, arg: str) -> None:
-    from .cli import _KNOWN_MODELS
     provider = session.cfg.get("provider", "anthropic")
-    for name, note in _KNOWN_MODELS.get(provider, []):
+    for name, note in config.KNOWN_MODELS.get(provider, []):
         mark = "*" if name == session.cfg.get("model") else " "
         print(f"  {mark} {name} — {note}")
 

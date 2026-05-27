@@ -1,0 +1,116 @@
+"""First-run onboarding wizard (``birkin setup`` / ``birkin onboard``).
+
+A friendly, hermes-style guided setup: provider, model, API key, memory vault,
+nightly schedule, and permissions — then prints the execution sequence. Runs
+automatically the first time you start birkin with no config.
+"""
+
+from __future__ import annotations
+
+import os
+
+from . import config
+from .ui import BOLD, CYAN, DIM, GREEN, RESET, YELLOW
+
+_ASCII = r"""
+ ██████╗ ██╗██████╗ ██╗  ██╗██╗███╗   ██╗
+ ██╔══██╗██║██╔══██╗██║ ██╔╝██║████╗  ██║
+ ██████╔╝██║██████╔╝█████╔╝ ██║██╔██╗ ██║
+ ██╔══██╗██║██╔══██╗██╔═██╗ ██║██║╚██╗██║
+ ██████╔╝██║██║  ██║██║  ██╗██║██║ ╚████║
+ ╚═════╝ ╚═╝╚═╝  ╚═╝╚═╝  ╚═╝╚═╝╚═╝  ╚═══╝"""
+
+
+def _ask(label: str, default: str = "") -> str:
+    suffix = f" {DIM}[{default}]{RESET}" if default != "" else ""
+    try:
+        val = input(f"{label}{suffix}: ").strip()
+    except (EOFError, KeyboardInterrupt):
+        return default
+    return val or default
+
+
+def _ask_yesno(label: str, default: bool = False) -> bool:
+    d = "Y/n" if default else "y/N"
+    val = _ask(f"{label} ({d})", "").lower()
+    if not val:
+        return default
+    return val in ("y", "yes")
+
+
+def run() -> int:
+    cfg = config.load_config()
+    first = not config.config_path().exists()
+
+    print(f"{CYAN}{_ASCII}{RESET}")
+    print(f" {DIM}The AI agent that actually remembers you.{RESET}\n")
+    if first:
+        print(f"{BOLD}Welcome — let's set up birkin.{RESET} (Enter accepts the default)\n")
+    else:
+        print(f"{BOLD}birkin setup{RESET} — Enter keeps the current value.\n")
+
+    # 1. Provider
+    provider = _ask("Provider (anthropic | openai)", cfg.get("provider", "anthropic"))
+    if provider not in ("anthropic", "openai"):
+        provider = "anthropic"
+    cfg["provider"] = provider
+
+    # 2. Model (numbered picker + free text)
+    choices = config.KNOWN_MODELS.get(provider, config.KNOWN_MODELS["anthropic"])
+    print(f"\n{BOLD}Model{RESET} (current: {cfg.get('model')})")
+    for i, (name, note) in enumerate(choices, 1):
+        mark = "*" if name == cfg.get("model") else " "
+        print(f"  {mark} {i}. {name} — {note}")
+    sel = _ask("Choose [number or name]", "")
+    if sel:
+        if sel.isdigit() and 1 <= int(sel) <= len(choices):
+            cfg["model"] = choices[int(sel) - 1][0]
+        else:
+            cfg["model"] = sel
+
+    # 3. API key
+    env_name = config.PROVIDER_API_KEY_ENV.get(provider, "ANTHROPIC_API_KEY")
+    print(f"\n{BOLD}API key{RESET}")
+    if os.environ.get(env_name):
+        print(f"  {GREEN}✓ found {env_name} in your environment — using that.{RESET}")
+    else:
+        print(f"  {DIM}Best practice: export {env_name}. If you enter it here it "
+              f"is stored in plaintext in config.json (chmod 600).{RESET}")
+        key = _ask("API key (blank to skip)", "")
+        if key:
+            cfg["api_key"] = key
+
+    # 4. Memory vault
+    print(f"\n{BOLD}Memory{RESET} — birkin keeps an Obsidian vault you can open & edit.")
+    vault = _ask("Vault path (blank = ~/.birkin/vault)", cfg.get("vault_path", ""))
+    cfg["vault_path"] = vault
+
+    # 5. Nightly self-improvement
+    print(f"\n{BOLD}Nightly self-improvement{RESET}")
+    hour = _ask("Run hour (0-23)", str(cfg.get("nightly_hour", 4)))
+    try:
+        cfg["nightly_hour"] = int(hour)
+    except ValueError:
+        pass
+    print(f"  {DIM}Memory & skills update automatically; cron jobs and commands "
+          f"are proposed for your approval (`birkin review`).{RESET}")
+
+    config.save_config(cfg)
+    print(f"\n{GREEN}Saved to {config.config_path()}{RESET}")
+
+    # 6. Optional: OS-native daily schedule
+    if _ask_yesno("Register a daily OS task so the nightly routine runs even "
+                  "without `birkin daemon`?", False):
+        from .scheduler import install_os_schedule
+        install_os_schedule()
+
+    # 7. Next steps
+    print(f"\n{BOLD}You're set. Execution sequence:{RESET}")
+    print(f"  {CYAN}birkin{RESET}          start chatting")
+    print(f"  {CYAN}birkin gateway{RESET}  run as a service (HTTP / Telegram channels)")
+    print(f"  {CYAN}birkin web{RESET}      open the monitoring dashboard")
+    print(f"  {CYAN}birkin daemon{RESET}   run the 04:00 self-improvement scheduler")
+    print(f"  {CYAN}birkin model{RESET}    change model · {CYAN}birkin tools{RESET}  toggle tools")
+    if not os.environ.get(env_name) and not cfg.get("api_key"):
+        print(f"\n{YELLOW}Note: set {env_name} before chatting.{RESET}")
+    return 0

@@ -27,6 +27,9 @@ design see [DESIGN.md](./DESIGN.md); for rationale see [DECISIONS.md](./DECISION
 | Seed skills (6, diverse skillsets) | `skills/` | ✅ |
 | Rich slash commands (29, registry-based) | `slashcommands.py`, `ui.py` | ✅ |
 | CLI model picker (`birkin model`) | `cli.py` | ✅ |
+| Gateway (HTTP channel + optional Telegram) | `gateway/` | ✅ (HTTP channel verified) |
+| Onboarding wizard + first-run auto-trigger | `onboarding.py` | ✅ |
+| Tool enable/disable (`birkin tools`) | `cli.py`, `tools/` | ✅ |
 | Design + decision docs | `docs/` | ✅ |
 
 ## Security review (addressed)

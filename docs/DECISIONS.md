@@ -194,6 +194,31 @@ heavy for the lightweight goal.
 
 ---
 
+## ADR-011 — Add a lightweight gateway + onboarding (hermes-parity)
+
+**Context.** Owner asked for an execution sequence identical to hermes: a
+`setup` onboarding wizard and a `gateway`. The original non-goals (ADR-001)
+excluded a multi-channel gateway.
+
+**Decision.** Add a small **gateway control plane** (`birkin gateway`) with a
+pluggable channel registry: a localhost **HTTP** channel by default and an
+optional **Telegram** channel (stdlib long-polling). One shared session store
+(memory + skills) backs every channel, with per-(channel, chat) history. Add a
+guided **onboarding wizard** (`birkin setup`/`onboard`) that also runs on first
+launch, plus `birkin tools` to enable/disable tools (hermes parity).
+
+**Rationale.** Satisfies the explicit request while staying stdlib-only: HTTP
+via `http.server`, Telegram via `urllib`. Channels are pluggable so more can be
+added without touching the core. Revises ADR-001's gateway non-goal — but stays
+far lighter than openclaw's 20+ channel gateway.
+
+**Alternatives.** Full multi-platform gateway (Slack/Discord/WhatsApp/…) —
+deferred; each is an opt-in channel module to add later.
+
+**Status.** Accepted (partially supersedes the gateway non-goal in ADR-001).
+
+---
+
 ## ADR-010 — Single shared session, sequential dashboard server
 
 **Context.** Local, single-user tool.

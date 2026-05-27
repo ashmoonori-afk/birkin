@@ -29,8 +29,15 @@ DEFAULT_CONFIG: dict[str, Any] = {
     "max_turns": 24,  # safety guard on the agent tool-calling loop
     "max_depth": 2,  # subagent recursion bound
     "extra_skill_dirs": [],  # additional directories to scan for SKILL.md
+    "disabled_tools": [],  # tool names the agent may NOT use (see `birkin tools`)
     "self_improve": True,  # allow the agent to write/refine skills after tasks
     "web_port": 8787,
+    # --- Gateway (run the agent as a service across channels) ---
+    "gateway_port": 8788,
+    "channels": {
+        "http": {"enabled": True},
+        "telegram": {"enabled": False, "token": ""},
+    },
     # --- Obsidian-vault semantic memory ---
     "vault_path": "",  # empty -> <birkin_home>/vault
     # --- Nightly 04:00 self-improvement routine ---
@@ -53,6 +60,19 @@ PROVIDER_DEFAULT_BASE_URL = {
 PROVIDER_API_KEY_ENV = {
     "anthropic": "ANTHROPIC_API_KEY",
     "openai": "OPENAI_API_KEY",
+}
+
+# Curated, current model choices (free text is also accepted everywhere).
+KNOWN_MODELS = {
+    "anthropic": [
+        ("claude-opus-4-7", "deepest reasoning"),
+        ("claude-sonnet-4-6", "best all-round coding (default)"),
+        ("claude-haiku-4-5-20251001", "fast & cheap (good for subagents)"),
+    ],
+    "openai": [
+        ("gpt-4o", "OpenAI-compatible"),
+        ("gpt-4o-mini", "OpenAI-compatible, cheaper"),
+    ],
 }
 
 

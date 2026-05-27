@@ -18,6 +18,11 @@ from typing import Optional
 
 
 def _cmd_chat(args: argparse.Namespace) -> int:
+    from . import config
+    if not config.config_path().exists():  # first run -> onboard
+        from .onboarding import run as onboard
+        onboard()
+        print()
     from .repl import run
     return run()
 
@@ -46,47 +51,8 @@ def _cmd_web(args: argparse.Namespace) -> int:
 
 
 def _cmd_setup(args: argparse.Namespace) -> int:
-    from . import config
-    cfg = config.load_config()
-    print("birkin setup — press Enter to keep the current value.\n")
-
-    def ask(label: str, key: str) -> None:
-        cur = cfg.get(key)
-        val = input(f"{label} [{cur}]: ").strip()
-        if val:
-            cfg[key] = val
-
-    ask("Provider (anthropic|openai)", "provider")
-    ask("Model", "model")
-    ask("Subagent model", "subagent_model")
-    ask("Base URL (blank = provider default)", "base_url")
-    ask("Obsidian vault path", "vault_path")
-    ask("Nightly hour (0-23)", "nightly_hour")
-
-    print("\nThe API key is best provided via the ANTHROPIC_API_KEY environment "
-          "variable. If you enter it here it will be stored in plaintext in "
-          "config.json (readable by your user only).")
-    key = input("API key (leave blank to use the environment variable): ").strip()
-    if key:
-        cfg["api_key"] = key
-
-    path = config.save_config(cfg)
-    print(f"\nSaved to {path}")
-    return 0
-
-
-# Curated, current model choices (see CLAUDE model guidance). Free text also OK.
-_KNOWN_MODELS = {
-    "anthropic": [
-        ("claude-opus-4-7", "deepest reasoning"),
-        ("claude-sonnet-4-6", "best all-round coding (default)"),
-        ("claude-haiku-4-5-20251001", "fast & cheap (good for subagents)"),
-    ],
-    "openai": [
-        ("gpt-4o", "OpenAI-compatible"),
-        ("gpt-4o-mini", "OpenAI-compatible, cheaper"),
-    ],
-}
+    from .onboarding import run
+    return run()
 
 
 def _cmd_model(args: argparse.Namespace) -> int:
@@ -101,7 +67,7 @@ def _cmd_model(args: argparse.Namespace) -> int:
         print(f"Model set to {args.name}")
         return 0
 
-    choices = _KNOWN_MODELS.get(provider, _KNOWN_MODELS["anthropic"])
+    choices = config.KNOWN_MODELS.get(provider, config.KNOWN_MODELS["anthropic"])
     print(f"Current model: {cfg.get('model')}  (provider: {provider})\n")
     for i, (name, note) in enumerate(choices, 1):
         marker = "*" if name == cfg.get("model") else " "
@@ -138,6 +104,43 @@ def _cmd_daemon(args: argparse.Namespace) -> int:
 def _cmd_review(args: argparse.Namespace) -> int:
     from .approvals import review_cli
     return review_cli()
+
+
+def _cmd_gateway(args: argparse.Namespace) -> int:
+    from .gateway import run
+    return run()
+
+
+def _cmd_tools(args: argparse.Namespace) -> int:
+    """List the agent's tools and enable/disable them (like `hermes tools`)."""
+    from pathlib import Path
+    from . import config
+    from .memory import VaultMemory
+    from .skills import build_manager
+    from .tools import ToolContext, build_registry
+
+    cfg = config.load_config()
+    disabled = set(cfg.get("disabled_tools", []))
+
+    if args.enable:
+        disabled.discard(args.enable)
+    if args.disable:
+        disabled.add(args.disable)
+    if args.enable or args.disable:
+        cfg["disabled_tools"] = sorted(disabled)
+        config.save_config(cfg)
+
+    ctx = ToolContext(cfg=cfg, client=None, cwd=Path.cwd(),
+                      skills=build_manager(cfg), memory=VaultMemory(cfg))
+    # Build with no disabled filter so we can show every tool's state.
+    full = build_registry(ToolContext(cfg={**cfg, "disabled_tools": []},
+                                      client=None, cwd=Path.cwd(),
+                                      skills=ctx.skills, memory=ctx.memory))
+    for spec in full.specs():
+        state = "off" if spec["name"] in disabled else "on "
+        print(f"  [{state}] {spec['name']} — {spec['description'][:70]}")
+    print("\nToggle with: birkin tools --disable <name> / --enable <name>")
+    return 0
 
 
 def _cmd_permission(args: argparse.Namespace) -> int:
@@ -195,7 +198,15 @@ def build_parser() -> argparse.ArgumentParser:
     wp.add_argument("--no-browser", action="store_true")
     wp.set_defaults(func=_cmd_web)
 
-    sub.add_parser("setup", help="configure provider/model/key").set_defaults(func=_cmd_setup)
+    sub.add_parser("setup", help="guided onboarding wizard").set_defaults(func=_cmd_setup)
+    sub.add_parser("onboard", help="alias for setup (first-run wizard)").set_defaults(func=_cmd_setup)
+
+    sub.add_parser("gateway", help="run birkin as a service (HTTP / Telegram channels)").set_defaults(func=_cmd_gateway)
+
+    tp = sub.add_parser("tools", help="list/enable/disable the agent's tools")
+    tp.add_argument("--enable", help="tool name to enable")
+    tp.add_argument("--disable", help="tool name to disable")
+    tp.set_defaults(func=_cmd_tools)
 
     mp = sub.add_parser("model", help="choose the model (interactive, like `hermes model`)")
     mp.add_argument("name", nargs="?", help="set this model directly (skips the picker)")

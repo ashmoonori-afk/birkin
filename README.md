@@ -75,16 +75,33 @@ export ANTHROPIC_API_KEY=sk-ant-...      # PowerShell: $env:ANTHROPIC_API_KEY="s
 
 ## 🎮 Usage
 
+The first time you run `birkin` it launches a short **onboarding wizard**
+(provider, model, key, vault, nightly hour). Re-run it anytime with
+`birkin setup`.
+
 ```bash
-birkin                 # start chatting
+birkin                 # start chatting (first run -> onboarding)
+birkin setup           # guided onboarding wizard (alias: birkin onboard)
+birkin gateway         # run birkin as a service (HTTP + optional Telegram)
 birkin web             # open the monitoring dashboard
 birkin daemon          # run the 04:00 self-improvement + cron scheduler
 birkin nightly         # run the self-improvement routine right now
 birkin review          # approve / reject what birkin proposed
+birkin model           # choose the model (interactive)
+birkin tools           # list / enable / disable the agent's tools
 birkin skills          # browse skills   ·   birkin skills <name> to read one
 birkin permission      # see / change which actions auto-apply
-birkin setup           # configure provider, model, vault, nightly hour
 ```
+
+### 🛰️ Gateway
+
+`birkin gateway` runs the agent as a persistent service with a shared memory
+vault, exposing pluggable **channels** (so birkin remembers you everywhere):
+
+- **HTTP** (on by default): `POST /message {"session","text"} -> {"reply"}`,
+  `GET /health`. Localhost-only.
+- **Telegram** (optional): set `channels.telegram = {"enabled": true, "token":
+  "<bot token>"}` in `~/.birkin/config.json`. Pure stdlib long-polling.
 
 ### In-chat slash commands
 
