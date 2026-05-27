@@ -175,8 +175,11 @@ and skill catalog back every **channel**, so birkin remembers you everywhere:
 
 - **HTTP** (on by default): `POST /message {"session","text"} → {"reply"}` and
   `GET /health`, bound to localhost.
-- **Telegram** (optional): set `channels.telegram = {"enabled": true, "token":
-  "<bot token>"}` in `~/.birkin/config.json`. Pure stdlib long-polling.
+- **Telegram** (optional): run `birkin setup` and answer *“Connect a Telegram
+  bot?”* (it verifies the token via `getMe`), or set `channels.telegram =
+  {"enabled": true, "token": "<bot token>"}` in `~/.birkin/config.json`. Create
+  the bot with [@BotFather](https://t.me/BotFather). Pure stdlib long-polling —
+  start it with `birkin gateway`.
 
 ## 📊 Dashboard
 

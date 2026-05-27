@@ -99,16 +99,40 @@ def run() -> int:
     print(f"  {DIM}Memory & skills update automatically; cron jobs and commands "
           f"are proposed for your approval (`birkin review`).{RESET}")
 
+    # 6. Channels — Telegram (optional)
+    channels = dict(cfg.get("channels", {}))
+    tg = dict(channels.get("telegram", {}))
+    print(f"\n{BOLD}Telegram{RESET} — chat with birkin from your phone (optional).")
+    if _ask_yesno("Connect a Telegram bot now?", bool(tg.get("enabled"))):
+        print(f"  {DIM}Create a bot with @BotFather → /newbot → copy the token.{RESET}")
+        token = _ask("Bot token", tg.get("token", ""))
+        if token:
+            from .gateway.channels.telegram import verify_token
+            print(f"  {DIM}Verifying…{RESET}")
+            ok, info = verify_token(token)
+            if ok:
+                tg = {"enabled": True, "token": token}
+                print(f"  {GREEN}✓ connected to @{info}. Message it after "
+                      f"`birkin gateway`.{RESET}")
+            else:
+                tg = {"enabled": False, "token": token}
+                print(f"  {YELLOW}⚠ could not verify ({info}). Saved but disabled; "
+                      f"fix the token and set channels.telegram.enabled=true.{RESET}")
+        else:
+            print(f"  {DIM}Skipped — no token entered.{RESET}")
+    channels["telegram"] = tg
+    cfg["channels"] = channels
+
     config.save_config(cfg)
     print(f"\n{GREEN}Saved to {config.config_path()}{RESET}")
 
-    # 6. Optional: OS-native daily schedule
+    # 7. Optional: OS-native daily schedule
     if _ask_yesno("Register a daily OS task so the nightly routine runs even "
                   "without `birkin daemon`?", False):
         from .scheduler import install_os_schedule
         install_os_schedule()
 
-    # 7. Next steps
+    # 8. Next steps
     print(f"\n{BOLD}You're set. Execution sequence:{RESET}")
     print(f"  {CYAN}birkin{RESET}          start chatting")
     print(f"  {CYAN}birkin gateway{RESET}  run as a service (HTTP / Telegram channels)")

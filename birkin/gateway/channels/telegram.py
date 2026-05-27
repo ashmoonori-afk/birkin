@@ -24,6 +24,21 @@ if TYPE_CHECKING:
 _API = "https://api.telegram.org/bot{token}/{method}"
 
 
+def verify_token(token: str) -> tuple[bool, str]:
+    """Check a bot token via getMe. Returns (ok, bot_username_or_error)."""
+    if not token:
+        return False, "empty token"
+    url = _API.format(token=token, method="getMe")
+    try:
+        with urllib.request.urlopen(url, timeout=10) as resp:
+            data = json.loads(resp.read().decode("utf-8", "replace"))
+    except Exception as exc:
+        return False, str(exc)
+    if not data.get("ok"):
+        return False, str(data.get("description", "invalid token"))
+    return True, data.get("result", {}).get("username", "?")
+
+
 class TelegramChannel(Channel):
     name = "telegram"
 
