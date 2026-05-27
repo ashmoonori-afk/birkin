@@ -8,8 +8,13 @@
 - *Tools* are provided via a registry exposing ``specs()`` and
   ``execute(name, input)``.
 
-This keeps the loop easy to reason about and reuse for both the top-level
-agent and isolated subagents.
+**Automatic skill-ization (copied from hermes).** Without any extra LLM call,
+the loop counts tool-calling work and periodically *nudges* the model to persist
+what it learned: if a turn does substantial tool work but never saves a skill,
+an ephemeral note is injected on the next turn suggesting ``create_skill`` /
+``improve_skill``; a turn-based nudge does the same for memory. Counters reset
+whenever the relevant tool is actually used. Nudges are ephemeral — they are
+added to the system prompt for a turn only and never stored in history.
 """
 
 from __future__ import annotations
@@ -17,6 +22,20 @@ from __future__ import annotations
 from typing import Any, Callable, Optional, Protocol
 
 from .llm import LLMClient
+
+SKILL_TOOLS = {"create_skill", "improve_skill"}
+MEMORY_TOOLS = {"remember", "memory_write_note", "memory_link"}
+
+_SKILL_NUDGE = (
+    "[birkin self-improvement] You've done several tool steps without saving a "
+    "skill. If what you just did is a reusable, generalizable procedure, call "
+    "create_skill to capture it (or improve_skill to refine an existing one) so "
+    "it persists for next time. If nothing is worth saving, ignore this note.")
+
+_MEMORY_NUDGE = (
+    "[birkin self-improvement] If you've learned a durable fact about the user "
+    "or project, persist it with remember or memory_write_note (and link related "
+    "notes). Otherwise ignore this note.")
 
 
 class Registry(Protocol):
@@ -38,7 +57,8 @@ EventCallback = Optional[Callable[[str, dict[str, Any]], None]]
 class Agent:
     def __init__(self, *, client: LLMClient, system: str, registry: Registry,
                  max_turns: int = 24, model: Optional[str] = None,
-                 on_event: EventCallback = None):
+                 on_event: EventCallback = None, self_improve: bool = True,
+                 skill_nudge_interval: int = 3, memory_nudge_interval: int = 6):
         self.client = client
         self.system = system
         self.registry = registry
@@ -47,8 +67,19 @@ class Agent:
         self.on_event = on_event
         self.messages: list[dict[str, Any]] = []
 
+        # Automatic skill-ization / memory nudges (hermes-style).
+        self.self_improve = self_improve
+        self.skill_nudge_interval = skill_nudge_interval
+        self.memory_nudge_interval = memory_nudge_interval
+        self._iters_since_skill = 0
+        self._turns_since_memory = 0
+        self._pending_nudge = ""
+
     def reset(self) -> None:
         self.messages = []
+        self._iters_since_skill = 0
+        self._turns_since_memory = 0
+        self._pending_nudge = ""
 
     def _emit(self, event: str, payload: dict[str, Any]) -> None:
         if self.on_event:
@@ -63,14 +94,20 @@ class Agent:
         calling tools (or the turn guard trips). Returns the final text."""
         self.messages.append(
             {"role": "user", "content": [{"type": "text", "text": user_text}]})
-        return self._loop(on_text)
+        self._turns_since_memory += 1
+        nudge = self._pending_nudge       # consume any nudge queued last turn
+        self._pending_nudge = ""
+        return self._loop(on_text, extra_system=nudge)
 
-    def _loop(self, on_text) -> str:
+    def _loop(self, on_text, extra_system: str = "") -> str:
         final_text = ""
         tool_specs = self.registry.specs()
+        system = self.system + (f"\n\n{extra_system}" if extra_system else "")
+        used_skill = used_memory = False
+
         for _turn in range(self.max_turns):
             assistant = self.client.complete(
-                system=self.system, messages=self.messages,
+                system=system, messages=self.messages,
                 tools=tool_specs, model=self.model, on_text=on_text)
             self.messages.append(
                 {"role": "assistant", "content": assistant["content"]})
@@ -83,11 +120,20 @@ class Agent:
                 final_text = text
 
             if not tool_uses:
+                self._update_nudges(used_skill, used_memory)
                 return final_text
+
+            if self.skill_nudge_interval > 0:
+                self._iters_since_skill += 1
 
             results: list[dict[str, Any]] = []
             for tu in tool_uses:
                 name, tool_input = tu.get("name", ""), tu.get("input", {}) or {}
+                if name in SKILL_TOOLS:
+                    used_skill = True
+                    self._iters_since_skill = 0
+                if name in MEMORY_TOOLS:
+                    used_memory = True
                 self._emit("tool_start", {"name": name, "input": tool_input})
                 res = self.registry.execute(name, tool_input)
                 self._emit("tool_end", {"name": name, "is_error": res.is_error,
@@ -100,6 +146,25 @@ class Agent:
                 })
             self.messages.append({"role": "user", "content": results})
 
+        self._update_nudges(used_skill, used_memory)
         final_text += "\n\n[birkin] Reached the maximum number of tool turns " \
                       f"({self.max_turns}); stopping to avoid a loop."
         return final_text
+
+    def _update_nudges(self, used_skill: bool, used_memory: bool) -> None:
+        """Queue an ephemeral self-improvement nudge for the next turn."""
+        if not self.self_improve:
+            return
+        parts: list[str] = []
+        if (self.skill_nudge_interval > 0
+                and self._iters_since_skill >= self.skill_nudge_interval
+                and not used_skill):
+            parts.append(_SKILL_NUDGE)
+            self._iters_since_skill = 0
+        if (self.memory_nudge_interval > 0
+                and self._turns_since_memory >= self.memory_nudge_interval
+                and not used_memory):
+            parts.append(_MEMORY_NUDGE)
+            self._turns_since_memory = 0
+        if parts:
+            self._pending_nudge = "\n\n".join(parts)

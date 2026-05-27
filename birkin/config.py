@@ -31,6 +31,9 @@ DEFAULT_CONFIG: dict[str, Any] = {
     "extra_skill_dirs": [],  # additional directories to scan for SKILL.md
     "disabled_tools": [],  # tool names the agent may NOT use (see `birkin tools`)
     "self_improve": True,  # allow the agent to write/refine skills after tasks
+    # Automatic skill-ization nudges (hermes-style; no extra LLM call):
+    "skill_nudge_interval": 3,   # tool iterations w/o saving a skill -> nudge (0 = off)
+    "memory_nudge_interval": 6,  # user turns w/o updating memory -> nudge (0 = off)
     "web_port": 8787,
     # --- Gateway (run the agent as a service across channels) ---
     "gateway_port": 8788,

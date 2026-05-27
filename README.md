@@ -243,10 +243,16 @@ metadata:
 ## When NOT to Use
 ```
 
-Bundled skills ship in [`skills/`](./skills); your own live in
-`~/.birkin/skills/` and shadow bundled ones by name. The agent loads a skill on
-demand with `load_skill`, and writes/refines its own with `create_skill` /
-`improve_skill`.
+Bundled skills ship in [`skills/`](./skills) (40+ across research, software,
+writing, data, devops, marketing, …); your own live in `~/.birkin/skills/` and
+shadow bundled ones by name. The agent loads a skill on demand with
+`load_skill`, and writes/refines its own with `create_skill` / `improve_skill`.
+
+**Automatic skill-ization (hermes-style).** After a complex turn (several tool
+steps) that didn't save a skill, birkin nudges itself — with no extra LLM call —
+to capture the procedure as a skill; a turn-based nudge does the same for
+memory. Counters reset when you actually save. Tune with `skill_nudge_interval`
+/ `memory_nudge_interval` in config (set to `0` to disable).
 
 ## 🗺️ Architecture
 

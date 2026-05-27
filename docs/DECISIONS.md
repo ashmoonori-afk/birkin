@@ -243,6 +243,30 @@ calls. API providers remain the path for birkin's native tool-calling loop.
 
 ---
 
+## ADR-013 — Automatic skill-ization via nudges (copied from hermes)
+
+**Context.** Owner: replicate hermes' automatic skill creation — the agent
+"creates skills from experience" and "nudges itself to persist knowledge."
+
+**Decision.** Copy hermes' nudge mechanism in the agent loop (no extra LLM
+call): count tool-calling iterations; if a turn does substantial tool work
+(`skill_nudge_interval`, default 3) without calling a skill tool, queue an
+**ephemeral** note for the next turn suggesting `create_skill` / `improve_skill`.
+A turn-based counter (`memory_nudge_interval`, default 6) does the same for
+`remember` / `memory_write_note`. Counters reset when the relevant tool is used.
+Nudges are added to the system prompt for one turn only and never stored in
+history. Both intervals are configurable; `0` disables.
+
+**Rationale.** Faithful to hermes (turn/iteration counters, ephemeral
+injection, reset-on-use) and cheap — it steers the model to self-author skills
+instead of running a separate reflection pass on every turn. The `/learn`
+command and the nightly routine remain for explicit/batch consolidation; a
+background "curator" (hermes' skill maintenance) is possible future work.
+
+**Status.** Accepted.
+
+---
+
 ## ADR-010 — Single shared session, sequential dashboard server
 
 **Context.** Local, single-user tool.

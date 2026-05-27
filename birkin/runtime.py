@@ -70,6 +70,9 @@ def build_session(cfg: Optional[dict[str, Any]] = None,
         skills_index=skills.index(), memory_block=memory.render())
     agent = Agent(client=client, system=system, registry=registry,
                   max_turns=int(cfg.get("max_turns", 24)),
-                  model=cfg.get("model"), on_event=on_event)
+                  model=cfg.get("model"), on_event=on_event,
+                  self_improve=bool(cfg.get("self_improve", True)),
+                  skill_nudge_interval=int(cfg.get("skill_nudge_interval", 3)),
+                  memory_nudge_interval=int(cfg.get("memory_nudge_interval", 6)))
     return Session(cfg=cfg, client=client, skills=skills, memory=memory,
                    ctx=ctx, agent=agent)
