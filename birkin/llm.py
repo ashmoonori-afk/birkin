@@ -20,6 +20,8 @@ No third-party packages: requests are made with ``urllib.request``.
 from __future__ import annotations
 
 import json
+import os
+import subprocess
 import time
 import urllib.error
 import urllib.request
@@ -59,7 +61,73 @@ class LLMClient:
             return self._anthropic_complete(system, messages, tools, model, on_text)
         if self.provider == "openai":
             return self._openai_complete(system, messages, tools, model, on_text)
+        if self.provider in ("claude-cli", "codex-cli"):
+            return self._cli_complete(system, messages, model, on_text)
         raise LLMError(f"unknown provider: {self.provider!r}")
+
+    # -- Local CLI agents (Claude Code / Codex) ----------------------------
+
+    @staticmethod
+    def _flatten(system: str, messages: list[dict[str, Any]]) -> str:
+        """Flatten the conversation into a single prompt for a CLI agent."""
+        parts: list[str] = []
+        if system:
+            parts.append(system)
+        for m in messages:
+            role = m.get("role", "user").upper()
+            blocks = m.get("content", [])
+            if isinstance(blocks, str):
+                parts.append(f"{role}: {blocks}")
+                continue
+            for b in blocks:
+                if b.get("type") == "text":
+                    parts.append(f"{role}: {b.get('text', '')}")
+                elif b.get("type") == "tool_result":
+                    c = b.get("content", "")
+                    parts.append(f"TOOL_RESULT: {c if isinstance(c, str) else c}")
+        return "\n\n".join(parts).strip()
+
+    def _cli_complete(self, system, messages, model, on_text) -> dict[str, Any]:
+        """Route the turn through a locally-installed agent CLI.
+
+        These CLIs are full agents with their own tools and auth, so birkin
+        acts as a thin proxy: we send the flattened conversation and return the
+        CLI's reply as assistant text (no birkin tool loop).
+        """
+        prompt = self._flatten(system, messages)
+        if self.provider == "claude-cli":
+            cmd = "claude -p --output-format json"
+            if model and model not in ("claude-code", "default", ""):
+                cmd += f" --model {model}"
+            text = self._run_cli(cmd, prompt, parse_json="result")
+        else:  # codex-cli
+            cmd = "codex exec --skip-git-repo-check"
+            if model:
+                cmd += f" -m {model}"
+            text = self._run_cli(cmd, prompt, parse_json=None)
+        if on_text and text:
+            on_text(text)
+        return {"role": "assistant",
+                "content": [{"type": "text", "text": text}],
+                "stop_reason": "end_turn"}
+
+    @staticmethod
+    def _run_cli(cmd: str, prompt: str, *, parse_json: Optional[str]) -> str:
+        try:
+            proc = subprocess.run(cmd, input=prompt, capture_output=True,
+                                  text=True, errors="replace", shell=True, timeout=900)
+        except subprocess.TimeoutExpired:
+            return "[birkin] the local CLI timed out."
+        out = (proc.stdout or "").strip()
+        if parse_json and out:
+            try:
+                data = json.loads(out)
+                return str(data.get(parse_json) or data.get("text") or out)
+            except json.JSONDecodeError:
+                return out
+        if not out and proc.stderr:
+            return f"[birkin] CLI error: {proc.stderr.strip()[:800]}"
+        return out or "(no output)"
 
     # -- HTTP --------------------------------------------------------------
 

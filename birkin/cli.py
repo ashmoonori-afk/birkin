@@ -67,11 +67,11 @@ def _cmd_model(args: argparse.Namespace) -> int:
         print(f"Model set to {args.name}")
         return 0
 
-    choices = config.KNOWN_MODELS.get(provider, config.KNOWN_MODELS["anthropic"])
-    print(f"Current model: {cfg.get('model')}  (provider: {provider})\n")
-    for i, (name, note) in enumerate(choices, 1):
-        marker = "*" if name == cfg.get("model") else " "
-        print(f"  {marker} {i}. {name}  — {note}")
+    from . import models as models_mod
+    print(f"Current model: {cfg.get('model')}  (provider: {provider})")
+    print(f"{'(fetching API + local models…)'}\n")
+    found = models_mod.discover(cfg)
+    models_mod.render(found, cfg.get("model"))
     print("    Or type a model name directly.")
     try:
         sel = input("\nChoose [number or name, blank to keep]: ").strip()
@@ -80,12 +80,12 @@ def _cmd_model(args: argparse.Namespace) -> int:
         return 0
     if not sel:
         return 0
-    if sel.isdigit() and 1 <= int(sel) <= len(choices):
-        cfg["model"] = choices[int(sel) - 1][0]
+    if sel.isdigit() and 1 <= int(sel) <= len(found):
+        models_mod.apply_selection(cfg, found[int(sel) - 1])
     else:
         cfg["model"] = sel
     config.save_config(cfg)
-    print(f"Model set to {cfg['model']}")
+    print(f"Model set to {cfg['model']} (provider: {cfg.get('provider')})")
     return 0
 
 

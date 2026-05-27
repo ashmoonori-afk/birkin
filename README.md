@@ -68,10 +68,22 @@ git clone https://github.com/ashmoonori-afk/birkin && cd birkin
 uv run birkin          # or: pip install -e . && birkin
 ```
 
-Then set your key:
+Then pick a backend — **either** an API key **or** a local CLI agent:
 ```bash
+# Option A: API
 export ANTHROPIC_API_KEY=sk-ant-...      # PowerShell: $env:ANTHROPIC_API_KEY="sk-ant-..."
+
+# Option B: no key — use a CLI agent you already have installed & logged in
+birkin model      # pick "claude-code" (Claude Code) or "codex" (Codex)
 ```
+
+### 🧩 Run on Claude Code / Codex (no API key)
+
+If `claude` (Claude Code) or `codex` is installed, `birkin model` lists them
+under **Local CLI agents**. Selecting one routes birkin through that CLI using
+its own login — no API key required. birkin acts as a thin proxy (the CLI runs
+its own tools). API, Claude Code, and Codex models all appear in the same
+picker.
 
 ## 🎮 Usage
 

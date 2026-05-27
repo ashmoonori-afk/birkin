@@ -72,7 +72,7 @@ def _run_job(job: dict[str, Any]) -> None:
     try:
         if jtype == "shell":
             proc = subprocess.run(value, shell=True, capture_output=True,
-                                  text=True, timeout=600)
+                                  text=True, errors="replace", timeout=600)
             out = (proc.stdout or "") + (proc.stderr or "")
             store.save_run("cron", f"[{job.get('name')}] exit {proc.returncode}",
                            {"output": out[:2000], "job": job["id"]})
@@ -120,7 +120,10 @@ def install_os_schedule() -> int:
         args = ["schtasks", "/Create", "/SC", "DAILY", "/TN", "birkin-nightly",
                 "/ST", f"{hour:02d}:{minute:02d}", "/TR", cmd, "/F"]
         try:
-            proc = subprocess.run(args, capture_output=True, text=True)
+            # schtasks prints in the Windows OEM codepage (e.g. cp949 on Korean
+            # Windows); decode with "oem" so the message is readable.
+            proc = subprocess.run(args, capture_output=True, text=True,
+                                  encoding="oem", errors="replace")
         except FileNotFoundError:
             print("schtasks not available on this system.")
             return 1
@@ -131,7 +134,7 @@ def install_os_schedule() -> int:
     line = f"{minute} {hour} * * * {py} -m birkin nightly  # birkin-nightly"
     try:
         existing = subprocess.run(["crontab", "-l"], capture_output=True,
-                                  text=True).stdout
+                                  text=True, errors="replace").stdout
     except FileNotFoundError:
         print("crontab not available on this system.")
         return 1
@@ -140,7 +143,7 @@ def install_os_schedule() -> int:
         return 0
     new = (existing.rstrip("\n") + "\n" + line + "\n").lstrip("\n")
     proc = subprocess.run(["crontab", "-"], input=new, text=True,
-                          capture_output=True)
+                          capture_output=True, errors="replace")
     if proc.returncode == 0:
         print(f"Installed crontab entry: {line}")
     else:

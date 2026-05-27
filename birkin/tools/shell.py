@@ -26,7 +26,7 @@ def _run_shell(inp: dict[str, Any], ctx: ToolContext) -> ToolResult:
     try:
         proc = subprocess.run(
             command, shell=True, cwd=str(cwd), capture_output=True,
-            text=True, timeout=timeout,
+            text=True, errors="replace", timeout=timeout,
         )
     except subprocess.TimeoutExpired:
         return ToolResult(f"Command timed out after {timeout}s", is_error=True)

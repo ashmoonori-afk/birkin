@@ -55,30 +55,34 @@ def run() -> int:
         provider = "anthropic"
     cfg["provider"] = provider
 
-    # 2. Model (numbered picker + free text)
-    choices = config.KNOWN_MODELS.get(provider, config.KNOWN_MODELS["anthropic"])
+    # 2. Model — show API + local (Ollama) models together
+    from . import models as models_mod
     print(f"\n{BOLD}Model{RESET} (current: {cfg.get('model')})")
-    for i, (name, note) in enumerate(choices, 1):
-        mark = "*" if name == cfg.get("model") else " "
-        print(f"  {mark} {i}. {name} — {note}")
+    found = models_mod.discover(cfg)
+    models_mod.render(found, cfg.get("model"))
     sel = _ask("Choose [number or name]", "")
     if sel:
-        if sel.isdigit() and 1 <= int(sel) <= len(choices):
-            cfg["model"] = choices[int(sel) - 1][0]
+        if sel.isdigit() and 1 <= int(sel) <= len(found):
+            models_mod.apply_selection(cfg, found[int(sel) - 1])
+            provider = cfg.get("provider", provider)
         else:
             cfg["model"] = sel
 
-    # 3. API key
-    env_name = config.PROVIDER_API_KEY_ENV.get(provider, "ANTHROPIC_API_KEY")
-    print(f"\n{BOLD}API key{RESET}")
-    if os.environ.get(env_name):
-        print(f"  {GREEN}✓ found {env_name} in your environment — using that.{RESET}")
+    # 3. API key — skipped entirely for local CLI agents (they self-authenticate)
+    if cfg.get("provider") in config.CLI_PROVIDERS:
+        print(f"\n{GREEN}✓ Using a local CLI agent ({cfg['provider']}); no API key "
+              f"needed — it uses its own login.{RESET}")
     else:
-        print(f"  {DIM}Best practice: export {env_name}. If you enter it here it "
-              f"is stored in plaintext in config.json (chmod 600).{RESET}")
-        key = _ask("API key (blank to skip)", "")
-        if key:
-            cfg["api_key"] = key
+        env_name = config.PROVIDER_API_KEY_ENV.get(provider, "ANTHROPIC_API_KEY")
+        print(f"\n{BOLD}API key{RESET}")
+        if os.environ.get(env_name):
+            print(f"  {GREEN}✓ found {env_name} in your environment — using that.{RESET}")
+        else:
+            print(f"  {DIM}Best practice: export {env_name}. If you enter it here it "
+                  f"is stored in plaintext in config.json (chmod 600).{RESET}")
+            key = _ask("API key (blank to skip)", "")
+            if key:
+                cfg["api_key"] = key
 
     # 4. Memory vault
     print(f"\n{BOLD}Memory{RESET} — birkin keeps an Obsidian vault you can open & edit.")
@@ -111,6 +115,9 @@ def run() -> int:
     print(f"  {CYAN}birkin web{RESET}      open the monitoring dashboard")
     print(f"  {CYAN}birkin daemon{RESET}   run the 04:00 self-improvement scheduler")
     print(f"  {CYAN}birkin model{RESET}    change model · {CYAN}birkin tools{RESET}  toggle tools")
-    if not os.environ.get(env_name) and not cfg.get("api_key"):
-        print(f"\n{YELLOW}Note: set {env_name} before chatting.{RESET}")
+    if cfg.get("provider") not in config.CLI_PROVIDERS:
+        env_name = config.PROVIDER_API_KEY_ENV.get(cfg.get("provider", "anthropic"),
+                                                   "ANTHROPIC_API_KEY")
+        if not os.environ.get(env_name) and not cfg.get("api_key"):
+            print(f"\n{YELLOW}Note: set {env_name} before chatting.{RESET}")
     return 0

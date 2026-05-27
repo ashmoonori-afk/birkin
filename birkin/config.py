@@ -62,6 +62,10 @@ PROVIDER_API_KEY_ENV = {
     "openai": "OPENAI_API_KEY",
 }
 
+# Providers backed by a locally-installed, separately-authenticated agent CLI.
+# These need no API key — birkin shells out to the CLI.
+CLI_PROVIDERS = {"claude-cli", "codex-cli"}
+
 # Curated, current model choices (free text is also accepted everywhere).
 KNOWN_MODELS = {
     "anthropic": [
@@ -188,7 +192,13 @@ def resolve_base_url(cfg: dict[str, Any]) -> str:
 
 
 def get_api_key(cfg: dict[str, Any]) -> str | None:
-    """Resolve the API key: env var first, then config file."""
+    """Resolve the API key: env var first, then config file.
+
+    CLI-agent providers (Claude Code / Codex) authenticate themselves, so a
+    sentinel ``"cli"`` is returned to satisfy callers without a real key.
+    """
     provider = cfg.get("provider", "anthropic")
+    if provider in CLI_PROVIDERS:
+        return "cli"
     env_name = PROVIDER_API_KEY_ENV.get(provider, "ANTHROPIC_API_KEY")
     return os.environ.get(env_name) or cfg.get("api_key")

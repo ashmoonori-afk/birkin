@@ -219,6 +219,30 @@ deferred; each is an opt-in channel module to add later.
 
 ---
 
+## ADR-012 — Local CLI agents (Claude Code / Codex) as model backends
+
+**Context.** Owner: birkin must run on the **installed `claude` (Claude Code)
+and `codex` CLIs**, like hermes — using their own logins instead of an API key.
+
+**Decision.** Add `claude-cli` and `codex-cli` providers. `models.discover`
+detects the CLIs via `shutil.which` and lists them in the picker alongside API
+and Ollama models. `LLMClient` shells out non-interactively
+(`claude -p --output-format json [--model]`, `codex exec [-m]`), flattening the
+conversation into the prompt and returning the reply as assistant text. No API
+key needed (`get_api_key` returns a `"cli"` sentinel); birkin is a thin proxy
+and does not run its own tool loop in this mode (the CLI agent runs its tools).
+
+**Rationale.** Directly satisfies the requirement and reuses existing Claude
+Code / Codex subscriptions. Stdlib-only (`subprocess`). Verified end-to-end:
+`claude -p` returns `{"result": ...}` which birkin parses.
+
+**Trade-off.** In CLI mode birkin's own tools/skills are not invoked as tool
+calls. API providers remain the path for birkin's native tool-calling loop.
+
+**Status.** Accepted.
+
+---
+
 ## ADR-010 — Single shared session, sequential dashboard server
 
 **Context.** Local, single-user tool.

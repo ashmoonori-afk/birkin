@@ -176,12 +176,11 @@ def _model(session: Any, arg: str) -> None:
         print(session.cfg.get("model"))
 
 
-@command("models", "List known model choices.", "/models")
+@command("models", "List available models (API + local).", "/models")
 def _models(session: Any, arg: str) -> None:
-    provider = session.cfg.get("provider", "anthropic")
-    for name, note in config.KNOWN_MODELS.get(provider, []):
-        mark = "*" if name == session.cfg.get("model") else " "
-        print(f"  {mark} {name} — {note}")
+    from . import models as models_mod
+    found = models_mod.discover(session.cfg)
+    models_mod.render(found, session.cfg.get("model"))
 
 
 @command("provider", "Show or switch provider (anthropic|openai).", "/provider [name]")
@@ -376,7 +375,7 @@ def _update(session: Any, arg: str) -> None:
     if (root / ".git").exists():
         print(f"{DIM}git pull in {root}…{RESET}")
         proc = subprocess.run(["git", "-C", str(root), "pull", "--ff-only"],
-                              capture_output=True, text=True)
+                              capture_output=True, text=True, errors="replace")
         print(proc.stdout or proc.stderr)
         print(f"{DIM}Restart birkin to load changes.{RESET}")
     else:

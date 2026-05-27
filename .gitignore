@@ -1,6 +1,13 @@
 # Runtime data & secrets
 .birkin/
 *.log
+.env
+.omc/
+# Legacy local artifacts (old birkin app)
+birkin_config.json
+*.db
+*.db-shm
+*.db-wal
 
 # Python
 __pycache__/

@@ -53,7 +53,8 @@ def execute_action(category: str, payload: dict[str, Any]) -> str:
             return "No command to run."
         try:
             proc = subprocess.run(command, shell=True, capture_output=True,
-                                  text=True, timeout=int(payload.get("timeout", 300)))
+                                  text=True, errors="replace",
+                                  timeout=int(payload.get("timeout", 300)))
         except subprocess.TimeoutExpired:
             return "Command timed out."
         out = (proc.stdout or "") + (proc.stderr or "")
