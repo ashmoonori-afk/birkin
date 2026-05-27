@@ -6,8 +6,11 @@ identically without importing each other.
 
 from __future__ import annotations
 
+import itertools
 import json
 import sys
+import threading
+import time
 from typing import Any, Callable
 
 DIM = "\033[2m"
@@ -22,6 +25,40 @@ RESET = "\033[0m"
 def stream_text(piece: str) -> None:
     sys.stdout.write(piece)
     sys.stdout.flush()
+
+
+class Spinner:
+    """A minimal 'thinking…' indicator for non-streaming waits.
+
+    Runs in a daemon thread; ``stop()`` clears the line. Safe to stop twice.
+    """
+
+    _FRAMES = "⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏"
+
+    def __init__(self, label: str = "thinking…"):
+        self.label = label
+        self._stop = threading.Event()
+        self._thread: threading.Thread | None = None
+
+    def start(self) -> None:
+        self._thread = threading.Thread(target=self._run, daemon=True)
+        self._thread.start()
+
+    def _run(self) -> None:
+        for frame in itertools.cycle(self._FRAMES):
+            if self._stop.wait(0.09):
+                break
+            sys.stdout.write(f"\r{DIM}{frame} {self.label}{RESET} ")
+            sys.stdout.flush()
+
+    def stop(self) -> None:
+        if self._thread is None:
+            return
+        self._stop.set()
+        self._thread.join(timeout=0.3)
+        self._thread = None
+        sys.stdout.write("\r" + " " * (len(self.label) + 6) + "\r")
+        sys.stdout.flush()
 
 
 def make_event_printer() -> Callable[[str, dict[str, Any]], None]:

@@ -90,21 +90,16 @@ class LLMClient:
     def _cli_complete(self, system, messages, model, on_text) -> dict[str, Any]:
         """Route the turn through a locally-installed agent CLI.
 
-        These CLIs are full agents with their own tools and auth, so birkin
-        acts as a thin proxy: we send the flattened conversation and return the
-        CLI's reply as assistant text (no birkin tool loop).
+        These CLIs are full agents with their own identity, tools, and auth, so
+        birkin acts as a thin proxy: we send only the *conversation* (not
+        birkin's tool-oriented system prompt) and return the CLI's final reply
+        as assistant text.
         """
-        prompt = self._flatten(system, messages)
+        prompt = self._flatten("", messages)  # CLI agents have their own system
         if self.provider == "claude-cli":
-            cmd = "claude -p --output-format json"
-            if model and model not in ("claude-code", "default", ""):
-                cmd += f" --model {model}"
-            text = self._run_cli(cmd, prompt, parse_json="result")
+            text = self._run_claude(prompt, model)
         else:  # codex-cli
-            cmd = "codex exec --skip-git-repo-check"
-            if model:
-                cmd += f" -m {model}"
-            text = self._run_cli(cmd, prompt, parse_json=None)
+            text = self._run_codex(prompt, model)
         if on_text and text:
             on_text(text)
         return {"role": "assistant",
@@ -112,22 +107,54 @@ class LLMClient:
                 "stop_reason": "end_turn"}
 
     @staticmethod
-    def _run_cli(cmd: str, prompt: str, *, parse_json: Optional[str]) -> str:
+    def _run_claude(prompt: str, model: Optional[str]) -> str:
+        cmd = "claude -p --output-format json"
+        if model and model not in ("claude-code", "default", ""):
+            cmd += f" --model {model}"
         try:
             proc = subprocess.run(cmd, input=prompt, capture_output=True,
                                   text=True, errors="replace", shell=True, timeout=900)
         except subprocess.TimeoutExpired:
-            return "[birkin] the local CLI timed out."
+            return "[birkin] Claude Code timed out."
         out = (proc.stdout or "").strip()
-        if parse_json and out:
+        if out:
             try:
-                data = json.loads(out)
-                return str(data.get(parse_json) or data.get("text") or out)
+                return str(json.loads(out).get("result") or out)
             except json.JSONDecodeError:
                 return out
-        if not out and proc.stderr:
-            return f"[birkin] CLI error: {proc.stderr.strip()[:800]}"
-        return out or "(no output)"
+        return f"[birkin] Claude Code error: {(proc.stderr or '').strip()[:400]}"
+
+    @staticmethod
+    def _run_codex(prompt: str, model: Optional[str]) -> str:
+        # `-o` writes ONLY the final assistant message to a file, so we don't
+        # have to scrape codex's verbose stdout. read-only sandbox keeps a chat
+        # turn from running commands.
+        import tempfile
+        fd, path = tempfile.mkstemp(suffix="-codex.txt")
+        os.close(fd)
+        cmd = (f'codex exec --skip-git-repo-check --color never '
+               f'--sandbox read-only -o "{path}"')
+        if model and model not in ("codex", "default", ""):
+            cmd += f" -m {model}"
+        try:
+            proc = subprocess.run(cmd, input=prompt, capture_output=True,
+                                  text=True, errors="replace", shell=True, timeout=900)
+            try:
+                with open(path, encoding="utf-8", errors="replace") as fh:
+                    text = fh.read().strip()
+            except OSError:
+                text = ""
+        except subprocess.TimeoutExpired:
+            return "[birkin] Codex timed out."
+        finally:
+            try:
+                os.unlink(path)
+            except OSError:
+                pass
+        if text:
+            return text
+        err = (proc.stderr or "").strip() or (proc.stdout or "").strip()
+        return f"[birkin] Codex produced no message. {err[:400]}"
 
     # -- HTTP --------------------------------------------------------------
 

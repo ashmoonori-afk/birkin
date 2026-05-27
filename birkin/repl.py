@@ -59,15 +59,47 @@ def run(cfg: dict[str, Any] | None = None) -> int:
                 break
             continue
 
-        sys.stdout.write(f"\n{CYAN}birkin{RESET} > ")
-        sys.stdout.flush()
+        # Show a 'thinking…' spinner until the first token (or tool event)
+        # arrives, then print the reply. Streaming providers clear it instantly;
+        # non-streaming CLI backends spin until the full reply is ready.
+        spinner = ui.Spinner()
+        spinning = {"v": True}
+        header = {"v": False}
+        base_event = session.agent.on_event
+
+        def stop_spin() -> None:
+            if spinning["v"]:
+                spinning["v"] = False
+                spinner.stop()
+
+        def on_text(piece: str) -> None:
+            stop_spin()
+            if not header["v"]:
+                header["v"] = True
+                sys.stdout.write(f"\n{CYAN}birkin{RESET} > ")
+            ui.stream_text(piece)
+
+        def turn_event(ev: str, payload: dict) -> None:
+            stop_spin()
+            if base_event:
+                base_event(ev, payload)
+
+        session.agent.on_event = turn_event
+        spinner.start()
         try:
-            session.ask(line, on_text=ui.stream_text)
+            reply = session.ask(line, on_text=on_text)
+            stop_spin()
+            if not header["v"]:  # provider returned without streaming text
+                sys.stdout.write(f"\n{CYAN}birkin{RESET} > {reply}")
             sys.stdout.write("\n")
             store.append_activity(f"chat: {line[:120]}")
         except KeyboardInterrupt:
+            stop_spin()
             print(f"\n{DIM}(interrupted){RESET}")
         except Exception as exc:  # surface, don't crash the REPL
+            stop_spin()
             print(f"\n{RED}Error: {exc}{RESET}")
+        finally:
+            session.agent.on_event = base_event
     print(f"{DIM}bye.{RESET}")
     return 0

@@ -125,7 +125,7 @@ def apply_selection(cfg: dict[str, Any], model: Model) -> None:
         cfg["base_url"] = ""
     elif model.source == "codex-cli":
         cfg["provider"] = "codex-cli"
-        cfg["model"] = model.model_value()   # "" -> codex default
+        cfg["model"] = ""   # empty -> codex uses its own configured default
         cfg["base_url"] = ""
     elif model.is_ollama:
         cfg["provider"] = "openai"
