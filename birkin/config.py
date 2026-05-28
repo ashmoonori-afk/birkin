@@ -55,7 +55,7 @@ DEFAULT_CONFIG: dict[str, Any] = {
     # chat the user is present, so run_shell executes directly — the nightly
     # routine itself is denied shell/subagent tools (see nightly.py).
     # Adjust with the REPL /permission command or `birkin permission`.
-    "auto_approve": ["memory", "skills"],
+    "auto_approve": ["memory", "skill"],
     # CLI-agent (Claude Code / Codex) access level:
     #   "workspace" — writable & sandboxed to the workspace (default)
     #   "full"      — DANGEROUS: bypass all approvals + sandbox

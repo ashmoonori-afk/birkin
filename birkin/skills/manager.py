@@ -135,10 +135,23 @@ class SkillManager:
             if not (name and desc and body):
                 return ToolResult("create_skill needs name, description, body.",
                                   is_error=True)
-            tags = inp.get("tags") or []
-            path = _write_skill(name, desc, body, tags)
+            # Skill-PR: route through the approval gate so every authoring is
+            # recorded. With `skills` in auto_approve (default), it's applied
+            # immediately; otherwise it queues for `birkin review`.
+            from .. import approvals
+            res = approvals.propose(
+                category="skill",
+                title=f"new skill: {name}",
+                description=desc,
+                payload={"action": "create", "name": name, "description": desc,
+                         "body": body, "tags": inp.get("tags") or []},
+                cfg=ctx.cfg, origin="agent")
             self.reload()
-            return ToolResult(f"Created skill {name!r} at {path}")
+            if res.get("auto"):
+                return ToolResult(f"Created skill {name!r} (auto-approved).")
+            return ToolResult(
+                f"Skill proposal recorded for {name!r} — awaiting approval "
+                f"(id {res.get('id')}). Run `birkin review` to apply.")
 
         def improve_skill(inp: dict[str, Any], ctx: ToolContext) -> ToolResult:
             if not ctx.cfg.get("self_improve", True):
@@ -151,16 +164,21 @@ class SkillManager:
                 return ToolResult(f"No skill named {name!r}.", is_error=True)
             if not addition:
                 return ToolResult("improve_skill needs 'addition'.", is_error=True)
-            # Only user-writable skills can be edited in place; bundled skills
-            # are copied into the user dir first.
-            target = skill.path
-            if skill.source == "bundled":
-                target = _user_skill_path(skill.name)
-                target.write_text(skill.full(), encoding="utf-8")
-            with target.open("a", encoding="utf-8") as fh:
-                fh.write(f"\n\n## Learned ({_today()})\n\n{addition}\n")
+            # Skill-PR: route through the approval gate (no silent in-place edits).
+            from .. import approvals
+            res = approvals.propose(
+                category="skill",
+                title=f"improve skill: {name}",
+                description=addition[:160],
+                payload={"action": "improve", "target": skill.name,
+                         "addition": addition},
+                cfg=ctx.cfg, origin="agent")
             self.reload()
-            return ToolResult(f"Appended a learned note to {name!r}.")
+            if res.get("auto"):
+                return ToolResult(f"Appended a learned note to {name!r} (auto-approved).")
+            return ToolResult(
+                f"Improvement proposal recorded for {name!r} — awaiting "
+                f"approval (id {res.get('id')}). Run `birkin review` to apply.")
 
         return [
             Tool(
@@ -209,6 +227,46 @@ class SkillManager:
                 fn=improve_skill,
             ),
         ]
+
+
+def apply_skill_proposal(payload: dict[str, Any]) -> str:
+    """Carry out an approved skill change (create / improve). Returns a human
+    summary. Used by ``approvals.execute_action(category="skill")``."""
+    action = (payload or {}).get("action")
+    if action == "create":
+        name = payload.get("name", "").strip()
+        desc = payload.get("description", "").strip()
+        body = payload.get("body", "").strip()
+        if not (name and desc and body):
+            return "skill create proposal missing name/description/body"
+        path = _write_skill(name, desc, body, payload.get("tags") or [])
+        return f"Created skill {name!r} at {path}"
+    if action == "improve":
+        target_name = payload.get("target", "").strip()
+        addition = payload.get("addition", "").strip()
+        if not (target_name and addition):
+            return "skill improve proposal missing target/addition"
+        # Locate the skill via a fresh discover so we don't depend on a Manager
+        # instance from the calling context.
+        from .. import config as _config
+        dirs: list[tuple[Path, str]] = []
+        for d in _config.bundled_skills_dirs():
+            dirs.append((d, "bundled"))
+        dirs.append((_config.user_skills_dir(), "user"))
+        skills = discover(dirs)
+        skill = skills.get(target_name)
+        if skill is None:
+            return f"skill not found: {target_name}"
+        # Bundled (official) skills aren't edited in place — fork into the user
+        # dir first so the bundled catalog stays immutable.
+        target = skill.path
+        if skill.source == "bundled":
+            target = _user_skill_path(skill.name)
+            target.write_text(skill.full(), encoding="utf-8")
+        with target.open("a", encoding="utf-8") as fh:
+            fh.write(f"\n\n## Learned ({_today()})\n\n{addition}\n")
+        return f"Appended learned note to {target_name!r}."
+    return f"unknown skill action: {action!r}"
 
 
 def _bundled_files(directory: Path, limit: int = 40) -> list[str]:

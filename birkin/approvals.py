@@ -60,7 +60,10 @@ def execute_action(category: str, payload: dict[str, Any]) -> str:
             return "Command timed out."
         out = (proc.stdout or "") + (proc.stderr or "")
         return f"[exit {proc.returncode}] {out[:2000]}"
-    # memory/skills are applied by the agent directly; nothing to do here.
+    if category == "skill":
+        from .skills.manager import apply_skill_proposal
+        return apply_skill_proposal(payload)
+    # memory is applied by the agent directly; nothing else has an executor.
     return f"(no executor for category '{category}')"
 
 

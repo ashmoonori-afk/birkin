@@ -406,6 +406,42 @@ key-dependent. Easy to extend with more cases.
 
 ---
 
+## ADR-020 — Verified learning: Skill-PR mode + memory TTL
+
+**Context.** Hardening Phase H4: the v0.1 review flagged two concrete risks —
+(a) automatic skill writes had no audit trail (a paste of birkin_codex's
+"+25 dealbreaker" complaint), and (b) "learned" avoidances were stored as
+permanent skill text even when they were transient environment problems.
+
+**Decision.**
+- **Skill-PR mode.** `create_skill` and `improve_skill` no longer write the
+  user-skills tree directly; they call `approvals.propose(category="skill", …)`
+  with the full proposal payload. With the matching category in
+  `auto_approve` (default) the proposal applies immediately; otherwise it
+  queues in `pending/` and is applied by `birkin review`. Either way there is
+  always a pending record. `manager.apply_skill_proposal(payload)` is the
+  single writer; `improve_skill` forks bundled skills into the user dir
+  instead of mutating them in place. Side effect: `auto_approve` default fixed
+  from `["memory","skills"]` (the second was a no-op) to `["memory","skill"]`.
+- **Memory TTL.** A note can declare an `expires_at` ISO date in frontmatter
+  (`memory_write_note` exposes `ttl_days`). Expired notes are excluded from
+  `list_notes`, `search`, and `render` (the prompt digest / router) so the
+  agent stops seeing them. `get_note` still returns them by name for audit.
+
+**Rationale.** Closes "no skill mutated without a recorded proposal" + "a
+'learned' avoidance re-verifies before reuse" from the v0.1 review with the
+minimum machinery. Reuses the existing approval/run-record audit plumbing —
+no new subsystem.
+
+**Trade-off.** Auto-approve keeps the agent fast by default (no friction in
+the hot path); to require manual review, drop `skill` from `auto_approve`.
+TTL is implemented as a hard filter (no gradual decay yet); negative-memory
+typing arrives in H5.
+
+**Status.** Accepted.
+
+---
+
 ## ADR-019 — Reliability control plane: SIGTERM, stale heartbeat, budget, trace
 
 **Context.** Hardening Phase H3: a hard kill could leave the dashboard

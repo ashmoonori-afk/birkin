@@ -11,6 +11,21 @@ Improvement roadmap: [IMPROVEMENT-PLAN.md](./IMPROVEMENT-PLAN.md).
 > Improvement plan (P1–P4 from `IMPROVEMENT-PLAN.md`) was completed earlier.
 > The "Hardening Roadmap" (`HARDENING-PLAN.md`) is the v0.2 work:
 
+- **Hardening H4 — Verified learning (Skill-PR + TTL) ✅**
+  - `create_skill` and `improve_skill` now **route through the approval gate**
+    (category `skill`) — no skill mutates without a recorded proposal. With
+    `skill` in `auto_approve` (default), the proposal is applied immediately;
+    otherwise it queues for `birkin review`. `improve_skill` forks bundled
+    (official) skills into the user dir instead of editing them in place.
+  - `manager.apply_skill_proposal()` is the single place that writes a skill
+    file; `approvals.execute_action("skill", payload)` calls it.
+  - **Memory TTL**: `expires_at` frontmatter (and a `ttl_days` arg on
+    `memory_write_note` / `write_note`) — expired notes are excluded from
+    `list_notes`, `search`, and `render` (the prompt digest / router).
+    `get_note` still returns expired notes by name (debug/inspection).
+  - Default `auto_approve` renamed from the no-op `"skills"` to the matching
+    category `"skill"`.
+
 - **Hardening H3 — Reliability control plane ✅**
   - `scheduler.run_daemon` registers `atexit` + `SIGTERM` handlers that call
     `store.clear_status()` — a graceful stop or signal never leaves a dead daemon

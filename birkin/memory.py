@@ -69,6 +69,8 @@ class VaultMemory:
                 meta, _ = frontmatter.parse(f.read_text(encoding="utf-8", errors="replace"))
             except OSError:
                 continue
+            if _is_expired(meta):
+                continue   # TTL: drop expired notes from the index/router
             notes.append({
                 "title": meta.get("title", f.stem),
                 "type": meta.get("type", "topic"),
@@ -81,8 +83,11 @@ class VaultMemory:
     def write_note(self, title: str, body: str, *, note_type: str = "topic",
                    tags: list[str] | None = None, links: list[str] | None = None,
                    confidence: float = 0.7, source: str | None = None,
-                   append: bool = False) -> Path:
-        """Create or update a note. Preserves ``created`` and merges sources."""
+                   append: bool = False, ttl_days: int | None = None) -> Path:
+        """Create or update a note. Preserves ``created`` and merges sources.
+
+        ``ttl_days``: optional Time-To-Live; the note auto-expires from the
+        index/search/render after that many days (still readable by name)."""
         note_type = note_type if note_type in VALID_TYPES else "topic"
         p = self._path(title)
         created = date.today().isoformat()
@@ -111,10 +116,15 @@ class VaultMemory:
             if "## Related" not in body:
                 body += f"\n\n## Related\n{related}"
 
+        expires_at = None
+        if ttl_days is not None and int(ttl_days) > 0:
+            from datetime import timedelta
+            expires_at = (date.today() + timedelta(days=int(ttl_days))).isoformat()
+
         fm = _compose_frontmatter(
             title=title, note_type=note_type, created=created,
             updated=_now_iso()[:10], confidence=confidence,
-            sources=sources, tags=tags or [])
+            sources=sources, tags=tags or [], expires_at=expires_at)
         p.write_text(fm + body + "\n", encoding="utf-8")
         return p
 
@@ -126,10 +136,12 @@ class VaultMemory:
         hits: list[tuple[int, dict[str, str]]] = []
         for f in self.vault.glob("*.md"):
             text = f.read_text(encoding="utf-8", errors="replace")
+            meta, body = frontmatter.parse(text)
+            if _is_expired(meta):
+                continue
             low = text.lower()
             score = sum(low.count(t) for t in terms)
             if score:
-                _, body = frontmatter.split_frontmatter(text)
                 snippet = _snippet(body or text, terms[0])
                 hits.append((score, {"title": f.stem, "snippet": snippet}))
         hits.sort(key=lambda x: x[0], reverse=True)
@@ -215,7 +227,8 @@ class VaultMemory:
                 links=inp.get("links") or [],
                 confidence=float(inp.get("confidence", 0.7) or 0.7),
                 source=inp.get("source") or "conversation",
-                append=bool(inp.get("append", False)))
+                append=bool(inp.get("append", False)),
+                ttl_days=int(inp["ttl_days"]) if inp.get("ttl_days") else None)
             return ToolResult(f"Wrote note [[{title}]] -> {p}")
 
         def memory_search(inp: dict[str, Any], ctx: ToolContext) -> ToolResult:
@@ -260,7 +273,9 @@ class VaultMemory:
                                "description": "Titles of related notes"},
                      "confidence": {"type": "number"},
                      "source": {"type": "string"},
-                     "append": {"type": "boolean"}},
+                     "append": {"type": "boolean"},
+                     "ttl_days": {"type": "integer",
+                                  "description": "auto-expire after N days"}},
                      "required": ["title", "body"]},
                  fn=memory_write_note),
             Tool(name="memory_search",
@@ -288,9 +303,11 @@ class VaultMemory:
 
 def _compose_frontmatter(*, title: str, note_type: str, created: str,
                          updated: str, confidence: float,
-                         sources: list[str], tags: list[str]) -> str:
+                         sources: list[str], tags: list[str],
+                         expires_at: str | None = None) -> str:
     src = ", ".join(f'"{s}"' for s in sources)
     tg = ", ".join(str(t) for t in tags)
+    ttl_line = f"expires_at: {expires_at}\n" if expires_at else ""
     return (
         "---\n"
         f"title: {title}\n"
@@ -300,8 +317,20 @@ def _compose_frontmatter(*, title: str, note_type: str, created: str,
         f"confidence: {confidence}\n"
         f"sources: [{src}]\n"
         f"tags: [{tg}]\n"
-        "---\n\n"
+        + ttl_line
+        + "---\n\n"
     )
+
+
+def _is_expired(meta: dict[str, Any]) -> bool:
+    """True if ``meta['expires_at']`` is a date strictly in the past."""
+    raw = meta.get("expires_at")
+    if not raw:
+        return False
+    try:
+        return date.fromisoformat(str(raw)) < date.today()
+    except ValueError:
+        return False
 
 
 def _first_line(path: Path) -> str:
