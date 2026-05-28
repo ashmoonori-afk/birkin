@@ -17,6 +17,8 @@ run records + an append-only audit ledger, a polarity-aware Obsidian memory,
 risk-tiered approvals, and a `skills validate` integrity gate — all in a
 **zero-dependency** Python core.
 
+🌐 **Language**: English · [한국어](./README.ko.md)
+
 ![python](https://img.shields.io/badge/python-3.10%2B-3776ab)
 ![runtime deps](https://img.shields.io/badge/runtime%20deps-0-2ea44f)
 ![tests](https://img.shields.io/badge/tests-265%20passing-2ea44f)
