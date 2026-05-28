@@ -109,7 +109,8 @@ class LLMClient:
 
     @staticmethod
     def _run_claude(prompt: str, model: Optional[str]) -> str:
-        cmd = "claude -p --output-format json"
+        # acceptEdits: let Claude Code actually write files (no read-only).
+        cmd = "claude -p --output-format json --permission-mode acceptEdits"
         if model and model not in ("claude-code", "default", ""):
             cmd += f" --model {model}"
         try:
@@ -128,13 +129,13 @@ class LLMClient:
     @staticmethod
     def _run_codex(prompt: str, model: Optional[str]) -> str:
         # `-o` writes ONLY the final assistant message to a file, so we don't
-        # have to scrape codex's verbose stdout. read-only sandbox keeps a chat
-        # turn from running commands.
+        # have to scrape codex's verbose stdout. No sandbox override — codex uses
+        # its own configured policy (workspace-write by default) so it can read,
+        # write, and run commands in the workspace.
         import tempfile
         fd, path = tempfile.mkstemp(suffix="-codex.txt")
         os.close(fd)
-        cmd = (f'codex exec --skip-git-repo-check --color never '
-               f'--sandbox read-only -o "{path}"')
+        cmd = (f'codex exec --skip-git-repo-check --color never -o "{path}"')
         if model and model not in ("codex", "default", ""):
             cmd += f" -m {model}"
         try:

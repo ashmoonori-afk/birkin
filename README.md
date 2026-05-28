@@ -96,8 +96,9 @@ If `claude` or `codex` is on your `PATH`, `birkin model` lists them under
 **Local CLI agents**. Selecting one routes birkin through that CLI using its own
 login. birkin injects its **identity, memory, and the skills most relevant to
 your message** (including any bundled-script paths) into the CLI prompt, so the
-agent answers *as birkin*, remembers you, and follows your skills — running its
-own tools / skill scripts to do the work. (Birkin's native tool-calling loop —
+agent answers *as birkin*, remembers you, and follows your skills — reading,
+**writing**, and running commands in your workspace with its own tools / skill
+scripts (not read-only). (Birkin's native tool-calling loop —
 `load_skill`, `spawn_subagent`, etc. — is used with the API providers; CLI
 agents run their own tools instead.)
 

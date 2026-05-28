@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import itertools
 import json
+import re
 import sys
 import threading
 import time
@@ -19,12 +20,71 @@ CYAN = "\033[36m"
 GREEN = "\033[32m"
 YELLOW = "\033[33m"
 RED = "\033[31m"
+UNDERLINE = "\033[4m"
 RESET = "\033[0m"
 
 
 def stream_text(piece: str) -> None:
     sys.stdout.write(piece)
     sys.stdout.flush()
+
+
+# -- markdown -> ANSI ------------------------------------------------------
+
+_CODE_RE = re.compile(r"`([^`]+)`")
+_BOLD_RE = re.compile(r"\*\*(.+?)\*\*|__(.+?)__")
+_ITALIC_RE = re.compile(r"(?<![\*\w])\*([^*\n]+?)\*(?![\*\w])")
+_LINK_RE = re.compile(r"\[([^\]]+)\]\(([^)]+)\)")
+_HEADER_RE = re.compile(r"^(#{1,6})\s+(.*)$")
+_BULLET_RE = re.compile(r"^(\s*)[-*+]\s+(.*)$")
+_NUM_RE = re.compile(r"^(\s*)(\d+)\.\s+(.*)$")
+_RULE_RE = re.compile(r"^(---+|\*\*\*+|___+)$")
+_RULE = DIM + "─" * 48 + RESET
+
+
+def _inline(s: str) -> str:
+    s = _LINK_RE.sub(lambda m: f"{UNDERLINE}{m.group(1)}{RESET} {DIM}{m.group(2)}{RESET}", s)
+    s = _CODE_RE.sub(lambda m: f"{CYAN}{m.group(1)}{RESET}", s)
+    s = _BOLD_RE.sub(lambda m: f"{BOLD}{m.group(1) or m.group(2)}{RESET}", s)
+    s = _ITALIC_RE.sub(lambda m: f"{UNDERLINE}{m.group(1)}{RESET}", s)
+    return s
+
+
+def render_markdown(text: str) -> str:
+    """Render a subset of Markdown to ANSI for the terminal. Best-effort:
+    headers, bold/italic, inline code, links, bullets, numbered lists, rules,
+    and fenced code blocks. Falls back to the raw text on any error."""
+    try:
+        out: list[str] = []
+        in_code = False
+        for line in text.split("\n"):
+            stripped = line.strip()
+            if stripped.startswith("```"):
+                in_code = not in_code
+                out.append(_RULE)
+                continue
+            if in_code:
+                out.append(f"{DIM}  {line}{RESET}")
+                continue
+            if _RULE_RE.match(stripped):
+                out.append(_RULE)
+                continue
+            h = _HEADER_RE.match(line)
+            if h:
+                out.append(f"{BOLD}{CYAN}{h.group(2)}{RESET}")
+                continue
+            b = _BULLET_RE.match(line)
+            if b:
+                out.append(f"{b.group(1)}{CYAN}•{RESET} {_inline(b.group(2))}")
+                continue
+            n = _NUM_RE.match(line)
+            if n:
+                out.append(f"{n.group(1)}{CYAN}{n.group(2)}.{RESET} {_inline(n.group(3))}")
+                continue
+            out.append(_inline(line))
+        return "\n".join(out)
+    except Exception:
+        return text
 
 
 class Spinner:

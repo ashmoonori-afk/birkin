@@ -59,25 +59,17 @@ def run(cfg: dict[str, Any] | None = None) -> int:
                 break
             continue
 
-        # Show a 'thinking…' spinner until the first token (or tool event)
-        # arrives, then print the reply. Streaming providers clear it instantly;
-        # non-streaming CLI backends spin until the full reply is ready.
+        # Spin while the agent works (tool activity stops the spinner), then
+        # render the full reply as Markdown. Buffering the reply lets us render
+        # cleanly for both streaming (API) and non-streaming (CLI) backends.
         spinner = ui.Spinner()
         spinning = {"v": True}
-        header = {"v": False}
         base_event = session.agent.on_event
 
         def stop_spin() -> None:
             if spinning["v"]:
                 spinning["v"] = False
                 spinner.stop()
-
-        def on_text(piece: str) -> None:
-            stop_spin()
-            if not header["v"]:
-                header["v"] = True
-                sys.stdout.write(f"\n{CYAN}birkin{RESET} > ")
-            ui.stream_text(piece)
 
         def turn_event(ev: str, payload: dict) -> None:
             stop_spin()
@@ -87,11 +79,10 @@ def run(cfg: dict[str, Any] | None = None) -> int:
         session.agent.on_event = turn_event
         spinner.start()
         try:
-            reply = session.ask(line, on_text=on_text)
+            reply = session.ask(line)  # buffered (no live token printing)
             stop_spin()
-            if not header["v"]:  # provider returned without streaming text
-                sys.stdout.write(f"\n{CYAN}birkin{RESET} > {reply}")
-            sys.stdout.write("\n")
+            print(f"\n{CYAN}birkin{RESET} >\n")
+            print(ui.render_markdown((reply or "").strip()))
             store.append_activity(f"chat: {line[:120]}")
         except KeyboardInterrupt:
             stop_spin()
