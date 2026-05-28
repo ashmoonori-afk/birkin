@@ -17,8 +17,11 @@ routine that prepares your tomorrow — all in a **zero-dependency** Python core
 
 ![python](https://img.shields.io/badge/python-3.10%2B-3776ab)
 ![runtime deps](https://img.shields.io/badge/runtime%20deps-0-2ea44f)
+![tests](https://img.shields.io/badge/tests-265%20passing-2ea44f)
+![coverage](https://img.shields.io/badge/coverage-76%25-2ea44f)
 ![platform](https://img.shields.io/badge/platform-macOS%20·%20Linux%20·%20Windows-lightgrey)
-![license](https://img.shields.io/badge/license-MIT-green)
+![license](https://img.shields.io/badge/package-Proprietary-orange)
+![license](https://img.shields.io/badge/bundled%20skills-MIT-green)
 
 </div>
 
@@ -27,34 +30,128 @@ routine that prepares your tomorrow — all in a **zero-dependency** Python core
 Most AI tools forget you the moment a chat ends. **birkin doesn't.** It
 *compiles* what it learns into an Obsidian knowledge vault, writes its own
 skills from experience, and every night reviews your day to prepare the next
-one — asking permission before it changes anything that matters.
+one — **asking permission before it changes anything that matters**.
 
-It runs on whatever you already have: an **API key** (Anthropic / OpenAI-compatible)
-**or** a locally-installed agent CLI you're already logged into
-(**Claude Code** or **Codex**).
+It runs on whatever you already have: an **API key**
+(Anthropic / OpenAI-compatible / Ollama) **or** the local agent CLI you're
+already logged into (**Claude Code** / **Codex**).
 
 Inspired by [hermes-agent](https://github.com/NousResearch/hermes-agent) and
 [openclaw](https://github.com/openclaw/openclaw), distilled to a core you can
 read in an afternoon.
 
-## ✨ Highlights
+---
 
-- 🧠 **Memory that lasts** — an **Obsidian vault** of linked markdown notes
-  (`[[wikilinks]]`, frontmatter, sources). *Compile over retrieve* — no opaque
-  vector store; open it in Obsidian and edit by hand.
-- 🔌 **Run on what you have** — Anthropic API, any OpenAI-compatible endpoint
-  (incl. local **Ollama**), or your installed **Claude Code** / **Codex** CLI
-  (no API key — it uses the CLI's own login).
-- 🧩 **Skills** — the `SKILL.md` standard (hermes-compatible). Skills load on
-  demand; the agent authors new ones from what it learns.
-- 🐝 **Subagents** — delegate focused, parallelizable work to isolated agents.
-- 🌙 **Self-improving, nightly** — at 04:00 it reviews the last 24h, updates
-  memory, writes skills, and **proposes** automations for your approval.
-- ✅ **You stay in control** — consequential actions (cron jobs, shell) wait in
-  an approval queue. Tune the boundary with `/permission`.
-- 📊 **Dashboard, not chatbox** — a local web dashboard shows running jobs, run
-  summaries, and pending approvals. Chat stays in your terminal.
-- 🪶 **Zero dependencies** — Python standard library only. One command, any OS.
+## 🎯 Design intent
+
+birkin is deliberately **smaller and more careful** than the inspirations. Five
+choices everything else falls out of:
+
+1. **Stdlib-only runtime.** `pyproject.toml` `dependencies = []`. Install on
+   any laptop, server, or fresh OS — no version drift, no pinning hell. (Dev
+   tooling like `pytest` is opt-in.)
+2. **Compile over retrieve.** Memory is a real Obsidian vault of markdown
+   notes with `[[wikilinks]]`, frontmatter, **polarity** (positive vs. known
+   failure), **version** (optimistic lock), and TTL — not an opaque embedding
+   store. Open it in Obsidian and edit by hand.
+3. **Approval-first.** Memory and skill writes auto-apply (reversible local
+   files); cron schedules and shell commands are queued for review. Risk tiers
+   surface the most dangerous proposals first.
+4. **CLI first, dashboard second.** The chat lives in your terminal with a
+   real line editor (inline `/cmd` dropdown, Shift/Ctrl/Alt+Enter newlines,
+   persistent history). The web UI is *monitoring* — jobs, runs, approvals.
+5. **Honest about scope.** hermes ships more execution backends; openclaw
+   ships more channels and a 5,400-skill registry. birkin's bet is **depth on
+   trust**: `skills validate` + `py_compile`, risk-tiered approvals, polarity
+   memory, token-budget governor, ledgered audit trail. See
+   [`docs/COMPARISON.md`](./docs/COMPARISON.md) for the sourced breakdown.
+
+---
+
+## 🗺️ Architecture
+
+```
+                              ┌───────────────────────────┐
+                              │            you            │
+                              └──┬──────────────────────┬─┘
+                                 │ terminal             │ browser
+                                 ▼                      ▼
+              ┌──────────────────────────────┐   ┌────────────────────┐
+              │      REPL  (repl.py)         │   │  web/server.py     │
+              │  ┌────────────────────────┐  │   │  monitoring only   │
+              │  │ inline_complete.py     │  │   │  ─ /api/status     │
+              │  │  ─ /cmd dropdown       │  │   │  ─ /api/runs       │
+              │  │  ─ Shift/Ctrl/Alt+Ent  │  │   │  ─ /api/approvals  │
+              │  │  ─ multi-line + paste  │  │   │  ─ /api/skills     │
+              │  │  ─ ↑/↓ history         │  │   └─────────┬──────────┘
+              │  └────────────────────────┘  │             │
+              └──────────────┬───────────────┘             │
+                             │                             │
+              ┌──────────────┴─────────────────────────────┴──┐
+              │       gateway / channels (gateway/*)          │ ◀── Telegram
+              │           one shared Session                  │
+              └──────────────┬───────────────────────────────┘
+                             │
+                             ▼
+  ┌──────────────────────────────────────────────────────────────────┐
+  │                       Session   (runtime.py)                     │
+  │                                                                  │
+  │     ┌────────────────────────────────────────────────────┐       │
+  │     │        agent.py   ⟲ tool-calling loop              │       │
+  │     │        (provider-agnostic, streaming on Anthropic) │       │
+  │     └──┬─────────────────────┬─────────────────────────┬─┘       │
+  │        ▼                     ▼                         ▼         │
+  │   ┌─────────┐         ┌──────────────┐         ┌─────────────┐   │
+  │   │  llm.py │         │   tools/     │         │  skills/    │   │
+  │   │         │         │              │         │             │   │
+  │   │ Anthropic│        │ files        │         │ SKILL.md    │   │
+  │   │ OpenAI   │        │ shell        │         │ loader      │   │
+  │   │ claude-cli        │ web          │         │ manager     │   │
+  │   │ codex-cli│        │ subagent ──┐ │         │ validate.py │   │
+  │   │ local-cli│        │ memory_*  ─┼─┼────────▶│  py_compile │   │
+  │   └─────────┘         └────────────┼─┘         │  sync       │   │
+  │                                    │           └─────┬───────┘   │
+  │                                    ▼                 ▼           │
+  │                              subagent.py        memory.py        │
+  │                              (isolated)         (Obsidian vault) │
+  └──────────────────────────────────────────────────────────────────┘
+                             │                       │
+                             │                       ▼
+                             │              ~/.birkin/vault/*.md
+                             │              ─ polarity (+/−)
+                             │              ─ version (optimistic lock)
+                             │              ─ TTL (expires_at)
+                             ▼
+        ┌────────────────────────────────────────────────────┐
+        │   autonomy (scheduler.py · cron.py · nightly.py)   │
+        │                                                    │
+        │   04:00 ─▶ selfimprove ─▶ reads last 24h          │
+        │            ├─ writes memory / skills    (auto)     │
+        │            └─ proposes cron / shell ───┐           │
+        └────────────────────────────────────────┼───────────┘
+                                                 │
+                                                 ▼
+                              ┌─────────────────────────────────┐
+                              │  approvals.py + risk.py         │
+                              │  ─ memory/skill = low (auto)    │
+                              │  ─ cron        = medium (queue) │
+                              │  ─ shell       = high  (queue)  │
+                              └──────────┬──────────────────────┘
+                                         │
+                                         ▼
+                            `birkin review`  /  /api/approvals
+
+        every turn:  run record (estTokens, tools, iterations)
+                     ──▶  ~/.birkin/runs/  +  ~/.birkin/ledger.jsonl
+                     (audit replay via `birkin trace <run-id>`,
+                      budget governor in budget.py)
+```
+
+**Reading the diagram.** Solid arrows are control / data flow at one turn.
+The dashed regions (autonomy, audit) sit *under* the synchronous loop —
+they're driven by the daemon and the ledger, not by user input.
+
+---
 
 ## 🚀 Install
 
@@ -75,62 +172,128 @@ uv run birkin            # or:  pip install -e .  &&  birkin
 ```
 
 Requires **Python 3.10+**. The first run launches an onboarding wizard —
-navigate choices with **↑/↓ and Enter** (no typing except keys/paths).
+navigate with **↑/↓ and Enter** (no typing except keys/paths).
 
 ### Pick a backend
 
-birkin needs *one* of these — the onboarding wizard (or `birkin model`) sets it up:
+birkin needs *one* of these — the wizard (or `birkin model`) sets it up:
 
 | Backend | How | API key |
 |---|---|---|
 | **Anthropic** | `export ANTHROPIC_API_KEY=sk-ant-…` | required |
-| **OpenAI-compatible** | set provider `openai` + `base_url` (works with **Ollama**) | required* |
-| **Claude Code** (`claude`) | pick it in `birkin model` | none — uses the CLI login |
-| **Codex** (`codex`) | pick it in `birkin model` | none — uses the CLI login |
-| **Any local CLI** (`local-cli`) | set `cli_command` (argv) in config | none — runs your argv with the prompt on stdin |
+| **OpenAI-compatible** | set provider `openai` + `base_url` (works with **Ollama**) | required\* |
+| **Claude Code** (`claude`) | pick it in `birkin model` | none — uses CLI login |
+| **Codex** (`codex`) | pick it in `birkin model` | none — uses CLI login |
+| **Any local CLI** (`local-cli`) | set `cli_command` (argv) in config | none — runs argv with prompt on stdin |
 
 \* Ollama accepts any key. PowerShell: `$env:ANTHROPIC_API_KEY="sk-ant-…"`.
 
-### Run on Claude Code / Codex (no API key)
+### No API key? Use Claude Code / Codex
 
 If `claude` or `codex` is on your `PATH`, `birkin model` lists them under
-**Local CLI agents**. Selecting one routes birkin through that CLI using its own
-login. birkin injects its **identity, memory, and the skills most relevant to
-your message** (including any bundled-script paths) into the CLI prompt, so the
-agent answers *as birkin*, remembers you, and follows your skills — reading,
-**writing**, and running commands in your workspace with its own tools / skill
-scripts (not read-only). (Birkin's native tool-calling loop —
-`load_skill`, `spawn_subagent`, etc. — is used with the API providers; CLI
-agents run their own tools instead.)
+**Local CLI agents**. birkin injects its identity + memory + the skills most
+relevant to your message into the CLI prompt, so the agent answers *as
+birkin*, remembers you, and follows your skills.
 
-CLI agents are **writable** by default (sandboxed to the workspace). To let them
-bypass all approvals and the sandbox, set the access level to **full**:
-`birkin permission --access full` (or `/permission access full` in chat) — this
-adds `--dangerously-bypass-approvals-and-sandbox` (Codex) /
-`--dangerously-skip-permissions` (Claude Code). Use only in a workspace you trust.
+CLI agents are **writable** by default (sandboxed to the workspace). To
+bypass approvals/sandbox entirely: `birkin permission --access full`.
+Use only in a workspace you trust.
 
-## 🎮 Commands
+---
+
+## 🎮 Quick start — five workflows
+
+> Every example below is real. Copy, paste, run.
+
+### 1. Chat that remembers what you tell it
 
 ```bash
-birkin            # start chatting (first run → onboarding)
-birkin chat --dry-run -m "…"   # print the prompt packet — no model call, no key
-birkin runs       # recent run records + usage (audit log)
-birkin setup      # onboarding wizard            (alias: birkin onboard)
-birkin model      # choose the model — API + local CLI agents in one picker
-birkin tools      # "Available Tools" panel; --enable/--disable to toggle
-birkin skills     # list · birkin skills <name> to print · birkin skills sync to mirror upstream
-birkin gateway    # run as a service (HTTP + optional Telegram channels)
-birkin web        # open the monitoring dashboard
-birkin daemon     # run the nightly + cron scheduler  (--install for an OS task)
-birkin nightly    # run the self-improvement routine now  (--dry-run to preview)
-birkin review     # approve / reject proposed actions
-birkin cron       # list / --remove scheduled jobs
-birkin permission # approvals (--add/--remove) + CLI-agent access (--access workspace|full)
+$ birkin
+you > /remember I prefer concise replies, no preamble
+birkin > Noted as [[Profile - reply-style]].
+you > /memory preference
+birkin > Vault has 3 preference notes:
+         - [[Profile - reply-style]] …
+         - [[Profile - timezone]] …
+```
+
+### 2. Paste a 5000-character PRD as one input
+
+Inside the REPL, **Shift+Enter** (or Ctrl-J / Alt+Enter on terminals
+without the Kitty Keyboard Protocol) inserts a newline. **Enter** submits.
+Inline `/`-dropdown filters slash commands as you type; arrow keys, Home/End,
+Delete, and ↑/↓ history all work. Long lines scroll horizontally so the
+terminal layout never breaks.
+
+```
+you > /help⏎          (lists every slash command grouped by purpose)
+you > Build a GTM plan for the brief below.⇧⏎
+      ⇧⏎
+      [paste 5000+ chars across N lines]⏎
+birkin > [streams reply]
+```
+
+### 3. Teach it a skill from one successful turn
+
+```bash
+you > /learn lockup-feedback
+       → birkin captures the procedure of the last turn as a SKILL.md
+         in ~/.birkin/skills/lockup-feedback/. Next time you ask, it
+         loads it automatically and follows the same recipe.
+```
+
+You can also let birkin **author skills nightly**, gated by approval (below).
+
+### 4. Self-improve overnight, review in the morning
+
+```bash
+$ birkin daemon --install      # registers the OS task (cron / launchd / schtasks)
+                               # at 04:00 birkin reads yesterday, writes memory,
+                               # writes skills (auto), and queues automation
+                               # proposals for cron / shell (review needed)
+$ birkin review                # next morning, approve / reject one by one
+$ birkin trace <run-id>        # audit replay of any past turn
+```
+
+Risk tiers surface the dangerous proposals first (`shell` before `cron`
+before `memory`/`skill`). See `birkin permission` to tune what auto-applies.
+
+### 5. Reach birkin from Telegram
+
+```bash
+$ birkin setup              # answer "Connect a Telegram bot?" — paste token
+$ birkin gateway            # now your Telegram bot shares the same vault
+                            # and skills as your terminal session
+```
+
+---
+
+## 📟 Command cheat sheet
+
+```bash
+birkin                              # start chatting (first run → onboarding)
+birkin chat --dry-run -m "…"        # print the prompt packet — no model call
+birkin runs                         # recent run records + usage (audit log)
+birkin trace <run-id>               # single run record (replay-style)
+birkin budget                       # token usage vs daily/monthly caps
+birkin setup                        # onboarding wizard         (alias: onboard)
+birkin model                        # pick model (API + local CLI agents)
+birkin tools  [--enable/--disable]  # tool catalog and toggles
+birkin skills                       # list   (`<name>` to print, `sync` to mirror upstream)
+birkin skills validate [--verbose]  # lint SKILL.md frontmatter + py_compile bundled scripts
+birkin gateway                      # run as a service (HTTP + Telegram channels)
+birkin web                          # open the monitoring dashboard
+birkin daemon  [--install]          # nightly + cron scheduler
+birkin nightly [--dry-run]          # run the self-improvement routine NOW
+birkin review                       # approve / reject proposed actions
+birkin cron                         # list / --remove scheduled jobs
+birkin permission [--add/--remove]  # auto-approve categories
+              [--access workspace|full]  # CLI-agent access level
 ```
 
 ### In-chat slash commands
 
-Self-documenting — type `/help` for the list, `/help <name>` for detail:
+Self-documenting — type `/help` for the full list, `/help <name>` for detail:
 
 | Group | Commands |
 |---|---|
@@ -142,18 +305,21 @@ Self-documenting — type `/help` for the list, `/help <name>` for detail:
 | **Session** | `/save` · `/load` · `/sessions` |
 | **System** | `/tools` · `/system` · `/config` · `/update` · `/help` · `/quit` |
 
-## 🧠 Memory (Obsidian vault)
+---
 
-birkin keeps an **Obsidian vault** (default `~/.birkin/vault`). Each fact is a
-markdown note with frontmatter and `[[wikilinks]]`:
+## 🧠 Memory in detail (Obsidian vault)
+
+Default location: `~/.birkin/vault`. Each fact is a sourced markdown note:
 
 ```markdown
 ---
 title: FlowerPlus GTM
-type: project            # person | project | preference | fact | topic | session
+type: project              # person | project | preference | fact | topic | session
 created: 2026-05-27
-updated: 2026-05-27
+updated: 2026-05-28
 confidence: 0.8
+polarity: positive         # or "negative" — known failure (re-verify on use)
+version: 3                 # optimistic-lock: refuse stale-snapshot overwrites
 sources: ["session:2026-05-27"]
 tags: [marketing, gtm]
 ---
@@ -162,45 +328,93 @@ Corporate-welfare flower subscription. Relates to
 [[User Research]] and [[Outbound Sales Script]].
 ```
 
-The agent uses `memory_search` to find notes, `memory_get_note` to read them,
-and `memory_write_note` / `memory_link` to grow the graph. Everything is
-human-readable and sourced — nothing hidden in an embedding.
+Tools the agent uses: `memory_search`, `memory_get_note`, `memory_write_note`
+(with `polarity` and `expected_version`), `memory_link`. Set
+`evidence_required: true` in `config.json` to refuse any new note that lacks
+a `source`.
+
+---
+
+## 🧩 Skills in detail
+
+A skill is a directory with a `SKILL.md` (YAML frontmatter + markdown body),
+compatible with the agentskills.io / hermes standard. **48 bundled** under
+[`skills/`](./skills) across research, software, writing, data, devops,
+marketing, … plus your own under `~/.birkin/skills/` (which shadow bundled
+ones by name).
+
+```markdown
+---
+name: web-research
+description: "Research a topic and synthesize a sourced summary."
+version: 1.0.0
+license: MIT
+metadata:
+  birkin:
+    tags: [research, web]
+---
+
+## When to Use
+…
+```
+
+**Authoring.** `load_skill` pulls the full text on demand. `create_skill`
+and `improve_skill` route every write through the approval gate (Skill-PR
+mode) — bundled skills are never edited in place; they fork to your user
+dir first. After a complex turn that didn't save a skill, birkin nudges
+itself (no extra LLM call) to capture the procedure.
+
+**Hygiene.** `birkin skills validate` lints frontmatter and runs
+`py_compile` over every bundled `*.py`. Use it in CI: it exits non-zero on
+any error.
+
+**Freshness & scale.** Skills **hot-reload** when you edit a `SKILL.md`
+(no restart). Add `prerequisites` (commands / platforms) and a skill is
+**gated** — hidden when prereqs aren't met. `birkin skills sync` mirrors
+an upstream skill tree into `~/.birkin/skills/mirrors/` (bundled scripts +
+attribution preserved). If `SOUL.md` / `AGENTS.md` / `TOOLS.md` exist in
+your workspace they're layered into the system prompt.
+
+---
 
 ## 🌙 Nightly self-improvement & the approval gate
 
-Run `birkin daemon` (or register an OS task with `birkin daemon --install`). At
+`birkin daemon` (or `birkin daemon --install` to register an OS task). At
 your configured hour (default **04:00**) it:
 
 1. **Reads your last 24h** — saved conversations + files that changed.
-2. **Updates memory** — new entities, facts, and `[[links]]`.  *(auto)*
+2. **Updates memory** — new entities, facts, and `[[links]]`.   *(auto)*
 3. **Writes / refines skills** — for repeatable things it saw.  *(auto)*
-4. **Proposes** automations (cron jobs, digests, commands).  *(needs approval)*
+4. **Proposes** automations (cron jobs, digests, commands).     *(review)*
 
-Safe, reversible changes (memory, skills) apply automatically. Anything that
-touches the outside world is queued — review it with `birkin review` or on the
-dashboard. The unattended routine runs **without** shell/subagent tools by
-design. Adjust what auto-applies with `birkin permission --add cron` (or
-`/permission`); `memory` and `skills` are auto-approved by default.
+Safe, reversible changes (memory, skills) apply automatically. The
+unattended routine runs **without** shell / subagent tools by design.
+Adjust auto-approval with `birkin permission --add cron` (or
+`/permission`); `memory` and `skill` are auto-approved by default.
 
-## 🛰️ Gateway
+A **token budget governor** (`birkin budget`) sums `estTokens` from the run
+ledger over a daily / monthly window and refuses over-budget turns with a
+clear message — no silent spend.
 
-`birkin gateway` runs the agent as a persistent service. One shared memory vault
-and skill catalog back every **channel**, so birkin remembers you everywhere:
+---
 
-- **HTTP** (on by default): `POST /message {"session","text"} → {"reply"}` and
-  `GET /health`, bound to localhost.
-- **Telegram** (optional): run `birkin setup` and answer *“Connect a Telegram
-  bot?”* (it verifies the token via `getMe`), or set `channels.telegram =
-  {"enabled": true, "token": "<bot token>"}` in `~/.birkin/config.json`. Create
-  the bot with [@BotFather](https://t.me/BotFather). Pure stdlib long-polling —
-  start it with `birkin gateway`.
+## 🛰️ Gateway & 📊 Dashboard
 
-## 📊 Dashboard
+`birkin gateway` runs the agent as a persistent service. One shared memory
+vault and skill catalog back every channel, so birkin remembers you
+everywhere:
 
-`birkin web` serves a local **monitoring dashboard** (not a chat): live status,
-scheduled/running jobs, recent run summaries, pending approvals (approve/reject),
-and the skill catalog. It is read-mostly, needs no API key, is bound to
-localhost, and guards approvals with a per-session token + Host check.
+- **HTTP** (on by default): `POST /message {"session","text"} → {"reply"}`,
+  plus `GET /health`. Bound to localhost.
+- **Telegram** (optional): `birkin setup` walks you through it, or set
+  `channels.telegram` in `config.json`. Pure stdlib long-polling.
+
+`birkin web` serves a local **monitoring** dashboard (not a chat): live
+status, scheduled/running jobs, recent runs, pending approvals
+(approve/reject with risk tier badges), and the skill catalog. Localhost +
+per-session token + Host check.
+
+---
 
 ## ⚙️ Configuration
 
@@ -208,112 +422,72 @@ All state lives under `~/.birkin` (override with `BIRKIN_HOME`):
 
 ```
 ~/.birkin/
-├── config.json     # provider, model, vault, nightly hour, permissions, channels…
+├── config.json     # provider, model, vault, nightly hour, permissions…
 ├── vault/          # Obsidian semantic memory (markdown notes)
 ├── skills/         # user- and agent-authored skills
 ├── sessions/       # saved conversations  (nightly input)
-├── runs/           # nightly / cron run summaries  (dashboard)
+│   └── repl_history.txt           # persistent ↑/↓ command history
+├── runs/           # per-turn run summaries (dashboard)
+├── ledger.jsonl    # append-only one-line audit log
 ├── pending/        # proposed actions awaiting approval
 ├── cron.json       # registered daily jobs
 └── status.json     # daemon heartbeat / next-run info
 ```
 
-`config.json` (key settings):
+`config.json` — the keys you'll actually touch:
 
 ```json
 {
-  "provider": "anthropic",            // anthropic | openai | claude-cli | codex-cli
+  "provider": "anthropic",
   "model": "claude-sonnet-4-6",
   "subagent_model": "claude-haiku-4-5-20251001",
-  "base_url": "",                     // e.g. http://localhost:11434/v1 for Ollama
-  "vault_path": "",                   // empty → ~/.birkin/vault
+  "base_url": "",
+  "vault_path": "",
   "nightly_hour": 4,
-  "auto_approve": ["memory", "skills"],
-  "disabled_tools": [],
+  "auto_approve": ["memory", "skill"],
+  "budget_tokens_daily": 0,
+  "budget_tokens_monthly": 0,
+  "evidence_required": false,
   "gateway_port": 8788,
   "web_port": 8787,
-  "channels": { "http": {"enabled": true}, "telegram": {"enabled": false, "token": ""} }
+  "channels": {
+    "http": {"enabled": true},
+    "telegram": {"enabled": false, "token": ""}
+  }
 }
 ```
 
-API keys are read from the environment first (`ANTHROPIC_API_KEY` /
-`OPENAI_API_KEY`); CLI-agent providers need none. If a key is written to
-`config.json` it is stored `chmod 600`.
+API keys are read from the environment first; CLI-agent providers need
+none. A key written to `config.json` is stored `chmod 600`.
 
-## 🧩 Skills
-
-A skill is a directory with a `SKILL.md` (YAML frontmatter + markdown body),
-compatible with the agentskills.io / hermes standard:
-
-```markdown
----
-name: web-research
-description: "Research a topic and synthesize a sourced summary."
-version: 1.0.0
-metadata:
-  birkin:
-    tags: [research, web]
 ---
 
-# Web Research
-## When to Use
-## When NOT to Use
-```
+## 🛠️ Where birkin sits today
 
-Bundled skills ship in [`skills/`](./skills) (40+ across research, software,
-writing, data, devops, marketing, …); your own live in `~/.birkin/skills/` and
-shadow bundled ones by name. The agent loads a skill on demand with
-`load_skill`, and writes/refines its own with `create_skill` / `improve_skill`.
+- **199 → 265 tests** offline, no API key, with `pytest-cov` enforcing
+  **≥ 75 %** coverage. Coverage today: **76.06 %**.
+- **48 bundled skills**, all clean against `birkin skills validate`.
+- All hardening phases H2 – H7 complete (live-LLM harness, reliability
+  control plane, verified learning, Memory OS, skill integrity, full
+  line editor with multi-line input + Shift/Ctrl/Alt+Enter via the Kitty
+  Keyboard Protocol).
+- Full sourced comparison vs hermes-agent and openclaw:
+  [`docs/COMPARISON.md`](./docs/COMPARISON.md).
 
-**Automatic skill-ization (hermes-style).** After a complex turn (several tool
-steps) that didn't save a skill, birkin nudges itself — with no extra LLM call —
-to capture the procedure as a skill; a turn-based nudge does the same for
-memory. Counters reset when you actually save. Tune with `skill_nudge_interval`
-/ `memory_nudge_interval` in config (set to `0` to disable).
+Roadmap: [`docs/HARDENING-PLAN.md`](./docs/HARDENING-PLAN.md). Per-decision
+rationale: [`docs/DECISIONS.md`](./docs/DECISIONS.md). Live status:
+[`docs/STATUS.md`](./docs/STATUS.md).
 
-**Freshness & scale.** Skills **hot-reload** when you edit a `SKILL.md` (no
-restart). Add frontmatter `prerequisites` (`commands` / `platforms`) and a skill
-is **gated** — hidden from the catalog/router when its prereqs aren't met here.
-`birkin skills sync [--from DIR]` **mirrors** an upstream (hermes) skill tree
-into `~/.birkin/skills/mirrors/` (bundled scripts + attribution preserved). If
-`SOUL.md` / `AGENTS.md` / `TOOLS.md` exist in your workspace, they're layered
-into the system prompt.
-
-## 🗺️ Architecture
-
-```
-birkin/
-├── cli.py            # entry: chat·setup·model·tools·gateway·web·daemon·nightly·review·cron·permission
-├── onboarding.py     # first-run wizard
-├── runtime.py        # wires a Session (client + skills + memory + tools)
-├── agent.py          # provider-agnostic tool-calling loop
-├── llm.py            # clients: Anthropic (stream) · OpenAI · Claude Code / Codex CLIs
-├── models.py         # model discovery (API + local CLI agents + Ollama)
-├── prompts.py        # system-prompt construction
-├── tools/            # files · shell · web · subagent  (+ registry/context)
-├── skills/           # SKILL.md frontmatter parser · loader · manager
-├── memory.py         # Obsidian-vault semantic memory
-├── subagent.py       # isolated child agents
-├── selfimprove.py    # reflection → skills/memory
-├── nightly.py        # 04:00 routine
-├── scheduler.py · cron.py · approvals.py · store.py   # autonomy + approval gate
-├── gateway/          # service control plane + channels (HTTP, Telegram)
-├── repl.py · ui.py · slashcommands.py                 # terminal chat
-└── web/              # monitoring dashboard (server + static UI)
-```
-
-Full design: [`docs/DESIGN.md`](./docs/DESIGN.md) ·
-decisions: [`docs/DECISIONS.md`](./docs/DECISIONS.md) ·
-status: [`docs/STATUS.md`](./docs/STATUS.md).
+---
 
 ## 📄 License
 
 Dual: the **birkin Python package** (`birkin/`, the runtime code) is
-**Proprietary — All Rights Reserved** (© 2026 ashmoonori). Source is visible
-for inspection; no use, copy, modify, distribute, or commercial right is
-granted without written permission. The **bundled skill catalog** (`skills/`)
-is **MIT-licensed** — the catalog is styled after, and in some cases ported
-from, the open-source catalogs of NousResearch/hermes-agent and openclaw; the
-upstream MIT terms and any attribution requirements are preserved. Skills
-mirrored at runtime via `birkin skills sync` keep their upstream licenses.
-See [`LICENSE`](./LICENSE) and [`NOTICE`](./NOTICE).
+**Proprietary — All Rights Reserved** (© 2026 ashmoonori). Source is
+visible for inspection; no use, copy, modify, distribute, or commercial
+right is granted without written permission. The **bundled skill catalog**
+(`skills/`) is **MIT-licensed** — the catalog is styled after, and in some
+cases ported from, the open-source catalogs of NousResearch/hermes-agent
+and openclaw; the upstream MIT terms and any attribution requirements are
+preserved. Skills mirrored at runtime via `birkin skills sync` keep their
+upstream licenses. See [`LICENSE`](./LICENSE) and [`NOTICE`](./NOTICE).
