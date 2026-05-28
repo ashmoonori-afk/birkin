@@ -20,6 +20,15 @@ against the upstream catalogs: [COMPARISON.md](./COMPARISON.md).
     trailing space when a single starts-with match exists or the user
     has navigated), **Enter** submits the typed line as-is, **Esc**
     dismisses the dropdown while keeping the buffer.
+  - **Long input + paste** (third revision): typed/pasted text is coalesced
+    by the raw reader into a single ``("char", text)`` event — POSIX drains
+    via zero-timeout ``select`` until a control byte appears (the byte is
+    pushed back to a module-level buffer so the next call sees it); Windows
+    uses ``msvcrt.kbhit`` + ``ungetwch``. Tested up to 5000-char pastes in
+    one event. The redraw applies **horizontal scrolling** based on
+    ``shutil.get_terminal_size`` with ``compute_view`` keeping the cursor
+    visible (``…`` markers on clipped sides) so long lines don't break the
+    terminal layout.
   - **Line-editor** features (second revision): cursor motion
     (←/→, Home/End, Ctrl-A/Ctrl-E), in-place insertion at the cursor,
     Delete-under-cursor (in addition to Backspace-before-cursor), and

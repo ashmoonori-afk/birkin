@@ -39,6 +39,10 @@ _ANSI_RE = re.compile(r"\x1b\[[0-9;]*[A-Za-z]")
 _HISTORY_FILENAME = "repl_history.txt"
 _HISTORY_LIMIT = 500
 
+# POSIX byte pushback used to abort a paste-batch on a control byte without
+# losing it (msvcrt has built-in ``ungetwch`` so Windows doesn't need this).
+_pushback: list[int] = []
+
 
 # -- public, pure helpers ---------------------------------------------------
 
@@ -117,6 +121,22 @@ def render_menu_lines(matches: Sequence[CommandHint], selected: int,
 def visible_len(s: str) -> int:
     """String width as it appears on screen (ANSI escapes stripped)."""
     return len(_ANSI_RE.sub("", s))
+
+
+def compute_view(buffer_len: int, cursor: int,
+                 content_width: int) -> tuple[int, int]:
+    """Pick a horizontal-scroll window over ``buffer`` so the cursor stays
+    visible. Returns ``(view_start, view_end)`` (half-open). Stateless — every
+    redraw recomputes from the current cursor + width.
+
+    Heuristic: place the cursor about 70 % into the visible window so the
+    next character typed isn't immediately at the right edge.
+    """
+    if content_width <= 0 or buffer_len <= content_width:
+        return 0, buffer_len
+    target = max(0, cursor - int(content_width * 0.7))
+    target = min(target, buffer_len - content_width)
+    return target, target + content_width
 
 
 # -- state machine (pure) ---------------------------------------------------
@@ -355,7 +375,13 @@ def _is_interactive() -> bool:
 
 
 def _read_event_posix() -> tuple[str, str]:
-    """One key read on POSIX, including CSI sequences for navigation keys."""
+    """One key read on POSIX, including CSI sequences for navigation keys.
+
+    Printable runs (typed sequences, large pastes) are coalesced into a single
+    ``("char", text)`` event by greedily draining the OS buffer with a
+    zero-timeout ``select`` until a control byte appears. The first control
+    byte aborts the batch and is pushed back so the next call sees it.
+    """
     import select
     import termios
     import tty
@@ -364,10 +390,15 @@ def _read_event_posix() -> tuple[str, str]:
     old = termios.tcgetattr(fd)
     try:
         tty.setraw(fd)
-        b = os.read(fd, 1)
-        if not b:
-            return ("ctrl_d", "")
-        c = b[0]
+
+        # Honor any pushed-back control byte from a previous paste batch.
+        if _pushback:
+            c = _pushback.pop(0)
+        else:
+            b = os.read(fd, 1)
+            if not b:
+                return ("ctrl_d", "")
+            c = b[0]
         if c == 0x03:
             return ("ctrl_c", "")
         if c == 0x04:
@@ -408,21 +439,41 @@ def _read_event_posix() -> tuple[str, str]:
                 }.get(seq, "other")
                 return (key, "")
             return ("esc", "")
-        # ASCII printable
+        # Printable / UTF-8: start a paste-batch.
+        chunk = bytearray()
         if 0x20 <= c < 0x80:
-            return ("char", chr(c))
-        # UTF-8 leading byte → read continuation bytes
-        if c & 0xE0 == 0xC0:
-            extra = 1
-        elif c & 0xF0 == 0xE0:
-            extra = 2
-        elif c & 0xF8 == 0xF0:
-            extra = 3
+            chunk.append(c)
         else:
-            return ("other", "")
-        rest = os.read(fd, extra)
+            # UTF-8 leading byte → consume continuation bytes
+            if c & 0xE0 == 0xC0:
+                extra = 1
+            elif c & 0xF0 == 0xE0:
+                extra = 2
+            elif c & 0xF8 == 0xF0:
+                extra = 3
+            else:
+                return ("other", "")
+            chunk.append(c)
+            rest = os.read(fd, extra)
+            chunk.extend(rest)
+
+        # Greedily drain anything else immediately available — stop on a
+        # control byte (and push it back so the next call handles it). This
+        # is what turns a 5000-char paste into a single redraw.
+        while True:
+            rdy, _, _ = select.select([fd], [], [], 0)
+            if not rdy:
+                break
+            nb = os.read(fd, 1)
+            if not nb:
+                break
+            nc = nb[0]
+            if nc < 0x20 or nc == 0x7f or nc == 0x1b:
+                _pushback.append(nc)
+                break
+            chunk.append(nc)
         try:
-            return ("char", (bytes([c]) + rest).decode("utf-8"))
+            return ("char", bytes(chunk).decode("utf-8", errors="replace"))
         except UnicodeDecodeError:
             return ("other", "")
     finally:
@@ -453,8 +504,17 @@ def _read_event_windows() -> tuple[str, str]:
         return ({"H": "up", "P": "down", "K": "left", "M": "right",
                  "G": "home", "O": "end", "S": "delete"}
                 .get(code, "other"), "")
-    # msvcrt.getwch returns a wide character (e.g. Hangul) as a single unit.
-    return ("char", ch)
+    # Paste batch: drain anything immediately queued (printable only). On a
+    # control char we push it back via ``ungetwch`` so the next call sees it —
+    # same idea as the POSIX pushback list. Turns large pastes into one event.
+    text = ch
+    while msvcrt.kbhit():
+        nxt = msvcrt.getwch()
+        if nxt in ("\x00", "\xe0") or ord(nxt) < 0x20 or nxt == "\x7f":
+            msvcrt.ungetwch(nxt)
+            break
+        text += nxt
+    return ("char", text)
 
 
 def _read_event() -> tuple[str, str]:
@@ -472,11 +532,36 @@ def _clear_menu(prev_lines: int) -> None:
     sys.stdout.flush()
 
 
+def _terminal_cols() -> int:
+    """Best-effort terminal width (defaults to 80)."""
+    import shutil
+    try:
+        return max(20, shutil.get_terminal_size((80, 24)).columns)
+    except Exception:
+        return 80
+
+
 def _redraw(prompt: str, buffer: str, cursor: int, menu_lines: list[str],
             prev_menu_lines: int) -> int:
-    """Redraw input + dropdown. Cursor lands at the logical ``cursor`` column."""
+    """Redraw input + dropdown with horizontal scrolling for long buffers.
+
+    The cursor is always positioned at its logical column within the visible
+    window. ``…`` markers indicate clipped content on either side.
+    """
     _clear_menu(prev_menu_lines)
-    sys.stdout.write("\r\x1b[2K" + prompt + buffer)
+
+    cols = _terminal_cols()
+    prompt_w = visible_len(prompt)
+    # Leave 4 columns for the two "…" markers plus a small safety margin so
+    # we never write to the very last column (some terminals soft-wrap there).
+    content_w = max(10, cols - prompt_w - 4)
+    vs, ve = compute_view(len(buffer), cursor, content_w)
+    visible_text = buffer[vs:ve]
+    left_marker = "…" if vs > 0 else ""
+    right_marker = "…" if ve < len(buffer) else ""
+
+    sys.stdout.write("\r\x1b[2K" + prompt + left_marker + visible_text + right_marker)
+
     n = len(menu_lines)
     if n:
         # Draw menu below the input line, then come back to the input row.
@@ -486,8 +571,9 @@ def _redraw(prompt: str, buffer: str, cursor: int, menu_lines: list[str],
             if i < n - 1:
                 sys.stdout.write("\n")
         sys.stdout.write(f"\x1b[{n}A")
-    # Final cursor position = visible(prompt) + cursor + 1 (1-indexed col).
-    col = visible_len(prompt) + cursor + 1
+
+    # Cursor column = prompt + left-marker width + cursor offset within view.
+    col = prompt_w + len(left_marker) + (cursor - vs) + 1
     sys.stdout.write(f"\r\x1b[{col}G")
     sys.stdout.flush()
     return n

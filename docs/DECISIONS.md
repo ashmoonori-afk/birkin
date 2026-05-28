@@ -474,6 +474,52 @@ is hard-stop (no soft warning yet). All adjustable in config / future ADRs.
 
 ---
 
+## ADR-025 — Long-input handling: paste batching + horizontal scroll
+
+**Context.** ADR-023/024 shipped the inline dropdown and line editor, but
+two problems surfaced for long inputs:
+1. A single paste of N characters generated N raw-input events and N
+   redraws — for 5000 characters this flickered visibly and felt slow,
+   even though the buffer (a Python ``str``) had no real size limit.
+2. When the input grew past the terminal width, ``\x1b[2K`` only cleared
+   the current row, so the wrapped portion stayed on screen and the
+   redraw rewrote on top of it — visible corruption.
+
+**Decision.**
+- **Paste batching.** ``_read_event_posix`` and ``_read_event_windows``
+  now coalesce consecutive printable / UTF-8 bytes into a single
+  ``("char", text)`` event. On POSIX, after the first printable byte we
+  ``select.select(…, timeout=0)`` and drain whatever the OS has buffered;
+  the moment we see a control byte (``< 0x20``, ``0x7f``, or ``0x1b``)
+  we push it onto a module-level pushback list and stop the batch so the
+  next call sees the control byte intact. On Windows ``msvcrt.kbhit()``
+  drives the same loop, with ``msvcrt.ungetwch`` providing native
+  pushback.
+- **Horizontal scrolling.** A new pure helper
+  ``compute_view(buffer_len, cursor, content_width)`` returns a
+  ``(view_start, view_end)`` window large enough to fit the cursor; the
+  heuristic places the cursor ~70 % into the window so the next typed
+  character isn't immediately at the right edge. ``_redraw`` calls
+  ``shutil.get_terminal_size`` per redraw, computes the window, writes
+  ``…`` markers on clipped sides, and positions the cursor at the
+  visible offset.
+
+**Rationale.** Both fixes are local — one to the read functions, one to
+the redraw — and both have pure helpers we can unit-test offline.
+Together they make the buffer effectively unbounded for human use:
+5000-character pastes redraw once, and the terminal layout never breaks
+no matter how long the buffer grows.
+
+**Trade-off.** ``compute_view`` is stateless (no memory of the previous
+window), so the visible window can jump when the cursor moves far in one
+step — fine for paste and arrow navigation, slightly noisier than a
+sticky-window line editor. Multi-line input and bracketed-paste
+detection are still deferred (see ADR-024).
+
+**Status.** Accepted.
+
+---
+
 ## ADR-024 — Line editor: cursor motion, Delete, persistent history
 
 **Context.** ADR-023 shipped the inline `/cmd` dropdown but left first-rev

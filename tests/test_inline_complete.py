@@ -377,3 +377,69 @@ def test_history_load_honors_limit(tmp_path):
         ic.append_history(f"cmd{i}", path=p)
     out = ic.load_history(path=p, limit=5)
     assert out == [f"cmd{i}" for i in range(15, 20)]
+
+
+# ---------------- long inputs / paste batching ------------------------------
+
+def test_multichar_char_event_inserts_atomically():
+    """A single ``("char", text)`` event inserts the whole string at the
+    cursor — this is the path a paste batch arrives on."""
+    s = ic.EditorState()
+    ic.apply_event(s, ("char", "hello world"), [], [])
+    assert s.buffer == "hello world"
+    assert s.cursor == 11
+
+
+def test_5000_char_paste_event_is_accepted_without_truncation():
+    """Smoke test for the user requirement: 5000+ characters must be storable
+    in the buffer in a single event."""
+    big = "x" * 5000
+    s = ic.EditorState()
+    ic.apply_event(s, ("char", big), [], [])
+    assert len(s.buffer) == 5000
+    assert s.cursor == 5000
+
+
+def test_paste_in_the_middle_of_existing_text():
+    s = ic.EditorState()
+    ic.apply_event(s, ("char", "ab"), [], [])
+    ic.apply_event(s, ("left", ""), [], [])    # cursor between a and b
+    ic.apply_event(s, ("char", "XYZ"), [], [])
+    assert s.buffer == "aXYZb"
+    assert s.cursor == 4   # right after the pasted XYZ
+
+
+# ---------------- horizontal scroll (compute_view) --------------------------
+
+def test_compute_view_no_scroll_when_buffer_fits():
+    assert ic.compute_view(buffer_len=10, cursor=5, content_width=80) == (0, 10)
+
+
+def test_compute_view_zero_width_returns_empty_window():
+    """Defensive: width 0 or negative shouldn't blow up — return (0, len)."""
+    assert ic.compute_view(buffer_len=100, cursor=50, content_width=0) == (0, 100)
+
+
+def test_compute_view_keeps_cursor_visible_at_end():
+    s, e = ic.compute_view(buffer_len=200, cursor=200, content_width=80)
+    assert e == 200
+    assert s <= 200 <= e
+    assert e - s == 80
+
+
+def test_compute_view_keeps_cursor_visible_at_start():
+    assert ic.compute_view(buffer_len=200, cursor=0, content_width=80) == (0, 80)
+
+
+def test_compute_view_scrolls_with_cursor_in_the_middle():
+    s, e = ic.compute_view(buffer_len=500, cursor=100, content_width=80)
+    # cursor must lie inside the window
+    assert s <= 100 <= e
+    # window is exactly content_width wide (still within buffer bounds)
+    assert e - s == 80
+
+
+def test_compute_view_does_not_exceed_buffer():
+    """View end is clamped to buffer length even near the right edge."""
+    _, e = ic.compute_view(buffer_len=200, cursor=199, content_width=80)
+    assert e == 200
