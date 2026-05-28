@@ -56,7 +56,18 @@ class SkillManager:
                 avail = ", ".join(sorted(self.skills)) or "(none)"
                 return ToolResult(f"No skill named {name!r}. Available: {avail}",
                                   is_error=True)
-            return ToolResult(f"# Skill: {skill.name}\n\n{skill.body()}")
+            out = f"# Skill: {skill.name}\n\n{skill.body()}"
+            # Expose bundled files (scripts/references/templates) like hermes, so
+            # the agent can run/read them with run_shell (cwd=dir) / read_file.
+            extras = _bundled_files(skill.directory)
+            if extras:
+                listing = "\n".join(f"- {p}" for p in extras)
+                out += (f"\n\n## Bundled files (in this skill's directory)\n"
+                        f"Skill directory: `{skill.directory}`\n{listing}\n\n"
+                        f"To run a bundled script, call run_shell with "
+                        f"`cwd` set to the skill directory above "
+                        f"(e.g. `python scripts/<name>.py ...`).")
+            return ToolResult(out)
 
         def create_skill(inp: dict[str, Any], ctx: ToolContext) -> ToolResult:
             if not ctx.cfg.get("self_improve", True):
@@ -142,6 +153,21 @@ class SkillManager:
                 fn=improve_skill,
             ),
         ]
+
+
+def _bundled_files(directory: Path, limit: int = 40) -> list[str]:
+    """Files bundled with a skill (scripts/references/templates), excluding the
+    SKILL.md itself. Returned as POSIX-style paths relative to the skill dir."""
+    out: list[str] = []
+    try:
+        for p in sorted(directory.rglob("*")):
+            if p.is_file() and p.name != "SKILL.md" and "__pycache__" not in p.parts:
+                out.append(p.relative_to(directory).as_posix())
+                if len(out) >= limit:
+                    break
+    except OSError:
+        pass
+    return out
 
 
 def _slug(name: str) -> str:
