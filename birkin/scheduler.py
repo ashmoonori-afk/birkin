@@ -1,7 +1,8 @@
 """Cross-platform scheduler daemon.
 
 A plain Python loop (no OS cron dependency) that:
-- runs the nightly self-improvement routine at ``nightly_hour:nightly_minute``,
+- runs the Morpheus self-improvement routine at ``morpheus_hour:morpheus_minute``
+  (legacy: ``nightly_hour``/``nightly_minute``),
 - fires due daily cron jobs,
 - writes a heartbeat/status file for the dashboard.
 
@@ -27,21 +28,35 @@ from . import config, cron, store
 _POLL_SECONDS = 30
 
 
-def _next_nightly(cfg: dict[str, Any], after: datetime) -> datetime:
-    target = after.replace(hour=int(cfg.get("nightly_hour", 4)),
-                           minute=int(cfg.get("nightly_minute", 0)),
+def _morpheus_hour(cfg: dict[str, Any]) -> int:
+    """Read the configured Morpheus hour, honoring the legacy ``nightly_hour``
+    key so existing config.json files keep working unchanged."""
+    return int(cfg.get("morpheus_hour", cfg.get("nightly_hour", 4)))
+
+
+def _morpheus_minute(cfg: dict[str, Any]) -> int:
+    return int(cfg.get("morpheus_minute", cfg.get("nightly_minute", 0)))
+
+
+def _next_morpheus(cfg: dict[str, Any], after: datetime) -> datetime:
+    target = after.replace(hour=_morpheus_hour(cfg),
+                           minute=_morpheus_minute(cfg),
                            second=0, microsecond=0)
     if target <= after:
         target += timedelta(days=1)
     return target
 
 
+# Legacy name kept for tests / external callers that already import it.
+_next_nightly = _next_morpheus
+
+
 def run_daemon() -> int:
     cfg = config.load_config()
-    next_nightly = _next_nightly(cfg, datetime.now())
-    print(f"birkin daemon started. Next nightly at {next_nightly:%Y-%m-%d %H:%M}. "
-          f"Ctrl-C to stop.")
-    _write_status(cfg, next_nightly, running=True)
+    next_morpheus = _next_morpheus(cfg, datetime.now())
+    print(f"birkin daemon started. Next Morpheus run at "
+          f"{next_morpheus:%Y-%m-%d %H:%M}. Ctrl-C to stop.")
+    _write_status(cfg, next_morpheus, running=True)
 
     # Clear the on-disk status on a graceful stop OR a SIGTERM (so the
     # dashboard never claims a dead daemon is still running).
@@ -55,21 +70,21 @@ def run_daemon() -> int:
         while True:
             now = datetime.now()
 
-            if now >= next_nightly:
-                print(f"[{now:%H:%M}] running nightly routine…")
+            if now >= next_morpheus:
+                print(f"[{now:%H:%M}] running Morpheus routine…")
                 try:
-                    from .nightly import run_once
+                    from .morpheus import run_once
                     run_once()
                 except Exception as exc:  # never kill the daemon
-                    store.save_run("nightly", f"daemon nightly error: {exc}")
-                next_nightly = _next_nightly(cfg, now + timedelta(minutes=1))
+                    store.save_run("morpheus", f"daemon morpheus error: {exc}")
+                next_morpheus = _next_morpheus(cfg, now + timedelta(minutes=1))
 
             for job in cron.due_jobs(now):
                 print(f"[{now:%H:%M}] running cron job '{job.get('name')}'…")
                 _run_job(job)
                 cron.mark_ran(job["id"])
 
-            _write_status(cfg, next_nightly, running=True)
+            _write_status(cfg, next_morpheus, running=True)
             time.sleep(_POLL_SECONDS)
     except KeyboardInterrupt:
         print("\ndaemon stopping…")
@@ -102,11 +117,18 @@ def _run_job(job: dict[str, Any]) -> None:
         store.save_run("cron", f"[{job.get('name')}] error: {exc}")
 
 
-def _write_status(cfg: dict[str, Any], next_nightly: datetime, running: bool) -> None:
+def _write_status(cfg: dict[str, Any], next_morpheus: datetime, running: bool) -> None:
+    # Emit both ``next_morpheus`` / ``morpheus_hour`` (canonical) and the
+    # legacy ``next_nightly`` / ``nightly_hour`` keys so dashboards / tests
+    # built against the old names keep working.
+    iso = next_morpheus.isoformat(timespec="seconds")
+    hour = _morpheus_hour(cfg)
     store.write_status({
         "daemon": running,
-        "next_nightly": next_nightly.isoformat(timespec="seconds"),
-        "nightly_hour": cfg.get("nightly_hour", 4),
+        "next_morpheus": iso,
+        "next_nightly": iso,
+        "morpheus_hour": hour,
+        "nightly_hour": hour,
         "cron_jobs": [
             {"id": j["id"], "name": j.get("name"),
              "at": f"{int(j.get('hour', 0)):02d}:{int(j.get('minute', 0)):02d}",
@@ -119,16 +141,18 @@ def _write_status(cfg: dict[str, Any], next_nightly: datetime, running: bool) ->
 # -- optional OS-native registration --------------------------------------
 
 def install_os_schedule() -> int:
-    """Register a daily OS task that runs `birkin nightly`.
+    """Register a daily OS task that runs `birkin morpheus`.
 
     Uses Task Scheduler on Windows and crontab elsewhere. Opt-in.
+    The task / crontab entry name stays ``birkin-nightly`` so an existing
+    installation isn't duplicated when this is re-run after the rename.
     """
     cfg = config.load_config()
-    hour, minute = int(cfg.get("nightly_hour", 4)), int(cfg.get("nightly_minute", 0))
+    hour, minute = _morpheus_hour(cfg), _morpheus_minute(cfg)
     py = sys.executable
 
     if sys.platform.startswith("win"):
-        cmd = f'"{py}" -m birkin nightly'
+        cmd = f'"{py}" -m birkin morpheus'
         args = ["schtasks", "/Create", "/SC", "DAILY", "/TN", "birkin-nightly",
                 "/ST", f"{hour:02d}:{minute:02d}", "/TR", cmd, "/F"]
         try:
@@ -143,7 +167,7 @@ def install_os_schedule() -> int:
         return proc.returncode
 
     # POSIX: append a crontab line if not present.
-    line = f"{minute} {hour} * * * {py} -m birkin nightly  # birkin-nightly"
+    line = f"{minute} {hour} * * * {py} -m birkin morpheus  # birkin-nightly"
     try:
         existing = subprocess.run(["crontab", "-l"], capture_output=True,
                                   text=True, errors="replace").stdout

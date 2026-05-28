@@ -12,8 +12,9 @@
 ### The AI agent that actually remembers you.
 
 A lightweight, **self-improving** CLI agent workspace: skill management,
-subagents, an Obsidian-vault memory, a monitoring dashboard, and a nightly
-routine that prepares your tomorrow — all in a **zero-dependency** Python core.
+subagents, an Obsidian-vault memory, a monitoring dashboard, and **Morpheus** —
+a nightly routine that prepares your tomorrow — all in a **zero-dependency**
+Python core.
 
 ![python](https://img.shields.io/badge/python-3.10%2B-3776ab)
 ![runtime deps](https://img.shields.io/badge/runtime%20deps-0-2ea44f)
@@ -123,7 +124,7 @@ choices everything else falls out of:
                              │              ─ TTL (expires_at)
                              ▼
         ┌────────────────────────────────────────────────────┐
-        │   autonomy (scheduler.py · cron.py · nightly.py)   │
+        │   autonomy (scheduler.py · cron.py · morpheus.py)  │
         │                                                    │
         │   04:00 ─▶ selfimprove ─▶ reads last 24h          │
         │            ├─ writes memory / skills    (auto)     │
@@ -242,15 +243,17 @@ you > /learn lockup-feedback
          loads it automatically and follows the same recipe.
 ```
 
-You can also let birkin **author skills nightly**, gated by approval (below).
+You can also let birkin **author skills overnight via Morpheus**, gated by
+approval (below).
 
-### 4. Self-improve overnight, review in the morning
+### 4. Morpheus — self-improve overnight, review in the morning
 
 ```bash
 $ birkin daemon --install      # registers the OS task (cron / launchd / schtasks)
-                               # at 04:00 birkin reads yesterday, writes memory,
+                               # at 04:00 Morpheus reads yesterday, writes memory,
                                # writes skills (auto), and queues automation
                                # proposals for cron / shell (review needed)
+$ birkin morpheus --dry-run    # preview what tonight's run would do, no spending
 $ birkin review                # next morning, approve / reject one by one
 $ birkin trace <run-id>        # audit replay of any past turn
 ```
@@ -283,8 +286,9 @@ birkin skills                       # list   (`<name>` to print, `sync` to mirro
 birkin skills validate [--verbose]  # lint SKILL.md frontmatter + py_compile bundled scripts
 birkin gateway                      # run as a service (HTTP + Telegram channels)
 birkin web                          # open the monitoring dashboard
-birkin daemon  [--install]          # nightly + cron scheduler
-birkin nightly [--dry-run]          # run the self-improvement routine NOW
+birkin daemon  [--install]          # Morpheus + cron scheduler
+birkin morpheus [--dry-run]         # run the Morpheus self-improvement routine NOW
+                                    # (alias: `birkin nightly` for backwards compatibility)
 birkin review                       # approve / reject proposed actions
 birkin cron                         # list / --remove scheduled jobs
 birkin permission [--add/--remove]  # auto-approve categories
@@ -301,7 +305,7 @@ Self-documenting — type `/help` for the full list, `/help <name>` for detail:
 | **Model** | `/model` · `/models` · `/provider` · `/temp` |
 | **Skills** | `/skills` · `/skill <name>` · `/reload` · `/learn` |
 | **Memory** | `/memory <query>` · `/remember <text>` · `/vault` |
-| **Autonomy** | `/nightly` · `/review` · `/cron` · `/permission` |
+| **Autonomy** | `/morpheus` (aliased as `/nightly`) · `/review` · `/cron` · `/permission` |
 | **Session** | `/save` · `/load` · `/sessions` |
 | **System** | `/tools` · `/system` · `/config` · `/update` · `/help` · `/quit` |
 
@@ -377,10 +381,12 @@ your workspace they're layered into the system prompt.
 
 ---
 
-## 🌙 Nightly self-improvement & the approval gate
+## 🌙 Morpheus — nightly self-improvement & the approval gate
+
+The Greek god of dreams. While you sleep, birkin reviews the day.
 
 `birkin daemon` (or `birkin daemon --install` to register an OS task). At
-your configured hour (default **04:00**) it:
+your configured hour (default **04:00**) Morpheus:
 
 1. **Reads your last 24h** — saved conversations + files that changed.
 2. **Updates memory** — new entities, facts, and `[[links]]`.   *(auto)*
@@ -422,12 +428,12 @@ All state lives under `~/.birkin` (override with `BIRKIN_HOME`):
 
 ```
 ~/.birkin/
-├── config.json     # provider, model, vault, nightly hour, permissions…
+├── config.json     # provider, model, vault, Morpheus hour, permissions…
 ├── vault/          # Obsidian semantic memory (markdown notes)
 ├── skills/         # user- and agent-authored skills
-├── sessions/       # saved conversations  (nightly input)
+├── sessions/       # saved conversations  (Morpheus input)
 │   └── repl_history.txt           # persistent ↑/↓ command history
-├── runs/           # per-turn run summaries (dashboard)
+├── runs/           # per-turn + per-Morpheus run summaries (dashboard)
 ├── ledger.jsonl    # append-only one-line audit log
 ├── pending/        # proposed actions awaiting approval
 ├── cron.json       # registered daily jobs
@@ -443,7 +449,7 @@ All state lives under `~/.birkin` (override with `BIRKIN_HOME`):
   "subagent_model": "claude-haiku-4-5-20251001",
   "base_url": "",
   "vault_path": "",
-  "nightly_hour": 4,
+  "morpheus_hour": 4,
   "auto_approve": ["memory", "skill"],
   "budget_tokens_daily": 0,
   "budget_tokens_monthly": 0,

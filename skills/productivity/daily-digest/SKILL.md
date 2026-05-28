@@ -6,17 +6,17 @@ author: birkin
 license: MIT
 metadata:
   birkin:
-    tags: [productivity, digest, nightly]
+    tags: [productivity, digest, morpheus]
 ---
 
 # Daily Digest
 
 Summarize the recent day for the user: what changed, what is pending, and what
-to do next. Well-suited to a morning cron job proposed by the nightly routine.
+to do next. Well-suited to a morning cron job proposed by the Morpheus routine.
 
 ## When to Use
 
-- The nightly routine or a cron job asks for a daily/standup summary.
+- The Morpheus routine or a cron job asks for a daily/standup summary.
 - The user asks "what happened" or "what should I do today".
 
 ## When NOT to Use

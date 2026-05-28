@@ -1,4 +1,4 @@
-"""On-disk state shared between the daemon, nightly routine, and dashboard.
+"""On-disk state shared between the daemon, Morpheus routine, and dashboard.
 
 All JSON under the birkin home. Deliberately file-based (no DB) for the
 local-first / transparent / zero-dependency principles. Readers (the dashboard)
@@ -101,7 +101,7 @@ def read_ledger(limit: int = 50) -> list[dict[str, Any]]:
 # -- pending approvals -----------------------------------------------------
 
 def add_pending(*, category: str, title: str, description: str,
-                payload: dict[str, Any], origin: str = "nightly") -> dict[str, Any]:
+                payload: dict[str, Any], origin: str = "morpheus") -> dict[str, Any]:
     aid = uuid.uuid4().hex[:12]
     rec = {"id": aid, "created": _now(), "category": category, "title": title,
            "description": description, "payload": payload, "origin": origin,

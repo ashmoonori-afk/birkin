@@ -287,9 +287,10 @@ def _config(session: Any, arg: str) -> None:
 
 # -- autonomy --------------------------------------------------------------
 
-@command("nightly", "Run the self-improvement routine now.", "/nightly")
-def _nightly(session: Any, arg: str) -> None:
-    from .nightly import run_once
+@command("morpheus", "Run the Morpheus self-improvement routine now.",
+         "/morpheus", aliases=["nightly"])
+def _morpheus(session: Any, arg: str) -> None:
+    from .morpheus import run_once
     run_once()
     session.skills.reload()
 

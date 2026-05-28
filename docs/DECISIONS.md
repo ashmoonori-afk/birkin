@@ -474,6 +474,47 @@ is hard-stop (no soft warning yet). All adjustable in config / future ADRs.
 
 ---
 
+## ADR-028 — Rename the nightly routine to "Morpheus"
+
+**Context.** The 04:00 self-improvement routine was named "nightly" — a
+description, not a name. As the surface around it grew (CLI command,
+slash command, run-record kind, config keys, status payload, dashboard
+label, scheduler variables, install scripts, skill tags) the word
+"nightly" got woven into 27 files. A descriptive name is fine for one
+thing; for a *system* with its own role and personality (it watches the
+day, writes memory, drafts skills, proposes automation — all while you
+sleep) a proper name is clearer.
+
+**Decision.** Rename the routine to **Morpheus** — the Greek god of
+dreams. The canonical surface is now:
+
+- module     ``birkin.morpheus`` (``birkin.nightly`` kept as a thin
+                                  re-export shim)
+- CLI        ``birkin morpheus`` (``birkin nightly`` is a hidden alias)
+- slash      ``/morpheus``       (``/nightly`` is an alias)
+- config     ``morpheus_hour`` / ``morpheus_minute``
+             (``nightly_hour`` / ``nightly_minute`` migrated by
+              ``load_config`` if only the old names are present)
+- run record kind ``"morpheus"`` (the dashboard reads runs by kind; old
+                                   ``"nightly"`` records remain visible)
+- status JSON ``next_morpheus`` / ``morpheus_hour``
+             (legacy ``next_nightly`` / ``nightly_hour`` emitted in
+              parallel for any reader that still wants them)
+
+**Rationale.** The cost of the rename is one commit; the benefit is a
+proper noun the docs, README, and ASCII architecture diagram can hang on
+("birkin → terminal → REPL → … → autonomy → Morpheus → approvals"). The
+backwards-compat surface is small (a 12-line shim, two config-key
+aliases, one status-payload duplicate) and easy to remove later.
+
+**Trade-off.** External scripts that grep run-record kind for the
+literal string ``"nightly"`` will miss new Morpheus runs. We mention
+this in STATUS so callers update. Internal tests still pass via aliases.
+
+**Status.** Accepted.
+
+---
+
 ## ADR-027 — Shift+Enter via Kitty Keyboard Protocol (opt-in by terminal)
 
 **Context.** ADR-026 shipped multi-line input bound to Ctrl-J / Alt+Enter.

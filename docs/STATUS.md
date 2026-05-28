@@ -147,7 +147,7 @@ against the upstream catalogs: [COMPARISON.md](./COMPARISON.md).
     one intentional free-form-command path — `run_shell` and approved shell jobs).
   - **pytest suite**: **149 tests** offline, no API key, with **`pytest-cov`**
     (`coverage: 76.80%` ≥ 75% gate; interactive surfaces — `repl`, `onboarding`,
-    `slashcommands`, `ui`, `menu`, `nightly`, `__main__` — are omitted by
+    `slashcommands`, `ui`, `menu`, `morpheus`, `nightly` (shim), `__main__` — are omitted by
     design). New offline coverage: web/server (thread `HTTPServer` + token/Host
     gates), gateway (`Gateway.handle`, `LocalHTTPChannel`), scheduler
     (`_next_nightly`, `_run_job`, status), runtime (`ConfigError`, run-record
@@ -195,7 +195,7 @@ against the upstream catalogs: [COMPARISON.md](./COMPARISON.md).
 | Subagents (isolated, scoped, depth-bounded) | `subagent.py`, `tools/subagent_tool.py` | ✅ |
 | **Obsidian-vault semantic memory** | `memory.py` | ✅ |
 | Self-improvement (in-session `/learn`) | `selfimprove.py` | ✅ |
-| **Nightly 04:00 routine** | `nightly.py` | ✅ (dry-run + no-key handled) |
+| **Morpheus 04:00 routine** | `morpheus.py` (legacy alias: `nightly.py`) | ✅ (dry-run + no-key handled) |
 | Scheduler daemon + OS-register option | `scheduler.py` | ✅ (heartbeat verified) |
 | Daily cron jobs | `cron.py` | ✅ |
 | **Approval gate (human-in-the-loop)** | `approvals.py`, `store.py` | ✅ |
@@ -213,7 +213,7 @@ against the upstream catalogs: [COMPARISON.md](./COMPARISON.md).
 ## Security review (addressed)
 
 A multi-agent code review flagged 3 CRITICAL issues; all fixed:
-- **Unattended shell** — the nightly routine now runs with a restricted toolset
+- **Unattended shell** — the Morpheus routine now runs with a restricted toolset
   (no `run_shell`/`spawn_subagent`); consequential actions go through approval.
 - **Plaintext API key** — `birkin setup` now warns, and `config.json` is written
   `chmod 600`.
@@ -234,13 +234,13 @@ tool_use), `/permission add shell|cron` warns, `cron.mark_ran` is immutable.
 - Approvals: non-auto category (`cron`) queues; auto category applies; approve
   registers a cron job and clears the pending item.
 - Dashboard: `/`, `/api/status|jobs|runs|approvals|skills` all respond.
-- `birkin nightly --dry-run` degrades gracefully with no key.
-- `birkin daemon` writes a status heartbeat with the correct next-nightly time.
+- `birkin morpheus --dry-run` degrades gracefully with no key.
+- `birkin daemon` writes a status heartbeat with the correct next-Morpheus time.
 
 ## Not yet verified (requires `ANTHROPIC_API_KEY`)
 
 - End-to-end chat: live streaming, multi-tool turns, subagent spawning.
-- A real nightly run authoring memory/skills and proposing actions.
+- A real Morpheus run authoring memory/skills and proposing actions.
 
 ## Quick start
 
@@ -248,12 +248,12 @@ tool_use), `/permission add shell|cron` warns, `cron.mark_ran` is immutable.
 # from this repo
 uv run birkin                 # chat   (or: python -m birkin)
 uv run birkin web             # dashboard at http://127.0.0.1:8787
-uv run birkin daemon          # nightly 04:00 + cron scheduler
-uv run birkin nightly         # run the routine now
+uv run birkin daemon          # Morpheus 04:00 + cron scheduler
+uv run birkin morpheus        # run the Morpheus routine now (alias: birkin nightly)
 uv run birkin review          # approve/reject proposed actions
 uv run birkin permission      # see/adjust auto-approved categories
 
-export ANTHROPIC_API_KEY=sk-ant-...   # required for chat/nightly
+export ANTHROPIC_API_KEY=sk-ant-...   # required for chat / Morpheus
 ```
 
 ## Known limitations / next

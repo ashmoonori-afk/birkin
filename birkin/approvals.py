@@ -7,7 +7,7 @@ Policy (configurable via the REPL ``/permission`` command):
   ``~/.birkin/pending/`` and only executes after the user approves it with
   ``birkin review`` or the dashboard.
 
-The agent and nightly routine call :func:`propose`; they never execute
+The agent and the Morpheus routine call :func:`propose`; they never execute
 consequential actions directly.
 """
 
@@ -26,7 +26,7 @@ def is_auto(category: str, cfg: dict[str, Any]) -> bool:
 
 def propose(*, category: str, title: str, description: str,
             payload: dict[str, Any], cfg: dict[str, Any],
-            origin: str = "nightly") -> dict[str, Any]:
+            origin: str = "morpheus") -> dict[str, Any]:
     """Apply (if auto-approved) or queue an action. Returns a status dict."""
     if is_auto(category, cfg):
         result = execute_action(category, payload)

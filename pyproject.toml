@@ -52,6 +52,8 @@ omit = [
     "birkin/ui.py",
     "birkin/menu.py",
     # Live-LLM routine (covered by the live-test harness in P2).
+    "birkin/morpheus.py",
+    # Backwards-compat shim — re-exports morpheus, no logic of its own.
     "birkin/nightly.py",
     "birkin/__main__.py",
 ]

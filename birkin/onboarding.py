@@ -1,8 +1,9 @@
 """First-run onboarding wizard (``birkin setup`` / ``birkin onboard``).
 
 A friendly, hermes-style guided setup: provider, model, API key, memory vault,
-nightly schedule, and permissions — then prints the execution sequence. Runs
-automatically the first time you start birkin with no config.
+Morpheus schedule (the nightly self-improvement routine), and permissions —
+then prints the execution sequence. Runs automatically the first time you
+start birkin with no config.
 """
 
 from __future__ import annotations
@@ -88,11 +89,12 @@ def run() -> int:
     vault = _ask("Vault path (blank = ~/.birkin/vault)", cfg.get("vault_path", ""))
     cfg["vault_path"] = vault
 
-    # 5. Nightly self-improvement
-    print(f"\n{BOLD}Nightly self-improvement{RESET}")
-    hour = _ask("Run hour (0-23)", str(cfg.get("nightly_hour", 4)))
+    # 5. Morpheus (nightly self-improvement)
+    print(f"\n{BOLD}Morpheus — nightly self-improvement{RESET}")
+    hour = _ask("Run hour (0-23)",
+                str(cfg.get("morpheus_hour", cfg.get("nightly_hour", 4))))
     try:
-        cfg["nightly_hour"] = int(hour)
+        cfg["morpheus_hour"] = int(hour)
     except ValueError:
         pass
     print(f"  {DIM}Memory & skills update automatically; cron jobs and commands "
@@ -126,7 +128,7 @@ def run() -> int:
     print(f"\n{GREEN}Saved to {config.config_path()}{RESET}")
 
     # 7. Optional: OS-native daily schedule
-    if _ask_yesno("Register a daily OS task so the nightly routine runs even "
+    if _ask_yesno("Register a daily OS task so the Morpheus routine runs even "
                   "without `birkin daemon`?", False):
         from .scheduler import install_os_schedule
         install_os_schedule()

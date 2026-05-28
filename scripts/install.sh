@@ -31,7 +31,7 @@ echo "==> Done. Quick start:"
 echo "    export ANTHROPIC_API_KEY=sk-ant-...   # your key"
 echo "    birkin                                 # start chatting"
 echo "    birkin web                             # open the dashboard"
-echo "    birkin daemon                          # nightly 04:00 self-improvement"
+echo "    birkin daemon                          # Morpheus 04:00 self-improvement"
 echo
 if ! command -v birkin >/dev/null 2>&1; then
   echo "Note: if 'birkin' is not found, ensure your tool bin dir is on PATH"

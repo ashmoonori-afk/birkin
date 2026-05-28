@@ -46,9 +46,13 @@ DEFAULT_CONFIG: dict[str, Any] = {
     },
     # --- Obsidian-vault semantic memory ---
     "vault_path": "",  # empty -> <birkin_home>/vault
-    # --- Nightly 04:00 self-improvement routine ---
-    "nightly_hour": 4,
-    "nightly_minute": 0,
+    # --- Morpheus (nightly 04:00 self-improvement routine) ---
+    # The routine was renamed from "nightly" to "morpheus" (Greek god of
+    # dreams — it runs while you sleep). The legacy keys ``nightly_hour`` /
+    # ``nightly_minute`` are honored as fallbacks by readers and migrated
+    # on next ``save_config``; new installs only see the canonical names.
+    "morpheus_hour": 4,
+    "morpheus_minute": 0,
     # Governs the UNATTENDED path (nightly routine's propose_action): these
     # categories are applied automatically; everything else (e.g. "cron",
     # "shell") is queued for approval (`birkin review`). Note: in an INTERACTIVE
@@ -180,17 +184,32 @@ def bundled_skills_dirs() -> list[Path]:
 # --- Load / save ----------------------------------------------------------
 
 def load_config() -> dict[str, Any]:
-    """Load config merged over defaults. Missing file -> defaults."""
+    """Load config merged over defaults. Missing file -> defaults.
+
+    Legacy ``nightly_hour`` / ``nightly_minute`` keys are silently migrated
+    into ``morpheus_hour`` / ``morpheus_minute`` when only the old keys are
+    present in the saved file, so configs written before the rename keep
+    working unchanged.
+    """
     cfg = dict(DEFAULT_CONFIG)
+    saved: dict[str, Any] = {}
     path = config_path()
     if path.is_file():
         try:
-            data = json.loads(path.read_text(encoding="utf-8"))
-            if isinstance(data, dict):
-                cfg.update(data)
+            raw = json.loads(path.read_text(encoding="utf-8"))
+            if isinstance(raw, dict):
+                saved = raw
+                cfg.update(saved)
         except (json.JSONDecodeError, OSError) as exc:
             # Fail loud but non-fatal: a corrupt config should not brick the CLI.
             print(f"[birkin] warning: could not read config ({exc}); using defaults")
+    # Migrate legacy keys (in-memory only). We look at the *saved* data so we
+    # don't overwrite a real ``morpheus_hour`` with the static default just
+    # because the default is in the merged ``cfg``.
+    if "nightly_hour" in saved and "morpheus_hour" not in saved:
+        cfg["morpheus_hour"] = saved["nightly_hour"]
+    if "nightly_minute" in saved and "morpheus_minute" not in saved:
+        cfg["morpheus_minute"] = saved["nightly_minute"]
     return cfg
 
 

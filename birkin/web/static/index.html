@@ -87,7 +87,7 @@ async function loadStatus(){
       ${kv("Vault", esc(s.vault))}
       ${kv("Skills", esc(s.skills_count))}
       ${kv("Daemon", s.daemon?'<span class="pill on">running</span>':'<span class="pill off">stopped</span>')}
-      ${kv("Next nightly", fmt(s.next_nightly)+" (≈"+esc(s.nightly_hour)+":00)")}
+      ${kv("Next Morpheus", fmt(s.next_morpheus||s.next_nightly)+" (≈"+esc(s.morpheus_hour||s.nightly_hour)+":00)")}
       ${kv("Auto-approve", (s.auto_approve||[]).map(esc).join(", ")||"(none)")}
       ${kv("Pending", s.pending_count>0?`<span class="pill warn">${s.pending_count}</span>`:"0")}
       ${kv("Heartbeat", fmt(s.heartbeat))}`;
@@ -137,7 +137,7 @@ async function loadRuns(){
   try{
     const runs = await getJSON("/api/runs");
     const el = $("#runs");
-    if(!runs.length){ el.className="empty"; el.textContent="No runs recorded yet. The nightly routine writes summaries here."; return; }
+    if(!runs.length){ el.className="empty"; el.textContent="No runs recorded yet. The Morpheus routine writes summaries here."; return; }
     el.className="";
     el.innerHTML = runs.map(r=>{
       const u = r.usage||{}; const tok = u.estTokens!=null ? `~${u.estTokens} tok` : "";

@@ -1,14 +1,14 @@
 """birkin monitoring dashboard — standard-library HTTP server.
 
 The WebUI is a **dashboard**, not a chat client (chat lives in `birkin chat`).
-It is read-mostly and reflects state written by the daemon / nightly routine,
+It is read-mostly and reflects state written by the daemon / Morpheus routine,
 plus an approve/reject action for pending proposals.
 
 Endpoints:
 - ``GET  /``              -> dashboard SPA
-- ``GET  /api/status``    -> model, vault, skills, daemon, next nightly, counts
+- ``GET  /api/status``    -> model, vault, skills, daemon, next Morpheus, counts
 - ``GET  /api/jobs``      -> scheduled cron jobs + daemon heartbeat
-- ``GET  /api/runs``      -> recent nightly/cron run summaries
+- ``GET  /api/runs``      -> recent Morpheus / cron run summaries
 - ``GET  /api/approvals`` -> pending proposed actions
 - ``POST /api/approvals`` -> {id, action: "approve"|"reject"}
 - ``GET  /api/skills``    -> skill catalog
@@ -56,8 +56,12 @@ def _status_payload() -> dict[str, Any]:
         # A stale heartbeat means the daemon died — never claim it's running.
         "daemon": bool(st.get("daemon")) and not stale,
         "stale": stale,
-        "next_nightly": st.get("next_nightly"),
-        "nightly_hour": cfg.get("nightly_hour", 4),
+        # Canonical (Morpheus) keys plus legacy aliases so existing dashboard
+        # JS / external scripts that still read the old names keep working.
+        "next_morpheus": st.get("next_morpheus") or st.get("next_nightly"),
+        "next_nightly": st.get("next_nightly") or st.get("next_morpheus"),
+        "morpheus_hour": cfg.get("morpheus_hour", cfg.get("nightly_hour", 4)),
+        "nightly_hour": cfg.get("morpheus_hour", cfg.get("nightly_hour", 4)),
         "pending_count": len(store.list_pending()),
         "heartbeat": st.get("heartbeat"),
         "budget": budget_mod.status(cfg),

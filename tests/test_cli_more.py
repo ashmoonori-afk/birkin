@@ -90,15 +90,58 @@ def test_cmd_gateway_delegates(monkeypatch):
     assert rc == 0 and called["v"] is True
 
 
-def test_cmd_nightly_delegates(monkeypatch):
+def test_cmd_morpheus_delegates(monkeypatch):
     called = {}
 
     def fake_run_once(dry_run=False):
         called["dry"] = dry_run
         return 0
-    monkeypatch.setattr("birkin.nightly.run_once", fake_run_once)
-    rc = cli_mod._cmd_nightly(_ns(dry_run=True))
+    monkeypatch.setattr("birkin.morpheus.run_once", fake_run_once)
+    rc = cli_mod._cmd_morpheus(_ns(dry_run=True))
     assert rc == 0 and called["dry"] is True
+
+
+def test_cli_accepts_legacy_nightly_subcommand(monkeypatch):
+    """The CLI still exposes `birkin nightly` as a hidden alias for
+    `birkin morpheus` so existing scripts / docs / muscle memory work."""
+    called = {}
+
+    def fake_run_once(dry_run=False):
+        called["dry"] = dry_run
+        return 0
+    monkeypatch.setattr("birkin.morpheus.run_once", fake_run_once)
+    parser = cli_mod.build_parser()
+    args = parser.parse_args(["nightly", "--dry-run"])
+    rc = args.func(args)
+    assert rc == 0 and called["dry"] is True
+
+
+def test_legacy_nightly_module_reexports_morpheus():
+    """`birkin.nightly` is a backwards-compat shim — every public name from
+    `birkin.morpheus` must still be reachable through the old import path."""
+    from birkin import morpheus, nightly
+    assert nightly.run_once is morpheus.run_once
+    assert nightly._gather_sessions is morpheus._gather_sessions
+    assert nightly._gather_changed_files is morpheus._gather_changed_files
+    assert nightly._attach_propose_tool is morpheus._attach_propose_tool
+    # Legacy task-text alias for any external code that referenced it.
+    assert nightly._NIGHTLY_TASK is morpheus._MORPHEUS_TASK
+
+
+def test_load_config_migrates_legacy_nightly_hour(tmp_path, monkeypatch):
+    """A config.json that still uses the pre-rename `nightly_hour` /
+    `nightly_minute` keys must be silently upgraded to the canonical
+    `morpheus_hour` / `morpheus_minute` in memory."""
+    import json
+    from birkin import config
+    home = tmp_path / "bk"
+    home.mkdir()
+    (home / "config.json").write_text(json.dumps(
+        {"nightly_hour": 7, "nightly_minute": 30}), encoding="utf-8")
+    monkeypatch.setenv("BIRKIN_HOME", str(home))
+    cfg = config.load_config()
+    assert cfg["morpheus_hour"] == 7
+    assert cfg["morpheus_minute"] == 30
 
 
 def test_cmd_daemon_install_branch(monkeypatch):

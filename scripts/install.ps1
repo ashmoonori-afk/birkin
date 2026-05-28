@@ -35,7 +35,7 @@ Write-Host "==> Done. Quick start:"
 Write-Host '    $env:ANTHROPIC_API_KEY = "sk-ant-..."   # your key'
 Write-Host "    birkin                                   # start chatting"
 Write-Host "    birkin web                               # open the dashboard"
-Write-Host "    birkin daemon                            # nightly 04:00 self-improvement"
+Write-Host "    birkin daemon                            # Morpheus 04:00 self-improvement"
 if (-not (Have "birkin")) {
   Write-Host ""
   Write-Host "Note: if 'birkin' is not found, add your Python/uv Scripts dir to PATH."

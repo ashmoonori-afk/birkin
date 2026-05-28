@@ -154,8 +154,8 @@ def _cmd_model(args: argparse.Namespace) -> int:
     return 0
 
 
-def _cmd_nightly(args: argparse.Namespace) -> int:
-    from .nightly import run_once
+def _cmd_morpheus(args: argparse.Namespace) -> int:
+    from .morpheus import run_once
     return run_once(dry_run=args.dry_run)
 
 
@@ -424,11 +424,18 @@ def build_parser() -> argparse.ArgumentParser:
     mp.add_argument("name", nargs="?", help="set this model directly (skips the picker)")
     mp.set_defaults(func=_cmd_model)
 
-    npar = sub.add_parser("nightly", help="run the self-improvement routine now")
-    npar.add_argument("--dry-run", action="store_true", help="analyze but propose nothing for execution")
-    npar.set_defaults(func=_cmd_nightly)
+    # `morpheus` is the canonical name (the routine is named Morpheus —
+    # Greek god of dreams — because it runs at 04:00 while you sleep).
+    # `nightly` stays as a hidden alias so muscle memory still works.
+    for canonical_name, alias_help in (
+            ("morpheus", "run the self-improvement routine now (Morpheus)"),
+            ("nightly", argparse.SUPPRESS)):   # hidden alias
+        npar = sub.add_parser(canonical_name, help=alias_help)
+        npar.add_argument("--dry-run", action="store_true",
+                          help="analyze but propose nothing for execution")
+        npar.set_defaults(func=_cmd_morpheus)
 
-    dp = sub.add_parser("daemon", help="run the nightly/cron scheduler")
+    dp = sub.add_parser("daemon", help="run the morpheus + cron scheduler")
     dp.add_argument("--install", action="store_true",
                     help="register an OS-native daily task instead of running the loop")
     dp.set_defaults(func=_cmd_daemon)
