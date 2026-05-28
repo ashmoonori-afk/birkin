@@ -3,7 +3,7 @@ name: seo-audit
 description: "Audit a page for on-page SEO: structure, metadata, intent alignment."
 version: 1.0.0
 author: birkin
-license: Proprietary
+license: MIT
 metadata:
   birkin:
     tags: [marketing, seo, audit, content]

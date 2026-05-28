@@ -3,7 +3,7 @@ name: ad-copy
 description: "Write concise ad variants with one clear CTA and conversion focus."
 version: 1.0.0
 author: birkin
-license: Proprietary
+license: MIT
 metadata:
   birkin:
     tags: [marketing, copywriting, ads]

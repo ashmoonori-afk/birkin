@@ -3,7 +3,7 @@ name: ci-pipeline
 description: "Design and implement CI pipelines: lint, test, build, deploy stages."
 version: 1.0.0
 author: birkin
-license: Proprietary
+license: MIT
 metadata:
   birkin:
     tags: [devops, ci, pipeline]

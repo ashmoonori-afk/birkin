@@ -1,0 +1,15 @@
+chore(license): revert bundled skill catalog to MIT
+
+The bundled `skills/` catalog is styled after, and in some cases ported from,
+NousResearch/hermes-agent and openclaw. Per the upstream MIT lineage we honor
+that and ship the entire catalog under MIT rather than Proprietary.
+
+- 47 SKILL.md frontmatters: `license: Proprietary` -> `license: MIT`.
+- LICENSE: split into clear sections - birkin Python package (`birkin/`) is
+  Proprietary/All Rights Reserved; bundled skills (`skills/`) are MIT.
+- NOTICE: lineage to hermes-agent + openclaw documented; arxiv port note kept.
+- pyproject.toml license string narrowed to the Python package; skills MIT.
+- README and HARDENING-PLAN reflect the same split; open license decision
+  closed.
+
+Test suite re-run: 185 passed, coverage 79.28% (no functional change).

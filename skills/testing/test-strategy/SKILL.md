@@ -3,7 +3,7 @@ name: test-strategy
 description: "Determine what tests to write and how: unit, integration, e2e coverage."
 version: 1.0.0
 author: birkin
-license: Proprietary
+license: MIT
 metadata:
   birkin:
     tags: [testing, strategy, coverage]

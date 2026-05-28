@@ -1,15 +1,32 @@
 birkin — NOTICE
 
-This product includes third-party components retained under their original
-licenses. See LICENSE for the full text.
+This product is dual-licensed: the original birkin Python package (`birkin/`)
+is proprietary; the bundled skill catalog (`skills/`) is MIT. See LICENSE for
+the full text.
 
-- arXiv Search Skill (`skills/research/arxiv/`)
-  Ported from NousResearch/hermes-agent. Original SKILL.md and
-  `scripts/search_arxiv.py` are MIT-licensed.
+Bundled skills (`skills/`, MIT)
+-------------------------------
 
-- Skills mirrored at runtime via `birkin skills sync` (stored in the user's
-  `~/.birkin/skills/mirrors/`) retain their upstream licenses (typically MIT
-  for hermes-agent skills). birkin does not redistribute these in its source
-  tree or distribution artifacts.
+The skill catalog is styled after, and in some cases ported from, the
+open-source catalogs of:
 
-All other birkin code and skills are © 2026 ashmoonori, All Rights Reserved.
+- NousResearch/hermes-agent (https://github.com/NousResearch/hermes-agent) — MIT
+- openclaw — MIT
+
+The arXiv Search Skill (`skills/research/arxiv/`) — including its
+`scripts/search_arxiv.py` — is a direct port from hermes-agent; the original
+upstream-origin note is preserved in its frontmatter.
+
+The remaining skills were authored for birkin in the style of the upstream
+catalogs above and are released under MIT to honor that lineage. Each
+`SKILL.md` carries `license: MIT` in its frontmatter.
+
+Skills mirrored at runtime via `birkin skills sync` (stored in the user's
+`~/.birkin/skills/mirrors/`) retain their upstream licenses (typically MIT
+for hermes-agent skills). birkin does not redistribute these in its source
+tree or distribution artifacts.
+
+Original birkin Python package (`birkin/`, Proprietary)
+-------------------------------------------------------
+
+Copyright © 2026 ashmoonori. All rights reserved.

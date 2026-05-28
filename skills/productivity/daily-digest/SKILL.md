@@ -3,7 +3,7 @@ name: daily-digest
 description: "Produce a concise daily digest of changes, open items, and suggested next actions."
 version: 1.0.0
 author: birkin
-license: Proprietary
+license: MIT
 metadata:
   birkin:
     tags: [productivity, digest, nightly]

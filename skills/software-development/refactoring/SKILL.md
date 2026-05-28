@@ -3,7 +3,7 @@ name: refactoring
 description: "Safely improve code structure and clarity while keeping tests passing."
 version: 1.0.0
 author: birkin
-license: Proprietary
+license: MIT
 metadata:
   birkin:
     tags: [software-development, refactoring, maintenance]

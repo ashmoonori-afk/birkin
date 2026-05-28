@@ -8,7 +8,7 @@ version = "0.1.0"
 description = "Lightweight, self-improving CLI agent workspace with skill management, subagents, and a WebUI. Inspired by hermes-agent and openclaw."
 readme = "README.md"
 requires-python = ">=3.10"
-license = { text = "Proprietary — All Rights Reserved (see LICENSE; third-party MIT components retained)" }
+license = { text = "Proprietary — birkin Python package All Rights Reserved; bundled skills MIT (see LICENSE / NOTICE)" }
 license-files = ["LICENSE", "NOTICE"]
 authors = [{ name = "birkin" }]
 keywords = ["agent", "cli", "skills", "subagents", "self-improving", "llm"]

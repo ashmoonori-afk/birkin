@@ -3,7 +3,7 @@ name: landing-copy
 description: "Draft conversion-focused landing/marketing copy with a clear offer and CTA."
 version: 1.0.0
 author: birkin
-license: Proprietary
+license: MIT
 metadata:
   birkin:
     tags: [marketing, copywriting, conversion]

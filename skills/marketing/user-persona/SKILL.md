@@ -3,7 +3,7 @@ name: user-persona
 description: "Build a grounded persona: goals, pains, triggers—sourced, not invented."
 version: 1.0.0
 author: birkin
-license: Proprietary
+license: MIT
 metadata:
   birkin:
     tags: [marketing, personas, research, strategy]

@@ -3,7 +3,7 @@ name: deep-research
 description: "Multi-source investigation: decompose question, spawn subagents, synthesize sourced report."
 version: 1.0.0
 author: birkin
-license: Proprietary
+license: MIT
 metadata:
   birkin:
     tags: [research, multi-source, synthesis]

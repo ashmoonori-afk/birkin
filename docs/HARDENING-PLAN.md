@@ -50,12 +50,14 @@ of birkin** (~30–40% already in place).
 
 ## Licensing (dual)
 
-birkin's **original** code and skills move to a **copyright-protective license**
-(source-visible, not freely reusable). **Third-party / ported** skills (hermes
-mirrors via `skills sync`, the ported `arxiv` skill) **retain their upstream MIT
-license + attribution** — we cannot and do not relicense others' work. A root
-`LICENSE` + `NOTICE` records the split; per-skill frontmatter `license` reflects
-which applies. (Exact protective license: see the open decision below.)
+birkin's **original Python package** (`birkin/`, the runtime code) is under a
+**copyright-protective license** (Proprietary — All Rights Reserved;
+source-visible, not freely reusable). The **bundled skill catalog** (`skills/`)
+is **MIT** — the catalog is styled after and in some cases ported from
+NousResearch/hermes-agent and openclaw, and we honor that lineage rather than
+relicense it. A root `LICENSE` + `NOTICE` records the split; per-skill
+frontmatter `license` is `MIT`. Skills mirrored at runtime via
+`birkin skills sync` retain their upstream licenses.
 
 ---
 
@@ -123,11 +125,12 @@ green without a key.
 
 ---
 
-## Open decision — protective license
+## Decided — protective license (2026-05-28)
 
-Pick the copyright-protective license for birkin's **original** work (ported MIT
-skills are unaffected): **Proprietary / All-Rights-Reserved**, **BUSL-1.1**
-(source-available, converts to OSS after a change date), or **PolyForm
-Noncommercial** (free for non-commercial; commercial needs a license). Apply to
-`pyproject` + root `LICENSE`/`NOTICE` + original skill frontmatter, keeping
-mirrored/ported skills MIT with attribution.
+The **birkin Python package** (`birkin/`) is **Proprietary / All-Rights-Reserved**
+(© 2026 ashmoonori) — applied in `pyproject.toml`, `LICENSE`, and `NOTICE`.
+The **bundled skill catalog** (`skills/`) is **MIT** — the catalog is styled
+after and in part ported from NousResearch/hermes-agent and openclaw, and we
+release it under MIT to honor that lineage. Every `SKILL.md` carries
+`license: MIT` in frontmatter; runtime-mirrored skills keep their upstream
+licenses.

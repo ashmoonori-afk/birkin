@@ -308,9 +308,12 @@ status: [`docs/STATUS.md`](./docs/STATUS.md).
 
 ## 📄 License
 
-Dual: birkin's **original** code and skills are **Proprietary — All Rights
-Reserved** (© 2026 ashmoonori). Source is visible for inspection; no use,
-copy, modify, distribute, or commercial right is granted without written
-permission. **Third-party / ported components** (the `arxiv` skill, and any
-skill obtained via `birkin skills sync`) retain their upstream **MIT** license
-with attribution. See [`LICENSE`](./LICENSE) and [`NOTICE`](./NOTICE).
+Dual: the **birkin Python package** (`birkin/`, the runtime code) is
+**Proprietary — All Rights Reserved** (© 2026 ashmoonori). Source is visible
+for inspection; no use, copy, modify, distribute, or commercial right is
+granted without written permission. The **bundled skill catalog** (`skills/`)
+is **MIT-licensed** — the catalog is styled after, and in some cases ported
+from, the open-source catalogs of NousResearch/hermes-agent and openclaw; the
+upstream MIT terms and any attribution requirements are preserved. Skills
+mirrored at runtime via `birkin skills sync` keep their upstream licenses.
+See [`LICENSE`](./LICENSE) and [`NOTICE`](./NOTICE).

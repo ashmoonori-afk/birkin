@@ -3,7 +3,7 @@ name: semantic-memory
 description: "Maintain the Obsidian memory vault well: when to write, classify, and link notes."
 version: 1.0.0
 author: birkin
-license: Proprietary
+license: MIT
 metadata:
   birkin:
     tags: [memory, obsidian, knowledge]

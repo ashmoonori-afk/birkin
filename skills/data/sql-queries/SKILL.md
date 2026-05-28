@@ -3,7 +3,7 @@ name: sql-queries
 description: "Write and optimize SQL: correct joins, indexes, avoid N+1, verify execution."
 version: 1.0.0
 author: birkin
-license: Proprietary
+license: MIT
 metadata:
   birkin:
     tags: [data, sql, performance]

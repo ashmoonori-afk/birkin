@@ -3,7 +3,7 @@ name: planning
 description: "Create a phased plan with milestones, risks, and success criteria."
 version: 1.0.0
 author: birkin
-license: Proprietary
+license: MIT
 metadata:
   birkin:
     tags: [productivity, planning, strategy]

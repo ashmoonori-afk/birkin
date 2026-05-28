@@ -3,7 +3,7 @@ name: docker
 description: "Write, debug, and execute Dockerfiles and docker-compose configurations."
 version: 1.0.0
 author: birkin
-license: Proprietary
+license: MIT
 metadata:
   birkin:
     tags: [devops, docker, containers]

@@ -3,7 +3,7 @@ name: debugging
 description: "Systematically identify root causes through reproduction, isolation, and shell-based investigation."
 version: 1.0.0
 author: birkin
-license: Proprietary
+license: MIT
 metadata:
   birkin:
     tags: [software-development, debugging, troubleshooting]

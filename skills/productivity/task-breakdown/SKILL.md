@@ -3,7 +3,7 @@ name: task-breakdown
 description: "Decompose a goal into ordered, owned, measurable tasks for execution."
 version: 1.0.0
 author: birkin
-license: Proprietary
+license: MIT
 metadata:
   birkin:
     tags: [productivity, planning, execution]

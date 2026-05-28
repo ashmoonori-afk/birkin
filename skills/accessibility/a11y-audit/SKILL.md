@@ -3,7 +3,7 @@ name: a11y-audit
 description: "Audit UI/content for WCAG basics: semantics, contrast, keyboard, alt text."
 version: 1.0.0
 author: birkin
-license: Proprietary
+license: MIT
 metadata:
   birkin:
     tags: [accessibility, audit, wcag]

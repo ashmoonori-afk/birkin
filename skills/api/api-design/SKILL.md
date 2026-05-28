@@ -3,7 +3,7 @@ name: api-design
 description: "Design a clean REST/HTTP API: resources, status codes, versioning, errors."
 version: 1.0.0
 author: birkin
-license: Proprietary
+license: MIT
 metadata:
   birkin:
     tags: [api, design, rest]

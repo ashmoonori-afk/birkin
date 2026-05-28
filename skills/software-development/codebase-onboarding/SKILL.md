@@ -3,7 +3,7 @@ name: codebase-onboarding
 description: "Map an unfamiliar repository structure, dependencies, and architecture via file exploration."
 version: 1.0.0
 author: birkin
-license: Proprietary
+license: MIT
 metadata:
   birkin:
     tags: [software-development, onboarding, architecture]

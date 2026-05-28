@@ -3,7 +3,7 @@ name: web-research
 description: "Research a topic on the web and synthesize a sourced, no-fabrication summary."
 version: 1.0.0
 author: birkin
-license: Proprietary
+license: MIT
 metadata:
   birkin:
     tags: [research, web]

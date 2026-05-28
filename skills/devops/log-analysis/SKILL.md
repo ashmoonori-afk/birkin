@@ -3,7 +3,7 @@ name: log-analysis
 description: "Find root causes in logs via grep patterns and systematic filtering."
 version: 1.0.0
 author: birkin
-license: Proprietary
+license: MIT
 metadata:
   birkin:
     tags: [devops, debugging, logs]

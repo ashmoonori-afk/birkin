@@ -3,7 +3,7 @@ name: dependency-audit
 description: "Find unused, outdated, and vulnerable dependencies via shell package commands."
 version: 1.0.0
 author: birkin
-license: Proprietary
+license: MIT
 metadata:
   birkin:
     tags: [software-development, dependencies, security, maintenance]
