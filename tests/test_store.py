@@ -32,3 +32,29 @@ def test_activity_log_recent():
     store.append_activity("chat: hello")
     text = store.read_recent_activity(hours=24)
     assert "chat: hello" in text
+
+
+def test_estimate_usage():
+    u = store.estimate_usage("abcd", "ef gh")  # 9 chars, 3 words
+    assert u["chars"] == 9
+    assert u["words"] == 3
+    assert u["estTokens"] == (9 + 3) // 4
+
+
+def test_save_run_records_usage_and_appends_ledger():
+    usage = store.estimate_usage("prompt here", "reply text")
+    store.save_run("chat", "did a thing", details={"tools": ["read_file"]}, usage=usage)
+    runs = store.list_runs()
+    assert runs[0]["usage"]["estTokens"] == usage["estTokens"]
+    assert runs[0]["details"]["tools"] == ["read_file"]
+    ledger = store.read_ledger()
+    assert len(ledger) == 1
+    assert ledger[0]["kind"] == "chat"
+    assert ledger[0]["usage"]["estTokens"] == usage["estTokens"]
+
+
+def test_unique_run_ids_same_second():
+    store.save_run("chat", "one")
+    store.save_run("chat", "two")
+    runs = store.list_runs()
+    assert len({r["id"] for r in runs}) == 2  # no collision within the same second

@@ -146,6 +146,11 @@ def status_path() -> Path:
     return birkin_home() / "status.json"
 
 
+def ledger_path() -> Path:
+    """Append-only one-line-per-run audit log."""
+    return birkin_home() / "ledger.jsonl"
+
+
 def activity_log_path() -> Path:
     """Rolling activity log used as nightly-routine input."""
     return birkin_home() / "activity.log"

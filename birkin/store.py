@@ -37,14 +37,28 @@ def _read_json(path: Path, default: Any) -> Any:
         return default
 
 
-# -- run summaries ---------------------------------------------------------
+# -- usage estimation ------------------------------------------------------
 
-def save_run(kind: str, summary: str, details: dict[str, Any] | None = None) -> Path:
+def estimate_usage(*texts: str) -> dict[str, int]:
+    """A cheap, dependency-free usage estimate: chars, words, and ~tokens
+    (≈ chars/4). Not exact — a transparent heuristic for auditing/cost sense."""
+    chars = sum(len(t or "") for t in texts)
+    words = sum(len((t or "").split()) for t in texts)
+    return {"chars": chars, "words": words, "estTokens": (chars + 3) // 4}
+
+
+# -- run records + ledger --------------------------------------------------
+
+def save_run(kind: str, summary: str, details: dict[str, Any] | None = None,
+             usage: dict[str, int] | None = None) -> Path:
     ts = datetime.now(timezone.utc).strftime("%Y%m%d-%H%M%S")
-    rec = {"id": ts, "kind": kind, "at": _now(), "summary": summary,
-           "details": details or {}}
-    path = config.runs_dir() / f"{ts}-{kind}.json"
+    rid = f"{ts}-{uuid.uuid4().hex[:4]}"  # unique even within the same second
+    rec = {"id": rid, "kind": kind, "at": _now(), "summary": summary,
+           "usage": usage or {}, "details": details or {}}
+    path = config.runs_dir() / f"{rid}-{kind}.json"
     _write_json(path, rec)
+    append_ledger({"id": rid, "at": rec["at"], "kind": kind,
+                   "summary": summary[:160], "usage": usage or {}})
     return path
 
 
@@ -55,6 +69,32 @@ def list_runs(limit: int = 20) -> list[dict[str, Any]]:
         rec = _read_json(f, None)
         if rec:
             out.append(rec)
+    return out
+
+
+def append_ledger(entry: dict[str, Any]) -> None:
+    """Append one compact JSON line per run to ledger.jsonl (audit trail)."""
+    try:
+        with config.ledger_path().open("a", encoding="utf-8") as fh:
+            fh.write(json.dumps(entry, ensure_ascii=False) + "\n")
+    except OSError:
+        pass
+
+
+def read_ledger(limit: int = 50) -> list[dict[str, Any]]:
+    path = config.ledger_path()
+    if not path.is_file():
+        return []
+    lines = path.read_text(encoding="utf-8", errors="replace").splitlines()
+    out: list[dict[str, Any]] = []
+    for line in lines[-limit:]:
+        line = line.strip()
+        if not line:
+            continue
+        try:
+            out.append(json.loads(line))
+        except json.JSONDecodeError:
+            continue
     return out
 
 

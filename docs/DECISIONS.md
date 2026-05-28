@@ -304,6 +304,29 @@ demand; the CLI agent can't write back to birkin memory/skills within the turn
 
 ---
 
+## ADR-015 — Per-turn run records + ledger + usage estimate (auditability)
+
+**Context.** Improvement plan Phase 2 (idea from birkin_codex): make every turn
+auditable.
+
+**Decision.** Each chat/agent turn writes a JSON **run record** to
+`~/.birkin/runs/` (provider, model, tools used, iterations, summary, usage) and
+appends a compact line to `~/.birkin/ledger.jsonl`. `store.estimate_usage`
+provides a transparent heuristic (chars/words/≈tokens = chars/4). Run ids carry
+a short uuid suffix to avoid same-second collisions. `Session._record_turn`
+captures this from `agent.last_tools` / `last_iterations`; `birkin runs` and the
+dashboard surface it. `save_run` (also used by nightly/cron) now ledgers too.
+
+**Rationale.** Cheap, dependency-free auditing + cost sense without a real
+token API. Reuses the existing `store` + dashboard plumbing.
+
+**Trade-off.** A file per turn accumulates in `runs/`; usage is an estimate, not
+provider-reported. Pruning/retention can be added later.
+
+**Status.** Accepted.
+
+---
+
 ## ADR-010 — Single shared session, sequential dashboard server
 
 **Context.** Local, single-user tool.

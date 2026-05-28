@@ -49,6 +49,8 @@ def test_basic_tool_loop():
     assert out == "done"
     assert reg.calls == ["read_file"]
     assert [m["role"] for m in agent.messages] == ["user", "assistant", "user", "assistant"]
+    assert agent.last_tools == ["read_file"]
+    assert agent.last_iterations == 1
 
 
 def test_skill_nudge_fires_after_complex_turn_then_injects_next_turn():

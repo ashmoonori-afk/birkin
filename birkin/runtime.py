@@ -10,7 +10,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Callable, Optional
 
-from . import config, prompts
+from . import config, prompts, store
 from .agent import Agent
 from .llm import LLMClient, build_client
 from .memory import Memory
@@ -51,7 +51,24 @@ class Session:
             self._build_cli_system(text)
         else:
             self.refresh_system_prompt()
-        return self.agent.run(text, on_text=on_text)
+        reply = self.agent.run(text, on_text=on_text)
+        self._record_turn(text, reply)
+        return reply
+
+    def _record_turn(self, text: str, reply: str) -> None:
+        """Write an auditable run record (+ ledger line + usage) per chat turn."""
+        try:
+            usage = store.estimate_usage(self.agent.system, text, reply or "")
+            body = (reply or "").strip()
+            summary = body.splitlines()[0][:160] if body else "(no reply)"
+            store.save_run("chat", summary, details={
+                "provider": self.cfg.get("provider"),
+                "model": self.cfg.get("model"),
+                "tools": list(self.agent.last_tools),
+                "iterations": self.agent.last_iterations,
+            }, usage=usage)
+        except Exception:
+            pass  # auditing must never break a chat turn
 
     def new_conversation(self) -> None:
         self.agent.reset()

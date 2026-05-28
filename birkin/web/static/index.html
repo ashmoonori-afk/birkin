@@ -139,9 +139,14 @@ async function loadRuns(){
     const el = $("#runs");
     if(!runs.length){ el.className="empty"; el.textContent="No runs recorded yet. The nightly routine writes summaries here."; return; }
     el.className="";
-    el.innerHTML = runs.map(r=>`<div class="item">
-      <div class="row"><span class="t"><b>${esc(r.kind)}</b> <time>${fmt(r.at)}</time></span></div>
-      <div class="d">${esc(r.summary||"").slice(0,600)}</div></div>`).join("");
+    el.innerHTML = runs.map(r=>{
+      const u = r.usage||{}; const tok = u.estTokens!=null ? `~${u.estTokens} tok` : "";
+      const tools = ((r.details||{}).tools||[]).join(", ");
+      return `<div class="item">
+      <div class="row"><span class="t"><b>${esc(r.kind)}</b> <time>${fmt(r.at)}</time></span>
+      <span class="pill off">${esc(tok)}</span></div>
+      <div class="d">${esc(r.summary||"").slice(0,600)}${tools?`\n<span style="color:var(--muted)">tools: ${esc(tools)}</span>`:""}</div></div>`;
+    }).join("");
   }catch(e){ $("#runs").textContent="error"; }
 }
 

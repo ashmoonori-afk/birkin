@@ -246,6 +246,29 @@ def _cmd_cron(args: argparse.Namespace) -> int:
     return 0
 
 
+def _cmd_runs(args: argparse.Namespace) -> int:
+    from . import store
+    from .ui import CYAN, DIM, RESET
+    runs = store.list_runs(limit=int(args.limit))
+    if not runs:
+        print("No runs recorded yet.")
+        return 0
+    total_tokens = 0
+    for r in runs:
+        usage = r.get("usage") or {}
+        tok = int(usage.get("estTokens", 0) or 0)
+        total_tokens += tok
+        tools = ", ".join((r.get("details") or {}).get("tools") or [])
+        when = str(r.get("at", ""))[:19].replace("T", " ")
+        print(f"{DIM}{when}{RESET}  {CYAN}{r.get('kind'):7}{RESET} ~{tok:>5} tok  "
+              f"{str(r.get('summary', ''))[:70]}")
+        if tools:
+            print(f"             {DIM}tools: {tools}{RESET}")
+    print(f"\n{DIM}{len(runs)} run(s), ~{total_tokens} est. tokens total. "
+          f"Ledger: {store.config.ledger_path()}{RESET}")
+    return 0
+
+
 def build_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(prog="birkin", description="Lightweight self-improving CLI agent workspace")
     sub = p.add_subparsers(dest="command")
@@ -296,6 +319,10 @@ def build_parser() -> argparse.ArgumentParser:
     cp = sub.add_parser("cron", help="list or remove daily cron jobs")
     cp.add_argument("--remove", help="job id to remove")
     cp.set_defaults(func=_cmd_cron)
+
+    rp = sub.add_parser("runs", help="show recent run records + usage (audit log)")
+    rp.add_argument("--limit", type=int, default=20)
+    rp.set_defaults(func=_cmd_runs)
 
     return p
 

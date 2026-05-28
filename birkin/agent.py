@@ -74,6 +74,9 @@ class Agent:
         self._iters_since_skill = 0
         self._turns_since_memory = 0
         self._pending_nudge = ""
+        # Per-turn telemetry (read by the caller for run records).
+        self.last_tools: list[str] = []
+        self.last_iterations = 0
 
     def reset(self) -> None:
         self.messages = []
@@ -94,6 +97,8 @@ class Agent:
         calling tools (or the turn guard trips). Returns the final text."""
         self.messages.append(
             {"role": "user", "content": [{"type": "text", "text": user_text}]})
+        self.last_tools = []
+        self.last_iterations = 0
         self._turns_since_memory += 1
         nudge = self._pending_nudge       # consume any nudge queued last turn
         self._pending_nudge = ""
@@ -123,12 +128,14 @@ class Agent:
                 self._update_nudges(used_skill, used_memory)
                 return final_text
 
+            self.last_iterations += 1
             if self.skill_nudge_interval > 0:
                 self._iters_since_skill += 1
 
             results: list[dict[str, Any]] = []
             for tu in tool_uses:
                 name, tool_input = tu.get("name", ""), tu.get("input", {}) or {}
+                self.last_tools.append(name)
                 if name in SKILL_TOOLS:
                     used_skill = True
                     self._iters_since_skill = 0

@@ -12,12 +12,18 @@ Improvement roadmap: [IMPROVEMENT-PLAN.md](./IMPROVEMENT-PLAN.md).
   - All `subprocess` calls use **argv lists, never `shell=True`** (`proc.py`:
     `cli_argv` for CLI programs incl. Windows `.cmd` shims; `shell_argv` for the
     one intentional free-form-command path — `run_shell` and approved shell jobs).
-  - **pytest suite** added under `tests/` — **45 tests**, offline, no API key
+  - **pytest suite** added under `tests/` — **48 tests**, offline, no API key
     (frontmatter, memory vault, skills route/render, approvals, store, cron,
     Anthropic SSE parser incl. parallel tool_use, agent loop + nudge triggers,
     proc helpers). `pytest` is a dev-only extra.
-- Phases 2–4 (run records/ledger, config-driven runners + dry-run, skill
-  hot-reload/sync/gating) — pending.
+- **Phase 2 — Auditability ✅**
+  - Every chat/agent turn writes a **run record** to `~/.birkin/runs/` (provider,
+    model, tools used, iterations, usage) and appends a line to
+    `~/.birkin/ledger.jsonl`. `store.estimate_usage` gives chars/words/≈tokens.
+  - `birkin runs` lists recent runs + usage; the dashboard shows per-run tokens
+    and tools (`agent.last_tools`/`last_iterations` feed the records).
+- Phases 3–4 (config-driven runners + dry-run, skill hot-reload/sync/gating +
+  layered prompts) — pending.
 
 ## What's built (v0.1)
 
