@@ -21,6 +21,12 @@ dist/
 .venv/
 venv/
 .pytest_cache/
+.coverage
+.coverage.*
+htmlcov/
+# Legacy build artifacts (old birkin app)
+*.spec
+/traces/
 
 # OS
 .DS_Store
