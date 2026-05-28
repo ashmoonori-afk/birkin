@@ -112,16 +112,19 @@ class LLMClient:
                 "stop_reason": "end_turn"}
 
     def _run_claude(self, prompt: str, model: Optional[str]) -> str:
-        # Writable by default (acceptEdits); "full" bypasses all permission checks.
+        # Discrete argv (no shell=True). Writable by default (acceptEdits);
+        # "full" bypasses all permission checks.
+        from .proc import cli_argv
+        parts = ["claude", "-p", "--output-format", "json"]
         if self.cli_access == "full":
-            cmd = "claude -p --output-format json --dangerously-skip-permissions"
+            parts.append("--dangerously-skip-permissions")
         else:
-            cmd = "claude -p --output-format json --permission-mode acceptEdits"
+            parts += ["--permission-mode", "acceptEdits"]
         if model and model not in ("claude-code", "default", ""):
-            cmd += f" --model {model}"
+            parts += ["--model", model]
         try:
-            proc = subprocess.run(cmd, input=prompt, capture_output=True,
-                                  text=True, errors="replace", shell=True, timeout=900)
+            proc = subprocess.run(cli_argv(parts), input=prompt, capture_output=True,
+                                  text=True, errors="replace", timeout=900)
         except subprocess.TimeoutExpired:
             return "[birkin] Claude Code timed out."
         out = (proc.stdout or "").strip()
@@ -133,21 +136,23 @@ class LLMClient:
         return f"[birkin] Claude Code error: {(proc.stderr or '').strip()[:400]}"
 
     def _run_codex(self, prompt: str, model: Optional[str]) -> str:
-        # `-o` writes ONLY the final assistant message to a file, so we don't
-        # have to scrape codex's verbose stdout. By default codex uses its own
-        # policy (workspace-write); "full" bypasses approvals + sandbox entirely.
+        # Discrete argv (no shell=True). `-o` writes ONLY the final assistant
+        # message to a file. By default codex uses its own policy
+        # (workspace-write); "full" bypasses approvals + sandbox entirely.
         import tempfile
+
+        from .proc import cli_argv
         fd, path = tempfile.mkstemp(suffix="-codex.txt")
         os.close(fd)
-        cmd = 'codex exec --skip-git-repo-check --color never'
+        parts = ["codex", "exec", "--skip-git-repo-check", "--color", "never"]
         if self.cli_access == "full":
-            cmd += " --dangerously-bypass-approvals-and-sandbox"
-        cmd += f' -o "{path}"'
+            parts.append("--dangerously-bypass-approvals-and-sandbox")
+        parts += ["-o", path]
         if model and model not in ("codex", "default", ""):
-            cmd += f" -m {model}"
+            parts += ["-m", model]
         try:
-            proc = subprocess.run(cmd, input=prompt, capture_output=True,
-                                  text=True, errors="replace", shell=True, timeout=900)
+            proc = subprocess.run(cli_argv(parts), input=prompt, capture_output=True,
+                                  text=True, errors="replace", timeout=900)
             try:
                 with open(path, encoding="utf-8", errors="replace") as fh:
                     text = fh.read().strip()

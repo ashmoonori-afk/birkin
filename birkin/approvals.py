@@ -17,6 +17,7 @@ import subprocess
 from typing import Any
 
 from . import config, cron, store
+from .proc import shell_argv
 
 
 def is_auto(category: str, cfg: dict[str, Any]) -> bool:
@@ -52,7 +53,7 @@ def execute_action(category: str, payload: dict[str, Any]) -> str:
         if not command:
             return "No command to run."
         try:
-            proc = subprocess.run(command, shell=True, capture_output=True,
+            proc = subprocess.run(shell_argv(command), capture_output=True,
                                   text=True, errors="replace",
                                   timeout=int(payload.get("timeout", 300)))
         except subprocess.TimeoutExpired:

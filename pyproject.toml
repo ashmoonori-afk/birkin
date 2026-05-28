@@ -26,3 +26,7 @@ packages = ["birkin"]
 
 [tool.hatch.build.targets.wheel.force-include]
 "skills" = "birkin/_bundled_skills"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q"

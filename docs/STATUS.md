@@ -1,9 +1,23 @@
 # birkin — Build Status
 
-> Snapshot: 2026-05-27 · v0.1 (initial rebuild)
+> Snapshot: 2026-05-28 · v0.1 (initial rebuild)
 
 A concise, kept-current summary of what exists and how to run it. For the full
 design see [DESIGN.md](./DESIGN.md); for rationale see [DECISIONS.md](./DECISIONS.md).
+Improvement roadmap: [IMPROVEMENT-PLAN.md](./IMPROVEMENT-PLAN.md).
+
+## Improvement plan progress
+
+- **Phase 1 — Safety & tests ✅**
+  - All `subprocess` calls use **argv lists, never `shell=True`** (`proc.py`:
+    `cli_argv` for CLI programs incl. Windows `.cmd` shims; `shell_argv` for the
+    one intentional free-form-command path — `run_shell` and approved shell jobs).
+  - **pytest suite** added under `tests/` — **45 tests**, offline, no API key
+    (frontmatter, memory vault, skills route/render, approvals, store, cron,
+    Anthropic SSE parser incl. parallel tool_use, agent loop + nudge triggers,
+    proc helpers). `pytest` is a dev-only extra.
+- Phases 2–4 (run records/ledger, config-driven runners + dry-run, skill
+  hot-reload/sync/gating) — pending.
 
 ## What's built (v0.1)
 

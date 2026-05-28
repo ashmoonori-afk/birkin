@@ -15,6 +15,8 @@ from __future__ import annotations
 import subprocess
 import sys
 import time
+
+from .proc import shell_argv
 from datetime import datetime, timedelta
 from typing import Any
 
@@ -71,7 +73,7 @@ def _run_job(job: dict[str, Any]) -> None:
     value = job.get("value", "")
     try:
         if jtype == "shell":
-            proc = subprocess.run(value, shell=True, capture_output=True,
+            proc = subprocess.run(shell_argv(value), capture_output=True,
                                   text=True, errors="replace", timeout=600)
             out = (proc.stdout or "") + (proc.stderr or "")
             store.save_run("cron", f"[{job.get('name')}] exit {proc.returncode}",

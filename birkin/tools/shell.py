@@ -12,6 +12,7 @@ from pathlib import Path
 from typing import Any
 
 from . import Tool, ToolContext, ToolResult
+from ..proc import shell_argv
 
 MAX_OUTPUT = 30_000
 DEFAULT_TIMEOUT = 120
@@ -24,8 +25,10 @@ def _run_shell(inp: dict[str, Any], ctx: ToolContext) -> ToolResult:
     cwd = Path(inp["cwd"]).expanduser() if inp.get("cwd") else ctx.cwd
     timeout = int(inp.get("timeout", DEFAULT_TIMEOUT))
     try:
+        # Intentional shell semantics (this tool runs free-form commands), but
+        # via an explicit platform shell argv — never shell=True. See proc.py.
         proc = subprocess.run(
-            command, shell=True, cwd=str(cwd), capture_output=True,
+            shell_argv(command), cwd=str(cwd), capture_output=True,
             text=True, errors="replace", timeout=timeout,
         )
     except subprocess.TimeoutExpired:
