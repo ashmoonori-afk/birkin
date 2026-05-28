@@ -474,6 +474,50 @@ is hard-stop (no soft warning yet). All adjustable in config / future ADRs.
 
 ---
 
+## ADR-024 — Line editor: cursor motion, Delete, persistent history
+
+**Context.** ADR-023 shipped the inline `/cmd` dropdown but left first-rev
+gaps: no left/right cursor motion inside the buffer, no Home/End, no
+Delete-under-cursor, no ↑/↓ command history. Hermes' README advertises a
+real REPL line editor; closing the gap also makes day-to-day correction
+of typos tractable for users.
+
+**Decision.**
+- Refactor the I/O loop around a pure state machine: `EditorState`
+  (buffer + cursor + selection + history pointer) and
+  `apply_event(state, event, commands, history)`. Every user-visible
+  behavior except actual key reading and screen redraw is now a pure
+  transition, so the bulk of the logic is covered by offline tests.
+- Add cursor motion keys: ←/→, Home/End, plus Ctrl-A / Ctrl-E (POSIX) and
+  the Windows extended-key codes (`G/O/K/M`). Typing inserts at the
+  cursor; **Delete** removes the character *under* the cursor while
+  **Backspace** removes the character *before* it (the standard line-editor
+  semantics — not what readline-less environments default to).
+- POSIX raw mode reads the ESC byte and then drains a CSI / SS3 sequence
+  via `select.select` with a ~30 ms timeout to distinguish bare Esc from
+  navigation keys. Supports `[A/B/C/D`, `[H/F`, `[1~/4~/7~/8~`, `[3~`.
+- ↑/↓ navigates the in-memory history list when the dropdown is inactive;
+  the history list is loaded from and persisted to
+  `~/.birkin/sessions/repl_history.txt` (one line per submitted command,
+  blanks and consecutive duplicates skipped, default cap 500). The first
+  Esc while browsing history restores the line the user had been drafting
+  before they started navigating.
+
+**Rationale.** A persistent, navigable history is the smallest single
+addition that moves the REPL from "you can type slashes now" to "this feels
+like a real shell." Putting transitions in `apply_event` made adding the
+six new key kinds (left, right, home, end, delete, history-up/down) a
+matter of cases in one function, with the test surface scaling linearly.
+
+**Trade-off.** No word-jump (Alt-B/F / Ctrl-←/→) yet, no incremental
+history search (Ctrl-R), no multi-line input, no paste-as-bracketed-paste
+detection. All are extensions to the same state machine and can ship
+without re-architecting.
+
+**Status.** Accepted.
+
+---
+
 ## ADR-023 — Inline slash-command autocomplete (stdlib only)
 
 **Context.** A sourced comparison against hermes-agent and openclaw

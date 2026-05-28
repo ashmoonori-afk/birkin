@@ -12,23 +12,35 @@ against the upstream catalogs: [COMPARISON.md](./COMPARISON.md).
 > Improvement plan (P1–P4 from `IMPROVEMENT-PLAN.md`) was completed earlier.
 > The "Hardening Roadmap" (`HARDENING-PLAN.md`) is the v0.2 work:
 
-- **UX H7 — Inline slash-command autocomplete ✅** (after the
-  hermes/openclaw comparison flagged this as a documented-but-unimplemented
-  feature)
-  - New `birkin/inline_complete.py` — a stdlib-only raw-input loop with a
-    live dropdown that appears the moment the user types `/`. ↑/↓ moves the
-    selection, **Tab** completes (longest-common-prefix; or commits the
-    selected command with a trailing space when there's a single match or
-    the user has navigated), **Enter** submits the typed line as-is, **Esc**
-    dismisses the dropdown while keeping the buffer. Cross-platform: POSIX
-    termios + Windows msvcrt; UTF-8 multi-byte input is reassembled on
-    POSIX, and `msvcrt.getwch` delivers wide characters directly on Windows.
-  - Non-TTY stdin (pipes, CI, redirected input) transparently falls back to
-    plain `input()` so scripts, harness tests, and `pytest` are unaffected.
-  - Matching / ranking / rendering are isolated as pure functions
-    (`filter_commands`, `common_prefix`, `render_menu_lines`,
-    `hints_from_registry`) so they're directly unit-testable; only the I/O
-    loop is side-effecting. 20 new tests in `test_inline_complete.py`.
+- **UX H7 — Inline slash-command autocomplete + line editor ✅**
+  - `birkin/inline_complete.py` — stdlib-only raw-input loop with a live
+    dropdown that appears the moment the user types `/`. ↑/↓ moves the
+    selection, **Tab** completes (longest-common-prefix limited to
+    starts-with matches, or commits the highlighted command with a
+    trailing space when a single starts-with match exists or the user
+    has navigated), **Enter** submits the typed line as-is, **Esc**
+    dismisses the dropdown while keeping the buffer.
+  - **Line-editor** features (second revision): cursor motion
+    (←/→, Home/End, Ctrl-A/Ctrl-E), in-place insertion at the cursor,
+    Delete-under-cursor (in addition to Backspace-before-cursor), and
+    persistent ↑/↓ history navigation when the dropdown is inactive.
+    History persists to `~/.birkin/sessions/repl_history.txt`
+    (blank/consecutive-duplicate lines skipped, default cap 500).
+    Pressing Esc while browsing history restores the line the user was
+    drafting before they started browsing.
+  - Cross-platform: POSIX termios + non-blocking ESC sequence reader
+    (handles `[A/B/C/D` arrows, `[H/F`, `[1~/4~/7~/8~` Home/End, `[3~`
+    Delete); Windows `msvcrt` extended-key codes (`H/P/K/M`, `G/O/S`).
+    POSIX reassembles UTF-8 multi-byte input; Windows `getwch` returns
+    wide characters natively (Hangul OK).
+  - Non-TTY stdin/stdout transparently falls back to plain `input()`
+    so scripts, harness tests, and pytest are unaffected.
+  - State machine isolated as a pure transition: `EditorState` +
+    `apply_event(state, event, commands, history)`. The I/O loop is the
+    only side-effecting code path. 44 tests cover typing, cursor motion,
+    Backspace/Delete semantics, Tab common-prefix vs commit, history
+    walk + Esc-restore, Enter/Ctrl-C/Ctrl-D signaling, and on-disk
+    history persistence.
 
 - **Hardening H6 — Approval-first & skill integrity ✅**
   - **`birkin skills validate`** — new CLI command (`birkin/skills/validate.py`)

@@ -47,11 +47,12 @@ def run(cfg: dict[str, Any] | None = None) -> int:
 
     _banner(session)
     hints = inline_complete.hints_from_registry(slashcommands._REGISTRY)
+    history = inline_complete.load_history()
     while True:
         try:
             print()   # leading blank line, like the old input("\n…")
             raw = inline_complete.prompt_with_completion(
-                f"{ui.BOLD}you{RESET} > ", hints)
+                f"{ui.BOLD}you{RESET} > ", hints, history=history)
         except KeyboardInterrupt:
             print()
             break
@@ -61,6 +62,7 @@ def run(cfg: dict[str, Any] | None = None) -> int:
         line = raw.strip()
         if not line:
             continue
+        inline_complete.append_history(line, prior=history)
         if line.startswith("/"):
             if slashcommands.dispatch(session, line) == "exit":
                 break

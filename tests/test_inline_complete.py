@@ -176,3 +176,204 @@ def test_prompt_with_completion_returns_none_on_keyboardinterrupt_in_fallback(
         raise KeyboardInterrupt
     monkeypatch.setattr("builtins.input", boom)
     assert ic.prompt_with_completion("> ", cmds) is None
+
+
+# ---------------- state machine: typing + cursor ----------------------------
+
+def _run(events, commands=None, history=None) -> ic.EditorState:
+    """Apply a list of (kind, value) tuples to a fresh state and return it."""
+    state = ic.EditorState()
+    for ev in events:
+        ic.apply_event(state, ev, commands or [], history or [])
+    return state
+
+
+def test_typing_appends_chars_and_advances_cursor():
+    s = _run([("char", "h"), ("char", "i")])
+    assert s.buffer == "hi"
+    assert s.cursor == 2
+
+
+def test_backspace_at_end_deletes_previous_char():
+    s = _run([("char", "a"), ("char", "b"), ("backspace", "")])
+    assert s.buffer == "a"
+    assert s.cursor == 1
+
+
+def test_backspace_at_start_is_noop():
+    s = _run([("backspace", "")])
+    assert s.buffer == "" and s.cursor == 0
+
+
+def test_left_and_right_move_cursor_within_bounds():
+    s = _run([("char", "a"), ("char", "b"), ("char", "c"),
+              ("left", ""), ("left", "")])
+    assert s.cursor == 1
+    ic.apply_event(s, ("right", ""), [], [])
+    assert s.cursor == 2
+    # right beyond end is clamped
+    for _ in range(5):
+        ic.apply_event(s, ("right", ""), [], [])
+    assert s.cursor == 3
+
+
+def test_home_and_end_jump_to_extremes():
+    s = _run([("char", "x"), ("char", "y"), ("char", "z")])
+    ic.apply_event(s, ("home", ""), [], [])
+    assert s.cursor == 0
+    ic.apply_event(s, ("end", ""), [], [])
+    assert s.cursor == 3
+
+
+def test_typing_in_the_middle_inserts_at_cursor():
+    s = _run([("char", "a"), ("char", "c"),
+              ("left", ""), ("char", "b")])
+    assert s.buffer == "abc"
+    assert s.cursor == 2   # cursor sits right after inserted 'b'
+
+
+def test_delete_removes_char_under_cursor_not_before_it():
+    s = _run([("char", "a"), ("char", "b"), ("char", "c"),
+              ("home", ""), ("delete", "")])
+    assert s.buffer == "bc"
+    assert s.cursor == 0
+
+
+def test_delete_at_end_is_noop():
+    s = _run([("char", "a"), ("delete", "")])
+    assert s.buffer == "a"
+
+
+# ---------------- state machine: completion via state ----------------------
+
+def test_tab_completes_to_common_prefix_when_multiple_matches(cmds):
+    s = _run([("char", "/"), ("char", "m"), ("char", "o"),
+              ("tab", "")], commands=cmds)
+    # Common prefix of /model and /models is "/model"
+    assert s.buffer == "/model"
+
+
+def test_tab_commits_single_match_with_trailing_space(cmds):
+    s = _run([("char", "/"), ("char", "h"), ("char", "e"), ("char", "l"),
+              ("tab", "")], commands=cmds)
+    # Unique match `/help` -> "/help "
+    assert s.buffer == "/help "
+    assert s.menu_dismissed is True
+
+
+def test_arrow_keys_move_selection_when_dropdown_active(cmds):
+    s = _run([("char", "/"), ("down", "")], commands=cmds)
+    assert s.selected == 1
+    ic.apply_event(s, ("up", ""), cmds, [])
+    assert s.selected == 0
+    ic.apply_event(s, ("up", ""), cmds, [])      # wraps
+    assert s.selected == len(cmds) - 1
+
+
+def test_esc_dismisses_dropdown_but_keeps_buffer(cmds):
+    s = _run([("char", "/"), ("char", "h"), ("esc", "")], commands=cmds)
+    assert s.buffer == "/h"
+    assert s.menu_dismissed is True
+    # After Esc, no matches reported even though buffer would normally match
+    assert ic.matches_for(s, cmds) == []
+
+
+# ---------------- state machine: history ------------------------------------
+
+def test_up_recalls_last_history_entry_when_no_dropdown():
+    history = ["first", "second"]
+    s = _run([("up", "")], history=history)
+    assert s.buffer == "second"
+    assert s.cursor == len("second")
+    assert s.history_idx == 1
+
+
+def test_up_then_up_walks_backwards_through_history():
+    history = ["first", "second", "third"]
+    s = _run([("up", ""), ("up", ""), ("up", "")], history=history)
+    assert s.buffer == "first"
+    assert s.history_idx == 0
+
+
+def test_down_restores_pending_buffer_at_end_of_history():
+    history = ["one", "two"]
+    s = _run([("char", "d"), ("char", "r"), ("char", "a"), ("char", "f"),
+              ("char", "t")], history=history)
+    # buffer = "draft", now navigate up then back down
+    ic.apply_event(s, ("up", ""), [], history)
+    assert s.buffer == "two"
+    ic.apply_event(s, ("down", ""), [], history)
+    # at end → pending restored
+    assert s.buffer == "draft"
+    assert s.history_idx == -1
+
+
+def test_typing_after_history_browse_resets_history_pointer():
+    history = ["alpha"]
+    s = _run([("up", "")], history=history)
+    assert s.history_idx == 0
+    ic.apply_event(s, ("char", "x"), [], history)
+    assert s.history_idx == -1
+    assert s.buffer == "alphax"
+
+
+def test_esc_while_browsing_history_restores_pending():
+    history = ["older"]
+    s = _run([("char", "n"), ("char", "e"), ("char", "w"),
+              ("up", ""), ("esc", "")], history=history)
+    assert s.buffer == "new"
+    assert s.history_idx == -1
+
+
+# ---------------- enter / exit signals -------------------------------------
+
+def test_enter_signals_submission_with_current_buffer():
+    s = _run([("char", "h"), ("char", "i"), ("enter", "")])
+    assert s.submitted == "hi"
+    assert s.exited is False
+
+
+def test_ctrl_c_signals_exit():
+    s = _run([("char", "a"), ("ctrl_c", "")])
+    assert s.exited is True
+    assert s.submitted is None
+
+
+def test_ctrl_d_on_empty_buffer_signals_exit_but_not_mid_line():
+    s_empty = _run([("ctrl_d", "")])
+    assert s_empty.exited is True
+
+    s_mid = _run([("char", "x"), ("ctrl_d", "")])
+    assert s_mid.exited is False
+    assert s_mid.buffer == "x"
+
+
+# ---------------- history persistence ---------------------------------------
+
+def test_history_persistence_writes_and_reads(tmp_path):
+    p = str(tmp_path / "h.txt")
+    ic.append_history("first", path=p)
+    ic.append_history("second", path=p)
+    assert ic.load_history(path=p) == ["first", "second"]
+
+
+def test_history_persistence_skips_blanks_and_dupes(tmp_path):
+    p = str(tmp_path / "h.txt")
+    ic.append_history("", path=p)
+    ic.append_history("   ", path=p)
+    ic.append_history("cmd", path=p)
+    ic.append_history("cmd", path=p, prior=["cmd"])   # dedup vs prior
+    ic.append_history("next", path=p, prior=["cmd"])
+    assert ic.load_history(path=p) == ["cmd", "next"]
+
+
+def test_history_load_returns_empty_when_file_missing(tmp_path):
+    assert ic.load_history(path=str(tmp_path / "nope.txt")) == []
+
+
+def test_history_load_honors_limit(tmp_path):
+    p = str(tmp_path / "h.txt")
+    for i in range(20):
+        ic.append_history(f"cmd{i}", path=p)
+    out = ic.load_history(path=p, limit=5)
+    assert out == [f"cmd{i}" for i in range(15, 20)]

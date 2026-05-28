@@ -1,18 +1,19 @@
-"""Inline slash-command autocomplete for the birkin REPL — stdlib only.
+"""Inline slash-command autocomplete + line editor for the birkin REPL.
 
-When the user types ``/`` at the prompt, a live dropdown appears below the
-input line showing matching commands. The selection moves with ↑/↓; **Tab**
-inserts the selected command (with a trailing space for arguments); **Enter**
-submits the current line as-is; **Esc** dismisses the dropdown (the typed text
-is kept). For non-slash input the prompt behaves like a normal line editor.
+A stdlib-only line editor that activates a live ``/cmd`` dropdown the moment
+the user types ``/``. Cursor motion (←/→, Home/End), in-place deletion
+(Delete in addition to Backspace), and history navigation (↑/↓ when the
+dropdown is not active) are all supported.
 
-Cross-platform: POSIX termios / Windows msvcrt, no third-party deps. On
-non-TTY stdin/stdout (pipes, redirected input, CI) it falls back transparently
-to plain ``input()`` so scripts and tests are unaffected.
+Architecture: state + transitions are pure functions
+(:class:`EditorState`, :func:`apply_event`, plus the original filter/render
+helpers). Only the raw-input and redraw functions touch I/O. This keeps the
+bulk of behavior unit-testable offline.
 
-The matching and rendering logic are isolated as pure functions
-(:func:`filter_commands`, :func:`render_menu_lines`) so they're directly
-unit-testable; the raw I/O loop is the only side-effecting part.
+Cross-platform: POSIX termios + Windows ``msvcrt``. UTF-8 multi-byte input
+is reassembled on POSIX; ``msvcrt.getwch`` returns wide characters directly
+on Windows. On non-TTY stdin/stdout the function transparently falls back to
+plain :func:`input` so scripts, pipes, and pytest are unaffected.
 """
 
 from __future__ import annotations
@@ -20,11 +21,11 @@ from __future__ import annotations
 import os
 import re
 import sys
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Iterable, Optional, Sequence
 
-# Lazy ANSI imports — keep this module usable without ui.py being importable
-# during early tests.
+# Lazy ANSI imports — keep this module usable even if ui.py isn't importable
+# during isolated tests.
 try:
     from .ui import CYAN, DIM, RESET
 except Exception:  # pragma: no cover - defensive
@@ -35,6 +36,8 @@ if os.name == "nt":
     os.system("")
 
 _ANSI_RE = re.compile(r"\x1b\[[0-9;]*[A-Za-z]")
+_HISTORY_FILENAME = "repl_history.txt"
+_HISTORY_LIMIT = 500
 
 
 # -- public, pure helpers ---------------------------------------------------
@@ -51,10 +54,10 @@ def filter_commands(buffer: str, commands: Sequence[CommandHint]) -> list[Comman
 
     Rules:
     - Buffer that doesn't start with ``/`` -> no dropdown.
-    - Buffer that already contains whitespace (e.g. ``/skill `` plus args) ->
-      no dropdown; the user has committed to a command and is typing args.
-    - Otherwise rank ``starts-with`` matches before substring matches, both
-      case-insensitive. Bare ``/`` lists every command.
+    - Buffer that already contains whitespace (the user is typing args) -> no
+      dropdown.
+    - Otherwise rank ``starts-with`` first, then substring matches (both
+      case-insensitive). Bare ``/`` lists every command.
     """
     if not buffer.startswith("/"):
         return []
@@ -90,10 +93,10 @@ def common_prefix(strings: Iterable[str]) -> str:
 
 def render_menu_lines(matches: Sequence[CommandHint], selected: int,
                       max_show: int = 8) -> list[str]:
-    """Render the dropdown as a list of ANSI-styled lines (no trailing newline).
+    """Render the dropdown as ANSI-styled lines (no trailing newline).
 
-    The first ``max_show`` matches are shown; an extra "+ N more" line is added
-    if the list is longer. ``selected`` is the highlighted index (clamped).
+    Selection is clamped to a valid index so out-of-range values don't raise.
+    A "+ N more" footer is added if the list exceeds ``max_show``.
     """
     if not matches:
         return []
@@ -116,7 +119,233 @@ def visible_len(s: str) -> int:
     return len(_ANSI_RE.sub("", s))
 
 
-# -- I/O loop ---------------------------------------------------------------
+# -- state machine (pure) ---------------------------------------------------
+
+@dataclass
+class EditorState:
+    """One REPL line's editing state.
+
+    Driven only via :func:`apply_event` — no method on this class touches I/O,
+    so the whole edit loop is straightforwardly unit-testable.
+    """
+    buffer: str = ""
+    cursor: int = 0        # 0 ≤ cursor ≤ len(buffer); cursor inserts here
+    selected: int = 0      # index into the *current* filtered matches
+    menu_dismissed: bool = False
+    history_idx: int = -1  # -1 = not browsing; otherwise index into history
+    pending: Optional[str] = None   # buffer the user had when they entered history
+    submitted: Optional[str] = None # set on Enter; signals loop to exit
+    exited: bool = False            # set on Ctrl-C / Ctrl-D-on-empty
+
+
+def matches_for(state: EditorState, commands: Sequence[CommandHint]) -> list[CommandHint]:
+    """Match list to render *given* the current state (honors `menu_dismissed`)."""
+    if state.menu_dismissed:
+        return []
+    return filter_commands(state.buffer, commands)
+
+
+def apply_event(state: EditorState, event: tuple[str, str],
+                commands: Sequence[CommandHint],
+                history: Sequence[str]) -> EditorState:
+    """Advance ``state`` by one keyboard event. Mutates ``state`` and returns it
+    (a typical builder pattern; treating each call as a transition is fine for
+    tests since the dataclass is fully introspectable)."""
+    kind, value = event
+
+    if kind == "ctrl_c":
+        state.exited = True
+        return state
+    if kind == "ctrl_d":
+        if not state.buffer:
+            state.exited = True
+        return state
+    if kind == "enter":
+        state.submitted = state.buffer
+        return state
+
+    if kind == "char":
+        state.buffer = state.buffer[:state.cursor] + value + state.buffer[state.cursor:]
+        state.cursor += len(value)
+        state.selected = 0
+        state.menu_dismissed = False
+        state.history_idx = -1
+        state.pending = None
+        return state
+
+    if kind == "backspace":
+        if state.cursor > 0:
+            state.buffer = state.buffer[:state.cursor - 1] + state.buffer[state.cursor:]
+            state.cursor -= 1
+            state.selected = 0
+            state.menu_dismissed = False
+            state.history_idx = -1
+            state.pending = None
+        return state
+
+    if kind == "delete":
+        if state.cursor < len(state.buffer):
+            state.buffer = state.buffer[:state.cursor] + state.buffer[state.cursor + 1:]
+            state.selected = 0
+            state.menu_dismissed = False
+            state.history_idx = -1
+            state.pending = None
+        return state
+
+    if kind == "left":
+        if state.cursor > 0:
+            state.cursor -= 1
+        return state
+    if kind == "right":
+        if state.cursor < len(state.buffer):
+            state.cursor += 1
+        return state
+    if kind == "home":
+        state.cursor = 0
+        return state
+    if kind == "end":
+        state.cursor = len(state.buffer)
+        return state
+
+    if kind == "tab":
+        ms = matches_for(state, commands)
+        if ms:
+            # If the user navigated explicitly, commit the highlighted match.
+            if state.selected > 0 and state.selected < len(ms):
+                chosen = ms[state.selected]
+                state.buffer = f"/{chosen.name} "
+                state.cursor = len(state.buffer)
+                state.menu_dismissed = True
+            else:
+                # Prefix extension should only consider starts-with matches —
+                # substring matches in the dropdown are a discovery aid and
+                # would otherwise drag the common prefix back to ``/``.
+                tail = state.buffer[1:].lower()
+                starts = [m for m in ms if m.name.lower().startswith(tail)]
+                target = starts or ms
+                if len(target) == 1:
+                    state.buffer = f"/{target[0].name} "
+                    state.cursor = len(state.buffer)
+                    state.menu_dismissed = True
+                else:
+                    cp = common_prefix(c.name for c in target)
+                    candidate = f"/{cp}"
+                    if len(candidate) > len(state.buffer):
+                        state.buffer = candidate
+                        state.cursor = len(state.buffer)
+            state.selected = 0
+        return state
+
+    if kind == "up":
+        ms = matches_for(state, commands)
+        if ms:
+            state.selected = (state.selected - 1) % len(ms)
+        else:
+            _history_prev(state, history)
+        return state
+
+    if kind == "down":
+        ms = matches_for(state, commands)
+        if ms:
+            state.selected = (state.selected + 1) % len(ms)
+        else:
+            _history_next(state, history)
+        return state
+
+    if kind == "esc":
+        # First Esc: if browsing history, restore the pending buffer; else
+        # just dismiss the dropdown but keep the typed text.
+        if state.history_idx != -1:
+            state.buffer = state.pending or ""
+            state.cursor = len(state.buffer)
+            state.history_idx = -1
+            state.pending = None
+        else:
+            state.menu_dismissed = True
+        return state
+
+    return state   # unknown event — ignored
+
+
+def _history_prev(state: EditorState, history: Sequence[str]) -> None:
+    if not history:
+        return
+    if state.history_idx == -1:
+        state.pending = state.buffer
+        state.history_idx = len(history) - 1
+    elif state.history_idx > 0:
+        state.history_idx -= 1
+    else:
+        return
+    state.buffer = history[state.history_idx]
+    state.cursor = len(state.buffer)
+    state.selected = 0
+    state.menu_dismissed = False
+
+
+def _history_next(state: EditorState, history: Sequence[str]) -> None:
+    if state.history_idx == -1:
+        return
+    if state.history_idx + 1 >= len(history):
+        state.history_idx = -1
+        state.buffer = state.pending or ""
+        state.cursor = len(state.buffer)
+        state.pending = None
+    else:
+        state.history_idx += 1
+        state.buffer = history[state.history_idx]
+        state.cursor = len(state.buffer)
+    state.selected = 0
+    state.menu_dismissed = False
+
+
+# -- history persistence ----------------------------------------------------
+
+def _history_path() -> Optional[str]:
+    """Path to the persistent REPL history file under the birkin home dir.
+
+    Returns None if ``config.sessions_dir()`` is unavailable (e.g. partial
+    test environments). The history file is plain text, one line per command.
+    """
+    try:
+        from . import config
+        return os.path.join(str(config.sessions_dir()), _HISTORY_FILENAME)
+    except Exception:   # pragma: no cover - defensive
+        return None
+
+
+def load_history(path: Optional[str] = None, limit: int = _HISTORY_LIMIT) -> list[str]:
+    """Load the persistent history file (or return ``[]`` if missing)."""
+    p = path or _history_path()
+    if not p or not os.path.isfile(p):
+        return []
+    try:
+        with open(p, "r", encoding="utf-8", errors="replace") as fh:
+            lines = [ln.rstrip("\n") for ln in fh.readlines()]
+    except OSError:
+        return []
+    return [ln for ln in lines if ln][-limit:]
+
+
+def append_history(line: str, path: Optional[str] = None,
+                   prior: Optional[Sequence[str]] = None) -> None:
+    """Append ``line`` to history, skipping blanks and consecutive duplicates."""
+    if not line or line.isspace():
+        return
+    if prior and prior[-1] == line:
+        return
+    p = path or _history_path()
+    if not p:
+        return
+    try:
+        os.makedirs(os.path.dirname(p), exist_ok=True)
+        with open(p, "a", encoding="utf-8") as fh:
+            fh.write(line + "\n")
+    except OSError:
+        pass   # silent — history is best-effort
+
+
+# -- raw key reading --------------------------------------------------------
 
 def _is_interactive() -> bool:
     try:
@@ -126,11 +355,8 @@ def _is_interactive() -> bool:
 
 
 def _read_event_posix() -> tuple[str, str]:
-    """One key read on POSIX. Returns (kind, value).
-
-    Multi-byte UTF-8 sequences are reassembled here so a single typed character
-    arrives as one ``("char", ch)`` event even for non-ASCII input.
-    """
+    """One key read on POSIX, including CSI sequences for navigation keys."""
+    import select
     import termios
     import tty
 
@@ -146,6 +372,10 @@ def _read_event_posix() -> tuple[str, str]:
             return ("ctrl_c", "")
         if c == 0x04:
             return ("ctrl_d", "")
+        if c == 0x01:
+            return ("home", "")
+        if c == 0x05:
+            return ("end", "")
         if c in (0x0a, 0x0d):
             return ("enter", "")
         if c == 0x09:
@@ -153,21 +383,35 @@ def _read_event_posix() -> tuple[str, str]:
         if c in (0x7f, 0x08):
             return ("backspace", "")
         if c == 0x1b:
-            # CSI escape (arrows) or bare ESC
-            seq = os.read(fd, 2)
-            if seq == b"[A":
-                return ("up", "")
-            if seq == b"[B":
-                return ("down", "")
-            if seq == b"[C":
-                return ("right", "")
-            if seq == b"[D":
-                return ("left", "")
+            # CSI / SS3 sequence? Read more non-blockingly. If nothing
+            # follows within ~30ms it's a bare Esc.
+            ready, _, _ = select.select([fd], [], [], 0.03)
+            if not ready:
+                return ("esc", "")
+            nb = os.read(fd, 1)
+            if nb in (b"[", b"O"):
+                seq = b""
+                # Read until terminator (alpha letter or '~') or no more data.
+                for _ in range(8):
+                    rdy, _, _ = select.select([fd], [], [], 0.03)
+                    if not rdy:
+                        break
+                    bb = os.read(fd, 1)
+                    seq += bb
+                    if bb.isalpha() or bb == b"~":
+                        break
+                key = {
+                    b"A": "up", b"B": "down", b"C": "right", b"D": "left",
+                    b"H": "home", b"F": "end",
+                    b"1~": "home", b"4~": "end", b"7~": "home", b"8~": "end",
+                    b"3~": "delete",
+                }.get(seq, "other")
+                return (key, "")
             return ("esc", "")
         # ASCII printable
         if 0x20 <= c < 0x80:
             return ("char", chr(c))
-        # Multi-byte UTF-8 leading byte → read continuation bytes
+        # UTF-8 leading byte → read continuation bytes
         if c & 0xE0 == 0xC0:
             extra = 1
         elif c & 0xF0 == 0xE0:
@@ -192,6 +436,10 @@ def _read_event_windows() -> tuple[str, str]:
         return ("ctrl_c", "")
     if ch == "\x04":
         return ("ctrl_d", "")
+    if ch == "\x01":
+        return ("home", "")
+    if ch == "\x05":
+        return ("end", "")
     if ch in ("\r", "\n"):
         return ("enter", "")
     if ch == "\t":
@@ -202,10 +450,10 @@ def _read_event_windows() -> tuple[str, str]:
         return ("esc", "")
     if ch in ("\x00", "\xe0"):
         code = msvcrt.getwch()
-        return ({"H": "up", "P": "down", "K": "left", "M": "right"}
+        return ({"H": "up", "P": "down", "K": "left", "M": "right",
+                 "G": "home", "O": "end", "S": "delete"}
                 .get(code, "other"), "")
-    # msvcrt.getwch returns a wide character, so multi-byte input
-    # (e.g. Hangul) arrives as a single character already.
+    # msvcrt.getwch returns a wide character (e.g. Hangul) as a single unit.
     return ("char", ch)
 
 
@@ -213,9 +461,9 @@ def _read_event() -> tuple[str, str]:
     return _read_event_windows() if os.name == "nt" else _read_event_posix()
 
 
+# -- redraw ------------------------------------------------------------------
+
 def _clear_menu(prev_lines: int) -> None:
-    """Erase ``prev_lines`` menu rows below the current cursor and return to
-    the input line (cursor at end of input)."""
     if prev_lines <= 0:
         return
     for _ in range(prev_lines):
@@ -224,41 +472,38 @@ def _clear_menu(prev_lines: int) -> None:
     sys.stdout.flush()
 
 
-def _redraw(prompt: str, buffer: str, menu_lines: list[str],
+def _redraw(prompt: str, buffer: str, cursor: int, menu_lines: list[str],
             prev_menu_lines: int) -> int:
-    """Redraw the input line and the dropdown menu below it.
-
-    Returns the new menu-line count so the next redraw can erase it.
-    """
-    # 1. Clear any leftover menu rows below us.
+    """Redraw input + dropdown. Cursor lands at the logical ``cursor`` column."""
     _clear_menu(prev_menu_lines)
-    # 2. Rewrite the input line in place.
-    sys.stdout.write("\r\x1b[2K")
-    sys.stdout.write(prompt + buffer)
-    # 3. Draw the menu (each line on its own row), then jump back up so the
-    #    cursor sits at the end of the input line again.
+    sys.stdout.write("\r\x1b[2K" + prompt + buffer)
     n = len(menu_lines)
     if n:
+        # Draw menu below the input line, then come back to the input row.
         sys.stdout.write("\n")
         for i, line in enumerate(menu_lines):
             sys.stdout.write("\x1b[2K" + line)
             if i < n - 1:
                 sys.stdout.write("\n")
         sys.stdout.write(f"\x1b[{n}A")
-        # cursor column = visible(prompt) + len(buffer) + 1
-        col = visible_len(prompt) + len(buffer) + 1
-        sys.stdout.write(f"\r\x1b[{col}G")
+    # Final cursor position = visible(prompt) + cursor + 1 (1-indexed col).
+    col = visible_len(prompt) + cursor + 1
+    sys.stdout.write(f"\r\x1b[{col}G")
     sys.stdout.flush()
     return n
 
 
-def prompt_with_completion(prompt: str,
-                           commands: Sequence[CommandHint]) -> Optional[str]:
-    """Read one input line from the user with inline ``/cmd`` autocomplete.
+# -- the driver -------------------------------------------------------------
 
-    Returns the entered string, or ``None`` on Ctrl-C / EOF (the caller treats
-    this as ``KeyboardInterrupt`` equivalent). On non-TTY input falls back to
-    :func:`input` so pipes and tests work unchanged.
+def prompt_with_completion(prompt: str,
+                           commands: Sequence[CommandHint],
+                           history: Optional[list[str]] = None) -> Optional[str]:
+    """Read one input line with inline ``/cmd`` completion + line editing.
+
+    ``history`` (if provided) backs the ↑/↓ history feature when the dropdown
+    is inactive. Submitted lines are appended in place (caller passes the
+    same list to preserve order across turns). Returns the entered string or
+    ``None`` on Ctrl-C / EOF.
     """
     if not _is_interactive():
         try:
@@ -266,88 +511,37 @@ def prompt_with_completion(prompt: str,
         except (EOFError, KeyboardInterrupt):
             return None
 
-    buffer = ""
-    selected = 0
-    menu_dismissed = False
+    hist: list[str] = history if history is not None else []
+    state = EditorState()
     prev_menu_lines = 0
 
     sys.stdout.write(prompt)
     sys.stdout.flush()
 
-    while True:
-        if menu_dismissed:
-            matches: list[CommandHint] = []
-        else:
-            matches = filter_commands(buffer, commands)
-        menu_lines = render_menu_lines(matches, selected) if matches else []
-        prev_menu_lines = _redraw(prompt, buffer, menu_lines, prev_menu_lines)
+    while not state.submitted and not state.exited:
+        ms = matches_for(state, commands)
+        menu_lines = render_menu_lines(ms, state.selected) if ms else []
+        prev_menu_lines = _redraw(prompt, state.buffer, state.cursor,
+                                  menu_lines, prev_menu_lines)
+        event = _read_event()
+        apply_event(state, event, commands, hist)
 
-        kind, value = _read_event()
+    _clear_menu(prev_menu_lines)
+    sys.stdout.write("\n")
+    sys.stdout.flush()
 
-        if kind == "ctrl_c":
-            _clear_menu(prev_menu_lines)
-            sys.stdout.write("\n")
-            sys.stdout.flush()
-            return None
-        if kind == "ctrl_d":
-            if not buffer:
-                _clear_menu(prev_menu_lines)
-                sys.stdout.write("\n")
-                sys.stdout.flush()
-                return None
-            continue  # ignore mid-line
-        if kind == "enter":
-            _clear_menu(prev_menu_lines)
-            sys.stdout.write("\n")
-            sys.stdout.flush()
-            return buffer
-        if kind == "backspace":
-            if buffer:
-                buffer = buffer[:-1]
-                selected = 0
-                menu_dismissed = False
-            continue
-        if kind == "char":
-            buffer += value
-            selected = 0
-            menu_dismissed = False
-            continue
-        if kind == "tab":
-            if matches:
-                # If a unique match (or selection is explicit) -> commit it.
-                # Otherwise -> extend buffer to the longest common prefix.
-                if len(matches) == 1 or selected > 0:
-                    chosen = matches[selected if selected < len(matches) else 0]
-                    buffer = f"/{chosen.name} "
-                    menu_dismissed = True
-                else:
-                    cp = common_prefix(c.name for c in matches)
-                    candidate = f"/{cp}"
-                    if len(candidate) > len(buffer):
-                        buffer = candidate
-                selected = 0
-            continue
-        if kind == "up":
-            if matches:
-                selected = (selected - 1) % len(matches)
-            continue
-        if kind == "down":
-            if matches:
-                selected = (selected + 1) % len(matches)
-            continue
-        if kind == "esc":
-            menu_dismissed = True
-            continue
-        # left/right/other -> ignore (cursor stays at end; first-rev minimalism)
+    if state.exited:
+        return None
+    line = state.submitted or ""
+    if line and (not hist or hist[-1] != line):
+        hist.append(line)
+    return line
 
 
 # -- adapter for the REPL ---------------------------------------------------
 
 def hints_from_registry(registry: dict) -> list[CommandHint]:
-    """Convert birkin.slashcommands._REGISTRY into CommandHint list.
-
-    Skips alias-only entries; sorts by name for stable display.
-    """
+    """Convert ``birkin.slashcommands._REGISTRY`` into a CommandHint list."""
     out: list[CommandHint] = []
     seen: set[str] = set()
     for name, cmd in registry.items():
