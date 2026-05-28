@@ -3,7 +3,7 @@ name: incident-response
 description: "Triage and respond to a security incident: contain, assess, remediate, document."
 version: 1.0.0
 author: birkin
-license: MIT
+license: Proprietary
 metadata:
   birkin:
     tags: [security, incident, response]

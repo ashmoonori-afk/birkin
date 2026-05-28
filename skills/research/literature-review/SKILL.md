@@ -3,7 +3,7 @@ name: literature-review
 description: "Survey prior work on a topic, cluster findings, cite sources."
 version: 1.0.0
 author: birkin
-license: MIT
+license: Proprietary
 metadata:
   birkin:
     tags: [research, literature, synthesis]

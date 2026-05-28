@@ -3,7 +3,7 @@ name: blog-post
 description: "Draft engaging, well-structured blog posts from outline or topic."
 version: 1.0.0
 author: birkin
-license: MIT
+license: Proprietary
 metadata:
   birkin:
     tags: [writing, content, blog]

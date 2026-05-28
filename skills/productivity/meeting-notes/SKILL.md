@@ -3,7 +3,7 @@ name: meeting-notes
 description: "Convert raw meeting notes into decisions, actions, and owners."
 version: 1.0.0
 author: birkin
-license: MIT
+license: Proprietary
 metadata:
   birkin:
     tags: [productivity, notes, meetings]

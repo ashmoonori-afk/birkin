@@ -3,7 +3,7 @@ name: competitive-analysis
 description: "Compare products/competitors across feature, price, positioning."
 version: 1.0.0
 author: birkin
-license: MIT
+license: Proprietary
 metadata:
   birkin:
     tags: [research, competitive, market]

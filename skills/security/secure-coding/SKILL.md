@@ -3,7 +3,7 @@ name: secure-coding
 description: "Review and fix code for OWASP injection, secrets, authz, and validation issues."
 version: 1.0.0
 author: birkin
-license: MIT
+license: Proprietary
 metadata:
   birkin:
     tags: [security, review, owasp]

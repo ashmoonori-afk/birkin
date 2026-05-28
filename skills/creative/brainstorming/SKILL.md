@@ -3,7 +3,7 @@ name: brainstorming
 description: "Generate, cluster, and converge on ideas through structured divergence."
 version: 1.0.0
 author: birkin
-license: MIT
+license: Proprietary
 metadata:
   birkin:
     tags: [creative, ideation, problem-solving]

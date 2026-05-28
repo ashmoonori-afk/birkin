@@ -3,7 +3,7 @@ name: web-scraping
 description: "Extract structured data from web pages with web_fetch, respecting ToS."
 version: 1.0.0
 author: birkin
-license: MIT
+license: Proprietary
 metadata:
   birkin:
     tags: [automation, scraping, data]

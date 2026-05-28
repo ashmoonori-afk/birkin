@@ -3,7 +3,7 @@ name: pr-review
 description: "Review a code diff for correctness, security, clarity, and alignment with codebase."
 version: 1.0.0
 author: birkin
-license: MIT
+license: Proprietary
 metadata:
   birkin:
     tags: [software-development, review, quality, collaboration]

@@ -3,7 +3,7 @@ name: mcp-usage
 description: "When and how to use MCP servers/tools effectively in agent workflows."
 version: 1.0.0
 author: birkin
-license: MIT
+license: Proprietary
 metadata:
   birkin:
     tags: [knowledge, mcp, tools, integration]

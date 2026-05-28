@@ -3,7 +3,7 @@ name: fact-checking
 description: "Verify a claim against 2+ primary sources via web_fetch."
 version: 1.0.0
 author: birkin
-license: MIT
+license: Proprietary
 metadata:
   birkin:
     tags: [research, verification, fact-check]

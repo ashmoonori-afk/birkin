@@ -3,7 +3,7 @@ name: prompt-engineering
 description: "Design effective prompts: role, context, constraints, examples, feedback loop."
 version: 1.0.0
 author: birkin
-license: MIT
+license: Proprietary
 metadata:
   birkin:
     tags: [knowledge, prompts, ai, engineering]

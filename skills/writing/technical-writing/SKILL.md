@@ -3,7 +3,7 @@ name: technical-writing
 description: "Structure and draft clear technical documentation: READMEs, guides, API docs."
 version: 1.0.0
 author: birkin
-license: MIT
+license: Proprietary
 metadata:
   birkin:
     tags: [writing, documentation, technical]

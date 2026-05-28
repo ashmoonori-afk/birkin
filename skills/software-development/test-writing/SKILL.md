@@ -3,7 +3,7 @@ name: test-writing
 description: "Write focused unit and integration tests; verify coverage with run_shell."
 version: 1.0.0
 author: birkin
-license: MIT
+license: Proprietary
 metadata:
   birkin:
     tags: [software-development, testing, quality]

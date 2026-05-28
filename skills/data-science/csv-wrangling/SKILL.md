@@ -3,7 +3,7 @@ name: csv-wrangling
 description: "Clean, transform, join CSVs with run_shell and scripts."
 version: 1.0.0
 author: birkin
-license: MIT
+license: Proprietary
 metadata:
   birkin:
     tags: [data-science, data-cleaning, csv]

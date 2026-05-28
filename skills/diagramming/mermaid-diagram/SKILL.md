@@ -3,7 +3,7 @@ name: mermaid-diagram
 description: "Generate Mermaid diagrams (flowchart, sequence, ER, state) from description."
 version: 1.0.0
 author: birkin
-license: MIT
+license: Proprietary
 metadata:
   birkin:
     tags: [diagramming, documentation, visualization]

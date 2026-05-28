@@ -3,7 +3,7 @@ name: skill-creator
 description: "Author a new reusable SKILL.md skill from experience (self-improvement)."
 version: 1.0.0
 author: birkin
-license: MIT
+license: Proprietary
 metadata:
   birkin:
     tags: [meta, skills, self-improvement]

@@ -3,7 +3,7 @@ name: git-workflow
 description: "Create branches, write convention-compliant commits, and prepare PRs via git."
 version: 1.0.0
 author: birkin
-license: MIT
+license: Proprietary
 metadata:
   birkin:
     tags: [software-development, git, version-control]

@@ -3,7 +3,7 @@ name: code-review
 description: "Review code for spaghetti, consistency, security, and progress against plan."
 version: 1.0.0
 author: birkin
-license: MIT
+license: Proprietary
 metadata:
   birkin:
     tags: [software-development, review, quality]

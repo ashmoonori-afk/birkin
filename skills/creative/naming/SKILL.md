@@ -3,7 +3,7 @@ name: naming
 description: "Generate and evaluate names for products, features, variables, or companies."
 version: 1.0.0
 author: birkin
-license: MIT
+license: Proprietary
 metadata:
   birkin:
     tags: [creative, naming, branding]

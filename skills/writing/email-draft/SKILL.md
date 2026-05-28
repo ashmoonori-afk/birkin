@@ -3,7 +3,7 @@ name: email-draft
 description: "Write concise, purposeful emails with a clear ask and professional tone."
 version: 1.0.0
 author: birkin
-license: MIT
+license: Proprietary
 metadata:
   birkin:
     tags: [writing, communication, email]

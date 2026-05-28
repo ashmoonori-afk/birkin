@@ -3,7 +3,7 @@ name: verification-loop
 description: "Verify each step as you go so errors are caught early, not after drift."
 version: 1.0.0
 author: birkin
-license: MIT
+license: Proprietary
 metadata:
   birkin:
     tags: [quality, verification, debugging, reliability]

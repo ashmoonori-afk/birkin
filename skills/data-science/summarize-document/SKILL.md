@@ -3,7 +3,7 @@ name: summarize-document
 description: "Read a long doc and produce a faithful structured summary."
 version: 1.0.0
 author: birkin
-license: MIT
+license: Proprietary
 metadata:
   birkin:
     tags: [data-science, documentation, summary]

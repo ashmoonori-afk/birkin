@@ -3,7 +3,7 @@ name: ascii-art
 description: "Create clean ASCII diagrams, banners, and simple visualizations as text."
 version: 1.0.0
 author: birkin
-license: MIT
+license: Proprietary
 metadata:
   birkin:
     tags: [creative, diagramming, ascii]

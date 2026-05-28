@@ -308,4 +308,9 @@ status: [`docs/STATUS.md`](./docs/STATUS.md).
 
 ## 📄 License
 
-MIT.
+Dual: birkin's **original** code and skills are **Proprietary — All Rights
+Reserved** (© 2026 ashmoonori). Source is visible for inspection; no use,
+copy, modify, distribute, or commercial right is granted without written
+permission. **Third-party / ported components** (the `arxiv` skill, and any
+skill obtained via `birkin skills sync`) retain their upstream **MIT** license
+with attribution. See [`LICENSE`](./LICENSE) and [`NOTICE`](./NOTICE).

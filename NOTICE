@@ -1,0 +1,15 @@
+birkin — NOTICE
+
+This product includes third-party components retained under their original
+licenses. See LICENSE for the full text.
+
+- arXiv Search Skill (`skills/research/arxiv/`)
+  Ported from NousResearch/hermes-agent. Original SKILL.md and
+  `scripts/search_arxiv.py` are MIT-licensed.
+
+- Skills mirrored at runtime via `birkin skills sync` (stored in the user's
+  `~/.birkin/skills/mirrors/`) retain their upstream licenses (typically MIT
+  for hermes-agent skills). birkin does not redistribute these in its source
+  tree or distribution artifacts.
+
+All other birkin code and skills are © 2026 ashmoonori, All Rights Reserved.

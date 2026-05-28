@@ -3,7 +3,7 @@ name: outreach-script
 description: "Design cold outreach or email sequences with value-first framing."
 version: 1.0.0
 author: birkin
-license: MIT
+license: Proprietary
 metadata:
   birkin:
     tags: [marketing, outreach, sales, email]

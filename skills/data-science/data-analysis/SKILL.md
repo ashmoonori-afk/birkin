@@ -3,7 +3,7 @@ name: data-analysis
 description: "Explore a dataset, compute summary stats, surface insights via run_shell."
 version: 1.0.0
 author: birkin
-license: MIT
+license: Proprietary
 metadata:
   birkin:
     tags: [data-science, analysis, insights]
