@@ -8,6 +8,20 @@ Improvement roadmap: [IMPROVEMENT-PLAN.md](./IMPROVEMENT-PLAN.md).
 
 ## Improvement plan progress
 
+> Improvement plan (P1–P4 from `IMPROVEMENT-PLAN.md`) was completed earlier.
+> The "Hardening Roadmap" (`HARDENING-PLAN.md`) is the v0.2 work:
+
+- **Hardening H2 — Live-LLM verification harness ✅**
+  - New `live` pytest marker; offline runs deselect it
+    (`addopts = "… -m 'not live'"`). Opt in with `BIRKIN_LIVE=1 pytest -m live`
+    plus a backend (API key or `claude`/`codex`).
+  - Live cases: chat returns non-empty reply, chat-with-tool-or-useful-reply
+    (asserts a tool was actually called when running via the native loop), and
+    a subagent round-trip (skipped for CLI proxy providers).
+  - `scripts/smoke_live.sh` and `smoke_live.ps1` one-shots. Verified end-to-end
+    against `claude-cli` (2 passed, 1 skipped) and offline (149 passed,
+    3 deselected, coverage 76.80%).
+
 - **Phase 1 — Safety & tests ✅**
   - All `subprocess` calls use **argv lists, never `shell=True`** (`proc.py`:
     `cli_argv` for CLI programs incl. Windows `.cmd` shims; `shell_argv` for the

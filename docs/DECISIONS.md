@@ -382,6 +382,30 @@ mirrors verbatim (upstream license/attribution preserved, not transformed).
 
 ---
 
+## ADR-018 — Live-LLM verification harness (opt-in marker)
+
+**Context.** Hardening Phase H2: the real agentic loop (Anthropic tool_use,
+multi-turn, subagent) was only logic-verified by P1 fakes/monkeypatch — no
+real-backend smoke in CI.
+
+**Decision.** Add a `live` pytest marker; offline runs deselect it via
+`addopts = "… -m 'not live'"`. Live tests skip themselves unless
+`BIRKIN_LIVE=1` is set and a backend is available (`ANTHROPIC_API_KEY`, or the
+`claude` / `codex` CLI on PATH). Cases:
+- chat turn returns non-empty reply,
+- chat-with-tool-or-useful-reply (asserts a tool was actually called when the
+  native API loop is the backend; relaxed to "useful reply" for CLI proxies),
+- subagent round-trip (skipped for CLI proxies, where no native subagent loop runs).
+`scripts/smoke_live.{sh,ps1}` wraps the run.
+
+**Rationale.** Closes the biggest v0.1 risk (unverified live paths) cheaply —
+short prompts on Haiku-grade or CLI quota — without making offline CI
+key-dependent. Easy to extend with more cases.
+
+**Status.** Accepted.
+
+---
+
 ## ADR-010 — Single shared session, sequential dashboard server
 
 **Context.** Local, single-user tool.

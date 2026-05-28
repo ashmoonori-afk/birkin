@@ -34,7 +34,12 @@ packages = ["birkin"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
-addopts = "-q --cov=birkin --cov-report=term-missing"
+# Offline runs skip the live suite by default; opt in with `BIRKIN_LIVE=1
+# pytest -m live` (and a real backend — API key, or installed claude/codex CLI).
+addopts = "-q --cov=birkin --cov-report=term-missing -m 'not live'"
+markers = [
+    "live: real LLM backend required (BIRKIN_LIVE=1 + API key or claude/codex CLI)",
+]
 
 [tool.coverage.run]
 source = ["birkin"]
