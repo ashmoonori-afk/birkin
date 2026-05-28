@@ -1,6 +1,6 @@
 # birkin — Build Status
 
-> Snapshot: 2026-05-28 · v0.1 (initial rebuild)
+> Snapshot: 2026-05-28 · v0.2 (hardening; H2–H5 complete)
 
 A concise, kept-current summary of what exists and how to run it. For the full
 design see [DESIGN.md](./DESIGN.md); for rationale see [DECISIONS.md](./DECISIONS.md).
@@ -10,6 +10,22 @@ Improvement roadmap: [IMPROVEMENT-PLAN.md](./IMPROVEMENT-PLAN.md).
 
 > Improvement plan (P1–P4 from `IMPROVEMENT-PLAN.md`) was completed earlier.
 > The "Hardening Roadmap" (`HARDENING-PLAN.md`) is the v0.2 work:
+
+- **Hardening H5 — Memory OS (polarity + version + evidence) ✅**
+  - **Polarity**: every note carries `polarity: positive | negative` in
+    frontmatter. The render digest tags negative notes with
+    `⚠ known failure — re-verify` so the agent surfaces past failures in-context
+    instead of forgetting them. Existing polarity is preserved on subsequent
+    writes; invalid polarity raises `ValueError`.
+  - **Version (optimistic lock)**: every note carries `version: N`; each write
+    increments it by 1. Pass `expected_version` (e.g. when refining a note you
+    just read) to refuse stale-snapshot overwrites — raises
+    `VersionMismatchError` (the `memory_write_note` tool surfaces this as a
+    friendly `is_error` instead of an exception).
+  - **Evidence gate (opt-in)**: set `evidence_required: true` in config to
+    require at least one `source` for any new note (default off; existing tests
+    and helper-writes unchanged unless enabled).
+  - Tool layer: `memory_write_note` exposes `polarity` and `expected_version`.
 
 - **Hardening H4 — Verified learning (Skill-PR + TTL) ✅**
   - `create_skill` and `improve_skill` now **route through the approval gate**

@@ -28,7 +28,13 @@ from . import config
 from .skills import frontmatter
 
 VALID_TYPES = {"person", "project", "preference", "fact", "topic", "session"}
+VALID_POLARITIES = {"positive", "negative"}
 WIKILINK_RE = re.compile(r"\[\[([^\]]+)\]\]")
+
+
+class VersionMismatchError(ValueError):
+    """Raised by write_note when expected_version does not match the on-disk
+    version (optimistic concurrency control — no stale-snapshot overwrites)."""
 
 
 def _slug(title: str) -> str:
@@ -76,6 +82,7 @@ class VaultMemory:
                 "type": meta.get("type", "topic"),
                 "updated": meta.get("updated", ""),
                 "confidence": meta.get("confidence", 0.5),
+                "polarity": str(meta.get("polarity") or "positive"),
                 "path": f,
             })
         return notes
@@ -83,16 +90,26 @@ class VaultMemory:
     def write_note(self, title: str, body: str, *, note_type: str = "topic",
                    tags: list[str] | None = None, links: list[str] | None = None,
                    confidence: float = 0.7, source: str | None = None,
-                   append: bool = False, ttl_days: int | None = None) -> Path:
-        """Create or update a note. Preserves ``created`` and merges sources.
+                   append: bool = False, ttl_days: int | None = None,
+                   polarity: str | None = None,
+                   expected_version: int | None = None) -> Path:
+        """Create or update a note.
 
-        ``ttl_days``: optional Time-To-Live; the note auto-expires from the
-        index/search/render after that many days (still readable by name)."""
+        Memory-OS controls:
+        - ``ttl_days`` — auto-expire from the index/search/render after N days.
+        - ``polarity`` — ``"positive"`` (default) or ``"negative"`` (a known
+          failure; surfaced with a re-verify hint in the prompt digest).
+        - ``expected_version`` — optimistic lock; raise
+          :class:`VersionMismatchError` if it does not match the on-disk version.
+        - **Evidence gate** — a brand-new note requires at least one ``source``.
+        """
         note_type = note_type if note_type in VALID_TYPES else "topic"
         p = self._path(title)
         created = date.today().isoformat()
         sources: list[str] = []
         existing_body = ""
+        existing_polarity: str | None = None
+        existing_version = 0
         if p.is_file():
             old = p.read_text(encoding="utf-8", errors="replace")
             meta, old_body = frontmatter.parse(old)
@@ -101,9 +118,32 @@ class VaultMemory:
             if isinstance(old_sources, list):
                 sources = [str(s) for s in old_sources]
             existing_body = old_body.strip()
+            existing_polarity = str(meta.get("polarity") or "") or None
+            try:
+                existing_version = int(meta.get("version") or 0)
+            except (TypeError, ValueError):
+                existing_version = 0
+
+        if expected_version is not None and int(expected_version) != existing_version:
+            raise VersionMismatchError(
+                f"expected version {expected_version}, on-disk {existing_version}")
 
         if source and source not in sources:
             sources.append(source)
+
+        # Evidence-gated writes (opt-in via `evidence_required: true` in config):
+        # a new note with no prior sources and none provided is refused.
+        if not sources and self.cfg.get("evidence_required"):
+            raise ValueError(
+                "memory writes require at least one `source` for a new note "
+                "(evidence_required is enabled in config)")
+
+        if polarity is not None and polarity not in VALID_POLARITIES:
+            raise ValueError(
+                f"polarity must be one of {sorted(VALID_POLARITIES)}, got {polarity!r}")
+        pol = polarity or existing_polarity or "positive"
+        if pol not in VALID_POLARITIES:   # defensive — bad on-disk value
+            pol = "positive"
 
         body = body.strip()
         if append and existing_body:
@@ -124,7 +164,8 @@ class VaultMemory:
         fm = _compose_frontmatter(
             title=title, note_type=note_type, created=created,
             updated=_now_iso()[:10], confidence=confidence,
-            sources=sources, tags=tags or [], expires_at=expires_at)
+            sources=sources, tags=tags or [], expires_at=expires_at,
+            polarity=pol, version=existing_version + 1)
         p.write_text(fm + body + "\n", encoding="utf-8")
         return p
 
@@ -191,7 +232,8 @@ class VaultMemory:
                  f"Use memory_search / memory_get_note for details."]
         for n in notes[:limit]:
             first = _first_line(n["path"])
-            lines.append(f"- [[{n['title']}]] ({n['type']}): {first}")
+            tag = " ⚠ known failure — re-verify" if n.get("polarity") == "negative" else ""
+            lines.append(f"- [[{n['title']}]] ({n['type']}){tag}: {first}")
         return "\n".join(lines)
 
     # -- tools -------------------------------------------------------------
@@ -220,15 +262,23 @@ class VaultMemory:
             if not (title and body):
                 return ToolResult("memory_write_note needs title and body.",
                                   is_error=True)
-            p = self.write_note(
-                title, body,
-                note_type=str(inp.get("type", "topic")),
-                tags=inp.get("tags") or [],
-                links=inp.get("links") or [],
-                confidence=float(inp.get("confidence", 0.7) or 0.7),
-                source=inp.get("source") or "conversation",
-                append=bool(inp.get("append", False)),
-                ttl_days=int(inp["ttl_days"]) if inp.get("ttl_days") else None)
+            try:
+                p = self.write_note(
+                    title, body,
+                    note_type=str(inp.get("type", "topic")),
+                    tags=inp.get("tags") or [],
+                    links=inp.get("links") or [],
+                    confidence=float(inp.get("confidence", 0.7) or 0.7),
+                    source=inp.get("source") or "conversation",
+                    append=bool(inp.get("append", False)),
+                    ttl_days=int(inp["ttl_days"]) if inp.get("ttl_days") else None,
+                    polarity=inp.get("polarity"),
+                    expected_version=(int(inp["expected_version"])
+                                      if inp.get("expected_version") is not None
+                                      else None))
+            except VersionMismatchError as exc:
+                return ToolResult(f"write rejected (stale version): {exc}",
+                                  is_error=True)
             return ToolResult(f"Wrote note [[{title}]] -> {p}")
 
         def memory_search(inp: dict[str, Any], ctx: ToolContext) -> ToolResult:
@@ -275,7 +325,12 @@ class VaultMemory:
                      "source": {"type": "string"},
                      "append": {"type": "boolean"},
                      "ttl_days": {"type": "integer",
-                                  "description": "auto-expire after N days"}},
+                                  "description": "auto-expire after N days"},
+                     "polarity": {"type": "string",
+                                  "enum": ["positive", "negative"],
+                                  "description": "use 'negative' for known failures"},
+                     "expected_version": {"type": "integer",
+                                          "description": "optimistic-lock check"}},
                      "required": ["title", "body"]},
                  fn=memory_write_note),
             Tool(name="memory_search",
@@ -304,7 +359,9 @@ class VaultMemory:
 def _compose_frontmatter(*, title: str, note_type: str, created: str,
                          updated: str, confidence: float,
                          sources: list[str], tags: list[str],
-                         expires_at: str | None = None) -> str:
+                         expires_at: str | None = None,
+                         polarity: str = "positive",
+                         version: int = 1) -> str:
     src = ", ".join(f'"{s}"' for s in sources)
     tg = ", ".join(str(t) for t in tags)
     ttl_line = f"expires_at: {expires_at}\n" if expires_at else ""
@@ -315,6 +372,8 @@ def _compose_frontmatter(*, title: str, note_type: str, created: str,
         f"created: {created}\n"
         f"updated: {updated}\n"
         f"confidence: {confidence}\n"
+        f"polarity: {polarity}\n"
+        f"version: {int(version)}\n"
         f"sources: [{src}]\n"
         f"tags: [{tg}]\n"
         + ttl_line

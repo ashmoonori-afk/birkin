@@ -4,7 +4,7 @@ Lightweight architecture decision records. Each entry: context, decision,
 rationale, alternatives considered, status. Newest decisions may supersede
 older ones (noted inline).
 
-> Last updated: 2026-05-27
+> Last updated: 2026-05-28
 
 ---
 
@@ -469,6 +469,52 @@ ledger we already keep. Doesn't disturb the agentic loop or stdlib-only runtime.
 **Trade-off.** Budget uses `estTokens` (chars / 4 heuristic), not exact
 provider-reported cost; stale heartbeat is a fixed 120 s threshold; budget gate
 is hard-stop (no soft warning yet). All adjustable in config / future ADRs.
+
+**Status.** Accepted.
+
+---
+
+## ADR-021 — Memory OS: polarity, version (optimistic lock), evidence gate
+
+**Context.** Hardening Phase H5. The vault was already a literate semantic
+memory, but had three blind spots:
+1. There was no way to mark a note as *what NOT to do* — past failures looked
+   the same as past wins, so the agent could happily re-run a known-bad pattern.
+2. Two writes to the same note silently last-write-wins; a refining write off a
+   stale snapshot could clobber a more recent one.
+3. Anyone (the agent, a tool, a script) could write a note with no source at
+   all, leaving the vault full of low-confidence claims with nowhere to look up
+   their provenance.
+
+**Decision.**
+- **Polarity** — every note carries `polarity: positive | negative` in
+  frontmatter (default `positive`). The render digest (which seeds the system
+  prompt) annotates negative notes with `⚠ known failure — re-verify`, so
+  failure memories surface *in the prompt* rather than being indistinguishable
+  from successes. `memory_write_note` exposes a `polarity` field; subsequent
+  writes inherit the existing polarity unless explicitly overridden; invalid
+  polarities raise.
+- **Version (optimistic lock)** — every note carries `version: N` (starts at 1,
+  bumped on every write). Callers may pass `expected_version` to refuse stale
+  overwrites: `write_note` raises `VersionMismatchError`; the
+  `memory_write_note` tool catches it and returns a friendly `is_error` so the
+  agent can re-read and retry instead of crashing.
+- **Evidence gate (opt-in)** — `evidence_required: true` in config refuses any
+  *new* note without at least one `source`. Defaults to off to keep existing
+  helpers (tests, `improve_skill`, ad-hoc internal writes) working unchanged;
+  users who want a strict-provenance vault flip the switch.
+
+**Rationale.** All three concerns share the same shape: a note is a small
+versioned, attributed claim. Polarity is one extra bit of frontmatter; version
+is one integer; evidence is a single non-empty check. No new tables, no
+embeddings, no schema migration — just three more lines in the YAML header,
+parsed by the same `frontmatter.parse` we already use.
+
+**Trade-off.** `expected_version` is opt-in per call site — if a caller never
+sets it, last-write-wins still applies (the version still increments, but no
+mismatch is detected). The evidence gate is opt-in for backwards-compat. Both
+are deliberate: the goal is to *enable* discipline, not impose it everywhere
+the moment the flag exists.
 
 **Status.** Accepted.
 
