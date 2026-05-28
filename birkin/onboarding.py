@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import os
 
-from . import config
+from . import config, menu
 from .ui import BOLD, CYAN, DIM, GREEN, RESET, YELLOW
 
 _ASCII = r"""
@@ -31,11 +31,7 @@ def _ask(label: str, default: str = "") -> str:
 
 
 def _ask_yesno(label: str, default: bool = False) -> bool:
-    d = "Y/n" if default else "y/N"
-    val = _ask(f"{label} ({d})", "").lower()
-    if not val:
-        return default
-    return val in ("y", "yes")
+    return menu.confirm(label, default=default)
 
 
 def run() -> int:
@@ -49,24 +45,27 @@ def run() -> int:
     else:
         print(f"{BOLD}birkin setup{RESET} — Enter keeps the current value.\n")
 
-    # 1. Provider
-    provider = _ask("Provider (anthropic | openai)", cfg.get("provider", "anthropic"))
-    if provider not in ("anthropic", "openai"):
-        provider = "anthropic"
+    # 1. Provider — arrow-select
+    providers = ["anthropic", "openai"]
+    cur_prov = cfg.get("provider", "anthropic")
+    pi = menu.select(f"{BOLD}Provider{RESET} (API backend; local CLI agents are "
+                     f"chosen in the next step)", providers,
+                     default=providers.index(cur_prov) if cur_prov in providers else 0)
+    provider = providers[pi] if pi is not None else cur_prov
     cfg["provider"] = provider
 
-    # 2. Model — show API + local (Ollama) models together
+    # 2. Model — arrow-select across API + local CLI agents (claude-code/codex) + Ollama
     from . import models as models_mod
-    print(f"\n{BOLD}Model{RESET} (current: {cfg.get('model')})")
+    print(f"\n{BOLD}Model{RESET} — discovering API + local options…")
     found = models_mod.discover(cfg)
-    models_mod.render(found, cfg.get("model"))
-    sel = _ask("Choose [number or name]", "")
-    if sel:
-        if sel.isdigit() and 1 <= int(sel) <= len(found):
-            models_mod.apply_selection(cfg, found[int(sel) - 1])
-            provider = cfg.get("provider", provider)
-        else:
-            cfg["model"] = sel
+    labels = [f"{m.id}  [{m.source}]" + (f" · {m.note}" if m.note else "")
+              for m in found]
+    cur = cfg.get("model")
+    default_i = next((i for i, m in enumerate(found) if m.model_value() == cur), 0)
+    mi = menu.select("Choose a model", labels, default=default_i)
+    if mi is not None:
+        models_mod.apply_selection(cfg, found[mi])
+        provider = cfg.get("provider", provider)
 
     # 3. API key — skipped entirely for local CLI agents (they self-authenticate)
     if cfg.get("provider") in config.CLI_PROVIDERS:

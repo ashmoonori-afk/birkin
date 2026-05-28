@@ -67,23 +67,19 @@ def _cmd_model(args: argparse.Namespace) -> int:
         print(f"Model set to {args.name}")
         return 0
 
+    from . import menu
     from . import models as models_mod
     print(f"Current model: {cfg.get('model')}  (provider: {provider})")
-    print(f"{'(fetching API + local models…)'}\n")
+    print("(discovering API + local models…)")
     found = models_mod.discover(cfg)
-    models_mod.render(found, cfg.get("model"))
-    print("    Or type a model name directly.")
-    try:
-        sel = input("\nChoose [number or name, blank to keep]: ").strip()
-    except (EOFError, KeyboardInterrupt):
-        print()
+    labels = [f"{m.id}  [{m.source}]" + (f" · {m.note}" if m.note else "")
+              for m in found]
+    cur = cfg.get("model")
+    default_i = next((i for i, m in enumerate(found) if m.model_value() == cur), 0)
+    mi = menu.select("Choose a model", labels, default=default_i)
+    if mi is None:
         return 0
-    if not sel:
-        return 0
-    if sel.isdigit() and 1 <= int(sel) <= len(found):
-        models_mod.apply_selection(cfg, found[int(sel) - 1])
-    else:
-        cfg["model"] = sel
+    models_mod.apply_selection(cfg, found[mi])
     config.save_config(cfg)
     print(f"Model set to {cfg['model']} (provider: {cfg.get('provider')})")
     return 0
@@ -111,17 +107,30 @@ def _cmd_gateway(args: argparse.Namespace) -> int:
     return run()
 
 
+# Tools grouped by "toolset" for the Available Tools panel.
+_TOOL_GROUPS = ["files", "shell", "web", "skills", "memory", "subagent"]
+
+_BIRKIN_ART = [
+    " ██████╗ ██╗██████╗ ██╗  ██╗██╗███╗   ██╗",
+    " ██╔══██╗██║██╔══██╗██║ ██╔╝██║████╗  ██║",
+    " ██████╔╝██║██████╔╝█████╔╝ ██║██╔██╗ ██║",
+    " ██╔══██╗██║██╔══██╗██╔═██╗ ██║██║╚██╗██║",
+    " ██████╔╝██║██║  ██║██║  ██╗██║██║ ╚████║",
+    " ╚═════╝ ╚═╝╚═╝  ╚═╝╚═╝  ╚═╝╚═╝╚═╝  ╚═══╝",
+]
+
+
 def _cmd_tools(args: argparse.Namespace) -> int:
-    """List the agent's tools and enable/disable them (like `hermes tools`)."""
+    """Show the Available Tools panel and enable/disable tools (like hermes)."""
     from pathlib import Path
     from . import config
     from .memory import VaultMemory
     from .skills import build_manager
     from .tools import ToolContext, build_registry
+    from .ui import CYAN, DIM, GREEN, RED, RESET
 
     cfg = config.load_config()
     disabled = set(cfg.get("disabled_tools", []))
-
     if args.enable:
         disabled.discard(args.enable)
     if args.disable:
@@ -130,16 +139,39 @@ def _cmd_tools(args: argparse.Namespace) -> int:
         cfg["disabled_tools"] = sorted(disabled)
         config.save_config(cfg)
 
-    ctx = ToolContext(cfg=cfg, client=None, cwd=Path.cwd(),
-                      skills=build_manager(cfg), memory=VaultMemory(cfg))
-    # Build with no disabled filter so we can show every tool's state.
-    full = build_registry(ToolContext(cfg={**cfg, "disabled_tools": []},
-                                      client=None, cwd=Path.cwd(),
-                                      skills=ctx.skills, memory=ctx.memory))
-    for spec in full.specs():
-        state = "off" if spec["name"] in disabled else "on "
-        print(f"  [{state}] {spec['name']} — {spec['description'][:70]}")
-    print("\nToggle with: birkin tools --disable <name> / --enable <name>")
+    base = dict(cfg); base["disabled_tools"] = []
+    skills, memory = build_manager(cfg), VaultMemory(cfg)
+    ctx = ToolContext(cfg=base, client=None, cwd=Path.cwd(),
+                      skills=skills, memory=memory)
+
+    # group -> [tool names], skipping empty groups
+    rows: list[str] = []
+    total = enabled = 0
+    for group in _TOOL_GROUPS:
+        names = build_registry(ctx, include={group}).names()
+        if not names:
+            continue
+        marks = []
+        for n in names:
+            total += 1
+            if n in disabled:
+                marks.append(f"{RED}{n}{RESET}")
+            else:
+                enabled += 1
+                marks.append(n)
+        rows.append(f"{CYAN}{group}{RESET}: " + ", ".join(marks))
+
+    # Render: ASCII art on the left, toolset rows on the right (hermes-style).
+    title = f"  {RESET}Available Tools{RESET}  {DIM}({enabled}/{total} enabled){RESET}"
+    print(title)
+    art = list(_BIRKIN_ART)
+    height = max(len(art), len(rows))
+    for i in range(height):
+        left = f"{CYAN}{art[i]}{RESET}" if i < len(art) else " " * 42
+        right = rows[i] if i < len(rows) else ""
+        print(f"  {left}   {right}")
+    print(f"\n{DIM}Toggle:{RESET} birkin tools --disable <name> / --enable <name>"
+          f"  ·  {RED}red{RESET} = disabled")
     return 0
 
 

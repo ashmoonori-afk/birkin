@@ -74,7 +74,8 @@ git clone https://github.com/ashmoonori-afk/birkin && cd birkin
 uv run birkin            # or:  pip install -e .  &&  birkin
 ```
 
-Requires **Python 3.10+**. The first run launches an onboarding wizard.
+Requires **Python 3.10+**. The first run launches an onboarding wizard —
+navigate choices with **↑/↓ and Enter** (no typing except keys/paths).
 
 ### Pick a backend
 
@@ -103,7 +104,7 @@ providers, not to CLI-agent chat.
 birkin            # start chatting (first run → onboarding)
 birkin setup      # onboarding wizard            (alias: birkin onboard)
 birkin model      # choose the model — API + local CLI agents in one picker
-birkin tools      # list / --enable / --disable the agent's tools
+birkin tools      # "Available Tools" panel; --enable/--disable to toggle
 birkin skills     # list skills   ·   birkin skills <name> to print one
 birkin gateway    # run as a service (HTTP + optional Telegram channels)
 birkin web        # open the monitoring dashboard
