@@ -21,8 +21,13 @@ against the upstream catalogs: [COMPARISON.md](./COMPARISON.md).
     has navigated), **Enter** submits the typed line as-is, **Esc**
     dismisses the dropdown while keeping the buffer.
   - **Multi-line input** (fourth revision): Enter (`\r`) submits;
-    **Ctrl-J** (`\n`) **and Alt+Enter** (POSIX `ESC + \r`/`\n`) insert a
-    literal newline at the cursor. Pasted text keeps its embedded
+    **Shift+Enter / Ctrl+Enter / Alt+Enter** insert a literal newline at
+    the cursor on terminals that support the **Kitty Keyboard Protocol**
+    (Kitty, WezTerm, Alacritty, foot, Ghostty — birkin enables `CSI > 1 u`
+    on REPL entry, disables on exit; non-supporting terminals ignore the
+    enable byte). On terminals without the protocol the same effect is
+    available via **Ctrl-J** (which sends `\n` natively); **Alt+Enter**
+    also works on POSIX (it arrives as `ESC + \r`/`\n`). Pasted text keeps its embedded
     newlines and tabs verbatim — a code-snippet paste lands as typed.
     ↑/↓ navigates between lines (clamps to the shorter line's length)
     when the buffer is multi-line; on a single-line buffer they still

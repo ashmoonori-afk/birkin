@@ -43,6 +43,20 @@ _HISTORY_LIMIT = 500
 # losing it (msvcrt has built-in ``ungetwch`` so Windows doesn't need this).
 _pushback: list[int] = []
 
+# Kitty Keyboard Protocol — "disambiguate escape codes" mode (flag 1). Turning
+# this on makes modifier-bearing keys (Shift+Enter, Ctrl+Enter, …) come in as
+# CSI sequences such as ``\x1b[13;2u``; un-modified keys still arrive
+# unchanged. Terminals that don't support the protocol silently ignore the
+# enable / disable sequences.
+KITTY_ENABLE = "\x1b[>1u"
+KITTY_DISABLE = "\x1b[<u"
+
+# Match Kitty-protocol "modified Enter" sequences: ``[13;<mod>u`` where
+# ``<mod>`` ≥ 2 (1 means "no modifier" and we don't expect it for Enter).
+# Accepts any modifier value 2..N (single digit 2-9 OR two-or-more digits)
+# so future protocol extensions (mod 16 = Shift+Alt+Ctrl+Super, etc.) work.
+_KITTY_MOD_ENTER_RE = re.compile(rb"^13;([2-9]|\d{2,})u$")
+
 
 # -- public, pure helpers ---------------------------------------------------
 
@@ -493,7 +507,9 @@ def _read_event_posix() -> tuple[str, str]:
             if nb in (b"[", b"O"):
                 seq = b""
                 # Read until terminator (alpha letter or '~') or no more data.
-                for _ in range(8):
+                # Bumped to 16 bytes to fit Kitty-protocol sequences such as
+                # ``13;2u`` (Shift+Enter) and friends.
+                for _ in range(16):
                     rdy, _, _ = select.select([fd], [], [], 0.03)
                     if not rdy:
                         break
@@ -501,6 +517,12 @@ def _read_event_posix() -> tuple[str, str]:
                     seq += bb
                     if bb.isalpha() or bb == b"~":
                         break
+                # Kitty Keyboard Protocol: modified Enter (Shift / Alt / Ctrl
+                # / any combination) arrives as ``[13;<mod>u``. Map all of
+                # them to the multiline newline trigger so Shift+Enter feels
+                # natural on terminals that support the protocol.
+                if _KITTY_MOD_ENTER_RE.match(seq):
+                    return ("newline", "")
                 key = {
                     b"A": "up", b"B": "down", b"C": "right", b"D": "left",
                     b"H": "home", b"F": "end",
@@ -718,6 +740,10 @@ def prompt_with_completion(prompt: str,
     prev_cursor_row = 0
     prev_total_rows = 1
 
+    # Opt in to the Kitty Keyboard Protocol so Shift/Ctrl/Alt+Enter come in
+    # as distinguishable CSI sequences. Terminals that don't support it just
+    # ignore the enable byte — there is no fallback to manage.
+    sys.stdout.write(KITTY_ENABLE)
     sys.stdout.write(prompt)
     sys.stdout.flush()
 
@@ -731,11 +757,14 @@ def prompt_with_completion(prompt: str,
         apply_event(state, event, commands, hist)
 
     # Park the cursor below all rendered rows before printing the agent
-    # reply / next prompt, then emit a clean newline.
+    # reply / next prompt, then emit a clean newline. Also disable the
+    # Kitty Keyboard Protocol so we don't keep other applications confused
+    # by leftover enable state if the user pipes / suspends the REPL.
     rows_below = prev_total_rows - 1 - prev_cursor_row
     if rows_below > 0:
         sys.stdout.write(f"\x1b[{rows_below}B")
     sys.stdout.write("\n")
+    sys.stdout.write(KITTY_DISABLE)
     sys.stdout.flush()
 
     if state.exited:

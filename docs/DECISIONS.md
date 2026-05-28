@@ -474,6 +474,51 @@ is hard-stop (no soft warning yet). All adjustable in config / future ADRs.
 
 ---
 
+## ADR-027 — Shift+Enter via Kitty Keyboard Protocol (opt-in by terminal)
+
+**Context.** ADR-026 shipped multi-line input bound to Ctrl-J / Alt+Enter.
+Users asked for **Shift+Enter** (the chat-app convention) but the
+standard TTY input stream does not preserve modifier-key information —
+``Shift+Enter`` and ``Enter`` both arrive as bare ``\r`` on virtually
+every conventional terminal (Terminal.app, iTerm2 default, default
+Windows Terminal, VS Code integrated terminal).
+
+A growing set of terminals (Kitty, WezTerm, Alacritty, foot, Ghostty)
+implement the **Kitty Keyboard Protocol** (`CSI u`). In its
+"disambiguate escape codes" mode (flag 1), modifier-bearing keys come
+in as CSI sequences such as ``\x1b[13;2u`` (Shift+Enter),
+``\x1b[13;5u`` (Ctrl+Enter), ``\x1b[13;3u`` (Alt+Enter); un-modified
+keys (plain Enter, plain letters) still arrive unchanged. Terminals
+that don't speak the protocol silently ignore the enable / disable
+sequence — no negotiation, no fallback to manage.
+
+**Decision.**
+- Emit ``CSI > 1 u`` on REPL entry and ``CSI < u`` on exit. These are
+  inert no-ops on non-supporting terminals.
+- The POSIX raw reader recognises ``\x1b[13;<mod>u`` (any modifier
+  value ≥ 2, single- or multi-digit) and emits the existing
+  ``newline`` event — so Shift/Ctrl/Alt/Super+Enter all *just work* on
+  Kitty-compatible terminals without any other code change.
+- The legacy bindings (Ctrl-J, POSIX Alt+Enter = ``ESC + \r``) remain
+  in place, so users on conventional terminals lose nothing.
+
+**Rationale.** The choice is binary per terminal: either the protocol
+is on (Shift+Enter natively) or it's off (Ctrl-J fallback). There is
+no "Shift+Enter but only on some keypresses" failure mode to manage.
+The regex (`^13;([2-9]|\d{2,})u$`) is futureproofed for protocol
+modifier values ≥ 10 (combinations such as Shift+Alt+Ctrl+Super).
+
+**Trade-off.** Users on terminals without CSI u still can't type
+Shift+Enter as newline — there is no software-only fix. We document
+Ctrl-J as the portable binding. The Windows ``msvcrt`` reader is not
+wired into the protocol (Windows Terminal's CSI u support is still
+inconsistent across builds); birkin keeps Ctrl-J / Alt+Enter as the
+documented bindings there.
+
+**Status.** Accepted.
+
+---
+
 ## ADR-026 — Multi-line input
 
 **Context.** ADR-023/024/025 incrementally built the line editor up to

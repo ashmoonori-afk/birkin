@@ -520,6 +520,35 @@ def test_single_line_buffer_still_uses_history_on_up():
     assert s.history_idx == 0
 
 
+def test_kitty_modified_enter_regex_matches_all_modifier_combinations():
+    """The Kitty Keyboard Protocol encodes Shift+Enter / Ctrl+Enter / etc.
+    as ``\\x1b[13;<mod>u`` where ``<mod>`` is 2..16 depending on which
+    modifiers are held. Every such variant must be recognized as the
+    multiline-newline trigger."""
+    for mod in (2, 3, 4, 5, 6, 7, 8, 16):
+        assert ic._KITTY_MOD_ENTER_RE.match(f"13;{mod}u".encode())
+
+
+def test_kitty_modified_enter_regex_rejects_plain_enter_encoding():
+    """``13;1u`` (no modifier) should NOT be treated as newline — that's
+    just plain Enter rendered through the protocol, which should still
+    submit. In practice un-modified Enter doesn't come through this path
+    at all, but the regex must still refuse it defensively."""
+    assert not ic._KITTY_MOD_ENTER_RE.match(b"13;1u")
+    assert not ic._KITTY_MOD_ENTER_RE.match(b"27;2;13u")   # other CSI u keys
+    assert not ic._KITTY_MOD_ENTER_RE.match(b"A")          # plain arrow Up
+
+
+def test_kitty_protocol_constants_are_well_formed():
+    """Sanity: enable / disable sequences must be valid CSI strings so a
+    non-supporting terminal silently drops them rather than echoing the
+    bytes."""
+    assert ic.KITTY_ENABLE.startswith("\x1b[")
+    assert ic.KITTY_ENABLE.endswith("u")
+    assert ic.KITTY_DISABLE.startswith("\x1b[")
+    assert ic.KITTY_DISABLE.endswith("u")
+
+
 def test_dropdown_active_still_intercepts_up_in_multiline():
     """Even with a multi-line buffer, ↑ first goes to the dropdown if one
     is visible (the dropdown depends on the FIRST line not having a space,
