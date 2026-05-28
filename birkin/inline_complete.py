@@ -165,6 +165,51 @@ def matches_for(state: EditorState, commands: Sequence[CommandHint]) -> list[Com
     return filter_commands(state.buffer, commands)
 
 
+def cursor_row_col(buffer: str, cursor: int) -> tuple[int, int]:
+    """Return ``(row, col)`` of ``cursor`` within a possibly-multiline buffer.
+
+    Rows are 0-indexed; ``col`` is the number of characters since the last
+    ``\\n`` (or since the start if the cursor is on the first row).
+    """
+    before = buffer[:cursor]
+    row = before.count("\n")
+    last_nl = before.rfind("\n")
+    col = cursor - last_nl - 1 if last_nl != -1 else cursor
+    return row, col
+
+
+def _move_up_line(state: EditorState) -> bool:
+    """Move cursor to the previous line at (approximately) the same column.
+    Returns True if it moved, False if already on the first line."""
+    row, col = cursor_row_col(state.buffer, state.cursor)
+    if row == 0:
+        return False
+    # Position of the \n that ends the previous line.
+    prev_nl = state.buffer.rfind("\n", 0, state.cursor - col - 1)
+    prev_start = prev_nl + 1
+    prev_end = state.buffer.find("\n", prev_start)
+    if prev_end == -1:
+        prev_end = state.cursor - col - 1  # the current line's leading \n
+    new_col = min(col, prev_end - prev_start)
+    state.cursor = prev_start + new_col
+    return True
+
+
+def _move_down_line(state: EditorState) -> bool:
+    """Symmetric to :func:`_move_up_line`."""
+    row, col = cursor_row_col(state.buffer, state.cursor)
+    next_nl = state.buffer.find("\n", state.cursor)
+    if next_nl == -1:
+        return False   # already on the last line
+    next_start = next_nl + 1
+    next_end = state.buffer.find("\n", next_start)
+    if next_end == -1:
+        next_end = len(state.buffer)
+    new_col = min(col, next_end - next_start)
+    state.cursor = next_start + new_col
+    return True
+
+
 def apply_event(state: EditorState, event: tuple[str, str],
                 commands: Sequence[CommandHint],
                 history: Sequence[str]) -> EditorState:
@@ -187,6 +232,17 @@ def apply_event(state: EditorState, event: tuple[str, str],
     if kind == "char":
         state.buffer = state.buffer[:state.cursor] + value + state.buffer[state.cursor:]
         state.cursor += len(value)
+        state.selected = 0
+        state.menu_dismissed = False
+        state.history_idx = -1
+        state.pending = None
+        return state
+
+    if kind == "newline":
+        # Multi-line insert: like ``char`` but always a literal ``\n``. Submit
+        # is bound to ``enter`` (\r) only — the two are deliberately split.
+        state.buffer = state.buffer[:state.cursor] + "\n" + state.buffer[state.cursor:]
+        state.cursor += 1
         state.selected = 0
         state.menu_dismissed = False
         state.history_idx = -1
@@ -260,6 +316,11 @@ def apply_event(state: EditorState, event: tuple[str, str],
         ms = matches_for(state, commands)
         if ms:
             state.selected = (state.selected - 1) % len(ms)
+        elif "\n" in state.buffer:
+            # In multi-line mode ↑ moves the cursor between lines; history is
+            # reserved for single-line input so a half-typed multi-line draft
+            # can never be lost to an accidental ↑.
+            _move_up_line(state)
         else:
             _history_prev(state, history)
         return state
@@ -268,6 +329,8 @@ def apply_event(state: EditorState, event: tuple[str, str],
         ms = matches_for(state, commands)
         if ms:
             state.selected = (state.selected + 1) % len(ms)
+        elif "\n" in state.buffer:
+            _move_down_line(state)
         else:
             _history_next(state, history)
         return state
@@ -407,8 +470,11 @@ def _read_event_posix() -> tuple[str, str]:
             return ("home", "")
         if c == 0x05:
             return ("end", "")
-        if c in (0x0a, 0x0d):
+        if c == 0x0d:
             return ("enter", "")
+        if c == 0x0a:
+            # Ctrl-J — multiline newline insertion (Enter is \r, see above).
+            return ("newline", "")
         if c == 0x09:
             return ("tab", "")
         if c in (0x7f, 0x08):
@@ -420,6 +486,10 @@ def _read_event_posix() -> tuple[str, str]:
             if not ready:
                 return ("esc", "")
             nb = os.read(fd, 1)
+            if nb in (b"\r", b"\n"):
+                # Alt+Enter is commonly emitted as ESC + \r or ESC + \n —
+                # treat it as the multiline-newline trigger.
+                return ("newline", "")
             if nb in (b"[", b"O"):
                 seq = b""
                 # Read until terminator (alpha letter or '~') or no more data.
@@ -460,6 +530,11 @@ def _read_event_posix() -> tuple[str, str]:
         # Greedily drain anything else immediately available — stop on a
         # control byte (and push it back so the next call handles it). This
         # is what turns a 5000-char paste into a single redraw.
+        #
+        # Newlines (``\n``, 0x0a) and tabs (``\t``, 0x09) ARE kept inside the
+        # batch — a paste of a code snippet or a multi-line block should land
+        # in the buffer verbatim. Carriage-return (``\r``, 0x0d) still aborts
+        # the batch because it's the "submit" signal.
         while True:
             rdy, _, _ = select.select([fd], [], [], 0)
             if not rdy:
@@ -468,6 +543,9 @@ def _read_event_posix() -> tuple[str, str]:
             if not nb:
                 break
             nc = nb[0]
+            if nc in (0x09, 0x0a):
+                chunk.append(nc)
+                continue
             if nc < 0x20 or nc == 0x7f or nc == 0x1b:
                 _pushback.append(nc)
                 break
@@ -491,8 +569,10 @@ def _read_event_windows() -> tuple[str, str]:
         return ("home", "")
     if ch == "\x05":
         return ("end", "")
-    if ch in ("\r", "\n"):
+    if ch == "\r":
         return ("enter", "")
+    if ch == "\n":
+        return ("newline", "")   # Ctrl-J on Windows
     if ch == "\t":
         return ("tab", "")
     if ch == "\x08":
@@ -504,13 +584,21 @@ def _read_event_windows() -> tuple[str, str]:
         return ({"H": "up", "P": "down", "K": "left", "M": "right",
                  "G": "home", "O": "end", "S": "delete"}
                 .get(code, "other"), "")
-    # Paste batch: drain anything immediately queued (printable only). On a
-    # control char we push it back via ``ungetwch`` so the next call sees it —
-    # same idea as the POSIX pushback list. Turns large pastes into one event.
+    # Paste batch: drain anything immediately queued (printable + \n + \t).
+    # On a control char we push it back via ``ungetwch`` so the next call
+    # sees it — same idea as the POSIX pushback list. ``\r`` (Enter / submit)
+    # always aborts the batch; ``\n`` and ``\t`` are kept verbatim so pasted
+    # multi-line content lands in the buffer as typed.
     text = ch
     while msvcrt.kbhit():
         nxt = msvcrt.getwch()
-        if nxt in ("\x00", "\xe0") or ord(nxt) < 0x20 or nxt == "\x7f":
+        if nxt in ("\x00", "\xe0"):
+            msvcrt.ungetwch(nxt)
+            break
+        if nxt == "\r" or nxt == "\x7f":
+            msvcrt.ungetwch(nxt)
+            break
+        if ord(nxt) < 0x20 and nxt not in ("\t", "\n"):
             msvcrt.ungetwch(nxt)
             break
         text += nxt
@@ -523,15 +611,6 @@ def _read_event() -> tuple[str, str]:
 
 # -- redraw ------------------------------------------------------------------
 
-def _clear_menu(prev_lines: int) -> None:
-    if prev_lines <= 0:
-        return
-    for _ in range(prev_lines):
-        sys.stdout.write("\n\x1b[2K")
-    sys.stdout.write(f"\x1b[{prev_lines}A")
-    sys.stdout.flush()
-
-
 def _terminal_cols() -> int:
     """Best-effort terminal width (defaults to 80)."""
     import shutil
@@ -542,41 +621,76 @@ def _terminal_cols() -> int:
 
 
 def _redraw(prompt: str, buffer: str, cursor: int, menu_lines: list[str],
-            prev_menu_lines: int) -> int:
-    """Redraw input + dropdown with horizontal scrolling for long buffers.
+            prev_cursor_row: int, prev_total_rows: int) -> tuple[int, int]:
+    """Redraw a (possibly multi-line) input + dropdown.
 
-    The cursor is always positioned at its logical column within the visible
-    window. ``…`` markers indicate clipped content on either side.
+    The buffer is split on ``\\n``; each logical line is drawn on its own
+    screen row. The first row carries the ``prompt``; subsequent rows are
+    indented by ``visible_len(prompt)`` spaces so the wrapped text aligns.
+    Per-row horizontal scrolling is applied with the same ``compute_view``
+    rule used in single-line mode. The dropdown is drawn below the last
+    input row, and the cursor finally lands at its logical ``(row, col)``.
+
+    Returns ``(new_cursor_row, new_total_rows)`` so the *next* redraw can
+    walk back up to the input anchor and overwrite cleanly.
     """
-    _clear_menu(prev_menu_lines)
+    # 1. Walk back to the anchor (first input row, column 0) and clear every
+    #    row we drew last time.
+    if prev_cursor_row > 0:
+        sys.stdout.write(f"\x1b[{prev_cursor_row}A")
+    sys.stdout.write("\r")
+    for i in range(max(prev_total_rows, 1)):
+        sys.stdout.write("\x1b[2K")
+        if i < prev_total_rows - 1:
+            sys.stdout.write("\n")
+    if prev_total_rows > 1:
+        sys.stdout.write(f"\x1b[{prev_total_rows - 1}A")
+    sys.stdout.write("\r")
 
+    # 2. Render input lines.
     cols = _terminal_cols()
     prompt_w = visible_len(prompt)
-    # Leave 4 columns for the two "…" markers plus a small safety margin so
-    # we never write to the very last column (some terminals soft-wrap there).
     content_w = max(10, cols - prompt_w - 4)
-    vs, ve = compute_view(len(buffer), cursor, content_w)
-    visible_text = buffer[vs:ve]
-    left_marker = "…" if vs > 0 else ""
-    right_marker = "…" if ve < len(buffer) else ""
+    indent = " " * prompt_w
 
-    sys.stdout.write("\r\x1b[2K" + prompt + left_marker + visible_text + right_marker)
+    cur_row, cur_col = cursor_row_col(buffer, cursor)
+    lines = buffer.split("\n")
+    line_views: list[tuple[int, int]] = []   # (view_start, left_marker_len) per row
+    for i, ln in enumerate(lines):
+        if i == cur_row:
+            vs, ve = compute_view(len(ln), cur_col, content_w)
+        else:
+            vs, ve = 0, min(len(ln), content_w)
+        left = "…" if vs > 0 else ""
+        right = "…" if ve < len(ln) else ""
+        line_views.append((vs, len(left)))
+        prefix = prompt if i == 0 else indent
+        sys.stdout.write(prefix + left + ln[vs:ve] + right)
+        if i < len(lines) - 1:
+            sys.stdout.write("\n")
 
-    n = len(menu_lines)
-    if n:
-        # Draw menu below the input line, then come back to the input row.
+    # 3. Dropdown rows, if any.
+    n_input = len(lines)
+    n_menu = len(menu_lines)
+    if n_menu:
         sys.stdout.write("\n")
-        for i, line in enumerate(menu_lines):
-            sys.stdout.write("\x1b[2K" + line)
-            if i < n - 1:
+        for j, mline in enumerate(menu_lines):
+            sys.stdout.write("\x1b[2K" + mline)
+            if j < n_menu - 1:
                 sys.stdout.write("\n")
-        sys.stdout.write(f"\x1b[{n}A")
 
-    # Cursor column = prompt + left-marker width + cursor offset within view.
-    col = prompt_w + len(left_marker) + (cursor - vs) + 1
-    sys.stdout.write(f"\r\x1b[{col}G")
+    new_total_rows = n_input + n_menu
+
+    # 4. Park the cursor at its logical (row, col). We're currently at the end
+    #    of the very last drawn row.
+    rows_below_cursor = (n_input - 1 - cur_row) + n_menu
+    if rows_below_cursor > 0:
+        sys.stdout.write(f"\x1b[{rows_below_cursor}A")
+    vs, left_len = line_views[cur_row]
+    cur_visual_col = prompt_w + left_len + (cur_col - vs) + 1
+    sys.stdout.write(f"\r\x1b[{cur_visual_col}G")
     sys.stdout.flush()
-    return n
+    return cur_row, new_total_rows
 
 
 # -- the driver -------------------------------------------------------------
@@ -599,7 +713,10 @@ def prompt_with_completion(prompt: str,
 
     hist: list[str] = history if history is not None else []
     state = EditorState()
-    prev_menu_lines = 0
+    # Track of where we drew last (relative to the anchor row) so the next
+    # redraw can step back up and overwrite cleanly.
+    prev_cursor_row = 0
+    prev_total_rows = 1
 
     sys.stdout.write(prompt)
     sys.stdout.flush()
@@ -607,12 +724,17 @@ def prompt_with_completion(prompt: str,
     while not state.submitted and not state.exited:
         ms = matches_for(state, commands)
         menu_lines = render_menu_lines(ms, state.selected) if ms else []
-        prev_menu_lines = _redraw(prompt, state.buffer, state.cursor,
-                                  menu_lines, prev_menu_lines)
+        prev_cursor_row, prev_total_rows = _redraw(
+            prompt, state.buffer, state.cursor, menu_lines,
+            prev_cursor_row, prev_total_rows)
         event = _read_event()
         apply_event(state, event, commands, hist)
 
-    _clear_menu(prev_menu_lines)
+    # Park the cursor below all rendered rows before printing the agent
+    # reply / next prompt, then emit a clean newline.
+    rows_below = prev_total_rows - 1 - prev_cursor_row
+    if rows_below > 0:
+        sys.stdout.write(f"\x1b[{rows_below}B")
     sys.stdout.write("\n")
     sys.stdout.flush()
 

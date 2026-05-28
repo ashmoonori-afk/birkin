@@ -474,6 +474,60 @@ is hard-stop (no soft warning yet). All adjustable in config / future ADRs.
 
 ---
 
+## ADR-026 — Multi-line input
+
+**Context.** ADR-023/024/025 incrementally built the line editor up to
+"5000-character single-line input never breaks layout." Users still
+could not type a multi-line prompt (e.g. paste a code block, write a
+spec body across paragraphs). Enter both submitted *and* wrapped on
+some terminals, ambiguously. ADR-025 paste batching even stripped
+``\n`` from pasted content because the read loop classified newline as
+"control".
+
+**Decision.**
+- Split the two semantic roles cleanly: ``\r`` = **submit**, ``\n`` =
+  **newline**. POSIX maps Ctrl-J directly to ``\n``; Windows
+  ``msvcrt.getwch`` returns ``\n`` for Ctrl-J as well. Additionally
+  POSIX detects ``ESC + \r`` / ``ESC + \n`` as Alt+Enter and treats it
+  as the newline trigger — that's the binding most users muscle-memory
+  to from chat clients and editors.
+- Paste batching is updated to preserve ``\n`` and ``\t`` in the
+  batched ``("char", text)`` event; only ``\r`` and other control
+  bytes abort the batch (and are pushed back to be handled normally).
+  So a multi-line paste arrives in one event and lands in the buffer
+  verbatim.
+- The state machine learns a ``newline`` event that inserts a literal
+  ``\n`` at the cursor (parallel to ``char`` but explicit).
+- ↑/↓ become **line navigation** when the buffer contains ``\n``;
+  history navigation is reserved for single-line input so a half-typed
+  multi-line draft can never be lost to an accidental ↑. The dropdown
+  still wins precedence when active (it depends on the first token
+  being whitespace-free, so dropdown ⟂ multi-line in practice).
+  Column is preserved across line jumps, clamped to the destination
+  line's length.
+- ``_redraw`` splits the buffer on ``\n``, draws each logical line as
+  its own screen row (first row carries the prompt; subsequent rows
+  get a prompt-width indent), and applies the existing horizontal-scroll
+  rule per row. The dropdown lands below the last input row, and the
+  cursor is parked at its logical ``(row, col)`` via
+  ``cursor_row_col``. The redraw now returns
+  ``(cursor_row, total_rows)`` so the next frame walks back up to the
+  anchor and overwrites cleanly even when the input grew/shrank rows.
+
+**Rationale.** This is the simplest decomposition that gives a real
+editor experience without re-architecting the loop or pulling in a
+TUI library. Every new behavior is a pure transition (testable) plus
+one redraw change.
+
+**Trade-off.** No incremental history search (Ctrl-R) yet, no
+word-jump (Alt-B/F), no bracketed-paste protocol detection (we rely on
+the OS-level batch arrival to identify a paste). All extensions to the
+same state machine.
+
+**Status.** Accepted.
+
+---
+
 ## ADR-025 — Long-input handling: paste batching + horizontal scroll
 
 **Context.** ADR-023/024 shipped the inline dropdown and line editor, but

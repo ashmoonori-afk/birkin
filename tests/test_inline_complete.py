@@ -443,3 +443,93 @@ def test_compute_view_does_not_exceed_buffer():
     """View end is clamped to buffer length even near the right edge."""
     _, e = ic.compute_view(buffer_len=200, cursor=199, content_width=80)
     assert e == 200
+
+
+# ---------------- multiline editing -----------------------------------------
+
+def test_newline_event_inserts_linebreak_at_cursor():
+    s = _run([("char", "a"), ("newline", ""), ("char", "b")])
+    assert s.buffer == "a\nb"
+    assert s.cursor == 3
+
+
+def test_newline_then_enter_submits_full_multiline_buffer():
+    s = _run([("char", "first"), ("newline", ""),
+              ("char", "second"), ("enter", "")])
+    assert s.submitted == "first\nsecond"
+    assert s.exited is False
+
+
+def test_paste_preserves_newlines_verbatim():
+    """A multi-line paste arrives as one ``("char", text)`` event from the
+    raw reader; apply_event must keep ``\\n`` in the buffer (not strip or
+    submit on the first newline)."""
+    s = _run([("char", "line one\nline two\nline three")])
+    assert s.buffer == "line one\nline two\nline three"
+    assert s.cursor == len(s.buffer)
+    assert s.submitted is None
+
+
+def test_cursor_row_col_basic():
+    assert ic.cursor_row_col("hello", 3) == (0, 3)
+    assert ic.cursor_row_col("hello\nworld", 8) == (1, 2)
+    assert ic.cursor_row_col("a\nb\nc", 5) == (2, 1)
+
+
+def test_up_arrow_moves_between_lines_in_multiline_buffer():
+    # Buffer: "hello\nworld"; cursor parked at "wor|ld" -> (1, 3)
+    s = ic.EditorState(buffer="hello\nworld", cursor=9)
+    ic.apply_event(s, ("up", ""), [], [])
+    # Same column on the previous line → "hel|lo" → cursor at index 3
+    assert s.cursor == 3
+    assert ic.cursor_row_col(s.buffer, s.cursor) == (0, 3)
+
+
+def test_up_arrow_clamps_to_shorter_previous_line():
+    # First line shorter than second; cursor at end of second line should
+    # clamp to end of first.
+    s = ic.EditorState(buffer="hi\nworld", cursor=8)   # at end of "world"
+    ic.apply_event(s, ("up", ""), [], [])
+    # Previous line "hi" has length 2; cursor clamps to col 2 → index 2
+    assert s.cursor == 2
+
+
+def test_down_arrow_clamps_to_shorter_next_line():
+    s = ic.EditorState(buffer="world\nhi", cursor=5)   # at end of "world"
+    ic.apply_event(s, ("down", ""), [], [])
+    # Next line "hi" length 2; cursor clamps to col 2 → index 8
+    assert s.cursor == len("world\nhi")
+
+
+def test_up_arrow_on_first_line_does_not_clobber_buffer():
+    """At the top line, ↑ in multi-line mode is a no-op (NOT a history
+    recall — multi-line drafts must be preserved)."""
+    s = ic.EditorState(buffer="first\nsecond", cursor=3)
+    ic.apply_event(s, ("up", ""), [], ["older"])
+    # Buffer untouched; cursor unchanged; not browsing history.
+    assert s.buffer == "first\nsecond"
+    assert s.cursor == 3
+    assert s.history_idx == -1
+
+
+def test_single_line_buffer_still_uses_history_on_up():
+    """Sanity: the multi-line ↑ path must not break single-line history."""
+    s = ic.EditorState(buffer="draft", cursor=5)
+    ic.apply_event(s, ("up", ""), [], ["old"])
+    assert s.buffer == "old"
+    assert s.history_idx == 0
+
+
+def test_dropdown_active_still_intercepts_up_in_multiline():
+    """Even with a multi-line buffer, ↑ first goes to the dropdown if one
+    is visible (the dropdown depends on the FIRST line not having a space,
+    so this case requires the dropdown to be active *because* of the first
+    token)."""
+    cmd_list = [ic.CommandHint("help", "h"),
+                ic.CommandHint("hello", "g")]
+    # Dropdown only shows when buffer is a single token with no whitespace.
+    # Here, buffer is one line `/h` plus the menu shows.
+    s = ic.EditorState(buffer="/h", cursor=2)
+    ic.apply_event(s, ("up", ""), cmd_list, [])
+    # selection should have moved, NOT line/history
+    assert s.selected == len(ic.filter_commands("/h", cmd_list)) - 1

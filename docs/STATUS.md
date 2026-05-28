@@ -20,6 +20,17 @@ against the upstream catalogs: [COMPARISON.md](./COMPARISON.md).
     trailing space when a single starts-with match exists or the user
     has navigated), **Enter** submits the typed line as-is, **Esc**
     dismisses the dropdown while keeping the buffer.
+  - **Multi-line input** (fourth revision): Enter (`\r`) submits;
+    **Ctrl-J** (`\n`) **and Alt+Enter** (POSIX `ESC + \r`/`\n`) insert a
+    literal newline at the cursor. Pasted text keeps its embedded
+    newlines and tabs verbatim — a code-snippet paste lands as typed.
+    ↑/↓ navigates between lines (clamps to the shorter line's length)
+    when the buffer is multi-line; on a single-line buffer they still
+    drive the dropdown / persistent history. The redraw splits the
+    buffer on `\n` and draws each logical line on its own screen row
+    with a prompt-width indent so wrapped text aligns; per-row
+    horizontal scrolling still applies (`compute_view`). The dropdown
+    appears below the *last* input row.
   - **Long input + paste** (third revision): typed/pasted text is coalesced
     by the raw reader into a single ``("char", text)`` event — POSIX drains
     via zero-timeout ``select`` until a control byte appears (the byte is
