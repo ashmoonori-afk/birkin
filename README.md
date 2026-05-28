@@ -9,12 +9,13 @@
  ╚═════╝ ╚═╝╚═╝  ╚═╝╚═╝  ╚═╝╚═╝╚═╝  ╚═══╝
 ```
 
-### The AI agent that actually remembers you.
+### Self-improving by night. Audited by you.
 
-A lightweight, **self-improving** CLI agent workspace: skill management,
-subagents, an Obsidian-vault memory, a monitoring dashboard, and **Morpheus** —
-a nightly routine that prepares your tomorrow — all in a **zero-dependency**
-Python core.
+A lightweight CLI agent workspace that **improves itself overnight and leaves
+you the receipts**: an approval-gated nightly routine (**Morpheus**), per-turn
+run records + an append-only audit ledger, a polarity-aware Obsidian memory,
+risk-tiered approvals, and a `skills validate` integrity gate — all in a
+**zero-dependency** Python core.
 
 ![python](https://img.shields.io/badge/python-3.10%2B-3776ab)
 ![runtime deps](https://img.shields.io/badge/runtime%20deps-0-2ea44f)
@@ -28,18 +29,25 @@ Python core.
 
 ---
 
-Most AI tools forget you the moment a chat ends. **birkin doesn't.** It
-*compiles* what it learns into an Obsidian knowledge vault, writes its own
-skills from experience, and every night reviews your day to prepare the next
-one — **asking permission before it changes anything that matters**.
+Most self-improving agents either lock you out of their decisions or leave no
+trail. **birkin does neither.** While you sleep, **Morpheus** reads your day,
+updates an Obsidian memory vault, drafts new skills, and **queues any
+consequential action** (cron jobs, shell commands) for your morning review.
+Every turn writes a run record plus a one-line ledger entry, so you can
+replay any past decision — `birkin trace <run-id>`. Memory notes carry a
+polarity (positive vs. known failure), a version (optimistic lock), and
+optional evidence requirements; bundled skills are linted and `py_compile`d
+on demand.
 
 It runs on whatever you already have: an **API key**
 (Anthropic / OpenAI-compatible / Ollama) **or** the local agent CLI you're
 already logged into (**Claude Code** / **Codex**).
 
 Inspired by [hermes-agent](https://github.com/NousResearch/hermes-agent) and
-[openclaw](https://github.com/openclaw/openclaw), distilled to a core you can
-read in an afternoon.
+[openclaw](https://github.com/openclaw/openclaw); positioned deliberately
+*not* on breadth (channels, providers, skill count) but on **the depth of
+the trust story** — see [`docs/COMPARISON.md`](./docs/COMPARISON.md) for the
+sourced breakdown.
 
 ---
 
