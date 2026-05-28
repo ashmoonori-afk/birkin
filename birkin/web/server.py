@@ -43,18 +43,24 @@ def _status_payload() -> dict[str, Any]:
         skills_count = len(build_manager(cfg).skills)
     except Exception:
         skills_count = 0
+    from . import server as _self  # noqa: F401 (for clarity)
+    from .. import budget as budget_mod
     st = store.read_status()
+    stale = store.is_status_stale(st)
     return {
         "model": cfg.get("model"),
         "provider": cfg.get("provider"),
         "vault": str(config.vault_dir(cfg)),
         "skills_count": skills_count,
         "auto_approve": cfg.get("auto_approve", []),
-        "daemon": bool(st.get("daemon")),
+        # A stale heartbeat means the daemon died — never claim it's running.
+        "daemon": bool(st.get("daemon")) and not stale,
+        "stale": stale,
         "next_nightly": st.get("next_nightly"),
         "nightly_hour": cfg.get("nightly_hour", 4),
         "pending_count": len(store.list_pending()),
         "heartbeat": st.get("heartbeat"),
+        "budget": budget_mod.status(cfg),
     }
 
 

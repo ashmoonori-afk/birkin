@@ -326,6 +326,52 @@ def _cmd_runs(args: argparse.Namespace) -> int:
     return 0
 
 
+def _cmd_budget(args: argparse.Namespace) -> int:
+    from . import budget, config
+    from .ui import BOLD, CYAN, DIM, RED, RESET
+    cfg = config.load_config()
+    st = budget.status(cfg)
+    print(f"{BOLD}Token budget{RESET}  (caps: 0 = unlimited)")
+    daily_flag = f"{RED}OVER{RESET}" if st["over_daily"] else f"{CYAN}ok{RESET}"
+    month_flag = f"{RED}OVER{RESET}" if st["over_monthly"] else f"{CYAN}ok{RESET}"
+    print(f"  today : {st['used_today']:>8} / {st['daily_cap']:<8}  [{daily_flag}]")
+    print(f"  month : {st['used_month']:>8} / {st['monthly_cap']:<8}  [{month_flag}]")
+    print(f"\n{DIM}Set caps via config.json: budget_tokens_daily, "
+          f"budget_tokens_monthly.{RESET}")
+    return 0
+
+
+def _cmd_trace(args: argparse.Namespace) -> int:
+    """`birkin trace <run-id>` — print a single run record (audit trail replay)."""
+    import json as _json
+    from . import config as _config
+    from .ui import BOLD, CYAN, DIM, RESET
+    needle = (args.run_id or "").strip()
+    if not needle:
+        print("Give a run id (see `birkin runs`).")
+        return 1
+    matches = sorted(_config.runs_dir().glob(f"*{needle}*.json"))
+    if not matches:
+        print(f"No run matches {needle!r}.")
+        return 1
+    for path in matches[:5]:
+        try:
+            rec = _json.loads(path.read_text(encoding="utf-8"))
+        except OSError:
+            continue
+        print(f"{BOLD}── {rec.get('id')}{RESET}  {DIM}{rec.get('at','')}{RESET}  "
+              f"{CYAN}{rec.get('kind')}{RESET}")
+        print(f"  summary: {rec.get('summary')}")
+        usage = rec.get("usage") or {}
+        if usage:
+            print(f"  usage  : ~{usage.get('estTokens', 0)} tok "
+                  f"({usage.get('chars', 0)} chars)")
+        details = rec.get("details") or {}
+        if details:
+            print(f"  details: {_json.dumps(details, ensure_ascii=False)[:400]}")
+    return 0
+
+
 def build_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(prog="birkin", description="Lightweight self-improving CLI agent workspace")
     sub = p.add_subparsers(dest="command")
@@ -387,6 +433,12 @@ def build_parser() -> argparse.ArgumentParser:
     rp = sub.add_parser("runs", help="show recent run records + usage (audit log)")
     rp.add_argument("--limit", type=int, default=20)
     rp.set_defaults(func=_cmd_runs)
+
+    sub.add_parser("budget", help="show token budget usage vs caps").set_defaults(func=_cmd_budget)
+
+    tp_ = sub.add_parser("trace", help="print a run record (audit replay)")
+    tp_.add_argument("run_id", help="run id (or a substring) — see `birkin runs`")
+    tp_.set_defaults(func=_cmd_trace)
 
     return p
 

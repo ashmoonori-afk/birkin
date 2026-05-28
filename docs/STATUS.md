@@ -11,6 +11,19 @@ Improvement roadmap: [IMPROVEMENT-PLAN.md](./IMPROVEMENT-PLAN.md).
 > Improvement plan (P1–P4 from `IMPROVEMENT-PLAN.md`) was completed earlier.
 > The "Hardening Roadmap" (`HARDENING-PLAN.md`) is the v0.2 work:
 
+- **Hardening H3 — Reliability control plane ✅**
+  - `scheduler.run_daemon` registers `atexit` + `SIGTERM` handlers that call
+    `store.clear_status()` — a graceful stop or signal never leaves a dead daemon
+    looking alive.
+  - `store.is_status_stale(status, max_age_seconds=120)` flags a stale heartbeat;
+    `/api/status` now exposes `stale: bool` and forces `daemon: false` when stale.
+  - **Token budget governor** (`birkin/budget.py`): sums `estTokens` from the run
+    ledger over a window and gates `Session.ask` — over-budget turns refuse with
+    a clear message and write a `skipped: over-budget` run record (no LLM
+    spend). `birkin budget` shows usage vs caps; dashboard surfaces it too.
+    Caps default to **0 = unlimited** (no behavior change unless set).
+  - **`birkin trace <run-id>`** prints a single run record for audit replay.
+
 - **Hardening H2 — Live-LLM verification harness ✅**
   - New `live` pytest marker; offline runs deselect it
     (`addopts = "… -m 'not live'"`). Opt in with `BIRKIN_LIVE=1 pytest -m live`

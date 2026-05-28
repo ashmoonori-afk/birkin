@@ -406,6 +406,38 @@ key-dependent. Easy to extend with more cases.
 
 ---
 
+## ADR-019 — Reliability control plane: SIGTERM, stale heartbeat, budget, trace
+
+**Context.** Hardening Phase H3: a hard kill could leave the dashboard
+claiming a dead daemon was running, and there was no cost gate — silent failure
+in either direction.
+
+**Decision.**
+- `scheduler.run_daemon` installs `atexit` and `SIGTERM` handlers that call
+  `store.clear_status()`. `signal.signal` is wrapped in try/except for
+  platforms / contexts where setting handlers isn't allowed.
+- `store.is_status_stale(status, max_age_seconds=120)` decides whether a
+  heartbeat is too old to trust; `/api/status` returns `stale` and forces
+  `daemon: false` accordingly, so a crashed daemon never shows running.
+- New `birkin/budget.py` sums `estTokens` from the run ledger over a window
+  and reports / gates spending. `Session.ask` short-circuits over-budget turns
+  with a clear message and writes a `skipped: over-budget` run record — no LLM
+  call, no silent spend. `birkin budget` shows usage vs caps; dashboard surfaces
+  the same. Defaults `0 = unlimited` so behavior is opt-in.
+- `birkin trace <run-id>` prints a single run record (audit replay).
+
+**Rationale.** Cheap, transparent reliability primitives — no daemon
+supervisor, no metrics backend; just the heartbeat we already had + the run
+ledger we already keep. Doesn't disturb the agentic loop or stdlib-only runtime.
+
+**Trade-off.** Budget uses `estTokens` (chars / 4 heuristic), not exact
+provider-reported cost; stale heartbeat is a fixed 120 s threshold; budget gate
+is hard-stop (no soft warning yet). All adjustable in config / future ADRs.
+
+**Status.** Accepted.
+
+---
+
 ## ADR-010 — Single shared session, sequential dashboard server
 
 **Context.** Local, single-user tool.

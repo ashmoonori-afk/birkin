@@ -10,7 +10,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Callable, Optional
 
-from . import config, prompts, store
+from . import budget, config, prompts, store
 from .agent import Agent
 from .llm import LLMClient, build_client
 from .memory import Memory
@@ -47,6 +47,15 @@ class Session:
 
     def ask(self, text: str,
             on_text: Optional[Callable[[str], None]] = None) -> str:
+        # Budget gate — refuse with a clear message instead of silently spending.
+        over, why = budget.is_over(self.cfg)
+        if over:
+            store.save_run("chat", "skipped: over-budget",
+                           details={"provider": self.cfg.get("provider"),
+                                    "model": self.cfg.get("model"),
+                                    "blocked_by": "budget"},
+                           usage=store.estimate_usage(text))
+            return why
         self.skills.reload_if_changed()  # pick up edited/added skills live
         if self.cfg.get("provider") in config.CLI_PROVIDERS:
             self._build_cli_system(text)

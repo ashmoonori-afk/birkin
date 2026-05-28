@@ -62,6 +62,9 @@ DEFAULT_CONFIG: dict[str, Any] = {
     #                 (codex --dangerously-bypass-approvals-and-sandbox,
     #                  claude --dangerously-skip-permissions)
     "cli_access": "workspace",
+    # --- Budget governor (P3 reliability). 0 = unlimited. ---
+    "budget_tokens_daily": 0,
+    "budget_tokens_monthly": 0,
 }
 
 PROVIDER_DEFAULT_BASE_URL = {

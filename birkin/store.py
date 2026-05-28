@@ -146,6 +146,22 @@ def read_status() -> dict[str, Any]:
     return _read_json(config.status_path(), {"daemon": False})
 
 
+def is_status_stale(status: dict[str, Any], max_age_seconds: float = 120.0) -> bool:
+    """A daemon whose heartbeat is older than ``max_age_seconds`` is considered
+    stopped (a SIGKILL/crash leaves the on-disk flag set otherwise)."""
+    hb = status.get("heartbeat")
+    if not hb:
+        return False  # no heartbeat recorded -> unknown, not stale
+    try:
+        t = datetime.fromisoformat(str(hb))
+    except (ValueError, TypeError):
+        return True
+    now = datetime.now(timezone.utc)
+    if t.tzinfo is None:
+        t = t.replace(tzinfo=timezone.utc)
+    return (now - t).total_seconds() > max_age_seconds
+
+
 def clear_status() -> None:
     config.status_path().unlink(missing_ok=True)
 

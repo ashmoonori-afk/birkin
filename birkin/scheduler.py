@@ -12,6 +12,8 @@ daemon — offered as an opt-in, per ADR-008.
 
 from __future__ import annotations
 
+import atexit
+import signal
 import subprocess
 import sys
 import time
@@ -40,6 +42,14 @@ def run_daemon() -> int:
     print(f"birkin daemon started. Next nightly at {next_nightly:%Y-%m-%d %H:%M}. "
           f"Ctrl-C to stop.")
     _write_status(cfg, next_nightly, running=True)
+
+    # Clear the on-disk status on a graceful stop OR a SIGTERM (so the
+    # dashboard never claims a dead daemon is still running).
+    atexit.register(store.clear_status)
+    try:
+        signal.signal(signal.SIGTERM, lambda *_: sys.exit(0))
+    except (AttributeError, ValueError):
+        pass  # not all platforms / contexts support setting handlers
 
     try:
         while True:
