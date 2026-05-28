@@ -61,6 +61,8 @@ def _cmd_skills(args: argparse.Namespace) -> int:
     from .skills import build_manager
     if args.name == "sync":
         return _skills_sync(args)
+    if args.name == "validate":
+        return _skills_validate(args)
     mgr = build_manager(config.load_config())
     if args.name:
         sk = mgr.get(args.name)
@@ -100,6 +102,16 @@ def _skills_sync(args: argparse.Namespace) -> int:
         total += len(synced)
     print(f"\nTotal mirrored: {total}. They appear in `birkin skills` after reload.")
     return 0
+
+
+def _skills_validate(args: argparse.Namespace) -> int:
+    """`birkin skills validate [--verbose]` — lint frontmatter + py_compile
+    bundled scripts across bundled / user / extra skill directories. Exits
+    non-zero on any error."""
+    from .skills import validate as skv
+    summary = skv.validate_all()
+    print(skv.format_summary(summary, verbose=getattr(args, "verbose", False)))
+    return 0 if summary.ok else 1
 
 
 def _cmd_web(args: argparse.Namespace) -> int:
@@ -382,11 +394,15 @@ def build_parser() -> argparse.ArgumentParser:
     chatp.add_argument("-m", "--message", help="message to inspect with --dry-run")
     chatp.set_defaults(func=_cmd_chat)
 
-    sp = sub.add_parser("skills", help="list skills, show one, or `skills sync`")
-    sp.add_argument("name", nargs="?", help="skill name to show, or 'sync' to mirror upstream")
+    sp = sub.add_parser("skills",
+                        help="list skills, show one, `skills sync`, or `skills validate`")
+    sp.add_argument("name", nargs="?",
+                    help="skill name to show, or 'sync' / 'validate'")
     sp.add_argument("--from", dest="source", help="source skills dir for `skills sync`")
     sp.add_argument("--limit", type=int, default=None, help="max skills to sync")
     sp.add_argument("--force", action="store_true", help="overwrite existing mirrors")
+    sp.add_argument("--verbose", action="store_true",
+                    help="show warnings-only skills in `skills validate`")
     sp.set_defaults(func=_cmd_skills)
 
     wp = sub.add_parser("web", help="launch the local WebUI")

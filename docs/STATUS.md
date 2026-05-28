@@ -1,6 +1,6 @@
 # birkin — Build Status
 
-> Snapshot: 2026-05-28 · v0.2 (hardening; H2–H5 complete)
+> Snapshot: 2026-05-28 · v0.2 (hardening; H2–H6 complete)
 
 A concise, kept-current summary of what exists and how to run it. For the full
 design see [DESIGN.md](./DESIGN.md); for rationale see [DECISIONS.md](./DECISIONS.md).
@@ -10,6 +10,25 @@ Improvement roadmap: [IMPROVEMENT-PLAN.md](./IMPROVEMENT-PLAN.md).
 
 > Improvement plan (P1–P4 from `IMPROVEMENT-PLAN.md`) was completed earlier.
 > The "Hardening Roadmap" (`HARDENING-PLAN.md`) is the v0.2 work:
+
+- **Hardening H6 — Approval-first & skill integrity ✅**
+  - **`birkin skills validate`** — new CLI command (`birkin/skills/validate.py`)
+    lints every `SKILL.md` (bundled + user + extra): required frontmatter
+    (`name`, `description`) errors; recommended (`version`, `license`) and the
+    `## When to Use` section warn. Every Python file shipped inside a skill
+    directory is run through `py_compile.compile`, so a broken bundled script
+    is caught before it ever ships. Exits nonzero on any error; `--verbose`
+    lists warning-only skills.
+  - **Risk-tiered approval inbox** (`birkin/risk.py`): every approval category
+    carries a tier — `memory`/`skill` = low, `cron` = medium, `shell` = high,
+    unknown = medium (fail-safe). `birkin review` and `/api/approvals` now
+    surface the tier and order pending items highest-risk-first. Risk tagging
+    is **display-only** — it does not change auto-approval semantics
+    (`config["auto_approve"]` still rules).
+  - **Immutable official skills**: bundled (official) skills are never edited
+    in place — `improve_skill` forks them into `~/.birkin/skills/<name>/`
+    first (carried over from H4). `skills validate` runs against the same
+    catalog so any in-place tampering would surface as an error.
 
 - **Hardening H5 — Memory OS (polarity + version + evidence) ✅**
   - **Polarity**: every note carries `polarity: positive | negative` in

@@ -474,6 +474,51 @@ is hard-stop (no soft warning yet). All adjustable in config / future ADRs.
 
 ---
 
+## ADR-022 — Skill integrity (`skills validate`) + risk-tiered approval inbox
+
+**Context.** Hardening Phase H6 closes the trust gap on two specific
+failure modes:
+1. A broken or malformed `SKILL.md` (missing frontmatter, syntactically broken
+   bundled Python script) could ship in the catalog and only blow up when the
+   agent finally tries to use it — at the worst moment, mid-task.
+2. The approval inbox was a flat list — a low-risk memory write looked
+   identical to a high-risk shell execution, so a tired human could
+   rubber-stamp the wrong line.
+
+**Decision.**
+- `birkin/skills/validate.py` validates every `SKILL.md` in
+  bundled + user + extra dirs. Required fields (`name`, `description`) are
+  **errors**; recommended (`version`, `license`) and a `## When to Use`
+  section are **warnings**. Every Python file shipped *inside* a skill
+  directory is run through `py_compile.compile(..., doraise=True)`; a syntax
+  error is reported with the offending file's name and an exit-non-zero
+  status. Surfaced as `birkin skills validate` (with `--verbose` for
+  warning-only skills); zero new dependencies.
+- `birkin/risk.py` maps each approval category to a tier
+  (`memory`/`skill` = low, `cron` = medium, `shell` = high) and provides
+  `sort_by_risk` + a one-glyph `label`. Unknown categories default to
+  `medium` — fail-safe. `approvals.review_cli` and `/api/approvals` order
+  pending items highest-risk-first and tag each line with its tier.
+- Risk tagging is **strictly display**: auto-approval is still governed by
+  `config["auto_approve"]`. We deliberately did *not* couple the two so
+  changing one never silently changes the other.
+
+**Rationale.** Both checks are pure-stdlib, run in milliseconds, and target
+the failure modes we'd otherwise discover at the worst time (broken script
+mid-run; rubber-stamped shell command). They also give the GUI/dashboard
+something useful to render later without backfilling state.
+
+**Trade-off.** `skills validate` is intentionally narrow — it does NOT
+sandbox or *execute* bundled scripts; `py_compile` catches syntax-level
+breakage, not runtime bugs. Risk tiers are a small static table — they don't
+look at the *content* of a proposal (e.g. an `rm -rf /` shell command is
+still just "high", same as `ls`). Both are documented escape hatches for
+future work (skill signing, payload-aware risk scoring).
+
+**Status.** Accepted.
+
+---
+
 ## ADR-021 — Memory OS: polarity, version (optimistic lock), evidence gate
 
 **Context.** Hardening Phase H5. The vault was already a literate semantic

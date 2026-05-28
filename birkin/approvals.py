@@ -16,7 +16,7 @@ from __future__ import annotations
 import subprocess
 from typing import Any
 
-from . import config, cron, store
+from . import config, cron, risk, store
 from .proc import shell_argv
 
 
@@ -84,13 +84,14 @@ def reject(aid: str) -> dict[str, Any]:
 
 
 def review_cli() -> int:
-    pending = store.list_pending()
+    pending = risk.sort_by_risk(store.list_pending())
     if not pending:
         print("No pending approvals.")
         return 0
-    print(f"{len(pending)} pending action(s).\n")
+    print(f"{len(pending)} pending action(s) (highest-risk first).\n")
     for rec in pending:
-        print(f"── [{rec['category']}] {rec['title']}")
+        tier = risk.risk_for(rec.get("category", ""))
+        print(f"── {risk.label(tier)} [{tier}/{rec['category']}] {rec['title']}")
         print(f"   {rec['description']}")
         print(f"   payload: {rec.get('payload')}")
         try:

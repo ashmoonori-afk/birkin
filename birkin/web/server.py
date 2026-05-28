@@ -100,7 +100,11 @@ class Handler(BaseHTTPRequestHandler):
         elif self.path == "/api/runs":
             self._json(store.list_runs(limit=20))
         elif self.path == "/api/approvals":
-            self._json(store.list_pending())
+            from .. import risk as risk_mod
+            items = risk_mod.sort_by_risk(store.list_pending())
+            for it in items:
+                it["risk"] = risk_mod.risk_for(it.get("category", ""))
+            self._json(items)
         elif self.path == "/api/skills":
             cfg = config.load_config()
             try:
