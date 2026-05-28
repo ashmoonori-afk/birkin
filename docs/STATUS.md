@@ -4,7 +4,8 @@
 
 A concise, kept-current summary of what exists and how to run it. For the full
 design see [DESIGN.md](./DESIGN.md); for rationale see [DECISIONS.md](./DECISIONS.md).
-Improvement roadmap: [IMPROVEMENT-PLAN.md](./IMPROVEMENT-PLAN.md).
+Improvement roadmap: [IMPROVEMENT-PLAN.md](./IMPROVEMENT-PLAN.md). Positioning
+against the upstream catalogs: [COMPARISON.md](./COMPARISON.md).
 
 ## Improvement plan progress
 
