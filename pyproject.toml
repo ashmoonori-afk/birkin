@@ -17,7 +17,7 @@ keywords = ["agent", "cli", "skills", "subagents", "self-improving", "llm"]
 dependencies = []
 
 [project.optional-dependencies]
-dev = ["pytest>=8"]
+dev = ["pytest>=8", "pytest-cov>=5"]
 
 [project.scripts]
 birkin = "birkin.cli:main"
@@ -34,4 +34,24 @@ packages = ["birkin"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
-addopts = "-q"
+addopts = "-q --cov=birkin --cov-report=term-missing"
+
+[tool.coverage.run]
+source = ["birkin"]
+branch = false
+omit = [
+    # Interactive surfaces — driven by stdin/TTY and tested only via smoke runs.
+    "birkin/repl.py",
+    "birkin/onboarding.py",
+    "birkin/slashcommands.py",
+    "birkin/ui.py",
+    "birkin/menu.py",
+    # Live-LLM routine (covered by the live-test harness in P2).
+    "birkin/nightly.py",
+    "birkin/__main__.py",
+]
+
+[tool.coverage.report]
+show_missing = true
+skip_empty = true
+fail_under = 75

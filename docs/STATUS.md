@@ -12,10 +12,17 @@ Improvement roadmap: [IMPROVEMENT-PLAN.md](./IMPROVEMENT-PLAN.md).
   - All `subprocess` calls use **argv lists, never `shell=True`** (`proc.py`:
     `cli_argv` for CLI programs incl. Windows `.cmd` shims; `shell_argv` for the
     one intentional free-form-command path — `run_shell` and approved shell jobs).
-  - **pytest suite** added under `tests/` — **48 tests**, offline, no API key
-    (frontmatter, memory vault, skills route/render, approvals, store, cron,
-    Anthropic SSE parser incl. parallel tool_use, agent loop + nudge triggers,
-    proc helpers). `pytest` is a dev-only extra.
+  - **pytest suite**: **149 tests** offline, no API key, with **`pytest-cov`**
+    (`coverage: 76.80%` ≥ 75% gate; interactive surfaces — `repl`, `onboarding`,
+    `slashcommands`, `ui`, `menu`, `nightly`, `__main__` — are omitted by
+    design). New offline coverage: web/server (thread `HTTPServer` + token/Host
+    gates), gateway (`Gateway.handle`, `LocalHTTPChannel`), scheduler
+    (`_next_nightly`, `_run_job`, status), runtime (`ConfigError`, run-record
+    write, CLI system builder), llm (OpenAI mapping, `_post` retry, Anthropic
+    payload `cache_control`, OpenAI parse), agent (max-turns, tool errors,
+    multi tool_use), cli (parser + handlers), tools (files/shell/web/subagent),
+    models, selfimprove transcript, subagent runner. `pytest`/`pytest-cov` are
+    dev-only.
 - **Phase 2 — Auditability ✅**
   - Every chat/agent turn writes a **run record** to `~/.birkin/runs/` (provider,
     model, tools used, iterations, usage) and appends a line to
