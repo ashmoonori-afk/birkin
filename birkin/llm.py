@@ -40,7 +40,7 @@ class LLMError(RuntimeError):
 class LLMClient:
     def __init__(self, *, provider: str, model: str, api_key: str,
                  base_url: str, max_tokens: int = 4096, temperature: float = 1.0,
-                 cli_access: str = "workspace"):
+                 cli_access: str = "workspace", cli_command: list[str] | None = None):
         self.provider = provider
         self.model = model
         self.api_key = api_key
@@ -50,6 +50,8 @@ class LLMClient:
         # CLI-agent access level: "workspace" (writable, sandboxed) or
         # "full" (dangerous: bypass approvals/sandbox).
         self.cli_access = cli_access
+        # argv for the generic "local-cli" provider.
+        self.cli_command = list(cli_command or [])
 
     # -- public API --------------------------------------------------------
 
@@ -65,7 +67,7 @@ class LLMClient:
             return self._anthropic_complete(system, messages, tools, model, on_text)
         if self.provider == "openai":
             return self._openai_complete(system, messages, tools, model, on_text)
-        if self.provider in ("claude-cli", "codex-cli"):
+        if self.provider in ("claude-cli", "codex-cli", "local-cli"):
             return self._cli_complete(system, messages, model, on_text)
         raise LLMError(f"unknown provider: {self.provider!r}")
 
@@ -103,6 +105,8 @@ class LLMClient:
         prompt = self._flatten(system, messages)
         if self.provider == "claude-cli":
             text = self._run_claude(prompt, model)
+        elif self.provider == "local-cli":
+            text = self._run_local_cli(prompt)
         else:  # codex-cli
             text = self._run_codex(prompt, model)
         if on_text and text:
@@ -169,6 +173,26 @@ class LLMClient:
             return text
         err = (proc.stderr or "").strip() or (proc.stdout or "").strip()
         return f"[birkin] Codex produced no message. {err[:400]}"
+
+    def _run_local_cli(self, prompt: str) -> str:
+        # Generic configured CLI runner: argv from config.cli_command, prompt on
+        # stdin, stdout is the reply. Lets any local agent/model be a backend.
+        from .proc import cli_argv
+        if not self.cli_command:
+            return ("[birkin] No cli_command configured. Set config.cli_command "
+                    "to an argv list, e.g. [\"my-llm\", \"--flag\"].")
+        try:
+            proc = subprocess.run(cli_argv(self.cli_command), input=prompt,
+                                  capture_output=True, text=True, errors="replace",
+                                  timeout=900)
+        except FileNotFoundError:
+            return f"[birkin] command not found: {self.cli_command[0]}"
+        except subprocess.TimeoutExpired:
+            return "[birkin] local CLI timed out."
+        out = (proc.stdout or "").strip()
+        if out:
+            return out
+        return f"[birkin] local CLI no output. {(proc.stderr or '').strip()[:400]}"
 
     # -- HTTP --------------------------------------------------------------
 
@@ -394,4 +418,5 @@ def build_client(cfg: dict[str, Any], api_key: str) -> LLMClient:
         max_tokens=int(cfg.get("max_tokens", 4096)),
         temperature=float(cfg.get("temperature", 1.0)),
         cli_access=cfg.get("cli_access", "workspace"),
+        cli_command=cfg.get("cli_command", []),
     )

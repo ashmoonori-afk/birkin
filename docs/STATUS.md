@@ -22,8 +22,15 @@ Improvement roadmap: [IMPROVEMENT-PLAN.md](./IMPROVEMENT-PLAN.md).
     `~/.birkin/ledger.jsonl`. `store.estimate_usage` gives chars/words/≈tokens.
   - `birkin runs` lists recent runs + usage; the dashboard shows per-run tokens
     and tools (`agent.last_tools`/`last_iterations` feed the records).
-- Phases 3–4 (config-driven runners + dry-run, skill hot-reload/sync/gating +
-  layered prompts) — pending.
+- **Phase 3 — Config-driven runner + dry-run ✅**
+  - New generic **`local-cli`** provider runs a configured argv
+    (`config.cli_command`) with the prompt on stdin — any local agent/model is a
+    backend without code changes (joins anthropic / openai / claude-cli /
+    codex-cli; native Anthropic loop unchanged). Shown in `birkin model` when set.
+  - **`birkin chat --dry-run -m "…"`** builds & prints the full prompt packet
+    (system prompt + tools or routed skills + usage estimate) with **zero model
+    calls and no API key** — the "packet" inspection mode.
+- Phase 4 (skill hot-reload/sync/gating + layered prompts) — pending.
 
 ## What's built (v0.1)
 

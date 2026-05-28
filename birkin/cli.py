@@ -19,12 +19,41 @@ from typing import Optional
 
 def _cmd_chat(args: argparse.Namespace) -> int:
     from . import config
+    if getattr(args, "dry_run", False):
+        return _dry_run(args)
     if not config.config_path().exists():  # first run -> onboard
         from .onboarding import run as onboard
         onboard()
         print()
     from .repl import run
     return run()
+
+
+def _dry_run(args: argparse.Namespace) -> int:
+    """Build and print the prompt packet for a message — no model call, no key."""
+    from .runtime import build_dry_run_packet
+    from .ui import BOLD, CYAN, DIM, RESET
+    msg = args.message
+    if not msg:
+        try:
+            msg = input("Message to inspect: ").strip()
+        except (EOFError, KeyboardInterrupt):
+            return 0
+    if not msg:
+        return 0
+    packet = build_dry_run_packet(msg)
+    print(f"{BOLD}=== dry run (no model called) ==={RESET}")
+    print(f"provider: {CYAN}{packet['provider']}{RESET}  model: {packet['model']}")
+    print(f"\n{BOLD}--- system prompt ---{RESET}\n{packet['system']}")
+    if packet["tools"]:
+        print(f"\n{BOLD}--- tools ---{RESET}\n{', '.join(packet['tools'])}")
+    if packet["routed_skills"]:
+        print(f"\n{BOLD}--- routed skills ---{RESET}\n{', '.join(packet['routed_skills'])}")
+    print(f"\n{BOLD}--- user ---{RESET}\n{packet['user']}")
+    u = packet["usage"]
+    print(f"\n{DIM}estimate: {u['chars']} chars, ~{u['estTokens']} tokens. "
+          f"No request was sent.{RESET}")
+    return 0
 
 
 def _cmd_skills(args: argparse.Namespace) -> int:
@@ -273,7 +302,11 @@ def build_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(prog="birkin", description="Lightweight self-improving CLI agent workspace")
     sub = p.add_subparsers(dest="command")
 
-    sub.add_parser("chat", help="interactive chat (default)").set_defaults(func=_cmd_chat)
+    chatp = sub.add_parser("chat", help="interactive chat (default)")
+    chatp.add_argument("--dry-run", action="store_true",
+                       help="build & print the prompt packet without calling the model")
+    chatp.add_argument("-m", "--message", help="message to inspect with --dry-run")
+    chatp.set_defaults(func=_cmd_chat)
 
     sp = sub.add_parser("skills", help="list skills or show one")
     sp.add_argument("name", nargs="?", help="skill name to show in full")

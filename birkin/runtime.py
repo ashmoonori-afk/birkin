@@ -104,3 +104,39 @@ def build_session(cfg: Optional[dict[str, Any]] = None,
                   memory_nudge_interval=int(cfg.get("memory_nudge_interval", 6)))
     return Session(cfg=cfg, client=client, skills=skills, memory=memory,
                    ctx=ctx, agent=agent)
+
+
+def build_dry_run_packet(text: str, cfg: Optional[dict[str, Any]] = None
+                         ) -> dict[str, Any]:
+    """Assemble the exact prompt packet for `text` WITHOUT any model call or API
+    key — the system prompt, tool names (or routed skills for CLI providers),
+    and a usage estimate. Powers `birkin chat --dry-run`."""
+    cfg = cfg or config.load_config()
+    provider = cfg.get("provider", "anthropic")
+    skills = build_manager(cfg)
+    memory = Memory(cfg)
+
+    if provider in config.CLI_PROVIDERS:
+        routed = skills.route(text, limit=3)
+        system = prompts.build_cli_system(
+            memory_block=memory.render(),
+            preloaded=[skills.render_skill(s) for s in routed] or None)
+        tool_names: list[str] = []
+        routed_names = [s.name for s in routed]
+    else:
+        ctx = ToolContext(cfg=cfg, client=None, cwd=Path.cwd(), skills=skills,
+                          memory=memory, max_depth=int(cfg.get("max_depth", 2)))
+        system = prompts.build_system_prompt(
+            skills_index=skills.index(), memory_block=memory.render())
+        tool_names = [t["name"] for t in build_registry(ctx).specs()]
+        routed_names = []
+
+    return {
+        "provider": provider,
+        "model": cfg.get("model"),
+        "system": system,
+        "tools": tool_names,
+        "routed_skills": routed_names,
+        "user": text,
+        "usage": store.estimate_usage(system, text),
+    }

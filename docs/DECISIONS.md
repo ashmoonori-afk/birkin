@@ -327,6 +327,31 @@ provider-reported. Pruning/retention can be added later.
 
 ---
 
+## ADR-016 — Config-driven local-cli runner + dry-run/packet mode
+
+**Context.** Improvement plan Phase 3: reduce hardcoded provider dispatch and
+add a cost-free way to inspect the prompt.
+
+**Decision.** (a) Add a generic **`local-cli`** provider: `config.cli_command`
+(argv) runs with the flattened prompt on stdin (via `proc.cli_argv`), stdout is
+the reply — any local agent/model can be a backend without code. It joins the
+existing providers; the native Anthropic tool-calling loop is unchanged and
+remains the path for `anthropic`. (b) Add **`birkin chat --dry-run`** backed by
+`runtime.build_dry_run_packet`, which assembles the exact system prompt + tool
+names (or routed skills for CLI providers) + usage estimate **without a client
+or API key**.
+
+**Rationale.** Most of codex's config-driven-runner benefit (pluggable CLIs) and
+its "packet" transparency, with minimal surface, no regression to the agentic
+loop, and no new dependency.
+
+**Trade-off.** Not a full multi-profile registry — a single active provider +
+`cli_command`. A profiles map can be layered later.
+
+**Status.** Accepted (extends ADR-003 / ADR-012).
+
+---
+
 ## ADR-010 — Single shared session, sequential dashboard server
 
 **Context.** Local, single-user tool.

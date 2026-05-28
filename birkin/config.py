@@ -23,6 +23,9 @@ DEFAULT_CONFIG: dict[str, Any] = {
     "model": "claude-sonnet-4-6",
     "subagent_model": "claude-haiku-4-5-20251001",
     "base_url": "",  # empty -> provider default
+    # Generic local-CLI runner: provider "local-cli" runs this argv with the
+    # flattened prompt on stdin (configure any CLI agent without code changes).
+    "cli_command": [],
     "api_key": None,  # prefer env var; only set here if you must
     "max_tokens": 4096,
     "temperature": 1.0,
@@ -72,8 +75,9 @@ PROVIDER_API_KEY_ENV = {
 }
 
 # Providers backed by a locally-installed, separately-authenticated agent CLI.
-# These need no API key — birkin shells out to the CLI.
-CLI_PROVIDERS = {"claude-cli", "codex-cli"}
+# These need no API key — birkin shells out to the CLI. "local-cli" runs a
+# user-configured argv (config.cli_command), generalizing beyond claude/codex.
+CLI_PROVIDERS = {"claude-cli", "codex-cli", "local-cli"}
 
 # Curated, current model choices (free text is also accepted everywhere).
 KNOWN_MODELS = {

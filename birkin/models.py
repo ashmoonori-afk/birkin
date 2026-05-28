@@ -36,7 +36,7 @@ class Model:
 
     @property
     def is_cli(self) -> bool:
-        return self.source in ("claude-cli", "codex-cli")
+        return self.source in ("claude-cli", "codex-cli", "local-cli")
 
     @property
     def is_ollama(self) -> bool:
@@ -111,6 +111,10 @@ def discover(cfg: dict[str, Any], *, api: bool = True, cli: bool = True,
     if cli:
         for m in detect_cli_agents():
             add(m)
+        cmd = cfg.get("cli_command") or []
+        if cmd:
+            add(Model("local-cli", "local-cli",
+                      "configured: " + " ".join(str(p) for p in cmd)))
     if ollama:
         for m in fetch_ollama_models():
             add(m)
@@ -126,6 +130,9 @@ def apply_selection(cfg: dict[str, Any], model: Model) -> None:
     elif model.source == "codex-cli":
         cfg["provider"] = "codex-cli"
         cfg["model"] = ""   # empty -> codex uses its own configured default
+        cfg["base_url"] = ""
+    elif model.source == "local-cli":
+        cfg["provider"] = "local-cli"  # uses config.cli_command
         cfg["base_url"] = ""
     elif model.is_ollama:
         cfg["provider"] = "openai"

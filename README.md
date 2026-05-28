@@ -87,6 +87,7 @@ birkin needs *one* of these — the onboarding wizard (or `birkin model`) sets i
 | **OpenAI-compatible** | set provider `openai` + `base_url` (works with **Ollama**) | required* |
 | **Claude Code** (`claude`) | pick it in `birkin model` | none — uses the CLI login |
 | **Codex** (`codex`) | pick it in `birkin model` | none — uses the CLI login |
+| **Any local CLI** (`local-cli`) | set `cli_command` (argv) in config | none — runs your argv with the prompt on stdin |
 
 \* Ollama accepts any key. PowerShell: `$env:ANTHROPIC_API_KEY="sk-ant-…"`.
 
@@ -112,6 +113,8 @@ adds `--dangerously-bypass-approvals-and-sandbox` (Codex) /
 
 ```bash
 birkin            # start chatting (first run → onboarding)
+birkin chat --dry-run -m "…"   # print the prompt packet — no model call, no key
+birkin runs       # recent run records + usage (audit log)
 birkin setup      # onboarding wizard            (alias: birkin onboard)
 birkin model      # choose the model — API + local CLI agents in one picker
 birkin tools      # "Available Tools" panel; --enable/--disable to toggle
