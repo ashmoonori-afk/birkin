@@ -21,6 +21,10 @@ dev = ["pytest>=8"]
 [project.scripts]
 birkin = "birkin.cli:main"
 
+[tool.hatch.build.targets.sdist]
+# Ship only project files — never stray runtime data/binaries from the workspace.
+only-include = ["birkin", "skills", "scripts", "docs", "tests", "README.md", "pyproject.toml"]
+
 [tool.hatch.build.targets.wheel]
 packages = ["birkin"]
 

@@ -8,6 +8,8 @@ birkin_config.json
 *.db
 *.db-shm
 *.db-wal
+*.exe
+/memory/
 
 # Python
 __pycache__/
