@@ -236,8 +236,14 @@ and does not run its own tool loop in this mode (the CLI agent runs its tools).
 Code / Codex subscriptions. Stdlib-only (`subprocess`). Verified end-to-end:
 `claude -p` returns `{"result": ...}` which birkin parses.
 
-**Trade-off.** In CLI mode birkin's own tools/skills are not invoked as tool
-calls. API providers remain the path for birkin's native tool-calling loop.
+**Trade-off.** In CLI mode birkin's own tools aren't invoked as structured tool
+calls. API providers remain the path for the native tool-calling loop.
+
+**Update (ADR-014).** CLI mode is no longer a bare proxy: birkin now injects a
+concise CLI system prompt with its **identity, memory digest, and the skills
+routed to the request** (full text + bundled-script paths) so CLI agents answer
+as birkin, use memory, and follow/execute skills with their own tools. See
+ADR-014.
 
 **Status.** Accepted.
 
@@ -264,6 +270,37 @@ command and the nightly routine remain for explicit/batch consolidation; a
 background "curator" (hermes' skill maintenance) is possible future work.
 
 **Status.** Accepted.
+
+---
+
+## ADR-014 — Skills & memory work in CLI-agent mode via prompt injection
+
+**Context.** Owner: hermes uses skills even on CLI agents — make birkin do the
+same instead of treating CLI mode as a bare proxy (which also made the CLI act
+like a translator, since no system prompt was sent).
+
+**Decision.** For CLI providers, build a concise **CLI system prompt**
+(`prompts.build_cli_system`) and send it with the conversation:
+- birkin identity + "act, don't describe; answer in compact Markdown",
+- a **memory digest** (`memory.render()`),
+- the **skills routed to the request** (`SkillManager.route()` — keyword overlap
+  on name/description/tags/body, top 3), rendered full-text via
+  `render_skill()` including the skill's directory and bundled-script paths.
+
+The CLI agent (Claude Code / Codex) then answers as birkin, uses the injected
+memory, and follows/executes the skills with its own shell. The tool-oriented
+guidance (`load_skill`, `spawn_subagent`) is omitted in CLI mode to avoid
+confusion.
+
+**Rationale.** Gives the hermes outcome (skills everywhere) without a
+text-protocol tool loop over a completion backend. Routing keeps the prompt
+small; bundled-script paths make skills executable in CLI mode too.
+
+**Trade-off.** Skills are pre-selected by keyword routing rather than pulled on
+demand; the CLI agent can't write back to birkin memory/skills within the turn
+(captured later by `/learn` or the nightly routine).
+
+**Status.** Accepted (refines ADR-012).
 
 ---
 

@@ -55,3 +55,29 @@ def build_system_prompt(*, skills_index: str = "", memory_block: str = "",
         parts.append(extra)
 
     return "\n\n".join(parts)
+
+
+_CLI_IDENTITY = """You are birkin, a helpful, concise agent. You are running on \
+top of your own local agent CLI, which already has file, shell, and web tools — \
+use them yourself to read files, run commands, fetch pages, and run any scripts \
+referenced below. Be direct and act; don't just describe. Format answers in \
+clear, compact Markdown (short paragraphs, bullets, code blocks). Never fabricate \
+results — verify with your tools."""
+
+
+def build_cli_system(*, memory_block: str = "",
+                     preloaded: Optional[list[str]] = None) -> str:
+    """A concise prompt for CLI-agent backends (Claude Code / Codex).
+
+    Those backends can't call birkin's tools, so instead of the tool-loop
+    guidance we inject birkin's identity, memory, and any skills routed as
+    relevant to the request (full text, including bundled-script paths the CLI
+    can run with its own shell)."""
+    parts: list[str] = [_CLI_IDENTITY]
+    if memory_block:
+        parts.append("## What you know about the user (birkin memory)\n"
+                     + memory_block)
+    if preloaded:
+        parts.append("## Relevant skills — follow these if they apply\n\n"
+                     + "\n\n---\n\n".join(preloaded))
+    return "\n\n".join(parts)

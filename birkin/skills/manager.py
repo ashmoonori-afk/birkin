@@ -44,6 +44,37 @@ class SkillManager:
             lines.append(f"- {s.name}: {desc}")
         return "\n".join(lines)
 
+    def route(self, query: str, limit: int = 3) -> list[Skill]:
+        """Pick the most relevant skills for a query by keyword overlap against
+        name + description + tags + body. Used to inject skills into CLI-agent
+        prompts (which can't call load_skill)."""
+        terms = [t for t in re.split(r"[^a-z0-9]+", (query or "").lower()) if len(t) > 2]
+        if not terms or not self.skills:
+            return []
+        scored: list[tuple[int, Skill]] = []
+        for s in self.skills.values():
+            hay = f"{s.name} {s.description} {' '.join(s.tags)}".lower()
+            score = sum(3 for t in terms if t in hay)
+            if score == 0:  # fall back to a cheaper body scan
+                body = s.body().lower()
+                score = sum(1 for t in terms if t in body)
+            if score:
+                scored.append((score, s))
+        scored.sort(key=lambda x: x[0], reverse=True)
+        return [s for _, s in scored[:limit]]
+
+    def render_skill(self, skill: Skill) -> str:
+        """Full skill text plus its bundled files + directory (for execution)."""
+        out = f"# Skill: {skill.name}\n\n{skill.body()}"
+        extras = _bundled_files(skill.directory)
+        if extras:
+            listing = "\n".join(f"- {p}" for p in extras)
+            out += (f"\n\n## Bundled files (in this skill's directory)\n"
+                    f"Skill directory: `{skill.directory}`\n{listing}\n\n"
+                    f"To run a bundled script, run it with the skill directory "
+                    f"as the working directory (e.g. `python scripts/<name>.py ...`).")
+        return out
+
     # -- tools -------------------------------------------------------------
 
     def tools(self):
@@ -56,18 +87,7 @@ class SkillManager:
                 avail = ", ".join(sorted(self.skills)) or "(none)"
                 return ToolResult(f"No skill named {name!r}. Available: {avail}",
                                   is_error=True)
-            out = f"# Skill: {skill.name}\n\n{skill.body()}"
-            # Expose bundled files (scripts/references/templates) like hermes, so
-            # the agent can run/read them with run_shell (cwd=dir) / read_file.
-            extras = _bundled_files(skill.directory)
-            if extras:
-                listing = "\n".join(f"- {p}" for p in extras)
-                out += (f"\n\n## Bundled files (in this skill's directory)\n"
-                        f"Skill directory: `{skill.directory}`\n{listing}\n\n"
-                        f"To run a bundled script, call run_shell with "
-                        f"`cwd` set to the skill directory above "
-                        f"(e.g. `python scripts/<name>.py ...`).")
-            return ToolResult(out)
+            return ToolResult(self.render_skill(skill))
 
         def create_skill(inp: dict[str, Any], ctx: ToolContext) -> ToolResult:
             if not ctx.cfg.get("self_improve", True):

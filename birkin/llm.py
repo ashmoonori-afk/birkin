@@ -90,12 +90,13 @@ class LLMClient:
     def _cli_complete(self, system, messages, model, on_text) -> dict[str, Any]:
         """Route the turn through a locally-installed agent CLI.
 
-        These CLIs are full agents with their own identity, tools, and auth, so
-        birkin acts as a thin proxy: we send only the *conversation* (not
-        birkin's tool-oriented system prompt) and return the CLI's final reply
-        as assistant text.
+        These CLIs are full agents with their own tools and auth. birkin sends a
+        concise CLI system prompt (identity + memory + skills routed to the
+        request — built in runtime for CLI providers) plus the conversation, and
+        returns the CLI's final reply. The CLI runs its own tools / any bundled
+        skill scripts.
         """
-        prompt = self._flatten("", messages)  # CLI agents have their own system
+        prompt = self._flatten(system, messages)
         if self.provider == "claude-cli":
             text = self._run_claude(prompt, model)
         else:  # codex-cli

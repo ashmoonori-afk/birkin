@@ -37,9 +37,20 @@ class Session:
             skills_index=self.skills.index(),
             memory_block=self.memory.render())
 
+    def _build_cli_system(self, text: str) -> None:
+        """For CLI-agent backends: inject identity + memory + skills routed to
+        the request (they can't call load_skill themselves)."""
+        routed = self.skills.route(text, limit=3)
+        preloaded = [self.skills.render_skill(s) for s in routed]
+        self.agent.system = prompts.build_cli_system(
+            memory_block=self.memory.render(), preloaded=preloaded or None)
+
     def ask(self, text: str,
             on_text: Optional[Callable[[str], None]] = None) -> str:
-        self.refresh_system_prompt()
+        if self.cfg.get("provider") in config.CLI_PROVIDERS:
+            self._build_cli_system(text)
+        else:
+            self.refresh_system_prompt()
         return self.agent.run(text, on_text=on_text)
 
     def new_conversation(self) -> None:
