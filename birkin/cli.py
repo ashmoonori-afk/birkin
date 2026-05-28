@@ -175,6 +175,14 @@ def _cmd_tools(args: argparse.Namespace) -> int:
     return 0
 
 
+_CLI_ACCESS_LEVELS = [
+    ("workspace", "Writable & sandboxed to the workspace (recommended)"),
+    ("full", "DANGEROUS: bypass ALL approvals + sandbox "
+             "(codex --dangerously-bypass-approvals-and-sandbox, "
+             "claude --dangerously-skip-permissions)"),
+]
+
+
 def _cmd_permission(args: argparse.Namespace) -> int:
     from . import config
     cfg = config.load_config()
@@ -192,9 +200,32 @@ def _cmd_permission(args: argparse.Namespace) -> int:
     if args.add or args.remove:
         cfg["auto_approve"] = auto
         config.save_config(cfg)
-    print("Auto-approved categories (applied without asking):")
-    print("  " + (", ".join(auto) or "(none)"))
-    print("Everything else is queued for `birkin review`.")
+
+    # CLI-agent access level (Claude Code / Codex)
+    if args.access in ("workspace", "full"):
+        cfg["cli_access"] = args.access
+        config.save_config(cfg)
+    elif args.access is None and not (args.add or args.remove):
+        # Interactive picker when run with no arguments.
+        from . import menu
+        cur = cfg.get("cli_access", "workspace")
+        labels = [f"{name} — {desc}" for name, desc in _CLI_ACCESS_LEVELS]
+        di = 0 if cur == "workspace" else 1
+        idx = menu.select("CLI-agent access level (Claude Code / Codex)",
+                          labels, default=di)
+        if idx is not None:
+            chosen = _CLI_ACCESS_LEVELS[idx][0]
+            if chosen == "full":
+                print("⚠  'full' lets the CLI agent run ANY command and edit ANY "
+                      "file with no prompts. Use only if you trust the workspace.")
+            cfg["cli_access"] = chosen
+            config.save_config(cfg)
+
+    print("\nAuto-approved categories (applied without asking):")
+    print("  " + (", ".join(cfg.get("auto_approve", [])) or "(none)")
+          + "   (everything else is queued for `birkin review`)")
+    print(f"CLI-agent access level: {cfg.get('cli_access', 'workspace')}"
+          f"   (change: birkin permission --access workspace|full)")
     return 0
 
 
@@ -255,9 +286,11 @@ def build_parser() -> argparse.ArgumentParser:
 
     sub.add_parser("review", help="approve/reject pending proposed actions").set_defaults(func=_cmd_review)
 
-    pp = sub.add_parser("permission", help="view/change auto-approved action categories")
+    pp = sub.add_parser("permission", help="view/change approvals & CLI-agent access level")
     pp.add_argument("--add", help="category to auto-approve (e.g. cron)")
     pp.add_argument("--remove", help="category to require approval for")
+    pp.add_argument("--access", choices=["workspace", "full"],
+                    help="CLI-agent access: workspace (safe) or full (dangerous bypass)")
     pp.set_defaults(func=_cmd_permission)
 
     cp = sub.add_parser("cron", help="list or remove daily cron jobs")

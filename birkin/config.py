@@ -53,6 +53,12 @@ DEFAULT_CONFIG: dict[str, Any] = {
     # routine itself is denied shell/subagent tools (see nightly.py).
     # Adjust with the REPL /permission command or `birkin permission`.
     "auto_approve": ["memory", "skills"],
+    # CLI-agent (Claude Code / Codex) access level:
+    #   "workspace" — writable & sandboxed to the workspace (default)
+    #   "full"      — DANGEROUS: bypass all approvals + sandbox
+    #                 (codex --dangerously-bypass-approvals-and-sandbox,
+    #                  claude --dangerously-skip-permissions)
+    "cli_access": "workspace",
 }
 
 PROVIDER_DEFAULT_BASE_URL = {

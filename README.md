@@ -102,6 +102,12 @@ scripts (not read-only). (Birkin's native tool-calling loop —
 `load_skill`, `spawn_subagent`, etc. — is used with the API providers; CLI
 agents run their own tools instead.)
 
+CLI agents are **writable** by default (sandboxed to the workspace). To let them
+bypass all approvals and the sandbox, set the access level to **full**:
+`birkin permission --access full` (or `/permission access full` in chat) — this
+adds `--dangerously-bypass-approvals-and-sandbox` (Codex) /
+`--dangerously-skip-permissions` (Claude Code). Use only in a workspace you trust.
+
 ## 🎮 Commands
 
 ```bash
@@ -116,7 +122,7 @@ birkin daemon     # run the nightly + cron scheduler  (--install for an OS task)
 birkin nightly    # run the self-improvement routine now  (--dry-run to preview)
 birkin review     # approve / reject proposed actions
 birkin cron       # list / --remove scheduled jobs
-birkin permission # view / --add / --remove auto-approved action categories
+birkin permission # approvals (--add/--remove) + CLI-agent access (--access workspace|full)
 ```
 
 ### In-chat slash commands

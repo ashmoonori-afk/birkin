@@ -312,12 +312,19 @@ def _cron(session: Any, arg: str) -> None:
               f"{j.get('type')} — {j.get('name')}")
 
 
-@command("permission", "Show or change auto-approved action categories.",
-         "/permission [add|remove <category>]")
+@command("permission", "Approvals & CLI-agent access level.",
+         "/permission [add|remove <category>] | access <workspace|full>")
 def _permission(session: Any, arg: str) -> None:
     sub = arg.split()
     auto = list(session.cfg.get("auto_approve", []))
-    if len(sub) == 2 and sub[0] in ("add", "remove"):
+    if len(sub) == 2 and sub[0] == "access" and sub[1] in ("workspace", "full"):
+        session.cfg["cli_access"] = sub[1]
+        session.client.cli_access = sub[1]   # apply to the live session
+        config.save_config(session.cfg)
+        if sub[1] == "full":
+            print(f"{YELLOW}⚠ 'full': the CLI agent now bypasses all approvals & "
+                  f"sandbox — it can run ANY command / edit ANY file.{RESET}")
+    elif len(sub) == 2 and sub[0] in ("add", "remove"):
         cat = sub[1]
         if sub[0] == "add" and cat in ("shell", "cron"):
             print(f"{YELLOW}⚠ auto-approving '{cat}' lets the unattended nightly "
@@ -328,8 +335,9 @@ def _permission(session: Any, arg: str) -> None:
             auto.remove(cat)
         session.cfg["auto_approve"] = auto
         config.save_config(session.cfg)
-    print(f"{DIM}Auto-approved: {', '.join(auto) or '(none)'}. "
-          f"Others need approval.{RESET}")
+    print(f"{DIM}Auto-approved: {', '.join(auto) or '(none)'} · "
+          f"CLI access: {session.cfg.get('cli_access', 'workspace')} "
+          f"(/permission access workspace|full){RESET}")
 
 
 # -- session persistence ---------------------------------------------------

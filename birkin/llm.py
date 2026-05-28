@@ -39,13 +39,17 @@ class LLMError(RuntimeError):
 
 class LLMClient:
     def __init__(self, *, provider: str, model: str, api_key: str,
-                 base_url: str, max_tokens: int = 4096, temperature: float = 1.0):
+                 base_url: str, max_tokens: int = 4096, temperature: float = 1.0,
+                 cli_access: str = "workspace"):
         self.provider = provider
         self.model = model
         self.api_key = api_key
         self.base_url = base_url.rstrip("/")
         self.max_tokens = max_tokens
         self.temperature = temperature
+        # CLI-agent access level: "workspace" (writable, sandboxed) or
+        # "full" (dangerous: bypass approvals/sandbox).
+        self.cli_access = cli_access
 
     # -- public API --------------------------------------------------------
 
@@ -107,10 +111,12 @@ class LLMClient:
                 "content": [{"type": "text", "text": text}],
                 "stop_reason": "end_turn"}
 
-    @staticmethod
-    def _run_claude(prompt: str, model: Optional[str]) -> str:
-        # acceptEdits: let Claude Code actually write files (no read-only).
-        cmd = "claude -p --output-format json --permission-mode acceptEdits"
+    def _run_claude(self, prompt: str, model: Optional[str]) -> str:
+        # Writable by default (acceptEdits); "full" bypasses all permission checks.
+        if self.cli_access == "full":
+            cmd = "claude -p --output-format json --dangerously-skip-permissions"
+        else:
+            cmd = "claude -p --output-format json --permission-mode acceptEdits"
         if model and model not in ("claude-code", "default", ""):
             cmd += f" --model {model}"
         try:
@@ -126,16 +132,17 @@ class LLMClient:
                 return out
         return f"[birkin] Claude Code error: {(proc.stderr or '').strip()[:400]}"
 
-    @staticmethod
-    def _run_codex(prompt: str, model: Optional[str]) -> str:
+    def _run_codex(self, prompt: str, model: Optional[str]) -> str:
         # `-o` writes ONLY the final assistant message to a file, so we don't
-        # have to scrape codex's verbose stdout. No sandbox override — codex uses
-        # its own configured policy (workspace-write by default) so it can read,
-        # write, and run commands in the workspace.
+        # have to scrape codex's verbose stdout. By default codex uses its own
+        # policy (workspace-write); "full" bypasses approvals + sandbox entirely.
         import tempfile
         fd, path = tempfile.mkstemp(suffix="-codex.txt")
         os.close(fd)
-        cmd = (f'codex exec --skip-git-repo-check --color never -o "{path}"')
+        cmd = 'codex exec --skip-git-repo-check --color never'
+        if self.cli_access == "full":
+            cmd += " --dangerously-bypass-approvals-and-sandbox"
+        cmd += f' -o "{path}"'
         if model and model not in ("codex", "default", ""):
             cmd += f" -m {model}"
         try:
@@ -381,4 +388,5 @@ def build_client(cfg: dict[str, Any], api_key: str) -> LLMClient:
         base_url=resolve_base_url(cfg),
         max_tokens=int(cfg.get("max_tokens", 4096)),
         temperature=float(cfg.get("temperature", 1.0)),
+        cli_access=cfg.get("cli_access", "workspace"),
     )
