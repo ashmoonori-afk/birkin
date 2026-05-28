@@ -474,6 +474,49 @@ is hard-stop (no soft warning yet). All adjustable in config / future ADRs.
 
 ---
 
+## ADR-023 — Inline slash-command autocomplete (stdlib only)
+
+**Context.** A sourced comparison against hermes-agent and openclaw
+(`docs/COMPARISON.md`) revealed that "slash-command autocomplete" had been
+described as a copied UX element from hermes but was not actually wired into
+the REPL — `repl.py` used a plain `input()` and the user had to memorize or
+`/help` to discover commands. The hermes README explicitly advertises
+slash-command autocomplete; openclaw does not, and Claude Code itself uses
+an inline-dropdown pattern.
+
+**Decision.** Implement an inline dropdown in `birkin/inline_complete.py`,
+stdlib only, that activates when the buffer starts with `/`. Behavior:
+- ↑/↓ moves selection within the filtered match list.
+- **Tab** behaves as completion: when there's a unique match (or the user
+  navigated explicitly) it commits the command with a trailing space;
+  otherwise it extends the buffer to the longest common prefix.
+- **Enter** submits the current buffer as typed (no implicit completion).
+- **Esc** dismisses the dropdown but keeps the buffer.
+- Cross-platform raw key reading: POSIX termios (with UTF-8 multi-byte
+  reassembly via leading-byte inspection) and Windows `msvcrt.getwch`
+  (which already returns wide characters).
+- On non-TTY stdin/stdout the function falls back to plain `input()`.
+
+Matching, ranking, and rendering are exported as pure functions
+(`filter_commands`, `common_prefix`, `render_menu_lines`) — the I/O loop
+is the only side-effecting part — so the bulk of the logic is unit-tested
+offline (20 cases in `test_inline_complete.py`).
+
+**Rationale.** Closes a real promise/implementation gap the comparison
+surfaced. Costs no runtime dependency (the rest of the codebase is also
+stdlib only). The non-TTY fallback keeps the existing test harness and
+`harness-runner` automation working unchanged.
+
+**Trade-off.** First-revision minimalism: no left/right cursor motion
+inside the buffer (typing happens at the end of the line); no command
+history yet (the previous `readline` import remains but is bypassed). Both
+are deliberate — the next revision can extend the same module instead of
+re-writing it.
+
+**Status.** Accepted.
+
+---
+
 ## ADR-022 — Skill integrity (`skills validate`) + risk-tiered approval inbox
 
 **Context.** Hardening Phase H6 closes the trust gap on two specific

@@ -10,7 +10,7 @@ from __future__ import annotations
 import sys
 from typing import Any
 
-from . import slashcommands, store, ui
+from . import inline_complete, slashcommands, store, ui
 from .runtime import ConfigError, Session, build_session
 from .ui import CYAN, DIM, RED, RESET, YELLOW
 
@@ -46,12 +46,19 @@ def run(cfg: dict[str, Any] | None = None) -> int:
         return 1
 
     _banner(session)
+    hints = inline_complete.hints_from_registry(slashcommands._REGISTRY)
     while True:
         try:
-            line = input(f"\n{ui.BOLD}you{RESET} > ").strip()
-        except (EOFError, KeyboardInterrupt):
+            print()   # leading blank line, like the old input("\n…")
+            raw = inline_complete.prompt_with_completion(
+                f"{ui.BOLD}you{RESET} > ", hints)
+        except KeyboardInterrupt:
             print()
             break
+        if raw is None:
+            print()
+            break
+        line = raw.strip()
         if not line:
             continue
         if line.startswith("/"):

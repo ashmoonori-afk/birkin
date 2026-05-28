@@ -12,6 +12,24 @@ against the upstream catalogs: [COMPARISON.md](./COMPARISON.md).
 > Improvement plan (P1–P4 from `IMPROVEMENT-PLAN.md`) was completed earlier.
 > The "Hardening Roadmap" (`HARDENING-PLAN.md`) is the v0.2 work:
 
+- **UX H7 — Inline slash-command autocomplete ✅** (after the
+  hermes/openclaw comparison flagged this as a documented-but-unimplemented
+  feature)
+  - New `birkin/inline_complete.py` — a stdlib-only raw-input loop with a
+    live dropdown that appears the moment the user types `/`. ↑/↓ moves the
+    selection, **Tab** completes (longest-common-prefix; or commits the
+    selected command with a trailing space when there's a single match or
+    the user has navigated), **Enter** submits the typed line as-is, **Esc**
+    dismisses the dropdown while keeping the buffer. Cross-platform: POSIX
+    termios + Windows msvcrt; UTF-8 multi-byte input is reassembled on
+    POSIX, and `msvcrt.getwch` delivers wide characters directly on Windows.
+  - Non-TTY stdin (pipes, CI, redirected input) transparently falls back to
+    plain `input()` so scripts, harness tests, and `pytest` are unaffected.
+  - Matching / ranking / rendering are isolated as pure functions
+    (`filter_commands`, `common_prefix`, `render_menu_lines`,
+    `hints_from_registry`) so they're directly unit-testable; only the I/O
+    loop is side-effecting. 20 new tests in `test_inline_complete.py`.
+
 - **Hardening H6 — Approval-first & skill integrity ✅**
   - **`birkin skills validate`** — new CLI command (`birkin/skills/validate.py`)
     lints every `SKILL.md` (bundled + user + extra): required frontmatter
