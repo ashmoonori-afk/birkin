@@ -30,7 +30,18 @@ Improvement roadmap: [IMPROVEMENT-PLAN.md](./IMPROVEMENT-PLAN.md).
   - **`birkin chat --dry-run -m "…"`** builds & prints the full prompt packet
     (system prompt + tools or routed skills + usage estimate) with **zero model
     calls and no API key** — the "packet" inspection mode.
-- Phase 4 (skill hot-reload/sync/gating + layered prompts) — pending.
+- **Phase 4 — Skill scale & freshness ✅**
+  - **Hot-reload**: `SkillManager.reload_if_changed()` (debounced mtime check)
+    reloads skills when a `SKILL.md` is edited/added — called before each turn.
+  - **Gating**: frontmatter `prerequisites` (`commands` / `platforms`); skills
+    whose prereqs aren't met are hidden from the index and router (still loadable
+    by name). e.g. an `apple-notes` mirror needing `memo` is hidden when absent.
+  - **`birkin skills sync [--from DIR] [--limit N] [--force]`**: mirror upstream
+    (hermes) skills into `~/.birkin/skills/mirrors/`, preserving bundled scripts
+    and appending source attribution (auto-detects a local hermes skills tree).
+  - **Layered prompts**: `SOUL.md` / `AGENTS.md` / `TOOLS.md` in the workspace
+    (cwd) are composed into the system prompt when present.
+  - Catalog grows on demand via `skills sync` plus shipped skills.
 
 ## What's built (v0.1)
 

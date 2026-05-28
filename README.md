@@ -118,7 +118,7 @@ birkin runs       # recent run records + usage (audit log)
 birkin setup      # onboarding wizard            (alias: birkin onboard)
 birkin model      # choose the model — API + local CLI agents in one picker
 birkin tools      # "Available Tools" panel; --enable/--disable to toggle
-birkin skills     # list skills   ·   birkin skills <name> to print one
+birkin skills     # list · birkin skills <name> to print · birkin skills sync to mirror upstream
 birkin gateway    # run as a service (HTTP + optional Telegram channels)
 birkin web        # open the monitoring dashboard
 birkin daemon     # run the nightly + cron scheduler  (--install for an OS task)
@@ -270,6 +270,14 @@ steps) that didn't save a skill, birkin nudges itself — with no extra LLM call
 to capture the procedure as a skill; a turn-based nudge does the same for
 memory. Counters reset when you actually save. Tune with `skill_nudge_interval`
 / `memory_nudge_interval` in config (set to `0` to disable).
+
+**Freshness & scale.** Skills **hot-reload** when you edit a `SKILL.md` (no
+restart). Add frontmatter `prerequisites` (`commands` / `platforms`) and a skill
+is **gated** — hidden from the catalog/router when its prereqs aren't met here.
+`birkin skills sync [--from DIR]` **mirrors** an upstream (hermes) skill tree
+into `~/.birkin/skills/mirrors/` (bundled scripts + attribution preserved). If
+`SOUL.md` / `AGENTS.md` / `TOOLS.md` exist in your workspace, they're layered
+into the system prompt.
 
 ## 🗺️ Architecture
 

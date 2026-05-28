@@ -8,11 +8,20 @@ is loaded lazily when the agent actually needs it.
 
 from __future__ import annotations
 
+import os
+import shutil
+import sys
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
 from . import frontmatter
+
+
+def _current_platform() -> str:
+    if os.name == "nt":
+        return "windows"
+    return "macos" if sys.platform == "darwin" else "linux"
 
 
 @dataclass
@@ -48,6 +57,22 @@ class Skill:
 
     def full(self) -> str:
         return self.path.read_text(encoding="utf-8", errors="replace")
+
+    @property
+    def eligible(self) -> bool:
+        """False if the skill's frontmatter ``prerequisites`` aren't met on this
+        machine (required commands missing, or wrong platform). Eligible skills
+        are the ones shown in the index / used by the router."""
+        pre = self.meta.get("prerequisites")
+        if not isinstance(pre, dict):
+            return True
+        for cmd in pre.get("commands") or []:
+            if shutil.which(str(cmd)) is None:
+                return False
+        platforms = [str(p).lower() for p in (pre.get("platforms") or [])]
+        if platforms and _current_platform() not in platforms:
+            return False
+        return True
 
 
 def _load_skill(skill_md: Path, source: str) -> Skill | None:

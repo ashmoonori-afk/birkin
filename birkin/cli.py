@@ -59,6 +59,8 @@ def _dry_run(args: argparse.Namespace) -> int:
 def _cmd_skills(args: argparse.Namespace) -> int:
     from . import config
     from .skills import build_manager
+    if args.name == "sync":
+        return _skills_sync(args)
     mgr = build_manager(config.load_config())
     if args.name:
         sk = mgr.get(args.name)
@@ -71,6 +73,32 @@ def _cmd_skills(args: argparse.Namespace) -> int:
         print("No skills installed.")
         return 0
     print(mgr.index())
+    return 0
+
+
+def _skills_sync(args: argparse.Namespace) -> int:
+    """`birkin skills sync [--from DIR] [--limit N] [--force]` — mirror upstream
+    (hermes) skills into ~/.birkin/skills/mirrors with attribution."""
+    from pathlib import Path
+
+    from .skills import sync
+    sources = [Path(args.source)] if args.source else sync.autodetect_sources()
+    if not sources:
+        print("No source found. Pass --from <skills-dir> (e.g. a hermes skills "
+              "directory).")
+        return 1
+    total = 0
+    for src in sources:
+        try:
+            synced = sync.sync_skills(src, limit=args.limit, force=args.force)
+        except NotADirectoryError:
+            print(f"Not a directory: {src}")
+            continue
+        print(f"From {src}: mirrored {len(synced)} skill(s).")
+        for name in synced[:20]:
+            print(f"  + {name}")
+        total += len(synced)
+    print(f"\nTotal mirrored: {total}. They appear in `birkin skills` after reload.")
     return 0
 
 
@@ -308,8 +336,11 @@ def build_parser() -> argparse.ArgumentParser:
     chatp.add_argument("-m", "--message", help="message to inspect with --dry-run")
     chatp.set_defaults(func=_cmd_chat)
 
-    sp = sub.add_parser("skills", help="list skills or show one")
-    sp.add_argument("name", nargs="?", help="skill name to show in full")
+    sp = sub.add_parser("skills", help="list skills, show one, or `skills sync`")
+    sp.add_argument("name", nargs="?", help="skill name to show, or 'sync' to mirror upstream")
+    sp.add_argument("--from", dest="source", help="source skills dir for `skills sync`")
+    sp.add_argument("--limit", type=int, default=None, help="max skills to sync")
+    sp.add_argument("--force", action="store_true", help="overwrite existing mirrors")
     sp.set_defaults(func=_cmd_skills)
 
     wp = sub.add_parser("web", help="launch the local WebUI")

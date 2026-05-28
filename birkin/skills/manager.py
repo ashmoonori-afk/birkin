@@ -10,6 +10,7 @@ by hermes and the agentskills standard.
 from __future__ import annotations
 
 import re
+import time
 from pathlib import Path
 from typing import Any
 
@@ -21,9 +22,38 @@ class SkillManager:
     def __init__(self, dirs: list[tuple[Path, str]]):
         self._dirs = dirs
         self.skills: dict[str, Skill] = discover(dirs)
+        self._sig = self._signature()
+        self._checked_at = time.monotonic()
 
     def reload(self) -> None:
         self.skills = discover(self._dirs)
+        self._sig = self._signature()
+
+    def _signature(self) -> tuple:
+        """Cheap fingerprint (paths + mtimes, no file reads) for hot-reload."""
+        items: list[tuple[str, float]] = []
+        for base, _src in self._dirs:
+            if base and base.is_dir():
+                for f in base.rglob("SKILL.md"):
+                    try:
+                        items.append((str(f), f.stat().st_mtime))
+                    except OSError:
+                        continue
+        return tuple(sorted(items))
+
+    def reload_if_changed(self, debounce: float = 1.0) -> bool:
+        """Reload skills if any SKILL.md changed/added/removed since last check.
+        Debounced so it's cheap to call before every turn. Returns True if reloaded."""
+        now = time.monotonic()
+        if now - self._checked_at < debounce:
+            return False
+        self._checked_at = now
+        sig = self._signature()
+        if sig != self._sig:
+            self.skills = discover(self._dirs)
+            self._sig = sig
+            return True
+        return False
 
     def get(self, name: str) -> Skill | None:
         if name in self.skills:
@@ -34,25 +64,31 @@ class SkillManager:
                 return s
         return None
 
+    def eligible_skills(self) -> list[Skill]:
+        """Skills whose frontmatter prerequisites are met on this machine."""
+        return [s for s in self.skills.values() if s.eligible]
+
     def index(self) -> str:
-        """Compact catalog for the system prompt."""
-        if not self.skills:
+        """Compact catalog for the system prompt (eligible skills only)."""
+        skills = self.eligible_skills()
+        if not skills:
             return "(no skills installed yet)"
         lines = []
-        for s in sorted(self.skills.values(), key=lambda x: x.name):
+        for s in sorted(skills, key=lambda x: x.name):
             desc = s.description or "(no description)"
             lines.append(f"- {s.name}: {desc}")
         return "\n".join(lines)
 
     def route(self, query: str, limit: int = 3) -> list[Skill]:
-        """Pick the most relevant skills for a query by keyword overlap against
-        name + description + tags + body. Used to inject skills into CLI-agent
-        prompts (which can't call load_skill)."""
+        """Pick the most relevant *eligible* skills for a query by keyword overlap
+        against name + description + tags + body. Used to inject skills into
+        CLI-agent prompts (which can't call load_skill)."""
         terms = [t for t in re.split(r"[^a-z0-9]+", (query or "").lower()) if len(t) > 2]
-        if not terms or not self.skills:
+        skills = self.eligible_skills()
+        if not terms or not skills:
             return []
         scored: list[tuple[int, Skill]] = []
-        for s in self.skills.values():
+        for s in skills:
             hay = f"{s.name} {s.description} {' '.join(s.tags)}".lower()
             score = sum(3 for t in terms if t in hay)
             if score == 0:  # fall back to a cheaper body scan

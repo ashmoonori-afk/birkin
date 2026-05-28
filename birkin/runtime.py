@@ -47,6 +47,7 @@ class Session:
 
     def ask(self, text: str,
             on_text: Optional[Callable[[str], None]] = None) -> str:
+        self.skills.reload_if_changed()  # pick up edited/added skills live
         if self.cfg.get("provider") in config.CLI_PROVIDERS:
             self._build_cli_system(text)
         else:

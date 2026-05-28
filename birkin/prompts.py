@@ -8,7 +8,26 @@ skill's full text.
 
 from __future__ import annotations
 
+from pathlib import Path
 from typing import Any, Optional
+
+# Optional layered prompt files composed from the workspace (cwd), if present —
+# identity/policy/tool notes, like hermes' SOUL/AGENTS/TOOLS.
+_WORKSPACE_PROMPT_FILES = ("SOUL.md", "AGENTS.md", "TOOLS.md")
+
+
+def workspace_prompt_block() -> str:
+    parts: list[str] = []
+    for name in _WORKSPACE_PROMPT_FILES:
+        path = Path.cwd() / name
+        if path.is_file():
+            try:
+                text = path.read_text(encoding="utf-8").strip()
+            except OSError:
+                continue
+            if text:
+                parts.append(f"## {name}\n{text}")
+    return "\n\n".join(parts)
 
 _IDENTITY = """You are birkin, a lightweight, self-improving CLI agent.
 
@@ -37,6 +56,10 @@ def build_system_prompt(*, skills_index: str = "", memory_block: str = "",
             "You are running as a SUBAGENT: you cannot see the parent "
             "conversation. Complete the given task fully and return a clear, "
             "self-contained result.")
+
+    workspace = workspace_prompt_block()
+    if workspace:
+        parts.append(workspace)
 
     parts.append(_TOOL_GUIDANCE)
 
@@ -74,6 +97,9 @@ def build_cli_system(*, memory_block: str = "",
     relevant to the request (full text, including bundled-script paths the CLI
     can run with its own shell)."""
     parts: list[str] = [_CLI_IDENTITY]
+    workspace = workspace_prompt_block()
+    if workspace:
+        parts.append(workspace)
     if memory_block:
         parts.append("## What you know about the user (birkin memory)\n"
                      + memory_block)

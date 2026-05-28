@@ -352,6 +352,36 @@ loop, and no new dependency.
 
 ---
 
+## ADR-017 — Skill freshness: hot-reload, gating, sync, layered prompts
+
+**Context.** Improvement plan Phase 4: keep the skill catalog fresh, scalable,
+and context-appropriate (codex ideas: watch, eligibility, upstream mirror,
+SOUL/AGENTS/TOOLS).
+
+**Decision.**
+- **Hot-reload**: `SkillManager.reload_if_changed()` compares a cheap mtime
+  signature (stat only, debounced) and re-discovers on change; called before
+  each turn so edited/added skills land without a restart.
+- **Gating**: `Skill.eligible` checks frontmatter `prerequisites.commands`
+  (via `shutil.which`) and `prerequisites.platforms`; `index()`/`route()` show
+  only eligible skills, while `get()`/`load_skill` can still load by name.
+- **Sync**: `birkin skills sync` (`skills/sync.py`) mirrors an upstream skill
+  tree (auto-detected hermes, or `--from`) into `~/.birkin/skills/mirrors/`,
+  preserving bundled scripts and appending a source-attribution line.
+- **Layered prompts**: `prompts.workspace_prompt_block()` composes `SOUL.md` /
+  `AGENTS.md` / `TOOLS.md` from the cwd into the system prompt when present.
+
+**Rationale.** Matches codex's freshness/scale features with stdlib-only,
+low-risk additions; gating prevents recommending skills that can't run here;
+sync grows the catalog on demand without bloating the shipped package.
+
+**Trade-off.** Hot-reload polls mtimes (no OS file-watch dependency); sync
+mirrors verbatim (upstream license/attribution preserved, not transformed).
+
+**Status.** Accepted.
+
+---
+
 ## ADR-010 — Single shared session, sequential dashboard server
 
 **Context.** Local, single-user tool.
