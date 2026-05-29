@@ -53,3 +53,33 @@ def test_restart_reloads_cli_access_safety(tmp_path, monkeypatch):
                                  "gateway_persistent": True})
     gw.handle("http", "c1", "/restart-gateway")
     assert gw.cfg["cli_access"] == "workspace"
+
+
+def test_hard_restart_sets_flag_without_execing(tmp_path, monkeypatch):
+    """handle() must only FLAG a hard restart — the channel re-execs after reply."""
+    gw = _gateway(tmp_path, monkeypatch)
+    assert gw.pending_hard_restart is False
+    out = gw.handle("http", "c1", "/hard-restart")
+    assert "hard restart" in out.lower()
+    assert gw.pending_hard_restart is True  # flagged, NOT yet re-executed
+
+
+def test_hard_restart_aliases(tmp_path, monkeypatch):
+    for cmd in ("/restart-hard", "/restart-gateway --hard", "/restart --hard"):
+        gw = _gateway(tmp_path, monkeypatch)
+        gw.handle("http", "c1", cmd)
+        assert gw.pending_hard_restart is True
+
+
+def test_do_hard_restart_reexecs_birkin_gateway(tmp_path, monkeypatch):
+    import os
+    import sys
+    gw = _gateway(tmp_path, monkeypatch)
+    captured = {}
+    monkeypatch.setattr(gw, "shutdown", lambda: captured.setdefault("shutdown", True))
+    monkeypatch.setattr(os, "execv",
+                        lambda path, argv: captured.update(path=path, argv=argv))
+    gw.do_hard_restart()
+    assert captured["shutdown"] is True               # warm sessions torn down first
+    assert captured["path"] == sys.executable
+    assert captured["argv"] == [sys.executable, "-m", "birkin", "gateway"]

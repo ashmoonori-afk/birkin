@@ -36,6 +36,8 @@ class Gateway:
         self._persistent = (bool(cfg.get("gateway_persistent", True))
                             and cfg.get("provider") == "claude-cli")
         self._claude_sessions: dict[tuple[str, str], ClaudeStreamSession] = {}
+        # Set by a /hard-restart command; the channel re-execs after replying.
+        self._hard_restart = False
 
     def _system_prompt(self) -> str:
         """birkin persona + memory + skill index, snapshot for a warm session."""
@@ -99,6 +101,27 @@ class Gateway:
         return ("♻️ Gateway restarted — reloaded config, persona, memory and "
                 "skills; warm sessions cleared (conversations start fresh).")
 
+    @property
+    def pending_hard_restart(self) -> bool:
+        return self._hard_restart
+
+    def do_hard_restart(self) -> None:
+        """Re-execute the gateway process (picks up CODE changes too).
+
+        Replaces the current process image, so this never returns. Warm Claude
+        subprocesses are terminated first to avoid orphans. Called by a channel
+        AFTER it has delivered the reply (and, for Telegram, acknowledged the
+        update so the /hard-restart message is not redelivered into a loop).
+        """
+        import os
+        import sys
+        try:
+            self.shutdown()
+        except Exception:
+            pass
+        print("[gateway] hard restart: re-executing `birkin gateway`…", flush=True)
+        os.execv(sys.executable, [sys.executable, "-m", "birkin", "gateway"])
+
     def handle(self, channel: str, chat_id: str, text: str) -> str:
         """Route one inbound message to the agent and return the reply.
 
@@ -114,6 +137,14 @@ class Gateway:
         # runs OUTSIDE it: a persistent ClaudeStreamSession has its own per-session
         # lock, so independent conversations are not serialized behind each other.
         with self._lock:
+            if text in ("/hard-restart", "/restart-hard",
+                        "/restart-gateway --hard", "/restart --hard"):
+                # The receiving channel re-execs after it delivers this reply.
+                self._hard_restart = True
+                print(f"[gateway] HARD restart requested via {channel}:{chat_id}",
+                      flush=True)
+                return ("♻️ Hard restart — re-executing `birkin gateway` to pick up "
+                        "code + config changes. Reconnecting in a moment…")
             if text in ("/restart-gateway", "/restart"):
                 print(f"[gateway] restart requested via {channel}:{chat_id}",
                       flush=True)

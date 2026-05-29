@@ -108,3 +108,11 @@ class TelegramChannel(Channel):
                     self._call("sendMessage", {"chat_id": chat_id, "text": reply[:4000]})
                 except Exception as exc:
                     print(f"[telegram] send error: {exc}")
+                if gateway.pending_hard_restart:
+                    # Confirm this update to Telegram BEFORE re-exec, so the new
+                    # process doesn't re-receive /hard-restart and loop forever.
+                    try:
+                        self._call("getUpdates", {"offset": offset, "timeout": 0})
+                    except Exception:
+                        pass
+                    gateway.do_hard_restart()  # replaces the process; never returns

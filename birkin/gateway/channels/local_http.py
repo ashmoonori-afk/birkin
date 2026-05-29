@@ -75,6 +75,12 @@ class LocalHTTPChannel(Channel):
                     self._json({"error": "empty text"}, 400); return
                 reply = gw.handle("http", session_id, text)
                 self._json({"reply": reply})
+                if gw.pending_hard_restart:
+                    try:
+                        self.wfile.flush()
+                    except OSError:
+                        pass
+                    gw.do_hard_restart()  # replaces the process; never returns
 
         httpd = HTTPServer(("127.0.0.1", self.port), Handler)
         print(f"  · http channel on http://127.0.0.1:{self.port} "
