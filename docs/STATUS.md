@@ -18,6 +18,9 @@ OAuth, no paid API key).
   2. `birkin/claude_session.py` — one **warm** `claude` stream-json process per
      conversation (cold-start paid once; warm turns ~model-time ~3s, context
      kept). Wired into the gateway via `gateway_persistent` (default true).
+- Gateway chat commands: `/new` (fresh conversation) and **`/restart-gateway`**
+  (alias `/restart`) — soft-restart in place: reload config/persona/memory/skills
+  and drop warm sessions, no process kill (code changes still need a real restart).
 - **Direct-API OAuth is parked, not used:** Anthropic meters third-party OAuth
   API use as paid `extra_usage` (≠ free Claude Code billing). `birkin/oauth.py`
   is retained only for the read-only usage check. See ADR-026.

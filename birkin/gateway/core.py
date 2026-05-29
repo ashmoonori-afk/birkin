@@ -72,6 +72,33 @@ class Gateway:
             sess.close()
         self._claude_sessions.clear()
 
+    def restart(self) -> str:
+        """Soft-restart the gateway in place (channels stay up).
+
+        Reloads config + persona + memory + skills + MCP allow-list and tears
+        down every warm Claude session, so the next message reflects current
+        settings. Conversations start fresh. The process is NOT killed, so code
+        changes still require restarting `birkin gateway`. Callers hold the lock.
+        """
+        for sess in list(self._claude_sessions.values()):
+            sess.close()
+        self._claude_sessions.clear()
+        self._chats.clear()
+        cfg = config.load_config()
+        if cfg.get("gateway_model"):
+            cfg = {**cfg, "model": cfg["gateway_model"]}
+        if cfg.get("cli_access") == "full":
+            cfg = {**cfg, "cli_access": "workspace"}
+        self.cfg = cfg
+        self._persistent = (bool(cfg.get("gateway_persistent", True))
+                            and cfg.get("provider") == "claude-cli")
+        try:
+            self.session = build_session(cfg)
+        except ConfigError as exc:
+            return f"[restart] config error: {exc}"
+        return ("♻️ Gateway restarted — reloaded config, persona, memory and "
+                "skills; warm sessions cleared (conversations start fresh).")
+
     def handle(self, channel: str, chat_id: str, text: str) -> str:
         """Route one inbound message to the agent and return the reply.
 
@@ -87,6 +114,10 @@ class Gateway:
         # runs OUTSIDE it: a persistent ClaudeStreamSession has its own per-session
         # lock, so independent conversations are not serialized behind each other.
         with self._lock:
+            if text in ("/restart-gateway", "/restart"):
+                print(f"[gateway] restart requested via {channel}:{chat_id}",
+                      flush=True)
+                return self.restart()
             if text in ("/new", "/reset"):
                 # Pop (not just reset) so a racing in-flight turn keeps its own
                 # object and the NEXT turn builds a clean session.
@@ -144,6 +175,8 @@ def run() -> int:
     mode = "warm/persistent" if gateway._persistent else "per-message"
     print(f"birkin gateway up · model {gateway.cfg.get('model')} · {mode} · "
           f"channels: {', '.join(c.name for c in channels)}")
+    print("  chat commands: /new (fresh conversation) · "
+          "/restart-gateway (reload config/persona/memory, clear warm sessions)")
     threads = []
     for ch in channels:
         t = threading.Thread(target=ch.start, args=(gateway,), daemon=True)
