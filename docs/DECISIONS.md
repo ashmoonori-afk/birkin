@@ -8,6 +8,39 @@ older ones (noted inline).
 
 ---
 
+## ADR-028 — Morpheus on the free path: birkin-as-MCP-server + sandboxed Claude
+
+**Context.** Morpheus (the nightly self-improvement routine) needs birkin's
+structured tools — the memory-OS (write/search with frontmatter + versioning),
+skill authoring, and the approval-gated `propose_action`. On the free claude-cli
+backend, `claude` runs its OWN tools, so (1) birkin's structured tools were not
+available to it, and (2) the intended unattended sandbox (no shell/subagent) was
+**bypassed** — `claude` ran with `acceptEdits` and full tools, a real risk for an
+unattended company agent.
+
+**Decision.** birkin now *provides* its tools over MCP — `birkin/mcp_server.py`,
+a stdlib stdio JSON-RPC server (`birkin mcp-serve`) exposing only safe,
+reversible, LLM-free tools: memory (remember / write / search / get / link),
+create/improve_skill (the body is authored by the caller, not a birkin LLM call),
+and propose_action (→ the approval queue). Morpheus runs a **sandboxed** Claude
+Code session: `--mcp-config <birkin>` + `--strict-mcp-config` +
+`--allowedTools "Read,Glob,Grep,mcp__birkin__*"` — **no Bash, no arbitrary file
+writes**. The nightly pass is therefore free (subscription), structured (birkin's
+tools), and secure (cannot run shell). The API-key path keeps birkin's own
+restricted agent loop. Verified: `claude` connects to the birkin MCP server
+(`status: connected`) and sees all 8 `mcp__birkin__*` tools.
+
+**Rationale.** This inverts ADR-027 (birkin *consumes* MCP) into birkin
+*providing* MCP — the one mechanism that gives Claude Code access to birkin's
+structured, auditable tools while staying free, and it doubles as a per-tool
+security boundary (the `--allowedTools` allowlist) for unattended runs.
+
+**Status.** Done. MCP server + `mcp-serve` + provider-aware sandboxed Morpheus;
+321 tests pass. The gateway can opt into the same birkin MCP (memory-in-chat) via
+`gateway_allowed_tools` + an `--mcp-config` flag (follow-up).
+
+---
+
 ## ADR-027 — Company MCP tools: inherit Claude Code's MCP, surface it in birkin
 
 **Context.** As a company agent, the gateway must connect "naturally" to the

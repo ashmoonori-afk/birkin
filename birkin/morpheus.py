@@ -97,8 +97,81 @@ def _gather_changed_files(root: Path, hours: float = 24.0, limit: int = 60) -> s
     return "\n".join(f"- {f}" for f in found) or "(no files changed in the last 24h)"
 
 
+_MORPHEUS_SYSTEM = (
+    "You are birkin's nightly self-improvement routine (Morpheus). You run "
+    "UNATTENDED while the user sleeps, so be concrete and conservative and never "
+    "do anything destructive. Persist what you learn and propose helpful actions "
+    "using the birkin tools provided over MCP (mcp__birkin__memory_write_note, "
+    "mcp__birkin__create_skill, mcp__birkin__propose_action, …); analyze the "
+    "workspace with Read/Glob/Grep only. You have no shell access.")
+
+
 def run_once(dry_run: bool = False) -> int:
     cfg = config.load_config()
+    cwd = Path.cwd()
+    sessions_text = _gather_sessions()
+    files_text = _gather_changed_files(cwd)
+    activity = store.read_recent_activity() or "(empty)"
+    task = _MORPHEUS_TASK.format(
+        date=datetime.now().strftime("%Y-%m-%d"),
+        dry=("(DRY RUN: only analyze — do not write memory/skills or propose.)"
+             if dry_run else ""),
+        sessions=sessions_text, files=files_text, activity=activity[:6000])
+    n_files = files_text.count("\n- ") + (1 if "- " in files_text else 0)
+
+    if cfg.get("provider") in config.CLI_PROVIDERS:
+        return _run_claude_morpheus(cfg, task, dry_run, n_files)
+    return _run_birkin_morpheus(cfg, task, dry_run, n_files)
+
+
+def _run_claude_morpheus(cfg: dict[str, Any], task: str, dry_run: bool,
+                         n_files: int) -> int:
+    """Free + secure path: a sandboxed Claude Code run that calls birkin's MCP
+    tools. SECURITY: only Read/Glob/Grep + the birkin MCP tools are allowed —
+    no Bash, no arbitrary file writes — so an unattended run cannot do harm."""
+    import os
+    import tempfile
+
+    from . import mcp_server
+    from .claude_session import ClaudeStreamSession
+
+    fd, cfg_path = tempfile.mkstemp(suffix="-birkin-mcp.json")
+    os.close(fd)
+    mcp_server.write_mcp_config(Path(cfg_path))
+    allowed = ["Read", "Glob", "Grep"]
+    if not dry_run:
+        allowed += mcp_server.birkin_tool_patterns()  # mcp__birkin__*
+    extra = ["--mcp-config", cfg_path, "--allowedTools", ",".join(allowed),
+             "--strict-mcp-config"]
+    sess = ClaudeStreamSession(
+        model=cfg.get("model"), cli_access="workspace",
+        append_system_prompt=_MORPHEUS_SYSTEM, extra_args=extra,
+        turn_timeout=900.0)
+    print("birkin morpheus: analyzing the last 24h… (sandboxed Claude + birkin MCP)")
+    try:
+        summary = sess.ask(task)
+    except Exception as exc:
+        msg = f"morpheus failed: {exc}"
+        print(msg)
+        store.save_run("morpheus", msg)
+        return 1
+    finally:
+        sess.close()
+        try:
+            os.unlink(cfg_path)
+        except OSError:
+            pass
+    store.save_run("morpheus", summary,
+                   {"backend": "claude-mcp", "changed_files": n_files,
+                    "dry_run": dry_run})
+    print("\n=== morpheus summary ===\n" + summary)
+    print("\nReview any proposed actions with `birkin review`.")
+    return 0
+
+
+def _run_birkin_morpheus(cfg: dict[str, Any], task: str, dry_run: bool,
+                         n_files: int) -> int:
+    """API-key path: birkin's own agent loop with a restricted registry."""
     try:
         session = build_session(cfg)
     except ConfigError as exc:
@@ -106,11 +179,6 @@ def run_once(dry_run: bool = False) -> int:
         print(msg)
         store.save_run("morpheus", msg)
         return 1
-
-    cwd = session.ctx.cwd
-    sessions_text = _gather_sessions()
-    files_text = _gather_changed_files(cwd)
-    activity = store.read_recent_activity() or "(empty)"
 
     # SECURITY: the morpheus routine runs unattended, so it must NOT have direct
     # shell or subagent access. It may read/write files, browse, and update
@@ -123,11 +191,6 @@ def run_once(dry_run: bool = False) -> int:
     proposals: list[dict[str, Any]] = []
     _attach_propose_tool(session, cfg, proposals, dry_run)
 
-    task = _MORPHEUS_TASK.format(
-        date=datetime.now().strftime("%Y-%m-%d"),
-        dry=("(DRY RUN: do not call propose_action.)" if dry_run else ""),
-        sessions=sessions_text, files=files_text, activity=activity[:6000])
-
     print("birkin morpheus: analyzing the last 24h…")
     try:
         summary = session.ask(task)
@@ -137,8 +200,7 @@ def run_once(dry_run: bool = False) -> int:
         store.save_run("morpheus", msg)
         return 1
 
-    details = {"proposals": proposals,
-               "changed_files": files_text.count("\n- ") + (1 if "- " in files_text else 0)}
+    details = {"proposals": proposals, "changed_files": n_files}
     store.save_run("morpheus", summary, details)
     print("\n=== morpheus summary ===\n" + summary)
     if proposals:

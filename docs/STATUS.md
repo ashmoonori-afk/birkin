@@ -23,6 +23,17 @@ OAuth, no paid API key).
   is retained only for the read-only usage check. See ADR-026.
 - Tests: 287 pass (8 new for `claude_session`). Verified live (cold ~8s, warm ~3s).
 
+## Morpheus — free + structured + secure (2026-05-29) — see ADR-028
+
+- birkin *provides* its structured tools over MCP: `birkin/mcp_server.py`
+  (`birkin mcp-serve`, stdio JSON-RPC) exposes memory, create/improve_skill, and
+  approval-gated propose_action — never shell.
+- The nightly Morpheus runs a **sandboxed** Claude Code session
+  (`--mcp-config birkin --strict-mcp-config --allowedTools Read,Glob,Grep,
+  mcp__birkin__*`) → free, structured, and **cannot run shell** unattended.
+  Provider-aware: API-key configs keep birkin's own restricted loop.
+- Verified: `claude` connects to the birkin MCP server + sees all 8 tools. 321 tests.
+
 ## MCP — company tool connections (2026-05-29) — see ADR-027
 
 - The gateway runs on Claude Code, so it **inherits Claude Code's MCP servers**

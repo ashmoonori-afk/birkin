@@ -298,6 +298,12 @@ def _cmd_permission(args: argparse.Namespace) -> int:
     return 0
 
 
+def _cmd_mcp_serve(args: argparse.Namespace) -> int:
+    """Run birkin as an MCP server over stdio (for `claude --mcp-config`)."""
+    from . import mcp_server
+    return mcp_server.serve()
+
+
 def _cmd_mcp(args: argparse.Namespace) -> int:
     """Manage MCP servers via the `claude` CLI (the gateway inherits them)."""
     from . import mcp
@@ -490,6 +496,12 @@ def build_parser() -> argparse.ArgumentParser:
     mcpp.add_argument("args", nargs=argparse.REMAINDER,
                       help="passed straight to `claude mcp` (e.g. list, add, remove, get)")
     mcpp.set_defaults(func=_cmd_mcp)
+
+    sub.add_parser(
+        "mcp-serve",
+        help="run birkin as an MCP server (stdio) exposing memory/skills/propose "
+             "tools — used by Morpheus and the gateway via `claude --mcp-config`"
+        ).set_defaults(func=_cmd_mcp_serve)
 
     return p
 
