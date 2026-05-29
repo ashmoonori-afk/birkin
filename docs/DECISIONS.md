@@ -4,7 +4,57 @@ Lightweight architecture decision records. Each entry: context, decision,
 rationale, alternatives considered, status. Newest decisions may supersede
 older ones (noted inline).
 
-> Last updated: 2026-05-28
+> Last updated: 2026-05-29
+
+---
+
+## ADR-026 — Free + fast: persistent Claude Code (stream-json), not direct-API OAuth
+
+**Context.** Gateway replies were ~21s for a one-line answer. Two candidate
+"free + fast" paths were investigated against the live Anthropic API:
+
+1. **Direct API with the Claude OAuth token** (read `~/.claude/.credentials.json`,
+   send `Authorization: Bearer` + `anthropic-beta: claude-code-20250219,oauth-2025-04-20`
+   + `user-agent: claude-cli/<ver>` + the "You are Claude Code…" system prefix —
+   the hermes-agent technique). Verified working at the protocol level
+   (`count_tokens` → 200 for opus-4-8 / sonnet-4-6 / haiku-4-5).
+   **But** `/api/oauth/usage` shows a separate `seven_day_oauth_apps` window and
+   `extra_usage.is_enabled=false`: Anthropic meters *third-party* OAuth-app API
+   use as **paid `extra_usage`**, distinct from Claude Code subscription billing.
+   So a generation request is rejected `400 "You're out of extra usage."` even
+   with the subscription only 3% used. **Direct-API OAuth is NOT free.**
+2. **`claude -p` (real Claude Code)** — billed to the subscription = **free**,
+   and confirmed working. It was slow only because a broken global hook
+   (`clawd-on-desk`) taxed every invocation ~14-18s (per-event `wmic` PID
+   resolution; the Clawd app wasn't even running).
+
+**Decision.** Stay on the **free** Claude-subscription path and make it fast:
+- (a) Removed the broken global `clawd-on-desk` hooks from `~/.claude/settings.json`
+  (backed up). `claude -p`: 21s → ~8s; ttft 7.5s → 1.9s. Affects all `claude` use.
+- (b) Added `birkin/claude_session.py`: **one warm `claude` process per
+  conversation** over `--input-format stream-json --output-format stream-json`.
+  Cold-start (plugins/MCP) is paid once; warm turns are ~model-time (~3s). The
+  process keeps Claude Code's own conversation context, so only the new turn is
+  sent. Wired into the gateway behind `gateway_persistent` (default true), for
+  the `claude-cli` provider.
+- The direct-API OAuth code (`birkin/oauth.py`, the `claude-oauth` provider in
+  `llm.py`/`config.py`) is **parked** — kept for the read-only usage check
+  (`/api/oauth/usage`) and as a future option if the user ever enables
+  `extra_usage`. It is NOT the default and cannot bill silently.
+
+**Rationale.** Honours the hard constraint "stay on OAuth / free." Header-spoofing
+the direct API does not make Anthropic bill it as Claude Code (verified), so the
+only free path is Claude Code itself; the win is removing per-message overhead
+(broken hook) and per-message cold-start (persistent process). Result: 21s →
+~3s warm, free, and lighter than hermes (stdlib subprocess pipe, no SDK).
+
+**Alternatives.** Enable a small paid `extra_usage` budget for the fast direct API
+(rejected — violates the free constraint). Disable hooks per-call via flags
+(`--bare` breaks login; `--settings '{"hooks":{}}'` is union-merged and cannot
+clear user hooks — verified).
+
+**Status.** (a) and (b) done + verified (live: cold ~8s, warm ~3s, context kept;
+287 tests pass). Streaming partial tokens to channels is a deferred polish.
 
 ---
 

@@ -400,6 +400,46 @@ def _quit(session: Any, arg: str) -> str:
 
 # -- shared with repl ------------------------------------------------------
 
+# -- persona ---------------------------------------------------------------
+
+@command("soul", "Show birkin's persona (or its file path).", "/soul [path|reset]",
+         aliases=["persona"])
+def _soul(session: Any, arg: str) -> None:
+    from . import persona
+    a = arg.strip().lower()
+    if a == "path":
+        print(persona.soul_path())
+        return
+    if a == "reset":
+        persona.seed_default(force=True)
+        print(f"{GREEN}Persona reset to the default warm voice.{RESET}")
+        return
+    text = persona.read_soul()
+    if not text:
+        print(f"{DIM}No SOUL.md set — using the built-in default voice. "
+              f"Create {persona.soul_path()} or use /personality.{RESET}")
+    else:
+        print(f"{DIM}{persona.soul_path()}{RESET}\n{text}")
+
+
+@command("personality", "Switch persona to a built-in preset.",
+         "/personality [warm|concise|mentor|direct]")
+def _personality(session: Any, arg: str) -> None:
+    from . import persona
+    name = arg.strip().lower()
+    if not name:
+        cur = persona.read_soul()
+        print(f"Presets: {', '.join(persona.PRESETS)}")
+        print(f"{DIM}Current persona:\n{cur or '(built-in default)'}{RESET}")
+        return
+    preset = persona.PRESETS.get(name)
+    if not preset:
+        print(f"{RED}Unknown preset {name!r}. Choose: {', '.join(persona.PRESETS)}.{RESET}")
+        return
+    persona.write_soul(preset)
+    print(f"{GREEN}Persona set to '{name}'. Applies immediately (incl. gateway).{RESET}")
+
+
 def sys_write(session: Any, text: str) -> None:
     """Send `text` to the agent and stream the reply (used by /retry)."""
     import sys

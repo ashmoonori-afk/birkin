@@ -10,7 +10,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Callable, Optional
 
-from . import budget, config, prompts, store
+from . import budget, config, persona, prompts, store
 from .agent import Agent
 from .llm import LLMClient, build_client
 from .memory import Memory
@@ -32,10 +32,14 @@ class Session:
     agent: Agent
 
     def refresh_system_prompt(self) -> None:
-        """Rebuild the system prompt to reflect current skills/memory."""
+        """Rebuild the system prompt to reflect current skills/memory/persona.
+
+        The persona (``SOUL.md``) is read fresh each turn so edits — and
+        ``/personality`` swaps — take effect with no restart."""
         self.agent.system = prompts.build_system_prompt(
             skills_index=self.skills.index(),
-            memory_block=self.memory.render())
+            memory_block=self.memory.render(),
+            persona=persona.read_soul())
 
     def _build_cli_system(self, text: str) -> None:
         """For CLI-agent backends: inject identity + memory + skills routed to
@@ -43,7 +47,8 @@ class Session:
         routed = self.skills.route(text, limit=3)
         preloaded = [self.skills.render_skill(s) for s in routed]
         self.agent.system = prompts.build_cli_system(
-            memory_block=self.memory.render(), preloaded=preloaded or None)
+            memory_block=self.memory.render(), preloaded=preloaded or None,
+            persona=persona.read_soul())
 
     def ask(self, text: str,
             on_text: Optional[Callable[[str], None]] = None) -> str:
@@ -56,12 +61,23 @@ class Session:
                                     "blocked_by": "budget"},
                            usage=store.estimate_usage(text))
             return why
+        import os
+        import time
+        timing = os.environ.get("BIRKIN_TIMING")
+        t0 = time.monotonic()
         self.skills.reload_if_changed()  # pick up edited/added skills live
         if self.cfg.get("provider") in config.CLI_PROVIDERS:
             self._build_cli_system(text)
         else:
             self.refresh_system_prompt()
+        t1 = time.monotonic()
         reply = self.agent.run(text, on_text=on_text)
+        t2 = time.monotonic()
+        if timing:
+            print(f"[birkin-timing] prompt={ (t1 - t0) * 1000:.0f}ms "
+                  f"agent={(t2 - t1) * 1000:.0f}ms total={(t2 - t0) * 1000:.0f}ms "
+                  f"(provider={self.cfg.get('provider')}, model={self.cfg.get('model')})",
+                  flush=True)
         self._record_turn(text, reply)
         return reply
 
@@ -91,6 +107,11 @@ def build_session(cfg: Optional[dict[str, Any]] = None,
     api_key = config.get_api_key(cfg)
     if not api_key:
         provider = cfg.get("provider", "anthropic")
+        if provider in config.OAUTH_PROVIDERS:
+            raise ConfigError(
+                "Not logged in to Claude. Run `claude /login` (or "
+                "`claude setup-token`) so birkin can use your Claude "
+                "subscription, then retry. No API key is needed.")
         env = config.PROVIDER_API_KEY_ENV.get(provider, "ANTHROPIC_API_KEY")
         raise ConfigError(
             f"No API key found. Set the {env} environment variable, "

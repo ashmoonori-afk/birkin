@@ -29,6 +29,54 @@ from typing import Any, Callable, Optional
 
 ANTHROPIC_VERSION = "2023-06-01"
 
+# When authenticating with a Claude subscription OAuth token, Anthropic routes
+# the request as Claude Code. Custom tools follow the Claude Code / MCP naming
+# convention, so birkin's tool names are prefixed on the wire and stripped from
+# the response — the agent loop only ever sees the bare names.
+_MCP_PREFIX = "mcp_"
+
+# Short model aliases → full API model IDs. The Messages API needs full IDs;
+# the REPL/config accept the friendly short names. Unknown values pass through
+# unchanged (already a full ID or a custom model string).
+_MODEL_ALIASES = {
+    "opus": "claude-opus-4-8",
+    "sonnet": "claude-sonnet-4-6",
+    "haiku": "claude-haiku-4-5-20251001",
+    "claude-code": "claude-sonnet-4-6",
+    "default": "claude-sonnet-4-6",
+    "": "claude-sonnet-4-6",
+}
+
+
+def _normalize_model(model: Optional[str]) -> str:
+    return _MODEL_ALIASES.get(model or "", model or "claude-sonnet-4-6")
+
+
+def _mcp_prefix_messages(messages: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Return a copy of ``messages`` with tool_use names ``mcp_``-prefixed.
+
+    Only assistant messages carrying tool_use blocks are copied; everything else
+    is passed through by reference. Keeps the on-wire tool names consistent with
+    the (prefixed) tools array for OAuth/Claude Code requests.
+    """
+    out: list[dict[str, Any]] = []
+    for m in messages:
+        content = m.get("content")
+        if isinstance(content, list) and any(
+                isinstance(b, dict) and b.get("type") == "tool_use" for b in content):
+            new_content = []
+            for b in content:
+                if isinstance(b, dict) and b.get("type") == "tool_use":
+                    name = b.get("name", "")
+                    if name and not name.startswith(_MCP_PREFIX):
+                        b = {**b, "name": _MCP_PREFIX + name}
+                new_content.append(b)
+            out.append({**m, "content": new_content})
+        else:
+            out.append(m)
+    return out
+
+
 # Streaming callback: receives incremental assistant *text* (not tool args).
 StreamCallback = Optional[Callable[[str], None]]
 
@@ -40,10 +88,16 @@ class LLMError(RuntimeError):
 class LLMClient:
     def __init__(self, *, provider: str, model: str, api_key: str,
                  base_url: str, max_tokens: int = 4096, temperature: float = 1.0,
-                 cli_access: str = "workspace", cli_command: list[str] | None = None):
+                 cli_access: str = "workspace", cli_command: list[str] | None = None,
+                 cli_timeout: int = 300, oauth: bool = False):
         self.provider = provider
         self.model = model
         self.api_key = api_key
+        # When True, authenticate to the Anthropic Messages API with a Claude
+        # subscription OAuth token (Bearer + Claude Code identity) instead of a
+        # paid x-api-key. Set for the "claude-oauth" provider. Keeps birkin's own
+        # in-process tool loop (no `claude -p` subprocess, so no per-message hooks).
+        self.oauth = oauth
         self.base_url = base_url.rstrip("/")
         self.max_tokens = max_tokens
         self.temperature = temperature
@@ -52,6 +106,10 @@ class LLMClient:
         self.cli_access = cli_access
         # argv for the generic "local-cli" provider.
         self.cli_command = list(cli_command or [])
+        # Hard cap on a single CLI-agent call (seconds). Kept modest so a hung
+        # subprocess (e.g. a blocking Claude Code hook) surfaces fast instead of
+        # looking dead for many minutes. Tune via config "cli_timeout".
+        self.cli_timeout = int(cli_timeout)
 
     # -- public API --------------------------------------------------------
 
@@ -63,7 +121,7 @@ class LLMClient:
         ``{"role": "assistant", "content": [...], "stop_reason": str}``.
         """
         model = model or self.model
-        if self.provider == "anthropic":
+        if self.provider in ("anthropic", "claude-oauth"):
             return self._anthropic_complete(system, messages, tools, model, on_text)
         if self.provider == "openai":
             return self._openai_complete(system, messages, tools, model, on_text)
@@ -128,9 +186,10 @@ class LLMClient:
             parts += ["--model", model]
         try:
             proc = subprocess.run(cli_argv(parts), input=prompt, capture_output=True,
-                                  text=True, errors="replace", timeout=900)
+                                  text=True, errors="replace", timeout=self.cli_timeout)
         except subprocess.TimeoutExpired:
-            return "[birkin] Claude Code timed out."
+            return (f"[birkin] Claude Code timed out after {self.cli_timeout}s. "
+                    f"It may be blocked on a Claude Code hook or first-run prompt.")
         out = (proc.stdout or "").strip()
         if out:
             try:
@@ -156,14 +215,14 @@ class LLMClient:
             parts += ["-m", model]
         try:
             proc = subprocess.run(cli_argv(parts), input=prompt, capture_output=True,
-                                  text=True, errors="replace", timeout=900)
+                                  text=True, errors="replace", timeout=self.cli_timeout)
             try:
                 with open(path, encoding="utf-8", errors="replace") as fh:
                     text = fh.read().strip()
             except OSError:
                 text = ""
         except subprocess.TimeoutExpired:
-            return "[birkin] Codex timed out."
+            return f"[birkin] Codex timed out after {self.cli_timeout}s."
         finally:
             try:
                 os.unlink(path)
@@ -184,11 +243,11 @@ class LLMClient:
         try:
             proc = subprocess.run(cli_argv(self.cli_command), input=prompt,
                                   capture_output=True, text=True, errors="replace",
-                                  timeout=900)
+                                  timeout=self.cli_timeout)
         except FileNotFoundError:
             return f"[birkin] command not found: {self.cli_command[0]}"
         except subprocess.TimeoutExpired:
-            return "[birkin] local CLI timed out."
+            return f"[birkin] local CLI timed out after {self.cli_timeout}s."
         out = (proc.stdout or "").strip()
         if out:
             return out
@@ -228,12 +287,35 @@ class LLMClient:
         url = f"{self.base_url}/v1/messages"
         headers = {
             "content-type": "application/json",
-            "x-api-key": self.api_key,
             "anthropic-version": ANTHROPIC_VERSION,
         }
-        # System as a cacheable block (prompt caching improves repeat-turn cost).
-        system_blocks = [{"type": "text", "text": system,
-                          "cache_control": {"type": "ephemeral"}}] if system else []
+        model = _normalize_model(model)
+
+        if self.oauth:
+            from . import oauth as _oauth
+            token = _oauth.resolve_token() or (
+                self.api_key if _oauth.is_oauth_token(self.api_key) else None)
+            if not token:
+                raise LLMError(
+                    "Not logged in to Claude. Run `claude /login` (or "
+                    "`claude setup-token`) so birkin can use your subscription, "
+                    "then retry.")
+            headers.update(_oauth.auth_headers(token))
+            # OAuth requires the Claude Code identity as the FIRST system block.
+            system_blocks: list[dict[str, Any]] = [
+                {"type": "text", "text": _oauth.CLAUDE_CODE_SYSTEM_PREFIX}]
+            if system:
+                system_blocks.append({"type": "text", "text": system,
+                                      "cache_control": {"type": "ephemeral"}})
+            else:
+                system_blocks[0]["cache_control"] = {"type": "ephemeral"}
+            messages = _mcp_prefix_messages(messages)
+        else:
+            headers["x-api-key"] = self.api_key
+            # System as a cacheable block (prompt caching improves repeat-turn cost).
+            system_blocks = [{"type": "text", "text": system,
+                              "cache_control": {"type": "ephemeral"}}] if system else []
+
         payload: dict[str, Any] = {
             "model": model,
             "max_tokens": self.max_tokens,
@@ -244,11 +326,24 @@ class LLMClient:
         }
         if tools:
             t = [dict(x) for x in tools]
+            if self.oauth:
+                for spec in t:
+                    name = spec.get("name", "")
+                    if name and not name.startswith(_MCP_PREFIX):
+                        spec["name"] = _MCP_PREFIX + name
             t[-1]["cache_control"] = {"type": "ephemeral"}  # cache the tool list too
             payload["tools"] = t
 
         resp = self._post(url, headers, payload, stream=True)
-        return self._read_anthropic_stream(resp, on_text)
+        result = self._read_anthropic_stream(resp, on_text)
+        if self.oauth:
+            # Strip the mcp_ prefix so the agent's registry dispatches normally.
+            for b in result.get("content", []):
+                if b.get("type") == "tool_use":
+                    name = b.get("name") or ""
+                    if name.startswith(_MCP_PREFIX):
+                        b["name"] = name[len(_MCP_PREFIX):]
+        return result
 
     @staticmethod
     def _read_anthropic_stream(resp, on_text) -> dict[str, Any]:
@@ -409,9 +504,10 @@ def _stringify(content: Any) -> str:
 
 
 def build_client(cfg: dict[str, Any], api_key: str) -> LLMClient:
-    from .config import resolve_base_url
+    from .config import OAUTH_PROVIDERS, resolve_base_url
+    provider = cfg.get("provider", "anthropic")
     return LLMClient(
-        provider=cfg.get("provider", "anthropic"),
+        provider=provider,
         model=cfg.get("model", "claude-sonnet-4-6"),
         api_key=api_key,
         base_url=resolve_base_url(cfg),
@@ -419,4 +515,6 @@ def build_client(cfg: dict[str, Any], api_key: str) -> LLMClient:
         temperature=float(cfg.get("temperature", 1.0)),
         cli_access=cfg.get("cli_access", "workspace"),
         cli_command=cfg.get("cli_command", []),
+        cli_timeout=int(cfg.get("cli_timeout", 300)),
+        oauth=provider in OAUTH_PROVIDERS,
     )

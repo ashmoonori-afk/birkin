@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import os
 
-from . import config, menu
+from . import config, menu, persona
 from .ui import BOLD, CYAN, DIM, GREEN, RESET, YELLOW
 
 _ASCII = r"""
@@ -126,6 +126,11 @@ def run() -> int:
 
     config.save_config(cfg)
     print(f"\n{GREEN}Saved to {config.config_path()}{RESET}")
+
+    # Persona — seed an editable SOUL.md so the user can shape birkin's voice.
+    if persona.seed_default():
+        print(f"  {DIM}Persona seeded at {persona.soul_path()} — edit it, or use "
+              f"/personality warm|concise|mentor|direct.{RESET}")
 
     # 7. Optional: OS-native daily schedule
     if _ask_yesno("Register a daily OS task so the Morpheus routine runs even "

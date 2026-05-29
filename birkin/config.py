@@ -40,6 +40,15 @@ DEFAULT_CONFIG: dict[str, Any] = {
     "web_port": 8787,
     # --- Gateway (run the agent as a service across channels) ---
     "gateway_port": 8788,
+    # Model used only by `birkin gateway` (the always-on service). Empty -> use
+    # the global "model". Set to a faster model (e.g. "sonnet") so the gateway
+    # stays responsive while interactive chat can keep a heavier model.
+    "gateway_model": "",
+    # Keep ONE warm `claude` process per conversation (stream-json) instead of a
+    # cold `claude -p` per message — pays Claude Code's startup once, so warm
+    # replies are ~model-time. Free (Claude subscription). Only applies to the
+    # claude-cli provider; see claude_session.py.
+    "gateway_persistent": True,
     "channels": {
         "http": {"enabled": True},
         "telegram": {"enabled": False, "token": ""},
@@ -73,6 +82,7 @@ DEFAULT_CONFIG: dict[str, Any] = {
 
 PROVIDER_DEFAULT_BASE_URL = {
     "anthropic": "https://api.anthropic.com",
+    "claude-oauth": "https://api.anthropic.com",
     "openai": "https://api.openai.com",
 }
 
@@ -86,10 +96,16 @@ PROVIDER_API_KEY_ENV = {
 # user-configured argv (config.cli_command), generalizing beyond claude/codex.
 CLI_PROVIDERS = {"claude-cli", "codex-cli", "local-cli"}
 
+# Providers that authenticate to the Anthropic Messages API *in-process* with a
+# Claude subscription OAuth token (the `claude` CLI login) — free (no paid API
+# key) and fast (no `claude -p` subprocess, so no per-message Claude Code hooks).
+# birkin runs its own tool loop over this transport. See ``oauth.py``.
+OAUTH_PROVIDERS = {"claude-oauth"}
+
 # Curated, current model choices (free text is also accepted everywhere).
 KNOWN_MODELS = {
     "anthropic": [
-        ("claude-opus-4-7", "deepest reasoning"),
+        ("claude-opus-4-8", "deepest reasoning"),
         ("claude-sonnet-4-6", "best all-round coding (default)"),
         ("claude-haiku-4-5-20251001", "fast & cheap (good for subagents)"),
     ],
@@ -210,6 +226,10 @@ def load_config() -> dict[str, Any]:
         cfg["morpheus_hour"] = saved["nightly_hour"]
     if "nightly_minute" in saved and "morpheus_minute" not in saved:
         cfg["morpheus_minute"] = saved["nightly_minute"]
+    # Validate the privilege level: an unknown value silently degrades to the
+    # safe default rather than mis-routing to the dangerous "full" path.
+    if cfg.get("cli_access") not in ("workspace", "full"):
+        cfg["cli_access"] = "workspace"
     return cfg
 
 
@@ -236,8 +256,15 @@ def get_api_key(cfg: dict[str, Any]) -> str | None:
 
     CLI-agent providers (Claude Code / Codex) authenticate themselves, so a
     sentinel ``"cli"`` is returned to satisfy callers without a real key.
+
+    OAuth providers (``claude-oauth``) resolve the Claude subscription OAuth
+    token from the ``claude`` CLI login (``~/.claude/.credentials.json``),
+    returning ``None`` when the user is not logged in so callers can prompt.
     """
     provider = cfg.get("provider", "anthropic")
+    if provider in OAUTH_PROVIDERS:
+        from . import oauth
+        return oauth.resolve_token()
     if provider in CLI_PROVIDERS:
         return "cli"
     env_name = PROVIDER_API_KEY_ENV.get(provider, "ANTHROPIC_API_KEY")

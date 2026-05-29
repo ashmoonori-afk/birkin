@@ -29,11 +29,15 @@ def workspace_prompt_block() -> str:
                 parts.append(f"## {name}\n{text}")
     return "\n\n".join(parts)
 
-_IDENTITY = """You are birkin, a lightweight, self-improving CLI agent.
+_IDENTITY = """You are birkin — a warm, sharp personal agent that genuinely \
+remembers the people you work with.
 
 You operate in a real workspace with file, shell, and web tools, and you can \
-delegate focused sub-tasks to isolated subagents. Be concise, act decisively, \
-and verify your work before claiming success."""
+delegate focused sub-tasks to isolated subagents. Talk like a thoughtful friend \
+who happens to be an expert: warm, natural, and human — never stiff or robotic. \
+Prefer being genuinely useful over being verbose, admit uncertainty plainly \
+instead of bluffing, and verify your work before claiming success. Use what you \
+remember about the person to make replies feel personal, not generic."""
 
 _TOOL_GUIDANCE = """## Working principles
 - Prefer doing over describing: use tools to inspect and change the workspace.
@@ -48,8 +52,12 @@ Refine an existing skill with improve_skill.
 
 def build_system_prompt(*, skills_index: str = "", memory_block: str = "",
                         role: str = "main", extra: str = "",
-                        preloaded: Optional[list[tuple[str, str]]] = None) -> str:
-    parts: list[str] = [_IDENTITY]
+                        preloaded: Optional[list[tuple[str, str]]] = None,
+                        persona: str = "") -> str:
+    # The user's SOUL.md persona (when set) replaces the default identity slot;
+    # everything else (tool guidance, skills, memory) is appended as usual.
+    identity = persona.strip() if persona and persona.strip() else _IDENTITY
+    parts: list[str] = [identity]
 
     if role == "subagent":
         parts.append(
@@ -89,14 +97,17 @@ results — verify with your tools."""
 
 
 def build_cli_system(*, memory_block: str = "",
-                     preloaded: Optional[list[str]] = None) -> str:
+                     preloaded: Optional[list[str]] = None,
+                     persona: str = "") -> str:
     """A concise prompt for CLI-agent backends (Claude Code / Codex).
 
     Those backends can't call birkin's tools, so instead of the tool-loop
     guidance we inject birkin's identity, memory, and any skills routed as
     relevant to the request (full text, including bundled-script paths the CLI
-    can run with its own shell)."""
-    parts: list[str] = [_CLI_IDENTITY]
+    can run with its own shell). The user's SOUL.md persona (when set) replaces
+    the default voice."""
+    identity = persona.strip() if persona and persona.strip() else _CLI_IDENTITY
+    parts: list[str] = [identity]
     workspace = workspace_prompt_block()
     if workspace:
         parts.append(workspace)

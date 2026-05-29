@@ -3,18 +3,62 @@
 from __future__ import annotations
 
 import threading
+import time
 from typing import Any
 
-from .. import config, store
+from .. import config, persona, prompts, store
+from ..claude_session import ClaudeStreamSession
 from ..runtime import ConfigError, Session, build_session
 
 
 class Gateway:
     def __init__(self, cfg: dict[str, Any]):
+        # The gateway may use its own (faster) model without affecting the REPL
+        # or the nightly routine: config "gateway_model" overrides "model" for
+        # this service only.
+        gw_model = cfg.get("gateway_model")
+        if gw_model:
+            cfg = {**cfg, "model": gw_model}
         self.cfg = cfg
         self.session: Session = build_session(cfg)  # may raise ConfigError
         self._chats: dict[tuple[str, str], list[dict[str, Any]]] = {}
         self._lock = threading.Lock()
+
+        # Persistent (warm) Claude Code processes — one per conversation — for
+        # the claude-cli provider. Pays cold-start once; warm replies are fast.
+        self._persistent = (bool(cfg.get("gateway_persistent", True))
+                            and cfg.get("provider") == "claude-cli")
+        self._claude_sessions: dict[tuple[str, str], ClaudeStreamSession] = {}
+
+    def _system_prompt(self) -> str:
+        """birkin persona + memory + skill index, snapshot for a warm session."""
+        sysp = prompts.build_cli_system(
+            memory_block=self.session.memory.render(),
+            persona=persona.read_soul())
+        try:
+            idx = self.session.skills.index()
+        except Exception:
+            idx = ""
+        if idx:
+            sysp += ("\n\n## birkin skills available\n"
+                     "Read the referenced SKILL.md with your own file tools to "
+                     "follow one when it fits the task.\n" + idx)
+        return sysp
+
+    def _claude_session(self, key: tuple[str, str]) -> ClaudeStreamSession:
+        sess = self._claude_sessions.get(key)
+        if sess is None:
+            sess = ClaudeStreamSession(
+                model=self.cfg.get("model"),
+                cli_access=self.cfg.get("cli_access", "workspace"),
+                append_system_prompt=self._system_prompt())
+            self._claude_sessions[key] = sess
+        return sess
+
+    def shutdown(self) -> None:
+        for sess in self._claude_sessions.values():
+            sess.close()
+        self._claude_sessions.clear()
 
     def handle(self, channel: str, chat_id: str, text: str) -> str:
         """Route one inbound message to the agent and return the reply.
@@ -26,19 +70,44 @@ class Gateway:
         if not text:
             return ""
         key = (channel, str(chat_id))
+        # The global lock guards only the shared bookkeeping (the _claude_sessions
+        # / _chats dicts and the single shared self.session). The actual LLM turn
+        # runs OUTSIDE it: a persistent ClaudeStreamSession has its own per-session
+        # lock, so independent conversations are not serialized behind each other.
         with self._lock:
             if text in ("/new", "/reset"):
+                if self._persistent and key in self._claude_sessions:
+                    self._claude_sessions[key].reset()
                 self._chats[key] = []
                 return "Started a new conversation."
-            self.session.agent.messages = self._chats.get(key, [])
-            try:
-                reply = self.session.ask(text)
-            except Exception as exc:
-                return f"[error] {exc}"
-            finally:
-                self._chats[key] = self.session.agent.messages
-            store.append_activity(f"gateway[{channel}:{chat_id}]: {text[:100]}")
-            return reply or "(no reply)"
+            sess = self._claude_session(key) if self._persistent else None
+
+        print(f"[gateway] {channel}:{chat_id} « {text[:80]}", flush=True)
+        t0 = time.monotonic()
+        try:
+            if self._persistent:
+                # Warm Claude Code process keeps its own conversation context,
+                # so only the new turn is sent.
+                reply = sess.ask(text)
+            else:
+                # The non-persistent path shares the single self.session, so its
+                # history swap must stay serialized under the global lock.
+                with self._lock:
+                    self.session.agent.messages = self._chats.get(key, [])
+                    try:
+                        reply = self.session.ask(text)
+                    finally:
+                        self._chats[key] = self.session.agent.messages
+        except Exception as exc:
+            dt = time.monotonic() - t0
+            print(f"[gateway] {channel}:{chat_id} ✗ error after {dt:.1f}s: {exc}",
+                  flush=True)
+            return f"[error] {exc}"
+        dt = time.monotonic() - t0
+        print(f"[gateway] {channel}:{chat_id} » {len(reply or '')} chars in {dt:.1f}s",
+              flush=True)
+        store.append_activity(f"gateway[{channel}:{chat_id}]: {text[:100]}")
+        return reply or "(no reply)"
 
 
 def run() -> int:
@@ -56,7 +125,8 @@ def run() -> int:
               "(http is on by default) and retry.")
         return 1
 
-    print(f"birkin gateway up · model {cfg.get('model')} · "
+    mode = "warm/persistent" if gateway._persistent else "per-message"
+    print(f"birkin gateway up · model {gateway.cfg.get('model')} · {mode} · "
           f"channels: {', '.join(c.name for c in channels)}")
     threads = []
     for ch in channels:
@@ -69,4 +139,6 @@ def run() -> int:
                 t.join(timeout=0.5)
     except KeyboardInterrupt:
         print("\ngateway stopping…")
+    finally:
+        gateway.shutdown()
     return 0

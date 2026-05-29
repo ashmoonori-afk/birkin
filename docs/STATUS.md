@@ -1,11 +1,35 @@
 # birkin — Build Status
 
-> Snapshot: 2026-05-28 · v0.2 (hardening; H2–H6 complete)
+> Snapshot: 2026-05-29 · v0.2 (hardening; H2–H6 complete) + gateway speed
 
 A concise, kept-current summary of what exists and how to run it. For the full
 design see [DESIGN.md](./DESIGN.md); for rationale see [DECISIONS.md](./DECISIONS.md).
 Improvement roadmap: [IMPROVEMENT-PLAN.md](./IMPROVEMENT-PLAN.md). Positioning
 against the upstream catalogs: [COMPARISON.md](./COMPARISON.md).
+
+## Gateway: free + fast (2026-05-29) — see ADR-026
+
+Goal: lighter than hermes, faster, while staying **free** (Claude subscription
+OAuth, no paid API key).
+
+- **21s → ~3s warm replies, free.** Two changes:
+  1. Removed the broken global `clawd-on-desk` hooks (per-event `wmic` tax):
+     `claude -p` 21s → ~8s. (Backup: `~/.claude/settings.json.bak-clawd-hooks`.)
+  2. `birkin/claude_session.py` — one **warm** `claude` stream-json process per
+     conversation (cold-start paid once; warm turns ~model-time ~3s, context
+     kept). Wired into the gateway via `gateway_persistent` (default true).
+- **Direct-API OAuth is parked, not used:** Anthropic meters third-party OAuth
+  API use as paid `extra_usage` (≠ free Claude Code billing). `birkin/oauth.py`
+  is retained only for the read-only usage check. See ADR-026.
+- Tests: 287 pass (8 new for `claude_session`). Verified live (cold ~8s, warm ~3s).
+
+## Persona (2026-05-29) — editable voice, ported from the marketing tree
+
+- `birkin/persona.py` — user-owned `~/.birkin/SOUL.md` (warm default seeded on
+  setup) + `/personality warm|concise|mentor|direct` presets + `/soul` command.
+  Read fresh each turn (REPL) and injected into the persistent gateway session's
+  system prompt, so edits/swaps apply with no restart. Default voice is warm and
+  human (addresses the "replies aren't friendly" complaint). 295 tests pass.
 
 ## Improvement plan progress
 
