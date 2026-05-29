@@ -298,6 +298,27 @@ def _cmd_permission(args: argparse.Namespace) -> int:
     return 0
 
 
+def _cmd_mcp(args: argparse.Namespace) -> int:
+    """Manage MCP servers via the `claude` CLI (the gateway inherits them)."""
+    from . import mcp
+    sub = [a for a in (args.args or []) if a != "--"]
+    if not sub:
+        servers, err = mcp.list_servers()
+        if err:
+            print(f"[birkin] {err}")
+            return 1
+        if not servers:
+            print("No MCP servers configured. Add one with: "
+                  "birkin mcp add <name> <command-or-url>")
+            return 0
+        print("MCP servers (the birkin gateway inherits these automatically):")
+        for s in servers:
+            mark = "✓" if s.connected else "•"
+            print(f"  {mark} {s.name} — {s.status}")
+        return 0
+    return mcp.run(sub).returncode
+
+
 def _cmd_cron(args: argparse.Namespace) -> int:
     from . import cron
     jobs = cron.load_jobs()
@@ -462,6 +483,13 @@ def build_parser() -> argparse.ArgumentParser:
     tp_ = sub.add_parser("trace", help="print a run record (audit replay)")
     tp_.add_argument("run_id", help="run id (or a substring) — see `birkin runs`")
     tp_.set_defaults(func=_cmd_trace)
+
+    mcpp = sub.add_parser(
+        "mcp", help="manage MCP servers (company tool connections; wraps `claude mcp`). "
+                    "The gateway inherits these automatically.")
+    mcpp.add_argument("args", nargs=argparse.REMAINDER,
+                      help="passed straight to `claude mcp` (e.g. list, add, remove, get)")
+    mcpp.set_defaults(func=_cmd_mcp)
 
     return p
 

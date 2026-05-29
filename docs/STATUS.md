@@ -23,6 +23,18 @@ OAuth, no paid API key).
   is retained only for the read-only usage check. See ADR-026.
 - Tests: 287 pass (8 new for `claude_session`). Verified live (cold ~8s, warm ~3s).
 
+## MCP — company tool connections (2026-05-29) — see ADR-027
+
+- The gateway runs on Claude Code, so it **inherits Claude Code's MCP servers**
+  (Notion, Google Drive/Gmail/Calendar, internal HTTP/stdio, …) with no extra
+  wiring — verified: the headless session loads all configured servers + their
+  tools.
+- birkin surface (`birkin/mcp.py`): `birkin mcp …` (pass-through to `claude mcp`)
+  and `/mcp` (list + status). `gateway_allowed_tools` config → `--allowedTools`
+  so the unattended gateway can call company MCP tools without a prompt.
+- Connect/auth a server with `birkin mcp add …` / `claude` (Google connectors
+  need a one-time auth). 300 tests pass.
+
 ## Persona (2026-05-29) — editable voice, ported from the marketing tree
 
 - `birkin/persona.py` — user-owned `~/.birkin/SOUL.md` (warm default seeded on

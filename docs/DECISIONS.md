@@ -8,6 +8,37 @@ older ones (noted inline).
 
 ---
 
+## ADR-027 — Company MCP tools: inherit Claude Code's MCP, surface it in birkin
+
+**Context.** As a company agent, the gateway must connect "naturally" to the
+programs people use (Notion, Google Drive/Gmail/Calendar, internal HTTP/stdio
+servers) via MCP — kept lightweight.
+
+**Decision.** Because the gateway runs on a warm Claude Code process (ADR-026),
+it **inherits Claude Code's MCP servers natively** — no new protocol code.
+Verified: the headless stream-json session's `system/init` event lists every
+configured MCP server and exposes their tools (here: 19 MCP tools; Notion +
+pencil connected, Google connectors after a one-time auth). birkin adds only a
+thin surface in `birkin/mcp.py`: `birkin mcp …` (pass-through to `claude mcp`,
+full feature set) and `/mcp` (list with connection status), plus a
+`gateway_allowed_tools` config passed as `claude --allowedTools` so the
+unattended gateway may call company MCP tools without an interactive permission
+prompt.
+
+**Rationale.** Reusing Claude Code's MCP is the lightest path (zero re-implemented
+protocol) and gives the broadest, best-maintained connector set. birkin's job is
+discoverability + headless permission, not rebuilding MCP. Aligns with "as
+lightweight as possible."
+
+**Alternatives.** A from-scratch stdlib MCP client in birkin's own tool loop —
+rejected as heavier and redundant for the (default) Claude-Code-backed gateway;
+it remains an option only if a non-Claude provider becomes the default.
+
+**Status.** Done. `birkin mcp list` works; `/mcp` shows status; 300 tests pass.
+Google connector auth (Drive/Gmail/Calendar) is the user's one-time `claude` step.
+
+---
+
 ## ADR-026 — Free + fast: persistent Claude Code (stream-json), not direct-API OAuth
 
 **Context.** Gateway replies were ~21s for a one-line answer. Two candidate

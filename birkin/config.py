@@ -49,6 +49,13 @@ DEFAULT_CONFIG: dict[str, Any] = {
     # replies are ~model-time. Free (Claude subscription). Only applies to the
     # claude-cli provider; see claude_session.py.
     "gateway_persistent": True,
+    # Tool patterns the always-on gateway may use WITHOUT an interactive
+    # permission prompt (it runs headless, so an un-allowed tool would stall).
+    # The gateway inherits Claude Code's MCP servers (company tools); list the
+    # ones it may call here, e.g. ["mcp__claude_ai_Notion__*", "Read", "Grep"].
+    # Empty -> rely on your Claude Code settings allowlist. Passed as
+    # `claude --allowedTools`. See `birkin mcp` to view connected servers.
+    "gateway_allowed_tools": [],
     "channels": {
         "http": {"enabled": True},
         "telegram": {"enabled": False, "token": ""},

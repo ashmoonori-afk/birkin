@@ -48,10 +48,15 @@ class Gateway:
     def _claude_session(self, key: tuple[str, str]) -> ClaudeStreamSession:
         sess = self._claude_sessions.get(key)
         if sess is None:
+            # Tools the headless gateway may use without a permission prompt
+            # (e.g. company MCP servers). Empty -> rely on Claude Code settings.
+            allowed = [str(t) for t in self.cfg.get("gateway_allowed_tools", []) if t]
+            extra = ["--allowedTools", ",".join(allowed)] if allowed else None
             sess = ClaudeStreamSession(
                 model=self.cfg.get("model"),
                 cli_access=self.cfg.get("cli_access", "workspace"),
-                append_system_prompt=self._system_prompt())
+                append_system_prompt=self._system_prompt(),
+                extra_args=extra)
             self._claude_sessions[key] = sess
         return sess
 

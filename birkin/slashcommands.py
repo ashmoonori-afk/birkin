@@ -440,6 +440,27 @@ def _personality(session: Any, arg: str) -> None:
     print(f"{GREEN}Persona set to '{name}'. Applies immediately (incl. gateway).{RESET}")
 
 
+# -- MCP (company tool connections) ----------------------------------------
+
+@command("mcp", "List MCP servers (company tools). The gateway inherits these.",
+         "/mcp")
+def _mcp(session: Any, arg: str) -> None:
+    from . import mcp as mcp_mod
+    servers, err = mcp_mod.list_servers()
+    if err:
+        print(f"{RED}{err}{RESET}")
+        return
+    if not servers:
+        print(f"{DIM}No MCP servers. Add one with `birkin mcp add <name> "
+              f"<command-or-url>`.{RESET}")
+        return
+    print(f"{BOLD}MCP servers{RESET} {DIM}(the gateway uses these automatically){RESET}")
+    for s in servers:
+        color = GREEN if s.connected else YELLOW
+        print(f"  {color}{'✓' if s.connected else '•'}{RESET} {s.name} "
+              f"{DIM}— {s.status}{RESET}")
+
+
 def sys_write(session: Any, text: str) -> None:
     """Send `text` to the agent and stream the reply (used by /retry)."""
     import sys
