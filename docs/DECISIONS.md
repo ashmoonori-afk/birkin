@@ -8,6 +8,43 @@ older ones (noted inline).
 
 ---
 
+## ADR-029 — Company-grade security hardening
+
+**Context.** A multi-agent security review of this session's new code flagged
+risks for an unattended, company-deployed agent.
+
+**Decisions / fixes.**
+- **cron→shell laundering (CRITICAL).** An auto-approved `cron` could carry a
+  `type:"shell"` payload past the *separate* `shell` gate → unattended arbitrary
+  code execution if an operator ever trusted `cron`. `approvals.propose` now
+  refuses to auto-apply a shell-typed cron unless `shell` itself is auto-approved;
+  it queues it for `birkin review` instead. The default `auto_approve`
+  (memory, skill) was already safe.
+- **Gateway never runs `--dangerously-skip-permissions` (HIGH).** The gateway is
+  reachable over channels, so `cli_access:"full"` is forced down to `workspace`
+  for the gateway path (with a printed warning). A chat message can never reach a
+  fully-permissioned Claude process.
+- **Telegram access control (HIGH).** `channels.telegram.allowed_chat_ids` gates
+  who may drive the bot; an empty list prints a loud "anyone can drive it"
+  warning at startup.
+- **Telegram token off-disk (MEDIUM).** The token is read from
+  `TELEGRAM_BOT_TOKEN` / `BIRKIN_TELEGRAM_TOKEN` first; a plaintext token in
+  `config.json` prints a migrate/rotate warning.
+- Morpheus stays sandboxed (ADR-028): `Read/Glob/Grep` + `mcp__birkin__*`, no Bash.
+
+**Accepted residuals (documented).**
+- On Windows, `chmod 0o600` on the OAuth credentials file and the system-prompt
+  temp file is a no-op; `%TEMP%` is per-user so practical exposure is limited.
+  Shared/CI Windows hosts should set an explicit owner-only ACL.
+- `birkin mcp <args>` forwards args to `claude mcp` via `cmd /c` — trusted-operator
+  input only; do not wire `birkin mcp add` to remote input on Windows.
+- The local HTTP channel binds `127.0.0.1` with a Host-header check (loopback-only).
+
+**Status.** Fixes done; 328 tests pass (incl. cron-gate + access-control tests).
+Secrets are never logged or placed in argv (verified).
+
+---
+
 ## ADR-028 — Morpheus on the free path: birkin-as-MCP-server + sandboxed Claude
 
 **Context.** Morpheus (the nightly self-improvement routine) needs birkin's

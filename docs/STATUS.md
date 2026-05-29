@@ -23,6 +23,18 @@ OAuth, no paid API key).
   is retained only for the read-only usage check. See ADR-026.
 - Tests: 287 pass (8 new for `claude_session`). Verified live (cold ~8s, warm ~3s).
 
+## Security hardening (2026-05-29) — see ADR-029
+
+- **cron→shell laundering closed**: an auto-approved `cron` can't auto-run a
+  shell payload unless `shell` is also auto-approved (else queued for review).
+- **Gateway forced to `workspace`** (never `--dangerously-skip-permissions`).
+- **Telegram**: `allowed_chat_ids` access control + token from `TELEGRAM_BOT_TOKEN`
+  env (plaintext-config warning).
+- Secrets never logged / never in argv. Residuals (Windows ACL, `birkin mcp`
+  operator-trust) documented. 328 tests pass.
+- **Operator TODO**: move the Telegram token to `TELEGRAM_BOT_TOKEN`, set
+  `allowed_chat_ids`, and rotate the token via @BotFather if it may have leaked.
+
 ## Morpheus — free + structured + secure (2026-05-29) — see ADR-028
 
 - birkin *provides* its structured tools over MCP: `birkin/mcp_server.py`

@@ -58,7 +58,10 @@ DEFAULT_CONFIG: dict[str, Any] = {
     "gateway_allowed_tools": [],
     "channels": {
         "http": {"enabled": True},
-        "telegram": {"enabled": False, "token": ""},
+        # Prefer the TELEGRAM_BOT_TOKEN env var over the plaintext "token" here.
+        # "allowed_chat_ids" gates who may drive the bot — leave empty ONLY for a
+        # private/local bot; set your chat id(s) for any shared/company use.
+        "telegram": {"enabled": False, "token": "", "allowed_chat_ids": []},
     },
     # --- Obsidian-vault semantic memory ---
     "vault_path": "",  # empty -> <birkin_home>/vault
@@ -75,6 +78,9 @@ DEFAULT_CONFIG: dict[str, Any] = {
     # chat the user is present, so run_shell executes directly — the nightly
     # routine itself is denied shell/subagent tools (see nightly.py).
     # Adjust with the REPL /permission command or `birkin permission`.
+    # SECURITY: do NOT add "shell" here for an unattended/company agent. A
+    # shell-typed "cron" proposal is treated as shell and will NOT auto-apply
+    # unless "shell" is auto-approved — it is queued for `birkin review` instead.
     "auto_approve": ["memory", "skill"],
     # CLI-agent (Claude Code / Codex) access level:
     #   "workspace" — writable & sandboxed to the workspace (default)

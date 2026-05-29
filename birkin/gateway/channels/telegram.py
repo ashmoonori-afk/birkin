@@ -44,8 +44,11 @@ def verify_token(token: str) -> tuple[bool, str]:
 class TelegramChannel(Channel):
     name = "telegram"
 
-    def __init__(self, token: str):
+    def __init__(self, token: str, allowed_chat_ids: list[str] | None = None):
         self.token = token
+        # When non-empty, only these chat ids may drive the agent (access control
+        # for a reachable bot). Empty -> open (a startup warning is printed).
+        self.allowed_chat_ids = set(allowed_chat_ids or [])
 
     def _call(self, method: str, params: dict[str, Any], timeout: int = 60) -> dict[str, Any]:
         url = _API.format(token=self.token, method=method)
@@ -88,6 +91,9 @@ class TelegramChannel(Channel):
                 chat_id = str(msg.get("chat", {}).get("id", ""))
                 text = msg.get("text", "")
                 if not (chat_id and text):
+                    continue
+                if self.allowed_chat_ids and chat_id not in self.allowed_chat_ids:
+                    print(f"[telegram] ignoring message from unauthorized chat {chat_id}")
                     continue
                 stop = threading.Event()
                 pinger = threading.Thread(target=self._keep_typing,

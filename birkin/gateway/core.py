@@ -19,6 +19,13 @@ class Gateway:
         gw_model = cfg.get("gateway_model")
         if gw_model:
             cfg = {**cfg, "model": gw_model}
+        # SECURITY: the gateway is reachable over channels, so a chat message must
+        # never reach a Claude process running with --dangerously-skip-permissions.
+        # Force the safe access level here regardless of the global config.
+        if cfg.get("cli_access") == "full":
+            print("[gateway] cli_access 'full' is unsafe for a reachable service "
+                  "— using 'workspace' for the gateway.", flush=True)
+            cfg = {**cfg, "cli_access": "workspace"}
         self.cfg = cfg
         self.session: Session = build_session(cfg)  # may raise ConfigError
         self._chats: dict[tuple[str, str], list[dict[str, Any]]] = {}

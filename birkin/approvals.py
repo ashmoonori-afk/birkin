@@ -24,12 +24,26 @@ def is_auto(category: str, cfg: dict[str, Any]) -> bool:
     return category in (cfg.get("auto_approve") or [])
 
 
+def _is_shell_cron(category: str, payload: dict[str, Any]) -> bool:
+    """A cron job whose payload runs a shell command — as dangerous as `shell`."""
+    return category == "cron" and (payload or {}).get("type") == "shell"
+
+
 def propose(*, category: str, title: str, description: str,
             payload: dict[str, Any], cfg: dict[str, Any],
             origin: str = "morpheus") -> dict[str, Any]:
-    """Apply (if auto-approved) or queue an action. Returns a status dict."""
-    if is_auto(category, cfg):
-        result = execute_action(category, payload)
+    """Apply (if auto-approved) or queue an action. Returns a status dict.
+
+    SECURITY: an auto-approved ``cron`` must not launder a *shell* payload past
+    the (separate) ``shell`` gate — otherwise a trusted "schedule things" policy
+    silently grants unattended arbitrary code execution. A shell-typed cron job
+    is only auto-applied when ``shell`` itself is auto-approved; otherwise it is
+    queued for explicit human review regardless of the ``cron`` policy.
+    """
+    auto = is_auto(category, cfg) and not (
+        _is_shell_cron(category, payload) and not is_auto("shell", cfg))
+    if auto:
+        result = execute_action(category, payload, cfg)
         return {"auto": True, "category": category, "result": result}
     rec = store.add_pending(category=category, title=title,
                             description=description, payload=payload,
@@ -37,8 +51,13 @@ def propose(*, category: str, title: str, description: str,
     return {"auto": False, "id": rec["id"], "title": title}
 
 
-def execute_action(category: str, payload: dict[str, Any]) -> str:
-    """Carry out an approved action. Returns a human-readable result."""
+def execute_action(category: str, payload: dict[str, Any],
+                   cfg: dict[str, Any] | None = None) -> str:
+    """Carry out an approved action. Returns a human-readable result.
+
+    ``cfg`` is accepted for policy-aware callers (see :func:`propose`); manual
+    approval via :func:`approve` has already gathered explicit human consent.
+    """
     if category == "cron":
         job = cron.add_job(
             name=payload.get("name", "job"),
