@@ -77,6 +77,13 @@ class TelegramChannel(Channel):
 
     def start(self, gateway: "Gateway") -> None:
         print("  · telegram channel polling for updates")
+        # Register the command menu so typing "/" shows them in the Telegram UI.
+        try:
+            from ..core import command_menu
+            self._call("setMyCommands",
+                       {"commands": json.dumps(command_menu())})
+        except Exception as exc:
+            print(f"[telegram] setMyCommands failed: {exc}")
         offset = 0
         while True:
             try:

@@ -71,6 +71,47 @@ def test_hard_restart_aliases(tmp_path, monkeypatch):
         assert gw.pending_hard_restart is True
 
 
+def test_match_command_tolerates_variants():
+    from birkin.gateway.core import match_command
+    for t in ("/restart", "/restart-gateway", "/restart_gateway",
+              "/restart-gateway@birkinbot", "/RESTART", "/reload"):
+        assert match_command(t)[0] == "restart", t
+    for t in ("/hard-restart", "/hard_restart", "/restart-hard",
+              "/restart-gateway --hard", "/restart hard", "/hardrestart"):
+        assert match_command(t)[0] == "hard_restart", t
+    assert match_command("/new")[0] == "new"
+    assert match_command("/reset")[0] == "new"
+    assert match_command("/help")[0] == "help"
+    assert match_command("/start")[0] == "help"
+    assert match_command("hello there")[0] is None      # not a command
+    assert match_command("/unknowncmd")[0] is None
+
+
+def test_help_lists_commands(tmp_path, monkeypatch):
+    gw = _gateway(tmp_path, monkeypatch)
+    out = gw.handle("http", "c1", "/help")
+    for c in ("/help", "/new", "/restart", "/hard_restart"):
+        assert c in out
+
+
+def test_hyphen_restart_gateway_actually_restarts(tmp_path, monkeypatch):
+    """Regression: '/restart-gateway' (with the dash) must be recognised."""
+    gw = _gateway(tmp_path, monkeypatch)
+    out = gw.handle("http", "c1", "/restart-gateway")
+    assert "restart" in out.lower()
+    assert gw.pending_hard_restart is False             # soft, not hard
+
+
+def test_command_menu_valid_for_telegram():
+    import re
+    from birkin.gateway.core import command_menu
+    menu = command_menu()
+    assert {m["command"] for m in menu} >= {"help", "new", "restart", "hard_restart"}
+    for m in menu:  # Telegram requires [a-z0-9_], 1-32 chars + a description
+        assert re.fullmatch(r"[a-z0-9_]{1,32}", m["command"]), m["command"]
+        assert m["description"].strip()
+
+
 def test_do_hard_restart_reexecs_birkin_gateway(tmp_path, monkeypatch):
     import os
     import sys

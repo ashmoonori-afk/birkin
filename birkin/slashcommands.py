@@ -375,6 +375,39 @@ def _sessions(session: Any, arg: str) -> None:
         print(f"  {f.stem}")
 
 
+# -- gateway ---------------------------------------------------------------
+
+def _gateway_post(cfg: dict, text: str) -> str:
+    """Send *text* to the local gateway via HTTP and return the reply."""
+    import urllib.error
+    import urllib.request
+    port = cfg.get("gateway_port", 8788)
+    url = f"http://127.0.0.1:{port}/message"
+    body = json.dumps({"text": text, "session": "repl"}).encode()
+    req = urllib.request.Request(url, data=body,
+                                 headers={"Content-Type": "application/json"})
+    try:
+        with urllib.request.urlopen(req, timeout=10) as resp:
+            data = json.loads(resp.read())
+            return data.get("reply", "")
+    except urllib.error.URLError as exc:
+        return f"{RED}Gateway not reachable ({exc}). Is `birkin gateway` running?{RESET}"
+
+
+@command("restart-gateway", "Soft-restart the gateway (reload config/persona/memory).",
+         "/restart-gateway", aliases=["restart"])
+def _restart_gateway(session: Any, arg: str) -> None:
+    reply = _gateway_post(session.cfg, "/restart-gateway")
+    print(reply)
+
+
+@command("hard-restart", "Hard-restart the gateway (picks up code changes too).",
+         "/hard-restart", aliases=["restart-hard"])
+def _hard_restart(session: Any, arg: str) -> None:
+    reply = _gateway_post(session.cfg, "/hard-restart")
+    print(reply)
+
+
 # -- system / maintenance --------------------------------------------------
 
 @command("update", "Update birkin to the latest version.", "/update")

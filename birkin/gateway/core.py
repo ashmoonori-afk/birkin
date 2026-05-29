@@ -10,6 +10,57 @@ from .. import config, persona, prompts, store
 from ..claude_session import ClaudeStreamSession
 from ..runtime import ConfigError, Session, build_session
 
+# Gateway chat commands. Each: (canonical name, description, {accepted triggers}).
+# Triggers include hyphen / underscore / run-together variants because Telegram
+# bot commands only allow [a-z0-9_] (no hyphen), while users still type hyphens.
+_GATEWAY_COMMANDS: list[tuple[str, str, set[str]]] = [
+    ("help", "Show these commands",
+     {"help", "commands", "start", "menu", "?"}),
+    ("new", "Start a fresh conversation (clear history)",
+     {"new", "reset"}),
+    ("restart", "Soft restart — reload config/persona/memory, clear sessions",
+     {"restart", "restart-gateway", "restart_gateway", "restartgateway",
+      "reload"}),
+    ("hard_restart", "Hard restart — re-exec the gateway (picks up code changes)",
+     {"hard-restart", "hard_restart", "hardrestart", "restart-hard",
+      "restart_hard", "restarthard"}),
+]
+
+
+def match_command(text: str) -> tuple[str | None, str]:
+    """Map an inbound message to (canonical command, remaining arg).
+
+    Tolerates a leading ``/``, a ``@botname`` suffix, hyphen/underscore variants,
+    and a trailing arg. ``/restart … hard`` (or ``--hard``) maps to hard_restart.
+    Returns ``(None, "")`` when the text is not a recognised command.
+    """
+    t = (text or "").strip()
+    if not t.startswith("/"):
+        return None, ""
+    toks = t[1:].split(maxsplit=1)
+    if not toks:
+        return None, ""
+    name = toks[0].split("@", 1)[0].strip().lower()
+    rest = toks[1].strip() if len(toks) > 1 else ""
+    for canonical, _desc, triggers in _GATEWAY_COMMANDS:
+        if name in triggers:
+            if canonical == "restart" and "hard" in rest.lower():
+                return "hard_restart", rest
+            return canonical, rest
+    return None, ""
+
+
+def gateway_help_text() -> str:
+    lines = ["🤖 birkin gateway — commands:"]
+    for canonical, desc, _ in _GATEWAY_COMMANDS:
+        lines.append(f"/{canonical} — {desc}")
+    return "\n".join(lines)
+
+
+def command_menu() -> list[dict[str, str]]:
+    """Payload for Telegram setMyCommands (canonical, [a-z0-9_] names only)."""
+    return [{"command": c, "description": d} for c, d, _ in _GATEWAY_COMMANDS]
+
 
 class Gateway:
     def __init__(self, cfg: dict[str, Any]):
@@ -136,20 +187,22 @@ class Gateway:
         # / _chats dicts and the single shared self.session). The actual LLM turn
         # runs OUTSIDE it: a persistent ClaudeStreamSession has its own per-session
         # lock, so independent conversations are not serialized behind each other.
+        cmd, _arg = match_command(text)
         with self._lock:
-            if text in ("/hard-restart", "/restart-hard",
-                        "/restart-gateway --hard", "/restart --hard"):
+            if cmd == "help":
+                return gateway_help_text()
+            if cmd == "hard_restart":
                 # The receiving channel re-execs after it delivers this reply.
                 self._hard_restart = True
                 print(f"[gateway] HARD restart requested via {channel}:{chat_id}",
                       flush=True)
                 return ("♻️ Hard restart — re-executing `birkin gateway` to pick up "
                         "code + config changes. Reconnecting in a moment…")
-            if text in ("/restart-gateway", "/restart"):
+            if cmd == "restart":
                 print(f"[gateway] restart requested via {channel}:{chat_id}",
                       flush=True)
                 return self.restart()
-            if text in ("/new", "/reset"):
+            if cmd == "new":
                 # Pop (not just reset) so a racing in-flight turn keeps its own
                 # object and the NEXT turn builds a clean session.
                 if self._persistent:
@@ -206,8 +259,8 @@ def run() -> int:
     mode = "warm/persistent" if gateway._persistent else "per-message"
     print(f"birkin gateway up · model {gateway.cfg.get('model')} · {mode} · "
           f"channels: {', '.join(c.name for c in channels)}")
-    print("  chat commands: /new (fresh conversation) · "
-          "/restart-gateway (reload config/persona/memory, clear warm sessions)")
+    print("  chat commands: /help · /new · /restart (soft) · /hard_restart "
+          "— hyphens, /restart-gateway, and @bot suffix all accepted")
     threads = []
     for ch in channels:
         t = threading.Thread(target=ch.start, args=(gateway,), daemon=True)
