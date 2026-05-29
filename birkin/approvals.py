@@ -25,8 +25,13 @@ def is_auto(category: str, cfg: dict[str, Any]) -> bool:
 
 
 def _is_shell_cron(category: str, payload: dict[str, Any]) -> bool:
-    """A cron job whose payload runs a shell command — as dangerous as `shell`."""
-    return category == "cron" and (payload or {}).get("type") == "shell"
+    """A cron job whose payload runs a shell command — as dangerous as `shell`.
+
+    The ``type`` is normalised (case/whitespace) so a capitalised ``"Shell"``
+    can't slip a shell payload past this gate.
+    """
+    return category == "cron" and str(
+        (payload or {}).get("type", "")).strip().lower() == "shell"
 
 
 def propose(*, category: str, title: str, description: str,

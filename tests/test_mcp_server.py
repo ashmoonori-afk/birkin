@@ -92,6 +92,63 @@ def test_build_tools_exposes_safe_set(tmp_path, monkeypatch):
     assert not any("shell" in n or "bash" in n.lower() for n in names)
 
 
+def test_serve_roundtrip_and_parse_error(monkeypatch):
+    """serve() loop: real request/response framing + a -32700 on bad JSON."""
+    import io
+    monkeypatch.setattr(mcp_server, "_build_tools", lambda: {})
+    inp = io.StringIO(
+        json.dumps({"jsonrpc": "2.0", "id": 1, "method": "initialize",
+                    "params": {}}) + "\n"
+        + "{ not valid json\n"
+        + json.dumps({"jsonrpc": "2.0", "id": 2, "method": "ping"}) + "\n")
+    out = io.StringIO()
+    assert mcp_server.serve(stdin=inp, stdout=out) == 0
+    lines = [json.loads(x) for x in out.getvalue().splitlines() if x.strip()]
+    assert lines[0]["id"] == 1 and "result" in lines[0]
+    assert any(l.get("error", {}).get("code") == -32700 for l in lines)
+    assert lines[-1]["id"] == 2 and lines[-1]["result"] == {}
+
+
+def test_create_skill_handler_success_and_error(tmp_path, monkeypatch):
+    monkeypatch.setenv("BIRKIN_HOME", str(tmp_path))
+    tools = mcp_server._build_tools()
+    text, err = tools["create_skill"]["handler"](
+        {"name": "my-skill", "description": "d", "body": "# B\nbody"})
+    assert err is False and "Created" in text
+    text, err = tools["create_skill"]["handler"]({"name": "x"})  # missing body
+    assert err is True
+
+
+def test_improve_skill_missing_target_flagged_as_error(tmp_path, monkeypatch):
+    """Regression: 'skill not found' must be reported as an error (the old
+    prefix heuristic silently treated it as success)."""
+    monkeypatch.setenv("BIRKIN_HOME", str(tmp_path))
+    tools = mcp_server._build_tools()
+    text, err = tools["improve_skill"]["handler"](
+        {"target": "does-not-exist", "addition": "x"})
+    assert err is True
+
+
+def test_propose_queues_under_default_policy(tmp_path, monkeypatch):
+    monkeypatch.setenv("BIRKIN_HOME", str(tmp_path))
+    tools = mcp_server._build_tools()
+    text, err = tools["propose_action"]["handler"](
+        {"category": "cron", "title": "t", "payload": {"type": "prompt"}})
+    assert err is False and "Queued" in text
+
+
+def test_shell_cron_gate_is_case_insensitive(tmp_path, monkeypatch):
+    """A capitalised 'Shell' cron payload must NOT auto-apply when only 'cron'
+    (not 'shell') is auto-approved."""
+    monkeypatch.setenv("BIRKIN_HOME", str(tmp_path))
+    from birkin import approvals
+    cfg = {"auto_approve": ["cron", "memory", "skill"]}
+    status = approvals.propose(
+        category="cron", title="t", description="",
+        payload={"type": "Shell", "command": "echo hi"}, cfg=cfg)
+    assert status["auto"] is False  # queued for human review, not executed
+
+
 def test_config_helpers(tmp_path):
     cfg = mcp_server.mcp_config_dict()
     assert "birkin" in cfg["mcpServers"]

@@ -18,14 +18,22 @@ convention). Pure standard library.
 from __future__ import annotations
 
 import contextlib
-import io
 import json
 import sys
 from pathlib import Path
-from typing import Any, Callable
+from typing import Any
 
 _PROTOCOL_VERSION = "2024-11-05"
 _SERVER_NAME = "birkin"
+_MAX_LINE_BYTES = 4 * 1024 * 1024  # reject absurdly large JSON-RPC frames
+
+# apply_skill_proposal returns a human string; success starts with one of these.
+# Anything else (missing fields, "skill not found", "unknown action") is an error.
+_SKILL_OK_PREFIXES = ("created skill", "appended learned note")
+
+
+def _skill_is_error(out: str) -> bool:
+    return not str(out).strip().lower().startswith(_SKILL_OK_PREFIXES)
 
 
 @contextlib.contextmanager
@@ -90,14 +98,14 @@ def _build_tools() -> dict[str, dict[str, Any]]:
                                         "description": args.get("description", ""),
                                         "body": args.get("body", ""),
                                         "tags": args.get("tags") or []})
-        return out, out.lower().startswith(("skill create", "error"))
+        return out, _skill_is_error(out)
 
     def _improve_skill(args: dict[str, Any]) -> tuple[str, bool]:
         with _stdout_to_stderr():
             out = apply_skill_proposal({"action": "improve",
                                         "target": args.get("target", ""),
                                         "addition": args.get("addition", "")})
-        return out, out.lower().startswith(("skill improve", "error"))
+        return out, _skill_is_error(out)
 
     tools["create_skill"] = {
         "description": "Create a birkin skill (SKILL.md) for a repeatable "
@@ -119,13 +127,12 @@ def _build_tools() -> dict[str, dict[str, Any]]:
     # propose_action — consequential actions go through the approval queue.
     def _propose(args: dict[str, Any]) -> tuple[str, bool]:
         with _stdout_to_stderr():
-            from . import config as _cfg
             status = approvals.propose(
                 category=args.get("category", "cron"),
                 title=args.get("title", "(untitled)"),
                 description=args.get("description", ""),
                 payload=args.get("payload", {}) or {},
-                cfg=_cfg.load_config(), origin="morpheus")
+                cfg=cfg, origin="morpheus")  # reuse the config loaded above
         if status.get("auto"):
             return f"Applied: {status.get('result')}", False
         return f"Queued for approval (id {status.get('id')}).", False
@@ -197,18 +204,26 @@ def serve(stdin=None, stdout=None) -> int:
     stdin = stdin or sys.stdin
     stdout = stdout or sys.stdout
     tools = _build_tools()
+
+    def _emit(text: str) -> None:
+        stdout.write(text + "\n")
+        stdout.flush()
+
     for line in stdin:
         line = line.strip()
         if not line:
             continue
+        if len(line) > _MAX_LINE_BYTES:
+            _emit(_error(None, -32700, "request too large"))
+            continue
         try:
             msg = json.loads(line)
         except json.JSONDecodeError:
+            _emit(_error(None, -32700, "parse error"))  # JSON-RPC 2.0 §5
             continue
         out = handle_message(msg, tools)
         if out is not None:
-            stdout.write(out + "\n")
-            stdout.flush()
+            _emit(out)
     return 0
 
 

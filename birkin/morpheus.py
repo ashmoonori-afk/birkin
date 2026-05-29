@@ -145,6 +145,10 @@ def _run_claude_morpheus(cfg: dict[str, Any], task: str, dry_run: bool,
              "--strict-mcp-config"]
     sess = ClaudeStreamSession(
         model=cfg.get("model"), cli_access="workspace",
+        # "default" (not "acceptEdits"): unattended, so anything outside the
+        # Read/Glob/Grep + mcp__birkin__* allowlist needs approval no one is
+        # there to give — i.e. it's denied. Defence-in-depth around the allowlist.
+        permission_mode="default",
         append_system_prompt=_MORPHEUS_SYSTEM, extra_args=extra,
         turn_timeout=900.0)
     print("birkin morpheus: analyzing the last 24h… (sandboxed Claude + birkin MCP)")
