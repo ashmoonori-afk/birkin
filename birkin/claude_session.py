@@ -88,6 +88,13 @@ class ClaudeStreamSession:
         if self._sys_file and self._sys_file.exists():
             return self._sys_file
         fd, path = tempfile.mkstemp(suffix="-birkin-sys.md")
+        # The file holds the persona + a full memory snapshot; restrict it to the
+        # owner (no-op on Windows, enforced on POSIX) rather than relying on the
+        # OS default ACL.
+        try:
+            os.chmod(path, 0o600)
+        except OSError:
+            pass
         with os.fdopen(fd, "w", encoding="utf-8") as fh:
             fh.write(self.append_system_prompt)
         self._sys_file = Path(path)
@@ -148,6 +155,21 @@ class ClaudeStreamSession:
 
     @staticmethod
     def _drain(pipe: Any, tag: str, q: "queue.Queue") -> None:
+        def _offer(item: tuple[str, Optional[str]]) -> None:
+            # Never block forever. The queue only fills BETWEEN turns (nothing is
+            # consuming); during a turn the consumer drains it faster than Claude
+            # emits. So on Full we drop the OLDEST (stale) event to make room,
+            # which keeps the newest protocol events and the sentinel — instead
+            # of the old blocking put() that could deadlock the reader thread.
+            while True:
+                try:
+                    q.put_nowait(item)
+                    return
+                except queue.Full:
+                    try:
+                        q.get_nowait()  # drop the oldest stale event for room
+                    except queue.Empty:
+                        pass  # consumer raced us empty; loop and the put fits
         try:
             for line in pipe:
                 item = (tag, line.rstrip("\n"))
@@ -157,14 +179,11 @@ class ClaudeStreamSession:
                     except queue.Full:
                         pass
                 else:
-                    q.put(item)  # protocol events: never drop
+                    _offer(item)  # protocol events: keep newest, never deadlock
         except (ValueError, OSError):
             pass
         finally:
-            try:
-                q.put_nowait((tag, None))  # sentinel: this pipe closed
-            except queue.Full:
-                q.put((tag, None))
+            _offer((tag, None))  # sentinel: this pipe closed
 
     def close(self) -> None:
         if self._proc is not None:
@@ -177,6 +196,17 @@ class ClaudeStreamSession:
                 self._proc.terminate()
             except OSError:
                 pass
+            # Reap the child so it doesn't linger as a zombie (POSIX) across the
+            # many close()/restart cycles a long-running gateway accumulates.
+            try:
+                self._proc.wait(timeout=3)
+            except (subprocess.TimeoutExpired, OSError, AttributeError, ValueError):
+                try:
+                    self._proc.kill()
+                    self._proc.wait(timeout=2)
+                except (OSError, AttributeError, ValueError,
+                        subprocess.TimeoutExpired):
+                    pass
             self._proc = None
         self._session_id = None
         self._cleanup_sys_file()
@@ -188,7 +218,9 @@ class ClaudeStreamSession:
     # -- one turn ----------------------------------------------------------
 
     def _send(self, text: str) -> None:
-        assert self._proc is not None and self._proc.stdin is not None
+        # Explicit check (not assert — asserts are stripped under `python -O`).
+        if self._proc is None or self._proc.stdin is None:
+            raise ClaudeSessionError("no live Claude process to send to")
         msg = {"type": "user", "message": {"role": "user", "content": text}}
         self._proc.stdin.write(json.dumps(msg, ensure_ascii=False) + "\n")
         self._proc.stdin.flush()

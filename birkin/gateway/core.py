@@ -81,8 +81,12 @@ class Gateway:
         # lock, so independent conversations are not serialized behind each other.
         with self._lock:
             if text in ("/new", "/reset"):
-                if self._persistent and key in self._claude_sessions:
-                    self._claude_sessions[key].reset()
+                # Pop (not just reset) so a racing in-flight turn keeps its own
+                # object and the NEXT turn builds a clean session.
+                if self._persistent:
+                    old = self._claude_sessions.pop(key, None)
+                    if old is not None:
+                        old.close()
                 self._chats[key] = []
                 return "Started a new conversation."
             sess = self._claude_session(key) if self._persistent else None

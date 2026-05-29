@@ -54,3 +54,72 @@ def test_list_servers_parses_capture(monkeypatch):
     servers, err = mcp.list_servers()
     assert err is None
     assert {"pencil", "claude.ai Notion"} <= {s.name for s in servers}
+
+
+def test_run_builds_claude_mcp_argv(monkeypatch):
+    captured = {}
+
+    def fake_run(argv, **kw):
+        captured["argv"] = argv
+        return subprocess.CompletedProcess(argv, 0)
+    monkeypatch.setattr(mcp.subprocess, "run", fake_run)
+    mcp.run(["list"])
+    argv = captured["argv"]
+    assert "claude" in argv and "mcp" in argv and "list" in argv
+
+
+def test_run_capture_returns_completed(monkeypatch):
+    monkeypatch.setattr(mcp.subprocess, "run",
+                        lambda argv, **kw: subprocess.CompletedProcess(argv, 0,
+                                                                       stdout="x", stderr=""))
+    cp = mcp.run(["list"], capture=True)
+    assert cp.returncode == 0 and cp.stdout == "x"
+
+
+def test_list_servers_error_on_nonzero_empty(monkeypatch):
+    monkeypatch.setattr(mcp, "run",
+                        lambda *a, **k: subprocess.CompletedProcess(a, 2, stdout="", stderr=""))
+    servers, err = mcp.list_servers()
+    assert servers == [] and err and "failed" in err
+
+
+def test_list_servers_timeout(monkeypatch):
+    def boom(*a, **k):
+        raise subprocess.TimeoutExpired(cmd="claude", timeout=60)
+    monkeypatch.setattr(mcp, "run", boom)
+    servers, err = mcp.list_servers()
+    assert servers == [] and err and "timed out" in err
+
+
+# -- `birkin mcp` CLI command ----------------------------------------------
+
+def _ns(args):
+    import types
+    return types.SimpleNamespace(args=args)
+
+
+def test_cmd_mcp_list(monkeypatch, capsys):
+    from birkin import cli
+    monkeypatch.setattr(mcp, "list_servers",
+                        lambda **k: ([mcp.McpServer("n", "d", "✓ Connected", True)], None))
+    assert cli._cmd_mcp(_ns([])) == 0
+    assert "MCP servers" in capsys.readouterr().out
+
+
+def test_cmd_mcp_list_empty(monkeypatch):
+    from birkin import cli
+    monkeypatch.setattr(mcp, "list_servers", lambda **k: ([], None))
+    assert cli._cmd_mcp(_ns([])) == 0
+
+
+def test_cmd_mcp_list_error(monkeypatch):
+    from birkin import cli
+    monkeypatch.setattr(mcp, "list_servers", lambda **k: ([], "no claude on PATH"))
+    assert cli._cmd_mcp(_ns([])) == 1
+
+
+def test_cmd_mcp_passthrough(monkeypatch):
+    from birkin import cli
+    monkeypatch.setattr(mcp, "run",
+                        lambda sub: subprocess.CompletedProcess(sub, 0))
+    assert cli._cmd_mcp(_ns(["list"])) == 0

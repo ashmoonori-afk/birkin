@@ -78,6 +78,14 @@ class _FakePopen:
         self.returncode = 0
         self._out_q.put(None)
 
+    def wait(self, timeout=None):
+        if self.returncode is None:
+            self.returncode = 0
+        return self.returncode
+
+    def kill(self):
+        self.terminate()
+
 
 def _ok_behavior(text: str):
     """Echo-style success: system init, assistant, result."""
@@ -198,6 +206,35 @@ def test_system_prompt_written_to_tempfile(monkeypatch):
     assert pathlib.Path(path).read_text(encoding="utf-8").startswith("You are birkin.")
     s.close()
     assert not pathlib.Path(path).exists()  # cleaned up
+
+
+def test_send_raises_without_process():
+    """_send must raise (not assert, stripped under -O) when there's no proc."""
+    s = ClaudeStreamSession()
+    with pytest.raises(claude_session.ClaudeSessionError):
+        s._send("hi")
+
+
+def test_drain_never_blocks_on_full_queue():
+    """The 'out' drain must drop the oldest stale event rather than block when
+    the bounded queue fills (the C2 deadlock fix). If it blocked, this hangs."""
+    q: "queue.Queue" = queue.Queue(maxsize=2)
+    lines = [f"line{i}\n" for i in range(12)]
+    claude_session.ClaudeStreamSession._drain(iter(lines), "out", q)
+    items = []
+    while not q.empty():
+        items.append(q.get_nowait())
+    assert ("out", None) in items     # the closed sentinel survived
+    assert len(items) <= 2            # only the newest were kept
+
+
+def test_close_reaps_and_is_idempotent(monkeypatch):
+    _patch_popen(monkeypatch, lambda: _FakePopen(_ok_behavior))
+    s = ClaudeStreamSession()
+    s.ask("hi")
+    s.close()                 # reaps the fake (wait/kill) without raising
+    assert not s.is_alive()
+    s.close()                 # second close is a no-op
 
 
 if __name__ == "__main__":  # pragma: no cover

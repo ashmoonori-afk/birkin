@@ -3,11 +3,14 @@
 Mirrors hermes-agent's SOUL.md mechanism (NousResearch/hermes-agent, MIT; the
 tone language below is adapted from its docs and ``cli-config.yaml.example``
 ``agent.personalities`` presets): a plain markdown file the user owns and edits.
-It is loaded fresh on every turn (see :mod:`birkin.runtime`) so edits take effect
-with no restart, and it is injected into the persistent-gateway Claude session's
-system prompt as well. When ``SOUL.md`` is present and non-empty its contents are
-injected verbatim as birkin's identity; otherwise the built-in default voice in
-:mod:`birkin.prompts` is used.
+
+In the **REPL** it is read fresh on every turn (see :mod:`birkin.runtime`), so
+edits take effect with no restart. The **persistent gateway** snapshots it into
+the warm Claude session's system prompt when that session starts, so editing
+``SOUL.md`` (or ``/personality``) applies to an existing warm conversation only
+after ``/new`` (or the next gateway start). When ``SOUL.md`` is present and
+non-empty its contents are injected verbatim as birkin's identity; otherwise the
+built-in default voice in :mod:`birkin.prompts` is used.
 
 Pure standard library — no third-party dependencies.
 """
