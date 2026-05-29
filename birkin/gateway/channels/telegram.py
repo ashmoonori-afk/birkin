@@ -11,7 +11,9 @@ Create a bot and get the token from @BotFather.
 from __future__ import annotations
 
 import json
+import threading
 import time
+import urllib.error
 import urllib.parse
 import urllib.request
 from typing import TYPE_CHECKING, Any
@@ -52,6 +54,24 @@ class TelegramChannel(Channel):
         with urllib.request.urlopen(req, timeout=timeout) as resp:
             return json.loads(resp.read().decode("utf-8", "replace"))
 
+    def _keep_typing(self, chat_id: str, stop: threading.Event) -> None:
+        """Show a 'typing…' indicator until ``stop`` is set.
+
+        Replies can take many seconds (the CLI backend spawns a full agent), so
+        without this the user stares at silence and assumes it's dead. Telegram
+        clears the indicator after ~5s, so we re-send it every few seconds.
+        """
+        while not stop.is_set():
+            try:
+                self._call("sendChatAction",
+                           {"chat_id": chat_id, "action": "typing"}, timeout=15)
+            except (OSError, urllib.error.URLError, ValueError):
+                pass  # cosmetic — ignore transient network errors
+            except Exception as exc:
+                print(f"[telegram] typing error: {exc}")
+                return
+            stop.wait(4.0)
+
     def start(self, gateway: "Gateway") -> None:
         print("  · telegram channel polling for updates")
         offset = 0
@@ -69,7 +89,15 @@ class TelegramChannel(Channel):
                 text = msg.get("text", "")
                 if not (chat_id and text):
                     continue
-                reply = gateway.handle("telegram", chat_id, text)
+                stop = threading.Event()
+                pinger = threading.Thread(target=self._keep_typing,
+                                          args=(chat_id, stop), daemon=True)
+                pinger.start()
+                try:
+                    reply = gateway.handle("telegram", chat_id, text)
+                finally:
+                    stop.set()
+                    pinger.join(timeout=16)
                 try:
                     self._call("sendMessage", {"chat_id": chat_id, "text": reply[:4000]})
                 except Exception as exc:

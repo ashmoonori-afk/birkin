@@ -59,11 +59,16 @@ class LocalHTTPChannel(Channel):
                     self._json({"error": "forbidden host"}, 403); return
                 if self.path != "/message":
                     self._json({"error": "not found"}, 404); return
-                length = int(self.headers.get("Content-Length", 0))
+                # Tolerate junk: bad Content-Length, non-UTF-8 bytes (port
+                # scanners / wrong-encoding clients), or non-object JSON must
+                # return 400 — never crash the request handler.
                 try:
+                    length = int(self.headers.get("Content-Length", 0) or 0)
                     payload = json.loads(self.rfile.read(length) or b"{}")
-                except json.JSONDecodeError:
-                    self._json({"error": "bad json"}, 400); return
+                except (ValueError, UnicodeDecodeError):
+                    self._json({"error": "bad request"}, 400); return
+                if not isinstance(payload, dict):
+                    self._json({"error": "expected a JSON object"}, 400); return
                 text = (payload.get("text") or "").strip()
                 session_id = str(payload.get("session", "default"))
                 if not text:
