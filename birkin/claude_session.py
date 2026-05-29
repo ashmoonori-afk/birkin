@@ -250,6 +250,16 @@ class ClaudeStreamSession:
 
     def _turn(self, text: str, on_text: StreamCallback,
               timeout: Optional[float]) -> str:
+        # Discard any stale events from a PRIOR turn before sending this one, so
+        # we never mistake an old event for this turn's reply. A death sentinel
+        # is honoured (not silently dropped) so a dead process still restarts.
+        while True:
+            try:
+                _tag, _line = self._q.get_nowait()
+            except queue.Empty:
+                break
+            if _line is None and _tag == "out":
+                raise ClaudeSessionError("Claude process exited unexpectedly.")
         deadline = time.monotonic() + (timeout or self.turn_timeout)
         try:
             self._send(text)

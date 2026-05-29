@@ -138,11 +138,11 @@ def _build_tools() -> dict[str, dict[str, Any]]:
         return f"Queued for approval (id {status.get('id')}).", False
 
     tools["propose_action"] = {
-        "description": "Propose a convenience action or cron job for the user's "
-                       "approval (NOT executed now). category 'cron' payload "
-                       "{name,hour,minute,type,value}, or 'shell' {command}.",
+        "description": "Propose a convenience cron job for the user's approval "
+                       "(NOT executed now). category 'cron' with payload "
+                       "{name,hour,minute,type:'prompt',value}.",
         "schema": {"type": "object", "properties": {
-            "category": {"type": "string", "enum": ["cron", "shell"]},
+            "category": {"type": "string", "enum": ["cron"]},
             "title": {"type": "string"}, "description": {"type": "string"},
             "payload": {"type": "object"}},
             "required": ["category", "title"]},

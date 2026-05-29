@@ -7,14 +7,42 @@ write a skill that shells out to a dedicated tool.
 
 from __future__ import annotations
 
+import ipaddress
+import socket
 import urllib.request
 from html.parser import HTMLParser
 from typing import Any
+from urllib.parse import urlparse
 
 from . import Tool, ToolContext, ToolResult
 
 MAX_TEXT = 40_000
 USER_AGENT = "birkin/0.1 (+https://github.com/NousResearch/hermes-agent)"
+
+
+def _is_blocked_url(url: str) -> bool:
+    """SSRF guard: refuse loopback / link-local / private / reserved targets.
+
+    Resolves the host (catches DNS-rebinding to an internal IP) and blocks if
+    ANY resolved address is non-public. Fails OPEN only for genuinely
+    unresolvable public hostnames (those just fail at fetch time anyway).
+    """
+    host = (urlparse(url).hostname or "").lower()
+    if not host or host in ("localhost", "ip6-localhost"):
+        return True
+    try:
+        addrs = {ai[4][0] for ai in socket.getaddrinfo(host, None)}
+    except (socket.gaierror, UnicodeError, ValueError):
+        addrs = {host}  # literal IP or unresolvable — check the literal below
+    for a in addrs:
+        try:
+            ip = ipaddress.ip_address(a)
+        except ValueError:
+            continue
+        if (ip.is_loopback or ip.is_link_local or ip.is_private
+                or ip.is_reserved or ip.is_multicast or ip.is_unspecified):
+            return True
+    return False
 
 
 class _TextExtractor(HTMLParser):
@@ -46,6 +74,10 @@ def _web_fetch(inp: dict[str, Any], ctx: ToolContext) -> ToolResult:
         return ToolResult("Missing url", is_error=True)
     if not url.startswith(("http://", "https://")):
         url = "https://" + url
+    if _is_blocked_url(url):
+        return ToolResult(
+            "Refused: that URL targets a local/internal/reserved address "
+            "(SSRF guard).", is_error=True)
     req = urllib.request.Request(url, headers={"User-Agent": USER_AGENT})
     try:
         with urllib.request.urlopen(req, timeout=30) as resp:

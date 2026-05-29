@@ -63,6 +63,9 @@ def mark_ran(job_id: str) -> None:
 def due_jobs(now: datetime | None = None) -> list[dict[str, Any]]:
     """Jobs enabled, scheduled at/before now today, and not yet run today."""
     now = now or datetime.now()
+    # `date.today()` (local real today) intentionally matches mark_ran(), which
+    # stamps last_run with datetime.now(); the scheduler always passes a local
+    # `now`, so now.date() == today in production.
     today = date.today().isoformat()
     out = []
     for j in load_jobs():

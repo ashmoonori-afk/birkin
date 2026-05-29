@@ -438,7 +438,10 @@ class LLMClient:
 
         resp = self._post(url, headers, payload, stream=False)
         body = json.loads(resp.read().decode("utf-8", "replace"))
-        choice = body["choices"][0]
+        choices = body.get("choices") or []
+        if not choices:  # content-filter / billing block / odd 3rd-party server
+            raise LLMError(f"OpenAI response had no choices: {str(body)[:300]}")
+        choice = choices[0]
         msg = choice.get("message", {})
         content: list[dict[str, Any]] = []
         text = msg.get("content") or ""

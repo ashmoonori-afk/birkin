@@ -24,8 +24,21 @@ def _now() -> str:
 
 def _write_json(path: Path, obj: Any) -> None:
     tmp = path.with_suffix(path.suffix + ".tmp")
-    tmp.write_text(json.dumps(obj, indent=2, ensure_ascii=False), encoding="utf-8")
-    os.replace(tmp, path)
+    try:
+        tmp.write_text(json.dumps(obj, indent=2, ensure_ascii=False), encoding="utf-8")
+        os.replace(tmp, path)
+    except OSError:
+        try:  # don't leave a partial .tmp behind on a failed write
+            tmp.unlink()
+        except OSError:
+            pass
+        raise
+    # State can include cron commands / pending payloads — restrict to the owner
+    # (no-op on Windows; enforced on POSIX), matching config.json.
+    try:
+        os.chmod(path, 0o600)
+    except OSError:
+        pass
 
 
 def _read_json(path: Path, default: Any) -> Any:
@@ -169,8 +182,11 @@ def clear_status() -> None:
 # -- activity log ----------------------------------------------------------
 
 def append_activity(line: str) -> None:
-    with config.activity_log_path().open("a", encoding="utf-8") as fh:
-        fh.write(f"{_now()}\t{line}\n")
+    try:
+        with config.activity_log_path().open("a", encoding="utf-8") as fh:
+            fh.write(f"{_now()}\t{line}\n")
+    except OSError:
+        pass  # activity logging must never break a chat turn
 
 
 def read_recent_activity(hours: float = 24.0) -> str:

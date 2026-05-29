@@ -44,7 +44,7 @@ def match_command(text: str) -> tuple[str | None, str]:
     rest = toks[1].strip() if len(toks) > 1 else ""
     for canonical, _desc, triggers in _GATEWAY_COMMANDS:
         if name in triggers:
-            if canonical == "restart" and "hard" in rest.lower():
+            if canonical == "restart" and rest.strip().lower() in ("hard", "--hard"):
                 return "hard_restart", rest
             return canonical, rest
     return None, ""
@@ -121,9 +121,16 @@ class Gateway:
         return sess
 
     def shutdown(self) -> None:
-        for sess in self._claude_sessions.values():
-            sess.close()
-        self._claude_sessions.clear()
+        # Snapshot under the lock: a channel thread may be inserting a session
+        # via _claude_session() concurrently (else: dict changed size on iterate).
+        with self._lock:
+            sessions = list(self._claude_sessions.values())
+            self._claude_sessions.clear()
+        for sess in sessions:
+            try:
+                sess.close()
+            except Exception:
+                pass
 
     def restart(self) -> str:
         """Soft-restart the gateway in place (channels stay up).
@@ -211,12 +218,15 @@ class Gateway:
                         old.close()
                 self._chats[key] = []
                 return "Started a new conversation."
-            sess = self._claude_session(key) if self._persistent else None
+            # Snapshot persistence + session together under the lock: a /restart
+            # could flip self._persistent between here and the ask() below.
+            persistent = self._persistent
+            sess = self._claude_session(key) if persistent else None
 
         print(f"[gateway] {channel}:{chat_id} « {text[:80]}", flush=True)
         t0 = time.monotonic()
         try:
-            if self._persistent:
+            if persistent:
                 # Warm Claude Code process keeps its own conversation context,
                 # so only the new turn is sent.
                 reply = sess.ask(text)
