@@ -67,7 +67,8 @@ _SECRET_PATTERNS = [
 # set stays bounded by active conversations). Guarded by _locks_guard.
 _locks: dict[str, threading.Lock] = {}
 _locks_guard = threading.Lock()
-_last_retention = 0.0  # advisory throttle; lock-free double-run is harmless
+_last_retention = 0.0  # throttle timestamp; guarded by _retention_lock below
+_retention_lock = threading.Lock()  # serialises the throttle + sweep across threads
 
 
 def _lock_for(key: str) -> threading.Lock:
@@ -157,13 +158,21 @@ def append_turn(channel: str, chat_id: str, user_text: str, reply_text: str,
 
 def _maybe_enforce_retention(cfg: dict[str, Any]) -> None:
     """Delete old / excess ``auto__*`` files. Throttled to ~once a minute (it runs
-    after every turn) and never touches manual saves."""
+    after every turn) and never touches manual saves.
+
+    The throttle read-check-write AND the sweep run under ``_retention_lock`` so
+    concurrent gateway channel threads can't double-sweep and over-delete (the
+    cap math reads a shared file list). A non-blocking acquire means a turn whose
+    sweep slot is already taken returns immediately instead of stalling the chat.
+    """
     global _last_retention
-    now = time.time()
-    if now - _last_retention < 60:
-        return
-    _last_retention = now
+    if not _retention_lock.acquire(blocking=False):
+        return  # another thread is already inside the throttle/sweep window
     try:
+        now = time.time()
+        if now - _last_retention < 60:
+            return
+        _last_retention = now
         sd = config.sessions_dir()
         days = int(cfg.get("autosave_retention_days", 30))
         cutoff = now - days * 86400 if days > 0 else None
@@ -190,3 +199,5 @@ def _maybe_enforce_retention(cfg: dict[str, Any]) -> None:
                     pass
     except Exception:
         pass
+    finally:
+        _retention_lock.release()

@@ -1,6 +1,14 @@
 # birkin — Build Status
 
-> Snapshot: 2026-05-29 · v0.2 (hardening; H2–H6 complete) + gateway speed
+> Snapshot: 2026-06-01 · v0.2 (hardening; H2–H6 complete) + gateway speed
+> + neurosis + autosave→memory + session-review hardening (ADR-032)
+>
+> **403 tests** pass offline (no API key). Latest: full multi-agent code review
+> of the free+fast gateway / neurosis / autosave work — **0 CRITICAL**, 8 HIGH
+> fixed (Windows `cmd /c` injection guard, neurosis resume re-tuning + threshold
+> validation, transcript-retention lock, immutable OAuth `mcp_` strip, Ctrl-U/K
+> bound to the current line, `_pushback`/Kitty cleanup, `/models` in-memory cfg,
+> `restart()` lock tripwire). See ADR-032.
 
 A concise, kept-current summary of what exists and how to run it. For the full
 design see [DESIGN.md](./DESIGN.md); for rationale see [DECISIONS.md](./DECISIONS.md).

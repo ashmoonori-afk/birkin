@@ -15,10 +15,26 @@ from __future__ import annotations
 
 import os
 
+# cmd.exe re-parses these inside each argument even when argv is discrete, so a
+# value like ``foo & calc`` smuggled into a CLI arg would chain a second command.
+# We launch CLI shims through ``cmd /c`` (for ``.cmd`` PATH resolution) but never
+# intend shell semantics for the args, so reject them on Windows. Free-form shell
+# strings have their own intentional path (``shell_argv``), which this never gates.
+_WIN_SHELL_METACHARS = frozenset("&|<>^")
+
 
 def cli_argv(parts: list[str]) -> list[str]:
-    """argv for launching a CLI program (handles Windows .cmd shims)."""
+    """argv for launching a CLI program (handles Windows .cmd shims).
+
+    Raises ``ValueError`` if a Windows arg carries cmd.exe metacharacters
+    (``& | < > ^``) — see ``_WIN_SHELL_METACHARS``.
+    """
     if os.name == "nt":
+        for arg in parts[1:]:  # parts[0] is the program name (a trusted shim)
+            if _WIN_SHELL_METACHARS.intersection(arg):
+                raise ValueError(
+                    "unsafe shell metacharacter (& | < > ^) in CLI argument "
+                    f"on Windows: {arg!r}")
         return ["cmd", "/c", *parts]
     return list(parts)
 

@@ -333,18 +333,22 @@ def apply_event(state: EditorState, event: tuple[str, str],
             state.history_idx = -1
             state.pending = None
         return state
-    if kind == "kill_to_start":  # Ctrl-U — delete from line start to the cursor
-        if state.cursor > 0:
-            state.buffer = state.buffer[state.cursor:]
-            state.cursor = 0
+    if kind == "kill_to_start":  # Ctrl-U — delete to the CURRENT line's start
+        line_start = state.buffer.rfind("\n", 0, state.cursor) + 1  # 0 if none
+        if line_start < state.cursor:
+            state.buffer = state.buffer[:line_start] + state.buffer[state.cursor:]
+            state.cursor = line_start
             state.selected = 0
             state.menu_dismissed = False
             state.history_idx = -1
             state.pending = None
         return state
-    if kind == "kill_to_end":    # Ctrl-K — delete from the cursor to line end
-        if state.cursor < len(state.buffer):
-            state.buffer = state.buffer[:state.cursor]
+    if kind == "kill_to_end":    # Ctrl-K — delete to the CURRENT line's end
+        line_end = state.buffer.find("\n", state.cursor)
+        if line_end == -1:
+            line_end = len(state.buffer)
+        if state.cursor < line_end:
+            state.buffer = state.buffer[:state.cursor] + state.buffer[line_end:]
             state.selected = 0
             state.menu_dismissed = False
             state.history_idx = -1
@@ -812,6 +816,9 @@ def prompt_with_completion(prompt: str,
 
     hist: list[str] = history if history is not None else []
     state = EditorState()
+    # Drop any control byte a *previous* prompt pushed back (e.g. a paste that
+    # ended on Ctrl-C) so it can't fire into this fresh session.
+    _pushback.clear()
     # Track of where we drew last (relative to the anchor row) so the next
     # redraw can step back up and overwrite cleanly.
     prev_cursor_row = 0
@@ -824,25 +831,25 @@ def prompt_with_completion(prompt: str,
     sys.stdout.write(prompt)
     sys.stdout.flush()
 
-    while not state.submitted and not state.exited:
-        ms = matches_for(state, commands)
-        menu_lines = render_menu_lines(ms, state.selected) if ms else []
-        prev_cursor_row, prev_total_rows = _redraw(
-            prompt, state.buffer, state.cursor, menu_lines,
-            prev_cursor_row, prev_total_rows)
-        event = _read_event()
-        apply_event(state, event, commands, hist)
-
-    # Park the cursor below all rendered rows before printing the agent
-    # reply / next prompt, then emit a clean newline. Also disable the
-    # Kitty Keyboard Protocol so we don't keep other applications confused
-    # by leftover enable state if the user pipes / suspends the REPL.
-    rows_below = prev_total_rows - 1 - prev_cursor_row
-    if rows_below > 0:
-        sys.stdout.write(f"\x1b[{rows_below}B")
-    sys.stdout.write("\n")
-    sys.stdout.write(KITTY_DISABLE)
-    sys.stdout.flush()
+    try:
+        while not state.submitted and not state.exited:
+            ms = matches_for(state, commands)
+            menu_lines = render_menu_lines(ms, state.selected) if ms else []
+            prev_cursor_row, prev_total_rows = _redraw(
+                prompt, state.buffer, state.cursor, menu_lines,
+                prev_cursor_row, prev_total_rows)
+            event = _read_event()
+            apply_event(state, event, commands, hist)
+    finally:
+        # Always restore, even if the loop raised: park the cursor below all
+        # rendered rows, emit a clean newline, and disable the Kitty Keyboard
+        # Protocol so a leftover enable can't confuse the shell or other apps.
+        rows_below = prev_total_rows - 1 - prev_cursor_row
+        if rows_below > 0:
+            sys.stdout.write(f"\x1b[{rows_below}B")
+        sys.stdout.write("\n")
+        sys.stdout.write(KITTY_DISABLE)
+        sys.stdout.flush()
 
     if state.exited:
         return None

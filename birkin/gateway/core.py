@@ -149,6 +149,7 @@ class Gateway:
         settings. Conversations start fresh. The process is NOT killed, so code
         changes still require restarting `birkin gateway`. Callers hold the lock.
         """
+        assert self._lock.locked(), "restart() must be called holding self._lock"
         for sess in list(self._claude_sessions.values()):
             sess.close()
         self._claude_sessions.clear()
@@ -305,6 +306,10 @@ class Gateway:
         cfg = config.load_config()
         cfg["gateway_model"] = name
         config.save_config(cfg)
+        # Keep in-memory state consistent even if the scheduled re-exec never
+        # happens (os.execv raises) — otherwise self.cfg would report the old
+        # model. The live model only actually changes on the next process start.
+        self.cfg = {**self.cfg, "gateway_model": name, "model": name}
         self._hard_restart = True  # the channel re-execs after sending this reply
         print(f"[gateway] model → {name}; scheduling hard restart", flush=True)
         return (f"✅ 게이트웨이 모델을 '{name}'로 바꿨어요. 적용하려고 지금 재시작합니다 "

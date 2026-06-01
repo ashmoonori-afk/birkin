@@ -47,7 +47,12 @@ def resolve_threshold(cfg: dict[str, Any], *, resolution: Optional[str] = None,
                       override: Optional[float] = None) -> tuple[float, str]:
     """Precedence: explicit override > config ``neurosis_threshold`` > resolution
     preset (quick/standard/deep) > default 0.05. Returns (threshold, source)."""
-    if override is not None and 0 < override <= 1:
+    if override is not None:
+        # An explicit override wins — but a bad value must fail loudly, not fall
+        # through to config/default (that would silently ignore the user's flag).
+        if not 0 < float(override) <= 1:
+            raise ValueError(
+                f"neurosis threshold override must be in (0, 1], got {override!r}")
         return float(override), "flag:--threshold"
     cfgval = (cfg or {}).get("neurosis_threshold")
     if isinstance(cfgval, (int, float)) and 0 < float(cfgval) <= 1:
@@ -85,12 +90,27 @@ def seed_state(idea: str, *, cfg: Optional[dict[str, Any]] = None,
     # Don't clobber an in-progress interview for the same idea — resume it.
     existing = store._read_json(sp, None)
     if isinstance(existing, dict) and existing.get("active"):
-        return _descriptor(
-            slug, existing.get("idea", idea),
-            float(existing.get("threshold", DEFAULT_THRESHOLD)),
-            str(existing.get("threshold_source", "default")),
-            str(existing.get("resolution", "standard")), sp,
-            Path(existing.get("spec_path", str(specp))), resume=True)
+        thr = float(existing.get("threshold", DEFAULT_THRESHOLD))
+        src = str(existing.get("threshold_source", "default"))
+        res = str(existing.get("resolution", "standard"))
+        # A plain resume keeps the active interview's tuning; but an explicit
+        # --quick/--standard/--deep or --threshold on resume RE-TUNES it instead
+        # of being silently dropped. Rebuild immutably and persist.
+        if threshold_override is not None or resolution is not None:
+            thr, src = resolve_threshold(cfg, resolution=resolution,
+                                         override=threshold_override)
+            if resolution is not None:
+                res = resolution
+            now = datetime.now(timezone.utc).isoformat(timespec="seconds")
+            updated = {**existing, "threshold": thr, "threshold_source": src,
+                       "resolution": res, "updated_at": now}
+            if isinstance(updated.get("state"), dict):
+                updated["state"] = {**updated["state"], "threshold": thr,
+                                    "threshold_source": src}
+            store._write_json(sp, updated)
+            existing = updated
+        return _descriptor(slug, existing.get("idea", idea), thr, src, res, sp,
+                           Path(existing.get("spec_path", str(specp))), resume=True)
     threshold, source = resolve_threshold(cfg, resolution=resolution,
                                           override=threshold_override)
     now = datetime.now(timezone.utc).isoformat(timespec="seconds")

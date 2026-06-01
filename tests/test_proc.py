@@ -1,5 +1,7 @@
 import os
 
+import pytest
+
 from birkin import proc
 
 
@@ -20,3 +22,20 @@ def test_cli_argv_keeps_parts_discrete():
         assert argv[:2] == ["cmd", "/c"]
     else:
         assert argv == ["claude", "-p", "--model", "sonnet"]
+
+
+def test_cli_argv_rejects_windows_shell_metachars(monkeypatch):
+    # On Windows, cmd /c re-parses metacharacters inside each arg, so a smuggled
+    # `& calc` would chain a second command — cli_argv must reject it.
+    monkeypatch.setattr(proc.os, "name", "nt")
+    for bad in ("foo & calc", "a|b", "x>out", "y<in", "z^a"):
+        with pytest.raises(ValueError):
+            proc.cli_argv(["claude", "mcp", "add", "srv", bad])
+    # The program name itself is trusted and not scanned; clean args pass.
+    assert proc.cli_argv(["claude", "mcp", "list"])[:2] == ["cmd", "/c"]
+
+
+def test_cli_argv_allows_metachars_on_posix(monkeypatch):
+    # POSIX uses a discrete argv with no shell, so metachars are literal data.
+    monkeypatch.setattr(proc.os, "name", "posix")
+    assert proc.cli_argv(["claude", "x & y"]) == ["claude", "x & y"]

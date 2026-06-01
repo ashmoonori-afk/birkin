@@ -19,8 +19,38 @@ def test_resolve_threshold_precedence():
     assert neurosis.resolve_threshold({}, resolution="deep") == (0.35, "flag:--deep")
     # default last
     assert neurosis.resolve_threshold({}) == (0.05, "default")
-    # invalid override/config ignored -> falls through
+    # invalid config ignored -> falls through (config is best-effort)
     assert neurosis.resolve_threshold({"neurosis_threshold": 9}) == (0.05, "default")
+    # but an explicit, out-of-range OVERRIDE must fail loudly, not be dropped
+    for bad in (0, -0.1, 1.5):
+        with pytest.raises(ValueError):
+            neurosis.resolve_threshold({}, override=bad)
+
+
+def test_reseed_with_flag_retunes_active_interview(tmp_path, monkeypatch):
+    monkeypatch.setenv("BIRKIN_HOME", str(tmp_path))
+    from birkin import store
+    s1 = neurosis.seed_state("build a CRM", cfg={}, resolution="quick")  # 0.6
+    sp = tmp_path / "neurosis" / f"{s1['slug']}.json"
+    rec = json.loads(sp.read_text(encoding="utf-8"))
+    rec["state"]["rounds"].append({"q": "q1", "a": "a1"})  # in-progress
+    store._write_json(sp, rec)
+    # re-seeding the SAME idea with an explicit --deep must RE-TUNE (not drop the
+    # flag) while preserving the in-progress rounds.
+    s2 = neurosis.seed_state("build a CRM", cfg={}, resolution="deep")  # 0.35
+    assert s2["resume"] is True and s2["slug"] == s1["slug"]
+    assert s2["threshold"] == 0.35 and s2["resolution"] == "deep"
+    after = json.loads(sp.read_text(encoding="utf-8"))
+    assert after["threshold"] == 0.35 and after["state"]["threshold"] == 0.35
+    assert len(after["state"]["rounds"]) == 1  # rounds preserved
+
+
+def test_reseed_without_flag_keeps_active_tuning(tmp_path, monkeypatch):
+    monkeypatch.setenv("BIRKIN_HOME", str(tmp_path))
+    s1 = neurosis.seed_state("ship a landing page", cfg={}, resolution="quick")  # 0.6
+    # a plain resume (no flag) leaves the existing threshold untouched
+    s2 = neurosis.seed_state("ship a landing page", cfg={})
+    assert s2["resume"] is True and s2["threshold"] == 0.6
 
 
 def test_slug():

@@ -338,11 +338,15 @@ class LLMClient:
         result = self._read_anthropic_stream(resp, on_text)
         if self.oauth:
             # Strip the mcp_ prefix so the agent's registry dispatches normally.
-            for b in result.get("content", []):
-                if b.get("type") == "tool_use":
-                    name = b.get("name") or ""
-                    if name.startswith(_MCP_PREFIX):
-                        b["name"] = name[len(_MCP_PREFIX):]
+            # Rebuild immutably — a caller (retry/audit) may still hold the
+            # original blocks, and mutating them in place would corrupt those.
+            result = {**result, "content": [
+                {**b, "name": (b.get("name") or "")[len(_MCP_PREFIX):]}
+                if b.get("type") == "tool_use"
+                and (b.get("name") or "").startswith(_MCP_PREFIX)
+                else b
+                for b in result.get("content", [])
+            ]}
         return result
 
     @staticmethod

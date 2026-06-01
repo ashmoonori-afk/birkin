@@ -4,7 +4,58 @@ Lightweight architecture decision records. Each entry: context, decision,
 rationale, alternatives considered, status. Newest decisions may supersede
 older ones (noted inline).
 
-> Last updated: 2026-05-29
+> Last updated: 2026-06-01
+
+---
+
+## ADR-032 — Session-review hardening (free+fast gateway + neurosis + autosave)
+
+**Context.** A full multi-agent code review of this session's work (free+fast
+persistent gateway, neurosis, auto-save→memory, MCP, `/models`, word-wise line
+editing) was run against the canonical tree. Verdict: **ship-with-fixes — zero
+CRITICAL**; 9 HIGH (2 self-retracted as false-positives), the rest MEDIUM/LOW.
+
+**Decision.** Apply the confirmed HIGH fixes (minimal diffs, no architecture
+change), each with a regression test where behavior changed:
+
+- **`proc.cli_argv` Windows injection guard.** `cmd /c` re-parses shell
+  metacharacters *inside* each discrete arg, so a value like `foo & calc`
+  smuggled through `birkin mcp add …` could chain a second command. Now rejects
+  args containing `& | < > ^` on Windows (the program name is exempt; POSIX
+  argv is shell-free and unaffected). Adds to ADR-029's security posture.
+- **`neurosis.resolve_threshold`** now *raises* on an out-of-range explicit
+  override `(0,1]` instead of silently falling through to config/default — an
+  explicit flag must win or fail loudly, never be dropped.
+- **`neurosis.seed_state` resume** re-applies an explicit `--quick/--standard/
+  --deep` (or `--threshold`) to an *active* interview (rebuilt immutably +
+  persisted) instead of ignoring it; a plain resume still keeps the prior tuning
+  and never clobbers in-progress rounds (ADR-031 invariant preserved).
+- **`transcripts._maybe_enforce_retention`** throttle + sweep now run under a
+  non-blocking `threading.Lock`, so concurrent gateway channel threads can't
+  double-sweep and over-delete; a turn whose sweep slot is taken returns at once.
+- **`llm` OAuth `mcp_` strip** rebuilds the result blocks immutably (house
+  immutability rule) instead of mutating returned content in place.
+- **`inline_complete` Ctrl-U/Ctrl-K** now bound to the **current logical line**
+  (not the whole buffer), so a kill on line 2 no longer wipes line 1 — matching
+  the documented "delete to line start/end" semantics for multiline input.
+- **`inline_complete.prompt_with_completion`** clears module `_pushback` at
+  session start (a paste ending in a control byte could otherwise fire into the
+  next prompt) and restores the Kitty Keyboard Protocol in a `finally` so a
+  raised loop can't leave terminal mode enabled.
+- **gateway `/models`** also updates in-memory `self.cfg` after persisting, so
+  state is consistent even if the scheduled hard-restart re-exec never happens.
+- **gateway `restart()`** gains an `assert self._lock.locked()` tripwire to make
+  its "callers hold the lock" invariant fail loudly in dev (it is held today).
+
+**Alternatives.** For the Windows guard, resolving the `.cmd` shim via
+`shutil.which` + `shell=False` was considered but is a larger change; rejecting
+metacharacters is sufficient defense-in-depth for trusted-operator input.
+
+**Status.** Done; 8 HIGH fixed (1 doc-only accepted), 2 false-positives
+dismissed, MEDIUM/LOW deferred. **403 tests** pass offline (5 new). The two
+false-positives: `str.startswith(tuple)` is valid Python; and `build_session`'s
+first turn is *not* persona-less (every turn, including the first, re-injects
+persona + neurosis via `ask()`/`refresh_system_prompt()`).
 
 ---
 

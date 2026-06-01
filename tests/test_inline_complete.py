@@ -610,6 +610,22 @@ def test_kill_to_start_and_end():
     assert s3.buffer == ""
 
 
+def test_kill_to_start_and_end_bound_to_current_line():
+    # Multiline buffer "line1\nline2" with the cursor mid-second-line: Ctrl-U/K
+    # must only affect the SECOND line, never reach across the newline into line1.
+    # "line1\nline2": indices l0 i1 n2 e3 1·4 \n5 l6 i7 n8 e9 2·10
+    s = ic.EditorState()
+    s.buffer = "line1\nline2"
+    s.cursor = 8                                   # after "li" on line 2
+    ic.apply_event(s, ("kill_to_start", ""), [], [])
+    assert s.buffer == "line1\nne2" and s.cursor == 6   # line1 untouched
+    s2 = ic.EditorState()
+    s2.buffer = "line1\nline2"
+    s2.cursor = 10                                  # before the trailing "2"
+    ic.apply_event(s2, ("kill_to_end", ""), [], [])
+    assert s2.buffer == "line1\nline"               # only the line-2 tail removed
+
+
 def test_word_ops_reset_history_browse():
     hist = ["old one", "old two"]
     s = _run([("char", "draft text")])
