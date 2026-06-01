@@ -2,10 +2,12 @@
 
 from __future__ import annotations
 
+import os
 from pathlib import Path
 from typing import Any
 
 from . import Tool, ToolContext, ToolResult
+from . import hashline
 
 MAX_READ_BYTES = 200_000
 
@@ -15,6 +17,28 @@ def _resolve(ctx: ToolContext, raw: str) -> Path:
     return p if p.is_absolute() else (ctx.cwd / p)
 
 
+def _normalize_newlines(s: str) -> str:
+    """CRLF/CR -> LF so hashline operates on clean ``\\n`` lines cross-platform."""
+    return s.replace("\r\n", "\n").replace("\r", "\n")
+
+
+def _atomic_write_text(path: Path, text: str) -> None:
+    """Write text via a temp sibling + os.replace so a crash can't truncate it.
+    ``newline=""`` disables platform translation so LF stays LF (no CRLF surprise
+    that would invalidate the hashes the agent just saw)."""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp = path.with_suffix(path.suffix + f".{os.getpid()}.tmp")
+    try:
+        tmp.write_text(text, encoding="utf-8", newline="")
+        os.replace(tmp, path)
+    except OSError:
+        try:
+            tmp.unlink()
+        except OSError:
+            pass
+        raise
+
+
 def _read_file(inp: dict[str, Any], ctx: ToolContext) -> ToolResult:
     path = _resolve(ctx, inp.get("path", ""))
     if not path.is_file():
@@ -22,9 +46,34 @@ def _read_file(inp: dict[str, Any], ctx: ToolContext) -> ToolResult:
     data = path.read_bytes()
     truncated = len(data) > MAX_READ_BYTES
     text = data[:MAX_READ_BYTES].decode("utf-8", "replace")
+    # annotate=true tags each line "{n}#{hash}| " so a later edit_file can be
+    # hash-anchored (reject stale writes). See tools/hashline.py.
+    if inp.get("annotate"):
+        text = hashline.annotate(_normalize_newlines(text))
     if truncated:
         text += f"\n\n[truncated; file is {len(data)} bytes]"
     return ToolResult(text)
+
+
+def _edit_file(inp: dict[str, Any], ctx: ToolContext) -> ToolResult:
+    """Apply hash-anchored line edits — only if each line still matches the hash
+    the agent saw (read the file with annotate=true first). All-or-nothing."""
+    path = _resolve(ctx, inp.get("path", ""))
+    if not path.is_file():
+        return ToolResult(f"No such file: {path}", is_error=True)
+    edits = inp.get("edits") or []
+    if not isinstance(edits, list) or not edits:
+        return ToolResult("Provide a non-empty 'edits' list "
+                          "({line, hash, new}).", is_error=True)
+    original = _normalize_newlines(path.read_bytes().decode("utf-8", "replace"))
+    new_text, errors = hashline.edit_text(original, edits)
+    if errors:
+        return ToolResult(
+            "Edit rejected — file left UNCHANGED:\n- " + "\n- ".join(errors)
+            + "\nRe-read the file with read_file annotate=true for fresh hashes.",
+            is_error=True)
+    _atomic_write_text(path, new_text)
+    return ToolResult(f"Applied {len(edits)} edit(s) to {path}.")
 
 
 def _write_file(inp: dict[str, Any], ctx: ToolContext) -> ToolResult:
@@ -70,13 +119,45 @@ def tools() -> list[Tool]:
         Tool(
             name="read_file",
             description="Read a UTF-8 text file relative to the workspace. "
-                        "Large files are truncated.",
+                        "Large files are truncated. Set annotate=true to tag each "
+                        "line '{n}#{hash}| ' for a later hash-anchored edit_file.",
             input_schema={
                 "type": "object",
-                "properties": {"path": {"type": "string", "description": "File path"}},
+                "properties": {
+                    "path": {"type": "string", "description": "File path"},
+                    "annotate": {"type": "boolean", "description":
+                                 "Prefix lines with {n}#{hash}| for edit_file"},
+                },
                 "required": ["path"],
             },
             fn=_read_file,
+        ),
+        Tool(
+            name="edit_file",
+            description="Apply line edits that REJECT stale writes: each edit must "
+                        "carry the line's current #hash (from read_file annotate=true). "
+                        "All-or-nothing — if any hash is stale the file is untouched.",
+            input_schema={
+                "type": "object",
+                "properties": {
+                    "path": {"type": "string"},
+                    "edits": {
+                        "type": "array",
+                        "description": "Edits to apply",
+                        "items": {
+                            "type": "object",
+                            "properties": {
+                                "line": {"type": "integer", "description": "1-indexed line no."},
+                                "hash": {"type": "string", "description": "the #hash you saw"},
+                                "new": {"type": "string", "description": "replacement line text"},
+                            },
+                            "required": ["line", "hash", "new"],
+                        },
+                    },
+                },
+                "required": ["path", "edits"],
+            },
+            fn=_edit_file,
         ),
         Tool(
             name="write_file",
