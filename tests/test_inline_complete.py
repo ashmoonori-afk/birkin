@@ -562,3 +562,58 @@ def test_dropdown_active_still_intercepts_up_in_multiline():
     ic.apply_event(s, ("up", ""), cmd_list, [])
     # selection should have moved, NOT line/history
     assert s.selected == len(ic.filter_commands("/h", cmd_list)) - 1
+
+
+# -- word-wise navigation + deletion (Ctrl/Alt + arrows, Ctrl-W/U/K) --------
+
+def test_word_boundary_helpers():
+    assert ic._prev_word("foo bar", 7) == 4
+    assert ic._prev_word("foo bar ", 8) == 4   # skip trailing space, then word
+    assert ic._prev_word("foo", 0) == 0
+    assert ic._next_word("foo bar", 0) == 3
+    assert ic._next_word("  foo", 0) == 5
+    assert ic._next_word("foo", 3) == 3
+
+
+def test_word_left_right_moves_by_word():
+    s = _run([("char", "alpha beta gamma")])     # cursor at end (16)
+    ic.apply_event(s, ("word_left", ""), [], [])
+    assert s.cursor == 11                         # start of "gamma"
+    ic.apply_event(s, ("word_left", ""), [], [])
+    assert s.cursor == 6                          # start of "beta"
+    ic.apply_event(s, ("word_right", ""), [], [])
+    assert s.cursor == 10                         # end of "beta"
+
+
+def test_delete_word_removes_word_before_cursor():
+    s = _run([("char", "foo bar baz")])           # cursor 11
+    ic.apply_event(s, ("delete_word", ""), [], [])
+    assert s.buffer == "foo bar " and s.cursor == 8
+    ic.apply_event(s, ("delete_word", ""), [], [])
+    assert s.buffer == "foo " and s.cursor == 4
+
+
+def test_kill_to_start_and_end():
+    s = _run([("char", "hello world")])           # cursor 11 (end)
+    ic.apply_event(s, ("kill_to_start", ""), [], [])
+    assert s.buffer == "" and s.cursor == 0
+
+    s2 = _run([("char", "hello world"), ("home", "")])  # cursor 0
+    ic.apply_event(s2, ("kill_to_end", ""), [], [])
+    assert s2.buffer == ""
+
+    s3 = _run([("char", "hello world")])          # cursor 11
+    ic.apply_event(s3, ("word_left", ""), [], [])  # cursor 6 (start of "world")
+    ic.apply_event(s3, ("kill_to_end", ""), [], [])
+    assert s3.buffer == "hello "
+    ic.apply_event(s3, ("kill_to_start", ""), [], [])
+    assert s3.buffer == ""
+
+
+def test_word_ops_reset_history_browse():
+    hist = ["old one", "old two"]
+    s = _run([("char", "draft text")])
+    ic.apply_event(s, ("up", ""), [], hist)        # browse history
+    assert s.history_idx != -1
+    ic.apply_event(s, ("delete_word", ""), [], hist)
+    assert s.history_idx == -1                     # editing exits history browse

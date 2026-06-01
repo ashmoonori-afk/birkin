@@ -224,6 +224,27 @@ def _move_down_line(state: EditorState) -> bool:
     return True
 
 
+def _prev_word(buffer: str, cursor: int) -> int:
+    """Index at the start of the word before ``cursor`` (skip spaces, then word)."""
+    i = cursor
+    while i > 0 and buffer[i - 1].isspace():
+        i -= 1
+    while i > 0 and not buffer[i - 1].isspace():
+        i -= 1
+    return i
+
+
+def _next_word(buffer: str, cursor: int) -> int:
+    """Index at the end of the word after ``cursor`` (skip spaces, then word)."""
+    n = len(buffer)
+    i = cursor
+    while i < n and buffer[i].isspace():
+        i += 1
+    while i < n and not buffer[i].isspace():
+        i += 1
+    return i
+
+
 def apply_event(state: EditorState, event: tuple[str, str],
                 commands: Sequence[CommandHint],
                 history: Sequence[str]) -> EditorState:
@@ -295,6 +316,39 @@ def apply_event(state: EditorState, event: tuple[str, str],
         return state
     if kind == "end":
         state.cursor = len(state.buffer)
+        return state
+    if kind == "word_left":
+        state.cursor = _prev_word(state.buffer, state.cursor)
+        return state
+    if kind == "word_right":
+        state.cursor = _next_word(state.buffer, state.cursor)
+        return state
+    if kind == "delete_word":   # Ctrl-W — delete the word before the cursor
+        start = _prev_word(state.buffer, state.cursor)
+        if start < state.cursor:
+            state.buffer = state.buffer[:start] + state.buffer[state.cursor:]
+            state.cursor = start
+            state.selected = 0
+            state.menu_dismissed = False
+            state.history_idx = -1
+            state.pending = None
+        return state
+    if kind == "kill_to_start":  # Ctrl-U — delete from line start to the cursor
+        if state.cursor > 0:
+            state.buffer = state.buffer[state.cursor:]
+            state.cursor = 0
+            state.selected = 0
+            state.menu_dismissed = False
+            state.history_idx = -1
+            state.pending = None
+        return state
+    if kind == "kill_to_end":    # Ctrl-K — delete from the cursor to line end
+        if state.cursor < len(state.buffer):
+            state.buffer = state.buffer[:state.cursor]
+            state.selected = 0
+            state.menu_dismissed = False
+            state.history_idx = -1
+            state.pending = None
         return state
 
     if kind == "tab":
@@ -491,6 +545,12 @@ def _read_event_posix() -> tuple[str, str]:
             return ("newline", "")
         if c == 0x09:
             return ("tab", "")
+        if c == 0x17:   # Ctrl-W
+            return ("delete_word", "")
+        if c == 0x15:   # Ctrl-U
+            return ("kill_to_start", "")
+        if c == 0x0b:   # Ctrl-K
+            return ("kill_to_end", "")
         if c in (0x7f, 0x08):
             return ("backspace", "")
         if c == 0x1b:
@@ -504,6 +564,10 @@ def _read_event_posix() -> tuple[str, str]:
                 # Alt+Enter is commonly emitted as ESC + \r or ESC + \n —
                 # treat it as the multiline-newline trigger.
                 return ("newline", "")
+            if nb in (b"b", b"B"):   # Alt+B — word left
+                return ("word_left", "")
+            if nb in (b"f", b"F"):   # Alt+F — word right
+                return ("word_right", "")
             if nb in (b"[", b"O"):
                 seq = b""
                 # Read until terminator (alpha letter or '~') or no more data.
@@ -523,6 +587,12 @@ def _read_event_posix() -> tuple[str, str]:
                 # natural on terminals that support the protocol.
                 if _KITTY_MOD_ENTER_RE.match(seq):
                     return ("newline", "")
+                # Modified arrows (Ctrl/Alt+←/→) arrive as e.g. ``1;5C`` / ``1;3D``
+                # — jump by word. The bare arrows (``C``/``D``) fall through below.
+                if b";" in seq and seq.endswith(b"C"):
+                    return ("word_right", "")
+                if b";" in seq and seq.endswith(b"D"):
+                    return ("word_left", "")
                 key = {
                     b"A": "up", b"B": "down", b"C": "right", b"D": "left",
                     b"H": "home", b"F": "end",
@@ -597,6 +667,12 @@ def _read_event_windows() -> tuple[str, str]:
         return ("newline", "")   # Ctrl-J on Windows
     if ch == "\t":
         return ("tab", "")
+    if ch == "\x17":   # Ctrl-W
+        return ("delete_word", "")
+    if ch == "\x15":   # Ctrl-U
+        return ("kill_to_start", "")
+    if ch == "\x0b":   # Ctrl-K
+        return ("kill_to_end", "")
     if ch == "\x08":
         return ("backspace", "")
     if ch == "\x1b":
@@ -604,7 +680,8 @@ def _read_event_windows() -> tuple[str, str]:
     if ch in ("\x00", "\xe0"):
         code = msvcrt.getwch()
         return ({"H": "up", "P": "down", "K": "left", "M": "right",
-                 "G": "home", "O": "end", "S": "delete"}
+                 "G": "home", "O": "end", "S": "delete",
+                 "s": "word_left", "t": "word_right"}  # Ctrl+←/Ctrl+→
                 .get(code, "other"), "")
     # Paste batch: drain anything immediately queued (printable + \n + \t).
     # On a control char we push it back via ``ungetwch`` so the next call

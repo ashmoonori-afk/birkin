@@ -38,6 +38,8 @@ def _banner(session: Session) -> None:
     print(f" model {CYAN}{cfg.get('model')}{RESET} · {n} skill(s) · "
           f"vault {DIM}{session.memory.vault}{RESET}")
     print(f" type {YELLOW}/help{RESET} for commands, or just chat · Ctrl-C to quit.")
+    print(f" {DIM}edit: Ctrl+←/→ word · Ctrl-W delete word · Ctrl-U/Ctrl-K clear "
+          f"to start/end · ↑/↓ history{RESET}")
 
 
 def run(cfg: dict[str, Any] | None = None) -> int:
