@@ -9,157 +9,67 @@
  ╚═════╝ ╚═╝╚═╝  ╚═╝╚═╝  ╚═╝╚═╝╚═╝  ╚═══╝
 ```
 
-### 밤사이 스스로 성장하고, 아침에 너에게 영수증을 준다.
+### 무료. 빠름. 밤마다 스스로 개선 — 검증은 당신이.
 
-**Self-improving by night. Audited by you.**
-
-가벼운 CLI 에이전트 워크스페이스. **자고 있는 동안 스스로 개선하고, 무엇을
-했는지 영수증을 남긴다**: 승인 게이트가 걸린 야간 루틴 (**Morpheus**),
-매 turn마다 기록되는 run record + append-only 감사 ledger, polarity까지
-다루는 Obsidian 메모리, 위험 등급으로 정렬되는 승인 인박스, `skills validate`
-무결성 게이트 — 전부 **의존성 0개**의 Python 코어 안에서.
+Claude 구독으로 **무료로 종일** 돌고, 따뜻한 영속 세션에서 **~3초**에 답하며,
+모호한 일은 **명료해질 때까지 인터뷰**(neurosis)하고, **모든 대화를 자동
+저장**해 밤사이 기억으로 바꾸며(Morpheus), **회사 도구를 MCP로** 붙이고, **검증
+권한은 당신에게** 남기는 — **의존성 0**의 파이썬 코어 CLI·텔레그램 에이전트.
 
 🌐 **Language**: [English](./README.md) · 한국어
 
 ![python](https://img.shields.io/badge/python-3.10%2B-3776ab)
 ![runtime deps](https://img.shields.io/badge/runtime%20deps-0-2ea44f)
-![tests](https://img.shields.io/badge/tests-277%20passing-2ea44f)
-![coverage](https://img.shields.io/badge/coverage-76%25-2ea44f)
+![tests](https://img.shields.io/badge/tests-403%20passing-2ea44f)
+![skills](https://img.shields.io/badge/bundled%20skills-59-blue)
 ![platform](https://img.shields.io/badge/platform-macOS%20·%20Linux%20·%20Windows-lightgrey)
-![license](https://img.shields.io/badge/package-Proprietary-orange)
-![license](https://img.shields.io/badge/bundled%20skills-MIT-green)
 
 </div>
 
 ---
 
-대부분의 자기개선 에이전트는 두 가지 함정에 빠진다 — **결정에서 사용자를
-배제하거나**, **흔적을 남기지 않거나**. birkin은 둘 다 안 한다. 자고 있는
-사이에 **Morpheus**가 하루를 읽고, Obsidian 메모리를 갱신하고, 새 스킬 초안을
-쓰고, **결과가 영향 큰 행동(cron, shell)은 전부 아침 승인 큐로** 보낸다. 모든
-turn은 run record + ledger 한 줄로 남으므로 과거 결정을 그대로 재생할 수 있다
-— `birkin trace <run-id>`. 메모리 노트는 **polarity**(긍정 / 알려진 실패),
-**version**(낙관적 락), 선택적 evidence 요구를 가지며, 번들 스킬은 요청 시
-프론트매터 린트 + `py_compile`까지 거친다.
+birkin은 Claude Pro/Max 구독으로 **API 키 없이, 토큰 과금 없이 종일 무료**로 돌릴
+수 있는 개인·회사용 에이전트입니다. 터미널과 텔레그램에서 **하나의 메모리·스킬·
+페르소나**로 대화하며, **놀라게 하지 않으면서 진짜로 도움이 되는 것**을 목표로
+설계됐습니다.
 
-가진 것 위에서 동작한다 — **API key** (Anthropic / OpenAI 호환 / Ollama) 또는
-이미 로그인한 로컬 에이전트 CLI (**Claude Code** / **Codex**).
+- **무료 + 빠름.** 게이트웨이는 **Claude Code 자체**를 대화별 *따뜻한 영속*
+  프로세스(stream-json)로 돌립니다. 콜드 스타트는 한 번만, 이후 응답은
+  ~모델시간(**~3초**)이며 **유료 API 키가 아니라 Claude 구독**으로 청구됩니다.
+  ([`docs/DECISIONS.md`](./docs/DECISIONS.md) ADR-026)
+- **행동 전 명료화 (neurosis).** 모호하거나 복잡한 요청엔 추측하지 않고,
+  **수학적 모호도 게이팅**이 있는 **Socratic 딥 인터뷰**를 한 질문씩 진행해
+  아이디어가 또렷해진 뒤 spec을 쓰고, **승인 후에만** 실행합니다.
+- **자기개선 + 영수증 (Morpheus).** 모든 턴이 자동 저장되고, 밤마다 Morpheus가
+  하루를 읽어 Obsidian 메모리를 갱신하고 스킬을 만들며 **위험한 동작은 아침
+  검토용으로 큐잉**합니다.
+- **회사용.** Claude Code의 **MCP** 서버(Notion·Drive·Gmail·사내 도구)를
+  네이티브로 상속하고, 회사급 보안 하드닝을 갖췄습니다.
 
-[hermes-agent](https://github.com/NousResearch/hermes-agent)와
-[openclaw](https://github.com/openclaw/openclaw)에서 영감을 받았다.
-의도적으로 **너비**(채널·프로바이더·스킬 수)에 베팅하지 않고 **신뢰의 깊이**에
-베팅 — 출처 기반 비교는 [`docs/COMPARISON.md`](./docs/COMPARISON.md) 참조.
+영감: [hermes-agent](https://github.com/NousResearch/hermes-agent),
+[openclaw](https://github.com/openclaw/openclaw). 딥 인터뷰는
+[gajae-code](https://github.com/Yeachan-Heo/gajae-code)에서 이식. 폭이 아니라
+**신뢰 + 명료성의 깊이**에 집중합니다 —
+[`docs/COMPARISON.md`](./docs/COMPARISON.md).
 
 ---
 
 ## 🎯 설계 의도
 
-birkin은 영감을 준 두 프로젝트보다 의도적으로 **더 작고 더 조심스럽다**. 다른
-모든 결정은 이 다섯 가지에서 파생된다:
-
-1. **Stdlib만 사용하는 런타임.** `pyproject.toml`의 `dependencies = []`.
-   어떤 노트북·서버·갓 설치한 OS에도 설치 가능 — 버전 드리프트도, 핀
-   관리 지옥도 없음. (`pytest` 같은 개발 도구는 선택 사항.)
-2. **검색이 아니라 컴파일.** 메모리는 진짜 Obsidian 마크다운 노트 vault —
-   `[[wikilink]]`, frontmatter, **polarity**(긍정 vs 알려진 실패),
-   **version**(낙관적 락), TTL — 불투명한 임베딩 저장소가 아님. Obsidian에서
-   열어서 직접 편집 가능.
-3. **승인 우선.** 메모리·스킬 쓰기는 자동 적용 (로컬 파일 변경이라 되돌리기
-   쉬움); cron 스케줄과 shell 명령은 큐잉. 위험 등급으로 가장 위험한
-   제안부터 화면 위에.
-4. **CLI 우선, 대시보드는 보조.** 채팅은 터미널 안에서 진짜 라인 에디터로
-   (인라인 `/명령` 드롭다운, Shift/Ctrl/Alt+Enter 줄바꿈, 영속 히스토리).
-   웹 UI는 *모니터링* 용 — 작업, run, 승인 현황만.
-5. **범위에 정직하게.** hermes는 실행 백엔드 더 많고 openclaw는 채널 더
-   많으며 5,400개 스킬 레지스트리도 있다. birkin이 거는 판은 **신뢰의 깊이**:
-   `skills validate` + `py_compile`, 위험 등급 승인, polarity 메모리,
-   토큰 예산 거버너, ledger 기반 감사 trail. 출처 기반 비교는
-   [`docs/COMPARISON.md`](./docs/COMPARISON.md) 참조.
-
----
-
-## 🗺️ 아키텍처
-
-```
-                              ┌───────────────────────────┐
-                              │            you            │
-                              └──┬──────────────────────┬─┘
-                                 │ terminal             │ browser
-                                 ▼                      ▼
-              ┌──────────────────────────────┐   ┌────────────────────┐
-              │      REPL  (repl.py)         │   │  web/server.py     │
-              │  ┌────────────────────────┐  │   │  monitoring only   │
-              │  │ inline_complete.py     │  │   │  ─ /api/status     │
-              │  │  ─ /cmd 드롭다운       │  │   │  ─ /api/runs       │
-              │  │  ─ Shift/Ctrl/Alt+Ent  │  │   │  ─ /api/approvals  │
-              │  │  ─ 멀티라인 + paste    │  │   │  ─ /api/skills     │
-              │  │  ─ ↑/↓ 히스토리        │  │   └─────────┬──────────┘
-              │  └────────────────────────┘  │             │
-              └──────────────┬───────────────┘             │
-                             │                             │
-              ┌──────────────┴─────────────────────────────┴──┐
-              │       gateway / 채널 (gateway/*)              │ ◀── Telegram
-              │           하나의 공유 Session                 │
-              └──────────────┬───────────────────────────────┘
-                             │
-                             ▼
-  ┌──────────────────────────────────────────────────────────────────┐
-  │                       Session   (runtime.py)                     │
-  │                                                                  │
-  │     ┌────────────────────────────────────────────────────┐       │
-  │     │        agent.py   ⟲ tool-calling 루프              │       │
-  │     │        (provider 무관, Anthropic은 streaming)      │       │
-  │     └──┬─────────────────────┬─────────────────────────┬─┘       │
-  │        ▼                     ▼                         ▼         │
-  │   ┌─────────┐         ┌──────────────┐         ┌─────────────┐   │
-  │   │  llm.py │         │   tools/     │         │  skills/    │   │
-  │   │         │         │              │         │             │   │
-  │   │ Anthropic│        │ files        │         │ SKILL.md    │   │
-  │   │ OpenAI   │        │ shell        │         │ loader      │   │
-  │   │ claude-cli        │ web          │         │ manager     │   │
-  │   │ codex-cli│        │ subagent ──┐ │         │ validate.py │   │
-  │   │ local-cli│        │ memory_*  ─┼─┼────────▶│  py_compile │   │
-  │   └─────────┘         └────────────┼─┘         │  sync       │   │
-  │                                    │           └─────┬───────┘   │
-  │                                    ▼                 ▼           │
-  │                              subagent.py        memory.py        │
-  │                              (격리됨)          (Obsidian vault)  │
-  └──────────────────────────────────────────────────────────────────┘
-                             │                       │
-                             │                       ▼
-                             │              ~/.birkin/vault/*.md
-                             │              ─ polarity (+/−)
-                             │              ─ version (낙관적 락)
-                             │              ─ TTL (expires_at)
-                             ▼
-        ┌────────────────────────────────────────────────────┐
-        │  자율 (scheduler.py · cron.py · morpheus.py)       │
-        │                                                    │
-        │   04:00 ─▶ 자기개선 ─▶ 최근 24h 분석              │
-        │            ├─ 메모리 / 스킬 갱신     (자동)        │
-        │            └─ cron / shell 제안 ───┐               │
-        └────────────────────────────────────┼───────────────┘
-                                             │
-                                             ▼
-                              ┌─────────────────────────────────┐
-                              │  approvals.py + risk.py         │
-                              │  ─ memory/skill = 낮음 (자동)   │
-                              │  ─ cron        = 중간 (큐잉)    │
-                              │  ─ shell       = 높음 (큐잉)    │
-                              └──────────┬──────────────────────┘
-                                         │
-                                         ▼
-                            `birkin review`  /  /api/approvals
-
-        매 turn:  run record (estTokens, 사용 도구, iteration)
-                  ──▶  ~/.birkin/runs/  +  ~/.birkin/ledger.jsonl
-                  (감사 replay: `birkin trace <run-id>`,
-                   예산 거버너: budget.py)
-```
-
-**다이어그램 읽는 법.** 실선 화살표는 한 turn의 제어/데이터 흐름. 점선
-영역(자율, 감사)은 동기 루프 *아래에* 깔려 있다 — 사용자 입력이 아니라
-daemon과 ledger가 굴린다.
+1. **기본이 무료.** 권장 백엔드는 `claude` CLI를 통한 **Claude 구독** — API 키도,
+   유료 `extra_usage`도 없습니다. (직접-API OAuth는 *파킹*: third-party OAuth 앱
+   사용은 유료로 과금됨 — ADR-026.)
+2. **기본이 빠름.** 게이트웨이는 **대화별 따뜻한 `claude` 프로세스**를 유지해
+   웜 응답이 매번 콜드 스타트가 아니라 모델시간입니다.
+3. **stdlib 전용 런타임.** `dependencies = []`. 어디서나 설치 — 버전 드리프트
+   없음. (pytest 등 개발 도구는 옵트인.)
+4. **검색보다 컴파일.** 메모리는 `[[위키링크]]`·frontmatter·**polarity**·
+   **version**(낙관적 잠금)·TTL을 가진 진짜 Obsidian 마크다운 vault — 불투명
+   임베딩이 아닙니다. 손으로 편집 가능.
+5. **승인 우선.** 메모리·스킬 쓰기는 자동(되돌릴 수 있는 로컬 파일), cron·shell은
+   큐잉(위험도 정렬). 무인 Morpheus는 샌드박스(shell 없음).
+6. **CLI 우선, 대시보드는 보조.** 진짜 터미널 라인 에디터(인라인 `/cmd` 드롭다운,
+   단어 단위 편집, 멀티라인, 히스토리). 웹 UI는 *모니터링*.
 
 ---
 
@@ -181,317 +91,276 @@ git clone https://github.com/ashmoonori-afk/birkin && cd birkin
 uv run birkin            # 또는:  pip install -e .  &&  birkin
 ```
 
-**Python 3.10+** 필요. 첫 실행은 온보딩 위저드 — **↑/↓ 와 Enter**로 이동
-(키/경로 입력 외엔 타자 칠 일 없음).
+**Python 3.10+** 필요. 첫 실행 시 온보딩 마법사(방향키 탐색)가 뜹니다.
 
 ### 백엔드 선택
 
-birkin은 아래 중 *하나*가 필요 — 위저드(또는 `birkin model`)가 설정해준다:
-
-| 백엔드 | 방법 | API key |
+| 백엔드 | 방법 | 비용 |
 |---|---|---|
-| **Anthropic** | `export ANTHROPIC_API_KEY=sk-ant-…` | 필요 |
-| **OpenAI 호환** | provider `openai` + `base_url` (**Ollama**도 OK) | 필요\* |
-| **Claude Code** (`claude`) | `birkin model`에서 선택 | 불필요 — CLI 자체 로그인 사용 |
-| **Codex** (`codex`) | `birkin model`에서 선택 | 불필요 — CLI 자체 로그인 사용 |
-| **임의 로컬 CLI** (`local-cli`) | config의 `cli_command` (argv) 설정 | 불필요 — argv 실행, stdin으로 프롬프트 전달 |
+| **Claude Code** (`claude`) — *권장* | `claude`에 로그인 후 `birkin model`에서 선택 | **무료** — Claude 구독, API 키 불필요 |
+| **Anthropic API** | `export ANTHROPIC_API_KEY=sk-ant-…` | 유료(토큰당) |
+| **OpenAI 호환** | provider `openai` + `base_url` (**Ollama** 가능) | 유료\* |
+| **Codex** (`codex`) | `birkin model`에서 선택 | 자체 CLI 로그인 사용 |
 
-\* Ollama는 아무 키나 받음. PowerShell: `$env:ANTHROPIC_API_KEY="sk-ant-…"`.
-
-### API key 없어요? Claude Code / Codex를 쓰세요
-
-`claude` 또는 `codex`가 `PATH`에 있으면 `birkin model`이 **Local CLI agents**
-섹션에 표시한다. birkin은 자신의 정체성 + 메모리 + 메시지와 가장 관련 있는
-스킬들을 CLI 프롬프트에 주입해서, 그 에이전트가 *birkin으로서* 답하고,
-너를 기억하고, 너의 스킬을 따르게 만든다.
-
-CLI 에이전트는 기본적으로 **쓰기 가능** (워크스페이스 안 샌드박스). 승인/샌드박스를
-완전히 우회하려면: `birkin permission --access full`. **신뢰하는 워크스페이스에서만**
-사용.
+\* Ollama는 아무 키나 허용. **게이트웨이**는 Claude(claude-cli) 경로를 웜·영속으로
+돌려 빠릅니다.
 
 ---
 
-## 🎮 빠른 시작 — 5가지 워크플로우
-
-> 아래 예시는 전부 실제 동작. 복사·붙여넣기·실행.
-
-### 1. 너를 기억하는 채팅
-
-```bash
-$ birkin
-you > /remember 짧고 간결하게 답해. 서론 없이.
-birkin > [[Profile - reply-style]] 노트로 저장됨.
-you > /memory preference
-birkin > Vault에 preference 노트 3개:
-         - [[Profile - reply-style]] …
-         - [[Profile - timezone]] …
-```
-
-### 2. 5000자짜리 PRD를 한 번에 paste
-
-REPL 안에서 **Shift+Enter** (Kitty Keyboard Protocol 미지원 터미널이면
-Ctrl-J / Alt+Enter)로 줄바꿈 삽입. **Enter**가 제출. 인라인 `/` 드롭다운이
-타이핑에 따라 슬래시 명령을 필터링; ←/→, Home/End, Delete, ↑/↓ 히스토리도
-다 동작. 긴 줄은 가로 스크롤로 처리해서 터미널 레이아웃이 깨지지 않는다.
+## 🗺️ 아키텍처
 
 ```
-you > /help⏎          (모든 슬래시 명령 그룹별 표시)
-you > 아래 brief 기반으로 GTM 플랜 짜줘.⇧⏎
-      ⇧⏎
-      [5000자+ 본문 N줄 paste]⏎
-birkin > [답변 스트리밍]
-```
+        터미널 (REPL)                           Telegram / HTTP
+              │                                       │
+              ▼                                       ▼
+   ┌────────────────────────┐          ┌──────────────────────────────────┐
+   │ repl.py + inline_      │          │ gateway/core.py                  │
+   │ complete.py            │          │  · /help /new /restart /hard_    │
+   │  · /cmd 드롭다운        │          │    restart /models /neurosis     │
+   │  · 단어 단위 편집       │          │  · 대화별 WARM claude            │
+   │  · 멀티라인 · 히스토리  │          │    (claude_session.py, stream-   │
+   └───────────┬────────────┘          │    json) — 무료 + ~3초           │
+               │                       └───────────────┬──────────────────┘
+               │   하나의 메모리 · 스킬 · 페르소나 공유   │
+               └───────────────┬───────────────────────┘
+                               ▼
+        ┌──────────────────────────────────────────────────────────────┐
+        │   에이전트 (Claude Code, 또는 API 키 시 birkin 자체 루프)     │
+        │   도구: files · shell · web · subagent · memory_* · skills    │
+        │   + Claude Code의 MCP 서버 상속 (회사 도구)                  │
+        │   + birkin-as-MCP-server (mcp_server.py): 메모리/스킬/propose │
+        │     도구 — 무료 claude 경로에서도 구조 유지                  │
+        └───────────────┬───────────────────────────────┬──────────────┘
+                         ▼                               ▼
+              ~/.birkin/vault/*.md                ~/.birkin/sessions/
+              (Obsidian 메모리:                   auto__*.json
+               polarity · version · TTL)          (매 턴 자동 저장)
+                         ▲                               │
+                         │                               ▼
+        ┌────────────────┴───────────────────────────────────────────┐
+        │  Morpheus (morpheus.py) — 야간 04:00, 무료 + 샌드박스       │
+        │   최근 24h 자동저장 턴 읽기 ─▶ 메모리/스킬 작성(birkin MCP)  │
+        │   ─▶ cron/shell 제안 (승인 게이트)                          │
+        └──────────────────────────┬──────────────────────────────────┘
+                                   ▼
+                    approvals.py + risk.py  ─▶  `birkin review`
+        (메모리/스킬=자동 · cron/shell=큐잉; shell-cron은 shell 게이트
+         우회 불가)
 
-### 3. 성공한 turn 하나를 스킬로 굳히기
-
-```bash
-you > /learn lockup-feedback
-       → birkin이 마지막 turn의 절차를 ~/.birkin/skills/lockup-feedback/
-         밑에 SKILL.md로 캡쳐. 다음에 같은 요청을 하면 자동으로 로드해서
-         같은 레시피를 따른다.
-```
-
-**Morpheus를 통해 birkin이 야간에 스스로 스킬을 작성**하게 할 수도 있음
-(아래 참고 — 승인 게이트로 보호됨).
-
-### 4. Morpheus — 야간 자기개선, 아침에 리뷰
-
-```bash
-$ birkin daemon --install      # OS 작업 등록 (cron / launchd / schtasks)
-                               # 04:00에 Morpheus가 어제를 읽고, 메모리 쓰고,
-                               # 스킬 쓰고(자동), cron/shell 자동화 제안은
-                               # 큐로 보냄 (리뷰 필요)
-$ birkin morpheus --dry-run    # 오늘밤 무엇을 할지 미리보기 — 비용 0
-$ birkin review                # 다음 날 아침, 하나씩 승인 / 거절
-$ birkin trace <run-id>        # 과거 turn 감사 replay
-```
-
-위험 등급이 위험한 제안부터 화면 위에 올린다 (`shell` > `cron` >
-`memory`/`skill`). 자동승인 정책 조정은 `birkin permission`.
-
-### 5. Telegram에서 birkin과 대화
-
-```bash
-$ birkin setup              # "Telegram 봇 연결?"에 yes, 토큰 paste
-$ birkin gateway            # 이제 Telegram 봇이 터미널 세션과 같은 vault·스킬
-                            # 공유
+   neurosis(딥 인터뷰): 모호한 요청 ─▶ 모호도 게이팅 Socratic Q&A
+   ─▶ spec(~/.birkin/specs/) ─▶ 승인 후에만 실행
 ```
 
 ---
 
-## 📟 명령어 cheat sheet
+## 🎮 빠른 시작
+
+### 무료 + 빠르게 (게이트웨이)
+
+```bash
+$ birkin model          # "claude"(Claude Code) 선택 — 무료, API 키 불필요
+$ birkin gateway        # 웜 영속 서비스: HTTP + (선택) Telegram, 웜 응답 ~3초
+```
+
+채팅(터미널/텔레그램)에서 `/`를 누르면 명령 메뉴가 뜹니다. 게이트웨이 명령:
+
+| 명령 | 동작 |
+|---|---|
+| `/new` (`/reset`) | 새 대화 |
+| `/restart` (`/restart-gateway`) | **소프트 재시작** — config/persona/memory 재로딩, 프로세스 유지 |
+| `/hard_restart` | **하드 재시작** — 게이트웨이 re-exec(코드 변경 반영), 재시작 루프 방지 |
+| `/models [이름]` | 모델 목록/**선택** — 적용 위해 자동 하드재시작 |
+| `/neurosis [--quick\|--standard\|--deep] <아이디어>` | **딥 인터뷰** 시작/재개 |
+
+### 명료해질 때까지 인터뷰 (neurosis)
+
+모호·복잡한 요청이면 birkin이 먼저 *"진행 전에 모호한 부분과 핵심 결정사항을
+다시 한번 확인하겠습니다"* 라고 한 뒤 한 질문씩 물어 모호도를 낮추고, spec을 쓴
+다음 **승인 후에만** 실행합니다.
+
+```bash
+you > /neurosis 회사 인스타 캠페인 새로 기획해줘
+birkin > Round 0 | 구성요소 확인 …
+```
+
+`birkin neurosis "<아이디어>"`로 CLI에서 시드. 자동 트리거 기본 on(`neurosis_auto`).
+
+### 자동으로 기억하는 대화
+
+모든 턴이 `~/.birkin/sessions/`에 자동 저장되고 밤사이 Morpheus가 기억으로
+바꿉니다. 즉석에서 사실을 남길 수도 있습니다:
+
+```bash
+you > /remember 나는 군더더기 없는 간결한 답을 선호해
+birkin > Noted as [[Profile - reply-style]].
+```
+
+### Morpheus — 밤에 자기개선, 아침에 검토
+
+```bash
+$ birkin daemon --install   # OS 작업 등록 (cron / launchd / schtasks)
+$ birkin morpheus --dry-run # 오늘 밤 실행 미리보기 (과금 없음)
+$ birkin review             # 다음 날 아침 하나씩 승인/거부
+$ birkin trace <run-id>     # 과거 턴 감사 재생
+```
+
+Morpheus는 **무료**(샌드박스 Claude + birkin MCP 도구), **shell 없이** 돌고,
+메모리/스킬은 자동, cron/shell은 큐잉됩니다.
+
+### 회사 도구 연결 (MCP)
+
+```bash
+$ birkin mcp                # 게이트웨이가 상속하는 MCP 서버 목록 (Notion 등)
+$ birkin mcp add <이름> …   # `claude mcp`로 패스스루
+```
+
+게이트웨이는 Claude Code의 MCP 서버를 네이티브로 상속합니다. `gateway_allowed_tools`로
+무인 게이트웨이가 특정 회사 도구를 프롬프트 없이 쓰게 할 수 있습니다.
+
+---
+
+## 📟 명령 요약
 
 ```bash
 birkin                              # 채팅 시작 (첫 실행 → 온보딩)
-birkin chat --dry-run -m "…"        # 프롬프트 패킷 출력 — 모델 호출 없음
-birkin runs                         # 최근 run record + 사용량 (감사 로그)
-birkin trace <run-id>               # 단일 run record (replay 형식)
-birkin budget                       # 일/월 한도 대비 토큰 사용량
-birkin setup                        # 온보딩 위저드            (alias: onboard)
-birkin model                        # 모델 선택 (API + 로컬 CLI 에이전트)
-birkin tools  [--enable/--disable]  # 도구 카탈로그 + 토글
-birkin skills                       # 목록  (`<name>`로 출력, `sync`로 미러)
-birkin skills validate [--verbose]  # SKILL.md 린트 + 번들 스크립트 py_compile
-birkin gateway                      # 서비스 모드 (HTTP + Telegram 채널)
-birkin web                          # 모니터링 대시보드
+birkin gateway                      # 무료·웜 서비스 (HTTP + Telegram)
+birkin neurosis "<아이디어>"        # 딥 인터뷰 시드 (/neurosis로 진행)
+birkin model                        # 모델 선택 (Claude Code = 무료)
+birkin mcp [list|add|remove|…]      # MCP 서버 관리 (회사 도구)
+birkin morpheus [--dry-run]         # 야간 자기개선 즉시 실행
 birkin daemon  [--install]          # Morpheus + cron 스케줄러
-birkin morpheus [--dry-run]         # 지금 Morpheus 자기개선 루틴 실행
-                                    # (호환 alias: `birkin nightly`)
-birkin review                       # 대기 중인 제안 승인/거절
-birkin cron                         # 스케줄된 작업 목록 / --remove
-birkin permission [--add/--remove]  # 자동승인 카테고리
-              [--access workspace|full]  # CLI 에이전트 접근 권한
+birkin review                       # 제안 동작 승인/거부
+birkin runs / trace <id> / budget   # 감사 로그 · 재생 · 토큰 예산
+birkin skills [validate|sync]       # 스킬 목록 / 린트 / 미러
+birkin permission [--access …]      # 자동 승인 · CLI 접근 수준
+birkin web                          # 모니터링 대시보드
 ```
 
-### 채팅 안 슬래시 명령
+### REPL 슬래시 명령
 
-자기 문서화 — `/help`로 전체 목록, `/help <name>`으로 상세:
+`/help`로 전체 목록. 라인 에디터: **Ctrl+←/→** 단어 이동, **Ctrl-W** 단어 삭제,
+**Ctrl-U/Ctrl-K** 현재 줄의 시작/끝까지 삭제, **↑/↓** 히스토리, **Shift+Enter**
+줄바꿈, 인라인 `/` 드롭다운.
 
 | 그룹 | 명령 |
 |---|---|
 | **대화** | `/new` · `/retry` · `/undo` · `/compact` · `/clear` |
-| **모델** | `/model` · `/models` · `/provider` · `/temp` |
+| **명료화** | `/neurosis [name]` (딥 인터뷰) |
+| **모델** | `/model` · `/models [name]` · `/provider` · `/temp` |
 | **스킬** | `/skills` · `/skill <name>` · `/reload` · `/learn` |
-| **메모리** | `/memory <query>` · `/remember <text>` · `/vault` |
-| **자율** | `/morpheus` (alias `/nightly`) · `/review` · `/cron` · `/permission` |
+| **메모리** | `/memory <query>` · `/remember <text>` · `/vault` · `/soul` · `/personality` |
+| **도구** | `/mcp` · `/tools` |
+| **자율** | `/morpheus` · `/review` · `/cron` · `/permission` |
 | **세션** | `/save` · `/load` · `/sessions` |
-| **시스템** | `/tools` · `/system` · `/config` · `/update` · `/help` · `/quit` |
+| **시스템** | `/system` · `/config` · `/update` · `/help` · `/quit` |
 
 ---
 
-## 🧠 메모리 상세 (Obsidian vault)
+## 🧠 메모리 & 🗣️ 페르소나
 
-기본 위치: `~/.birkin/vault`. 모든 사실은 출처가 적힌 마크다운 노트:
+**메모리**는 `~/.birkin/vault` — `type`·`polarity`(positive/known-failure)·
+`version`(낙관적 잠금)·TTL·`[[위키링크]]`를 가진 출처 있는 마크다운 노트. 도구:
+`memory_search`·`memory_get_note`·`memory_write_note`·`memory_link`.
+`evidence_required: true`로 출처 없는 노트 거부.
 
-```markdown
----
-title: FlowerPlus GTM
-type: project              # person | project | preference | fact | topic | session
-created: 2026-05-27
-updated: 2026-05-28
-confidence: 0.8
-polarity: positive         # 또는 "negative" — 알려진 실패 (재확인 필요)
-version: 3                 # 낙관적 락: 옛 스냅샷 덮어쓰기 거부
-sources: ["session:2026-05-27"]
-tags: [marketing, gtm]
----
-
-기업 복지 꽃 구독. 관련 노트:
-[[User Research]], [[Outbound Sales Script]].
-```
-
-에이전트가 쓰는 도구: `memory_search`, `memory_get_note`, `memory_write_note`
-(`polarity`, `expected_version` 인자), `memory_link`. `config.json`에
-`evidence_required: true`를 두면 소스 없는 새 노트는 거부.
+**페르소나**는 `~/.birkin/SOUL.md` — 모든 표면에 주입되는 따뜻하고 편집 가능한
+말투(REPL은 매 턴, 게이트웨이는 세션 시작 시). `/personality warm|concise|mentor|
+direct`로 프리셋 교체, `/soul`로 보기/편집.
 
 ---
 
-## 🧩 스킬 상세
+## 🧩 스킬
 
-스킬은 `SKILL.md`(YAML frontmatter + 마크다운 본문)를 가진 디렉토리,
-agentskills.io / hermes 표준과 호환. [`skills/`](./skills) 아래에
-**번들 48개** (research, software, writing, data, devops, marketing, …).
-직접 만든 스킬은 `~/.birkin/skills/`에 두면 이름 기준으로 번들을 덮어쓴다.
-
-```markdown
----
-name: web-research
-description: "주제 리서치 후 출처 있는 요약 합성."
-version: 1.0.0
-license: MIT
-metadata:
-  birkin:
-    tags: [research, web]
----
-
-## When to Use
-…
-```
-
-**작성.** `load_skill`이 필요한 시점에 본문을 가져옴. `create_skill` /
-`improve_skill`은 모든 쓰기를 승인 게이트로 보냄 (Skill-PR 모드) — 번들 스킬은
-*원본 자리에서 절대 수정 안 됨*; 먼저 user 디렉토리로 fork. 스킬 저장 없이
-복잡한 turn이 지나면 birkin이 스스로 "이거 스킬로 만들까?" nudge (LLM 추가
-호출 없음).
-
-**위생.** `birkin skills validate`가 frontmatter 린트 + 번들 `*.py` 전부
-`py_compile`. CI에서 활용: 오류 있으면 non-zero exit.
-
-**신선도와 규모.** `SKILL.md`를 편집하면 **hot-reload** (재시작 없음).
-frontmatter에 `prerequisites`(commands / platforms)를 추가하면 그 스킬은
-**gated** — 전제 미충족이면 카탈로그·라우터에서 숨김. `birkin skills sync`는
-업스트림 스킬 트리를 `~/.birkin/skills/mirrors/`에 미러 (번들 스크립트 + 출처
-표기 보존). 워크스페이스에 `SOUL.md` / `AGENTS.md` / `TOOLS.md`가 있으면 시스템
-프롬프트에 layered됨.
+스킬은 `SKILL.md`(frontmatter + 마크다운)를 가진 디렉토리로 agentskills.io /
+hermes 표준과 호환. [`skills/`](./skills) 아래 **59개 번들**(research·software·
+writing·data·devops·marketing·planning/**neurosis** 등) + `~/.birkin/skills/`의
+내 스킬(번들을 이름으로 가림). `load_skill`로 필요 시 전체 로드, `create_skill`/
+`improve_skill`은 승인 게이트 경유, `birkin skills validate`로 린트 +
+`py_compile`, 편집 시 **핫리로드**.
 
 ---
 
-## 🌙 Morpheus — 야간 자기개선 & 승인 게이트
+## 🔒 보안 (회사급)
 
-그리스 꿈의 신. 네가 자는 동안 birkin이 하루를 리뷰한다.
+무인으로도 놀라게 하지 않도록 설계 — [`docs/DECISIONS.md`](./docs/DECISIONS.md)
+ADR-029·ADR-032:
 
-`birkin daemon` (또는 `birkin daemon --install`로 OS 작업 등록). 설정한
-시간(기본 **04:00**)에 Morpheus가:
-
-1. **최근 24h 읽기** — 저장된 대화 + 변경된 파일.
-2. **메모리 갱신** — 새 엔티티·사실·`[[link]]`.   *(자동)*
-3. **스킬 작성/개선** — 반복 패턴 발견 시.       *(자동)*
-4. **제안** — 자동화(cron, 다이제스트, 명령).    *(리뷰)*
-
-안전·되돌릴 수 있는 변경(메모리, 스킬)은 자동 적용. 무인 루틴은 *코드 수준에서*
-shell / subagent 도구 없이 동작 — 사고 칠 권한 자체가 없음. 자동승인 조정은
-`birkin permission --add cron` (또는 `/permission`). 기본 자동승인은
-`memory`, `skill`.
-
-**토큰 예산 거버너** (`birkin budget`) — 일/월 윈도우에서 ledger의 `estTokens`
-합산해서 한도 초과 turn은 명확한 메시지로 거부. **침묵 지출 0**.
-
----
-
-## 🛰️ Gateway & 📊 Dashboard
-
-`birkin gateway`는 에이전트를 영속 서비스로 실행. 모든 채널이 하나의 메모리
-vault와 스킬 카탈로그를 공유해서, birkin은 어디서든 너를 기억함:
-
-- **HTTP** (기본 켜짐): `POST /message {"session","text"} → {"reply"}`,
-  `GET /health`. localhost 바인딩.
-- **Telegram** (선택): `birkin setup`이 안내. 또는 `config.json`의
-  `channels.telegram`에 직접 설정. stdlib 기반 long-polling.
-
-`birkin web`은 로컬 **모니터링** 대시보드 (채팅 아님): 실시간 상태, 스케줄
-/실행 중 작업, 최근 run, 대기 중 승인 (위험 등급 뱃지 + 승인/거절), 스킬
-카탈로그. localhost + per-session 토큰 + Host 체크.
+- **cron→shell 게이트.** 자동 승인된 `cron`이 `shell` 페이로드를 우회시킬 수
+  없음 — `shell`도 승인돼 있지 않으면 검토용으로 큐잉.
+- **게이트웨이는 절대 `--dangerously-skip-permissions` 아님.** 도달 가능한 채팅이
+  전권 프로세스에 닿을 수 없게 `cli_access:full`을 `workspace`로 강제.
+- **Windows `cmd /c` 주입 차단.** CLI 인자에 셸 메타문자(`& | < > ^`)가 있으면
+  거부 — 신뢰된 운영자 입력(`birkin mcp add …`)이라도 명령 체이닝을 막음.
+- **Telegram 접근 제어 + 신뢰 게이트 메모리.** `allowed_chat_ids`로 봇 사용자
+  제한; *열린* 봇의 낯선 메시지는 자동 저장·기억 **안 함**(메모리 오염 방지).
+- **시크릿 redaction.** 트랜스크립트는 디스크/메모리에 닿기 전 마스킹
+  (Anthropic/OpenAI/Google/GitHub/Slack/AWS 키·토큰·Bearer·PEM).
+- **At rest.** 상태·트랜스크립트는 원자적·`0o600`. 평문 config 토큰보다
+  `TELEGRAM_BOT_TOKEN` 환경변수 권장.
 
 ---
 
 ## ⚙️ 설정
 
-모든 상태는 `~/.birkin` 아래 (override: `BIRKIN_HOME`):
+모든 상태는 `~/.birkin` 아래 (`BIRKIN_HOME`로 변경):
 
 ```
 ~/.birkin/
-├── config.json     # provider, model, vault, Morpheus 시간, 권한…
-├── vault/          # Obsidian 시멘틱 메모리 (마크다운 노트)
+├── config.json     # provider, model, gateway, autosave, neurosis, 권한…
+├── vault/          # Obsidian 시맨틱 메모리
 ├── skills/         # 사용자·에이전트 작성 스킬
-├── sessions/       # 저장된 대화  (Morpheus 입력)
-│   └── repl_history.txt           # 영속 ↑/↓ 명령 히스토리
-├── runs/           # turn별 + Morpheus run 요약 (대시보드)
-├── ledger.jsonl    # append-only 한 줄 감사 로그
-├── pending/        # 승인 대기 중인 제안
-├── cron.json       # 등록된 일일 작업
-└── status.json     # daemon 하트비트 / 다음 실행 시간
+├── sessions/       # 자동 저장 트랜스크립트(auto__*.json) — Morpheus 입력
+├── specs/          # neurosis 딥 인터뷰 spec
+├── neurosis/       # 인터뷰 상태(재개 가능)
+├── runs/           # 턴별·Morpheus 실행 요약
+├── ledger.jsonl    # append-only 감사 로그
+├── pending/        # 승인 대기 동작
+└── status.json     # 데몬 하트비트
 ```
 
-`config.json` — 실제로 만질 키들:
+자주 만지는 키:
 
 ```json
 {
-  "provider": "anthropic",
-  "model": "claude-sonnet-4-6",
-  "subagent_model": "claude-haiku-4-5-20251001",
-  "base_url": "",
-  "vault_path": "",
+  "provider": "claude-cli",
+  "model": "opus",
+  "gateway_model": "sonnet",
+  "gateway_persistent": true,
+  "gateway_allowed_tools": [],
+  "autosave_transcripts": true,
+  "neurosis_auto": true,
+  "neurosis_threshold": null,
   "morpheus_hour": 4,
   "auto_approve": ["memory", "skill"],
-  "budget_tokens_daily": 0,
-  "budget_tokens_monthly": 0,
-  "evidence_required": false,
-  "gateway_port": 8788,
-  "web_port": 8787,
   "channels": {
     "http": {"enabled": true},
-    "telegram": {"enabled": false, "token": ""}
+    "telegram": {"enabled": false, "token": "", "allowed_chat_ids": []}
   }
 }
 ```
 
-API key는 환경변수 우선; CLI-에이전트 provider는 키 불필요. `config.json`에
-쓰인 키는 `chmod 600`으로 저장됨 (POSIX).
+API 키는 환경변수 우선; Claude Code 백엔드는 불필요. config.json의 키는
+`chmod 600`으로 저장.
 
 ---
 
-## 🛠️ 현재 상태
+## 🛠️ 현재 위치
 
-- **277개 테스트** 오프라인·API key 없이 통과, `pytest-cov`가 **≥75%**
-  커버리지 강제. 현재 커버리지 **76.06 %**.
-- **번들 스킬 48개**, 전부 `birkin skills validate` 통과.
-- 하드닝 H2 ~ H7 완료 (라이브 LLM 검증 harness, 신뢰성 컨트롤 플레인,
-  검증된 학습, Memory OS, 스킬 무결성, 라인 에디터 — 멀티라인 + Kitty
-  Keyboard Protocol을 통한 Shift/Ctrl/Alt+Enter).
-- 출처 기반 hermes-agent / openclaw 비교: [`docs/COMPARISON.md`](./docs/COMPARISON.md).
-
-로드맵: [`docs/HARDENING-PLAN.md`](./docs/HARDENING-PLAN.md). 결정별 근거:
-[`docs/DECISIONS.md`](./docs/DECISIONS.md). 실시간 상태:
-[`docs/STATUS.md`](./docs/STATUS.md).
+- 오프라인 **테스트 403개** 통과(API 키 없이), **번들 스킬 59개**, **런타임
+  의존성 0**, Python 3.10+.
+- 무료·빠른 게이트웨이(웜 영속 Claude, ~3초), neurosis 딥 인터뷰, 자동저장 →
+  기억, 회사 MCP, 회사급 보안 하드닝.
+- 결정 근거: [`docs/DECISIONS.md`](./docs/DECISIONS.md)(ADR 001–032). 라이브
+  상태: [`docs/STATUS.md`](./docs/STATUS.md). 비교:
+  [`docs/COMPARISON.md`](./docs/COMPARISON.md).
 
 ---
 
 ## 📄 라이선스
 
-이중 라이선스: **birkin Python 패키지**(`birkin/`, 런타임 코드)는
-**Proprietary — All Rights Reserved** (© 2026 ashmoonori). 소스는 검토용으로
-공개되지만, 서면 허가 없이는 사용/복사/수정/배포/상업적 권리가 부여되지 않음.
-**번들 스킬 카탈로그**(`skills/`)는 **MIT 라이선스** — NousResearch/hermes-agent
-와 openclaw의 카탈로그 스타일을 따랐고 일부는 포팅했으므로 상위 MIT 조건과
-어트리뷰션을 그대로 보존. 런타임에 `birkin skills sync`로 가져온 스킬은
-상위 라이선스 유지. 상세: [`LICENSE`](./LICENSE), [`NOTICE`](./NOTICE).
+이중: **birkin 파이썬 패키지**(`birkin/`)는 **Proprietary — All Rights
+Reserved**(© 2026 ashmoonori). 검토용으로 소스 공개, 서면 허가 없이 사용·복사·
+수정·배포·상업적 권리 없음. **번들 스킬 카탈로그**(`skills/`)는 **MIT** —
+NousResearch/hermes-agent·openclaw 카탈로그를 본떴고 일부 이식; 딥 인터뷰 스킬은
+Yeachan-Heo/gajae-code에서 각색. 업스트림 MIT 조건·출처 표기 유지.
+[`LICENSE`](./LICENSE), [`NOTICE`](./NOTICE) 참조.
