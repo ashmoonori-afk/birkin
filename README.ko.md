@@ -18,12 +18,6 @@ Claude 구독으로 **무료로 종일** 돌고, 따뜻한 영속 세션에서 *
 
 🌐 **Language**: [English](./README.md) · 한국어
 
-![python](https://img.shields.io/badge/python-3.10%2B-3776ab)
-![runtime deps](https://img.shields.io/badge/runtime%20deps-0-2ea44f)
-![tests](https://img.shields.io/badge/tests-432%20passing-2ea44f)
-![skills](https://img.shields.io/badge/bundled%20skills-52-blue)
-![platform](https://img.shields.io/badge/platform-macOS%20·%20Linux%20·%20Windows-lightgrey)
-
 </div>
 
 ---
@@ -366,7 +360,7 @@ API 키는 환경변수 우선; Claude Code 백엔드는 불필요. config.json�
 
 ## 🛠️ 현재 위치
 
-- 오프라인 **테스트 432개** 통과(API 키 없이), **번들 스킬 52개**, **런타임
+- 오프라인 **테스트 482개** 통과(API 키 없이), **번들 스킬 52개**, **런타임
   의존성 0**, Python 3.10+.
 - 무료·빠른 게이트웨이(웜 영속 Claude, ~3초), Neurosis 딥 인터뷰, 자동저장 →
   기억, 회사 MCP, 회사급 보안 하드닝.
@@ -393,9 +387,7 @@ birkin이 돈이나 시간을 아껴줬다면 **레포에 별(star)** 을 눌러
 
 ## 📄 라이선스
 
-이중: **birkin 파이썬 패키지**(`birkin/`)는 **Proprietary — All Rights
-Reserved**(© 2026 ashmoonori). 검토용으로 소스 공개, 서면 허가 없이 사용·복사·
-수정·배포·상업적 권리 없음. **번들 스킬 카탈로그**(`skills/`)는 **MIT** —
-NousResearch/hermes-agent·openclaw 카탈로그를 본떴고 일부 이식; 딥 인터뷰 스킬은
-Yeachan-Heo/gajae-code에서 각색. 업스트림 MIT 조건·출처 표기 유지.
-[`LICENSE`](./LICENSE), [`NOTICE`](./NOTICE) 참조.
+**MIT** (© 2026 ashmoonori). 자유롭게 쓰고 포크하고 배포하세요. 번들 스킬
+카탈로그(`skills/`) 일부는 MIT 프로젝트(NousResearch/hermes-agent·openclaw·
+Yeachan-Heo/gajae-code — `neurosis`의 딥 인터뷰 계보)에서 각색·이식했고 출처
+표기는 유지합니다. [`LICENSE`](./LICENSE), [`NOTICE`](./NOTICE) 참조.

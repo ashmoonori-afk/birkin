@@ -18,7 +18,7 @@
 | Dimension | hermes-agent | openclaw | birkin |
 |---|---|---|---|
 | **Runtime / stack** | Python 88.9% + TypeScript 8.3%; Python 3.11, Node.js, ripgrep, ffmpeg (README) | Node 24 recommended (Node 22.19+); pnpm/npm/bun (README) | Python 3.10+, **stdlib only** runtime (`pyproject.toml` `dependencies = []`) |
-| **License** | MIT (README) | MIT (README) | Dual: `birkin/` Python package Proprietary; `skills/` MIT (`LICENSE`) |
+| **License** | MIT (README) | MIT (README) | MIT (`LICENSE`) |
 | **Skill format** | `name/description/version/author/license/platforms` + sections (When to Use, Prerequisites, How to Run, Quick Reference, Procedure, Pitfalls, Verification) (AGENTS.md) | `name`, `description` minimal; metadata single-line JSON; `requires.bins / anyBins / env / config`, `os`, `primaryEnv` gating (docs/tools/skills) | hermes-compatible frontmatter; parser also handles `metadata.hermes.tags`; bundled catalog: **48 skills** verified clean by `skills validate` |
 | **Skills registry** | "compatible with the agentskills.io open standard" (README) — no first-party large registry described | **ClawHub** registry; community-curated ~5,400+ via `VoltAgent/awesome-openclaw-skills` (README + that list) | 48 bundled + runtime `skills sync` from upstream into `~/.birkin/skills/mirrors/` |
 | **Skill validation** | "No formal validation or linting pipeline is described" (AGENTS.md) | "The documentation does not mention a `skills validate` command" (docs check) | **`birkin skills validate`** — frontmatter lint (errors on missing `name`/`description`; warns on `version`/`license`/`When to Use`) + `py_compile` on every bundled `*.py`. 48/48 clean on the shipped catalog. |

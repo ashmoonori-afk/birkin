@@ -1,45 +1,6 @@
-birkin — License
-
-birkin is licensed under a dual structure: the original birkin Python package
-(the runtime code) is proprietary; the bundled skill catalog is MIT-licensed.
-
-
-§1. Original birkin Python package — Proprietary, All Rights Reserved
----------------------------------------------------------------------
-
-Copyright © 2026 ashmoonori. All rights reserved.
-
-The original source of birkin — the contents of the `birkin/` Python package,
-the contents of `docs/`, `tests/`, `scripts/`, and the configuration files at
-the repository root, EXCEPT for the third-party / MIT components listed in §2 —
-is made source-visible for inspection, study, and review only.
-
-No license, express or implied, is granted to use, copy, modify, merge,
-publish, distribute, sublicense, sell, or otherwise exploit the original works,
-in whole or in part, without the prior written permission of the copyright
-holder. All rights not expressly granted are reserved.
-
-For commercial or other licensing inquiries about §1, contact the copyright
-holder.
-
-THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-FITNESS FOR A PARTICULAR PURPOSE, AND NONINFRINGEMENT.
-
-
-§2. Bundled skill catalog — MIT License
----------------------------------------
-
-The skill catalog shipped under `skills/` is licensed under the MIT License.
-The skills are styled after, and in some cases ported from, the open-source
-catalogs of NousResearch/hermes-agent and openclaw; the upstream MIT terms are
-preserved and any attribution requirements (e.g., the upstream-origin note in
-`skills/research/arxiv/`) must continue to be honored.
-
 MIT License
 
-Copyright © 2026 ashmoonori (birkin skill catalog) and the respective upstream
-authors for ported skills.
+Copyright (c) 2026 ashmoonori
 
 Permission is hereby granted, free of charge, to any person obtaining a copy
 of this software and associated documentation files (the "Software"), to deal
@@ -59,9 +20,9 @@ LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 
-Skills obtained at runtime via `birkin skills sync` and stored under
-`~/.birkin/skills/mirrors/` retain their upstream licenses (typically MIT for
-hermes-agent skills). These are fetched by the user at runtime; birkin does
-not redistribute them in its source tree or distribution artifacts.
+---
 
-See `NOTICE` for the attribution summary.
+Portions of the bundled skill catalog (`skills/`) are adapted or ported from
+MIT-licensed open-source projects — NousResearch/hermes-agent, openclaw, and
+Yeachan-Heo/gajae-code (the deep-interview lineage behind the `neurosis` skill).
+Their upstream copyright and attribution are preserved; see `NOTICE`.

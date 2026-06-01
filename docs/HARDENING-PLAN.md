@@ -50,10 +50,11 @@ of birkin** (~30–40% already in place).
 
 ## Licensing (dual)
 
-birkin's **original Python package** (`birkin/`, the runtime code) is under a
-**copyright-protective license** (Proprietary — All Rights Reserved;
-source-visible, not freely reusable). The **bundled skill catalog** (`skills/`)
-is **MIT** — the catalog is styled after and in some cases ported from
+birkin's **original Python package** (`birkin/`, the runtime code) was at one
+point recommended for a copyright-protective license, but the project is now
+**MIT in full** (relicensed 2026-06-01; see the "Decided" note below). The
+**bundled skill catalog** (`skills/`) is **MIT** — the catalog is styled after
+and in some cases ported from
 NousResearch/hermes-agent and openclaw, and we honor that lineage rather than
 relicense it. A root `LICENSE` + `NOTICE` records the split; per-skill
 frontmatter `license` is `MIT`. Skills mirrored at runtime via
@@ -125,10 +126,14 @@ green without a key.
 
 ---
 
-## Decided — protective license (2026-05-28)
+## Decided — protective license (2026-05-28) — SUPERSEDED 2026-06-01
 
-The **birkin Python package** (`birkin/`) is **Proprietary / All-Rights-Reserved**
-(© 2026 ashmoonori) — applied in `pyproject.toml`, `LICENSE`, and `NOTICE`.
+> **Superseded (2026-06-01):** the project was **relicensed to MIT in full**
+> (© 2026 ashmoonori) across `LICENSE`, `NOTICE`, `pyproject.toml`, and the
+> READMEs. The proprietary recommendation below is kept for history only.
+
+The **birkin Python package** (`birkin/`) was proposed as **Proprietary /
+All-Rights-Reserved** (© 2026 ashmoonori) — now MIT (see above).
 The **bundled skill catalog** (`skills/`) is **MIT** — the catalog is styled
 after and in part ported from NousResearch/hermes-agent and openclaw, and we
 release it under MIT to honor that lineage. Every `SKILL.md` carries

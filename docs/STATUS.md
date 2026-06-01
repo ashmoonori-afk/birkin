@@ -11,7 +11,9 @@
 > runs only on a complex goal, never every turn. **52 bundled skills** (incl.
 `skills/creative/codex-image-gen` — free gpt-image-2 via Codex OAuth, see its SKILL.md).
 >
-> **477 tests** pass offline (no API key). Newest: **all v2 components built**
+> **482 tests** pass offline (no API key). Newest: **all v2 components built**
+> (code-reviewed: 1 HIGH + 3 MEDIUM fixed — boulder zombie/evidence-gate, router
+> free-tier guarantee + token routing).
 > (docs/v2.md) — #1 Model Router (`router.py`), #2 Hashline edits, #3 Osiris
 > verifier (`verify.py`), #4 IntentGate (`intent.py`), #5 Boulder (`boulder.py`),
 > #6 Hyperplan (`critique.py`), #7 Prompt-Gate (`promptgate.py`, runtime+gateway

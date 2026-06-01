@@ -20,14 +20,6 @@ your **company tools over MCP**, and keeps **you the auditor** — all in a
 
 🌐 **Language**: English · [한국어](./README.ko.md)
 
-![python](https://img.shields.io/badge/python-3.10%2B-3776ab)
-![runtime deps](https://img.shields.io/badge/runtime%20deps-0-2ea44f)
-![tests](https://img.shields.io/badge/tests-432%20passing-2ea44f)
-![skills](https://img.shields.io/badge/bundled%20skills-52-blue)
-![platform](https://img.shields.io/badge/platform-macOS%20·%20Linux%20·%20Windows-lightgrey)
-![package](https://img.shields.io/badge/package-Proprietary-orange)
-![bundled skills](https://img.shields.io/badge/bundled%20skills-MIT-green)
-
 </div>
 
 ---
@@ -384,7 +376,7 @@ none. A key in `config.json` is stored `chmod 600`.
 
 ## 🛠️ Where birkin sits today
 
-- **432 tests** passing offline (no API key, `pytest`), **52 bundled skills**,
+- **482 tests** passing offline (no API key, `pytest`), **52 bundled skills**,
   **0 runtime dependencies**, Python 3.10+.
 - Free + fast gateway (warm persistent Claude, ~3s), Neurosis deep-interview,
   auto-save → memory, company MCP, company-grade security hardening.
@@ -412,11 +404,8 @@ helpful thing you can do — it helps other Claude subscribers find it. ⭐
 
 ## 📄 License
 
-Dual: the **birkin Python package** (`birkin/`) is **Proprietary — All Rights
-Reserved** (© 2026 ashmoonori). Source is visible for inspection; no use, copy,
-modify, distribute, or commercial right is granted without written permission.
-The **bundled skill catalog** (`skills/`) is **MIT-licensed** — styled after,
-and in some cases ported from, the open-source catalogs of NousResearch/
-hermes-agent and openclaw; the deep-interview skill is adapted from
-Yeachan-Heo/gajae-code. Upstream MIT terms and attribution are preserved. See
-[`LICENSE`](./LICENSE) and [`NOTICE`](./NOTICE).
+**MIT** (© 2026 ashmoonori). Use it, fork it, ship it. Portions of the bundled
+skill catalog (`skills/`) are adapted or ported from MIT projects — NousResearch/
+hermes-agent, openclaw, and Yeachan-Heo/gajae-code (the deep-interview lineage
+behind `neurosis`); their attribution is preserved. See [`LICENSE`](./LICENSE)
+and [`NOTICE`](./NOTICE).

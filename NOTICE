@@ -1,32 +1,28 @@
 birkin — NOTICE
 
-This product is dual-licensed: the original birkin Python package (`birkin/`)
-is proprietary; the bundled skill catalog (`skills/`) is MIT. See LICENSE for
-the full text.
+birkin is licensed under the MIT License (see LICENSE for the full text).
 
-Bundled skills (`skills/`, MIT)
--------------------------------
+Copyright (c) 2026 ashmoonori.
 
-The skill catalog is styled after, and in some cases ported from, the
-open-source catalogs of:
+Third-party attributions
+------------------------
+
+Portions of the bundled skill catalog (`skills/`) are styled after, and in some
+cases ported from, the open-source catalogs of:
 
 - NousResearch/hermes-agent (https://github.com/NousResearch/hermes-agent) — MIT
-- openclaw — MIT
+- openclaw (https://github.com/openclaw/openclaw) — MIT
+- Yeachan-Heo/gajae-code (https://github.com/Yeachan-Heo/gajae-code) — the
+  deep-interview lineage adapted into the `neurosis` skill
 
 The arXiv Search Skill (`skills/research/arxiv/`) — including its
 `scripts/search_arxiv.py` — is a direct port from hermes-agent; the original
 upstream-origin note is preserved in its frontmatter.
 
 The remaining skills were authored for birkin in the style of the upstream
-catalogs above and are released under MIT to honor that lineage. Each
-`SKILL.md` carries `license: MIT` in its frontmatter.
+catalogs above. Each `SKILL.md` carries `license: MIT` in its frontmatter.
 
 Skills mirrored at runtime via `birkin skills sync` (stored in the user's
-`~/.birkin/skills/mirrors/`) retain their upstream licenses (typically MIT
-for hermes-agent skills). birkin does not redistribute these in its source
-tree or distribution artifacts.
-
-Original birkin Python package (`birkin/`, Proprietary)
--------------------------------------------------------
-
-Copyright © 2026 ashmoonori. All rights reserved.
+`~/.birkin/skills/mirrors/`) retain their upstream licenses (typically MIT for
+hermes-agent skills). birkin does not redistribute these in its source tree or
+distribution artifacts.
