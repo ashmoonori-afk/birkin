@@ -26,6 +26,19 @@ OAuth, no paid API key).
   is retained only for the read-only usage check. See ADR-026.
 - Tests: 287 pass (8 new for `claude_session`). Verified live (cold ~8s, warm ~3s).
 
+## Auto-save transcripts → memory (2026-06-01) — see ADR-030
+
+- `birkin/transcripts.py` auto-saves every (user, assistant) turn — gateway
+  (persistent + non-persistent) and REPL — to `sessions_dir()` as reserved
+  `auto__*.json` in the canonical format the nightly **Morpheus** routine already
+  consumes. So memory is now extracted from real conversations automatically
+  (nightly); no manual `/save` needed. Hidden from `/sessions`.
+- **Trust-gated:** open Telegram bots (no `allowed_chat_ids`) are NOT persisted/
+  memorized (anti memory-poisoning). Secret redaction + per-message cap +
+  retention; `0o600`. Opt-out: `autosave_transcripts=false`.
+- On-demand `/new`/idle extraction deferred to v2 (would reuse
+  `selfimprove.reflect_and_learn`). 371 tests pass.
+
 ## Security hardening (2026-05-29) — see ADR-029
 
 - **cron→shell laundering closed**: an auto-approved `cron` can't auto-run a

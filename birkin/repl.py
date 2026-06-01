@@ -7,10 +7,12 @@ slash commands to :mod:`birkin.slashcommands`. Uses ``input()`` (and
 
 from __future__ import annotations
 
+import os
 import sys
+from datetime import datetime
 from typing import Any
 
-from . import inline_complete, slashcommands, store, ui
+from . import inline_complete, slashcommands, store, transcripts, ui
 from .runtime import ConfigError, Session, build_session
 from .ui import CYAN, DIM, RED, RESET, YELLOW
 
@@ -46,6 +48,8 @@ def run(cfg: dict[str, Any] | None = None) -> int:
         return 1
 
     _banner(session)
+    # One auto-save transcript file per REPL process run (feeds nightly memory).
+    run_id = f"{datetime.now():%Y%m%d-%H%M%S}-{os.getpid()}"
     hints = inline_complete.hints_from_registry(slashcommands._REGISTRY)
     history = inline_complete.load_history()
     while True:
@@ -93,6 +97,8 @@ def run(cfg: dict[str, Any] | None = None) -> int:
             print(f"\n{CYAN}birkin{RESET} >\n")
             print(ui.render_markdown((reply or "").strip()))
             store.append_activity(f"chat: {line[:120]}")
+            transcripts.append_turn("repl", run_id, line, reply or "",
+                                    cfg=session.cfg)
         except KeyboardInterrupt:
             stop_spin()
             print(f"\n{DIM}(interrupted){RESET}")

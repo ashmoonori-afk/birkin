@@ -8,6 +8,66 @@ older ones (noted inline).
 
 ---
 
+## ADR-030 — Auto-save conversation transcripts → automatic memory extraction
+
+**Context.** The nightly **Morpheus** routine already extracts memory from
+session files in `sessions_dir()` (`_gather_sessions` globs `*.json`), but the
+ONLY writer was the manual `/save` command — so almost nothing landed there. The
+warm persistent gateway made it worse: the conversation lives inside the `claude`
+process, so nothing was on disk at all. Memory extraction had no material.
+
+**Decision.** Add `birkin/transcripts.py` — `append_turn(channel, chat_id, user,
+reply)` persists each turn to a per-`(channel, chat, UTC-day)` file
+`auto__<channel>__<chat>-<hash>__<day>.json` in `sessions_dir()`, in the EXACT
+canonical format `/save` writes and `selfimprove.transcript_from_messages`
+consumes — so Morpheus extracts from it nightly with **zero consumer changes**.
+
+- **Turn-pair accumulation, not `agent.messages` dump.** In the persistent
+  gateway `claude` holds the history and birkin only sees `(user_text, reply)`;
+  appending that pair is correct for every path (persistent/non-persistent
+  gateway + REPL). (The design workflow's first pass got this wrong by grounding
+  against the old `marketing` tree; corrected here.)
+- **Hooks:** `gateway/core.py` `handle()` (after the reply, outside the global
+  lock — so a per-conversation lock guards the read-modify-write) and `repl.py`
+  (one file per process run). Commands (`/help`, `/new`, `/restart`, …) return
+  early and are never saved.
+- **Reserved `auto__` namespace:** hidden from `/sessions`, rejected by `/save`,
+  so it never collides with manual saves; `_gather_sessions` still globs `*.json`
+  and picks them up.
+- **Extraction = the existing nightly Morpheus** (free, sandboxed Claude + birkin
+  MCP). On-demand `/new`/idle extraction was deliberately CUT from v1 (the review
+  found wiring + duplication-amplification + pile-up issues); if added later it
+  should reuse the already-scoped `selfimprove.reflect_and_learn`, not a full
+  nightly pass.
+
+**Security (from the adversarial + security review).**
+- **Trust gate (was the CRITICAL finding):** auto-save fires only for *trusted*
+  conversations — `Gateway._autosave_trusted`. Telegram is trusted only when
+  `allowed_chat_ids` is set; an OPEN bot's strangers are NOT persisted or
+  memorized (prevents memory-poisoning). REPL + loopback HTTP are local → trusted.
+- **Secret redaction** before write (default on): Anthropic/OpenAI/Google/GitHub/
+  Slack/AWS keys, Telegram bot tokens, `Bearer` headers, PEM private keys, and
+  labeled `key:`/`password:` values to end-of-line. Operates on copies (never
+  mutates live messages).
+- **Per-message char cap** (`autosave_max_chars`, 4000) + per-file turn cap
+  (`autosave_max_turns`, 40) + retention (`autosave_retention_days` 30,
+  `autosave_max_files` 500, throttled, mtime-keyed sort) bound disk + the shared
+  20k `_gather_sessions` budget + flood abuse.
+- **At rest:** files (and now the temp file) are `0o600` via `store._write_json`.
+
+**Accepted residuals (documented, not v1 blockers).**
+- On Windows `chmod 0o600` is partial; confidentiality relies on the user-profile
+  NTFS ACL — keep `$BIRKIN_HOME` off shared paths (same caveat as `config.json`).
+- The local HTTP channel is loopback + Host-checked but unauthenticated; on a
+  shared host, secure it separately before enabling autosave there.
+- A conversation crossing UTC midnight splits into two day-files (both extracted).
+
+**Status.** Done; `birkin/transcripts.py` + hooks + 6 config flags; 22 tests
+(format/morpheus-compat, concurrency, redaction, retention cap with tied mtimes,
+trust gate, char cap); 371 total pass. Config opt-out: `autosave_transcripts=false`.
+
+---
+
 ## ADR-029 — Company-grade security hardening
 
 **Context.** A multi-agent security review of this session's new code flagged

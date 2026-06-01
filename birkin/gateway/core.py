@@ -248,7 +248,27 @@ class Gateway:
         print(f"[gateway] {channel}:{chat_id} » {len(reply or '')} chars in {dt:.1f}s",
               flush=True)
         store.append_activity(f"gateway[{channel}:{chat_id}]: {text[:100]}")
+        # Auto-save the turn so the nightly Morpheus routine can extract memory —
+        # but ONLY for trusted conversations (an open Telegram bot's strangers
+        # must not be persisted into long-term memory). Runs OUTSIDE the global
+        # lock; transcripts.append_turn is per-conversation locked.
+        if self._autosave_trusted(channel):
+            from .. import transcripts
+            transcripts.append_turn(channel, str(chat_id), text, reply or "",
+                                    cfg=self.cfg)
         return reply or "(no reply)"
+
+    def _autosave_trusted(self, channel: str) -> bool:
+        """Whether turns from ``channel`` may be auto-saved + memorized.
+
+        Telegram is trusted only when ``allowed_chat_ids`` is set — otherwise the
+        bot is open and a stranger's messages would be persisted and could poison
+        the vault. REPL and the loopback HTTP channel are local → trusted.
+        """
+        if channel == "telegram":
+            tg = (self.cfg.get("channels", {}) or {}).get("telegram", {}) or {}
+            return bool(tg.get("allowed_chat_ids"))
+        return True
 
 
 def run() -> int:

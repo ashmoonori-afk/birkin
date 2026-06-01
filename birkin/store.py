@@ -26,6 +26,10 @@ def _write_json(path: Path, obj: Any) -> None:
     tmp = path.with_suffix(path.suffix + ".tmp")
     try:
         tmp.write_text(json.dumps(obj, indent=2, ensure_ascii=False), encoding="utf-8")
+        try:  # restrict the temp file too, before it is briefly visible
+            os.chmod(tmp, 0o600)
+        except OSError:
+            pass
         os.replace(tmp, path)
     except OSError:
         try:  # don't leave a partial .tmp behind on a failed write

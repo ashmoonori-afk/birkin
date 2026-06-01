@@ -16,7 +16,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any, Callable, Optional
 
-from . import config, selfimprove, store, ui
+from . import config, selfimprove, store, transcripts, ui
 from .ui import BOLD, CYAN, DIM, GREEN, RED, RESET, YELLOW
 
 
@@ -346,6 +346,10 @@ def _permission(session: Any, arg: str) -> None:
 @command("save", "Save the current conversation.", "/save [name]")
 def _save(session: Any, arg: str) -> None:
     name = arg or datetime.now().strftime("%Y%m%d-%H%M%S")
+    if transcripts.is_auto(name):
+        print(f"{RED}Names starting with '{transcripts.AUTO_PREFIX}' are reserved "
+              f"for auto-saved transcripts. Pick another name.{RESET}")
+        return
     path = config.sessions_dir() / f"{name}.json"
     path.write_text(json.dumps(session.agent.messages, indent=2, ensure_ascii=False),
                     encoding="utf-8")
@@ -367,7 +371,10 @@ def _load(session: Any, arg: str) -> None:
 
 @command("sessions", "List saved conversations.", "/sessions")
 def _sessions(session: Any, arg: str) -> None:
-    files = sorted(config.sessions_dir().glob("*.json"), reverse=True)
+    # Hide reserved auto__* transcripts (auto-saved for memory extraction); they
+    # are not meant for manual /load and would flood this list.
+    files = [f for f in sorted(config.sessions_dir().glob("*.json"), reverse=True)
+             if not transcripts.is_auto(f.stem)]
     if not files:
         print(f"{DIM}No saved sessions.{RESET}")
         return

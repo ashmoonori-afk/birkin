@@ -56,6 +56,16 @@ DEFAULT_CONFIG: dict[str, Any] = {
     # Empty -> rely on your Claude Code settings allowlist. Passed as
     # `claude --allowedTools`. See `birkin mcp` to view connected servers.
     "gateway_allowed_tools": [],
+    # Auto-save every conversation turn (gateway + REPL) to sessions_dir as
+    # reserved ``auto__*.json`` in the canonical format the nightly Morpheus
+    # routine already consumes — so memory is extracted from real conversations
+    # automatically. See transcripts.py. Disable with autosave_transcripts=false.
+    "autosave_transcripts": True,
+    "autosave_redact_secrets": True,   # mask obvious secrets before writing
+    "autosave_max_chars": 4000,        # per-message text cap before storing
+    "autosave_max_turns": 40,          # per-file cap (turns); keeps files small
+    "autosave_retention_days": 30,     # delete auto__* older than this
+    "autosave_max_files": 500,         # hard cap on auto__* file count
     "channels": {
         "http": {"enabled": True},
         # Prefer the TELEGRAM_BOT_TOKEN env var over the plaintext "token" here.
