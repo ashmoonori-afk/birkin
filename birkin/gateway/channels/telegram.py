@@ -77,6 +77,12 @@ class TelegramChannel(Channel):
 
     def start(self, gateway: "Gateway") -> None:
         print("  · telegram channel polling for updates")
+        # Drop any leftover webhook (long-polling and webhooks are mutually
+        # exclusive — a stale webhook would 409 every getUpdates).
+        try:
+            self._call("deleteWebhook", {})
+        except Exception:
+            pass
         # Register the command menu so typing "/" shows them in the Telegram UI.
         try:
             from ..core import command_menu
@@ -88,6 +94,15 @@ class TelegramChannel(Channel):
         while True:
             try:
                 res = self._call("getUpdates", {"offset": offset, "timeout": 50}, timeout=60)
+            except urllib.error.HTTPError as exc:
+                if exc.code == 409:
+                    print("[telegram] 409 Conflict — another process is polling "
+                          "this bot (@only one `birkin gateway` may run per token). "
+                          "Stop the other instance; retrying in 5s…")
+                else:
+                    print(f"[telegram] poll error: {exc}")
+                time.sleep(5)
+                continue
             except Exception as exc:
                 print(f"[telegram] poll error: {exc}")
                 time.sleep(5)
