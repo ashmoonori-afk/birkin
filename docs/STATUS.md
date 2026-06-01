@@ -3,6 +3,13 @@
 > Snapshot: 2026-06-01 · v0.2 (hardening; H2–H6 complete) + gateway speed
 > + Neurosis + autosave→memory + session-review hardening (ADR-032)
 >
+> **v2 design (proposed, not built):** [`docs/v2.md`](./v2.md) — borrowing
+> HIGH+MEDIUM ideas from oh-my-openagent: always-on infra (Model Router, Hashline
+> edits, IntentGate, Prompt-Gate, scoped skills) + an on-demand **Odyssey** goal-
+> completion cycle (Neurosis → Hyperplan critique → Boulder state → **Osiris**
+> verify). Odyssey is a skill (`skills/automation/odyssey`), so the heavy cycle
+> runs only on a complex goal, never every turn. **51 bundled skills.**
+>
 > **432 tests** pass offline (no API key). Newest: **Telegram replies now render
 > Markdown** — GFM → Telegram HTML (`parse_mode="HTML"`) via
 > `gateway/channels/tg_format.py`, with tables → aligned (CJK-aware) monospace
