@@ -63,8 +63,10 @@ intent in Korean (NOT a permission question), e.g.:
 
 > 진행 전에 모호한 부분과 핵심 결정사항을 다시 한번 확인하겠습니다.
 
-Then go straight to Round 0 / questioning. (You may still show the per-round
-clarity/모호도 figures below — that is useful progress, not jargon.)
+Then go straight to Round 0 / questioning. Show progress to the user as an
+**estimated number of remaining questions** (예상 남은 질문), NOT a raw ambiguity
+percentage — keep the ambiguity score internal (state/spec only). See 2d for the
+estimate.
 
 ### Phase 1 — initialize
 
@@ -87,7 +89,7 @@ Lock the SHAPE before depth. Enumerate 1–6 top-level components that can succe
 or fail independently, then ask ONE confirmation question:
 
 ```
-Round 0 | 구성요소 확인 | 모호도: 아직 점수 없음
+Round 0 | 구성요소 확인 | 예상 남은 질문: 산정 전
 
 이렇게 {N}개 최상위 구성요소로 이해했어요:
 1. {이름}: {한 줄 설명}
@@ -110,7 +112,7 @@ LOWEST clarity. When >1 active components are similarly weak, rotate across them
 lists. State in one line why this dimension is the current bottleneck. Format:
 
 ```
-Round {n} | 구성요소: {component} | 겨냥: {weakest_dimension} | 이유: {한 줄} | 모호도: {score}%
+Round {n} | 구성요소: {component} | 겨냥: {weakest_dimension} | 이유: {한 줄} | 예상 남은 질문: ~{remaining}개
 
 {질문}
 ```
@@ -144,6 +146,15 @@ entity names for the same concept; only rename for genuinely new concepts.
 line (targeted / active / deferred), an Ontology line (entity count / stability),
 and the next target + why. Show the work.
 
+**Display progress as estimated remaining questions, not a percentage.** Keep the
+ambiguity score internal (it drives the gate + spec); show the user
+`예상 남은 질문 ~{remaining}개`, where
+`remaining = max(0, ceil((ambiguity − threshold) / drop))` and `drop` = the
+average ambiguity reduction over the last 1–3 answered rounds (use ~0.10 before
+you have data). The `~` marks it an estimate; it should trend down as clarity
+improves (don't let it jump around — if a round barely moves ambiguity, keep the
+prior estimate or +1). When `ambiguity ≤ threshold`, show `예상 남은 질문 0개 (충분히 명확)`.
+
 **2e. Update state** at `state_path` (rounds, scores, per-component clarity,
 ontology snapshot, last_targeted_component_id).
 
@@ -174,7 +185,7 @@ table · collapsed full transcript.
 Until the user explicitly picks an execution option, do NOT mutate files, run
 consequential shell, commit, or delegate. Present (Korean) via a clear question:
 
-> spec 준비됨 (모호도 {score}%). 어떻게 진행할까요?
+> spec 준비됨 (예상 남은 질문 0개 — 충분히 명확). 어떻게 진행할까요?
 
 1. **birkin이 지금 실행** — 승인 시 birkin이 spec대로 작업 수행(필요하면 `spawn_subagent`로
    분할). 가장 빠름.
