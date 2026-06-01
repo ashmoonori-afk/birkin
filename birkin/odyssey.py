@@ -27,7 +27,7 @@ def seed(goal: str, *, cfg: Optional[dict[str, Any]] = None) -> dict[str, Any]:
     return {
         "slug": slug, "goal": goal,
         "boulder_path": str(boulder._path(slug)),
-        "resume": bool(existing and existing.get("active")),
+        "resume": bool(existing and existing.get("active") and existing.get("steps")),
         "mode": intent.classify(goal),
         "max_iters": int((cfg or {}).get("boulder_max_iters", 100)),
         "critics": int((cfg or {}).get("critique_agents", 3)),

@@ -32,6 +32,20 @@ def test_create_resumes_not_clobbers(tmp_path, monkeypatch):
     assert again["resumed"] is True and again["total"] == 3 and again["done"] == 1
 
 
+def test_create_rejects_empty_steps(tmp_path, monkeypatch):
+    monkeypatch.setenv("BIRKIN_HOME", str(tmp_path))
+    import pytest
+    with pytest.raises(ValueError):
+        boulder.create("a goal with no steps", [])      # no zombie plan
+
+
+def test_create_ignores_caller_done_flag(tmp_path, monkeypatch):
+    monkeypatch.setenv("BIRKIN_HOME", str(tmp_path))
+    # A caller cannot smuggle in a pre-checked step (bypassing the Osiris gate).
+    d = boulder.create("goal", [{"title": "a", "done": True, "verdict": "fake"}])
+    assert d["done"] == 0 and d["remaining"] == 1 and d["next_index"] == 0
+
+
 def test_active_lists_only_unfinished(tmp_path, monkeypatch):
     monkeypatch.setenv("BIRKIN_HOME", str(tmp_path))
     boulder.create("goal one", ["x"])

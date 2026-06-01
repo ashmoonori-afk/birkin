@@ -19,6 +19,9 @@ from typing import Any, Optional
 # Claude-subscription tier per task class (free; no API metering).
 _CLAUDE_ROUTES = {"quick": "haiku", "reason": "opus", "visual": "sonnet",
                   "deep": "opus", "default": "sonnet"}
+_CLAUDE_TIER = set(_CLAUDE_ROUTES.values())          # {haiku, opus, sonnet}
+# Only the subscription CLI backends may be routed — never a paid API provider.
+_FREE_CLI = ("claude-cli", "codex-cli", "local-cli")
 
 _VISUAL_RE = re.compile(
     r"\b(ui|ux|css|html|layout|button|component|screen|frontend|image|icon|svg|"
@@ -26,9 +29,12 @@ _VISUAL_RE = re.compile(
 _REASON_RE = re.compile(
     r"\b(architect\w*|design|refactor|debug|root[ -]?cause|trade[ -]?off|"
     r"algorithm|concurren\w+|optimi[sz]e|why\b|prove|reason|plan\b|strategy)\b", re.I)
+# NB: 'import'/'comment' deliberately omitted — they are overloaded (a trivial
+# edit AND a feature noun, e.g. "add a comment system"), so keying on them
+# mis-routed real features to the weakest tier.
 _QUICK_RE = re.compile(
-    r"\b(typo|rename|format|lint|bump|comment|import|whitespace|indent|"
-    r"one[- ]?liner|small fix|quick)\b", re.I)
+    r"\b(typo|rename|format|lint|bump|whitespace|indent|"
+    r"one[- ]?liner|small fix|quick fix)\b", re.I)
 
 
 def classify(text: str) -> str:
@@ -55,10 +61,21 @@ def pick_model(cfg: dict[str, Any], text: str, *,
     if not cfg.get("model_routing", False):
         return None
     provider = provider if provider is not None else cfg.get("provider", "")
+    # Free/OAuth guarantee: NEVER route a paid API provider (anthropic/openai) —
+    # the user already chose that paid model; routing among paid models is out of
+    # scope and would meter tokens. Only the subscription CLIs are routed.
+    if provider not in _FREE_CLI:
+        return None
     cls = classify(text)
     routes = cfg.get("model_routes") or {}
-    if isinstance(routes, dict) and routes.get(cls):
-        return str(routes[cls])
+    override = (str(routes[cls]) if isinstance(routes, dict) and routes.get(cls)
+                else None)
     if provider == "claude-cli":
+        # Keep claude overrides within the subscription tier (haiku/opus/sonnet
+        # or a claude-… full id); ignore anything else (could be a paid model).
+        if override is not None and (override in _CLAUDE_TIER
+                                     or override.startswith("claude-")):
+            return override
         return _CLAUDE_ROUTES.get(cls, _CLAUDE_ROUTES["default"])
-    return None
+    # codex-cli / local-cli: the subscription CLI validates its own -m model.
+    return override

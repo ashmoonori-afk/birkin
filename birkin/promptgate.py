@@ -4,8 +4,9 @@ Persona (SOUL.md) + memory + skills + the neurosis auto-trigger note were being
 stitched together in several spots (runtime API path, runtime CLI path, the
 gateway warm session, the dry-run packet), risking drift. Every surface now
 composes its system prompt HERE, so the pieces stay consistent. A static audit
-(tests/test_prompt_gate_audit.py) fails if any module other than this gate calls
-``prompts.build_system_prompt`` / ``build_cli_system`` directly.
+(tests/test_promptgate.py) fails if any module other than this gate calls
+``prompts.build_system_prompt`` / ``build_cli_system`` directly (the specialized
+subagent / selfimprove assemblers are explicitly exempt).
 
 Pure standard library. (docs/v2.md #7)
 """

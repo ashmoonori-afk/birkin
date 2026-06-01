@@ -56,11 +56,18 @@ def create(goal: str, steps: list[Any], *,
     existing = store._read_json(p, None)
     if isinstance(existing, dict) and existing.get("active"):
         return _descriptor(existing, resumed=True)
+    # Fresh steps always start UNCHECKED — only check() (after Osiris) may flip
+    # done, so a caller can't smuggle in pre-verified work (evidence gate).
+    fresh = [{**_norm_step(s), "done": False, "verdict": ""} for s in (steps or [])]
+    if not fresh:
+        # An empty plan would be active-but-uncompletable (a zombie): next_index
+        # is None and check() can't run. Fail loud rather than create one.
+        raise ValueError("boulder plan needs at least one step")
     now = _now()
     state = {
         "active": True, "id": uuid.uuid4().hex, "goal": goal, "slug": slug,
         "created_at": now, "updated_at": now,
-        "steps": [_norm_step(s) for s in (steps or [])],
+        "steps": fresh,
         "max_iters": int((cfg or {}).get("boulder_max_iters", 100)),
     }
     store._write_json(p, state)

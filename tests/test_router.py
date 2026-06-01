@@ -23,10 +23,30 @@ def test_pick_model_claude_tiers_when_on():
     assert router.pick_model(cfg, "say hello") == "sonnet"   # default tier
 
 
-def test_pick_model_routes_override():
+def test_pick_model_routes_override_in_tier():
     cfg = {"provider": "claude-cli", "model_routing": True,
-           "model_routes": {"quick": "haiku-custom"}}
-    assert router.pick_model(cfg, "fix a typo") == "haiku-custom"
+           "model_routes": {"quick": "opus"}}        # in-tier override
+    assert router.pick_model(cfg, "fix a typo") == "opus"
+
+
+def test_paid_api_provider_never_routed():
+    # Free/OAuth guarantee: the paid API providers are never routed.
+    for prov in ("anthropic", "openai"):
+        cfg = {"provider": prov, "model_routing": True,
+               "model_routes": {"default": "gpt-4o", "reason": "gpt-4o"}}
+        assert router.pick_model(cfg, "refactor the architecture") is None
+
+
+def test_claude_nontier_override_ignored():
+    # A non-tier (possibly paid) override is dropped; falls back to the safe tier.
+    cfg = {"provider": "claude-cli", "model_routing": True,
+           "model_routes": {"quick": "gpt-4o"}}
+    assert router.pick_model(cfg, "fix a typo") == "haiku"
+
+
+def test_overloaded_tokens_not_quick():
+    assert router.classify("add a comment system to the blog") != "quick"
+    assert router.classify("add a feature to import CSV files") != "quick"
 
 
 def test_pick_model_unknown_provider_returns_none_without_routes():
