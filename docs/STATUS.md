@@ -8,7 +8,8 @@
 > edits, IntentGate, Prompt-Gate, scoped skills) + an on-demand **Odyssey** goal-
 > completion cycle (Neurosis → Hyperplan critique → Boulder state → **Osiris**
 > verify). Odyssey is a skill (`skills/automation/odyssey`), so the heavy cycle
-> runs only on a complex goal, never every turn. **51 bundled skills.**
+> runs only on a complex goal, never every turn. **52 bundled skills** (incl.
+`skills/creative/codex-image-gen` — free gpt-image-2 via Codex OAuth, see its SKILL.md).
 >
 > **432 tests** pass offline (no API key). Newest: **Telegram replies now render
 > Markdown** — GFM → Telegram HTML (`parse_mode="HTML"`) via
