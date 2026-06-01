@@ -26,7 +26,12 @@ _GATEWAY_COMMANDS: list[tuple[str, str, set[str]]] = [
       "restart_hard", "restarthard"}),
     ("neurosis", "Deep interview — clarify a vague idea before acting",
      {"neurosis", "interview"}),
+    ("models", "List or select the gateway model (auto-restarts to apply)",
+     {"models", "model"}),
 ]
+
+# Friendly short model names accepted by `claude --model` (full claude-… IDs also OK).
+_GATEWAY_MODELS = ["opus", "sonnet", "haiku"]
 
 
 def match_command(text: str) -> tuple[str | None, str]:
@@ -222,6 +227,8 @@ class Gateway:
         with self._lock:
             if cmd == "help":
                 return gateway_help_text()
+            if cmd == "models":
+                return self._models_command(cmd_arg)
             if cmd == "hard_restart":
                 # The receiving channel re-execs after it delivers this reply.
                 self._hard_restart = True
@@ -281,6 +288,27 @@ class Gateway:
             transcripts.append_turn(channel, str(chat_id), display_text, reply or "",
                                     cfg=self.cfg)
         return reply or "(no reply)"
+
+    def _models_command(self, arg: str) -> str:
+        """List the gateway model, or select one and schedule a hard restart so the
+        new model takes effect (the gateway's model is fixed at process start).
+        Called under the lock."""
+        name = (arg or "").strip().split()[0] if (arg or "").strip() else ""
+        if not name:
+            return (f"현재 게이트웨이 모델: {self.cfg.get('model')}\n"
+                    f"사용 가능: {', '.join(_GATEWAY_MODELS)} (또는 claude-… 전체 ID)\n"
+                    f"바꾸려면 /models <이름> — 고르면 적용을 위해 자동으로 재시작해요. "
+                    f"예: /models opus")
+        if name not in _GATEWAY_MODELS and not name.startswith("claude-"):
+            return (f"'{name}'은(는) 모르는 모델이에요. 사용 가능: "
+                    f"{', '.join(_GATEWAY_MODELS)} (또는 claude-… 전체 ID). 예: /models opus")
+        cfg = config.load_config()
+        cfg["gateway_model"] = name
+        config.save_config(cfg)
+        self._hard_restart = True  # the channel re-execs after sending this reply
+        print(f"[gateway] model → {name}; scheduling hard restart", flush=True)
+        return (f"✅ 게이트웨이 모델을 '{name}'로 바꿨어요. 적용하려고 지금 재시작합니다 "
+                f"— 잠시 후 다시 말 걸어주세요.")
 
     def _autosave_trusted(self, channel: str) -> bool:
         """Whether turns from ``channel`` may be auto-saved + memorized.

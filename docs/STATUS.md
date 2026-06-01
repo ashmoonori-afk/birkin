@@ -21,6 +21,9 @@ OAuth, no paid API key).
 - Gateway chat commands: `/new` (fresh conversation) and **`/restart-gateway`**
   (alias `/restart`) — soft-restart in place: reload config/persona/memory/skills
   and drop warm sessions, no process kill (code changes still need a real restart).
+  **`/models [name]`** lists or selects the gateway model and **auto hard-restarts**
+  to apply it (the gateway's model is fixed at process start); REPL `/models [name]`
+  selects live (no restart).
 - **Direct-API OAuth is parked, not used:** Anthropic meters third-party OAuth
   API use as paid `extra_usage` (≠ free Claude Code billing). `birkin/oauth.py`
   is retained only for the read-only usage check. See ADR-026.

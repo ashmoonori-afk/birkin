@@ -176,9 +176,16 @@ def _model(session: Any, arg: str) -> None:
         print(session.cfg.get("model"))
 
 
-@command("models", "List available models (API + local).", "/models")
+@command("models", "List models, or select one: /models [name].", "/models [name]")
 def _models(session: Any, arg: str) -> None:
     from . import models as models_mod
+    name = arg.strip()
+    if name:  # select — applies live in the REPL (no restart needed here)
+        session.cfg["model"] = name
+        session.client.model = name
+        config.save_config(session.cfg)
+        print(f"{GREEN}Model set to {name} (applies now).{RESET}")
+        return
     found = models_mod.discover(session.cfg)
     models_mod.render(found, session.cfg.get("model"))
 
