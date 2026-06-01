@@ -8,6 +8,46 @@ older ones (noted inline).
 
 ---
 
+## ADR-033 — Telegram replies render Markdown (GFM → Telegram HTML)
+
+**Context.** The gateway agent emits GitHub-flavored Markdown (`**bold**`,
+`# headings`, `|` tables, fenced code, lists, links). The Telegram channel sent
+it via `sendMessage` with **no `parse_mode`** (`telegram.py:130`, `text=reply[:4000]`),
+so it arrived as raw text — literal `**`, `|---|`, `##` — and long replies were
+silently truncated at 4000 chars. The user reported markdown "not rendering" in
+Telegram.
+
+**Decision.** Convert the agent's GFM to the small HTML subset Telegram renders
+and send with `parse_mode="HTML"`. New module `gateway/channels/tg_format.py`
+(pure stdlib): `to_html()` maps bold/italic/strike/inline-code/fenced-code/
+headings/links/bullets/blockquotes, and — since Telegram has no `<table>`/heading
+tags — renders pipe tables as an **aligned monospace `<pre>`** (CJK-width aware
+via `unicodedata.east_asian_width`, so Korean tables line up) and headings as
+bold. `split()` chunks output under Telegram's 4096 limit on safe boundaries,
+never tearing a `<pre>`/`<blockquote>` (oversized ones split into multiple valid
+same-tag blocks). The channel sends each chunk as HTML; if Telegram rejects one
+(`ok:false`/HTTPError), that chunk **degrades to plain text** via `to_plain()` —
+so a converter edge case can never drop or duplicate a reply.
+
+**Why HTML, not MarkdownV2.** HTML mode escapes only `& < >` (`"` too, inside
+`href`); MarkdownV2 must escape ~18 characters everywhere and 400s on a stray
+`.`/`-`/`!` — fragile for arbitrary model output.
+
+**Adversarial review fixes (before commit).** A reviewer found three real
+400-triggers, all fixed + regression-tested: (1) a `"` in a link URL broke the
+`href` attribute → dedicated `_esc_attr`; (2) crossing/overlapping emphasis
+(`***x***`, `**a _b** c_`) emitted interleaved tags Telegram rejects → `***`/`___`
+handled as bold+italic and a `_balance_emphasis` net strips emphasis (keeping
+text) whenever tags would cross; (3) `split()` tore a long multi-line
+`<blockquote>` → it is now protected like `<pre>`. Known LOW (unfixed): a literal
+`)` inside a link URL truncates it (markdown-regex limitation).
+
+**Status.** Done; `tg_format` + channel wiring + 20 tests. 432 tests pass offline.
+Localized to the Telegram channel — REPL/HTTP render markdown themselves
+(`ui.render_markdown`), so they are untouched.
+
+---
+
 ## ADR-032 — Session-review hardening (free+fast gateway + neurosis + autosave)
 
 **Context.** A full multi-agent code review of this session's work (free+fast

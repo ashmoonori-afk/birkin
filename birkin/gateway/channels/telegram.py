@@ -18,6 +18,7 @@ import urllib.parse
 import urllib.request
 from typing import TYPE_CHECKING, Any
 
+from . import tg_format
 from .base import Channel
 
 if TYPE_CHECKING:
@@ -56,6 +57,33 @@ class TelegramChannel(Channel):
         req = urllib.request.Request(url, data=data, method="POST")
         with urllib.request.urlopen(req, timeout=timeout) as resp:
             return json.loads(resp.read().decode("utf-8", "replace"))
+
+    def _send_chunk(self, chat_id: str, text: str, parse_mode: str | None = None) -> bool:
+        """Send one message. Returns True only if Telegram accepted it."""
+        params: dict[str, Any] = {"chat_id": chat_id, "text": text}
+        if parse_mode:
+            params["parse_mode"] = parse_mode
+        try:
+            return bool(self._call("sendMessage", params).get("ok"))
+        except Exception as exc:  # HTTPError (e.g. 400 bad entity), network, …
+            print(f"[telegram] send error ({parse_mode or 'plain'}): {exc}")
+            return False
+
+    def _send_reply(self, chat_id: str, reply: str) -> None:
+        """Render the agent's markdown to Telegram HTML and send it in size-safe
+        chunks. If Telegram rejects a chunk's HTML (a converter edge case), that
+        chunk degrades to plain text — so a reply is never dropped or duplicated.
+        """
+        try:
+            chunks = tg_format.split(tg_format.to_html(reply))
+        except Exception as exc:  # converter bug must never eat the message
+            print(f"[telegram] format error: {exc}")
+            for plain in tg_format.split(reply):
+                self._send_chunk(chat_id, plain)
+            return
+        for chunk in chunks:
+            if not self._send_chunk(chat_id, chunk, parse_mode="HTML"):
+                self._send_chunk(chat_id, tg_format.to_plain(chunk))
 
     def _keep_typing(self, chat_id: str, stop: threading.Event) -> None:
         """Show a 'typing…' indicator until ``stop`` is set.
@@ -126,10 +154,7 @@ class TelegramChannel(Channel):
                 finally:
                     stop.set()
                     pinger.join(timeout=16)
-                try:
-                    self._call("sendMessage", {"chat_id": chat_id, "text": reply[:4000]})
-                except Exception as exc:
-                    print(f"[telegram] send error: {exc}")
+                self._send_reply(chat_id, reply or "(no reply)")
                 if gateway.pending_hard_restart:
                     # Confirm this update to Telegram BEFORE re-exec, so the new
                     # process doesn't re-receive /hard-restart and loop forever.
