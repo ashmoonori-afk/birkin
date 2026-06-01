@@ -23,7 +23,9 @@ def _now() -> str:
 
 
 def _write_json(path: Path, obj: Any) -> None:
-    tmp = path.with_suffix(path.suffix + ".tmp")
+    # Unique per write so concurrent writers to the same path don't collide on
+    # the temp file (pid + uuid covers both cross-thread and cross-process).
+    tmp = path.with_suffix(path.suffix + f".{os.getpid()}.{uuid.uuid4().hex[:8]}.tmp")
     try:
         tmp.write_text(json.dumps(obj, indent=2, ensure_ascii=False), encoding="utf-8")
         try:  # restrict the temp file too, before it is briefly visible

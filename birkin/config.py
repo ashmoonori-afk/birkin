@@ -110,6 +110,12 @@ DEFAULT_CONFIG: dict[str, Any] = {
     # --- Budget governor (P3 reliability). 0 = unlimited. ---
     "budget_tokens_daily": 0,
     "budget_tokens_monthly": 0,
+    # Seconds to wait for a CLI-agent subprocess (claude/codex/local-cli) before
+    # giving up; surfaced so users can tune long-running agents. See llm.py.
+    "cli_timeout": 300,
+    # Opt-in: when true, a NEW memory note with no prior/provided source is
+    # refused. False -> evidence is not required. See memory.py.
+    "evidence_required": False,
 }
 
 PROVIDER_DEFAULT_BASE_URL = {
@@ -266,8 +272,25 @@ def load_config() -> dict[str, Any]:
 
 
 def save_config(cfg: dict[str, Any]) -> Path:
+    # config.json may hold an API key, so write atomically (mirrors
+    # store._write_json): write a temp sibling, restrict it before it is
+    # briefly visible, then os.replace() for an atomic swap. A crash mid-write
+    # then cannot truncate the live config.
     path = config_path()
-    path.write_text(json.dumps(cfg, indent=2, ensure_ascii=False), encoding="utf-8")
+    tmp = path.with_suffix(path.suffix + ".tmp")
+    try:
+        tmp.write_text(json.dumps(cfg, indent=2, ensure_ascii=False), encoding="utf-8")
+        try:  # restrict the temp file too, before it is briefly visible
+            os.chmod(tmp, 0o600)
+        except OSError:
+            pass
+        os.replace(tmp, path)
+    except OSError:
+        try:  # don't leave a partial .tmp behind on a failed write
+            tmp.unlink()
+        except OSError:
+            pass
+        raise
     # config.json may hold an API key — restrict to the owner where supported.
     try:
         os.chmod(path, 0o600)

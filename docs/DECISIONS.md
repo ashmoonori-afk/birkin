@@ -52,10 +52,37 @@ change), each with a regression test where behavior changed:
 metacharacters is sufficient defense-in-depth for trusted-operator input.
 
 **Status.** Done; 8 HIGH fixed (1 doc-only accepted), 2 false-positives
-dismissed, MEDIUM/LOW deferred. **403 tests** pass offline (5 new). The two
-false-positives: `str.startswith(tuple)` is valid Python; and `build_session`'s
-first turn is *not* persona-less (every turn, including the first, re-injects
-persona + neurosis via `ask()`/`refresh_system_prompt()`).
+dismissed. The two false-positives: `str.startswith(tuple)` is valid Python; and
+`build_session`'s first turn is *not* persona-less (every turn, including the
+first, re-injects persona + neurosis via `ask()`/`refresh_system_prompt()`).
+
+**MEDIUM/LOW follow-up pass.** A second 19-agent triage verified every MEDIUM/LOW
+finding against current code (real / false-positive / already-fixed / wont-fix).
+**16 confirmed real, fixed** (minimal diffs, tests where behavior changed):
+- *config.py* — `save_config` now writes config.json atomically (tmp + chmod +
+  `os.replace`), mirroring `store._write_json`, so a crash can't truncate the
+  API-key-bearing file; added `cli_timeout`/`evidence_required` to DEFAULT_CONFIG.
+- *transcripts.py* — `_prep` masks BEFORE truncating, closing a boundary leak
+  where a secret straddling `max_chars` lost its suffix and survived un-redacted.
+- *approvals.py* — cron `hour`/`minute` are clamped (default on garbage, range
+  0-23 / 0-59) instead of raising or storing a time that can't fire.
+- *store.py* — `_write_json` temp name is now per-process unique (pid + uuid), so
+  concurrent writers to one path don't collide on the temp.
+- *neurosis.py* — collision-resistant `_slug` (hash suffix on truncation);
+  `start_prompt` no longer leaks the absolute bundled-skill path into the
+  model/transcript; `auto_trigger_note` honors `BIRKIN_HOME`.
+- *gateway/core.py* — `/neurosis` seed read-modify-write moved under the lock
+  (TOCTOU); `match_command` returns no stale arg for hard-restart.
+- *persona.py* — `write_soul` cleans its temp on a failed replace (Windows
+  window). *runtime.py* — dry-run packet now mirrors a real turn (persona +
+  neurosis note). *mcp_server.py* — line-size guard measures bytes, not chars.
+  *oauth.py* (parked) — refresh failure reason surfaced under `BIRKIN_DEBUG`.
+- *inline_complete.py* / *SKILL.md* — doc corrections (apply_event is a mutating
+  builder; threshold precedence includes the resolution preset step).
+Dismissed: 6 false-positives (e.g. mcp_server stdout already isolated; 0600 temp
+configs already non-sensitive) and 8 wont-fix LOW (pre-existing / out-of-scope).
+**412 tests** pass offline (9 new); 2 unrelated `test_web` socket flakes pass on
+isolated re-run.
 
 ---
 

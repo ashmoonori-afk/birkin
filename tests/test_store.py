@@ -58,3 +58,24 @@ def test_unique_run_ids_same_second():
     store.save_run("chat", "two")
     runs = store.list_runs()
     assert len({r["id"] for r in runs}) == 2  # no collision within the same second
+
+
+def test_write_json_uses_unique_tmp_name(tmp_path, monkeypatch):
+    # Concurrent writers to the SAME path must not collide on a fixed tmp name;
+    # the temp gets a per-process unique suffix and is consumed by os.replace.
+    import json
+    import os
+    seen = []
+    real = store.os.replace
+
+    def spy(src, dst):
+        seen.append(str(src))
+        return real(src, dst)
+
+    monkeypatch.setattr(store.os, "replace", spy)
+    p = tmp_path / "x.json"
+    store._write_json(p, {"a": 1})
+    assert json.loads(p.read_text(encoding="utf-8")) == {"a": 1}
+    assert not list(tmp_path.glob("*.tmp"))            # tmp consumed, none left
+    assert seen and seen[0].endswith(".tmp")
+    assert str(os.getpid()) in seen[0]                 # unique per process

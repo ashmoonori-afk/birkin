@@ -52,3 +52,13 @@ def test_dry_run_packet_cli_provider_routes_skills():
         "find recent arxiv papers on transformer attention", cfg)
     assert pkt["tools"] == []          # CLI agents use their own tools
     assert "arxiv" in pkt["routed_skills"]
+
+
+def test_dry_run_packet_includes_neurosis_note_like_a_real_turn():
+    # The dry-run system prompt must mirror an actual turn, which injects the
+    # neurosis auto-trigger guidance. Check both provider branches.
+    for prov, model in (("anthropic", "claude-sonnet-4-6"), ("codex-cli", "")):
+        pkt = runtime.build_dry_run_packet(
+            "plan a big vague project", {"provider": prov, "model": model,
+                                         "neurosis_auto": True, "max_depth": 2})
+        assert "when to run it automatically" in pkt["system"].lower()

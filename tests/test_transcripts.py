@@ -299,5 +299,17 @@ def test_save_rejects_reserved_auto_name(tmp_path, monkeypatch, capsys):
     assert not (tmp_path / "sessions" / "auto__sneaky.json").exists()
 
 
+def test_prep_masks_before_truncating():
+    # A secret straddling the max_chars boundary must NOT leak its un-redacted
+    # prefix: masking now runs on the full text before the length cap.
+    secret = "AIza" + "B" * 40              # matches the Google-key pattern (35+)
+    text = "prefix " + secret + " suffix"
+    cut = len("prefix ") + 10              # truncation would land mid-secret
+    out = transcripts._prep(text, redact=True, max_chars=cut)
+    assert "AIza" not in out and "BBBB" not in out   # no raw secret survives
+    assert "[redacted]" in out
+    assert len(out) <= cut + len(" …[truncated]")     # size bound preserved
+
+
 if __name__ == "__main__":  # pragma: no cover
     raise SystemExit(pytest.main([__file__, "-q"]))

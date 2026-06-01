@@ -3,12 +3,14 @@
 > Snapshot: 2026-06-01 · v0.2 (hardening; H2–H6 complete) + gateway speed
 > + neurosis + autosave→memory + session-review hardening (ADR-032)
 >
-> **403 tests** pass offline (no API key). Latest: full multi-agent code review
+> **412 tests** pass offline (no API key). Latest: full multi-agent code review
 > of the free+fast gateway / neurosis / autosave work — **0 CRITICAL**, 8 HIGH
-> fixed (Windows `cmd /c` injection guard, neurosis resume re-tuning + threshold
-> validation, transcript-retention lock, immutable OAuth `mcp_` strip, Ctrl-U/K
-> bound to the current line, `_pushback`/Kitty cleanup, `/models` in-memory cfg,
-> `restart()` lock tripwire). See ADR-032.
+> fixed, then a MEDIUM/LOW follow-up pass (19-agent triage) fixed **16 more** real
+> findings: atomic `save_config`, transcript mask-before-truncate, cron clock
+> clamp, unique `_write_json` temp, collision-resistant neurosis slug + no skill-
+> path leak + `BIRKIN_HOME`-aware hints, `/neurosis` seed under the lock, atomic
+> `write_soul`, dry-run packet fidelity, byte-accurate MCP line guard. 6 false-
+> positives + 8 LOW wont-fix dismissed. See ADR-032.
 
 A concise, kept-current summary of what exists and how to run it. For the full
 design see [DESIGN.md](./DESIGN.md); for rationale see [DECISIONS.md](./DECISIONS.md).

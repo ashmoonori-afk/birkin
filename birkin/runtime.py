@@ -151,14 +151,16 @@ def build_dry_run_packet(text: str, cfg: Optional[dict[str, Any]] = None
         routed = skills.route(text, limit=3)
         system = prompts.build_cli_system(
             memory_block=memory.render(),
-            preloaded=[skills.render_skill(s) for s in routed] or None)
+            preloaded=[skills.render_skill(s) for s in routed] or None,
+            persona=persona.read_soul()) + neurosis.auto_trigger_note(cfg)
         tool_names: list[str] = []
         routed_names = [s.name for s in routed]
     else:
         ctx = ToolContext(cfg=cfg, client=None, cwd=Path.cwd(), skills=skills,
                           memory=memory, max_depth=int(cfg.get("max_depth", 2)))
         system = prompts.build_system_prompt(
-            skills_index=skills.index(), memory_block=memory.render())
+            skills_index=skills.index(), memory_block=memory.render(),
+            persona=persona.read_soul()) + neurosis.auto_trigger_note(cfg)
         tool_names = [t["name"] for t in build_registry(ctx).specs()]
         routed_names = []
 

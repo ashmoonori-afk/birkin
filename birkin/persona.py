@@ -84,8 +84,15 @@ def write_soul(text: str) -> Path:
     """
     path = soul_path()
     tmp = path.with_name(path.name + ".tmp")
-    tmp.write_text(text.rstrip() + "\n", encoding="utf-8")
-    tmp.replace(path)  # atomic on POSIX; same-dir replace on Windows
+    try:
+        tmp.write_text(text.rstrip() + "\n", encoding="utf-8")
+        tmp.replace(path)  # atomic on POSIX; same-dir replace on Windows
+    except OSError:
+        try:  # don't leave a partial .tmp behind (Windows replace can fail)
+            tmp.unlink()
+        except OSError:
+            pass
+        raise
     return path
 
 

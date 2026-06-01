@@ -106,9 +106,12 @@ def _mask(text: str) -> str:
 
 def _prep(text: str, *, redact: bool, max_chars: int) -> str:
     text = text or ""
+    if redact:
+        text = _mask(text)  # mask BEFORE truncating so a secret straddling the
+        #                     boundary can't leak its un-redacted prefix to disk.
     if max_chars > 0 and len(text) > max_chars:
         text = text[:max_chars] + " …[truncated]"
-    return _mask(text) if redact else text
+    return text
 
 
 def _turn_messages(user_text: str, reply_text: str, *, redact: bool,

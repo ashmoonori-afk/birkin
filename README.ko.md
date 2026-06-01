@@ -20,7 +20,7 @@ Claude 구독으로 **무료로 종일** 돌고, 따뜻한 영속 세션에서 *
 
 ![python](https://img.shields.io/badge/python-3.10%2B-3776ab)
 ![runtime deps](https://img.shields.io/badge/runtime%20deps-0-2ea44f)
-![tests](https://img.shields.io/badge/tests-403%20passing-2ea44f)
+![tests](https://img.shields.io/badge/tests-412%20passing-2ea44f)
 ![skills](https://img.shields.io/badge/bundled%20skills-59-blue)
 ![platform](https://img.shields.io/badge/platform-macOS%20·%20Linux%20·%20Windows-lightgrey)
 
@@ -346,7 +346,7 @@ API 키는 환경변수 우선; Claude Code 백엔드는 불필요. config.json�
 
 ## 🛠️ 현재 위치
 
-- 오프라인 **테스트 403개** 통과(API 키 없이), **번들 스킬 59개**, **런타임
+- 오프라인 **테스트 412개** 통과(API 키 없이), **번들 스킬 59개**, **런타임
   의존성 0**, Python 3.10+.
 - 무료·빠른 게이트웨이(웜 영속 Claude, ~3초), neurosis 딥 인터뷰, 자동저장 →
   기억, 회사 MCP, 회사급 보안 하드닝.

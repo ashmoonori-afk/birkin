@@ -55,3 +55,18 @@ def test_persona_replaces_identity_in_cli_system():
 def test_blank_persona_falls_back_to_default():
     out = prompts.build_system_prompt(persona="   ")
     assert "birkin" in out.lower()  # default identity used
+
+
+def test_write_soul_cleans_tmp_on_replace_failure(monkeypatch):
+    import pytest
+    persona.write_soul("first")
+    assert persona.read_soul() == "first"
+
+    def boom(self, target):
+        raise OSError("simulated replace failure (Windows window)")
+
+    monkeypatch.setattr(persona.Path, "replace", boom)
+    with pytest.raises(OSError):
+        persona.write_soul("second")
+    assert persona.read_soul() == "first"               # original intact
+    assert not list(persona.soul_path().parent.glob("*.tmp"))  # no .tmp leak

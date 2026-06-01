@@ -47,3 +47,18 @@ def test_reject_clears_without_executing():
     assert approvals.reject(pid)["ok"] is True
     assert store.list_pending() == []
     assert cron.load_jobs() == []
+
+
+def test_execute_cron_clamps_and_defaults_clock(monkeypatch):
+    # A cron payload may carry garbage ("9; rm") or out-of-range values (25, 999);
+    # execute_action must default on garbage and clamp, never raise or store a
+    # time that can't fire.
+    captured = []
+    monkeypatch.setattr(cron, "add_job",
+                        lambda **kw: (captured.append(kw) or {
+                            "id": "1", "name": kw["name"],
+                            "hour": kw["hour"], "minute": kw["minute"]}))
+    approvals.execute_action("cron", {"name": "j", "hour": "9; rm", "minute": 999})
+    assert captured[-1]["hour"] == 9 and captured[-1]["minute"] == 59
+    approvals.execute_action("cron", {"name": "j", "hour": 25, "minute": -5})
+    assert captured[-1]["hour"] == 23 and captured[-1]["minute"] == 0

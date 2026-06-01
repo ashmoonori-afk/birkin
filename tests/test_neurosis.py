@@ -213,5 +213,27 @@ def test_slash_neurosis_kicks_off(tmp_path, monkeypatch):
     assert list((tmp_path / "neurosis").glob("*.json"))
 
 
+def test_slug_collision_resistant_on_long_ideas():
+    # Two long ideas sharing the first 48 kebab chars must NOT collapse to one
+    # slug (which would resume the wrong interview); same idea stays stable.
+    a = "build a comprehensive crm for enterprise sales teams with analytics alpha"
+    b = "build a comprehensive crm for enterprise sales teams with analytics beta"
+    sa, sb = neurosis._slug(a), neurosis._slug(b)
+    assert sa != sb                       # distinct long ideas -> distinct slugs
+    assert sa == neurosis._slug(a)        # deterministic (resume stays stable)
+    assert len(sa) <= 48
+    # short ideas keep their plain readable slug (no hash suffix)
+    assert neurosis._slug("Build a CRM") == "build-a-crm"
+
+
+def test_start_prompt_does_not_leak_bundled_skill_path(tmp_path, monkeypatch):
+    monkeypatch.setenv("BIRKIN_HOME", str(tmp_path))
+    seed = neurosis.seed_state("vague idea", cfg={}, resolution="deep")
+    p = neurosis.start_prompt(seed)
+    assert "load_skill('neurosis')" in p          # uses the tool, not a raw path
+    assert "read the skill file at" not in p       # old absolute-path phrasing gone
+    assert "planning/neurosis" not in p and "planning\\neurosis" not in p
+
+
 if __name__ == "__main__":  # pragma: no cover
     raise SystemExit(pytest.main([__file__, "-q"]))

@@ -56,7 +56,7 @@ from `~/.birkin/config.json` if set, else `0.05`. Create the state file yourself
 
 ### Phase 0 — resolve the threshold (internal), open naturally
 
-Resolve the ambiguity threshold (run param → config `neurosis_threshold` → 0.05)
+Resolve the ambiguity threshold (run param → config `neurosis_threshold` → resolution preset → 0.05)
 and store it in state. Do **NOT** announce a "threshold" or any tool/skill name to
 the user — keep the mechanic internal. Open with a natural, confident statement of
 intent in Korean (NOT a permission question), e.g.:

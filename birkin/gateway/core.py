@@ -52,7 +52,7 @@ def match_command(text: str) -> tuple[str | None, str]:
     for canonical, _desc, triggers in _GATEWAY_COMMANDS:
         if name in triggers:
             if canonical == "restart" and rest.strip().lower() in ("hard", "--hard"):
-                return "hard_restart", rest
+                return "hard_restart", ""  # hard_restart takes no arg
             return canonical, rest
     return None, ""
 
@@ -218,7 +218,14 @@ class Gateway:
                 else:
                     kept.append(tok)
             idea_arg = " ".join(kept)
-            seed = neurosis.seed_or_resume(idea_arg, cfg=self.cfg, resolution=resolution)
+            # The neurosis state file is shared mutable state reached from
+            # multiple channel threads, and seed_or_resume is a read-modify-write
+            # (same idea -> same slug -> same path). Serialize it under the global
+            # lock so two concurrent /neurosis for one idea cannot clobber each
+            # other; the cheap file I/O does not gate the LLM turn below.
+            with self._lock:
+                seed = neurosis.seed_or_resume(idea_arg, cfg=self.cfg,
+                                               resolution=resolution)
             if seed is None:
                 return ("아이디어를 함께 주세요: /neurosis <모호한 아이디어> "
                         "(진행 중인 인터뷰가 있으면 /neurosis 만으로 재개).")

@@ -13,6 +13,7 @@ Ported & adapted from gajae-code (Yeachan-Heo/gajae-code). Pure standard library
 
 from __future__ import annotations
 
+import hashlib
 import re
 import uuid
 from datetime import datetime, timezone
@@ -39,8 +40,16 @@ def specs_dir() -> Path:
 
 
 def _slug(idea: str, *, n: int = 48) -> str:
-    s = _SLUG_RE.sub("-", (idea or "").strip().lower()).strip("-")[:n].strip("-")
-    return s or datetime.now(timezone.utc).strftime("idea-%Y%m%d-%H%M%S")
+    full = _SLUG_RE.sub("-", (idea or "").strip().lower()).strip("-")
+    if len(full) > n:
+        # Plain truncation would collide distinct ideas sharing a kebab prefix,
+        # silently resuming the wrong interview. Append a short deterministic
+        # hash of the FULL normalized string: the same idea always maps to the
+        # same slug (resume stays stable) while distinct long ideas diverge.
+        digest = hashlib.sha256(full.encode("utf-8")).hexdigest()[:8]
+        body = full[: max(1, n - 9)].strip("-")
+        full = f"{body}-{digest}"
+    return full or datetime.now(timezone.utc).strftime("idea-%Y%m%d-%H%M%S")
 
 
 def resolve_threshold(cfg: dict[str, Any], *, resolution: Optional[str] = None,
@@ -192,6 +201,7 @@ def auto_trigger_note(cfg: dict[str, Any]) -> str:
         return ""
     sk = skill_path()
     where = f" (read {sk})" if sk else ""
+    home = config.birkin_home()
     return (
         "\n\n## Deep interview (neurosis) — when to run it automatically\n"
         "If the user's request is a COMPLEX or VAGUE work instruction or project "
@@ -205,16 +215,14 @@ def auto_trigger_note(cfg: dict[str, Any]) -> str:
         "'진행 전에 모호한 부분과 핵심 결정사항을 다시 한번 확인하겠습니다.', then ask "
         "the first clarifying question. If you start an interview "
         "without the /neurosis launcher, derive your own slug from the idea and use "
-        "state ~/.birkin/neurosis/<slug>.json and spec ~/.birkin/specs/"
+        f"state {home}/neurosis/<slug>.json and spec {home}/specs/"
         "neurosis-<slug>.md (threshold: config neurosis_threshold, else 0.05).")
 
 
 def start_prompt(seed: dict[str, Any]) -> str:
     """The message a surface feeds to the agent to begin/resume the interview."""
-    sk = skill_path()
-    load = (f"If you have a load_skill tool, call load_skill('neurosis'); "
-            f"otherwise read the skill file at {sk}." if sk
-            else "Read and follow birkin's neurosis skill.")
+    load = ("If you have a load_skill tool, call load_skill('neurosis'); "
+            "otherwise read and follow birkin's bundled neurosis skill (SKILL.md).")
     if seed.get("resume"):
         return (
             "Resume the **neurosis** deep-interview. " + load + "\n"

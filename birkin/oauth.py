@@ -173,7 +173,11 @@ def refresh(refresh_token: str) -> Optional[dict[str, Any]]:
         try:
             with urllib.request.urlopen(req, timeout=10) as resp:
                 result = json.loads(resp.read().decode())
-        except Exception:
+        except Exception as exc:
+            if os.environ.get("BIRKIN_DEBUG", "").strip():
+                import sys
+                print(f"[birkin] oauth refresh failed via {endpoint}: "
+                      f"{type(exc).__name__}: {exc}", file=sys.stderr)
             continue
         access = result.get("access_token")
         if access:

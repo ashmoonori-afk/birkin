@@ -5,10 +5,12 @@ the user types ``/``. Cursor motion (←/→, Home/End), in-place deletion
 (Delete in addition to Backspace), and history navigation (↑/↓ when the
 dropdown is not active) are all supported.
 
-Architecture: state + transitions are pure functions
-(:class:`EditorState`, :func:`apply_event`, plus the original filter/render
-helpers). Only the raw-input and redraw functions touch I/O. This keeps the
-bulk of behavior unit-testable offline.
+Architecture: :class:`EditorState` plus transition functions. The pure
+helpers (filter/render) return new values, while :func:`apply_event`
+mutates the passed ``EditorState`` in place and returns it (a builder
+pattern). Either way no transition touches I/O — only the raw-input and
+redraw functions do — which keeps the bulk of behavior unit-testable
+offline.
 
 Cross-platform: POSIX termios + Windows ``msvcrt``. UTF-8 multi-byte input
 is reassembled on POSIX; ``msvcrt.getwch`` returns wide characters directly

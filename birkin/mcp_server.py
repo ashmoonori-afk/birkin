@@ -213,7 +213,7 @@ def serve(stdin=None, stdout=None) -> int:
         line = line.strip()
         if not line:
             continue
-        if len(line) > _MAX_LINE_BYTES:
+        if len(line.encode("utf-8", "surrogatepass")) > _MAX_LINE_BYTES:
             _emit(_error(None, -32700, "request too large"))
             continue
         try:

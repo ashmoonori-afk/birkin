@@ -64,10 +64,19 @@ def execute_action(category: str, payload: dict[str, Any],
     approval via :func:`approve` has already gathered explicit human consent.
     """
     if category == "cron":
+        def _clk(v: Any, d: int, hi: int) -> int:
+            # A model/user payload may carry a non-int (e.g. "9; rm") or an
+            # out-of-range value (e.g. 25): default on garbage, clamp to 0..hi
+            # so we never raise mid-execution or store a time that can't fire.
+            try:
+                n = int(v)
+            except (TypeError, ValueError):
+                n = d
+            return max(0, min(hi, n))
         job = cron.add_job(
             name=payload.get("name", "job"),
-            hour=int(payload.get("hour", 9)),
-            minute=int(payload.get("minute", 0)),
+            hour=_clk(payload.get("hour", 9), 9, 23),
+            minute=_clk(payload.get("minute", 0), 0, 59),
             action_type=payload.get("type", "prompt"),
             value=payload.get("value", ""))
         return f"Registered cron job '{job['name']}' at " \
