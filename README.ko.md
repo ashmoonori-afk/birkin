@@ -153,6 +153,25 @@ uv run birkin            # 또는:  pip install -e .  &&  birkin
 
 ---
 
+## 🤔 그냥 Claude.ai / API를 쓰지 않는 이유
+
+birkin은 Claude를 대체하지 않습니다 — `claude` CLI를 **감싸서** 지속성·구조·야간
+학습을 더합니다. 일회성 대화면 Claude.ai로 충분하고, 수요일쯤 내 맥락을 아는
+에이전트가 필요하면 birkin이 그 래퍼입니다.
+
+| | Claude.ai / API | birkin |
+|---|---|---|
+| 비용 | 구독 또는 토큰당 API | **구독만 — API 과금 없음** |
+| 메모리 | 세션 한정 | 세션 넘어 지속·검색 가능한 Obsidian vault |
+| 텔레그램 | — | 터미널과 같은 세션·메모리·페르소나 |
+| 모호함 | 추측하고 진행 | **neurosis**가 명료해질 때까지 묻고 spec 작성 |
+| 자기개선 | — | **Morpheus**가 밤마다 메모리/스킬 갱신 |
+| 감사 추적 | — | 모든 턴 기록, `birkin trace <id>` 재생 |
+| 내 파일 / MCP | 수동 붙여넣기 | 네이티브: Notion·Drive·Gmail·사내 서버 |
+| 보안 모델 | Anthropic이 관리 | 게이트·redaction·승인 큐를 내가 통제 |
+
+---
+
 ## 🎮 빠른 시작
 
 ### 무료 + 빠르게 (게이트웨이)
@@ -351,9 +370,21 @@ API 키는 환경변수 우선; Claude Code 백엔드는 불필요. config.json�
   의존성 0**, Python 3.10+.
 - 무료·빠른 게이트웨이(웜 영속 Claude, ~3초), neurosis 딥 인터뷰, 자동저장 →
   기억, 회사 MCP, 회사급 보안 하드닝.
-- 결정 근거: [`docs/DECISIONS.md`](./docs/DECISIONS.md)(ADR 001–032). 라이브
+- 결정 근거: [`docs/DECISIONS.md`](./docs/DECISIONS.md)(ADR 001–033). 라이브
   상태: [`docs/STATUS.md`](./docs/STATUS.md). 비교:
   [`docs/COMPARISON.md`](./docs/COMPARISON.md).
+
+---
+
+## 🙌 기여
+
+스킬은 **MIT 라이선스**라 가장 쉽게 기여할 수 있는 지점입니다: 스킬은
+`SKILL.md`(frontmatter + 마크다운)를 가진 디렉터리일 뿐 — 형식은
+[`skills/`](./skills) 아래 아무 폴더나 참고하고, `birkin skills validate`로 린트한
+뒤 새 스킬/개선 PR을 올려주세요. 버그·기능 제안은 이슈로 환영합니다.
+
+birkin이 돈이나 시간을 아껴줬다면 **레포에 별(star)** 을 눌러주는 게 가장 큰
+도움입니다 — 다른 Claude 구독자들이 birkin을 찾는 데 도움이 됩니다. ⭐
 
 ---
 

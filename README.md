@@ -164,6 +164,25 @@ runs it warm + persistent for speed.
 
 ---
 
+## 🤔 Why birkin, vs. Claude.ai or the API?
+
+birkin doesn't replace Claude — it *wraps* the `claude` CLI and adds persistence,
+structure, and overnight learning. For one-off chats, Claude.ai is fine. For an
+agent that knows your context by Wednesday, birkin is the wrapper.
+
+| | Claude.ai / API | birkin |
+|---|---|---|
+| Cost | Subscription, or per-token API | **Subscription only — no API bill** |
+| Memory | Per-session | Persists across sessions; searchable Obsidian vault |
+| Telegram | — | Same session, memory & persona as the terminal |
+| Ambiguity | Guesses, then proceeds | **neurosis** asks until clear, then writes a spec |
+| Self-improvement | — | **Morpheus** updates memory/skills nightly |
+| Audit trail | — | Every turn logged; `birkin trace <id>` replay |
+| Your files / MCP | Manual paste | Native: Notion, Drive, Gmail, custom servers |
+| Security model | Managed by Anthropic | You hold the gates: redaction + approval queues |
+
+---
+
 ## 🎮 Quick start
 
 ### Run it free + fast (gateway)
@@ -369,8 +388,21 @@ none. A key in `config.json` is stored `chmod 600`.
 - Free + fast gateway (warm persistent Claude, ~3s), neurosis deep-interview,
   auto-save → memory, company MCP, company-grade security hardening.
 - Rationale per decision: [`docs/DECISIONS.md`](./docs/DECISIONS.md) (ADRs
-  001–031). Live status: [`docs/STATUS.md`](./docs/STATUS.md). Comparison:
+  001–033). Live status: [`docs/STATUS.md`](./docs/STATUS.md). Comparison:
   [`docs/COMPARISON.md`](./docs/COMPARISON.md).
+
+---
+
+## 🙌 Contributing
+
+Skills are **MIT-licensed** and the easiest place to contribute: a skill is just a
+directory with a `SKILL.md` (frontmatter + markdown) — see any folder under
+[`skills/`](./skills) for the format, run `birkin skills validate` to lint it, and
+open a PR with a new skill or an improvement. Bug reports and feature requests are
+welcome as issues.
+
+If birkin saves you money or time, **starring the repo** is the single most
+helpful thing you can do — it helps other Claude subscribers find it. ⭐
 
 ---
 
