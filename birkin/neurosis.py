@@ -165,6 +165,28 @@ def _descriptor(slug: str, idea: str, threshold: float, source: str,
     }
 
 
+def auto_trigger_note(cfg: dict[str, Any]) -> str:
+    """System-prompt guidance so the agent self-runs neurosis for vague/complex
+    work, instead of guessing. Empty when ``neurosis_auto`` is off."""
+    if not (cfg or {}).get("neurosis_auto", True):
+        return ""
+    sk = skill_path()
+    where = f" (read {sk})" if sk else ""
+    return (
+        "\n\n## Deep interview (neurosis) — when to run it automatically\n"
+        "If the user's request is a COMPLEX or VAGUE work instruction or project "
+        "plan that lacks a clear goal, constraints, and acceptance criteria, do NOT "
+        "guess or jump straight to work. Run the **neurosis** skill" + where +
+        " and interview them ONE question at a time (한국어로) until ambiguity is "
+        "low, then write the spec and act only after approval. For specific, "
+        "well-scoped, or simple requests, act directly — do not interview. When "
+        "unsure whether a request is clear enough, briefly offer: "
+        "'요건을 딥 인터뷰(neurosis)로 먼저 정리할까요?' If you start an interview "
+        "without the /neurosis launcher, derive your own slug from the idea and use "
+        "state ~/.birkin/neurosis/<slug>.json and spec ~/.birkin/specs/"
+        "neurosis-<slug>.md (threshold: config neurosis_threshold, else 0.05).")
+
+
 def start_prompt(seed: dict[str, Any]) -> str:
     """The message a surface feeds to the agent to begin/resume the interview."""
     sk = skill_path()

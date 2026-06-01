@@ -10,7 +10,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Callable, Optional
 
-from . import budget, config, persona, prompts, store
+from . import budget, config, neurosis, persona, prompts, store
 from .agent import Agent
 from .llm import LLMClient, build_client
 from .memory import Memory
@@ -39,7 +39,7 @@ class Session:
         self.agent.system = prompts.build_system_prompt(
             skills_index=self.skills.index(),
             memory_block=self.memory.render(),
-            persona=persona.read_soul())
+            persona=persona.read_soul()) + neurosis.auto_trigger_note(self.cfg)
 
     def _build_cli_system(self, text: str) -> None:
         """For CLI-agent backends: inject identity + memory + skills routed to
@@ -48,7 +48,7 @@ class Session:
         preloaded = [self.skills.render_skill(s) for s in routed]
         self.agent.system = prompts.build_cli_system(
             memory_block=self.memory.render(), preloaded=preloaded or None,
-            persona=persona.read_soul())
+            persona=persona.read_soul()) + neurosis.auto_trigger_note(self.cfg)
 
     def ask(self, text: str,
             on_text: Optional[Callable[[str], None]] = None) -> str:

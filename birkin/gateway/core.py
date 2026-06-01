@@ -105,6 +105,8 @@ class Gateway:
             sysp += ("\n\n## birkin skills available\n"
                      "Read the referenced SKILL.md with your own file tools to "
                      "follow one when it fits the task.\n" + idx)
+        from .. import neurosis
+        sysp += neurosis.auto_trigger_note(self.cfg)
         return sysp
 
     def _claude_session(self, key: tuple[str, str]) -> ClaudeStreamSession:

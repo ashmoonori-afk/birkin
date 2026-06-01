@@ -45,8 +45,16 @@ default 0.05), seeds a state file, and hands off to the skill; plus a mutation g
   it to memory for Morpheus; **Telegram works**; the approval bridge is "birkin
   executes on approval / save to memory / refine / stop" (no `.gjc`/ralplan/team);
   the mutation-guard becomes a prompt rule ("no side effects until approved").
+- **Auto-trigger (`neurosis_auto`, default true):** `neurosis.auto_trigger_note`
+  is appended to the gateway + REPL system prompts so the agent **proactively runs
+  or offers** the interview for a complex/vague work/project request that lacks
+  clear goal/constraints/acceptance, and acts directly on specific/simple ones —
+  mirroring gajae's staged routing, but always under the agent's judgment (prompt-
+  steered, not a deterministic keyword gate). The skill self-derives state/spec
+  paths + threshold when auto-invoked (no launcher).
 
-**Status.** Done; skill + runtime + 3 surfaces + config flag; 13 tests; 384 total
+**Status.** Done; skill + runtime + 3 surfaces + 2 config flags + auto-trigger;
+15 tests; 386 total
 pass. Code-reviewed (fixed: gateway flag parsing, re-seed data-loss, an immutability
 nit). On-the-wire interview driven by the agent following the skill across turns.
 

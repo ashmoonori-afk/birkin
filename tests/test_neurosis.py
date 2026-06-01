@@ -152,6 +152,25 @@ def test_gateway_neurosis_no_idea_no_active(tmp_path, monkeypatch):
     assert "아이디어" in reply  # asks for an idea (Korean), no LLM turn
 
 
+def test_auto_trigger_note_toggle():
+    on = neurosis.auto_trigger_note({"neurosis_auto": True})
+    assert "neurosis" in on.lower() and "automatically" in on.lower()
+    assert neurosis.auto_trigger_note({"neurosis_auto": False}) == ""
+    assert neurosis.auto_trigger_note({}) != ""  # default on
+
+
+def test_gateway_system_prompt_includes_auto_trigger(tmp_path, monkeypatch):
+    monkeypatch.setenv("BIRKIN_HOME", str(tmp_path))
+    from birkin import config
+    config.save_config({**config.DEFAULT_CONFIG, "provider": "claude-cli",
+                        "gateway_persistent": False})
+    from birkin.gateway.core import Gateway
+    gw = Gateway(config.load_config())
+    assert "when to run it automatically" in gw._system_prompt().lower()
+    gw.cfg = {**gw.cfg, "neurosis_auto": False}
+    assert "when to run it automatically" not in gw._system_prompt().lower()
+
+
 def test_slash_neurosis_kicks_off(tmp_path, monkeypatch):
     monkeypatch.setenv("BIRKIN_HOME", str(tmp_path))
     from birkin import slashcommands

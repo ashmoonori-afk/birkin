@@ -46,6 +46,12 @@ The launcher passes: `idea`, `threshold` (+ source), `resolution`
 Default threshold `0.05`; resolution presets: quick `0.6`, standard `0.5`,
 deep `0.35` (lower = stricter).
 
+**Auto-invoked (no launcher):** if you decided to run this skill yourself for a
+vague/complex request (no `state_path`/`spec_path` given), derive them: slug =
+kebab-case of the idea; `state_path = ~/.birkin/neurosis/{slug}.json`;
+`spec_path = ~/.birkin/specs/neurosis-{slug}.md`; threshold = `neurosis_threshold`
+from `~/.birkin/config.json` if set, else `0.05`. Create the state file yourself.
+
 ## Procedure
 
 ### Phase 0 — announce the threshold (blocking)

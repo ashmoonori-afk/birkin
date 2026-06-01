@@ -36,7 +36,10 @@ OAuth, no paid API key).
 - Ported from gajae-code's deep-interview. Skill (`skills/planning/neurosis/SKILL.md`,
   Korean interview / English spec) + thin runtime (`birkin/neurosis.py`). Spec →
   `~/.birkin/specs/neurosis-{slug}.md`; approve → birkin executes / save to memory
-  for Morpheus / refine. Re-seeding the same idea resumes (no clobber). 384 tests pass.
+  for Morpheus / refine. Re-seeding the same idea resumes (no clobber).
+- **Auto-trigger** (`neurosis_auto`, default true): birkin proactively runs/offers
+  the interview for complex/vague work/project requests (and acts directly on
+  specific ones) — wired into the gateway + REPL system prompts. 386 tests pass.
 
 ## Auto-save transcripts → memory (2026-06-01) — see ADR-030
 

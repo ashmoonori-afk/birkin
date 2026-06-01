@@ -70,6 +70,11 @@ DEFAULT_CONFIG: dict[str, Any] = {
     # the 0.05 default; or use /neurosis --quick|--standard|--deep). Lower is
     # stricter. See skills/planning/neurosis and birkin/neurosis.py.
     "neurosis_threshold": None,
+    # When true, birkin proactively runs/offers the neurosis deep-interview for a
+    # COMPLEX or VAGUE work/project request that lacks clear goal/constraints/
+    # acceptance — instead of guessing. Specific/simple requests are acted on
+    # directly. False -> neurosis only on explicit /neurosis. See neurosis.py.
+    "neurosis_auto": True,
     "channels": {
         "http": {"enabled": True},
         # Prefer the TELEGRAM_BOT_TOKEN env var over the plaintext "token" here.
