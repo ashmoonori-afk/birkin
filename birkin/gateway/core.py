@@ -24,6 +24,8 @@ _GATEWAY_COMMANDS: list[tuple[str, str, set[str]]] = [
     ("hard_restart", "Hard restart — re-exec the gateway (picks up code changes)",
      {"hard-restart", "hard_restart", "hardrestart", "restart-hard",
       "restart_hard", "restarthard"}),
+    ("neurosis", "Deep interview — clarify a vague idea before acting",
+     {"neurosis", "interview"}),
 ]
 
 
@@ -194,7 +196,27 @@ class Gateway:
         # / _chats dicts and the single shared self.session). The actual LLM turn
         # runs OUTSIDE it: a persistent ClaudeStreamSession has its own per-session
         # lock, so independent conversations are not serialized behind each other.
-        cmd, _arg = match_command(text)
+        cmd, cmd_arg = match_command(text)
+        display_text = text
+        if cmd == "neurosis":
+            # Seed/resume the interview, then run the kickoff as a normal turn so
+            # it works on both the persistent and non-persistent paths.
+            from .. import neurosis
+            resolution = None
+            kept = []
+            for tok in cmd_arg.split():
+                if tok in ("--quick", "--standard", "--deep"):
+                    resolution = tok[2:]
+                else:
+                    kept.append(tok)
+            idea_arg = " ".join(kept)
+            seed = neurosis.seed_or_resume(idea_arg, cfg=self.cfg, resolution=resolution)
+            if seed is None:
+                return ("아이디어를 함께 주세요: /neurosis <모호한 아이디어> "
+                        "(진행 중인 인터뷰가 있으면 /neurosis 만으로 재개).")
+            text = neurosis.start_prompt(seed)               # sent to the agent
+            display_text = idea_arg or "/neurosis (resume)"  # logged / auto-saved
+            cmd = None                                       # fall through to a turn
         with self._lock:
             if cmd == "help":
                 return gateway_help_text()
@@ -223,7 +245,7 @@ class Gateway:
             persistent = self._persistent
             sess = self._claude_session(key) if persistent else None
 
-        print(f"[gateway] {channel}:{chat_id} « {text[:80]}", flush=True)
+        print(f"[gateway] {channel}:{chat_id} « {display_text[:80]}", flush=True)
         t0 = time.monotonic()
         try:
             if persistent:
@@ -247,14 +269,14 @@ class Gateway:
         dt = time.monotonic() - t0
         print(f"[gateway] {channel}:{chat_id} » {len(reply or '')} chars in {dt:.1f}s",
               flush=True)
-        store.append_activity(f"gateway[{channel}:{chat_id}]: {text[:100]}")
+        store.append_activity(f"gateway[{channel}:{chat_id}]: {display_text[:100]}")
         # Auto-save the turn so the nightly Morpheus routine can extract memory —
         # but ONLY for trusted conversations (an open Telegram bot's strangers
         # must not be persisted into long-term memory). Runs OUTSIDE the global
         # lock; transcripts.append_turn is per-conversation locked.
         if self._autosave_trusted(channel):
             from .. import transcripts
-            transcripts.append_turn(channel, str(chat_id), text, reply or "",
+            transcripts.append_turn(channel, str(chat_id), display_text, reply or "",
                                     cfg=self.cfg)
         return reply or "(no reply)"
 

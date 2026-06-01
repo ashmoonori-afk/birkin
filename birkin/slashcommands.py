@@ -501,6 +501,33 @@ def _mcp(session: Any, arg: str) -> None:
               f"{DIM}— {s.status}{RESET}")
 
 
+# -- neurosis (deep interview) ---------------------------------------------
+
+@command("neurosis", "Deep interview: Socratic clarity-gating before acting.",
+         "/neurosis [--quick|--standard|--deep] <idea>", aliases=["interview"])
+def _neurosis(session: Any, arg: str) -> None:
+    from . import neurosis
+    resolution = None
+    kept: list[str] = []
+    for tok in arg.split():
+        if tok in ("--quick", "--standard", "--deep"):
+            resolution = tok[2:]
+        else:
+            kept.append(tok)
+    idea = " ".join(kept).strip()
+    seed = neurosis.seed_or_resume(idea, cfg=session.cfg, resolution=resolution)
+    if seed is None:
+        print(f"{DIM}Give an idea: /neurosis <vague idea>  "
+              f"(or run /neurosis with no idea to resume an active interview).{RESET}")
+        return
+    if seed["resume"]:
+        print(f"{DIM}Resuming neurosis interview '{seed['slug']}'…{RESET}")
+    else:
+        print(f"{DIM}neurosis '{seed['slug']}' · threshold {seed['threshold_percent']} "
+              f"({seed['threshold_source']}) · spec → {seed['spec_path']}{RESET}")
+    sys_write(session, neurosis.start_prompt(seed))
+
+
 def sys_write(session: Any, text: str) -> None:
     """Send `text` to the agent and stream the reply (used by /retry)."""
     import sys

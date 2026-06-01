@@ -26,6 +26,18 @@ OAuth, no paid API key).
   is retained only for the read-only usage check. See ADR-026.
 - Tests: 287 pass (8 new for `claude_session`). Verified live (cold ~8s, warm ~3s).
 
+## neurosis — deep interview (2026-06-01) — see ADR-031
+
+- `/neurosis [--quick|--standard|--deep] <idea>` (REPL + Telegram gateway) and
+  `birkin neurosis "<idea>"` (CLI) run a **Socratic, ambiguity-gated** interview:
+  one question at a time targeting the weakest clarity dimension, ambiguity =
+  `1 − Σ(dim×weight)`, won't proceed until `≤ threshold`. Topology + ontology +
+  challenge modes (R4/R6/R8) + resumable state + crystallized spec.
+- Ported from gajae-code's deep-interview. Skill (`skills/planning/neurosis/SKILL.md`,
+  Korean interview / English spec) + thin runtime (`birkin/neurosis.py`). Spec →
+  `~/.birkin/specs/neurosis-{slug}.md`; approve → birkin executes / save to memory
+  for Morpheus / refine. Re-seeding the same idea resumes (no clobber). 384 tests pass.
+
 ## Auto-save transcripts → memory (2026-06-01) — see ADR-030
 
 - `birkin/transcripts.py` auto-saves every (user, assistant) turn — gateway

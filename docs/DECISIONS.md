@@ -8,6 +8,50 @@ older ones (noted inline).
 
 ---
 
+## ADR-031 — neurosis: Socratic deep-interview (ported from gajae-code)
+
+**Context.** The user wanted birkin to run a "deep interview" — the structure from
+gajae-code (Yeachan-Heo/gajae-code), which forked the Ouroboros idea: turn a vague
+idea into a crystal-clear spec via Socratic questioning with **mathematical
+ambiguity gating** before any execution. Codename **neurosis** (obsessive clarity,
+sibling to Morpheus).
+
+**Studied structure (gajae-code).** Two layers: (1) a **SKILL.md** that IS the
+protocol the agent executes — one question at a time aimed at the weakest clarity
+dimension (Goal/Constraints/Success, +Context for brownfield), ambiguity =
+`1 − Σ(dim×weight)`, refuse to proceed until `≤ threshold`; Round 0 topology lock,
+ontology convergence tracking, challenge modes (Contrarian R4 / Simplifier R6 /
+Ontologist R8), soft caps (R10/R20), resumable state, spec crystallization, then an
+approval-gated execution bridge. (2) A thin **runtime** that does NOT run the
+interview — it resolves the threshold (`--quick 0.6/--standard 0.5/--deep 0.35`,
+default 0.05), seeds a state file, and hands off to the skill; plus a mutation guard.
+
+**Decision.** Faithful port, birkin-adapted:
+- **`skills/planning/neurosis/SKILL.md`** — the full protocol (topology + ontology +
+  challenge modes + ambiguity math + spec + resume), with birkin's house rule:
+  **interview in Korean, final spec in English**. "Ask one question" maps to a
+  birkin chat turn, so it works in the REPL and over Telegram unchanged.
+- **`birkin/neurosis.py`** — the thin runtime: `resolve_threshold` (override >
+  config `neurosis_threshold` > resolution preset > 0.05), `_slug`, `seed_state`
+  (resumable state in `~/.birkin/neurosis/<slug>.json`, reusing `store._write_json`),
+  `seed_or_resume` (idea → new; no idea → resume most recent active; **re-seeding the
+  same idea resumes, never clobbers**), `skill_path`, and `start_prompt` (the kickoff
+  the surfaces feed the agent).
+- **Surfaces:** `/neurosis [--quick|--standard|--deep] <idea>` in the REPL and the
+  gateway (Telegram), and `birkin neurosis "<idea>"` CLI (seeds + handoff). The
+  gateway runs the kickoff as a normal turn (works persistent + non-persistent) and
+  logs/auto-saves a friendly `display_text`, not the giant kickoff prompt.
+- **Birkin-izations:** spec → `~/.birkin/specs/`, with an approval option to persist
+  it to memory for Morpheus; **Telegram works**; the approval bridge is "birkin
+  executes on approval / save to memory / refine / stop" (no `.gjc`/ralplan/team);
+  the mutation-guard becomes a prompt rule ("no side effects until approved").
+
+**Status.** Done; skill + runtime + 3 surfaces + config flag; 13 tests; 384 total
+pass. Code-reviewed (fixed: gateway flag parsing, re-seed data-loss, an immutability
+nit). On-the-wire interview driven by the agent following the skill across turns.
+
+---
+
 ## ADR-030 — Auto-save conversation transcripts → automatic memory extraction
 
 **Context.** The nightly **Morpheus** routine already extracts memory from

@@ -298,6 +298,32 @@ def _cmd_permission(args: argparse.Namespace) -> int:
     return 0
 
 
+def _cmd_neurosis(args: argparse.Namespace) -> int:
+    """Seed a neurosis deep-interview; the interview is driven via /neurosis in chat."""
+    from . import config, neurosis
+    resolution = None
+    kept: list[str] = []
+    for tok in (args.idea or []):
+        if tok == "--":
+            continue
+        if tok in ("--quick", "--standard", "--deep"):
+            resolution = tok[2:]
+        else:
+            kept.append(tok)
+    idea = " ".join(kept).strip()
+    seed = neurosis.seed_or_resume(idea, cfg=config.load_config(), resolution=resolution)
+    if seed is None:
+        print('Give an idea, e.g. `birkin neurosis "a tool that ..."`.')
+        return 1
+    print(f"neurosis '{seed['slug']}' seeded · threshold {seed['threshold_percent']} "
+          f"(source: {seed['threshold_source']}).")
+    print(f"  state: {seed['state_path']}")
+    print(f"  spec : {seed['spec_path']}")
+    print("Run `/neurosis` inside `birkin` (or message your gateway) to drive the "
+          "interview — with no idea it resumes the most recent active one.")
+    return 0
+
+
 def _cmd_mcp_serve(args: argparse.Namespace) -> int:
     """Run birkin as an MCP server over stdio (for `claude --mcp-config`)."""
     from . import mcp_server
@@ -502,6 +528,14 @@ def build_parser() -> argparse.ArgumentParser:
         help="run birkin as an MCP server (stdio) exposing memory/skills/propose "
              "tools — used by Morpheus and the gateway via `claude --mcp-config`"
         ).set_defaults(func=_cmd_mcp_serve)
+
+    nrp = sub.add_parser(
+        "neurosis",
+        help="seed a deep-interview (Socratic clarity-gating before acting); "
+             "then run /neurosis in chat (REPL or gateway) to drive it")
+    nrp.add_argument("idea", nargs=argparse.REMAINDER,
+                     help="the vague idea (optionally --quick|--standard|--deep)")
+    nrp.set_defaults(func=_cmd_neurosis)
 
     return p
 

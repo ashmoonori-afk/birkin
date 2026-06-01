@@ -66,6 +66,10 @@ DEFAULT_CONFIG: dict[str, Any] = {
     "autosave_max_turns": 40,          # per-file cap (turns); keeps files small
     "autosave_retention_days": 30,     # delete auto__* older than this
     "autosave_max_files": 500,         # hard cap on auto__* file count
+    # neurosis deep-interview ambiguity threshold (null -> resolution preset or
+    # the 0.05 default; or use /neurosis --quick|--standard|--deep). Lower is
+    # stricter. See skills/planning/neurosis and birkin/neurosis.py.
+    "neurosis_threshold": None,
     "channels": {
         "http": {"enabled": True},
         # Prefer the TELEGRAM_BOT_TOKEN env var over the plaintext "token" here.
