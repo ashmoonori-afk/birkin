@@ -6,7 +6,7 @@ import threading
 import time
 from typing import Any
 
-from .. import config, persona, prompts, store
+from .. import config, promptgate, store
 from ..claude_session import ClaudeStreamSession
 from ..runtime import ConfigError, Session, build_session
 
@@ -118,21 +118,17 @@ class Gateway:
         self._hard_restart = False
 
     def _system_prompt(self) -> str:
-        """birkin persona + memory + skill index, snapshot for a warm session."""
-        sysp = prompts.build_cli_system(
-            memory_block=self.session.memory.render(),
-            persona=persona.read_soul())
+        """birkin persona + memory + skill index, snapshot for a warm session.
+        Composed through the Prompt-Gate (promptgate) like every other surface."""
         try:
             idx = self.session.skills.index()
         except Exception:
             idx = ""
-        if idx:
-            sysp += ("\n\n## birkin skills available\n"
-                     "Read the referenced SKILL.md with your own file tools to "
-                     "follow one when it fits the task.\n" + idx)
-        from .. import neurosis
-        sysp += neurosis.auto_trigger_note(self.cfg)
-        return sysp
+        extra = ("\n\n## birkin skills available\n"
+                 "Read the referenced SKILL.md with your own file tools to "
+                 "follow one when it fits the task.\n" + idx) if idx else ""
+        return promptgate.compose_cli(
+            self.cfg, memory_block=self.session.memory.render(), extra=extra)
 
     def _claude_session(self, key: tuple[str, str]) -> ClaudeStreamSession:
         sess = self._claude_sessions.get(key)

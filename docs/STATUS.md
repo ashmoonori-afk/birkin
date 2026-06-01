@@ -11,10 +11,13 @@
 > runs only on a complex goal, never every turn. **52 bundled skills** (incl.
 `skills/creative/codex-image-gen` — free gpt-image-2 via Codex OAuth, see its SKILL.md).
 >
-> **447 tests** pass offline (no API key). Newest: **v2 Wave 1 started** — #2
-> **Hashline edit** shipped (`birkin/tools/hashline.py` + `edit_file` /
-> `read_file annotate=true`): hash-anchored line edits that reject stale writes,
-> atomic + LF-safe, all-or-nothing (docs/v2.md). Also: **Codex-backend compatibility**
+> **477 tests** pass offline (no API key). Newest: **all v2 components built**
+> (docs/v2.md) — #1 Model Router (`router.py`), #2 Hashline edits, #3 Osiris
+> verifier (`verify.py`), #4 IntentGate (`intent.py`), #5 Boulder (`boulder.py`),
+> #6 Hyperplan (`critique.py`), #7 Prompt-Gate (`promptgate.py`, runtime+gateway
+> routed through it + static audit), #8 per-skill scoped perms, + Odyssey wiring
+> (`odyssey.py`). Infra (#7,#2) wired live; the rest ship as tested primitives +
+> the Odyssey skill protocol (opt-in; hot path untouched). Also: **Codex-backend compatibility**
 > (ADR-034) — morpheus no longer spawns `claude` for codex users (routes generic),
 > unattended runs downgrade `cli_access:full`→`workspace`, and gateway `/models` is
 > provider-aware (codex model ids pass through). Persistent warm gateway stays

@@ -10,7 +10,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Callable, Optional
 
-from . import budget, config, neurosis, persona, prompts, store
+from . import budget, config, promptgate, store
 from .agent import Agent
 from .llm import LLMClient, build_client
 from .memory import Memory
@@ -36,19 +36,18 @@ class Session:
 
         The persona (``SOUL.md``) is read fresh each turn so edits — and
         ``/personality`` swaps — take effect with no restart."""
-        self.agent.system = prompts.build_system_prompt(
-            skills_index=self.skills.index(),
-            memory_block=self.memory.render(),
-            persona=persona.read_soul()) + neurosis.auto_trigger_note(self.cfg)
+        self.agent.system = promptgate.compose_main(
+            self.cfg, skills_index=self.skills.index(),
+            memory_block=self.memory.render())
 
     def _build_cli_system(self, text: str) -> None:
         """For CLI-agent backends: inject identity + memory + skills routed to
         the request (they can't call load_skill themselves)."""
         routed = self.skills.route(text, limit=3)
         preloaded = [self.skills.render_skill(s) for s in routed]
-        self.agent.system = prompts.build_cli_system(
-            memory_block=self.memory.render(), preloaded=preloaded or None,
-            persona=persona.read_soul()) + neurosis.auto_trigger_note(self.cfg)
+        self.agent.system = promptgate.compose_cli(
+            self.cfg, memory_block=self.memory.render(),
+            preloaded=preloaded or None)
 
     def ask(self, text: str,
             on_text: Optional[Callable[[str], None]] = None) -> str:
@@ -125,8 +124,8 @@ def build_session(cfg: Optional[dict[str, Any]] = None,
         skills=skills, memory=memory,
         max_depth=int(cfg.get("max_depth", 2)), emit=on_event)
     registry = build_registry(ctx)
-    system = prompts.build_system_prompt(
-        skills_index=skills.index(), memory_block=memory.render())
+    system = promptgate.compose_main(
+        cfg, skills_index=skills.index(), memory_block=memory.render())
     agent = Agent(client=client, system=system, registry=registry,
                   max_turns=int(cfg.get("max_turns", 24)),
                   model=cfg.get("model"), on_event=on_event,
@@ -149,18 +148,16 @@ def build_dry_run_packet(text: str, cfg: Optional[dict[str, Any]] = None
 
     if provider in config.CLI_PROVIDERS:
         routed = skills.route(text, limit=3)
-        system = prompts.build_cli_system(
-            memory_block=memory.render(),
-            preloaded=[skills.render_skill(s) for s in routed] or None,
-            persona=persona.read_soul()) + neurosis.auto_trigger_note(cfg)
+        system = promptgate.compose_cli(
+            cfg, memory_block=memory.render(),
+            preloaded=[skills.render_skill(s) for s in routed] or None)
         tool_names: list[str] = []
         routed_names = [s.name for s in routed]
     else:
         ctx = ToolContext(cfg=cfg, client=None, cwd=Path.cwd(), skills=skills,
                           memory=memory, max_depth=int(cfg.get("max_depth", 2)))
-        system = prompts.build_system_prompt(
-            skills_index=skills.index(), memory_block=memory.render(),
-            persona=persona.read_soul()) + neurosis.auto_trigger_note(cfg)
+        system = promptgate.compose_main(
+            cfg, skills_index=skills.index(), memory_block=memory.render())
         tool_names = [t["name"] for t in build_registry(ctx).specs()]
         routed_names = []
 
