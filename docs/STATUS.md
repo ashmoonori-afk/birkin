@@ -11,7 +11,11 @@
 > runs only on a complex goal, never every turn. **52 bundled skills** (incl.
 `skills/creative/codex-image-gen` — free gpt-image-2 via Codex OAuth, see its SKILL.md).
 >
-> **432 tests** pass offline (no API key). Newest: **Telegram replies now render
+> **437 tests** pass offline (no API key). Newest: **Codex-backend compatibility**
+> (ADR-034) — morpheus no longer spawns `claude` for codex users (routes generic),
+> unattended runs downgrade `cli_access:full`→`workspace`, and gateway `/models` is
+> provider-aware (codex model ids pass through). Persistent warm gateway stays
+> claude-cli-only by design (codex `exec` is one-shot). Also: **Telegram replies render
 > Markdown** — GFM → Telegram HTML (`parse_mode="HTML"`) via
 > `gateway/channels/tg_format.py`, with tables → aligned (CJK-aware) monospace
 > `<pre>`, 4096-safe splitting, and a plain-text fallback if Telegram rejects a

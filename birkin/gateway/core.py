@@ -31,7 +31,27 @@ _GATEWAY_COMMANDS: list[tuple[str, str, set[str]]] = [
 ]
 
 # Friendly short model names accepted by `claude --model` (full claude-… IDs also OK).
-_GATEWAY_MODELS = ["opus", "sonnet", "haiku"]
+_GATEWAY_MODELS = ["opus", "sonnet", "haiku"]            # claude-cli suggestions
+_CODEX_GATEWAY_MODELS = ["gpt-5", "gpt-5-codex", "o3", "codex"]  # codex-cli (codex validates -m)
+
+
+def _gateway_model_choices(provider: str) -> tuple[list[str], str]:
+    """Suggested gateway models + an 'other IDs' hint, per provider."""
+    if provider == "codex-cli":
+        return _CODEX_GATEWAY_MODELS, "또는 codex가 지원하는 -m 모델 ID"
+    if provider == "claude-cli":
+        return _GATEWAY_MODELS, "또는 claude-… 전체 ID"
+    return [], "provider가 지원하는 모델 ID"
+
+
+def _gateway_model_accepted(provider: str, name: str, known: list[str]) -> bool:
+    """claude-cli is validated against the known set; other providers pass the
+    model id straight through (codex / the API validate it themselves)."""
+    if not name:
+        return False
+    if provider == "claude-cli":
+        return name in known or name.startswith("claude-")
+    return True
 
 
 def match_command(text: str) -> tuple[str | None, str]:
@@ -302,14 +322,18 @@ class Gateway:
         new model takes effect (the gateway's model is fixed at process start).
         Called under the lock."""
         name = (arg or "").strip().split()[0] if (arg or "").strip() else ""
+        provider = self.cfg.get("provider", "")
+        known, extra_hint = _gateway_model_choices(provider)
+        listing = (", ".join(known) + " " if known else "") + f"({extra_hint})"
+        example = known[0] if known else "<모델 ID>"
         if not name:
-            return (f"현재 게이트웨이 모델: {self.cfg.get('model')}\n"
-                    f"사용 가능: {', '.join(_GATEWAY_MODELS)} (또는 claude-… 전체 ID)\n"
+            return (f"현재 게이트웨이 모델: {self.cfg.get('model')} [{provider}]\n"
+                    f"사용 가능: {listing}\n"
                     f"바꾸려면 /models <이름> — 고르면 적용을 위해 자동으로 재시작해요. "
-                    f"예: /models opus")
-        if name not in _GATEWAY_MODELS and not name.startswith("claude-"):
-            return (f"'{name}'은(는) 모르는 모델이에요. 사용 가능: "
-                    f"{', '.join(_GATEWAY_MODELS)} (또는 claude-… 전체 ID). 예: /models opus")
+                    f"예: /models {example}")
+        if not _gateway_model_accepted(provider, name, known):
+            return (f"'{name}'은(는) 모르는 모델이에요. 사용 가능: {listing}. "
+                    f"예: /models {example}")
         cfg = config.load_config()
         cfg["gateway_model"] = name
         config.save_config(cfg)

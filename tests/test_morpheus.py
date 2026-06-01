@@ -175,3 +175,39 @@ def test_morpheus_task_template_contains_required_sections():
     assert "Recent activity log" in rendered
     assert "propose_action" in rendered
     assert "memory_write_note" in rendered
+
+
+# ---------------- provider routing (codex compatibility) -------------------
+
+def test_run_once_routes_claude_cli_to_claude_path(monkeypatch):
+    config.save_config({**config.DEFAULT_CONFIG, "provider": "claude-cli"})
+    called: list[str] = []
+    monkeypatch.setattr(morpheus, "_run_claude_morpheus",
+                        lambda *a, **k: called.append("claude") or 0)
+    monkeypatch.setattr(morpheus, "_run_birkin_morpheus",
+                        lambda *a, **k: called.append("birkin") or 0)
+    morpheus.run_once(dry_run=True)
+    assert called == ["claude"]
+
+
+def test_run_once_routes_codex_to_generic_not_claude(monkeypatch):
+    # A user on Codex must NOT have `claude` silently spawned for them.
+    config.save_config({**config.DEFAULT_CONFIG, "provider": "codex-cli"})
+    called: list[str] = []
+    monkeypatch.setattr(morpheus, "_run_claude_morpheus",
+                        lambda *a, **k: called.append("claude") or 0)
+    monkeypatch.setattr(morpheus, "_run_birkin_morpheus",
+                        lambda *a, **k: called.append("birkin") or 0)
+    morpheus.run_once(dry_run=True)
+    assert called == ["birkin"]
+
+
+def test_run_once_downgrades_full_cli_access_unattended(monkeypatch):
+    # Unattended nightly run must never inherit cli_access "full".
+    config.save_config({**config.DEFAULT_CONFIG, "provider": "codex-cli",
+                        "cli_access": "full"})
+    seen: dict = {}
+    monkeypatch.setattr(morpheus, "_run_birkin_morpheus",
+                        lambda cfg, *a, **k: seen.update(cfg) or 0)
+    morpheus.run_once(dry_run=True)
+    assert seen.get("cli_access") == "workspace"

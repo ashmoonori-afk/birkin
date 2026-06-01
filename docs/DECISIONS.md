@@ -8,6 +8,46 @@ older ones (noted inline).
 
 ---
 
+## ADR-034 — Codex-backend compatibility
+
+**Context.** birkin supports several backends (`CLI_PROVIDERS = {claude-cli,
+codex-cli, local-cli}` + API providers), but parts of the runtime had hardened
+around `claude-cli`. Running on the **codex** model surfaced gaps.
+
+**Decision.** Make the provider-generic paths actually provider-generic, without
+faking codex-only plumbing we can't verify:
+
+- **Morpheus routing (real bug).** `run_once` routed *every* `CLI_PROVIDERS`
+  member to `_run_claude_morpheus`, which spawns a `ClaudeStreamSession` — so a
+  user on **codex** had `claude` silently spawned. Now only `claude-cli` takes
+  the sandboxed Claude+birkin-MCP path; codex-cli / local-cli / API providers use
+  the generic agent-loop morpheus (`_run_birkin_morpheus`, restricted registry,
+  no shell/subagent). Also: `run_once` now **downgrades `cli_access:"full"` →
+  `"workspace"`** for the unattended run regardless of provider (the claude path
+  already did this internally; now codex/local are protected too).
+- **Gateway `/models` (real bug).** It was claude-centric (`opus/sonnet/haiku`,
+  rejecting anything not `claude-*`). Now **provider-aware**: claude-cli keeps the
+  validated set; codex-cli shows codex suggestions and **passes any model id
+  through** (codex validates `-m` itself); API/other providers pass through too.
+- **Verified already-fine:** `llm._run_codex` (one-shot `codex exec
+  --skip-git-repo-check -o <file> [-m model]`) works; `birkin model` already
+  offers codex (`models.detect_cli_agents`); `runtime.build_dry_run_packet` and
+  the CLI system prompt + persona + neurosis note are provider-generic.
+
+**Honest limitation (not a bug).** The **warm persistent gateway** path
+(`ClaudeStreamSession`, stream-json) stays **claude-cli-only** — `codex exec` is
+one-shot and has no equivalent persistent stream protocol birkin uses. So the
+codex gateway runs **non-persistent** (correct, just cold each turn, not ~3s
+warm). A persistent codex session and a sandboxed-MCP codex morpheus (wiring
+birkin-MCP into `codex`) are future work (need verified codex MCP flags — not
+fabricated here).
+
+**Status.** Done; morpheus routing + cli_access clamp + provider-aware `/models`;
+5 new tests; 437 pass offline (1 unrelated `test_web` socket flake, green in
+isolation).
+
+---
+
 ## ADR-033 — Telegram replies render Markdown (GFM → Telegram HTML)
 
 **Context.** The gateway agent emits GitHub-flavored Markdown (`**bold**`,

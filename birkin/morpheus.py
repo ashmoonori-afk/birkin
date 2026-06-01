@@ -108,6 +108,10 @@ _MORPHEUS_SYSTEM = (
 
 def run_once(dry_run: bool = False) -> int:
     cfg = config.load_config()
+    # Unattended: never let a CLI agent run with full permission/sandbox bypass.
+    # Mirrors the claude path's workspace forcing; protects the codex/local paths.
+    if cfg.get("cli_access") == "full":
+        cfg = {**cfg, "cli_access": "workspace"}
     cwd = Path.cwd()
     sessions_text = _gather_sessions()
     files_text = _gather_changed_files(cwd)
@@ -119,7 +123,12 @@ def run_once(dry_run: bool = False) -> int:
         sessions=sessions_text, files=files_text, activity=activity[:6000])
     n_files = files_text.count("\n- ") + (1 if "- " in files_text else 0)
 
-    if cfg.get("provider") in config.CLI_PROVIDERS:
+    # The sandboxed Claude + birkin-MCP morpheus path spawns a ClaudeStreamSession,
+    # so it is claude-cli-specific. Every other provider — including codex-cli —
+    # uses the generic agent-loop morpheus; otherwise a user who chose Codex would
+    # silently get `claude` spawned. (A sandboxed-MCP Codex morpheus that wires
+    # birkin-MCP into `codex` is future work — see docs/v2.md.)
+    if cfg.get("provider") == "claude-cli":
         return _run_claude_morpheus(cfg, task, dry_run, n_files)
     return _run_birkin_morpheus(cfg, task, dry_run, n_files)
 
@@ -175,7 +184,12 @@ def _run_claude_morpheus(cfg: dict[str, Any], task: str, dry_run: bool,
 
 def _run_birkin_morpheus(cfg: dict[str, Any], task: str, dry_run: bool,
                          n_files: int) -> int:
-    """API-key path: birkin's own agent loop with a restricted registry."""
+    """Generic path: birkin's own agent loop with a restricted registry — used by
+    the API providers AND the non-claude CLI agents (codex-cli / local-cli). The
+    registry exposes only reversible tools (files/web/skills/memory) + propose;
+    no shell, no subagent. A CLI agent like codex returns its final text as one
+    turn (it runs its own tools), so structured memory/skill writes via birkin
+    tools are best-effort there — the run summary is always recorded."""
     try:
         session = build_session(cfg)
     except ConfigError as exc:
