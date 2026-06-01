@@ -12,7 +12,7 @@
 ### 무료. 빠름. 밤마다 스스로 개선 — 검증은 당신이.
 
 Claude 구독으로 **무료로 종일** 돌고, 따뜻한 영속 세션에서 **~3초**에 답하며,
-모호한 일은 **명료해질 때까지 인터뷰**(neurosis)하고, **모든 대화를 자동
+모호한 일은 **명료해질 때까지 인터뷰**(Neurosis)하고, **모든 대화를 자동
 저장**해 밤사이 기억으로 바꾸며(Morpheus), **회사 도구를 MCP로** 붙이고, **검증
 권한은 당신에게** 남기는 — **의존성 0**의 파이썬 코어 CLI·텔레그램 에이전트.
 
@@ -37,7 +37,7 @@ birkin은 Claude Pro/Max 구독으로 **API 키 없이, 토큰 과금 없이 종
   프로세스(stream-json)로 돌립니다. 콜드 스타트는 한 번만, 이후 응답은
   ~모델시간(**~3초**)이며 **유료 API 키가 아니라 Claude 구독**으로 청구됩니다.
   ([`docs/DECISIONS.md`](./docs/DECISIONS.md) ADR-026)
-- **행동 전 명료화 (neurosis).** 모호하거나 복잡한 요청엔 추측하지 않고,
+- **행동 전 명료화 (Neurosis).** 모호하거나 복잡한 요청엔 추측하지 않고,
   **수학적 모호도 게이팅**이 있는 **Socratic 딥 인터뷰**를 한 질문씩 진행해
   아이디어가 또렷해진 뒤 spec을 쓰고, **승인 후에만** 실행합니다.
 - **자기개선 + 영수증 (Morpheus).** 모든 턴이 자동 저장되고, 밤마다 Morpheus가
@@ -147,7 +147,7 @@ uv run birkin            # 또는:  pip install -e .  &&  birkin
         (메모리/스킬=자동 · cron/shell=큐잉; shell-cron은 shell 게이트
          우회 불가)
 
-   neurosis(딥 인터뷰): 모호한 요청 ─▶ 모호도 게이팅 Socratic Q&A
+   Neurosis(딥 인터뷰): 모호한 요청 ─▶ 모호도 게이팅 Socratic Q&A
    ─▶ spec(~/.birkin/specs/) ─▶ 승인 후에만 실행
 ```
 
@@ -164,7 +164,7 @@ birkin은 Claude를 대체하지 않습니다 — `claude` CLI를 **감싸서** 
 | 비용 | 구독 또는 토큰당 API | **구독만 — API 과금 없음** |
 | 메모리 | 세션 한정 | 세션 넘어 지속·검색 가능한 Obsidian vault |
 | 텔레그램 | — | 터미널과 같은 세션·메모리·페르소나 |
-| 모호함 | 추측하고 진행 | **neurosis**가 명료해질 때까지 묻고 spec 작성 |
+| 모호함 | 추측하고 진행 | **Neurosis**가 명료해질 때까지 묻고 spec 작성 |
 | 자기개선 | — | **Morpheus**가 밤마다 메모리/스킬 갱신 |
 | 감사 추적 | — | 모든 턴 기록, `birkin trace <id>` 재생 |
 | 내 파일 / MCP | 수동 붙여넣기 | 네이티브: Notion·Drive·Gmail·사내 서버 |
@@ -191,7 +191,7 @@ $ birkin gateway        # 웜 영속 서비스: HTTP + (선택) Telegram, 웜 �
 | `/models [이름]` | 모델 목록/**선택** — 적용 위해 자동 하드재시작 |
 | `/neurosis [--quick\|--standard\|--deep] <아이디어>` | **딥 인터뷰** 시작/재개 |
 
-### 명료해질 때까지 인터뷰 (neurosis)
+### 명료해질 때까지 인터뷰 (Neurosis)
 
 모호·복잡한 요청이면 birkin이 먼저 *"진행 전에 모호한 부분과 핵심 결정사항을
 다시 한번 확인하겠습니다"* 라고 한 뒤 한 질문씩 물어 모호도를 낮추고, spec을 쓴
@@ -330,7 +330,7 @@ ADR-029·ADR-032:
 ├── vault/          # Obsidian 시맨틱 메모리
 ├── skills/         # 사용자·에이전트 작성 스킬
 ├── sessions/       # 자동 저장 트랜스크립트(auto__*.json) — Morpheus 입력
-├── specs/          # neurosis 딥 인터뷰 spec
+├── specs/          # Neurosis 딥 인터뷰 spec
 ├── neurosis/       # 인터뷰 상태(재개 가능)
 ├── runs/           # 턴별·Morpheus 실행 요약
 ├── ledger.jsonl    # append-only 감사 로그
@@ -368,7 +368,7 @@ API 키는 환경변수 우선; Claude Code 백엔드는 불필요. config.json�
 
 - 오프라인 **테스트 432개** 통과(API 키 없이), **번들 스킬 50개**, **런타임
   의존성 0**, Python 3.10+.
-- 무료·빠른 게이트웨이(웜 영속 Claude, ~3초), neurosis 딥 인터뷰, 자동저장 →
+- 무료·빠른 게이트웨이(웜 영속 Claude, ~3초), Neurosis 딥 인터뷰, 자동저장 →
   기억, 회사 MCP, 회사급 보안 하드닝.
 - 결정 근거: [`docs/DECISIONS.md`](./docs/DECISIONS.md)(ADR 001–033). 라이브
   상태: [`docs/STATUS.md`](./docs/STATUS.md). 비교:

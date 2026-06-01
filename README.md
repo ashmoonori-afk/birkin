@@ -13,7 +13,7 @@
 
 A lightweight CLI + Telegram agent that runs **free on your Claude
 subscription**, replies in **~3s** from a warm persistent session, **interviews
-you to clarity** before tackling vague work (**neurosis**), **auto-saves every
+you to clarity** before tackling vague work (**Neurosis**), **auto-saves every
 conversation** and turns it into memory overnight (**Morpheus**), connects to
 your **company tools over MCP**, and keeps **you the auditor** — all in a
 **zero-dependency** Python core.
@@ -41,7 +41,7 @@ around a simple promise: **be genuinely useful without surprising you.**
   persistent* process per conversation (stream-json). The cold start is paid
   once; subsequent replies are ~model-time (**~3s**), billed to your Claude
   subscription — not a paid API key. See [`docs/DECISIONS.md`](./docs/DECISIONS.md) ADR-026.
-- **Clarity before action (neurosis).** For a vague or complex request, birkin
+- **Clarity before action (Neurosis).** For a vague or complex request, birkin
   doesn't guess — it runs a **Socratic deep-interview** with mathematical
   ambiguity scoring, one question at a time, until the idea is crystal clear,
   then writes a spec and acts only after you approve.
@@ -158,7 +158,7 @@ runs it warm + persistent for speed.
         (memory/skill = auto · cron/shell = queued; shell-cron can't
          launder past the shell gate)
 
-   neurosis (deep interview): a vague request ─▶ Socratic Q&A with
+   Neurosis (deep interview): a vague request ─▶ Socratic Q&A with
    ambiguity gating ─▶ spec (~/.birkin/specs/) ─▶ act only after approval
 ```
 
@@ -175,7 +175,7 @@ agent that knows your context by Wednesday, birkin is the wrapper.
 | Cost | Subscription, or per-token API | **Subscription only — no API bill** |
 | Memory | Per-session | Persists across sessions; searchable Obsidian vault |
 | Telegram | — | Same session, memory & persona as the terminal |
-| Ambiguity | Guesses, then proceeds | **neurosis** asks until clear, then writes a spec |
+| Ambiguity | Guesses, then proceeds | **Neurosis** asks until clear, then writes a spec |
 | Self-improvement | — | **Morpheus** updates memory/skills nightly |
 | Audit trail | — | Every turn logged; `birkin trace <id>` replay |
 | Your files / MCP | Manual paste | Native: Notion, Drive, Gmail, custom servers |
@@ -204,7 +204,7 @@ commands:
 | `/models [name]` | list or **select the gateway model** — auto hard-restarts to apply |
 | `/neurosis [--quick\|--standard\|--deep] <idea>` | start/resume a **deep interview** |
 
-### Let it interview you to clarity (neurosis)
+### Let it interview you to clarity (Neurosis)
 
 For a vague/complex request, birkin proactively says *"진행 전에 모호한 부분과
 핵심 결정사항을 다시 한번 확인하겠습니다"* and asks one question at a time until
@@ -347,7 +347,7 @@ All state lives under `~/.birkin` (override with `BIRKIN_HOME`):
 ├── vault/          # Obsidian semantic memory (markdown notes)
 ├── skills/         # user- and agent-authored skills
 ├── sessions/       # auto-saved transcripts (auto__*.json) — Morpheus input
-├── specs/          # neurosis deep-interview specs
+├── specs/          # Neurosis deep-interview specs
 ├── neurosis/       # interview state (resumable)
 ├── runs/           # per-turn + per-Morpheus run summaries
 ├── ledger.jsonl    # append-only audit log
@@ -385,7 +385,7 @@ none. A key in `config.json` is stored `chmod 600`.
 
 - **432 tests** passing offline (no API key, `pytest`), **50 bundled skills**,
   **0 runtime dependencies**, Python 3.10+.
-- Free + fast gateway (warm persistent Claude, ~3s), neurosis deep-interview,
+- Free + fast gateway (warm persistent Claude, ~3s), Neurosis deep-interview,
   auto-save → memory, company MCP, company-grade security hardening.
 - Rationale per decision: [`docs/DECISIONS.md`](./docs/DECISIONS.md) (ADRs
   001–033). Live status: [`docs/STATUS.md`](./docs/STATUS.md). Comparison:

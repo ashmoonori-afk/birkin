@@ -89,9 +89,10 @@ stays queued.
 
 ### 4. Summary
 
-Finish with a short **plain-text** summary: what you **learned**, what you
-**saved** (memory/skills), and what you are **proposing**. This becomes the run
-record (`birkin runs` / `birkin trace <id>`).
+Finish with a short **plain-text** summary, prefixed with the label
+**`[Morpheus]`**: what you **learned**, what you **saved** (memory/skills), and
+what you are **proposing**. This becomes the run record (`birkin runs` /
+`birkin trace <id>`).
 
 ## Security model (why this is safe to run unattended)
 

@@ -48,10 +48,10 @@ Localized to the Telegram channel — REPL/HTTP render markdown themselves
 
 ---
 
-## ADR-032 — Session-review hardening (free+fast gateway + neurosis + autosave)
+## ADR-032 — Session-review hardening (free+fast gateway + Neurosis + autosave)
 
 **Context.** A full multi-agent code review of this session's work (free+fast
-persistent gateway, neurosis, auto-save→memory, MCP, `/models`, word-wise line
+persistent gateway, Neurosis, auto-save→memory, MCP, `/models`, word-wise line
 editing) was run against the canonical tree. Verdict: **ship-with-fixes — zero
 CRITICAL**; 9 HIGH (2 self-retracted as false-positives), the rest MEDIUM/LOW.
 
@@ -94,7 +94,7 @@ metacharacters is sufficient defense-in-depth for trusted-operator input.
 **Status.** Done; 8 HIGH fixed (1 doc-only accepted), 2 false-positives
 dismissed. The two false-positives: `str.startswith(tuple)` is valid Python; and
 `build_session`'s first turn is *not* persona-less (every turn, including the
-first, re-injects persona + neurosis via `ask()`/`refresh_system_prompt()`).
+first, re-injects persona + Neurosis via `ask()`/`refresh_system_prompt()`).
 
 **MEDIUM/LOW follow-up pass.** A second 19-agent triage verified every MEDIUM/LOW
 finding against current code (real / false-positive / already-fixed / wont-fix).
@@ -115,7 +115,7 @@ finding against current code (real / false-positive / already-fixed / wont-fix).
   (TOCTOU); `match_command` returns no stale arg for hard-restart.
 - *persona.py* — `write_soul` cleans its temp on a failed replace (Windows
   window). *runtime.py* — dry-run packet now mirrors a real turn (persona +
-  neurosis note). *mcp_server.py* — line-size guard measures bytes, not chars.
+  Neurosis note). *mcp_server.py* — line-size guard measures bytes, not chars.
   *oauth.py* (parked) — refresh failure reason surfaced under `BIRKIN_DEBUG`.
 - *inline_complete.py* / *SKILL.md* — doc corrections (apply_event is a mutating
   builder; threshold precedence includes the resolution preset step).
@@ -126,12 +126,12 @@ isolated re-run.
 
 ---
 
-## ADR-031 — neurosis: Socratic deep-interview (ported from gajae-code)
+## ADR-031 — Neurosis: Socratic deep-interview (ported from gajae-code)
 
 **Context.** The user wanted birkin to run a "deep interview" — the structure from
 gajae-code (Yeachan-Heo/gajae-code), which forked the Ouroboros idea: turn a vague
 idea into a crystal-clear spec via Socratic questioning with **mathematical
-ambiguity gating** before any execution. Codename **neurosis** (obsessive clarity,
+ambiguity gating** before any execution. Codename **Neurosis** (obsessive clarity,
 sibling to Morpheus).
 
 **Studied structure (gajae-code).** Two layers: (1) a **SKILL.md** that IS the

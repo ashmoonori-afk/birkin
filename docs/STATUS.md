@@ -1,17 +1,17 @@
 # birkin — Build Status
 
 > Snapshot: 2026-06-01 · v0.2 (hardening; H2–H6 complete) + gateway speed
-> + neurosis + autosave→memory + session-review hardening (ADR-032)
+> + Neurosis + autosave→memory + session-review hardening (ADR-032)
 >
 > **432 tests** pass offline (no API key). Newest: **Telegram replies now render
 > Markdown** — GFM → Telegram HTML (`parse_mode="HTML"`) via
 > `gateway/channels/tg_format.py`, with tables → aligned (CJK-aware) monospace
 > `<pre>`, 4096-safe splitting, and a plain-text fallback if Telegram rejects a
 > chunk (ADR-033). Earlier this session:
-> of the free+fast gateway / neurosis / autosave work — **0 CRITICAL**, 8 HIGH
+> of the free+fast gateway / Neurosis / autosave work — **0 CRITICAL**, 8 HIGH
 > fixed, then a MEDIUM/LOW follow-up pass (19-agent triage) fixed **16 more** real
 > findings: atomic `save_config`, transcript mask-before-truncate, cron clock
-> clamp, unique `_write_json` temp, collision-resistant neurosis slug + no skill-
+> clamp, unique `_write_json` temp, collision-resistant Neurosis slug + no skill-
 > path leak + `BIRKIN_HOME`-aware hints, `/neurosis` seed under the lock, atomic
 > `write_soul`, dry-run packet fidelity, byte-accurate MCP line guard. 6 false-
 > positives + 8 LOW wont-fix dismissed. See ADR-032.
@@ -43,7 +43,7 @@ OAuth, no paid API key).
   is retained only for the read-only usage check. See ADR-026.
 - Tests: 287 pass (8 new for `claude_session`). Verified live (cold ~8s, warm ~3s).
 
-## neurosis — deep interview (2026-06-01) — see ADR-031
+## Neurosis — deep interview (2026-06-01) — see ADR-031
 
 - `/neurosis [--quick|--standard|--deep] <idea>` (REPL + Telegram gateway) and
   `birkin neurosis "<idea>"` (CLI) run a **Socratic, ambiguity-gated** interview:
