@@ -12,7 +12,7 @@
 - Keep the **interactive UX** (streaming/spinner, Markdown rendering, arrow-key
   menus, slash commands) and **LLM self-improvement** (nudges, `/learn`, nightly).
 - Stay **stdlib-only at runtime** (pytest is a dev-only extra).
-- Work in the canonical clone `C:\Users\lg\Documents\Claude\Projects\Birkin\birkin`
+- Work in the canonical clone `~/Documents/Claude/Projects/Birkin/birkin`
   (editable-installed). Commit + push to `main` per phase; old v0.8 stays on
   `legacy-v0.8`.
 - After each phase: run the verification-loop + a code review (spaghetti,

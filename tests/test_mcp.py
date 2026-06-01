@@ -12,7 +12,7 @@ claude.ai Google Drive: https://drivemcp.googleapis.com/mcp/v1 - ! Needs authent
 claude.ai Notion: https://mcp.notion.com/mcp - ✓ Connected
 plugin:github:github: https://api.githubcopilot.com/mcp/ (HTTP) - ✗ Failed to connect
 plugin:playwright:playwright: npx @playwright/mcp@latest - ✓ Connected
-pencil: C:\\Users\\lg\\.pencil\\mcp\\server.exe --app antigravity - ✓ Connected
+pencil: C:\\Users\\user\\.pencil\\mcp\\server.exe --app antigravity - ✓ Connected
 """
 
 
