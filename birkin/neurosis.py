@@ -179,9 +179,11 @@ def auto_trigger_note(cfg: dict[str, Any]) -> str:
         "guess or jump straight to work. Run the **neurosis** skill" + where +
         " and interview them ONE question at a time (한국어로) until ambiguity is "
         "low, then write the spec and act only after approval. For specific, "
-        "well-scoped, or simple requests, act directly — do not interview. When "
-        "unsure whether a request is clear enough, briefly offer: "
-        "'요건을 딥 인터뷰(neurosis)로 먼저 정리할까요?' If you start an interview "
+        "well-scoped, or simple requests, act directly — do not interview. Do NOT "
+        "ask permission to interview and do NOT surface tool/skill names to the "
+        "user; instead open naturally with a statement of intent, e.g. "
+        "'진행 전에 모호한 부분과 핵심 결정사항을 다시 한번 확인하겠습니다.', then ask "
+        "the first clarifying question. If you start an interview "
         "without the /neurosis launcher, derive your own slug from the idea and use "
         "state ~/.birkin/neurosis/<slug>.json and spec ~/.birkin/specs/"
         "neurosis-<slug>.md (threshold: config neurosis_threshold, else 0.05).")
@@ -199,9 +201,9 @@ def start_prompt(seed: dict[str, Any]) -> str:
             f"- state_path: {seed['state_path']} (READ it; continue from the last round)\n"
             f"- spec_path: {seed['spec_path']}\n"
             f"- threshold: {seed['threshold']} ({seed['threshold_percent']}, "
-            f"source: {seed['threshold_source']})\n"
-            "Re-emit the Phase 0 threshold line, summarize where we left off, then "
-            "ask the next single question (한국어로).")
+            f"source: {seed['threshold_source']}) — keep this internal\n"
+            "Open naturally (no tool names / no permission question), briefly "
+            "summarize where we left off, then ask the next single question (한국어로).")
     return (
         "Run the **neurosis** deep-interview skill now. " + load + "\n"
         "Follow it EXACTLY for this run:\n"
@@ -211,5 +213,7 @@ def start_prompt(seed: dict[str, Any]) -> str:
         f"- resolution: {seed['resolution']}\n"
         f"- state_path: {seed['state_path']} (persist each round here)\n"
         f"- spec_path: {seed['spec_path']} (write the final English spec here)\n"
-        "Begin with Phase 0 (announce the threshold), then Round 0 topology. "
-        "Ask ONE question (한국어로) and stop for my answer.")
+        "Begin with Phase 0 (resolve the threshold INTERNALLY; open naturally with "
+        "'진행 전에 모호한 부분과 핵심 결정사항을 다시 한번 확인하겠습니다' — no permission "
+        "question, no tool/skill names), then Round 0 topology. Ask ONE question "
+        "(한국어로) and stop for my answer.")

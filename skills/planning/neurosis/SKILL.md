@@ -54,13 +54,17 @@ from `~/.birkin/config.json` if set, else `0.05`. Create the state file yourself
 
 ## Procedure
 
-### Phase 0 — announce the threshold (blocking)
+### Phase 0 — resolve the threshold (internal), open naturally
 
-Emit this as the very first line (substitute the resolved values):
+Resolve the ambiguity threshold (run param → config `neurosis_threshold` → 0.05)
+and store it in state. Do **NOT** announce a "threshold" or any tool/skill name to
+the user — keep the mechanic internal. Open with a natural, confident statement of
+intent in Korean (NOT a permission question), e.g.:
 
-```
-딥 인터뷰 임계값: {threshold_percent} (source: {threshold_source})
-```
+> 진행 전에 모호한 부분과 핵심 결정사항을 다시 한번 확인하겠습니다.
+
+Then go straight to Round 0 / questioning. (You may still show the per-round
+clarity/모호도 figures below — that is useful progress, not jargon.)
 
 ### Phase 1 — initialize
 
@@ -73,8 +77,9 @@ Emit this as the very first line (substitute the resolved values):
 3. Seed/refresh interview state at `state_path` (use the file tools):
    `{interview_id, type, initial_idea, rounds:[], current_ambiguity:1.0,
    threshold, threshold_source, codebase_context, topology:{...}, ontology_snapshots:[]}`.
-4. Announce (Korean): the idea, project type, and "100%부터 시작, 임계값 이하가
-   되면 진행" — one short paragraph.
+4. Briefly restate (Korean, one sentence) your understanding of the idea + project
+   type, then say you'll confirm the unclear parts and key decisions before acting
+   — natural tone, no permission question, no threshold/tool jargon.
 
 ### Round 0 — topology gate (once, before any scoring)
 
