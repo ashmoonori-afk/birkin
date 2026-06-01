@@ -23,7 +23,7 @@ your **company tools over MCP**, and keeps **you the auditor** — all in a
 ![python](https://img.shields.io/badge/python-3.10%2B-3776ab)
 ![runtime deps](https://img.shields.io/badge/runtime%20deps-0-2ea44f)
 ![tests](https://img.shields.io/badge/tests-412%20passing-2ea44f)
-![skills](https://img.shields.io/badge/bundled%20skills-59-blue)
+![skills](https://img.shields.io/badge/bundled%20skills-50-blue)
 ![platform](https://img.shields.io/badge/platform-macOS%20·%20Linux%20·%20Windows-lightgrey)
 ![package](https://img.shields.io/badge/package-Proprietary-orange)
 ![bundled skills](https://img.shields.io/badge/bundled%20skills-MIT-green)
@@ -288,9 +288,10 @@ surface (read fresh each turn in the REPL; on session start in the gateway).
 ## 🧩 Skills
 
 A skill is a directory with a `SKILL.md` (frontmatter + markdown), compatible
-with the agentskills.io / hermes standard. **59 bundled** under
+with the agentskills.io / hermes standard. **50 bundled** under
 [`skills/`](./skills) (research, software, writing, data, devops, marketing,
-planning/**neurosis**, …), plus your own under `~/.birkin/skills/` (which shadow
+planning/**neurosis**, automation/**morpheus**, …), plus your own under
+`~/.birkin/skills/` (which shadow
 bundled ones). `load_skill` pulls full text on demand; `create_skill` /
 `improve_skill` route through the approval gate; `birkin skills validate` lints
 frontmatter + `py_compile`s bundled scripts; skills **hot-reload** on edit.
@@ -363,7 +364,7 @@ none. A key in `config.json` is stored `chmod 600`.
 
 ## 🛠️ Where birkin sits today
 
-- **412 tests** passing offline (no API key, `pytest`), **59 bundled skills**,
+- **412 tests** passing offline (no API key, `pytest`), **50 bundled skills**,
   **0 runtime dependencies**, Python 3.10+.
 - Free + fast gateway (warm persistent Claude, ~3s), neurosis deep-interview,
   auto-save → memory, company MCP, company-grade security hardening.
