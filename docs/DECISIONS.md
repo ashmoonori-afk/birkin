@@ -8,6 +8,64 @@ older ones (noted inline).
 
 ---
 
+## ADR-038 — `update` command: remote code pull (fast-forward) + auto restart
+
+**Context.** Updating a running birkin meant manually `git pull` + restart. Only
+`/hard_restart` existed (re-exec the **existing** code); there was no one-command
+way to pull **new** code pushed to the repo. The user asked for an `update`
+command — and clarified that per-user skills are added individually and are **not**
+pull targets; only main code and bundled/default skills should update.
+
+**Decision.** New `birkin/updater.py` (`update(root=None)`, stdlib `git` via
+discrete-argv subprocess): fetch the tracked remote and **fast-forward** to the
+upstream (`origin/main`). Naturally satisfies the skills constraint — a repo pull
+only changes repo-tracked files (`birkin/` code + bundled `skills/`); per-user
+state in `~/.birkin/` (config, memory vault, **user skills**, pending, sessions)
+lives outside the git repo and is never touched (`create_skill` writes to
+`~/.birkin/skills/`). Safety: a **dirty** tree aborts with a clear message (never
+auto-stash/reset); a **diverged** branch is refused (ff-only, not merged). Wired
+to three surfaces: gateway `/update` (triggers `update|upgrade|pull`; on a code
+change it sets the hard-restart flag so the channel re-execs and loads the new
+code), `birkin update` (CLI), and REPL `/update`.
+
+**Status.** Done; 9 tests (5 `test_updater` against temp git repos + 4 gateway
+dispatch); `py -m birkin update` live-smoke confirmed the dirty-refuse path.
+Security: pulls only the fixed `origin` upstream, ff-only, gated by the gateway's
+existing access control (same privilege tier as `/hard_restart`). Bootstrapping
+note: the running gateway must `/hard_restart` once to load this code before
+`/update` itself becomes available.
+
+---
+
+## ADR-037 — Disable the ECC interactive SessionStart hook in birkin's `claude` subprocesses
+
+**Context.** birkin (claude-cli) spawns `claude` as its engine — a warm
+`ClaudeStreamSession` for the gateway, a one-shot `_run_claude` otherwise. The
+everything-claude-code plugin registers a SessionStart hook (`session-start.js`,
+hook id `session:start`) that injects the latest `~/.claude/sessions/*-session.tmp`
+("Previous session summary: …") into context on **every** claude start — including
+birkin's headless subprocess. On the first turn after a (re)start the model
+surfaced that as a `SESSION LOADED … Ready to continue. What would you like to do?`
+briefing, which **leaked into a Telegram reply**. birkin already injects its own
+persona/memory/skills, so this interactive resume hook is both wrong and harmful
+inside birkin's subprocess.
+
+**Decision.** birkin spawns `claude` with `ECC_DISABLED_HOOKS=session:start` via a
+new `proc.claude_child_env()` (inherits the parent env; MERGES, never clobbers, any
+existing value). Wired at both spawn sites — `ClaudeStreamSession.start()` (gateway)
+and `LLMClient._run_cli_capture` via `_run_claude` (one-shot). Scoped to the
+subprocess env, so the user's **interactive** Claude Code sessions keep the resume
+hook. Rejected `--bare` (it also disables OAuth/keychain → breaks the free
+subscription auth) and a global settings change. Only `session:start` is disabled —
+security hooks (e.g. `block-no-verify`) still run; codex/local paths are untouched.
+
+**Status.** Done; 4 new `test_proc` tests; 508 pass / 3 skip offline. The kill
+switch was verified at the hook level (with the env, the hook emits nothing).
+**Live confirmation pending a gateway restart** (the running gateway must re-exec
+to pick up the code change).
+
+---
+
 ## ADR-036 — Opt-in `unattended-full`; Compare + deep-research report
 
 **Context.** ADR-034 force-downgraded `cli_access: "full"` → `"workspace"` for the
