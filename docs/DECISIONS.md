@@ -19,9 +19,10 @@ The user wanted a human **version** as the update reference, bumped once per com
 (`scripts/hooks/pre-commit`, installed to `.git/hooks/`) bumps the **patch by
 +0.0.1 on every commit** and re-stages both files; it **never blocks** a commit
 (exits 0 on any error). `updater.update()` now reads `__version__` from the
-checkout and reports it — e.g. "Already up to date (v0.1.3)", "Updated v0.1.0 →
-v0.1.4 (4 commit(s), N files)" — across the gateway `/update`, the `birkin update`
-CLI, and the REPL `/update`; no commit hash is shown. The pre-existing duplicate
+checkout and reports it **with the HEAD commit date** (≈ push date) — e.g.
+"Already up to date — v0.1.3 (2026-06-02)", "Updated v0.1.0 → v0.1.4 (2026-06-02);
+4 commit(s), N files" — across the gateway `/update`, the `birkin update` CLI, and
+the REPL `/update`; no commit hash is shown. The pre-existing duplicate
 REPL `/update` (a bare `git pull`) was folded into the shared `updater.update()`.
 
 **Status.** Done; +3 `test_updater` cases (version read + version-in-message). The

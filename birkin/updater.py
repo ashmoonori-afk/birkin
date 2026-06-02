@@ -69,6 +69,18 @@ def _read_version(root: Path) -> str:
     return "?"
 
 
+def _head_date(root: Path) -> str:
+    """Short commit date (YYYY-MM-DD) of HEAD — the version's date (≈ push date,
+    since each commit is pushed right after). Empty if unavailable."""
+    rc, out, _ = _git(root, "log", "-1", "--format=%cd", "--date=short")
+    return out if rc == 0 else ""
+
+
+def _version_label(ver: str, date: str) -> str:
+    """'v0.1.3 (2026-06-02)' — version + commit date, or just 'v0.1.3'."""
+    return f"v{ver} ({date})" if date else f"v{ver}"
+
+
 def update(root: Optional[Path] = None) -> dict[str, Any]:
     """Fast-forward the checkout to its upstream. Never raises.
 
@@ -103,7 +115,8 @@ def update(root: Optional[Path] = None) -> dict[str, Any]:
         behind = int(parts[0]) if len(parts) == 2 and parts[0].isdigit() else 0
         if behind == 0:
             return {"ok": True, "updated": False, "version": ver_before,
-                    "message": f"Already up to date (v{ver_before})."}
+                    "message": "Already up to date — "
+                               f"{_version_label(ver_before, _head_date(root))}."}
         rc, _, err = _git(root, "merge", "--ff-only", "@{u}")
         if rc != 0:
             return {"ok": False, "updated": False,
@@ -114,8 +127,9 @@ def update(root: Optional[Path] = None) -> dict[str, Any]:
         changed = _git(root, "diff", "--name-only", before, after)[1]
         n = len([ln for ln in changed.splitlines() if ln.strip()])
         return {"ok": True, "updated": True, "version": ver_after,
-                "behind": behind, "changed": n,
-                "message": f"Updated v{ver_before} → v{ver_after} "
-                           f"({behind} commit(s), {n} file(s))."}
+                "date": _head_date(root), "behind": behind, "changed": n,
+                "message": f"Updated v{ver_before} → "
+                           f"{_version_label(ver_after, _head_date(root))}; "
+                           f"{behind} commit(s), {n} file(s)."}
     except (OSError, ValueError, subprocess.SubprocessError) as exc:
         return {"ok": False, "updated": False, "message": f"update failed: {exc}"}

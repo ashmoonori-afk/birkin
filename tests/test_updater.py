@@ -88,8 +88,10 @@ def test_read_version_missing_returns_placeholder(tmp_path):
     assert updater._read_version(tmp_path) == "?"   # no birkin/__init__.py
 
 
-def test_update_message_shows_version_not_sha(repos):
-    """The already-up-to-date message must reference a version, not a commit hash.
+def test_update_message_shows_version_and_date(repos):
+    """The message references a version + commit date, not a commit hash.
     (The temp clone has no birkin/__init__.py, so the version reads as '?'.)"""
+    import re
     r = updater.update(repos["work"])
     assert "v" in r["message"] and "Already up to date" in r["message"]
+    assert re.search(r"\d{4}-\d{2}-\d{2}", r["message"])   # commit date shown
