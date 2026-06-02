@@ -54,6 +54,21 @@ def _is_dirty(root: Path) -> bool:
     return any(line and not line.startswith("??") for line in out.splitlines())
 
 
+def _read_version(root: Path) -> str:
+    """Read birkin's ``__version__`` from the checkout. This is the user-facing
+    version (bumped +0.0.1 per commit by the pre-commit hook), shown by ``update``
+    instead of a git commit hash. Returns ``'?'`` if unreadable."""
+    init = Path(root) / "birkin" / "__init__.py"
+    try:
+        for line in init.read_text(encoding="utf-8", errors="replace").splitlines():
+            s = line.strip()
+            if s.startswith("__version__"):
+                return s.split("=", 1)[1].strip().strip('"').strip("'") or "?"
+    except OSError:
+        pass
+    return "?"
+
+
 def update(root: Optional[Path] = None) -> dict[str, Any]:
     """Fast-forward the checkout to its upstream. Never raises.
 
@@ -73,6 +88,7 @@ def update(root: Optional[Path] = None) -> dict[str, Any]:
                     "message": "Local uncommitted changes present — update aborted. "
                                "Commit or stash them, then run update again."}
         before = _git(root, "rev-parse", "--short", "HEAD")[1]
+        ver_before = _read_version(root)
         rc, _, err = _git(root, "fetch", "--quiet")
         if rc != 0:
             return {"ok": False, "updated": False,
@@ -86,19 +102,20 @@ def update(root: Optional[Path] = None) -> dict[str, Any]:
         parts = counts.split()
         behind = int(parts[0]) if len(parts) == 2 and parts[0].isdigit() else 0
         if behind == 0:
-            return {"ok": True, "updated": False,
-                    "message": f"Already up to date (at {before})."}
+            return {"ok": True, "updated": False, "version": ver_before,
+                    "message": f"Already up to date (v{ver_before})."}
         rc, _, err = _git(root, "merge", "--ff-only", "@{u}")
         if rc != 0:
             return {"ok": False, "updated": False,
                     "message": f"Cannot fast-forward (local branch diverged): "
                                f"{err[:300]}. Resolve manually with git pull."}
         after = _git(root, "rev-parse", "--short", "HEAD")[1]
+        ver_after = _read_version(root)
         changed = _git(root, "diff", "--name-only", before, after)[1]
         n = len([ln for ln in changed.splitlines() if ln.strip()])
-        return {"ok": True, "updated": True, "before": before, "after": after,
+        return {"ok": True, "updated": True, "version": ver_after,
                 "behind": behind, "changed": n,
-                "message": f"Updated {behind} commit(s) ({before} → {after}); "
-                           f"{n} file(s) changed."}
+                "message": f"Updated v{ver_before} → v{ver_after} "
+                           f"({behind} commit(s), {n} file(s))."}
     except (OSError, ValueError, subprocess.SubprocessError) as exc:
         return {"ok": False, "updated": False, "message": f"update failed: {exc}"}

@@ -8,6 +8,28 @@ older ones (noted inline).
 
 ---
 
+## ADR-039 — Per-commit version bump; `update` shows the version, not a commit hash
+
+**Context.** `update` reported the git short-SHA ("Already up to date (at 4fe39f6)").
+The user wanted a human **version** as the update reference, bumped once per commit
+("커밋 1개마다 v.001씩"), and **not** the commit hash.
+
+**Decision.** `birkin/__init__.py` `__version__` + `pyproject.toml` `[project]`
+`version` are the single semver version. A repo **pre-commit hook**
+(`scripts/hooks/pre-commit`, installed to `.git/hooks/`) bumps the **patch by
++0.0.1 on every commit** and re-stages both files; it **never blocks** a commit
+(exits 0 on any error). `updater.update()` now reads `__version__` from the
+checkout and reports it — e.g. "Already up to date (v0.1.3)", "Updated v0.1.0 →
+v0.1.4 (4 commit(s), N files)" — across the gateway `/update`, the `birkin update`
+CLI, and the REPL `/update`; no commit hash is shown. The pre-existing duplicate
+REPL `/update` (a bare `git pull`) was folded into the shared `updater.update()`.
+
+**Status.** Done; +3 `test_updater` cases (version read + version-in-message). The
+hook is per-clone (`cp scripts/hooks/pre-commit .git/hooks/`), committed as a
+reference so any checkout can install it.
+
+---
+
 ## ADR-038 — `update` command: remote code pull (fast-forward) + auto restart
 
 **Context.** Updating a running birkin meant manually `git pull` + restart. Only

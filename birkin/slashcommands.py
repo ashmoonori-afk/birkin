@@ -302,16 +302,6 @@ def _morpheus(session: Any, arg: str) -> None:
     session.skills.reload()
 
 
-@command("update", "Pull new code from the repo (fast-forward; restart to apply).",
-         "/update", aliases=["upgrade"])
-def _update(session: Any, arg: str) -> None:
-    from .updater import update
-    result = update()
-    print(result["message"])
-    if result.get("updated"):
-        print("Restart birkin (exit + relaunch) to load the new code.")
-
-
 @command("review", "Review pending approvals inline.", "/review")
 def _review(session: Any, arg: str) -> None:
     from .approvals import review_cli
@@ -446,20 +436,14 @@ def _hard_restart(session: Any, arg: str) -> None:
 
 # -- system / maintenance --------------------------------------------------
 
-@command("update", "Update birkin to the latest version.", "/update")
+@command("update", "Update birkin to the latest version (fast-forward; shows version).",
+         "/update", aliases=["upgrade"])
 def _update(session: Any, arg: str) -> None:
-    import subprocess
-    root = Path(__file__).resolve().parent.parent  # repo root if source checkout
-    if (root / ".git").exists():
-        print(f"{DIM}git pull in {root}…{RESET}")
-        proc = subprocess.run(["git", "-C", str(root), "pull", "--ff-only"],
-                              capture_output=True, text=True, errors="replace")
-        print(proc.stdout or proc.stderr)
-        print(f"{DIM}Restart birkin to load changes.{RESET}")
-    else:
-        print("Installed (not a source checkout). Update with your installer, e.g.:")
-        print(f"  {CYAN}uv tool install --force git+https://github.com/ashmoonori-afk/birkin{RESET}")
-        print("  or re-run the install one-liner from the README.")
+    from .updater import update
+    result = update()
+    print(result["message"])
+    if result.get("updated"):
+        print(f"{DIM}Restart birkin to load the new code.{RESET}")
 
 
 @command("quit", "Leave birkin.", "/quit", aliases=["exit", "q"])

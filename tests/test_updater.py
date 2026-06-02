@@ -74,3 +74,22 @@ def test_update_ignores_untracked_files(repos):
 def test_update_not_a_git_checkout(tmp_path):
     r = updater.update(tmp_path)   # no .git here
     assert r["ok"] is False and r["updated"] is False
+
+
+def test_read_version_reads_init(tmp_path):
+    pkg = tmp_path / "birkin"
+    pkg.mkdir()
+    (pkg / "__init__.py").write_text('"""doc"""\n__version__ = "1.2.3"\n',
+                                     encoding="utf-8")
+    assert updater._read_version(tmp_path) == "1.2.3"
+
+
+def test_read_version_missing_returns_placeholder(tmp_path):
+    assert updater._read_version(tmp_path) == "?"   # no birkin/__init__.py
+
+
+def test_update_message_shows_version_not_sha(repos):
+    """The already-up-to-date message must reference a version, not a commit hash.
+    (The temp clone has no birkin/__init__.py, so the version reads as '?'.)"""
+    r = updater.update(repos["work"])
+    assert "v" in r["message"] and "Already up to date" in r["message"]
