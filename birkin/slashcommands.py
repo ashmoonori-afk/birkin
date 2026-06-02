@@ -302,6 +302,16 @@ def _morpheus(session: Any, arg: str) -> None:
     session.skills.reload()
 
 
+@command("update", "Pull new code from the repo (fast-forward; restart to apply).",
+         "/update", aliases=["upgrade"])
+def _update(session: Any, arg: str) -> None:
+    from .updater import update
+    result = update()
+    print(result["message"])
+    if result.get("updated"):
+        print("Restart birkin (exit + relaunch) to load the new code.")
+
+
 @command("review", "Review pending approvals inline.", "/review")
 def _review(session: Any, arg: str) -> None:
     from .approvals import review_cli

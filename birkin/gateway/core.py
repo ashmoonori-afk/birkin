@@ -28,6 +28,8 @@ _GATEWAY_COMMANDS: list[tuple[str, str, set[str]]] = [
      {"neurosis", "interview"}),
     ("models", "List or select the gateway model (auto-restarts to apply)",
      {"models", "model"}),
+    ("update", "Remote update — pull new code from the repo, then auto restart",
+     {"update", "upgrade", "pull"}),
 ]
 
 # Friendly short model names accepted by `claude --model` (full claude-… IDs also OK).
@@ -302,6 +304,20 @@ class Gateway:
                       flush=True)
                 return ("♻️ Hard restart — re-executing `birkin gateway` to pick up "
                         "code + config changes. Reconnecting in a moment…")
+            if cmd == "update":
+                # Pull new repo code (main code + bundled skills). User state in
+                # ~/.birkin (config, memory, user skills) lives outside the repo
+                # and is never touched. On a code change, re-exec like hard_restart.
+                from .. import updater
+                result = updater.update()
+                if result.get("updated"):
+                    self._hard_restart = True
+                    self._restart_origin = (channel, str(chat_id))
+                    print(f"[gateway] update pulled new code via "
+                          f"{channel}:{chat_id}; scheduling hard restart", flush=True)
+                    return (f"⬇️ {result['message']}\n"
+                            "♻️ 새 코드를 반영하려고 재시작합니다…")
+                return f"{'✅' if result.get('ok') else '⚠️'} {result['message']}"
             if cmd == "restart":
                 print(f"[gateway] restart requested via {channel}:{chat_id}",
                       flush=True)

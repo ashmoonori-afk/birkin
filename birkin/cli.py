@@ -182,6 +182,17 @@ def _cmd_morpheus(args: argparse.Namespace) -> int:
     return run_once(dry_run=args.dry_run)
 
 
+def _cmd_update(args: argparse.Namespace) -> int:
+    """Pull new repo code (main code + bundled skills); ~/.birkin user state is
+    untouched. Restart the gateway/REPL afterwards to load the new code."""
+    from .updater import update
+    result = update()
+    print(result["message"])
+    if result.get("updated"):
+        print("Restart the gateway (/hard_restart) or relaunch birkin to apply.")
+    return 0 if result.get("ok") else 1
+
+
 def _cmd_daemon(args: argparse.Namespace) -> int:
     from .scheduler import install_os_schedule, run_daemon
     if args.install:
@@ -517,6 +528,8 @@ def build_parser() -> argparse.ArgumentParser:
     dp.set_defaults(func=_cmd_daemon)
 
     sub.add_parser("review", help="approve/reject pending proposed actions").set_defaults(func=_cmd_review)
+
+    sub.add_parser("update", help="pull new code from the repo (fast-forward only)").set_defaults(func=_cmd_update)
 
     cmp_p = sub.add_parser("compare", help="blind A/B: run one prompt through two models")
     cmp_p.add_argument("prompt", nargs="*", help="the prompt to compare")

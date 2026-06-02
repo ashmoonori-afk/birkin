@@ -162,3 +162,45 @@ def test_soft_restart_reply_includes_greeting(tmp_path, monkeypatch):
     gw = _gateway(tmp_path, monkeypatch)
     out = gw.handle("http", "c1", "/restart")
     assert "restarted" in out.lower() and _BACK_GREETING in out
+
+
+# -- /update (remote code pull + auto restart) -----------------------------
+
+def test_match_command_recognizes_update_variants():
+    from birkin.gateway.core import match_command
+    for t in ("/update", "/upgrade", "/pull", "/UPDATE", "/update@birkinbot"):
+        assert match_command(t)[0] == "update", t
+
+
+def test_update_triggers_hard_restart_when_code_changed(tmp_path, monkeypatch):
+    gw = _gateway(tmp_path, monkeypatch)
+    import birkin.updater as updater
+    monkeypatch.setattr(updater, "update",
+                        lambda *a, **k: {"ok": True, "updated": True,
+                                         "message": "Updated 2 commit(s)."})
+    out = gw.handle("telegram", "42", "/update")
+    assert "Updated 2 commit" in out
+    assert gw.pending_hard_restart is True               # re-exec scheduled to load new code
+    assert gw._restart_origin == ("telegram", "42")
+
+
+def test_update_no_restart_when_already_latest(tmp_path, monkeypatch):
+    gw = _gateway(tmp_path, monkeypatch)
+    import birkin.updater as updater
+    monkeypatch.setattr(updater, "update",
+                        lambda *a, **k: {"ok": True, "updated": False,
+                                         "message": "Already up to date."})
+    out = gw.handle("http", "c1", "/update")
+    assert "Already up to date" in out
+    assert gw.pending_hard_restart is False              # nothing new → no restart
+
+
+def test_update_reports_failure_without_restart(tmp_path, monkeypatch):
+    gw = _gateway(tmp_path, monkeypatch)
+    import birkin.updater as updater
+    monkeypatch.setattr(updater, "update",
+                        lambda *a, **k: {"ok": False, "updated": False,
+                                         "message": "Local uncommitted changes present."})
+    out = gw.handle("http", "c1", "/update")
+    assert "uncommitted" in out.lower()
+    assert gw.pending_hard_restart is False
