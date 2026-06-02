@@ -124,3 +124,32 @@ def test_do_hard_restart_reexecs_birkin_gateway(tmp_path, monkeypatch):
     assert captured["shutdown"] is True               # warm sessions torn down first
     assert captured["path"] == sys.executable
     assert captured["argv"] == [sys.executable, "-m", "birkin", "gateway"]
+
+
+def test_hard_restart_records_origin_and_writes_greeting_marker(tmp_path, monkeypatch):
+    import os
+    gw = _gateway(tmp_path, monkeypatch)
+    gw.handle("telegram", "555", "/hard-restart")
+    assert gw._restart_origin == ("telegram", "555")
+    monkeypatch.setattr(gw, "shutdown", lambda: None)
+    monkeypatch.setattr(os, "execv", lambda path, argv: None)
+    gw.do_hard_restart()                              # writes the marker, stubbed exec
+    from birkin import store
+    from birkin.gateway.core import _restart_marker_path
+    assert store._read_json(_restart_marker_path(), None) == {
+        "channel": "telegram", "chat_id": "555"}
+
+
+def test_take_restart_greeting_is_channel_scoped_and_one_shot(tmp_path, monkeypatch):
+    gw = _gateway(tmp_path, monkeypatch)
+    gw._restart_notice = {"channel": "telegram", "chat_id": "99"}
+    assert gw.take_restart_greeting("http") is None      # wrong channel -> no greet
+    assert gw.take_restart_greeting("telegram") == "99"  # matching channel
+    assert gw.take_restart_greeting("telegram") is None  # consumed (one-shot)
+
+
+def test_models_restart_records_origin(tmp_path, monkeypatch):
+    gw = _gateway(tmp_path, monkeypatch)
+    gw.handle("telegram", "7", "/models opus")           # schedules a hard restart
+    assert gw.pending_hard_restart is True
+    assert gw._restart_origin == ("telegram", "7")

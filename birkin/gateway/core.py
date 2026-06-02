@@ -89,6 +89,17 @@ def command_menu() -> list[dict[str, str]]:
     return [{"command": c, "description": d} for c, d, _ in _GATEWAY_COMMANDS]
 
 
+_RESTART_GREETING = ("✅ 재시작 완료! 코드·설정을 새로 반영했어요. 다시 왔습니다 👋 "
+                     "무엇을 도와드릴까요?")
+
+
+def _restart_marker_path():
+    """One-shot marker dropped before a hard re-exec so the new process can greet
+    the chat that asked for the restart."""
+    from .. import config
+    return config.birkin_home() / "restart_notice.json"
+
+
 class Gateway:
     def __init__(self, cfg: dict[str, Any]):
         # The gateway may use its own (faster) model without affecting the REPL
@@ -116,6 +127,11 @@ class Gateway:
         self._claude_sessions: dict[tuple[str, str], ClaudeStreamSession] = {}
         # Set by a /hard-restart command; the channel re-execs after replying.
         self._hard_restart = False
+        # (channel, chat_id) that triggered a hard restart — persisted across the
+        # re-exec so the new process can greet that chat that it is back up.
+        self._restart_origin: tuple[str, str] | None = None
+        # Loaded by run() from the restart marker after a re-exec (one-shot).
+        self._restart_notice: dict[str, Any] | None = None
 
     def _system_prompt(self) -> str:
         """birkin persona + memory + skill index, snapshot for a warm session.
@@ -199,12 +215,30 @@ class Gateway:
         """
         import os
         import sys
+        if self._restart_origin:   # leave a one-shot note so we can greet on boot
+            try:
+                from .. import store
+                store._write_json(_restart_marker_path(),
+                                  {"channel": self._restart_origin[0],
+                                   "chat_id": self._restart_origin[1]})
+            except Exception:
+                pass
         try:
             self.shutdown()
         except Exception:
             pass
         print("[gateway] hard restart: re-executing `birkin gateway`…", flush=True)
         os.execv(sys.executable, [sys.executable, "-m", "birkin", "gateway"])
+
+    def take_restart_greeting(self, channel: str) -> str | None:
+        """If this process just came back from a hard restart triggered on
+        ``channel``, return that chat_id once (then forget it) so the channel can
+        send a 'back online' greeting. Returns None otherwise."""
+        n = self._restart_notice
+        if isinstance(n, dict) and n.get("channel") == channel:
+            self._restart_notice = None
+            return str(n.get("chat_id"))
+        return None
 
     def handle(self, channel: str, chat_id: str, text: str) -> str:
         """Route one inbound message to the agent and return the reply.
@@ -252,10 +286,15 @@ class Gateway:
             if cmd == "help":
                 return gateway_help_text()
             if cmd == "models":
-                return self._models_command(cmd_arg)
+                reply = self._models_command(cmd_arg)
+                if self._hard_restart:   # /models scheduled a re-exec
+                    self._restart_origin = (channel, str(chat_id))
+                return reply
             if cmd == "hard_restart":
-                # The receiving channel re-execs after it delivers this reply.
+                # The receiving channel re-execs after it delivers this reply;
+                # remember who asked so the new process can greet them.
                 self._hard_restart = True
+                self._restart_origin = (channel, str(chat_id))
                 print(f"[gateway] HARD restart requested via {channel}:{chat_id}",
                       flush=True)
                 return ("♻️ Hard restart — re-executing `birkin gateway` to pick up "
@@ -362,6 +401,21 @@ def run() -> int:
     except ConfigError as exc:
         print(f"{exc}")
         return 1
+
+    # Just came back from a hard re-exec? Load the one-shot marker so the channel
+    # that triggered it greets that chat "I'm back". Delete it immediately.
+    try:
+        from .. import store
+        marker = _restart_marker_path()
+        notice = store._read_json(marker, None)
+        if isinstance(notice, dict):
+            gateway._restart_notice = notice
+            try:
+                marker.unlink()
+            except OSError:
+                pass
+    except Exception:
+        pass
 
     from .channels import build_channels
     channels = build_channels(cfg)

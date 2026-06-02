@@ -118,6 +118,15 @@ class TelegramChannel(Channel):
                        {"commands": json.dumps(command_menu())})
         except Exception as exc:
             print(f"[telegram] setMyCommands failed: {exc}")
+        # If we just re-exec'd from a /hard-restart (or /models) on Telegram,
+        # greet the chat that asked so they know we're back online.
+        try:
+            cid = gateway.take_restart_greeting("telegram")
+            if cid:
+                from ..core import _RESTART_GREETING
+                self._send_reply(cid, _RESTART_GREETING)
+        except Exception as exc:
+            print(f"[telegram] restart greeting failed: {exc}")
         offset = 0
         while True:
             try:
