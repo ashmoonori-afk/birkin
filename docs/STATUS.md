@@ -1,8 +1,9 @@
 # birkin — Build Status
 
-> Snapshot: 2026-06-02 · **503 tests** · 53 skills. Newest: after a gateway
-> **hard restart, the new process auto-greets** the chat that asked (one-shot
-> marker → "✅ 재시작 완료 👋", Telegram). Also: **`birkin compare`**
+> Snapshot: 2026-06-02 · **504 tests** · 53 skills. Newest: gateway **restart
+> auto-greet** — after a hard restart the re-exec'd process greets the chat that
+> asked (one-shot marker → "✅ 재시작 완료 👋", Telegram); the soft `/restart`
+> reply carries the same friendly tail. Also: **`birkin compare`**
 > (blind A/B two-model compare, odysseus-style) + **deep-research → report file**
 > (writes `~/.birkin/research/<slug>.md`) + **unattended-full opt-in** so the
 > nightly Morpheus run *can* keep `cli_access: full` when explicitly enabled

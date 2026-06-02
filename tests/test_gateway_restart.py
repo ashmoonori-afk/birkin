@@ -153,3 +153,12 @@ def test_models_restart_records_origin(tmp_path, monkeypatch):
     gw.handle("telegram", "7", "/models opus")           # schedules a hard restart
     assert gw.pending_hard_restart is True
     assert gw._restart_origin == ("telegram", "7")
+
+
+def test_soft_restart_reply_includes_greeting(tmp_path, monkeypatch):
+    # Soft /restart returns synchronously, so the greeting is appended to its reply
+    # (same friendly tail as the hard-restart greeting).
+    from birkin.gateway.core import _BACK_GREETING
+    gw = _gateway(tmp_path, monkeypatch)
+    out = gw.handle("http", "c1", "/restart")
+    assert "restarted" in out.lower() and _BACK_GREETING in out

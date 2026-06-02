@@ -89,8 +89,10 @@ def command_menu() -> list[dict[str, str]]:
     return [{"command": c, "description": d} for c, d, _ in _GATEWAY_COMMANDS]
 
 
-_RESTART_GREETING = ("✅ 재시작 완료! 코드·설정을 새로 반영했어요. 다시 왔습니다 👋 "
-                     "무엇을 도와드릴까요?")
+# Shared friendly tail so soft + hard restart greet the same way.
+_BACK_GREETING = "다시 왔습니다 👋 무엇을 도와드릴까요?"
+# Sent by the re-exec'd process after a HARD restart (code + config reloaded).
+_RESTART_GREETING = "✅ 재시작 완료! 코드·설정을 새로 반영했어요. " + _BACK_GREETING
 
 
 def _restart_marker_path():
@@ -199,7 +201,8 @@ class Gateway:
         except ConfigError as exc:
             return f"[restart] config error: {exc}"
         return ("♻️ Gateway restarted — reloaded config, persona, memory and "
-                "skills; warm sessions cleared (conversations start fresh).")
+                "skills; warm sessions cleared (conversations start fresh).\n\n"
+                + _BACK_GREETING)
 
     @property
     def pending_hard_restart(self) -> bool:
