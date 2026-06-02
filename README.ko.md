@@ -183,6 +183,7 @@ $ birkin gateway        # 웜 영속 서비스: HTTP + (선택) Telegram, 웜 �
 | `/restart` (`/restart-gateway`) | **소프트 재시작** — config/persona/memory 재로딩, 프로세스 유지 |
 | `/hard_restart` | **하드 재시작** — 게이트웨이 re-exec(코드 변경 반영), 재시작 루프 방지 |
 | `/models [이름]` | 모델 목록/**선택** — 적용 위해 자동 하드재시작 |
+| `/update` (`/upgrade`) | **원격 업데이트** — fast-forward pull(커밋 해시 대신 버전 표시), 코드 변경 시 자동 하드재시작 |
 | `/neurosis [--quick\|--standard\|--deep] <아이디어>` | **딥 인터뷰** 시작/재개 |
 
 ### 명료해질 때까지 인터뷰 (Neurosis)
@@ -285,9 +286,9 @@ direct`로 프리셋 교체, `/soul`로 보기/편집.
 ## 🧩 스킬
 
 스킬은 `SKILL.md`(frontmatter + 마크다운)를 가진 디렉토리로 agentskills.io /
-hermes 표준과 호환. [`skills/`](./skills) 아래 **53개 번들**(research·software·
+hermes 표준과 호환. [`skills/`](./skills) 아래 **54개 번들**(research·software·
 writing·data·devops·marketing·planning/**neurosis**·automation/**morpheus**·
-**odyssey**·creative/**codex-image-gen**·quality/**model-compare** 등)
+**odyssey**·**camoufox**·creative/**codex-image-gen**·quality/**model-compare** 등)
 + `~/.birkin/skills/`의
 내 스킬(번들을 이름으로 가림). `load_skill`로 필요 시 전체 로드, `create_skill`/
 `improve_skill`은 승인 게이트 경유, `birkin skills validate`로 린트 +
@@ -361,11 +362,11 @@ API 키는 환경변수 우선; Claude Code 백엔드는 불필요. config.json�
 
 ## 🛠️ 현재 위치
 
-- 오프라인 **테스트 500개** 통과(API 키 없이), **번들 스킬 53개**, **런타임
+- 오프라인 **테스트 520개** 통과(API 키 없이), **번들 스킬 54개**, **런타임
   의존성 0**, Python 3.10+.
 - 무료·빠른 게이트웨이(웜 영속 Claude, ~3초), Neurosis 딥 인터뷰, 자동저장 →
   기억, 회사 MCP, 회사급 보안 하드닝.
-- 결정 근거: [`docs/DECISIONS.md`](./docs/DECISIONS.md)(ADR 001–033). 라이브
+- 결정 근거: [`docs/DECISIONS.md`](./docs/DECISIONS.md)(ADR 001–039). 라이브
   상태: [`docs/STATUS.md`](./docs/STATUS.md). 비교:
   [`docs/COMPARISON.md`](./docs/COMPARISON.md).
 - **계획(v2):** [`docs/v2.md`](./docs/v2.md) — Model Router·Hashline 편집·

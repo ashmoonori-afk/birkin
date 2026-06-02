@@ -194,6 +194,7 @@ commands:
 | `/restart` (`/restart-gateway`) | **soft restart** — reload config/persona/memory, no process kill |
 | `/hard_restart` | **hard restart** — re-exec the gateway (picks up code changes), no restart loop |
 | `/models [name]` | list or **select the gateway model** — auto hard-restarts to apply |
+| `/update` (`/upgrade`) | **remote update** — fast-forward pull (shows the version, not a commit hash); auto hard-restart on a code change |
 | `/neurosis [--quick\|--standard\|--deep] <idea>` | start/resume a **deep interview** |
 
 ### Let it interview you to clarity (Neurosis)
@@ -299,9 +300,9 @@ surface (read fresh each turn in the REPL; on session start in the gateway).
 ## 🧩 Skills
 
 A skill is a directory with a `SKILL.md` (frontmatter + markdown), compatible
-with the agentskills.io / hermes standard. **53 bundled** under
+with the agentskills.io / hermes standard. **54 bundled** under
 [`skills/`](./skills) (research, software, writing, data, devops, marketing,
-planning/**neurosis**, automation/**morpheus** · **odyssey**,
+planning/**neurosis**, automation/**morpheus** · **odyssey** · **camoufox**,
 creative/**codex-image-gen**, quality/**model-compare**, …), plus your own
 under `~/.birkin/skills/` (which shadow
 bundled ones). `load_skill` pulls full text on demand; `create_skill` /
@@ -376,12 +377,12 @@ none. A key in `config.json` is stored `chmod 600`.
 
 ## 🛠️ Where birkin sits today
 
-- **500 tests** passing offline (no API key, `pytest`), **53 bundled skills**,
+- **520 tests** passing offline (no API key, `pytest`), **54 bundled skills**,
   **0 runtime dependencies**, Python 3.10+.
 - Free + fast gateway (warm persistent Claude, ~3s), Neurosis deep-interview,
   auto-save → memory, company MCP, company-grade security hardening.
 - Rationale per decision: [`docs/DECISIONS.md`](./docs/DECISIONS.md) (ADRs
-  001–033). Live status: [`docs/STATUS.md`](./docs/STATUS.md). Comparison:
+  001–039). Live status: [`docs/STATUS.md`](./docs/STATUS.md). Comparison:
   [`docs/COMPARISON.md`](./docs/COMPARISON.md).
 - **Planned (v2):** [`docs/v2.md`](./docs/v2.md) — Model Router, Hashline edits,
   IntentGate, Prompt-Gate, **Osiris** verifier, **Boulder** state, and the
