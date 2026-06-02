@@ -285,9 +285,10 @@ direct`로 프리셋 교체, `/soul`로 보기/편집.
 ## 🧩 스킬
 
 스킬은 `SKILL.md`(frontmatter + 마크다운)를 가진 디렉토리로 agentskills.io /
-hermes 표준과 호환. [`skills/`](./skills) 아래 **52개 번들**(research·software·
+hermes 표준과 호환. [`skills/`](./skills) 아래 **53개 번들**(research·software·
 writing·data·devops·marketing·planning/**neurosis**·automation/**morpheus**·
-**odyssey**·creative/**codex-image-gen** 등) + `~/.birkin/skills/`의
+**odyssey**·creative/**codex-image-gen**·quality/**model-compare** 등)
++ `~/.birkin/skills/`의
 내 스킬(번들을 이름으로 가림). `load_skill`로 필요 시 전체 로드, `create_skill`/
 `improve_skill`은 승인 게이트 경유, `birkin skills validate`로 린트 +
 `py_compile`, 편집 시 **핫리로드**.
@@ -360,7 +361,7 @@ API 키는 환경변수 우선; Claude Code 백엔드는 불필요. config.json�
 
 ## 🛠️ 현재 위치
 
-- 오프라인 **테스트 482개** 통과(API 키 없이), **번들 스킬 52개**, **런타임
+- 오프라인 **테스트 500개** 통과(API 키 없이), **번들 스킬 53개**, **런타임
   의존성 0**, Python 3.10+.
 - 무료·빠른 게이트웨이(웜 영속 Claude, ~3초), Neurosis 딥 인터뷰, 자동저장 →
   기억, 회사 MCP, 회사급 보안 하드닝.

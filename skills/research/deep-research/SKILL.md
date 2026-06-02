@@ -1,7 +1,7 @@
 ---
 name: deep-research
-description: "Multi-source investigation: decompose question, spawn subagents, synthesize sourced report."
-version: 1.0.0
+description: "Multi-source investigation: decompose question, spawn subagents, synthesize sources into a structured, cited report artifact (Markdown file)."
+version: 1.1.0
 author: birkin
 license: MIT
 metadata:
@@ -38,16 +38,27 @@ into a coherent, sourced report.
 4. Synthesize across reports: reconcile conflicts, identify themes, note gaps.
 5. Produce a structured report with:
    - **Objective** (what was investigated)
-   - **Key Findings** (bullets, each sourced with URL)
+   - **Key Findings** (bullets, each sourced with an inline URL)
    - **Interpretation** (what the findings mean)
    - **Open Questions** (gaps not yet answered)
    - **Recommended Next Steps** (how to close gaps)
-6. Save the synthesis to memory with `memory_write_note` and link to original
-   subagent reports and sources.
+   - a **comparison table** when contrasting options/products/perspectives
+     (one row per option, columns = the dimensions compared), and — when
+     relationships matter — a small **```mermaid```** diagram (flow/mindmap).
+   - a **Sources** list at the end (every URL cited above, deduplicated).
+6. **Write the report as a file artifact** to `~/.birkin/research/<slug>.md`
+   (slug = kebab-case of the question) with the write tool — a standalone,
+   shareable Markdown report (this is the "deep research → report" deliverable).
+   Return its path. Inline every claim's source; do NOT include a claim you
+   can't cite (drop it).
+7. Save a short synthesis to memory with `memory_write_note`, linking the report
+   file and the key sources, so the finding is recalled later.
 
 ## Output
 
-- A comprehensive report organized by sub-question, with all claims traced to
-  sources (URLs).
-- Explicit callout of open questions and conflicting findings.
-- Ready-to-share summary for stakeholders or decision-makers.
+- A standalone **Markdown report file** at `~/.birkin/research/<slug>.md`:
+  Objective → Key Findings (cited) → Interpretation → comparison table /
+  diagram where useful → Open Questions → Recommended Next Steps → Sources.
+- The report **path**, returned to the user (open/convert/share as-is).
+- A linked memory note for future recall. Every claim traces to a URL; conflicts
+  and gaps are called out explicitly (no fabricated certainty).

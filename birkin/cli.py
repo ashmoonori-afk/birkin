@@ -56,6 +56,29 @@ def _dry_run(args: argparse.Namespace) -> int:
     return 0
 
 
+def _cmd_compare(args: argparse.Namespace) -> int:
+    """Blind A/B: run one prompt through two models, reveal which is which after."""
+    from . import compare, config
+    from .ui import BOLD, CYAN, DIM, RESET
+    prompt = " ".join(args.prompt).strip()
+    if not prompt:
+        print("Give a prompt:  birkin compare \"<prompt>\"  [--a opus --b sonnet]")
+        return 1
+    cfg = config.load_config()
+    a, b = compare.default_pair(cfg, args.a, args.b)
+    print(f"{DIM}comparing (blind): two models on the same prompt…{RESET}\n")
+    res = compare.run(cfg, prompt, a, b)
+    print(f"{BOLD}=== A ==={RESET}\n{res['A']['text']}\n")
+    print(f"{BOLD}=== B ==={RESET}\n{res['B']['text']}")
+    if sys.stdin.isatty():
+        try:
+            input(f"\n{DIM}Press Enter to reveal which model is which…{RESET} ")
+        except (EOFError, KeyboardInterrupt):
+            print()
+    print(f"\n{CYAN}A = {res['A']['model']}    B = {res['B']['model']}{RESET}")
+    return 0
+
+
 def _cmd_skills(args: argparse.Namespace) -> int:
     from . import config
     from .skills import build_manager
@@ -494,6 +517,12 @@ def build_parser() -> argparse.ArgumentParser:
     dp.set_defaults(func=_cmd_daemon)
 
     sub.add_parser("review", help="approve/reject pending proposed actions").set_defaults(func=_cmd_review)
+
+    cmp_p = sub.add_parser("compare", help="blind A/B: run one prompt through two models")
+    cmp_p.add_argument("prompt", nargs="*", help="the prompt to compare")
+    cmp_p.add_argument("--a", help="model A (default: current model)")
+    cmp_p.add_argument("--b", help="model B (default: a complementary tier)")
+    cmp_p.set_defaults(func=_cmd_compare)
 
     pp = sub.add_parser("permission", help="view/change approvals & CLI-agent access level")
     pp.add_argument("--add", help="category to auto-approve (e.g. cron)")

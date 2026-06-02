@@ -299,10 +299,10 @@ surface (read fresh each turn in the REPL; on session start in the gateway).
 ## 🧩 Skills
 
 A skill is a directory with a `SKILL.md` (frontmatter + markdown), compatible
-with the agentskills.io / hermes standard. **52 bundled** under
+with the agentskills.io / hermes standard. **53 bundled** under
 [`skills/`](./skills) (research, software, writing, data, devops, marketing,
 planning/**neurosis**, automation/**morpheus** · **odyssey**,
-creative/**codex-image-gen**, …), plus your own
+creative/**codex-image-gen**, quality/**model-compare**, …), plus your own
 under `~/.birkin/skills/` (which shadow
 bundled ones). `load_skill` pulls full text on demand; `create_skill` /
 `improve_skill` route through the approval gate; `birkin skills validate` lints
@@ -376,7 +376,7 @@ none. A key in `config.json` is stored `chmod 600`.
 
 ## 🛠️ Where birkin sits today
 
-- **482 tests** passing offline (no API key, `pytest`), **52 bundled skills**,
+- **500 tests** passing offline (no API key, `pytest`), **53 bundled skills**,
   **0 runtime dependencies**, Python 3.10+.
 - Free + fast gateway (warm persistent Claude, ~3s), Neurosis deep-interview,
   auto-save → memory, company MCP, company-grade security hardening.

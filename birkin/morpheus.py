@@ -108,10 +108,14 @@ _MORPHEUS_SYSTEM = (
 
 def run_once(dry_run: bool = False) -> int:
     cfg = config.load_config()
-    # Unattended: never let a CLI agent run with full permission/sandbox bypass.
-    # Mirrors the claude path's workspace forcing; protects the codex/local paths.
-    if cfg.get("cli_access") == "full":
+    # Unattended: a CLI agent runs with full permission/sandbox bypass ONLY if the
+    # user opted in (allow_unattended_full). Default downgrades full -> workspace,
+    # mirroring the claude path's forcing and protecting the codex/local paths.
+    if cfg.get("cli_access") == "full" and not cfg.get("allow_unattended_full"):
         cfg = {**cfg, "cli_access": "workspace"}
+    elif cfg.get("cli_access") == "full":
+        print("birkin morpheus: WARNING — running UNATTENDED with cli_access "
+              "'full' (allow_unattended_full=true). Sandbox/approvals bypassed.")
     cwd = Path.cwd()
     sessions_text = _gather_sessions()
     files_text = _gather_changed_files(cwd)

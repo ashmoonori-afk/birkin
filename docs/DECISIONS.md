@@ -8,6 +8,38 @@ older ones (noted inline).
 
 ---
 
+## ADR-036 — Opt-in `unattended-full`; Compare + deep-research report
+
+**Context.** ADR-034 force-downgraded `cli_access: "full"` → `"workspace"` for the
+**unattended** Morpheus run (safety). A user then wanted Morpheus to actually run
+with full file/shell access, and asked why it "couldn't write files / auto-run".
+Two real causes: (1) Morpheus only *auto-runs* if the OS scheduler is installed
+(`birkin daemon --install`); without it, it is manual (`birkin morpheus`). (2) the
+ADR-034 downgrade (plus the gateway's always-workspace rule) sandboxes it, and the
+host harness (Claude Code) separately gates shell/PowerShell.
+
+**Decision.**
+- **Opt-in elevation, default safe.** New config `allow_unattended_full` (default
+  `False`). When `True` **and** `cli_access` is `"full"`, `morpheus.run_once`
+  keeps full access (with a printed WARNING) instead of downgrading. The
+  **reachable gateway is ALWAYS forced to workspace regardless** — only the local
+  nightly routine can be elevated, so a chat message can never reach a full-access
+  process (ADR-029 preserved).
+- Surfaced via `/permission unattended-full <on|off>` (and `birkin permission`);
+  added a **`/permissions` alias** for `/permission`. The host-harness shell gate
+  (e.g. allowing `py -m birkin morpheus`) remains the user's own Claude Code
+  setting — birkin does not and cannot override it.
+- **Also shipped** (from the odysseus study, kept lightweight): `birkin compare`
+  + `quality/model-compare` skill (blind A/B of two models on one prompt, free on
+  the subscription tiers); and the `deep-research` skill now writes a standalone,
+  cited **report file** to `~/.birkin/research/<slug>.md`.
+
+**Status.** Done; opt-in defaults off (gateway unaffected); 7 new tests; 500 pass
+offline. Trade-off acknowledged: enabling `unattended-full` lets the 04:00 routine
+bypass the sandbox — documented as explicitly user-chosen, not the default.
+
+---
+
 ## ADR-035 — Esc / typing interrupts the in-flight REPL turn
 
 **Context.** The REPL had only Ctrl-C (quit/interrupt). Users wanted to **abort a

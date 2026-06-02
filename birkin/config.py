@@ -107,6 +107,11 @@ DEFAULT_CONFIG: dict[str, Any] = {
     #                 (codex --dangerously-bypass-approvals-and-sandbox,
     #                  claude --dangerously-skip-permissions)
     "cli_access": "workspace",
+    # Opt-in (default False): let the UNATTENDED Morpheus run honor cli_access
+    # "full" instead of being downgraded to "workspace". The reachable gateway is
+    # ALWAYS forced to workspace regardless — only the local nightly routine is
+    # affected. Turn on only if you trust the workspace + scheduled environment.
+    "allow_unattended_full": False,
     # --- Budget governor (P3 reliability). 0 = unlimited. ---
     "budget_tokens_daily": 0,
     "budget_tokens_monthly": 0,

@@ -203,7 +203,7 @@ def test_run_once_routes_codex_to_generic_not_claude(monkeypatch):
 
 
 def test_run_once_downgrades_full_cli_access_unattended(monkeypatch):
-    # Unattended nightly run must never inherit cli_access "full".
+    # Unattended nightly run must not inherit cli_access "full" by default.
     config.save_config({**config.DEFAULT_CONFIG, "provider": "codex-cli",
                         "cli_access": "full"})
     seen: dict = {}
@@ -211,3 +211,14 @@ def test_run_once_downgrades_full_cli_access_unattended(monkeypatch):
                         lambda cfg, *a, **k: seen.update(cfg) or 0)
     morpheus.run_once(dry_run=True)
     assert seen.get("cli_access") == "workspace"
+
+
+def test_run_once_unattended_full_opt_in_keeps_full(monkeypatch):
+    # With the explicit opt-in, the unattended run honors cli_access "full".
+    config.save_config({**config.DEFAULT_CONFIG, "provider": "codex-cli",
+                        "cli_access": "full", "allow_unattended_full": True})
+    seen: dict = {}
+    monkeypatch.setattr(morpheus, "_run_birkin_morpheus",
+                        lambda cfg, *a, **k: seen.update(cfg) or 0)
+    morpheus.run_once(dry_run=True)
+    assert seen.get("cli_access") == "full"

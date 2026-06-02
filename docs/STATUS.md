@@ -1,6 +1,12 @@
 # birkin — Build Status
 
-> Snapshot: 2026-06-01 · v0.2 (hardening; H2–H6 complete) + gateway speed
+> Snapshot: 2026-06-02 · **500 tests** · 53 skills. Newest: **`birkin compare`**
+> (blind A/B two-model compare, odysseus-style) + **deep-research → report file**
+> (writes `~/.birkin/research/<slug>.md`) + **unattended-full opt-in** so the
+> nightly Morpheus run *can* keep `cli_access: full` when explicitly enabled
+> (`/permission unattended-full on`; gateway stays sandboxed) — see ADR-036.
+>
+> v0.2 (hardening; H2–H6 complete) + gateway speed
 > + Neurosis + autosave→memory + session-review hardening (ADR-032)
 >
 > **v2 design (proposed, not built):** [`docs/v2.md`](./v2.md) — borrowing
@@ -8,8 +14,9 @@
 > edits, IntentGate, Prompt-Gate, scoped skills) + an on-demand **Odyssey** goal-
 > completion cycle (Neurosis → Hyperplan critique → Boulder state → **Osiris**
 > verify). Odyssey is a skill (`skills/automation/odyssey`), so the heavy cycle
-> runs only on a complex goal, never every turn. **52 bundled skills** (incl.
-`skills/creative/codex-image-gen` — free gpt-image-2 via Codex OAuth, see its SKILL.md).
+> runs only on a complex goal, never every turn. **53 bundled skills** (incl.
+`creative/codex-image-gen` — free gpt-image-2 via Codex OAuth; and
+`quality/model-compare` — blind A/B model compare).
 >
 > **493 tests** pass offline (no API key). Newest: **Esc / typing interrupts the
 > in-flight REPL turn** (ADR-035) — cooperative `Session.abort` threaded through

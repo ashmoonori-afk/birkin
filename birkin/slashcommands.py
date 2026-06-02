@@ -321,7 +321,8 @@ def _cron(session: Any, arg: str) -> None:
 
 
 @command("permission", "Approvals & CLI-agent access level.",
-         "/permission [add|remove <category>] | access <workspace|full>")
+         "/permission [add|remove <category>] | access <workspace|full> | "
+         "unattended-full <on|off>", aliases=["permissions"])
 def _permission(session: Any, arg: str) -> None:
     sub = arg.split()
     auto = list(session.cfg.get("auto_approve", []))
@@ -332,6 +333,15 @@ def _permission(session: Any, arg: str) -> None:
         if sub[1] == "full":
             print(f"{YELLOW}⚠ 'full': the CLI agent now bypasses all approvals & "
                   f"sandbox — it can run ANY command / edit ANY file.{RESET}")
+    elif len(sub) == 2 and sub[0] == "unattended-full" and sub[1] in ("on", "off"):
+        # Let the UNATTENDED nightly Morpheus run keep cli_access "full" (the
+        # reachable gateway is ALWAYS workspace regardless). Default off.
+        session.cfg["allow_unattended_full"] = (sub[1] == "on")
+        config.save_config(session.cfg)
+        if sub[1] == "on":
+            print(f"{YELLOW}⚠ unattended-full ON: the nightly Morpheus run may now "
+                  f"bypass sandbox/approvals (needs cli_access 'full' too). The "
+                  f"gateway stays sandboxed.{RESET}")
     elif len(sub) == 2 and sub[0] in ("add", "remove"):
         cat = sub[1]
         if sub[0] == "add" and cat in ("shell", "cron"):
@@ -343,9 +353,11 @@ def _permission(session: Any, arg: str) -> None:
             auto.remove(cat)
         session.cfg["auto_approve"] = auto
         config.save_config(session.cfg)
+    uf = "on" if session.cfg.get("allow_unattended_full") else "off"
     print(f"{DIM}Auto-approved: {', '.join(auto) or '(none)'} · "
-          f"CLI access: {session.cfg.get('cli_access', 'workspace')} "
-          f"(/permission access workspace|full){RESET}")
+          f"CLI access: {session.cfg.get('cli_access', 'workspace')} · "
+          f"unattended-full: {uf} "
+          f"(/permission access workspace|full · unattended-full on|off){RESET}")
 
 
 # -- session persistence ---------------------------------------------------
