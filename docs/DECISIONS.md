@@ -8,12 +8,13 @@ older ones (noted inline).
 
 ---
 
-## ADR-035 — Esc aborts the in-flight REPL turn
+## ADR-035 — Esc / typing interrupts the in-flight REPL turn
 
 **Context.** The REPL had only Ctrl-C (quit/interrupt). Users wanted to **abort a
-running reply with Esc** (like Claude Code) without killing the session — but
-while the agent works the main thread is blocked inside `session.ask`, so nothing
-reads the keyboard, and the free path is a *blocking* `claude`/`codex` subprocess.
+running reply with Esc** — and to **start typing the next message to interrupt**
+(like Claude Code / ChatGPT) — without killing the session. But while the agent
+works the main thread is blocked inside `session.ask`, so nothing reads the
+keyboard, and the free path is a *blocking* `claude`/`codex` subprocess.
 
 **Decision.** A cooperative abort flag threaded end-to-end, plus a background Esc
 listener:
@@ -24,21 +25,25 @@ listener:
   response); the CLI runners now go through a shared `_run_cli_capture` that uses
   `Popen` + drain threads (no pipe-buffer deadlock) and **polls so the child is
   killed** on abort or `cli_timeout` (replaces the old blocking `subprocess.run`).
-- `birkin/abortkey.py`: a daemon **Esc listener** (termios+select on POSIX,
-  msvcrt on Windows) that fires a callback on `0x1b`; **no-op when stdin is not a
-  TTY** (piped runs / tests unaffected). The REPL starts it around `ask`, and on
-  Esc sets `session.abort` + stops the spinner; stops the listener in `finally`.
+- `birkin/abortkey.py`: a daemon **interrupt listener** (termios+select on POSIX
+  with UTF-8 assembly so typed Korean survives, msvcrt `getwch` on Windows). It
+  buffers typed chars; **Esc** interrupts and discards, **Enter** interrupts and
+  carries the typed line out as `listener.pending_line`. **No-op when stdin is
+  not a TTY** (piped runs / tests unaffected). The REPL starts it around `ask`,
+  sets `session.abort` on interrupt, and — if a line was carried — feeds it as
+  the **next** message (echoed) instead of dropping the user's text.
 
 **Alternatives.** Sending SIGINT to self on Esc (reuses Ctrl-C handling) was
 rejected — unreliable on Windows (this is a Windows-primary user) and it would
 also tear down more than the turn. The cooperative flag + subprocess-kill is
 cross-platform and scoped to the current reply.
 
-**Status.** Done; REPL-only (the gateway is a headless service). 7 new tests
+**Status.** Done; REPL-only (the gateway is a headless service). 11 new tests
 (agent between-turn abort, `_run_cli_capture` kills a sleeping child promptly,
-listener no-ops off-TTY); 489 pass offline. Limitation: abort is checked between
-SSE events / by polling the subprocess, so it is prompt but not instantaneous;
-tool execution mid-step finishes before the next between-turn check.
+listener no-ops off-TTY, the Esc/Enter/backspace char-handling + line carry);
+493 pass offline. Limitation: abort is checked between SSE events / by polling
+the subprocess, so it is prompt but not instantaneous; tool execution mid-step
+finishes before the next between-turn check.
 
 ---
 

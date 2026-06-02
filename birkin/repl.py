@@ -38,7 +38,7 @@ def _banner(session: Session) -> None:
     print(f" model {CYAN}{cfg.get('model')}{RESET} · {n} skill(s) · "
           f"vault {DIM}{session.memory.vault}{RESET}")
     print(f" type {YELLOW}/help{RESET} for commands, or just chat · "
-          f"{YELLOW}Esc{RESET} aborts a reply · Ctrl-C to quit.")
+          f"{YELLOW}Esc{RESET} (or type + Enter) interrupts a reply · Ctrl-C to quit.")
     print(f" {DIM}edit: Ctrl+←/→ word · Ctrl-W delete word · Ctrl-U/Ctrl-K clear "
           f"to start/end · ↑/↓ history{RESET}")
 
@@ -55,18 +55,23 @@ def run(cfg: dict[str, Any] | None = None) -> int:
     run_id = f"{datetime.now():%Y%m%d-%H%M%S}-{os.getpid()}"
     hints = inline_complete.hints_from_registry(slashcommands._REGISTRY)
     history = inline_complete.load_history()
+    pending = ""   # a line typed during a reply (Enter-interrupt) -> next turn
     while True:
-        try:
-            print()   # leading blank line, like the old input("\n…")
-            raw = inline_complete.prompt_with_completion(
-                f"{ui.BOLD}you{RESET} > ", hints, history=history)
-        except KeyboardInterrupt:
-            print()
-            break
-        if raw is None:
-            print()
-            break
-        line = raw.strip()
+        if pending:
+            line, pending = pending, ""
+            print(f"\n{ui.BOLD}you{RESET} > {line}")   # echo the carried message
+        else:
+            try:
+                print()   # leading blank line, like the old input("\n…")
+                raw = inline_complete.prompt_with_completion(
+                    f"{ui.BOLD}you{RESET} > ", hints, history=history)
+            except KeyboardInterrupt:
+                print()
+                break
+            if raw is None:
+                print()
+                break
+            line = raw.strip()
         if not line:
             continue
         inline_complete.append_history(line, prior=history)
@@ -94,18 +99,19 @@ def run(cfg: dict[str, Any] | None = None) -> int:
 
         session.agent.on_event = turn_event
 
-        # Esc aborts the in-flight turn: a background listener sets session.abort,
-        # which stops the LLM stream / kills the CLI subprocess (see abortkey).
-        esc_hit = {"v": False}
+        # Esc — or typing a new message + Enter — interrupts the in-flight turn:
+        # a background listener sets session.abort (stops the LLM stream / kills
+        # the CLI subprocess) and captures any typed line to send next.
+        interrupted = {"v": False}
 
-        def on_esc() -> None:
-            if not esc_hit["v"]:
-                esc_hit["v"] = True
+        def on_interrupt() -> None:
+            if not interrupted["v"]:
+                interrupted["v"] = True
                 session.abort.set()
                 stop_spin()
-                print(f"\n{DIM}(esc — aborting…){RESET}")
+                print(f"\n{DIM}(interrupting…){RESET}")
 
-        listener = abortkey.listen_for_esc(on_esc)
+        listener = abortkey.listen_for_interrupt(on_interrupt)
         spinner.start()
         try:
             reply = session.ask(line)  # buffered (no live token printing)
@@ -124,6 +130,8 @@ def run(cfg: dict[str, Any] | None = None) -> int:
             print(f"\n{RED}Error: {exc}{RESET}")
         finally:
             listener.stop()
+            # A line typed during the reply (Enter-interrupt) becomes next input.
+            pending = (getattr(listener, "pending_line", "") or "").strip()
             session.agent.on_event = base_event
     print(f"{DIM}bye.{RESET}")
     return 0

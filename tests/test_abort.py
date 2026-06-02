@@ -86,11 +86,53 @@ def test_run_cli_capture_normal_completes():
     assert "hi there" in out and not timed_out and not aborted
 
 
-def test_listen_for_esc_noop_off_tty():
+def test_listen_for_interrupt_noop_off_tty():
     # pytest captures stdin (not a TTY) -> a null listener, stop() is safe.
-    listener = abortkey.listen_for_esc(lambda: None)
+    listener = abortkey.listen_for_interrupt(lambda: None)
     listener.stop()
     assert isinstance(listener, abortkey._NullListener)
+    assert listener.pending_line == ""
+
+
+def _bare_base():
+    # Build a _Base without starting its reader thread, to unit-test _handle.
+    obj = object.__new__(abortkey._Base)
+    obj._fired = False
+    obj._buf = []
+    obj.pending_line = ""
+    obj._on_interrupt = lambda: None
+    return obj
+
+
+def test_handle_typing_then_enter_carries_line():
+    fired = {"n": 0}
+    obj = _bare_base()
+    obj._on_interrupt = lambda: fired.__setitem__("n", fired["n"] + 1)
+    for c in "fix the bug":
+        obj._handle(c)
+    obj._handle("\r")                       # Enter -> interrupt + carry
+    assert obj.pending_line == "fix the bug" and obj._fired and fired["n"] == 1
+
+
+def test_handle_esc_discards_buffer():
+    obj = _bare_base()
+    obj._buf = list("half typed")
+    obj._handle("\x1b")                     # Esc -> interrupt, no carry
+    assert obj.pending_line == "" and obj._fired
+
+
+def test_handle_backspace_edits_buffer():
+    obj = _bare_base()
+    obj._buf = list("abc")
+    obj._handle("\x7f")
+    assert obj._buf == list("ab") and not obj._fired
+
+
+def test_handle_ignores_after_fired():
+    obj = _bare_base()
+    obj._handle("\r")                       # fires
+    obj._handle("x")                        # ignored once fired
+    assert obj._buf == [] and obj.pending_line == ""
 
 
 def test_session_has_clear_abort_event(tmp_path, monkeypatch):
