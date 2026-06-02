@@ -178,16 +178,19 @@ class LLMClient:
                 "content": [{"type": "text", "text": text}],
                 "stop_reason": "end_turn"}
 
-    def _run_cli_capture(self, argv: list[str], prompt: str, abort=None
+    def _run_cli_capture(self, argv: list[str], prompt: str, abort=None,
+                         env: Optional[dict[str, str]] = None
                          ) -> tuple[str, str, bool, bool]:
         """Run ``argv`` feeding ``prompt`` on stdin; capture stdout/stderr.
 
         Uses Popen + drain threads (no pipe-buffer deadlock) and polls so the
-        child is KILLED on ``abort`` (Esc) or ``cli_timeout``. Returns
+        child is KILLED on ``abort`` (Esc) or ``cli_timeout``. ``env`` overrides
+        the child environment (defaults to inheriting the parent). Returns
         ``(stdout, stderr, timed_out, aborted)``."""
         import threading
         proc = subprocess.Popen(argv, stdin=subprocess.PIPE, stdout=subprocess.PIPE,
-                                stderr=subprocess.PIPE, text=True, errors="replace")
+                                stderr=subprocess.PIPE, text=True, errors="replace",
+                                env=env)
         chunks: dict[str, list[str]] = {"out": [], "err": []}
 
         def _drain(stream, key: str) -> None:
@@ -241,7 +244,7 @@ class LLMClient:
     def _run_claude(self, prompt: str, model: Optional[str], abort=None) -> str:
         # Discrete argv (no shell=True). Writable by default (acceptEdits);
         # "full" bypasses all permission checks.
-        from .proc import cli_argv
+        from .proc import claude_child_env, cli_argv
         parts = ["claude", "-p", "--output-format", "json"]
         if self.cli_access == "full":
             parts.append("--dangerously-skip-permissions")
@@ -251,7 +254,7 @@ class LLMClient:
             parts += ["--model", model]
         try:
             stdout, stderr, timed_out, aborted = self._run_cli_capture(
-                cli_argv(parts), prompt, abort)
+                cli_argv(parts), prompt, abort, env=claude_child_env())
         except FileNotFoundError:
             return "[birkin] command not found: claude"
         if aborted:

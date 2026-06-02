@@ -37,7 +37,7 @@ import time
 from pathlib import Path
 from typing import Any, Callable, Optional
 
-from .proc import cli_argv
+from .proc import claude_child_env, cli_argv
 
 StreamCallback = Optional[Callable[[str], None]]
 
@@ -140,7 +140,7 @@ class ClaudeStreamSession:
             self._proc = subprocess.Popen(
                 argv, stdin=subprocess.PIPE, stdout=subprocess.PIPE,
                 stderr=subprocess.PIPE, text=True, bufsize=1, errors="replace",
-                cwd=self.cwd)
+                cwd=self.cwd, env=claude_child_env())
         except OSError:
             self._cleanup_sys_file()  # don't leak the temp file if spawn fails
             raise

@@ -48,3 +48,31 @@ def shell_argv(command: str) -> list[str]:
     if os.name == "nt":
         return ["cmd", "/c", command]
     return ["bash", "-lc", command]
+
+
+# Hook IDs of everything-claude-code (ECC) plugin hooks that must NOT run inside a
+# birkin-spawned ``claude`` subprocess. The ECC interactive SessionStart hook
+# injects an unrelated "Previous session summary" into context, which the model
+# then surfaces on the first turn — leaking a session dump into gateway/Telegram
+# replies. birkin supplies its own persona/memory/skills, so this hook is both
+# wrong and harmful here. ECC reads ``ECC_DISABLED_HOOKS`` (see the plugin's
+# ``scripts/lib/hook-flags.js``).
+_BIRKIN_DISABLED_ECC_HOOKS = ("session:start",)
+
+
+def claude_child_env() -> dict[str, str]:
+    """Environment for a birkin-spawned ``claude`` subprocess.
+
+    Inherits the parent environment and disables the ECC interactive SessionStart
+    hook via ``ECC_DISABLED_HOOKS``, MERGING (never clobbering) any value the user
+    already set. Used by :class:`birkin.claude_session.ClaudeStreamSession` (the
+    warm gateway path) and ``llm.LLMClient._run_claude`` (the one-shot path).
+    """
+    env = dict(os.environ)
+    disabled = [h.strip() for h in env.get("ECC_DISABLED_HOOKS", "").split(",")
+                if h.strip()]
+    for hook in _BIRKIN_DISABLED_ECC_HOOKS:
+        if hook not in disabled:
+            disabled.append(hook)
+    env["ECC_DISABLED_HOOKS"] = ",".join(disabled)
+    return env
