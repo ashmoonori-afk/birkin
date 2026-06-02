@@ -116,17 +116,21 @@ class LLMClient:
     def complete(self, *, system: str, messages: list[dict[str, Any]],
                  tools: Optional[list[dict[str, Any]]] = None,
                  model: Optional[str] = None,
-                 on_text: StreamCallback = None) -> dict[str, Any]:
+                 on_text: StreamCallback = None,
+                 abort: Optional[Any] = None) -> dict[str, Any]:
         """Run one assistant turn. Returns a canonical assistant message dict
         ``{"role": "assistant", "content": [...], "stop_reason": str}``.
+
+        ``abort`` (anything with ``is_set()``) interrupts: the Anthropic stream
+        stops between SSE events and a CLI subprocess is killed (Esc in the REPL).
         """
         model = model or self.model
         if self.provider in ("anthropic", "claude-oauth"):
-            return self._anthropic_complete(system, messages, tools, model, on_text)
+            return self._anthropic_complete(system, messages, tools, model, on_text, abort)
         if self.provider == "openai":
             return self._openai_complete(system, messages, tools, model, on_text)
         if self.provider in ("claude-cli", "codex-cli", "local-cli"):
-            return self._cli_complete(system, messages, model, on_text)
+            return self._cli_complete(system, messages, model, on_text, abort)
         raise LLMError(f"unknown provider: {self.provider!r}")
 
     # -- Local CLI agents (Claude Code / Codex) ----------------------------
@@ -151,29 +155,90 @@ class LLMClient:
                     parts.append(f"TOOL_RESULT: {c if isinstance(c, str) else c}")
         return "\n\n".join(parts).strip()
 
-    def _cli_complete(self, system, messages, model, on_text) -> dict[str, Any]:
+    def _cli_complete(self, system, messages, model, on_text,
+                      abort=None) -> dict[str, Any]:
         """Route the turn through a locally-installed agent CLI.
 
         These CLIs are full agents with their own tools and auth. birkin sends a
         concise CLI system prompt (identity + memory + skills routed to the
         request — built in runtime for CLI providers) plus the conversation, and
         returns the CLI's final reply. The CLI runs its own tools / any bundled
-        skill scripts.
+        skill scripts. ``abort`` kills the subprocess (Esc in the REPL).
         """
         prompt = self._flatten(system, messages)
         if self.provider == "claude-cli":
-            text = self._run_claude(prompt, model)
+            text = self._run_claude(prompt, model, abort)
         elif self.provider == "local-cli":
-            text = self._run_local_cli(prompt)
+            text = self._run_local_cli(prompt, abort)
         else:  # codex-cli
-            text = self._run_codex(prompt, model)
+            text = self._run_codex(prompt, model, abort)
         if on_text and text:
             on_text(text)
         return {"role": "assistant",
                 "content": [{"type": "text", "text": text}],
                 "stop_reason": "end_turn"}
 
-    def _run_claude(self, prompt: str, model: Optional[str]) -> str:
+    def _run_cli_capture(self, argv: list[str], prompt: str, abort=None
+                         ) -> tuple[str, str, bool, bool]:
+        """Run ``argv`` feeding ``prompt`` on stdin; capture stdout/stderr.
+
+        Uses Popen + drain threads (no pipe-buffer deadlock) and polls so the
+        child is KILLED on ``abort`` (Esc) or ``cli_timeout``. Returns
+        ``(stdout, stderr, timed_out, aborted)``."""
+        import threading
+        proc = subprocess.Popen(argv, stdin=subprocess.PIPE, stdout=subprocess.PIPE,
+                                stderr=subprocess.PIPE, text=True, errors="replace")
+        chunks: dict[str, list[str]] = {"out": [], "err": []}
+
+        def _drain(stream, key: str) -> None:
+            try:
+                for line in stream:
+                    chunks[key].append(line)
+            except Exception:
+                pass
+
+        def _feed() -> None:
+            try:
+                if prompt and proc.stdin:
+                    proc.stdin.write(prompt)
+            except Exception:
+                pass
+            finally:
+                try:
+                    if proc.stdin:
+                        proc.stdin.close()
+                except Exception:
+                    pass
+
+        threads = [threading.Thread(target=_drain, args=(proc.stdout, "out"), daemon=True),
+                   threading.Thread(target=_drain, args=(proc.stderr, "err"), daemon=True),
+                   threading.Thread(target=_feed, daemon=True)]
+        for t in threads:
+            t.start()
+        deadline = time.monotonic() + self.cli_timeout
+        timed_out = aborted = False
+        while proc.poll() is None:
+            if abort is not None and abort.is_set():
+                aborted = True
+                break
+            if time.monotonic() > deadline:
+                timed_out = True
+                break
+            time.sleep(0.05)
+        if timed_out or aborted:
+            try:
+                proc.kill()
+            except Exception:
+                pass
+        try:
+            proc.wait(timeout=2)
+        except Exception:
+            pass
+        for t in threads:
+            t.join(timeout=1)
+        return "".join(chunks["out"]), "".join(chunks["err"]), timed_out, aborted
+
+    def _run_claude(self, prompt: str, model: Optional[str], abort=None) -> str:
         # Discrete argv (no shell=True). Writable by default (acceptEdits);
         # "full" bypasses all permission checks.
         from .proc import cli_argv
@@ -185,20 +250,24 @@ class LLMClient:
         if model and model not in ("claude-code", "default", ""):
             parts += ["--model", model]
         try:
-            proc = subprocess.run(cli_argv(parts), input=prompt, capture_output=True,
-                                  text=True, errors="replace", timeout=self.cli_timeout)
-        except subprocess.TimeoutExpired:
+            stdout, stderr, timed_out, aborted = self._run_cli_capture(
+                cli_argv(parts), prompt, abort)
+        except FileNotFoundError:
+            return "[birkin] command not found: claude"
+        if aborted:
+            return "[birkin] (aborted)"
+        if timed_out:
             return (f"[birkin] Claude Code timed out after {self.cli_timeout}s. "
                     f"It may be blocked on a Claude Code hook or first-run prompt.")
-        out = (proc.stdout or "").strip()
+        out = (stdout or "").strip()
         if out:
             try:
                 return str(json.loads(out).get("result") or out)
             except json.JSONDecodeError:
                 return out
-        return f"[birkin] Claude Code error: {(proc.stderr or '').strip()[:400]}"
+        return f"[birkin] Claude Code error: {(stderr or '').strip()[:400]}"
 
-    def _run_codex(self, prompt: str, model: Optional[str]) -> str:
+    def _run_codex(self, prompt: str, model: Optional[str], abort=None) -> str:
         # Discrete argv (no shell=True). `-o` writes ONLY the final assistant
         # message to a file. By default codex uses its own policy
         # (workspace-write); "full" bypasses approvals + sandbox entirely.
@@ -214,26 +283,30 @@ class LLMClient:
         if model and model not in ("codex", "default", ""):
             parts += ["-m", model]
         try:
-            proc = subprocess.run(cli_argv(parts), input=prompt, capture_output=True,
-                                  text=True, errors="replace", timeout=self.cli_timeout)
+            stdout, stderr, timed_out, aborted = self._run_cli_capture(
+                cli_argv(parts), prompt, abort)
             try:
                 with open(path, encoding="utf-8", errors="replace") as fh:
                     text = fh.read().strip()
             except OSError:
                 text = ""
-        except subprocess.TimeoutExpired:
-            return f"[birkin] Codex timed out after {self.cli_timeout}s."
+        except FileNotFoundError:
+            return "[birkin] command not found: codex"
         finally:
             try:
                 os.unlink(path)
             except OSError:
                 pass
+        if aborted:
+            return "[birkin] (aborted)"
+        if timed_out:
+            return f"[birkin] Codex timed out after {self.cli_timeout}s."
         if text:
             return text
-        err = (proc.stderr or "").strip() or (proc.stdout or "").strip()
+        err = (stderr or "").strip() or (stdout or "").strip()
         return f"[birkin] Codex produced no message. {err[:400]}"
 
-    def _run_local_cli(self, prompt: str) -> str:
+    def _run_local_cli(self, prompt: str, abort=None) -> str:
         # Generic configured CLI runner: argv from config.cli_command, prompt on
         # stdin, stdout is the reply. Lets any local agent/model be a backend.
         from .proc import cli_argv
@@ -241,17 +314,18 @@ class LLMClient:
             return ("[birkin] No cli_command configured. Set config.cli_command "
                     "to an argv list, e.g. [\"my-llm\", \"--flag\"].")
         try:
-            proc = subprocess.run(cli_argv(self.cli_command), input=prompt,
-                                  capture_output=True, text=True, errors="replace",
-                                  timeout=self.cli_timeout)
+            stdout, stderr, timed_out, aborted = self._run_cli_capture(
+                cli_argv(self.cli_command), prompt, abort)
         except FileNotFoundError:
             return f"[birkin] command not found: {self.cli_command[0]}"
-        except subprocess.TimeoutExpired:
+        if aborted:
+            return "[birkin] (aborted)"
+        if timed_out:
             return f"[birkin] local CLI timed out after {self.cli_timeout}s."
-        out = (proc.stdout or "").strip()
+        out = (stdout or "").strip()
         if out:
             return out
-        return f"[birkin] local CLI no output. {(proc.stderr or '').strip()[:400]}"
+        return f"[birkin] local CLI no output. {(stderr or '').strip()[:400]}"
 
     # -- HTTP --------------------------------------------------------------
 
@@ -283,7 +357,7 @@ class LLMClient:
 
     # -- Anthropic ---------------------------------------------------------
 
-    def _anthropic_complete(self, system, messages, tools, model, on_text):
+    def _anthropic_complete(self, system, messages, tools, model, on_text, abort=None):
         url = f"{self.base_url}/v1/messages"
         headers = {
             "content-type": "application/json",
@@ -335,7 +409,7 @@ class LLMClient:
             payload["tools"] = t
 
         resp = self._post(url, headers, payload, stream=True)
-        result = self._read_anthropic_stream(resp, on_text)
+        result = self._read_anthropic_stream(resp, on_text, abort)
         if self.oauth:
             # Strip the mcp_ prefix so the agent's registry dispatches normally.
             # Rebuild immutably — a caller (retry/audit) may still hold the
@@ -350,7 +424,7 @@ class LLMClient:
         return result
 
     @staticmethod
-    def _read_anthropic_stream(resp, on_text) -> dict[str, Any]:
+    def _read_anthropic_stream(resp, on_text, abort=None) -> dict[str, Any]:
         # Blocks are tracked by their stream ``index`` (not "last appended"), so
         # multiple/parallel tool_use blocks accumulate their JSON correctly.
         content: list[dict[str, Any]] = []
@@ -362,6 +436,15 @@ class LLMClient:
                 content.append({"type": "text", "text": ""})
 
         for raw in resp:
+            if abort is not None and abort.is_set():
+                # Esc / interrupt — stop consuming the stream and return what we
+                # have so far (the agent loop sees this and stops too).
+                try:
+                    resp.close()
+                except Exception:
+                    pass
+                stop_reason = "aborted"
+                break
             line = raw.decode("utf-8", "replace").strip()
             if not line or not line.startswith("data:"):
                 continue

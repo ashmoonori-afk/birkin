@@ -12,7 +12,7 @@ import sys
 from datetime import datetime
 from typing import Any
 
-from . import inline_complete, slashcommands, store, transcripts, ui
+from . import abortkey, inline_complete, slashcommands, store, transcripts, ui
 from .runtime import ConfigError, Session, build_session
 from .ui import CYAN, DIM, RED, RESET, YELLOW
 
@@ -37,7 +37,8 @@ def _banner(session: Session) -> None:
     print(f" {DIM}The AI agent that actually remembers you.{RESET}\n")
     print(f" model {CYAN}{cfg.get('model')}{RESET} · {n} skill(s) · "
           f"vault {DIM}{session.memory.vault}{RESET}")
-    print(f" type {YELLOW}/help{RESET} for commands, or just chat · Ctrl-C to quit.")
+    print(f" type {YELLOW}/help{RESET} for commands, or just chat · "
+          f"{YELLOW}Esc{RESET} aborts a reply · Ctrl-C to quit.")
     print(f" {DIM}edit: Ctrl+←/→ word · Ctrl-W delete word · Ctrl-U/Ctrl-K clear "
           f"to start/end · ↑/↓ history{RESET}")
 
@@ -92,6 +93,19 @@ def run(cfg: dict[str, Any] | None = None) -> int:
                 base_event(ev, payload)
 
         session.agent.on_event = turn_event
+
+        # Esc aborts the in-flight turn: a background listener sets session.abort,
+        # which stops the LLM stream / kills the CLI subprocess (see abortkey).
+        esc_hit = {"v": False}
+
+        def on_esc() -> None:
+            if not esc_hit["v"]:
+                esc_hit["v"] = True
+                session.abort.set()
+                stop_spin()
+                print(f"\n{DIM}(esc — aborting…){RESET}")
+
+        listener = abortkey.listen_for_esc(on_esc)
         spinner.start()
         try:
             reply = session.ask(line)  # buffered (no live token printing)
@@ -102,12 +116,14 @@ def run(cfg: dict[str, Any] | None = None) -> int:
             transcripts.append_turn("repl", run_id, line, reply or "",
                                     cfg=session.cfg)
         except KeyboardInterrupt:
+            session.abort.set()
             stop_spin()
             print(f"\n{DIM}(interrupted){RESET}")
         except Exception as exc:  # surface, don't crash the REPL
             stop_spin()
             print(f"\n{RED}Error: {exc}{RESET}")
         finally:
+            listener.stop()
             session.agent.on_event = base_event
     print(f"{DIM}bye.{RESET}")
     return 0

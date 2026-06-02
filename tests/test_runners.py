@@ -9,17 +9,14 @@ USER = [{"role": "user", "content": [{"type": "text", "text": "hi"}]}]
 def test_local_cli_runs_configured_argv(monkeypatch):
     captured = {}
 
-    def fake_run(cmd, **kw):
-        captured["cmd"] = cmd
-        captured["input"] = kw.get("input")
+    # CLI runners go through _run_cli_capture (Popen + drain/poll for Esc-abort);
+    # mock at that boundary -> (stdout, stderr, timed_out, aborted).
+    def fake_capture(self, argv, prompt, abort=None):
+        captured["cmd"] = argv
+        captured["input"] = prompt
+        return "hello from my-llm", "", False, False
 
-        class R:
-            stdout = "hello from my-llm"
-            stderr = ""
-            returncode = 0
-        return R()
-
-    monkeypatch.setattr(subprocess, "run", fake_run)
+    monkeypatch.setattr(LLMClient, "_run_cli_capture", fake_capture)
     c = LLMClient(provider="local-cli", model="", api_key="cli", base_url="",
                   cli_command=["my-llm", "--flag"])
     res = c.complete(system="SYS", messages=USER, tools=[])

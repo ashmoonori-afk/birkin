@@ -6,7 +6,8 @@ configured identically in either surface.
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+import threading
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Callable, Optional
 
@@ -30,6 +31,9 @@ class Session:
     memory: Memory
     ctx: ToolContext
     agent: Agent
+    # Set to interrupt the in-flight turn (Esc in the REPL); cleared before each
+    # ask(). Threaded into agent.run -> the LLM stream / CLI subprocess.
+    abort: threading.Event = field(default_factory=threading.Event)
 
     def refresh_system_prompt(self) -> None:
         """Rebuild the system prompt to reflect current skills/memory/persona.
@@ -65,12 +69,13 @@ class Session:
         timing = os.environ.get("BIRKIN_TIMING")
         t0 = time.monotonic()
         self.skills.reload_if_changed()  # pick up edited/added skills live
+        self.abort.clear()               # fresh turn — drop any stale abort
         if self.cfg.get("provider") in config.CLI_PROVIDERS:
             self._build_cli_system(text)
         else:
             self.refresh_system_prompt()
         t1 = time.monotonic()
-        reply = self.agent.run(text, on_text=on_text)
+        reply = self.agent.run(text, on_text=on_text, abort=self.abort)
         t2 = time.monotonic()
         if timing:
             print(f"[birkin-timing] prompt={ (t1 - t0) * 1000:.0f}ms "

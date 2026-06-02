@@ -26,7 +26,7 @@ class _AlwaysTool:
     provider = "anthropic"
     model = "m"
 
-    def complete(self, *, system, messages, tools, model=None, on_text=None):
+    def complete(self, *, system, messages, tools, model=None, on_text=None, abort=None):
         return {"role": "assistant", "stop_reason": "tool_use", "content": [
             {"type": "tool_use", "id": "x", "name": "read_file", "input": {}}]}
 
@@ -37,7 +37,7 @@ class _MultiToolThenText:
         self.calls = 0
         self.provider = "anthropic"; self.model = "m"
 
-    def complete(self, *, system, messages, tools, model=None, on_text=None):
+    def complete(self, *, system, messages, tools, model=None, on_text=None, abort=None):
         self.calls += 1
         if self.calls == 1:
             return {"role": "assistant", "stop_reason": "tool_use", "content": [
@@ -60,7 +60,7 @@ def test_tool_error_is_propagated_into_messages():
     class _OneTool:
         provider = "anthropic"; model = "m"
         def __init__(self): self.n = 0
-        def complete(self, *, system, messages, tools, model=None, on_text=None):
+        def complete(self, *, system, messages, tools, model=None, on_text=None, abort=None):
             self.n += 1
             if self.n == 1:
                 return {"role": "assistant", "stop_reason": "tool_use", "content": [

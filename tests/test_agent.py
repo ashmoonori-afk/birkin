@@ -27,7 +27,7 @@ class FakeClient:
         self.script = list(script)
         self.systems: list[str] = []
 
-    def complete(self, *, system, messages, tools, model=None, on_text=None):
+    def complete(self, *, system, messages, tools, model=None, on_text=None, abort=None):
         self.systems.append(system)
         step = self.script.pop(0) if self.script else {"type": "text", "text": "done"}
         if step["type"] == "tool":

@@ -4,7 +4,41 @@ Lightweight architecture decision records. Each entry: context, decision,
 rationale, alternatives considered, status. Newest decisions may supersede
 older ones (noted inline).
 
-> Last updated: 2026-06-01
+> Last updated: 2026-06-02
+
+---
+
+## ADR-035 — Esc aborts the in-flight REPL turn
+
+**Context.** The REPL had only Ctrl-C (quit/interrupt). Users wanted to **abort a
+running reply with Esc** (like Claude Code) without killing the session — but
+while the agent works the main thread is blocked inside `session.ask`, so nothing
+reads the keyboard, and the free path is a *blocking* `claude`/`codex` subprocess.
+
+**Decision.** A cooperative abort flag threaded end-to-end, plus a background Esc
+listener:
+- `Session.abort` is a `threading.Event` (cleared before each `ask`). `Agent.run`
+  threads it into the loop: checked **between turns** (returns "[birkin] aborted.")
+  and passed into `LLMClient.complete`.
+- `LLMClient`: the Anthropic SSE reader stops between events on abort (closes the
+  response); the CLI runners now go through a shared `_run_cli_capture` that uses
+  `Popen` + drain threads (no pipe-buffer deadlock) and **polls so the child is
+  killed** on abort or `cli_timeout` (replaces the old blocking `subprocess.run`).
+- `birkin/abortkey.py`: a daemon **Esc listener** (termios+select on POSIX,
+  msvcrt on Windows) that fires a callback on `0x1b`; **no-op when stdin is not a
+  TTY** (piped runs / tests unaffected). The REPL starts it around `ask`, and on
+  Esc sets `session.abort` + stops the spinner; stops the listener in `finally`.
+
+**Alternatives.** Sending SIGINT to self on Esc (reuses Ctrl-C handling) was
+rejected — unreliable on Windows (this is a Windows-primary user) and it would
+also tear down more than the turn. The cooperative flag + subprocess-kill is
+cross-platform and scoped to the current reply.
+
+**Status.** Done; REPL-only (the gateway is a headless service). 7 new tests
+(agent between-turn abort, `_run_cli_capture` kills a sleeping child promptly,
+listener no-ops off-TTY); 489 pass offline. Limitation: abort is checked between
+SSE events / by polling the subprocess, so it is prompt but not instantaneous;
+tool execution mid-step finishes before the next between-turn check.
 
 ---
 

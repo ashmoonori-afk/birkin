@@ -11,7 +11,11 @@
 > runs only on a complex goal, never every turn. **52 bundled skills** (incl.
 `skills/creative/codex-image-gen` — free gpt-image-2 via Codex OAuth, see its SKILL.md).
 >
-> **482 tests** pass offline (no API key). Newest: **all v2 components built**
+> **489 tests** pass offline (no API key). Newest: **Esc aborts the in-flight
+> REPL turn** (ADR-035) — cooperative `Session.abort` flag threaded through
+> `agent.run`/`LLMClient` (Anthropic stream stops; CLI subprocess killed via the
+> new `_run_cli_capture`) + a TTY-only Esc listener (`abortkey.py`). Also: **all
+> v2 components built**
 > (code-reviewed: 1 HIGH + 3 MEDIUM fixed — boulder zombie/evidence-gate, router
 > free-tier guarantee + token routing).
 > (docs/v2.md) — #1 Model Router (`router.py`), #2 Hashline edits, #3 Osiris

@@ -48,6 +48,11 @@ class ToolResultLike(Protocol):
     is_error: bool
 
 
+class AbortLike(Protocol):
+    """Anything with ``is_set()`` — e.g. ``threading.Event`` — used to interrupt."""
+    def is_set(self) -> bool: ...
+
+
 # Event hook: (event_type, payload) for UI / logging.
 #   "tool_start" -> {"name", "input"}
 #   "tool_end"   -> {"name", "is_error", "content"}
@@ -92,9 +97,15 @@ class Agent:
                 pass  # UI hooks must never break the loop
 
     def run(self, user_text: str,
-            on_text: Optional[Callable[[str], None]] = None) -> str:
+            on_text: Optional[Callable[[str], None]] = None,
+            abort: Optional["AbortLike"] = None) -> str:
         """Send a user message and run the loop until the assistant stops
-        calling tools (or the turn guard trips). Returns the final text."""
+        calling tools (or the turn guard trips). Returns the final text.
+
+        ``abort`` (anything with ``is_set()``, e.g. a ``threading.Event``) lets a
+        caller interrupt: it is checked between turns and threaded into the LLM
+        call so a streaming response or CLI subprocess stops promptly (Esc in the
+        REPL)."""
         self.messages.append(
             {"role": "user", "content": [{"type": "text", "text": user_text}]})
         self.last_tools = []
@@ -102,18 +113,25 @@ class Agent:
         self._turns_since_memory += 1
         nudge = self._pending_nudge       # consume any nudge queued last turn
         self._pending_nudge = ""
-        return self._loop(on_text, extra_system=nudge)
+        return self._loop(on_text, extra_system=nudge, abort=abort)
 
-    def _loop(self, on_text, extra_system: str = "") -> str:
+    @staticmethod
+    def _aborted(abort: Optional["AbortLike"]) -> bool:
+        return abort is not None and abort.is_set()
+
+    def _loop(self, on_text, extra_system: str = "",
+              abort: Optional["AbortLike"] = None) -> str:
         final_text = ""
         tool_specs = self.registry.specs()
         system = self.system + (f"\n\n{extra_system}" if extra_system else "")
         used_skill = used_memory = False
 
         for _turn in range(self.max_turns):
+            if self._aborted(abort):
+                return (final_text + "\n\n[birkin] aborted.").strip()
             assistant = self.client.complete(
                 system=system, messages=self.messages,
-                tools=tool_specs, model=self.model, on_text=on_text)
+                tools=tool_specs, model=self.model, on_text=on_text, abort=abort)
             self.messages.append(
                 {"role": "assistant", "content": assistant["content"]})
 
