@@ -124,12 +124,13 @@ def update(root: Optional[Path] = None) -> dict[str, Any]:
                                f"{err[:300]}. Resolve manually with git pull."}
         after = _git(root, "rev-parse", "--short", "HEAD")[1]
         ver_after = _read_version(root)
+        date_after = _head_date(root)
         changed = _git(root, "diff", "--name-only", before, after)[1]
         n = len([ln for ln in changed.splitlines() if ln.strip()])
         return {"ok": True, "updated": True, "version": ver_after,
-                "date": _head_date(root), "behind": behind, "changed": n,
+                "date": date_after, "behind": behind, "changed": n,
                 "message": f"Updated v{ver_before} → "
-                           f"{_version_label(ver_after, _head_date(root))}; "
+                           f"{_version_label(ver_after, date_after)}; "
                            f"{behind} commit(s), {n} file(s)."}
     except (OSError, ValueError, subprocess.SubprocessError) as exc:
         return {"ok": False, "updated": False, "message": f"update failed: {exc}"}

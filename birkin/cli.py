@@ -230,7 +230,7 @@ def _cmd_tools(args: argparse.Namespace) -> int:
     from .memory import VaultMemory
     from .skills import build_manager
     from .tools import ToolContext, build_registry
-    from .ui import CYAN, DIM, GREEN, RED, RESET
+    from .ui import CYAN, DIM, RED, RESET
 
     cfg = config.load_config()
     disabled = set(cfg.get("disabled_tools", []))
