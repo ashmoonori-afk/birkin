@@ -4,7 +4,114 @@ Lightweight architecture decision records. Each entry: context, decision,
 rationale, alternatives considered, status. Newest decisions may supersede
 older ones (noted inline).
 
-> Last updated: 2026-06-02
+> Last updated: 2026-07-02
+
+---
+
+## ADR-041 — P1 automation pack: [SILENT] delivery, skill curator, session recall
+
+**Context.** The 2026-07-02 audit (`birkin-고도화-플랜-2026-07-02.md`) mapped
+hermes-agent automation patterns worth porting. Three landed here; two were
+deliberately deferred (cron pre-run/`context_from` pipelines; memory-in-user-
+message injection — the latter touches warm-session prompt caching and needs
+its own design pass).
+
+**Decision.**
+- **Job delivery + `[SILENT]`** (`scheduler.py`, `cron.py`, `approvals.py`):
+  cron jobs gain an optional `deliver_chat_id`; the scheduler sends the job's
+  output to that Telegram chat (token from `TELEGRAM_BOT_TOKEN` or
+  `channels.telegram.token`) **unless** the output flags itself
+  `[SILENT]`/`NO_REPLY` (hermes convention) — recorded locally either way
+  (`delivery: sent|skipped-silent|none|error` in the run record). Monitors
+  stop generating notification fatigue.
+- **Skill curator** (`curator.py`, hermes `agent/curator.py` rules):
+  `load_skill` records usage into `~/.birkin/skills/.usage.json`; a nightly
+  LLM-free pass marks skills unused 30 d *stale* and moves **user** skills
+  unused 90 d to `~/.birkin/skills/.archive/` (never deletes; bundled skills
+  are only reported). `discover()` now skips hidden trees so `.archive`
+  leaves the catalog. Surfaced to Morpheus as a "Skills state" prompt section
+  (+ `birkin curate [--dry-run]`).
+- **Session recall** (`tools/sessions.py`, hermes `session_search_tool`
+  analog): `session_search`/`session_get` over `sessions_dir()` transcripts
+  (incl. `auto__*`), substring-scored, path-traversal-safe — new `sessions`
+  tool group.
+
+**Also in this pass (repo health).** The 5 long-failing tests were repaired
+by aligning them with intended behavior, not by weakening code: gateway
+restart/models/update tests now configure `allowed_chat_ids` (the open-bot
+privileged-command refusal is *pinned* by a new test);
+`slashcommands._models` guards a session without an `agent`; the web-fetch
+tests were made hermetic (patch `build_opener` + DNS — the SSRF redirect
+guard had changed the seam). Repo-wide ruff `--fix` removed 16 unused
+imports; 17 pre-existing style nits (E701/E741/F841 in old tests) remain,
+deliberately untouched.
+
+**Status.** Done. Full suite green for the first time in this tree: 591
+tests collected, 0 failures, coverage 75.99 %. New tests: curator (9),
+sessions (6), scheduler [SILENT] (6), morpheus curator pass (1), gateway
+open-bot refusal (1).
+
+---
+
+## ADR-040 — Mnemosyne: zone-indexed memory palace (index + decay + zone priority)
+
+**Context.** The vault was flat and every `search`/`list_notes`/`render` re-read
+and re-parsed **every** note file (the unresolved half of review finding M4 —
+cost grows with the vault forever). Forgetting was binary (TTL or nothing),
+nothing recorded usage, and the nightly Morpheus wrote notes but never *judged*
+the vault (no link curation, no placement, no consolidation). The user asked
+for a mempalace-style memory palace made "more mechanical and lightweight":
+zones, efficient indexing, Morpheus judging correlations, a decay formula, and
+a priority engine for frequently used zones.
+
+**Decision.** New `birkin/mnemosyne.py` — the LLM-free mechanical engine
+(design: [`mnemosyne-design.md`](./mnemosyne-design.md)):
+
+- **Zones** = one-level vault subdirectories (`vault/<zone>/note.md`); root =
+  *inbox*, `_archive` = soft-forget (never delete). New notes placed by a
+  type→zone map; existing notes never move on update — `memory_rezone` (a new
+  tool) is the placement instrument. Obsidian stays fully compatible.
+- **Index** `.birkin-index.json` (rebuildable cache): stat-fingerprinted
+  inverted index; only changed files are re-parsed. Korean-aware tokenizer
+  (Hangul runs + character bigrams). Okapi BM25 (k1=1.5, b=0.75, as in
+  mempalace's searcher).
+- **Dynamics** `.birkin-dynamics.json` (state, survives rebuilds): Ebbinghaus
+  retention `strength·exp(−days/stability)` with floor 0.05 + Hebbian
+  potentiation gated on ≥1 h spacing (adapted from mempalace `dynamics.py`) —
+  and, unlike mempalace, **wired into ranking**:
+  `bm25 · (1 + 0.3·eff/cap + 0.2·zone_priority)`. `get_note`/`write_note`
+  count as access; `search`/`render` do not.
+- **Zone priority** = per-zone EMA of accesses decayed 0.9/day, normalized;
+  boosts retrieval and orders the zone-aware `render()` digest (identity
+  first, inbox last).
+- **Morpheus curation** (the judgment half, A-MEM's two-step linking): the
+  task template gains a "Memory state" data section (recent + stale notes,
+  UNTRUSTED-fenced) and step 1b — `memory_related` gives mechanical BM25
+  candidates, the LLM judges real links (`memory_link`), placement
+  (`memory_rezone`), and archives stale notes (eff<0.1, unused >90 d — hermes
+  curator's tier; `identity` never stales).
+- `birkin reindex` CLI rebuilds the index. `memory_write_note` gains `zone`.
+
+**Alternatives.** Frontmatter-only zones (invisible in Obsidian's tree — weaker
+palace model); SQLite FTS5 (BM25 for free but availability varies across
+distro Pythons, opaque vs debuggable JSON, CJK still custom — revisit >10k
+notes). An initial 2 s refresh throttle was built and then removed: externally
+edited notes (Obsidian) must be visible immediately; the M4 win is *no
+re-parsing*, not no statting.
+
+**Status.** Done. 569 offline tests run (46 new across
+`test_mnemosyne`/`test_memory_zones`/`test_cli`/morpheus additions), coverage
+75.27 % (≥75 gate), ruff clean on the new/modified files. Live-smoked: zone
+placement, Korean query, zone-aware render, `reindex`. Independent
+python-reviewer pass found 2 HIGH (a live-dict `entries()` snapshot race
+reproducible under gateway threading; `write_note` resolving its path outside
+the per-note lock, racing `rezone` into duplicate notes) + 3 MEDIUM + 6 LOW —
+all fixed except one pre-existing-line LOW (E741 in old `write_note` code).
+5 suite failures pre-date this work (gateway restart/models ×4 from
+uncommitted WIP in `gateway/core.py`/`slashcommands.py`; 1 network-dependent
+web-fetch test) — reproduced in isolation without the new modules loaded.
+Sources: mempalace (`room_detector_local.py`/`searcher.py`/`dynamics.py`),
+A-MEM (arXiv:2502.12110 via blog.outta.ai/230), hermes-agent (`curator.py`).
 
 ---
 

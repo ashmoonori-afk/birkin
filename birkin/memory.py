@@ -5,13 +5,16 @@ frontmatter and ``[[wikilinks]]`` — rather than an opaque vector store. This
 keeps knowledge transparent and editable in Obsidian, and is the *mandatory*
 substrate for birkin's memory.
 
-Notes are flat files named by a slug of their title (so ``[[Title]]`` resolves
-by basename in Obsidian). The ``type`` lives in frontmatter:
+Notes are slug-named files (so ``[[Title]]`` resolves by basename in
+Obsidian) organized into one-level **zone** directories — memory-palace
+rooms; the vault root is the *inbox* and ``_archive`` is the soft-forget
+zone. The ``type`` lives in frontmatter:
 ``person | project | preference | fact | topic | session``.
 
-Search is keyword/substring over note text plus ``[[wikilink]]`` graph
-traversal — no embeddings, honoring the zero-dependency goal. (Embedding
-search is a documented future upgrade.)
+Retrieval is index-backed via :mod:`birkin.mnemosyne` (BM25 + usage dynamics
++ zone priority) plus ``[[wikilink]]`` graph traversal — no embeddings,
+honoring the zero-dependency goal. (Embedding search is a documented future
+upgrade.) See ``docs/mnemosyne-design.md``.
 
 The public interface (``render()`` and ``tools()``) matches the previous simple
 memory so the rest of birkin is unaffected.
@@ -20,27 +23,39 @@ memory so the rest of birkin is unaffected.
 from __future__ import annotations
 
 import re
+import threading
 from datetime import date, datetime, timezone
 from pathlib import Path
 from typing import Any
 
 from . import config
+from .mnemosyne import (ARCHIVE_ZONE, IDENTITY_ZONE, TYPE_ZONE, WIKILINK_RE,
+                        Mnemosyne)
+from .mnemosyne import atomic_write as _atomic_write
+from .mnemosyne import slug as _slug
 from .skills import frontmatter
 
 VALID_TYPES = {"person", "project", "preference", "fact", "topic", "session"}
 VALID_POLARITIES = {"positive", "negative"}
-WIKILINK_RE = re.compile(r"\[\[([^\]]+)\]\]")
+
+# Per-slug write locks: two channel threads can write the same note concurrently
+# (the gateway runs LLM turns outside its global lock), so serialize a note's
+# read->check->write to stop lost updates / interleaved corruption.
+_NOTE_LOCKS: dict[str, threading.Lock] = {}
+_NOTE_LOCKS_GUARD = threading.Lock()
+
+
+def _note_lock(slug: str) -> threading.Lock:
+    with _NOTE_LOCKS_GUARD:
+        lk = _NOTE_LOCKS.get(slug)
+        if lk is None:
+            lk = _NOTE_LOCKS[slug] = threading.Lock()
+        return lk
 
 
 class VersionMismatchError(ValueError):
     """Raised by write_note when expected_version does not match the on-disk
     version (optimistic concurrency control — no stale-snapshot overwrites)."""
-
-
-def _slug(title: str) -> str:
-    s = re.sub(r"[^\w\s-]", "", title.strip().lower())
-    s = re.sub(r"[\s_-]+", "-", s).strip("-")
-    return s or "note"
 
 
 def _now_iso() -> str:
@@ -51,49 +66,106 @@ class VaultMemory:
     def __init__(self, cfg: dict[str, Any] | None = None):
         self.cfg = cfg or {}
         self.vault = config.vault_dir(self.cfg)
+        self._dex: Mnemosyne | None = None
+
+    @property
+    def dex(self) -> Mnemosyne:
+        """The mechanical index/dynamics engine (lazy; see mnemosyne.py)."""
+        if self._dex is None:
+            self._dex = Mnemosyne(self.vault)
+        return self._dex
 
     # -- low-level note IO -------------------------------------------------
 
-    def _path(self, title: str) -> Path:
-        return self.vault / f"{_slug(title)}.md"
+    def _resolve_path(self, title: str, note_type: str = "topic",
+                      zone: str | None = None) -> Path:
+        """Existing notes stay where they live; new notes are placed by the
+        explicit ``zone`` or the mechanical type→zone map (Morpheus refines
+        placement nightly via memory_rezone)."""
+        s = _slug(title)
+        rel = self.dex.resolve_rel(s)
+        if rel:
+            return self.vault / rel
+        if zone is not None:
+            z = "" if zone in ("", "inbox") else _slug(zone)[:32]
+        else:
+            z = TYPE_ZONE.get(note_type, "knowledge")
+        return (self.vault / z / f"{s}.md") if z else self.vault / f"{s}.md"
+
+    def _find_note(self, title: str) -> Path | None:
+        s = _slug(title)
+        rel = self.dex.resolve_rel(s)
+        if rel and (self.vault / rel).is_file():
+            return self.vault / rel
+        p = self.vault / f"{s}.md"
+        if p.is_file():
+            return p
+        for f in self.vault.rglob("*.md"):   # index cold/missing fallback
+            if f.stem == s:
+                return f
+        return None
 
     def get_note(self, title: str) -> str | None:
-        p = self._path(title)
-        if p.is_file():
-            return p.read_text(encoding="utf-8", errors="replace")
-        # fall back to a case-insensitive title match
-        target = _slug(title)
-        for f in self.vault.glob("*.md"):
-            if f.stem == target:
-                return f.read_text(encoding="utf-8", errors="replace")
-        return None
+        p = self._find_note(title)
+        if p is None:
+            return None
+        try:
+            text = p.read_text(encoding="utf-8", errors="replace")
+        except OSError:
+            return None
+        self.dex.record_access(p.stem)   # reading a note = using it
+        return text
 
     def list_notes(self) -> list[dict[str, Any]]:
         notes: list[dict[str, Any]] = []
-        for f in self.vault.glob("*.md"):
+        for entry in self.dex.entries().values():
+            if entry["zone"] == ARCHIVE_ZONE:
+                continue   # soft-forgotten; reachable via zone="_archive"
+            if _is_expired(entry):
+                continue   # TTL: drop expired notes from the index/router
+            notes.append({
+                "title": entry["title"],
+                "type": entry["type"],
+                "updated": entry["updated"],
+                "confidence": entry["confidence"],
+                "polarity": entry["polarity"],
+                "zone": entry["zone"] or "inbox",
+                "path": self.vault / entry["rel"],
+            })
+        return notes
+
+    def purge_expired(self) -> int:
+        """Delete notes whose ``expires_at`` is in the past; return the count.
+
+        TTL notes are otherwise only *hidden* from search/render, so the vault
+        grows without bound. Call this from the nightly maintenance routine — not
+        on every read, since a read should not silently delete a user's files."""
+        removed = 0
+        for f in self.vault.rglob("*.md"):
             try:
-                meta, _ = frontmatter.parse(f.read_text(encoding="utf-8", errors="replace"))
+                meta, _ = frontmatter.parse(
+                    f.read_text(encoding="utf-8", errors="replace"))
             except OSError:
                 continue
             if _is_expired(meta):
-                continue   # TTL: drop expired notes from the index/router
-            notes.append({
-                "title": meta.get("title", f.stem),
-                "type": meta.get("type", "topic"),
-                "updated": meta.get("updated", ""),
-                "confidence": meta.get("confidence", 0.5),
-                "polarity": str(meta.get("polarity") or "positive"),
-                "path": f,
-            })
-        return notes
+                try:
+                    f.unlink()
+                    removed += 1
+                except OSError:
+                    pass
+        return removed
 
     def write_note(self, title: str, body: str, *, note_type: str = "topic",
                    tags: list[str] | None = None, links: list[str] | None = None,
                    confidence: float = 0.7, source: str | None = None,
                    append: bool = False, ttl_days: int | None = None,
-                   polarity: str | None = None,
+                   polarity: str | None = None, zone: str | None = None,
                    expected_version: int | None = None) -> Path:
         """Create or update a note.
+
+        ``zone`` places a **new** note in a specific palace zone directory
+        (``"inbox"``/``""`` = vault root); existing notes never move here —
+        use :meth:`rezone`. Without it, the type→zone map decides.
 
         Memory-OS controls:
         - ``ttl_days`` — auto-expire from the index/search/render after N days.
@@ -104,89 +176,98 @@ class VaultMemory:
         - **Evidence gate** — a brand-new note requires at least one ``source``.
         """
         note_type = note_type if note_type in VALID_TYPES else "topic"
-        p = self._path(title)
-        created = date.today().isoformat()
-        sources: list[str] = []
-        existing_body = ""
-        existing_polarity: str | None = None
-        existing_version = 0
-        if p.is_file():
-            old = p.read_text(encoding="utf-8", errors="replace")
-            meta, old_body = frontmatter.parse(old)
-            created = str(meta.get("created", created))
-            old_sources = meta.get("sources")
-            if isinstance(old_sources, list):
-                sources = [str(s) for s in old_sources]
-            existing_body = old_body.strip()
-            existing_polarity = str(meta.get("polarity") or "") or None
-            try:
-                existing_version = int(meta.get("version") or 0)
-            except (TypeError, ValueError):
-                existing_version = 0
+        # Serialize the read->check->write for this note so concurrent writers
+        # can't both pass the version check and clobber each other (lost update),
+        # and so the file is never half-written under a reader. Path resolution
+        # happens INSIDE the lock: rezone() takes the same lock, so a move can't
+        # slip between resolve and write (stale path -> duplicate note).
+        with _note_lock(_slug(title)):
+            p = self._resolve_path(title, note_type, zone)
+            created = date.today().isoformat()
+            sources: list[str] = []
+            existing_body = ""
+            existing_polarity: str | None = None
+            existing_version = 0
+            if p.is_file():
+                old = p.read_text(encoding="utf-8", errors="replace")
+                meta, old_body = frontmatter.parse(old)
+                created = str(meta.get("created", created))
+                old_sources = meta.get("sources")
+                if isinstance(old_sources, list):
+                    sources = [str(s) for s in old_sources]
+                existing_body = old_body.strip()
+                existing_polarity = str(meta.get("polarity") or "") or None
+                try:
+                    existing_version = int(meta.get("version") or 0)
+                except (TypeError, ValueError):
+                    existing_version = 0
 
-        if expected_version is not None and int(expected_version) != existing_version:
-            raise VersionMismatchError(
-                f"expected version {expected_version}, on-disk {existing_version}")
+            if expected_version is not None and int(expected_version) != existing_version:
+                raise VersionMismatchError(
+                    f"expected version {expected_version}, on-disk {existing_version}")
 
-        if source and source not in sources:
-            sources.append(source)
+            if source and source not in sources:
+                sources.append(source)
 
-        # Evidence-gated writes (opt-in via `evidence_required: true` in config):
-        # a new note with no prior sources and none provided is refused.
-        if not sources and self.cfg.get("evidence_required"):
-            raise ValueError(
-                "memory writes require at least one `source` for a new note "
-                "(evidence_required is enabled in config)")
+            # Evidence-gated writes (opt-in via `evidence_required: true` in config):
+            # a new note with no prior sources and none provided is refused.
+            if not sources and self.cfg.get("evidence_required"):
+                raise ValueError(
+                    "memory writes require at least one `source` for a new note "
+                    "(evidence_required is enabled in config)")
 
-        if polarity is not None and polarity not in VALID_POLARITIES:
-            raise ValueError(
-                f"polarity must be one of {sorted(VALID_POLARITIES)}, got {polarity!r}")
-        pol = polarity or existing_polarity or "positive"
-        if pol not in VALID_POLARITIES:   # defensive — bad on-disk value
-            pol = "positive"
+            if polarity is not None and polarity not in VALID_POLARITIES:
+                raise ValueError(
+                    f"polarity must be one of {sorted(VALID_POLARITIES)}, got {polarity!r}")
+            pol = polarity or existing_polarity or "positive"
+            if pol not in VALID_POLARITIES:   # defensive — bad on-disk value
+                pol = "positive"
 
-        body = body.strip()
-        if append and existing_body:
-            body = existing_body + "\n\n" + body
+            body = body.strip()
+            if append and existing_body:
+                body = existing_body + "\n\n" + body
 
-        # Ensure linked notes appear as wikilinks in a Related section.
-        links = links or []
-        if links:
-            related = " · ".join(f"[[{l}]]" for l in links)
-            if "## Related" not in body:
-                body += f"\n\n## Related\n{related}"
+            # Ensure linked notes appear as wikilinks in a Related section.
+            links = links or []
+            if links:
+                related = " · ".join(f"[[{link}]]" for link in links)
+                if "## Related" not in body:
+                    body += f"\n\n## Related\n{related}"
 
-        expires_at = None
-        if ttl_days is not None and int(ttl_days) > 0:
-            from datetime import timedelta
-            expires_at = (date.today() + timedelta(days=int(ttl_days))).isoformat()
+            expires_at = None
+            if ttl_days is not None and int(ttl_days) > 0:
+                from datetime import timedelta
+                expires_at = (date.today() + timedelta(days=int(ttl_days))).isoformat()
 
-        fm = _compose_frontmatter(
-            title=title, note_type=note_type, created=created,
-            updated=_now_iso()[:10], confidence=confidence,
-            sources=sources, tags=tags or [], expires_at=expires_at,
-            polarity=pol, version=existing_version + 1)
-        p.write_text(fm + body + "\n", encoding="utf-8")
-        return p
+            fm = _compose_frontmatter(
+                title=title, note_type=note_type, created=created,
+                updated=_now_iso()[:10], confidence=confidence,
+                sources=sources, tags=tags or [], expires_at=expires_at,
+                polarity=pol, version=existing_version + 1)
+            _atomic_write(p, fm + body + "\n")
+            self.dex.note_written(p)
+            self.dex.record_access(_slug(title))   # writing = using
+            return p
 
-    def search(self, query: str, limit: int = 8) -> list[dict[str, str]]:
-        """Keyword/substring search across the vault, ranked by hit count."""
+    def search(self, query: str, limit: int = 8) -> list[dict[str, Any]]:
+        """Index-backed search (BM25 × dynamics × zone priority). Reads only
+        the top ``limit`` note files for snippets — never the whole vault."""
         terms = [t for t in re.split(r"\s+", query.lower()) if t]
-        if not terms:
-            return []
-        hits: list[tuple[int, dict[str, str]]] = []
-        for f in self.vault.glob("*.md"):
-            text = f.read_text(encoding="utf-8", errors="replace")
-            meta, body = frontmatter.parse(text)
-            if _is_expired(meta):
-                continue
-            low = text.lower()
-            score = sum(low.count(t) for t in terms)
-            if score:
-                snippet = _snippet(body or text, terms[0])
-                hits.append((score, {"title": f.stem, "snippet": snippet}))
-        hits.sort(key=lambda x: x[0], reverse=True)
-        return [h[1] for h in hits[:limit]]
+        out: list[dict[str, Any]] = []
+        for h in self.dex.search(query, limit=limit):
+            body = h["summary"]
+            try:
+                _, parsed = frontmatter.parse(
+                    (self.vault / h["rel"]).read_text(encoding="utf-8",
+                                                      errors="replace"))
+                body = parsed or body
+            except OSError:
+                pass
+            out.append({"title": h["slug"],
+                        "snippet": _snippet(body, terms[0] if terms else ""),
+                        "zone": h["zone"] or "inbox",
+                        "related": [_slug(t) for t in h["links"]]})
+        return out
 
     def neighbors(self, title: str) -> list[str]:
         """Titles linked from a note (outgoing ``[[wikilinks]]``)."""
@@ -199,7 +280,6 @@ class VaultMemory:
             return False
         if f"[[{to_title}]]" in text:
             return True
-        p = self._path(from_title)
         meta, body = frontmatter.parse(text)
         body = body.rstrip()
         if "## Related" in body:
@@ -212,33 +292,63 @@ class VaultMemory:
                         confidence=float(meta.get("confidence", 0.7) or 0.7))
         return True
 
+    # -- palace maintenance --------------------------------------------------
+
+    def rezone(self, title: str, zone: str) -> Path:
+        """Move a note to another zone (Morpheus's placement instrument)."""
+        with _note_lock(_slug(title)):
+            return self.dex.rezone(_slug(title), zone)
+
+    def reindex(self) -> dict[str, int]:
+        """Force-rebuild the vault index; returns stats (``birkin reindex``)."""
+        return self.dex.rebuild()
+
     # -- prompt digest -----------------------------------------------------
 
     def render(self, limit: int = 25) -> str:
-        """A compact digest for the system prompt (recency + confidence)."""
-        notes = self.list_notes()
-        if not notes:
+        """Zone-aware digest for the system prompt: identity first, then
+        zones by priority (effective strength orders notes inside a zone),
+        inbox last as a standing filing nudge. ``_archive`` is excluded."""
+        dex = self.dex
+        now = datetime.now(timezone.utc)
+        by_zone: dict[str, list[tuple[float, dict[str, Any]]]] = {}
+        for s, e in dex.entries().items():
+            if e["zone"] == ARCHIVE_ZONE or _is_expired(e):
+                continue
+            by_zone.setdefault(e["zone"], []).append(
+                (dex.effective_of(s, now), e))
+        if not by_zone:
             return ""
-
-        def rank(n: dict[str, Any]) -> tuple:
-            try:
-                conf = float(n.get("confidence", 0.5))
-            except (TypeError, ValueError):
-                conf = 0.5
-            return (str(n.get("updated", "")), conf)
-
-        notes.sort(key=rank, reverse=True)
-        lines = [f"Vault: {self.vault} ({len(notes)} notes). "
+        pri = dex.zone_priorities(today=now.date())
+        mid = sorted((z for z in by_zone if z not in ("", IDENTITY_ZONE)),
+                     key=lambda z: (-pri.get(z, 0.0), z))
+        order = ([IDENTITY_ZONE] if IDENTITY_ZONE in by_zone else []) \
+            + mid + ([""] if "" in by_zone else [])
+        total = sum(len(v) for v in by_zone.values())
+        lines = [f"Vault: {self.vault} ({total} notes). "
                  f"Use memory_search / memory_get_note for details."]
-        for n in notes[:limit]:
-            first = _first_line(n["path"])
-            tag = " ⚠ known failure — re-verify" if n.get("polarity") == "negative" else ""
-            lines.append(f"- [[{n['title']}]] ({n['type']}){tag}: {first}")
+        left = limit
+        for z in order:
+            if left <= 0:
+                break
+            group = sorted(by_zone[z],
+                           key=lambda t: (t[0], t[1]["updated"]),
+                           reverse=True)
+            cap = min(left, 5) if z == IDENTITY_ZONE else left
+            lines.append(f"[{z or 'inbox'}]")
+            for _eff, e in group[:cap]:
+                tag = (" ⚠ known failure — re-verify"
+                       if e.get("polarity") == "negative" else "")
+                lines.append(
+                    f"- [[{e['title']}]] ({e['type']}){tag}: {e['summary']}")
+                left -= 1
+                if left <= 0:
+                    break
         return "\n".join(lines)
 
     # -- tools -------------------------------------------------------------
 
-    def tools(self):
+    def tools(self) -> list[Any]:   # list[Tool]; imported lazily (cycle)
         from .tools import Tool, ToolContext, ToolResult
 
         def remember(inp: dict[str, Any], ctx: ToolContext) -> ToolResult:
@@ -273,6 +383,7 @@ class VaultMemory:
                     append=bool(inp.get("append", False)),
                     ttl_days=int(inp["ttl_days"]) if inp.get("ttl_days") else None,
                     polarity=inp.get("polarity"),
+                    zone=inp.get("zone"),
                     expected_version=(int(inp["expected_version"])
                                       if inp.get("expected_version") is not None
                                       else None))
@@ -299,6 +410,31 @@ class VaultMemory:
             ok = self.add_link(inp.get("from", ""), inp.get("to", ""))
             return (ToolResult("Linked.") if ok
                     else ToolResult("Source note not found.", is_error=True))
+
+        def memory_related(inp: dict[str, Any], ctx: ToolContext) -> ToolResult:
+            title = (inp.get("title") or "").strip()
+            if not title:
+                return ToolResult("memory_related needs a title.",
+                                  is_error=True)
+            hits = self.dex.related(_slug(title),
+                                    limit=int(inp.get("limit", 5) or 5))
+            if not hits:
+                return ToolResult("No related candidates.")
+            return ToolResult("\n".join(
+                f"- [[{h['title']}]] (zone: {h['zone'] or 'inbox'}): "
+                f"{h['summary']}" for h in hits))
+
+        def memory_rezone(inp: dict[str, Any], ctx: ToolContext) -> ToolResult:
+            title = (inp.get("title") or "").strip()
+            zone = (inp.get("zone") or "").strip()
+            if not (title and zone):
+                return ToolResult("memory_rezone needs title and zone.",
+                                  is_error=True)
+            try:
+                p = self.rezone(title, zone)
+            except (ValueError, OSError) as exc:
+                return ToolResult(f"rezone failed: {exc}", is_error=True)
+            return ToolResult(f"Moved [[{title}]] to zone '{zone}' ({p}).")
 
         return [
             Tool(name="remember",
@@ -329,6 +465,10 @@ class VaultMemory:
                      "polarity": {"type": "string",
                                   "enum": ["positive", "negative"],
                                   "description": "use 'negative' for known failures"},
+                     "zone": {"type": "string",
+                              "description": "palace zone for a NEW note "
+                                             "(e.g. projects, people; "
+                                             "'inbox' = vault root)"},
                      "expected_version": {"type": "integer",
                                           "description": "optimistic-lock check"}},
                      "required": ["title", "body"]},
@@ -351,6 +491,24 @@ class VaultMemory:
                      "from": {"type": "string"}, "to": {"type": "string"}},
                      "required": ["from", "to"]},
                  fn=memory_link),
+            Tool(name="memory_related",
+                 description="Mechanical candidates for notes related to a "
+                             "given note (BM25 over its own terms, excluding "
+                             "already-linked). Judge which are truly related, "
+                             "then record real ones with memory_link.",
+                 input_schema={"type": "object", "properties": {
+                     "title": {"type": "string"},
+                     "limit": {"type": "integer"}}, "required": ["title"]},
+                 fn=memory_related),
+            Tool(name="memory_rezone",
+                 description="Move a note to another zone of the memory "
+                             "palace ('_archive' soft-forgets, 'inbox' is "
+                             "the vault root).",
+                 input_schema={"type": "object", "properties": {
+                     "title": {"type": "string"},
+                     "zone": {"type": "string"}},
+                     "required": ["title", "zone"]},
+                 fn=memory_rezone),
         ]
 
 
@@ -390,18 +548,6 @@ def _is_expired(meta: dict[str, Any]) -> bool:
         return date.fromisoformat(str(raw)) < date.today()
     except ValueError:
         return False
-
-
-def _first_line(path: Path) -> str:
-    try:
-        _, body = frontmatter.parse(path.read_text(encoding="utf-8", errors="replace"))
-    except OSError:
-        return ""
-    for line in body.splitlines():
-        line = line.strip()
-        if line and not line.startswith("#"):
-            return line[:120]
-    return ""
 
 
 def _snippet(text: str, term: str, width: int = 100) -> str:

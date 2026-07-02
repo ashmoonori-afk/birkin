@@ -123,6 +123,8 @@ class SkillManager:
                 avail = ", ".join(sorted(self.skills)) or "(none)"
                 return ToolResult(f"No skill named {name!r}. Available: {avail}",
                                   is_error=True)
+            from ..curator import record_use
+            record_use(skill.name)   # usage feeds the curator lifecycle
             return ToolResult(self.render_skill(skill))
 
         def create_skill(inp: dict[str, Any], ctx: ToolContext) -> ToolResult:

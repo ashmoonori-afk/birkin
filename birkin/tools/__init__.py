@@ -78,15 +78,17 @@ def build_registry(ctx: ToolContext, *, include: Optional[set[str]] = None) -> T
 
     ``include`` optionally restricts which tool *groups* are registered
     (used to give subagents a scoped toolset). Groups:
-    ``files``, ``shell``, ``web``, ``skills``, ``memory``, ``subagent``.
+    ``files``, ``shell``, ``web``, ``sessions``, ``skills``, ``memory``,
+    ``subagent``.
     """
-    from . import files, shell, web  # local imports avoid cycles
+    from . import files, sessions, shell, web  # local imports avoid cycles
     from .subagent_tool import subagent_tools
 
     groups: dict[str, list[Tool]] = {
         "files": files.tools(),
         "shell": shell.tools(),
         "web": web.tools(),
+        "sessions": sessions.tools(),
     }
     if ctx.skills is not None:
         groups["skills"] = ctx.skills.tools()

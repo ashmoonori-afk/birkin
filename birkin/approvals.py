@@ -16,7 +16,7 @@ from __future__ import annotations
 import subprocess
 from typing import Any
 
-from . import config, cron, risk, store
+from . import cron, risk, store
 from .proc import shell_argv
 
 
@@ -78,7 +78,8 @@ def execute_action(category: str, payload: dict[str, Any],
             hour=_clk(payload.get("hour", 9), 9, 23),
             minute=_clk(payload.get("minute", 0), 0, 59),
             action_type=payload.get("type", "prompt"),
-            value=payload.get("value", ""))
+            value=payload.get("value", ""),
+            deliver_chat_id=payload.get("deliver_chat_id"))
         return f"Registered cron job '{job['name']}' at " \
                f"{job['hour']:02d}:{job['minute']:02d} (id {job['id']})."
     if category == "shell":

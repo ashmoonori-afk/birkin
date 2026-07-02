@@ -213,6 +213,26 @@ def _cmd_gateway(args: argparse.Namespace) -> int:
 # Tools grouped by "toolset" for the Available Tools panel.
 _TOOL_GROUPS = ["files", "shell", "web", "skills", "memory", "subagent"]
 
+def _cmd_curate(args: argparse.Namespace) -> int:
+    """Skill lifecycle pass: report stale, archive long-unused user skills."""
+    from . import config, curator
+    from .skills import build_manager
+    report = curator.curate(build_manager(config.load_config()),
+                            apply=not args.dry_run)
+    print(curator.render_report(report))
+    return 0
+
+
+def _cmd_reindex(args: argparse.Namespace) -> int:
+    """Force-rebuild the memory-palace index (mnemosyne)."""
+    from . import config
+    from .memory import VaultMemory
+    stats = VaultMemory(config.load_config()).reindex()
+    print(f"reindexed: {stats['notes']} notes, {stats['zones']} zones, "
+          f"{stats['terms']} terms, {stats['stale']} stale candidate(s)")
+    return 0
+
+
 _BIRKIN_ART = [
     " ██████╗ ██╗██████╗ ██╗  ██╗██╗███╗   ██╗",
     " ██╔══██╗██║██╔══██╗██║ ██╔╝██║████╗  ██║",
@@ -242,7 +262,8 @@ def _cmd_tools(args: argparse.Namespace) -> int:
         cfg["disabled_tools"] = sorted(disabled)
         config.save_config(cfg)
 
-    base = dict(cfg); base["disabled_tools"] = []
+    base = dict(cfg)
+    base["disabled_tools"] = []
     skills, memory = build_manager(cfg), VaultMemory(cfg)
     ctx = ToolContext(cfg=base, client=None, cwd=Path.cwd(),
                       skills=skills, memory=memory)
@@ -456,8 +477,8 @@ def _cmd_trace(args: argparse.Namespace) -> int:
     for path in matches[:5]:
         try:
             rec = _json.loads(path.read_text(encoding="utf-8"))
-        except OSError:
-            continue
+        except (OSError, ValueError):
+            continue  # a truncated/corrupt run file must not crash the whole trace
         print(f"{BOLD}── {rec.get('id')}{RESET}  {DIM}{rec.get('at','')}{RESET}  "
               f"{CYAN}{rec.get('kind')}{RESET}")
         print(f"  summary: {rec.get('summary')}")
@@ -553,6 +574,18 @@ def build_parser() -> argparse.ArgumentParser:
     rp.set_defaults(func=_cmd_runs)
 
     sub.add_parser("budget", help="show token budget usage vs caps").set_defaults(func=_cmd_budget)
+
+    sub.add_parser(
+        "reindex",
+        help="rebuild the memory-palace index (zones, terms, dynamics)",
+    ).set_defaults(func=_cmd_reindex)
+
+    cur = sub.add_parser(
+        "curate",
+        help="skill lifecycle pass: report stale, archive unused user skills")
+    cur.add_argument("--dry-run", action="store_true",
+                     help="report only; move nothing")
+    cur.set_defaults(func=_cmd_curate)
 
     tp_ = sub.add_parser("trace", help="print a run record (audit replay)")
     tp_.add_argument("run_id", help="run id (or a substring) — see `birkin runs`")

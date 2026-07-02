@@ -1,6 +1,18 @@
 # birkin — Build Status
 
-> Snapshot: 2026-06-02 · **504 tests** · 53 skills. Newest: gateway **restart
+> Snapshot: 2026-07-02 · **591 tests, 0 failures** (first fully-green tree;
+> the 5 stale gateway/web-fetch tests were repaired per ADR-041) · coverage
+> 75.99 %. Newest: **P1 automation pack** (ADR-041) — cron job delivery with
+> the hermes `[SILENT]` convention (`deliver_chat_id` + suppression), **skill
+> curator** (usage tracking, 30 d stale / 90 d archive of user skills,
+> `birkin curate`), and **session recall tools**
+> (`session_search`/`session_get`). Before that: **Mnemosyne memory palace**
+> (ADR-040) — zone directories + stat-fingerprinted BM25 index (Korean-aware)
+> + Ebbinghaus/Hebbian decay wired into ranking + zone-priority EMA +
+> Morpheus nightly curation (`memory_related`/`memory_rezone`) +
+> `birkin reindex`. Design: [`docs/mnemosyne-design.md`](./mnemosyne-design.md).
+>
+> Previous (2026-06-02): gateway **restart
 > auto-greet** — after a hard restart the re-exec'd process greets the chat that
 > asked (one-shot marker → "✅ 재시작 완료 👋", Telegram); the soft `/restart`
 > reply carries the same friendly tail. Also: **`birkin compare`**
@@ -336,6 +348,7 @@ OAuth, no paid API key).
 | Skills system (`SKILL.md`, hermes-compatible) | `skills/` | ✅ |
 | Subagents (isolated, scoped, depth-bounded) | `subagent.py`, `tools/subagent_tool.py` | ✅ |
 | **Obsidian-vault semantic memory** | `memory.py` | ✅ |
+| **Mnemosyne palace engine** (zones, BM25 index, decay, zone priority) | `mnemosyne.py` | ✅ (ADR-040) |
 | Self-improvement (in-session `/learn`) | `selfimprove.py` | ✅ |
 | **Morpheus 04:00 routine** | `morpheus.py` (legacy alias: `nightly.py`) | ✅ (dry-run + no-key handled) |
 | Scheduler daemon + OS-register option | `scheduler.py` | ✅ (heartbeat verified) |
@@ -403,8 +416,8 @@ export ANTHROPIC_API_KEY=sk-ant-...   # required for chat / Morpheus
 - Daemon clears its status only on Ctrl-C (SIGINT); a hard kill (SIGTERM) leaves
   a stale `daemon: true`. Mitigation: treat a stale `heartbeat` as stopped, or
   add a SIGTERM handler.
-- Memory search is keyword + `[[wikilink]]` graph (per decision); embeddings are
-  a future optional upgrade.
+- Memory search is index-backed BM25 + dynamics + zone priority + `[[wikilink]]`
+  graph (ADR-040); embeddings remain a future optional upgrade.
 - No automated test suite yet (manual smoke tests above). Adding `pytest`
   coverage for `frontmatter`, `memory`, `approvals`, `llm` stream parsing is the
   recommended next step.

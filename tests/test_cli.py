@@ -35,6 +35,18 @@ def test_parser_dry_run_flag_on_chat():
     assert ns.message == "hi"
 
 
+def test_cmd_reindex_prints_stats(capsys):
+    from birkin.cli import _cmd_reindex
+    from birkin.memory import VaultMemory
+    m = VaultMemory(config.load_config())
+    m.write_note("R1", "alpha", note_type="fact")
+    m.write_note("R2", "beta", note_type="project")
+    ns = build_parser().parse_args(["reindex"])
+    assert _cmd_reindex(ns) == 0
+    out = capsys.readouterr().out
+    assert "2 notes" in out and "zones" in out and "stale" in out
+
+
 def _ns(**kw):
     """Build a permissive Namespace for the inspection commands."""
     import argparse

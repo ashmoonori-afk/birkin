@@ -14,10 +14,13 @@ daemon — offered as an opt-in, per ADR-008.
 from __future__ import annotations
 
 import atexit
+import os
 import signal
 import subprocess
 import sys
 import time
+import urllib.parse
+import urllib.request
 
 from .proc import shell_argv
 from datetime import datetime, timedelta
@@ -26,6 +29,46 @@ from typing import Any
 from . import config, cron, store
 
 _POLL_SECONDS = 30
+_TG_SEND = "https://api.telegram.org/bot{token}/sendMessage"
+
+
+def _is_silent(text: str) -> bool:
+    """hermes ``[SILENT]`` convention: a job whose output flags itself silent
+    is recorded locally but never delivered — no notification fatigue when a
+    monitor has nothing to report."""
+    head = (text or "").strip()
+    return "[SILENT]" in head[:400] or head.upper().startswith("NO_REPLY")
+
+
+def _send_telegram(token: str, chat_id: str, text: str) -> None:
+    body = urllib.parse.urlencode(
+        {"chat_id": chat_id, "text": text[:3500]}).encode()
+    req = urllib.request.Request(_TG_SEND.format(token=token), data=body)
+    with urllib.request.urlopen(req, timeout=15):
+        pass
+
+
+def _deliver(job: dict[str, Any], text: str) -> str:
+    """Deliver a job's output to its Telegram chat, honoring ``[SILENT]``.
+
+    Returns a short status recorded with the run: ``sent`` /
+    ``skipped-silent`` / ``none`` (no deliver target) / ``error: …``."""
+    chat = str(job.get("deliver_chat_id") or "").strip()
+    if not chat:
+        return "none"
+    if _is_silent(text):
+        return "skipped-silent"
+    cfg = config.load_config()
+    token = (os.environ.get("TELEGRAM_BOT_TOKEN")
+             or ((cfg.get("channels") or {}).get("telegram") or {})
+             .get("token") or "")
+    if not token:
+        return "error: no telegram token (set TELEGRAM_BOT_TOKEN)"
+    try:
+        _send_telegram(token, chat, f"[{job.get('name', 'cron')}] {text}")
+        return "sent"
+    except Exception as exc:                    # network/HTTP — job still ran
+        return f"error: {exc}"
 
 
 def _morpheus_hour(cfg: dict[str, Any]) -> int:
@@ -101,8 +144,10 @@ def _run_job(job: dict[str, Any]) -> None:
             proc = subprocess.run(shell_argv(value), capture_output=True,
                                   text=True, errors="replace", timeout=600)
             out = (proc.stdout or "") + (proc.stderr or "")
+            delivery = _deliver(job, out.strip() or f"exit {proc.returncode}")
             store.save_run("cron", f"[{job.get('name')}] exit {proc.returncode}",
-                           {"output": out[:2000], "job": job["id"]})
+                           {"output": out[:2000], "job": job["id"],
+                            "delivery": delivery})
         elif jtype == "prompt":
             from .runtime import ConfigError, build_session
             try:
@@ -111,8 +156,10 @@ def _run_job(job: dict[str, Any]) -> None:
                 store.save_run("cron", f"[{job.get('name')}] skipped: {exc}")
                 return
             summary = session.ask(value)
+            delivery = _deliver(job, summary)
             store.save_run("cron", f"[{job.get('name')}] {summary[:200]}",
-                           {"summary": summary, "job": job["id"]})
+                           {"summary": summary, "job": job["id"],
+                            "delivery": delivery})
     except Exception as exc:
         store.save_run("cron", f"[{job.get('name')}] error: {exc}")
 

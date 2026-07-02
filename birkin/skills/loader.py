@@ -134,6 +134,10 @@ def discover(dirs: list[tuple[Path, str]]) -> dict[str, Skill]:
         if not base or not base.is_dir():
             continue
         for skill_md in sorted(base.rglob("SKILL.md")):
+            rel = skill_md.relative_to(base)
+            # Hidden trees are not catalog: .archive (curator), .git, …
+            if any(part.startswith(".") for part in rel.parts):
+                continue
             skill = _load_skill(skill_md, source)
             if skill:
                 skills[skill.name] = skill

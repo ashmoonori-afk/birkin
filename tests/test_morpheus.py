@@ -10,9 +10,6 @@ from __future__ import annotations
 
 import json
 import time
-from pathlib import Path
-
-import pytest
 
 from birkin import config, morpheus, store
 
@@ -164,17 +161,72 @@ def test_attach_propose_tool_queues_when_not_auto_approved():
 # ---------------- task template ------------------------------------------
 
 def test_morpheus_task_template_contains_required_sections():
-    """The prompt must keep the three-section structure Morpheus relies on
-    (last-24h conversations + changed files + activity log) and the
-    "do all that apply" instruction list."""
+    """The prompt must keep the four-section structure Morpheus relies on
+    (last-24h conversations + changed files + activity log + memory state)
+    and the "do all that apply" instruction list."""
     rendered = morpheus._MORPHEUS_TASK.format(
         date="2026-05-28", dry="", sessions="(none)",
-        files="(none)", activity="(none)")
+        files="(none)", activity="(none)", memory_state="(none)",
+        skill_state="(none)")
     assert "Last 24h — conversations" in rendered
     assert "Last 24h — changed files" in rendered
     assert "Recent activity log" in rendered
+    assert "Memory state" in rendered
+    assert "Skills state" in rendered
     assert "propose_action" in rendered
     assert "memory_write_note" in rendered
+    # curation step: judge links/placement with the mechanical tools
+    assert "memory_related" in rendered
+    assert "memory_rezone" in rendered
+    assert "_archive" in rendered
+
+
+def test_run_curator_reports_and_dry_run_moves_nothing():
+    from birkin import curator
+    d = config.user_skills_dir() / "sleepy"
+    d.mkdir(parents=True)
+    (d / "SKILL.md").write_text(
+        "---\nname: sleepy\ndescription: d\n---\n\nb\n", encoding="utf-8")
+    import os as _os
+    import time as _time
+    ago = _time.time() - 120 * 86400
+    _os.utime(d / "SKILL.md", (ago, ago))
+    text = morpheus._run_curator(config.load_config(), dry_run=True)
+    assert "sleepy" in text and "archive candidate" in text
+    assert (d / "SKILL.md").is_file()          # dry-run moved nothing
+    # non-dry pass archives it
+    text2 = morpheus._run_curator(config.load_config(), dry_run=False)
+    assert "archived: sleepy" in text2
+    assert not d.exists()
+    assert (config.user_skills_dir() / curator.ARCHIVE_DIR / "sleepy"
+            / "SKILL.md").is_file()
+
+
+# ---------------- memory-state gathering -----------------------------------
+
+def test_gather_memory_state_placeholders_on_empty_vault():
+    text = morpheus._gather_memory_state(config.load_config())
+    assert "no notes" in text
+
+
+def test_gather_memory_state_lists_recent_and_stale_notes():
+    from birkin import mnemosyne
+    from birkin.memory import VaultMemory
+
+    cfg = config.load_config()
+    m = VaultMemory(cfg)
+    m.write_note("Fresh Note", "written today", note_type="fact")
+    m.write_note("Dusty Note", "written long ago", note_type="project")
+    # Backdate the dusty note's dynamics far past the stale threshold.
+    from datetime import datetime, timedelta, timezone
+    old = (datetime.now(timezone.utc) - timedelta(days=200)).isoformat()
+    m.dex.set_dynamics(mnemosyne.slug("Dusty Note"), {
+        "strength": 1.0, "stability": 7.0, "access_count": 1,
+        "last_access": old})
+    text = morpheus._gather_memory_state(cfg)
+    recent_block, stale_block = text.split("### Stale candidates", 1)
+    assert "Fresh Note" in recent_block   # listed under recent (last 24h)
+    assert "Dusty Note" in stale_block    # listed under stale candidates
 
 
 # ---------------- provider routing (codex compatibility) -------------------

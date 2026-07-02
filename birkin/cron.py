@@ -24,7 +24,8 @@ def save_jobs(jobs: list[dict[str, Any]]) -> None:
 
 
 def add_job(*, name: str, hour: int, minute: int, action_type: str,
-            value: str, enabled: bool = True) -> dict[str, Any]:
+            value: str, enabled: bool = True,
+            deliver_chat_id: str | None = None) -> dict[str, Any]:
     job = {
         "id": uuid.uuid4().hex[:12],
         "name": name,
@@ -33,6 +34,9 @@ def add_job(*, name: str, hour: int, minute: int, action_type: str,
         "type": action_type,  # "prompt" | "shell"
         "value": value,
         "enabled": enabled,
+        # Telegram chat to notify with the job's output (optional). The
+        # scheduler honors the [SILENT] convention before sending.
+        "deliver_chat_id": str(deliver_chat_id) if deliver_chat_id else None,
         "created": datetime.now().isoformat(timespec="seconds"),
         "last_run": None,
     }

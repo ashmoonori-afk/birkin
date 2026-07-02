@@ -61,6 +61,62 @@ def test_run_job_prompt_skips_without_key(monkeypatch):
                for r in runs)
 
 
+# ---------------- [SILENT] delivery convention -----------------------------
+
+def test_is_silent_detects_markers():
+    assert scheduler._is_silent("[SILENT] nothing new today")
+    assert scheduler._is_silent("  NO_REPLY")
+    assert not scheduler._is_silent("3 new issues found")
+    assert not scheduler._is_silent("")
+
+
+def test_deliver_none_without_target():
+    assert scheduler._deliver({"name": "j"}, "hello") == "none"
+
+
+def test_deliver_skips_silent_output_before_any_network(monkeypatch):
+    sent: list = []
+    monkeypatch.setattr(scheduler, "_send_telegram",
+                        lambda *a: sent.append(a))
+    out = scheduler._deliver({"name": "watch", "deliver_chat_id": "42"},
+                             "[SILENT] no changes on the site")
+    assert out == "skipped-silent" and sent == []
+
+
+def test_deliver_sends_real_output(monkeypatch):
+    sent: list = []
+    monkeypatch.setattr(scheduler, "_send_telegram",
+                        lambda token, chat, text: sent.append((chat, text)))
+    monkeypatch.setenv("TELEGRAM_BOT_TOKEN", "tkn")
+    out = scheduler._deliver({"name": "watch", "deliver_chat_id": "42"},
+                             "3 new issues found")
+    assert out == "sent"
+    assert sent and sent[0][0] == "42" and "3 new issues" in sent[0][1]
+
+
+def test_deliver_reports_missing_token(monkeypatch):
+    monkeypatch.delenv("TELEGRAM_BOT_TOKEN", raising=False)
+    out = scheduler._deliver({"name": "w", "deliver_chat_id": "42"}, "news")
+    assert out.startswith("error: no telegram token")
+
+
+def test_run_job_shell_records_delivery_status(monkeypatch):
+    def fake_run(argv, **kw):
+        class R:
+            stdout = "[SILENT] all quiet"
+            stderr = ""
+            returncode = 0
+        return R()
+
+    monkeypatch.setattr(subprocess, "run", fake_run)
+    scheduler._run_job({"id": "j9", "name": "quiet", "type": "shell",
+                        "value": "check", "deliver_chat_id": "7"})
+    runs = store.list_runs()
+    rec = next(r for r in runs if r["kind"] == "cron"
+               and "quiet" in r["summary"])
+    assert rec["details"]["delivery"] == "skipped-silent"
+
+
 def test_write_status_round_trip():
     cfg = {"nightly_hour": 4, "nightly_minute": 0}
     cron.add_job(name="m", hour=9, minute=0, action_type="prompt", value="x")
