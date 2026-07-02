@@ -21,6 +21,11 @@ docs/productization/
 # Stray packaging artifacts inside the skills tree
 skills/**/*.zip
 
+# Local research artifacts — benchmark harness/results and the paper draft
+# stay out of the public repo (owner's decision, 2026-07-03)
+benchmarks/
+docs/paper/
+
 # Python
 __pycache__/
 *.py[cod]
