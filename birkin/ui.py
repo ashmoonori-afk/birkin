@@ -11,7 +11,6 @@ import json
 import re
 import sys
 import threading
-import time
 from typing import Any, Callable
 
 DIM = "\033[2m"

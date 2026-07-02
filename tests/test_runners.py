@@ -1,4 +1,3 @@
-import subprocess
 
 from birkin import runtime
 from birkin.llm import LLMClient

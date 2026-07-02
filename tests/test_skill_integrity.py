@@ -5,9 +5,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
-import pytest
 
-from birkin import approvals, config, risk, store
+from birkin import approvals, config, risk
 from birkin.skills import validate as skv
 
 

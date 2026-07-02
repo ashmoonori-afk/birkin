@@ -12,7 +12,6 @@ so we exercise:
 
 from __future__ import annotations
 
-import io
 
 import pytest
 

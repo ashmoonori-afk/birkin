@@ -2,11 +2,9 @@
 
 from __future__ import annotations
 
-from pathlib import Path
 
 from birkin import selfimprove
 from birkin.runtime import build_session
-from birkin.tools import ToolResult
 
 
 def test_transcript_flattens_canonical_blocks():

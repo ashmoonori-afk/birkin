@@ -5,7 +5,7 @@ from __future__ import annotations
 
 import pytest
 
-from birkin import config, runtime, store
+from birkin import config, store
 from birkin.runtime import ConfigError, build_session
 
 

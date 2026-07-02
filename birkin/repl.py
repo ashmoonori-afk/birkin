@@ -8,7 +8,6 @@ slash commands to :mod:`birkin.slashcommands`. Uses ``input()`` (and
 from __future__ import annotations
 
 import os
-import sys
 from datetime import datetime
 from typing import Any
 

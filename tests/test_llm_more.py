@@ -3,7 +3,6 @@ payload shape (incl. prompt caching), and the OpenAI non-streaming complete().""
 
 from __future__ import annotations
 
-import io
 import json
 import urllib.error
 

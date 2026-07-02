@@ -9,7 +9,7 @@ skill's full text.
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Any, Optional
+from typing import Optional
 
 # Optional layered prompt files composed from the workspace (cwd), if present —
 # identity/policy/tool notes, like hermes' SOUL/AGENTS/TOOLS.
