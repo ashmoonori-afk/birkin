@@ -35,6 +35,16 @@ def test_parser_dry_run_flag_on_chat():
     assert ns.message == "hi"
 
 
+def test_cmd_curate_parses_dry_run_and_reports(capsys):
+    from birkin.cli import _cmd_curate
+    ns = build_parser().parse_args(["curate", "--dry-run"])
+    assert ns.dry_run is True
+    ns2 = build_parser().parse_args(["curate"])
+    assert ns2.dry_run is False
+    assert _cmd_curate(ns) == 0
+    assert "checked" in capsys.readouterr().out
+
+
 def test_cmd_reindex_prints_stats(capsys):
     from birkin.cli import _cmd_reindex
     from birkin.memory import VaultMemory

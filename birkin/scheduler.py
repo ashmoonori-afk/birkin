@@ -35,9 +35,11 @@ _TG_SEND = "https://api.telegram.org/bot{token}/sendMessage"
 def _is_silent(text: str) -> bool:
     """hermes ``[SILENT]`` convention: a job whose output flags itself silent
     is recorded locally but never delivered — no notification fatigue when a
-    monitor has nothing to report."""
+    monitor has nothing to report. The marker must be the FIRST token of the
+    output: a substring match would let untrusted text a shell job merely
+    *prints* (grepped logs, fetched pages) suppress real findings."""
     head = (text or "").strip()
-    return "[SILENT]" in head[:400] or head.upper().startswith("NO_REPLY")
+    return head.startswith("[SILENT]") or head.upper().startswith("NO_REPLY")
 
 
 def _send_telegram(token: str, chat_id: str, text: str) -> None:
@@ -59,9 +61,13 @@ def _deliver(job: dict[str, Any], text: str) -> str:
     if _is_silent(text):
         return "skipped-silent"
     cfg = config.load_config()
-    token = (os.environ.get("TELEGRAM_BOT_TOKEN")
-             or ((cfg.get("channels") or {}).get("telegram") or {})
-             .get("token") or "")
+    tg = (cfg.get("channels") or {}).get("telegram") or {}
+    # Outbound targets honor the same allowlist as inbound messages — a job
+    # payload must not be able to exfiltrate run output to a stranger's chat.
+    allowed = [str(x) for x in (tg.get("allowed_chat_ids") or [])]
+    if allowed and chat not in allowed:
+        return "error: chat_id not in channels.telegram.allowed_chat_ids"
+    token = os.environ.get("TELEGRAM_BOT_TOKEN") or tg.get("token") or ""
     if not token:
         return "error: no telegram token (set TELEGRAM_BOT_TOKEN)"
     try:

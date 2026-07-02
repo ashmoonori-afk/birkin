@@ -100,6 +100,46 @@ def test_deliver_reports_missing_token(monkeypatch):
     assert out.startswith("error: no telegram token")
 
 
+def test_deliver_refuses_chat_outside_allowlist(monkeypatch):
+    """Outbound delivery honors the inbound allowlist — a job payload can't
+    exfiltrate run output to a stranger's chat."""
+    from birkin import config
+    cfg = config.load_config()
+    cfg["channels"] = {"telegram": {"allowed_chat_ids": ["1"]}}
+    config.save_config(cfg)
+    monkeypatch.setenv("TELEGRAM_BOT_TOKEN", "tkn")
+    sent: list = []
+    monkeypatch.setattr(scheduler, "_send_telegram",
+                        lambda *a: sent.append(a))
+    out = scheduler._deliver({"name": "w", "deliver_chat_id": "42"}, "news")
+    assert out.startswith("error: chat_id not in") and sent == []
+    ok = scheduler._deliver({"name": "w", "deliver_chat_id": "1"}, "news")
+    assert ok == "sent" and sent
+
+
+def test_deliver_error_status_never_leaks_the_token(monkeypatch):
+    """The delivery status string is persisted into run records — a failed
+    send must not embed the bot token there."""
+    import urllib.error
+
+    def boom(token, chat, text):
+        raise urllib.error.HTTPError(
+            f"https://api.telegram.org/bot{token}/sendMessage",
+            401, "Unauthorized", None, None)
+
+    monkeypatch.setattr(scheduler, "_send_telegram", boom)
+    monkeypatch.setenv("TELEGRAM_BOT_TOKEN", "sekret-tkn")
+    out = scheduler._deliver({"name": "w", "deliver_chat_id": "42"}, "news")
+    assert out.startswith("error:") and "sekret-tkn" not in out
+
+
+def test_is_silent_marker_must_lead_the_output():
+    """A shell job that merely PRINTS the marker mid-output (grepped logs)
+    must still deliver its findings."""
+    assert not scheduler._is_silent(
+        "Found 3 lines: ERROR foo, [SILENT] mode enabled in config, WARN bar")
+
+
 def test_run_job_shell_records_delivery_status(monkeypatch):
     def fake_run(argv, **kw):
         class R:

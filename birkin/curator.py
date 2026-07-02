@@ -53,8 +53,8 @@ def record_use(name: str) -> None:
                        "last_used": datetime.now(timezone.utc).isoformat(
                            timespec="seconds")}
         atomic_write(_usage_path(), json.dumps(usage, indent=1))
-    except OSError:
-        pass
+    except (OSError, TypeError, ValueError):
+        pass   # incl. a hand-corrupted count — tracking must never fail a tool
 
 
 def _parse_dt(raw: Any) -> datetime | None:
@@ -121,9 +121,15 @@ def curate(manager: Any, *, now: datetime | None = None,
             except OSError:
                 pass   # busy/locked dir -> fall through, report as stale
         stale.append({"name": skill.name, "source": skill.source,
-                      "idle_days": int(idle)})
+                      "idle_days": round(idle)})
     return {"checked": len(manager.skills), "stale": stale,
             "archived": archived}
+
+
+def _safe_name(name: str) -> str:
+    """Skill names from hand-edited/extra SKILL.md files are untrusted; make
+    sure one can't smuggle the prompt's UNTRUSTED-DATA fence markers."""
+    return str(name).replace("<<<", "‹‹‹").replace(">>>", "›››")
 
 
 def render_report(report: dict[str, Any]) -> str:
@@ -132,10 +138,10 @@ def render_report(report: dict[str, Any]) -> str:
     for s in report.get("stale", []):
         marker = (" — archive candidate"
                   if s.get("idle_days", 0) >= ARCHIVE_DAYS else "")
-        lines.append(f"- stale: {s['name']} ({s['source']}, "
+        lines.append(f"- stale: {_safe_name(s['name'])} ({s['source']}, "
                      f"idle {s['idle_days']}d){marker}")
     for name in report.get("archived", []):
-        lines.append(f"- archived: {name} -> skills/{ARCHIVE_DIR}/")
+        lines.append(f"- archived: {_safe_name(name)} -> skills/{ARCHIVE_DIR}/")
     if len(lines) == 1:
         lines.append("(no stale skills)")
     return "\n".join(lines)

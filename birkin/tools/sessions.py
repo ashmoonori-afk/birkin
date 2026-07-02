@@ -67,8 +67,11 @@ def search_sessions(query: str, limit: int = 5) -> list[dict[str, Any]]:
 
 
 def get_session(name: str) -> str | None:
+    # Path(...).stem already discards any directory components (traversal is
+    # neutralized by construction); the check below only rejects the residual
+    # edge case where the stem itself isn't a plain name (e.g. "..").
     stem = Path(name).stem                      # tolerate "s1.json" or "s1"
-    if not stem or stem != Path(stem).name:     # no path separators
+    if not stem or stem != Path(stem).name:
         return None
     p = config.sessions_dir() / f"{stem}.json"
     if not p.is_file():
