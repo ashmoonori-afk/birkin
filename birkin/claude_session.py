@@ -37,7 +37,7 @@ import time
 from pathlib import Path
 from typing import Any, Callable, Optional
 
-from .proc import claude_child_env, cli_argv
+from .proc import claude_child_env, cli_argv, kill_tree
 
 StreamCallback = Optional[Callable[[str], None]]
 
@@ -73,6 +73,11 @@ class ClaudeStreamSession:
         self._lock = threading.Lock()
         self._session_id: Optional[str] = None
         self._sys_file: Optional[Path] = None
+        # Set by close() (terminal retire, e.g. gateway /new). ask() must NOT
+        # resurrect a deliberately-closed session: a racing in-flight turn could
+        # otherwise restart a process on an object the gateway already dropped,
+        # leaking it and replying to the old turn after the user said "new".
+        self._closed = False
 
     # -- process lifecycle -------------------------------------------------
 
@@ -132,15 +137,15 @@ class ClaudeStreamSession:
 
     def start(self) -> None:
         """Spawn the process and begin draining stdout/stderr into the queue."""
-        self.close()
+        self._terminate(mark_closed=False)  # tear down any prior proc; stay open
         argv = self._build_argv()  # also materializes the system-prompt temp file
         # Bounded so a long, --verbose turn can't grow stdout/stderr without limit.
         q: "queue.Queue[tuple[str, Optional[str]]]" = queue.Queue(maxsize=2048)
         try:
             self._proc = subprocess.Popen(
                 argv, stdin=subprocess.PIPE, stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE, text=True, bufsize=1, errors="replace",
-                cwd=self.cwd, env=claude_child_env())
+                stderr=subprocess.PIPE, text=True, bufsize=1, encoding="utf-8",
+                errors="replace", cwd=self.cwd, env=claude_child_env())
         except OSError:
             self._cleanup_sys_file()  # don't leak the temp file if spawn fails
             raise
@@ -185,24 +190,31 @@ class ClaudeStreamSession:
         finally:
             _offer((tag, None))  # sentinel: this pipe closed
 
-    def close(self) -> None:
+    def _terminate(self, *, mark_closed: bool) -> None:
+        self._closed = mark_closed
         if self._proc is not None:
             try:
                 if self._proc.stdin and not self._proc.stdin.closed:
                     self._proc.stdin.close()
             except OSError:
                 pass
-            try:
-                self._proc.terminate()
-            except OSError:
-                pass
+            # POSIX: SIGTERM lets claude flush gracefully. Windows: terminate()
+            # only hits the cmd.exe shim (see proc.cli_argv) and leaves the
+            # claude→node tree as an orphan, so kill the whole tree there.
+            if os.name == "nt":
+                kill_tree(self._proc)
+            else:
+                try:
+                    self._proc.terminate()
+                except OSError:
+                    pass
             # Reap the child so it doesn't linger as a zombie (POSIX) across the
             # many close()/restart cycles a long-running gateway accumulates.
             try:
                 self._proc.wait(timeout=3)
             except (subprocess.TimeoutExpired, OSError, AttributeError, ValueError):
                 try:
-                    self._proc.kill()
+                    kill_tree(self._proc)
                     self._proc.wait(timeout=2)
                 except (OSError, AttributeError, ValueError,
                         subprocess.TimeoutExpired):
@@ -211,9 +223,15 @@ class ClaudeStreamSession:
         self._session_id = None
         self._cleanup_sys_file()
 
+    def close(self) -> None:
+        """Retire this session for good (gateway /new + shutdown). A subsequent
+        ask() will refuse rather than silently spawn a new process."""
+        self._terminate(mark_closed=True)
+
     def reset(self) -> None:
-        """Drop the conversation: kill the process so the next ask() starts fresh."""
-        self.close()
+        """Drop the conversation but keep the object reusable: the next ask()
+        starts a fresh process."""
+        self._terminate(mark_closed=False)
 
     # -- one turn ----------------------------------------------------------
 
@@ -236,13 +254,20 @@ class ClaudeStreamSession:
         if not text:
             return ""
         with self._lock:
+            if self._closed:
+                raise ClaudeSessionError("session was closed")
             if not self.is_alive():
                 self.start()
             try:
                 return self._turn(text, on_text, timeout)
             except ClaudeSessionError:
-                # Process died mid-turn — restart fresh and retry once. The new
-                # process has NO prior context; surface that it happened.
+                # Process died mid-turn. If it was closed out from under us
+                # (e.g. gateway /new dropped this session), do NOT resurrect it —
+                # that would leak a process and answer a retired conversation.
+                if self._closed:
+                    raise
+                # Otherwise it died on its own — restart fresh and retry once.
+                # The new process has NO prior context; surface that it happened.
                 print("[birkin] claude session restarted (prior context lost)",
                       flush=True)
                 self.start()

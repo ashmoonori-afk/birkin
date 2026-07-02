@@ -23,7 +23,7 @@ from __future__ import annotations
 import os
 import re
 import sys
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import Iterable, Optional, Sequence
 
 # Lazy ANSI imports — keep this module usable even if ui.py isn't importable
@@ -33,9 +33,43 @@ try:
 except Exception:  # pragma: no cover - defensive
     CYAN = DIM = RESET = ""
 
-# Best-effort enable ANSI on legacy Windows consoles.
-if os.name == "nt":
-    os.system("")
+# Enable ANSI / VT processing. On Windows the bare ``os.system("")`` trick
+# silently no-ops on some consoles (redirected stdout, legacy conhost) — and then
+# the line editor's in-place redraw escape codes are emitted but ignored, so every
+# keystroke drifts onto a fresh line. Actually flip the console's
+# ENABLE_VIRTUAL_TERMINAL_PROCESSING flag and record whether it took, so the editor
+# can fall back to plain ``input()`` when VT is unavailable.
+def _enable_vt() -> bool:
+    """Return True when ANSI/VT escape codes are honored by stdout."""
+    if os.name != "nt":
+        return True
+    try:
+        import ctypes
+        from ctypes import wintypes
+        k = ctypes.windll.kernel32
+        # Declare signatures: without restype=HANDLE the 64-bit console handle is
+        # truncated to a 32-bit int (ctypes' default), yielding a bad handle so
+        # SetConsoleMode silently fails and VT stays off (cursor codes ignored).
+        k.GetStdHandle.restype = wintypes.HANDLE
+        k.GetStdHandle.argtypes = [wintypes.DWORD]
+        k.GetConsoleMode.argtypes = [wintypes.HANDLE, ctypes.POINTER(wintypes.DWORD)]
+        k.SetConsoleMode.argtypes = [wintypes.HANDLE, wintypes.DWORD]
+        h = k.GetStdHandle(-11)                     # STD_OUTPUT_HANDLE
+        if not h:
+            return False
+        mode = wintypes.DWORD()
+        if not k.GetConsoleMode(h, ctypes.byref(mode)):
+            return False                            # stdout is piped, not a console
+        ENABLE_VT = 0x0004                          # ENABLE_VIRTUAL_TERMINAL_PROCESSING
+        if not k.SetConsoleMode(h, mode.value | ENABLE_VT):
+            return False
+        k.GetConsoleMode(h, ctypes.byref(mode))
+        return bool(mode.value & ENABLE_VT)
+    except Exception:
+        return False
+
+
+_VT_OK = _enable_vt()
 
 _ANSI_RE = re.compile(r"\x1b\[[0-9;]*[A-Za-z]")
 _HISTORY_FILENAME = "repl_history.txt"
@@ -810,7 +844,9 @@ def prompt_with_completion(prompt: str,
     same list to preserve order across turns). Returns the entered string or
     ``None`` on Ctrl-C / EOF.
     """
-    if not _is_interactive():
+    if not _is_interactive() or not _VT_OK:
+        # No real TTY, or the console can't do VT redraws — use plain input()
+        # so typing isn't broken into one char per line.
         try:
             return input(prompt)
         except (EOFError, KeyboardInterrupt):

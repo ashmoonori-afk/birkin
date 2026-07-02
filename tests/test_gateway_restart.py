@@ -11,12 +11,17 @@ class _FakeSession:
         self.closed = True
 
 
-def _gateway(tmp_path, monkeypatch):
+def _gateway(tmp_path, monkeypatch, tg_allowed=None):
     monkeypatch.setenv("BIRKIN_HOME", str(tmp_path))
     from birkin import config
     # restart() reloads from the config file on disk, so persist one.
-    config.save_config({**config.DEFAULT_CONFIG, "provider": "claude-cli",
-                        "gateway_persistent": True})
+    cfg = {**config.DEFAULT_CONFIG, "provider": "claude-cli",
+           "gateway_persistent": True}
+    if tg_allowed:
+        # Privileged commands from Telegram require a closed bot
+        # (allowed_chat_ids) — see Gateway._command_trusted.
+        cfg["channels"] = {"telegram": {"allowed_chat_ids": list(tg_allowed)}}
+    config.save_config(cfg)
     from birkin.gateway.core import Gateway
     return Gateway(config.load_config())
 
@@ -128,7 +133,7 @@ def test_do_hard_restart_reexecs_birkin_gateway(tmp_path, monkeypatch):
 
 def test_hard_restart_records_origin_and_writes_greeting_marker(tmp_path, monkeypatch):
     import os
-    gw = _gateway(tmp_path, monkeypatch)
+    gw = _gateway(tmp_path, monkeypatch, tg_allowed=["555"])
     gw.handle("telegram", "555", "/hard-restart")
     assert gw._restart_origin == ("telegram", "555")
     monkeypatch.setattr(gw, "shutdown", lambda: None)
@@ -149,7 +154,7 @@ def test_take_restart_greeting_is_channel_scoped_and_one_shot(tmp_path, monkeypa
 
 
 def test_models_restart_records_origin(tmp_path, monkeypatch):
-    gw = _gateway(tmp_path, monkeypatch)
+    gw = _gateway(tmp_path, monkeypatch, tg_allowed=["7"])
     gw.handle("telegram", "7", "/models opus")           # schedules a hard restart
     assert gw.pending_hard_restart is True
     assert gw._restart_origin == ("telegram", "7")
@@ -173,7 +178,7 @@ def test_match_command_recognizes_update_variants():
 
 
 def test_update_triggers_hard_restart_when_code_changed(tmp_path, monkeypatch):
-    gw = _gateway(tmp_path, monkeypatch)
+    gw = _gateway(tmp_path, monkeypatch, tg_allowed=["42"])
     import birkin.updater as updater
     monkeypatch.setattr(updater, "update",
                         lambda *a, **k: {"ok": True, "updated": True,
@@ -182,6 +187,19 @@ def test_update_triggers_hard_restart_when_code_changed(tmp_path, monkeypatch):
     assert "Updated 2 commit" in out
     assert gw.pending_hard_restart is True               # re-exec scheduled to load new code
     assert gw._restart_origin == ("telegram", "42")
+
+
+def test_privileged_commands_refused_on_open_telegram(tmp_path, monkeypatch):
+    """An OPEN Telegram bot (no allowed_chat_ids) must refuse privileged
+    commands — a stranger must not be able to pull code or restart the
+    service (Gateway._command_trusted)."""
+    gw = _gateway(tmp_path, monkeypatch)                 # no allowed_chat_ids
+    for cmd in ("/update", "/models opus", "/hard-restart", "/restart"):
+        out = gw.handle("telegram", "999", cmd)
+        assert "restricted" in out.lower(), cmd
+    assert gw.pending_hard_restart is False
+    # loopback HTTP stays local/trusted — unaffected by the telegram gate.
+    assert "restricted" not in gw.handle("http", "c1", "/restart").lower()
 
 
 def test_update_no_restart_when_already_latest(tmp_path, monkeypatch):

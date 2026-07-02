@@ -14,6 +14,8 @@ and a cross-platform quoting hazard. Instead:
 from __future__ import annotations
 
 import os
+import subprocess
+from typing import Any
 
 # cmd.exe re-parses these inside each argument even when argv is discrete, so a
 # value like ``foo & calc`` smuggled into a CLI arg would chain a second command.
@@ -48,6 +50,30 @@ def shell_argv(command: str) -> list[str]:
     if os.name == "nt":
         return ["cmd", "/c", command]
     return ["bash", "-lc", command]
+
+
+def kill_tree(proc: "Any") -> None:
+    """Kill ``proc`` and its descendants.
+
+    On Windows a CLI shim is launched through ``cmd /c`` (see ``cli_argv``), so
+    ``proc.kill()`` only terminates ``cmd.exe`` and leaves the real child
+    (``claude``/``codex`` → ``node``) running as an orphan. ``taskkill /T``
+    walks the tree. On POSIX ``proc.kill()`` already reaps the direct child.
+    Best-effort: never raises."""
+    if proc is None:
+        return
+    pid = getattr(proc, "pid", None)
+    if os.name == "nt" and pid is not None:
+        try:
+            subprocess.run(["taskkill", "/F", "/T", "/PID", str(pid)],
+                           capture_output=True, timeout=10)
+            return
+        except Exception:
+            pass  # fall through to proc.kill()
+    try:
+        proc.kill()
+    except Exception:
+        pass
 
 
 # Hook IDs of everything-claude-code (ECC) plugin hooks that must NOT run inside a

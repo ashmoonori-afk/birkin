@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import ipaddress
 import socket
+import urllib.error
 import urllib.request
 from html.parser import HTMLParser
 from typing import Any
@@ -45,6 +46,22 @@ def _is_blocked_url(url: str) -> bool:
     return False
 
 
+class _GuardedRedirectHandler(urllib.request.HTTPRedirectHandler):
+    """Re-run the SSRF guard on every redirect target.
+
+    ``urlopen`` follows 30x automatically, and the default handler does NOT
+    re-validate the new location — so a public URL could 302 to
+    ``http://169.254.169.254/...`` (cloud metadata) or an internal address and
+    bypass the up-front ``_is_blocked_url`` check. Refuse a blocked hop."""
+
+    def redirect_request(self, req, fp, code, msg, headers, newurl):  # type: ignore[override]
+        if _is_blocked_url(newurl):
+            raise urllib.error.HTTPError(
+                newurl, code, "redirect to a local/internal/reserved address "
+                "(SSRF guard)", headers, fp)
+        return super().redirect_request(req, fp, code, msg, headers, newurl)
+
+
 class _TextExtractor(HTMLParser):
     _SKIP = {"script", "style", "noscript", "head"}
 
@@ -79,8 +96,9 @@ def _web_fetch(inp: dict[str, Any], ctx: ToolContext) -> ToolResult:
             "Refused: that URL targets a local/internal/reserved address "
             "(SSRF guard).", is_error=True)
     req = urllib.request.Request(url, headers={"User-Agent": USER_AGENT})
+    opener = urllib.request.build_opener(_GuardedRedirectHandler)
     try:
-        with urllib.request.urlopen(req, timeout=30) as resp:
+        with opener.open(req, timeout=30) as resp:
             ctype = resp.headers.get("Content-Type", "")
             raw = resp.read(2_000_000)
     except Exception as exc:

@@ -10,6 +10,7 @@ Lets scripts, editors, or other tools drive birkin programmatically.
 from __future__ import annotations
 
 import json
+import os
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from typing import TYPE_CHECKING, Any
 
@@ -19,6 +20,11 @@ if TYPE_CHECKING:
     from ..core import Gateway
 
 _ALLOWED_HOSTS = {"127.0.0.1", "localhost"}
+_MAX_BODY = 1_000_000  # 1 MB cap on a request body — this endpoint takes a chat line
+# Optional shared secret. When BIRKIN_HTTP_TOKEN is set, /message requires a
+# matching X-Birkin-Token header (defense-in-depth lockdown; off by default so
+# existing local clients keep working).
+_HTTP_TOKEN = (os.environ.get("BIRKIN_HTTP_TOKEN") or "").strip()
 
 
 class LocalHTTPChannel(Channel):
@@ -59,6 +65,18 @@ class LocalHTTPChannel(Channel):
                     self._json({"error": "forbidden host"}, 403); return
                 if self.path != "/message":
                     self._json({"error": "not found"}, 404); return
+                # CSRF defense: require Content-Type application/json. A browser
+                # on a malicious page can only send a "simple" request
+                # (text/plain, form, multipart) without a CORS preflight; an
+                # application/json POST forces a preflight, which we never answer.
+                # This blocks a visited website from driving the agent. Legit
+                # local clients already send JSON.
+                ctype = (self.headers.get("Content-Type", "") or "").split(";", 1)[0].strip().lower()
+                if ctype != "application/json":
+                    self._json({"error": "Content-Type must be application/json"}, 415); return
+                # Optional shared-secret lockdown (off unless BIRKIN_HTTP_TOKEN set).
+                if _HTTP_TOKEN and self.headers.get("X-Birkin-Token", "") != _HTTP_TOKEN:
+                    self._json({"error": "unauthorized"}, 401); return
                 # Tolerate junk: bad Content-Length, non-UTF-8 bytes (port
                 # scanners / wrong-encoding clients), or non-object JSON must
                 # return 400 — never crash the request handler.

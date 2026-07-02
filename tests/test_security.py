@@ -1,8 +1,31 @@
-"""Security-hardening tests (ADR-029): cron→shell gate, gateway access, token env."""
+"""Security-hardening tests (ADR-029): cron→shell gate, gateway access, token env.
+Plus the advisory gateway warnings module (birkin.security)."""
 
 from __future__ import annotations
 
-from birkin import approvals
+from birkin import approvals, security
+
+
+# ---------------- advisory gateway warnings --------------------------------
+
+def test_gateway_warnings_flag_native_loop_exposure():
+    warns = security.gateway_warnings({"provider": "anthropic"})
+    assert any("run_shell" in w for w in warns)
+    assert any("fs_jail" in w for w in warns)
+
+
+def test_gateway_warnings_quiet_for_gated_provider_with_lockdowns():
+    warns = security.gateway_warnings({"provider": "claude-cli"})
+    assert warns == []
+
+
+def test_gateway_warnings_respect_optins():
+    cfg = {"provider": "anthropic",
+           "disabled_tools": ["run_shell"], "fs_jail": True}
+    assert security.gateway_warnings(cfg) == []
+    cfg2 = {"provider": "claude-cli", "allow_unattended_full": True,
+            "cli_access": "full"}
+    assert any("unattended" in w for w in security.gateway_warnings(cfg2))
 
 
 def test_shell_cron_not_auto_applied_when_only_cron_approved(tmp_path, monkeypatch):

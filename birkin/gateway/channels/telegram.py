@@ -144,6 +144,13 @@ class TelegramChannel(Channel):
                 print(f"[telegram] poll error: {exc}")
                 time.sleep(5)
                 continue
+            # A proxy/error can yield a non-object top-level JSON; .get() on a
+            # list/str would raise AttributeError and kill this polling thread
+            # (the channel would silently die with no restart). Skip the batch.
+            if not isinstance(res, dict):
+                print(f"[telegram] unexpected getUpdates response: {type(res).__name__}")
+                time.sleep(1)
+                continue
             for upd in res.get("result", []):
                 offset = max(offset, upd.get("update_id", 0) + 1)
                 msg = upd.get("message") or {}

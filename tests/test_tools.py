@@ -5,9 +5,7 @@ from __future__ import annotations
 import urllib.request
 from pathlib import Path
 
-import pytest
-
-from birkin.tools import ToolContext, ToolResult, build_registry
+from birkin.tools import ToolContext, build_registry
 from birkin.tools import files as files_mod
 from birkin.tools import shell as shell_mod
 from birkin.tools import subagent_tool as st_mod
@@ -84,7 +82,9 @@ def test_shell_empty_command_errors(tmp_path: Path):
     assert res.is_error and "Empty" in res.content
 
 
-# ---------------- web (monkeypatch urlopen — no network) ----------------
+# ---------------- web (monkeypatch the opener — no network) ----------------
+# web_fetch opens via build_opener(_GuardedRedirectHandler) (SSRF guard), so
+# tests patch build_opener + DNS resolution, not the plain urlopen.
 
 class _FakeResp:
     def __init__(self, body: bytes, ctype: str = "text/html"):
@@ -96,11 +96,30 @@ class _FakeResp:
     def read(self, n=None): return self._body if n is None else self._body[:n]
 
 
+class _FakeOpener:
+    def __init__(self, resp):
+        self._resp = resp
+
+    def open(self, req, timeout=30):
+        if isinstance(self._resp, Exception):
+            raise self._resp
+        return self._resp
+
+
+def _hermetic_web(monkeypatch, resp):
+    """No-network web_fetch: public DNS answer + canned opener response."""
+    import socket
+    monkeypatch.setattr(socket, "getaddrinfo",
+                        lambda host, port, *a, **k: [
+                            (2, 1, 6, "", ("93.184.216.34", 0))])
+    monkeypatch.setattr(urllib.request, "build_opener",
+                        lambda *handlers: _FakeOpener(resp))
+
+
 def test_web_fetch_returns_text_stripped_of_html(monkeypatch, tmp_path):
     html = b"<html><head><style>x{}</style></head><body><h1>Hello</h1>" \
            b"<script>bad</script><p>World</p></body></html>"
-    monkeypatch.setattr(urllib.request, "urlopen",
-                        lambda req, timeout=30: _FakeResp(html, "text/html; charset=utf-8"))
+    _hermetic_web(monkeypatch, _FakeResp(html, "text/html; charset=utf-8"))
     ctx = _ctx(tmp_path)
     fn = next(t for t in web_mod.tools() if t.name == "web_fetch").fn
     res = fn({"url": "https://example.test/"}, ctx)
@@ -117,10 +136,8 @@ def test_web_fetch_missing_url(tmp_path):
 
 
 def test_web_fetch_network_error(monkeypatch, tmp_path):
-    def boom(req, timeout=30):
-        raise urllib.error.URLError("nope")  # type: ignore[name-defined]
-    import urllib.error  # noqa
-    monkeypatch.setattr(urllib.request, "urlopen", boom)
+    import urllib.error
+    _hermetic_web(monkeypatch, urllib.error.URLError("nope"))
     ctx = _ctx(tmp_path)
     fn = next(t for t in web_mod.tools() if t.name == "web_fetch").fn
     res = fn({"url": "https://example.test/"}, ctx)

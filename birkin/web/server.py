@@ -125,16 +125,21 @@ class Handler(BaseHTTPRequestHandler):
         if not self._host_ok():
             self._send(403, b"forbidden host", "text/plain")
             return
-        if self.headers.get("X-Birkin-Token", "") != _TOKEN:
+        if not secrets.compare_digest(self.headers.get("X-Birkin-Token", ""), _TOKEN):
             self._json({"error": "missing or invalid token"}, code=403)
             return
         if self.path != "/api/approvals":
             self._send(404, b"not found", "text/plain")
             return
-        length = int(self.headers.get("Content-Length", 0))
+        # int() must be inside the try: a non-numeric Content-Length would
+        # otherwise raise ValueError outside it and reset the connection.
         try:
+            length = int(self.headers.get("Content-Length", 0) or 0)
+            if length > 1_000_000:
+                self._json({"error": "payload too large"}, code=413)
+                return
             payload = json.loads(self.rfile.read(length) or b"{}")
-        except json.JSONDecodeError:
+        except (ValueError, UnicodeDecodeError):
             self._json({"error": "bad json"}, code=400)
             return
         aid = payload.get("id")

@@ -142,7 +142,23 @@ class Agent:
             if text:
                 final_text = text
 
+            # Abort can land mid-stream: the assistant turn may already carry
+            # tool_use blocks the user asked us NOT to run (Esc). Honor that
+            # before executing — but still answer every tool_use with a
+            # tool_result so the message history stays API-valid next turn.
+            if self._aborted(abort) or assistant.get("stop_reason") == "aborted":
+                if tool_uses:
+                    self.messages.append({"role": "user", "content": [
+                        {"type": "tool_result", "tool_use_id": tu.get("id"),
+                         "content": "aborted", "is_error": True}
+                        for tu in tool_uses]})
+                self._update_nudges(used_skill, used_memory)
+                return (final_text + "\n\n[birkin] aborted.").strip()
+
             if not tool_uses:
+                if assistant.get("stop_reason") == "max_tokens":
+                    final_text += "\n\n[birkin] response was cut off at the token " \
+                                  "limit (max_tokens); ask me to continue."
                 self._update_nudges(used_skill, used_memory)
                 return final_text
 

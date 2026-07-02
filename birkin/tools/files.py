@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+import tempfile
 from pathlib import Path
 from typing import Any
 
@@ -14,7 +15,36 @@ MAX_READ_BYTES = 200_000
 
 def _resolve(ctx: ToolContext, raw: str) -> Path:
     p = Path(raw).expanduser()
-    return p if p.is_absolute() else (ctx.cwd / p)
+    p = p if p.is_absolute() else (ctx.cwd / p)
+    # Opt-in path jail (default off — see config "fs_jail"). When on, confine
+    # file tools to the workspace and ~/.birkin so the native loop can't read or
+    # overwrite arbitrary files via an absolute path or "..". Off by default to
+    # preserve existing behavior (the project's choice is warn, not hard-deny).
+    if ctx.cfg.get("fs_jail"):
+        _enforce_jail(ctx, p)
+    return p
+
+
+def _jail_roots(ctx: ToolContext) -> list[Path]:
+    roots = [Path(ctx.cwd).resolve()]
+    try:
+        from .. import config
+        roots.append(config.birkin_home().resolve())
+    except Exception:
+        pass
+    return roots
+
+
+def _enforce_jail(ctx: ToolContext, p: Path) -> None:
+    """Raise ValueError if ``p`` resolves outside the allowed roots.
+
+    Uses realpath so a symlink can't redirect the write outside the jail."""
+    rp = Path(os.path.realpath(p))
+    for root in _jail_roots(ctx):
+        if rp == root or root in rp.parents:
+            return
+    raise ValueError(
+        f"fs_jail: refusing a path outside the workspace and ~/.birkin: {p}")
 
 
 def _normalize_newlines(s: str) -> str:
@@ -27,9 +57,15 @@ def _atomic_write_text(path: Path, text: str) -> None:
     ``newline=""`` disables platform translation so LF stays LF (no CRLF surprise
     that would invalidate the hashes the agent just saw)."""
     path.parent.mkdir(parents=True, exist_ok=True)
-    tmp = path.with_suffix(path.suffix + f".{os.getpid()}.tmp")
+    # mkstemp creates the temp file with O_EXCL + 0600 in the destination dir, so
+    # a pre-planted symlink under a *predictable* name can't redirect the write.
+    # (The old ``<file>.<pid>.tmp`` name was a TOCTOU foothold in shared dirs.)
+    fd, tmp_name = tempfile.mkstemp(dir=str(path.parent),
+                                    prefix=path.name + ".", suffix=".tmp")
+    tmp = Path(tmp_name)
     try:
-        tmp.write_text(text, encoding="utf-8", newline="")
+        with os.fdopen(fd, "w", encoding="utf-8", newline="") as fh:
+            fh.write(text)
         os.replace(tmp, path)
     except OSError:
         try:

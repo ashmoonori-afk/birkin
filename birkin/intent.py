@@ -15,12 +15,18 @@ from __future__ import annotations
 import re
 
 # Word-boundary keyword triggers. ``ulw``/``ultrawork`` -> the Odyssey cycle.
+# Korean stems are matched WITHOUT ``\b``: Hangul syllables are word characters,
+# so ``\b검색해\b`` never matches the common form "검색해줘" (the trailing "줘"
+# is also a word char, so there is no boundary). Stems like ``검색(해|하)`` catch
+# 검색해/검색해줘/검색하고 etc.
 _PATTERNS = [
     ("ultrawork", re.compile(r"\b(ultrawork|ulw)\b", re.I)),
     ("plan",      re.compile(r"\b(/?neurosis|deep[- ]?interview|plan this|"
-                             r"clarify first|딥\s*인터뷰)\b", re.I)),
-    ("search",    re.compile(r"\b(search the web|web search|look up|find online|검색해)\b", re.I)),
-    ("analyze",   re.compile(r"\b(analy[sz]e|audit|review this|분석해)\b", re.I)),
+                             r"clarify first)\b|딥\s*인터뷰|심층\s*인터뷰", re.I)),
+    ("search",    re.compile(r"\b(search the web|web search|look up|find online)\b"
+                             r"|검색(해|하)|웹\s*검색", re.I)),
+    ("analyze",   re.compile(r"\b(analy[sz]e|audit|review this)\b"
+                             r"|분석(해|하)", re.I)),
 ]
 
 MODES = ("ultrawork", "plan", "search", "analyze", "normal")

@@ -169,6 +169,7 @@ def _model(session: Any, arg: str) -> None:
     if arg:
         session.cfg["model"] = arg
         session.client.model = arg
+        session.agent.model = arg   # the agent passes ITS model to the CLI each turn
         config.save_config(session.cfg)
         print(f"{DIM}Model set to {arg}.{RESET}")
     else:
@@ -182,6 +183,9 @@ def _models(session: Any, arg: str) -> None:
     if name:  # select — applies live in the REPL (no restart needed here)
         session.cfg["model"] = name
         session.client.model = name
+        agent = getattr(session, "agent", None)
+        if agent is not None:   # the agent passes ITS model to the CLI each turn
+            agent.model = name
         config.save_config(session.cfg)
         print(f"{GREEN}Model set to {name} (applies now).{RESET}")
         return

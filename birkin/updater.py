@@ -117,6 +117,20 @@ def update(root: Optional[Path] = None) -> dict[str, Any]:
             return {"ok": True, "updated": False, "version": ver_before,
                     "message": "Already up to date — "
                                f"{_version_label(ver_before, _head_date(root))}."}
+        # Opt-in supply-chain guard (default off — most repos don't sign commits):
+        # verify the upstream tip's signature before fast-forwarding to it.
+        try:
+            from . import config
+            verify_sig = bool(config.load_config().get("update_verify_signature"))
+        except Exception:
+            verify_sig = False
+        if verify_sig:
+            rc, _, verr = _git(root, "verify-commit", "@{u}")
+            if rc != 0:
+                return {"ok": False, "updated": False,
+                        "message": "Upstream commit signature did not verify "
+                                   f"(update_verify_signature is on): {verr[:200]}. "
+                                   "Update aborted."}
         rc, _, err = _git(root, "merge", "--ff-only", "@{u}")
         if rc != 0:
             return {"ok": False, "updated": False,

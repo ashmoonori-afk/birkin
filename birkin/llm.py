@@ -188,9 +188,11 @@ class LLMClient:
         the child environment (defaults to inheriting the parent). Returns
         ``(stdout, stderr, timed_out, aborted)``."""
         import threading
+
+        from .proc import kill_tree
         proc = subprocess.Popen(argv, stdin=subprocess.PIPE, stdout=subprocess.PIPE,
-                                stderr=subprocess.PIPE, text=True, errors="replace",
-                                env=env)
+                                stderr=subprocess.PIPE, text=True, encoding="utf-8",
+                                errors="replace", env=env)
         chunks: dict[str, list[str]] = {"out": [], "err": []}
 
         def _drain(stream, key: str) -> None:
@@ -229,10 +231,7 @@ class LLMClient:
                 break
             time.sleep(0.05)
         if timed_out or aborted:
-            try:
-                proc.kill()
-            except Exception:
-                pass
+            kill_tree(proc)
         try:
             proc.wait(timeout=2)
         except Exception:

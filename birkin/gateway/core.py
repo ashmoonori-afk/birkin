@@ -6,7 +6,7 @@ import threading
 import time
 from typing import Any
 
-from .. import config, promptgate, store
+from .. import config, promptgate, security, store
 from ..claude_session import ClaudeStreamSession
 from ..runtime import ConfigError, Session, build_session
 
@@ -35,6 +35,9 @@ _GATEWAY_COMMANDS: list[tuple[str, str, set[str]]] = [
 # Friendly short model names accepted by `claude --model` (full claude-… IDs also OK).
 _GATEWAY_MODELS = ["opus", "sonnet", "haiku"]            # claude-cli suggestions
 _CODEX_GATEWAY_MODELS = ["gpt-5", "gpt-5-codex", "o3", "codex"]  # codex-cli (codex validates -m)
+# Commands that pull code / restart the service / rewrite config — gated to
+# trusted channels only (see Gateway._command_trusted).
+_PRIVILEGED_COMMANDS = {"update", "models", "restart", "hard_restart"}
 
 
 def _gateway_model_choices(provider: str) -> tuple[list[str], str]:
@@ -288,6 +291,14 @@ class Gateway:
             display_text = idea_arg or "/neurosis (resume)"  # logged / auto-saved
             cmd = None                                       # fall through to a turn
         with self._lock:
+            # Privileged commands pull code / restart the service / rewrite config.
+            # An OPEN Telegram bot (no allowed_chat_ids) must not let strangers
+            # trigger them. (When allowed_chat_ids IS set, telegram.py already
+            # dropped unauthorized chats before this point.)
+            if cmd in _PRIVILEGED_COMMANDS and not self._command_trusted(channel):
+                return ("This command is restricted. Set "
+                        "channels.telegram.allowed_chat_ids so only you can run "
+                        "/update, /models, /restart and /hard_restart.")
             if cmd == "help":
                 return gateway_help_text()
             if cmd == "models":
@@ -412,9 +423,18 @@ class Gateway:
             return bool(tg.get("allowed_chat_ids"))
         return True
 
+    def _command_trusted(self, channel: str) -> bool:
+        """Whether privileged commands (update/models/restart/hard_restart) may
+        run from ``channel``. Same trust rule as autosave: an open Telegram bot
+        (no allowed_chat_ids) is untrusted; loopback HTTP and REPL are local."""
+        return self._autosave_trusted(channel)
+
 
 def run() -> int:
     cfg = config.load_config()
+    # Advisory (never blocking): make native-loop tool exposure visible
+    # before the gateway becomes reachable over a channel.
+    security.print_gateway_warnings(cfg)
     try:
         gateway = Gateway(cfg)
     except ConfigError as exc:

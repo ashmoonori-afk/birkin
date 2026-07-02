@@ -40,7 +40,14 @@ def parse_verdict(text: str) -> dict[str, Any]:
     t = (text or "").strip()
     first = t.split("\n", 1)[0]
     reason = t.split("\n", 1)[1].strip()[:300] if "\n" in t else first[:300]
-    # An explicit FAIL anywhere on the verdict line wins; else require a PASS.
+    # Prefer the instructed explicit token so "VERDICT: PASS, no blockers" is not
+    # misread as FAIL by the loose "NO" heuristic below.
+    m = re.search(r"VERDICT:\s*(PASS|FAIL)", first, re.I)
+    if m:
+        passed = m.group(1).upper() == "PASS"
+        return {"passed": passed, "reason": reason or f"verifier said {m.group(1).upper()}"}
+    # No explicit verdict line — fall back to heuristics: an explicit FAIL wins,
+    # else require a PASS, else conservatively FAIL.
     if _FAIL_RE.search(first):
         return {"passed": False, "reason": reason or "verifier said FAIL"}
     if _PASS_RE.search(first):

@@ -15,9 +15,11 @@ from typing import Optional, Sequence
 
 from .ui import CYAN, DIM, RESET
 
-# Best-effort enable ANSI escapes on legacy Windows consoles.
-if os.name == "nt":
-    os.system("")
+# Reuse the REPL's real VT-capability probe (it enables VT processing and reports
+# whether that actually took). When the console can't honor the cursor-move/clear
+# codes the arrow-key renderer relies on, ``select`` falls back to a numbered menu
+# instead of drawing an invisible, un-navigable selector.
+from .inline_complete import _VT_OK
 
 
 def _is_interactive() -> bool:
@@ -85,7 +87,7 @@ def select(title: str, options: Sequence[str], default: int = 0) -> Optional[int
     options = list(options)
     if not options:
         return None
-    if not _is_interactive():
+    if not _is_interactive() or not _VT_OK:
         return _select_fallback(title, options, default)
 
     idx = max(0, min(default, len(options) - 1))

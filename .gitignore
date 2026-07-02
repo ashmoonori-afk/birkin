@@ -11,6 +11,16 @@ birkin_config.json
 *.exe
 /memory/
 
+# Internal planning (not shipped): productization analysis, dev roadmap, goal prompt
+docs/productization/
+.plans/
+
+# One-shot local helper scripts — embed a personal Telegram chat id; never ship
+/fix_birkin_config.py
+/set_telegram_chatid.py
+# Stray packaging artifacts inside the skills tree
+skills/**/*.zip
+
 # Python
 __pycache__/
 *.py[cod]

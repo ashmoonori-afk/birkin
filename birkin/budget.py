@@ -16,9 +16,15 @@ from . import store
 
 def _parse(ts: str) -> datetime | None:
     try:
-        return datetime.fromisoformat(ts)
+        dt = datetime.fromisoformat(ts)
     except (ValueError, TypeError):
         return None
+    # Externally-edited / legacy records may carry a naive timestamp; treat it as
+    # UTC so the ``ts < cutoff`` comparison below never raises naive-vs-aware
+    # TypeError (which would crash is_over() on every turn).
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=timezone.utc)
+    return dt
 
 
 def usage_window(hours: float) -> int:
@@ -51,6 +57,12 @@ def status(cfg: dict[str, Any]) -> dict[str, Any]:
 
 def is_over(cfg: dict[str, Any]) -> tuple[bool, str]:
     """Return (over, human_message). False/"" when within budget."""
+    # Hot path (called once per turn). With no caps configured there is nothing
+    # to enforce, so skip the full ledger scan (`usage_window` reads up to 1000
+    # run files) entirely — unlimited users shouldn't pay a per-turn stat tax.
+    if not (int(cfg.get("budget_tokens_daily", 0) or 0)
+            or int(cfg.get("budget_tokens_monthly", 0) or 0)):
+        return False, ""
     st = status(cfg)
     if st["over_daily"]:
         return True, (f"[birkin] daily token budget reached: "

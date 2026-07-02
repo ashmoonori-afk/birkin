@@ -136,6 +136,13 @@ DEFAULT_CONFIG: dict[str, Any] = {
     # #8 per-skill scoped permissions/MCP are read from each SKILL.md frontmatter
     # (`permissions:` / `mcp:`); enabled enforces them. See skills/loader.py.
     "skill_permissions_enforced": False,
+    # Opt-in path jail for the native file tools (write_file/edit_file/read_file):
+    # when true, confine them to the workspace + ~/.birkin and reject absolute /
+    # ".." escapes. Default False to preserve behavior. See tools/files.py.
+    "fs_jail": False,
+    # Opt-in supply-chain guard: verify the upstream commit signature before
+    # `update` fast-forwards. Default False (requires a signed-commit upstream).
+    "update_verify_signature": False,
 }
 
 PROVIDER_DEFAULT_BASE_URL = {
@@ -277,6 +284,19 @@ def load_config() -> dict[str, Any]:
         except (json.JSONDecodeError, OSError) as exc:
             # Fail loud but non-fatal: a corrupt config should not brick the CLI.
             print(f"[birkin] warning: could not read config ({exc}); using defaults")
+    # Deep-merge nested sub-sections so setting one entry doesn't drop the
+    # defaults for the others (e.g. saving only channels.telegram must keep the
+    # default channels.http). A plain dict.update() replaces the whole sub-tree.
+    for nk in ("channels",):
+        base, sv = DEFAULT_CONFIG.get(nk), saved.get(nk)
+        if isinstance(base, dict) and isinstance(sv, dict):
+            merged = {k: (dict(v) if isinstance(v, dict) else v)
+                      for k, v in base.items()}
+            for k, v in sv.items():
+                merged[k] = ({**merged[k], **v}
+                             if isinstance(v, dict) and isinstance(merged.get(k), dict)
+                             else v)
+            cfg[nk] = merged
     # Migrate legacy keys (in-memory only). We look at the *saved* data so we
     # don't overwrite a real ``morpheus_hour`` with the static default just
     # because the default is in the merged ``cfg``.
