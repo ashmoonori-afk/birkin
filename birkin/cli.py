@@ -223,6 +223,11 @@ def _cmd_curate(args: argparse.Namespace) -> int:
     return 0
 
 
+def _cmd_curate_memory(args: argparse.Namespace) -> int:
+    from .curation_cli import cmd_curate_memory
+    return cmd_curate_memory(args)
+
+
 def _cmd_reindex(args: argparse.Namespace) -> int:
     """Force-rebuild the memory-palace index (mnemosyne)."""
     from . import config
@@ -528,7 +533,8 @@ def build_parser() -> argparse.ArgumentParser:
     tp.add_argument("--disable", help="tool name to disable")
     tp.set_defaults(func=_cmd_tools)
 
-    mp = sub.add_parser("model", help="choose the model (interactive, like `hermes model`)")
+    mp = sub.add_parser("model", aliases=["models"],
+                        help="choose the model (interactive, like `hermes model`)")
     mp.add_argument("name", nargs="?", help="set this model directly (skips the picker)")
     mp.set_defaults(func=_cmd_model)
 
@@ -586,6 +592,16 @@ def build_parser() -> argparse.ArgumentParser:
     cur.add_argument("--dry-run", action="store_true",
                      help="report only; move nothing")
     cur.set_defaults(func=_cmd_curate)
+
+    cm = sub.add_parser(
+        "curate-memory",
+        help="model-agnostic memory-vault curation (any provider proposes a "
+             "plan; a deterministic executor applies only the safe ops)")
+    cm.add_argument("--provider", default=None,
+                    help="claude | codex | api | gemini | local "
+                         "(default: config provider)")
+    cm.add_argument("--model", default=None)
+    cm.set_defaults(func=_cmd_curate_memory)
 
     tp_ = sub.add_parser("trace", help="print a run record (audit replay)")
     tp_.add_argument("run_id", help="run id (or a substring) — see `birkin runs`")

@@ -8,12 +8,15 @@ import shutil
 from birkin import models
 
 
-def test_discover_curated_anthropic_present():
-    cfg = {"provider": "anthropic", "model": "claude-sonnet-4-6"}
+def test_discover_curated_full_catalog_present():
+    # The picker shows the full curated catalog regardless of current provider,
+    # so a codex-cli user still sees every Claude/GPT model.
+    cfg = {"provider": "codex-cli", "model": "gpt-5.5"}
     found = models.discover(cfg, api=False, cli=False, ollama=False)
     ids = [m.id for m in found]
-    assert "claude-sonnet-4-6" in ids
-    assert all(m.source == "anthropic" for m in found)
+    assert "claude-sonnet-5" in ids
+    assert any(m.source == "anthropic" for m in found)
+    assert any(m.source == "openai" for m in found)
 
 
 def test_discover_includes_local_cli_when_configured():
@@ -34,10 +37,10 @@ def test_discover_detects_claude_codex_if_present(monkeypatch):
 def test_render_groups_and_marks_current(capsys):
     cfg = {"provider": "anthropic"}
     found = models.discover(cfg, api=False, cli=False, ollama=False)
-    models.render(found, current="claude-sonnet-4-6")
+    models.render(found, current="claude-sonnet-5")
     out = capsys.readouterr().out
     assert "API models" in out
-    assert "claude-sonnet-4-6" in out
+    assert "claude-sonnet-5" in out
     assert "*" in out  # current marker
 
 
@@ -51,13 +54,19 @@ def test_apply_selection_claude_cli_sets_provider_and_model():
     assert cfg["base_url"] == ""
 
 
-def test_apply_selection_codex_cli_clears_model():
+def test_apply_selection_codex_cli_stores_model_id():
+    # Picking a specific codex model stores its id so llm.py passes `-m <id>`.
     cfg = {"provider": "anthropic", "model": "claude-x", "base_url": "https://x"}
-    m = models.Model("codex", "codex-cli", "Codex CLI", param="")
+    m = models.Model("codex · gpt-5.5", "codex-cli", "Codex CLI", param="gpt-5.5")
     models.apply_selection(cfg, m)
     assert cfg["provider"] == "codex-cli"
-    assert cfg["model"] == ""
+    assert cfg["model"] == "gpt-5.5"
     assert cfg["base_url"] == ""
+
+
+def test_codex_model_ids_include_known():
+    ids = models.codex_model_ids({})
+    assert "gpt-5.5" in ids and "gpt-5.4" in ids
 
 
 def test_apply_selection_local_cli():

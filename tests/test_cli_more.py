@@ -4,6 +4,7 @@ side-effectful operations (web/gateway/daemon/nightly/setup)."""
 from __future__ import annotations
 
 import argparse
+import json
 from pathlib import Path
 
 from birkin import cli as cli_mod
@@ -180,3 +181,34 @@ def test_main_dispatches(monkeypatch):
     monkeypatch.setattr("birkin.cli._cmd_skills", fake_skills)
     rc = cli_mod.main(["skills"])
     assert rc == 0 and called["ok"]
+
+
+def test_cmd_curate_memory_persists_audit_manifest(monkeypatch, capsys):
+    from birkin import config, mnemosyne, store
+    from birkin.memory import VaultMemory
+
+    m = VaultMemory(config.load_config())
+    m.write_note("Inbox idea", "body", zone="inbox")
+    slug = mnemosyne.slug("Inbox idea")
+
+    def fake_get_completer(provider, *, model=None, cfg=None, timeout=0,
+                           cwd=None):
+        return lambda prompt: json.dumps({"plan_version": 1, "ops": [
+            {"op": "rezone", "slug": slug, "zone": "ideas",
+             "reason": "file it"}],
+            "summary": "filed"})
+
+    monkeypatch.setattr("birkin.providers.get_completer", fake_get_completer)
+    rc = cli_mod._cmd_curate_memory(_ns(provider="codex", model="gpt-test"))
+
+    assert rc == 0
+    assert "audit:" in capsys.readouterr().out
+    rec = store.list_runs(limit=5)[0]
+    assert rec["kind"] == "curate-memory"
+    details = rec["details"]
+    assert details["provider"] == "codex"
+    assert details["model"] == "gpt-test"
+    assert details["accepted"][0]["op"] == "rezone"
+    assert details["effected"][0]["op"] == "rezone"
+    assert "before_files" in details and "after_files" in details
+    assert details["moved_files"]

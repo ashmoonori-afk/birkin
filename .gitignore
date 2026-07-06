@@ -25,6 +25,11 @@ skills/**/*.zip
 # stay out of the public repo (owner's decision, 2026-07-03)
 benchmarks/
 docs/paper/
+# Working evidence/drafts dir (codex receipts, model-test logs) — local only
+.omo/
+# Tests that load the local-only benchmark harness (benchmarks/ is ignored)
+tests/test_bench_curation200.py
+tests/test_bench_lme_e2e.py
 
 # Python
 __pycache__/

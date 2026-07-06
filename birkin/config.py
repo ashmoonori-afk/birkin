@@ -171,8 +171,9 @@ OAUTH_PROVIDERS = {"claude-oauth"}
 KNOWN_MODELS = {
     "anthropic": [
         ("claude-opus-4-8", "deepest reasoning"),
-        ("claude-sonnet-4-6", "best all-round coding (default)"),
+        ("claude-sonnet-5", "best all-round coding (default)"),
         ("claude-haiku-4-5-20251001", "fast & cheap (good for subagents)"),
+        ("claude-fable-5", "Fable 5"),
     ],
     "openai": [
         ("gpt-4o", "OpenAI-compatible"),

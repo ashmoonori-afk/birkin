@@ -14,6 +14,7 @@ All probes use short timeouts / ``shutil.which`` and fail silently.
 from __future__ import annotations
 
 import json
+import os
 import shutil
 import urllib.request
 from dataclasses import dataclass
@@ -70,16 +71,54 @@ def fetch_api_models(cfg: dict[str, Any]) -> list[Model]:
             if any(k in m.get("id", "") for k in ("gpt", "o1", "o3", "o4"))]
 
 
-def detect_cli_agents() -> list[Model]:
+# Codex model ids the `codex exec -m <id>` CLI accepts. Curated (verified
+# working); the user's own ~/.codex default is added on top, and extra ids can
+# be added via cfg["codex_models"], so the list stays current without a release.
+CODEX_KNOWN_MODELS = ("gpt-5.5", "gpt-5.4", "gpt-5.3-codex-spark")
+
+
+def _codex_default_model() -> Optional[str]:
+    """The `model = "..."` line from the user's Codex config, if any — always a
+    valid id for this install, so we surface it first."""
+    import re as _re
+    from pathlib import Path as _Path
+    home = os.environ.get("CODEX_HOME") or str(_Path.home() / ".codex")
+    try:
+        txt = (_Path(home) / "config.toml").read_text(encoding="utf-8",
+                                                      errors="replace")
+    except OSError:
+        return None
+    m = _re.search(r'(?m)^\s*model\s*=\s*"([^"]+)"', txt)
+    return m.group(1) if m else None
+
+
+def codex_model_ids(cfg: Optional[dict[str, Any]] = None) -> list[str]:
+    """Ordered, de-duplicated codex model ids to offer: the config default
+    first, then curated known ids, then any cfg['codex_models'] extras."""
+    ids: list[str] = []
+    default = _codex_default_model()
+    if default:
+        ids.append(default)
+    for mid in CODEX_KNOWN_MODELS:
+        if mid not in ids:
+            ids.append(mid)
+    for mid in (cfg or {}).get("codex_models", []) or []:
+        if isinstance(mid, str) and mid and mid not in ids:
+            ids.append(mid)
+    return ids
+
+
+def detect_cli_agents(cfg: Optional[dict[str, Any]] = None) -> list[Model]:
     """Locally installed agent CLIs, usable as model backends (no API key)."""
     out: list[Model] = []
     if shutil.which("claude"):
-        out.append(Model("claude-code (sonnet)", "claude-cli",
-                         "local CLI · Claude Code", param="sonnet"))
-        out.append(Model("claude-code (opus)", "claude-cli",
-                         "local CLI · Claude Code", param="opus"))
+        for alias in ("sonnet", "opus", "haiku"):
+            out.append(Model(f"claude-code ({alias})", "claude-cli",
+                             "local CLI · Claude Code", param=alias))
     if shutil.which("codex"):
-        out.append(Model("codex", "codex-cli", "local CLI · Codex", param=""))
+        for mid in codex_model_ids(cfg):
+            out.append(Model(f"codex · {mid}", "codex-cli",
+                             "local CLI · Codex", param=mid))
     return out
 
 
@@ -92,7 +131,6 @@ def fetch_ollama_models() -> list[Model]:
 def discover(cfg: dict[str, Any], *, api: bool = True, cli: bool = True,
              ollama: bool = True) -> list[Model]:
     """Curated baseline + live API + installed CLI agents + Ollama, deduped."""
-    provider = cfg.get("provider", "anthropic")
     seen: set[str] = set()
     out: list[Model] = []
 
@@ -102,14 +140,16 @@ def discover(cfg: dict[str, Any], *, api: bool = True, cli: bool = True,
             seen.add(kkey)
             out.append(m)
 
-    if provider in ("anthropic", "openai"):
-        for mid, note in config.KNOWN_MODELS.get(provider, []):
-            add(Model(mid, provider, note))
+    # Always show the full curated catalog (both vendors) so the picker lists
+    # every model, not just the current provider's — the user can switch freely.
+    for prov in ("anthropic", "openai"):
+        for mid, note in config.KNOWN_MODELS.get(prov, []):
+            add(Model(mid, prov, note))
     if api:
         for m in fetch_api_models(cfg):
             add(m)
     if cli:
-        for m in detect_cli_agents():
+        for m in detect_cli_agents(cfg):
             add(m)
         cmd = cfg.get("cli_command") or []
         if cmd:
@@ -129,7 +169,9 @@ def apply_selection(cfg: dict[str, Any], model: Model) -> None:
         cfg["base_url"] = ""
     elif model.source == "codex-cli":
         cfg["provider"] = "codex-cli"
-        cfg["model"] = ""   # empty -> codex uses its own configured default
+        # store the specific codex model id (e.g. "gpt-5.5"); llm.py passes it
+        # through as `codex exec -m <id>`. Empty only for a bare "codex" entry.
+        cfg["model"] = model.model_value()
         cfg["base_url"] = ""
     elif model.source == "local-cli":
         cfg["provider"] = "local-cli"  # uses config.cli_command
