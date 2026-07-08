@@ -43,7 +43,6 @@ def _status_payload() -> dict[str, Any]:
         skills_count = len(build_manager(cfg).skills)
     except Exception:
         skills_count = 0
-    from . import server as _self  # noqa: F401 (for clarity)
     from .. import budget as budget_mod
     st = store.read_status()
     stale = store.is_status_stale(st)

@@ -1191,7 +1191,9 @@ aliases, one status-payload duplicate) and easy to remove later.
 literal string ``"nightly"`` will miss new Morpheus runs. We mention
 this in STATUS so callers update. Internal tests still pass via aliases.
 
-**Status.** Accepted.
+**Status.** Accepted. (Update 2026-07: the `birkin.nightly` re-export shim module
+was later removed; the `birkin nightly` CLI alias and the `nightly_hour` /
+`nightly_minute` config migration remain.)
 
 ---
 

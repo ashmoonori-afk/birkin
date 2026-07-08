@@ -159,19 +159,11 @@ def _cmd_model(args: argparse.Namespace) -> int:
         print(f"Model set to {args.name}")
         return 0
 
-    from . import menu
     from . import models as models_mod
     print(f"Current model: {cfg.get('model')}  (provider: {provider})")
     print("(discovering API + local models…)")
-    found = models_mod.discover(cfg)
-    labels = [f"{m.id}  [{m.source}]" + (f" · {m.note}" if m.note else "")
-              for m in found]
-    cur = cfg.get("model")
-    default_i = next((i for i, m in enumerate(found) if m.model_value() == cur), 0)
-    mi = menu.select("Choose a model", labels, default=default_i)
-    if mi is None:
+    if models_mod.pick_interactive(cfg) is None:
         return 0
-    models_mod.apply_selection(cfg, found[mi])
     config.save_config(cfg)
     print(f"Model set to {cfg['model']} (provider: {cfg.get('provider')})")
     return 0
@@ -238,16 +230,6 @@ def _cmd_reindex(args: argparse.Namespace) -> int:
     return 0
 
 
-_BIRKIN_ART = [
-    " ██████╗ ██╗██████╗ ██╗  ██╗██╗███╗   ██╗",
-    " ██╔══██╗██║██╔══██╗██║ ██╔╝██║████╗  ██║",
-    " ██████╔╝██║██████╔╝█████╔╝ ██║██╔██╗ ██║",
-    " ██╔══██╗██║██╔══██╗██╔═██╗ ██║██║╚██╗██║",
-    " ██████╔╝██║██║  ██║██║  ██╗██║██║ ╚████║",
-    " ╚═════╝ ╚═╝╚═╝  ╚═╝╚═╝  ╚═╝╚═╝╚═╝  ╚═══╝",
-]
-
-
 def _cmd_tools(args: argparse.Namespace) -> int:
     """Show the Available Tools panel and enable/disable tools (like hermes)."""
     from pathlib import Path
@@ -255,7 +237,7 @@ def _cmd_tools(args: argparse.Namespace) -> int:
     from .memory import VaultMemory
     from .skills import build_manager
     from .tools import ToolContext, build_registry
-    from .ui import CYAN, DIM, RED, RESET
+    from .ui import BIRKIN_ART, CYAN, DIM, RED, RESET
 
     cfg = config.load_config()
     disabled = set(cfg.get("disabled_tools", []))
@@ -293,7 +275,7 @@ def _cmd_tools(args: argparse.Namespace) -> int:
     # Render: ASCII art on the left, toolset rows on the right (hermes-style).
     title = f"  {RESET}Available Tools{RESET}  {DIM}({enabled}/{total} enabled){RESET}"
     print(title)
-    art = list(_BIRKIN_ART)
+    art = list(BIRKIN_ART)
     height = max(len(art), len(rows))
     for i in range(height):
         left = f"{CYAN}{art[i]}{RESET}" if i < len(art) else " " * 42

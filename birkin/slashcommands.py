@@ -164,13 +164,19 @@ def _clear(session: Any, arg: str) -> None:
 
 # -- model / provider ------------------------------------------------------
 
+def _apply_model_live(session: Any, name: str) -> None:
+    session.cfg["model"] = name
+    session.client.model = name
+    agent = getattr(session, "agent", None)
+    if agent is not None:   # the agent passes ITS model to the CLI each turn
+        agent.model = name
+    config.save_config(session.cfg)
+
+
 @command("model", "Show or set the model.", "/model [name]")
 def _model(session: Any, arg: str) -> None:
     if arg:
-        session.cfg["model"] = arg
-        session.client.model = arg
-        session.agent.model = arg   # the agent passes ITS model to the CLI each turn
-        config.save_config(session.cfg)
+        _apply_model_live(session, arg)
         print(f"{DIM}Model set to {arg}.{RESET}")
     else:
         print(session.cfg.get("model"))
@@ -181,12 +187,7 @@ def _models(session: Any, arg: str) -> None:
     from . import models as models_mod
     name = arg.strip()
     if name:  # select — applies live in the REPL (no restart needed here)
-        session.cfg["model"] = name
-        session.client.model = name
-        agent = getattr(session, "agent", None)
-        if agent is not None:   # the agent passes ITS model to the CLI each turn
-            agent.model = name
-        config.save_config(session.cfg)
+        _apply_model_live(session, name)
         print(f"{GREEN}Model set to {name} (applies now).{RESET}")
         return
     found = models_mod.discover(session.cfg)

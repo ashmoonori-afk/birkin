@@ -91,7 +91,7 @@ Added for this rebuild:
                               isolated child Agent
 
    ┌─────────────────────────── self-improvement ───────────────────────────┐
-   │  scheduler.py (daemon)  ──04:00──▶  nightly.py  ──proposes──▶ store.py   │
+   │  scheduler.py (daemon)  ──04:00──▶  morpheus.py ──proposes──▶ store.py   │
    │       │                                                  (runs, pending, │
    │       └── due cron jobs ───────────────────────────────▶  cron, status) │
    └──────────────────────────────────────────────────────────────┬─────────┘
@@ -116,7 +116,7 @@ Added for this rebuild:
 | `birkin/runtime.py` | wires a `Session` for both CLI and dashboard |
 | `birkin/repl.py` | interactive CLI chat |
 | `birkin/store.py` | JSON state: runs, pending approvals, cron jobs, heartbeat |
-| `birkin/nightly.py` | the 04:00 self-improvement routine |
+| `birkin/morpheus.py` | the 04:00 self-improvement routine |
 | `birkin/scheduler.py` | cross-platform daemon (nightly + due cron jobs) |
 | `birkin/cron.py` | register/list/run cron jobs |
 | `birkin/approvals.py` | review/approve/reject + execute approved actions |

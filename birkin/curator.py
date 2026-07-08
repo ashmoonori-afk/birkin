@@ -22,7 +22,7 @@ from pathlib import Path
 from typing import Any
 
 from . import config
-from .mnemosyne import atomic_write
+from .mnemosyne import _parse_dt, atomic_write
 
 USAGE_FILE = ".usage.json"
 ARCHIVE_DIR = ".archive"
@@ -55,14 +55,6 @@ def record_use(name: str) -> None:
         atomic_write(_usage_path(), json.dumps(usage, indent=1))
     except (OSError, TypeError, ValueError):
         pass   # incl. a hand-corrupted count — tracking must never fail a tool
-
-
-def _parse_dt(raw: Any) -> datetime | None:
-    try:
-        dt = datetime.fromisoformat(str(raw))
-    except (TypeError, ValueError):
-        return None
-    return dt if dt.tzinfo else dt.replace(tzinfo=timezone.utc)
 
 
 def _last_activity(skill: Any, usage: dict[str, dict[str, Any]]) -> datetime:

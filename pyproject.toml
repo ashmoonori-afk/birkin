@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "birkin"
-version = "0.1.11"
+version = "0.1.12"
 description = "Lightweight, self-improving CLI agent workspace with skill management, subagents, and a WebUI. Inspired by hermes-agent and openclaw."
 readme = "README.md"
 requires-python = ">=3.10"
@@ -53,8 +53,6 @@ omit = [
     "birkin/menu.py",
     # Live-LLM routine (covered by the live-test harness in P2).
     "birkin/morpheus.py",
-    # Backwards-compat shim — re-exports morpheus, no logic of its own.
-    "birkin/nightly.py",
     "birkin/__main__.py",
 ]
 

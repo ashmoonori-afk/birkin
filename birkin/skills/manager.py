@@ -250,11 +250,7 @@ def apply_skill_proposal(payload: dict[str, Any]) -> str:
             return "skill improve proposal missing target/addition"
         # Locate the skill via a fresh discover so we don't depend on a Manager
         # instance from the calling context.
-        from .. import config as _config
-        dirs: list[tuple[Path, str]] = []
-        for d in _config.bundled_skills_dirs():
-            dirs.append((d, "bundled"))
-        dirs.append((_config.user_skills_dir(), "user"))
+        dirs = config.skill_dirs(config.load_config())
         skills = discover(dirs)
         skill = skills.get(target_name)
         if skill is None:
@@ -321,10 +317,4 @@ def _write_skill(name: str, description: str, body: str, tags: list[str]) -> Pat
 
 
 def build_manager(cfg: dict[str, Any]) -> SkillManager:
-    dirs: list[tuple[Path, str]] = []
-    for d in config.bundled_skills_dirs():
-        dirs.append((d, "bundled"))
-    for extra in cfg.get("extra_skill_dirs", []) or []:
-        dirs.append((Path(extra).expanduser(), "extra"))
-    dirs.append((config.user_skills_dir(), "user"))  # user shadows bundled
-    return SkillManager(dirs)
+    return SkillManager(config.skill_dirs(cfg))

@@ -29,8 +29,8 @@ from pathlib import Path
 from typing import Any
 
 from . import config
-from .mnemosyne import (ARCHIVE_ZONE, IDENTITY_ZONE, TYPE_ZONE, WIKILINK_RE,
-                        Mnemosyne)
+from .mnemosyne import (ARCHIVE_ZONE, IDENTITY_ZONE, TYPE_ZONE, Mnemosyne,
+                        _entry_expired)
 from .mnemosyne import atomic_write as _atomic_write
 from .mnemosyne import slug as _slug
 from .skills import frontmatter
@@ -93,16 +93,9 @@ class VaultMemory:
         return (self.vault / z / f"{s}.md") if z else self.vault / f"{s}.md"
 
     def _find_note(self, title: str) -> Path | None:
-        s = _slug(title)
-        rel = self.dex.resolve_rel(s)
+        rel = self.dex.resolve_rel(_slug(title))
         if rel and (self.vault / rel).is_file():
             return self.vault / rel
-        p = self.vault / f"{s}.md"
-        if p.is_file():
-            return p
-        for f in self.vault.rglob("*.md"):   # index cold/missing fallback
-            if f.stem == s:
-                return f
         return None
 
     def get_note(self, title: str) -> str | None:
@@ -141,15 +134,10 @@ class VaultMemory:
         grows without bound. Call this from the nightly maintenance routine — not
         on every read, since a read should not silently delete a user's files."""
         removed = 0
-        for f in self.vault.rglob("*.md"):
-            try:
-                meta, _ = frontmatter.parse(
-                    f.read_text(encoding="utf-8", errors="replace"))
-            except OSError:
-                continue
-            if _is_expired(meta):
+        for entry in self.dex.entries().values():
+            if _is_expired(entry):
                 try:
-                    f.unlink()
+                    (self.vault / entry["rel"]).unlink()
                     removed += 1
                 except OSError:
                     pass
@@ -268,11 +256,6 @@ class VaultMemory:
                         "zone": h["zone"] or "inbox",
                         "related": [_slug(t) for t in h["links"]]})
         return out
-
-    def neighbors(self, title: str) -> list[str]:
-        """Titles linked from a note (outgoing ``[[wikilinks]]``)."""
-        text = self.get_note(title) or ""
-        return sorted(set(WIKILINK_RE.findall(text)))
 
     def add_link(self, from_title: str, to_title: str) -> bool:
         text = self.get_note(from_title)
@@ -541,13 +524,7 @@ def _compose_frontmatter(*, title: str, note_type: str, created: str,
 
 def _is_expired(meta: dict[str, Any]) -> bool:
     """True if ``meta['expires_at']`` is a date strictly in the past."""
-    raw = meta.get("expires_at")
-    if not raw:
-        return False
-    try:
-        return date.fromisoformat(str(raw)) < date.today()
-    except ValueError:
-        return False
+    return _entry_expired(meta, date.today())
 
 
 def _snippet(text: str, term: str, width: int = 100) -> str:

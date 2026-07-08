@@ -114,12 +114,7 @@ def validate_all(cfg: dict | None = None) -> ValidationSummary:
     """Validate bundled + user + extra skill dirs from config."""
     from .. import config
     cfg = cfg or config.load_config()
-    dirs: list[tuple[Path, str]] = []
-    for d in config.bundled_skills_dirs():
-        dirs.append((d, "bundled"))
-    for extra in cfg.get("extra_skill_dirs", []) or []:
-        dirs.append((Path(extra).expanduser(), "extra"))
-    dirs.append((config.user_skills_dir(), "user"))
+    dirs = config.skill_dirs(cfg)
     return validate_dirs(dirs)
 
 

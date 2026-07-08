@@ -25,13 +25,12 @@ def test_line_hash_deterministic_and_distinct():
     assert len(hashline.line_hash("anything")) == 4
 
 
-def test_annotate_and_strip_roundtrip():
+def test_annotate_tags_lines():
     text = "first\nsecond\n  indented"
     ann = hashline.annotate(text)
     lines = ann.split("\n")
     assert lines[0].startswith("1#") and "| first" in lines[0]
     assert lines[1].startswith("2#") and "| second" in lines[1]
-    assert hashline.strip(ann) == text          # inverse
 
 
 def test_edit_text_applies_valid_edit():

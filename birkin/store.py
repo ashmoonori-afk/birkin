@@ -100,23 +100,6 @@ def append_ledger(entry: dict[str, Any]) -> None:
         pass
 
 
-def read_ledger(limit: int = 50) -> list[dict[str, Any]]:
-    path = config.ledger_path()
-    if not path.is_file():
-        return []
-    lines = path.read_text(encoding="utf-8", errors="replace").splitlines()
-    out: list[dict[str, Any]] = []
-    for line in lines[-limit:]:
-        line = line.strip()
-        if not line:
-            continue
-        try:
-            out.append(json.loads(line))
-        except json.JSONDecodeError:
-            continue
-    return out
-
-
 # -- pending approvals -----------------------------------------------------
 
 def add_pending(*, category: str, title: str, description: str,

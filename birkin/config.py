@@ -122,20 +122,10 @@ DEFAULT_CONFIG: dict[str, Any] = {
     # refused. False -> evidence is not required. See memory.py.
     "evidence_required": False,
     # --- v2 components (docs/v2.md). All opt-in / additive. ---
-    # #1 Model Router: route a turn's task class to a model (quick->haiku,
-    # reason->opus, …). Off by default; routes override per class. See router.py.
-    "model_routing": False,
-    "model_routes": {},
-    # #3 Osiris verifier: gate a step/goal as "done" only after an independent
-    # check. verify_model "" -> use the current model. See verify.py.
-    "verify_model": "",
     # #6 Hyperplan: how many adversarial critics attack a plan before execution.
     "critique_agents": 3,
     # #5 Boulder: resumable checkbox-plan execution caps. See boulder.py.
     "boulder_max_iters": 100,
-    # #8 per-skill scoped permissions/MCP are read from each SKILL.md frontmatter
-    # (`permissions:` / `mcp:`); enabled enforces them. See skills/loader.py.
-    "skill_permissions_enforced": False,
     # Opt-in path jail for the native file tools (write_file/edit_file/read_file):
     # when true, confine them to the workspace + ~/.birkin and reject absolute /
     # ".." escapes. Default False to preserve behavior. See tools/files.py.
@@ -261,6 +251,20 @@ def bundled_skills_dirs() -> list[Path]:
         pkg_dir.parent / "skills",  # editable / source checkout
     ]
     return [c for c in candidates if c.is_dir()]
+
+
+def skill_dirs(cfg: dict[str, Any]) -> list[tuple[Path, str]]:
+    """The ordered (directory, source-label) list scanned for SKILL.md.
+
+    Single source of truth for the skill search path — bundled dirs first,
+    then any ``extra_skill_dirs`` from config, then the writable user dir
+    (which shadows bundled skills of the same name).
+    """
+    dirs: list[tuple[Path, str]] = [(d, "bundled") for d in bundled_skills_dirs()]
+    for extra in cfg.get("extra_skill_dirs", []) or []:
+        dirs.append((Path(extra).expanduser(), "extra"))
+    dirs.append((user_skills_dir(), "user"))
+    return dirs
 
 
 # --- Load / save ----------------------------------------------------------

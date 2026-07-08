@@ -3,9 +3,9 @@
 Like ``neurosis.py``, this is the launcher/glue: given a GOAL it derives a slug,
 points at the resumable Boulder plan, and builds the kickoff prompt that drives
 the bundled ``odyssey`` skill (which composes neurosis → Hyperplan critique →
-Boulder → agent[Model Router + Hashline] → Osiris verify). The cycle itself runs
-as skill-protocol across turns; the primitives it leans on live in their own
-modules (boulder.py, verify.py, critique.py, router.py).
+Boulder → agent[model routing + Hashline] → Osiris verify). The cycle itself runs
+as skill-protocol across turns — those steps are driven by the prompt, with the
+Boulder plan (boulder.py) as the one persisted primitive.
 
 Pure standard library. (docs/v2.md §3)
 """
@@ -14,7 +14,7 @@ from __future__ import annotations
 
 from typing import Any, Optional
 
-from . import boulder, config, intent, neurosis
+from . import boulder, config, neurosis
 
 
 def seed(goal: str, *, cfg: Optional[dict[str, Any]] = None) -> dict[str, Any]:
@@ -28,7 +28,6 @@ def seed(goal: str, *, cfg: Optional[dict[str, Any]] = None) -> dict[str, Any]:
         "slug": slug, "goal": goal,
         "boulder_path": str(boulder._path(slug)),
         "resume": bool(existing and existing.get("active") and existing.get("steps")),
-        "mode": intent.classify(goal),
         "max_iters": int((cfg or {}).get("boulder_max_iters", 100)),
         "critics": int((cfg or {}).get("critique_agents", 3)),
     }

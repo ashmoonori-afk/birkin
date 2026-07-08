@@ -17,7 +17,6 @@ docs/productization/
 
 # One-shot local helper scripts — embed a personal Telegram chat id; never ship
 /fix_birkin_config.py
-/set_telegram_chatid.py
 # Stray packaging artifacts inside the skills tree
 skills/**/*.zip
 

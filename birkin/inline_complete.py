@@ -129,20 +129,7 @@ def filter_commands(buffer: str, commands: Sequence[CommandHint]) -> list[Comman
 
 def common_prefix(strings: Iterable[str]) -> str:
     """Longest common case-sensitive prefix of ``strings`` (empty if none)."""
-    it = iter(strings)
-    try:
-        cp = next(it)
-    except StopIteration:
-        return ""
-    for s in it:
-        n = min(len(cp), len(s))
-        i = 0
-        while i < n and cp[i] == s[i]:
-            i += 1
-        cp = cp[:i]
-        if not cp:
-            return ""
-    return cp
+    return os.path.commonprefix(list(strings))
 
 
 def render_menu_lines(matches: Sequence[CommandHint], selected: int,
@@ -901,12 +888,7 @@ def prompt_with_completion(prompt: str,
 
 def hints_from_registry(registry: dict) -> list[CommandHint]:
     """Convert ``birkin.slashcommands._REGISTRY`` into a CommandHint list."""
-    out: list[CommandHint] = []
-    seen: set[str] = set()
-    for name, cmd in registry.items():
-        if name in seen:
-            continue
-        seen.add(name)
-        out.append(CommandHint(name=name, summary=getattr(cmd, "summary", "")))
+    out = [CommandHint(name=name, summary=getattr(cmd, "summary", ""))
+           for name, cmd in registry.items()]
     out.sort(key=lambda h: h.name)
     return out

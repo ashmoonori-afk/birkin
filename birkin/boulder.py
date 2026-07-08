@@ -1,7 +1,8 @@
 """Boulder (v2 #5) — resumable checkbox-plan state for goal execution.
 
 A goal is broken into an ordered list of small, independently-verifiable steps;
-each step is checked off only after Osiris (verify.py) confirms it. The plan
+each step is checked off only after the Odyssey skill's inline Osiris check
+confirms it. The plan
 lives on disk (``~/.birkin/boulder/<slug>.json``, atomic + 0o600 via ``store``)
 so an interrupted run — crash, context limit — resumes from the first unchecked
 step. The Odyssey skill drives this; Morpheus could reuse it for a headless run.

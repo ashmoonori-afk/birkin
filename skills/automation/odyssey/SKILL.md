@@ -7,7 +7,7 @@ license: MIT
 metadata:
   birkin:
     tags: [automation, orchestration, goal, planning, verification, ultrawork]
-    status: "design v0.1 — skill-as-protocol; dedicated runtime (router/boulder/osiris) lands per docs/v2.md waves"
+    status: "design v0.1 — skill-as-protocol; dedicated runtime lands per docs/v2.md waves"
     run_param: goal
 ---
 
@@ -116,7 +116,7 @@ short result to memory if it is durable knowledge.
   same spirit as neurosis showing remaining questions.
 - **Resume-safe**: every step's state is on disk before the next; a crash or
   context-limit resumes from the Boulder file.
-- **Graceful today**: until the dedicated runtime (`router.py` / `boulder.py` /
-  `verify.py`) ships, run these phases manually with current tools — maintain the
+- **Graceful today**: until a dedicated runtime ships, run these phases manually
+  with current tools — maintain the
   plan file yourself, route models via `/model`, verify inline, spawn critics as
   subagents. See `docs/v2.md` for the build order.

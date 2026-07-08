@@ -36,17 +36,6 @@ def _skill_is_error(out: str) -> bool:
     return not str(out).strip().lower().startswith(_SKILL_OK_PREFIXES)
 
 
-@contextlib.contextmanager
-def _stdout_to_stderr():
-    """Keep birkin's stray prints off the JSON-RPC stdout channel."""
-    saved = sys.stdout
-    sys.stdout = sys.stderr
-    try:
-        yield
-    finally:
-        sys.stdout = saved
-
-
 def _version() -> str:
     try:
         from . import __version__  # type: ignore
@@ -63,7 +52,7 @@ def _build_tools() -> dict[str, dict[str, Any]]:
     Built with birkin's own context; stdout is muted during setup so a config
     warning can't corrupt the protocol stream.
     """
-    with _stdout_to_stderr():
+    with contextlib.redirect_stdout(sys.stderr):
         from . import approvals, config
         from .memory import Memory
         from .skills import build_manager
@@ -82,7 +71,7 @@ def _build_tools() -> dict[str, dict[str, Any]]:
     for t in memory.tools():
         def _mk(tool):
             def handler(args: dict[str, Any]) -> tuple[str, bool]:
-                with _stdout_to_stderr():
+                with contextlib.redirect_stdout(sys.stderr):
                     res = tool.fn(args or {}, ctx)
                 return res.content, bool(res.is_error)
             return handler
@@ -92,7 +81,7 @@ def _build_tools() -> dict[str, dict[str, Any]]:
     # create_skill / improve_skill — applied directly (reversible, content from
     # the caller, no birkin LLM call).
     def _create_skill(args: dict[str, Any]) -> tuple[str, bool]:
-        with _stdout_to_stderr():
+        with contextlib.redirect_stdout(sys.stderr):
             out = apply_skill_proposal({"action": "create",
                                         "name": args.get("name", ""),
                                         "description": args.get("description", ""),
@@ -101,7 +90,7 @@ def _build_tools() -> dict[str, dict[str, Any]]:
         return out, _skill_is_error(out)
 
     def _improve_skill(args: dict[str, Any]) -> tuple[str, bool]:
-        with _stdout_to_stderr():
+        with contextlib.redirect_stdout(sys.stderr):
             out = apply_skill_proposal({"action": "improve",
                                         "target": args.get("target", ""),
                                         "addition": args.get("addition", "")})
@@ -126,7 +115,7 @@ def _build_tools() -> dict[str, dict[str, Any]]:
 
     # propose_action — consequential actions go through the approval queue.
     def _propose(args: dict[str, Any]) -> tuple[str, bool]:
-        with _stdout_to_stderr():
+        with contextlib.redirect_stdout(sys.stderr):
             status = approvals.propose(
                 category=args.get("category", "cron"),
                 title=args.get("title", "(untitled)"),

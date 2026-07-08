@@ -40,6 +40,9 @@ instead of bluffing, and verify your work before claiming success. Use what you 
 remember about the person to make replies feel personal, not generic."""
 
 _TOOL_GUIDANCE = """## Working principles
+- Before a multi-step task or a slow tool call, first say in ONE short sentence \
+what you're about to do, so the user sees your intent immediately instead of \
+waiting in silence. One line — don't narrate every step.
 - Prefer doing over describing: use tools to inspect and change the workspace.
 - Load a skill (load_skill) whenever a cataloged skill matches the task.
 - Delegate large, self-contained, or parallelizable work to spawn_subagent so \

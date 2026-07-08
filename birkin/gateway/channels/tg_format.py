@@ -292,11 +292,7 @@ def _split_wrapped(block: str, tag: str, limit: int) -> list[str]:
 
 
 def _hard_split(s: str, limit: int) -> list[str]:
-    out, i = [], 0
-    while i < len(s):
-        out.append(s[i:i + limit])
-        i += limit
-    return out
+    return [s[i:i + limit] for i in range(0, len(s), limit)]
 
 
 _TAG_RE = re.compile(r"<[^>]+>")

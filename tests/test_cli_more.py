@@ -117,18 +117,6 @@ def test_cli_accepts_legacy_nightly_subcommand(monkeypatch):
     assert rc == 0 and called["dry"] is True
 
 
-def test_legacy_nightly_module_reexports_morpheus():
-    """`birkin.nightly` is a backwards-compat shim — every public name from
-    `birkin.morpheus` must still be reachable through the old import path."""
-    from birkin import morpheus, nightly
-    assert nightly.run_once is morpheus.run_once
-    assert nightly._gather_sessions is morpheus._gather_sessions
-    assert nightly._gather_changed_files is morpheus._gather_changed_files
-    assert nightly._attach_propose_tool is morpheus._attach_propose_tool
-    # Legacy task-text alias for any external code that referenced it.
-    assert nightly._NIGHTLY_TASK is morpheus._MORPHEUS_TASK
-
-
 def test_load_config_migrates_legacy_nightly_hour(tmp_path, monkeypatch):
     """A config.json that still uses the pre-rename `nightly_hour` /
     `nightly_minute` keys must be silently upgraded to the canonical

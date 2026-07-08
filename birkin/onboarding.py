@@ -11,15 +11,7 @@ from __future__ import annotations
 import os
 
 from . import config, menu, persona
-from .ui import BOLD, CYAN, DIM, GREEN, RESET, YELLOW
-
-_ASCII = r"""
- ██████╗ ██╗██████╗ ██╗  ██╗██╗███╗   ██╗
- ██╔══██╗██║██╔══██╗██║ ██╔╝██║████╗  ██║
- ██████╔╝██║██████╔╝█████╔╝ ██║██╔██╗ ██║
- ██╔══██╗██║██╔══██╗██╔═██╗ ██║██║╚██╗██║
- ██████╔╝██║██║  ██║██║  ██╗██║██║ ╚████║
- ╚═════╝ ╚═╝╚═╝  ╚═╝╚═╝  ╚═╝╚═╝╚═╝  ╚═══╝"""
+from .ui import BIRKIN_BANNER, BOLD, CYAN, DIM, GREEN, RESET, YELLOW
 
 
 def _ask(label: str, default: str = "") -> str:
@@ -39,7 +31,7 @@ def run() -> int:
     cfg = config.load_config()
     first = not config.config_path().exists()
 
-    print(f"{CYAN}{_ASCII}{RESET}")
+    print(f"{CYAN}{BIRKIN_BANNER}{RESET}")
     print(f" {DIM}The AI agent that actually remembers you.{RESET}\n")
     if first:
         print(f"{BOLD}Welcome — let's set up birkin.{RESET} (Enter accepts the default)\n")
@@ -58,14 +50,7 @@ def run() -> int:
     # 2. Model — arrow-select across API + local CLI agents (claude-code/codex) + Ollama
     from . import models as models_mod
     print(f"\n{BOLD}Model{RESET} — discovering API + local options…")
-    found = models_mod.discover(cfg)
-    labels = [f"{m.id}  [{m.source}]" + (f" · {m.note}" if m.note else "")
-              for m in found]
-    cur = cfg.get("model")
-    default_i = next((i for i, m in enumerate(found) if m.model_value() == cur), 0)
-    mi = menu.select("Choose a model", labels, default=default_i)
-    if mi is not None:
-        models_mod.apply_selection(cfg, found[mi])
+    if models_mod.pick_interactive(cfg) is not None:
         provider = cfg.get("provider", provider)
 
     # 3. API key — skipped entirely for local CLI agents (they self-authenticate)

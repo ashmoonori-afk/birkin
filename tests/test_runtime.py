@@ -3,6 +3,8 @@ the CLI-provider system-prompt builder."""
 
 from __future__ import annotations
 
+import json
+
 import pytest
 
 from birkin import config, store
@@ -34,7 +36,8 @@ def test_record_turn_writes_run_and_ledger():
     assert r["details"]["provider"] == "codex-cli"
     assert r["summary"].startswith("hi back")
     assert r["usage"]["estTokens"] > 0
-    ledger = store.read_ledger()
+    lines = config.ledger_path().read_text(encoding="utf-8").splitlines()
+    ledger = [json.loads(l) for l in lines if l.strip()]
     assert any(e["kind"] == "chat" for e in ledger)
 
 

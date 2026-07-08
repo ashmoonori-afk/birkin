@@ -52,6 +52,8 @@ _TOKEN_ENDPOINTS = (
 )
 
 _version_cache: Optional[str] = None
+_version_lock = threading.Lock()
+_version_probe_started = False
 # Serializes token refresh so concurrent callers don't both spend the
 # single-use refresh_token (the loser would 400 and look "logged out").
 _token_lock = threading.Lock()
@@ -61,11 +63,9 @@ def _credentials_path() -> Path:
     return Path.home() / ".claude" / ".credentials.json"
 
 
-def claude_code_version() -> str:
-    """Installed Claude Code version (detected once, cached); else a constant."""
+def _probe_version() -> None:
+    """Detect the installed ``claude --version`` off the hot path; cache it."""
     global _version_cache
-    if _version_cache is not None:
-        return _version_cache
     from .proc import cli_argv
     for cmd in ("claude", "claude-code"):
         try:
@@ -78,9 +78,26 @@ def claude_code_version() -> str:
             ver = out.split()[0]
             if ver and ver[0].isdigit():
                 _version_cache = ver
-                return ver
+                return
     _version_cache = _CLAUDE_CODE_VERSION_FALLBACK
-    return _version_cache
+
+
+def claude_code_version() -> str:
+    """Spoofed Claude Code version for the OAuth user-agent.
+
+    Returns the (kept-current) fallback immediately and detects the real
+    installed version in a background thread, so the first request never blocks
+    on a ``claude --version`` subprocess. Anthropic only rejects a *too-old*
+    version, and the fallback stays recent, so the pre-detection turns are safe.
+    """
+    if _version_cache is not None:
+        return _version_cache
+    global _version_probe_started
+    with _version_lock:
+        if not _version_probe_started:
+            _version_probe_started = True
+            threading.Thread(target=_probe_version, daemon=True).start()
+    return _CLAUDE_CODE_VERSION_FALLBACK
 
 
 def user_agent() -> str:
@@ -272,10 +289,3 @@ def auth_headers(token: str) -> dict[str, str]:
         "user-agent": user_agent(),
         "x-app": "cli",
     }
-
-
-def is_logged_in() -> bool:
-    """Cheap check: is a Claude OAuth credential available (without refreshing)?"""
-    return read_credentials() is not None or bool(
-        os.environ.get("ANTHROPIC_TOKEN", "").strip()
-        or os.environ.get("CLAUDE_CODE_OAUTH_TOKEN", "").strip())

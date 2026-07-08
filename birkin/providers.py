@@ -194,15 +194,19 @@ def codex_completer(model: Optional[str] = None,
 
 def api_completer(cfg: dict, model: Optional[str] = None) -> Completer:
     """Anthropic/OpenAI via the existing LLMClient (single-turn, no tools)."""
-    from .llm import LLMClient
-    client = LLMClient(cfg)
+    from .config import get_api_key
+    from .llm import LLMError, build_client
+    client = build_client(cfg, get_api_key(cfg) or "")
 
     def complete(prompt: str) -> str:
-        resp = client.complete(
-            system="You output only the requested JSON plan.",
-            messages=[{"role": "user", "content": [{"type": "text",
-                                                     "text": prompt}]}],
-            tools=[], model=model)
+        try:
+            resp = client.complete(
+                system="You output only the requested JSON plan.",
+                messages=[{"role": "user", "content": [{"type": "text",
+                                                         "text": prompt}]}],
+                tools=[], model=model)
+        except LLMError as exc:
+            return f"[provider-error] api: {str(exc)[:300]}"
         parts = [b.get("text", "") for b in resp.get("content", [])
                  if b.get("type") == "text"]
         return "\n".join(parts)

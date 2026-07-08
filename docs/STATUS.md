@@ -37,16 +37,19 @@
 > in-flight REPL turn** (ADR-035) — cooperative `Session.abort` threaded through
 > `agent.run`/`LLMClient` (Anthropic stream stops; CLI subprocess killed via the
 > new `_run_cli_capture`) + a TTY-only interrupt listener (`abortkey.py`): Esc
-> cancels, or type a new message + Enter to interrupt AND send it next. Also: **all
-> v2 components built**
+> cancels, or type a new message + Enter to interrupt AND send it next. Also: **v2
+> components built**
 > (code-reviewed: 1 HIGH + 3 MEDIUM fixed — boulder zombie/evidence-gate, router
 > free-tier guarantee + token routing).
-> (docs/v2.md) — #1 Model Router (`router.py`), #2 Hashline edits, #3 Osiris
-> verifier (`verify.py`), #4 IntentGate (`intent.py`), #5 Boulder (`boulder.py`),
-> #6 Hyperplan (`critique.py`), #7 Prompt-Gate (`promptgate.py`, runtime+gateway
+> (docs/v2.md) — #1 Model Router, #2 Hashline edits, #3 Osiris
+> verifier, #4 IntentGate, #5 Boulder (`boulder.py`),
+> #6 Hyperplan, #7 Prompt-Gate (`promptgate.py`, runtime+gateway
 > routed through it + static audit), #8 per-skill scoped perms, + Odyssey wiring
 > (`odyssey.py`). Infra (#7,#2) wired live; the rest ship as tested primitives +
-> the Odyssey skill protocol (opt-in; hot path untouched). Also: **Codex-backend compatibility**
+> the Odyssey skill protocol (opt-in; hot path untouched). (Update 2026-07: #1
+> Model Router, #4 IntentGate, and #8 scoped-skill enforcement were later removed;
+> #3 Osiris and #6 Hyperplan are no longer modules — they now run as prose steps
+> inside the Odyssey skill.) Also: **Codex-backend compatibility**
 > (ADR-034) — morpheus no longer spawns `claude` for codex users (routes generic),
 > unattended runs downgrade `cli_access:full`→`workspace`, and gateway `/models` is
 > provider-aware (codex model ids pass through). Persistent warm gateway stays
@@ -350,7 +353,7 @@ OAuth, no paid API key).
 | **Obsidian-vault semantic memory** | `memory.py` | ✅ |
 | **Mnemosyne palace engine** (zones, BM25 index, decay, zone priority) | `mnemosyne.py` | ✅ (ADR-040) |
 | Self-improvement (in-session `/learn`) | `selfimprove.py` | ✅ |
-| **Morpheus 04:00 routine** | `morpheus.py` (legacy alias: `nightly.py`) | ✅ (dry-run + no-key handled) |
+| **Morpheus 04:00 routine** | `morpheus.py` (CLI alias: `birkin nightly`) | ✅ (dry-run + no-key handled) |
 | Scheduler daemon + OS-register option | `scheduler.py` | ✅ (heartbeat verified) |
 | Daily cron jobs | `cron.py` | ✅ |
 | **Approval gate (human-in-the-loop)** | `approvals.py`, `store.py` | ✅ |

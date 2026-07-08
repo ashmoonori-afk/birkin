@@ -48,41 +48,6 @@ class Skill:
         tags = self.meta.get("tags")
         return [str(t) for t in tags] if isinstance(tags, list) else []
 
-    def _meta_get(self, key: str) -> Any:
-        """Read ``key`` from top-level frontmatter or under ``metadata.birkin``."""
-        if self.meta.get(key) is not None:
-            return self.meta.get(key)
-        md = self.meta.get("metadata", {})
-        if isinstance(md, dict) and isinstance(md.get("birkin"), dict):
-            return md["birkin"].get(key)
-        return None
-
-    @property
-    def permissions(self) -> dict[str, list[str]]:
-        """Per-skill scoped permissions / MCP (v2 #8), from frontmatter
-        ``permissions:`` (a list = allow-list, or ``{allow, deny}``) and ``mcp:``.
-        Empty allow = unrestricted (minus any deny)."""
-        perms = self._meta_get("permissions")
-        allow: Any = None
-        deny: Any = None
-        if isinstance(perms, list):
-            allow = perms
-        elif isinstance(perms, dict):
-            allow, deny = perms.get("allow"), perms.get("deny")
-        return {
-            "allow": [str(t) for t in (allow or [])],
-            "deny": [str(t) for t in (deny or [])],
-            "mcp": [str(m) for m in (self._meta_get("mcp") or [])],
-        }
-
-    def tool_allowed(self, tool_name: str) -> bool:
-        """Whether ``tool_name`` is in this skill's scope. Empty allow-list =
-        everything allowed (minus deny). Consult when permissions are enforced."""
-        p = self.permissions
-        if tool_name in p["deny"]:
-            return False
-        return (tool_name in p["allow"]) if p["allow"] else True
-
     def body(self) -> str:
         if self._body is None:
             text = self.path.read_text(encoding="utf-8", errors="replace")
@@ -97,7 +62,7 @@ class Skill:
     def eligible(self) -> bool:
         """False if the skill's frontmatter ``prerequisites`` aren't met on this
         machine (required commands missing, or wrong platform). Eligible skills
-        are the ones shown in the index / used by the router."""
+        are the ones shown in the index."""
         pre = self.meta.get("prerequisites")
         if not isinstance(pre, dict):
             return True

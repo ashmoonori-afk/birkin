@@ -98,9 +98,13 @@ class _PosixListener(_Base):
         super().__init__(on_interrupt)
 
     def _run(self) -> None:
+        import codecs
         import select
         import termios
         import tty
+        # Incremental UTF-8 decode so typed Korean/multibyte input survives
+        # (returns "" until a full char's bytes have arrived).
+        decoder = codecs.getincrementaldecoder("utf-8")("ignore")
         try:
             tty.setcbreak(self._fd)
             while not self._stop.is_set() and not self._fired:
@@ -110,7 +114,7 @@ class _PosixListener(_Base):
                 b = os.read(self._fd, 1)
                 if not b:
                     continue
-                ch = self._decode(b[0])
+                ch = decoder.decode(b)
                 if ch:
                     self._handle(ch)
         except Exception:
@@ -120,19 +124,6 @@ class _PosixListener(_Base):
                 termios.tcsetattr(self._fd, termios.TCSADRAIN, self._old)
             except Exception:
                 pass
-
-    def _decode(self, b0: int) -> str:
-        """Assemble a UTF-8 char (so typed Korean/multibyte input survives)."""
-        if b0 < 0x80:
-            return chr(b0)
-        n = 4 if b0 >= 0xF0 else 3 if b0 >= 0xE0 else 2 if b0 >= 0xC0 else 0
-        if n == 0:
-            return ""
-        buf = bytes([b0]) + b"".join(os.read(self._fd, 1) for _ in range(n - 1))
-        try:
-            return buf.decode("utf-8", "ignore")
-        except Exception:
-            return ""
 
 
 class _WinListener(_Base):

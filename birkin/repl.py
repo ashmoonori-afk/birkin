@@ -13,26 +13,18 @@ from typing import Any
 
 from . import abortkey, inline_complete, slashcommands, store, transcripts, ui
 from .runtime import ConfigError, Session, build_session
-from .ui import CYAN, DIM, RED, RESET, YELLOW
+from .ui import BIRKIN_BANNER, CYAN, DIM, RED, RESET, YELLOW
 
 try:  # readline gives history/editing on POSIX; absent on stock Windows
     import readline  # noqa: F401
 except ImportError:
     pass
 
-_ASCII = r"""
- ██████╗ ██╗██████╗ ██╗  ██╗██╗███╗   ██╗
- ██╔══██╗██║██╔══██╗██║ ██╔╝██║████╗  ██║
- ██████╔╝██║██████╔╝█████╔╝ ██║██╔██╗ ██║
- ██╔══██╗██║██╔══██╗██╔═██╗ ██║██║╚██╗██║
- ██████╔╝██║██║  ██║██║  ██╗██║██║ ╚████║
- ╚═════╝ ╚═╝╚═╝  ╚═╝╚═╝  ╚═╝╚═╝╚═╝  ╚═══╝"""
-
 
 def _banner(session: Session) -> None:
     cfg = session.cfg
     n = len(session.skills.skills)
-    print(f"{CYAN}{_ASCII}{RESET}")
+    print(f"{CYAN}{BIRKIN_BANNER}{RESET}")
     print(f" {DIM}The AI agent that actually remembers you.{RESET}\n")
     print(f" model {CYAN}{cfg.get('model')}{RESET} · {n} skill(s) · "
           f"vault {DIM}{session.memory.vault}{RESET}")
@@ -79,22 +71,40 @@ def run(cfg: dict[str, Any] | None = None) -> int:
                 break
             continue
 
-        # Spin while the agent works (tool activity stops the spinner), then
-        # render the full reply as Markdown. Buffering the reply lets us render
-        # cleanly for both streaming (API) and non-streaming (CLI) backends.
-        spinner = ui.Spinner()
-        spinning = {"v": True}
+        # Stream the reply token-by-token so the first words appear at model
+        # latency instead of after the whole turn. A spinner covers the silent
+        # gaps — before the first token, and between tool calls while the model
+        # 'thinks' about its next step — and is cleared by the next token or
+        # tool event. (Raw text: Markdown is not re-rendered mid-stream.)
+        sp: dict[str, Any] = {"cur": None}
+        first = {"v": True}
         base_event = session.agent.on_event
 
         def stop_spin() -> None:
-            if spinning["v"]:
-                spinning["v"] = False
-                spinner.stop()
+            if sp["cur"] is not None:
+                sp["cur"].stop()
+                sp["cur"] = None
+
+        def start_spin() -> None:
+            if sp["cur"] is None:
+                sp["cur"] = ui.Spinner()
+                sp["cur"].start()
+
+        def on_text(piece: str) -> None:
+            stop_spin()
+            if first["v"]:
+                first["v"] = False
+                print(f"\n{CYAN}birkin{RESET} >\n", end="", flush=True)
+            ui.stream_text(piece)
 
         def turn_event(ev: str, payload: dict) -> None:
             stop_spin()
             if base_event:
                 base_event(ev, payload)
+            # After a tool/subagent finishes, the model 'thinks' about the next
+            # step — keep the spinner alive so that gap isn't dead air.
+            if ev in ("tool_end", "subagent.done"):
+                start_spin()
 
         session.agent.on_event = turn_event
 
@@ -111,12 +121,16 @@ def run(cfg: dict[str, Any] | None = None) -> int:
                 print(f"\n{DIM}(interrupting…){RESET}")
 
         listener = abortkey.listen_for_interrupt(on_interrupt)
-        spinner.start()
+        start_spin()
         try:
-            reply = session.ask(line)  # buffered (no live token printing)
+            reply = session.ask(line, on_text=on_text)  # streamed live above
             stop_spin()
-            print(f"\n{CYAN}birkin{RESET} >\n")
-            print(ui.render_markdown((reply or "").strip()))
+            if first["v"] and (reply or "").strip():
+                # Provider emitted no incremental text — print it once so the
+                # reply is never silently dropped.
+                print(f"\n{CYAN}birkin{RESET} >\n", end="")
+                ui.stream_text((reply or "").strip())
+            print()   # terminate the streamed line
             store.append_activity(f"chat: {line[:120]}")
             transcripts.append_turn("repl", run_id, line, reply or "",
                                     cfg=session.cfg)

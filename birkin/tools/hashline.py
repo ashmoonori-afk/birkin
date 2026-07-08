@@ -30,23 +30,11 @@ def line_hash(line: str) -> str:
 def annotate(text: str) -> str:
     """Tag each line with ``{lineno}#{hash}| `` so edits can be hash-anchored.
 
-    1-indexed. The ``| `` separator is visual only — strip it back off with
-    :func:`strip` if you need the raw text.
+    1-indexed. The ``| `` separator is visual only.
     """
     out = []
     for i, ln in enumerate(text.split("\n"), 1):
         out.append(f"{i}#{line_hash(ln)}| {ln}")
-    return "\n".join(out)
-
-
-def strip(annotated: str) -> str:
-    """Inverse of :func:`annotate` — drop the ``{lineno}#{hash}| `` prefixes."""
-    out = []
-    for ln in annotated.split("\n"):
-        head, sep, rest = ln.partition("| ")
-        # only strip when the head looks like "<n>#<hash>"
-        num, dot, h = head.partition("#")
-        out.append(rest if (sep and dot and num.isdigit()) else ln)
     return "\n".join(out)
 
 

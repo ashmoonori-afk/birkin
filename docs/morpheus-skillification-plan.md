@@ -1,5 +1,7 @@
 # Morpheus Skillification Implementation Plan
 
+> **Superseded (2026-07):** historical playbook. Task 3's `birkin.nightly` re-export shim was later removed, so its `import birkin.nightly` / `py_compile birkin/nightly.py` commands no longer run — the routine lives in `birkin.morpheus` (the `birkin nightly` CLI alias and `nightly_hour` config migration remain).
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Replace Morpheus's brittle dual-path sandboxed runtime with a thin, skill-driven launcher so the nightly self-improvement pass runs as a normal agent turn that can actually write memory/skills/proposals.

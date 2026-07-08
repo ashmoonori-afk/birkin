@@ -9,7 +9,6 @@ Windows uses ``msvcrt``; POSIX uses ``termios``/``tty``. No third-party deps.
 
 from __future__ import annotations
 
-import os
 import sys
 from typing import Optional, Sequence
 
@@ -18,66 +17,30 @@ from .ui import CYAN, DIM, RESET
 # Reuse the REPL's real VT-capability probe (it enables VT processing and reports
 # whether that actually took). When the console can't honor the cursor-move/clear
 # codes the arrow-key renderer relies on, ``select`` falls back to a numbered menu
-# instead of drawing an invisible, un-navigable selector.
-from .inline_complete import _VT_OK
-
-
-def _is_interactive() -> bool:
-    try:
-        return sys.stdin.isatty() and sys.stdout.isatty()
-    except Exception:
-        return False
+# instead of drawing an invisible, un-navigable selector. ``_is_interactive`` and
+# ``_read_event`` are shared with the REPL line editor — no need to re-implement
+# raw msvcrt/termios key reading here.
+from .inline_complete import _VT_OK, _is_interactive, _read_event
 
 
 # -- key reading -----------------------------------------------------------
 
 def _read_key() -> str:
     """Return one of: up, down, enter, cancel, other."""
-    if os.name == "nt":
-        import msvcrt
-        ch = msvcrt.getwch()
-        if ch in ("\r", "\n"):
-            return "enter"
-        if ch == "\x03" or ch == "\x1b":
-            return "cancel"
-        if ch in ("\x00", "\xe0"):  # arrow prefix
-            code = msvcrt.getwch()
-            return {"H": "up", "P": "down"}.get(code, "other")
-        if ch in ("k", "K"):
+    kind, value = _read_event()
+    if kind in ("up", "down", "enter"):
+        return kind
+    if kind in ("ctrl_c", "ctrl_d", "esc"):
+        return "cancel"
+    if kind == "char":
+        low = value.lower()
+        if low == "k":
             return "up"
-        if ch in ("j", "J"):
+        if low == "j":
             return "down"
-        if ch in ("q", "Q"):
+        if low == "q":
             return "cancel"
-        return "other"
-
-    import termios
-    import tty
-    fd = sys.stdin.fileno()
-    old = termios.tcgetattr(fd)
-    try:
-        tty.setraw(fd)
-        ch = sys.stdin.read(1)
-        if ch == "\x03":
-            return "cancel"
-        if ch in ("\r", "\n"):
-            return "enter"
-        if ch == "\x1b":
-            seq = sys.stdin.read(2)
-            if seq == "[A":
-                return "up"
-            if seq == "[B":
-                return "down"
-            return "cancel"
-        if ch in ("k", "K"):
-            return "up"
-        if ch in ("j", "J"):
-            return "down"
-        if ch in ("q", "Q"):
-            return "cancel"
-        return "other"
-    finally:
-        termios.tcsetattr(fd, termios.TCSADRAIN, old)
+    return "other"
 
 
 # -- public API ------------------------------------------------------------

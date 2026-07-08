@@ -16,8 +16,7 @@ have is correct for every path (persistent gateway, non-persistent gateway, REPL
 
 Files use the reserved ``auto__`` prefix so they stay out of ``/sessions`` /
 manual ``/save`` names and can never collide. Append is read-modify-write under a
-per-conversation lock (the gateway runs the LLM turn OUTSIDE its global lock, so
-distinct conversations can append concurrently) with an atomic 0o600 rename
+global append lock with an atomic 0o600 rename
 (reusing ``store._write_json``). Best-effort: this never raises into the chat path.
 
 Privacy: who/what is persisted is gated by the caller (the gateway only auto-saves
@@ -63,20 +62,9 @@ _SECRET_PATTERNS = [
     re.compile(r"(?im)\b(?:api[_-]?key|secret|token|password|passwd|pwd)\b\s*[:=]\s*.+$"),
 ]
 
-# Per-conversation locks (keyed by channel:chat, NOT by day-file path, so the
-# set stays bounded by active conversations). Guarded by _locks_guard.
-_locks: dict[str, threading.Lock] = {}
-_locks_guard = threading.Lock()
+_append_lock = threading.Lock()  # serialises the append read-modify-write across channel threads
 _last_retention = 0.0  # throttle timestamp; guarded by _retention_lock below
 _retention_lock = threading.Lock()  # serialises the throttle + sweep across threads
-
-
-def _lock_for(key: str) -> threading.Lock:
-    with _locks_guard:
-        lk = _locks.get(key)
-        if lk is None:
-            lk = _locks[key] = threading.Lock()
-        return lk
 
 
 def _safe(s: str, n: int = 40) -> str:
@@ -142,8 +130,7 @@ def append_turn(channel: str, chat_id: str, user_text: str, reply_text: str,
         redact = bool(cfg.get("autosave_redact_secrets", True))
         max_chars = int(cfg.get("autosave_max_chars", 4000))
         path = config.sessions_dir() / f"{auto_stem(channel, chat_id)}.json"
-        lock_key = f"{_safe(channel)}:{_safe(chat_id)}"
-        with _lock_for(lock_key):
+        with _append_lock:
             existing = store._read_json(path, [])
             if not isinstance(existing, list):
                 existing = []

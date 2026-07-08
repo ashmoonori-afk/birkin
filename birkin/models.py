@@ -187,6 +187,22 @@ def apply_selection(cfg: dict[str, Any], model: Model) -> None:
         cfg["model"] = model.id
 
 
+def pick_interactive(cfg: dict[str, Any], prompt: str = "Choose a model") -> Optional[Model]:
+    """Discover models, show the interactive picker, and apply the choice to cfg.
+    Returns the chosen Model, or None if the user cancelled."""
+    from . import menu
+    found = discover(cfg)
+    labels = [f"{m.id}  [{m.source}]" + (f" · {m.note}" if m.note else "")
+              for m in found]
+    cur = cfg.get("model")
+    default_i = next((i for i, m in enumerate(found) if m.model_value() == cur), 0)
+    mi = menu.select(prompt, labels, default=default_i)
+    if mi is None:
+        return None
+    apply_selection(cfg, found[mi])
+    return found[mi]
+
+
 def render(models: list[Model], current: str) -> list[Model]:
     """Print a grouped, sequentially-numbered list (index matches `models`)."""
     groups = [

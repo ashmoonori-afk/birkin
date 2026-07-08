@@ -64,24 +64,13 @@ class Session:
                                     "blocked_by": "budget"},
                            usage=store.estimate_usage(text))
             return why
-        import os
-        import time
-        timing = os.environ.get("BIRKIN_TIMING")
-        t0 = time.monotonic()
         self.skills.reload_if_changed()  # pick up edited/added skills live
         self.abort.clear()               # fresh turn — drop any stale abort
         if self.cfg.get("provider") in config.CLI_PROVIDERS:
             self._build_cli_system(text)
         else:
             self.refresh_system_prompt()
-        t1 = time.monotonic()
         reply = self.agent.run(text, on_text=on_text, abort=self.abort)
-        t2 = time.monotonic()
-        if timing:
-            print(f"[birkin-timing] prompt={ (t1 - t0) * 1000:.0f}ms "
-                  f"agent={(t2 - t1) * 1000:.0f}ms total={(t2 - t0) * 1000:.0f}ms "
-                  f"(provider={self.cfg.get('provider')}, model={self.cfg.get('model')})",
-                  flush=True)
         self._record_turn(text, reply)
         return reply
 

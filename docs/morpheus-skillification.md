@@ -1,5 +1,6 @@
 # Morpheus skillification — design
 
+> **Superseded (2026-07):** historical design note. The `birkin.nightly` re-export shim module was later removed; the routine is `birkin.morpheus` (the `birkin nightly` CLI alias and `nightly_hour` config migration remain).
 > Status: **proposed** (awaiting review). Date: 2026-06-02.
 > Goal: collapse the brittle dual-path Morpheus runtime into the same
 > "thin launcher + skill-as-protocol" pattern as `neurosis` / `odyssey`, so the

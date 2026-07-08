@@ -40,7 +40,8 @@ nothing extra.
 2. Read **A** and **B** with the model names hidden; decide which you prefer.
 3. Press Enter to reveal the mapping (`A = … B = …`).
 4. If you want the winner as your default, set it (`/models <name>` in the
-   gateway, or `birkin model`). To auto-route by task class, see the Model Router.
+   gateway, or `birkin model`). Auto-routing by task class is a planned v2 idea
+   (Model Router — `docs/v2.md` #1, not shipped as a module).
 
 ## Output
 
