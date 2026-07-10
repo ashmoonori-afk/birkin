@@ -191,7 +191,7 @@ def pick_interactive(cfg: dict[str, Any], prompt: str = "Choose a model") -> Opt
     """Discover models, show the interactive picker, and apply the choice to cfg.
     Returns the chosen Model, or None if the user cancelled."""
     from . import menu
-    found = discover(cfg)
+    found = display_order(discover(cfg))
     labels = [f"{m.id}  [{m.source}]" + (f" · {m.note}" if m.note else "")
               for m in found]
     cur = cfg.get("model")
@@ -203,17 +203,57 @@ def pick_interactive(cfg: dict[str, Any], prompt: str = "Choose a model") -> Opt
     return found[mi]
 
 
+_GROUPS = (
+    ("API models", lambda m: m.source in ("anthropic", "openai")),
+    ("Local CLI agents (no API key — uses the CLI's own login)",
+     lambda m: m.is_cli),
+    ("Local models (Ollama)", lambda m: m.is_ollama),
+)
+
+
+def display_order(models: list[Model]) -> list[Model]:
+    """Models in the exact order ``render`` numbers them (grouped: API, CLI,
+    Ollama), so a user-typed number maps to the model shown at that number."""
+    out: list[Model] = []
+    for _, pred in _GROUPS:
+        out.extend(m for m in models if pred(m))
+    seen = {id(m) for m in out}
+    out.extend(m for m in models if id(m) not in seen)   # any ungrouped, last
+    return out
+
+
+def resolve(models: list[Model], arg: str) -> Optional[Model]:
+    """Resolve a ``/models`` argument to a Model, or None.
+
+    Accepts a 1-based number exactly as shown in ``render``, or a model
+    name/param (exact ``id``/``model_value`` match first, then a
+    case-insensitive substring). Returning the Model — not just a string — lets
+    the caller rewire the provider via :func:`apply_selection`, so picking e.g.
+    ``claude-code (opus)`` switches to the claude-cli backend instead of leaving
+    a stale provider pointed at a model it cannot run."""
+    arg = arg.strip()
+    if not arg:
+        return None
+    ordered = display_order(models)
+    if arg.isdigit():
+        i = int(arg) - 1
+        return ordered[i] if 0 <= i < len(ordered) else None
+    for m in ordered:                       # exact id / stored value
+        if arg in (m.id, m.model_value()):
+            return m
+    low = arg.lower()
+    for m in ordered:                       # then case-insensitive substring
+        if low in m.id.lower():
+            return m
+    return None
+
+
 def render(models: list[Model], current: str) -> list[Model]:
-    """Print a grouped, sequentially-numbered list (index matches `models`)."""
-    groups = [
-        ("API models", lambda m: m.source in ("anthropic", "openai")),
-        ("Local CLI agents (no API key — uses the CLI's own login)",
-         lambda m: m.is_cli),
-        ("Local models (Ollama)", lambda m: m.is_ollama),
-    ]
+    """Print a grouped, sequentially-numbered list; numbers match :func:`resolve`.
+    Returns the models in the displayed (numbered) order."""
     n = 0
     shown_cli = False
-    for title, pred in groups:
+    for title, pred in _GROUPS:
         items = [m for m in models if pred(m)]
         if title.startswith("Local CLI"):
             shown_cli = bool(items)
@@ -227,4 +267,4 @@ def render(models: list[Model], current: str) -> list[Model]:
             print(f"   {mark} {n}. {m.id} [{m.source}]{note}")
     if not shown_cli:
         print("  Local CLI agents: (install `claude` or `codex` to use them)")
-    return models
+    return display_order(models)

@@ -15,7 +15,7 @@ from __future__ import annotations
 
 from typing import Any, Optional
 
-from . import neurosis, persona, prompts
+from . import neurosis, persona, presets, prompts
 
 
 def _persona(persona_text: Optional[str]) -> str:
@@ -31,7 +31,8 @@ def compose_main(cfg: dict[str, Any], *, skills_index: str = "",
     return prompts.build_system_prompt(
         skills_index=skills_index, memory_block=memory_block, role=role,
         extra=extra, persona=_persona(persona_text)
-    ) + neurosis.auto_trigger_note(cfg)
+    ) + presets.role_overlay(cfg.get("model"), cfg) \
+        + neurosis.auto_trigger_note(cfg)
 
 
 def compose_cli(cfg: dict[str, Any], *, memory_block: str = "",
@@ -44,4 +45,5 @@ def compose_cli(cfg: dict[str, Any], *, memory_block: str = "",
         persona=_persona(persona_text))
     if extra:
         sysp += extra
-    return sysp + neurosis.auto_trigger_note(cfg)
+    return sysp + presets.role_overlay(cfg.get("model"), cfg) \
+        + neurosis.auto_trigger_note(cfg)

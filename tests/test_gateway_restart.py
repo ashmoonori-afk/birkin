@@ -29,7 +29,7 @@ def _gateway(tmp_path, monkeypatch, tg_allowed=None):
 def test_restart_gateway_clears_sessions_and_rebuilds(tmp_path, monkeypatch):
     gw = _gateway(tmp_path, monkeypatch)
     fake = _FakeSession()
-    gw._claude_sessions[("http", "c1")] = fake
+    gw._claude_sessions.put(("http", "c1"), fake)
     gw._chats[("http", "c1")] = [{"role": "user", "content": []}]
     prev_session = gw.session
 
@@ -37,7 +37,7 @@ def test_restart_gateway_clears_sessions_and_rebuilds(tmp_path, monkeypatch):
 
     assert "restart" in out.lower()
     assert fake.closed is True              # warm session torn down
-    assert gw._claude_sessions == {}        # all warm sessions cleared
+    assert len(gw._claude_sessions) == 0    # all warm sessions cleared
     assert gw._chats == {}                   # conversations reset
     assert gw.session is not prev_session    # session rebuilt
     assert gw.session is not None

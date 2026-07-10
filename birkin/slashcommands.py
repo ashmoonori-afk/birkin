@@ -164,34 +164,67 @@ def _clear(session: Any, arg: str) -> None:
 
 # -- model / provider ------------------------------------------------------
 
-def _apply_model_live(session: Any, name: str) -> None:
-    session.cfg["model"] = name
-    session.client.model = name
-    agent = getattr(session, "agent", None)
-    if agent is not None:   # the agent passes ITS model to the CLI each turn
-        agent.model = name
+def _warn_if_key_missing(session: Any) -> None:
+    """Warn (don't block) if the just-selected provider needs an API key we
+    don't have — the 'picked an API model but only have a CLI login' case, which
+    would otherwise fail confusingly on the next turn."""
+    prov = session.cfg.get("provider")
+    if prov in ("anthropic", "openai"):
+        key = config.get_api_key(session.cfg)
+        if not key or key == "cli":
+            env = config.PROVIDER_API_KEY_ENV.get(prov, "ANTHROPIC_API_KEY")
+            print(f"{YELLOW}  heads up: no API key for {prov} — set {env}, "
+                  f"or pick a local CLI model instead.{RESET}")
+
+
+def _set_model(session: Any, arg: str) -> None:
+    """Apply a ``/model`` / ``/models`` argument live.
+
+    A number (as shown in the list) or a listed model name resolves to a real
+    model and switches the PROVIDER too (via apply_selection) — so picking a
+    claude-cli entry actually runs Claude Code, not codex-with-a-claude-id. An
+    unknown string is set raw against the current provider (advanced)."""
+    from . import models as models_mod
+    found = models_mod.discover(session.cfg)
+    chosen = models_mod.resolve(found, arg)
+    if chosen is not None:
+        models_mod.apply_selection(session.cfg, chosen)
+        label = f"{chosen.id} [{session.cfg.get('provider')}]"
+    else:
+        session.cfg["model"] = arg    # raw: keep current provider (advanced)
+        label = f"{arg} (raw · provider stays {session.cfg.get('provider')})"
     config.save_config(session.cfg)
+    session.reload_client()           # rebuild the live client for the new backend
+    print(f"{GREEN}✓ model → {label} — applies now.{RESET}")
+    _warn_if_key_missing(session)
 
 
-@command("model", "Show or set the model.", "/model [name]")
+@command("model", "Show the model, or set one: /model <number|name>.", "/model [name]")
 def _model(session: Any, arg: str) -> None:
+    arg = arg.strip()
     if arg:
-        _apply_model_live(session, arg)
-        print(f"{DIM}Model set to {arg}.{RESET}")
+        _set_model(session, arg)
     else:
         print(session.cfg.get("model"))
 
 
-@command("models", "List models, or select one: /models [name].", "/models [name]")
+@command("models", "Pick a model (↑/↓, Enter), or /models <number|name>.",
+         "/models [number|name]")
 def _models(session: Any, arg: str) -> None:
     from . import models as models_mod
-    name = arg.strip()
-    if name:  # select — applies live in the REPL (no restart needed here)
-        _apply_model_live(session, name)
-        print(f"{GREEN}Model set to {name} (applies now).{RESET}")
+    arg = arg.strip()
+    if arg:
+        _set_model(session, arg)
         return
-    found = models_mod.discover(session.cfg)
-    models_mod.render(found, session.cfg.get("model"))
+    chosen = models_mod.pick_interactive(session.cfg)   # arrow picker; applies to cfg
+    if chosen is None:
+        print(f"{DIM}(no change){RESET}")
+        return
+    config.save_config(session.cfg)
+    session.reload_client()
+    print(f"{GREEN}✓ model → {chosen.id} [{session.cfg.get('provider')}] "
+          f"— applies now.{RESET}")
+    _warn_if_key_missing(session)
 
 
 @command("provider", "Show or switch provider (anthropic|openai).", "/provider [name]")

@@ -167,25 +167,30 @@ class LLMClient:
         """
         prompt = self._flatten(system, messages)
         if self.provider == "claude-cli":
-            text = self._run_claude(prompt, model, abort)
+            # claude streams incrementally via on_text inside _run_claude.
+            text, streamed = self._run_claude(prompt, model, abort, on_text)
         elif self.provider == "local-cli":
-            text = self._run_local_cli(prompt, abort)
-        else:  # codex-cli
-            text = self._run_codex(prompt, model, abort)
-        if on_text and text:
+            text, streamed = self._run_local_cli(prompt, abort), False
+        else:  # codex-cli — output captured from a file only after exit
+            text, streamed = self._run_codex(prompt, model, abort), False
+        if on_text and text and not streamed:
             on_text(text)
         return {"role": "assistant",
                 "content": [{"type": "text", "text": text}],
                 "stop_reason": "end_turn"}
 
     def _run_cli_capture(self, argv: list[str], prompt: str, abort=None,
-                         env: Optional[dict[str, str]] = None
+                         env: Optional[dict[str, str]] = None,
+                         on_line: Optional[Callable[[str], None]] = None
                          ) -> tuple[str, str, bool, bool]:
         """Run ``argv`` feeding ``prompt`` on stdin; capture stdout/stderr.
 
         Uses Popen + drain threads (no pipe-buffer deadlock) and polls so the
         child is KILLED on ``abort`` (Esc) or ``cli_timeout``. ``env`` overrides
-        the child environment (defaults to inheriting the parent). Returns
+        the child environment (defaults to inheriting the parent). ``on_line``,
+        if given, is called with each stdout line AS IT ARRIVES (from the drain
+        thread) so a caller can stream incrementally; stdout is still buffered
+        and returned for fallback parsing. Returns
         ``(stdout, stderr, timed_out, aborted)``."""
         import threading
 
@@ -199,6 +204,11 @@ class LLMClient:
             try:
                 for line in stream:
                     chunks[key].append(line)
+                    if on_line is not None and key == "out":
+                        try:
+                            on_line(line)
+                        except Exception:
+                            pass
             except Exception:
                 pass
 
@@ -240,34 +250,92 @@ class LLMClient:
             t.join(timeout=1)
         return "".join(chunks["out"]), "".join(chunks["err"]), timed_out, aborted
 
-    def _run_claude(self, prompt: str, model: Optional[str], abort=None) -> str:
+    def _run_claude(self, prompt: str, model: Optional[str], abort=None,
+                    on_text: StreamCallback = None) -> tuple[str, bool]:
+        """Run ``claude -p`` and stream its reply. Returns ``(text, streamed)``.
+
+        Uses ``--output-format stream-json`` so Claude Code emits a JSONL event
+        stream as it works; the parser forwards assistant text deltas to
+        ``on_text`` the instant they arrive instead of waiting for the process
+        to exit. ``streamed`` is True when at least one delta was forwarded (so
+        the caller knows not to re-print the reply). Falls back to the final
+        ``result`` text when a claude too old for partial messages emits no
+        deltas — preserving the old print-once behavior.
+        """
         # Discrete argv (no shell=True). Writable by default (acceptEdits);
         # "full" bypasses all permission checks.
         from .proc import claude_child_env, cli_argv
-        parts = ["claude", "-p", "--output-format", "json"]
+        parts = ["claude", "-p", "--output-format", "stream-json", "--verbose",
+                 "--include-partial-messages"]
         if self.cli_access == "full":
             parts.append("--dangerously-skip-permissions")
         else:
             parts += ["--permission-mode", "acceptEdits"]
         if model and model not in ("claude-code", "default", ""):
             parts += ["--model", model]
+
+        st: dict[str, Any] = {"delta": [], "result": None, "assistant": [],
+                              "streamed": False}
+
+        def _on_line(line: str) -> None:
+            line = line.strip()
+            if not line:
+                return
+            try:
+                obj = json.loads(line)
+            except (ValueError, TypeError):
+                return  # non-JSON log line — skip
+            typ = obj.get("type")
+            if typ == "stream_event":
+                ev = obj.get("event") or {}
+                if ev.get("type") == "content_block_delta":
+                    delta = ev.get("delta") or {}
+                    if delta.get("type") == "text_delta":
+                        piece = delta.get("text") or ""
+                        if piece:
+                            st["delta"].append(piece)
+                            st["streamed"] = True
+                            if on_text:
+                                on_text(piece)
+            elif typ == "assistant":
+                for block in (obj.get("message") or {}).get("content") or []:
+                    if block.get("type") == "text" and block.get("text"):
+                        st["assistant"].append(block["text"])
+            elif typ == "result":
+                res = obj.get("result")
+                if isinstance(res, str):
+                    st["result"] = res
+
         try:
             stdout, stderr, timed_out, aborted = self._run_cli_capture(
-                cli_argv(parts), prompt, abort, env=claude_child_env())
+                cli_argv(parts), prompt, abort, env=claude_child_env(),
+                on_line=_on_line)
         except FileNotFoundError:
-            return "[birkin] command not found: claude"
+            return "[birkin] command not found: claude", False
+
+        streamed_text = "".join(st["delta"])
         if aborted:
-            return "[birkin] (aborted)"
+            return (streamed_text, True) if streamed_text else ("[birkin] (aborted)", False)
         if timed_out:
+            if streamed_text:
+                return streamed_text, True
             return (f"[birkin] Claude Code timed out after {self.cli_timeout}s. "
-                    f"It may be blocked on a Claude Code hook or first-run prompt.")
+                    f"It may be blocked on a Claude Code hook or first-run prompt."), False
+        if st["streamed"]:
+            return streamed_text, True
+        # No token deltas (claude too old for --include-partial-messages, or a
+        # non-streaming build): fall back to the final result / assistant text.
+        if st["result"]:
+            return st["result"], False
+        if st["assistant"]:
+            return "\n".join(st["assistant"]), False
         out = (stdout or "").strip()
         if out:
-            try:
-                return str(json.loads(out).get("result") or out)
+            try:  # tolerate a single-object json blob (older --output-format)
+                return str(json.loads(out).get("result") or out), False
             except json.JSONDecodeError:
-                return out
-        return f"[birkin] Claude Code error: {(stderr or '').strip()[:400]}"
+                return out, False
+        return f"[birkin] Claude Code error: {(stderr or '').strip()[:400]}", False
 
     def _run_codex(self, prompt: str, model: Optional[str], abort=None) -> str:
         # Discrete argv (no shell=True). `-o` writes ONLY the final assistant

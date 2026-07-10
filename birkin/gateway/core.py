@@ -6,7 +6,7 @@ import threading
 import time
 from typing import Any
 
-from .. import config, promptgate, security, store
+from .. import config, pools, promptgate, security, store
 from ..claude_session import ClaudeStreamSession
 from ..runtime import ConfigError, Session, build_session
 
@@ -131,7 +131,12 @@ class Gateway:
         # the claude-cli provider. Pays cold-start once; warm replies are fast.
         self._persistent = (bool(cfg.get("gateway_persistent", True))
                             and cfg.get("provider") == "claude-cli")
-        self._claude_sessions: dict[tuple[str, str], ClaudeStreamSession] = {}
+        # Pool with idle-TTL + LRU cap: dead chats stop holding a live claude
+        # process (daemon resource layer; docs/hermes-comparison.md §4).
+        self._claude_sessions = pools.SessionPool(
+            self._new_claude_session,
+            max_sessions=int(cfg.get("gateway_max_sessions", 8) or 8),
+            idle_ttl=float(cfg.get("gateway_session_ttl_s", 3600) or 3600))
         # Set by a /hard-restart command; the channel re-execs after replying.
         self._hard_restart = False
         # (channel, chat_id) that triggered a hard restart — persisted across the
@@ -153,32 +158,23 @@ class Gateway:
         return promptgate.compose_cli(
             self.cfg, memory_block=self.session.memory.render(), extra=extra)
 
+    def _new_claude_session(self, key: tuple[str, str]) -> ClaudeStreamSession:
+        """SessionPool factory: one warm session per conversation key."""
+        # Tools the headless gateway may use without a permission prompt
+        # (e.g. company MCP servers). Empty -> rely on Claude Code settings.
+        allowed = [str(t) for t in self.cfg.get("gateway_allowed_tools", []) if t]
+        extra = ["--allowedTools", ",".join(allowed)] if allowed else None
+        return ClaudeStreamSession(
+            model=self.cfg.get("model"),
+            cli_access=self.cfg.get("cli_access", "workspace"),
+            append_system_prompt=self._system_prompt(),
+            extra_args=extra)
+
     def _claude_session(self, key: tuple[str, str]) -> ClaudeStreamSession:
-        sess = self._claude_sessions.get(key)
-        if sess is None:
-            # Tools the headless gateway may use without a permission prompt
-            # (e.g. company MCP servers). Empty -> rely on Claude Code settings.
-            allowed = [str(t) for t in self.cfg.get("gateway_allowed_tools", []) if t]
-            extra = ["--allowedTools", ",".join(allowed)] if allowed else None
-            sess = ClaudeStreamSession(
-                model=self.cfg.get("model"),
-                cli_access=self.cfg.get("cli_access", "workspace"),
-                append_system_prompt=self._system_prompt(),
-                extra_args=extra)
-            self._claude_sessions[key] = sess
-        return sess
+        return self._claude_sessions.get(key)
 
     def shutdown(self) -> None:
-        # Snapshot under the lock: a channel thread may be inserting a session
-        # via _claude_session() concurrently (else: dict changed size on iterate).
-        with self._lock:
-            sessions = list(self._claude_sessions.values())
-            self._claude_sessions.clear()
-        for sess in sessions:
-            try:
-                sess.close()
-            except Exception:
-                pass
+        self._claude_sessions.clear()   # the pool closes every session
 
     def restart(self) -> str:
         """Soft-restart the gateway in place (channels stay up).
@@ -189,9 +185,7 @@ class Gateway:
         changes still require restarting `birkin gateway`. Callers hold the lock.
         """
         assert self._lock.locked(), "restart() must be called holding self._lock"
-        for sess in list(self._claude_sessions.values()):
-            sess.close()
-        self._claude_sessions.clear()
+        self._claude_sessions.clear()   # the pool closes every session
         self._chats.clear()
         cfg = config.load_config()
         if cfg.get("gateway_model"):
@@ -337,7 +331,7 @@ class Gateway:
                 # Pop (not just reset) so a racing in-flight turn keeps its own
                 # object and the NEXT turn builds a clean session.
                 if self._persistent:
-                    old = self._claude_sessions.pop(key, None)
+                    old = self._claude_sessions.pop(key)
                     if old is not None:
                         old.close()
                 self._chats[key] = []
@@ -474,9 +468,13 @@ def run() -> int:
         t.start()
         threads.append(t)
     try:
+        last_sweep = time.monotonic()
         while any(t.is_alive() for t in threads):
             for t in threads:
                 t.join(timeout=0.5)
+            if time.monotonic() - last_sweep >= 60:   # evict idle warm sessions
+                gateway._claude_sessions.sweep()
+                last_sweep = time.monotonic()
     except KeyboardInterrupt:
         print("\ngateway stopping…")
     finally:

@@ -85,10 +85,40 @@ def test_models_codex_list_shows_codex_suggestions(tmp_path, monkeypatch):
     assert gw.pending_hard_restart is False
 
 
-def test_repl_models_select_live(tmp_path, monkeypatch):
+def _fake_repl_session(cfg):
+    reloaded = {"n": 0}
+    sess = types.SimpleNamespace(
+        cfg=cfg, client=types.SimpleNamespace(model=cfg.get("model")),
+        reload_client=lambda: reloaded.__setitem__("n", reloaded["n"] + 1))
+    return sess, reloaded
+
+
+def test_repl_models_select_rewires_provider_live(tmp_path, monkeypatch):
+    # Selecting a claude-cli model FROM a codex session must switch the provider
+    # to claude-cli (not leave codex pointed at a claude id) and rebuild the
+    # live client. This is the bug: `/models` used to set only the model string.
     monkeypatch.setenv("BIRKIN_HOME", str(tmp_path))
-    from birkin import slashcommands
-    sess = types.SimpleNamespace(cfg={"model": "sonnet"},
-                                 client=types.SimpleNamespace(model="sonnet"))
-    slashcommands._models(sess, "opus")
-    assert sess.cfg["model"] == "opus" and sess.client.model == "opus"
+    from birkin import models, slashcommands
+    monkeypatch.setattr(models, "discover", lambda cfg, **k: [
+        models.Model("claude-code (opus)", "claude-cli", "local CLI", param="opus"),
+        models.Model("claude-sonnet-5", "anthropic", "api"),
+    ])
+    sess, reloaded = _fake_repl_session({"provider": "codex-cli", "model": "gpt-5.5"})
+    slashcommands._models(sess, "opus")            # name -> the claude-cli entry
+    assert sess.cfg["provider"] == "claude-cli"    # provider rewired (fix)
+    assert sess.cfg["model"] == "opus"
+    assert reloaded["n"] == 1                       # live client rebuilt
+
+
+def test_repl_models_select_by_number(tmp_path, monkeypatch):
+    monkeypatch.setenv("BIRKIN_HOME", str(tmp_path))
+    from birkin import models, slashcommands
+    monkeypatch.setattr(models, "discover", lambda cfg, **k: [
+        models.Model("claude-sonnet-5", "anthropic", "api"),          # #1
+        models.Model("claude-code (opus)", "claude-cli", "", param="opus"),  # #2
+    ])
+    sess, reloaded = _fake_repl_session({"provider": "claude-cli", "model": "sonnet"})
+    slashcommands._models(sess, "1")               # pick #1 -> anthropic API model
+    assert sess.cfg["provider"] == "anthropic"
+    assert sess.cfg["model"] == "claude-sonnet-5"
+    assert reloaded["n"] == 1

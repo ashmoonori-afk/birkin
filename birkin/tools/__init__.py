@@ -14,7 +14,7 @@ the agent can recover.
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Callable, Optional
 
@@ -99,9 +99,15 @@ def build_registry(ctx: ToolContext, *, include: Optional[set[str]] = None) -> T
         groups["subagent"] = subagent_tools()
 
     disabled = set(ctx.cfg.get("disabled_tools", []) or [])
+    # Per-model engine preset (senpi-style): fast/local models drop whole
+    # groups (e.g. web, subagent). Entries match a group OR a tool name.
+    from .. import presets
+    disabled |= presets.deny_tools(ctx.cfg.get("model"), ctx.cfg)
     registry = ToolRegistry(ctx)
     for group, tools_ in groups.items():
         if include is not None and group not in include:
+            continue
+        if group in disabled:
             continue
         for t in tools_:
             if t.name in disabled:

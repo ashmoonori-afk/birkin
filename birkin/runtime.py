@@ -92,6 +92,17 @@ class Session:
     def new_conversation(self) -> None:
         self.agent.reset()
 
+    def reload_client(self) -> None:
+        """Rebuild the LLM client from ``self.cfg`` so a ``/model`` / ``/models``
+        change — even one that switches provider (API <-> a local CLI agent) —
+        takes effect on this live session with no restart. Rewires the client on
+        the session, the tool context (for subagents), and the agent."""
+        api_key = config.get_api_key(self.cfg) or ""
+        self.client = build_client(self.cfg, api_key)
+        self.ctx.client = self.client
+        self.agent.client = self.client
+        self.agent.model = self.cfg.get("model")
+
 
 def build_session(cfg: Optional[dict[str, Any]] = None,
                   on_event: Optional[Callable[[str, dict[str, Any]], None]] = None
