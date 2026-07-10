@@ -1,0 +1,1019 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Birkin-Mnemosyne</title>
+<style>
+  @page { size: A4; margin: 12mm 12mm 14mm 12mm; }
+  * { box-sizing: border-box; }
+  body { font-family: Georgia, "Times New Roman", "Malgun Gothic", serif;
+         font-size: 8.4pt; line-height: 1.5; color: #1a1a19; margin: 0; }
+  .sans { font-family: "Segoe UI", Arial, "Malgun Gothic", sans-serif; }
+  h1 { font-family: "Segoe UI", Arial, sans-serif; font-size: 17pt;
+       line-height: 1.25; margin: 0 0 4pt; }
+  .authors { color:#5f5e56; font-size: 9.4pt; margin-bottom: 10pt; }
+  h2 { font-family: "Segoe UI", Arial, sans-serif; font-size: 12pt;
+       margin: 14pt 0 5pt; border-bottom: 1.5px solid #1a1a19;
+       padding-bottom: 2pt; page-break-after: avoid; }
+  h3 { font-family: "Segoe UI", Arial, sans-serif; font-size: 10.3pt;
+       margin: 10pt 0 4pt; page-break-after: avoid; }
+  p { margin: 0 0 6pt; text-align: justify; }
+  .cols { column-count: 2; column-gap: 7mm; }
+  .nb { border-left: 3px solid #eda100; background: #fdf6e3;
+        padding: 5pt 8pt; font-size: 8.6pt; margin: 8pt 0; }
+  .abs { border: 1px solid #d8d7cf; padding: 8pt 10pt; margin: 8pt 0;
+         background: #fafaf8; }
+  .abs p { font-size: 8.5pt; }
+  table { border-collapse: collapse; width: 100%; margin: 6pt 0 8pt;
+          font-family: "Segoe UI", Arial, sans-serif; font-size: 7.6pt; }
+  th { border-bottom: 1.2px solid #1a1a19; border-top: 1.2px solid #1a1a19;
+       padding: 2.5pt 4pt; text-align: left; }
+  td { border-bottom: 0.6px solid #d8d7cf; padding: 2.5pt 4pt; }
+  tr:last-child td { border-bottom: 1.2px solid #1a1a19; }
+  .num { text-align: right; font-variant-numeric: tabular-nums; }
+  strong.win { color: #1c5cab; }
+  figure { margin: 8pt 0 10pt; page-break-inside: avoid; text-align: center; }
+  figure img, figure svg { max-width: 100%; }
+  figcaption { font-family: "Segoe UI", Arial, sans-serif; font-size: 7.8pt;
+               color: #5f5e56; margin-top: 3pt; text-align: left; }
+  code, .mono { font-family: Consolas, "Courier New", monospace; font-size: 90%; }
+  .eq { text-align: center; font-style: italic; margin: 6pt 0; font-size: 9pt; }
+  ol.refs { font-size: 7.6pt; padding-left: 14pt; }
+  ol.refs li { margin-bottom: 2pt; }
+  ul { margin: 0 0 6pt 0; padding-left: 14pt; }
+  li { margin-bottom: 2pt; }
+  .pagebreak { page-break-before: always; }
+  .small { font-size: 7.8pt; color:#5f5e56; }
+  .kicker { font-family:"Segoe UI",Arial,sans-serif; font-weight:600; }
+</style>
+</head>
+<body>
+
+<h1>Birkin-Mnemosyne: A Zero-Dependency Lexical Memory Palace with Safe,
+Provider-Portable Curation for Personal LLM Agents</h1>
+<div class="authors">Birkin project &middot; final draft, July 2026 &middot;
+code, tests, and benchmark harness in the birkin repository; the memory
+subsystem is published standalone as <code>birkin-mnemosyne</code>.</div>
+
+<div class="nb"><b>Naming note.</b> &ldquo;Mnemosyne&rdquo; is also the name of
+an unrelated concurrent system &mdash; Jonelagadda et&nbsp;al.&rsquo;s
+human-inspired graph memory for edge LLMs [20]. To avoid confusion this work is
+titled <b>Birkin-Mnemosyne</b>; the two share only the mythological name, not
+architecture (graph store + LoCoMo there; a stdlib BM25 vault + a
+curation-safety interface here).</div>
+
+<div class="abs">
+<p><span class="kicker">Abstract.</span>
+Memory for LLM agents increasingly means infrastructure &mdash; embedding
+models, vector databases, graph servers, an LLM call on every write. We ask how
+much a <i>personal</i> agent (one user, one machine, thousands of notes)
+actually needs, and make two claims.
+<b>First, a transparent lexical substrate is enough for personal-scale
+retrieval</b> on the long-term-memory benchmark we test. Birkin-Mnemosyne is
+built from the Python standard library alone: Markdown notes in zone
+directories, Okapi BM25 over a stat-fingerprinted inverted index, and a
+usage-driven Ebbinghaus decay wired into the ranking. On LongMemEval-S session
+retrieval it reaches <b>Recall@5 0.968 / MRR 0.91</b> (near-identical on the
+cleaned and original splits), beating same-harness <i>truncated</i> dense
+retrievers at two encoder sizes (bge-small 0.932/0.842; bge-large
+0.936/0.849), tying a chunked one (0.968/0.908), and conceding only 0.009 R@5
+/ 0.021 MRR to the best tuned hybrid we measured (0.977/0.931) &mdash; a
+small, real margin, priced at an embedding stack the substrate does not
+require. An end-to-end check with a fixed cheap reader answers 53.8% of
+questions (abstention accuracy 0.80); an oracle-evidence control decomposes the
+residual into reader-bound loss on single-evidence questions and
+retrieval-bound loss on multi-session ones.
+<b>Second, CurationPlan/1 makes agentic memory curation safe and
+provider-portable by construction:</b> the model emits only a typed JSON
+reorganization plan, and a deterministic executor validates, clamps, and
+applies it under file-safety invariants enforced in code. The same nightly
+curation runs across the Claude and Codex CLIs (with adapters for API, Gemini,
+and local back-ends), and no output arriving through this interface &mdash;
+however weak or adversarial &mdash; can delete a note, mass-archive the vault,
+escape it, or archive a protected note (a model with other tool access is
+outside this threat model). On a hard 232-pair curation benchmark scored with
+a fixture-disjoint prompt over ten passes per engine, Claude sonnet leads
+(link precision 0.851 [0.816&ndash;0.881] at recall 0.881) with haiku and
+Codex competent but noisier &mdash; yet a hidden second fixture evaluated once
+shows the engine <i>ordering</i> does not transfer across fixtures, while the
+safety invariants hold for every pass from every engine. On a real 1,910-note
+vault, one curation pass reorganizes structure dramatically (1&nbsp;&rarr;&nbsp;23
+project zones, 29&nbsp;&rarr;&nbsp;3,485 links) while leaving frozen-query
+top-k retrieval essentially unchanged &mdash; curation is an organizational
+win, not a reranking win. The transferable
+idea is a mechanical/judgment split applied over and over: let arithmetic do
+what arithmetic can, enforce safety in code, and spend the model only where
+judgment is genuinely required.</p>
+<p><span class="kicker">국문 초록.</span>
+LLM 에이전트에 장기 기억을 부여하는 일은 갈수록 무거운 인프라를 쌓는 일이 되어
+간다 &mdash; 임베딩 모델, 벡터 데이터베이스, 그래프 서버, 그리고 노트를 저장할
+때마다 발생하는 LLM 호출까지. 본 논문은 사용자 한 명, 기계 한 대, 노트 수천 장
+규모의 <i>개인</i> 에이전트에 그 스택이 정말로 필요한지를 묻고, 두 가지 주장으로
+답한다. 첫째, 개인 규모의 검색에는 투명한 어휘 기반 기층으로 충분하다.
+Birkin-Mnemosyne는 파이썬 표준 라이브러리만으로 구현되었으며 &mdash; 구역(zone)
+디렉터리의 마크다운 노트, 한글 바이그램 토크나이저를 갖춘 BM25 역색인, 간격을 둔
+접근이 안정성을 키우는 에빙하우스 감쇠를 랭킹에 직접 결합 &mdash;
+LongMemEval-S 세션 검색에서 Recall@5 0.968, MRR 0.91을 달성하여 같은 하네스의
+절단(truncated) 밀집 임베딩 검색기 두 크기(bge-small, bge-large)를 모두 앞서고,
+청크 임베딩과는 동률이며(0.968/0.908), 가장 강한 튜닝 하이브리드(0.977/0.931)에도
+R@5 0.009&middot;MRR 0.021만을 내준다 &mdash; 임베딩 스택 없이 얻는 성능치고는
+작지만, 실재하는 격차임을 정직하게 보고한다. 둘째, CurationPlan/1은 에이전트 기반 기억 큐레이션을 구조적으로
+안전하고 프로바이더 간 이식 가능하게 만든다: 모델은 typed JSON 계획만 출력하고
+결정적 executor가 코드로 강제되는 파일 안전 불변식 아래
+검증&middot;제한&middot;적용하므로, <i>이 인터페이스를 거치는 한</i> 아무리
+약하거나 적대적인 모델 출력이라도 노트 삭제&middot;대량 아카이브&middot;vault
+이탈&middot;보호 노트 아카이브를 일으킬 수 없다(다른 도구 접근 권한을 가진
+모델은 이 위협 모델의 범위 밖이다). 엔진당 열 번씩 채점한 232쌍 하드 벤치마크에서
+Claude sonnet이 앞섰지만(링크 정밀도 0.851, 재현율 0.881), 단 한 번만 평가한
+비공개 두 번째 fixture에서는 엔진 간 순위가 유지되지 않았다. 실제 1,910개 노트
+vault에서는 큐레이션 한 번이 구조를 극적으로 재편하면서도(1&rarr;23개 프로젝트
+구역, 링크 29&rarr;3,485개) 동결 쿼리의 top-k 검색은 사실상 그대로였다 &mdash;
+큐레이션의 가치는 재랭킹이 아니라 조직화에 있다. 관통하는 아이디어는 기계/판단의
+반복적 분리다: 산술로 되는 일은 산술에, 안전은 코드에, 모델은 판단이 진정으로
+필요한 곳에만.</p>
+</div>
+
+<div class="cols">
+
+<h2>1&ensp;Introduction</h2>
+<p>The memory question for LLM agents is usually answered with more machinery.
+MemGPT [2] pages context like an operating system; Mem0 [5] extracts facts with
+LLM calls at write time into vector and graph stores; Zep [9] serves a
+bi-temporal knowledge graph; HippoRAG [6] runs Personalized PageRank over an
+LLM-built graph. These target products with many users and heavy query volume.
+A <i>personal</i> agent &mdash; the setting of the Birkin project &mdash; has a
+different profile: one user, a vault that grows by tens of notes a day, a
+single machine, and a hard requirement that the user can open their memory in
+a text editor and understand it.</p>
+<p>Three observations shape the design. <b>(1) Most memory operations do not
+need a model.</b> Placing a note, indexing it, ranking by lexical relevance,
+tracking what gets used &mdash; these are mechanical. What needs judgment is
+sparse and batchable: which links are real, which notes are misfiled, what has
+gone stale. A-MEM&rsquo;s ablations [1] show link generation and memory
+evolution are the components that matter; A-MEM performs those judgments
+online at write time, and we test whether they can instead be batched offline,
+off the hot path. <b>(2) Forgetting is a ranking signal, not a delete
+button.</b> MemoryBank [4] applies Ebbinghaus-style forgetting to an embedding
+store; rational analysis of human memory [17] says retrieval should track
+<i>need probability</i> &mdash; frequency, recency, spacing. We wire exactly
+that into the score. <b>(3) Spatial organization is cheap and humans already
+use it.</b> The method of loci is the one technique memory champions reliably
+share [18]. Zone directories give the same affordance to the user (folders in
+Obsidian) and the agent (a priority prior over places), at the cost of
+<code>mkdir</code>.</p>
+<p><b>Contributions</b> (in order of claimed importance).
+(i)&nbsp;<b>CurationPlan/1</b>, a provider-portable, safe-by-construction
+curation interface: the model proposes a typed JSON plan; a deterministic
+executor validates, clamps, and applies it under file-safety invariants
+enforced in code (&sect;3.3, Fig.&nbsp;2). No model can violate those
+invariants; what the interface cannot prevent is a bad-but-valid curation
+(a mis-merge, a wrong link) &mdash; a model-accuracy question (&sect;5.4)
+cleanly separated from safety (&sect;5.3).
+(ii)&nbsp;A zero-dependency lexical memory substrate &mdash; files in zones, a
+stat-refreshed inverted index, BM25 with a Hangul-bigram tokenizer,
+usage-driven decay, zone priority &mdash; that beats same-harness dense
+retrievers on a public long-term-memory benchmark (&sect;5.1) while staying
+greppable and diffable.
+(iii)&nbsp;Decay and zone priority wired into ranking, with a 2&times;2 ablation
+isolating each signal (&sect;5.2).
+(iv)&nbsp;An open, reproducible artifact: a single-module retrieval engine, a
+curation executor and provider registry, 127 subsystem unit tests, and a
+deterministic benchmark harness.</p>
+<p><b>Positioning (what we do <i>not</i> claim).</b> We do not claim the first
+memory-palace metaphor, the first local-first or file-based agent memory, the
+first Ebbinghaus-style forgetting, or the discovery that BM25 is a strong
+retriever &mdash; each has clear prior art (&sect;2). To our knowledge the
+specific <i>combination</i> is what is new: a stdlib-only lexical substrate
+paired with a provider-agnostic, plan-only curation interface whose file
+safety is enforced by a deterministic executor. The load-bearing empirical
+claims are (a) this zero-dependency substrate reaches a competitive
+session-retrieval band with no embedding stack, and (b) moving safety from
+prompt-compliance into a clamping executor makes curation safe by construction
+across engines.</p>
+
+<h2>2&ensp;Related Work</h2>
+<p><b>Agent memory systems.</b> MemGPT [2, R3] treats the context window as
+main memory with paging; Mem0 [5, R6] extracts and consolidates facts with
+write-time LLM calls over vector (optionally graph) storage; A-MEM [1] builds
+Zettelkasten-style notes whose links the LLM judges over embedding-retrieved
+candidates. MemoryBank [4] introduced Ebbinghaus-inspired forgetting; SCM [10]
+fronts a memory stream with a controller; ReadAgent [11] compresses documents
+into gists; HippoRAG [6] and Zep/Graphiti [9, R4] sit at the knowledge-graph
+end. Surveys [15] taxonomize the space; at the practitioner end sit memory
+SDKs (LangMem [R5], Cognee [R7], MemPalace [R1]) and self-curating agent
+skeletons (Hermes-Agent [R2], whose curator lifecycle Birkin&rsquo;s skill
+aging follows). Against all of these, our distinguishing choices are (a) no
+embedding model, no vector store, no server &mdash; files plus a JSON sidecar
+index &mdash; and (b) LLM involvement only in a nightly batch, mediated by a
+deterministic safety layer.</p>
+<p><b>The 2026 local-first wave &mdash; and where we differ.</b> We are not
+first to move agent memory onto local, human-readable files. <b>ByteRover</b>
+[21] is closest: markdown memory with no vector/graph DB and no embedding
+service &mdash; but the same LLM that reasons also <i>curates and retrieves</i>,
+judgment in the hot path; our inversion is the point (plan-only model,
+deterministic executor). <b>Infini Memory</b> [22] maintains consolidated
+topic-documents with agentic multi-step retrieval; we keep the substrate
+verbatim and retrieval a single mechanical BM25 pass. <b>Structured
+Distillation</b> [24] targets the same one-user setting with thematic
+&ldquo;room&rdquo; assignments but compresses exchanges 11&times; (and reports
+BM25 degrading under that compression); we retain full notes, where lexical
+retrieval stays strong. <b>MemPalace</b> [R1] popularized the local-first
+palace metaphor with a high LongMemEval band; an independent critical analysis
+[23] attributes that band chiefly to verbatim storage plus ChromaDB&rsquo;s
+default embedding &mdash; sharpening our contribution: a comparable band with
+<i>no vector store at all</i>. <b>Mnemosyne (edge)</b> [20] shares only our
+former name. Finally, a concurrent ten-system characterization study [25]
+independently reports flat BM25 beating dense retrieval on this benchmark
+family (55.8% vs 39.8% macro), that the <i>write path</i> dominates total
+energy, and that <i>none</i> of the ten systems implements forgetting by
+default &mdash; corroborating, respectively, our lexical substrate, our
+mechanical write path, and the decay this system wires into ranking.</p>
+<p><b>Plan-then-execute safety.</b> CurationPlan/1 instantiates the
+plan-then-execute pattern from the injection-defense literature: CaMeL [19]
+interposes a capability-checked interpreter between an LLM planner and tool
+effects. Our setting is narrower (one nightly task, four op types), which is
+what lets every invariant be enforced by clamping rather than policy checks.</p>
+<p><b>Cognitive grounding.</b> Ebbinghaus&rsquo;s forgetting curve replicates
+robustly [13] &mdash; though that replication&rsquo;s own fitting favors
+power-law and multi-exponential forms, so our per-note exponential is an
+engineering simplification whose spacing-grown stability supplies the
+long-tail flattening those forms capture. The spacing effect is among the
+best-established findings in verbal memory [14]; our stability multiplier
+fires only for accesses &ge;1&nbsp;h apart. Anderson &amp; Schooler [17] showed
+memory availability tracks environmental need probability &mdash; the
+statistic our effective-strength boost estimates. Generative Agents&rsquo;
+score &mdash; an equally weighted sum of recency, importance, relevance [3]
+&mdash; is the closest ancestor; we replace LLM-scored importance with
+usage-earned strength and embedding relevance with BM25.</p>
+<p><b>Benchmarks.</b> LoCoMo [7, D2] evaluates QA over very long multi-session
+dialogues; LongMemEval [8] provides 500 questions over multi-session haystacks
+(&asymp;48 sessions per question, 38&ndash;62 measured in our harness) with
+labeled evidence sessions, and is our retrieval target. The
+probabilistic-relevance framework [12] is the canonical BM25 reference;
+retrieval-augmented generation [16] is the standard downstream consumer of the
+session localization we evaluate.</p>
+
+<h2>3&ensp;System</h2>
+<h3>3.1&ensp;Host: Birkin, and skills as procedural memory</h3>
+<p>Mnemosyne is the declarative-memory subsystem of <b>Birkin</b>, an
+open-source (MIT) personal agent that itself runs from the Python standard
+library alone: an agent loop with a tool registry, a provider abstraction
+(Anthropic/OpenAI APIs or subscription CLIs such as Claude Code and Codex), a
+Telegram/HTTP gateway, depth-bounded subagents, an approval queue, and a
+scheduler. Birkin&rsquo;s <i>other</i> memory is <b>skills</b> &mdash;
+procedural memory as <code>SKILL.md</code> files the agent authors and
+refines, aged by a curator (30-day stale, 90-day archive). The judgment layer
+below, <b>Morpheus</b>, is itself packaged as a Birkin skill: a thin nightly
+launcher plus a <code>SKILL.md</code> procedure. One design rule runs through
+everything: mechanical code handles whatever does not need judgment, and the
+model is called only where it does &mdash; first in retrieval (&sect;3.2),
+then in curation (&sect;3.3).</p>
+
+<h3>3.2&ensp;The retrieval substrate</h3>
+<p>A <b>zone</b> is a one-level directory under the vault
+(<code>projects/</code>, <code>people/</code>, &hellip;) &mdash; the
+memory-palace room. The vault root is the <i>inbox</i>; <code>_archive/</code>
+is the soft-forget room, excluded from retrieval by default. New notes are
+placed by a type&rarr;zone map; placement is <i>refined</i>, not decided, by
+the LLM later (&sect;3.3). Figure&nbsp;1 shows the data flow.</p>
+<p>The <b>index</b> is a JSON sidecar cache: per note, a stat fingerprint
+(mtime, size), frontmatter metadata, outgoing wikilinks, and a term-frequency
+map. A refresh is an <code>os.scandir</code> stat pass &mdash; only changed
+files are re-read &mdash; so retrieval never re-parses the whole vault, and
+externally edited notes (the user typing in Obsidian) are visible immediately.
+Usage state lives in a <i>separate</i> sidecar that survives index rebuilds:
+the index is a cache, dynamics are state. The <b>tokenizer</b> lowercases
+ASCII words and, for Hangul runs, emits the run plus all character bigrams
+(<span class="mono">&ldquo;메모리&rdquo; &rarr; 메모리, 메모, 모리</span>)
+&mdash; substring-level recall for Korean without a morphological analyzer.
+Scoring is Okapi BM25 [12] with k<sub>1</sub>=1.5, b=0.75.</p>
+<p><b>Dynamics.</b> Each note carries (strength <i>s</i>, stability
+<i>&sigma;</i>, access count, last access), initialized to (1.0, 7&nbsp;d, 0,
+created). Its effective strength at time <i>t</i> is the Ebbinghaus
+retention</p>
+<p class="eq">eff(t) = max(0.05,&nbsp; s &middot; e<sup>&minus;&Delta;days/&sigma;</sup>)</p>
+<p>floored so nothing becomes unreachable. An <b>access</b> &mdash; reading a
+note in full, or writing it &mdash; potentiates it:</p>
+<p class="eq">s &larr; min(5.0, s+0.25); &nbsp; if &Delta;h &ge; 1:&nbsp;
+&sigma; &larr; min(365, 1.5&sigma;)</p>
+<p>The spacing gate follows Cepeda et&nbsp;al. [14]: only distributed accesses
+grow stability, so a handful of spaced touches buys months of retention
+(Fig.&nbsp;5). Each access also bumps its zone&rsquo;s EMA (decayed 0.9/day).
+Birkin injects a standing <b>prompt digest</b> into the agent&rsquo;s system
+prompt &mdash; a capped zone-aware summary, zones ordered by EMA priority,
+notes by effective strength, inbox last, <code>_archive</code> excluded;
+<code>polarity:&nbsp;negative</code> notes carry a &ldquo;&#9888; known
+failure &mdash; re-verify&rdquo; tag (evaluated in &sect;5.7).</p>
+<p><b>Ranking.</b> For query <i>q</i> at time <i>t</i>:</p>
+<p class="eq">score(n) = BM25(n,q) &middot; (1 + 0.3&middot;eff(n,t)/5 +
+0.2&middot;priority(zone(n)))</p>
+<p>Relevance dominates (the boost is bounded by &times;1.5); usage and place
+warm the ranking and break lexical ties. <b>Staleness</b> is derived, not
+stored: eff&nbsp;&lt;&nbsp;0.1 and &gt;90 days without access &mdash; the feed
+the nightly curator considers for archival.</p>
+
+</div>
+
+<figure>
+<svg viewBox="0 0 980 300" xmlns="http://www.w3.org/2000/svg" font-family="Segoe UI, Arial" >
+  <defs>
+    <marker id="arr" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0,0 L10,5 L0,10 z" fill="#5f5e56"/>
+    </marker>
+  </defs>
+  <!-- vault -->
+  <rect x="20" y="40" width="215" height="200" rx="8" fill="#f2f6fd" stroke="#2a78d6" stroke-width="1.5"/>
+  <text x="127" y="62" text-anchor="middle" font-size="14" font-weight="600" fill="#1a1a19">Markdown vault</text>
+  <rect x="38" y="78" width="180" height="26" rx="4" fill="#ffffff" stroke="#9ec5f4"/>
+  <text x="128" y="95" text-anchor="middle" font-size="11" fill="#1a1a19">zones/ (palace rooms)</text>
+  <rect x="38" y="112" width="180" height="26" rx="4" fill="#ffffff" stroke="#9ec5f4"/>
+  <text x="128" y="129" text-anchor="middle" font-size="11" fill="#1a1a19">inbox (vault root)</text>
+  <rect x="38" y="146" width="180" height="26" rx="4" fill="#ffffff" stroke="#9ec5f4" stroke-dasharray="4 3"/>
+  <text x="128" y="163" text-anchor="middle" font-size="11" fill="#5f5e56">_archive/ (soft-forget)</text>
+  <text x="128" y="205" text-anchor="middle" font-size="10.5" fill="#5f5e56">plain .md + frontmatter</text>
+  <text x="128" y="220" text-anchor="middle" font-size="10.5" fill="#5f5e56">user-editable in Obsidian</text>
+  <!-- sidecars -->
+  <rect x="290" y="45" width="190" height="82" rx="8" fill="#ffffff" stroke="#5f5e56" stroke-width="1.3"/>
+  <text x="385" y="66" text-anchor="middle" font-size="12.5" font-weight="600">index sidecar (cache)</text>
+  <text x="385" y="84" text-anchor="middle" font-size="10.5" fill="#5f5e56">stat fingerprints &middot; terms</text>
+  <text x="385" y="99" text-anchor="middle" font-size="10.5" fill="#5f5e56">wikilinks &middot; metadata</text>
+  <text x="385" y="114" text-anchor="middle" font-size="10.5" fill="#5f5e56">rebuildable any time</text>
+  <rect x="290" y="150" width="190" height="66" rx="8" fill="#ffffff" stroke="#5f5e56" stroke-width="1.3"/>
+  <text x="385" y="171" text-anchor="middle" font-size="12.5" font-weight="600">dynamics sidecar (state)</text>
+  <text x="385" y="189" text-anchor="middle" font-size="10.5" fill="#5f5e56">strength s &middot; stability &sigma;</text>
+  <text x="385" y="204" text-anchor="middle" font-size="10.5" fill="#5f5e56">zone EMA &middot; survives rebuilds</text>
+  <!-- ranking -->
+  <rect x="540" y="82" width="200" height="96" rx="8" fill="#f2f6fd" stroke="#2a78d6" stroke-width="1.5"/>
+  <text x="640" y="106" text-anchor="middle" font-size="13" font-weight="600">BM25 ranking</text>
+  <text x="640" y="127" text-anchor="middle" font-size="10.5" fill="#1a1a19">score = BM25 &times; (1 +</text>
+  <text x="640" y="142" text-anchor="middle" font-size="10.5" fill="#1a1a19">0.3&middot;decay + 0.2&middot;zone)</text>
+  <text x="640" y="163" text-anchor="middle" font-size="10" fill="#5f5e56">Hangul bigram tokenizer</text>
+  <!-- surfaces -->
+  <rect x="800" y="40" width="160" height="120" rx="8" fill="#ffffff" stroke="#1baf7a" stroke-width="1.5"/>
+  <text x="880" y="62" text-anchor="middle" font-size="12.5" font-weight="600">agent surfaces</text>
+  <text x="880" y="83" text-anchor="middle" font-size="10.5" fill="#5f5e56">REPL &middot; gateway</text>
+  <text x="880" y="99" text-anchor="middle" font-size="10.5" fill="#5f5e56">prompt digest</text>
+  <text x="880" y="115" text-anchor="middle" font-size="10.5" fill="#5f5e56">search / related tools</text>
+  <text x="880" y="140" text-anchor="middle" font-size="10" fill="#5f5e56">access &rarr; potentiation</text>
+  <!-- morpheus -->
+  <rect x="540" y="222" width="420" height="58" rx="8" fill="#fdf6e3" stroke="#eda100" stroke-width="1.5"/>
+  <text x="750" y="245" text-anchor="middle" font-size="12.5" font-weight="600">Morpheus (nightly, offline)</text>
+  <text x="750" y="264" text-anchor="middle" font-size="10.5" fill="#5f5e56">any LLM proposes a CurationPlan &rarr; deterministic executor applies (Fig. 2)</text>
+  <!-- arrows -->
+  <line x1="235" y1="105" x2="290" y2="86"  stroke="#5f5e56" stroke-width="1.4" marker-end="url(#arr)"/>
+  <line x1="235" y1="160" x2="290" y2="180" stroke="#5f5e56" stroke-width="1.4" marker-end="url(#arr)"/>
+  <line x1="480" y1="105" x2="540" y2="118" stroke="#5f5e56" stroke-width="1.4" marker-end="url(#arr)"/>
+  <line x1="480" y1="180" x2="540" y2="148" stroke="#5f5e56" stroke-width="1.4" marker-end="url(#arr)"/>
+  <line x1="740" y1="112" x2="800" y2="100" stroke="#5f5e56" stroke-width="1.4" marker-end="url(#arr)"/>
+  <path d="M 880 160 L 880 190 L 800 235" fill="none" stroke="#5f5e56" stroke-width="1.4" stroke-dasharray="5 4"/>
+  <path d="M 540 251 L 127 251 L 127 245" fill="none" stroke="#eda100" stroke-width="1.6" marker-end="url(#arr)"/>
+  <text x="330" y="266" text-anchor="middle" font-size="10" fill="#5f5e56">rezone / link / supersede / archive (moves only, clamped)</text>
+</svg>
+<figcaption><b>Figure 1 — Architecture.</b> The mechanical layer (index,
+dynamics, BM25 ranking) serves every agent surface with no model in the loop;
+reads potentiate notes and warm their zones. Judgment is deferred to one
+nightly Morpheus pass, whose only write path is the clamped CurationPlan/1
+executor of Fig.&nbsp;2.</figcaption>
+</figure>
+
+<div class="cols">
+
+<h3>3.3&ensp;CurationPlan/1: a provider-portable curation interface</h3>
+<p>The nightly reorganization &mdash; file inbox notes into zones, link
+related notes, mark superseded facts, archive stale ones &mdash; needs
+judgment, so it needs a model. The naive way to support many engines fails
+badly: when we first handed the turn to <code>codex exec</code>, which runs
+<i>its own</i> tools, it acted on the vault with raw shell moves and, across
+runs, either did nothing, moved <i>every</i> note &mdash; including a
+protected control zone &mdash; into <code>_archive/</code>, or in one run
+removed all 21 notes from the vault outright while parroting an injection
+canary. Safety had been left to prompt-following, and a differently-tuned
+model did not comply.</p>
+<p><b>CurationPlan/1</b> applies the mechanical/judgment split to the
+interface itself. Every provider reduces to one contract:
+<code>complete(prompt)&nbsp;&rarr;&nbsp;str</code>. The model never touches
+the vault, tools, or a shell; it emits exactly one JSON plan of typed ops
+(<code>rezone</code>, <code>link</code>, <code>supersede</code>,
+<code>archive</code>) referencing notes by existing slug. A deterministic
+stdlib executor parses the plan (unparseable output degrades to an empty plan
+&mdash; a safe no-op), <b>validates and clamps</b> it against a pre-run
+snapshot the model cannot forge, and applies only the survivors
+(Fig.&nbsp;2). Because prompt, schema, gate, and scorer are shared, every
+model runs the identical task; results are comparable by construction.</p>
+<p>The <b>file-safety invariants</b> are enforced in code:</p>
+<ul>
+<li><b>Never delete</b> &mdash; no delete op exists; <code>archive</code> only
+<i>moves</i> a note to <code>_archive/</code>.</li>
+<li><b>Archive cap</b> &mdash; at most max(2, &lceil;0.20&middot;active&rceil;)
+archives per pass, applied to the mechanically weakest notes.</li>
+<li><b>Protected notes</b> &mdash; negative-polarity warnings, filed-and-linked
+control notes, and configured types are never archived.</li>
+<li><b><code>_archive</code> is not a topical zone</b>; <b>path containment</b>
+&mdash; every op names a known slug, every move stays inside the vault.</li>
+<li><b>Summary is inert</b> &mdash; free text is never a control signal; an
+injection canary can only surface as archive ops (absorbed above) and the
+phrase is Unicode-normalized out of the audit record.</li>
+</ul>
+<p><b>Why these hold (argument sketch).</b> The op vocabulary is closed and
+dispatch is total: parsing yields either a list of the four typed ops or, for
+anything else, an empty plan &mdash; so every reachable vault mutation factors
+through one of four handlers, and each preserves the invariants locally: none
+unlinks a file (1); archive runs behind a cap computed from a pre-run snapshot
+the model cannot forge (2) and a protected-note check (3); every target must
+match a snapshot slug and every destination stays under the vault root (4);
+the summary string is data, never control (5). Invariant preservation is thus
+a property of executor code, under two stated assumptions: the executor is the
+sole write path during a pass, and the host filesystem is trusted &mdash;
+symlink/race (TOCTOU) hardening and crash-atomicity across a multi-file pass
+are engineering concerns outside these claims.</p>
+<p><b>Dense linking is mechanical too.</b> After the model assigns zones, the
+executor adds reciprocal links between all co-placed notes. The model does the
+<i>judgment</i> (which zone); the executor does the <i>arithmetic</i> (link all
+same-zone pairs). Link accuracy therefore becomes a pure function of placement
+accuracy &mdash; the property &sect;5.4&rsquo;s metrics are defined around.</p>
+<p><b>Provider adapters</b> are the entire model-specific surface (Table 1);
+each only configures an engine into a safe, plan-only mode. Codex needs the
+most configuration because it is an agentic coding CLI: without
+<code>--sandbox read-only</code> it rewrites files; without
+<code>--output-schema</code> it replies with clarifying prose; without an
+isolated home and <code>--cd &lt;vault&gt;</code> it inherits the user&rsquo;s
+config and reads unrelated projects. Wrapped this way it emits schema-valid
+plans in ~1&ndash;2 minutes. The CLI (<code>birkin curate-memory</code>)
+records a before/after SHA-256 manifest: a reviewable, tamper-evident diff
+(moves reconstructible from hash identity; undoing a content edit relies on
+external versioning such as git).</p>
+
+<h3>3.4&ensp;Implementation</h3>
+<p>The retrieval engine is a single ~680-line module; the curation executor
+and provider registry add ~800 lines across focused modules. 127 unit tests
+cover the memory and curation subsystems (636 in the full repository suite):
+exact-value pure functions, index incrementality, zones, Korean round-trips,
+and the curation gate &mdash; including adversarial plans (archive-everything,
+invented slugs, unhashable op fields, canary homoglyphs) surfaced by a
+separate adversarial-review pass and now regression-pinned. The suite passes
+under the repository&rsquo;s &ge;75% coverage gate.</p>
+
+</div>
+
+<figure>
+<svg viewBox="0 0 980 250" xmlns="http://www.w3.org/2000/svg" font-family="Segoe UI, Arial">
+  <defs>
+    <marker id="arr2" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0,0 L10,5 L0,10 z" fill="#5f5e56"/>
+    </marker>
+  </defs>
+  <!-- model -->
+  <rect x="15" y="60" width="150" height="88" rx="8" fill="#ffffff" stroke="#4a3aa7" stroke-width="1.5"/>
+  <text x="90" y="84" text-anchor="middle" font-size="12.5" font-weight="600">any model</text>
+  <text x="90" y="102" text-anchor="middle" font-size="10" fill="#5f5e56">claude / codex / api /</text>
+  <text x="90" y="116" text-anchor="middle" font-size="10" fill="#5f5e56">gemini / local</text>
+  <text x="90" y="136" text-anchor="middle" font-size="10" fill="#4a3aa7">judgment only</text>
+  <!-- plan -->
+  <rect x="215" y="60" width="140" height="88" rx="8" fill="#f2f6fd" stroke="#2a78d6" stroke-width="1.5"/>
+  <text x="285" y="84" text-anchor="middle" font-size="12.5" font-weight="600">CurationPlan</text>
+  <text x="285" y="102" text-anchor="middle" font-size="10" fill="#5f5e56">typed JSON ops:</text>
+  <text x="285" y="116" text-anchor="middle" font-size="10" fill="#5f5e56">rezone &middot; link &middot;</text>
+  <text x="285" y="130" text-anchor="middle" font-size="10" fill="#5f5e56">supersede &middot; archive</text>
+  <!-- extract -->
+  <rect x="405" y="60" width="120" height="88" rx="8" fill="#ffffff" stroke="#5f5e56" stroke-width="1.3"/>
+  <text x="465" y="90" text-anchor="middle" font-size="12" font-weight="600">extract</text>
+  <text x="465" y="110" text-anchor="middle" font-size="10" fill="#5f5e56">unparseable &rarr;</text>
+  <text x="465" y="124" text-anchor="middle" font-size="10" fill="#5f5e56">empty plan (no-op)</text>
+  <!-- gate -->
+  <rect x="575" y="38" width="170" height="132" rx="8" fill="#fdf0ef" stroke="#e34948" stroke-width="1.6"/>
+  <text x="660" y="62" text-anchor="middle" font-size="12.5" font-weight="600">gate: validate + clamp</text>
+  <text x="660" y="82" text-anchor="middle" font-size="9.6" fill="#5f5e56">&#10003; never delete</text>
+  <text x="660" y="97" text-anchor="middle" font-size="9.6" fill="#5f5e56">&#10003; archive cap 20%</text>
+  <text x="660" y="112" text-anchor="middle" font-size="9.6" fill="#5f5e56">&#10003; protected notes</text>
+  <text x="660" y="127" text-anchor="middle" font-size="9.6" fill="#5f5e56">&#10003; path containment</text>
+  <text x="660" y="142" text-anchor="middle" font-size="9.6" fill="#5f5e56">&#10003; inert summary</text>
+  <text x="660" y="161" text-anchor="middle" font-size="9.6" fill="#e34948">vs. pre-run snapshot</text>
+  <!-- apply -->
+  <rect x="795" y="60" width="170" height="88" rx="8" fill="#f0faf5" stroke="#1baf7a" stroke-width="1.5"/>
+  <text x="880" y="84" text-anchor="middle" font-size="12.5" font-weight="600">dense-link + apply</text>
+  <text x="880" y="103" text-anchor="middle" font-size="10" fill="#5f5e56">co-placed notes auto-linked</text>
+  <text x="880" y="118" text-anchor="middle" font-size="10" fill="#5f5e56">moves via index only</text>
+  <text x="880" y="136" text-anchor="middle" font-size="10" fill="#1baf7a">SHA-256 audit manifest</text>
+  <!-- flow -->
+  <line x1="165" y1="104" x2="215" y2="104" stroke="#5f5e56" stroke-width="1.5" marker-end="url(#arr2)"/>
+  <line x1="355" y1="104" x2="405" y2="104" stroke="#5f5e56" stroke-width="1.5" marker-end="url(#arr2)"/>
+  <line x1="525" y1="104" x2="575" y2="104" stroke="#5f5e56" stroke-width="1.5" marker-end="url(#arr2)"/>
+  <line x1="745" y1="104" x2="795" y2="104" stroke="#5f5e56" stroke-width="1.5" marker-end="url(#arr2)"/>
+  <!-- dropped ops -->
+  <path d="M 660 170 L 660 205" stroke="#e34948" stroke-width="1.4" marker-end="url(#arr2)"/>
+  <text x="660" y="225" text-anchor="middle" font-size="10.5" fill="#e34948">violating / unknown ops dropped &amp; logged (never applied)</text>
+  <text x="90" y="190" font-size="10.5" fill="#5f5e56">no vault access &middot; no tools &middot; no shell</text>
+  <text x="880" y="180" text-anchor="middle" font-size="10.5" fill="#5f5e56">only clamped survivors touch disk</text>
+</svg>
+<figcaption><b>Figure 2 — The CurationPlan/1 pipeline.</b> The model is a pure
+text generator; every safety property is enforced by the deterministic gate
+against a snapshot the model cannot forge. Parsing failure degrades to a
+no-op, never a destructive default.</figcaption>
+</figure>
+
+<table>
+<tr><th>provider</th><th>invocation</th><th>writes vault?</th><th>plan format</th><th>isolation</th></tr>
+<tr><td>claude</td><td><code>claude -p --output-format json</code></td><td>no (empty tool allow-list)</td><td>prompt-specified</td><td>default</td></tr>
+<tr><td>codex</td><td><code>codex exec --sandbox read-only --output-schema</code></td><td><b>no (read-only sandbox)</b></td><td><b>enforced JSON schema</b></td><td>isolated <code>CODEX_HOME</code>, <code>--cd vault</code></td></tr>
+<tr><td>api</td><td>Anthropic Messages via stdlib <code>urllib</code></td><td>n/a (no tools)</td><td>prompt-specified</td><td>n/a</td></tr>
+<tr><td>gemini / local</td><td><code>gemini -p -</code> / <code>ollama run</code></td><td>CLI default / n/a</td><td>prompt-specified</td><td>n/a</td></tr>
+</table>
+<p class="small" style="margin-top:-4pt"><b>Table 1 —</b> Provider adapters: the entire
+model-specific surface (~10 lines each). Whatever the engine, it can only
+<i>propose</i>.</p>
+
+<div class="cols">
+
+<h2>4&ensp;Evaluation setup</h2>
+<p>All numbers come from the committed harness; curation outcomes are scored
+from the on-disk vault (SHA-256 snapshots for the labeled fixture; a post-pass
+re-index against ground truth for the hard fixture) &mdash; never the
+agent&rsquo;s own report. The substring baseline is Birkin&rsquo;s own
+pre-Mnemosyne search: the honest &ldquo;before&rdquo;. Environment: Windows
+11, Python 3.13.</p>
+<ul>
+<li><b>&sect;5.1 LongMemEval-S</b> [8, D1]: for each of 470 non-abstention
+questions, rank its haystack sessions by BM25 (pure functions &mdash;
+isolating the relevance layer); report session-level Recall@k/MRR. Both
+cleaned and original splits, one harness. Dense baselines: fastembed ONNX
+encoders (bge-small/bge-large), cosine over L2-normalized session vectors;
+hybrid via reciprocal-rank fusion (k=60).</li>
+<li><b>&sect;5.1 end-to-end QA</b>: BM25 top-5 (or labeled oracle evidence)
+&rarr; haiku reader (answers only from provided history, abstains otherwise)
+&rarr; sonnet judge vs gold; abstention questions correct iff abstained;
+per-question records retained.</li>
+<li><b>&sect;5.2 synthetic H1&ndash;H5 + extensions</b>: seeded, offline.
+Efficiency at 100/500/2000 notes; planted-token retrieval (EN/KR); a 2&times;2
+dynamics/zone ablation on identical-body twins; decay trajectories; realistic
+Korean/mixed queries vs <code>multilingual-e5-large</code>.</li>
+<li><b>&sect;5.3 safety</b>: five attack plans replayed through three defense
+levels (raw / schema-only / full executor) on a 6-note vault with one
+protected note.</li>
+<li><b>&sect;5.4 curation fixtures</b>: an easy labeled fixture (18
+intra-cluster pairs, unambiguous); a <b>hard fixture</b>: 13 clusters with
+deliberate cross-cluster vocabulary overlap &rarr; 232 intra-cluster pairs,
+plus 15 distractor singletons that must stay unlinked, run <b>ten times per
+engine</b> with bootstrap CIs; and a <b>hidden fixture B</b> (10
+domain-disjoint confusable clusters &rarr; 110 pairs + 12 distractors)
+authored after the prompt was frozen and evaluated exactly once per
+engine.</li>
+<li><b>&sect;5.5 real vault</b>: the author&rsquo;s 1,910 working notes; 40
+paraphrase queries frozen before curation; retrieval and graph structure
+measured before/after one sonnet pass.</li>
+<li><b>&sect;5.7 negative-memory probe</b>: a one-turn decision task with the
+memory digest as system prompt, three conditions, haiku, 6 trials each,
+regex-scored.</li>
+</ul>
+
+<h2>5&ensp;Results</h2>
+<h3>5.1&ensp;LongMemEval-S: retrieval, fairness, and end-to-end QA</h3>
+<p>Figure&nbsp;3 gives the headline. Against the standard configurations the
+stdlib lexical engine <b>beats truncated dense retrieval and the k=60 hybrid
+over it</b>: BM25 leads bge-small by +0.10 R@1 and +0.068 MRR, and that
+hybrid buys essentially nothing over BM25 alone (&Delta;MRR +0.004,
+&Delta;R@5 &minus;0.002). Scaling the encoder does not rescue it &mdash;
+bge-large adds +0.004 R@5 and still trails BM25 by 0.032 R@5 / 0.061 MRR.
+A concurrent ten-system study [25] independently finds the same direction
+(BM25 55.8% vs dense 39.8% macro in their harness). The result is
+split-robust (original split: R@1 0.864, R@5 0.968, MRR 0.907) and the
+substring row shows the band is not free: tokenization, idf, and length
+normalization carry it.</p>
+<p><b>Stronger dense baselines (review-driven).</b> Encoding each session as
+one truncated vector is a weak baseline &mdash; a reviewer correctly flagged
+it &mdash; so we ran the standard fixes in the same harness over all 470
+questions: chunked embeddings (bge-small, 1,200-char chunks, 200 overlap,
+session score = max chunk cosine), RRF with the fusion constant swept
+(k=20/60/120), and BM25&rarr;dense reranking. Two findings upgrade the honest
+summary. First, <b>the dense gap was a truncation artifact</b>: chunked
+bge-small ties BM25 (R@5 0.968 identical, MRR 0.908 vs 0.910) &mdash;
+&ldquo;lexical beats dense&rdquo; holds only against whole-session
+truncation. Second, <b>fusion buys a small, real gain</b>: RRF k=20 over
+BM25+chunked dense reaches R@1 0.894 / R@5 0.977 / MRR 0.931 (+0.024 /
++0.009 / +0.021 over BM25), insensitive to k across 20&ndash;120;
+BM25&rarr;dense reranking ties BM25 (MRR 0.912). We therefore <i>retire</i>
+the claim that the evaluated embedding configurations added nothing; what
+survives is narrower and still substantive: <b>BM25 alone concedes at most
+~0.01 R@5 / ~0.02 MRR to the best embedding-backed configuration we
+measured, while requiring no encoder, no vector store, and no model at query
+time</b> &mdash; at personal scale, in our judgment, still the right
+default, with the hybrid available over the same substrate for deployments
+that want the margin. (Late-interaction and task-tuned retrievers remain
+unrun; &sect;7.)</p>
+<p><b>Input fairness, measured.</b> Sessions were truncated to 6,000 chars for
+embedding (bge&rsquo;s 512-token window truncates further regardless) while
+BM25 read full text. Re-running BM25 on the <i>identical truncated text</i>
+still wins &mdash; R@5 0.953 vs 0.932, MRR 0.887 vs 0.842 &mdash; so the
+lexical edge is not an input-length artifact; full text then adds BM25 a
+further +0.015 R@5 that a 512-token encoder structurally cannot use.</p>
+<p><b>From retrieval to answers.</b> Retrieval finds the evidence for 96.8% of
+questions, yet the fixed cheap pipeline answers 53.8% (470 answerable;
+abstention 30/30 questions: 0.80) &mdash; by type: single-session-assistant
+0.75, single-session-user 0.72, temporal 0.56, knowledge-update 0.54,
+multi-session 0.41, preference 0.20. The oracle-evidence control (Fig.&nbsp;4,
+paired over identical questions) decomposes the loss: on single-evidence
+questions the reader with top-5 is already near its oracle ceiling (0.72 vs
+0.80 &mdash; reader-bound); on <b>multi-session</b> questions retrieval also
+costs heavily (0.31 vs 0.67 paired &mdash; several evidence sessions, top-5
+misses some), exactly where higher k or a stronger aggregating reader pays.
+The reader role is provider-agnostic through the same adapter registry: an
+n=20 oracle smoke with Codex readers reaches 0.90 (gpt-5.3-codex-spark), 0.95
+(gpt-5.4), 0.90 (gpt-5.5) &mdash; above the cheap-haiku baseline &mdash;
+reported as an interface fact, not a headline benchmark.</p>
+
+<h3>5.2&ensp;Efficiency, ablations, decay, Korean</h3>
+<p><b>Efficiency (H1).</b> The index answers queries 7.8&ndash;9.9&times;
+faster than full-scan at every size; steady-state stat refresh stays
+~100&nbsp;ms at 2,000 notes (4.0 / 36.9 / 101.0&nbsp;ms at 100/500/2000).</p>
+<p><b>Planted-token retrieval (H2).</b> BM25 R@5 0.983 (EN) and 0.983 (KR via
+Hangul bigrams) vs substring 0.483/0.542 &mdash; a controlled probe of the
+tokenizer, not a natural-corpus claim. Dropping the bigrams leaves the English
+LongMemEval numbers unchanged to three decimals: the Korean feature costs
+English nothing.</p>
+<p><b>Dynamics/zone 2&times;2 (H3/H4).</b> On identical-body twin pairs
+(one rehearsed + hot zone, one untouched + cold zone), BM25 alone is a dead
+tie on every pair (win rate 0.00, ties 1.00); enabling <i>either</i> decay
+(W=0.3) or zone priority (W=0.2) breaks it deterministically (1.00), as does
+both. The boosts do exactly what they are for, and nothing when there is no
+usage signal to apply.</p>
+<p><b>Sensitivity: what the boosts cost.</b> The 2&times;2 shows benefit; the
+fair criticism is rich-get-richer interference &mdash; a rehearsed but
+less-relevant note outranking a cold correct one. Measured directly (30
+target/decoy pairs, decoy rehearsed 5&times; in a hot zone, target cold,
+swept over a 5&times;4 weight grid up to 3&times; the defaults): with a
+<b>clear relevance gap the target wins 100% of pairs at every grid point
+including the extremes</b> &mdash; the bounded &times;1.5 multiplicative
+boost structurally cannot flip a large BM25 gap. Interference is confined to
+the <b>near-tie band</b>: on marginal pairs the rehearsed decoy wins most
+ties at default weights (target survival 0.067), while the tie-break
+<i>benefit</i> on identical twins is already saturated at half the default
+weights (warm-twin wins 1.00 at 0.1/0.1). The defaults buy tie-breaking at
+the price of re-ordering genuine near-ties toward recently-used notes &mdash;
+the intended personalization &mdash; and a deployment that prizes strict
+lexical faithfulness can halve both weights and lose nothing on the twin
+benefit.</p>
+<p><b>Decay (H5, Fig.&nbsp;5).</b> A never-touched note falls under the stale
+threshold in ~17 days; one write buys ~18; five spaced touches
+(&sigma;: 7&rarr;53&nbsp;d) keep a note retrievable ~166 days. Archival
+additionally requires 90 days without access, so a well-rehearsed note is not
+even a <i>candidate</i> until ~month six.</p>
+<p><b>Realistic Korean vs a multilingual encoder.</b> On 16 hand-written
+Korean notes &times; 3 query styles, BM25+bigram ties
+<code>multilingual-e5-large</code> on exact and reworded Korean (both R@5
+1.00) and trails only on Korean&ndash;English <i>code-switched</i> queries
+(0.94 vs 1.00) &mdash; the one case a lexical tokenizer cannot bridge, and
+where an embedding re-ranker would earn its keep.</p>
+
+<h3>5.3&ensp;Curation safety: the layer, not the schema</h3>
+<p>An adversarial-review pass fired crafted malicious plans at the executor
+(mass-archive, invented and path-traversal slugs, malformed/unhashable op
+fields, canary homoglyph variants; now regression-pinned). The invariants held
+in every case; the review also surfaced two <i>non-destructive</i> defects
+(an availability crash on an unhashable field; a canary sanitizer bypassable
+by homoglyphs) &mdash; both fixed and pinned. Table&nbsp;2 locates <i>where</i>
+protection lives by replaying five attacks through three defense levels: a
+JSON schema does not stop a mass-archive &mdash; every op is individually
+well-formed &mdash; so schema-only equals raw execution; only the
+executor&rsquo;s clamp holds. (Path-traversal and invented slugs are inert
+even raw: the file mover sanitizes zones and unknown slugs match nothing
+&mdash; an honest null.) Across every CurationPlan/1-mediated run in this
+paper, no pass deleted a note, escaped the vault, or mass-archived it &mdash;
+in contrast to the pre-CurationPlan/1 incident of &sect;3.3.</p>
+
+</div>
+
+<table>
+<tr><th>attack</th><th>raw apply</th><th>schema-only</th><th><b>full executor</b></th></tr>
+<tr><td>mass-archive-all</td><td>all 6 archived, protected GONE</td><td>all 6 archived, protected GONE</td><td><strong class="win">capped at 2, protected safe</strong></td></tr>
+<tr><td>archive protected note</td><td>protected GONE</td><td>protected GONE</td><td><strong class="win">intact</strong></td></tr>
+<tr><td>injection-canary plan</td><td>all 6 archived, protected GONE</td><td>all 6 archived, protected GONE</td><td><strong class="win">capped at 2, protected safe</strong></td></tr>
+<tr><td>path-traversal zone/slug</td><td>intact</td><td>intact</td><td>intact</td></tr>
+<tr><td>invented slugs</td><td>intact</td><td>intact</td><td>intact</td></tr>
+</table>
+<p class="small" style="margin-top:-4pt"><b>Table 2 —</b> Safety comes from the layer:
+five attacks &times; three defense levels on a 6-note vault with one protected
+note (reproduce: <code>bench_safety_matrix.py</code>).</p>
+
+<figure><img src="figures/fig_retrieval.png" alt="retrieval comparison">
+<figcaption><b>Figure 3 — Session retrieval, one harness.</b> BM25+bigram vs
+truncated dense retrievers at two encoder sizes, the review-driven chunked
+dense retriever, the strongest swept hybrid (RRF k=20 over BM25+chunked),
+and the substring baseline (470 questions, cleaned split). Every value from
+committed result files.</figcaption></figure>
+
+<div class="cols">
+
+<h3>5.4&ensp;Curation accuracy across engines</h3>
+<p>Because the executor densely links all co-placed notes, the hard-fixture
+link metrics measure <i>placement</i> pairwise: <b>link recall</b> is
+co-placement completeness over intra-cluster pairs; <b>link precision</b> is
+cluster purity. They are the placement axis at pair granularity, not an
+independent judgment of relatedness. On hard data precision discriminates:
+mis-merging two clusters wrongly links every pair across them, and a
+&ldquo;link everything&rdquo; policy maximizes recall while destroying
+precision. On the easy fixture (18 pairs, unambiguous) sonnet and haiku both
+reach recall 1.00 &mdash; table stakes; trivial baselines calibrate the hard
+numbers: no curation scores 0, and random placement into 8&ndash;13 zones
+scores recall 0.08&ndash;0.10 at precision 0.04&ndash;0.05 with 100+
+distractor links.</p>
+<p><b>A methodological confession shapes the reporting.</b> Our first prompt
+iterations leaked the answer key: while tuning placement guidance we added
+exemplars naming this fixture&rsquo;s own cluster boundaries
+(&ldquo;Postgres tuning and MySQL tuning are two zones; sourdough and pizza
+dough are two&hellip;&rdquo;). Those contaminated runs scored higher (sonnet
+0.91/0.87; codex 0.87/0.85) and are excluded. The final prompt keeps only
+fixture-disjoint guidance; with it (Fig.&nbsp;6, <b>n=10 per engine</b>,
+bootstrap 95% CIs, every completed pass reported): <b>sonnet</b> is the
+strongest curator on this fixture &mdash; precision 0.851
+[0.816&ndash;0.881], a CI that overlaps neither haiku&rsquo;s
+[0.728&ndash;0.811] nor codex&rsquo;s [0.714&ndash;0.752]; <b>haiku</b>
+matches recall on average but swings wildly (recall SD 0.182, range
+0.36&ndash;0.97; one outlier pass linked distractors en masse); <b>codex</b>
+is competent, fastest (1.5&nbsp;&plusmn;&nbsp;0.7&nbsp;min vs haiku
+4.2&nbsp;&plusmn;&nbsp;1.1, sonnet 5.9&nbsp;&plusmn;&nbsp;1.1), tightest
+(precision SD 0.032), and no
+longer privileged &mdash; its contaminated advantage collapsed from 0.85 to
+0.73 precision once the exemplars stopped naming the boundaries,
+retroactively measuring what the leak had been worth. Across all engines the
+dominant error is the same confusable-sibling merging
+(Postgres+MySQL&rarr;&ldquo;database&rdquo;,
+sourdough+pizza&rarr;&ldquo;baking&rdquo;,
+running+cycling&rarr;&ldquo;endurance&rdquo;) &mdash; genuine model behavior,
+since the prompt no longer mentions those pairs. No engine robustly clears
+0.90/0.90. Model choice sets accuracy; the executor guarantees that even the
+noisiest pass stays safe and auditable &mdash; the two concerns are cleanly
+separated, which is the design&rsquo;s point. <b>Reliability metadata</b>
+(all 30 scored passes): no engine ever returned an empty or unparseable plan,
+and the validation gate dropped 1 of 2,503 proposed ops &mdash; a single
+haiku op naming a nonexistent slug (99.96&nbsp;% gate acceptance); token
+usage was not instrumented.</p>
+<p><b>A hidden second fixture, evaluated once &mdash; and a warning about the
+ranking.</b> Fixture A was seen repeatedly while the prompt evolved, so a
+test-set-adaptive-tuning risk remains even with fixture-disjoint exemplars.
+We therefore authored <b>fixture B</b> (10 domain-disjoint confusable
+clusters &mdash; telescope observing vs astrophotography, freshwater vs reef
+aquaria, bouldering vs rope climbing, sewing, beekeeping, fountain pens,
+chess endgames &mdash; 110 pairs, 12 distractors), froze prompt and executor
+<i>before</i> the first run, and ran each engine exactly once (diamonds in
+Fig.&nbsp;6): sonnet recall 1.000 / precision <b>0.643</b>; haiku 0.945 /
+<b>0.806</b>; codex 0.909 / 0.714. The engine ordering <b>does not
+transfer</b>: sonnet&rsquo;s precision lead on A disappears on B (it
+over-merged sibling clusters, buying perfect recall), haiku leads precision
+on B, and only codex is consistent across both. The conclusions that survive
+both fixtures &mdash; placement is engine-dependent, sibling merging is the
+dominant error everywhere, safety invariants hold for every engine &mdash;
+are the ones we stand behind; &ldquo;which engine curates best&rdquo; is
+fixture-sensitive and remains an open question, not a leaderboard.</p>
+
+<h3>5.5&ensp;Curation at scale on a real vault: structure moves, top-k does not</h3>
+<p>The fixtures above are synthetic. To test curation on real data we ingested
+the author&rsquo;s working notes (<b>1,910 Markdown notes, 9.3&nbsp;MB</b>,
+~20 real projects) into a fresh vault, froze 40 paraphrase queries against
+known target notes <i>before</i> curation, and measured retrieval before (A)
+and after (B) one <code>claude/sonnet</code> CurationPlan/1 pass. We
+pre-registered the expectation: rezoning cannot change BM25 scores, so any
+retrieval effect must arrive via the link-expansion and archive paths. The
+85-minute pass transformed the vault&rsquo;s <b>structure</b> &mdash; one
+undifferentiated zone (29 links, mean degree 0.02) became <b>23
+project-coherent zones</b> that recovered the corpus&rsquo;s actual project
+boundaries, with <b>3,485 directed links (mean degree 1.82)</b>; 271 proposed
+ops expanded to 1,989 accepted executor actions, 10 ops were dropped by the
+safety gates, and no note was deleted. Retrieval, however, barely moved
+(Fig.&nbsp;7): R@1/R@5/MRR identical (0.10/0.20/0.146), R@10
+0.300&rarr;0.275, link-expansion recall 0.200&rarr;0.225. Two honest
+observations. First, <b>curation is an organizational win, not a top-k
+retrieval win</b> &mdash; the value is navigable, project-coherent structure
+consumed by the digest and link-expansion paths, not reranking; claims that
+curation &ldquo;improves retrieval&rdquo; should be read in that light, here
+and elsewhere. Second, the absolute numbers sit far below LongMemEval&rsquo;s
+(R@5 0.20 vs 0.97): a real corpus is full of near-duplicate drafts, so
+paraphrase queries have many lexically-plausible wrong answers under strict
+single-gold scoring &mdash; session-level benchmarks materially understate
+how hard note-level personal retrieval is, and we flag this as the honest gap
+between &sect;5.1 and deployment. (Private data; aggregates only, corpus not
+released.)</p>
+<p><b>Link policy: dense co-placement linking is 4.6&times; denser than it
+needs to be.</b> Dense reciprocal linking is O(n&sup2;) in cluster size, and a
+reviewer rightly asked whether it survives real scale. Here it does not blow
+up &mdash; links arrive per co-placement <i>cluster</i>, not per zone (mean
+degree 1.8, p95 17, max 22; 3,456 of the 3,485 resolve to live notes) &mdash;
+but most are dead weight. Replaying the <i>same</i> placements under pruned
+policies (each note keeps its k lexically most similar linked neighbors,
+cosine over stdlib token sets; deterministic, no LLM) and re-scoring the
+frozen-query link-expansion measure:</p>
+<table>
+<tr><th>link policy (same placements)</th><th>links</th><th>mean deg</th><th>p95</th><th>max</th><th>R@3+links</th></tr>
+<tr><td>dense reciprocal (current)</td><td>3,456</td><td>1.81</td><td>17</td><td>22</td><td>0.225</td></tr>
+<tr><td>top-k = 3</td><td>752</td><td>0.39</td><td>3</td><td>3</td><td><b>0.225</b></td></tr>
+<tr><td>top-k = 5</td><td>1,223</td><td>0.64</td><td>5</td><td>5</td><td>0.225</td></tr>
+<tr><td>top-k = 10</td><td>2,258</td><td>1.18</td><td>10</td><td>10</td><td>0.225</td></tr>
+<tr><td>similarity &ge; median (0.284)</td><td>1,728</td><td>0.90</td><td>9</td><td>18</td><td>0.200</td></tr>
+</table>
+<p>Every top-k policy preserves the entire measured link-expansion benefit
+&mdash; <b>k=3 does it with 78&nbsp;% fewer links</b> and a human-legible
+graph &mdash; while similarity thresholding is the one policy that <i>loses</i>
+the recovered query: degree capping beats score cutting here. Dense linking is
+best read as an upper bound the substrate tolerates at this scale, not a
+recommendation; a per-note top-k cap inside co-placement is the natural
+deployment default.</p>
+
+<h3>5.6&ensp;Curation, live (Morpheus)</h3>
+<p>Two findings from live nightly passes. First, a <i>measurement hazard</i>:
+our earliest live run scanned its working directory, found the benchmark
+script that had generated its vault, recognized the fixtures as synthetic,
+and &mdash; following its conservative unattended policy &mdash; refused to
+curate; the harness now isolates the working directory. Second, once
+isolated, the labeled suite confirms the safety story end to end: both Claude
+models resist the planted injection canary (mass-archive 0.00, phrase not
+parroted), preserve control and negative-polarity notes, and archive rather
+than delete. These early passes were safety-clean but not
+accuracy-representative (the haiku pass filed no inbox notes under the
+then-current prompt); &sect;5.4&rsquo;s numbers come from the evolved prompt
+driven through the harness.</p>
+
+<h3>5.7&ensp;A negative result: passive negative-memory</h3>
+<p>Birkin renders negative-polarity notes into the prompt digest as a
+&ldquo;&#9888; known failure &mdash; re-verify&rdquo; tag, hypothesizing that
+an agent that <i>sees</i> the warning avoids the failed path. Tested directly
+(a note records that an <code>ftp</code> deploy corrupted the build twice; a
+one-turn ftp-vs-rsync decision probe; warned / transient-failure / no-memory;
+haiku, 6 trials each, one warned trial errored leaving 5 valid): the warning
+did <b>not</b> measurably change behavior beyond the model&rsquo;s prior
+&mdash; the baseline already preferred rsync, and none of the valid warned
+responses clearly cited the stored failure. A rendered negative memory is not
+self-enforcing; making it load-bearing needs an active reverify gate in the
+agent loop, not a passive annotation (&sect;7).</p>
+
+</div>
+
+<figure><img src="figures/fig_e2e.png" alt="e2e decomposition" style="max-width:78%">
+<figcaption><b>Figure 4 — Decomposing end-to-end loss</b> (haiku reader; paired
+over identical questions). Single-evidence questions are reader-bound; on
+multi-session questions retrieval also loses several evidence sessions from a
+top-5 cut.</figcaption></figure>
+
+<figure><img src="figures/fig_decay.png" alt="decay curves" style="max-width:82%">
+<figcaption><b>Figure 5 — Forgetting as a ranking signal</b> (H5). Effective
+strength over days for three access archetypes; the spacing-gated stability
+multiplier keeps a rehearsed note retrievable ~166 days while an untouched
+one fades in ~2&ndash;3 weeks.</figcaption></figure>
+
+<figure><img src="figures/fig_hard.png" alt="hard fixture across engines" style="max-width:82%">
+<figcaption><b>Figure 6 — Hard curation fixture across engines</b>
+(fixture-disjoint prompt, n=10 each, mean with bootstrap 95% CI, cluster
+precision). Diamonds mark the hidden fixture B, one frozen pass per engine:
+sonnet&rsquo;s precision lead does not transfer. Every pass from every engine
+stayed within the file-safety invariants.</figcaption></figure>
+
+<figure><img src="figures/fig_realvault.png" alt="real vault before/after">
+<figcaption><b>Figure 7 — One curation pass on a real 1,910-note vault</b>
+(40 paraphrase queries frozen before curation; claude/sonnet). Structure is
+rebuilt &mdash; 1&rarr;24 zones, 29&rarr;3,485 links &mdash; while top-k
+retrieval on the frozen queries stays flat, exactly as pre-registered:
+rezoning cannot change BM25 scores; only link expansion (+0.025) and an
+archived near-duplicate (&minus;0.025 R@10) move.</figcaption></figure>
+
+<div class="cols">
+
+<h2>6&ensp;Discussion</h2>
+<p><b>Why lexical works here.</b> Personal-memory queries are dominated by
+named anchors &mdash; project names, people, commands, error strings &mdash;
+exactly the high-idf tokens BM25 rewards, and LongMemEval&rsquo;s questions
+share rare content words with their evidence sessions. Lexical
+retrieval&rsquo;s classic weakness, paraphrase, is partially compensated
+upstream: the nightly curator writes links between related notes, and
+retrieval surfaces linked neighbors alongside hits. Where paraphrase matters
+more than transparency, an embedding re-ranker can be added over the same
+substrate without changing it.</p>
+<p><b>On baselines and comparability.</b> &sect;5.1 carries a floor (the
+replaced substring search) and strong same-harness baselines &mdash;
+truncated and chunked dense at two encoder sizes, swept RRF hybrids, and a
+dense reranker. The lexical engine beats truncated dense, ties chunked
+dense, and concedes ~0.02 MRR to the best hybrid; we report that concession
+rather than claim a clean sweep. The remaining gaps are a late-interaction
+(ColBERT-class) retriever, a frontier or task-tuned embedder, and a
+long-context reader ingesting all sessions. Cross-system
+LongMemEval numbers are easy to misread &mdash; retrieval recall, reranked
+retrieval, and end-to-end QA accuracy are different metric categories under
+one benchmark name &mdash; so we restrict our claim to session-level retrieval
+recall. This caution matters most against MemPalace [R1], whose reported
+~0.966 band sits in our numeric range: the honest cross-read is not &ldquo;we
+beat MemPalace&rdquo; but &ldquo;the same band is reachable with no embedding
+model and no vector store at all.&rdquo; Structured Distillation [24] reports
+the opposite lexical result &mdash; in a different regime (11&times;
+compressed exchanges), consistent with lexical retrieval depending on the
+verbatim anchors our vault preserves.</p>
+<p><b>Accuracy, not latency, is the metric for memory.</b> CurationPlan/1
+makes every engine safe and comparable, and &sect;5.4 shows engines are not
+interchangeable on what matters: a curator that mis-places notes under-links
+and under-retrieves later. Wall-clock is nearly irrelevant for a once-a-night
+pass; placement and lifecycle accuracy compound, because they determine what
+the system can find tomorrow. The contamination episode adds a corollary:
+when the judge is a prompted model, <i>the prompt is part of the benchmark
+surface</i>, and exemplars must be checked against the fixture the way test
+data is checked against training data.</p>
+
+<h2>7&ensp;Limitations and future work</h2>
+<p>No semantic generalization beyond bigram/lexical overlap; single-user,
+single-machine assumptions; zone taxonomy refined only nightly. Curation
+accuracy is bounded by model capability on confusable data and, while now
+reported at n=10 with bootstrap CIs, the fixture-B ordering reversal
+(&sect;5.4) shows per-engine conclusions are fixture-sensitive &mdash; a
+multi-fixture study with several hidden fixtures, and a frontier-model
+ceiling probe, remain future work. The real-vault study (&sect;5.5) is one
+corpus, one owner, one pass, with frozen paraphrase queries rather than the
+owner&rsquo;s natural queries; a <b>longitudinal study on real long-lived
+vaults</b> (multiple users, 500&ndash;5,000 notes,
+30&ndash;90 days, no-memory / substring / BM25 / full / hybrid arms, natural
+queries including paraphrase, typo, and Korean&ndash;English mixing) is still
+the most important missing evidence for the personal-scale claim &mdash; and
+one we cannot run without deployed users. End-to-end QA uses one cheap reader and
+an oracle control on two question types; extending the decomposition to all
+types, sweeping stronger readers and embedding/hybrid top-k, and running
+LoCoMo [7] remain open. Decay constants are argued from the spacing
+literature, not learned. Finally, &sect;5.7 motivates an <i>active</i>
+reverify gate: does hard-blocking reuse of a recorded failed path until the
+agent cites a verification change behavior, and at what false-positive
+cost?</p>
+
+<h2>8&ensp;Conclusion</h2>
+<p>For the personal-scale workloads we measured, a memory palace for an LLM
+agent does not need a vector database. Files in rooms, an inverted index
+refreshed by stat, BM25 with a bigram tokenizer, a forgetting curve the
+ranking actually feels, and one offline LLM session a night reach strong
+session retrieval on a public benchmark while staying greppable, diffable,
+and dependency-free &mdash; and, measured in the same harness, a chunked
+dense retriever ties this substrate while the best tuned hybrid buys
+~0.02 MRR over it: a real margin, priced at an embedding stack the default
+deliberately omits (cross-lingual queries remain the case where that
+re-ranker would earn its keep).
+Extending the same mechanical/judgment split to the curation interface lets
+the identical nightly contract run on the Claude and Codex CLIs (and, via
+the same one-function contract, any API or local model) and makes even a weak
+or adversarial engine unable to violate the vault&rsquo;s file-safety
+invariants through that interface &mdash; on synthetic fixtures and on a real
+1,910-note vault, where one pass rebuilt the organizational structure while
+top-k retrieval, honestly, did not move. Let arithmetic do what arithmetic
+can, enforce safety in code, and spend the model only where judgment is
+genuinely required.</p>
+
+<h2>References</h2>
+<ol class="refs">
+<li>W. Xu et al. <i>A-MEM: Agentic Memory for LLM Agents.</i> NeurIPS 2025. arXiv:2502.12110.</li>
+<li>C. Packer et al. <i>MemGPT: Towards LLMs as Operating Systems.</i> 2023. arXiv:2310.08560.</li>
+<li>J. S. Park et al. <i>Generative Agents.</i> UIST 2023. arXiv:2304.03442.</li>
+<li>W. Zhong et al. <i>MemoryBank.</i> AAAI 2024. arXiv:2305.10250.</li>
+<li>P. Chhikara et al. <i>Mem0.</i> 2025. arXiv:2504.19413.</li>
+<li>B. Jim&eacute;nez Guti&eacute;rrez et al. <i>HippoRAG.</i> NeurIPS 2024. arXiv:2405.14831.</li>
+<li>A. Maharana et al. <i>Evaluating Very Long-Term Conversational Memory (LoCoMo).</i> ACL 2024. arXiv:2402.17753.</li>
+<li>D. Wu et al. <i>LongMemEval.</i> ICLR 2025. arXiv:2410.10813.</li>
+<li>P. Rasmussen et al. <i>Zep: A Temporal Knowledge Graph Architecture for Agent Memory.</i> 2025. arXiv:2501.13956.</li>
+<li>B. Wang et al. <i>Self-Controlled Memory (SCM).</i> DASFAA 2025. arXiv:2304.13343.</li>
+<li>K.-H. Lee et al. <i>ReadAgent.</i> ICML 2024. arXiv:2402.09727.</li>
+<li>S. Robertson and H. Zaragoza. <i>The Probabilistic Relevance Framework: BM25 and Beyond.</i> FnTIR 3(4), 2009.</li>
+<li>J. M. J. Murre and J. Dros. <i>Replication and Analysis of Ebbinghaus&rsquo; Forgetting Curve.</i> PLOS ONE, 2015.</li>
+<li>N. J. Cepeda et al. <i>Distributed Practice in Verbal Recall Tasks.</i> Psych. Bulletin 132(3), 2006.</li>
+<li>Z. Zhang et al. <i>A Survey on the Memory Mechanism of LLM-based Agents.</i> 2024. arXiv:2404.13501.</li>
+<li>P. Lewis et al. <i>Retrieval-Augmented Generation for Knowledge-Intensive NLP Tasks.</i> NeurIPS 2020. arXiv:2005.11401.</li>
+<li>J. R. Anderson and L. J. Schooler. <i>Reflections of the Environment in Memory.</i> Psych. Science 2(6), 1991.</li>
+<li>E. A. Maguire et al. <i>Routes to Remembering: The Brains Behind Superior Memory.</i> Nat. Neurosci. 6(1), 2003.</li>
+<li>E. Debenedetti et al. <i>Defeating Prompt Injections by Design (CaMeL).</i> 2025. arXiv:2503.18813.</li>
+<li>A. Jonelagadda, C. Hahn, H. Zheng, S. Penachio. <i>Mnemosyne: An Unsupervised, Human-Inspired Long-Term Memory Architecture for Edge-Based LLMs.</i> 2025. arXiv:2510.08601.</li>
+<li>A. Nguyen et al. <i>ByteRover: Agent-Native Memory Through LLM-Curated Hierarchical Context.</i> 2026. arXiv:2604.01599.</li>
+<li>S. Ji et al. <i>Infini Memory: Maintainable Topic Documents for Long-Term LLM Agent Memory.</i> 2026. arXiv:2606.10677.</li>
+<li>R. Dey and P. Viradecha. <i>Spatial Metaphors for LLM Memory: A Critical Analysis of the MemPalace Architecture.</i> 2026. arXiv:2604.21284.</li>
+<li>S. Lewis. <i>Structured Distillation for Personalized Agent Memory: 11x Token Reduction with Retrieval Preservation.</i> 2026. arXiv:2603.13017.</li>
+<li>Y. Omri et al. <i>Agent Memory: Characterization and System Implications of Stateful Long-Horizon Workloads.</i> 2026. arXiv:2606.06448.</li>
+</ol>
+<p class="small"><b>Software and datasets.</b> [R1] mempalace/mempalace (MIT) &middot;
+[R2] NousResearch/hermes-agent (MIT) &middot; [R3] letta-ai/letta &middot;
+[R4] getzep/graphiti &middot; [R5] langchain-ai/langmem &middot;
+[R6] mem0ai/mem0 &middot; [R7] topoteretes/cognee &middot;
+[D1] xiaowu0162/LongMemEval (cleaned split) &middot; [D2] snap-research/locomo.
+Fetched 2026-07; to be normalized to BibTeX for formal submission.</p>
+
+<h2>Appendix A&ensp;Constants</h2>
+<p class="mono small">BM25 k1=1.5 b=0.75 &middot; strength +0.25/access, cap 5.0 &middot;
+stability init 7d, &times;1.5 per spaced access, cap 365d &middot; eff floor 0.05 &middot;
+spacing gate 1h &middot; zone EMA decay 0.9/day &middot; W_dyn=0.3 W_zone=0.2 &middot;
+stale: eff&lt;0.1 &amp; &gt;90d &middot; archive cap max(2, &lceil;0.20&middot;active&rceil;)</p>
+
+<h2>Appendix B&ensp;Reproduction</h2>
+<p class="mono small">
+pip install -e . &nbsp;# zero runtime deps<br>
+python benchmarks/bench.py &nbsp;# H1&ndash;H5<br>
+python benchmarks/bench_longmemeval.py --data &lt;dir&gt;/longmemeval_s_cleaned.json<br>
+pip install fastembed numpy &nbsp;# benchmark-only<br>
+python benchmarks/bench_longmemeval_embed.py --data &hellip; [--model BAAI/bge-large-en-v1.5]<br>
+python benchmarks/bench_lme_e2e.py --data &hellip; --condition top5 | oracle<br>
+python benchmarks/bench_matrix_local.py --data &hellip; &nbsp;# 2&times;2, floors, tokenizer<br>
+python benchmarks/bench_korean_embed.py &middot; python benchmarks/bench_safety_matrix.py<br>
+python benchmarks/tune_linkrecall_hard.py --provider claude|codex --model &hellip; [--fixture b]<br>
+python benchmarks/bench_dense_strong.py --data &hellip; &nbsp;# chunked / RRF-swept / reranked dense<br>
+python benchmarks/bench_weight_sensitivity.py &middot; python benchmarks/bench_real_vault.py --source &lt;notes&gt;<br>
+python benchmarks/bench_h4_compliance.py --model haiku --trials 6<br>
+birkin curate-memory --provider codex &nbsp;# real vault; SHA-256 audit<br>
+pytest -q &nbsp;# 636 tests, &ge;75% coverage gate</p>
+
+</div>
+</body>
+</html>
