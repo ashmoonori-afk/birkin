@@ -78,8 +78,10 @@ cleaned and original splits), beating same-harness <i>truncated</i> dense
 retrievers at two encoder sizes (bge-small 0.932/0.842; bge-large
 0.936/0.849), tying a chunked one (0.968/0.908), and conceding only 0.009 R@5
 / 0.021 MRR to the best tuned hybrid we measured (0.977/0.931) &mdash; a
-small, real margin, priced at an embedding stack the substrate does not
-require. An end-to-end check with a fixed cheap reader answers 53.8% of
+margin that a dev-tuned, arithmetic-only stack (query-side idf weighting,
+user-turn field weighting, a relative-date prior; every ingredient classic
+IR) then buys back: <b>0.900/0.977/0.933</b>, parity with the hybrid, still
+with no encoder at all. An end-to-end check with a fixed cheap reader answers 53.8% of
 questions (abstention accuracy 0.80); an oracle-evidence control decomposes the
 residual into reader-bound loss on single-evidence questions and
 retrieval-bound loss on multi-session ones.
@@ -116,8 +118,10 @@ Birkin-Mnemosyne는 파이썬 표준 라이브러리만으로 구현되었으며
 LongMemEval-S 세션 검색에서 Recall@5 0.968, MRR 0.91을 달성하여 같은 하네스의
 절단(truncated) 밀집 임베딩 검색기 두 크기(bge-small, bge-large)를 모두 앞서고,
 청크 임베딩과는 동률이며(0.968/0.908), 가장 강한 튜닝 하이브리드(0.977/0.931)에도
-R@5 0.009&middot;MRR 0.021만을 내준다 &mdash; 임베딩 스택 없이 얻는 성능치고는
-작지만, 실재하는 격차임을 정직하게 보고한다. 둘째, CurationPlan/1은 에이전트 기반 기억 큐레이션을 구조적으로
+R@5 0.009&middot;MRR 0.021만을 내준다 &mdash; 그리고 이 격차는 dev 절반에서만
+튜닝한 순수 산술 스택(질의어 idf 가중, 사용자 발화 필드 가중, 상대날짜
+사전확률 &mdash; 모두 고전 IR 기법)이 도로 회수한다: <b>0.900/0.977/0.933</b>,
+인코더 없이 하이브리드와 대등. 둘째, CurationPlan/1은 에이전트 기반 기억 큐레이션을 구조적으로
 안전하고 프로바이더 간 이식 가능하게 만든다: 모델은 typed JSON 계획만 출력하고
 결정적 executor가 코드로 강제되는 파일 안전 불변식 아래
 검증&middot;제한&middot;적용하므로, <i>이 인터페이스를 거치는 한</i> 아무리
@@ -599,6 +603,34 @@ time</b> &mdash; at personal scale, in our judgment, still the right
 default, with the hybrid available over the same substrate for deployments
 that want the margin. (Late-interaction and task-tuned retrievers remain
 unrun; &sect;7.)</p>
+<p><b>A tuned lexical stack closes the hybrid gap.</b> The RRF margin
+prompted one more arithmetic-only round: does BM25 lose to the
+<i>embedding</i>, or merely to <i>tuning</i>? We split the 470 questions into
+a dev half (tuning allowed) and a frozen test half, swept on dev only, and
+froze one configuration: BM25F-style <b>user-turn field weighting</b>
+(user-turn tf &times;3 &mdash; the questions ask about the <i>user</i>; cf.
+the benchmark authors&rsquo; user-fact key expansion [8]), collection-tuned
+k1=0.9 / b=0.5, <b>query-side idf weighting</b> (each query term weighted by
+its own idf &mdash; classic SMART ltc query weighting [26] applied to BM25,
+so rare anchors dominate conversational filler), and a <b>relative-date
+prior</b> (a Gaussian window over session dates when the query parses to
+&ldquo;N weeks ago&rdquo; / &ldquo;last Saturday&rdquo; &mdash; a mechanical
+variant of time-based language models [27] and of the time-aware retrieval
+the benchmark itself proposes [8]). Result on the full 470 (Fig.&nbsp;3,
+&ldquo;tuned lex.&rdquo;): <b>R@1 0.900 / R@5 0.977 / MRR 0.933</b> vs the
+best swept hybrid&rsquo;s 0.894 / 0.977 / 0.931 &mdash; the entire hybrid
+margin bought back with no encoder, no vector store, and no model at query
+time (R@10 is where the hybrid keeps an edge, 0.994 vs 0.981). Every
+ingredient is classic IR; we claim the measurement, not the mechanisms.
+Protocol honesty: on the untouched test half the frozen stack scores 0.885 /
+0.979 / 0.923 &mdash; below the hybrid&rsquo;s full-set point on R@1/MRR
+&mdash; and the full-set margins are ~3 questions wide, so the defensible
+claim is <i>parity</i>, not dominance; the hybrid&rsquo;s fusion constant was
+itself selected post-hoc on the full set, making full-vs-full the symmetric
+comparison. Branches that did not survive dev, reported so nobody retries
+them blind: lexical chunk max-pooling (the fix that rescued dense embeddings
+<i>hurts</i> lexical ranking), span proximity, RM3 feedback (recovers tail
+recall, scrambles top-1), and a word-bigram phrase field.</p>
 <p><b>Input fairness, measured.</b> Sessions were truncated to 6,000 chars for
 embedding (bge&rsquo;s 512-token window truncates further regardless) while
 BM25 read full text. Re-running BM25 on the <i>identical truncated text</i>
@@ -694,11 +726,12 @@ five attacks &times; three defense levels on a 6-note vault with one protected
 note (reproduce: <code>bench_safety_matrix.py</code>).</p>
 
 <figure><img src="figures/fig_retrieval.png" alt="retrieval comparison">
-<figcaption><b>Figure 3 — Session retrieval, one harness.</b> BM25+bigram vs
-truncated dense retrievers at two encoder sizes, the review-driven chunked
-dense retriever, the strongest swept hybrid (RRF k=20 over BM25+chunked),
-and the substring baseline (470 questions, cleaned split). Every value from
-committed result files.</figcaption></figure>
+<figcaption><b>Figure 3 — Session retrieval, one harness.</b> BM25+bigram
+and the dev-tuned lexical stack (query idf &middot; user-turn field &middot;
+date prior) vs truncated dense retrievers at two encoder sizes, the
+review-driven chunked dense retriever, the strongest swept hybrid (RRF k=20
+over BM25+chunked), and the substring baseline (470 questions, cleaned
+split). Every value from committed result files.</figcaption></figure>
 
 <div class="cols">
 
@@ -944,7 +977,9 @@ session retrieval on a public benchmark while staying greppable, diffable,
 and dependency-free &mdash; and, measured in the same harness, a chunked
 dense retriever ties this substrate while the best tuned hybrid buys
 ~0.02 MRR over it: a real margin, priced at an embedding stack the default
-deliberately omits (cross-lingual queries remain the case where that
+deliberately omits, and one that classic lexical tuning &mdash; query-side
+idf weighting, a user-turn field, a relative-date prior &mdash; buys back to
+parity (&sect;5.1; cross-lingual queries remain the case where an embedding
 re-ranker would earn its keep).
 Extending the same mechanical/judgment split to the curation interface lets
 the identical nightly contract run on the Claude and Codex CLIs (and, via
@@ -983,6 +1018,8 @@ genuinely required.</p>
 <li>R. Dey and P. Viradecha. <i>Spatial Metaphors for LLM Memory: A Critical Analysis of the MemPalace Architecture.</i> 2026. arXiv:2604.21284.</li>
 <li>S. Lewis. <i>Structured Distillation for Personalized Agent Memory: 11x Token Reduction with Retrieval Preservation.</i> 2026. arXiv:2603.13017.</li>
 <li>Y. Omri et al. <i>Agent Memory: Characterization and System Implications of Stateful Long-Horizon Workloads.</i> 2026. arXiv:2606.06448.</li>
+<li>G. Salton and C. Buckley. <i>Term-Weighting Approaches in Automatic Text Retrieval.</i> Information Processing &amp; Management 24(5), 1988.</li>
+<li>X. Li and W. B. Croft. <i>Time-Based Language Models.</i> CIKM 2003.</li>
 </ol>
 <p class="small"><b>Software and datasets.</b> [R1] mempalace/mempalace (MIT) &middot;
 [R2] NousResearch/hermes-agent (MIT) &middot; [R3] letta-ai/letta &middot;

@@ -49,9 +49,11 @@ def fig_retrieval() -> None:
     small = _load("lme-embed-cleaned-20260705.json")
     large = _load("lme-embed-cleaned-bgelarge-20260707.json")
     strong = _load("dense-strong-20260711.json")     # review-driven: chunked/RRF-swept
+    tuned = _load("rankingv2-sweep2-full-20260711-161601.json")["conditions"]
     subs = _load("longmemeval-cleaned-20260703.json")["overall"]["substring_naive"]
     systems = [
         ("BM25\n(ours)", small["bm25"], BLUE),
+        ("tuned lex.\n(ours)", tuned["FINAL(frozen)"], "#0f4f9e"),  # blue: dark
         ("bge-sm\ntrunc", small["embed"], "#5fc9a1"),        # aqua ramp: light
         ("bge-lg\ntrunc", large["embed"], "#0f8a5f"),        # aqua ramp: dark
         ("bge-sm\nchunked", strong["dense_chunk"], "#0a5c40"),  # aqua: darkest
@@ -59,7 +61,7 @@ def fig_retrieval() -> None:
         ("substring\n(prior)", subs, GRAY),
     ]
     metrics = [("recall@1", "R@1"), ("recall@5", "R@5"), ("mrr", "MRR")]
-    fig, axes = plt.subplots(1, 3, figsize=(10.6, 2.8), sharey=True)
+    fig, axes = plt.subplots(1, 3, figsize=(11.6, 2.8), sharey=True)
     for ax, (key, label) in zip(axes, metrics):
         vals = [s[1][key] for s in systems]
         bars = ax.bar(range(len(systems)), vals,

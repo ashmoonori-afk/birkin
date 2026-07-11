@@ -28,8 +28,10 @@ retrieval it reaches **Recall@5 0.968 / MRR 0.91** (near-identical on the
 cleaned and original splits: R@5 identical, MRR 0.910 vs 0.907) — beating a
 same-harness *truncated* dense-embedding retriever (0.932 / 0.842), tying a
 chunked one (0.968 / 0.908), and conceding only 0.009 R@5 / 0.021 MRR to the
-best tuned hybrid we measured (0.977 / 0.931): a small, real margin, priced
-at an embedding stack the substrate does not require. An end-to-end check with a fixed cheap reader over the top-5
+best tuned hybrid we measured (0.977 / 0.931) — a margin that a dev-tuned,
+arithmetic-only stack (query-side idf weighting, user-turn field weighting, a
+relative-date prior; every ingredient classic IR) then buys back: **0.900 /
+0.977 / 0.933**, parity with the hybrid, still with no encoder at all. An end-to-end check with a fixed cheap reader over the top-5
 sessions answers 53.8 % of questions (abstention accuracy 0.80); an
 oracle-evidence control shows the remaining bottleneck is the reader, not the
 memory layer.
@@ -69,8 +71,9 @@ only where judgment is genuinely required.
 Recall@5 0.968, MRR 0.91을 달성했으며(cleaned·original 두 스플릿에서 사실상 동일),
 같은 하네스에서 측정한 절단(truncated) 밀집 임베딩 검색기(0.932/0.842)를 앞서고,
 청크 임베딩과는 동률이며(0.968/0.908), 가장 강한 튜닝 하이브리드(0.977/0.931)에도
-R@5 0.009·MRR 0.021만을 내준다 — 임베딩 스택 없이 얻는 성능치고는 작지만,
-실재하는 격차임을 정직하게 보고한다. 고정된 경량 reader를 상위 5개 세션에 붙인 종단 간(end-to-end) 질의응답
+R@5 0.009·MRR 0.021만을 내준다 — 그리고 이 격차는 dev 절반에서만 튜닝한 순수
+산술 스택(질의어 idf 가중, 사용자 발화 필드 가중, 상대날짜 사전확률 — 모두 고전
+IR 기법)이 도로 회수한다: **0.900/0.977/0.933**, 인코더 없이 하이브리드와 대등. 고정된 경량 reader를 상위 5개 세션에 붙인 종단 간(end-to-end) 질의응답
 검증에서는 53.8 %의 질문에 정답했고(회피 정확도 0.80), 정답 세션을 직접 제공하는
 oracle 대조 실험은 남은 병목이 기억 계층이 아니라 reader임을 보여 준다.
 
@@ -528,6 +531,43 @@ personal scale that trade remains, in our judgment, the right default — and
 the hybrid stays available over the same substrate for deployments that want
 the margin. (A late-interaction / ColBERT-class retriever and long-context or
 task-tuned embedders remain unrun; §7.)
+
+**A tuned lexical stack closes the hybrid gap.** The RRF margin above prompted
+one more arithmetic-only round: does BM25 lose to the *embedding*, or merely
+to *tuning*? We split the 470 questions into a dev half (tuning allowed) and a
+frozen test half, swept on dev only, and froze one configuration: BM25F-style
+**user-turn field weighting** (user-turn tf ×3 — the questions ask about the
+*user*; cf. the benchmark authors' user-fact key expansion [8]),
+collection-tuned k1=0.9 / b=0.5, **query-side idf weighting** (each query term
+weighted by its own idf — the classic SMART ltc query weighting [26] applied
+to BM25, so rare anchors dominate conversational filler), and a
+**relative-date prior** (a Gaussian window over session dates when the query
+parses to "N weeks ago" / "last Saturday" — a mechanical variant of time-based
+language models [27] and of the time-aware retrieval the benchmark itself
+proposes [8]):
+
+| tuned lexical vs hybrid (n=470) | R@1 | R@5 | R@10 | MRR |
+|---|---|---|---|---|
+| BM25 (untuned reference) | 0.870 | 0.968 | 0.981 | 0.910 |
+| hybrid RRF k=20 (best swept) | 0.894 | 0.977 | **0.994** | 0.931 |
+| **tuned lexical stack (ours)** | **0.900** | **0.977** | 0.981 | **0.933** |
+
+Every ingredient is classic IR — we claim the measurement, not the mechanisms.
+The empirical point is that their combination buys back the entire hybrid
+margin on this benchmark: R@1 +0.006 and MRR +0.002 over the best swept
+hybrid, R@5 tied, still with no encoder, no vector store, and no model at
+query time (R@10 is where the hybrid keeps an edge, 0.994 vs 0.981). Protocol
+honesty: on the untouched test half the frozen stack scores R@1 0.885 / R@5
+0.979 / MRR 0.923 — below the hybrid's full-set point on R@1/MRR — and the
+full-set margins are ~3 questions wide, so the defensible claim is *parity
+with* the tuned hybrid, not dominance; the hybrid's fusion constant was
+itself selected post-hoc on the full set, which makes full-vs-full the
+symmetric comparison. Branches that did not survive dev, reported so nobody
+retries them blind: lexical chunk max-pooling (the fix that rescued dense
+embeddings *hurts* lexical ranking), span proximity (global and as a
+tie-break), RM3 pseudo-relevance feedback (recovers tail recall, scrambles
+top-1), and a word-bigram phrase field. Reproduce:
+`benchmarks/sweep2_ranking_v2.py --split full`.
 
 Second, the result is split-robust: on the original (uncleaned) split BM25
 scores R@1 0.864 / R@5 0.968 / MRR 0.907, a negligible delta from the cleaned
@@ -1015,7 +1055,9 @@ recall on a public benchmark while staying greppable, diffable, and
 dependency-free — and, measured in the same harness, a chunked dense
 retriever ties this substrate while the best tuned hybrid buys ~0.02 MRR over
 it: a real margin, priced at an embedding stack the default deliberately
-omits (cross-lingual queries remain the case where that re-ranker would earn
+omits, and one that classic lexical tuning — query-side idf weighting, a
+user-turn field, a relative-date prior — buys back to parity (§5.1;
+cross-lingual queries remain the case where an embedding re-ranker would earn
 its keep).
 Extending the same mechanical/judgment split to the curation interface lets
 the identical nightly contract run on the Claude and Codex CLIs (and, through
@@ -1072,6 +1114,10 @@ Analysis of the MemPalace Architecture.* 2026. arXiv:2604.21284.
 Token Reduction with Retrieval Preservation.* 2026. arXiv:2603.13017.
 [25] Y. Omri et al. *Agent Memory: Characterization and System Implications
 of Stateful Long-Horizon Workloads.* 2026. arXiv:2606.06448.
+[26] G. Salton and C. Buckley. *Term-Weighting Approaches in Automatic Text
+Retrieval.* Information Processing & Management 24(5), 1988. (SMART ltc
+query-side idf weighting.)
+[27] X. Li and W. B. Croft. *Time-Based Language Models.* CIKM 2003.
 
 **Software and datasets** (repositories fetched 2026-07; to be normalized to
 BibTeX `@misc` entries for formal submission):
@@ -1109,6 +1155,7 @@ python benchmarks/tune_linkrecall_hard.py --provider claude --model sonnet
 python benchmarks/tune_linkrecall_hard.py --provider codex  --model gpt-5.3-codex-spark
 python benchmarks/tune_linkrecall_hard.py --provider claude --model sonnet --fixture b  # hidden fixture B (run once)
 python benchmarks/bench_dense_strong.py --data <dir>/longmemeval_s_cleaned.json  # chunked/RRF-swept/reranked dense
+python benchmarks/sweep2_ranking_v2.py --data <dir>/longmemeval_s_cleaned.json --split full  # tuned lexical stack vs hybrid
 python benchmarks/bench_weight_sensitivity.py     # boost interference grid
 python benchmarks/bench_real_vault.py --source <your-notes-dir>  # private corpus; aggregates only
 python benchmarks/bench_h4_compliance.py --model haiku --trials 6
