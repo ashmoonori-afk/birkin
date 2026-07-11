@@ -647,6 +647,24 @@ baseline at every size, and the steady-state stat refresh stays ~100 ms even at
 | 500 | 36.9 | 36.9 | 288.1 | ×7.8 |
 | 2000 | 101.0 | 115.9 | 1102.8 | ×9.5 |
 
+**Context-token cost (measured 2026-07-12).** Latency is not the binding
+budget for an LLM agent — prompt tokens are. We therefore measured what each
+memory strategy actually puts into the model's context (chars/4 estimator,
+reported alongside raw chars so any tokenizer can be substituted; no LLM
+calls). On LongMemEval (470 questions), the long-context alternative — every
+haystack session in the prompt — costs a mean **122k tokens per question**
+for guaranteed evidence coverage; retrieval-based top-5 costs **13.5k
+(9.1×less) at 0.977 coverage** (tuned lexical ranking; plain BM25 13.4k at
+0.968 — better ranking is token efficiency, not just recall), top-3 costs
+8.2k at 0.960, and the oracle floor is 5.3k. On the real 1,910-note vault the
+comparison is not close: loading the vault wholesale would cost **2.96M
+tokens — beyond any current context window** — while what Mnemosyne actually
+injects per query (the 0.9k-token always-on digest + top-8 result metadata +
+the three opened note bodies) averages **8.0k tokens, a 371× reduction**.
+This is the token-cost face of the index-only design: the model never pays
+for notes the postings did not match. Reproduce:
+`benchmarks/bench_token_cost.py`.
+
 **Retrieval quality (H2, H2b).** With planted rare anchor tokens, BM25 lifts the
 target over notes that merely repeat common words, and Hangul bigrams close the
 gap for Korean without language tooling:
@@ -1156,6 +1174,7 @@ python benchmarks/tune_linkrecall_hard.py --provider codex  --model gpt-5.3-code
 python benchmarks/tune_linkrecall_hard.py --provider claude --model sonnet --fixture b  # hidden fixture B (run once)
 python benchmarks/bench_dense_strong.py --data <dir>/longmemeval_s_cleaned.json  # chunked/RRF-swept/reranked dense
 python benchmarks/sweep2_ranking_v2.py --data <dir>/longmemeval_s_cleaned.json --split full  # tuned lexical stack vs hybrid
+python benchmarks/bench_token_cost.py --data <dir>/longmemeval_s_cleaned.json  # context-token cost per strategy
 python benchmarks/bench_weight_sensitivity.py     # boost interference grid
 python benchmarks/bench_real_vault.py --source <your-notes-dir>  # private corpus; aggregates only
 python benchmarks/bench_h4_compliance.py --model haiku --trials 6

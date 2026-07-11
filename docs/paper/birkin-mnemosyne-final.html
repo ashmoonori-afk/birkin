@@ -656,6 +656,20 @@ reported as an interface fact, not a headline benchmark.</p>
 <p><b>Efficiency (H1).</b> The index answers queries 7.8&ndash;9.9&times;
 faster than full-scan at every size; steady-state stat refresh stays
 ~100&nbsp;ms at 2,000 notes (4.0 / 36.9 / 101.0&nbsp;ms at 100/500/2000).</p>
+<p><b>Context-token cost (measured 2026-07-12).</b> Latency is not the
+binding budget for an LLM agent &mdash; prompt tokens are. Measured with a
+chars/4 estimator (raw chars reported alongside; no LLM calls): on
+LongMemEval (470 questions) the long-context alternative &mdash; every
+haystack session in the prompt &mdash; costs a mean <b>122k tokens per
+question</b> for guaranteed coverage; retrieval-based top-5 costs <b>13.5k
+(9.1&times; less) at 0.977 coverage</b> (tuned lexical; plain BM25 13.4k at
+0.968 &mdash; better ranking is token efficiency, not just recall); top-3
+costs 8.2k at 0.960; the oracle floor is 5.3k. On the real 1,910-note vault
+the comparison is not close: wholesale loading would cost <b>2.96M tokens
+&mdash; beyond any current context window</b> &mdash; while what Mnemosyne
+actually injects per query (0.9k-token digest + top-8 metadata + three
+opened bodies) averages <b>8.0k tokens, a 371&times; reduction</b>. The
+model never pays for notes the postings did not match.</p>
 <p><b>Planted-token retrieval (H2).</b> BM25 R@5 0.983 (EN) and 0.983 (KR via
 Hangul bigrams) vs substring 0.483/0.542 &mdash; a controlled probe of the
 tokenizer, not a natural-corpus claim. Dropping the bigrams leaves the English
