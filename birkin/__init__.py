@@ -9,4 +9,4 @@ Design goals:
 - CLI-first, with an optional local WebUI.
 """
 
-__version__ = "0.1.27"
+__version__ = "0.1.28"
