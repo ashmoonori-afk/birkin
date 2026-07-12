@@ -144,6 +144,10 @@ class Session:
 
     def new_conversation(self) -> None:
         self.agent.reset()
+        # The warm session keeps its OWN conversation context in the child
+        # process, so /new must drop it or the model still remembers the prior
+        # turns despite "Started a new conversation."
+        self.close()
 
     def reload_client(self) -> None:
         """Rebuild the LLM client from ``self.cfg`` so a ``/model`` / ``/models``
@@ -155,6 +159,9 @@ class Session:
         self.ctx.client = self.client
         self.agent.client = self.client
         self.agent.model = self.cfg.get("model")
+        # The warm CLI process baked the OLD --model at spawn; drop it so the
+        # next warm ask() respawns with the new model/provider.
+        self.close()
 
 
 def build_session(cfg: Optional[dict[str, Any]] = None,

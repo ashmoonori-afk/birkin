@@ -57,9 +57,11 @@ DEFAULT_CONFIG: dict[str, Any] = {
     # `claude --allowedTools`. See `birkin mcp` to view connected servers.
     "gateway_allowed_tools": [],
     # Opt-in: reuse ONE warm claude/codex process across REPL turns (skips the
-    # ~10 s CLI cold start every message, like the gateway). Tradeoff: skills
-    # are exposed as a fixed index (not per-turn routed) and Esc-to-interrupt
-    # is unavailable on the warm path. claude-cli / codex-cli only.
+    # ~10 s CLI cold start every message, like the gateway). Tradeoffs: skills
+    # are exposed as a fixed index (not per-turn routed); Esc-to-interrupt is
+    # unavailable; and /retry, /undo, /compact are inert (the child process
+    # owns the history, not agent.messages). /new and /model correctly reset
+    # the warm process. claude-cli / codex-cli only.
     "repl_warm_session": False,
     # Headless latency knobs (measured: docs/hermes-comparison.md §6).
     # clean_hooks: run gateway claude children with the user's interactive

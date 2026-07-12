@@ -679,7 +679,12 @@ class LLMClient:
                 text_parts.append(piece)
                 on_text(piece)
             for tc in delta.get("tool_calls") or []:
-                idx = tc.get("index", 0)
+                # OpenAI always sends 'index'; a non-strict proxy/local server
+                # might not. Fall back to the tool_call id, then to a fresh
+                # slot per new call — never collapse distinct calls into 0.
+                idx = tc.get("index")
+                if idx is None:
+                    idx = tc.get("id") or f"_pos{len(tools)}"
                 slot = tools.setdefault(idx, {"id": None, "name": None,
                                               "args": []})
                 if tc.get("id"):
@@ -695,8 +700,9 @@ class LLMClient:
         joined = "".join(text_parts)
         if joined:
             content.append({"type": "text", "text": joined})
-        for idx in sorted(tools):
-            slot = tools[idx]
+        # dict preserves insertion (arrival) order — don't sort, since keys may
+        # now mix int indices and str-id fallbacks, which sorted() can't compare.
+        for slot in tools.values():
             try:
                 args = json.loads("".join(slot["args"]) or "{}")
             except json.JSONDecodeError:

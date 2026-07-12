@@ -87,9 +87,14 @@ def execute_action(category: str, payload: dict[str, Any],
         if not command:
             return "No command to run."
         try:
+            to = payload.get("timeout", 300)
+            try:                           # model/user payload may be non-int
+                to = int(to)
+            except (TypeError, ValueError):
+                to = 300
             proc = subprocess.run(shell_argv(command), capture_output=True,
                                   text=True, errors="replace",
-                                  timeout=int(payload.get("timeout", 300)))
+                                  timeout=max(1, min(3600, to)))
         except subprocess.TimeoutExpired:
             return "Command timed out."
         out = (proc.stdout or "") + (proc.stderr or "")
@@ -107,7 +112,13 @@ def approve(aid: str) -> dict[str, Any]:
     rec = store.get_pending(aid)
     if not rec or rec.get("status") != "pending":
         return {"ok": False, "error": "not found or already resolved"}
-    result = execute_action(rec["category"], rec.get("payload", {}))
+    # An executor that raises must still RESOLVE the item (to "error"), or the
+    # proposal wedges as pending forever — un-actionable from a chat button.
+    try:
+        result = execute_action(rec["category"], rec.get("payload", {}))
+    except Exception as exc:
+        store.resolve_pending(aid, "error")
+        return {"ok": False, "error": f"action failed: {exc}"}
     store.resolve_pending(aid, "approved")
     return {"ok": True, "result": result}
 

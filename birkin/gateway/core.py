@@ -575,8 +575,11 @@ class Gateway:
         if not m:
             return ("형식: /remind HH:MM <할 일>. 예: /remind 09:00 "
                     "오늘 날씨랑 일정 요약해줘")
-        hour = max(0, min(23, int(m.group(1))))
-        minute = max(0, min(59, int(m.group(2) or 0)))
+        hour = int(m.group(1))
+        minute = int(m.group(2) or 0)
+        if hour > 23 or minute > 59:
+            # reject rather than silently clamp — 25:99 shouldn't become 23:59
+            return f"시간이 올바르지 않아요 ({hour:02d}:{minute:02d}). 00:00–23:59 범위로 다시 보내 주세요."
         prompt = m.group(3).strip()
         job = cron.add_job(name="remind", hour=hour, minute=minute,
                            action_type="prompt", value=prompt,

@@ -42,6 +42,21 @@ def verify_token(token: str) -> tuple[bool, str]:
     return True, data.get("result", {}).get("username", "?")
 
 
+def _payload_summary(category: str, payload: dict) -> str:
+    """The consequential part of a proposal, so a one-tap approve isn't blind
+    (the CLI review shows the full payload; the button flow must too)."""
+    if category == "shell":
+        return f"↳ 실행: {str(payload.get('command', ''))[:200]}"
+    if category == "cron":
+        h, m = payload.get("hour", "?"), payload.get("minute", 0)
+        tgt = payload.get("deliver_chat_id")
+        return (f"↳ 매일 {h}:{str(m).zfill(2)} {str(payload.get('value',''))[:120]}"
+                + (f" → chat {tgt}" if tgt else ""))
+    if category == "skill":
+        return f"↳ 스킬: {str(payload.get('name', payload.get('title','')))[:120]}"
+    return f"↳ {str(payload)[:200]}" if payload else ""
+
+
 class _Streamer:
     """Edit-stream a growing reply into one Telegram message (hermes-style).
 
@@ -268,7 +283,8 @@ class TelegramChannel(Channel):
         self._send_chunk(chat_id, f"📋 {len(items)} pending approval(s):")
         for rec in items[:10]:
             text = (f"[{rec.get('category')}] {rec.get('title')}\n"
-                    f"{str(rec.get('description', ''))[:300]}")
+                    f"{str(rec.get('description', ''))[:200]}\n"
+                    f"{_payload_summary(rec.get('category'), rec.get('payload') or {})}")
             try:
                 self._call("sendMessage",
                            {"chat_id": chat_id, "text": text,

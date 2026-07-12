@@ -598,7 +598,10 @@ def memory_activity_line(name: str, content: str) -> str | None:
         m = re.search(r"\[\[([^\]]+)\]\]", c)
         return f"🧠 remembered [[{m.group(1)}]]" if m else "🧠 remembered a note"
     if name == "memory_search":
-        n = c.count("\n- [[") + (1 if c.startswith("- [[") else 0)
+        # Count result LINES (each result is one "- [[…]]: snippet" line;
+        # snippets have newlines stripped, so a line-start test is exact and
+        # robust even if a snippet body itself mentions "- [[").
+        n = sum(1 for ln in c.splitlines() if ln.startswith("- [["))
         return f"🧠 recalled {n} note(s)" if n else "🧠 searched memory (0)"
     if name == "memory_get_note":
         return "🧠 opened a note"

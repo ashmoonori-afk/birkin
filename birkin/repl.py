@@ -67,8 +67,16 @@ def run(cfg: dict[str, Any] | None = None) -> int:
             continue
         inline_complete.append_history(line, prior=history)
         if line.startswith("/"):
-            if slashcommands.dispatch(session, line) == "exit":
-                break
+            # A slash handler that raises (or Ctrl-C mid-command) must not
+            # escape the loop — otherwise session.close() at the end is
+            # skipped and the warm CLI subprocess leaks.
+            try:
+                if slashcommands.dispatch(session, line) == "exit":
+                    break
+            except KeyboardInterrupt:
+                print(f"\n{DIM}(interrupted){RESET}")
+            except Exception as exc:
+                print(f"\n{RED}Error: {exc}{RESET}")
             continue
 
         # Stream the reply token-by-token so the first words appear at model
