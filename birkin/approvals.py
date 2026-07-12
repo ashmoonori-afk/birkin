@@ -16,7 +16,7 @@ from __future__ import annotations
 import subprocess
 from typing import Any
 
-from . import cron, risk, store
+from . import config, cron, risk, store
 from .proc import shell_argv
 
 
@@ -108,24 +108,36 @@ def execute_action(category: str, payload: dict[str, Any],
 
 # -- CLI review ------------------------------------------------------------
 
+def _pending_path(aid: str):
+    return config.pending_dir() / f"{aid}.json"
+
+
 def approve(aid: str) -> dict[str, Any]:
-    rec = store.get_pending(aid)
-    if not rec or rec.get("status") != "pending":
-        return {"ok": False, "error": "not found or already resolved"}
-    # An executor that raises must still RESOLVE the item (to "error"), or the
-    # proposal wedges as pending forever — un-actionable from a chat button.
-    try:
-        result = execute_action(rec["category"], rec.get("payload", {}))
-    except Exception as exc:
-        store.resolve_pending(aid, "error")
-        return {"ok": False, "error": f"action failed: {exc}"}
-    store.resolve_pending(aid, "approved")
+    # Lock the check-execute-resolve so the SAME item can't be approved twice
+    # concurrently (e.g. tapped in Telegram while also approved in the CLI) —
+    # which would run the action twice. Different aids use different locks.
+    with store.file_lock(_pending_path(aid)):
+        rec = store.get_pending(aid)
+        if not rec or rec.get("status") != "pending":
+            return {"ok": False, "error": "not found or already resolved"}
+        # An executor that raises must still RESOLVE the item (to "error"), or
+        # the proposal wedges as pending forever — un-actionable from a button.
+        try:
+            result = execute_action(rec["category"], rec.get("payload", {}))
+        except Exception as exc:
+            store.resolve_pending(aid, "error")
+            return {"ok": False, "error": f"action failed: {exc}"}
+        store.resolve_pending(aid, "approved")
     return {"ok": True, "result": result}
 
 
 def reject(aid: str) -> dict[str, Any]:
-    rec = store.resolve_pending(aid, "rejected")
-    return {"ok": bool(rec)}
+    with store.file_lock(_pending_path(aid)):
+        rec = store.get_pending(aid)
+        if not rec or rec.get("status") != "pending":
+            return {"ok": False}          # already resolved — don't clobber
+        store.resolve_pending(aid, "rejected")
+    return {"ok": True}
 
 
 def review_cli() -> int:

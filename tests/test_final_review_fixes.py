@@ -36,6 +36,36 @@ def test_approve_error_state_when_action_truly_raises(tmp_path, monkeypatch):
     assert store.list_pending() == []              # resolved to error, not stuck
 
 
+# #extra — approve/reject are locked check-execute-resolve (no double-run) ----
+
+def test_approve_twice_runs_action_once(tmp_path, monkeypatch):
+    monkeypatch.setenv("BIRKIN_HOME", str(tmp_path))
+    from birkin import approvals, store
+    rec = store.add_pending(category="skill", title="once", description="",
+                            payload={}, origin="test")
+    runs = {"n": 0}
+    monkeypatch.setattr(approvals, "execute_action",
+                        lambda *a, **k: runs.__setitem__("n", runs["n"] + 1)
+                        or "done")
+    a = approvals.approve(rec["id"])
+    b = approvals.approve(rec["id"])            # second tap
+    assert a["ok"] is True and b["ok"] is False  # already resolved
+    assert runs["n"] == 1                        # executed exactly once
+
+
+def test_reject_then_approve_is_noop(tmp_path, monkeypatch):
+    monkeypatch.setenv("BIRKIN_HOME", str(tmp_path))
+    from birkin import approvals, store
+    rec = store.add_pending(category="skill", title="x", description="",
+                            payload={}, origin="test")
+    ran = {"n": 0}
+    monkeypatch.setattr(approvals, "execute_action",
+                        lambda *a, **k: ran.__setitem__("n", ran["n"] + 1))
+    assert approvals.reject(rec["id"])["ok"] is True
+    assert approvals.approve(rec["id"])["ok"] is False   # can't approve rejected
+    assert ran["n"] == 0                                 # never executed
+
+
 # #4 — /remind rejects out-of-range times ------------------------------------
 
 def test_remind_rejects_bad_time(tmp_path, monkeypatch):
