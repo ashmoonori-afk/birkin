@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 import threading
 import time
 from typing import Any
@@ -32,6 +33,9 @@ _GATEWAY_COMMANDS: list[tuple[str, str, set[str]]] = [
      {"update", "upgrade", "pull"}),
     ("pending", "List pending approvals (approve/reject from chat)",
      {"pending", "approvals", "review"}),
+    ("remind", "Schedule a daily message — /remind 09:00 <what to do>; "
+     "/remind list; /remind del <id>",
+     {"remind", "cron", "schedule"}),
 ]
 
 # Friendly short model names accepted by `claude --model` (full claude-… IDs also OK).
@@ -40,7 +44,7 @@ _CODEX_GATEWAY_MODELS = ["gpt-5", "gpt-5-codex", "o3", "codex"]  # codex-cli (co
 # Commands that pull code / restart the service / rewrite config — gated to
 # trusted channels only (see Gateway._command_trusted).
 _PRIVILEGED_COMMANDS = {"update", "models", "restart", "hard_restart",
-                        "pending"}
+                        "pending", "remind"}
 # Providers with a warm persistent-session implementation (see
 # claude_session.ClaudeStreamSession / codex_session.CodexAppServerSession).
 _PERSISTENT_PROVIDERS = ("claude-cli", "codex-cli")
@@ -429,6 +433,8 @@ class Gateway:
                 return f"{'✅' if result.get('ok') else '⚠️'} {result['message']}"
             if cmd == "pending":
                 return self.pending_text()
+            if cmd == "remind":
+                return self.remind_command(cmd_arg, channel, str(chat_id))
             if cmd == "restart":
                 print(f"[gateway] restart requested via {channel}:{chat_id}",
                       flush=True)
@@ -534,6 +540,49 @@ class Gateway:
         lines.append("Approve/reject in the CLI with `birkin review` — or "
                      "tap the buttons if your channel shows them.")
         return "\n".join(lines)
+
+    def remind_command(self, arg: str, channel: str, chat_id: str) -> str:
+        """Schedule a daily prompt reminder delivered to THIS chat (P2-3).
+
+        ``/remind 09:00 <what to do>`` · ``/remind list`` · ``/remind del <id>``.
+        Only prompt-type jobs delivered to the current (already-trusted) chat
+        are created — never shell, never another chat — so this cannot launder
+        code execution or exfiltrate to a stranger. Callers gate on a trusted
+        channel first (remind is in _PRIVILEGED_COMMANDS)."""
+        from .. import cron
+        arg = (arg or "").strip()
+        if not arg or arg.lower() in ("list", "ls"):
+            jobs = [j for j in cron.load_jobs()
+                    if str(j.get("deliver_chat_id")) == chat_id]
+            if not jobs:
+                return ("등록된 리마인더가 없어요. 예: /remind 09:00 "
+                        "오늘 할 일 정리해줘")
+            lines = ["⏰ 리마인더:"]
+            for j in jobs:
+                lines.append(f"- {j['hour']:02d}:{j['minute']:02d} "
+                             f"{j.get('value', '')[:60]} (id {j['id']})")
+            lines.append("삭제: /remind del <id>")
+            return "\n".join(lines)
+        parts = arg.split(maxsplit=1)
+        if parts[0].lower() in ("del", "delete", "rm") and len(parts) > 1:
+            aid = parts[1].strip()
+            job = next((j for j in cron.load_jobs() if j.get("id") == aid), None)
+            if not job or str(job.get("deliver_chat_id")) != chat_id:
+                return "그 id의 리마인더를 찾지 못했어요 (본인 것만 삭제 가능)."
+            cron.remove_job(aid)
+            return f"🗑️ 리마인더 삭제됨 (id {aid})."
+        m = re.match(r"(\d{1,2})[:시](\d{2})?\s+(.+)", arg, re.S)
+        if not m:
+            return ("형식: /remind HH:MM <할 일>. 예: /remind 09:00 "
+                    "오늘 날씨랑 일정 요약해줘")
+        hour = max(0, min(23, int(m.group(1))))
+        minute = max(0, min(59, int(m.group(2) or 0)))
+        prompt = m.group(3).strip()
+        job = cron.add_job(name="remind", hour=hour, minute=minute,
+                           action_type="prompt", value=prompt,
+                           deliver_chat_id=chat_id)
+        return (f"⏰ 매일 {hour:02d}:{minute:02d}에 알려드릴게요: "
+                f"\"{prompt[:60]}\" (id {job['id']}, 취소는 /remind del {job['id']})")
 
     def resolve_action(self, aid: str, approve: bool) -> str:
         """Approve/reject one pending action (the button-tap handler).

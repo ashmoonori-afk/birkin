@@ -60,15 +60,18 @@ def test_gateway_slash_new_resets_chat(gateway):
     assert g._chats[("http", "u1")] == []
 
 
-def test_gateway_propagates_handle_error_as_text(monkeypatch):
+def test_gateway_returns_friendly_error_not_raw(monkeypatch):
+    # P1-3: the raw exception is logged server-side, but the chat gets a
+    # friendly line — no path/internal leak to a Telegram user.
     def boom_ask(text, on_text=None):
-        raise RuntimeError("boom")
+        raise RuntimeError("boom /secret/path")
     fake = _fake_session()
     fake.ask = boom_ask
     monkeypatch.setattr(gw_core, "build_session", lambda cfg: fake)
     g = gw_core.Gateway({})
     out = g.handle("http", "u1", "hi")
-    assert "[error]" in out and "boom" in out
+    assert "boom" not in out and "secret" not in out
+    assert "⚠️" in out
 
 
 # ---------------- LocalHTTPChannel ----------------
