@@ -200,6 +200,51 @@ def test_restart_discards_the_stale_spare(tmp_path, monkeypatch):
     assert gw._spare is not stale
 
 
+def test_stale_inflight_spare_cannot_publish_after_restart(tmp_path,
+                                                           monkeypatch):
+    # regression (reproduced in review): a spare still BUILDING when /restart
+    # runs used to win the publish race and serve pre-restart config to the
+    # next new conversation. The generation counter must reject it.
+    gw = _gateway(tmp_path, monkeypatch)
+    gw._persistent = True
+    gw.cfg = {**gw.cfg, "gateway_prewarm": True}
+    stale = _ClosableFake()
+    monkeypatch.setattr(gw, "_build_claude_session", lambda: stale)
+    with gw._spare_lock:
+        gen_before = gw._spare_gen
+    # simulate: the builder captured its generation, THEN restart bumps it
+    with gw._lock:
+        gw.restart()                       # bumps _spare_gen mid-"build"
+    # now the stale builder finishes and tries to publish into the old gen
+    stale.start = lambda: None
+    with gw._spare_lock:
+        assert gw._spare_gen != gen_before
+    # replay _make_spare's publish decision exactly as the code does:
+    gw2_spare_before = gw._spare
+    with gw._spare_lock:
+        allowed = (gen_before == gw._spare_gen and gw._spare is None)
+    assert allowed is False                # stale generation is rejected
+    assert gw._spare is gw2_spare_before   # nothing published by the check
+
+
+def test_make_spare_publishes_only_current_generation(tmp_path, monkeypatch):
+    # end-to-end through _make_spare itself: bump the generation while the
+    # fake session is "starting" and verify the session is closed, not kept
+    gw = _gateway(tmp_path, monkeypatch)
+    gw._persistent = True
+    gw.cfg = {**gw.cfg, "gateway_prewarm": True}
+    stale = _ClosableFake()
+
+    def start_and_bump():
+        with gw._spare_lock:               # restart lands mid-cold-start
+            gw._spare_gen += 1
+    stale.start = start_and_bump
+    monkeypatch.setattr(gw, "_build_claude_session", lambda: stale)
+    gw._make_spare()
+    assert stale.closed is True            # discarded, not published
+    assert gw._spare is None
+
+
 def test_clean_hooks_and_thinking_knob_reach_the_child(tmp_path, monkeypatch):
     gw = _gateway(tmp_path, monkeypatch)
     s = gw._build_claude_session()

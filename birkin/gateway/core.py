@@ -142,9 +142,13 @@ class Gateway:
             max_sessions=int(cfg.get("gateway_max_sessions", 8) or 8),
             idle_ttl=float(cfg.get("gateway_session_ttl_s", 3600) or 3600))
         # Pre-warmed spare session (fungible; adopted by the next new
-        # conversation) — see _new_claude_session / _make_spare.
+        # conversation) — see _new_claude_session / _make_spare. The
+        # generation counter invalidates spares still BUILDING when a
+        # restart/shutdown changes config: a builder may only publish into
+        # the generation it started in.
         self._spare: ClaudeStreamSession | None = None
         self._spare_lock = threading.Lock()
+        self._spare_gen = 0
         # Set by a /hard-restart command; the channel re-execs after replying.
         self._hard_restart = False
         # (channel, chat_id) that triggered a hard restart — persisted across the
@@ -210,6 +214,8 @@ class Gateway:
         skips the CLI cold start. Never raises (best-effort warm-up)."""
         if not self._persistent or not self.cfg.get("gateway_prewarm", True):
             return
+        with self._spare_lock:
+            gen = self._spare_gen             # the generation we build FOR
         try:
             s = self._build_claude_session()
             s.start()
@@ -217,10 +223,14 @@ class Gateway:
             print(f"[gateway] prewarm failed: {exc}", flush=True)  # service down
             return
         with self._spare_lock:
-            if self._spare is None:
+            # Publish only into the generation we started in: a restart/
+            # shutdown mid-build means this session carries STALE config —
+            # the cold-start window is ~10-30 s, so this race is real
+            # (reproduced in review; see test_stale_inflight_spare_...).
+            if gen == self._spare_gen and self._spare is None:
                 self._spare = s
                 return
-        s.close()   # raced another warm-up; don't leak the extra process
+        s.close()   # stale generation or raced another warm-up — discard
 
     def prewarm(self) -> None:
         """Public entry: warm the first spare in the background at boot."""
@@ -232,6 +242,7 @@ class Gateway:
     def shutdown(self) -> None:
         self._claude_sessions.clear()   # the pool closes every session
         with self._spare_lock:
+            self._spare_gen += 1        # in-flight builders must not publish
             spare, self._spare = self._spare, None
         if spare is not None:
             spare.close()
@@ -248,9 +259,10 @@ class Gateway:
         self._claude_sessions.clear()   # the pool closes every session
         self._chats.clear()
         # The pre-warmed spare carries a PRE-restart persona/config snapshot —
-        # discard it (mirror shutdown()) or the next new conversation would
-        # silently adopt stale state, contradicting this method's promise.
+        # discard it AND bump the generation so a spare still BUILDING for
+        # the old config cannot publish itself after this point.
         with self._spare_lock:
+            self._spare_gen += 1
             spare, self._spare = self._spare, None
         if spare is not None:
             spare.close()
