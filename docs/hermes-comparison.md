@@ -139,3 +139,18 @@ birkin gateway sends one message after the whole turn. Perceived gap:
 Warm turns ~6× faster, first visible token ~8× faster — hermes-class.
 Re-measure: `benchmarks/bench_gateway_latency.py` (gwlatency-20260712-1335).
 Tests: `tests/test_gateway_latency_fixes.py` (11).
+
+**Codex environment (verified 2026-07-12).** The fixes above are inert and
+safe on the codex path (tests: codex gateway is non-persistent, `on_text`
+is ignored without crashing, no spare is pre-warmed, the Telegram streamer
+falls back to the plain send). But measured reality for a codex-backed
+gateway (`codex exec --json`, spark, trivial prompt): **17.3 s process boot,
+first item at 26 s, 37.5 s total — per message**, because the codex path is
+one-shot: no warm process, and `--json` emits item-level events (no token
+deltas). A codex-backed gateway therefore still costs ~30-40 s/message
+while the claude-backed one now runs at ~2.3 s. The fix hermes uses and we
+don't yet: **`codex app-server`** (experimental persistent daemon over
+stdio — hermes' `codex_app_server_session.py`) — a `CodexAppServerSession`
+mirroring `ClaudeStreamSession` is the top backlog item for codex-backend
+users, with per-item streaming (item granularity, not tokens) as the
+attainable streaming level.

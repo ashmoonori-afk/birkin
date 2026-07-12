@@ -188,3 +188,48 @@ def test_clean_hooks_and_thinking_knob_reach_the_child(tmp_path, monkeypatch):
         assert s.env_extra["MAX_THINKING_TOKENS"] == "0"
     finally:
         s.close()
+
+
+# -- codex (non-persistent) path: new plumbing must be inert -----------------
+
+def _codex_gateway(tmp_path, monkeypatch):
+    monkeypatch.setenv("BIRKIN_HOME", str(tmp_path))
+    from birkin import config
+    cfg = {**config.DEFAULT_CONFIG, "provider": "codex-cli",
+           "model": "gpt-5.5", "gateway_persistent": True}
+    config.save_config(cfg)
+    from birkin.gateway.core import Gateway
+    return Gateway(config.load_config())
+
+
+class _FakeAgent:
+    def __init__(self):
+        self.messages = []
+
+
+class _FakeRuntimeSession:
+    def __init__(self):
+        self.agent = _FakeAgent()
+
+    def ask(self, text):                      # note: no on_text parameter
+        return "codex reply"
+
+
+def test_codex_path_ignores_on_text_and_never_prewarms(tmp_path, monkeypatch):
+    gw = _codex_gateway(tmp_path, monkeypatch)
+    assert gw._persistent is False            # codex-cli -> non-persistent
+    gw.session = _FakeRuntimeSession()
+    pieces: list[str] = []
+    out = gw.handle("telegram", "c1", "hello", on_text=pieces.append)
+    assert out == "codex reply"               # turn succeeds
+    assert pieces == []                       # on_text inert, not crashed
+    gw._make_spare()                          # prewarm is a no-op off claude
+    assert gw._spare is None
+
+
+def test_streamer_finalize_fallback_when_nothing_streamed():
+    # codex path never feeds the streamer -> finalize must fall back to the
+    # plain send path (exercised via message_id is None)
+    st = _Streamer(lambda t: "m1", lambda m, t: True, clock=_Clock())
+    assert st.message_id is None
+    assert st.text() == ""
