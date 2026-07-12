@@ -1,7 +1,16 @@
 # birkin — Build Status
 
-> Snapshot: 2026-07-12 (evening) · **660+ tests, green** (≥75 % coverage
-> gate) · Newest: **full-code-review fixes** — 11 confirmed bugs closed
+> Snapshot: 2026-07-13 · **700+ tests, green** (coverage 77.3 %) · Newest:
+> **perf/UX roadmap P0–P2 shipped** (docs/roadmap-perf-ux.md) — edit-stream
+> rate-limit hardening; inline-button approval inbox (/pending one-tap);
+> Morpheus morning digest ([SILENT]-aware); REPL gateway parity (OpenAI SSE
+> streaming, Markdown on the non-stream path, opt-in warm CLI sessions);
+> memory-transparency line (🧠 recalled N); friendly gateway errors +
+> visible retry/backoff; onboarding welcome + free-path hint; inbound media
+> (photos/files as a turn); /remind daily scheduling; prompt-caching
+> regression-pinned. Each phase-gated on the full suite, every item
+> regression-tested. Before that: **full-code-review fixes** — 11 confirmed
+> bugs closed
 > (Telegram not-modified/failure conflation, Korean snippet token mismatch,
 > snippet window right-edge truncation, stale pre-restart spare, half-init
 > codex zombie, closed-stdin ValueError escape, codex model-name TOML
