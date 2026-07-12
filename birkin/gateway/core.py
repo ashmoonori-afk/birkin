@@ -89,9 +89,24 @@ def match_command(text: str) -> tuple[str | None, str]:
 
 
 def gateway_help_text() -> str:
-    lines = ["🤖 birkin gateway — commands:"]
-    for canonical, desc, _ in _GATEWAY_COMMANDS:
-        lines.append(f"/{canonical} — {desc}")
+    """Welcome + grouped command list. Telegram auto-sends /start on first
+    open, so this doubles as the onboarding message: a one-line intro and an
+    example come first, then chat commands, then admin commands."""
+    chat_cmds = [(c, d) for c, d, _ in _GATEWAY_COMMANDS
+                 if c not in _PRIVILEGED_COMMANDS]
+    admin_cmds = [(c, d) for c, d, _ in _GATEWAY_COMMANDS
+                  if c in _PRIVILEGED_COMMANDS]
+    lines = [
+        "👋 안녕하세요, birkin이에요 — 당신을 기억하는 AI 에이전트입니다.",
+        "그냥 평소처럼 말 걸어 주세요. 예: \"내일 3시 회의 준비 도와줘\"",
+        "대화는 기억으로 남고, 밤사이 스스로 정리해 아침에 알려드려요.",
+        "",
+        "💬 명령:",
+    ]
+    lines += [f"/{c} — {d}" for c, d in chat_cmds]
+    if admin_cmds:
+        lines += ["", "🔧 관리자용 (신뢰 채널 전용):"]
+        lines += [f"/{c} — {d}" for c, d in admin_cmds]
     return "\n".join(lines)
 
 
