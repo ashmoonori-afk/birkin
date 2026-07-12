@@ -588,6 +588,27 @@ def _is_expired(meta: dict[str, Any]) -> bool:
     return _entry_expired(meta, date.today())
 
 
+def memory_activity_line(name: str, content: str) -> str | None:
+    """A compact, user-facing line for a memory tool result — so a user can
+    SEE what was remembered/recalled (P1-2; doubles as a trust boundary,
+    since a poisoned recall is only correctable if it's visible). Returns
+    None for non-memory tools."""
+    c = content or ""
+    if name in ("remember", "memory_write_note"):
+        m = re.search(r"\[\[([^\]]+)\]\]", c)
+        return f"🧠 remembered [[{m.group(1)}]]" if m else "🧠 remembered a note"
+    if name == "memory_search":
+        n = c.count("\n- [[") + (1 if c.startswith("- [[") else 0)
+        return f"🧠 recalled {n} note(s)" if n else "🧠 searched memory (0)"
+    if name == "memory_get_note":
+        return "🧠 opened a note"
+    if name == "memory_link":
+        return "🧠 linked notes"
+    if name == "memory_related":
+        return "🧠 found related notes"
+    return None
+
+
 def _snippet(text: str, terms: list[str] | str, width: int = 240) -> str:
     """Best multi-term window: the ``width``-char span containing the most
     DISTINCT query terms (earliest on ties); falls back to the head.

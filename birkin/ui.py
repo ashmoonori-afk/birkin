@@ -142,6 +142,14 @@ def make_event_printer() -> Callable[[str, dict[str, Any]], None]:
         elif event == "tool_end":
             mark = f"{RED}✗{RESET}" if payload.get("is_error") else f"{GREEN}✓{RESET}"
             sys.stdout.write(f"{DIM}  {mark} {payload.get('name')}{RESET}\n")
+            # Memory tools get a visible, non-dim line: the user should SEE
+            # what was remembered/recalled (P1-2).
+            if not payload.get("is_error"):
+                from .memory import memory_activity_line
+                line = memory_activity_line(payload.get("name", ""),
+                                            payload.get("content", "") or "")
+                if line:
+                    sys.stdout.write(f"  {CYAN}{line}{RESET}\n")
         elif event == "subagent.start":
             sys.stdout.write(f"\n{DIM}  ⇲ subagent: {payload.get('task', '')}{RESET}\n")
         elif event == "subagent.done":
