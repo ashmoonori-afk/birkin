@@ -56,6 +56,61 @@ def _read_json(path: Path, default: Any) -> Any:
         return default
 
 
+class file_lock:
+    """A cross-process advisory lock for a read-modify-write on a shared JSON
+    file (stdlib only: O_CREAT|O_EXCL spin, no fcntl/msvcrt so it works the
+    same on Windows and POSIX).
+
+    Guards files that TWO long-running processes mutate — cron.json is written
+    by both `birkin gateway` (/remind) and the scheduler daemon (mark_ran) —
+    where ``_write_json``'s atomic single write does not prevent a stale
+    read-then-write from clobbering the other's change.
+
+    A crashed holder's lock is reclaimed after ``stale`` seconds so a dead
+    process can't wedge the file forever.
+    """
+
+    def __init__(self, path: Path, *, timeout: float = 5.0,
+                 stale: float = 30.0):
+        self._lock = Path(str(path) + ".lock")
+        self._timeout = timeout
+        self._stale = stale
+        self._held = False
+
+    def __enter__(self) -> "file_lock":
+        import time
+        deadline = time.monotonic() + self._timeout
+        while True:
+            try:
+                fd = os.open(str(self._lock),
+                             os.O_CREAT | os.O_EXCL | os.O_WRONLY)
+                os.close(fd)
+                self._held = True
+                return self
+            except FileExistsError:
+                try:
+                    age = time.time() - self._lock.stat().st_mtime
+                    if age > self._stale:
+                        self._lock.unlink()      # reclaim a crashed holder
+                        continue
+                except OSError:
+                    pass
+                if time.monotonic() >= deadline:
+                    # Don't block a user command forever — proceed unlocked
+                    # (the write is still individually atomic; we only lose
+                    # the cross-process serialization in this rare case).
+                    return self
+                time.sleep(0.05)
+
+    def __exit__(self, *exc: Any) -> None:
+        if self._held:
+            try:
+                self._lock.unlink()
+            except OSError:
+                pass
+            self._held = False
+
+
 # -- usage estimation ------------------------------------------------------
 
 def estimate_usage(*texts: str) -> dict[str, int]:

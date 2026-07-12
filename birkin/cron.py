@@ -40,28 +40,34 @@ def add_job(*, name: str, hour: int, minute: int, action_type: str,
         "created": datetime.now().isoformat(timespec="seconds"),
         "last_run": None,
     }
-    jobs = load_jobs()
-    jobs.append(job)
-    save_jobs(jobs)
+    # cron.json is mutated by two processes (gateway /remind + scheduler
+    # daemon mark_ran) — lock the whole read-modify-write so neither clobbers
+    # the other's change (e.g. a mark_ran landing on a pre-delete snapshot).
+    with store.file_lock(config.cron_path()):
+        jobs = load_jobs()
+        jobs.append(job)
+        save_jobs(jobs)
     return job
 
 
 def remove_job(job_id: str) -> bool:
-    jobs = load_jobs()
-    new = [j for j in jobs if j.get("id") != job_id]
-    if len(new) == len(jobs):
-        return False
-    save_jobs(new)
+    with store.file_lock(config.cron_path()):
+        jobs = load_jobs()
+        new = [j for j in jobs if j.get("id") != job_id]
+        if len(new) == len(jobs):
+            return False
+        save_jobs(new)
     return True
 
 
 def mark_ran(job_id: str) -> None:
     now = datetime.now().isoformat(timespec="seconds")
-    jobs = [
-        {**j, "last_run": now} if j.get("id") == job_id else j
-        for j in load_jobs()
-    ]
-    save_jobs(jobs)
+    with store.file_lock(config.cron_path()):
+        jobs = [
+            {**j, "last_run": now} if j.get("id") == job_id else j
+            for j in load_jobs()
+        ]
+        save_jobs(jobs)
 
 
 def due_jobs(now: datetime | None = None) -> list[dict[str, Any]]:
