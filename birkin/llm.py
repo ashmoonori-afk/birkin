@@ -128,7 +128,7 @@ class LLMClient:
         if self.provider in ("anthropic", "claude-oauth"):
             return self._anthropic_complete(system, messages, tools, model, on_text, abort)
         if self.provider == "openai":
-            return self._openai_complete(system, messages, tools, model, on_text)
+            return self._openai_complete(system, messages, tools, model, on_text, abort)
         if self.provider in ("claude-cli", "codex-cli", "local-cli"):
             return self._cli_complete(system, messages, model, on_text, abort)
         raise LLMError(f"unknown provider: {self.provider!r}")
@@ -573,7 +573,8 @@ class LLMClient:
 
     # -- OpenAI-compatible (non-streaming adapter) -------------------------
 
-    def _openai_complete(self, system, messages, tools, model, on_text):
+    def _openai_complete(self, system, messages, tools, model, on_text,
+                         abort=None):
         url = f"{self.base_url}/v1/chat/completions"
         headers = {
             "content-type": "application/json",
@@ -593,6 +594,13 @@ class LLMClient:
                              "parameters": t.get("input_schema", {})},
             } for t in tools]
 
+        if on_text is not None:
+            # Stream token deltas (first tokens at model latency, like the
+            # Anthropic path) — a text-only turn is the common case; tool
+            # calls still stream and are reassembled by index.
+            payload["stream"] = True
+            resp = self._post(url, headers, payload, stream=True)
+            return self._read_openai_stream(resp, on_text, abort)
         resp = self._post(url, headers, payload, stream=False)
         body = json.loads(resp.read().decode("utf-8", "replace"))
         choices = body.get("choices") or []
@@ -604,8 +612,6 @@ class LLMClient:
         text = msg.get("content") or ""
         if text:
             content.append({"type": "text", "text": text})
-            if on_text:
-                on_text(text)
         for call in msg.get("tool_calls", []) or []:
             fn = call.get("function", {})
             try:
@@ -617,6 +623,75 @@ class LLMClient:
         finish = choice.get("finish_reason", "stop")
         stop_reason = "tool_use" if finish == "tool_calls" else "end_turn"
         return {"role": "assistant", "content": content, "stop_reason": stop_reason}
+
+    @staticmethod
+    def _read_openai_stream(resp, on_text, abort=None) -> dict[str, Any]:
+        """Parse an OpenAI chat-completions SSE stream into the canonical
+        assistant message. Text deltas forward to on_text as they arrive;
+        tool_call deltas accumulate by their ``index`` (name arrives once,
+        arguments stream as JSON fragments)."""
+        text_parts: list[str] = []
+        tools: dict[int, dict[str, Any]] = {}     # index -> {id,name,args}
+        finish = "stop"
+        for raw in resp:
+            if abort is not None and abort.is_set():
+                try:
+                    resp.close()
+                except Exception:
+                    pass
+                finish = "aborted"
+                break
+            line = raw.decode("utf-8", "replace") if isinstance(raw, bytes) \
+                else raw
+            line = line.strip()
+            if not line.startswith("data:"):
+                continue
+            data = line[len("data:"):].strip()
+            if not data or data == "[DONE]":
+                continue
+            try:
+                event = json.loads(data)
+            except json.JSONDecodeError:
+                continue
+            choices = event.get("choices") or []
+            if not choices:
+                continue
+            ch = choices[0]
+            delta = ch.get("delta") or {}
+            piece = delta.get("content")
+            if piece:
+                text_parts.append(piece)
+                on_text(piece)
+            for tc in delta.get("tool_calls") or []:
+                idx = tc.get("index", 0)
+                slot = tools.setdefault(idx, {"id": None, "name": None,
+                                              "args": []})
+                if tc.get("id"):
+                    slot["id"] = tc["id"]
+                fn = tc.get("function") or {}
+                if fn.get("name"):
+                    slot["name"] = fn["name"]
+                if fn.get("arguments"):
+                    slot["args"].append(fn["arguments"])
+            if ch.get("finish_reason"):
+                finish = ch["finish_reason"]
+        content: list[dict[str, Any]] = []
+        joined = "".join(text_parts)
+        if joined:
+            content.append({"type": "text", "text": joined})
+        for idx in sorted(tools):
+            slot = tools[idx]
+            try:
+                args = json.loads("".join(slot["args"]) or "{}")
+            except json.JSONDecodeError:
+                args = {}
+            content.append({"type": "tool_use", "id": slot["id"],
+                            "name": slot["name"], "input": args})
+        stop_reason = ("aborted" if finish == "aborted"
+                       else "tool_use" if finish == "tool_calls"
+                       else "end_turn")
+        return {"role": "assistant", "content": content,
+                "stop_reason": stop_reason}
 
 
 def _to_openai_messages(system: str, messages: list[dict[str, Any]]) -> list[dict[str, Any]]:

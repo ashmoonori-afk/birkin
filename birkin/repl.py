@@ -127,9 +127,11 @@ def run(cfg: dict[str, Any] | None = None) -> int:
             stop_spin()
             if first["v"] and (reply or "").strip():
                 # Provider emitted no incremental text — print it once so the
-                # reply is never silently dropped.
+                # reply is never silently dropped. Nothing was streamed, so
+                # it's safe to Markdown-render here (no mid-stream cursor/CJK
+                # hazard); the streamed path stays raw by design.
                 print(f"\n{CYAN}birkin{RESET} >\n", end="")
-                ui.stream_text((reply or "").strip())
+                print(ui.render_markdown((reply or "").strip()))
             print()   # terminate the streamed line
             store.append_activity(f"chat: {line[:120]}")
             transcripts.append_turn("repl", run_id, line, reply or "",
