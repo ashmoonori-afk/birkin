@@ -57,16 +57,22 @@ class _Streamer:
     """
 
     def __init__(self, send, edit, *, interval: float = 1.5, cap: int = 3600,
-                 min_first: int = 24, clock=time.monotonic):
+                 min_first: int = 24, min_delta: int = 48,
+                 clock=time.monotonic):
         self._send = send            # (text) -> message_id | None
         self._edit = edit            # (message_id, text) -> bool
         self.interval = interval
         self.cap = cap
         self.min_first = min_first   # don't send a 2-char bubble
+        # Edit budget is SHARED with sends and timer-driven repeat edits are
+        # a throttling target (TDLib #3034) — so an edit needs BOTH the time
+        # interval AND min_delta new chars, and the interval backs off.
+        self.min_delta = min_delta
         self._clock = clock
         self.message_id: str | None = None
         self._buf: list[str] = []
         self._len = 0
+        self._flushed_len = 0
         self._last_flush = 0.0
         self._saturated = False      # preview hit cap; stop editing
 
@@ -90,9 +96,14 @@ class _Streamer:
                         return
                     self.message_id = mid
                     self._last_flush = now
-            elif now - self._last_flush >= self.interval:
+                    self._flushed_len = self._len
+            elif (now - self._last_flush >= self.interval
+                  and self._len - self._flushed_len >= self.min_delta):
                 self._edit(self.message_id, self._preview())
                 self._last_flush = now
+                self._flushed_len = self._len
+                # back off: long streams edit progressively less often
+                self.interval = min(4.0, self.interval * 1.4)
         except Exception:
             self._saturated = True       # cosmetic path must never break a turn
 
@@ -114,6 +125,9 @@ class TelegramChannel(Channel):
         # for a reachable bot). Empty -> open (a startup warning is printed).
         self.allowed_chat_ids = set(allowed_chat_ids or [])
         self.stream = bool(stream)
+        # Per-chat edit cooldown from 429 retry_after — edits during the
+        # cooldown are skipped locally instead of hammering the API.
+        self._edit_pause_until: dict[str, float] = {}
 
     def _call(self, method: str, params: dict[str, Any], timeout: int = 60) -> dict[str, Any]:
         url = _API.format(token=self.token, method=method)
@@ -174,6 +188,8 @@ class TelegramChannel(Channel):
         means the displayed content ALREADY equals what we wanted. Genuine
         failures (flood control, bad entities, network) return False so the
         caller's fallback chain still delivers."""
+        if time.monotonic() < self._edit_pause_until.get(chat_id, 0.0):
+            return False   # in a 429 cooldown: skip locally, don't call
         params: dict[str, Any] = {"chat_id": chat_id,
                                   "message_id": message_id, "text": text}
         if parse_mode:
@@ -182,10 +198,16 @@ class TelegramChannel(Channel):
             return bool(self._call("editMessageText", params).get("ok"))
         except urllib.error.HTTPError as exc:
             try:
-                desc = str(json.loads(exc.read().decode("utf-8", "replace"))
-                           .get("description", ""))
+                body = json.loads(exc.read().decode("utf-8", "replace"))
             except Exception:
-                desc = ""
+                body = {}
+            desc = str(body.get("description", ""))
+            if exc.code == 429:
+                # honor retry_after: pause ALL edits to this chat
+                retry = float((body.get("parameters") or {})
+                              .get("retry_after", 5) or 5)
+                self._edit_pause_until[chat_id] = time.monotonic() + retry
+                return False
             return "message is not modified" in desc.lower()
         except Exception:
             return False   # network etc. — let the fallback chain deliver

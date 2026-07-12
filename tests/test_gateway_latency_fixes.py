@@ -106,7 +106,8 @@ def test_streamer_first_flush_waits_for_min_chars():
 
 def test_streamer_throttles_edits():
     sends, edits, clock = [], [], _Clock()
-    st = _streamer(sends, edits, clock, min_first=1, interval=1.5)
+    st = _streamer(sends, edits, clock, min_first=1, interval=1.5,
+                   min_delta=1)              # isolate the TIME throttle
     st.feed("first piece arrives")
     st.feed(" immediate follow-up")          # within interval -> buffered only
     assert edits == []
@@ -284,6 +285,61 @@ def test_streamer_finalize_fallback_when_nothing_streamed():
     st = _Streamer(lambda t: "m1", lambda m, t: True, clock=_Clock())
     assert st.message_id is None
     assert st.text() == ""
+
+
+def test_streamer_requires_content_delta_not_just_time():
+    # P0-1: time alone must not trigger an edit — content must have grown
+    # by min_delta since the last flush (edit budget is shared with sends)
+    sends, edits, clock = [], [], _Clock()
+    st = _streamer(sends, edits, clock, min_first=1, interval=1.0,
+                   min_delta=40)
+    st.feed("initial content that makes the first bubble")
+    clock.t = 5.0
+    st.feed("x")                       # 1 char < min_delta -> no edit
+    assert edits == []
+    st.feed("y" * 50)                  # now past min_delta -> one edit
+    assert len(edits) == 1
+
+
+def test_streamer_interval_grows_between_edits():
+    # P0-1: repeated timer edits are a throttling target (TDLib #3034) —
+    # the interval must back off as the turn streams on
+    sends, edits, clock = [], [], _Clock()
+    st = _streamer(sends, edits, clock, min_first=1, interval=1.0,
+                   min_delta=1)
+    st.feed("first bubble content")
+    first_interval = st.interval
+    clock.t = 2.0
+    st.feed("z" * 50)
+    assert len(edits) == 1
+    assert st.interval > first_interval    # backed off after the edit
+
+
+def test_edit_429_sets_cooldown_and_skips_until_expiry(monkeypatch):
+    # P0-1: on 429 the channel must honor retry_after — edits during the
+    # cooldown are skipped WITHOUT hitting the API
+    import io
+    import urllib.error
+    from birkin.gateway.channels.telegram import TelegramChannel
+
+    ch = TelegramChannel("tok")
+    calls = []
+
+    def call_429(method, params, timeout=60):
+        calls.append(method)
+        body = json.dumps({"ok": False, "description": "Too Many Requests",
+                           "parameters": {"retry_after": 7}}).encode()
+        raise urllib.error.HTTPError("u", 429, "Too Many Requests", {},
+                                     io.BytesIO(body))
+    monkeypatch.setattr(ch, "_call", call_429)
+    assert ch._edit("c1", "m", "text") is False
+    assert len(calls) == 1
+    # within cooldown: no API call at all
+    assert ch._edit("c1", "m", "more") is False
+    assert len(calls) == 1                  # skipped, not retried
+    # a different chat is unaffected
+    ch._edit("c2", "m", "text")
+    assert len(calls) == 2
 
 
 def test_edit_treats_not_modified_as_success_and_400_as_failure(monkeypatch):
