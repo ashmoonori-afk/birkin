@@ -30,7 +30,7 @@ from typing import Any
 
 from . import config
 from .mnemosyne import (ARCHIVE_ZONE, IDENTITY_ZONE, TYPE_ZONE, Mnemosyne,
-                        _entry_expired)
+                        _entry_expired, tokenize)
 from .mnemosyne import atomic_write as _atomic_write
 from .mnemosyne import slug as _slug
 from .skills import frontmatter
@@ -259,6 +259,40 @@ class VaultMemory:
                         "related": [_slug(t) for t in h["links"][:3]]})
         return out
 
+    def near_duplicates(self, title: str, body: str,
+                        limit: int = 3) -> list[tuple[str, float]]:
+        """Mechanical near-duplicate candidates for a note about to be (or
+        just) written: token-set cosine between the new text and each BM25
+        candidate's indexed ``terms`` (already in the index — no extra I/O).
+
+        Adopted from TDAI's write-time candidate recall (docs/
+        tdai-comparison.md 차용 A): the *recall* is mechanical and instant;
+        the *judgment* (supersede/merge/archive) stays with the nightly
+        curator. Returns [(slug, similarity)], highest first; the note's own
+        slug is excluded so updating a note never flags itself.
+        """
+        import math
+        new_tokens = set(tokenize(f"{title} {body}"))
+        if not new_tokens:
+            return []
+        self_slug = _slug(title)
+        out: list[tuple[str, float]] = []
+        seen: set[str] = set()
+        query = f"{title} {body[:400]}"
+        for h in self.dex.search(query, limit=limit + 2):
+            slug = h["slug"]
+            if slug == self_slug or slug in seen:
+                continue
+            seen.add(slug)
+            terms = set((self.dex.entries().get(slug) or {}).get("terms", {}))
+            if not terms:
+                continue
+            sim = len(new_tokens & terms) / math.sqrt(len(new_tokens)
+                                                      * len(terms))
+            out.append((slug, round(sim, 3)))
+        out.sort(key=lambda t: -t[1])
+        return out[:limit]
+
     def add_link(self, from_title: str, to_title: str) -> bool:
         text = self.get_note(from_title)
         if text is None:
@@ -380,7 +414,22 @@ class VaultMemory:
             except VersionMismatchError as exc:
                 return ToolResult(f"write rejected (stale version): {exc}",
                                   is_error=True)
-            return ToolResult(f"Wrote note [[{title}]] -> {p}")
+            msg = f"Wrote note [[{title}]] -> {p}"
+            # Write-time near-duplicate advisory (TDAI-adopted, mechanical,
+            # never blocking): flag likely twins so the writer can supersede
+            # or link now; the nightly curator remains the final judge.
+            try:
+                dups = self.near_duplicates(title, body)
+            except Exception:
+                dups = []
+            for slug, sim in dups:
+                if sim >= 0.60:
+                    msg += (f"\n⚠ near-duplicate of [[{slug}]] (sim {sim}) — "
+                            f"consider append/supersede instead of a new note.")
+                elif sim >= 0.35:
+                    msg += (f"\n· related to [[{slug}]] (sim {sim}) — "
+                            f"consider memory_link.")
+            return ToolResult(msg)
 
         def memory_search(inp: dict[str, Any], ctx: ToolContext) -> ToolResult:
             results = self.search(inp.get("query", ""),
