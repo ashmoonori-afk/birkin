@@ -56,6 +56,11 @@ DEFAULT_CONFIG: dict[str, Any] = {
     # Empty -> rely on your Claude Code settings allowlist. Passed as
     # `claude --allowedTools`. See `birkin mcp` to view connected servers.
     "gateway_allowed_tools": [],
+    # Opt-in: reuse ONE warm claude/codex process across REPL turns (skips the
+    # ~10 s CLI cold start every message, like the gateway). Tradeoff: skills
+    # are exposed as a fixed index (not per-turn routed) and Esc-to-interrupt
+    # is unavailable on the warm path. claude-cli / codex-cli only.
+    "repl_warm_session": False,
     # Headless latency knobs (measured: docs/hermes-comparison.md §6).
     # clean_hooks: run gateway claude children with the user's interactive
     # hook stack disabled (--settings disableAllHooks) — hooks cost 3-6 s per

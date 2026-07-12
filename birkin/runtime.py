@@ -34,6 +34,10 @@ class Session:
     # Set to interrupt the in-flight turn (Esc in the REPL); cleared before each
     # ask(). Threaded into agent.run -> the LLM stream / CLI subprocess.
     abort: threading.Event = field(default_factory=threading.Event)
+    # Opt-in warm CLI session (repl_warm_session): one long-lived claude/codex
+    # process reused across turns, so the REPL stops paying the ~10 s CLI cold
+    # start every message (matching the gateway). Lazy; None until first use.
+    _warm: Any = None
 
     def refresh_system_prompt(self) -> None:
         """Rebuild the system prompt to reflect current skills/memory/persona.
@@ -66,6 +70,10 @@ class Session:
             return why
         self.skills.reload_if_changed()  # pick up edited/added skills live
         self.abort.clear()               # fresh turn — drop any stale abort
+        if self._use_warm():
+            reply = self._warm_ask(text, on_text)
+            self._record_turn(text, reply)
+            return reply
         if self.cfg.get("provider") in config.CLI_PROVIDERS:
             self._build_cli_system(text)
         else:
@@ -73,6 +81,51 @@ class Session:
         reply = self.agent.run(text, on_text=on_text, abort=self.abort)
         self._record_turn(text, reply)
         return reply
+
+    def _use_warm(self) -> bool:
+        """Opt-in warm CLI session, for claude-cli/codex-cli only. Trades the
+        per-turn skill routing for a gateway-style skill index fixed at process
+        start, and Esc-to-interrupt for a faster turn — hence off by default."""
+        return (bool(self.cfg.get("repl_warm_session"))
+                and self.cfg.get("provider") in ("claude-cli", "codex-cli"))
+
+    def _warm_ask(self, text: str,
+                  on_text: Optional[Callable[[str], None]]) -> str:
+        if self._warm is None:
+            self._warm = self._build_warm()
+        return self._warm.ask(text, on_text=on_text)
+
+    def _build_warm(self):
+        """One warm session carrying persona + memory + skill index (the same
+        snapshot the gateway uses). The process keeps conversation context, so
+        only the new turn is sent each ask()."""
+        try:
+            idx = self.skills.index()
+        except Exception:
+            idx = ""
+        extra = ("\n\n## birkin skills available\n"
+                 "Read the referenced SKILL.md with your own file tools to "
+                 "follow one when it fits the task.\n" + idx) if idx else ""
+        system = promptgate.compose_cli(
+            self.cfg, memory_block=self.memory.render(), extra=extra)
+        if self.cfg.get("provider") == "codex-cli":
+            from .codex_session import CodexAppServerSession
+            return CodexAppServerSession(model=self.cfg.get("model"),
+                                         preamble=system)
+        from .claude_session import ClaudeStreamSession
+        return ClaudeStreamSession(
+            model=self.cfg.get("model"),
+            cli_access=self.cfg.get("cli_access", "workspace"),
+            append_system_prompt=system)
+
+    def close(self) -> None:
+        """Release the warm session's subprocess, if any (REPL shutdown)."""
+        if self._warm is not None:
+            try:
+                self._warm.close()
+            except Exception:
+                pass
+            self._warm = None
 
     def _record_turn(self, text: str, reply: str) -> None:
         """Write an auditable run record (+ ledger line + usage) per chat turn."""

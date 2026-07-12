@@ -148,5 +148,6 @@ def run(cfg: dict[str, Any] | None = None) -> int:
             # A line typed during the reply (Enter-interrupt) becomes next input.
             pending = (getattr(listener, "pending_line", "") or "").strip()
             session.agent.on_event = base_event
+    session.close()   # release the warm CLI process, if repl_warm_session
     print(f"{DIM}bye.{RESET}")
     return 0
