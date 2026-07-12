@@ -38,6 +38,9 @@ _CODEX_GATEWAY_MODELS = ["gpt-5", "gpt-5-codex", "o3", "codex"]  # codex-cli (co
 # Commands that pull code / restart the service / rewrite config — gated to
 # trusted channels only (see Gateway._command_trusted).
 _PRIVILEGED_COMMANDS = {"update", "models", "restart", "hard_restart"}
+# Providers with a warm persistent-session implementation (see
+# claude_session.ClaudeStreamSession / codex_session.CodexAppServerSession).
+_PERSISTENT_PROVIDERS = ("claude-cli", "codex-cli")
 
 
 def _gateway_model_choices(provider: str) -> tuple[list[str], str]:
@@ -127,10 +130,11 @@ class Gateway:
         self._chats: dict[tuple[str, str], list[dict[str, Any]]] = {}
         self._lock = threading.Lock()
 
-        # Persistent (warm) Claude Code processes — one per conversation — for
-        # the claude-cli provider. Pays cold-start once; warm replies are fast.
+        # Persistent (warm) CLI processes — one per conversation — for the
+        # claude-cli (stream-json) and codex-cli (app-server) providers.
+        # Pays cold-start once; warm replies are ~model-time.
         self._persistent = (bool(cfg.get("gateway_persistent", True))
-                            and cfg.get("provider") == "claude-cli")
+                            and cfg.get("provider") in _PERSISTENT_PROVIDERS)
         # Pool with idle-TTL + LRU cap: dead chats stop holding a live claude
         # process (daemon resource layer; docs/hermes-comparison.md §4).
         self._claude_sessions = pools.SessionPool(
@@ -177,7 +181,13 @@ class Gateway:
             return spare
         return self._build_claude_session()
 
-    def _build_claude_session(self) -> ClaudeStreamSession:
+    def _build_claude_session(self):
+        """Warm session for the configured provider (claude or codex)."""
+        if self.cfg.get("provider") == "codex-cli":
+            from ..codex_session import CodexAppServerSession
+            return CodexAppServerSession(
+                model=self.cfg.get("model"),
+                preamble=self._system_prompt())
         # Tools the headless gateway may use without a permission prompt
         # (e.g. company MCP servers). Empty -> rely on Claude Code settings.
         allowed = [str(t) for t in self.cfg.get("gateway_allowed_tools", []) if t]
@@ -244,7 +254,7 @@ class Gateway:
             cfg = {**cfg, "cli_access": "workspace"}
         self.cfg = cfg
         self._persistent = (bool(cfg.get("gateway_persistent", True))
-                            and cfg.get("provider") == "claude-cli")
+                            and cfg.get("provider") in _PERSISTENT_PROVIDERS)
         try:
             self.session = build_session(cfg)
         except ConfigError as exc:

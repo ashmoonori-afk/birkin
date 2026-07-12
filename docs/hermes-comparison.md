@@ -148,9 +148,25 @@ gateway (`codex exec --json`, spark, trivial prompt): **17.3 s process boot,
 first item at 26 s, 37.5 s total — per message**, because the codex path is
 one-shot: no warm process, and `--json` emits item-level events (no token
 deltas). A codex-backed gateway therefore still costs ~30-40 s/message
-while the claude-backed one now runs at ~2.3 s. The fix hermes uses and we
-don't yet: **`codex app-server`** (experimental persistent daemon over
-stdio — hermes' `codex_app_server_session.py`) — a `CodexAppServerSession`
-mirroring `ClaudeStreamSession` is the top backlog item for codex-backend
-users, with per-item streaming (item granularity, not tokens) as the
-attainable streaming level.
+while the claude-backed one now runs at ~2.3 s.
+
+**CodexAppServerSession — SHIPPED 2026-07-12** (`birkin/codex_session.py`,
+stdlib-only): one warm `codex app-server` process per conversation over
+newline-delimited JSON-RPC (initialize/initialized → thread/start →
+turn/start → item/* → turn/completed), interface-compatible with
+`ClaudeStreamSession` so the gateway pool, pre-warm spare, and Telegram
+streaming all apply unchanged. Headless safety: server-initiated approval
+requests are auto-declined (a chat gateway never approves writes); codex's
+own default sandbox applies. The persona/memory preamble rides the first
+turn of the thread (app-server has no system-prompt slot). Streaming is
+per **item** (codex emits whole agent messages, not token deltas).
+
+| codex spark, same prompt | first item | total |
+|---|---|---|
+| before (one-shot `codex exec`, every message) | 26 s | 37.5 s |
+| **after: warm turns** | **2.6–3.0 s** | **2.7–3.2 s (12–14×)** |
+| handshake (once per conversation; unpaid with pre-warm) | — | 11.5 s |
+
+Both gateway backends are now hermes-class: claude ~2.3 s, codex ~3 s.
+Tests: protocol-level (item streaming, preamble-once, approval decline,
+reply routing) in `tests/test_gateway_latency_fixes.py` (16).
