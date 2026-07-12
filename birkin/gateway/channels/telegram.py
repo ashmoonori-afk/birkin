@@ -42,14 +42,78 @@ def verify_token(token: str) -> tuple[bool, str]:
     return True, data.get("result", {}).get("username", "?")
 
 
+class _Streamer:
+    """Edit-stream a growing reply into one Telegram message (hermes-style).
+
+    Feed receives append-style text pieces from the model. The first flush
+    sends a plain message; later flushes edit it in place, throttled to
+    ``interval`` seconds so Telegram's flood control never triggers. The
+    preview is plain text capped at ``cap`` chars; ``finalize`` is the
+    channel's job (format + chunk the full reply properly).
+
+    Injectable ``send``/``edit`` callables keep this unit-testable without a
+    network. Every network error is swallowed: streaming is cosmetic — the
+    finalized reply is the delivery of record.
+    """
+
+    def __init__(self, send, edit, *, interval: float = 1.5, cap: int = 3600,
+                 min_first: int = 24, clock=time.monotonic):
+        self._send = send            # (text) -> message_id | None
+        self._edit = edit            # (message_id, text) -> bool
+        self.interval = interval
+        self.cap = cap
+        self.min_first = min_first   # don't send a 2-char bubble
+        self._clock = clock
+        self.message_id: str | None = None
+        self._buf: list[str] = []
+        self._len = 0
+        self._last_flush = 0.0
+        self._saturated = False      # preview hit cap; stop editing
+
+    def text(self) -> str:
+        return "".join(self._buf)
+
+    def feed(self, piece: str) -> None:
+        if not piece:
+            return
+        self._buf.append(piece)
+        self._len += len(piece)
+        if self._saturated:
+            return
+        now = self._clock()
+        try:
+            if self.message_id is None:
+                if self._len >= self.min_first:
+                    mid = self._send(self._preview())
+                    if mid is None:      # send failed -> stay silent, deliver
+                        self._saturated = True   # the finalized reply instead
+                        return
+                    self.message_id = mid
+                    self._last_flush = now
+            elif now - self._last_flush >= self.interval:
+                self._edit(self.message_id, self._preview())
+                self._last_flush = now
+        except Exception:
+            self._saturated = True       # cosmetic path must never break a turn
+
+    def _preview(self) -> str:
+        t = self.text()
+        if len(t) > self.cap:
+            self._saturated = True
+            return t[:self.cap] + " …"
+        return t
+
+
 class TelegramChannel(Channel):
     name = "telegram"
 
-    def __init__(self, token: str, allowed_chat_ids: list[str] | None = None):
+    def __init__(self, token: str, allowed_chat_ids: list[str] | None = None,
+                 stream: bool = True):
         self.token = token
         # When non-empty, only these chat ids may drive the agent (access control
         # for a reachable bot). Empty -> open (a startup warning is printed).
         self.allowed_chat_ids = set(allowed_chat_ids or [])
+        self.stream = bool(stream)
 
     def _call(self, method: str, params: dict[str, Any], timeout: int = 60) -> dict[str, Any]:
         url = _API.format(token=self.token, method=method)
@@ -84,6 +148,64 @@ class TelegramChannel(Channel):
         for chunk in chunks:
             if not self._send_chunk(chat_id, chunk, parse_mode="HTML"):
                 self._send_chunk(chat_id, tg_format.to_plain(chunk))
+
+    def _send_plain(self, chat_id: str, text: str) -> str | None:
+        """Send one plain message; return its message_id (for later edits)."""
+        try:
+            res = self._call("sendMessage", {"chat_id": chat_id, "text": text})
+        except Exception as exc:
+            print(f"[telegram] stream send error: {exc}")
+            return None
+        if not res.get("ok"):
+            return None
+        return str((res.get("result") or {}).get("message_id") or "") or None
+
+    def _edit(self, chat_id: str, message_id: str, text: str,
+              parse_mode: str | None = None) -> bool:
+        params: dict[str, Any] = {"chat_id": chat_id,
+                                  "message_id": message_id, "text": text}
+        if parse_mode:
+            params["parse_mode"] = parse_mode
+        try:
+            return bool(self._call("editMessageText", params).get("ok"))
+        except Exception:
+            return False   # cosmetic mid-stream edit; finalize still delivers
+
+    def _finalize_stream(self, chat_id: str, streamer: "_Streamer",
+                         reply: str) -> None:
+        """Turn the streamed preview into the delivery of record.
+
+        The streamed message is edited to the (formatted) first chunk of the
+        final reply; any overflow goes out as normal chunked messages. If
+        nothing was ever streamed, fall back to the plain send path.
+        """
+        if streamer.message_id is None:
+            self._send_reply(chat_id, reply)
+            return
+        try:
+            chunks = tg_format.split(tg_format.to_html(reply))
+            first_html = True
+        except Exception:
+            chunks = tg_format.split(reply)
+            first_html = False
+        if not chunks:
+            return
+        mid = streamer.message_id
+        first = chunks[0]
+        if not (first_html and self._edit(chat_id, mid, first,
+                                          parse_mode="HTML")):
+            plain = tg_format.to_plain(first) if first_html else first
+            # An edit with UNCHANGED text returns ok=False ("message is not
+            # modified") — that's a success for delivery purposes, so only
+            # resend if the preview text actually differs from the final.
+            if plain.strip() != streamer.text().strip():
+                if not self._edit(chat_id, mid, plain):
+                    self._send_chunk(chat_id, plain)
+        for chunk in chunks[1:]:
+            if not (first_html and self._send_chunk(chat_id, chunk,
+                                                    parse_mode="HTML")):
+                self._send_chunk(chat_id, tg_format.to_plain(chunk)
+                                 if first_html else chunk)
 
     def _keep_typing(self, chat_id: str, stop: threading.Event) -> None:
         """Show a 'typing…' indicator until ``stop`` is set.
@@ -165,12 +287,22 @@ class TelegramChannel(Channel):
                 pinger = threading.Thread(target=self._keep_typing,
                                           args=(chat_id, stop), daemon=True)
                 pinger.start()
+                streamer = (_Streamer(
+                    lambda t, c=chat_id: self._send_plain(c, t),
+                    lambda mid, t, c=chat_id: self._edit(c, mid, t))
+                    if self.stream else None)
                 try:
-                    reply = gateway.handle("telegram", chat_id, text)
+                    reply = gateway.handle(
+                        "telegram", chat_id, text,
+                        on_text=streamer.feed if streamer else None)
                 finally:
                     stop.set()
                     pinger.join(timeout=16)
-                self._send_reply(chat_id, reply or "(no reply)")
+                if streamer is not None:
+                    self._finalize_stream(chat_id, streamer,
+                                          reply or "(no reply)")
+                else:
+                    self._send_reply(chat_id, reply or "(no reply)")
                 if gateway.pending_hard_restart:
                     # Confirm this update to Telegram BEFORE re-exec, so the new
                     # process doesn't re-receive /hard-restart and loop forever.

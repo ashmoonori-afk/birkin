@@ -1,0 +1,78 @@
+{
+ "meta": {
+  "date": "2026-07-12 13:33",
+  "model": "haiku",
+  "sys_prompt_chars": 10121
+ },
+ "cases": [
+  {
+   "name": "gateway-like",
+   "turns": [
+    {
+     "turn": 1,
+     "ttft_s": 24.47,
+     "total_s": 31.28,
+     "reply": "ok"
+    },
+    {
+     "turn": 2,
+     "ttft_s": 8.63,
+     "total_s": 16.58,
+     "reply": "ok"
+    },
+    {
+     "turn": 3,
+     "ttft_s": 7.9,
+     "total_s": 12.99,
+     "reply": "ok"
+    }
+   ]
+  },
+  {
+   "name": "bare",
+   "turns": [
+    {
+     "turn": 1,
+     "ttft_s": 26.13,
+     "total_s": 34.26,
+     "reply": "ok"
+    },
+    {
+     "turn": 2,
+     "ttft_s": 8.22,
+     "total_s": 13.01,
+     "reply": "ok"
+    },
+    {
+     "turn": 3,
+     "ttft_s": 7.07,
+     "total_s": 14.57,
+     "reply": "ok"
+    }
+   ]
+  },
+  {
+   "name": "gateway-v2",
+   "turns": [
+    {
+     "turn": 1,
+     "ttft_s": 8.82,
+     "total_s": 9.95,
+     "reply": "ok"
+    },
+    {
+     "turn": 2,
+     "ttft_s": 0.95,
+     "total_s": 2.32,
+     "reply": "ok"
+    },
+    {
+     "turn": 3,
+     "ttft_s": 1.11,
+     "total_s": 2.38,
+     "reply": "ok"
+    }
+   ]
+  }
+ ]
+}

@@ -43,7 +43,8 @@ def build_channels(cfg: dict[str, Any]) -> list[Channel]:
                 print("[gateway] WARNING: Telegram has no allowed_chat_ids — ANYONE "
                       "who finds the bot can drive the agent. Set "
                       "channels.telegram.allowed_chat_ids to your chat id(s).")
-            channels.append(TelegramChannel(token, allowed_chat_ids=allowed))
+            channels.append(TelegramChannel(token, allowed_chat_ids=allowed,
+                                            stream=bool(tg.get("stream", True))))
 
     return channels
 

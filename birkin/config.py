@@ -56,6 +56,17 @@ DEFAULT_CONFIG: dict[str, Any] = {
     # Empty -> rely on your Claude Code settings allowlist. Passed as
     # `claude --allowedTools`. See `birkin mcp` to view connected servers.
     "gateway_allowed_tools": [],
+    # Headless latency knobs (measured: docs/hermes-comparison.md §6).
+    # clean_hooks: run gateway claude children with the user's interactive
+    # hook stack disabled (--settings disableAllHooks) — hooks cost 3-6 s per
+    # turn + ~7 s of SessionStart hooks on cold start. MCP servers still load.
+    "gateway_clean_hooks": True,
+    # Thinking budget for gateway chat turns (MAX_THINKING_TOKENS in the
+    # child). 0 = off (fast chat, −3 s TTFT); raise for reasoning-heavy bots.
+    "gateway_thinking_tokens": 0,
+    # Keep one pre-warmed spare claude process so the FIRST message of a new
+    # conversation skips the ~28 s CLI cold start.
+    "gateway_prewarm": True,
     # Auto-save every conversation turn (gateway + REPL) to sessions_dir as
     # reserved ``auto__*.json`` in the canonical format the nightly Morpheus
     # routine already consumes — so memory is extracted from real conversations
@@ -80,7 +91,10 @@ DEFAULT_CONFIG: dict[str, Any] = {
         # Prefer the TELEGRAM_BOT_TOKEN env var over the plaintext "token" here.
         # "allowed_chat_ids" gates who may drive the bot — leave empty ONLY for a
         # private/local bot; set your chat id(s) for any shared/company use.
-        "telegram": {"enabled": False, "token": "", "allowed_chat_ids": []},
+        # "stream": edit-stream partial replies into the chat as they arrive
+        # (hermes-style perceived latency) instead of one final message.
+        "telegram": {"enabled": False, "token": "", "allowed_chat_ids": [],
+                     "stream": True},
     },
     # --- Obsidian-vault semantic memory ---
     "vault_path": "",  # empty -> <birkin_home>/vault

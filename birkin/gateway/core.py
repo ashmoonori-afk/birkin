@@ -137,6 +137,10 @@ class Gateway:
             self._new_claude_session,
             max_sessions=int(cfg.get("gateway_max_sessions", 8) or 8),
             idle_ttl=float(cfg.get("gateway_session_ttl_s", 3600) or 3600))
+        # Pre-warmed spare session (fungible; adopted by the next new
+        # conversation) — see _new_claude_session / _make_spare.
+        self._spare: ClaudeStreamSession | None = None
+        self._spare_lock = threading.Lock()
         # Set by a /hard-restart command; the channel re-execs after replying.
         self._hard_restart = False
         # (channel, chat_id) that triggered a hard restart — persisted across the
@@ -159,22 +163,68 @@ class Gateway:
             self.cfg, memory_block=self.session.memory.render(), extra=extra)
 
     def _new_claude_session(self, key: tuple[str, str]) -> ClaudeStreamSession:
-        """SessionPool factory: one warm session per conversation key."""
+        """SessionPool factory: one warm session per conversation key.
+
+        A pre-warmed spare (see :meth:`prewarm`) is adopted first: gateway
+        sessions are configured identically, so the spare is fungible and the
+        first message of a new conversation skips the ~28 s cold start.
+        """
+        with self._spare_lock:
+            spare, self._spare = self._spare, None
+        if spare is not None and spare.is_alive():
+            # replace the spare in the background for the NEXT new conversation
+            threading.Thread(target=self._make_spare, daemon=True).start()
+            return spare
+        return self._build_claude_session()
+
+    def _build_claude_session(self) -> ClaudeStreamSession:
         # Tools the headless gateway may use without a permission prompt
         # (e.g. company MCP servers). Empty -> rely on Claude Code settings.
         allowed = [str(t) for t in self.cfg.get("gateway_allowed_tools", []) if t]
         extra = ["--allowedTools", ",".join(allowed)] if allowed else None
+        # Headless children run with the user's interactive hook stack
+        # DISABLED and a bounded thinking budget — measured at 3-6 s/turn of
+        # hooks + 2.8 s TTFT of default thinking (hermes-comparison.md §6).
+        settings = ({"disableAllHooks": True}
+                    if self.cfg.get("gateway_clean_hooks", True) else None)
+        env_extra = {"MAX_THINKING_TOKENS":
+                     str(int(self.cfg.get("gateway_thinking_tokens", 0) or 0))}
         return ClaudeStreamSession(
             model=self.cfg.get("model"),
             cli_access=self.cfg.get("cli_access", "workspace"),
             append_system_prompt=self._system_prompt(),
-            extra_args=extra)
+            extra_args=extra, settings=settings, env_extra=env_extra)
+
+    def _make_spare(self) -> None:
+        """Spawn one warm, unclaimed session so the next new conversation
+        skips the CLI cold start. Never raises (best-effort warm-up)."""
+        if not self._persistent or not self.cfg.get("gateway_prewarm", True):
+            return
+        try:
+            s = self._build_claude_session()
+            s.start()
+        except Exception as exc:              # warm-up must never take the
+            print(f"[gateway] prewarm failed: {exc}", flush=True)  # service down
+            return
+        with self._spare_lock:
+            if self._spare is None:
+                self._spare = s
+                return
+        s.close()   # raced another warm-up; don't leak the extra process
+
+    def prewarm(self) -> None:
+        """Public entry: warm the first spare in the background at boot."""
+        threading.Thread(target=self._make_spare, daemon=True).start()
 
     def _claude_session(self, key: tuple[str, str]) -> ClaudeStreamSession:
         return self._claude_sessions.get(key)
 
     def shutdown(self) -> None:
         self._claude_sessions.clear()   # the pool closes every session
+        with self._spare_lock:
+            spare, self._spare = self._spare, None
+        if spare is not None:
+            spare.close()
 
     def restart(self) -> str:
         """Soft-restart the gateway in place (channels stay up).
@@ -242,8 +292,14 @@ class Gateway:
             return str(n.get("chat_id"))
         return None
 
-    def handle(self, channel: str, chat_id: str, text: str) -> str:
+    def handle(self, channel: str, chat_id: str, text: str,
+               on_text=None) -> str:
         """Route one inbound message to the agent and return the reply.
+
+        ``on_text`` (optional) receives append-style reply pieces as they
+        stream from the model, so a channel can show partial output (e.g.
+        Telegram edit-streaming) instead of waiting for the full turn.
+        Commands and the non-persistent path reply in one piece.
 
         Each (channel, chat_id) keeps its own conversation history; memory and
         skills are shared, so knowledge carries across channels.
@@ -347,7 +403,7 @@ class Gateway:
             if persistent:
                 # Warm Claude Code process keeps its own conversation context,
                 # so only the new turn is sent.
-                reply = sess.ask(text)
+                reply = sess.ask(text, on_text=on_text)
             else:
                 # The non-persistent path shares the single self.session, so its
                 # history swap must stay serialized under the global lock.
@@ -458,6 +514,7 @@ def run() -> int:
         return 1
 
     mode = "warm/persistent" if gateway._persistent else "per-message"
+    gateway.prewarm()   # first message of a new conversation skips cold start
     print(f"birkin gateway up · model {gateway.cfg.get('model')} · {mode} · "
           f"channels: {', '.join(c.name for c in channels)}")
     print("  chat commands: /help · /new · /restart (soft) · /hard_restart "

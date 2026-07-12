@@ -117,16 +117,25 @@ Telegram via throttled message edits** (first tokens visible ~1–2 s); the
 birkin gateway sends one message after the whole turn. Perceived gap:
 12–18 s vs 1–2 s ⇒ **6–15×** — matching the observed "몇배".
 
-**Fix plan (impact order):**
-1. **Telegram edit-streaming** (or minimally: deliver at the last assistant
-   text instead of waiting for `result`) — recovers 5–7 s/turn + the entire
-   perceived gap. Already on the latency backlog.
-2. **Clean child config for the headless service** — the gateway inherits
-   the user's *interactive* Claude Code environment (plugins, ponytail/ECC/
-   superpowers hooks). A headless chat service should run children with
-   hooks/plugins disabled: saves ~7 s cold + 3–6 s/turn + most of the
-   post-turn tail.
-3. **Thinking budget for chat turns** — gateway config knob
-   (`MAX_THINKING_TOKENS` in the child env): −3 s TTFT on trivial turns.
-4. **Pre-warm on gateway boot** (and after idle-TTL eviction): first message
-   stops paying the ~28 s cold start.
+**Fixes — SHIPPED 2026-07-12 (all four), measured after:**
+1. **Telegram edit-streaming** — `--include-partial-messages` token deltas in
+   `claude_session._turn` → `Gateway.handle(on_text)` → `telegram._Streamer`
+   (first bubble at ≥24 chars, throttled 1.5 s edits, cap-saturation guard,
+   finalize = formatted delivery of record). Config: `channels.telegram.stream`.
+2. **Clean child config** — `gateway_clean_hooks` (default on): children run
+   with `--settings {"disableAllHooks": true}` via temp file; MCP still
+   inherited.
+3. **Thinking knob** — `gateway_thinking_tokens` (default 0) →
+   `MAX_THINKING_TOKENS` in the child env.
+4. **Pre-warm** — one fungible spare `claude` process at boot, adopted by the
+   first new conversation, re-warmed in the background after adoption
+   (`gateway_prewarm`).
+
+| haiku, same prompt | TTFT warm | total warm | cold |
+|---|---|---|---|
+| before | 7.9–8.6 s | 13.0–16.6 s | ~31 s |
+| **after (gateway-v2)** | **0.95–1.1 s** | **2.3–2.4 s** | 10 s (unpaid with pre-warm) |
+
+Warm turns ~6× faster, first visible token ~8× faster — hermes-class.
+Re-measure: `benchmarks/bench_gateway_latency.py` (gwlatency-20260712-1335).
+Tests: `tests/test_gateway_latency_fixes.py` (11).

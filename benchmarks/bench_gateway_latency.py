@@ -45,9 +45,12 @@ def gateway_system_prompt(cfg: dict) -> str:
 
 
 def run_case(name: str, model: str, sys_prompt: str,
-             extra_args: list[str] | None) -> dict:
+             extra_args: list[str] | None,
+             settings: dict | None = None,
+             env_extra: dict | None = None) -> dict:
     sess = ClaudeStreamSession(model=model, append_system_prompt=sys_prompt,
-                               extra_args=extra_args)
+                               extra_args=extra_args, settings=settings,
+                               env_extra=env_extra)
     rows = []
     for i in range(3):                       # turn 1 = cold, 2-3 = warm
         ttft = [None]
@@ -80,6 +83,12 @@ def main() -> int:
     out["cases"].append(run_case("gateway-like", args.model, sp, None))
     out["cases"].append(run_case("bare", args.model, "",
                                  ["--strict-mcp-config"]))
+    # gateway-v2 = what Gateway._build_claude_session now spawns:
+    # clean hooks + thinking off, MCP still inherited, same system prompt
+    out["cases"].append(run_case(
+        "gateway-v2", args.model, sp, None,
+        settings={"disableAllHooks": True},
+        env_extra={"MAX_THINKING_TOKENS": "0"}))
     RES.mkdir(parents=True, exist_ok=True)
     p = RES / f"gwlatency-{datetime.now().strftime('%Y%m%d-%H%M')}.json"
     p.write_text(json.dumps(out, indent=1, ensure_ascii=False),

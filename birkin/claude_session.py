@@ -57,7 +57,9 @@ class ClaudeStreamSession:
                  extra_args: Optional[list[str]] = None,
                  cwd: Optional[str] = None,
                  startup_timeout: float = 90.0,
-                 turn_timeout: float = 300.0):
+                 turn_timeout: float = 300.0,
+                 settings: Optional[dict] = None,
+                 env_extra: Optional[dict] = None):
         self.model = model
         self.permission_mode = permission_mode
         self.cli_access = cli_access
@@ -67,12 +69,21 @@ class ClaudeStreamSession:
         self.cwd = cwd
         self.startup_timeout = float(startup_timeout)
         self.turn_timeout = float(turn_timeout)
+        # Claude Code settings overrides for THIS child only (e.g.
+        # {"disableAllHooks": true} for a headless service — the user's
+        # interactive hook stack costs seconds per turn; measured in
+        # docs/hermes-comparison.md §6). Written to a temp file and passed
+        # via --settings, same quoting rationale as the system prompt.
+        self.settings = dict(settings or {})
+        # Extra child env (e.g. MAX_THINKING_TOKENS=0 for fast chat turns).
+        self.env_extra = {k: str(v) for k, v in (env_extra or {}).items()}
 
         self._proc: Optional[subprocess.Popen] = None
         self._q: "queue.Queue[tuple[str, Optional[str]]]" = queue.Queue()
         self._lock = threading.Lock()
         self._session_id: Optional[str] = None
         self._sys_file: Optional[Path] = None
+        self._settings_file: Optional[Path] = None
         # Set by close() (terminal retire, e.g. gateway /new). ask() must NOT
         # resurrect a deliberately-closed session: a racing in-flight turn could
         # otherwise restart a process on an object the gateway already dropped,
@@ -112,12 +123,39 @@ class ClaudeStreamSession:
             except OSError:
                 pass
             self._sys_file = None
+        if self._settings_file is not None:
+            try:
+                self._settings_file.unlink()
+            except OSError:
+                pass
+            self._settings_file = None
+
+    def _ensure_settings_file(self) -> Optional[Path]:
+        """Materialize the per-child settings overrides to a temp file."""
+        if not self.settings:
+            return None
+        if self._settings_file and self._settings_file.exists():
+            return self._settings_file
+        fd, path = tempfile.mkstemp(suffix="-birkin-settings.json")
+        with os.fdopen(fd, "w", encoding="utf-8") as fh:
+            json.dump(self.settings, fh)
+        self._settings_file = Path(path)
+        return self._settings_file
+
+    def child_env(self) -> dict[str, str]:
+        """Environment for the child process: claude_child_env + env_extra."""
+        env = claude_child_env()
+        env.update(self.env_extra)
+        return env
 
     def _build_argv(self) -> list[str]:
         parts = ["claude", "--print",
                  "--input-format", "stream-json",
                  "--output-format", "stream-json",
-                 "--verbose"]
+                 "--verbose",
+                 # token-level deltas so channels can stream partial replies
+                 # (hermes-style perceived latency; see hermes-comparison §6)
+                 "--include-partial-messages"]
         if self.cli_access == "full":
             parts.append("--dangerously-skip-permissions")
         else:
@@ -127,6 +165,9 @@ class ClaudeStreamSession:
         sys_file = self._ensure_sys_file()
         if sys_file is not None:
             parts += ["--append-system-prompt-file", str(sys_file)]
+        settings_file = self._ensure_settings_file()
+        if settings_file is not None:
+            parts += ["--settings", str(settings_file)]
         for d in self.add_dirs:
             parts += ["--add-dir", d]
         parts += self.extra_args
@@ -145,7 +186,7 @@ class ClaudeStreamSession:
             self._proc = subprocess.Popen(
                 argv, stdin=subprocess.PIPE, stdout=subprocess.PIPE,
                 stderr=subprocess.PIPE, text=True, bufsize=1, encoding="utf-8",
-                errors="replace", cwd=self.cwd, env=claude_child_env())
+                errors="replace", cwd=self.cwd, env=self.child_env())
         except OSError:
             self._cleanup_sys_file()  # don't leak the temp file if spawn fails
             raise
@@ -247,6 +288,10 @@ class ClaudeStreamSession:
             timeout: Optional[float] = None) -> str:
         """Send one user turn; return the assistant's final text.
 
+        ``on_text`` receives APPEND-style pieces (token deltas when the CLI
+        emits partial messages; whole assistant messages as a fallback) —
+        concatenating every piece approximates the final text.
+
         Serialized: one turn at a time per session. On a dead process the
         session is restarted once (losing prior context) and the turn retried.
         """
@@ -293,6 +338,7 @@ class ClaudeStreamSession:
 
         final_text = ""
         assistant_text = ""
+        saw_delta = False   # partial deltas seen -> assistant events stay silent
         while True:
             remaining = deadline - time.monotonic()
             if remaining <= 0:
@@ -316,11 +362,23 @@ class ClaudeStreamSession:
             etype = event.get("type")
             if etype == "system" and event.get("session_id"):
                 self._session_id = event.get("session_id")
+            elif etype == "stream_event":
+                # --include-partial-messages: token-level text deltas. These
+                # are what on_text consumers stream to the user; the later
+                # `assistant` event is kept only as the authoritative full
+                # text (and as the on_text fallback when no deltas arrived).
+                ev = event.get("event") or {}
+                if ev.get("type") == "content_block_delta":
+                    d = ev.get("delta") or {}
+                    if d.get("type") == "text_delta" and d.get("text"):
+                        saw_delta = True
+                        if on_text:
+                            on_text(d["text"])
             elif etype == "assistant":
                 piece = _assistant_text(event)
                 if piece:
                     assistant_text = piece
-                    if on_text:
+                    if on_text and not saw_delta:
                         on_text(piece)
             elif etype == "result":
                 final_text = (event.get("result")
