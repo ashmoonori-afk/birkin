@@ -90,3 +90,43 @@ apply_patch; service tiers). birkin equivalent — `presets.py`:
 Wired at the two choke points every surface passes through: promptgate
 (system prompt, `## Engine preset` section) and build_registry (tools).
 Guideline strength is regression-pinned in tests/test_daemon_layer.py.
+
+## 6. Why the gateway is several times slower than hermes on the same model
+*(measured 2026-07-12 — `bench_gateway_latency.py`, `bench_turn_anatomy.py`;
+haiku, trivial one-word turn, warm stream-json session)*
+
+The model is NOT the problem — `result.duration_api_ms` says the API costs
+**2.6–3.9 s** per turn either way. Everything else is wrapper weight that
+hermes (direct API + its own light tool loop) does not pay:
+
+| stage (warm turn) | measured | cause |
+|---|---|---|
+| pre-API machinery | +3–6 s | per-prompt hook stack (user's global UserPromptSubmit/… hooks run in the child) |
+| thinking | +2.8 s TTFT (7.0 vs 4.2 s) | extended thinking on by default in the user's global config — paid on every chat turn |
+| text ready | ~4–7 s | — |
+| **text → `result` event** | **+5–7 s** | post_turn_summary + Stop-hook stack; **birkin waits for `result` before sending to Telegram**, so this is pure delivery delay |
+| turn delivered | 12–18 s | what the Telegram user actually waits |
+
+Cold start adds ~28 s on the first message per conversation: ~6 s node boot,
+**~7.4 s of five SessionStart hooks**, init (plus MCP handshakes when the
+user's ~20 MCP servers are inherited — the A/B showed +2.5 s TTFT and +8 s
+cold vs `--strict-mcp-config`).
+
+And the perceived multiplier on top: hermes **streams partial replies into
+Telegram via throttled message edits** (first tokens visible ~1–2 s); the
+birkin gateway sends one message after the whole turn. Perceived gap:
+12–18 s vs 1–2 s ⇒ **6–15×** — matching the observed "몇배".
+
+**Fix plan (impact order):**
+1. **Telegram edit-streaming** (or minimally: deliver at the last assistant
+   text instead of waiting for `result`) — recovers 5–7 s/turn + the entire
+   perceived gap. Already on the latency backlog.
+2. **Clean child config for the headless service** — the gateway inherits
+   the user's *interactive* Claude Code environment (plugins, ponytail/ECC/
+   superpowers hooks). A headless chat service should run children with
+   hooks/plugins disabled: saves ~7 s cold + 3–6 s/turn + most of the
+   post-turn tail.
+3. **Thinking budget for chat turns** — gateway config knob
+   (`MAX_THINKING_TOKENS` in the child env): −3 s TTFT on trivial turns.
+4. **Pre-warm on gateway boot** (and after idle-TTL eviction): first message
+   stops paying the ~28 s cold start.
