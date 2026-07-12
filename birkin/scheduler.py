@@ -77,6 +77,13 @@ def _deliver(job: dict[str, Any], text: str) -> str:
         return f"error: {exc}"
 
 
+def deliver(name: str, chat_id: str | None, text: str) -> str:
+    """Public one-shot delivery to a Telegram chat, honoring the [SILENT]
+    convention and the outbound allowlist — used by Morpheus for the
+    morning digest (P0-3) in addition to cron jobs."""
+    return _deliver({"name": name, "deliver_chat_id": chat_id or ""}, text)
+
+
 def _morpheus_hour(cfg: dict[str, Any]) -> int:
     """Read the configured Morpheus hour, honoring the legacy ``nightly_hour``
     key so existing config.json files keep working unchanged."""

@@ -250,6 +250,7 @@ def _run_claude_morpheus(cfg: dict[str, Any], task: str, dry_run: bool,
         msg = f"morpheus failed: {exc}"
         print(msg)
         store.save_run("morpheus", msg)
+        _deliver_digest(cfg, f"⚠ {msg}")   # a broken night is worth a ping
         return 1
     finally:
         sess.close()
@@ -262,6 +263,7 @@ def _run_claude_morpheus(cfg: dict[str, Any], task: str, dry_run: bool,
                     "dry_run": dry_run})
     print("\n=== morpheus summary ===\n" + summary)
     print("\nReview any proposed actions with `birkin review`.")
+    _deliver_digest(cfg, summary)
     return 0
 
 
@@ -306,7 +308,33 @@ def _run_birkin_morpheus(cfg: dict[str, Any], task: str, dry_run: bool,
     print("\n=== morpheus summary ===\n" + summary)
     if proposals:
         print(f"\n{len(proposals)} proposal(s) queued. Run `birkin review` to act on them.")
+    _deliver_digest(cfg, summary)
     return 0
+
+
+def _deliver_digest(cfg: dict[str, Any], summary: str) -> None:
+    """P0-3: the nightly pass introduces itself in the morning.
+
+    Sends the run summary to ``morpheus_deliver_chat_id`` (empty = off)
+    through the scheduler's delivery path, which enforces the outbound
+    allowlist and the [SILENT] convention — a summary that starts with
+    [SILENT] is recorded but not sent, so an uneventful night stays quiet.
+    A pending-approvals count is appended so /pending is one tap away.
+    """
+    chat = str(cfg.get("morpheus_deliver_chat_id") or "").strip()
+    if not chat:
+        return
+    text = (summary or "").strip()
+    try:
+        pending = store.list_pending()
+    except Exception:
+        pending = []
+    if pending and not text.startswith("[SILENT]"):
+        text += (f"\n\n📋 {len(pending)} pending approval(s) — "
+                 f"reply /pending to review.")
+    from . import scheduler   # lazy: scheduler imports morpheus lazily too
+    status = scheduler.deliver("morpheus", chat, text)
+    print(f"birkin morpheus: digest delivery: {status}")
 
 
 def _attach_propose_tool(session, cfg: dict[str, Any],

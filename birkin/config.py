@@ -99,6 +99,10 @@ DEFAULT_CONFIG: dict[str, Any] = {
     # --- Obsidian-vault semantic memory ---
     "vault_path": "",  # empty -> <birkin_home>/vault
     # --- Morpheus (nightly 04:00 self-improvement routine) ---
+    # Telegram chat to receive the nightly summary as a morning digest
+    # (P0-3). Empty = no delivery. Honors the outbound allowlist and the
+    # [SILENT] convention; appends a pending-approvals count when relevant.
+    "morpheus_deliver_chat_id": "",
     # The routine was renamed from "nightly" to "morpheus" (Greek god of
     # dreams — it runs while you sleep). The legacy keys ``nightly_hour`` /
     # ``nightly_minute`` are honored as fallbacks by readers and migrated
