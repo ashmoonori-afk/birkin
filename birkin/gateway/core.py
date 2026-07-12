@@ -30,6 +30,8 @@ _GATEWAY_COMMANDS: list[tuple[str, str, set[str]]] = [
      {"models", "model"}),
     ("update", "Remote update — pull new code from the repo, then auto restart",
      {"update", "upgrade", "pull"}),
+    ("pending", "List pending approvals (approve/reject from chat)",
+     {"pending", "approvals", "review"}),
 ]
 
 # Friendly short model names accepted by `claude --model` (full claude-… IDs also OK).
@@ -37,7 +39,8 @@ _GATEWAY_MODELS = ["opus", "sonnet", "haiku"]            # claude-cli suggestion
 _CODEX_GATEWAY_MODELS = ["gpt-5", "gpt-5-codex", "o3", "codex"]  # codex-cli (codex validates -m)
 # Commands that pull code / restart the service / rewrite config — gated to
 # trusted channels only (see Gateway._command_trusted).
-_PRIVILEGED_COMMANDS = {"update", "models", "restart", "hard_restart"}
+_PRIVILEGED_COMMANDS = {"update", "models", "restart", "hard_restart",
+                        "pending"}
 # Providers with a warm persistent-session implementation (see
 # claude_session.ClaudeStreamSession / codex_session.CodexAppServerSession).
 _PERSISTENT_PROVIDERS = ("claude-cli", "codex-cli")
@@ -409,6 +412,8 @@ class Gateway:
                     return (f"⬇️ {result['message']}\n"
                             "♻️ 새 코드를 반영하려고 재시작합니다…")
                 return f"{'✅' if result.get('ok') else '⚠️'} {result['message']}"
+            if cmd == "pending":
+                return self.pending_text()
             if cmd == "restart":
                 print(f"[gateway] restart requested via {channel}:{chat_id}",
                       flush=True)
@@ -490,6 +495,43 @@ class Gateway:
         print(f"[gateway] model → {name}; scheduling hard restart", flush=True)
         return (f"✅ 게이트웨이 모델을 '{name}'로 바꿨어요. 적용하려고 지금 재시작합니다 "
                 f"— 잠시 후 다시 말 걸어주세요.")
+
+    # -- remote approvals (P0-2: the propose->approve loop, from chat) -------
+
+    def pending_actions(self) -> list[dict[str, Any]]:
+        """Pending proposals, highest-risk first (same order as the CLI)."""
+        from .. import risk
+        return risk.sort_by_risk(store.list_pending())
+
+    def pending_text(self) -> str:
+        """Plain-text pending list — the fallback for channels without
+        buttons (HTTP) and the body the Telegram channel decorates."""
+        items = self.pending_actions()
+        if not items:
+            return "📭 No pending approvals."
+        lines = [f"📋 {len(items)} pending approval(s):"]
+        for rec in items[:10]:
+            lines.append(f"- [{rec.get('category')}] {rec.get('title')} "
+                         f"(id {rec.get('id')})")
+        lines.append("Approve/reject in the CLI with `birkin review` — or "
+                     "tap the buttons if your channel shows them.")
+        return "\n".join(lines)
+
+    def resolve_action(self, aid: str, approve: bool) -> str:
+        """Approve/reject one pending action (the button-tap handler).
+        Callers must gate on a trusted channel first."""
+        from .. import approvals
+        if approve:
+            out = approvals.approve(aid)
+            if not out.get("ok"):
+                return f"⚠ {out.get('error', 'approve failed')}"
+            store.append_activity(f"approval[{aid}]: approved via gateway")
+            return f"✅ approved — {out.get('result', '')}"[:500]
+        out = approvals.reject(aid)
+        if not out.get("ok"):
+            return "⚠ not found or already resolved"
+        store.append_activity(f"approval[{aid}]: rejected via gateway")
+        return "❌ rejected"
 
     def _autosave_trusted(self, channel: str) -> bool:
         """Whether turns from ``channel`` may be auto-saved + memorized.

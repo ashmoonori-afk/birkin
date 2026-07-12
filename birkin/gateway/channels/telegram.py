@@ -246,6 +246,75 @@ class TelegramChannel(Channel):
                 self._send_chunk(chat_id, tg_format.to_plain(chunk)
                                  if first_html else chunk)
 
+    # -- inline-button approvals (P0-2) --------------------------------------
+
+    @staticmethod
+    def _approval_markup(aid: str) -> str:
+        """reply_markup JSON for one pending action. callback_data is capped
+        at 64 bytes by Telegram — ids are short, but clamp defensively."""
+        aid = str(aid)[:56]
+        return json.dumps({"inline_keyboard": [[
+            {"text": "✅ 승인", "callback_data": f"apv:{aid}"},
+            {"text": "❌ 거부", "callback_data": f"rej:{aid}"},
+        ]]})
+
+    def _send_pending_buttons(self, gateway: "Gateway", chat_id: str) -> None:
+        """Render /pending as one message per action with approve/reject
+        buttons (inline buttons add no chat clutter — the official pattern)."""
+        items = gateway.pending_actions()
+        if not items:
+            self._send_chunk(chat_id, "📭 No pending approvals.")
+            return
+        self._send_chunk(chat_id, f"📋 {len(items)} pending approval(s):")
+        for rec in items[:10]:
+            text = (f"[{rec.get('category')}] {rec.get('title')}\n"
+                    f"{str(rec.get('description', ''))[:300]}")
+            try:
+                self._call("sendMessage",
+                           {"chat_id": chat_id, "text": text,
+                            "reply_markup": self._approval_markup(
+                                rec.get("id", ""))})
+            except Exception as exc:
+                print(f"[telegram] pending send error: {exc}")
+
+    def _handle_callback(self, gateway: "Gateway", cq: dict[str, Any]) -> None:
+        """One button tap: resolve the action, ACK the query (mandatory —
+        clients show a spinner up to a minute otherwise), and edit the
+        original message in place with the outcome."""
+        cq_id = str(cq.get("id", ""))
+        data = str(cq.get("data", ""))
+        msg = cq.get("message") or {}
+        chat_id = str((msg.get("chat") or {}).get("id", ""))
+        if self.allowed_chat_ids and chat_id not in self.allowed_chat_ids:
+            self._answer_callback(cq_id, "unauthorized")
+            return
+        if not self.allowed_chat_ids:
+            # An OPEN bot must not allow one-tap approval of queued actions.
+            self._answer_callback(cq_id, "approvals need allowed_chat_ids")
+            return
+        if ":" not in data:
+            self._answer_callback(cq_id, "")
+            return
+        verb, aid = data.split(":", 1)
+        if verb not in ("apv", "rej"):
+            self._answer_callback(cq_id, "")
+            return
+        result = gateway.resolve_action(aid, approve=(verb == "apv"))
+        self._answer_callback(cq_id, result[:190])
+        mid = str(msg.get("message_id", ""))
+        old = str(msg.get("text", ""))
+        if mid:
+            self._edit(chat_id, mid, f"{old}\n\n{result}"[:4000])
+
+    def _answer_callback(self, cq_id: str, text: str) -> None:
+        try:
+            params: dict[str, Any] = {"callback_query_id": cq_id}
+            if text:
+                params["text"] = text[:190]
+            self._call("answerCallbackQuery", params, timeout=15)
+        except Exception as exc:
+            print(f"[telegram] answerCallbackQuery error: {exc}")
+
     def _keep_typing(self, chat_id: str, stop: threading.Event) -> None:
         """Show a 'typing…' indicator until ``stop`` is set.
 
@@ -314,6 +383,13 @@ class TelegramChannel(Channel):
                 continue
             for upd in res.get("result", []):
                 offset = max(offset, upd.get("update_id", 0) + 1)
+                cq = upd.get("callback_query")
+                if cq:                     # approval button tap (P0-2)
+                    try:
+                        self._handle_callback(gateway, cq)
+                    except Exception as exc:
+                        print(f"[telegram] callback error: {exc}")
+                    continue
                 msg = upd.get("message") or {}
                 chat_id = str(msg.get("chat", {}).get("id", ""))
                 text = msg.get("text", "")
@@ -321,6 +397,13 @@ class TelegramChannel(Channel):
                     continue
                 if self.allowed_chat_ids and chat_id not in self.allowed_chat_ids:
                     print(f"[telegram] ignoring message from unauthorized chat {chat_id}")
+                    continue
+                # /pending on a trusted channel renders as inline buttons
+                # here; the gateway's text fallback serves everything else.
+                from ..core import match_command
+                if (match_command(text)[0] == "pending"
+                        and gateway._command_trusted("telegram")):
+                    self._send_pending_buttons(gateway, chat_id)
                     continue
                 stop = threading.Event()
                 pinger = threading.Thread(target=self._keep_typing,
