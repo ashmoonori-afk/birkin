@@ -669,7 +669,13 @@ the comparison is not close: wholesale loading would cost <b>2.96M tokens
 &mdash; beyond any current context window</b> &mdash; while what Mnemosyne
 actually injects per query (0.9k-token digest + top-8 metadata + three
 opened bodies) averages <b>8.0k tokens, a 371&times; reduction</b>. The
-model never pays for notes the postings did not match.</p>
+model never pays for notes the postings did not match. Could snippets
+replace the opened bodies? Measured, and <b>no</b> &mdash; an honest
+negative: 600-char best-window snippets cut context &times;14.7 but halve
+end-to-end accuracy (0.417 &rarr; 0.233; abstentions 4 &rarr; 26 of 60) —
+the answer sentence is too often outside any fixed window. Snippets serve as
+the search <i>preview</i> layer; full-note reads stay an explicit on-demand
+call — 8k is the pay-when-needed cost of answers, not removable overhead.</p>
 <p><b>Planted-token retrieval (H2).</b> BM25 R@5 0.983 (EN) and 0.983 (KR via
 Hangul bigrams) vs substring 0.483/0.542 &mdash; a controlled probe of the
 tokenizer, not a natural-corpus claim. Dropping the bigrams leaves the English

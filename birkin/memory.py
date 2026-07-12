@@ -252,7 +252,7 @@ class VaultMemory:
             except OSError:
                 pass
             out.append({"title": h["slug"],
-                        "snippet": _snippet(body, terms[0] if terms else ""),
+                        "snippet": _snippet(body, terms),
                         "zone": h["zone"] or "inbox",
                         "related": [_slug(t) for t in h["links"]]})
         return out
@@ -527,12 +527,44 @@ def _is_expired(meta: dict[str, Any]) -> bool:
     return _entry_expired(meta, date.today())
 
 
-def _snippet(text: str, term: str, width: int = 100) -> str:
+def _snippet(text: str, terms: list[str] | str, width: int = 240) -> str:
+    """Best multi-term window: the ``width``-char span containing the most
+    DISTINCT query terms (earliest on ties); falls back to the head.
+
+    The old single-term/100-char snippet routinely missed the passage that
+    made a note relevant, pushing agents to fetch whole notes — the dominant
+    context-token cost (benchmarks/bench_token_diet.py). A denser snippet is
+    the cheap fix: pay ~240 chars in the search result, save a full-note read.
+    """
+    if isinstance(terms, str):
+        terms = [terms]
     low = text.lower()
-    i = low.find(term)
-    if i < 0:
+    hits: list[tuple[int, str]] = []              # (position, term)
+    for term in {t for t in terms if t}:
+        start = 0
+        while True:
+            i = low.find(term, start)
+            if i < 0:
+                break
+            hits.append((i, term))
+            start = i + 1
+    if not hits:
         return text.strip()[:width]
-    start = max(0, i - width // 2)
+    hits.sort()
+    from collections import Counter
+    inwin: Counter = Counter()
+    best_start, best_distinct = hits[0][0], 1
+    j = 0
+    for i, (pos, term) in enumerate(hits):
+        inwin[term] += 1
+        while hits[j][0] < pos - width:
+            inwin[hits[j][1]] -= 1
+            if not inwin[hits[j][1]]:
+                del inwin[hits[j][1]]
+            j += 1
+        if len(inwin) > best_distinct:
+            best_distinct, best_start = len(inwin), hits[j][0]
+    start = max(0, best_start - width // 8)
     return text[start:start + width].replace("\n", " ").strip()
 
 

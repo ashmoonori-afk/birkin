@@ -1,0 +1,46 @@
+{
+ "composition": {
+  "digest": 911,
+  "meta_full": 997,
+  "meta_trim": 506,
+  "bodies_full": 4659,
+  "bodies_snip": 439,
+  "body_top1_snip": 149
+ },
+ "variants": {
+  "current": {
+   "mean_tokens": 6568,
+   "reduction": 1.0
+  },
+  "D1_meta_trim": {
+   "mean_tokens": 6077,
+   "reduction": 1.1
+  },
+  "D2_snippets": {
+   "mean_tokens": 2349,
+   "reduction": 2.8
+  },
+  "D1+D2": {
+   "mean_tokens": 1857,
+   "reduction": 3.5
+  },
+  "D1+D2+D3_top1": {
+   "mean_tokens": 1567,
+   "reduction": 4.2
+  },
+  "D1+D2+D4_slim": {
+   "mean_tokens": 1196,
+   "reduction": 5.5
+  },
+  "ALL(D1-D4)": {
+   "mean_tokens": 906,
+   "reduction": 7.2
+  }
+ },
+ "meta": {
+  "date": "2026-07-12 07:51",
+  "window_chars": 600,
+  "queries": 40,
+  "estimator": "chars/4"
+ }
+}

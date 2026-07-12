@@ -665,6 +665,17 @@ This is the token-cost face of the index-only design: the model never pays
 for notes the postings did not match. Reproduce:
 `benchmarks/bench_token_cost.py`.
 
+Could snippets replace the opened bodies and cut the 8k further? Measured,
+and **no** — an honest negative: injecting 600-char best-window snippets
+instead of full sessions cuts context ×14.7 (8.3k → 0.57k on top-3) but
+halves end-to-end answer accuracy (0.417 → 0.233; abstentions 4 → 26 of 60,
+haiku reader / sonnet judge, dev sample) — the answer sentence is too often
+outside any fixed window. Snippets therefore serve as the *search preview*
+layer (multi-term best-window, `memory_search`), while full-note reads stay
+an explicit on-demand tool call: the 8k figure is the pay-when-needed cost of
+answers, not overhead a cleverer window can remove. Reproduce:
+`benchmarks/bench_snippet_e2e.py`.
+
 **Retrieval quality (H2, H2b).** With planted rare anchor tokens, BM25 lifts the
 target over notes that merely repeat common words, and Hangul bigrams close the
 gap for Korean without language tooling:
