@@ -8,6 +8,56 @@ older ones (noted inline).
 
 ---
 
+## ADR-047 — Write-time near-duplicate advisory (adopted from TDAI)
+
+- **Context.** TencentDB-Agent-Memory does write-time dedup in two phases:
+  mechanical candidate recall, then LLM judgment. birkin already has the
+  judgment phase (nightly Morpheus); real-vault §5.5 showed near-duplicate
+  drafts are a real retrieval hazard.
+- **Decision.** Adopt only the mechanical half: `memory_write_note` appends
+  an advisory (token-set cosine vs indexed terms — no extra I/O, no LLM):
+  sim ≥ 0.60 → "near-duplicate, consider append/supersede"; ≥ 0.35 →
+  "related, consider memory_link". Never blocks a write. Full comparison and
+  the deferred/rejected list: `docs/tdai-comparison.md`.
+- **Status.** Accepted 2026-07-12. Tests: `tests/test_near_duplicates.py`.
+
+## ADR-046 — Warm codex sessions via `codex app-server`
+
+- **Context.** The codex-cli gateway path was one-shot `codex exec` per
+  message: measured 17.3 s boot / 37.5 s total for a trivial turn.
+- **Decision.** `CodexAppServerSession` (stdlib JSON-RPC over stdio;
+  initialize → thread/start → turn/start → item/* → turn/completed),
+  interface-compatible with `ClaudeStreamSession` so the pool, pre-warm
+  spare, and Telegram streaming apply unchanged. Server-initiated approval
+  requests are auto-DECLINED (a chat gateway never approves writes); the
+  persona/memory preamble rides the thread's first turn; streaming is
+  per-item (codex has no token deltas). Measured: warm turns 2.7–3.2 s
+  (12–14×).
+- **Status.** Accepted 2026-07-12. `birkin/codex_session.py`;
+  measurements in `docs/hermes-comparison.md` §6.
+
+## ADR-045 — Gateway latency: stream, clean children, cap thinking, pre-warm
+
+- **Context.** Same model as hermes but 6–15× slower perceived: measured
+  decomposition showed API time was 2.6–3.9 s while hooks (3–6 s/turn),
+  default thinking (2.8 s), waiting for the `result` event (5–7 s), and a
+  ~28 s cold start (7.4 s of SessionStart hooks) made up the rest — the
+  gateway was inheriting the user's *interactive* environment into a
+  headless service.
+- **Decision.** Four fixes, all config-gated with fast defaults:
+  (1) token-delta streaming (`--include-partial-messages`) surfaced through
+  `Gateway.handle(on_text)` into Telegram edit-streaming (`_Streamer`, 1.5 s
+  throttle, formatted finalize as the delivery of record);
+  (2) `gateway_clean_hooks` — children run `--settings {disableAllHooks}`
+  (MCP still inherited); (3) `gateway_thinking_tokens` (default 0) →
+  `MAX_THINKING_TOKENS`; (4) `gateway_prewarm` — one fungible spare adopted
+  by the first new conversation, re-warmed in the background, discarded on
+  restart/shutdown. Measured after: warm TTFT 8 s → 1.0 s, warm total
+  13–16.6 s → 2.3 s.
+- **Status.** Accepted 2026-07-12. Tests:
+  `tests/test_gateway_latency_fixes.py`; measurements in
+  `docs/hermes-comparison.md` §6.
+
 ## ADR-044 — Snippets are a preview layer, not a body replacement (token diet)
 
 - **Context.** Per-query context injection decomposed as: opened note bodies

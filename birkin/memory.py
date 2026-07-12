@@ -240,7 +240,11 @@ class VaultMemory:
     def search(self, query: str, limit: int = 8) -> list[dict[str, Any]]:
         """Index-backed search (BM25 × dynamics × zone priority). Reads only
         the top ``limit`` note files for snippets — never the whole vault."""
-        terms = [t for t in re.split(r"\s+", query.lower()) if t]
+        # tokenize() (not whitespace split) so the snippet finder sees the
+        # SAME tokens BM25 matched on — for Korean that means Hangul bigrams,
+        # which DO occur literally in the body ("안녕" in "안녕하십니까"),
+        # while the whole query word often does not.
+        terms = tokenize(query)
         out: list[dict[str, Any]] = []
         for h in self.dex.search(query, limit=limit):
             body = h["summary"]
@@ -279,12 +283,13 @@ class VaultMemory:
         out: list[tuple[str, float]] = []
         seen: set[str] = set()
         query = f"{title} {body[:400]}"
+        entries = self.dex.entries()   # one refresh/copy, not one per candidate
         for h in self.dex.search(query, limit=limit + 2):
             slug = h["slug"]
             if slug == self_slug or slug in seen:
                 continue
             seen.add(slug)
-            terms = set((self.dex.entries().get(slug) or {}).get("terms", {}))
+            terms = set((entries.get(slug) or {}).get("terms", {}))
             if not terms:
                 continue
             sim = len(new_tokens & terms) / math.sqrt(len(new_tokens)
@@ -620,8 +625,11 @@ def _snippet(text: str, terms: list[str] | str, width: int = 240) -> str:
             j += 1
         if len(inwin) > best_distinct:
             best_distinct, best_start = len(inwin), hits[j][0]
+    # The winning window's content spans [best_start, best_start + width);
+    # the left context pad must EXTEND the slice, not shift it, or the
+    # right-edge hit that made this window best falls off the end.
     start = max(0, best_start - width // 8)
-    return text[start:start + width].replace("\n", " ").strip()
+    return text[start:best_start + width].replace("\n", " ").strip()
 
 
 def _title_from(note: str) -> str:

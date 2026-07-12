@@ -150,7 +150,14 @@ class TelegramChannel(Channel):
                 self._send_chunk(chat_id, tg_format.to_plain(chunk))
 
     def _send_plain(self, chat_id: str, text: str) -> str | None:
-        """Send one plain message; return its message_id (for later edits)."""
+        """Send one plain message; return its message_id (for later edits).
+
+        Known tradeoff: if Telegram accepts the send but the RESPONSE is lost
+        (timeout after delivery), we return None, streaming stops, and the
+        finalize path sends the full reply as a fresh message — a possible
+        duplicate. sendMessage has no idempotency key; we bias toward
+        guaranteed delivery over deduplication.
+        """
         try:
             res = self._call("sendMessage", {"chat_id": chat_id, "text": text})
         except Exception as exc:
@@ -162,14 +169,26 @@ class TelegramChannel(Channel):
 
     def _edit(self, chat_id: str, message_id: str, text: str,
               parse_mode: str | None = None) -> bool:
+        """Edit a message. Returns True when the target message now shows
+        ``text`` — including Telegram's 400 "message is not modified", which
+        means the displayed content ALREADY equals what we wanted. Genuine
+        failures (flood control, bad entities, network) return False so the
+        caller's fallback chain still delivers."""
         params: dict[str, Any] = {"chat_id": chat_id,
                                   "message_id": message_id, "text": text}
         if parse_mode:
             params["parse_mode"] = parse_mode
         try:
             return bool(self._call("editMessageText", params).get("ok"))
+        except urllib.error.HTTPError as exc:
+            try:
+                desc = str(json.loads(exc.read().decode("utf-8", "replace"))
+                           .get("description", ""))
+            except Exception:
+                desc = ""
+            return "message is not modified" in desc.lower()
         except Exception:
-            return False   # cosmetic mid-stream edit; finalize still delivers
+            return False   # network etc. — let the fallback chain deliver
 
     def _finalize_stream(self, chat_id: str, streamer: "_Streamer",
                          reply: str) -> None:
@@ -192,15 +211,13 @@ class TelegramChannel(Channel):
             return
         mid = streamer.message_id
         first = chunks[0]
+        # _edit treats "message is not modified" as success, so this chain is
+        # a straight escalation: HTML edit -> plain edit -> fresh message.
         if not (first_html and self._edit(chat_id, mid, first,
                                           parse_mode="HTML")):
             plain = tg_format.to_plain(first) if first_html else first
-            # An edit with UNCHANGED text returns ok=False ("message is not
-            # modified") — that's a success for delivery purposes, so only
-            # resend if the preview text actually differs from the final.
-            if plain.strip() != streamer.text().strip():
-                if not self._edit(chat_id, mid, plain):
-                    self._send_chunk(chat_id, plain)
+            if not self._edit(chat_id, mid, plain):
+                self._send_chunk(chat_id, plain)
         for chunk in chunks[1:]:
             if not (first_html and self._send_chunk(chat_id, chunk,
                                                     parse_mode="HTML")):

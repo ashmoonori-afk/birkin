@@ -179,16 +179,19 @@ class ClaudeStreamSession:
     def start(self) -> None:
         """Spawn the process and begin draining stdout/stderr into the queue."""
         self._terminate(mark_closed=False)  # tear down any prior proc; stay open
-        argv = self._build_argv()  # also materializes the system-prompt temp file
         # Bounded so a long, --verbose turn can't grow stdout/stderr without limit.
         q: "queue.Queue[tuple[str, Optional[str]]]" = queue.Queue(maxsize=2048)
         try:
+            # _build_argv materializes the sys-prompt/settings temp files, so
+            # its own failures (e.g. cli_argv's metacharacter ValueError) must
+            # clean them up too — not just a Popen failure.
+            argv = self._build_argv()
             self._proc = subprocess.Popen(
                 argv, stdin=subprocess.PIPE, stdout=subprocess.PIPE,
                 stderr=subprocess.PIPE, text=True, bufsize=1, encoding="utf-8",
                 errors="replace", cwd=self.cwd, env=self.child_env())
-        except OSError:
-            self._cleanup_sys_file()  # don't leak the temp file if spawn fails
+        except (OSError, ValueError):
+            self._cleanup_sys_file()  # don't leak temp files on any failure
             raise
         self._q = q
         # The queue is passed BY VALUE to each drain thread: on a later restart()
@@ -333,7 +336,10 @@ class ClaudeStreamSession:
         deadline = time.monotonic() + (timeout or self.turn_timeout)
         try:
             self._send(text)
-        except (OSError, BrokenPipeError, AssertionError) as exc:
+        except (OSError, BrokenPipeError, AssertionError, ValueError) as exc:
+            # ValueError covers "I/O operation on closed file": a concurrent
+            # close()/reset() (gateway shutdown/restart) closes stdin before
+            # _proc is nulled — route it through the graceful session path.
             raise ClaudeSessionError(f"send failed: {exc}") from exc
 
         final_text = ""

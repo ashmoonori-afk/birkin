@@ -1,18 +1,21 @@
 # birkin — Build Status
 
-> Snapshot: 2026-07-12 · **640+ tests, green** (≥75 % coverage gate) · Newest:
-> **token diet** (ADR-044) — `memory_search` multi-term best-window snippets,
-> `related` capped at 3, digest default 25→10; snippet-replaces-body rejected
-> by e2e (accuracy halves — snippets are a preview layer, full reads stay
-> on-demand). Before that: **ranking-v2** (ADR-043) — tuned lexical stack
-> (query-side idf, user-turn field, date prior) reaches embedding-hybrid
-> **parity** on LongMemEval (0.900/0.977/0.933 vs 0.894/0.977/0.931) with no
-> encoder; **paper v4** (ADR-042) — all 5 review-mandated experiments run and
-> reported honestly (n=10 CIs, hidden fixture B ranking reversal, real-vault
-> "structure moves, top-k does not", dense-strong truncation-artifact
-> finding, context-token costs 9.1×/371×); **daemon layer** — session pool
-> (idle-TTL/LRU), run ledger, per-model gateway presets, CLI streaming.
-> Research log: [`ranking-v2-plan.md`](./ranking-v2-plan.md).
+> Snapshot: 2026-07-12 (evening) · **660+ tests, green** (≥75 % coverage
+> gate) · Newest: **full-code-review fixes** — 11 confirmed bugs closed
+> (Telegram not-modified/failure conflation, Korean snippet token mismatch,
+> snippet window right-edge truncation, stale pre-restart spare, half-init
+> codex zombie, closed-stdin ValueError escape, codex model-name TOML
+> injection, per-candidate vault rescans, temp-file leak, notification-queue
+> restart bleed, preamble loss) — all regression-pinned. Before that:
+> **gateway latency** (ADR-045) — warm turns 13–16 s → **2.3 s** (claude) via
+> Telegram edit-streaming + clean-hooks children + thinking knob + pre-warm;
+> **CodexAppServerSession** (ADR-046) — warm codex turns 37.5 s → **3 s**;
+> **TDAI adoption** (ADR-047) — write-time near-duplicate advisory;
+> **token diet** (ADR-044); **ranking-v2 parity** (ADR-043,
+> 0.900/0.977/0.933); **paper v4** (ADR-042). Research logs:
+> [`ranking-v2-plan.md`](./ranking-v2-plan.md) ·
+> [`hermes-comparison.md`](./hermes-comparison.md) ·
+> [`tdai-comparison.md`](./tdai-comparison.md).
 >
 > Previous snapshot (2026-07-02): **591 tests, 0 failures** (first fully-green tree;
 > the 5 stale gateway/web-fetch tests were repaired per ADR-041) · coverage

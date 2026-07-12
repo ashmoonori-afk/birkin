@@ -52,6 +52,25 @@ def test_search_snippet_covers_multiword_query(tmp_path):
     assert "rsync" in snip and "staging" in snip
 
 
+def test_korean_query_snippet_finds_bigram_matched_passage(tmp_path):
+    # BM25 matches Korean via Hangul bigrams; the snippet finder must search
+    # with the SAME tokens or it falls back to an irrelevant head-of-note.
+    mem = VaultMemory({"vault_path": str(tmp_path)})
+    mem.write_note("인사말 노트", FILLER + " 손님에게는 안녕하십니까 라고 "
+                   "정중하게 인사한다. " + FILLER)
+    hits = mem.search("안녕하세요", limit=3)
+    assert hits, "bigram match should find the note"
+    assert "안녕" in hits[0]["snippet"]      # the matched passage, not the head
+
+
+def test_window_keeps_the_right_edge_term():
+    # regression: the left context pad must not push the right-edge hit out
+    left = "alpha " + "x" * 200 + " beta"    # alpha..beta ~206 chars apart
+    text = FILLER + left + FILLER
+    s = _snippet(text, ["alpha", "beta"], width=240)
+    assert "alpha" in s.lower() and "beta" in s.lower()
+
+
 def test_search_related_capped_at_three(tmp_path):
     # token diet D1: only a note's 3 closest links ride along in results
     mem = VaultMemory({"vault_path": str(tmp_path)})

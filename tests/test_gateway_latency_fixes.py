@@ -180,6 +180,26 @@ def test_spare_session_adopted_once(tmp_path, monkeypatch):
     assert gw._spare is None          # adopted exactly once
 
 
+class _ClosableFake(_FakeAskSession):
+    def __init__(self):
+        super().__init__()
+        self.closed = False
+
+    def close(self):
+        self.closed = True
+
+
+def test_restart_discards_the_stale_spare(tmp_path, monkeypatch):
+    # regression: the spare carries a PRE-restart persona/config snapshot
+    gw = _gateway(tmp_path, monkeypatch)
+    stale = _ClosableFake()
+    gw._spare = stale
+    with gw._lock:
+        gw.restart()
+    assert stale.closed is True
+    assert gw._spare is not stale
+
+
 def test_clean_hooks_and_thinking_knob_reach_the_child(tmp_path, monkeypatch):
     gw = _gateway(tmp_path, monkeypatch)
     s = gw._build_claude_session()
@@ -219,6 +239,29 @@ def test_streamer_finalize_fallback_when_nothing_streamed():
     st = _Streamer(lambda t: "m1", lambda m, t: True, clock=_Clock())
     assert st.message_id is None
     assert st.text() == ""
+
+
+def test_edit_treats_not_modified_as_success_and_400_as_failure(monkeypatch):
+    # regression: a masked genuine failure used to skip the delivery fallback
+    import io
+    import urllib.error
+    from birkin.gateway.channels.telegram import TelegramChannel
+
+    ch = TelegramChannel("tok")
+
+    def raise_http(desc):
+        def _call(method, params, timeout=60):
+            body = json.dumps({"ok": False, "description": desc}).encode()
+            raise urllib.error.HTTPError("u", 400, "Bad Request", {},
+                                         io.BytesIO(body))
+        return _call
+
+    monkeypatch.setattr(ch, "_call",
+                        raise_http("Bad Request: message is not modified"))
+    assert ch._edit("c", "m", "same text") is True     # already displayed
+    monkeypatch.setattr(ch, "_call",
+                        raise_http("Bad Request: can't parse entities"))
+    assert ch._edit("c", "m", "<b>bad") is False       # real failure -> fallback
 
 
 # -- CodexAppServerSession protocol (no subprocess) ---------------------------
@@ -267,11 +310,58 @@ def test_codex_reader_declines_server_requests_and_routes_replies():
                      "params": {"command": "rm -rf /"}}),
         _json.dumps({"method": "item/completed", "params": {}}), # notification
     ]
-    s._read_stdout(lines)
+    s._read_stdout(lines, s._notes)
     assert rq.get_nowait()["result"] == {"ok": True}
     assert declined == [{"id": 99, "result": {"decision": "denied"}}]
     assert s._notes.get_nowait()["method"] == "item/completed"
     assert s._notes.get_nowait() is None      # sentinel after pipe end
+
+
+def test_codex_reader_writes_to_its_own_queue_not_the_current_one():
+    # restart isolation: a slow reader from a KILLED process must keep
+    # writing to its (abandoned) queue, never into the fresh turn's queue
+    from birkin.codex_session import CodexAppServerSession
+    import json as _json
+    import queue as _queue
+    s = CodexAppServerSession()
+    old_q: "_queue.Queue" = _queue.Queue()
+    s._notes = _queue.Queue()                 # the "new process" queue
+    s._read_stdout([_json.dumps({"method": "item/completed", "params": {}})],
+                   old_q)                     # old reader drains into old_q
+    assert old_q.get_nowait()["method"] == "item/completed"
+    assert old_q.get_nowait() is None
+    assert s._notes.empty()                   # new queue untouched
+
+
+def test_codex_unsafe_model_name_is_rejected():
+    from birkin.codex_session import CodexAppServerSession, CodexSessionError
+    import pytest
+    s = CodexAppServerSession(model='gpt"5\", sandbox_permissions=[]')
+    with pytest.raises(CodexSessionError):
+        s._build_argv()
+    ok = CodexAppServerSession(model="gpt-5.3-codex-spark")
+    assert 'model="gpt-5.3-codex-spark"' in " ".join(ok._build_argv())
+
+
+def test_closed_stdin_surfaces_as_session_error_not_valueerror():
+    # concurrent close() closes stdin before _proc is nulled; a mid-turn
+    # send must raise the graceful session error, not a raw ValueError
+    import io
+    from birkin.codex_session import CodexAppServerSession, CodexSessionError
+    import pytest
+
+    class _P:
+        def __init__(self):
+            self.stdin = io.StringIO()
+            self.stdin.close()
+
+        def poll(self):
+            return None
+    s = CodexAppServerSession()
+    s._proc = _P()
+    with pytest.raises(CodexSessionError):
+        s._send({"method": "x"})
+    s._proc = None
 
 
 def test_codex_agent_text_extraction():

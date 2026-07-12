@@ -247,6 +247,13 @@ class Gateway:
         assert self._lock.locked(), "restart() must be called holding self._lock"
         self._claude_sessions.clear()   # the pool closes every session
         self._chats.clear()
+        # The pre-warmed spare carries a PRE-restart persona/config snapshot —
+        # discard it (mirror shutdown()) or the next new conversation would
+        # silently adopt stale state, contradicting this method's promise.
+        with self._spare_lock:
+            spare, self._spare = self._spare, None
+        if spare is not None:
+            spare.close()
         cfg = config.load_config()
         if cfg.get("gateway_model"):
             cfg = {**cfg, "model": cfg["gateway_model"]}
@@ -259,6 +266,7 @@ class Gateway:
             self.session = build_session(cfg)
         except ConfigError as exc:
             return f"[restart] config error: {exc}"
+        self.prewarm()   # rebuild the spare from the RELOADED config
         return ("♻️ Gateway restarted — reloaded config, persona, memory and "
                 "skills; warm sessions cleared (conversations start fresh).\n\n"
                 + _BACK_GREETING)

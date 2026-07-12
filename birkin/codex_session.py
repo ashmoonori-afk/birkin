@@ -34,6 +34,7 @@ import itertools
 import json
 import os
 import queue
+import re
 import subprocess
 import threading
 import time
@@ -42,6 +43,8 @@ from typing import Any, Callable, Optional
 from .proc import cli_argv, kill_tree
 
 StreamCallback = Optional[Callable[[str], None]]
+
+_MODEL_RE = re.compile(r"[A-Za-z0-9._:-]+")
 
 
 class CodexSessionError(RuntimeError):
@@ -80,7 +83,13 @@ class CodexAppServerSession:
     def _build_argv(self) -> list[str]:
         parts = ["codex", "app-server"]
         if self.model:
-            # -c overrides ~/.codex/config.toml; value parsed as TOML.
+            # -c overrides ~/.codex/config.toml; value parsed as TOML. The
+            # model name is interpolated into a quoted TOML string, so only a
+            # conservative charset is allowed (a `"` would break the parse —
+            # reachable via /models, which accepts any string for codex).
+            if not _MODEL_RE.fullmatch(self.model):
+                raise CodexSessionError(
+                    f"unsafe codex model name: {self.model!r}")
             parts += ["-c", f'model="{self.model}"']
         return cli_argv(parts)
 
@@ -98,23 +107,37 @@ class CodexAppServerSession:
                 cwd=self.cwd, env=dict(os.environ))
         except OSError as exc:
             raise CodexSessionError(f"failed to spawn codex app-server: {exc}")
+        # Fresh queue per process, passed BY VALUE to the reader thread: a
+        # slow reader from a killed predecessor keeps writing into ITS queue,
+        # never into the new turn's (same pattern as claude_session).
+        notes: "queue.Queue[Optional[dict]]" = queue.Queue()
+        self._notes = notes
         threading.Thread(target=self._read_stdout,
-                         args=(self._proc.stdout,), daemon=True).start()
-        self.request("initialize", {
-            "clientInfo": {"name": "birkin", "title": "birkin gateway",
-                           "version": "1.0"},
-            "capabilities": {}}, timeout=self.startup_timeout)
-        self._notify("initialized")
-        result = self.request("thread/start",
-                              {"cwd": self.cwd or os.getcwd()},
-                              timeout=self.startup_timeout)
-        thread_obj = result.get("thread") or {}
-        # Field name has moved across codex versions — accept every spelling.
-        self._thread_id = (thread_obj.get("id") or thread_obj.get("sessionId")
-                           or result.get("sessionId") or result.get("threadId"))
-        if not self._thread_id:
-            raise CodexSessionError(
-                f"thread/start returned no thread id (keys: {sorted(result)})")
+                         args=(self._proc.stdout, notes), daemon=True).start()
+        try:
+            self.request("initialize", {
+                "clientInfo": {"name": "birkin", "title": "birkin gateway",
+                               "version": "1.0"},
+                "capabilities": {}}, timeout=self.startup_timeout)
+            self._notify("initialized")
+            result = self.request("thread/start",
+                                  {"cwd": self.cwd or os.getcwd()},
+                                  timeout=self.startup_timeout)
+            thread_obj = result.get("thread") or {}
+            # Field name has moved across codex versions — accept them all.
+            self._thread_id = (thread_obj.get("id")
+                               or thread_obj.get("sessionId")
+                               or result.get("sessionId")
+                               or result.get("threadId"))
+            if not self._thread_id:
+                raise CodexSessionError(
+                    f"thread/start returned no thread id "
+                    f"(keys: {sorted(result)})")
+        except Exception:
+            # A half-initialized child must not linger: is_alive() would lie
+            # and the next ask() would send turn/start with threadId=None.
+            self._terminate(mark_closed=False)
+            raise
         self._sent_preamble = False
 
     def _terminate(self, *, mark_closed: bool) -> None:
@@ -156,9 +179,17 @@ class CodexAppServerSession:
     def _send(self, obj: dict) -> None:
         if self._proc is None or self._proc.stdin is None:
             raise CodexSessionError("no live codex process to send to")
-        with self._stdin_lock:
-            self._proc.stdin.write(json.dumps(obj, ensure_ascii=False) + "\n")
-            self._proc.stdin.flush()
+        try:
+            with self._stdin_lock:
+                self._proc.stdin.write(json.dumps(obj, ensure_ascii=False)
+                                       + "\n")
+                self._proc.stdin.flush()
+        except (OSError, BrokenPipeError, ValueError) as exc:
+            # ValueError covers "I/O operation on closed file": close()/
+            # reset() from another thread (gateway shutdown/restart) closes
+            # stdin before _proc is nulled — surface it as the graceful
+            # session error, not a raw ValueError.
+            raise CodexSessionError(f"send failed: {exc}") from exc
 
     def _notify(self, method: str, params: Optional[dict] = None) -> None:
         self._send({"method": method, "params": params or {}})
@@ -184,7 +215,7 @@ class CodexAppServerSession:
                 f"{method} failed: {err.get('message')} ({err.get('code')})")
         return msg.get("result") or {}
 
-    def _read_stdout(self, pipe: Any) -> None:
+    def _read_stdout(self, pipe: Any, notes: "queue.Queue") -> None:
         try:
             for line in pipe:
                 try:
@@ -204,17 +235,18 @@ class CodexAppServerSession:
                 elif "id" in msg and "method" in msg:
                     # Server-initiated request = an approval ask. A headless
                     # gateway never approves writes: decline immediately.
+                    # Never let a decline failure kill the reader thread.
                     try:
                         self._send({"id": msg["id"],
                                     "result": {"decision": "denied"}})
-                    except CodexSessionError:
+                    except Exception:
                         pass
                 elif "method" in msg:
-                    self._notes.put(msg)
+                    notes.put(msg)
         except (ValueError, OSError):
             pass
         finally:
-            self._notes.put(None)          # sentinel: stdout closed
+            notes.put(None)                # sentinel: THIS pipe closed
 
     # -- one turn ----------------------------------------------------------
 
@@ -251,13 +283,18 @@ class CodexAppServerSession:
                 break
             if stale is None:
                 raise CodexSessionError("codex process exited unexpectedly")
-        if self.preamble and not self._sent_preamble:
+        carries_preamble = bool(self.preamble) and not self._sent_preamble
+        if carries_preamble:
             text = (f"<system-context>\n{self.preamble}\n</system-context>\n\n"
                     + text)
-            self._sent_preamble = True
         self.request("turn/start", {
             "threadId": self._thread_id,
             "input": [{"type": "text", "text": text}]})
+        if carries_preamble:
+            # Only mark delivered once turn/start was ACCEPTED — if it raises
+            # (timeout on a live process), the next turn re-attaches the
+            # persona/memory block instead of silently dropping it forever.
+            self._sent_preamble = True
         deadline = time.monotonic() + (timeout or self.turn_timeout)
         final = ""
         streamed = 0
