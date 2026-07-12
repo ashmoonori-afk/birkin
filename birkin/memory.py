@@ -251,10 +251,12 @@ class VaultMemory:
                 body = parsed or body
             except OSError:
                 pass
+            # related capped at 3 — the §5.5 top-k link policy: beyond a
+            # note's closest neighbors, extra links are injection dead weight.
             out.append({"title": h["slug"],
                         "snippet": _snippet(body, terms),
                         "zone": h["zone"] or "inbox",
-                        "related": [_slug(t) for t in h["links"]]})
+                        "related": [_slug(t) for t in h["links"][:3]]})
         return out
 
     def add_link(self, from_title: str, to_title: str) -> bool:
@@ -288,10 +290,15 @@ class VaultMemory:
 
     # -- prompt digest -----------------------------------------------------
 
-    def render(self, limit: int = 25) -> str:
+    def render(self, limit: int = 10) -> str:
         """Zone-aware digest for the system prompt: identity first, then
         zones by priority (effective strength orders notes inside a zone),
-        inbox last as a standing filing nudge. ``_archive`` is excluded."""
+        inbox last as a standing filing nudge. ``_archive`` is excluded.
+
+        Default trimmed 25 -> 10 (token diet D4): the digest is a map, not
+        the territory — beyond identity + the hottest notes, agents reach
+        for memory_search anyway, and each digest line costs every turn.
+        """
         dex = self.dex
         now = datetime.now(timezone.utc)
         by_zone: dict[str, list[tuple[float, dict[str, Any]]]] = {}

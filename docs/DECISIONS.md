@@ -4,7 +4,57 @@ Lightweight architecture decision records. Each entry: context, decision,
 rationale, alternatives considered, status. Newest decisions may supersede
 older ones (noted inline).
 
-> Last updated: 2026-07-02
+> Last updated: 2026-07-12
+
+---
+
+## ADR-044 — Snippets are a preview layer, not a body replacement (token diet)
+
+- **Context.** Per-query context injection decomposed as: opened note bodies
+  71 %, result metadata 15 %, digest 14 % (`bench_token_diet.py`). The
+  tempting fix — inject best-window snippets instead of bodies — cuts context
+  ×14.7 but **halves e2e answer accuracy** (0.417 → 0.233, abstentions
+  4 → 26/60; `bench_snippet_e2e.py`): the answer sentence too often falls
+  outside any fixed window.
+- **Decision.** `memory_search` snippets upgraded to multi-term best-window
+  (240 chars, densest span of distinct query terms); `memory_get_note` stays
+  full-text on demand. `related` capped at 3 (the §5.5 top-k link policy);
+  digest default 25 → 10 notes. 8k tokens/query is the pay-when-needed cost
+  of answers, not removable overhead.
+- **Alternatives.** Snippet-only injection (rejected by e2e); capping
+  `get_note` (rejected: breaks the explicit-read contract).
+- **Status.** Accepted 2026-07-12. Tests: `tests/test_snippet.py`.
+
+## ADR-043 — Tuned lexical ranking reaches embedding-hybrid parity
+
+- **Context.** dense-strong (review-driven, 470 questions) showed the dense
+  gap was a truncation artifact: chunked bge-small ties BM25, and an RRF
+  hybrid buys +0.02 MRR. Can arithmetic alone buy that margin back?
+- **Decision.** Dev-half-tuned, test-half-frozen lexical stack: BM25F
+  user-turn weighting (×3), collection-tuned k1=0.9/b=0.5, **query-side idf
+  weighting** (SMART ltc applied to BM25), relative-date Gaussian prior.
+  Full-470: **0.900/0.977/0.933** vs hybrid 0.894/0.977/0.931 — parity with
+  no encoder. Claim held at *parity, not dominance* (test half alone is
+  −0.009 R@1). Not yet wired into production `Mnemosyne.search`
+  (needs Korean + interference regressions first).
+- **Rejected on dev** (recorded so nobody retries blind): lexical chunk
+  max-pooling, span proximity (global and tie-break), RM3, bigram phrase
+  field.
+- **Status.** Accepted 2026-07-11. Log: `docs/ranking-v2-plan.md`;
+  harness: `benchmarks/sweep2_ranking_v2.py`.
+
+## ADR-042 — Paper claims are review-scoped: measurements over mechanisms
+
+- **Context.** A Weak-Reject review demanded 5 experiments and claim
+  narrowing; all were run (n=10 CIs, hidden fixture B, real-vault study,
+  weight sensitivity, dense-strong) and the paper revised end to end.
+- **Decision.** Standing rules for the paper: (1) every ingredient gets
+  prior-art attribution ([26] Salton & Buckley, [27] Li & Croft, [8]'s own
+  time-aware retrieval); (2) "Provider-Portable", never "Model-Agnostic";
+  (3) negative results (fixture-B ranking reversal, snippet e2e, curation
+  does-not-move-top-k) are reported in the main text, not hidden; (4) fixture
+  B stays frozen — no engine reruns, ever.
+- **Status.** Accepted 2026-07-11. Paper: `docs/paper/mnemosyne-paper.md`.
 
 ---
 

@@ -286,10 +286,21 @@ newline, inline `/`-dropdown.
 
 ## 🧠 Memory & 🗣️ Persona
 
-**Memory** lives at `~/.birkin/vault` — sourced markdown notes with `type`,
-`polarity` (positive / known-failure), `version` (optimistic lock), TTL, and
-`[[wikilinks]]`. Tools: `memory_search`, `memory_get_note`, `memory_write_note`,
-`memory_link`. Set `evidence_required: true` to refuse sourceless notes.
+**Memory** is **Mnemosyne** — a zero-dependency memory palace at
+`~/.birkin/vault`: markdown notes in **zone** directories, an inverted index
+with **Okapi BM25** (+ Hangul bigrams), an **Ebbinghaus forgetting curve**
+wired into ranking, and nightly **CurationPlan/1** reorganization where the
+model only *proposes* a typed JSON plan and a deterministic executor clamps
+it under file-safety invariants (never-delete, archive cap, protected notes,
+path containment). Notes carry `type`, `polarity` (positive / known-failure),
+`version` (optimistic lock), TTL, and `[[wikilinks]]`. Tools:
+`memory_search` (multi-term best-window snippets — a cheap preview layer),
+`memory_get_note` (full text, on demand), `memory_write_note`, `memory_link`.
+Set `evidence_required: true` to refuse sourceless notes.
+
+Measured (see 📄 Research below): retrieval at **parity with a tuned
+embedding hybrid, with no encoder at all**, and per-query context cost
+**371× below** loading the vault wholesale.
 
 **Persona** is `~/.birkin/SOUL.md` — a warm, editable voice injected into every
 surface (read fresh each turn in the REPL; on session start in the gateway).
@@ -375,18 +386,41 @@ none. A key in `config.json` is stored `chmod 600`.
 
 ---
 
+## 📄 Research
+
+The memory engine is written up as a paper — *Birkin-Mnemosyne: A
+Zero-Dependency Lexical Memory Palace with Safe, Provider-Portable Curation
+for Personal LLM Agents* — with a reproducible benchmark harness under
+[`benchmarks/`](./benchmarks). Headline measurements (LongMemEval-S session
+retrieval, 470 questions, one harness):
+
+| system | R@1 | R@5 | MRR |
+|---|---|---|---|
+| BM25 + bigram (ours) | 0.870 | 0.968 | 0.910 |
+| best embedding hybrid (RRF k=20, chunked bge) | 0.894 | 0.977 | 0.931 |
+| **tuned lexical stack (ours — no encoder)** | **0.900** | **0.977** | **0.933** |
+
+Also measured: curation accuracy across engines (n=10, bootstrap CIs — plus a
+hidden second fixture that *reverses* the engine ranking, reported rather
+than hidden); a real 1,910-note vault study (curation moves structure, not
+top-k); context-token cost (retrieval top-5 is **9.1× cheaper** than
+long-context, **371×** cheaper than wholesale vault loading); and honest
+negatives (snippets cannot replace full-note reads — ×14.7 cheaper but e2e
+accuracy halves). Research log: [`docs/ranking-v2-plan.md`](./docs/ranking-v2-plan.md).
+
+---
+
 ## 🛠️ Where birkin sits today
 
-- **520 tests** passing offline (no API key, `pytest`), **54 bundled skills**,
-  **0 runtime dependencies**, Python 3.10+.
-- Free + fast gateway (warm persistent Claude, ~3s), Neurosis deep-interview,
-  auto-save → memory, company MCP, company-grade security hardening.
-- Rationale per decision: [`docs/DECISIONS.md`](./docs/DECISIONS.md) (ADRs
-  001–039). Live status: [`docs/STATUS.md`](./docs/STATUS.md). Comparison:
+- **640+ tests** passing offline (no API key, `pytest`, ≥75 % coverage gate),
+  **54 bundled skills**, **0 runtime dependencies**, Python 3.10+.
+- Free + fast gateway (warm persistent Claude, ~3s, live streaming), Neurosis
+  deep-interview, auto-save → Morpheus nightly memory, company MCP,
+  company-grade security hardening, daemon resource layer (session pool with
+  idle-TTL/LRU, run ledger, per-model gateway presets).
+- Rationale per decision: [`docs/DECISIONS.md`](./docs/DECISIONS.md). Live
+  status: [`docs/STATUS.md`](./docs/STATUS.md). Comparison:
   [`docs/COMPARISON.md`](./docs/COMPARISON.md).
-- **Planned (v2):** [`docs/v2.md`](./docs/v2.md) — Model Router, Hashline edits,
-  IntentGate, Prompt-Gate, **Osiris** verifier, **Boulder** state, and the
-  on-demand **Odyssey** goal-completion cycle (borrowed from oh-my-openagent).
 
 ---
 

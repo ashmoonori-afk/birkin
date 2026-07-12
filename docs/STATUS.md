@@ -1,6 +1,20 @@
 # birkin — Build Status
 
-> Snapshot: 2026-07-02 · **591 tests, 0 failures** (first fully-green tree;
+> Snapshot: 2026-07-12 · **640+ tests, green** (≥75 % coverage gate) · Newest:
+> **token diet** (ADR-044) — `memory_search` multi-term best-window snippets,
+> `related` capped at 3, digest default 25→10; snippet-replaces-body rejected
+> by e2e (accuracy halves — snippets are a preview layer, full reads stay
+> on-demand). Before that: **ranking-v2** (ADR-043) — tuned lexical stack
+> (query-side idf, user-turn field, date prior) reaches embedding-hybrid
+> **parity** on LongMemEval (0.900/0.977/0.933 vs 0.894/0.977/0.931) with no
+> encoder; **paper v4** (ADR-042) — all 5 review-mandated experiments run and
+> reported honestly (n=10 CIs, hidden fixture B ranking reversal, real-vault
+> "structure moves, top-k does not", dense-strong truncation-artifact
+> finding, context-token costs 9.1×/371×); **daemon layer** — session pool
+> (idle-TTL/LRU), run ledger, per-model gateway presets, CLI streaming.
+> Research log: [`ranking-v2-plan.md`](./ranking-v2-plan.md).
+>
+> Previous snapshot (2026-07-02): **591 tests, 0 failures** (first fully-green tree;
 > the 5 stale gateway/web-fetch tests were repaired per ADR-041) · coverage
 > 75.99 %. Newest: **P1 automation pack** (ADR-041) — cron job delivery with
 > the hermes `[SILENT]` convention (`deliver_chat_id` + suppression), **skill

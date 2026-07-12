@@ -272,10 +272,18 @@ birkin web                          # 모니터링 대시보드
 
 ## 🧠 메모리 & 🗣️ 페르소나
 
-**메모리**는 `~/.birkin/vault` — `type`·`polarity`(positive/known-failure)·
-`version`(낙관적 잠금)·TTL·`[[위키링크]]`를 가진 출처 있는 마크다운 노트. 도구:
-`memory_search`·`memory_get_note`·`memory_write_note`·`memory_link`.
-`evidence_required: true`로 출처 없는 노트 거부.
+**메모리**는 **Mnemosyne** — `~/.birkin/vault`의 zero-dependency 기억 궁전:
+**구역(zone)** 디렉터리의 마크다운 노트, **Okapi BM25**(+한글 바이그램) 역색인,
+랭킹에 직접 결합된 **에빙하우스 망각 곡선**, 그리고 모델은 typed JSON 계획만
+*제안*하고 결정적 executor가 파일 안전 불변식(삭제 불가·아카이브 상한·보호
+노트·경로 격리) 아래 집행하는 야간 **CurationPlan/1** 재구성. 노트는
+`type`·`polarity`(positive/known-failure)·`version`(낙관적 잠금)·TTL·
+`[[위키링크]]`를 가짐. 도구: `memory_search`(다중 질의어 밀도 윈도 스니펫 —
+저렴한 미리보기 계층)·`memory_get_note`(전문, 필요할 때만)·`memory_write_note`·
+`memory_link`. `evidence_required: true`로 출처 없는 노트 거부.
+
+실측(아래 📄 연구 참조): **인코더 없이 튜닝 임베딩 하이브리드와 동급** 검색,
+vault 전체 로딩 대비 질의당 컨텍스트 비용 **371× 절감**.
 
 **페르소나**는 `~/.birkin/SOUL.md` — 모든 표면에 주입되는 따뜻하고 편집 가능한
 말투(REPL은 매 턴, 게이트웨이는 세션 시작 시). `/personality warm|concise|mentor|
@@ -360,18 +368,38 @@ API 키는 환경변수 우선; Claude Code 백엔드는 불필요. config.json�
 
 ---
 
+## 📄 연구
+
+기억 엔진은 논문으로 정리되어 있습니다 — *Birkin-Mnemosyne: A Zero-Dependency
+Lexical Memory Palace with Safe, Provider-Portable Curation for Personal LLM
+Agents* — 재현 가능한 벤치마크 하네스는 [`benchmarks/`](./benchmarks). 대표
+실측(LongMemEval-S 세션 검색, 470문항, 동일 하네스):
+
+| 시스템 | R@1 | R@5 | MRR |
+|---|---|---|---|
+| BM25+바이그램 (우리) | 0.870 | 0.968 | 0.910 |
+| 최강 임베딩 하이브리드 (RRF k=20, 청크 bge) | 0.894 | 0.977 | 0.931 |
+| **튜닝 lexical 스택 (우리 — 인코더 0)** | **0.900** | **0.977** | **0.933** |
+
+추가 실측: 엔진별 큐레이션 정확도(n=10, 부트스트랩 CI — 순위가 뒤집히는 비공개
+2차 fixture까지 은폐 없이 보고), 실제 1,910노트 vault 연구(큐레이션은 구조를
+바꾸지 top-k를 바꾸지 않음), 컨텍스트 토큰 비용(검색 top-5가 long-context 대비
+**9.1× 절감**, vault 전체 로딩 대비 **371×**), 그리고 정직한 부정적 결과
+(스니펫은 전문 열람을 대체 못함 — ×14.7 싸지만 e2e 정확도 반토막). 연구 로그:
+[`docs/ranking-v2-plan.md`](./docs/ranking-v2-plan.md).
+
+---
+
 ## 🛠️ 현재 위치
 
-- 오프라인 **테스트 520개** 통과(API 키 없이), **번들 스킬 54개**, **런타임
-  의존성 0**, Python 3.10+.
-- 무료·빠른 게이트웨이(웜 영속 Claude, ~3초), Neurosis 딥 인터뷰, 자동저장 →
-  기억, 회사 MCP, 회사급 보안 하드닝.
-- 결정 근거: [`docs/DECISIONS.md`](./docs/DECISIONS.md)(ADR 001–039). 라이브
-  상태: [`docs/STATUS.md`](./docs/STATUS.md). 비교:
+- 오프라인 **테스트 640+개** 통과(API 키 없이, 커버리지 게이트 ≥75%), **번들
+  스킬 54개**, **런타임 의존성 0**, Python 3.10+.
+- 무료·빠른 게이트웨이(웜 영속 Claude, ~3초, 실시간 스트리밍), Neurosis 딥
+  인터뷰, 자동저장 → Morpheus 야간 기억, 회사 MCP, 회사급 보안 하드닝, 데몬
+  리소스 레이어(idle-TTL/LRU 세션 풀·run ledger·모델별 게이트웨이 프리셋).
+- 결정 근거: [`docs/DECISIONS.md`](./docs/DECISIONS.md). 라이브 상태:
+  [`docs/STATUS.md`](./docs/STATUS.md). 비교:
   [`docs/COMPARISON.md`](./docs/COMPARISON.md).
-- **계획(v2):** [`docs/v2.md`](./docs/v2.md) — Model Router·Hashline 편집·
-  IntentGate·Prompt-Gate·**Osiris** 검증자·**Boulder** 상태, 그리고 on-demand
-  **Odyssey** 목표-완수 사이클(oh-my-openagent에서 차용).
 
 ---
 

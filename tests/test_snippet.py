@@ -50,3 +50,25 @@ def test_search_snippet_covers_multiword_query(tmp_path):
     assert hits, "note should be found"
     snip = hits[0]["snippet"].lower()
     assert "rsync" in snip and "staging" in snip
+
+
+def test_search_related_capped_at_three(tmp_path):
+    # token diet D1: only a note's 3 closest links ride along in results
+    mem = VaultMemory({"vault_path": str(tmp_path)})
+    for i in range(5):
+        mem.write_note(f"neighbor {i}", "satellite note body " + FILLER)
+    mem.write_note("hub note", "unique anchorterm hub body " + FILLER,
+                   links=[f"neighbor {i}" for i in range(5)])
+    hits = mem.search("anchorterm", limit=3)
+    assert hits and hits[0]["title"] == "hub-note"
+    assert len(hits[0]["related"]) <= 3
+
+
+def test_render_default_is_slim(tmp_path):
+    # token diet D4: digest lists at most 10 notes by default
+    mem = VaultMemory({"vault_path": str(tmp_path)})
+    for i in range(20):
+        mem.write_note(f"note {i}", f"body of note {i} " + FILLER)
+    digest = mem.render()
+    listed = [ln for ln in digest.splitlines() if ln.startswith("- [[")]
+    assert len(listed) <= 10
