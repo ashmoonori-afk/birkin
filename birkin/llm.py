@@ -93,6 +93,10 @@ class LLMClient:
         self.provider = provider
         self.model = model
         self.api_key = api_key
+        # Optional status sink for transient conditions (retry/backoff) so a
+        # stalled turn is explained rather than silent (P1-3). Defaults to a
+        # server-log print; a surface can set it to reach the user.
+        self._status: Callable[[str], None] | None = None
         # When True, authenticate to the Anthropic Messages API with a Claude
         # subscription OAuth token (Bearer + Claude Code identity) instead of a
         # paid x-api-key. Set for the "claude-oauth" provider. Keeps birkin's own
@@ -403,6 +407,18 @@ class LLMClient:
               *, stream: bool, timeout: float = 300.0):
         data = json.dumps(payload).encode("utf-8")
         last_exc: Exception | None = None
+
+        def _wait(why: str, attempt: int) -> None:
+            # Surface the backoff so a stalled turn is explained, not silent
+            # (P1-3): a rate-limited retry otherwise looks like a frozen turn.
+            backoff = 2 ** attempt
+            if self._status is not None:
+                self._status(f"{why} — retrying in {backoff}s ({attempt + 2}/4)")
+            else:
+                print(f"[birkin] {why} — retrying in {backoff}s "
+                      f"({attempt + 2}/4)", flush=True)
+            time.sleep(backoff)
+
         for attempt in range(4):
             req = urllib.request.Request(url, data=data, headers=headers, method="POST")
             try:
@@ -412,14 +428,14 @@ class LLMClient:
                 body = exc.read().decode("utf-8", "replace")
                 # Retry on rate-limit / transient server errors.
                 if exc.code in (429, 500, 502, 503, 529) and attempt < 3:
-                    backoff = 2 ** attempt
-                    time.sleep(backoff)
+                    _wait(f"rate-limited (HTTP {exc.code})" if exc.code == 429
+                          else f"server error (HTTP {exc.code})", attempt)
                     last_exc = LLMError(f"HTTP {exc.code}: {body[:500]}")
                     continue
                 raise LLMError(f"HTTP {exc.code}: {body[:1000]}") from exc
             except urllib.error.URLError as exc:
                 if attempt < 3:
-                    time.sleep(2 ** attempt)
+                    _wait(f"network error ({exc.reason})", attempt)
                     last_exc = LLMError(f"network error: {exc.reason}")
                     continue
                 raise LLMError(f"network error: {exc.reason}") from exc

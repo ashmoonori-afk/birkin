@@ -450,9 +450,12 @@ class Gateway:
                         self._chats[key] = self.session.agent.messages
         except Exception as exc:
             dt = time.monotonic() - t0
+            # Full detail to the server log; a friendly line to the chat —
+            # the raw exception can leak paths/internals to a Telegram user.
             print(f"[gateway] {channel}:{chat_id} ✗ error after {dt:.1f}s: {exc}",
                   flush=True)
-            return f"[error] {exc}"
+            return ("⚠️ 문제가 생겨서 이번 메시지를 처리하지 못했어요. "
+                    "잠시 후 다시 시도해 주세요.")
         dt = time.monotonic() - t0
         print(f"[gateway] {channel}:{chat_id} » {len(reply or '')} chars in {dt:.1f}s",
               flush=True)
