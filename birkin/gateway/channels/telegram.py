@@ -315,6 +315,76 @@ class TelegramChannel(Channel):
         except Exception as exc:
             print(f"[telegram] answerCallbackQuery error: {exc}")
 
+    # -- inbound media (P2-1) -----------------------------------------------
+
+    _MAX_FILE = 20_000_000   # Bot API cloud download cap
+
+    def _incoming_media(self, msg: dict[str, Any]) -> tuple[str, int] | None:
+        """(file_id, size) for a supported attachment, largest photo size, or
+        None. Voice is accepted for download but the agent needs external STT
+        to transcribe it (zero-dep constraint)."""
+        photos = msg.get("photo") or []
+        if photos:  # array of sizes, ascending — take the largest under cap
+            best = max(photos, key=lambda p: p.get("file_size", 0))
+            return best.get("file_id"), int(best.get("file_size", 0))
+        for key in ("document", "voice", "audio", "video"):
+            obj = msg.get(key)
+            if isinstance(obj, dict) and obj.get("file_id"):
+                return obj["file_id"], int(obj.get("file_size", 0))
+        return None
+
+    def _download_media(self, file_id: str) -> str | None:
+        """getFile + download to ~/.birkin/uploads. Returns the saved path or
+        None. Never raises — a failed download degrades to a text note."""
+        import os
+        import urllib.request
+        from ... import config   # birkin package (channels -> gateway -> birkin)
+        try:
+            res = self._call("getFile", {"file_id": file_id}, timeout=20)
+            fp = ((res.get("result") or {}).get("file_path") or "")
+            if not res.get("ok") or not fp:
+                return None
+            up = config.birkin_home() / "uploads"
+            up.mkdir(parents=True, exist_ok=True)
+            # sanitize: keep only the basename, no traversal into other dirs
+            name = os.path.basename(fp.replace("\\", "/")) or file_id
+            dest = up / f"{file_id[:12]}_{name}"
+            url = (f"https://api.telegram.org/file/bot{self.token}/{fp}")
+            with urllib.request.urlopen(url, timeout=60) as r:
+                data = r.read(self._MAX_FILE + 1)
+            if len(data) > self._MAX_FILE:
+                return None
+            dest.write_bytes(data)
+            return str(dest)
+        except Exception as exc:
+            print(f"[telegram] media download failed: {exc}")
+            return None
+
+    def _compose_media_text(self, msg: dict[str, Any]) -> str | None:
+        """Turn an inbound attachment into a text turn the agent can act on:
+        download it and hand the agent the local path (a vision-capable CLI
+        reads an image directly). Returns None if there's no media."""
+        media = self._incoming_media(msg)
+        if media is None:
+            return None
+        file_id, size = media
+        caption = (msg.get("caption") or "").strip()
+        if size and size > self._MAX_FILE:
+            return (caption + "\n" if caption else "") + \
+                "[사용자가 파일을 보냈지만 20MB를 넘어 받을 수 없었어요.]"
+        path = self._download_media(file_id)
+        if not path:
+            return (caption + "\n" if caption else "") + \
+                "[첨부 파일을 받지 못했어요. 다시 보내 주시겠어요?]"
+        is_voice = bool(msg.get("voice") or msg.get("audio"))
+        if is_voice:
+            note = (f"[사용자가 음성 메시지를 보냈습니다: {path}. 음성-텍스트 "
+                    f"변환(STT)은 아직 설정돼 있지 않아 내용은 읽을 수 없어요.]")
+        else:
+            note = (f"[사용자가 파일을 보냈습니다: {path}. 필요하면 파일 읽기 "
+                    f"도구로 열어 보세요. 이미지라면 직접 보고 설명해 주세요.]")
+        return (caption + "\n\n" + note) if caption else note
+
     def _keep_typing(self, chat_id: str, stop: threading.Event) -> None:
         """Show a 'typing…' indicator until ``stop`` is set.
 
@@ -393,10 +463,17 @@ class TelegramChannel(Channel):
                 msg = upd.get("message") or {}
                 chat_id = str(msg.get("chat", {}).get("id", ""))
                 text = msg.get("text", "")
-                if not (chat_id and text):
+                if not chat_id:
                     continue
+                # Access control BEFORE any download — an unauthorized chat must
+                # not make us fetch its files.
                 if self.allowed_chat_ids and chat_id not in self.allowed_chat_ids:
                     print(f"[telegram] ignoring message from unauthorized chat {chat_id}")
+                    continue
+                if not text:
+                    # No text — maybe an attachment (photo/voice/document). P2-1
+                    text = self._compose_media_text(msg) or ""
+                if not text:
                     continue
                 # /pending on a trusted channel renders as inline buttons
                 # here; the gateway's text fallback serves everything else.
