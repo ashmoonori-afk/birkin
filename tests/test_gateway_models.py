@@ -122,3 +122,43 @@ def test_repl_models_select_by_number(tmp_path, monkeypatch):
     assert sess.cfg["provider"] == "anthropic"
     assert sess.cfg["model"] == "claude-sonnet-5"
     assert reloaded["n"] == 1
+
+
+def test_stale_claude_gateway_model_ignored_on_codex(tmp_path, monkeypatch):
+    # regression: gateway_model='sonnet' left over from a claude-cli era
+    # 400'd every codex turn — the wrong-family override must be ignored.
+    monkeypatch.setenv("BIRKIN_HOME", str(tmp_path))
+    from birkin import config
+    from birkin.gateway.core import Gateway
+    config.save_config({**config.DEFAULT_CONFIG, "provider": "codex-cli",
+                        "model": "gpt-5.6-sol", "gateway_model": "sonnet",
+                        "gateway_prewarm": False})
+    g = Gateway(config.load_config())
+    assert g.cfg.get("model") == "gpt-5.6-sol"        # override ignored
+    s = g._build_claude_session()
+    try:
+        assert s.model == "gpt-5.6-sol"               # codex gets a gpt model
+    finally:
+        s.close()
+
+
+def test_matching_gateway_model_still_applies(tmp_path, monkeypatch):
+    monkeypatch.setenv("BIRKIN_HOME", str(tmp_path))
+    from birkin import config
+    from birkin.gateway.core import Gateway
+    config.save_config({**config.DEFAULT_CONFIG, "provider": "codex-cli",
+                        "model": "gpt-5.6-sol",
+                        "gateway_model": "gpt-5.3-codex-spark",
+                        "gateway_prewarm": False})
+    g = Gateway(config.load_config())
+    assert g.cfg.get("model") == "gpt-5.3-codex-spark"  # same family: applied
+
+
+def test_models_command_rejects_wrong_family():
+    from birkin.gateway import core as gw_core
+    assert gw_core._gateway_model_accepted("codex-cli", "sonnet", []) is False
+    assert gw_core._gateway_model_accepted("codex-cli", "claude-opus-4", []) is False
+    assert gw_core._gateway_model_accepted("codex-cli", "gpt-5.6-sol", []) is True
+    assert gw_core._gateway_model_accepted("claude-cli", "gpt-5", ["opus"]) is False
+    assert gw_core._gateway_model_accepted("claude-cli", "sonnet",
+                                           ["opus", "sonnet"]) is True

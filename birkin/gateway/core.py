@@ -59,14 +59,29 @@ def _gateway_model_choices(provider: str) -> tuple[list[str], str]:
     return [], "provider가 지원하는 모델 ID"
 
 
+def _model_fits_provider(provider: str, name: str) -> bool:
+    """A cross-family model name must never reach the wrong CLI: a stale
+    gateway_model='sonnet' left over from a claude-cli era 400s every codex
+    turn ('The sonnet model is not supported when using Codex…')."""
+    n = (name or "").lower()
+    if not n:
+        return False
+    if provider == "codex-cli":
+        return not (n in ("opus", "sonnet", "haiku") or n.startswith("claude"))
+    if provider == "claude-cli":
+        return not n.startswith(("gpt", "codex", "o3", "o4"))
+    return True
+
+
 def _gateway_model_accepted(provider: str, name: str, known: list[str]) -> bool:
     """claude-cli is validated against the known set; other providers pass the
-    model id straight through (codex / the API validate it themselves)."""
+    model id through (codex/the API validate it themselves) — except a name
+    from the WRONG family, which is rejected up front."""
     if not name:
         return False
     if provider == "claude-cli":
         return name in known or name.startswith("claude-")
-    return True
+    return _model_fits_provider(provider, name)
 
 
 def match_command(text: str) -> tuple[str | None, str]:
@@ -136,10 +151,16 @@ class Gateway:
     def __init__(self, cfg: dict[str, Any]):
         # The gateway may use its own (faster) model without affecting the REPL
         # or the nightly routine: config "gateway_model" overrides "model" for
-        # this service only.
+        # this service only. A stale override from ANOTHER provider family
+        # (e.g. 'sonnet' left over after switching to codex-cli) is ignored —
+        # applying it would 400 every turn.
         gw_model = cfg.get("gateway_model")
-        if gw_model:
+        if gw_model and _model_fits_provider(cfg.get("provider", ""), gw_model):
             cfg = {**cfg, "model": gw_model}
+        elif gw_model:
+            print(f"[gateway] ignoring gateway_model={gw_model!r} — wrong "
+                  f"family for provider {cfg.get('provider')!r}; using "
+                  f"model={cfg.get('model')!r}")
         # SECURITY: the gateway is reachable over channels, so a chat message must
         # never reach a Claude process running with --dangerously-skip-permissions.
         # Force the safe access level here regardless of the global config.
@@ -289,7 +310,9 @@ class Gateway:
         if spare is not None:
             spare.close()
         cfg = config.load_config()
-        if cfg.get("gateway_model"):
+        if (cfg.get("gateway_model")
+                and _model_fits_provider(cfg.get("provider", ""),
+                                         cfg["gateway_model"])):
             cfg = {**cfg, "model": cfg["gateway_model"]}
         if cfg.get("cli_access") == "full":
             cfg = {**cfg, "cli_access": "workspace"}
