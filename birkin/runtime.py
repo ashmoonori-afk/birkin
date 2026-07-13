@@ -110,8 +110,12 @@ class Session:
             self.cfg, memory_block=self.memory.render(), extra=extra)
         if self.cfg.get("provider") == "codex-cli":
             from .codex_session import CodexAppServerSession
+            sandbox = ("danger-full-access"
+                       if self.cfg.get("cli_access") == "full"
+                       else "workspace-write")
             return CodexAppServerSession(model=self.cfg.get("model"),
-                                         preamble=system)
+                                         preamble=system, sandbox_mode=sandbox,
+                                         approval_policy="never")
         from .claude_session import ClaudeStreamSession
         return ClaudeStreamSession(
             model=self.cfg.get("model"),

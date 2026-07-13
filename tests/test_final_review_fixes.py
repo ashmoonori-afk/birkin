@@ -136,3 +136,41 @@ def test_memory_count_line_based():
     # 2 results; the second snippet text itself mentions a "- [[" bullet
     body = "- [[a]]: normal\n- [[b]]: see also - [[c]] in text"
     assert memory_activity_line("memory_search", body) == "🧠 recalled 2 note(s)"
+
+
+def test_gateway_codex_is_sandboxed(tmp_path, monkeypatch):
+    monkeypatch.setenv("BIRKIN_HOME", str(tmp_path))
+    from birkin import config
+    from birkin.gateway.core import Gateway
+    # even if the user set cli_access=full globally, the gateway forces workspace
+    config.save_config({**config.DEFAULT_CONFIG, "provider": "codex-cli",
+                        "model": "gpt-5.6-sol", "cli_access": "full",
+                        "gateway_prewarm": False})
+    g = Gateway(config.load_config())
+    s = g._build_claude_session()
+    try:
+        assert s.sandbox_mode == "workspace-write"   # NOT danger-full-access
+        assert s.approval_policy == "never"
+    finally:
+        s.close()
+
+
+def test_approve_claims_before_executing(tmp_path, monkeypatch):
+    # the long action runs OUTSIDE the lock; a concurrent approve mid-exec
+    # sees status='approving' (claimed) and refuses -> no double-run.
+    monkeypatch.setenv("BIRKIN_HOME", str(tmp_path))
+    from birkin import approvals, store
+    rec = store.add_pending(category="skill", title="x", description="",
+                            payload={}, origin="test")
+    seen = {}
+
+    def exec_action(cat, payload):
+        # while we're "executing", the item must already be non-pending
+        seen["status_during"] = store.get_pending(rec["id"])["status"]
+        return "done"
+    monkeypatch.setattr(approvals, "execute_action", exec_action)
+    out = approvals.approve(rec["id"])
+    assert out["ok"] is True
+    assert seen["status_during"] == "approving"       # claimed before exec
+    assert store.get_pending(rec["id"])["status"] == "approved"
+    assert approvals.approve(rec["id"])["ok"] is False  # second tap refused

@@ -113,21 +113,24 @@ def _pending_path(aid: str):
 
 
 def approve(aid: str) -> dict[str, Any]:
-    # Lock the check-execute-resolve so the SAME item can't be approved twice
-    # concurrently (e.g. tapped in Telegram while also approved in the CLI) —
-    # which would run the action twice. Different aids use different locks.
+    # CLAIM under the lock (fast: read + status write), then EXECUTE outside it.
+    # The claim — flipping status away from "pending" — is the gate against a
+    # double-run (same item tapped in Telegram while also approved in the CLI).
+    # Running the action (a shell job can be minutes) INSIDE the lock was the
+    # bug: file_lock proceeds after a 5s timeout / reclaims a 30s-stale lock,
+    # so a long approve could release the gate and let a second run start.
     with store.file_lock(_pending_path(aid)):
         rec = store.get_pending(aid)
         if not rec or rec.get("status") != "pending":
             return {"ok": False, "error": "not found or already resolved"}
-        # An executor that raises must still RESOLVE the item (to "error"), or
-        # the proposal wedges as pending forever — un-actionable from a button.
-        try:
-            result = execute_action(rec["category"], rec.get("payload", {}))
-        except Exception as exc:
-            store.resolve_pending(aid, "error")
-            return {"ok": False, "error": f"action failed: {exc}"}
-        store.resolve_pending(aid, "approved")
+        store.resolve_pending(aid, "approving")     # claim it
+    # From here only the claiming caller runs — no lock needed on this aid.
+    try:
+        result = execute_action(rec["category"], rec.get("payload", {}))
+    except Exception as exc:
+        store.resolve_pending(aid, "error")
+        return {"ok": False, "error": f"action failed: {exc}"}
+    store.resolve_pending(aid, "approved")
     return {"ok": True, "result": result}
 
 

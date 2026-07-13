@@ -58,12 +58,22 @@ class CodexAppServerSession:
                  cwd: Optional[str] = None,
                  preamble: str = "",
                  reasoning_effort: str = "",
+                 sandbox_mode: str = "workspace-write",
+                 approval_policy: str = "never",
                  startup_timeout: float = 90.0,
                  turn_timeout: float = 300.0,
                  request_timeout: float = 30.0):
         self.model = model
         self.cwd = cwd
         self.preamble = preamble
+        # SECURITY: override the user's ~/.codex/config.toml so an exposed
+        # gateway can't inherit sandbox_mode=danger-full-access + network.
+        # Default is the safe cwd-scoped, no-network posture; approval_policy
+        # 'never' means the model never gets to escalate (and the server won't
+        # send approval requests we'd have to decline). Callers wanting full
+        # host access opt in explicitly (e.g. an interactive REPL turn).
+        self.sandbox_mode = sandbox_mode
+        self.approval_policy = approval_policy
         # Codex reasoning effort ("minimal"/"low"/"medium"/"high"). Empty =
         # the model default. A chat gateway wants fast replies, so a heavy
         # reasoning model (e.g. gpt-5.6-sol) is capped low here — cuts a
@@ -104,6 +114,15 @@ class CodexAppServerSession:
                     f"bad reasoning_effort: {self.reasoning_effort!r}")
             parts += ["-c",
                       f'model_reasoning_effort="{self.reasoning_effort}"']
+        if self.sandbox_mode not in (
+                "read-only", "workspace-write", "danger-full-access"):
+            raise CodexSessionError(f"bad sandbox_mode: {self.sandbox_mode!r}")
+        if self.approval_policy not in (
+                "untrusted", "on-request", "on-failure", "never"):
+            raise CodexSessionError(
+                f"bad approval_policy: {self.approval_policy!r}")
+        parts += ["-c", f'sandbox_mode="{self.sandbox_mode}"',
+                  "-c", f'approval_policy="{self.approval_policy}"']
         return cli_argv(parts)
 
     def is_alive(self) -> bool:
@@ -257,11 +276,13 @@ class CodexAppServerSession:
                             pass
                 elif "id" in msg and "method" in msg:
                     # Server-initiated request = an approval ask. A headless
-                    # gateway never approves writes: decline immediately.
-                    # Never let a decline failure kill the reader thread.
+                    # session never approves: decline immediately. (With
+                    # approval_policy='never' the server shouldn't ask at all;
+                    # this is a backstop.) The app-server v2 schema expects
+                    # decision 'decline'. Never let a failure kill the reader.
                     try:
                         self._send({"id": msg["id"],
-                                    "result": {"decision": "denied"}})
+                                    "result": {"decision": "decline"}})
                     except Exception:
                         pass
                 elif "method" in msg:

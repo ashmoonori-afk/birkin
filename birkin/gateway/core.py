@@ -232,11 +232,18 @@ class Gateway:
         """Warm session for the configured provider (claude or codex)."""
         if self.cfg.get("provider") == "codex-cli":
             from ..codex_session import CodexAppServerSession
+            # cli_access is already forced to "workspace" in __init__ for the
+            # gateway, so codex runs cwd-scoped with no network and can never
+            # escalate — regardless of the user's danger-full-access config.
+            sandbox = ("danger-full-access"
+                       if self.cfg.get("cli_access") == "full"
+                       else "workspace-write")
             return CodexAppServerSession(
                 model=self.cfg.get("model"),
                 preamble=self._system_prompt(),
                 reasoning_effort=str(
-                    self.cfg.get("gateway_reasoning_effort", "") or ""))
+                    self.cfg.get("gateway_reasoning_effort", "") or ""),
+                sandbox_mode=sandbox, approval_policy="never")
         # Tools the headless gateway may use without a permission prompt
         # (e.g. company MCP servers). Empty -> rely on Claude Code settings.
         allowed = [str(t) for t in self.cfg.get("gateway_allowed_tools", []) if t]

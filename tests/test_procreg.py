@@ -78,3 +78,22 @@ def test_pid_alive_current_process_true(tmp_path, monkeypatch):
     assert procreg.pid_alive(0) is False
     assert procreg.pid_alive(None) is False
     assert procreg.pid_alive(-5) is False
+
+
+def test_codex_sandbox_forced_in_argv():
+    from birkin.codex_session import CodexAppServerSession, CodexSessionError
+    s = CodexAppServerSession(model="gpt-5.6-sol")   # safe defaults
+    argv = s._build_argv()
+    assert 'sandbox_mode="workspace-write"' in argv
+    assert 'approval_policy="never"' in argv
+    assert not any("danger-full-access" in a for a in argv)
+    s.close()
+    full = CodexAppServerSession(model="gpt-5.6-sol",
+                                 sandbox_mode="danger-full-access")
+    assert 'sandbox_mode="danger-full-access"' in full._build_argv()
+    full.close()
+    bad = CodexAppServerSession(model="gpt-5.6-sol", sandbox_mode="yolo")
+    try:
+        bad._build_argv(); assert False
+    except CodexSessionError:
+        pass
