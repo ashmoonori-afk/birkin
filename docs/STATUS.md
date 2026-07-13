@@ -442,11 +442,10 @@ export ANTHROPIC_API_KEY=sk-ant-...   # required for chat / Morpheus
 
 ## Known limitations / next
 
-- Daemon clears its status only on Ctrl-C (SIGINT); a hard kill (SIGTERM) leaves
-  a stale `daemon: true`. Mitigation: treat a stale `heartbeat` as stopped, or
-  add a SIGTERM handler.
+- Daemon clears its status on Ctrl-C (SIGINT), SIGTERM (handler installed), and
+  atexit; a hard SIGKILL still leaves a stale `daemon: true`, which the
+  dashboard treats as stopped via the stale-`heartbeat` check.
 - Memory search is index-backed BM25 + dynamics + zone priority + `[[wikilink]]`
   graph (ADR-040); embeddings remain a future optional upgrade.
-- No automated test suite yet (manual smoke tests above). Adding `pytest`
-  coverage for `frontmatter`, `memory`, `approvals`, `llm` stream parsing is the
-  recommended next step.
+- Automated test suite: **740+ pytest tests** (offline, ≥75 % coverage gate),
+  covering frontmatter, memory, approvals, llm stream parsing, gateway, and more.

@@ -140,15 +140,11 @@ Warm turns ~6× faster, first visible token ~8× faster — hermes-class.
 Re-measure: `benchmarks/bench_gateway_latency.py` (gwlatency-20260712-1335).
 Tests: `tests/test_gateway_latency_fixes.py` (11).
 
-**Codex environment (verified 2026-07-12).** The fixes above are inert and
-safe on the codex path (tests: codex gateway is non-persistent, `on_text`
-is ignored without crashing, no spare is pre-warmed, the Telegram streamer
-falls back to the plain send). But measured reality for a codex-backed
-gateway (`codex exec --json`, spark, trivial prompt): **17.3 s process boot,
-first item at 26 s, 37.5 s total — per message**, because the codex path is
-one-shot: no warm process, and `--json` emits item-level events (no token
-deltas). A codex-backed gateway therefore still costs ~30-40 s/message
-while the claude-backed one now runs at ~2.3 s.
+**Codex environment (initial finding, 2026-07-12 — superseded below).** Before
+`CodexAppServerSession` shipped, the codex gateway was one-shot `codex exec
+--json`: **17.3 s boot / 37.5 s total per message** (no warm process). This is
+the problem the warm session (next section) solves — the current codex gateway
+IS persistent. Kept here only to record the before number.
 
 **CodexAppServerSession — SHIPPED 2026-07-12** (`birkin/codex_session.py`,
 stdlib-only): one warm `codex app-server` process per conversation over

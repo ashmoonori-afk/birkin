@@ -412,7 +412,7 @@ accuracy halves). Research log: [`docs/ranking-v2-plan.md`](./docs/ranking-v2-pl
 
 ## 🛠️ Where birkin sits today
 
-- **640+ tests** passing offline (no API key, `pytest`, ≥75 % coverage gate),
+- **740+ tests** passing offline (no API key, `pytest`, ≥75 % coverage gate),
   **54 bundled skills**, **0 runtime dependencies**, Python 3.10+.
 - Free + fast gateway (warm persistent Claude, ~3s, live streaming), Neurosis
   deep-interview, auto-save → Morpheus nightly memory, company MCP,

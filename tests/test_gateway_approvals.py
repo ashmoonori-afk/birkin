@@ -55,7 +55,7 @@ def test_callback_tap_approves_and_acks(tmp_path, monkeypatch):
     calls: list[tuple[str, dict]] = []
     monkeypatch.setattr(ch, "_call",
                         lambda m, p, timeout=60: calls.append((m, p)) or {"ok": True})
-    cq = {"id": "cb1", "data": f"apv:{rec['id']}",
+    cq = {"id": "cb1", "data": f"apv:{rec['id']}", "from": {"id": 42},
           "message": {"chat": {"id": 42}, "message_id": 7,
                       "text": "[note] button me"}}
     ch._handle_callback(gw, cq)

@@ -413,7 +413,7 @@ def test_codex_reader_declines_server_requests_and_routes_replies():
     ]
     s._read_stdout(lines, s._notes)
     assert rq.get_nowait()["result"] == {"ok": True}
-    assert declined == [{"id": 99, "result": {"decision": "denied"}}]
+    assert declined == [{"id": 99, "result": {"decision": "decline"}}]
     assert s._notes.get_nowait()["method"] == "item/completed"
     assert s._notes.get_nowait() is None      # sentinel after pipe end
 
