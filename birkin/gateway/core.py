@@ -234,7 +234,9 @@ class Gateway:
             from ..codex_session import CodexAppServerSession
             return CodexAppServerSession(
                 model=self.cfg.get("model"),
-                preamble=self._system_prompt())
+                preamble=self._system_prompt(),
+                reasoning_effort=str(
+                    self.cfg.get("gateway_reasoning_effort", "") or ""))
         # Tools the headless gateway may use without a permission prompt
         # (e.g. company MCP servers). Empty -> rely on Claude Code settings.
         allowed = [str(t) for t in self.cfg.get("gateway_allowed_tools", []) if t]

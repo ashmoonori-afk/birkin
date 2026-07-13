@@ -44,6 +44,11 @@ DEFAULT_CONFIG: dict[str, Any] = {
     # the global "model". Set to a faster model (e.g. "sonnet") so the gateway
     # stays responsive while interactive chat can keep a heavier model.
     "gateway_model": "",
+    # Codex reasoning effort for the gateway only (minimal/low/medium/high;
+    # empty = model default). A chat wants speed, so 'low' trims a heavy
+    # reasoning model's turn — though on some codex models the effect is
+    # small (the turn latency is mostly the model itself). Ignored off codex.
+    "gateway_reasoning_effort": "",
     # Keep ONE warm `claude` process per conversation (stream-json) instead of a
     # cold `claude -p` per message — pays Claude Code's startup once, so warm
     # replies are ~model-time. Free (Claude subscription). Only applies to the

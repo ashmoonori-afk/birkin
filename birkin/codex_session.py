@@ -57,12 +57,18 @@ class CodexAppServerSession:
     def __init__(self, *, model: Optional[str] = None,
                  cwd: Optional[str] = None,
                  preamble: str = "",
+                 reasoning_effort: str = "",
                  startup_timeout: float = 90.0,
                  turn_timeout: float = 300.0,
                  request_timeout: float = 30.0):
         self.model = model
         self.cwd = cwd
         self.preamble = preamble
+        # Codex reasoning effort ("minimal"/"low"/"medium"/"high"). Empty =
+        # the model default. A chat gateway wants fast replies, so a heavy
+        # reasoning model (e.g. gpt-5.6-sol) is capped low here — cuts a
+        # 7-20s warm turn to a few seconds.
+        self.reasoning_effort = (reasoning_effort or "").strip()
         self.startup_timeout = float(startup_timeout)
         self.turn_timeout = float(turn_timeout)
         self.request_timeout = float(request_timeout)
@@ -91,6 +97,13 @@ class CodexAppServerSession:
                 raise CodexSessionError(
                     f"unsafe codex model name: {self.model!r}")
             parts += ["-c", f'model="{self.model}"']
+        if self.reasoning_effort:
+            if self.reasoning_effort not in (
+                    "minimal", "low", "medium", "high"):
+                raise CodexSessionError(
+                    f"bad reasoning_effort: {self.reasoning_effort!r}")
+            parts += ["-c",
+                      f'model_reasoning_effort="{self.reasoning_effort}"']
         return cli_argv(parts)
 
     def is_alive(self) -> bool:

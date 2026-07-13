@@ -472,3 +472,33 @@ def test_codex_agent_text_extraction():
     assert _agent_text({"type": "agentMessage",
                         "content": [{"text": "a"}, {"text": "b"}]}) == "ab"
     assert _agent_text({"type": "commandExecution", "text": "ls"}) == ""
+
+
+def test_codex_reasoning_effort_in_argv():
+    from birkin.codex_session import CodexAppServerSession, CodexSessionError
+    s = CodexAppServerSession(model="gpt-5.6-sol", reasoning_effort="low")
+    argv = s._build_argv()
+    assert 'model_reasoning_effort="low"' in argv
+    s2 = CodexAppServerSession(model="gpt-5.6-sol")      # empty = omitted
+    assert not any("reasoning_effort" in a for a in s2._build_argv())
+    s3 = CodexAppServerSession(model="gpt-5.6-sol", reasoning_effort="turbo")
+    try:
+        s3._build_argv()
+        assert False, "bad effort should raise"
+    except CodexSessionError:
+        pass
+
+
+def test_gateway_passes_reasoning_effort_to_codex(tmp_path, monkeypatch):
+    monkeypatch.setenv("BIRKIN_HOME", str(tmp_path))
+    from birkin import config
+    from birkin.gateway.core import Gateway
+    config.save_config({**config.DEFAULT_CONFIG, "provider": "codex-cli",
+                        "model": "gpt-5.6-sol", "gateway_prewarm": False,
+                        "gateway_reasoning_effort": "low"})
+    g = Gateway(config.load_config())
+    s = g._build_claude_session()
+    try:
+        assert s.reasoning_effort == "low"
+    finally:
+        s.close()
