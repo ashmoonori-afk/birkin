@@ -135,8 +135,11 @@ def save_run(kind: str, summary: str, details: dict[str, Any] | None = None,
                    "summary": summary[:160], "usage": usage or {}})
     # Mirror into the SQLite event ledger (aggregatable; daemon/dashboard).
     from . import ledger
+    u = usage or {}
+    # estimate_usage() emits "estTokens"; older callers may pass "tokens".
     ledger.event(f"run:{kind}", summary,
-                 tokens=(usage or {}).get("tokens", 0), data={"id": rid})
+                 tokens=int(u.get("tokens") or u.get("estTokens") or 0),
+                 data={"id": rid})
     return path
 
 

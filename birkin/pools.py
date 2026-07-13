@@ -47,15 +47,25 @@ class SessionPool:
         if victim is not None:
             self._close(victim, evict, "lru")
         sess = self._factory(key)
+        overflow = None
         with self._lock:
             # ponytail: racing threads may double-create; keep the first, close ours
             existing = self._sessions.get(key)
             if existing is not None:
                 loser = sess
             else:
+                # Re-check capacity under the lock: concurrent creations of
+                # DIFFERENT keys each passed the capacity gate above (which
+                # released the lock before the factory ran), so max_sessions
+                # could be exceeded. Evict an LRU now to hold the cap.
+                if len(self._sessions) >= self._max:
+                    ek = self._pick_lru_locked()
+                    overflow = (ek, self._pop_locked(ek)) if ek is not None else None
                 self._sessions[key] = sess
                 self._last_used[key] = time.monotonic()
                 loser = None
+        if overflow is not None and overflow[1] is not None:
+            self._close(overflow[1], overflow[0], "lru")
         if loser is not None:
             self._close(loser, key, "race")
             return self.get(key)

@@ -301,12 +301,18 @@ class TelegramChannel(Channel):
         data = str(cq.get("data", ""))
         msg = cq.get("message") or {}
         chat_id = str((msg.get("chat") or {}).get("id", ""))
-        if self.allowed_chat_ids and chat_id not in self.allowed_chat_ids:
-            self._answer_callback(cq_id, "unauthorized")
-            return
+        from_id = str((cq.get("from") or {}).get("id", ""))
         if not self.allowed_chat_ids:
             # An OPEN bot must not allow one-tap approval of queued actions.
             self._answer_callback(cq_id, "approvals need allowed_chat_ids")
+            return
+        # Approval is privileged, so gate on WHO tapped, not just the chat:
+        # in an allowlisted group any member could otherwise approve. The
+        # tapping user's id must itself be allowlisted (for a private chat
+        # chat_id == user_id, so this is unchanged there).
+        if chat_id not in self.allowed_chat_ids or \
+                from_id not in self.allowed_chat_ids:
+            self._answer_callback(cq_id, "unauthorized")
             return
         if ":" not in data:
             self._answer_callback(cq_id, "")
@@ -383,6 +389,13 @@ class TelegramChannel(Channel):
         media = self._incoming_media(msg)
         if media is None:
             return None
+        # An OPEN bot (no allowlist) must not download attachments — every
+        # message could persist up to 20 MB, a trivial disk-exhaustion vector.
+        # Media is only fetched for allowlisted chats.
+        if not self.allowed_chat_ids:
+            return ((msg.get("caption") or "").strip() + "\n" if
+                    msg.get("caption") else "") + \
+                "[첨부는 허용된 채팅에서만 받아요. allowed_chat_ids를 설정해 주세요.]"
         file_id, size = media
         caption = (msg.get("caption") or "").strip()
         if size and size > self._MAX_FILE:

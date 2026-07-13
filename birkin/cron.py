@@ -70,6 +70,25 @@ def mark_ran(job_id: str) -> None:
         save_jobs(jobs)
 
 
+def claim_if_due(job_id: str, now: datetime | None = None) -> bool:
+    """Atomically stamp last_run=today for ``job_id`` IFF it hasn't run today,
+    all under the cron lock. Returns True only for the caller that won the
+    claim — so two daemons reading the same due job can't both run it (the
+    loser sees last_run==today and gets False). The caller runs the job only
+    when this returns True."""
+    now = now or datetime.now()
+    stamp = now.isoformat(timespec="seconds")
+    today = date.today().isoformat()
+    with store.file_lock(config.cron_path()):
+        jobs = load_jobs()
+        job = next((j for j in jobs if j.get("id") == job_id), None)
+        if job is None or (job.get("last_run") or "")[:10] == today:
+            return False
+        job["last_run"] = stamp
+        save_jobs(jobs)
+        return True
+
+
 def due_jobs(now: datetime | None = None) -> list[dict[str, Any]]:
     """Jobs enabled, scheduled at/before now today, and not yet run today."""
     now = now or datetime.now()

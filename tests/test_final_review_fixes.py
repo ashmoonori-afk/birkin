@@ -174,3 +174,83 @@ def test_approve_claims_before_executing(tmp_path, monkeypatch):
     assert seen["status_during"] == "approving"       # claimed before exec
     assert store.get_pending(rec["id"])["status"] == "approved"
     assert approvals.approve(rec["id"])["ok"] is False  # second tap refused
+
+
+# -- group 2: concurrency + correctness --------------------------------------
+
+def test_pool_capacity_holds_under_two_keys(tmp_path, monkeypatch):
+    from birkin.pools import SessionPool
+    closed = []
+    made = {"n": 0}
+
+    def factory(key):
+        made["n"] += 1
+        return type("S", (), {"key": key, "close": lambda self: closed.append(key)})()
+    p = SessionPool(factory, max_sessions=1, idle_ttl=999)
+    p.get("a")
+    p.get("b")                          # different key: must evict, not exceed
+    assert len(p._sessions) == 1        # cap held
+    assert closed == ["a"]              # LRU evicted
+
+
+def test_cron_claim_if_due_is_once(tmp_path, monkeypatch):
+    monkeypatch.setenv("BIRKIN_HOME", str(tmp_path))
+    from birkin import cron
+    from datetime import datetime
+    j = cron.add_job(name="x", hour=0, minute=0, action_type="prompt",
+                     value="v")
+    now = datetime.now().replace(hour=9, minute=0)
+    assert cron.claim_if_due(j["id"], now) is True    # first claim wins
+    assert cron.claim_if_due(j["id"], now) is False   # already stamped today
+
+
+def test_ledger_records_estimated_tokens(tmp_path, monkeypatch):
+    monkeypatch.setenv("BIRKIN_HOME", str(tmp_path))
+    from birkin import store, ledger
+    store.save_run("chat", "hi", usage=store.estimate_usage("a" * 400))
+    rows = ledger.recent(5)
+    assert any(r.get("tokens", 0) > 0 for r in rows)   # not always 0 now
+
+
+def test_snippet_includes_boundary_term(tmp_path, monkeypatch):
+    from birkin.memory import _snippet
+    # both terms in one window, but beta's END crosses best_start+width:
+    # alpha@0, beta@238 (238+4=242 > width 240). Old text[:240] cut it to 'be'.
+    text = "alpha" + ("x" * 233) + "beta"          # beta starts at 238
+    s = _snippet(text, ["alpha", "beta"], width=240)
+    assert "alpha" in s and "beta" in s            # full beta, not 'be'
+
+
+def test_media_refused_for_open_bot(tmp_path, monkeypatch):
+    from birkin.gateway.channels.telegram import TelegramChannel
+    ch = TelegramChannel("tok", allowed_chat_ids=[])   # open bot
+    calls = []
+    monkeypatch.setattr(ch, "_download_media",
+                        lambda fid: calls.append(fid) or "x")
+    out = ch._compose_media_text({"photo": [{"file_id": "L", "file_size": 900}]})
+    assert "허용된 채팅" in out and calls == []          # never downloaded
+
+
+def test_callback_checks_tapping_user(tmp_path, monkeypatch):
+    from birkin.gateway.channels.telegram import TelegramChannel
+    from birkin import config
+    monkeypatch.setenv("BIRKIN_HOME", str(tmp_path))
+    config.save_config({**config.DEFAULT_CONFIG, "provider": "claude-cli",
+                        "gateway_prewarm": False,
+                        "channels": {"telegram": {"allowed_chat_ids": ["42"]}}})
+    from birkin.gateway.core import Gateway
+    from birkin import store
+    gw = Gateway(config.load_config())
+    rec = store.add_pending(category="skill", title="x", description="",
+                            payload={}, origin="t")
+    ch = TelegramChannel("tok", allowed_chat_ids=["42"])
+    calls = []
+    monkeypatch.setattr(ch, "_call",
+                        lambda m, p, timeout=60: calls.append((m, p)) or {"ok": True})
+    # group chat 42 is allowlisted, but the TAPPER (user 999) is not
+    ch._handle_callback(gw, {"id": "cb", "data": f"apv:{rec['id']}",
+                             "from": {"id": 999},
+                             "message": {"chat": {"id": 42}, "message_id": 1,
+                                         "text": "x"}})
+    assert store.list_pending()          # NOT approved by a non-allowlisted user
+    assert [m for m, _ in calls] == ["answerCallbackQuery"]

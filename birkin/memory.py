@@ -638,7 +638,7 @@ def _snippet(text: str, terms: list[str] | str, width: int = 240) -> str:
     hits.sort()
     from collections import Counter
     inwin: Counter = Counter()
-    best_start, best_distinct = hits[0][0], 1
+    best_start, best_end, best_distinct = hits[0][0], hits[0][0] + len(hits[0][1]), 1
     j = 0
     for i, (pos, term) in enumerate(hits):
         inwin[term] += 1
@@ -648,12 +648,13 @@ def _snippet(text: str, terms: list[str] | str, width: int = 240) -> str:
                 del inwin[hits[j][1]]
             j += 1
         if len(inwin) > best_distinct:
-            best_distinct, best_start = len(inwin), hits[j][0]
-    # The winning window's content spans [best_start, best_start + width);
-    # the left context pad must EXTEND the slice, not shift it, or the
-    # right-edge hit that made this window best falls off the end.
+            # record the window's actual right edge (this hit's END), so the
+            # slice includes the boundary term that made it best — the old
+            # text[:best_start+width] excluded a hit sitting exactly at +width.
+            best_distinct, best_start, best_end = len(inwin), hits[j][0], pos + len(term)
     start = max(0, best_start - width // 8)
-    return text[start:best_start + width].replace("\n", " ").strip()
+    end = max(best_start + width, best_end)
+    return text[start:end].replace("\n", " ").strip()
 
 
 def _title_from(note: str) -> str:

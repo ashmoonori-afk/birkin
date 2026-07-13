@@ -137,9 +137,12 @@ def run_daemon() -> int:
                 next_morpheus = _next_morpheus(cfg, now + timedelta(minutes=1))
 
             for job in cron.due_jobs(now):
+                # Claim BEFORE running (atomic stamp under the cron lock) so a
+                # second daemon reading the same due job can't run it too.
+                if not cron.claim_if_due(job["id"], now):
+                    continue
                 print(f"[{now:%H:%M}] running cron job '{job.get('name')}'…")
                 _run_job(job)
-                cron.mark_ran(job["id"])
 
             if now >= next_reap and cfg.get("reaper_enabled", True):
                 try:
