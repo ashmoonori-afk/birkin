@@ -112,6 +112,11 @@ class CodexAppServerSession:
         # never into the new turn's (same pattern as claude_session).
         notes: "queue.Queue[Optional[dict]]" = queue.Queue()
         self._notes = notes
+        try:  # register for the orphan reaper (procreg)
+            from . import procreg
+            procreg.register(self._proc.pid)
+        except Exception:
+            pass
         threading.Thread(target=self._read_stdout,
                          args=(self._proc.stdout, notes), daemon=True).start()
         try:
@@ -163,6 +168,11 @@ class CodexAppServerSession:
                     self._proc.wait(timeout=2)
                 except (OSError, ValueError, subprocess.TimeoutExpired):
                     pass
+            try:  # drop it from the orphan registry on graceful terminate
+                from . import procreg
+                procreg.unregister(self._proc.pid)
+            except Exception:
+                pass
             self._proc = None
         self._thread_id = None
 

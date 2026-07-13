@@ -110,6 +110,11 @@ DEFAULT_CONFIG: dict[str, Any] = {
     # (P0-3). Empty = no delivery. Honors the outbound allowlist and the
     # [SILENT] convention; appends a pending-approvals count when relevant.
     "morpheus_deliver_chat_id": "",
+    # Hourly reaper: kill orphaned claude/codex->node subprocesses left behind
+    # by a birkin process that died ungracefully. Only reaps children whose
+    # OWNER process is gone — a live birkin's sessions are never touched. See
+    # procreg.py. Set false to disable.
+    "reaper_enabled": True,
     # The routine was renamed from "nightly" to "morpheus" (Greek god of
     # dreams — it runs while you sleep). The legacy keys ``nightly_hour`` /
     # ``nightly_minute`` are honored as fallbacks by readers and migrated

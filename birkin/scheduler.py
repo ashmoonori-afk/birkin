@@ -110,6 +110,7 @@ _next_nightly = _next_morpheus
 def run_daemon() -> int:
     cfg = config.load_config()
     next_morpheus = _next_morpheus(cfg, datetime.now())
+    next_reap = datetime.now() + timedelta(hours=1)
     print(f"birkin daemon started. Next Morpheus run at "
           f"{next_morpheus:%Y-%m-%d %H:%M}. Ctrl-C to stop.")
     _write_status(cfg, next_morpheus, running=True)
@@ -139,6 +140,21 @@ def run_daemon() -> int:
                 print(f"[{now:%H:%M}] running cron job '{job.get('name')}'…")
                 _run_job(job)
                 cron.mark_ran(job["id"])
+
+            if now >= next_reap and cfg.get("reaper_enabled", True):
+                try:
+                    from . import procreg
+                    r = procreg.reap_orphans()
+                    if r["killed"]:
+                        print(f"[{now:%H:%M}] reaped {r['killed']} orphan "
+                              f"process(es) from {r['dead_owners']} dead "
+                              f"owner(s)")
+                        store.save_run("reaper",
+                                       f"reaped {r['killed']} orphan node "
+                                       f"process(es)", r)
+                except Exception as exc:      # never kill the daemon
+                    print(f"[{now:%H:%M}] reaper error: {exc}")
+                next_reap = now + timedelta(hours=1)
 
             _write_status(cfg, next_morpheus, running=True)
             time.sleep(_POLL_SECONDS)

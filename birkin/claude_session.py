@@ -194,6 +194,13 @@ class ClaudeStreamSession:
             self._cleanup_sys_file()  # don't leak temp files on any failure
             raise
         self._q = q
+        # Register the child so the orphan reaper can reclaim it if THIS birkin
+        # process dies ungracefully before close() runs (procreg).
+        try:
+            from . import procreg
+            procreg.register(self._proc.pid)
+        except Exception:
+            pass
         # The queue is passed BY VALUE to each drain thread: on a later restart()
         # self._q is replaced, and the old threads must keep writing to *their*
         # (now-abandoned) queue, never into the fresh one.
@@ -263,6 +270,11 @@ class ClaudeStreamSession:
                 except (OSError, AttributeError, ValueError,
                         subprocess.TimeoutExpired):
                     pass
+            try:  # graceful terminate -> drop it from the orphan registry
+                from . import procreg
+                procreg.unregister(self._proc.pid)
+            except Exception:
+                pass
             self._proc = None
         self._session_id = None
         self._cleanup_sys_file()

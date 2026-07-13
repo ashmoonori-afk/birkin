@@ -8,6 +8,22 @@ older ones (noted inline).
 
 ---
 
+## ADR-048 — Hourly orphan-process reaper (procreg)
+
+- **Context.** Warm claude/codex sessions spawn node subprocesses. If the
+  owning birkin process dies ungracefully (SIGKILL, crash before
+  `_terminate`), those node trees leak as orphans — nothing reaps them.
+- **Decision.** `procreg.py`: each birkin process records the child PIDs it
+  spawns in a per-owner file (`~/.birkin/runs/procreg-<owner>.json`);
+  `claude_session`/`codex_session` register on spawn and unregister on
+  graceful terminate. The scheduler daemon runs `reap_orphans()` hourly,
+  which kills children **only when their owner process is gone** — a live
+  birkin's sessions are never touched (worst case: an orphan lives one extra
+  hour). Pure stdlib pid-liveness (POSIX `os.kill(pid,0)`, Windows
+  `OpenProcess`+`GetExitCodeProcess`), no psutil. Mechanical, no LLM —
+  belongs in the scheduler, not a skill. Config: `reaper_enabled`.
+- **Status.** Accepted 2026-07-13. Tests: `tests/test_procreg.py`.
+
 ## ADR-047 — Write-time near-duplicate advisory (adopted from TDAI)
 
 - **Context.** TencentDB-Agent-Memory does write-time dedup in two phases:
