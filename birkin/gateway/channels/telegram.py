@@ -143,6 +143,9 @@ class TelegramChannel(Channel):
         # Per-chat edit cooldown from 429 retry_after — edits during the
         # cooldown are skipped locally instead of hammering the API.
         self._edit_pause_until: dict[str, float] = {}
+        # In-flight turn worker per chat, so the poll loop keeps reading updates
+        # while a turn runs and a new message can interrupt it.
+        self._workers: dict[str, threading.Thread] = {}
 
     def _call(self, method: str, params: dict[str, Any], timeout: int = 60) -> dict[str, Any]:
         url = _API.format(token=self.token, method=method)
@@ -432,6 +435,39 @@ class TelegramChannel(Channel):
                 return
             stop.wait(4.0)
 
+    def _run_turn(self, gateway: "Gateway", chat_id: str, text: str,
+                  offset: int) -> None:
+        """One turn, run in its own thread so the poll loop stays responsive
+        (and a follow-up message can interrupt this via gateway.interrupt)."""
+        stop = threading.Event()
+        pinger = threading.Thread(target=self._keep_typing,
+                                  args=(chat_id, stop), daemon=True)
+        pinger.start()
+        streamer = (_Streamer(
+            lambda t, c=chat_id: self._send_plain(c, t),
+            lambda mid, t, c=chat_id: self._edit(c, mid, t))
+            if self.stream else None)
+        try:
+            reply = gateway.handle(
+                "telegram", chat_id, text,
+                on_text=streamer.feed if streamer else None)
+        except Exception as exc:
+            print(f"[telegram] turn error: {exc}")
+            reply = "⚠️ 처리 중 문제가 생겼어요."
+        finally:
+            stop.set()
+            pinger.join(timeout=16)
+        if streamer is not None:
+            self._finalize_stream(chat_id, streamer, reply or "(no reply)")
+        else:
+            self._send_reply(chat_id, reply or "(no reply)")
+        if gateway.pending_hard_restart:
+            try:
+                self._call("getUpdates", {"offset": offset, "timeout": 0})
+            except Exception:
+                pass
+            gateway.do_hard_restart()  # replaces the process; never returns
+
     def start(self, gateway: "Gateway") -> None:
         print("  · telegram channel polling for updates")
         # Drop any leftover webhook (long-polling and webhooks are mutually
@@ -511,31 +547,16 @@ class TelegramChannel(Channel):
                         and gateway._command_trusted("telegram")):
                     self._send_pending_buttons(gateway, chat_id)
                     continue
-                stop = threading.Event()
-                pinger = threading.Thread(target=self._keep_typing,
-                                          args=(chat_id, stop), daemon=True)
-                pinger.start()
-                streamer = (_Streamer(
-                    lambda t, c=chat_id: self._send_plain(c, t),
-                    lambda mid, t, c=chat_id: self._edit(c, mid, t))
-                    if self.stream else None)
-                try:
-                    reply = gateway.handle(
-                        "telegram", chat_id, text,
-                        on_text=streamer.feed if streamer else None)
-                finally:
-                    stop.set()
-                    pinger.join(timeout=16)
-                if streamer is not None:
-                    self._finalize_stream(chat_id, streamer,
-                                          reply or "(no reply)")
-                else:
-                    self._send_reply(chat_id, reply or "(no reply)")
-                if gateway.pending_hard_restart:
-                    # Confirm this update to Telegram BEFORE re-exec, so the new
-                    # process doesn't re-receive /hard-restart and loop forever.
-                    try:
-                        self._call("getUpdates", {"offset": offset, "timeout": 0})
-                    except Exception:
-                        pass
-                    gateway.do_hard_restart()  # replaces the process; never returns
+                # A new message while this chat's previous turn is still running
+                # interrupts it (mid-input interruption), then runs the new one.
+                prev = self._workers.get(chat_id)
+                if prev is not None and prev.is_alive():
+                    gateway.interrupt("telegram", chat_id)
+                    prev.join(timeout=20)
+                # Run the turn in a worker so the loop keeps polling (and can
+                # see the next message to interrupt this one).
+                w = threading.Thread(target=self._run_turn,
+                                     args=(gateway, chat_id, text, offset),
+                                     daemon=True)
+                self._workers[chat_id] = w
+                w.start()

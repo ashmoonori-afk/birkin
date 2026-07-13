@@ -192,6 +192,9 @@ class Gateway:
         self._spare: ClaudeStreamSession | None = None
         self._spare_lock = threading.Lock()
         self._spare_gen = 0
+        # Warm session currently running a turn, per (channel, chat_id) — a new
+        # message on the same chat interrupts it (mid-input interruption).
+        self._inflight: dict[tuple[str, str], Any] = {}
         # Set by a /hard-restart command; the channel re-execs after replying.
         self._hard_restart = False
         # (channel, chat_id) that triggered a hard restart — persisted across the
@@ -376,6 +379,19 @@ class Gateway:
             return str(n.get("chat_id"))
         return None
 
+    def interrupt(self, channel: str, chat_id: str) -> bool:
+        """Cancel the turn currently in flight for this chat, if any. Called by
+        a channel when a NEW message arrives mid-turn. Returns True if a turn
+        was signalled. Safe to call from a different thread than handle()."""
+        sess = self._inflight.get((channel, str(chat_id)))
+        fn = getattr(sess, "interrupt", None) if sess is not None else None
+        if callable(fn):
+            try:
+                return bool(fn())
+            except Exception:
+                return False
+        return False
+
     def handle(self, channel: str, chat_id: str, text: str,
                on_text=None) -> str:
         """Route one inbound message to the agent and return the reply.
@@ -484,6 +500,10 @@ class Gateway:
             # could flip self._persistent between here and the ask() below.
             persistent = self._persistent
             sess = self._claude_session(key) if persistent else None
+            if persistent:
+                # Track the in-flight session so a new message on the same chat
+                # can interrupt() this turn (mid-input interruption).
+                self._inflight[key] = sess
 
         print(f"[gateway] {channel}:{chat_id} « {display_text[:80]}", flush=True)
         t0 = time.monotonic()
@@ -509,6 +529,9 @@ class Gateway:
                   flush=True)
             return ("⚠️ 문제가 생겨서 이번 메시지를 처리하지 못했어요. "
                     "잠시 후 다시 시도해 주세요.")
+        finally:
+            if persistent:
+                self._inflight.pop(key, None)
         dt = time.monotonic() - t0
         print(f"[gateway] {channel}:{chat_id} » {len(reply or '')} chars in {dt:.1f}s",
               flush=True)

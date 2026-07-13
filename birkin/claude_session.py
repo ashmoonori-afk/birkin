@@ -299,6 +299,22 @@ class ClaudeStreamSession:
         self._proc.stdin.write(json.dumps(msg, ensure_ascii=False) + "\n")
         self._proc.stdin.flush()
 
+    def interrupt(self) -> bool:
+        """Cancel the in-flight turn (called from another thread). Sends the
+        stream-json control interrupt; if the CLI version ignores it the turn
+        simply finishes normally (the caller waits bounded). Best-effort —
+        never raises."""
+        if self._proc is None or self._proc.stdin is None:
+            return False
+        try:                    # no turn lock: this only writes to stdin
+            self._proc.stdin.write(json.dumps(
+                {"type": "control_request",
+                 "request": {"subtype": "interrupt"}}) + "\n")
+            self._proc.stdin.flush()
+            return True
+        except (OSError, ValueError):
+            return False
+
     def ask(self, text: str, on_text: StreamCallback = None,
             timeout: Optional[float] = None) -> str:
         """Send one user turn; return the assistant's final text.

@@ -91,6 +91,8 @@ class CodexAppServerSession:
         self._ids = itertools.count(1)
         self._lock = threading.Lock()          # one turn at a time
         self._thread_id: Optional[str] = None
+        self._active_turn_id: Optional[str] = None
+        self._interrupted = False
         self._sent_preamble = False
         self._closed = False
 
@@ -308,10 +310,16 @@ class CodexAppServerSession:
                 raise CodexSessionError("session was closed")
             if not self.is_alive():
                 self.start()
+            self._interrupted = False
             try:
                 return self._turn(text, on_text, timeout)
             except CodexSessionError:
-                if self._closed:
+                if self._closed or self._interrupted:
+                    # deliberately interrupted (process killed) — don't retry
+                    # the cancelled turn; surface a clean marker.
+                    if self._interrupted:
+                        self._interrupted = False
+                        return "⏹️ 중단했어요. 새 메시지로 진행할게요."
                     raise
                 print("[birkin] codex session restarted (prior context lost)",
                       flush=True)
@@ -331,9 +339,15 @@ class CodexAppServerSession:
         if carries_preamble:
             text = (f"<system-context>\n{self.preamble}\n</system-context>\n\n"
                     + text)
-        self.request("turn/start", {
+        ts = self.request("turn/start", {
             "threadId": self._thread_id,
             "input": [{"type": "text", "text": text}]})
+        # Capture the turn id so interrupt() (called from ANOTHER thread while
+        # this _turn blocks on the notes queue) can target turn/interrupt.
+        turn_obj = ts.get("turn") if isinstance(ts, dict) else None
+        self._active_turn_id = ((turn_obj or {}).get("id")
+                                or (ts or {}).get("turnId")
+                                if isinstance(ts, dict) else None)
         if carries_preamble:
             # Only mark delivered once turn/start was ACCEPTED — if it raises
             # (timeout on a live process), the next turn re-attaches the
@@ -353,6 +367,8 @@ class CodexAppServerSession:
             except queue.Empty:
                 raise CodexSessionError("codex turn timed out")
             if note is None:
+                if self._interrupted:
+                    return "⏹️ 중단했어요. 새 메시지로 진행할게요."
                 raise CodexSessionError("codex process exited unexpectedly")
             method = note.get("method") or ""
             params = note.get("params") or {}
@@ -367,11 +383,41 @@ class CodexAppServerSession:
             elif method == "turn/completed":
                 turn = params.get("turn") or {}
                 status = turn.get("status")
+                self._active_turn_id = None
                 if status and status not in ("completed", "interrupted"):
                     err = turn.get("error") or {}
                     return (f"[birkin] codex error: "
                             f"{str(err.get('message') or status)[:400]}")
                 return final
+
+    def interrupt(self) -> bool:
+        """Cancel the in-flight turn (called from another thread — e.g. a new
+        Telegram message arriving mid-turn).
+
+        The app-server's ``turn/interrupt`` is unreliable on current codex
+        (returns "no active turn" and can crash the process), so we stop the
+        turn the way birkin's REPL stops a CLI turn: kill the process. The
+        blocked ``_turn`` wakes on the closed pipe and returns cleanly (via
+        the ``_interrupted`` flag) instead of retrying. Tradeoff: the codex
+        thread context is lost, so the next message starts a fresh thread —
+        acceptable for a deliberate "stop"."""
+        if not self.is_alive():
+            return False
+        self._interrupted = True
+        # Best-effort graceful interrupt first (harmless if it errors).
+        try:
+            if self._thread_id and self._active_turn_id:
+                self.request("turn/interrupt",
+                             {"threadId": self._thread_id,
+                              "turnId": self._active_turn_id}, timeout=2)
+        except CodexSessionError:
+            pass
+        if self.is_alive():        # still generating -> force stop
+            try:
+                kill_tree(self._proc)
+            except Exception:
+                pass
+        return True
 
 
 def _agent_text(item: dict) -> str:
