@@ -19,16 +19,20 @@ No API key is required to view the dashboard (it does not call the LLM).
 from __future__ import annotations
 
 import json
+import re
 import secrets
 import webbrowser
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from pathlib import Path
 from typing import Any, Optional
 
-from .. import approvals, config, cron, store
+from .. import __version__, approvals, config, cron, store
 from ..skills import build_manager
 
 _STATIC = Path(__file__).resolve().parent / "static"
+MAX_POST_BODY_BYTES = 65_536
+POST_BODY_TIMEOUT_SECONDS = 2.0
+_APPROVAL_ID_RE = re.compile(r"[0-9a-f]{12}")
 
 # A per-process token embedded in the page and required on mutating POSTs.
 # Combined with a Host-header check this blocks DNS-rebinding and other local
@@ -39,14 +43,17 @@ _ALLOWED_HOSTS = {"127.0.0.1", "localhost"}
 
 def _status_payload() -> dict[str, Any]:
     cfg = config.load_config()
+    skills_error = None
     try:
         skills_count = len(build_manager(cfg).skills)
     except Exception:
-        skills_count = 0
+        skills_count = None
+        skills_error = "unavailable"
     from .. import budget as budget_mod
     st = store.read_status()
     stale = store.is_status_stale(st)
-    return {
+    payload = {
+        "version": __version__,
         "model": cfg.get("model"),
         "provider": cfg.get("provider"),
         "vault": str(config.vault_dir(cfg)),
@@ -65,10 +72,13 @@ def _status_payload() -> dict[str, Any]:
         "heartbeat": st.get("heartbeat"),
         "budget": budget_mod.status(cfg),
     }
+    if skills_error:
+        payload["skills_error"] = skills_error
+    return payload
 
 
 class Handler(BaseHTTPRequestHandler):
-    server_version = "birkin-dashboard/0.1"
+    server_version = f"birkin-dashboard/{__version__}"
 
     def log_message(self, *args: Any) -> None:
         pass
@@ -87,6 +97,32 @@ class Handler(BaseHTTPRequestHandler):
     def _host_ok(self) -> bool:
         host = (self.headers.get("Host", "") or "").rsplit(":", 1)[0]
         return host in _ALLOWED_HOSTS or host == ""
+
+    def _read_body(self) -> tuple[bytes | None, int]:
+        raw_length = self.headers.get("Content-Length")
+        try:
+            length = int(raw_length) if raw_length is not None else -1
+        except ValueError:
+            length = -1
+        if length < 0:
+            self.close_connection = True
+            return None, 400
+        if length > MAX_POST_BODY_BYTES:
+            self.close_connection = True
+            return None, 413
+        previous_timeout = self.connection.gettimeout()
+        try:
+            self.connection.settimeout(POST_BODY_TIMEOUT_SECONDS)
+            body = self.rfile.read(length)
+        except TimeoutError:
+            self.close_connection = True
+            return None, 408
+        finally:
+            self.connection.settimeout(previous_timeout)
+        if len(body) != length:
+            self.close_connection = True
+            return None, 400
+        return body, 200
 
     def do_GET(self) -> None:
         if not self._host_ok():
@@ -130,21 +166,28 @@ class Handler(BaseHTTPRequestHandler):
         if self.path != "/api/approvals":
             self._send(404, b"not found", "text/plain")
             return
-        # int() must be inside the try: a non-numeric Content-Length would
-        # otherwise raise ValueError outside it and reset the connection.
+        body, body_status = self._read_body()
+        if body_status != 200:
+            message = {408: "request body timeout", 413: "payload too large"}.get(
+                body_status, "bad content length"
+            )
+            self._json({"error": message}, code=body_status)
+            return
         try:
-            length = int(self.headers.get("Content-Length", 0) or 0)
-            if length > 1_000_000:
-                self._json({"error": "payload too large"}, code=413)
-                return
-            payload = json.loads(self.rfile.read(length) or b"{}")
+            payload = json.loads(body or b"{}")
         except (ValueError, UnicodeDecodeError):
             self._json({"error": "bad json"}, code=400)
+            return
+        if not isinstance(payload, dict):
+            self._json({"error": "expected JSON object"}, code=400)
             return
         aid = payload.get("id")
         action = payload.get("action")
         if not aid or action not in ("approve", "reject"):
             self._json({"error": "need id and action approve|reject"}, code=400)
+            return
+        if not isinstance(aid, str) or _APPROVAL_ID_RE.fullmatch(aid) is None:
+            self._json({"error": "invalid approval id"}, code=400)
             return
         result = approvals.approve(aid) if action == "approve" else approvals.reject(aid)
         self._json(result)

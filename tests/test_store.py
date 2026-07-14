@@ -63,6 +63,44 @@ def test_unique_run_ids_same_second():
     assert len({r["id"] for r in runs}) == 2  # no collision within the same second
 
 
+def test_list_runs_skips_non_run_json_before_limit():
+    valid = {
+        "id": "run-a",
+        "kind": "chat",
+        "at": "2026-07-12T09:05:00+09:00",
+        "summary": "done",
+        "usage": {},
+        "details": {},
+    }
+    fixtures = {
+        "zzzz-invalid.json": "not-json",
+        "zzzy-list.json": "[]",
+        "zzzx-registry.json": json.dumps(
+            {"owner": 4242, "children": [4343], "updated": "2026-07-13"}
+        ),
+        "zzzw-incomplete.json": json.dumps({"id": "bad", "kind": "chat"}),
+        "20260712-valid.json": json.dumps(valid),
+    }
+    for name, body in fixtures.items():
+        (config.runs_dir() / name).write_text(body, encoding="utf-8")
+
+    assert store.list_runs(limit=1) == [valid]
+
+
+def test_list_runs_requires_run_shape():
+    assert store._is_run_record(
+        {"id": "1", "kind": "chat", "at": "now", "summary": ""}
+    )
+    assert not store._is_run_record([])
+    assert not store._is_run_record({"id": "1", "kind": "chat", "at": "now"})
+    assert not store._is_run_record(
+        {"id": "", "kind": "chat", "at": "now", "summary": "done"}
+    )
+    assert not store._is_run_record(
+        {"id": "1", "kind": "chat", "at": "now", "summary": 3}
+    )
+
+
 def test_write_json_uses_unique_tmp_name(tmp_path, monkeypatch):
     # Concurrent writers to the SAME path must not collide on a fixed tmp name;
     # the temp gets a per-process unique suffix and is consumed by os.replace.

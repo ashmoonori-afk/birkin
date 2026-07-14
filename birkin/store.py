@@ -143,13 +143,26 @@ def save_run(kind: str, summary: str, details: dict[str, Any] | None = None,
     return path
 
 
+def _is_run_record(record: Any) -> bool:
+    if not isinstance(record, dict):
+        return False
+    strings = {key: record.get(key) for key in ("id", "kind", "at", "summary")}
+    return all(isinstance(value, str) for value in strings.values()) and all(
+        strings[key] for key in ("id", "kind", "at")
+    )
+
+
 def list_runs(limit: int = 20) -> list[dict[str, Any]]:
     files = sorted(config.runs_dir().glob("*.json"), reverse=True)
-    out = []
-    for f in files[:limit]:
+    out: list[dict[str, Any]] = []
+    if limit <= 0:
+        return out
+    for f in files:
         rec = _read_json(f, None)
-        if rec:
+        if _is_run_record(rec):
             out.append(rec)
+            if len(out) == limit:
+                break
     return out
 
 

@@ -4,11 +4,13 @@ from __future__ import annotations
 
 import http.client
 import json
+import socket
 import threading
 from http.server import HTTPServer
 
 import pytest
 
+import birkin
 from birkin import store
 from birkin.web import server as web_server
 
@@ -56,6 +58,33 @@ def test_api_status_payload_shape(srv):
     for key in ("model", "provider", "vault", "skills_count", "auto_approve",
                 "daemon", "next_nightly", "pending_count"):
         assert key in obj
+
+
+def test_api_status_reports_runtime_version(srv):
+    port, _ = srv
+    code, _, body = _request("127.0.0.1", port, "GET", "/api/status")
+
+    assert code == 200
+    assert json.loads(body)["version"] == birkin.__version__
+
+
+def test_handler_server_version_uses_runtime_version():
+    assert web_server.Handler.server_version == f"birkin-dashboard/{birkin.__version__}"
+
+
+def test_api_status_marks_skill_discovery_unavailable(srv, monkeypatch):
+    def fail(_cfg):
+        raise OSError("private discovery detail")
+
+    monkeypatch.setattr(web_server, "build_manager", fail)
+    port, _ = srv
+    code, _, body = _request("127.0.0.1", port, "GET", "/api/status")
+    payload = json.loads(body)
+
+    assert code == 200
+    assert payload["skills_count"] is None
+    assert payload["skills_error"] == "unavailable"
+    assert b"private discovery detail" not in body
 
 
 def test_api_skills_and_runs(srv):
@@ -123,3 +152,116 @@ def test_post_approvals_bad_path_and_json(srv):
                                    "Content-Type": "application/json"},
                           body=b"not-json")
     assert code == 400
+
+
+@pytest.mark.parametrize("body", [b"[]", b'"text"', b"null"])
+def test_post_approvals_requires_json_object(srv, body):
+    port, token = srv
+    code, _, payload = _request(
+        "127.0.0.1",
+        port,
+        "POST",
+        "/api/approvals",
+        headers={"X-Birkin-Token": token, "Content-Type": "application/json"},
+        body=body,
+    )
+
+    assert code == 400
+    assert json.loads(payload) == {"error": "expected JSON object"}
+
+
+@pytest.mark.parametrize("approval_id", ["ABCDEF123456", "../etc/passwd", "abc123", "a" * 13])
+def test_post_approvals_rejects_invalid_id(srv, approval_id):
+    port, token = srv
+    code, _, payload = _request(
+        "127.0.0.1",
+        port,
+        "POST",
+        "/api/approvals",
+        headers={"X-Birkin-Token": token, "Content-Type": "application/json"},
+        body=json.dumps({"id": approval_id, "action": "reject"}).encode(),
+    )
+
+    assert code == 400
+    assert json.loads(payload) == {"error": "invalid approval id"}
+
+
+def test_post_rejects_untrusted_request_without_reading_body(srv, monkeypatch):
+    reads = 0
+
+    def fail_if_called(_handler):
+        nonlocal reads
+        reads += 1
+        raise AssertionError("body read before request authentication")
+
+    monkeypatch.setattr(web_server.Handler, "_read_body", fail_if_called)
+    port, token = srv
+    cases = [
+        ("evil.example", "/api/approvals", token, b"403 "),
+        ("127.0.0.1", "/api/approvals", "", b"403 "),
+        ("127.0.0.1", "/api/nope", token, b"404 "),
+    ]
+    for host, path, request_token, expected in cases:
+        request = (
+            f"POST {path} HTTP/1.1\r\n"
+            f"Host: {host}\r\n"
+            f"X-Birkin-Token: {request_token}\r\n"
+            "Content-Length: 65536\r\n\r\n"
+        ).encode()
+        with socket.create_connection(("127.0.0.1", port), timeout=2) as client:
+            client.sendall(request)
+            response = b""
+            while chunk := client.recv(4096):
+                response += chunk
+        assert expected in response.split(b"\r\n", 1)[0]
+    assert reads == 0
+
+
+def test_post_approvals_body_timeout_returns_408(srv, monkeypatch):
+    monkeypatch.setattr(web_server, "POST_BODY_TIMEOUT_SECONDS", 0.05)
+    port, token = srv
+    request = (
+        "POST /api/approvals HTTP/1.1\r\n"
+        "Host: 127.0.0.1\r\n"
+        f"X-Birkin-Token: {token}\r\n"
+        "Content-Type: application/json\r\n"
+        "Content-Length: 2\r\n\r\n"
+    ).encode()
+
+    with socket.create_connection(("127.0.0.1", port), timeout=2) as client:
+        client.sendall(request)
+        response = b""
+        while chunk := client.recv(4096):
+            response += chunk
+
+    assert b"408 " in response.split(b"\r\n", 1)[0]
+    assert json.loads(response.split(b"\r\n\r\n", 1)[1]) == {
+        "error": "request body timeout"
+    }
+
+
+@pytest.mark.parametrize(
+    ("content_length", "expected"),
+    [(None, b"400 "), ("bad", b"400 "), ("-1", b"400 "), ("65537", b"413 ")],
+)
+def test_post_approvals_rejects_unsafe_content_lengths(srv, content_length, expected):
+    port, token = srv
+    headers = [
+        "POST /api/approvals HTTP/1.1",
+        "Host: 127.0.0.1",
+        f"X-Birkin-Token: {token}",
+        "Content-Type: application/json",
+    ]
+    if content_length is not None:
+        headers.append(f"Content-Length: {content_length}")
+    request = ("\r\n".join(headers) + "\r\n\r\n").encode()
+
+    with socket.create_connection(("127.0.0.1", port), timeout=2) as client:
+        client.sendall(request)
+        client.shutdown(socket.SHUT_WR)
+        response = b""
+        while chunk := client.recv(4096):
+            response += chunk
+
+    assert expected in response.split(b"\r\n", 1)[0]
+    assert f"Server: birkin-dashboard/{birkin.__version__}".encode() in response

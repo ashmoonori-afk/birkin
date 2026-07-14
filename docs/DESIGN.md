@@ -246,6 +246,63 @@ A small standard-library HTTP server serving a single-page dashboard. It is
 **Endpoints.** `GET /api/status`, `/api/jobs`, `/api/runs`, `/api/skills`,
 `GET/POST /api/approvals`. Chat is intentionally absent — use `birkin chat`.
 
+### 8.1 Workbench design system
+
+The WebUI is a compact local monitoring workbench, not a general-purpose IDE.
+Its information architecture follows the selected GitHub Mission Control
+reference, its dark density and three-pane rhythm follow the selected VS Code
+Agents Window reference, and its proposal scan uses only the selected Replit
+task-board traits: counts, timestamps, explicit empty states, and actions
+anchored to each row. Replit's Drafts/Active/Ready/Done lifecycle columns are
+explicitly excluded.
+
+**Reference contract.** The only visual references are
+`github-mission-control.jpg`, `vscode-agents-window.png`, and
+`replit-task-board.png` in the approved research artifact set. Their roles are
+structure, style, and proposal scan behavior respectively; no product copy,
+logos, or unrelated IDE surfaces are copied.
+
+**Tokens.** All values are CSS custom properties in `index.html`.
+
+| Group | Tokens |
+|---|---|
+| Canvas | `--canvas #181818`, `--rail #181818`, `--sidebar #181818`, `--workspace #1f1f1f`, `--surface #242424`, `--surface-raised #292929` |
+| Lines | `--line #303030`, `--line-strong #3a3a3a`, `--focus #75beff` |
+| Type | `--text #d4d4d4`, `--text-strong #f0f0f0`, `--muted #969696`, `--faint #6f6f6f`, system UI body, system mono metadata |
+| State | `--accent #3794ff`, `--accent-soft #102f48`, `--good #4ec9b0`, `--warn #cca700`, `--danger #f14c4c` |
+| Space | 4px base rhythm; 8px compact gap; 12px row inset; 16px section inset |
+| Shape | 4px controls, 6px panels; no pill treatment except compact status/count badges |
+
+**Responsive geometry.** At 1024px and above the shell is a 48px activity
+rail, a 224px navigation sidebar, and a fluid workspace. Below 1024px the rail
+is removed. Below 720px the sidebar becomes a sticky horizontal tab strip and
+the workspace becomes a single column. The supported widths are 320, 375, 768,
+and 1280px with no horizontal document overflow.
+
+**Primitives and states.** `ActivityButton`, `NavTab`, `StatusBadge`,
+`MetricCell`, `WorkbenchPanel`, `DenseRow`, `EmptyState`, and `ActionButton`
+are the reusable visual primitives. Every data panel exposes loading, populated,
+empty, and retained-last-good error states. Controls expose default, hover,
+active, disabled, and keyboard-focus states. Proposal actions keep Approve and
+Reject attached to their row and disable while the request is in flight.
+
+**Interaction and accessibility.** Overview, Proposals, Jobs, Runs, and Skills
+are the only views. Tabs implement arrow-key, Home, and End navigation; focus
+is always visible; errors are announced through a polite live region; the
+document includes a skip link and semantic landmarks. Touch targets expand to
+44px for coarse pointers, motion is limited to opacity/transform state changes,
+and `prefers-reduced-motion` removes transitions. Last-known-good data remains
+visible during refresh failures, with a timestamped connection notice and an
+explicit retry action.
+
+**Personas and accepted debt.** The primary persona is an operator scanning
+runtime state by keyboard or pointer; the secondary persona is a reviewer who
+must make deliberate approval decisions without losing list context. The page
+uses native browser APIs and inline SVG only to preserve the zero-dependency
+runtime. Advanced filtering, sortable columns, charts, theming, chat, files,
+terminal, sessions, and configuration are intentionally out of scope until
+real monitoring volume demonstrates a need.
+
 ---
 
 ## 9. Cross-platform & single-command

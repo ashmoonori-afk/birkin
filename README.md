@@ -73,6 +73,14 @@ birkin is deliberately **smaller and more careful** than the inspirations.
 6. **CLI first, dashboard second.** A real terminal line editor (inline `/cmd`
    dropdown, word-wise editing, multi-line, history). The web UI is *monitoring*.
 
+### WebUI monitoring workbench
+
+Run `birkin web` to inspect runtime health, review pending proposals, and scan
+scheduled jobs, recent runs, and installed skills without leaving the local
+workspace. Chat and configuration remain in the CLI.
+
+![Birkin WebUI monitoring workbench](docs/assets/webui-workbench.png)
+
 ---
 
 ## 🚀 Install
