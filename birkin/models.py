@@ -74,7 +74,10 @@ def fetch_api_models(cfg: dict[str, Any]) -> list[Model]:
 # Codex model ids the `codex exec -m <id>` CLI accepts. Curated (verified
 # working); the user's own ~/.codex default is added on top, and extra ids can
 # be added via cfg["codex_models"], so the list stays current without a release.
-CODEX_KNOWN_MODELS = ("gpt-5.5", "gpt-5.4", "gpt-5.3-codex-spark")
+CODEX_KNOWN_MODELS = (
+    "gpt-5.6-sol", "gpt-5.6-terra", "gpt-5.6-luna", "gpt-5.5",
+    "gpt-5.4", "gpt-5.4-mini", "gpt-5.3-codex-spark",
+)
 
 
 def _codex_default_model() -> Optional[str]:

@@ -51,6 +51,10 @@ class CodexSessionError(RuntimeError):
     """Raised when the persistent codex process cannot produce a reply."""
 
 
+class CodexTurnTimeout(CodexSessionError):
+    pass
+
+
 class CodexAppServerSession:
     """One warm ``codex app-server`` process driven over JSON-RPC stdio."""
 
@@ -111,7 +115,7 @@ class CodexAppServerSession:
             parts += ["-c", f'model="{self.model}"']
         if self.reasoning_effort:
             if self.reasoning_effort not in (
-                    "minimal", "low", "medium", "high"):
+                    "minimal", "low", "medium", "high", "xhigh"):
                 raise CodexSessionError(
                     f"bad reasoning_effort: {self.reasoning_effort!r}")
             parts += ["-c",
@@ -181,34 +185,34 @@ class CodexAppServerSession:
 
     def _terminate(self, *, mark_closed: bool) -> None:
         self._closed = mark_closed
-        if self._proc is not None:
+        proc, self._proc = self._proc, None
+        self._thread_id = None
+        if proc is not None:
             try:
-                if self._proc.stdin and not self._proc.stdin.closed:
-                    self._proc.stdin.close()
+                if proc.stdin and not proc.stdin.closed:
+                    proc.stdin.close()
             except OSError:
                 pass
             if os.name == "nt":
-                kill_tree(self._proc)
+                kill_tree(proc)
             else:
                 try:
-                    self._proc.terminate()
+                    proc.terminate()
                 except OSError:
                     pass
             try:
-                self._proc.wait(timeout=3)
+                proc.wait(timeout=3)
             except (subprocess.TimeoutExpired, OSError, ValueError):
                 try:
-                    kill_tree(self._proc)
-                    self._proc.wait(timeout=2)
+                    kill_tree(proc)
+                    proc.wait(timeout=2)
                 except (OSError, ValueError, subprocess.TimeoutExpired):
                     pass
             try:  # drop it from the orphan registry on graceful terminate
                 from . import procreg
-                procreg.unregister(self._proc.pid)
+                procreg.unregister(proc.pid)
             except Exception:
                 pass
-            self._proc = None
-        self._thread_id = None
 
     def close(self) -> None:
         """Retire for good (gateway /new + shutdown)."""
@@ -249,6 +253,8 @@ class CodexAppServerSession:
             try:
                 msg = q.get(timeout=timeout or self.request_timeout)
             except queue.Empty:
+                if method == "turn/start":
+                    raise CodexTurnTimeout(f"{method} timed out")
                 raise CodexSessionError(f"{method} timed out")
         finally:
             with self._replies_lock:
@@ -313,6 +319,9 @@ class CodexAppServerSession:
             self._interrupted = False
             try:
                 return self._turn(text, on_text, timeout)
+            except CodexTurnTimeout:
+                self._terminate(mark_closed=False)
+                raise
             except CodexSessionError:
                 if self._closed or self._interrupted:
                     # deliberately interrupted (process killed) — don't retry
@@ -359,13 +368,13 @@ class CodexAppServerSession:
         while True:
             remaining = deadline - time.monotonic()
             if remaining <= 0:
-                raise CodexSessionError(
+                raise CodexTurnTimeout(
                     f"codex turn timed out after "
                     f"{timeout or self.turn_timeout:.0f}s")
             try:
                 note = self._notes.get(timeout=remaining)
             except queue.Empty:
-                raise CodexSessionError("codex turn timed out")
+                raise CodexTurnTimeout("codex turn timed out")
             if note is None:
                 if self._interrupted:
                     return "⏹️ 중단했어요. 새 메시지로 진행할게요."

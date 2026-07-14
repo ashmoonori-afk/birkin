@@ -148,8 +148,10 @@ def _gateway(tmp_path, monkeypatch):
 class _FakeAskSession:
     def __init__(self):
         self.seen_on_text = "unset"
+        self.seen_text = ""
 
     def ask(self, text, on_text=None):
+        self.seen_text = text
         self.seen_on_text = on_text
         if on_text:
             on_text("partial ")
@@ -171,6 +173,43 @@ def test_handle_passes_on_text_to_persistent_session(tmp_path, monkeypatch):
     assert out == "partial done"
     assert callable(fake.seen_on_text)   # plumbing reached the session…
     assert pieces == ["partial "]        # …and the callback actually fired
+
+
+def test_telegram_turn_scopes_foreground_validation(tmp_path, monkeypatch):
+    gw = _gateway(tmp_path, monkeypatch)
+    gw.cfg["channels"]["telegram"]["allowed_chat_ids"] = ["c1"]
+    fake = _FakeAskSession()
+    gw._claude_sessions.put(("telegram", "c1"), fake)
+
+    gw.handle("telegram", "c1", "fix the timeout")
+
+    assert "only files relevant" in fake.seen_text
+    assert "targeted tests" in fake.seen_text
+    assert "detached background" in fake.seen_text
+    assert "inside the workspace" in fake.seen_text
+    assert "~/.birkin/runs" not in fake.seen_text
+    assert fake.seen_text.endswith("fix the timeout")
+
+
+def test_open_telegram_does_not_get_background_validation_policy(tmp_path,
+                                                                  monkeypatch):
+    gw = _gateway(tmp_path, monkeypatch)
+    fake = _FakeAskSession()
+    gw._claude_sessions.put(("telegram", "c1"), fake)
+
+    gw.handle("telegram", "c1", "fix the timeout")
+
+    assert fake.seen_text == "fix the timeout"
+
+
+def test_http_turn_does_not_get_telegram_validation_policy(tmp_path, monkeypatch):
+    gw = _gateway(tmp_path, monkeypatch)
+    fake = _FakeAskSession()
+    gw._claude_sessions.put(("http", "c1"), fake)
+
+    gw.handle("http", "c1", "fix the timeout")
+
+    assert fake.seen_text == "fix the timeout"
 
 
 def test_spare_session_adopted_once(tmp_path, monkeypatch):
@@ -396,6 +435,101 @@ def test_codex_turn_streams_items_and_sends_preamble_once(monkeypatch):
     assert "PERSONA BLOCK" not in sent[1][1]["input"][0]["text"]  # once only
 
 
+def test_codex_turn_timeout_uses_typed_error(monkeypatch):
+    from birkin.codex_session import CodexAppServerSession, CodexTurnTimeout
+    import pytest
+
+    s = CodexAppServerSession()
+    s._thread_id = "t1"
+    monkeypatch.setattr(s, "request", lambda *args, **kwargs: {})
+
+    with pytest.raises(CodexTurnTimeout):
+        s._turn("hello", None, timeout=0.001)
+
+
+def test_codex_turn_timeout_is_not_retried(monkeypatch):
+    from birkin.codex_session import CodexAppServerSession, CodexTurnTimeout
+    import pytest
+
+    s = CodexAppServerSession()
+    calls = 0
+    terminations: list[bool] = []
+
+    def time_out(*args, **kwargs):
+        nonlocal calls
+        calls += 1
+        raise CodexTurnTimeout("codex turn timed out")
+
+    monkeypatch.setattr(s, "is_alive", lambda: True)
+    monkeypatch.setattr(s, "_turn", time_out)
+    monkeypatch.setattr(s, "_terminate",
+                        lambda *, mark_closed: terminations.append(mark_closed))
+    with pytest.raises(CodexTurnTimeout):
+        s.ask("hello")
+    assert calls == 1
+    assert terminations == [False]
+
+
+def test_codex_turn_start_timeout_is_not_retried(monkeypatch):
+    from birkin.codex_session import CodexAppServerSession, CodexTurnTimeout
+    import pytest
+
+    s = CodexAppServerSession(request_timeout=0.001)
+    s._thread_id = "t1"
+    sends: list[dict] = []
+    starts = 0
+    terminations: list[bool] = []
+
+    def start():
+        nonlocal starts
+        starts += 1
+
+    monkeypatch.setattr(s, "is_alive", lambda: True)
+    monkeypatch.setattr(s, "_send", sends.append)
+    monkeypatch.setattr(s, "start", start)
+    monkeypatch.setattr(s, "_terminate",
+                        lambda *, mark_closed: terminations.append(mark_closed))
+    with pytest.raises(CodexTurnTimeout):
+        s.ask("hello")
+    assert len(sends) == 1
+    assert starts == 0
+    assert terminations == [False]
+
+
+def test_codex_terminate_keeps_a_stable_process_reference(monkeypatch):
+    from birkin.codex_session import CodexAppServerSession
+
+    s = CodexAppServerSession()
+
+    class _Stdin:
+        closed = False
+
+        def close(self):
+            self.closed = True
+
+    class _Process:
+        stdin = _Stdin()
+        pid = 42
+
+        def wait(self, timeout=None):
+            return 0
+
+    process = _Process()
+    killed = []
+    s._proc = process
+
+    def kill(proc):
+        killed.append(proc)
+        s._proc = None
+
+    monkeypatch.setattr("birkin.codex_session.os.name", "nt")
+    monkeypatch.setattr("birkin.codex_session.kill_tree", kill)
+    s._terminate(mark_closed=False)
+
+    assert killed == [process]
+    assert s._proc is None
+
+
 def test_codex_reader_declines_server_requests_and_routes_replies():
     from birkin.codex_session import CodexAppServerSession
     import json as _json
@@ -481,6 +615,8 @@ def test_codex_reasoning_effort_in_argv():
     assert 'model_reasoning_effort="low"' in argv
     s2 = CodexAppServerSession(model="gpt-5.6-sol")      # empty = omitted
     assert not any("reasoning_effort" in a for a in s2._build_argv())
+    sx = CodexAppServerSession(model="gpt-5.6-sol", reasoning_effort="xhigh")
+    assert 'model_reasoning_effort="xhigh"' in sx._build_argv()
     s3 = CodexAppServerSession(model="gpt-5.6-sol", reasoning_effort="turbo")
     try:
         s3._build_argv()
@@ -500,5 +636,19 @@ def test_gateway_passes_reasoning_effort_to_codex(tmp_path, monkeypatch):
     s = g._build_claude_session()
     try:
         assert s.reasoning_effort == "low"
+    finally:
+        s.close()
+
+
+def test_gateway_passes_cli_timeout_to_codex(tmp_path, monkeypatch):
+    monkeypatch.setenv("BIRKIN_HOME", str(tmp_path))
+    from birkin import config
+    from birkin.gateway.core import Gateway
+    config.save_config({**config.DEFAULT_CONFIG, "provider": "codex-cli",
+                        "gateway_prewarm": False, "cli_timeout": 900})
+    g = Gateway(config.load_config())
+    s = g._build_claude_session()
+    try:
+        assert s.turn_timeout == 900
     finally:
         s.close()

@@ -7,7 +7,7 @@ import threading
 import time
 from typing import Any
 
-from .. import config, pools, promptgate, security, store
+from .. import config, models, pools, promptgate, security, store
 from ..claude_session import ClaudeStreamSession
 from ..runtime import ConfigError, Session, build_session
 
@@ -29,6 +29,8 @@ _GATEWAY_COMMANDS: list[tuple[str, str, set[str]]] = [
      {"neurosis", "interview"}),
     ("models", "List or select the gateway model (auto-restarts to apply)",
      {"models", "model"}),
+    ("effort", "List or select Codex reasoning effort (auto-restarts to apply)",
+     {"effort", "reasoning"}),
     ("update", "Remote update — pull new code from the repo, then auto restart",
      {"update", "upgrade", "pull"}),
     ("pending", "List pending approvals (approve/reject from chat)",
@@ -40,23 +42,34 @@ _GATEWAY_COMMANDS: list[tuple[str, str, set[str]]] = [
 
 # Friendly short model names accepted by `claude --model` (full claude-… IDs also OK).
 _GATEWAY_MODELS = ["opus", "sonnet", "haiku"]            # claude-cli suggestions
-_CODEX_GATEWAY_MODELS = ["gpt-5", "gpt-5-codex", "o3", "codex"]  # codex-cli (codex validates -m)
+_CODEX_REASONING_EFFORTS = ["default", "low", "medium", "high", "xhigh"]
 # Commands that pull code / restart the service / rewrite config — gated to
 # trusted channels only (see Gateway._command_trusted).
-_PRIVILEGED_COMMANDS = {"update", "models", "restart", "hard_restart",
+_PRIVILEGED_COMMANDS = {"update", "models", "effort", "restart", "hard_restart",
                         "pending", "remind"}
 # Providers with a warm persistent-session implementation (see
 # claude_session.ClaudeStreamSession / codex_session.CodexAppServerSession).
 _PERSISTENT_PROVIDERS = ("claude-cli", "codex-cli")
+_TELEGRAM_EXECUTION_POLICY = (
+    "<gateway-execution-policy>\n"
+    "Keep this foreground turn responsive: inspect only files relevant to the "
+    "request and run only targeted tests. Do not wait for a repository-wide "
+    "test suite. If broader verification is warranted, start it as a detached "
+    "background job, write its output and exit status to a receipt inside the "
+    "workspace, and tell the user the receipt path.\n"
+    "</gateway-execution-policy>\n\n"
+)
 
 
-def _gateway_model_choices(provider: str) -> tuple[list[str], str]:
-    """Suggested gateway models + an 'other IDs' hint, per provider."""
+def _gateway_model_choices(provider: str, cfg: dict[str, Any]) -> list[str]:
     if provider == "codex-cli":
-        return _CODEX_GATEWAY_MODELS, "또는 codex가 지원하는 -m 모델 ID"
+        return models.codex_model_ids(cfg)
     if provider == "claude-cli":
-        return _GATEWAY_MODELS, "또는 claude-… 전체 ID"
-    return [], "provider가 지원하는 모델 ID"
+        return _GATEWAY_MODELS
+    if provider in config.KNOWN_MODELS:
+        return [model for model, _note in config.KNOWN_MODELS[provider]]
+    current = str(cfg.get("model") or "")
+    return [current] if current else []
 
 
 def _model_fits_provider(provider: str, name: str) -> bool:
@@ -79,9 +92,18 @@ def _gateway_model_accepted(provider: str, name: str, known: list[str]) -> bool:
     from the WRONG family, which is rejected up front."""
     if not name:
         return False
+    if provider == "codex-cli":
+        return name in known
     if provider == "claude-cli":
         return name in known or name.startswith("claude-")
     return _model_fits_provider(provider, name)
+
+
+def _numbered_choice(value: str, choices: list[str]) -> str:
+    if not value.isdecimal():
+        return value
+    index = int(value) - 1
+    return choices[index] if 0 <= index < len(choices) else ""
 
 
 def match_command(text: str) -> tuple[str | None, str]:
@@ -155,11 +177,13 @@ class Gateway:
         # (e.g. 'sonnet' left over after switching to codex-cli) is ignored —
         # applying it would 400 every turn.
         gw_model = cfg.get("gateway_model")
-        if gw_model and _model_fits_provider(cfg.get("provider", ""), gw_model):
+        provider = cfg.get("provider", "")
+        known_models = _gateway_model_choices(provider, cfg)
+        if gw_model and _gateway_model_accepted(provider, gw_model, known_models):
             cfg = {**cfg, "model": gw_model}
         elif gw_model:
-            print(f"[gateway] ignoring gateway_model={gw_model!r} — wrong "
-                  f"family for provider {cfg.get('provider')!r}; using "
+            print(f"[gateway] ignoring unsupported gateway_model={gw_model!r} "
+                  f"for provider {provider!r}; using "
                   f"model={cfg.get('model')!r}")
         # SECURITY: the gateway is reachable over channels, so a chat message must
         # never reach a Claude process running with --dangerously-skip-permissions.
@@ -246,6 +270,7 @@ class Gateway:
                 preamble=self._system_prompt(),
                 reasoning_effort=str(
                     self.cfg.get("gateway_reasoning_effort", "") or ""),
+                turn_timeout=float(self.cfg.get("cli_timeout", 300)),
                 sandbox_mode=sandbox, approval_policy="never")
         # Tools the headless gateway may use without a permission prompt
         # (e.g. company MCP servers). Empty -> rely on Claude Code settings.
@@ -448,12 +473,17 @@ class Gateway:
             if cmd in _PRIVILEGED_COMMANDS and not self._command_trusted(channel):
                 return ("This command is restricted. Set "
                         "channels.telegram.allowed_chat_ids so only you can run "
-                        "/update, /models, /restart and /hard_restart.")
+                        "/update, /models, /effort, /restart and /hard_restart.")
             if cmd == "help":
                 return gateway_help_text()
             if cmd == "models":
                 reply = self._models_command(cmd_arg)
                 if self._hard_restart:   # /models scheduled a re-exec
+                    self._restart_origin = (channel, str(chat_id))
+                return reply
+            if cmd == "effort":
+                reply = self._effort_command(cmd_arg)
+                if self._hard_restart:
                     self._restart_origin = (channel, str(chat_id))
                 return reply
             if cmd == "hard_restart":
@@ -505,6 +535,9 @@ class Gateway:
                 # can interrupt() this turn (mid-input interruption).
                 self._inflight[key] = sess
 
+        if (channel == "telegram" and persistent
+                and self._command_trusted(channel)):
+            text = _TELEGRAM_EXECUTION_POLICY + text
         print(f"[gateway] {channel}:{chat_id} « {display_text[:80]}", flush=True)
         t0 = time.monotonic()
         try:
@@ -550,19 +583,22 @@ class Gateway:
         """List the gateway model, or select one and schedule a hard restart so the
         new model takes effect (the gateway's model is fixed at process start).
         Called under the lock."""
-        name = (arg or "").strip().split()[0] if (arg or "").strip() else ""
+        parts = (arg or "").strip().split()
         provider = self.cfg.get("provider", "")
-        known, extra_hint = _gateway_model_choices(provider)
-        listing = (", ".join(known) + " " if known else "") + f"({extra_hint})"
-        example = known[0] if known else "<모델 ID>"
-        if not name:
-            return (f"현재 게이트웨이 모델: {self.cfg.get('model')} [{provider}]\n"
-                    f"사용 가능: {listing}\n"
-                    f"바꾸려면 /models <이름> — 고르면 적용을 위해 자동으로 재시작해요. "
-                    f"예: /models {example}")
+        known = _gateway_model_choices(provider, self.cfg)
+        listing = "\n".join(f"{i}. {model}" for i, model in enumerate(known, 1))
+        if not parts:
+            kind = "CLI" if provider.endswith("-cli") else "API"
+            auth = "계정 로그인" if kind == "CLI" else "API key"
+            lines = [f"현재 게이트웨이 모델: {self.cfg.get('model')} [{provider}]",
+                     f"연결 방식: {kind} ({auth})",
+                     f"사용 가능 - {kind} 모델 ({provider}):", listing,
+                     "모델 선택: /models <번호>  예: /models 1"]
+            return "\n".join(lines)
+        name = _numbered_choice(parts[0], known)
         if not _gateway_model_accepted(provider, name, known):
-            return (f"'{name}'은(는) 모르는 모델이에요. 사용 가능: {listing}. "
-                    f"예: /models {example}")
+            return (f"'{parts[0]}'은(는) 모르는 모델이에요. "
+                    "사용 가능한 번호는 /models에서 확인하세요.")
         cfg = config.load_config()
         cfg["gateway_model"] = name
         config.save_config(cfg)
@@ -574,6 +610,30 @@ class Gateway:
         print(f"[gateway] model → {name}; scheduling hard restart", flush=True)
         return (f"✅ 게이트웨이 모델을 '{name}'로 바꿨어요. 적용하려고 지금 재시작합니다 "
                 f"— 잠시 후 다시 말 걸어주세요.")
+
+    def _effort_command(self, arg: str) -> str:
+        if self.cfg.get("provider") != "codex-cli":
+            return "Effort 설정은 codex-cli에서만 사용할 수 있어요."
+        value = (arg or "").strip().split()[0] if (arg or "").strip() else ""
+        listing = "\n".join(
+            f"{i}. {level}"
+            for i, level in enumerate(_CODEX_REASONING_EFFORTS, 1))
+        if not value:
+            current = self.cfg.get("gateway_reasoning_effort") or "default"
+            return (f"현재 effort: {current}\n{listing}\n"
+                    "변경: /effort <번호>  예: /effort 2")
+        effort = _numbered_choice(value, _CODEX_REASONING_EFFORTS)
+        if effort not in _CODEX_REASONING_EFFORTS:
+            return "모르는 effort예요. /effort에서 번호를 확인하세요."
+        stored_effort = "" if effort == "default" else effort
+        cfg = config.load_config()
+        cfg["gateway_reasoning_effort"] = stored_effort
+        config.save_config(cfg)
+        self.cfg = {**self.cfg, "gateway_reasoning_effort": stored_effort}
+        self._hard_restart = True
+        print(f"[gateway] effort → {effort}; scheduling hard restart", flush=True)
+        return (f"✅ Gateway effort를 '{effort}'로 바꿨어요. "
+                "적용하려고 지금 재시작합니다 — 잠시 후 다시 말 걸어주세요.")
 
     # -- remote approvals (P0-2: the propose->approve loop, from chat) -------
 
