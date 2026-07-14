@@ -21,6 +21,7 @@ import sys
 import time
 import urllib.parse
 import urllib.request
+from pathlib import Path
 
 from .proc import shell_argv
 from datetime import datetime, timedelta
@@ -231,7 +232,9 @@ def install_os_schedule() -> int:
     py = sys.executable
 
     if sys.platform.startswith("win"):
-        cmd = f'"{py}" -m birkin morpheus'
+        roots = cfg.get("workspace_roots") or []
+        working_dir = str(Path(roots[0]).expanduser() if roots else Path.cwd())
+        cmd = f'cmd.exe /d /c "cd /d ""{working_dir}"" && ""{py}"" -m birkin morpheus"'
         args = ["schtasks", "/Create", "/SC", "DAILY", "/TN", "birkin-nightly",
                 "/ST", f"{hour:02d}:{minute:02d}", "/TR", cmd, "/F"]
         try:

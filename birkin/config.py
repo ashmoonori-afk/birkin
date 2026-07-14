@@ -115,6 +115,7 @@ DEFAULT_CONFIG: dict[str, Any] = {
     # (P0-3). Empty = no delivery. Honors the outbound allowlist and the
     # [SILENT] convention; appends a pending-approvals count when relevant.
     "morpheus_deliver_chat_id": "",
+    "workspace_roots": [],
     # Hourly reaper: kill orphaned claude/codex->node subprocesses left behind
     # by a birkin process that died ungracefully. Only reaps children whose
     # OWNER process is gone — a live birkin's sessions are never touched. See

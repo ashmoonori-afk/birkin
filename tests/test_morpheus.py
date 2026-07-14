@@ -51,8 +51,32 @@ def test_gather_sessions_excludes_old_files(tmp_path):
 
 def test_gather_changed_files_lists_recent_files(tmp_path):
     (tmp_path / "fresh.md").write_text("x", encoding="utf-8")
-    text = morpheus._gather_changed_files(tmp_path)
+    text = morpheus._gather_changed_files([tmp_path])
     assert "fresh.md" in text
+
+
+def test_gather_changed_files_lists_each_workspace_once(tmp_path):
+    first = tmp_path / "first"
+    second = tmp_path / "second"
+    first.mkdir()
+    second.mkdir()
+    (first / "alpha.txt").write_text("a", encoding="utf-8")
+    (second / "beta.txt").write_text("b", encoding="utf-8")
+
+    text = morpheus._gather_changed_files([first, second, first])
+
+    assert text.count("alpha.txt") == 1
+    assert text.count("beta.txt") == 1
+
+
+def test_gather_changed_files_deduplicates_overlapping_workspaces(tmp_path):
+    nested = tmp_path / "project"
+    nested.mkdir()
+    (nested / "shared.txt").write_text("x", encoding="utf-8")
+
+    text = morpheus._gather_changed_files([tmp_path, nested])
+
+    assert text.count("shared.txt") == 1
 
 
 def test_gather_changed_files_skips_excluded_dirs(tmp_path):
@@ -61,15 +85,46 @@ def test_gather_changed_files_skips_excluded_dirs(tmp_path):
     (tmp_path / "node_modules").mkdir()
     (tmp_path / "node_modules" / "junk").write_text("x", encoding="utf-8")
     (tmp_path / "real.txt").write_text("real", encoding="utf-8")
-    text = morpheus._gather_changed_files(tmp_path)
+    text = morpheus._gather_changed_files([tmp_path])
     assert "real.txt" in text
     assert "secret" not in text and "junk" not in text
+
+
+def test_gather_changed_files_skips_generated_files(tmp_path):
+    (tmp_path / ".coverage").write_text("data", encoding="utf-8")
+    (tmp_path / "coverage.xml").write_text("<coverage />", encoding="utf-8")
+    (tmp_path / "source.py").write_text("pass", encoding="utf-8")
+
+    text = morpheus._gather_changed_files([tmp_path])
+
+    assert "source.py" in text
+    assert ".coverage" not in text
+    assert "coverage.xml" not in text
+
+
+def test_gather_changed_files_keeps_non_excluded_hidden_dirs(tmp_path):
+    hidden = tmp_path / ".github"
+    hidden.mkdir()
+    (hidden / "workflow.yml").write_text("jobs: {}", encoding="utf-8")
+
+    text = morpheus._gather_changed_files([tmp_path])
+
+    assert "workflow.yml" in text
+
+
+def test_gather_changed_files_has_no_default_limit(tmp_path):
+    for i in range(80):
+        (tmp_path / f"recent-{i}.txt").write_text("x", encoding="utf-8")
+
+    text = morpheus._gather_changed_files([tmp_path])
+
+    assert len(text.splitlines()) == 80
 
 
 def test_gather_changed_files_caps_at_limit(tmp_path):
     for i in range(80):
         (tmp_path / f"f{i}.txt").write_text("x", encoding="utf-8")
-    text = morpheus._gather_changed_files(tmp_path, limit=10)
+    text = morpheus._gather_changed_files([tmp_path], limit=10)
     # exactly 10 lines, each prefixed with "- "
     assert text.count("\n- ") + (1 if text.startswith("- ") else 0) == 10
 
@@ -80,7 +135,7 @@ def test_gather_changed_files_returns_placeholder_when_none(tmp_path):
     (tmp_path / "old.txt").write_text("x", encoding="utf-8")
     import os as _os
     _os.utime(tmp_path / "old.txt", (ago, ago))
-    text = morpheus._gather_changed_files(tmp_path, hours=24.0)
+    text = morpheus._gather_changed_files([tmp_path], hours=24.0)
     assert "no files changed" in text
 
 

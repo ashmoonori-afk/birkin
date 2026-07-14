@@ -20,13 +20,16 @@ import os
 import time
 from datetime import datetime
 from pathlib import Path
-from typing import Any
+from typing import Any, Sequence
 
 from . import approvals, config, selfimprove, store
 from .runtime import ConfigError, build_session
 
 _EXCLUDE_DIRS = {".git", ".birkin", "node_modules", "__pycache__", ".venv",
-                 "venv", "dist", "build", ".ruff_cache"}
+                 "venv", "dist", "build", "out", "target", ".next",
+                 ".codegraph", ".pytest_cache", ".mypy_cache", ".ruff_cache",
+                 ".tox"}
+_EXCLUDE_FILES = {".coverage", "coverage.xml"}
 
 _MORPHEUS_TASK = """## Morpheus self-improvement pass ({date})
 
@@ -145,22 +148,31 @@ def _gather_sessions(hours: float = 24.0) -> str:
     return "\n\n".join(chunks)[:20000] or "(no saved conversations in the last 24h)"
 
 
-def _gather_changed_files(root: Path, hours: float = 24.0, limit: int = 60) -> str:
+def _gather_changed_files(roots: Sequence[Path], hours: float = 24.0,
+                          limit: int | None = None) -> str:
     cutoff = time.time() - hours * 3600
     found: list[str] = []
-    for dirpath, dirnames, filenames in os.walk(root):
-        dirnames[:] = [d for d in dirnames if d not in _EXCLUDE_DIRS
-                       and not d.startswith(".")]
-        for name in filenames:
-            p = Path(dirpath) / name
-            try:
-                if p.stat().st_mtime >= cutoff:
-                    found.append(str(p.relative_to(root)))
-            except OSError:
-                continue
-            if len(found) >= limit:
+    seen: set[Path] = set()
+    scan_roots = list(dict.fromkeys(roots))
+    for root in scan_roots:
+        for dirpath, dirnames, filenames in os.walk(root):
+            dirnames[:] = [d for d in dirnames if d not in _EXCLUDE_DIRS]
+            for name in filenames:
+                if name in _EXCLUDE_FILES:
+                    continue
+                path = Path(dirpath) / name
+                try:
+                    resolved = path.resolve()
+                    if resolved not in seen and path.stat().st_mtime >= cutoff:
+                        found.append(str(path))
+                        seen.add(resolved)
+                except OSError:
+                    continue
+                if limit is not None and len(found) >= limit:
+                    break
+            if limit is not None and len(found) >= limit:
                 break
-        if len(found) >= limit:
+        if limit is not None and len(found) >= limit:
             break
     return "\n".join(f"- {f}" for f in found) or "(no files changed in the last 24h)"
 
@@ -184,7 +196,9 @@ def run_once(dry_run: bool = False) -> int:
     elif cfg.get("cli_access") == "full":
         print("birkin morpheus: WARNING — running UNATTENDED with cli_access "
               "'full' (allow_unattended_full=true). Sandbox/approvals bypassed.")
-    cwd = Path.cwd()
+    configured_roots = cfg.get("workspace_roots") or []
+    workspace_roots = ([Path(root).expanduser() for root in configured_roots]
+                       or [Path.cwd()])
     # Nightly maintenance: drop TTL-expired notes so the vault stays bounded
     # (they are only hidden from search/render otherwise). Best-effort.
     try:
@@ -195,7 +209,7 @@ def run_once(dry_run: bool = False) -> int:
     except Exception:
         pass
     sessions_text = _gather_sessions()
-    files_text = _gather_changed_files(cwd)
+    files_text = _gather_changed_files(workspace_roots)
     activity = store.read_recent_activity() or "(empty)"
     task = _MORPHEUS_TASK.format(
         date=datetime.now().strftime("%Y-%m-%d"),
