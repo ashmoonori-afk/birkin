@@ -205,6 +205,19 @@ commands:
 | `/update` (`/upgrade`) | **remote update** — fast-forward pull (shows the version, not a commit hash); auto hard-restart on a code change |
 | `/neurosis [--quick\|--standard\|--deep] <idea>` | start/resume a **deep interview** |
 
+### Approve long Telegram work before it runs
+
+On an allowlisted Telegram bot, work expected to take at least three minutes,
+use multiple phases, or spawn a subagent is first rendered as a plan with
+**Approve** and **Reject** buttons. Approval is bound to the originating chat;
+the same conversation then resumes the accepted plan. From three minutes on,
+one heartbeat message is updated in place and removed when the work ends.
+
+Birkin's in-process `spawn_subagent` tool has a hard approval gate for these
+Telegram turns. Warm Claude/Codex CLI processes do not expose every internal
+subagent event, so that provider path follows the injected proposal policy and
+reports generic elapsed-time heartbeat updates rather than per-subagent detail.
+
 ### Let it interview you to clarity (Neurosis)
 
 For a vague/complex request, birkin proactively says *"진행 전에 모호한 부분과

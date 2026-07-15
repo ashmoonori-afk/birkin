@@ -68,7 +68,7 @@ def _status_payload() -> dict[str, Any]:
         "next_nightly": st.get("next_nightly") or st.get("next_morpheus"),
         "morpheus_hour": cfg.get("morpheus_hour", cfg.get("nightly_hour", 4)),
         "nightly_hour": cfg.get("morpheus_hour", cfg.get("nightly_hour", 4)),
-        "pending_count": len(store.list_pending()),
+        "pending_count": len(approvals.reviewable_pending()),
         "heartbeat": st.get("heartbeat"),
         "budget": budget_mod.status(cfg),
     }
@@ -140,7 +140,7 @@ class Handler(BaseHTTPRequestHandler):
             self._json(store.list_runs(limit=20))
         elif self.path == "/api/approvals":
             from .. import risk as risk_mod
-            items = risk_mod.sort_by_risk(store.list_pending())
+            items = risk_mod.sort_by_risk(approvals.reviewable_pending())
             for it in items:
                 it["risk"] = risk_mod.risk_for(it.get("category", ""))
             self._json(items)

@@ -4,6 +4,7 @@ token-delta streaming, Telegram edit-streaming, pre-warmed spare."""
 from __future__ import annotations
 
 import json
+from types import SimpleNamespace
 
 from birkin.claude_session import ClaudeStreamSession
 from birkin.gateway.channels.telegram import _Streamer
@@ -187,8 +188,64 @@ def test_telegram_turn_scopes_foreground_validation(tmp_path, monkeypatch):
     assert "targeted tests" in fake.seen_text
     assert "detached background" in fake.seen_text
     assert "inside the workspace" in fake.seen_text
+    assert "birkin-work-proposal" in fake.seen_text
+    assert "any subagent" in fake.seen_text
     assert "~/.birkin/runs" not in fake.seen_text
     assert fake.seen_text.endswith("fix the timeout")
+
+
+def test_nonpersistent_trusted_telegram_gets_workflow_policy(tmp_path, monkeypatch):
+    gw = _gateway(tmp_path, monkeypatch)
+    gw.cfg["channels"]["telegram"]["allowed_chat_ids"] = ["c1"]
+    fake = _FakeAskSession()
+    fake.agent = SimpleNamespace(messages=[])
+    gw._persistent = False
+    gw.session = fake
+
+    gw.handle("telegram", "c1", "plan the release")
+
+    assert "birkin-work-proposal" in fake.seen_text
+    assert "any subagent" in fake.seen_text
+    assert fake.seen_text.endswith("plan the release")
+
+
+def test_native_subagent_gate_is_bound_to_running_workflow_id(
+        tmp_path, monkeypatch):
+    gw = _gateway(tmp_path, monkeypatch)
+    gw.cfg["channels"]["telegram"]["allowed_chat_ids"] = ["c1"]
+
+    class _NativeSession(_FakeAskSession):
+        def __init__(self):
+            super().__init__()
+            self.agent = SimpleNamespace(messages=[])
+            self.ctx = SimpleNamespace(
+                subagent_approval_required=False,
+                approved_work=False,
+            )
+            self.seen_gate: list[tuple[bool, bool]] = []
+
+        def ask(self, text, on_text=None):
+            self.seen_gate.append((
+                self.ctx.subagent_approval_required,
+                self.ctx.approved_work,
+            ))
+            return super().ask(text, on_text)
+
+    from birkin.gateway import workflow
+    proposal = workflow.WorkflowProposal("work", "approved", ("delegate",))
+    aid = workflow.queue_proposal(proposal, "task", "c1")
+    workflow.resolve_proposal(aid, "c1", approve=True)
+    workflow.mark_running(aid, "c1")
+    fake = _NativeSession()
+    gw._persistent = False
+    gw.session = fake
+
+    gw.handle("telegram", "c1", "normal")
+    gw.handle("telegram", "c1", "approved", workflow_id=aid)
+
+    assert fake.seen_gate == [(True, False), (True, True)]
+    assert fake.ctx.subagent_approval_required is False
+    assert fake.ctx.approved_work is False
 
 
 def test_open_telegram_does_not_get_background_validation_policy(tmp_path,

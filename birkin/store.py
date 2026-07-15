@@ -110,6 +110,10 @@ class file_lock:
                 pass
             self._held = False
 
+    @property
+    def acquired(self) -> bool:
+        return self._held
+
 
 # -- usage estimation ------------------------------------------------------
 
@@ -196,11 +200,20 @@ def list_pending() -> list[dict[str, Any]]:
     return out
 
 
+def valid_pending_id(aid: str) -> bool:
+    return (isinstance(aid, str) and len(aid) == 12
+            and all(char in "0123456789abcdef" for char in aid))
+
+
 def get_pending(aid: str) -> dict[str, Any] | None:
+    if not valid_pending_id(aid):
+        return None
     return _read_json(config.pending_dir() / f"{aid}.json", None)
 
 
 def resolve_pending(aid: str, status: str) -> dict[str, Any] | None:
+    if not valid_pending_id(aid):
+        return None
     path = config.pending_dir() / f"{aid}.json"
     rec = _read_json(path, None)
     if not rec:

@@ -4,9 +4,27 @@ Lightweight architecture decision records. Each entry: context, decision,
 rationale, alternatives considered, status. Newest decisions may supersede
 older ones (noted inline).
 
-> Last updated: 2026-07-12
+> Last updated: 2026-07-15
 
 ---
+
+## ADR-049 — Telegram long work is proposed, approved, then heartbeated
+
+- **Context.** Multi-phase and subagent work could begin from Telegram with no
+  explicit plan approval and then remain silent long enough to look stalled.
+- **Decision.** Trusted Telegram turns must return a structured proposal before
+  work expected to take three minutes, span multiple phases, or use a subagent.
+  Birkin renders chat-bound Approve/Reject buttons, atomically claims one tap,
+  ACKs before background execution, resumes the same conversation, and edits
+  one heartbeat message every 180 seconds. Workflow records move through
+  `pending → claimed → running → completed|error|interrupted`; only unstarted
+  claims recover after restart. The native `spawn_subagent` tool also checks
+  the approved-work context, while warm Claude/Codex CLI internals remain a
+  cooperative prompt policy because those providers do not expose a stable
+  subagent lifecycle hook.
+- **Status.** Accepted 2026-07-15. Tests:
+  `tests/test_gateway_workflow_*.py`,
+  `tests/test_gateway_approval_integrity.py`.
 
 ## ADR-048 — Hourly orphan-process reaper (procreg)
 

@@ -10,6 +10,7 @@ from typing import Any
 from .. import config, models, pools, promptgate, security, store
 from ..claude_session import ClaudeStreamSession
 from ..runtime import ConfigError, Session, build_session
+from .workflow import WORKFLOW_POLICY, is_running as workflow_is_running
 
 # Gateway chat commands. Each: (canonical name, description, {accepted triggers}).
 # Triggers include hyphen / underscore / run-together variants because Telegram
@@ -50,9 +51,12 @@ _PRIVILEGED_COMMANDS = {"update", "models", "effort", "restart", "hard_restart",
 # Providers with a warm persistent-session implementation (see
 # claude_session.ClaudeStreamSession / codex_session.CodexAppServerSession).
 _PERSISTENT_PROVIDERS = ("claude-cli", "codex-cli")
+TURN_ERROR_REPLY = ("⚠️ 문제가 생겨서 이번 메시지를 처리하지 못했어요. "
+                    "잠시 후 다시 시도해 주세요.")
 _TELEGRAM_EXECUTION_POLICY = (
     "<gateway-execution-policy>\n"
-    "Keep this foreground turn responsive: inspect only files relevant to the "
+    + WORKFLOW_POLICY
+    + "Keep this foreground turn responsive: inspect only files relevant to the "
     "request and run only targeted tests. Do not wait for a repository-wide "
     "test suite. If broader verification is warranted, start it as a detached "
     "background job, write its output and exit status to a receipt inside the "
@@ -418,7 +422,7 @@ class Gateway:
         return False
 
     def handle(self, channel: str, chat_id: str, text: str,
-               on_text=None) -> str:
+               on_text=None, workflow_id: str | None = None) -> str:
         """Route one inbound message to the agent and return the reply.
 
         ``on_text`` (optional) receives append-style reply pieces as they
@@ -535,8 +539,14 @@ class Gateway:
                 # can interrupt() this turn (mid-input interruption).
                 self._inflight[key] = sess
 
-        if (channel == "telegram" and persistent
-                and self._command_trusted(channel)):
+        trusted_telegram = (channel == "telegram"
+                            and self._command_trusted(channel))
+        approved_work = bool(
+            trusted_telegram
+            and workflow_id
+            and workflow_is_running(workflow_id, str(chat_id))
+        )
+        if trusted_telegram:
             text = _TELEGRAM_EXECUTION_POLICY + text
         print(f"[gateway] {channel}:{chat_id} « {display_text[:80]}", flush=True)
         t0 = time.monotonic()
@@ -550,9 +560,19 @@ class Gateway:
                 # history swap must stay serialized under the global lock.
                 with self._lock:
                     self.session.agent.messages = self._chats.get(key, [])
+                    ctx = getattr(self.session, "ctx", None)
+                    old_required = getattr(
+                        ctx, "subagent_approval_required", False)
+                    old_approved = getattr(ctx, "approved_work", False)
+                    if ctx is not None:
+                        ctx.subagent_approval_required = trusted_telegram
+                        ctx.approved_work = approved_work
                     try:
                         reply = self.session.ask(text)
                     finally:
+                        if ctx is not None:
+                            ctx.subagent_approval_required = old_required
+                            ctx.approved_work = old_approved
                         self._chats[key] = self.session.agent.messages
         except Exception as exc:
             dt = time.monotonic() - t0
@@ -560,8 +580,7 @@ class Gateway:
             # the raw exception can leak paths/internals to a Telegram user.
             print(f"[gateway] {channel}:{chat_id} ✗ error after {dt:.1f}s: {exc}",
                   flush=True)
-            return ("⚠️ 문제가 생겨서 이번 메시지를 처리하지 못했어요. "
-                    "잠시 후 다시 시도해 주세요.")
+            return TURN_ERROR_REPLY
         finally:
             if persistent:
                 self._inflight.pop(key, None)
@@ -645,7 +664,8 @@ class Gateway:
     def pending_text(self) -> str:
         """Plain-text pending list — the fallback for channels without
         buttons (HTTP) and the body the Telegram channel decorates."""
-        items = self.pending_actions()
+        from .. import approvals, risk
+        items = risk.sort_by_risk(approvals.reviewable_pending())
         if not items:
             return "📭 No pending approvals."
         lines = [f"📋 {len(items)} pending approval(s):"]
@@ -717,6 +737,25 @@ class Gateway:
             return "⚠ not found or already resolved"
         store.append_activity(f"approval[{aid}]: rejected via gateway")
         return "❌ rejected"
+
+    def claim_action(self, aid: str) -> tuple[str, bool]:
+        from .. import approvals
+        out = approvals.claim(aid)
+        if not out.get("ok"):
+            return f"⚠ {out.get('error', 'approve failed')}", False
+        return "✅ approved — 실행 중", True
+
+    def execute_claimed_action(self, aid: str) -> str:
+        from .. import approvals
+        out = approvals.execute_claimed(aid)
+        if not out.get("ok"):
+            return f"⚠ {out.get('error', 'approve failed')}"
+        store.append_activity(f"approval[{aid}]: approved via gateway")
+        return f"✅ approved — {out.get('result', '')}"[:500]
+
+    def restore_action_claim(self, aid: str) -> None:
+        from .. import approvals
+        approvals.restore_claim(aid)
 
     def _autosave_trusted(self, channel: str) -> bool:
         """Whether turns from ``channel`` may be auto-saved + memorized.

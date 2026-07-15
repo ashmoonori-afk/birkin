@@ -224,7 +224,9 @@ configured hour (`nightly_hour`, default `4`). It also runs due cron jobs.
 vault/skills (registering a cron job, running a command, sending anything
 external) becomes a *proposal* in `~/.birkin/pending/`. The user reviews with
 `birkin review` (or the dashboard) and approves/rejects. Only approved actions
-execute.
+execute. Telegram long-work proposals share the same on-disk queue but are
+chat-bound and intentionally resolved only by their Telegram buttons; generic
+CLI/dashboard approval lists omit them.
 
 **Output.** Each run writes a **summary** to `~/.birkin/runs/` (what it learned,
 what it changed, what it is proposing) — surfaced on the dashboard.
@@ -355,7 +357,8 @@ Secrets are read from the environment first (`ANTHROPIC_API_KEY` /
 - Embedding-based semantic search as an *optional* upgrade over keyword search.
 - OS-native scheduler registration (`crontab` / `schtasks`) as an opt-in for
   survival across reboots without a long-running daemon.
-- Re-introducing a (much smaller) workflow/trigger system if needed.
+- Provider-level subagent event adapters if Claude/Codex CLI surfaces expose a
+  stable lifecycle beyond the current generic long-work heartbeat.
 - Test suite expansion toward the previous project's coverage bar.
 
 See [DECISIONS.md](./DECISIONS.md) for the rationale behind these choices.

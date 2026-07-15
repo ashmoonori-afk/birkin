@@ -38,6 +38,8 @@ class ToolContext:
     depth: int = 0              # subagent recursion depth
     max_depth: int = 2
     emit: Optional[Callable[[str, dict[str, Any]], None]] = None
+    subagent_approval_required: bool = False
+    approved_work: bool = False
 
 
 @dataclass

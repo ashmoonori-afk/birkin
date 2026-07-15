@@ -18,6 +18,11 @@ def _spawn_subagent(inp: dict[str, Any], ctx: ToolContext) -> ToolResult:
         return ToolResult("Missing 'task'", is_error=True)
     if ctx.depth >= ctx.max_depth:
         return ToolResult("Subagent depth limit reached", is_error=True)
+    if ctx.subagent_approval_required and not ctx.approved_work:
+        return ToolResult(
+            "Subagent execution requires an approved Telegram workflow.",
+            is_error=True,
+        )
 
     from ..subagent import run_subagent  # lazy import
     skills = inp.get("skills") or None

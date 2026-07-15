@@ -112,19 +112,43 @@ def _pending_path(aid: str):
     return config.pending_dir() / f"{aid}.json"
 
 
-def approve(aid: str) -> dict[str, Any]:
+def reviewable_pending() -> list[dict[str, Any]]:
+    return [rec for rec in store.list_pending()
+            if rec.get("category") != "workflow"]
+
+
+def claim(aid: str) -> dict[str, Any]:
+    if not store.valid_pending_id(aid):
+        return {"ok": False, "error": "invalid approval id"}
     # CLAIM under the lock (fast: read + status write), then EXECUTE outside it.
     # The claim — flipping status away from "pending" — is the gate against a
     # double-run (same item tapped in Telegram while also approved in the CLI).
     # Running the action (a shell job can be minutes) INSIDE the lock was the
     # bug: file_lock proceeds after a 5s timeout / reclaims a 30s-stale lock,
     # so a long approve could release the gate and let a second run start.
-    with store.file_lock(_pending_path(aid)):
+    with store.file_lock(_pending_path(aid)) as lock:
+        if not lock.acquired:
+            return {"ok": False, "error": "approval store is busy"}
         rec = store.get_pending(aid)
         if not rec or rec.get("status") != "pending":
             return {"ok": False, "error": "not found or already resolved"}
+        if rec.get("category") == "workflow":
+            return {"ok": False,
+                    "error": "Telegram workflow requires its origin chat"}
         store.resolve_pending(aid, "approving")     # claim it
-    # From here only the claiming caller runs — no lock needed on this aid.
+    return {"ok": True}
+
+
+def execute_claimed(aid: str) -> dict[str, Any]:
+    if not store.valid_pending_id(aid):
+        return {"ok": False, "error": "invalid approval id"}
+    with store.file_lock(_pending_path(aid)) as lock:
+        if not lock.acquired:
+            return {"ok": False, "error": "approval store is busy"}
+        rec = store.get_pending(aid)
+        if not rec or rec.get("status") != "approving":
+            return {"ok": False, "error": "approval is not claimed"}
+        store.resolve_pending(aid, "executing")
     try:
         result = execute_action(rec["category"], rec.get("payload", {}))
     except Exception as exc:
@@ -134,8 +158,32 @@ def approve(aid: str) -> dict[str, Any]:
     return {"ok": True, "result": result}
 
 
+def restore_claim(aid: str) -> bool:
+    if not store.valid_pending_id(aid):
+        return False
+    with store.file_lock(_pending_path(aid)) as lock:
+        if not lock.acquired:
+            return False
+        rec = store.get_pending(aid)
+        if not rec or rec.get("status") != "approving":
+            return False
+        store.resolve_pending(aid, "pending")
+    return True
+
+
+def approve(aid: str) -> dict[str, Any]:
+    claimed = claim(aid)
+    if not claimed.get("ok"):
+        return claimed
+    return execute_claimed(aid)
+
+
 def reject(aid: str) -> dict[str, Any]:
-    with store.file_lock(_pending_path(aid)):
+    if not store.valid_pending_id(aid):
+        return {"ok": False}
+    with store.file_lock(_pending_path(aid)) as lock:
+        if not lock.acquired:
+            return {"ok": False}
         rec = store.get_pending(aid)
         if not rec or rec.get("status") != "pending":
             return {"ok": False}          # already resolved — don't clobber
@@ -144,7 +192,7 @@ def reject(aid: str) -> dict[str, Any]:
 
 
 def review_cli() -> int:
-    pending = risk.sort_by_risk(store.list_pending())
+    pending = risk.sort_by_risk(reviewable_pending())
     if not pending:
         print("No pending approvals.")
         return 0

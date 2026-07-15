@@ -340,7 +340,7 @@ def _deliver_digest(cfg: dict[str, Any], summary: str) -> None:
         return
     text = (summary or "").strip()
     try:
-        pending = store.list_pending()
+        pending = approvals.reviewable_pending()
     except Exception:
         pending = []
     if pending and not text.startswith("[SILENT]"):

@@ -171,7 +171,7 @@ def test_approve_claims_before_executing(tmp_path, monkeypatch):
     monkeypatch.setattr(approvals, "execute_action", exec_action)
     out = approvals.approve(rec["id"])
     assert out["ok"] is True
-    assert seen["status_during"] == "approving"       # claimed before exec
+    assert seen["status_during"] == "executing"       # claimed before exec
     assert store.get_pending(rec["id"])["status"] == "approved"
     assert approvals.approve(rec["id"])["ok"] is False  # second tap refused
 

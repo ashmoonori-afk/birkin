@@ -18,6 +18,7 @@ import urllib.parse
 import urllib.request
 from typing import TYPE_CHECKING, Any
 
+from .. import workflow
 from . import tg_format
 from .base import Channel
 
@@ -54,6 +55,9 @@ def _payload_summary(category: str, payload: dict) -> str:
                 + (f" → chat {tgt}" if tgt else ""))
     if category == "skill":
         return f"↳ 스킬: {str(payload.get('name', payload.get('title','')))[:120]}"
+    if category == "workflow":
+        steps = payload.get("steps") or []
+        return "↳ " + " → ".join(str(step)[:60] for step in steps[:4])
     return f"↳ {str(payload)[:200]}" if payload else ""
 
 
@@ -99,6 +103,8 @@ class _Streamer:
             return
         self._buf.append(piece)
         self._len += len(piece)
+        if workflow.is_proposal_prefix(self.text()):
+            return
         if self._saturated:
             return
         now = self._clock()
@@ -132,6 +138,7 @@ class _Streamer:
 
 class TelegramChannel(Channel):
     name = "telegram"
+    _HEARTBEAT_INTERVAL = 180.0
 
     def __init__(self, token: str, allowed_chat_ids: list[str] | None = None,
                  stream: bool = True):
@@ -146,6 +153,8 @@ class TelegramChannel(Channel):
         # In-flight turn worker per chat, so the poll loop keeps reading updates
         # while a turn runs and a new message can interrupt it.
         self._workers: dict[str, threading.Thread] = {}
+        self._action_workers: dict[str, threading.Thread] = {}
+        self._workflow_ids: dict[str, str] = {}
 
     def _call(self, method: str, params: dict[str, Any], timeout: int = 60) -> dict[str, Any]:
         url = _API.format(token=self.token, method=method)
@@ -279,7 +288,12 @@ class TelegramChannel(Channel):
     def _send_pending_buttons(self, gateway: "Gateway", chat_id: str) -> None:
         """Render /pending as one message per action with approve/reject
         buttons (inline buttons add no chat clutter — the official pattern)."""
-        items = gateway.pending_actions()
+        items = [
+            rec for rec in gateway.pending_actions()
+            if rec.get("category") != "workflow"
+            or (isinstance(rec.get("payload"), dict)
+                and str(rec["payload"].get("chat_id", "")) == chat_id)
+        ]
         if not items:
             self._send_chunk(chat_id, "📭 No pending approvals.")
             return
@@ -296,7 +310,21 @@ class TelegramChannel(Channel):
             except Exception as exc:
                 print(f"[telegram] pending send error: {exc}")
 
-    def _handle_callback(self, gateway: "Gateway", cq: dict[str, Any]) -> None:
+    def _send_workflow_proposal(self, chat_id: str,
+                                proposal: workflow.WorkflowProposal,
+                                task: str) -> None:
+        aid = workflow.queue_proposal(proposal, task, chat_id)
+        try:
+            self._call("sendMessage", {
+                "chat_id": chat_id,
+                "text": proposal.render(),
+                "reply_markup": self._approval_markup(aid),
+            })
+        except (OSError, urllib.error.URLError, ValueError) as exc:
+            print(f"[telegram] workflow proposal send error: {exc}")
+
+    def _handle_callback(self, gateway: "Gateway", cq: dict[str, Any],
+                         offset: int = 0) -> None:
         """One button tap: resolve the action, ACK the query (mandatory —
         clients show a spinner up to a minute otherwise), and edit the
         original message in place with the outcome."""
@@ -324,12 +352,86 @@ class TelegramChannel(Channel):
         if verb not in ("apv", "rej"):
             self._answer_callback(cq_id, "")
             return
-        result = gateway.resolve_action(aid, approve=(verb == "apv"))
+        if workflow.is_workflow(aid):
+            prev = self._workers.get(chat_id)
+            action = self._action_workers.get(chat_id)
+            if verb == "apv" and ((prev is not None and prev.is_alive())
+                                  or (action is not None and action.is_alive())):
+                self._answer_callback(cq_id, "다른 작업이 진행 중입니다")
+                return
+            resolution = workflow.resolve_proposal(
+                aid, chat_id, approve=(verb == "apv"))
+            result = resolution.message
+            resume_prompt = resolution.resume_prompt
+            self._answer_callback(cq_id, result[:190])
+            mid = str(msg.get("message_id", ""))
+            old = str(msg.get("text", ""))
+            if mid:
+                self._edit(chat_id, mid, f"{old}\n\n{result}"[:4000])
+            if resume_prompt is None:
+                return
+            worker = threading.Thread(
+                target=self._run_turn,
+                args=(gateway, chat_id, resume_prompt, offset, aid),
+                daemon=True,
+            )
+            self._workers[chat_id] = worker
+            self._workflow_ids[chat_id] = aid
+            try:
+                worker.start()
+            except RuntimeError:
+                workflow.restore_claim(aid)
+                self._workers.pop(chat_id, None)
+                self._workflow_ids.pop(chat_id, None)
+                if mid:
+                    self._edit(chat_id, mid, f"{old}\n\n⚠ 시작하지 못했습니다. 다시 승인해 주세요.")
+            return
+
+        claimed = False
+        if verb == "rej":
+            result = gateway.resolve_action(aid, approve=False)
+        else:
+            prev = self._workers.get(chat_id)
+            action = self._action_workers.get(chat_id)
+            if ((prev is not None and prev.is_alive())
+                    or (action is not None and action.is_alive())):
+                self._answer_callback(cq_id, "다른 작업이 진행 중입니다")
+                return
+            result, claimed = gateway.claim_action(aid)
         self._answer_callback(cq_id, result[:190])
         mid = str(msg.get("message_id", ""))
         old = str(msg.get("text", ""))
         if mid:
             self._edit(chat_id, mid, f"{old}\n\n{result}"[:4000])
+        if verb == "rej" or not claimed:
+            return
+        worker = threading.Thread(
+            target=self._run_claimed_action,
+            args=(gateway, chat_id, aid, mid, old),
+            daemon=True,
+        )
+        self._action_workers[chat_id] = worker
+        try:
+            worker.start()
+        except RuntimeError:
+            gateway.restore_action_claim(aid)
+            self._action_workers.pop(chat_id, None)
+            if mid:
+                self._edit(chat_id, mid, f"{old}\n\n⚠ 시작하지 못했습니다. 다시 승인해 주세요.")
+
+    def _run_claimed_action(self, gateway: "Gateway", chat_id: str, aid: str,
+                            message_id: str, original: str) -> None:
+        stop = threading.Event()
+        pinger = threading.Thread(target=self._keep_typing,
+                                  args=(chat_id, stop), daemon=True)
+        pinger.start()
+        try:
+            result = gateway.execute_claimed_action(aid)
+        finally:
+            stop.set()
+            pinger.join(timeout=16)
+        if message_id:
+            self._edit(chat_id, message_id, f"{original}\n\n{result}"[:4000])
 
     def _answer_callback(self, cq_id: str, text: str) -> None:
         try:
@@ -424,21 +526,54 @@ class TelegramChannel(Channel):
         without this the user stares at silence and assumes it's dead. Telegram
         clears the indicator after ~5s, so we re-send it every few seconds.
         """
-        while not stop.is_set():
-            try:
-                self._call("sendChatAction",
-                           {"chat_id": chat_id, "action": "typing"}, timeout=15)
-            except (OSError, urllib.error.URLError, ValueError):
-                pass  # cosmetic — ignore transient network errors
-            except Exception as exc:
-                print(f"[telegram] typing error: {exc}")
-                return
-            stop.wait(4.0)
+        started = time.monotonic()
+        interval = self._HEARTBEAT_INTERVAL
+        next_heartbeat = started + interval if interval > 0 else float("inf")
+        heartbeat_id = None
+        try:
+            while not stop.is_set():
+                try:
+                    self._call("sendChatAction",
+                               {"chat_id": chat_id, "action": "typing"}, timeout=15)
+                except (OSError, urllib.error.URLError, ValueError):
+                    pass  # cosmetic — ignore transient network errors
+                except Exception as exc:
+                    print(f"[telegram] typing error: {exc}")
+                    return
+                now = time.monotonic()
+                if now >= next_heartbeat:
+                    elapsed = max(1, int((now - started) // 60))
+                    text = f"⏳ 작업 진행 중 · {elapsed}분"
+                    if heartbeat_id is None:
+                        heartbeat_id = self._send_plain(chat_id, text)
+                    else:
+                        self._edit(chat_id, heartbeat_id, text)
+                    next_heartbeat = now + interval
+                wait_for = (min(4.0, max(0.01, next_heartbeat - now))
+                            if interval > 0 else 4.0)
+                stop.wait(wait_for)
+        finally:
+            if heartbeat_id is not None:
+                try:
+                    self._call("deleteMessage", {
+                        "chat_id": chat_id,
+                        "message_id": heartbeat_id,
+                    }, timeout=15)
+                except (OSError, urllib.error.URLError, ValueError):
+                    self._edit(chat_id, heartbeat_id, "🏁 작업 종료")
 
     def _run_turn(self, gateway: "Gateway", chat_id: str, text: str,
-                  offset: int) -> None:
+                  offset: int, workflow_id: str | None = None) -> None:
         """One turn, run in its own thread so the poll loop stays responsive
         (and a follow-up message can interrupt this via gateway.interrupt)."""
+        if workflow_id is None and workflow.has_reserved_marker(text):
+            self._send_reply(chat_id, "⚠️ 내부 워크플로 표식은 예약되어 있어 사용할 수 없습니다.")
+            return
+        if workflow_id is not None and not workflow.mark_running(
+                workflow_id, chat_id):
+            self._send_reply(chat_id, "⚠️ 이 작업 승인은 더 이상 실행할 수 없습니다.")
+            self._workflow_ids.pop(chat_id, None)
+            return
         stop = threading.Event()
         pinger = threading.Thread(target=self._keep_typing,
                                   args=(chat_id, stop), daemon=True)
@@ -447,20 +582,40 @@ class TelegramChannel(Channel):
             lambda t, c=chat_id: self._send_plain(c, t),
             lambda mid, t, c=chat_id: self._edit(c, mid, t))
             if self.stream else None)
+        failed = False
         try:
-            reply = gateway.handle(
-                "telegram", chat_id, text,
-                on_text=streamer.feed if streamer else None)
+            kwargs: dict[str, Any] = {
+                "on_text": streamer.feed if streamer else None,
+            }
+            if workflow_id is not None:
+                kwargs["workflow_id"] = workflow_id
+            reply = gateway.handle("telegram", chat_id, text, **kwargs)
+            from ..core import TURN_ERROR_REPLY
+            failed = reply == TURN_ERROR_REPLY
         except Exception as exc:
             print(f"[telegram] turn error: {exc}")
             reply = "⚠️ 처리 중 문제가 생겼어요."
+            failed = True
         finally:
             stop.set()
             pinger.join(timeout=16)
-        if streamer is not None:
+        proposal = workflow.parse_proposal(reply or "")
+        if proposal is not None and workflow_id is not None:
+            failed = True
+            self._send_reply(
+                chat_id,
+                "⚠️ 승인된 작업이 실행되지 않고 다시 제안되어 중단했습니다.",
+            )
+        elif proposal is not None:
+            self._send_workflow_proposal(chat_id, proposal, text)
+        elif streamer is not None:
             self._finalize_stream(chat_id, streamer, reply or "(no reply)")
         else:
             self._send_reply(chat_id, reply or "(no reply)")
+        if workflow_id is not None:
+            workflow.finish(workflow_id, "error" if failed else "completed")
+            if self._workflow_ids.get(chat_id) == workflow_id:
+                self._workflow_ids.pop(chat_id, None)
         if gateway.pending_hard_restart:
             try:
                 self._call("getUpdates", {"offset": offset, "timeout": 0})
@@ -470,6 +625,9 @@ class TelegramChannel(Channel):
 
     def start(self, gateway: "Gateway") -> None:
         print("  · telegram channel polling for updates")
+        restored = workflow.restore_stranded_claims()
+        if restored:
+            print(f"[telegram] restored {restored} unstarted workflow approval(s)")
         # Drop any leftover webhook (long-polling and webhooks are mutually
         # exclusive — a stale webhook would 409 every getUpdates).
         try:
@@ -521,7 +679,7 @@ class TelegramChannel(Channel):
                 cq = upd.get("callback_query")
                 if cq:                     # approval button tap (P0-2)
                     try:
-                        self._handle_callback(gateway, cq)
+                        self._handle_callback(gateway, cq, offset)
                     except Exception as exc:
                         print(f"[telegram] callback error: {exc}")
                     continue
@@ -551,6 +709,9 @@ class TelegramChannel(Channel):
                 # interrupts it (mid-input interruption), then runs the new one.
                 prev = self._workers.get(chat_id)
                 if prev is not None and prev.is_alive():
+                    workflow_id = self._workflow_ids.get(chat_id)
+                    if workflow_id is not None:
+                        workflow.mark_interrupted(workflow_id)
                     gateway.interrupt("telegram", chat_id)
                     prev.join(timeout=20)
                 # Run the turn in a worker so the loop keeps polling (and can

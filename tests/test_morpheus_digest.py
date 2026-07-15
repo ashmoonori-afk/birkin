@@ -27,6 +27,27 @@ def test_digest_delivers_summary_with_pending_count(tmp_path, monkeypatch):
     assert "/pending" in sent[0][2]
 
 
+def test_digest_hides_chat_bound_workflow_count(tmp_path, monkeypatch):
+    from birkin import morpheus, scheduler
+    from birkin.gateway import workflow
+    cfg = _cfg(tmp_path, monkeypatch)
+    workflow.queue_proposal(
+        workflow.WorkflowProposal("private", "chat-bound", ("run",)),
+        "task",
+        "99",
+    )
+    sent: list[str] = []
+    monkeypatch.setattr(
+        scheduler,
+        "deliver",
+        lambda _name, _chat, text: sent.append(text) or "sent",
+    )
+
+    morpheus._deliver_digest(cfg, "summary")
+
+    assert sent == ["summary"]
+
+
 def test_digest_off_when_no_chat_configured(tmp_path, monkeypatch):
     from birkin import morpheus, scheduler
     cfg = _cfg(tmp_path, monkeypatch, chat="")

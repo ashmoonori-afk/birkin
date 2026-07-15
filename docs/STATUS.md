@@ -1,6 +1,11 @@
 # birkin — Build Status
 
-> Snapshot: 2026-07-13 · **700+ tests, green** (coverage 77.3 %) · Newest:
+> Snapshot: 2026-07-15 · **800+ tests, green** (coverage 78.2 %) · Newest:
+> **Telegram long-work workflow approval** — proactive plan buttons before
+> 3-minute/multi-phase/subagent work, chat-bound single-claim execution,
+> 180-second edit-in-place heartbeat, interruption/recovery states, and a hard
+> approval gate for native `spawn_subagent` calls. Warm Claude/Codex CLI paths
+> expose generic heartbeat rather than internal subagent detail. Before that:
 > **perf/UX roadmap P0–P2 shipped** (docs/roadmap-perf-ux.md) — edit-stream
 > rate-limit hardening; inline-button approval inbox (/pending one-tap);
 > Morpheus morning digest ([SILENT]-aware); REPL gateway parity (OpenAI SSE
