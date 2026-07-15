@@ -188,9 +188,8 @@ _MORPHEUS_SYSTEM = (
 
 def run_once(dry_run: bool = False) -> int:
     cfg = config.load_config()
-    # Unattended: a CLI agent runs with full permission/sandbox bypass ONLY if the
-    # user opted in (allow_unattended_full). Default downgrades full -> workspace,
-    # mirroring the claude path's forcing and protecting the codex/local paths.
+    # For Claude/Codex, full permission bypass requires allow_unattended_full.
+    # Arbitrary local CLI commands manage their own permissions.
     if cfg.get("cli_access") == "full" and not cfg.get("allow_unattended_full"):
         cfg = {**cfg, "cli_access": "workspace"}
     elif cfg.get("cli_access") == "full":
@@ -201,13 +200,14 @@ def run_once(dry_run: bool = False) -> int:
                        or [Path.cwd()])
     # Nightly maintenance: drop TTL-expired notes so the vault stays bounded
     # (they are only hidden from search/render otherwise). Best-effort.
-    try:
-        from .memory import VaultMemory
-        n_purged = VaultMemory(cfg).purge_expired()
-        if n_purged:
-            print(f"birkin morpheus: purged {n_purged} expired memory note(s).")
-    except Exception:
-        pass
+    if not dry_run:
+        try:
+            from .memory import VaultMemory
+            n_purged = VaultMemory(cfg).purge_expired()
+            if n_purged:
+                print(f"birkin morpheus: purged {n_purged} expired memory note(s).")
+        except Exception:
+            pass
     sessions_text = _gather_sessions()
     files_text = _gather_changed_files(workspace_roots)
     activity = store.read_recent_activity() or "(empty)"
@@ -223,8 +223,7 @@ def run_once(dry_run: bool = False) -> int:
     # The sandboxed Claude + birkin-MCP morpheus path spawns a ClaudeStreamSession,
     # so it is claude-cli-specific. Every other provider — including codex-cli —
     # uses the generic agent-loop morpheus; otherwise a user who chose Codex would
-    # silently get `claude` spawned. (A sandboxed-MCP Codex morpheus that wires
-    # birkin-MCP into `codex` is future work — see docs/v2.md.)
+    # silently get `claude` spawned.
     if cfg.get("provider") == "claude-cli":
         return _run_claude_morpheus(cfg, task, dry_run, n_files)
     return _run_birkin_morpheus(cfg, task, dry_run, n_files)
@@ -263,8 +262,9 @@ def _run_claude_morpheus(cfg: dict[str, Any], task: str, dry_run: bool,
     except Exception as exc:
         msg = f"morpheus failed: {exc}"
         print(msg)
-        store.save_run("morpheus", msg)
-        _deliver_digest(cfg, f"⚠ {msg}")   # a broken night is worth a ping
+        if not dry_run:
+            store.save_run("morpheus", msg)
+            _deliver_digest(cfg, f"⚠ {msg}")   # a broken night is worth a ping
         return 1
     finally:
         sess.close()
@@ -272,12 +272,14 @@ def _run_claude_morpheus(cfg: dict[str, Any], task: str, dry_run: bool,
             os.unlink(cfg_path)
         except OSError:
             pass
-    store.save_run("morpheus", summary,
-                   {"backend": "claude-mcp", "changed_files": n_files,
-                    "dry_run": dry_run})
+    if not dry_run:
+        store.save_run("morpheus", summary,
+                       {"backend": "claude-mcp", "changed_files": n_files,
+                        "dry_run": dry_run})
     print("\n=== morpheus summary ===\n" + summary)
     print("\nReview any proposed actions with `birkin review`.")
-    _deliver_digest(cfg, summary)
+    if not dry_run:
+        _deliver_digest(cfg, summary)
     return 0
 
 
@@ -286,21 +288,40 @@ def _run_birkin_morpheus(cfg: dict[str, Any], task: str, dry_run: bool,
     """Generic path: birkin's own agent loop with a restricted registry — used by
     the API providers AND the non-claude CLI agents (codex-cli / local-cli). The
     registry exposes only reversible tools (files/web/skills/memory) + propose;
-    no shell, no subagent. A CLI agent like codex returns its final text as one
-    turn (it runs its own tools), so structured memory/skill writes via birkin
-    tools are best-effort there — the run summary is always recorded."""
+    no shell, no subagent."""
+    if dry_run and cfg.get("provider") == "local-cli":
+        print("morpheus dry-run skipped — local-cli has no enforceable "
+              "read-only mode.")
+        return 1
+    session_cfg = {**cfg, "repl_warm_session": False}
+    if dry_run:
+        disabled = set(session_cfg.get("disabled_tools", []) or [])
+        disabled.update({
+            "edit_file", "write_file", "load_skill", "create_skill",
+            "improve_skill", "memory_get_note",
+            "remember", "memory_write_note", "memory_link", "memory_rezone",
+        })
+        session_cfg["disabled_tools"] = sorted(disabled)
     try:
-        session = build_session(cfg)
+        session = build_session(session_cfg)
     except ConfigError as exc:
         msg = f"morpheus skipped — {exc}"
         print(msg)
-        store.save_run("morpheus", msg)
+        if not dry_run:
+            store.save_run("morpheus", msg)
         return 1
 
-    # SECURITY: the morpheus routine runs unattended, so it must NOT have direct
-    # shell or subagent access. It may read/write files, browse, and update
-    # memory/skills (all reversible); anything consequential goes through
-    # propose_action -> the approval queue.
+    session.cfg = session_cfg
+    session.ctx.cfg = session_cfg
+    if cfg.get("provider") == "codex-cli":
+        session.client.cli_access = (
+            "full" if cfg.get("cli_access") == "full" and not dry_run
+            else "read-only")
+        session.client.birkin_mcp = not dry_run
+        session.client.birkin_mcp_scope = "full"
+
+    # Birkin's registry excludes shell/subagent tools. Codex is isolated above;
+    # arbitrary local CLI commands retain their user-managed tool surface.
     from .tools import build_registry
     session.agent.registry = build_registry(
         session.ctx, include={"files", "web", "skills", "memory"})
@@ -310,19 +331,23 @@ def _run_birkin_morpheus(cfg: dict[str, Any], task: str, dry_run: bool,
 
     print("birkin morpheus: analyzing the last 24h…")
     try:
-        summary = session.ask(task)
+        summary = session.ask(task, review_skills=False, route_query="",
+                              record_turn=False)
     except Exception as exc:
         msg = f"morpheus failed: {exc}"
         print(msg)
-        store.save_run("morpheus", msg)
+        if not dry_run:
+            store.save_run("morpheus", msg)
         return 1
 
     details = {"proposals": proposals, "changed_files": n_files}
-    store.save_run("morpheus", summary, details)
+    if not dry_run:
+        store.save_run("morpheus", summary, details)
     print("\n=== morpheus summary ===\n" + summary)
     if proposals:
         print(f"\n{len(proposals)} proposal(s) queued. Run `birkin review` to act on them.")
-    _deliver_digest(cfg, summary)
+    if not dry_run:
+        _deliver_digest(cfg, summary)
     return 0
 
 

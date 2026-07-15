@@ -5,7 +5,9 @@ The subprocess boundary (_run_cli_capture) is mocked to replay a canned JSONL
 event stream through the on_line hook, so no real `claude` is spawned.
 """
 
-from birkin.llm import LLMClient
+import pytest
+
+from birkin.llm import LLMClient, LLMError
 
 USER = [{"role": "user", "content": [{"type": "text", "text": "hi"}]}]
 
@@ -130,3 +132,32 @@ def test_read_only_codex_cli_sets_read_only_sandbox(monkeypatch):
     client._run_codex("prompt", "", None)
     assert "--sandbox" in seen["argv"]
     assert seen["argv"][seen["argv"].index("--sandbox") + 1] == "read-only"
+
+
+def test_codex_cli_adds_birkin_mcp_only_when_enabled(monkeypatch):
+    seen = {}
+
+    def fake_capture(self, argv, prompt, abort=None, env=None, on_line=None):
+        seen["argv"] = argv
+        return "", "", False, False
+
+    monkeypatch.setattr(LLMClient, "_run_cli_capture", fake_capture)
+    client = LLMClient(provider="codex-cli", model="", api_key="cli",
+                       base_url="")
+    client.birkin_mcp = True
+    client._run_codex("prompt", "", None)
+
+    assert any("mcp_servers.birkin.command" in arg for arg in seen["argv"])
+    assert any("mcp_servers.birkin.args" in arg for arg in seen["argv"])
+
+
+def test_codex_cli_timeout_raises(monkeypatch):
+    def fake_capture(self, argv, prompt, abort=None, env=None, on_line=None):
+        return "", "", True, False
+
+    monkeypatch.setattr(LLMClient, "_run_cli_capture", fake_capture)
+    client = LLMClient(provider="codex-cli", model="", api_key="cli",
+                       base_url="", cli_timeout=7)
+
+    with pytest.raises(LLMError, match="timed out after 7s"):
+        client._run_codex("prompt", "", None)

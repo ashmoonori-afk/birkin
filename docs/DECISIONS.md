@@ -414,10 +414,9 @@ faking codex-only plumbing we can't verify:
   member to `_run_claude_morpheus`, which spawns a `ClaudeStreamSession` — so a
   user on **codex** had `claude` silently spawned. Now only `claude-cli` takes
   the sandboxed Claude+birkin-MCP path; codex-cli / local-cli / API providers use
-  the generic agent-loop morpheus (`_run_birkin_morpheus`, restricted registry,
-  no shell/subagent). Also: `run_once` now **downgrades `cli_access:"full"` →
-  `"workspace"`** for the unattended run regardless of provider (the claude path
-  already did this internally; now codex/local are protected too).
+  the generic agent-loop morpheus. Codex now gets an explicit read-only/MCP
+  boundary; API providers use Birkin's restricted registry. Arbitrary local CLI
+  tools cannot be sandboxed by Birkin, so local-cli dry-run fails closed.
 - **Gateway `/models` (real bug).** It was claude-centric (`opus/sonnet/haiku`,
   rejecting anything not `claude-*`). Now **provider-aware**: claude-cli keeps the
   validated set; codex-cli shows codex suggestions and **passes any model id
@@ -427,13 +426,12 @@ faking codex-only plumbing we can't verify:
   offers codex (`models.detect_cli_agents`); `runtime.build_dry_run_packet` and
   the CLI system prompt + persona + neurosis note are provider-generic.
 
-**Honest limitation (not a bug).** The **warm persistent gateway** path
-(`ClaudeStreamSession`, stream-json) stays **claude-cli-only** — `codex exec` is
-one-shot and has no equivalent persistent stream protocol birkin uses. So the
-codex gateway runs **non-persistent** (correct, just cold each turn, not ~3s
-warm). A persistent codex session and a sandboxed-MCP codex morpheus (wiring
-birkin-MCP into `codex`) are future work (need verified codex MCP flags — not
-fabricated here).
+**Update (2026-07-15).** Codex 0.144.1 verified the one-shot isolation flags and
+ephemeral `-c mcp_servers.*` overrides. Codex Morpheus now forces the one-shot
+path, defaults to a read-only sandbox, and receives birkin-MCP explicitly;
+dry-run disables MCP and all state-mutating tools. The persistent Codex gateway
+uses its separate app-server session and does not inherit this Morpheus MCP.
+Rebuildable Mnemosyne index caches may refresh during read-only collection.
 
 **Status.** Done; morpheus routing + cli_access clamp + provider-aware `/models`;
 5 new tests; 437 pass offline (1 unrelated `test_web` socket flake, green in
@@ -1081,8 +1079,11 @@ CLI agents do not expose their internal tool calls to Birkin. On `claude-cli`,
 every `skill_nudge_interval` completed trusted turns schedules a separate
 no-tools, safe-mode, non-persistent review off the response path. It returns a
 structured create/improve proposal; Birkin applies that proposal only through
-the normal approval gate. Codex and generic local CLIs do not provide the same
-enforceable no-tools boundary, so Birkin does not schedule this review there.
+the normal approval gate. On `codex-cli`, every `memory_nudge_interval` trusted
+turns schedules a copied, read-only, ephemeral client with only birkin's memory
+MCP tools; transcripts are redacted and fenced as untrusted data. Open Telegram
+turns and ordinary Codex chat never receive that MCP. Generic local CLIs still
+do not provide an enforceable review boundary, so Birkin schedules none there.
 
 **Rationale.** Faithful to hermes while respecting each provider's observable
 contract: native agents use cheap ephemeral nudges; the hardened Claude CLI

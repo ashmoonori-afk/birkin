@@ -31,6 +31,23 @@ def test_add_link():
     assert "[[B]]" in (m.get_note("A") or "")
 
 
+def test_add_link_preserves_note_metadata():
+    m = _mem()
+    p = m.write_note("Tagged A", "body a", note_type="project",
+                     tags=["keep"], confidence=0.9, ttl_days=14,
+                     source="manual")
+    m.write_note("B", "body b")
+
+    assert m.add_link("Tagged A", "B") is True
+
+    text = p.read_text(encoding="utf-8")
+    assert "[[B]]" in text
+    assert "type: project" in text
+    assert "tags: [keep]" in text
+    assert "confidence: 0.9" in text
+    assert "expires_at:" in text
+
+
 def test_render_digest_lists_notes():
     m = _mem()
     m.write_note("Note One", "first", note_type="fact")

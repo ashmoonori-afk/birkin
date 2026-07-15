@@ -92,6 +92,16 @@ def test_build_tools_exposes_safe_set(tmp_path, monkeypatch):
     assert not any("shell" in n or "bash" in n.lower() for n in names)
 
 
+def test_build_tools_memory_scope_excludes_non_memory_tools(tmp_path, monkeypatch):
+    monkeypatch.setenv("BIRKIN_HOME", str(tmp_path))
+    monkeypatch.setenv("BIRKIN_MCP_SCOPE", "memory")
+
+    names = set(mcp_server._build_tools())
+
+    assert {"remember", "memory_write_note", "memory_search"} <= names
+    assert not {"create_skill", "load_skill", "propose_action"} & names
+
+
 def test_serve_roundtrip_and_parse_error(monkeypatch):
     """serve() loop: real request/response framing + a -32700 on bad JSON."""
     import io
@@ -236,3 +246,13 @@ def test_config_helpers(tmp_path):
     p = mcp_server.write_mcp_config(tmp_path / "m.json")
     assert json.loads(p.read_text())["mcpServers"]["birkin"]
     assert mcp_server.birkin_tool_patterns() == ["mcp__birkin__*"]
+
+
+def test_codex_config_args_define_ephemeral_birkin_server():
+    args = mcp_server.codex_config_args(scope="memory")
+    joined = " ".join(args)
+    assert "mcp_servers.birkin.command" in joined
+    assert "mcp_servers.birkin.args" in joined
+    assert "mcp_servers.birkin.enabled=true" in joined
+    assert "BIRKIN_MCP_SCOPE" in joined
+    assert "mcp-serve" in joined

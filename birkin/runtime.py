@@ -6,6 +6,7 @@ configured identically in either surface.
 
 from __future__ import annotations
 
+import copy
 import threading
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -13,7 +14,7 @@ from typing import Any, Callable, Optional
 
 from . import budget, config, promptgate, store
 from .agent import Agent
-from .llm import LLMClient, build_client
+from .llm import LLMClient, LLMError, build_client
 from .memory import Memory
 from .skills import SkillManager, build_manager
 from .tools import ToolContext, build_registry
@@ -43,6 +44,7 @@ class Session:
     _skill_review_turns: int = 0
     _skill_review_thread: threading.Thread | None = None
     _skill_review_lock: Any = field(default_factory=threading.Lock)
+    _memory_review_transcripts: list[str] = field(default_factory=list)
 
     def refresh_system_prompt(self) -> None:
         """Rebuild the system prompt to reflect current skills/memory/persona.
@@ -93,21 +95,24 @@ class Session:
     def ask(self, text: str,
             on_text: Optional[Callable[[str], None]] = None, *,
             review_skills: bool = True,
-            route_query: str | None = None) -> str:
+            route_query: str | None = None,
+            record_turn: bool = True) -> str:
         # Budget gate — refuse with a clear message instead of silently spending.
         over, why = budget.is_over(self.cfg)
         if over:
-            store.save_run("chat", "skipped: over-budget",
-                           details={"provider": self.cfg.get("provider"),
-                                    "model": self.cfg.get("model"),
-                                    "blocked_by": "budget"},
-                           usage=store.estimate_usage(text))
+            if record_turn:
+                store.save_run("chat", "skipped: over-budget",
+                               details={"provider": self.cfg.get("provider"),
+                                        "model": self.cfg.get("model"),
+                                        "blocked_by": "budget"},
+                               usage=store.estimate_usage(text))
             return why
         self.skills.reload_if_changed()  # pick up edited/added skills live
         self.abort.clear()               # fresh turn — drop any stale abort
         if self._use_warm():
             reply = self._warm_ask(text, on_text)
-            self._record_turn(text, reply, review_skills=review_skills)
+            if record_turn:
+                self._record_turn(text, reply, review_skills=review_skills)
             return reply
         if self.cfg.get("provider") in config.CLI_PROVIDERS:
             self._build_cli_system(
@@ -115,7 +120,8 @@ class Session:
         else:
             self.refresh_system_prompt()
         reply = self.agent.run(text, on_text=on_text, abort=self.abort)
-        self._record_turn(text, reply, review_skills=review_skills)
+        if record_turn:
+            self._record_turn(text, reply, review_skills=review_skills)
         return reply
 
     def _use_warm(self) -> bool:
@@ -189,35 +195,57 @@ class Session:
             self._schedule_skill_review(text, reply)
 
     def _schedule_skill_review(self, text: str, reply: str) -> None:
-        if (self.cfg.get("provider") != "claude-cli"
+        provider = self.cfg.get("provider")
+        if (provider not in ("claude-cli", "codex-cli")
                 or not self.cfg.get("self_improve", True)
                 or budget.is_over(self.cfg)[0]):
             return
-        interval = int(self.cfg.get("skill_nudge_interval", 3))
+        interval_key = ("memory_nudge_interval" if provider == "codex-cli"
+                        else "skill_nudge_interval")
+        interval = int(self.cfg.get(interval_key, 6 if provider == "codex-cli"
+                                    else 3))
         if interval <= 0:
             return
+        transcript = f"USER:\n{text}\n\nASSISTANT:\n{reply}"
         with self._skill_review_lock:
             self._skill_review_turns += 1
+            if provider == "codex-cli":
+                self._memory_review_transcripts.append(transcript)
             if self._skill_review_turns < interval:
                 return
             if (self._skill_review_thread
                     and self._skill_review_thread.is_alive()):
                 return
             self._skill_review_turns = 0
-            transcript = f"USER:\n{text}\n\nASSISTANT:\n{reply}"
+            review_transcript = ("\n\n".join(self._memory_review_transcripts)
+                                 if provider == "codex-cli" else transcript)
+            review_kind = ("memory-review" if provider == "codex-cli"
+                           else "skill-review")
+            review_ctx = copy.copy(self.ctx)
+            review_ctx.cfg = dict(self.ctx.cfg)
+            review_ctx.client = copy.copy(self.ctx.client)
+            review_model = self.cfg.get("model")
 
             def review() -> None:
-                from .selfimprove import review_cli_turn
-                summary = review_cli_turn(self.ctx, transcript)
-                store.save_run("skill-review", summary, details={
-                    "provider": self.cfg.get("provider"),
-                    "model": self.cfg.get("model"),
-                }, usage=store.estimate_usage(transcript, summary))
+                from .selfimprove import reflect_and_learn, review_cli_turn
+                try:
+                    if provider == "codex-cli":
+                        summary = reflect_and_learn(review_ctx, review_transcript)
+                    else:
+                        summary = review_cli_turn(review_ctx, review_transcript)
+                except LLMError as exc:
+                    summary = f"{review_kind} failed: {exc}"
+                store.save_run(review_kind, summary, details={
+                    "provider": provider,
+                    "model": review_model,
+                }, usage=store.estimate_usage(review_transcript, summary))
 
             try:
                 self._skill_review_thread = threading.Thread(
-                    target=review, name="birkin-skill-review", daemon=True)
+                    target=review, name=f"birkin-{review_kind}", daemon=True)
                 self._skill_review_thread.start()
+                if provider == "codex-cli":
+                    self._memory_review_transcripts.clear()
             except (OSError, RuntimeError):
                 self._skill_review_thread = None
                 self._skill_review_turns = interval - 1
@@ -225,6 +253,7 @@ class Session:
     def new_conversation(self) -> None:
         self.agent.reset()
         self._skill_review_turns = 0
+        self._memory_review_transcripts.clear()
         # The warm session keeps its OWN conversation context in the child
         # process, so /new must drop it or the model still remembers the prior
         # turns despite "Started a new conversation."
@@ -240,6 +269,9 @@ class Session:
         self.ctx.client = self.client
         self.agent.client = self.client
         self.agent.model = self.cfg.get("model")
+        with self._skill_review_lock:
+            self._skill_review_turns = 0
+            self._memory_review_transcripts.clear()
         # The warm CLI process baked the OLD --model at spawn; drop it so the
         # next warm ask() respawns with the new model/provider.
         self.close()

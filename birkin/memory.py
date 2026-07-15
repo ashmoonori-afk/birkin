@@ -143,9 +143,9 @@ class VaultMemory:
                     pass
         return removed
 
-    def write_note(self, title: str, body: str, *, note_type: str = "topic",
+    def write_note(self, title: str, body: str, *, note_type: str | None = None,
                    tags: list[str] | None = None, links: list[str] | None = None,
-                   confidence: float = 0.7, source: str | None = None,
+                   confidence: float | None = None, source: str | None = None,
                    append: bool = False, ttl_days: int | None = None,
                    polarity: str | None = None, zone: str | None = None,
                    expected_version: int | None = None) -> Path:
@@ -163,17 +163,21 @@ class VaultMemory:
           :class:`VersionMismatchError` if it does not match the on-disk version.
         - **Evidence gate** — a brand-new note requires at least one ``source``.
         """
-        note_type = note_type if note_type in VALID_TYPES else "topic"
+        requested_type = note_type if note_type in VALID_TYPES else None
         # Serialize the read->check->write for this note so concurrent writers
         # can't both pass the version check and clobber each other (lost update),
         # and so the file is never half-written under a reader. Path resolution
         # happens INSIDE the lock: rezone() takes the same lock, so a move can't
         # slip between resolve and write (stale path -> duplicate note).
         with _note_lock(_slug(title)):
-            p = self._resolve_path(title, note_type, zone)
+            p = self._resolve_path(title, requested_type or "topic", zone)
             created = date.today().isoformat()
             sources: list[str] = []
             existing_body = ""
+            existing_type = "topic"
+            existing_tags: list[str] = []
+            existing_confidence = 0.7
+            existing_expires_at: str | None = None
             existing_polarity: str | None = None
             existing_version = 0
             if p.is_file():
@@ -183,6 +187,17 @@ class VaultMemory:
                 old_sources = meta.get("sources")
                 if isinstance(old_sources, list):
                     sources = [str(s) for s in old_sources]
+                old_type = str(meta.get("type") or "")
+                if old_type in VALID_TYPES:
+                    existing_type = old_type
+                old_tags = meta.get("tags")
+                if isinstance(old_tags, list):
+                    existing_tags = [str(tag) for tag in old_tags]
+                try:
+                    existing_confidence = float(meta.get("confidence", 0.7))
+                except (TypeError, ValueError):
+                    existing_confidence = 0.7
+                existing_expires_at = str(meta.get("expires_at") or "") or None
                 existing_body = old_body.strip()
                 existing_polarity = str(meta.get("polarity") or "") or None
                 try:
@@ -222,15 +237,22 @@ class VaultMemory:
                 if "## Related" not in body:
                     body += f"\n\n## Related\n{related}"
 
-            expires_at = None
-            if ttl_days is not None and int(ttl_days) > 0:
-                from datetime import timedelta
-                expires_at = (date.today() + timedelta(days=int(ttl_days))).isoformat()
+            resolved_type = requested_type or existing_type
+            resolved_tags = tags if tags is not None else existing_tags
+            resolved_confidence = (confidence if confidence is not None
+                                   else existing_confidence)
+            expires_at = existing_expires_at
+            if ttl_days is not None:
+                expires_at = None
+                if int(ttl_days) > 0:
+                    from datetime import timedelta
+                    expires_at = (date.today()
+                                  + timedelta(days=int(ttl_days))).isoformat()
 
             fm = _compose_frontmatter(
-                title=title, note_type=note_type, created=created,
-                updated=_now_iso()[:10], confidence=confidence,
-                sources=sources, tags=tags or [], expires_at=expires_at,
+                title=title, note_type=resolved_type, created=created,
+                updated=_now_iso()[:10], confidence=resolved_confidence,
+                sources=sources, tags=resolved_tags, expires_at=expires_at,
                 polarity=pol, version=existing_version + 1)
             _atomic_write(p, fm + body + "\n")
             self.dex.note_written(p)
@@ -311,9 +333,7 @@ class VaultMemory:
         else:
             body += f"\n\n## Related\n[[{to_title}]]"
         # rewrite preserving frontmatter
-        self.write_note(meta.get("title", from_title), body,
-                        note_type=str(meta.get("type", "topic")),
-                        confidence=float(meta.get("confidence", 0.7) or 0.7))
+        self.write_note(meta.get("title", from_title), body)
         return True
 
     # -- palace maintenance --------------------------------------------------
@@ -404,13 +424,16 @@ class VaultMemory:
             try:
                 p = self.write_note(
                     title, body,
-                    note_type=str(inp.get("type", "topic")),
-                    tags=inp.get("tags") or [],
+                    note_type=(str(inp["type"])
+                               if inp.get("type") is not None else None),
+                    tags=inp.get("tags"),
                     links=inp.get("links") or [],
-                    confidence=float(inp.get("confidence", 0.7) or 0.7),
+                    confidence=(float(inp["confidence"])
+                                if inp.get("confidence") is not None else None),
                     source=inp.get("source") or "conversation",
                     append=bool(inp.get("append", False)),
-                    ttl_days=int(inp["ttl_days"]) if inp.get("ttl_days") else None,
+                    ttl_days=(int(inp["ttl_days"])
+                              if inp.get("ttl_days") is not None else None),
                     polarity=inp.get("polarity"),
                     zone=inp.get("zone"),
                     expected_version=(int(inp["expected_version"])

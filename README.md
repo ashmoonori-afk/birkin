@@ -68,8 +68,9 @@ birkin is deliberately **smaller and more careful** than the inspirations.
    with `[[wikilinks]]`, frontmatter, **polarity**, **version** (optimistic
    lock), and TTL — not an opaque embedding store. Edit it by hand.
 5. **Approval-first.** Memory + skill writes auto-apply (reversible local
-   files); cron and shell are queued, risk-tiered. The unattended Morpheus run
-   is sandboxed (no shell).
+   files); cron and shell are queued, risk-tiered. Built-in Morpheus providers
+   use provider-specific isolation; arbitrary local CLI permissions remain
+   user-managed, and local-CLI dry-run is refused.
 6. **CLI first, dashboard second.** A real terminal line editor (inline `/cmd`
    dropdown, word-wise editing, multi-line, history). The web UI is *monitoring*.
 
@@ -246,13 +247,17 @@ birkin > Noted as [[Profile - reply-style]].
 
 ```bash
 $ birkin daemon --install   # register the OS task (cron / launchd / schtasks)
-$ birkin morpheus --dry-run # preview tonight's run, no spending
+$ birkin morpheus --dry-run # preview; unsandboxed local-cli fails closed
 $ birkin review             # next morning: approve / reject, one by one
 $ birkin trace <run-id>     # audit replay of any past turn
 ```
 
-Morpheus runs **free** (sandboxed Claude + birkin's MCP tools) and **without
-shell** — memory/skills auto-apply; cron/shell are queued.
+Claude and Codex CLI runs use provider-specific sandboxes; Codex receives
+Birkin's structured memory/skill tools over MCP. API providers use Birkin's
+restricted registry. Dry-run disables semantic writes and delivery, though
+rebuildable memory-index caches may refresh; unsandboxed local-cli dry-run is
+refused. In normal runs, memory/skills auto-apply and consequential proposals
+are queued for review.
 
 ### Connect company tools (MCP)
 

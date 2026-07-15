@@ -131,10 +131,43 @@ def test_local_cli_does_not_run_unsandboxed_skill_review():
     assert s._skill_review_thread is None
 
 
-def test_codex_cli_does_not_run_tool_capable_skill_review():
+def test_codex_cli_schedules_memory_review_at_interval(monkeypatch):
+    calls = []
+
+    class _InlineThread:
+        def __init__(self, *, target, **_kwargs):
+            self.target = target
+
+        def start(self):
+            self.target()
+
+        def is_alive(self):
+            return False
+
+    monkeypatch.setattr("birkin.runtime.threading.Thread", _InlineThread)
+    monkeypatch.setattr(
+        selfimprove,
+        "reflect_and_learn",
+        lambda _ctx, transcript: calls.append(transcript) or "nothing new",
+    )
     s = build_session({"provider": "codex-cli", "model": "",
-                       "self_improve": True, "skill_nudge_interval": 1})
-    s._schedule_skill_review("task", "reply")
+                       "self_improve": True, "memory_nudge_interval": 2})
+
+    s._record_turn("first task", "first reply")
+    s._record_turn("second task", "second reply")
+
+    assert calls == [
+        "USER:\nfirst task\n\nASSISTANT:\nfirst reply\n\n"
+        "USER:\nsecond task\n\nASSISTANT:\nsecond reply"
+    ]
+
+
+def test_untrusted_codex_turn_does_not_schedule_memory_review():
+    s = build_session({"provider": "codex-cli", "model": "",
+                       "self_improve": True, "memory_nudge_interval": 1})
+
+    s._record_turn("task", "reply", review_skills=False)
+
     assert s._skill_review_thread is None
 
 
@@ -154,6 +187,50 @@ def test_skill_review_thread_start_failure_does_not_break_turn(monkeypatch):
                        "self_improve": True, "skill_nudge_interval": 1})
     s._record_turn("task", "successful reply")
     assert s._skill_review_thread is None
+
+
+def test_codex_review_uses_scheduled_client_after_provider_switch(monkeypatch):
+    targets = []
+    seen = []
+
+    class _DeferredThread:
+        def __init__(self, *, target, **_kwargs):
+            targets.append(target)
+
+        def start(self):
+            pass
+
+        def is_alive(self):
+            return False
+
+    monkeypatch.setattr("birkin.runtime.threading.Thread", _DeferredThread)
+    monkeypatch.setattr(
+        selfimprove, "reflect_and_learn",
+        lambda ctx, _transcript:
+        seen.append((ctx.cfg["provider"], ctx.client.provider)) or "done")
+    s = build_session({"provider": "codex-cli", "model": "",
+                       "self_improve": True, "memory_nudge_interval": 1})
+    s._record_turn("task", "reply")
+
+    s.cfg["provider"] = "openai"
+    s.reload_client()
+    targets[0]()
+
+    assert seen == [("codex-cli", "codex-cli")]
+
+
+def test_provider_switch_resets_pending_review_batch():
+    s = build_session({"provider": "codex-cli", "model": "",
+                       "self_improve": True, "memory_nudge_interval": 2})
+    s._record_turn("task", "reply")
+    assert s._skill_review_turns == 1
+    assert s._memory_review_transcripts
+
+    s.cfg["provider"] = "openai"
+    s.reload_client()
+
+    assert s._skill_review_turns == 0
+    assert s._memory_review_transcripts == []
 
 
 def test_ask_skips_when_skills_unchanged_then_picks_up_new_skill(tmp_path):

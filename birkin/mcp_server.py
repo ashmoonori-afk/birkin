@@ -19,6 +19,7 @@ from __future__ import annotations
 
 import contextlib
 import json
+import os
 import sys
 from pathlib import Path
 from typing import Any
@@ -56,6 +57,7 @@ def _build_tools() -> dict[str, dict[str, Any]]:
                           skills=skills, memory=memory)
 
     tools: dict[str, dict[str, Any]] = {}
+    memory_tool_names: set[str] = set()
 
     # Memory tools (LLM-free; they ignore ctx).
     for t in memory.tools():
@@ -67,6 +69,7 @@ def _build_tools() -> dict[str, dict[str, Any]]:
             return handler
         tools[t.name] = {"description": t.description,
                          "schema": t.input_schema, "handler": _mk(t)}
+        memory_tool_names.add(t.name)
 
     skill_tools = {tool.name: tool for tool in skills.tools(origin="mcp")}
 
@@ -148,6 +151,9 @@ def _build_tools() -> dict[str, dict[str, Any]]:
             "required": ["category", "title"]},
         "handler": _propose}
 
+    if os.environ.get("BIRKIN_MCP_SCOPE") == "memory":
+        return {name: tool for name, tool in tools.items()
+                if name in memory_tool_names}
     return tools
 
 
@@ -238,6 +244,24 @@ def mcp_config_dict() -> dict[str, Any]:
 def write_mcp_config(path: Path) -> Path:
     path.write_text(json.dumps(mcp_config_dict(), indent=2), encoding="utf-8")
     return path
+
+
+def codex_config_args(*, scope: str = "full") -> list[str]:
+    server = mcp_config_dict()["mcpServers"][_SERVER_NAME]
+    args = [
+        "-c", f"mcp_servers.{_SERVER_NAME}.command="
+              f"{json.dumps(server['command'])}",
+        "-c", f"mcp_servers.{_SERVER_NAME}.args="
+              f"{json.dumps(server['args'])}",
+        "-c", f"mcp_servers.{_SERVER_NAME}.enabled=true",
+    ]
+    if scope == "memory":
+        args += [
+            "-c",
+            f"mcp_servers.{_SERVER_NAME}.env={{ BIRKIN_MCP_SCOPE = "
+            '"memory" }',
+        ]
+    return args
 
 
 def birkin_tool_patterns() -> list[str]:

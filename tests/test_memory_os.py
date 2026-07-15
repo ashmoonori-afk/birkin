@@ -57,6 +57,35 @@ def test_polarity_preserved_on_subsequent_write():
     assert nodes["KeepFlag"]["polarity"] == "negative"
 
 
+def test_write_note_preserves_omitted_metadata_on_update():
+    m = VaultMemory(config.load_config())
+    p = m.write_note("KeepMetadata", "first", note_type="project",
+                     tags=["keep"], confidence=0.9, ttl_days=14,
+                     source="manual")
+
+    m.write_note("KeepMetadata", "second", append=True)
+
+    text = p.read_text(encoding="utf-8")
+    assert "type: project" in text
+    assert "tags: [keep]" in text
+    assert "confidence: 0.9" in text
+    assert "expires_at:" in text
+
+
+def test_write_note_replaces_explicit_metadata_on_update():
+    m = VaultMemory(config.load_config())
+    p = m.write_note("ReplaceMetadata", "first", tags=["old"],
+                     confidence=0.9, ttl_days=14, source="manual")
+
+    m.write_note("ReplaceMetadata", "second", tags=[], confidence=0.0,
+                 ttl_days=0, append=True)
+
+    text = p.read_text(encoding="utf-8")
+    assert "tags: []" in text
+    assert "confidence: 0.0" in text
+    assert "expires_at:" not in text
+
+
 # ---------------- Version (optimistic lock) ---------------------------------
 
 def test_version_starts_at_one_and_increments():
@@ -166,3 +195,21 @@ def test_memory_write_note_tool_surfaces_polarity_and_version_lock():
          "append": True, "source": "manual"}, None)
     assert r.is_error
     assert "stale version" in r.content
+
+
+def test_memory_write_note_tool_preserves_omitted_metadata():
+    m = VaultMemory(config.load_config())
+    m.write_note("ToolMetadata", "first", note_type="project",
+                 tags=["keep"], confidence=0.9, ttl_days=14,
+                 source="manual")
+    tool = next(t for t in m.tools() if t.name == "memory_write_note")
+
+    result = tool.fn({"title": "ToolMetadata", "body": "second",
+                      "append": True}, None)
+
+    assert not result.is_error
+    text = m.get_note("ToolMetadata") or ""
+    assert "type: project" in text
+    assert "tags: [keep]" in text
+    assert "confidence: 0.9" in text
+    assert "expires_at:" in text

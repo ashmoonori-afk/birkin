@@ -329,3 +329,135 @@ def test_run_once_unattended_full_opt_in_keeps_full(monkeypatch):
                         lambda cfg, *a, **k: seen.update(cfg) or 0)
     morpheus.run_once(dry_run=True)
     assert seen.get("cli_access") == "full"
+
+
+def test_codex_morpheus_uses_read_only_birkin_mcp(monkeypatch):
+    from birkin.runtime import build_session
+
+    session = build_session({**config.DEFAULT_CONFIG, "provider": "codex-cli",
+                             "model": "", "cli_access": "workspace"})
+    monkeypatch.setattr(morpheus, "build_session", lambda _cfg: session)
+    seen = {}
+    monkeypatch.setattr(
+        session, "ask",
+        lambda _task, **kwargs: seen.update(kwargs) or "done")
+
+    rc = morpheus._run_birkin_morpheus(
+        {**config.DEFAULT_CONFIG, "provider": "codex-cli",
+         "model": "", "cli_access": "workspace"},
+        "task", False, 0)
+
+    assert rc == 0
+    assert session.client.cli_access == "read-only"
+    assert session.client.birkin_mcp is True
+    assert seen == {"review_skills": False, "route_query": "",
+                    "record_turn": False}
+
+
+def test_codex_morpheus_dry_run_disables_birkin_mcp(monkeypatch):
+    from birkin.runtime import build_session
+
+    session = build_session({**config.DEFAULT_CONFIG, "provider": "codex-cli",
+                             "model": "", "cli_access": "workspace"})
+    monkeypatch.setattr(morpheus, "build_session", lambda _cfg: session)
+    monkeypatch.setattr(session.client, "_run_codex",
+                        lambda *_args, **_kwargs: "done")
+    reviews = []
+    saved = []
+    delivered = []
+    monkeypatch.setattr(
+        "birkin.selfimprove.reflect_and_learn",
+        lambda *_args: reviews.append(True) or "saved")
+    monkeypatch.setattr(morpheus.store, "save_run",
+                        lambda *args, **kwargs: saved.append((args, kwargs)))
+    monkeypatch.setattr(morpheus, "_deliver_digest",
+                        lambda *args: delivered.append(args))
+
+    rc = morpheus._run_birkin_morpheus(
+        {**config.DEFAULT_CONFIG, "provider": "codex-cli",
+         "model": "", "cli_access": "workspace"},
+        "task", True, 0)
+
+    assert rc == 0
+    assert session.client.cli_access == "read-only"
+    assert session.client.birkin_mcp is False
+    names = set(session.agent.registry.names())
+    assert {"read_file", "list_files", "memory_search"} <= names
+    assert not {"write_file", "edit_file", "remember", "memory_write_note",
+                "memory_link", "memory_rezone", "create_skill",
+                "improve_skill", "load_skill", "memory_get_note"} & names
+    assert reviews == []
+    assert saved == []
+    assert delivered == []
+
+
+def test_codex_morpheus_disables_warm_session(monkeypatch):
+    from birkin.runtime import build_session
+
+    real_build_session = build_session
+    built_cfg = {}
+
+    def build(cfg):
+        built_cfg.update(cfg)
+        return real_build_session(cfg)
+
+    monkeypatch.setattr(morpheus, "build_session", build)
+    session_ask = []
+    monkeypatch.setattr("birkin.runtime.Session.ask",
+                        lambda _self, _task, **kwargs:
+                        session_ask.append(kwargs) or "done")
+
+    rc = morpheus._run_birkin_morpheus(
+        {**config.DEFAULT_CONFIG, "provider": "codex-cli", "model": "",
+         "repl_warm_session": True}, "task", False, 0)
+
+    assert rc == 0
+    assert built_cfg["repl_warm_session"] is False
+    assert session_ask == [{"review_skills": False, "route_query": "",
+                            "record_turn": False}]
+
+
+def test_local_cli_morpheus_dry_run_fails_closed(monkeypatch):
+    built = []
+    saved = []
+    monkeypatch.setattr(morpheus, "build_session",
+                        lambda cfg: built.append(cfg))
+    monkeypatch.setattr(morpheus.store, "save_run",
+                        lambda *args, **kwargs: saved.append((args, kwargs)))
+
+    rc = morpheus._run_birkin_morpheus(
+        {**config.DEFAULT_CONFIG, "provider": "local-cli",
+         "cli_command": ["unsafe-agent"]}, "task", True, 0)
+
+    assert rc == 1
+    assert built == []
+    assert saved == []
+
+
+def test_claude_morpheus_dry_run_does_not_save_or_deliver(monkeypatch):
+    saved = []
+    delivered = []
+
+    class _Session:
+        def __init__(self, **_kwargs):
+            pass
+
+        def ask(self, _task):
+            return "done"
+
+        def close(self):
+            pass
+
+    monkeypatch.setattr("birkin.claude_session.ClaudeStreamSession", _Session)
+    monkeypatch.setattr(morpheus.store, "save_run",
+                        lambda *args, **kwargs: saved.append((args, kwargs)))
+    monkeypatch.setattr(morpheus, "_deliver_digest",
+                        lambda *args: delivered.append(args))
+
+    rc = morpheus._run_claude_morpheus(
+        {**config.DEFAULT_CONFIG, "provider": "claude-cli"},
+        "task", True, 0)
+
+    assert rc == 0
+    assert saved == []
+    assert delivered == []

@@ -114,6 +114,8 @@ class LLMClient:
         # subprocess (e.g. a blocking Claude Code hook) surfaces fast instead of
         # looking dead for many minutes. Tune via config "cli_timeout".
         self.cli_timeout = int(cli_timeout)
+        self.birkin_mcp = False
+        self.birkin_mcp_scope = "full"
 
     # -- public API --------------------------------------------------------
 
@@ -362,6 +364,9 @@ class LLMClient:
         parts += ["-o", path]
         if model and model not in ("codex", "default", ""):
             parts += ["-m", model]
+        if self.birkin_mcp:
+            from .mcp_server import codex_config_args
+            parts += codex_config_args(scope=self.birkin_mcp_scope)
         try:
             stdout, stderr, timed_out, aborted = self._run_cli_capture(
                 cli_argv(parts), prompt, abort)
@@ -380,7 +385,7 @@ class LLMClient:
         if aborted:
             return "[birkin] (aborted)"
         if timed_out:
-            return f"[birkin] Codex timed out after {self.cli_timeout}s."
+            raise LLMError(f"Codex timed out after {self.cli_timeout}s.")
         if text:
             return text
         err = (stderr or "").strip() or (stdout or "").strip()

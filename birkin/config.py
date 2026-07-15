@@ -34,8 +34,8 @@ DEFAULT_CONFIG: dict[str, Any] = {
     "extra_skill_dirs": [],  # additional directories to scan for SKILL.md
     "disabled_tools": [],  # tool names the agent may NOT use (see `birkin tools`)
     "self_improve": True,  # allow the agent to write/refine skills after tasks
-    # Automatic skill-ization nudges (native: no extra call; hardened
-    # claude-cli: an asynchronous review call):
+    # Automatic self-improvement nudges (native: no extra call; Claude: skill
+    # review; Codex: trusted memory review; local CLI: no review):
     "skill_nudge_interval": 3,   # tool iterations w/o saving a skill -> nudge (0 = off)
     "memory_nudge_interval": 6,  # user turns w/o updating memory -> nudge (0 = off)
     "web_port": 8787,
@@ -50,10 +50,8 @@ DEFAULT_CONFIG: dict[str, Any] = {
     # reasoning model's turn — though on some codex models the effect is
     # small (the turn latency is mostly the model itself). Ignored off codex.
     "gateway_reasoning_effort": "",
-    # Keep ONE warm `claude` process per conversation (stream-json) instead of a
-    # cold `claude -p` per message — pays Claude Code's startup once, so warm
-    # replies are ~model-time. Free (Claude subscription). Only applies to the
-    # claude-cli provider; see claude_session.py.
+    # Keep one warm CLI process per conversation: Claude uses stream-json and
+    # Codex uses its app-server protocol. Ignored by local/API providers.
     "gateway_persistent": True,
     # Tool patterns the always-on gateway may use WITHOUT an interactive
     # permission prompt (it runs headless, so an un-allowed tool would stall).
@@ -131,8 +129,9 @@ DEFAULT_CONFIG: dict[str, Any] = {
     # Governs the UNATTENDED path (nightly routine's propose_action): these
     # categories are applied automatically; everything else (e.g. "cron",
     # "shell") is queued for approval (`birkin review`). Note: in an INTERACTIVE
-    # chat the user is present, so run_shell executes directly — the nightly
-    # routine itself is denied shell/subagent tools (see nightly.py).
+    # chat the user is present, so run_shell executes directly. Native/Claude
+    # Morpheus excludes direct shell/subagent tools; Codex uses its own tools in
+    # a read-only sandbox by default; local CLI permissions remain user-managed.
     # Adjust with the REPL /permission command or `birkin permission`.
     # SECURITY: do NOT add "shell" here for an unattended/company agent. A
     # shell-typed "cron" proposal is treated as shell and will NOT auto-apply
@@ -144,10 +143,9 @@ DEFAULT_CONFIG: dict[str, Any] = {
     #                 (codex --dangerously-bypass-approvals-and-sandbox,
     #                  claude --dangerously-skip-permissions)
     "cli_access": "workspace",
-    # Opt-in (default False): let the UNATTENDED Morpheus run honor cli_access
-    # "full" instead of being downgraded to "workspace". The reachable gateway is
-    # ALWAYS forced to workspace regardless — only the local nightly routine is
-    # affected. Turn on only if you trust the workspace + scheduled environment.
+    # Opt-in (default False): let Codex Morpheus honor cli_access "full" instead
+    # of read-only. Claude Morpheus keeps its workspace allowlist; local CLI owns
+    # its permissions. The reachable gateway is unaffected.
     "allow_unattended_full": False,
     # --- Budget governor (P3 reliability). 0 = unlimited. ---
     "budget_tokens_daily": 0,

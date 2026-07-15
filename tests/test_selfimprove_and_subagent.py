@@ -52,6 +52,31 @@ def test_reflect_empty_transcript_short_circuits():
     assert "nothing" in res.lower() or "empty" in res.lower()
 
 
+def test_codex_reflection_uses_read_only_birkin_mcp_client(monkeypatch):
+    seen = {}
+
+    class _Agent:
+        def __init__(self, *, client, **_kwargs):
+            seen["client"] = client
+
+        def run(self, text):
+            seen["text"] = text
+            return "Nothing new worth saving."
+
+    monkeypatch.setattr(selfimprove, "Agent", _Agent)
+    session = build_session({"provider": "codex-cli", "model": ""})
+
+    secret = "sk-" + "a" * 20
+    selfimprove.reflect_and_learn(
+        session.ctx, f"USER:\nremember this, token={secret}")
+
+    assert seen["client"] is not session.ctx.client
+    assert seen["client"].cli_access == "read-only"
+    assert seen["client"].birkin_mcp is True
+    assert secret not in seen["text"]
+    assert "[redacted]" in seen["text"]
+
+
 def test_cli_review_parses_improvement_and_queues_proposal():
     from birkin import config, store
 
