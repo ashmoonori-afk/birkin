@@ -443,6 +443,7 @@ class Gateway:
         # lock, so independent conversations are not serialized behind each other.
         cmd, cmd_arg = match_command(text)
         display_text = text
+        skill_query = display_text
         if cmd == "neurosis":
             # Seed/resume the interview, then run the kickoff as a normal turn so
             # it works on both the persistent and non-persistent paths.
@@ -468,6 +469,7 @@ class Gateway:
                         "(진행 중인 인터뷰가 있으면 /neurosis 만으로 재개).")
             text = neurosis.start_prompt(seed)               # sent to the agent
             display_text = idea_arg or "/neurosis (resume)"  # logged / auto-saved
+            skill_query = f"neurosis {display_text}"
             cmd = None                                       # fall through to a turn
         with self._lock:
             # Privileged commands pull code / restart the service / rewrite config.
@@ -554,7 +556,15 @@ class Gateway:
             if persistent:
                 # Warm Claude Code process keeps its own conversation context,
                 # so only the new turn is sent.
-                reply = sess.ask(text, on_text=on_text)
+                skill_state = getattr(sess, "_birkin_skill_state", None)
+                if skill_state is None:
+                    skill_state = {"revision": -1, "names": set()}
+                    setattr(sess, "_birkin_skill_state", skill_state)
+                reply = sess.ask(
+                    self.session._prepare_cli_turn(
+                        text, route_query=skill_query,
+                        skill_state=skill_state),
+                    on_text=on_text)
             else:
                 # The non-persistent path shares the single self.session, so its
                 # history swap must stay serialized under the global lock.
@@ -568,7 +578,10 @@ class Gateway:
                         ctx.subagent_approval_required = trusted_telegram
                         ctx.approved_work = approved_work
                     try:
-                        reply = self.session.ask(text)
+                        reply = self.session.ask(
+                            text,
+                            review_skills=self._command_trusted(channel),
+                            route_query=skill_query)
                     finally:
                         if ctx is not None:
                             ctx.subagent_approval_required = old_required
@@ -588,6 +601,10 @@ class Gateway:
         print(f"[gateway] {channel}:{chat_id} » {len(reply or '')} chars in {dt:.1f}s",
               flush=True)
         store.append_activity(f"gateway[{channel}:{chat_id}]: {display_text[:100]}")
+        if persistent:
+            self.session._record_turn(
+                display_text, reply or "",
+                review_skills=self._command_trusted(channel))
         # Auto-save the turn so the nightly Morpheus routine can extract memory —
         # but ONLY for trusted conversations (an open Telegram bot's strangers
         # must not be persisted into long-term memory). Runs OUTSIDE the global

@@ -34,7 +34,8 @@ DEFAULT_CONFIG: dict[str, Any] = {
     "extra_skill_dirs": [],  # additional directories to scan for SKILL.md
     "disabled_tools": [],  # tool names the agent may NOT use (see `birkin tools`)
     "self_improve": True,  # allow the agent to write/refine skills after tasks
-    # Automatic skill-ization nudges (hermes-style; no extra LLM call):
+    # Automatic skill-ization nudges (native: no extra call; hardened
+    # claude-cli: an asynchronous review call):
     "skill_nudge_interval": 3,   # tool iterations w/o saving a skill -> nudge (0 = off)
     "memory_nudge_interval": 6,  # user turns w/o updating memory -> nudge (0 = off)
     "web_port": 8787,
@@ -62,11 +63,11 @@ DEFAULT_CONFIG: dict[str, Any] = {
     # `claude --allowedTools`. See `birkin mcp` to view connected servers.
     "gateway_allowed_tools": [],
     # Opt-in: reuse ONE warm claude/codex process across REPL turns (skips the
-    # ~10 s CLI cold start every message, like the gateway). Tradeoffs: skills
-    # are exposed as a fixed index (not per-turn routed); Esc-to-interrupt is
-    # unavailable; and /retry, /undo, /compact are inert (the child process
-    # owns the history, not agent.messages). /new and /model correctly reset
-    # the warm process. claude-cli / codex-cli only.
+    # ~10 s CLI cold start every message, like the gateway). Tradeoffs: routed
+    # skill bodies stay in the child context until their revision changes;
+    # Esc-to-interrupt is unavailable; and /retry, /undo, /compact are inert
+    # (the child process owns the history, not agent.messages). /new and /model
+    # correctly reset the warm process. claude-cli / codex-cli only.
     "repl_warm_session": False,
     # Headless latency knobs (measured: docs/hermes-comparison.md §6).
     # clean_hooks: run gateway claude children with the user's interactive

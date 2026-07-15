@@ -38,6 +38,11 @@ class Session:
     # process reused across turns, so the REPL stops paying the ~10 s CLI cold
     # start every message (matching the gateway). Lazy; None until first use.
     _warm: Any = None
+    _warm_skill_state: dict[str, Any] = field(
+        default_factory=lambda: {"revision": -1, "names": set()})
+    _skill_review_turns: int = 0
+    _skill_review_thread: threading.Thread | None = None
+    _skill_review_lock: Any = field(default_factory=threading.Lock)
 
     def refresh_system_prompt(self) -> None:
         """Rebuild the system prompt to reflect current skills/memory/persona.
@@ -51,14 +56,44 @@ class Session:
     def _build_cli_system(self, text: str) -> None:
         """For CLI-agent backends: inject identity + memory + skills routed to
         the request (they can't call load_skill themselves)."""
-        routed = self.skills.route(text, limit=3)
-        preloaded = [self.skills.render_skill(s) for s in routed]
+        preloaded = self._route_cli_skills(text)
         self.agent.system = promptgate.compose_cli(
             self.cfg, memory_block=self.memory.render(),
             preloaded=preloaded or None)
 
+    def _route_cli_skills(self, text: str,
+                          loaded_skills: set[str] | None = None) -> list[str]:
+        from .curator import record_use
+        routed = self.skills.route(text, limit=3)
+        for skill in routed:
+            record_use(skill.name)
+        fresh = [skill for skill in routed
+                 if loaded_skills is None or skill.name not in loaded_skills]
+        if loaded_skills is not None:
+            loaded_skills.update(skill.name for skill in routed)
+        return [self.skills.render_skill(skill) for skill in fresh]
+
+    def _prepare_cli_turn(self, text: str, *, route_query: str | None = None,
+                          skill_state: dict[str, Any] | None = None) -> str:
+        self.skills.reload_if_changed(debounce=0.0)
+        loaded_skills = None
+        if skill_state is not None:
+            loaded_skills = skill_state["names"]
+            if skill_state["revision"] != self.skills.revision:
+                loaded_skills.clear()
+                skill_state["revision"] = self.skills.revision
+        preloaded = self._route_cli_skills(
+            text if route_query is None else route_query, loaded_skills)
+        if not preloaded:
+            return text
+        return ("## Birkin routed skills for this turn\n\n"
+                + "\n\n".join(preloaded)
+                + "\n\n## User request\n\n" + text)
+
     def ask(self, text: str,
-            on_text: Optional[Callable[[str], None]] = None) -> str:
+            on_text: Optional[Callable[[str], None]] = None, *,
+            review_skills: bool = True,
+            route_query: str | None = None) -> str:
         # Budget gate — refuse with a clear message instead of silently spending.
         over, why = budget.is_over(self.cfg)
         if over:
@@ -72,14 +107,15 @@ class Session:
         self.abort.clear()               # fresh turn — drop any stale abort
         if self._use_warm():
             reply = self._warm_ask(text, on_text)
-            self._record_turn(text, reply)
+            self._record_turn(text, reply, review_skills=review_skills)
             return reply
         if self.cfg.get("provider") in config.CLI_PROVIDERS:
-            self._build_cli_system(text)
+            self._build_cli_system(
+                text if route_query is None else route_query)
         else:
             self.refresh_system_prompt()
         reply = self.agent.run(text, on_text=on_text, abort=self.abort)
-        self._record_turn(text, reply)
+        self._record_turn(text, reply, review_skills=review_skills)
         return reply
 
     def _use_warm(self) -> bool:
@@ -93,7 +129,9 @@ class Session:
                   on_text: Optional[Callable[[str], None]]) -> str:
         if self._warm is None:
             self._warm = self._build_warm()
-        return self._warm.ask(text, on_text=on_text)
+        return self._warm.ask(
+            self._prepare_cli_turn(text, skill_state=self._warm_skill_state),
+            on_text=on_text)
 
     def _build_warm(self):
         """One warm session carrying persona + memory + skill index (the same
@@ -130,8 +168,10 @@ class Session:
             except Exception:
                 pass
             self._warm = None
+        self._warm_skill_state = {"revision": -1, "names": set()}
 
-    def _record_turn(self, text: str, reply: str) -> None:
+    def _record_turn(self, text: str, reply: str, *,
+                     review_skills: bool = True) -> None:
         """Write an auditable run record (+ ledger line + usage) per chat turn."""
         try:
             usage = store.estimate_usage(self.agent.system, text, reply or "")
@@ -145,9 +185,46 @@ class Session:
             }, usage=usage)
         except Exception:
             pass  # auditing must never break a chat turn
+        if review_skills:
+            self._schedule_skill_review(text, reply)
+
+    def _schedule_skill_review(self, text: str, reply: str) -> None:
+        if (self.cfg.get("provider") != "claude-cli"
+                or not self.cfg.get("self_improve", True)
+                or budget.is_over(self.cfg)[0]):
+            return
+        interval = int(self.cfg.get("skill_nudge_interval", 3))
+        if interval <= 0:
+            return
+        with self._skill_review_lock:
+            self._skill_review_turns += 1
+            if self._skill_review_turns < interval:
+                return
+            if (self._skill_review_thread
+                    and self._skill_review_thread.is_alive()):
+                return
+            self._skill_review_turns = 0
+            transcript = f"USER:\n{text}\n\nASSISTANT:\n{reply}"
+
+            def review() -> None:
+                from .selfimprove import review_cli_turn
+                summary = review_cli_turn(self.ctx, transcript)
+                store.save_run("skill-review", summary, details={
+                    "provider": self.cfg.get("provider"),
+                    "model": self.cfg.get("model"),
+                }, usage=store.estimate_usage(transcript, summary))
+
+            try:
+                self._skill_review_thread = threading.Thread(
+                    target=review, name="birkin-skill-review", daemon=True)
+                self._skill_review_thread.start()
+            except (OSError, RuntimeError):
+                self._skill_review_thread = None
+                self._skill_review_turns = interval - 1
 
     def new_conversation(self) -> None:
         self.agent.reset()
+        self._skill_review_turns = 0
         # The warm session keeps its OWN conversation context in the child
         # process, so /new must drop it or the model still remembers the prior
         # turns despite "Started a new conversation."

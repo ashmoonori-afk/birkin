@@ -97,3 +97,36 @@ def test_claude_cli_skips_non_json_lines(monkeypatch):
 
     assert got == ["ok"]                                  # non-JSON line ignored
     assert res["content"][0]["text"] == "ok"
+
+
+def test_read_only_claude_cli_disables_tools(monkeypatch):
+    seen = {}
+
+    def fake_capture(self, argv, prompt, abort=None, env=None, on_line=None):
+        seen["argv"] = argv
+        return '{"type":"result","result":"ok"}', "", False, False
+
+    monkeypatch.setattr(LLMClient, "_run_cli_capture", fake_capture)
+    client = _client()
+    client.cli_access = "read-only"
+    client._run_claude("prompt", "", None)
+    assert "--tools" in seen["argv"]
+    assert seen["argv"][seen["argv"].index("--tools") + 1] == ""
+    assert "--permission-mode" not in seen["argv"]
+    assert "--safe-mode" in seen["argv"]
+    assert "--no-session-persistence" in seen["argv"]
+
+
+def test_read_only_codex_cli_sets_read_only_sandbox(monkeypatch):
+    seen = {}
+
+    def fake_capture(self, argv, prompt, abort=None, env=None, on_line=None):
+        seen["argv"] = argv
+        return "", "", False, False
+
+    monkeypatch.setattr(LLMClient, "_run_cli_capture", fake_capture)
+    client = LLMClient(provider="codex-cli", model="", api_key="cli",
+                       base_url="", cli_access="read-only")
+    client._run_codex("prompt", "", None)
+    assert "--sandbox" in seen["argv"]
+    assert seen["argv"][seen["argv"].index("--sandbox") + 1] == "read-only"

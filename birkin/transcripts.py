@@ -92,6 +92,10 @@ def _mask(text: str) -> str:
     return text
 
 
+def redact_text(text: str) -> str:
+    return _mask(text)
+
+
 def _prep(text: str, *, redact: bool, max_chars: int) -> str:
     text = text or ""
     if redact:

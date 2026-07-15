@@ -47,12 +47,14 @@ def propose(*, category: str, title: str, description: str,
     """
     auto = is_auto(category, cfg) and not (
         _is_shell_cron(category, payload) and not is_auto("shell", cfg))
-    if auto:
-        result = execute_action(category, payload, cfg)
-        return {"auto": True, "category": category, "result": result}
     rec = store.add_pending(category=category, title=title,
                             description=description, payload=payload,
                             origin=origin)
+    if auto:
+        resolved = approve(rec["id"])
+        return {"auto": True, "ok": bool(resolved.get("ok")),
+                "id": rec["id"], "category": category,
+                "result": resolved.get("result", resolved.get("error", ""))}
     return {"auto": False, "id": rec["id"], "title": title}
 
 

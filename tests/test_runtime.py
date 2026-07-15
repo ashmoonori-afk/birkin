@@ -4,10 +4,12 @@ the CLI-provider system-prompt builder."""
 from __future__ import annotations
 
 import json
+import threading
+import time
 
 import pytest
 
-from birkin import config, store
+from birkin import config, curator, selfimprove, store
 from birkin.runtime import ConfigError, build_session
 
 
@@ -52,6 +54,106 @@ def test_build_cli_system_injects_identity_memory_and_routed_skills():
     assert "Skill: arxiv" in sysp                      # router picked arxiv
     # The CLI prompt must NOT include the agent's tool-loop guidance.
     assert "load_skill" not in sysp
+
+
+def test_build_cli_system_records_routed_skill_usage():
+    s = build_session({"provider": "codex-cli", "model": ""})
+    s._build_cli_system("find recent arxiv papers on transformer attention")
+    assert curator.load_usage()["arxiv"]["count"] == 1
+
+
+def test_cli_turn_schedules_background_skill_review_at_interval(monkeypatch):
+    calls = []
+
+    class _InlineThread:
+        def __init__(self, *, target, daemon=False, **_kwargs):
+            self.target = target
+
+        def start(self):
+            self.target()
+
+        def is_alive(self):
+            return False
+
+    monkeypatch.setattr("birkin.runtime.threading.Thread", _InlineThread)
+    monkeypatch.setattr(
+        selfimprove,
+        "review_cli_turn",
+        lambda _ctx, transcript: calls.append(transcript) or "nothing new",
+    )
+    s = build_session({"provider": "claude-cli", "model": "",
+                       "self_improve": True, "skill_nudge_interval": 2})
+    s._record_turn("first task", "first reply")
+    assert calls == []
+    s._record_turn("second task", "second reply")
+    assert calls == ["USER:\nsecond task\n\nASSISTANT:\nsecond reply"]
+
+
+def test_cli_turn_starts_only_one_concurrent_skill_review(monkeypatch):
+    created = []
+
+    class _SlowThread:
+        def __init__(self, *, target, **_kwargs):
+            time.sleep(0.05)
+            created.append(target)
+
+        def start(self):
+            pass
+
+        def is_alive(self):
+            return True
+
+    real_thread = threading.Thread
+    monkeypatch.setattr("birkin.runtime.threading.Thread", _SlowThread)
+    s = build_session({"provider": "claude-cli", "model": "",
+                       "self_improve": True, "skill_nudge_interval": 1})
+    gate = threading.Barrier(3)
+
+    def schedule():
+        gate.wait()
+        s._schedule_skill_review("task", "reply")
+
+    workers = [real_thread(target=schedule) for _ in range(2)]
+    for worker in workers:
+        worker.start()
+    gate.wait()
+    for worker in workers:
+        worker.join()
+
+    assert len(created) == 1
+
+
+def test_local_cli_does_not_run_unsandboxed_skill_review():
+    s = build_session({"provider": "local-cli", "model": "",
+                       "self_improve": True, "skill_nudge_interval": 1,
+                       "cli_command": ["custom-agent"]})
+    s._schedule_skill_review("task", "reply")
+    assert s._skill_review_thread is None
+
+
+def test_codex_cli_does_not_run_tool_capable_skill_review():
+    s = build_session({"provider": "codex-cli", "model": "",
+                       "self_improve": True, "skill_nudge_interval": 1})
+    s._schedule_skill_review("task", "reply")
+    assert s._skill_review_thread is None
+
+
+def test_skill_review_thread_start_failure_does_not_break_turn(monkeypatch):
+    class _BrokenThread:
+        def __init__(self, **_kwargs):
+            pass
+
+        def start(self):
+            raise RuntimeError("thread unavailable")
+
+        def is_alive(self):
+            return False
+
+    monkeypatch.setattr("birkin.runtime.threading.Thread", _BrokenThread)
+    s = build_session({"provider": "claude-cli", "model": "",
+                       "self_improve": True, "skill_nudge_interval": 1})
+    s._record_turn("task", "successful reply")
+    assert s._skill_review_thread is None
 
 
 def test_ask_skips_when_skills_unchanged_then_picks_up_new_skill(tmp_path):

@@ -21,7 +21,7 @@ def _fake_session(reply_prefix="echo:"):
     """A minimal Session-like object the Gateway can drive."""
     agent = types.SimpleNamespace(messages=[])
 
-    def ask(text, on_text=None):
+    def ask(text, on_text=None, **_kwargs):
         agent.messages.append({"role": "user", "content": [
             {"type": "text", "text": text}]})
         return f"{reply_prefix}{text}"
@@ -63,7 +63,7 @@ def test_gateway_slash_new_resets_chat(gateway):
 def test_gateway_returns_friendly_error_not_raw(monkeypatch):
     # P1-3: the raw exception is logged server-side, but the chat gets a
     # friendly line — no path/internal leak to a Telegram user.
-    def boom_ask(text, on_text=None):
+    def boom_ask(text, on_text=None, **_kwargs):
         raise RuntimeError("boom /secret/path")
     fake = _fake_session()
     fake.ask = boom_ask

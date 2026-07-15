@@ -1077,11 +1077,18 @@ A turn-based counter (`memory_nudge_interval`, default 6) does the same for
 Nudges are added to the system prompt for one turn only and never stored in
 history. Both intervals are configurable; `0` disables.
 
-**Rationale.** Faithful to hermes (turn/iteration counters, ephemeral
-injection, reset-on-use) and cheap — it steers the model to self-author skills
-instead of running a separate reflection pass on every turn. The `/learn`
-command and the nightly routine remain for explicit/batch consolidation; a
-background "curator" (hermes' skill maintenance) is possible future work.
+CLI agents do not expose their internal tool calls to Birkin. On `claude-cli`,
+every `skill_nudge_interval` completed trusted turns schedules a separate
+no-tools, safe-mode, non-persistent review off the response path. It returns a
+structured create/improve proposal; Birkin applies that proposal only through
+the normal approval gate. Codex and generic local CLIs do not provide the same
+enforceable no-tools boundary, so Birkin does not schedule this review there.
+
+**Rationale.** Faithful to hermes while respecting each provider's observable
+contract: native agents use cheap ephemeral nudges; the hardened Claude CLI
+adapter uses a bounded post-turn review rather than pretending hidden tools are
+visible.
+The `/learn` command and nightly routine remain for explicit/batch consolidation.
 
 **Status.** Accepted.
 
@@ -1111,8 +1118,10 @@ text-protocol tool loop over a completion backend. Routing keeps the prompt
 small; bundled-script paths make skills executable in CLI mode too.
 
 **Trade-off.** Skills are pre-selected by keyword routing rather than pulled on
-demand; the CLI agent can't write back to birkin memory/skills within the turn
-(captured later by `/learn` or the nightly routine).
+demand. Persistent children receive each routed body once per skill revision,
+then retain it in their own context. Claude CLI write-back is asynchronous: the
+hardened reviewer proposes a skill change after the foreground reply, and the
+approval policy decides when that proposal is applied.
 
 **Status.** Accepted (refines ADR-012).
 

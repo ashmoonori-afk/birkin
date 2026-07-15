@@ -27,15 +27,6 @@ _PROTOCOL_VERSION = "2024-11-05"
 _SERVER_NAME = "birkin"
 _MAX_LINE_BYTES = 4 * 1024 * 1024  # reject absurdly large JSON-RPC frames
 
-# apply_skill_proposal returns a human string; success starts with one of these.
-# Anything else (missing fields, "skill not found", "unknown action") is an error.
-_SKILL_OK_PREFIXES = ("created skill", "appended learned note")
-
-
-def _skill_is_error(out: str) -> bool:
-    return not str(out).strip().lower().startswith(_SKILL_OK_PREFIXES)
-
-
 def _version() -> str:
     try:
         from . import __version__  # type: ignore
@@ -56,7 +47,6 @@ def _build_tools() -> dict[str, dict[str, Any]]:
         from . import approvals, config
         from .memory import Memory
         from .skills import build_manager
-        from .skills.manager import apply_skill_proposal
         from .tools import ToolContext
 
         cfg = config.load_config()
@@ -78,23 +68,37 @@ def _build_tools() -> dict[str, dict[str, Any]]:
         tools[t.name] = {"description": t.description,
                          "schema": t.input_schema, "handler": _mk(t)}
 
-    # create_skill / improve_skill — applied directly (reversible, content from
-    # the caller, no birkin LLM call).
-    def _create_skill(args: dict[str, Any]) -> tuple[str, bool]:
+    skill_tools = {tool.name: tool for tool in skills.tools(origin="mcp")}
+
+    def _run_skill_tool(name: str, args: dict[str, Any]) -> tuple[str, bool]:
         with contextlib.redirect_stdout(sys.stderr):
-            out = apply_skill_proposal({"action": "create",
-                                        "name": args.get("name", ""),
-                                        "description": args.get("description", ""),
-                                        "body": args.get("body", ""),
-                                        "tags": args.get("tags") or []})
-        return out, _skill_is_error(out)
+            skills.reload_if_changed(debounce=0.0)
+            result = skill_tools[name].fn(args, ctx)
+        return result.content, bool(result.is_error)
+
+    def _list_skills(_args: dict[str, Any]) -> tuple[str, bool]:
+        skills.reload_if_changed(debounce=0.0)
+        return skills.index(), False
+
+    def _load_skill(args: dict[str, Any]) -> tuple[str, bool]:
+        return _run_skill_tool("load_skill", args)
+
+    def _create_skill(args: dict[str, Any]) -> tuple[str, bool]:
+        return _run_skill_tool("create_skill", args)
 
     def _improve_skill(args: dict[str, Any]) -> tuple[str, bool]:
-        with contextlib.redirect_stdout(sys.stderr):
-            out = apply_skill_proposal({"action": "improve",
-                                        "target": args.get("target", ""),
-                                        "addition": args.get("addition", "")})
-        return out, _skill_is_error(out)
+        return _run_skill_tool(
+            "improve_skill", {**args, "name": args.get("target", "")})
+
+    tools["skills_list"] = {
+        "description": "List eligible birkin skills with their descriptions.",
+        "schema": {"type": "object", "properties": {}},
+        "handler": _list_skills}
+    tools["load_skill"] = {
+        "description": "Load a skill's full instructions and directory path.",
+        "schema": {"type": "object", "properties": {
+            "name": {"type": "string"}}, "required": ["name"]},
+        "handler": _load_skill}
 
     tools["create_skill"] = {
         "description": "Create a birkin skill (SKILL.md) for a repeatable "
@@ -115,14 +119,21 @@ def _build_tools() -> dict[str, dict[str, Any]]:
 
     # propose_action — consequential actions go through the approval queue.
     def _propose(args: dict[str, Any]) -> tuple[str, bool]:
+        if args.get("category", "cron") != "cron":
+            return "propose_action only accepts category 'cron'.", True
+        payload = args.get("payload", {}) or {}
+        if not isinstance(payload, dict):
+            return "cron payload must be an object.", True
         with contextlib.redirect_stdout(sys.stderr):
             status = approvals.propose(
-                category=args.get("category", "cron"),
+                category="cron",
                 title=args.get("title", "(untitled)"),
                 description=args.get("description", ""),
-                payload=args.get("payload", {}) or {},
-                cfg=cfg, origin="morpheus")  # reuse the config loaded above
+                payload=payload,
+                cfg=cfg, origin="mcp")
         if status.get("auto"):
+            if not status.get("ok"):
+                return f"Could not apply: {status.get('result')}", True
             return f"Applied: {status.get('result')}", False
         return f"Queued for approval (id {status.get('id')}).", False
 

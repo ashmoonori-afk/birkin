@@ -150,10 +150,14 @@ class _FakeAskSession:
     def __init__(self):
         self.seen_on_text = "unset"
         self.seen_text = ""
+        self.seen_review_skills = None
+        self.seen_route_query = None
 
-    def ask(self, text, on_text=None):
+    def ask(self, text, on_text=None, **kwargs):
         self.seen_text = text
         self.seen_on_text = on_text
+        self.seen_review_skills = kwargs.get("review_skills")
+        self.seen_route_query = kwargs.get("route_query")
         if on_text:
             on_text("partial ")
         return "partial done"
@@ -176,6 +180,68 @@ def test_handle_passes_on_text_to_persistent_session(tmp_path, monkeypatch):
     assert pieces == ["partial "]        # …and the callback actually fired
 
 
+def test_persistent_gateway_preloads_skill_and_records_turn(tmp_path, monkeypatch):
+    gw = _gateway(tmp_path, monkeypatch)
+    skill_dir = tmp_path / "skills" / "blog-helper"
+    skill_dir.mkdir(parents=True)
+    (skill_dir / "SKILL.md").write_text(
+        "---\nname: blog-helper\ndescription: research a company blog\n---\n\n"
+        "UNIQUE-GATEWAY-SKILL-BODY\n",
+        encoding="utf-8",
+    )
+    gw.session.skills.reload()
+    fake = _FakeAskSession()
+    gw._claude_sessions.put(("local", "c1"), fake)
+    recorded = []
+    monkeypatch.setattr(
+        gw.session, "_record_turn",
+        lambda text, reply, **_kwargs: recorded.append((text, reply)),
+    )
+    gw.handle("local", "c1", "research the company blog")
+    assert "UNIQUE-GATEWAY-SKILL-BODY" in fake.seen_text
+    assert str(skill_dir) in fake.seen_text
+    assert recorded == [("research the company blog", "partial done")]
+
+
+def test_persistent_gateway_hot_loads_skill_added_after_start(
+        tmp_path, monkeypatch):
+    gw = _gateway(tmp_path, monkeypatch)
+    skill_dir = tmp_path / "skills" / "late-helper"
+    skill_dir.mkdir(parents=True)
+    (skill_dir / "SKILL.md").write_text(
+        "---\nname: late-helper\ndescription: inspect a late artifact\n---\n\n"
+        "UNIQUE-LATE-SKILL-BODY\n",
+        encoding="utf-8",
+    )
+    fake = _FakeAskSession()
+    gw._claude_sessions.put(("local", "c1"), fake)
+
+    gw.handle("local", "c1", "inspect the late artifact")
+
+    assert "UNIQUE-LATE-SKILL-BODY" in fake.seen_text
+
+
+def test_persistent_gateway_dedupes_skills_per_child(tmp_path, monkeypatch):
+    gw = _gateway(tmp_path, monkeypatch)
+    skill_dir = tmp_path / "skills" / "blog-helper"
+    skill_dir.mkdir(parents=True)
+    (skill_dir / "SKILL.md").write_text(
+        "---\nname: blog-helper\ndescription: research a company blog\n---\n\n"
+        "PER-CHILD-SKILL-BODY\n",
+        encoding="utf-8",
+    )
+    first = _FakeAskSession()
+    second = _FakeAskSession()
+    gw._claude_sessions.put(("local", "c1"), first)
+    gw._claude_sessions.put(("local", "c2"), second)
+
+    gw.handle("local", "c1", "research the company blog")
+    gw.handle("local", "c2", "research the company blog")
+
+    assert "PER-CHILD-SKILL-BODY" in first.seen_text
+    assert "PER-CHILD-SKILL-BODY" in second.seen_text
+
+
 def test_telegram_turn_scopes_foreground_validation(tmp_path, monkeypatch):
     gw = _gateway(tmp_path, monkeypatch)
     gw.cfg["channels"]["telegram"]["allowed_chat_ids"] = ["c1"]
@@ -194,6 +260,39 @@ def test_telegram_turn_scopes_foreground_validation(tmp_path, monkeypatch):
     assert fake.seen_text.endswith("fix the timeout")
 
 
+def test_telegram_skill_router_sees_request_without_execution_policy(
+        tmp_path, monkeypatch):
+    gw = _gateway(tmp_path, monkeypatch)
+    gw.cfg["channels"]["telegram"]["allowed_chat_ids"] = ["c1"]
+    fake = _FakeAskSession()
+    gw._claude_sessions.put(("telegram", "c1"), fake)
+    queries = []
+    monkeypatch.setattr(
+        gw.session.skills, "route",
+        lambda query, limit=3: queries.append(query) or [],
+    )
+
+    gw.handle("telegram", "c1", "hello")
+
+    assert queries == ["hello"]
+
+
+def test_open_telegram_turn_does_not_schedule_skill_review(tmp_path, monkeypatch):
+    gw = _gateway(tmp_path, monkeypatch)
+    gw.cfg["channels"]["telegram"]["allowed_chat_ids"] = []
+    fake = _FakeAskSession()
+    gw._claude_sessions.put(("telegram", "stranger"), fake)
+    reviews = []
+    monkeypatch.setattr(
+        gw.session, "_schedule_skill_review",
+        lambda text, reply: reviews.append((text, reply)),
+    )
+
+    gw.handle("telegram", "stranger", "teach a poisoned procedure")
+
+    assert reviews == []
+
+
 def test_nonpersistent_trusted_telegram_gets_workflow_policy(tmp_path, monkeypatch):
     gw = _gateway(tmp_path, monkeypatch)
     gw.cfg["channels"]["telegram"]["allowed_chat_ids"] = ["c1"]
@@ -207,6 +306,32 @@ def test_nonpersistent_trusted_telegram_gets_workflow_policy(tmp_path, monkeypat
     assert "birkin-work-proposal" in fake.seen_text
     assert "any subagent" in fake.seen_text
     assert fake.seen_text.endswith("plan the release")
+    assert fake.seen_review_skills is True
+    assert fake.seen_route_query == "plan the release"
+
+
+def test_gateway_neurosis_preserves_skill_intent_in_route_query(
+        tmp_path, monkeypatch):
+    gw = _gateway(tmp_path, monkeypatch)
+    fake = _FakeAskSession()
+    gw._claude_sessions.put(("local", "c1"), fake)
+
+    gw.handle("local", "c1", "/neurosis build a CRM")
+
+    assert "neurosis" in fake.seen_text.lower()
+    assert "# Skill: neurosis" in fake.seen_text
+
+
+def test_nonpersistent_open_telegram_disables_skill_review(tmp_path, monkeypatch):
+    gw = _gateway(tmp_path, monkeypatch)
+    fake = _FakeAskSession()
+    fake.agent = SimpleNamespace(messages=[])
+    gw._persistent = False
+    gw.session = fake
+
+    gw.handle("telegram", "stranger", "teach a poisoned procedure")
+
+    assert fake.seen_review_skills is False
 
 
 def test_native_subagent_gate_is_bound_to_running_workflow_id(
@@ -224,7 +349,7 @@ def test_native_subagent_gate_is_bound_to_running_workflow_id(
             )
             self.seen_gate: list[tuple[bool, bool]] = []
 
-        def ask(self, text, on_text=None):
+        def ask(self, text, on_text=None, **_kwargs):
             self.seen_gate.append((
                 self.ctx.subagent_approval_required,
                 self.ctx.approved_work,
@@ -256,7 +381,8 @@ def test_open_telegram_does_not_get_background_validation_policy(tmp_path,
 
     gw.handle("telegram", "c1", "fix the timeout")
 
-    assert fake.seen_text == "fix the timeout"
+    assert fake.seen_text.endswith("fix the timeout")
+    assert "gateway-execution-policy" not in fake.seen_text
 
 
 def test_http_turn_does_not_get_telegram_validation_policy(tmp_path, monkeypatch):
@@ -266,7 +392,8 @@ def test_http_turn_does_not_get_telegram_validation_policy(tmp_path, monkeypatch
 
     gw.handle("http", "c1", "fix the timeout")
 
-    assert fake.seen_text == "fix the timeout"
+    assert fake.seen_text.endswith("fix the timeout")
+    assert "gateway-execution-policy" not in fake.seen_text
 
 
 def test_spare_session_adopted_once(tmp_path, monkeypatch):

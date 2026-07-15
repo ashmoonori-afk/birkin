@@ -273,6 +273,9 @@ class LLMClient:
                  "--include-partial-messages"]
         if self.cli_access == "full":
             parts.append("--dangerously-skip-permissions")
+        elif self.cli_access == "read-only":
+            parts += ["--safe-mode", "--tools", "",
+                      "--no-session-persistence"]
         else:
             parts += ["--permission-mode", "acceptEdits"]
         if model and model not in ("claude-code", "default", ""):
@@ -353,6 +356,9 @@ class LLMClient:
         parts = ["codex", "exec", "--skip-git-repo-check", "--color", "never"]
         if self.cli_access == "full":
             parts.append("--dangerously-bypass-approvals-and-sandbox")
+        elif self.cli_access == "read-only":
+            parts += ["--sandbox", "read-only", "--ephemeral",
+                      "--ignore-user-config", "--ignore-rules"]
         parts += ["-o", path]
         if model and model not in ("codex", "default", ""):
             parts += ["-m", model]

@@ -65,11 +65,14 @@ class Skill:
         are the ones shown in the index."""
         pre = self.meta.get("prerequisites")
         if not isinstance(pre, dict):
-            return True
+            pre = {}
         for cmd in pre.get("commands") or []:
             if shutil.which(str(cmd)) is None:
                 return False
-        platforms = [str(p).lower() for p in (pre.get("platforms") or [])]
+        declared = self.meta.get("platforms")
+        if not isinstance(declared, list):
+            declared = pre.get("platforms") or []
+        platforms = [str(p).lower() for p in declared]
         if platforms and _current_platform() not in platforms:
             return False
         return True

@@ -13,6 +13,7 @@ def test_propose_auto_category_applies_immediately():
                             payload={}, cfg=cfg)
     assert res["auto"] is True
     assert store.list_pending() == []
+    assert store.get_pending(res["id"])["status"] == "approved"
 
 
 def test_propose_consequential_is_queued():
@@ -24,6 +25,16 @@ def test_propose_consequential_is_queued():
     pending = store.list_pending()
     assert len(pending) == 1
     assert pending[0]["title"] == "Digest"
+
+
+def test_failed_auto_skill_proposal_is_audited_as_error():
+    cfg = {"auto_approve": ["skill"]}
+    res = approvals.propose(
+        category="skill", title="stale", description="",
+        payload={"action": "improve", "target": "missing-skill",
+                 "addition": "note"}, cfg=cfg)
+    assert res["auto"] is True and res["ok"] is False
+    assert store.get_pending(res["id"])["status"] == "error"
 
 
 def test_approve_executes_and_clears():

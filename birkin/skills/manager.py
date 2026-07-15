@@ -9,13 +9,18 @@ by hermes and the agentskills standard.
 
 from __future__ import annotations
 
+import json
 import re
 import time
 from pathlib import Path
 from typing import Any
 
-from .. import config
+from .. import config, store
 from .loader import Skill, discover
+
+
+class SkillProposalError(RuntimeError):
+    pass
 
 
 class SkillManager:
@@ -24,10 +29,16 @@ class SkillManager:
         self.skills: dict[str, Skill] = discover(dirs)
         self._sig = self._signature()
         self._checked_at = time.monotonic()
+        self._revision = 0
+
+    @property
+    def revision(self) -> int:
+        return self._revision
 
     def reload(self) -> None:
         self.skills = discover(self._dirs)
         self._sig = self._signature()
+        self._revision += 1
 
     def _signature(self) -> tuple:
         """Cheap fingerprint (paths + mtimes, no file reads) for hot-reload."""
@@ -52,6 +63,7 @@ class SkillManager:
         if sig != self._sig:
             self.skills = discover(self._dirs)
             self._sig = sig
+            self._revision += 1
             return True
         return False
 
@@ -83,40 +95,63 @@ class SkillManager:
         """Pick the most relevant *eligible* skills for a query by keyword overlap
         against name + description + tags + body. Used to inject skills into
         CLI-agent prompts (which can't call load_skill)."""
-        terms = [t for t in re.split(r"[^a-z0-9]+", (query or "").lower()) if len(t) > 2]
+        terms = [t for t in re.findall(r"[^\W_]+", (query or "").lower())
+                 if len(t) > 2 or (len(t) > 1 and not t.isascii())]
         skills = self.eligible_skills()
         if not terms or not skills:
             return []
-        scored: list[tuple[int, Skill]] = []
+
+        def matched_terms(text: str) -> list[str]:
+            tokens = re.findall(r"[^\W_]+", text.lower())
+            token_set = set(tokens)
+            return [term for term in terms if (
+                term in token_set if term.isascii()
+                else any(term in token or token in term
+                         for token in tokens if len(token) > 1)
+            )]
+
+        metadata_scored: list[tuple[int, int, int, Skill]] = []
         for s in skills:
             hay = f"{s.name} {s.description} {' '.join(s.tags)}".lower()
-            score = sum(3 for t in terms if t in hay)
-            if score == 0:  # fall back to a cheaper body scan
-                body = s.body().lower()
-                score = sum(1 for t in terms if t in body)
-            if score:
-                scored.append((score, s))
-        scored.sort(key=lambda x: x[0], reverse=True)
-        return [s for _, s in scored[:limit]]
+            metadata_terms = matched_terms(hay)
+            if metadata_terms:
+                metadata_scored.append(
+                    (max(len(t) for t in metadata_terms),
+                     sum(len(t) for t in metadata_terms),
+                     len(metadata_terms), s))
+        if metadata_scored:
+            metadata_scored.sort(
+                key=lambda x: (x[0], x[1], x[2]), reverse=True)
+            return [s for _, _, _, s in metadata_scored[:limit]]
+        body_scored = []
+        for s in skills:
+            body_hits = len(matched_terms(s.body()))
+            if body_hits:
+                body_scored.append((body_hits, s))
+        body_scored.sort(key=lambda x: x[0], reverse=True)
+        return [s for _, s in body_scored[:limit]]
 
     def render_skill(self, skill: Skill) -> str:
         """Full skill text plus its bundled files + directory (for execution)."""
-        out = f"# Skill: {skill.name}\n\n{skill.body()}"
-        extras = _bundled_files(skill.directory)
+        directory = skill.directory.resolve()
+        out = (f"# Skill: {skill.name}\n\n"
+               f"Skill directory: `{directory}`\n\n{skill.body()}")
+        extras = _bundled_files(directory)
         if extras:
             listing = "\n".join(f"- {p}" for p in extras)
             out += (f"\n\n## Bundled files (in this skill's directory)\n"
-                    f"Skill directory: `{skill.directory}`\n{listing}\n\n"
+                    f"{listing}\n\n"
                     f"To run a bundled script, run it with the skill directory "
                     f"as the working directory (e.g. `python scripts/<name>.py ...`).")
         return out
 
     # -- tools -------------------------------------------------------------
 
-    def tools(self):
+    def tools(self, origin: str = "agent"):
         from ..tools import Tool, ToolContext, ToolResult
 
         def load_skill(inp: dict[str, Any], ctx: ToolContext) -> ToolResult:
+            self.reload_if_changed(debounce=0.0)
             name = inp.get("name", "").strip()
             skill = self.get(name)
             if not skill:
@@ -137,6 +172,11 @@ class SkillManager:
             if not (name and desc and body):
                 return ToolResult("create_skill needs name, description, body.",
                                   is_error=True)
+            canonical = _slug(name)
+            if _skill_exists(canonical):
+                return ToolResult(
+                    f"Skill {canonical!r} already exists; use improve_skill.",
+                    is_error=True)
             # Skill-PR: route through the approval gate so every authoring is
             # recorded. With `skills` in auto_approve (default), it's applied
             # immediately; otherwise it queues for `birkin review`.
@@ -147,9 +187,13 @@ class SkillManager:
                 description=desc,
                 payload={"action": "create", "name": name, "description": desc,
                          "body": body, "tags": inp.get("tags") or []},
-                cfg=ctx.cfg, origin="agent")
-            self.reload()
+                cfg=ctx.cfg, origin=origin)
             if res.get("auto"):
+                if not res.get("ok"):
+                    return ToolResult(
+                        f"Could not create skill {canonical!r}: "
+                        f"{res.get('result', 'unknown error')}", is_error=True)
+                self.reload()
                 return ToolResult(f"Created skill {name!r} (auto-approved).")
             return ToolResult(
                 f"Skill proposal recorded for {name!r} — awaiting approval "
@@ -174,9 +218,13 @@ class SkillManager:
                 description=addition[:160],
                 payload={"action": "improve", "target": skill.name,
                          "addition": addition},
-                cfg=ctx.cfg, origin="agent")
-            self.reload()
+                cfg=ctx.cfg, origin=origin)
             if res.get("auto"):
+                if not res.get("ok"):
+                    return ToolResult(
+                        f"Could not improve skill {name!r}: "
+                        f"{res.get('result', 'unknown error')}", is_error=True)
+                self.reload()
                 return ToolResult(f"Appended a learned note to {name!r} (auto-approved).")
             return ToolResult(
                 f"Improvement proposal recorded for {name!r} — awaiting "
@@ -240,31 +288,39 @@ def apply_skill_proposal(payload: dict[str, Any]) -> str:
         desc = payload.get("description", "").strip()
         body = payload.get("body", "").strip()
         if not (name and desc and body):
-            return "skill create proposal missing name/description/body"
-        path = _write_skill(name, desc, body, payload.get("tags") or [])
+            raise SkillProposalError(
+                "skill create proposal missing name/description/body")
+        canonical = _slug(name)
+        path = _user_skill_path(canonical)
+        with store.file_lock(path) as lock:
+            if not lock.acquired:
+                raise SkillProposalError("skill store is busy")
+            if _skill_exists(canonical):
+                raise SkillProposalError(f"skill already exists: {canonical}")
+            path = _write_skill(name, desc, body, payload.get("tags") or [])
         return f"Created skill {name!r} at {path}"
     if action == "improve":
         target_name = payload.get("target", "").strip()
         addition = payload.get("addition", "").strip()
         if not (target_name and addition):
-            return "skill improve proposal missing target/addition"
-        # Locate the skill via a fresh discover so we don't depend on a Manager
-        # instance from the calling context.
-        dirs = config.skill_dirs(config.load_config())
-        skills = discover(dirs)
-        skill = skills.get(target_name)
-        if skill is None:
-            return f"skill not found: {target_name}"
-        # Bundled (official) skills aren't edited in place — fork into the user
-        # dir first so the bundled catalog stays immutable.
-        target = skill.path
-        if skill.source == "bundled":
-            target = _user_skill_path(skill.name)
-            target.write_text(skill.full(), encoding="utf-8")
-        with target.open("a", encoding="utf-8") as fh:
-            fh.write(f"\n\n## Learned ({_today()})\n\n{addition}\n")
+            raise SkillProposalError(
+                "skill improve proposal missing target/addition")
+        lock_path = _user_skill_path(_slug(target_name))
+        with store.file_lock(lock_path) as lock:
+            if not lock.acquired:
+                raise SkillProposalError("skill store is busy")
+            dirs = config.skill_dirs(config.load_config())
+            skill = discover(dirs).get(target_name)
+            if skill is None:
+                raise SkillProposalError(f"skill not found: {target_name}")
+            target = skill.path
+            if skill.source == "bundled":
+                target = _user_skill_path(skill.name)
+                target.write_text(skill.full(), encoding="utf-8")
+            with target.open("a", encoding="utf-8") as fh:
+                fh.write(f"\n\n## Learned ({_today()})\n\n{addition}\n")
         return f"Appended learned note to {target_name!r}."
-    return f"unknown skill action: {action!r}"
+    raise SkillProposalError(f"unknown skill action: {action!r}")
 
 
 def _bundled_files(directory: Path, limit: int = 40) -> list[str]:
@@ -287,29 +343,47 @@ def _slug(name: str) -> str:
     return s or "skill"
 
 
+def _skill_exists(canonical: str) -> bool:
+    direct = config.user_skills_dir() / canonical / "SKILL.md"
+    if direct.is_file():
+        return True
+    skills = discover(config.skill_dirs(config.load_config())).values()
+    return any(
+        _slug(skill.name) == canonical
+        or _slug(skill.directory.name) == canonical
+        for skill in skills)
+
+
 def _today() -> str:
     from datetime import date
     return date.today().isoformat()
 
 
 def _user_skill_path(name: str) -> Path:
-    d = config.user_skills_dir() / _slug(name)
+    root = config.user_skills_dir().resolve()
+    d = root / _slug(name)
     d.mkdir(parents=True, exist_ok=True)
-    return d / "SKILL.md"
+    resolved = d.resolve()
+    if root != resolved and root not in resolved.parents:
+        raise SkillProposalError("skill path escapes the user skills directory")
+    return resolved / "SKILL.md"
 
 
 def _write_skill(name: str, description: str, body: str, tags: list[str]) -> Path:
     path = _user_skill_path(name)
-    tag_list = ", ".join(str(t) for t in tags)
+    tag_block = "    tags: []\n" if not tags else (
+        "    tags:\n" + "".join(
+            f"      - {json.dumps(str(tag), ensure_ascii=False)}\n"
+            for tag in tags))
     fm = (
         "---\n"
         f"name: {_slug(name)}\n"
-        f'description: "{description}"\n'
+        f"description: {json.dumps(description, ensure_ascii=False)}\n"
         "version: 1.0.0\n"
         "author: birkin (self-authored)\n"
         "metadata:\n"
         "  birkin:\n"
-        f"    tags: [{tag_list}]\n"
+        f"{tag_block}"
         "---\n\n"
     )
     path.write_text(fm + body.strip() + "\n", encoding="utf-8")

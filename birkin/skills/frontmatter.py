@@ -15,12 +15,15 @@ raising.
 
 from __future__ import annotations
 
+import json
 import re
 from typing import Any
 
 
 def split_frontmatter(text: str) -> tuple[str, str]:
     """Return (frontmatter_text, body). No frontmatter -> ('', text)."""
+    if text.startswith("\ufeff"):
+        text = text[1:]
     if not text.startswith("---"):
         return "", text
     lines = text.splitlines()
@@ -66,7 +69,12 @@ def _split_commas(s: str) -> list[str]:
 
 def _parse_value(s: str) -> Any:
     s = s.strip()
-    if len(s) >= 2 and s[0] in "\"'" and s[-1] == s[0]:
+    if len(s) >= 2 and s[0] == '"' and s[-1] == '"':
+        try:
+            return json.loads(s)
+        except json.JSONDecodeError:
+            return s[1:-1]
+    if len(s) >= 2 and s[0] == "'" and s[-1] == "'":
         return s[1:-1]
     if s.startswith("[") and s.endswith("]"):
         inner = s[1:-1].strip()
@@ -102,7 +110,7 @@ def _parse_block(lines: list[str], i: int, base: int):
             if result is None:
                 result = []
             item = content[2:].strip()
-            if ":" in item and not item.startswith("["):
+            if ":" in item and not item.startswith(("[", "\"", "'")):
                 key, _, val = item.partition(":")
                 entry: dict[str, Any] = {}
                 if val.strip():

@@ -50,10 +50,75 @@ def test_warm_on_routes_to_warm_session_and_reuses_it(tmp_path, monkeypatch):
     pieces: list[str] = []
     assert s.ask("first", on_text=pieces.append) == "warm reply"
     assert s.ask("second") == "warm reply"
-    assert fake.asks == ["first", "second"]             # SAME process reused
+    assert [text.rsplit("## User request\n\n", 1)[-1]
+            for text in fake.asks] == ["first", "second"]  # SAME process reused
     assert pieces == ["warm reply"]                     # on_text threaded
     s.close()
     assert fake.closed is True and s._warm is None
+
+
+def test_warm_turn_preloads_routed_skill_body_and_path(tmp_path, monkeypatch):
+    skill_dir = tmp_path / "skills" / "blog-helper"
+    skill_dir.mkdir(parents=True)
+    (skill_dir / "SKILL.md").write_text(
+        "---\nname: blog-helper\ndescription: research a company blog\n---\n\n"
+        "UNIQUE-WARM-SKILL-BODY\n",
+        encoding="utf-8",
+    )
+    s = _session(tmp_path, monkeypatch, provider="codex-cli",
+                 repl_warm_session=True, self_improve=False)
+    fake = _FakeWarm()
+    monkeypatch.setattr(s, "_build_warm", lambda: fake)
+    s.ask("research the company blog")
+    assert "UNIQUE-WARM-SKILL-BODY" in fake.asks[0]
+    assert str(skill_dir) in fake.asks[0]
+
+
+def test_warm_turn_does_not_repeat_skill_already_in_child_context(
+        tmp_path, monkeypatch):
+    skill_dir = tmp_path / "skills" / "blog-helper"
+    skill_dir.mkdir(parents=True)
+    (skill_dir / "SKILL.md").write_text(
+        "---\nname: blog-helper\ndescription: research a company blog\n---\n\n"
+        "UNIQUE-WARM-SKILL-BODY\n",
+        encoding="utf-8",
+    )
+    s = _session(tmp_path, monkeypatch, provider="codex-cli",
+                 repl_warm_session=True, self_improve=False)
+    fake = _FakeWarm()
+    monkeypatch.setattr(s, "_build_warm", lambda: fake)
+
+    s.ask("research the company blog")
+    s.ask("research the company blog again")
+
+    assert "UNIQUE-WARM-SKILL-BODY" in fake.asks[0]
+    assert "UNIQUE-WARM-SKILL-BODY" not in fake.asks[1]
+
+
+def test_warm_turn_reloads_edited_skill_into_child_context(tmp_path, monkeypatch):
+    skill_dir = tmp_path / "skills" / "blog-helper"
+    skill_dir.mkdir(parents=True)
+    skill_path = skill_dir / "SKILL.md"
+    skill_path.write_text(
+        "---\nname: blog-helper\ndescription: research a company blog\n---\n\n"
+        "OLD-SKILL-BODY\n",
+        encoding="utf-8",
+    )
+    s = _session(tmp_path, monkeypatch, provider="codex-cli",
+                 repl_warm_session=True, self_improve=False)
+    fake = _FakeWarm()
+    monkeypatch.setattr(s, "_build_warm", lambda: fake)
+    s.ask("research the company blog")
+    skill_path.write_text(
+        "---\nname: blog-helper\ndescription: research a company blog\n---\n\n"
+        "NEW-SKILL-BODY\n",
+        encoding="utf-8",
+    )
+    s.skills.reload()
+
+    s.ask("research the company blog")
+
+    assert "NEW-SKILL-BODY" in fake.asks[1]
 
 
 def test_warm_disabled_for_non_cli_provider(tmp_path, monkeypatch):

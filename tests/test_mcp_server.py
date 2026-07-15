@@ -87,7 +87,7 @@ def test_build_tools_exposes_safe_set(tmp_path, monkeypatch):
     tools = mcp_server._build_tools()
     names = set(tools)
     assert {"memory_write_note", "memory_search", "create_skill",
-            "propose_action"} <= names
+            "propose_action", "skills_list", "load_skill"} <= names
     # never expose shell / arbitrary execution
     assert not any("shell" in n or "bash" in n.lower() for n in names)
 
@@ -115,8 +115,76 @@ def test_create_skill_handler_success_and_error(tmp_path, monkeypatch):
     text, err = tools["create_skill"]["handler"](
         {"name": "my-skill", "description": "d", "body": "# B\nbody"})
     assert err is False and "Created" in text
+    text, err = tools["create_skill"]["handler"](
+        {"name": "My Skill", "description": "replacement", "body": "new"})
+    assert err is True and "already exists" in text
     text, err = tools["create_skill"]["handler"]({"name": "x"})  # missing body
     assert err is True
+
+
+def test_load_skill_handler_returns_body_path_and_records_usage(
+        tmp_path, monkeypatch):
+    monkeypatch.setenv("BIRKIN_HOME", str(tmp_path))
+    from birkin import curator
+    tools = mcp_server._build_tools()
+    text, err = tools["load_skill"]["handler"]({"name": "web-research"})
+    assert err is False
+    assert "# Skill: web-research" in text
+    assert "Skill directory:" in text
+    assert curator.load_usage()["web-research"]["count"] == 1
+
+
+def test_mcp_create_respects_manual_skill_approval(tmp_path, monkeypatch):
+    monkeypatch.setenv("BIRKIN_HOME", str(tmp_path))
+    from birkin import config, store
+    cfg = {**config.DEFAULT_CONFIG, "auto_approve": []}
+    config.save_config(cfg)
+    tools = mcp_server._build_tools()
+    text, err = tools["create_skill"]["handler"](
+        {"name": "queued-mcp", "description": "d", "body": "body"})
+    assert err is False and "awaiting approval" in text
+    assert not (config.user_skills_dir() / "queued-mcp" / "SKILL.md").exists()
+    assert len(store.list_pending()) == 1
+    assert store.list_pending()[0]["origin"] == "mcp"
+
+
+def test_mcp_load_sees_skill_after_external_manual_approval(
+        tmp_path, monkeypatch):
+    monkeypatch.setenv("BIRKIN_HOME", str(tmp_path))
+    from birkin import approvals, config, store
+    cfg = {**config.DEFAULT_CONFIG, "auto_approve": []}
+    config.save_config(cfg)
+    tools = mcp_server._build_tools()
+    tools["create_skill"]["handler"](
+        {"name": "approved-later", "description": "late helper",
+         "body": "UNIQUE-APPROVED-LATER"})
+    pending_id = store.list_pending()[0]["id"]
+
+    assert approvals.approve(pending_id)["ok"] is True
+    text, err = tools["load_skill"]["handler"]({"name": "approved-later"})
+
+    assert err is False
+    assert "UNIQUE-APPROVED-LATER" in text
+
+
+def test_mcp_improve_refreshes_skill_added_after_server_start(
+        tmp_path, monkeypatch):
+    monkeypatch.setenv("BIRKIN_HOME", str(tmp_path))
+    from birkin import config
+    cfg = {**config.DEFAULT_CONFIG, "auto_approve": []}
+    config.save_config(cfg)
+    tools = mcp_server._build_tools()
+    skill_dir = config.user_skills_dir() / "external-late"
+    skill_dir.mkdir(parents=True)
+    (skill_dir / "SKILL.md").write_text(
+        "---\nname: external-late\ndescription: late helper\n---\n\nbody\n",
+        encoding="utf-8",
+    )
+
+    text, err = tools["improve_skill"]["handler"](
+        {"target": "external-late", "addition": "new note"})
+
+    assert err is False and "awaiting approval" in text
 
 
 def test_improve_skill_missing_target_flagged_as_error(tmp_path, monkeypatch):
@@ -135,6 +203,18 @@ def test_propose_queues_under_default_policy(tmp_path, monkeypatch):
     text, err = tools["propose_action"]["handler"](
         {"category": "cron", "title": "t", "payload": {"type": "prompt"}})
     assert err is False and "Queued" in text
+
+
+def test_propose_action_rejects_non_cron_category(tmp_path, monkeypatch):
+    monkeypatch.setenv("BIRKIN_HOME", str(tmp_path))
+    tools = mcp_server._build_tools()
+    text, err = tools["propose_action"]["handler"]({
+        "category": "skill", "title": "bypass",
+        "payload": {"action": "create", "name": "poison",
+                    "description": "x", "body": "x"},
+    })
+    assert err is True
+    assert "cron" in text.lower()
 
 
 def test_shell_cron_gate_is_case_insensitive(tmp_path, monkeypatch):
