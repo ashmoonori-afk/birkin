@@ -292,12 +292,13 @@ def apply_skill_proposal(payload: dict[str, Any]) -> str:
                 "skill create proposal missing name/description/body")
         canonical = _slug(name)
         path = _user_skill_path(canonical)
-        with store.file_lock(path) as lock:
-            if not lock.acquired:
-                raise SkillProposalError("skill store is busy")
-            if _skill_exists(canonical):
-                raise SkillProposalError(f"skill already exists: {canonical}")
-            path = _write_skill(name, desc, body, payload.get("tags") or [])
+        try:
+            with store.file_lock(path):
+                if _skill_exists(canonical):
+                    raise SkillProposalError(f"skill already exists: {canonical}")
+                path = _write_skill(name, desc, body, payload.get("tags") or [])
+        except store.FileLockTimeout:
+            raise SkillProposalError("skill store is busy") from None
         return f"Created skill {name!r} at {path}"
     if action == "improve":
         target_name = payload.get("target", "").strip()
@@ -306,19 +307,20 @@ def apply_skill_proposal(payload: dict[str, Any]) -> str:
             raise SkillProposalError(
                 "skill improve proposal missing target/addition")
         lock_path = _user_skill_path(_slug(target_name))
-        with store.file_lock(lock_path) as lock:
-            if not lock.acquired:
-                raise SkillProposalError("skill store is busy")
-            dirs = config.skill_dirs(config.load_config())
-            skill = discover(dirs).get(target_name)
-            if skill is None:
-                raise SkillProposalError(f"skill not found: {target_name}")
-            target = skill.path
-            if skill.source == "bundled":
-                target = _user_skill_path(skill.name)
-                target.write_text(skill.full(), encoding="utf-8")
-            with target.open("a", encoding="utf-8") as fh:
-                fh.write(f"\n\n## Learned ({_today()})\n\n{addition}\n")
+        try:
+            with store.file_lock(lock_path):
+                dirs = config.skill_dirs(config.load_config())
+                skill = discover(dirs).get(target_name)
+                if skill is None:
+                    raise SkillProposalError(f"skill not found: {target_name}")
+                target = skill.path
+                if skill.source == "bundled":
+                    target = _user_skill_path(skill.name)
+                    target.write_text(skill.full(), encoding="utf-8")
+                with target.open("a", encoding="utf-8") as fh:
+                    fh.write(f"\n\n## Learned ({_today()})\n\n{addition}\n")
+        except store.FileLockTimeout:
+            raise SkillProposalError("skill store is busy") from None
         return f"Appended learned note to {target_name!r}."
     raise SkillProposalError(f"unknown skill action: {action!r}")
 

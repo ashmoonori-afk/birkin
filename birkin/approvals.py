@@ -128,31 +128,43 @@ def claim(aid: str) -> dict[str, Any]:
     # Running the action (a shell job can be minutes) INSIDE the lock was the
     # bug: file_lock proceeds after a 5s timeout / reclaims a 30s-stale lock,
     # so a long approve could release the gate and let a second run start.
-    with store.file_lock(_pending_path(aid)) as lock:
-        if not lock.acquired:
-            return {"ok": False, "error": "approval store is busy"}
-        rec = store.get_pending(aid)
-        if not rec or rec.get("status") != "pending":
-            return {"ok": False, "error": "not found or already resolved"}
-        if rec.get("category") == "workflow":
-            return {"ok": False,
-                    "error": "Telegram workflow requires its origin chat"}
-        store.resolve_pending(aid, "approving")     # claim it
+    try:
+        with store.file_lock(_pending_path(aid)):
+            rec = store.get_pending(aid)
+            if not rec or rec.get("status") != "pending":
+                return {"ok": False, "error": "not found or already resolved"}
+            if rec.get("category") == "workflow":
+                return {"ok": False,
+                        "error": "Telegram workflow requires its origin chat"}
+            store.resolve_pending(aid, "approving")     # claim it
+    except store.FileLockTimeout:
+        return {"ok": False, "error": "approval store is busy"}
     return {"ok": True}
 
 
 def execute_claimed(aid: str) -> dict[str, Any]:
     if not store.valid_pending_id(aid):
         return {"ok": False, "error": "invalid approval id"}
-    with store.file_lock(_pending_path(aid)) as lock:
-        if not lock.acquired:
-            return {"ok": False, "error": "approval store is busy"}
-        rec = store.get_pending(aid)
-        if not rec or rec.get("status") != "approving":
-            return {"ok": False, "error": "approval is not claimed"}
-        store.resolve_pending(aid, "executing")
+    try:
+        with store.file_lock(_pending_path(aid)):
+            rec = store.get_pending(aid)
+            if not rec or rec.get("status") != "approving":
+                return {"ok": False, "error": "approval is not claimed"}
+            store.resolve_pending(aid, "executing")
+    except store.FileLockTimeout:
+        return {"ok": False, "error": "approval store is busy"}
     try:
         result = execute_action(rec["category"], rec.get("payload", {}))
+    except store.FileLockTimeout:
+        try:
+            with store.file_lock(_pending_path(aid)):
+                current = store.get_pending(aid)
+                if not current or current.get("status") != "executing":
+                    return {"ok": False, "error": "approval store is busy"}
+                store.resolve_pending(aid, "pending")
+        except store.FileLockTimeout:
+            return {"ok": False, "error": "approval store is busy"}
+        return {"ok": False, "error": "cron store is busy; retry."}
     except Exception as exc:
         store.resolve_pending(aid, "error")
         return {"ok": False, "error": f"action failed: {exc}"}
@@ -163,13 +175,14 @@ def execute_claimed(aid: str) -> dict[str, Any]:
 def restore_claim(aid: str) -> bool:
     if not store.valid_pending_id(aid):
         return False
-    with store.file_lock(_pending_path(aid)) as lock:
-        if not lock.acquired:
-            return False
-        rec = store.get_pending(aid)
-        if not rec or rec.get("status") != "approving":
-            return False
-        store.resolve_pending(aid, "pending")
+    try:
+        with store.file_lock(_pending_path(aid)):
+            rec = store.get_pending(aid)
+            if not rec or rec.get("status") != "approving":
+                return False
+            store.resolve_pending(aid, "pending")
+    except store.FileLockTimeout:
+        return False
     return True
 
 
@@ -183,13 +196,14 @@ def approve(aid: str) -> dict[str, Any]:
 def reject(aid: str) -> dict[str, Any]:
     if not store.valid_pending_id(aid):
         return {"ok": False}
-    with store.file_lock(_pending_path(aid)) as lock:
-        if not lock.acquired:
-            return {"ok": False}
-        rec = store.get_pending(aid)
-        if not rec or rec.get("status") != "pending":
-            return {"ok": False}          # already resolved — don't clobber
-        store.resolve_pending(aid, "rejected")
+    try:
+        with store.file_lock(_pending_path(aid)):
+            rec = store.get_pending(aid)
+            if not rec or rec.get("status") != "pending":
+                return {"ok": False}      # already resolved — don't clobber
+            store.resolve_pending(aid, "rejected")
+    except store.FileLockTimeout:
+        return {"ok": False}
     return {"ok": True}
 
 

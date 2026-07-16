@@ -1,8 +1,15 @@
 from pathlib import Path
 
-from birkin import config
+import pytest
+
+from birkin import config, store
 from birkin.skills import build_manager, frontmatter
-from birkin.skills.manager import SkillManager, _write_skill
+from birkin.skills.manager import (
+    SkillManager,
+    SkillProposalError,
+    _write_skill,
+    apply_skill_proposal,
+)
 
 
 def _mgr():
@@ -308,3 +315,40 @@ def test_concurrent_bundled_skill_improvements_keep_both_notes(
         encoding="utf-8")
     assert "FIRST-CONCURRENT-NOTE" in text
     assert "SECOND-CONCURRENT-NOTE" in text
+
+
+@pytest.mark.parametrize("payload", [
+    {
+        "action": "create", "name": "busy skill",
+        "description": "helper", "body": "body",
+    },
+    {
+        "action": "improve", "target": "web-research", "addition": "note",
+    },
+], ids=["create", "improve"])
+def test_skill_proposal_reports_busy_on_lock_timeout(
+        tmp_path, monkeypatch, payload) -> None:
+    monkeypatch.setenv("BIRKIN_HOME", str(tmp_path))
+    skill_root = config.user_skills_dir()
+    before = {
+        path.relative_to(skill_root): path.read_bytes()
+        for path in skill_root.rglob("*") if path.is_file()
+    }
+
+    class _TimeoutLock:
+        def __enter__(self):
+            raise store.FileLockTimeout("busy")
+
+        def __exit__(self, *_args):
+            return None
+
+    monkeypatch.setattr(store, "file_lock", lambda _path: _TimeoutLock())
+
+    with pytest.raises(SkillProposalError) as caught:
+        apply_skill_proposal(payload)
+
+    assert str(caught.value) == "skill store is busy"
+    assert {
+        path.relative_to(skill_root): path.read_bytes()
+        for path in skill_root.rglob("*") if path.is_file()
+    } == before

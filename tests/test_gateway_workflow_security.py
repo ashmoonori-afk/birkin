@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import json
 
+import pytest
+
 from birkin import approvals, store
 from birkin.gateway import workflow
 from birkin.gateway.channels.telegram import TelegramChannel
@@ -232,3 +234,42 @@ def test_interrupted_workflow_is_not_overwritten_as_completed(
 
     # Then
     assert store.get_pending(aid)["status"] == "interrupted"
+
+
+@pytest.mark.parametrize(("transition", "expected"), [
+    ("resolve_proposal", workflow.WorkflowResolution(
+        "⚠ 승인 저장소가 사용 중입니다. 다시 시도해 주세요.")),
+    ("mark_running", False),
+    ("mark_interrupted", False),
+    ("finish", False),
+    ("restore_claim", False),
+])
+def test_workflow_transitions_preserve_busy_contract_on_lock_timeout(
+        tmp_path, monkeypatch, transition, expected) -> None:
+    monkeypatch.setenv("BIRKIN_HOME", str(tmp_path))
+    aid = workflow.queue_proposal(_proposal(), "원래 요청", "42")
+    pending_path = tmp_path / "pending" / f"{aid}.json"
+    before = pending_path.read_bytes()
+
+    class _TimeoutLock:
+        def __enter__(self):
+            raise store.FileLockTimeout("busy")
+
+        def __exit__(self, *_args):
+            return None
+
+    monkeypatch.setattr(store, "file_lock", lambda _path: _TimeoutLock())
+    actions = {
+        "resolve_proposal": lambda: workflow.resolve_proposal(
+            aid, "42", approve=True),
+        "mark_running": lambda: workflow.mark_running(aid, "42"),
+        "mark_interrupted": lambda: workflow.mark_interrupted(aid),
+        "finish": lambda: workflow.finish(aid, "completed"),
+        "restore_claim": lambda: workflow.restore_claim(aid),
+    }
+
+    result = actions[transition]()
+
+    assert result == expected
+    assert pending_path.read_bytes() == before
+    assert store.get_pending(aid)["status"] == "pending"

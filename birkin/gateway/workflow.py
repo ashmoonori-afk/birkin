@@ -126,32 +126,33 @@ def resolve_proposal(aid: str, chat_id: str, *,
     if not store.valid_pending_id(aid):
         return WorkflowResolution("⚠ 올바르지 않은 작업 제안 ID입니다.")
     path = config.pending_dir() / f"{aid}.json"
-    with store.file_lock(path) as lock:
-        if not lock.acquired:
-            return WorkflowResolution("⚠ 승인 저장소가 사용 중입니다. 다시 시도해 주세요.")
-        rec = store.get_pending(aid)
-        if not rec or rec.get("status") != "pending":
-            return WorkflowResolution("⚠ 이미 처리됐거나 찾을 수 없는 제안입니다.")
-        if rec.get("category") != "workflow":
-            return WorkflowResolution("⚠ 작업 제안이 아닙니다.")
-        payload = rec.get("payload")
-        if not isinstance(payload, dict):
-            store.resolve_pending(aid, "error")
-            return WorkflowResolution("⚠ 저장된 작업 제안이 손상됐습니다.")
-        if str(payload.get("chat_id", "")) != str(chat_id):
-            return WorkflowResolution("⚠ 이 제안은 다른 채팅에 속합니다.")
-        if not approve:
-            store.resolve_pending(aid, "rejected")
-            store.append_activity(f"workflow[{aid}]: rejected via telegram")
-            return WorkflowResolution("❌ 작업 제안을 거부했습니다.")
-        task = payload.get("task")
-        steps = payload.get("steps")
-        if (not isinstance(task, str) or not task.strip()
-                or not isinstance(steps, list)
-                or not all(isinstance(step, str) for step in steps)):
-            store.resolve_pending(aid, "error")
-            return WorkflowResolution("⚠ 저장된 작업 제안이 손상됐습니다.")
-        store.resolve_pending(aid, "claimed")
+    try:
+        with store.file_lock(path):
+            rec = store.get_pending(aid)
+            if not rec or rec.get("status") != "pending":
+                return WorkflowResolution("⚠ 이미 처리됐거나 찾을 수 없는 제안입니다.")
+            if rec.get("category") != "workflow":
+                return WorkflowResolution("⚠ 작업 제안이 아닙니다.")
+            payload = rec.get("payload")
+            if not isinstance(payload, dict):
+                store.resolve_pending(aid, "error")
+                return WorkflowResolution("⚠ 저장된 작업 제안이 손상됐습니다.")
+            if str(payload.get("chat_id", "")) != str(chat_id):
+                return WorkflowResolution("⚠ 이 제안은 다른 채팅에 속합니다.")
+            if not approve:
+                store.resolve_pending(aid, "rejected")
+                store.append_activity(f"workflow[{aid}]: rejected via telegram")
+                return WorkflowResolution("❌ 작업 제안을 거부했습니다.")
+            task = payload.get("task")
+            steps = payload.get("steps")
+            if (not isinstance(task, str) or not task.strip()
+                    or not isinstance(steps, list)
+                    or not all(isinstance(step, str) for step in steps)):
+                store.resolve_pending(aid, "error")
+                return WorkflowResolution("⚠ 저장된 작업 제안이 손상됐습니다.")
+            store.resolve_pending(aid, "claimed")
+    except store.FileLockTimeout:
+        return WorkflowResolution("⚠ 승인 저장소가 사용 중입니다. 다시 시도해 주세요.")
 
     plan = "\n".join(f"- {step}" for step in steps)
     resume = (
@@ -171,18 +172,19 @@ def _transition(aid: str, expected: set[str], status: str,
     if not store.valid_pending_id(aid):
         return False
     path = config.pending_dir() / f"{aid}.json"
-    with store.file_lock(path) as lock:
-        if not lock.acquired:
-            return False
-        rec = store.get_pending(aid)
-        if (not rec or rec.get("category") != "workflow"
-                or rec.get("status") not in expected):
-            return False
-        payload = rec.get("payload")
-        if (chat_id is not None and (not isinstance(payload, dict)
-                or str(payload.get("chat_id", "")) != str(chat_id))):
-            return False
-        store.resolve_pending(aid, status)
+    try:
+        with store.file_lock(path):
+            rec = store.get_pending(aid)
+            if (not rec or rec.get("category") != "workflow"
+                    or rec.get("status") not in expected):
+                return False
+            payload = rec.get("payload")
+            if (chat_id is not None and (not isinstance(payload, dict)
+                    or str(payload.get("chat_id", "")) != str(chat_id))):
+                return False
+            store.resolve_pending(aid, status)
+    except store.FileLockTimeout:
+        return False
     return True
 
 
