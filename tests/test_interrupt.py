@@ -5,6 +5,8 @@ from __future__ import annotations
 import threading
 import time
 
+import pytest
+
 
 # -- gateway.interrupt targets the in-flight session --------------------------
 
@@ -44,7 +46,7 @@ class _SlowSession:
 def test_gateway_interrupt_cancels_inflight_turn(tmp_path, monkeypatch):
     gw = _gateway(tmp_path, monkeypatch)
     sess = _SlowSession()
-    monkeypatch.setattr(gw, "_claude_session", lambda key: sess)
+    gw._claude_sessions.put(("telegram", "42"), sess)
     result = {}
     t = threading.Thread(
         target=lambda: result.__setitem__("r", gw.handle("telegram", "42", "hi")))
@@ -64,6 +66,289 @@ def test_gateway_interrupt_cancels_inflight_turn(tmp_path, monkeypatch):
 def test_interrupt_noop_when_nothing_inflight(tmp_path, monkeypatch):
     gw = _gateway(tmp_path, monkeypatch)
     assert gw.interrupt("telegram", "999") is False
+
+
+class _LeaseSession:
+    def __init__(self, *, error=None):
+        self.error = error
+
+    def ask(self, text, on_text=None):
+        if self.error is not None:
+            raise self.error
+        return "done"
+
+    def interrupt(self):
+        return True
+
+    def is_alive(self):
+        return True
+
+    def close(self):
+        pass
+
+
+class _BookkeepingError(RuntimeError):
+    pass
+
+
+class _LeasePoolSpy:
+    def __init__(self, gateway, session, *, borrow_error=None):
+        self.gateway = gateway
+        self.session = session
+        self.borrow_error = borrow_error
+        self.borrow_calls = []
+        self.release_calls = []
+        self.inflight_at_release = []
+        self.outstanding = 0
+
+    def get(self, key):
+        raise AssertionError("Gateway.handle must borrow, never get")
+
+    def borrow(self, key):
+        self.borrow_calls.append(key)
+        if self.borrow_error is not None:
+            raise self.borrow_error
+        self.outstanding += 1
+        return self.session
+
+    def release(self, key, session):
+        assert self.outstanding == 1
+        assert session is self.session
+        assert not self.release_calls
+        self.inflight_at_release.append(key in self.gateway._inflight)
+        self.release_calls.append((key, session))
+        self.outstanding -= 1
+
+
+def _lease_gateway(tmp_path, monkeypatch, session=None, *, borrow_error=None):
+    from birkin import store, transcripts
+
+    gw = _gateway(tmp_path, monkeypatch)
+    session = session or _LeaseSession()
+    pool = _LeasePoolSpy(gw, session, borrow_error=borrow_error)
+    gw._claude_sessions = pool
+    monkeypatch.setattr(
+        gw.session, "_prepare_cli_turn", lambda text, **_kwargs: text)
+    monkeypatch.setattr(gw.session, "_record_turn", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(store, "append_activity", lambda _text: None)
+    monkeypatch.setattr(transcripts, "append_turn", lambda *_args, **_kwargs: None)
+    return gw, pool, session
+
+
+def _assert_released(pool, session, *, inflight_at_release=False):
+    key = ("http", "42")
+    assert pool.borrow_calls == [key]
+    assert pool.release_calls == [(key, session)]
+    assert pool.inflight_at_release == [inflight_at_release]
+    assert pool.outstanding == 0
+
+
+def test_gateway_releases_session_after_turn_error(tmp_path, monkeypatch):
+    from birkin.gateway.core import TURN_ERROR_REPLY
+
+    gw, pool, session = _lease_gateway(
+        tmp_path, monkeypatch, _LeaseSession(error=RuntimeError("ask failed")))
+
+    assert gw.handle("http", "42", "hello") == TURN_ERROR_REPLY
+    _assert_released(pool, session)
+
+
+def test_gateway_releases_session_after_pre_ask_error(tmp_path, monkeypatch):
+    gw, pool, session = _lease_gateway(tmp_path, monkeypatch)
+    monkeypatch.setattr(
+        gw, "_command_trusted",
+        lambda _channel: (_ for _ in ()).throw(RuntimeError("trust failed")))
+
+    with pytest.raises(RuntimeError, match="trust failed"):
+        gw.handle("http", "42", "hello")
+    _assert_released(pool, session)
+
+
+def test_gateway_releases_session_when_inflight_registration_fails(
+        tmp_path, monkeypatch):
+    from birkin.gateway.core import TURN_ERROR_REPLY
+
+    class _FailFirstLock:
+        def __init__(self):
+            self.calls = 0
+
+        def __enter__(self):
+            self.calls += 1
+            if self.calls == 1:
+                raise _BookkeepingError("registration failed")
+            return self
+
+        def __exit__(self, exc_type, exc_value, traceback):
+            return False
+
+    gw, pool, session = _lease_gateway(tmp_path, monkeypatch)
+    lock = _FailFirstLock()
+    gw._inflight_lock = lock
+
+    assert gw.handle("http", "42", "hello") == TURN_ERROR_REPLY
+    assert lock.calls == 2
+    assert not gw._inflight
+    _assert_released(pool, session)
+
+
+def test_gateway_releases_session_after_success(tmp_path, monkeypatch):
+    gw, pool, session = _lease_gateway(tmp_path, monkeypatch)
+
+    assert gw.handle("http", "42", "hello") == "done"
+    _assert_released(pool, session)
+
+
+def test_gateway_releases_session_after_last_operation_error(
+        tmp_path, monkeypatch):
+    from birkin import transcripts
+
+    gw, pool, session = _lease_gateway(tmp_path, monkeypatch)
+    monkeypatch.setattr(
+        transcripts, "append_turn",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(
+            RuntimeError("autosave failed")))
+
+    with pytest.raises(RuntimeError, match="autosave failed"):
+        gw.handle("http", "42", "hello")
+    _assert_released(pool, session)
+
+
+def test_gateway_release_survives_inflight_cleanup_error(tmp_path, monkeypatch):
+    class _FailCleanupLock:
+        def __init__(self):
+            self.calls = 0
+
+        def __enter__(self):
+            self.calls += 1
+            if self.calls == 2:
+                raise _BookkeepingError("cleanup failed")
+            return self
+
+        def __exit__(self, exc_type, exc_value, traceback):
+            return False
+
+    gw, pool, session = _lease_gateway(tmp_path, monkeypatch)
+    lock = _FailCleanupLock()
+    gw._inflight_lock = lock
+
+    with pytest.raises(_BookkeepingError, match="cleanup failed"):
+        gw.handle("http", "42", "hello")
+
+    assert lock.calls == 2
+    _assert_released(pool, session, inflight_at_release=True)
+
+
+def test_gateway_pool_full_returns_friendly_error_without_inflight(
+        tmp_path, monkeypatch):
+    from birkin import pools
+    from birkin.gateway.core import TURN_ERROR_REPLY
+
+    gw, pool, _session = _lease_gateway(
+        tmp_path, monkeypatch, borrow_error=pools.SessionPoolFullError(1))
+
+    assert gw.handle("http", "42", "hello") == TURN_ERROR_REPLY
+    assert pool.borrow_calls == [("http", "42")]
+    assert pool.release_calls == []
+    assert pool.outstanding == 0
+    assert not gw._inflight
+
+
+def test_old_turn_cannot_unregister_newer_inflight_turn(tmp_path, monkeypatch):
+    from birkin import pools, store, transcripts
+
+    old_asking = threading.Event()
+    new_asking = threading.Event()
+    finish_old = threading.Event()
+    finish_new = threading.Event()
+
+    class _RacingSession(_LeaseSession):
+        def __init__(self):
+            super().__init__()
+            self.interrupt_calls = 0
+
+        def ask(self, text, on_text=None):
+            if text == "old":
+                old_asking.set()
+                assert finish_old.wait(timeout=2)
+                return "old-done"
+            new_asking.set()
+            assert finish_new.wait(timeout=2)
+            return "new-done"
+
+        def interrupt(self):
+            self.interrupt_calls += 1
+            return True
+
+    gw = _gateway(tmp_path, monkeypatch)
+    session = _RacingSession()
+    gw._claude_sessions = pools.SessionPool(lambda _key: session)
+    monkeypatch.setattr(
+        gw.session, "_prepare_cli_turn", lambda text, **_kwargs: text)
+    monkeypatch.setattr(gw.session, "_record_turn", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(store, "append_activity", lambda _text: None)
+    monkeypatch.setattr(transcripts, "append_turn", lambda *_args, **_kwargs: None)
+    results = {}
+    old = threading.Thread(
+        target=lambda: results.__setitem__("old", gw.handle("http", "42", "old")))
+    new = threading.Thread(
+        target=lambda: results.__setitem__("new", gw.handle("http", "42", "new")))
+
+    old.start()
+    assert old_asking.wait(timeout=2)
+    new.start()
+    assert new_asking.wait(timeout=2)
+    try:
+        finish_old.set()
+        old.join(timeout=2)
+        assert not old.is_alive()
+        interrupted = gw.interrupt("http", "42")
+    finally:
+        finish_old.set()
+        finish_new.set()
+        old.join(timeout=2)
+        new.join(timeout=2)
+
+    assert interrupted is True
+    assert session.interrupt_calls == 1
+    assert not old.is_alive() and not new.is_alive()
+    assert results == {"old": "old-done", "new": "new-done"}
+    assert ("http", "42") not in gw._inflight
+
+
+def test_interrupt_calls_session_after_releasing_inflight_lock(
+        tmp_path, monkeypatch):
+    class _OwnershipLock:
+        def __init__(self):
+            self.lock = threading.Lock()
+            self.owner = None
+            self.acquisitions = 0
+
+        def __enter__(self):
+            self.lock.acquire()
+            self.owner = threading.get_ident()
+            self.acquisitions += 1
+            return self
+
+        def __exit__(self, exc_type, exc_value, traceback):
+            self.owner = None
+            self.lock.release()
+
+        def owned_by_current_thread(self):
+            return self.owner == threading.get_ident()
+
+    gw = _gateway(tmp_path, monkeypatch)
+    lock = _OwnershipLock()
+
+    class _OwnershipSession:
+        def interrupt(self):
+            assert not lock.owned_by_current_thread()
+            return True
+
+    gw._inflight_lock = lock
+    gw._inflight[("http", "42")] = (object(), _OwnershipSession())
+
+    assert gw.interrupt("http", "42") is True
+    assert lock.acquisitions == 1
 
 
 # -- codex session interrupt sends turn/interrupt -----------------------------

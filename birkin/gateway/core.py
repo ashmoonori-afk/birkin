@@ -222,7 +222,8 @@ class Gateway:
         self._spare_gen = 0
         # Warm session currently running a turn, per (channel, chat_id) — a new
         # message on the same chat interrupts it (mid-input interruption).
-        self._inflight: dict[tuple[str, str], Any] = {}
+        self._inflight: dict[tuple[str, str], tuple[Any, Any]] = {}
+        self._inflight_lock = threading.Lock()
         # Set by a /hard-restart command; the channel re-execs after replying.
         self._hard_restart = False
         # (channel, chat_id) that triggered a hard restart — persisted across the
@@ -320,9 +321,6 @@ class Gateway:
         """Public entry: warm the first spare in the background at boot."""
         threading.Thread(target=self._make_spare, daemon=True).start()
 
-    def _claude_session(self, key: tuple[str, str]) -> ClaudeStreamSession:
-        return self._claude_sessions.get(key)
-
     def shutdown(self) -> None:
         self._claude_sessions.clear()   # the pool closes every session
         with self._spare_lock:
@@ -412,7 +410,9 @@ class Gateway:
         """Cancel the turn currently in flight for this chat, if any. Called by
         a channel when a NEW message arrives mid-turn. Returns True if a turn
         was signalled. Safe to call from a different thread than handle()."""
-        sess = self._inflight.get((channel, str(chat_id)))
+        with self._inflight_lock:
+            inflight = self._inflight.get((channel, str(chat_id)))
+            sess = inflight[1] if inflight is not None else None
         fn = getattr(sess, "interrupt", None) if sess is not None else None
         if callable(fn):
             try:
@@ -535,85 +535,109 @@ class Gateway:
             # Snapshot persistence + session together under the lock: a /restart
             # could flip self._persistent between here and the ask() below.
             persistent = self._persistent
-            sess = self._claude_session(key) if persistent else None
+            inflight_token = object()
             if persistent:
-                # Track the in-flight session so a new message on the same chat
-                # can interrupt() this turn (mid-input interruption).
-                self._inflight[key] = sess
-
-        trusted_telegram = (channel == "telegram"
-                            and self._command_trusted(channel))
-        approved_work = bool(
-            trusted_telegram
-            and workflow_id
-            and workflow_is_running(workflow_id, str(chat_id))
-        )
-        if trusted_telegram:
-            text = _TELEGRAM_EXECUTION_POLICY + text
-        print(f"[gateway] {channel}:{chat_id} « {display_text[:80]}", flush=True)
-        t0 = time.monotonic()
-        try:
-            if persistent:
-                # Warm Claude Code process keeps its own conversation context,
-                # so only the new turn is sent.
-                skill_state = getattr(sess, "_birkin_skill_state", None)
-                if skill_state is None:
-                    skill_state = {"revision": -1, "names": set()}
-                    setattr(sess, "_birkin_skill_state", skill_state)
-                reply = sess.ask(
-                    self.session._prepare_cli_turn(
-                        text, route_query=skill_query,
-                        skill_state=skill_state),
-                    on_text=on_text)
+                try:
+                    sess = self._claude_sessions.borrow(key)
+                except pools.SessionPoolFullError:
+                    return TURN_ERROR_REPLY
             else:
-                # The non-persistent path shares the single self.session, so its
-                # history swap must stay serialized under the global lock.
-                with self._lock:
-                    self.session.agent.messages = self._chats.get(key, [])
-                    ctx = getattr(self.session, "ctx", None)
-                    old_required = getattr(
-                        ctx, "subagent_approval_required", False)
-                    old_approved = getattr(ctx, "approved_work", False)
-                    if ctx is not None:
-                        ctx.subagent_approval_required = trusted_telegram
-                        ctx.approved_work = approved_work
-                    try:
-                        reply = self.session.ask(
-                            text,
-                            review_skills=self._command_trusted(channel),
-                            route_query=skill_query)
-                    finally:
+                sess = None
+
+        try:
+            t0 = time.monotonic()
+            if persistent:
+                try:
+                    # Track the in-flight session so a new message on the same
+                    # chat can interrupt() this turn (mid-input interruption).
+                    with self._inflight_lock:
+                        self._inflight[key] = (inflight_token, sess)
+                except RuntimeError as exc:
+                    dt = time.monotonic() - t0
+                    print(f"[gateway] {channel}:{chat_id} ✗ error after "
+                          f"{dt:.1f}s: {exc}", flush=True)
+                    return TURN_ERROR_REPLY
+
+            trusted_telegram = (channel == "telegram"
+                                and self._command_trusted(channel))
+            approved_work = bool(
+                trusted_telegram
+                and workflow_id
+                and workflow_is_running(workflow_id, str(chat_id))
+            )
+            if trusted_telegram:
+                text = _TELEGRAM_EXECUTION_POLICY + text
+            print(f"[gateway] {channel}:{chat_id} « {display_text[:80]}", flush=True)
+            try:
+                if persistent:
+                    # Warm Claude Code process keeps its own conversation context,
+                    # so only the new turn is sent.
+                    skill_state = getattr(sess, "_birkin_skill_state", None)
+                    if skill_state is None:
+                        skill_state = {"revision": -1, "names": set()}
+                        setattr(sess, "_birkin_skill_state", skill_state)
+                    reply = sess.ask(
+                        self.session._prepare_cli_turn(
+                            text, route_query=skill_query,
+                            skill_state=skill_state),
+                        on_text=on_text)
+                else:
+                    # The non-persistent path shares the single self.session, so its
+                    # history swap must stay serialized under the global lock.
+                    with self._lock:
+                        self.session.agent.messages = self._chats.get(key, [])
+                        ctx = getattr(self.session, "ctx", None)
+                        old_required = getattr(
+                            ctx, "subagent_approval_required", False)
+                        old_approved = getattr(ctx, "approved_work", False)
                         if ctx is not None:
-                            ctx.subagent_approval_required = old_required
-                            ctx.approved_work = old_approved
-                        self._chats[key] = self.session.agent.messages
-        except Exception as exc:
+                            ctx.subagent_approval_required = trusted_telegram
+                            ctx.approved_work = approved_work
+                        try:
+                            reply = self.session.ask(
+                                text,
+                                review_skills=self._command_trusted(channel),
+                                route_query=skill_query)
+                        finally:
+                            if ctx is not None:
+                                ctx.subagent_approval_required = old_required
+                                ctx.approved_work = old_approved
+                            self._chats[key] = self.session.agent.messages
+            except Exception as exc:
+                dt = time.monotonic() - t0
+                # Full detail to the server log; a friendly line to the chat —
+                # the raw exception can leak paths/internals to a Telegram user.
+                print(f"[gateway] {channel}:{chat_id} ✗ error after "
+                      f"{dt:.1f}s: {exc}", flush=True)
+                return TURN_ERROR_REPLY
             dt = time.monotonic() - t0
-            # Full detail to the server log; a friendly line to the chat —
-            # the raw exception can leak paths/internals to a Telegram user.
-            print(f"[gateway] {channel}:{chat_id} ✗ error after {dt:.1f}s: {exc}",
-                  flush=True)
-            return TURN_ERROR_REPLY
+            print(f"[gateway] {channel}:{chat_id} » {len(reply or '')} chars in "
+                  f"{dt:.1f}s", flush=True)
+            store.append_activity(
+                f"gateway[{channel}:{chat_id}]: {display_text[:100]}")
+            if persistent:
+                self.session._record_turn(
+                    display_text, reply or "",
+                    review_skills=self._command_trusted(channel))
+            # Auto-save the turn so the nightly Morpheus routine can extract
+            # memory — but ONLY for trusted conversations (an open Telegram bot's
+            # strangers must not be persisted into long-term memory). Runs OUTSIDE
+            # the global lock; transcripts.append_turn is per-conversation locked.
+            if self._autosave_trusted(channel):
+                from .. import transcripts
+                transcripts.append_turn(
+                    channel, str(chat_id), display_text, reply or "", cfg=self.cfg)
+            return reply or "(no reply)"
         finally:
             if persistent:
-                self._inflight.pop(key, None)
-        dt = time.monotonic() - t0
-        print(f"[gateway] {channel}:{chat_id} » {len(reply or '')} chars in {dt:.1f}s",
-              flush=True)
-        store.append_activity(f"gateway[{channel}:{chat_id}]: {display_text[:100]}")
-        if persistent:
-            self.session._record_turn(
-                display_text, reply or "",
-                review_skills=self._command_trusted(channel))
-        # Auto-save the turn so the nightly Morpheus routine can extract memory —
-        # but ONLY for trusted conversations (an open Telegram bot's strangers
-        # must not be persisted into long-term memory). Runs OUTSIDE the global
-        # lock; transcripts.append_turn is per-conversation locked.
-        if self._autosave_trusted(channel):
-            from .. import transcripts
-            transcripts.append_turn(channel, str(chat_id), display_text, reply or "",
-                                    cfg=self.cfg)
-        return reply or "(no reply)"
+                try:
+                    with self._inflight_lock:
+                        inflight = self._inflight.get(key)
+                        if (inflight is not None
+                                and inflight[0] is inflight_token):
+                            self._inflight.pop(key, None)
+                finally:
+                    self._claude_sessions.release(key, sess)
 
     def _models_command(self, arg: str) -> str:
         """List the gateway model, or select one and schedule a hard restart so the
@@ -721,7 +745,11 @@ class Gateway:
             job = next((j for j in cron.load_jobs() if j.get("id") == aid), None)
             if not job or str(job.get("deliver_chat_id")) != chat_id:
                 return "그 id의 리마인더를 찾지 못했어요 (본인 것만 삭제 가능)."
-            cron.remove_job(aid)
+            try:
+                cron.remove_job(aid)
+            except store.FileLockTimeout:
+                return ("⚠ 리마인더 저장소가 사용 중입니다. "
+                        "잠시 후 다시 시도해 주세요.")
             return f"🗑️ 리마인더 삭제됨 (id {aid})."
         m = re.match(r"(\d{1,2})[:시](\d{2})?\s+(.+)", arg, re.S)
         if not m:
@@ -733,9 +761,13 @@ class Gateway:
             # reject rather than silently clamp — 25:99 shouldn't become 23:59
             return f"시간이 올바르지 않아요 ({hour:02d}:{minute:02d}). 00:00–23:59 범위로 다시 보내 주세요."
         prompt = m.group(3).strip()
-        job = cron.add_job(name="remind", hour=hour, minute=minute,
-                           action_type="prompt", value=prompt,
-                           deliver_chat_id=chat_id)
+        try:
+            job = cron.add_job(name="remind", hour=hour, minute=minute,
+                               action_type="prompt", value=prompt,
+                               deliver_chat_id=chat_id)
+        except store.FileLockTimeout:
+            return ("⚠ 리마인더 저장소가 사용 중입니다. "
+                    "잠시 후 다시 시도해 주세요.")
         return (f"⏰ 매일 {hour:02d}:{minute:02d}에 알려드릴게요: "
                 f"\"{prompt[:60]}\" (id {job['id']}, 취소는 /remind del {job['id']})")
 
