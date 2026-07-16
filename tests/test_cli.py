@@ -129,3 +129,27 @@ def test_cmd_cron_lists_and_removes(capsys):
     out = capsys.readouterr().out
     assert rc == 0 and "removed" in out
     assert cron.load_jobs() == []
+
+
+def test_cmd_cron_remove_reports_busy_lock(capsys, monkeypatch):
+    path = config.cron_path()
+    path.write_bytes(b'[{"id":"keep","last_run":null}]')
+    before = (path.exists(), path.read_bytes())
+
+    class BusyLock:
+        def __enter__(self):
+            raise store.FileLockTimeout("busy")
+
+        def __exit__(self, *args):
+            return None
+
+    monkeypatch.setattr(store, "file_lock", lambda _path: BusyLock())
+
+    rc = _cmd_cron(_ns(remove="keep"))
+    captured = capsys.readouterr()
+
+    assert rc == 1
+    assert captured.out == "cron store is busy; retry.\n"
+    assert captured.err == ""
+    assert "Traceback" not in captured.out
+    assert (path.exists(), path.read_bytes()) == before

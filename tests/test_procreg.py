@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import os
 
+import pytest
+
 
 def _setup(tmp_path, monkeypatch):
     monkeypatch.setenv("BIRKIN_HOME", str(tmp_path))
@@ -97,3 +99,35 @@ def test_codex_sandbox_forced_in_argv():
         bad._build_argv(); assert False
     except CodexSessionError:
         pass
+
+
+@pytest.mark.parametrize(
+    ("operation", "child_pid"),
+    [("register", 222), ("unregister", 111)],
+)
+def test_busy_registry_lock_is_best_effort(
+        tmp_path, monkeypatch, operation, child_pid):
+    procreg = _setup(tmp_path, monkeypatch)
+    from birkin import store
+
+    path = procreg._reg_path(424242)
+    store._write_json(path, {"owner": 424242, "children": [111]})
+    before = (path.exists(), path.read_bytes())
+    armed = []
+
+    class BusyLock:
+        def __enter__(self):
+            raise store.FileLockTimeout("busy")
+
+        def __exit__(self, *args):
+            return None
+
+    monkeypatch.setattr(store, "file_lock", lambda _path: BusyLock())
+    monkeypatch.setattr(procreg, "_atexit_armed", False)
+    monkeypatch.setattr(procreg.atexit, "register", armed.append)
+
+    getattr(procreg, operation)(child_pid, owner=424242)
+
+    assert (path.exists(), path.read_bytes()) == before
+    assert armed == []
+    assert procreg._atexit_armed is False

@@ -99,13 +99,16 @@ def register(child_pid: int, owner: int | None = None) -> None:
     if not child_pid:
         return
     p = _reg_path(owner)
-    with store.file_lock(p):
-        data = store._read_json(p, None) or {
-            "owner": owner or os.getpid(), "children": []}
-        if child_pid not in data["children"]:
-            data["children"].append(child_pid)
-        data["updated"] = datetime.now().isoformat(timespec="seconds")
-        store._write_json(p, data)
+    try:
+        with store.file_lock(p):
+            data = store._read_json(p, None) or {
+                "owner": owner or os.getpid(), "children": []}
+            if child_pid not in data["children"]:
+                data["children"].append(child_pid)
+            data["updated"] = datetime.now().isoformat(timespec="seconds")
+            store._write_json(p, data)
+    except store.FileLockTimeout:
+        return
     if not _atexit_armed:
         atexit.register(cleanup_self)
         _atexit_armed = True
@@ -117,19 +120,22 @@ def unregister(child_pid: int, owner: int | None = None) -> None:
     if not child_pid:
         return
     p = _reg_path(owner)
-    with store.file_lock(p):
-        data = store._read_json(p, None)
-        if not data:
-            return
-        data["children"] = [c for c in data.get("children", [])
-                            if c != child_pid]
-        if data["children"]:
-            store._write_json(p, data)
-        else:
-            try:
-                p.unlink()
-            except OSError:
-                pass
+    try:
+        with store.file_lock(p):
+            data = store._read_json(p, None)
+            if not data:
+                return
+            data["children"] = [c for c in data.get("children", [])
+                                if c != child_pid]
+            if data["children"]:
+                store._write_json(p, data)
+            else:
+                try:
+                    p.unlink()
+                except OSError:
+                    pass
+    except store.FileLockTimeout:
+        return
 
 
 def cleanup_self() -> None:

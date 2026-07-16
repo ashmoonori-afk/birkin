@@ -394,10 +394,14 @@ def _cmd_mcp(args: argparse.Namespace) -> int:
 
 
 def _cmd_cron(args: argparse.Namespace) -> int:
-    from . import cron
+    from . import cron, store
     jobs = cron.load_jobs()
     if args.remove:
-        ok = cron.remove_job(args.remove)
+        try:
+            ok = cron.remove_job(args.remove)
+        except store.FileLockTimeout:
+            print("cron store is busy; retry.")
+            return 1
         print("removed." if ok else "no such job id.")
         return 0 if ok else 1
     if not jobs:

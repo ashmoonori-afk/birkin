@@ -56,6 +56,10 @@ def _read_json(path: Path, default: Any) -> Any:
         return default
 
 
+class FileLockTimeout(TimeoutError):
+    pass
+
+
 class file_lock:
     """A cross-process advisory lock for a read-modify-write on a shared JSON
     file (stdlib only: O_CREAT|O_EXCL spin, no fcntl/msvcrt so it works the
@@ -96,10 +100,7 @@ class file_lock:
                 except OSError:
                     pass
                 if time.monotonic() >= deadline:
-                    # Don't block a user command forever — proceed unlocked
-                    # (the write is still individually atomic; we only lose
-                    # the cross-process serialization in this rare case).
-                    return self
+                    raise FileLockTimeout(f"timed out acquiring {self._lock}")
                 time.sleep(0.05)
 
     def __exit__(self, *exc: Any) -> None:

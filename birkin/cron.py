@@ -79,14 +79,17 @@ def claim_if_due(job_id: str, now: datetime | None = None) -> bool:
     now = now or datetime.now()
     stamp = now.isoformat(timespec="seconds")
     today = date.today().isoformat()
-    with store.file_lock(config.cron_path()):
-        jobs = load_jobs()
-        job = next((j for j in jobs if j.get("id") == job_id), None)
-        if job is None or (job.get("last_run") or "")[:10] == today:
-            return False
-        job["last_run"] = stamp
-        save_jobs(jobs)
-        return True
+    try:
+        with store.file_lock(config.cron_path()):
+            jobs = load_jobs()
+            job = next((j for j in jobs if j.get("id") == job_id), None)
+            if job is None or (job.get("last_run") or "")[:10] == today:
+                return False
+            job["last_run"] = stamp
+            save_jobs(jobs)
+            return True
+    except store.FileLockTimeout:
+        return False
 
 
 def due_jobs(now: datetime | None = None) -> list[dict[str, Any]]:

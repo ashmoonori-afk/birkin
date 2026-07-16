@@ -14,13 +14,26 @@ def test_file_lock_is_exclusive_and_reentrant_after_release(tmp_path):
         pass
 
 
-def test_file_lock_times_out_and_proceeds_unlocked(tmp_path):
+def test_file_lock_timeout_raises(tmp_path):
+    import pytest
     from birkin import store
     p = tmp_path / "y.json"
     (tmp_path / "y.json.lock").write_text("")         # a fresh held lock
-    # short timeout, non-stale -> proceeds unlocked rather than blocking forever
-    with store.file_lock(p, timeout=0.15, stale=999) as lk:
-        assert lk._held is False                      # didn't acquire, no wedge
+    body_ran = False
+    with pytest.raises(TimeoutError) as caught:
+        with store.file_lock(p, timeout=0.01, stale=999):
+            body_ran = True
+    assert type(caught.value) is store.FileLockTimeout
+    assert body_ran is False
+
+
+def test_file_lock_acquired_compatibility_property(tmp_path):
+    from birkin import store
+    lock = store.file_lock(tmp_path / "compat.json")
+    assert lock.acquired is False
+    with lock:
+        assert lock.acquired is True
+    assert lock.acquired is False
 
 
 def test_stale_lock_is_reclaimed(tmp_path):
