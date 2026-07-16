@@ -19,9 +19,18 @@ from __future__ import annotations
 
 import threading
 import time
+from dataclasses import dataclass
 from typing import Any, Callable, Hashable
 
 from . import ledger
+
+
+@dataclass(frozen=True, slots=True)
+class SessionPoolFullError(RuntimeError):
+    max_sessions: int
+
+    def __str__(self) -> str:
+        return f"session pool has no idle slot (max {self.max_sessions})"
 
 
 class SessionPool:
@@ -33,50 +42,85 @@ class SessionPool:
         self._lock = threading.Lock()
         self._sessions: dict[Hashable, Any] = {}
         self._last_used: dict[Hashable, float] = {}
+        self._borrowed: dict[int, tuple[Any, int]] = {}
 
     def get(self, key: Hashable) -> Any:
         """Return the warm session for ``key``, creating (and evicting) as
         needed. Creation happens outside the lock — factories spawn processes."""
+        return self._acquire(key, borrowed=False)
+
+    def borrow(self, key: Hashable) -> Any:
+        """Return a session protected from automatic eviction until release."""
+        return self._acquire(key, borrowed=True)
+
+    def release(self, key: Hashable, sess: Any) -> None:
+        """Release one exact borrowed identity; stale releases are ignored."""
         with self._lock:
-            sess = self._sessions.get(key)
-            if sess is not None:
+            identity = id(sess)
+            entry = self._borrowed.get(identity)
+            if entry is None or entry[0] is not sess:
+                return
+            if entry[1] > 1:
+                self._borrowed[identity] = (sess, entry[1] - 1)
+                return
+            del self._borrowed[identity]
+            if self._sessions.get(key) is sess:
                 self._last_used[key] = time.monotonic()
-                return sess
-            evict = self._pick_lru_locked() if len(self._sessions) >= self._max else None
-            victim = self._pop_locked(evict) if evict is not None else None
-        if victim is not None:
-            self._close(victim, evict, "lru")
-        sess = self._factory(key)
-        overflow = None
+
+    def _acquire(self, key: Hashable, *, borrowed: bool) -> Any:
+        victim_key = None
+        victim = None
         with self._lock:
-            # ponytail: racing threads may double-create; keep the first, close ours
             existing = self._sessions.get(key)
             if existing is not None:
-                loser = sess
-            else:
-                # Re-check capacity under the lock: concurrent creations of
-                # DIFFERENT keys each passed the capacity gate above (which
-                # released the lock before the factory ran), so max_sessions
-                # could be exceeded. Evict an LRU now to hold the cap.
-                if len(self._sessions) >= self._max:
-                    ek = self._pick_lru_locked()
-                    overflow = (ek, self._pop_locked(ek)) if ek is not None else None
-                self._sessions[key] = sess
                 self._last_used[key] = time.monotonic()
-                loser = None
-        if overflow is not None and overflow[1] is not None:
-            self._close(overflow[1], overflow[0], "lru")
+                if borrowed:
+                    self._borrow_locked(existing)
+                return existing
+            if len(self._sessions) >= self._max:
+                victim_key = self._pick_lru_locked()
+                if victim_key is None:
+                    raise SessionPoolFullError(self._max)
+                victim = self._pop_locked(victim_key)
+        if victim is not None:
+            self._close(victim, victim_key, "lru")
+
+        created = self._factory(key)
+        loser = None
+        full = False
+        with self._lock:
+            existing = self._sessions.get(key)
+            if existing is not None:
+                self._last_used[key] = time.monotonic()
+                if borrowed:
+                    self._borrow_locked(existing)
+                result = existing
+                loser = created
+            elif len(self._sessions) >= self._max:
+                result = None
+                loser = created
+                full = True
+            else:
+                self._sessions[key] = created
+                self._last_used[key] = time.monotonic()
+                if borrowed:
+                    self._borrow_locked(created)
+                result = created
         if loser is not None:
-            self._close(loser, key, "race")
-            return self.get(key)
-        ledger.event("session:open", str(key))
-        return sess
+            self._close(loser, key, "capacity" if full else "race")
+        if full:
+            raise SessionPoolFullError(self._max)
+        if result is created:
+            ledger.event("session:open", str(key))
+        return result
 
     def sweep(self) -> int:
         """Close sessions idle past the TTL; returns how many were evicted."""
         cutoff = time.monotonic() - self._ttl
         with self._lock:
-            stale = [k for k, t in self._last_used.items() if t < cutoff]
+            stale = [k for k, t in self._last_used.items()
+                     if t < cutoff
+                     and not self._is_borrowed_locked(self._sessions[k])]
             victims = [(k, self._pop_locked(k)) for k in stale]
         for key, sess in victims:
             if sess is not None:
@@ -86,11 +130,19 @@ class SessionPool:
     def put(self, key: Hashable, sess: Any) -> None:
         """Insert an existing session (tests / adoption); closes any previous."""
         with self._lock:
-            old = self._pop_locked(key)
+            if key in self._sessions:
+                old_key = key
+            elif len(self._sessions) >= self._max:
+                old_key = self._pick_lru_locked()
+                if old_key is None:
+                    raise SessionPoolFullError(self._max)
+            else:
+                old_key = None
+            old = self._pop_locked(old_key)
             self._sessions[key] = sess
             self._last_used[key] = time.monotonic()
         if old is not None:
-            self._close(old, key, "replaced")
+            self._close(old, old_key, "replaced" if old_key == key else "lru")
 
     def pop(self, key: Hashable) -> Any | None:
         """Remove without closing (caller owns it) — used for restarts."""
@@ -116,9 +168,19 @@ class SessionPool:
     # -- internals ----------------------------------------------------------
 
     def _pick_lru_locked(self) -> Hashable | None:
-        if not self._last_used:
-            return None
-        return min(self._last_used, key=self._last_used.get)  # type: ignore[arg-type]
+        candidates = (key for key, sess in self._sessions.items()
+                      if not self._is_borrowed_locked(sess))
+        return min(candidates, key=self._last_used.__getitem__, default=None)
+
+    def _borrow_locked(self, sess: Any) -> None:
+        identity = id(sess)
+        entry = self._borrowed.get(identity)
+        count = entry[1] if entry is not None and entry[0] is sess else 0
+        self._borrowed[identity] = (sess, count + 1)
+
+    def _is_borrowed_locked(self, sess: Any) -> bool:
+        entry = self._borrowed.get(id(sess))
+        return entry is not None and entry[0] is sess and entry[1] > 0
 
     def _pop_locked(self, key: Hashable | None) -> Any | None:
         if key is None:
