@@ -41,15 +41,15 @@ VALID_POLARITIES = {"positive", "negative"}
 # Per-slug write locks: two channel threads can write the same note concurrently
 # (the gateway runs LLM turns outside its global lock), so serialize a note's
 # read->check->write to stop lost updates / interleaved corruption.
-_NOTE_LOCKS: dict[str, threading.Lock] = {}
+_NOTE_LOCKS: dict[str, threading.RLock] = {}
 _NOTE_LOCKS_GUARD = threading.Lock()
 
 
-def _note_lock(slug: str) -> threading.Lock:
+def _note_lock(slug: str) -> threading.RLock:
     with _NOTE_LOCKS_GUARD:
         lk = _NOTE_LOCKS.get(slug)
         if lk is None:
-            lk = _NOTE_LOCKS[slug] = threading.Lock()
+            lk = _NOTE_LOCKS[slug] = threading.RLock()
         return lk
 
 
@@ -321,20 +321,21 @@ class VaultMemory:
         return out[:limit]
 
     def add_link(self, from_title: str, to_title: str) -> bool:
-        text = self.get_note(from_title)
-        if text is None:
-            return False
-        if f"[[{to_title}]]" in text:
+        with _note_lock(_slug(from_title)):
+            text = self.get_note(from_title)
+            if text is None:
+                return False
+            if f"[[{to_title}]]" in text:
+                return True
+            meta, body = frontmatter.parse(text)
+            body = body.rstrip()
+            if "## Related" in body:
+                body += f" · [[{to_title}]]"
+            else:
+                body += f"\n\n## Related\n[[{to_title}]]"
+            # rewrite preserving frontmatter
+            self.write_note(meta.get("title", from_title), body)
             return True
-        meta, body = frontmatter.parse(text)
-        body = body.rstrip()
-        if "## Related" in body:
-            body += f" · [[{to_title}]]"
-        else:
-            body += f"\n\n## Related\n[[{to_title}]]"
-        # rewrite preserving frontmatter
-        self.write_note(meta.get("title", from_title), body)
-        return True
 
     # -- palace maintenance --------------------------------------------------
 

@@ -1,5 +1,8 @@
-from birkin import config
+import threading
+
+from birkin import config, memory
 from birkin.memory import VaultMemory
+from birkin.skills import frontmatter
 
 
 def _mem():
@@ -46,6 +49,74 @@ def test_add_link_preserves_note_metadata():
     assert "tags: [keep]" in text
     assert "confidence: 0.9" in text
     assert "expires_at:" in text
+
+
+def test_add_link_preserves_concurrent_note_update(monkeypatch):
+    m = _mem()
+    path = m.write_note(
+        "Concurrent A",
+        "body a",
+        note_type="project",
+        tags=["keep"],
+        confidence=0.9,
+        source="manual",
+        ttl_days=14,
+        polarity="negative",
+    )
+    worker_ready = threading.Event()
+    release_worker = threading.Event()
+    worker_ident = None
+    result = []
+
+    class GatedRLock:
+        def __init__(self):
+            self._lock = threading.RLock()
+            self._worker_gated = False
+
+        def __enter__(self):
+            if threading.get_ident() == worker_ident and not self._worker_gated:
+                self._worker_gated = True
+                worker_ready.set()
+                assert release_worker.wait(timeout=2)
+            self._lock.acquire()
+            return self
+
+        def __exit__(self, exc_type, exc_value, traceback):
+            self._lock.release()
+
+    gated_lock = GatedRLock()
+    monkeypatch.setattr(memory, "_note_lock", lambda _slug: gated_lock)
+
+    def add_link():
+        nonlocal worker_ident
+        worker_ident = threading.get_ident()
+        result.append(m.add_link("Concurrent A", "target"))
+
+    worker = threading.Thread(target=add_link)
+    worker.start()
+    assert worker_ready.wait(timeout=2)
+    m.write_note("Concurrent A", "body a\n\nconcurrent-marker", expected_version=1)
+    release_worker.set()
+    worker.join(timeout=2)
+
+    assert not worker.is_alive()
+    assert result == [True]
+    text = path.read_text(encoding="utf-8")
+    meta, body = frontmatter.parse(text)
+    assert "concurrent-marker" in body
+    assert body.count("[[target]]") == 1
+    assert meta["title"] == "Concurrent A"
+    assert meta["type"] == "project"
+    assert meta["tags"] == ["keep"]
+    assert meta["confidence"] == 0.9
+    assert meta["sources"] == ["manual"]
+    assert meta["polarity"] == "negative"
+    assert meta["expires_at"]
+    assert meta["version"] == 3
+
+    unchanged = path.read_bytes()
+    assert m.add_link("Concurrent A", "target") is True
+    assert path.read_bytes() == unchanged
 
 
 def test_render_digest_lists_notes():
