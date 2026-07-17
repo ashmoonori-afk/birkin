@@ -315,6 +315,102 @@ def test_old_turn_cannot_unregister_newer_inflight_turn(tmp_path, monkeypatch):
     assert ("http", "42") not in gw._inflight
 
 
+def test_failed_new_turn_leaves_active_predecessor_interruptible(
+        tmp_path, monkeypatch):
+    from birkin import store, transcripts
+    from birkin.gateway.core import TURN_ERROR_REPLY
+
+    old_asking = threading.Event()
+    new_preparing = threading.Event()
+    allow_new_failure = threading.Event()
+    release_old = threading.Event()
+
+    class _BlockingSession(_LeaseSession):
+        def __init__(self, asking):
+            super().__init__()
+            self.asking = asking
+            self.interrupt_calls = 0
+
+        def ask(self, text, on_text=None):
+            self.asking.set()
+            assert release_old.wait(timeout=2)
+            return "old-done"
+
+        def interrupt(self):
+            self.interrupt_calls += 1
+            return True
+
+    class _TwoSessionPool:
+        def __init__(self, sessions):
+            self.sessions = list(sessions)
+            self.borrow_calls = []
+            self.release_calls = []
+
+        def borrow(self, key):
+            self.borrow_calls.append(key)
+            return self.sessions.pop(0)
+
+        def release(self, key, session):
+            self.release_calls.append((key, session))
+
+    old_session = _BlockingSession(old_asking)
+    new_asked = threading.Event()
+    new_session = _BlockingSession(new_asked)
+    gw = _gateway(tmp_path, monkeypatch)
+    pool = _TwoSessionPool([old_session, new_session])
+    gw._claude_sessions = pool
+
+    def prepare(text, **_kwargs):
+        if text == "new":
+            new_preparing.set()
+            assert allow_new_failure.wait(timeout=2)
+            raise RuntimeError("new failed before ask")
+        return text
+
+    monkeypatch.setattr(gw.session, "_prepare_cli_turn", prepare)
+    monkeypatch.setattr(gw.session, "_record_turn", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(store, "append_activity", lambda _text: None)
+    monkeypatch.setattr(transcripts, "append_turn", lambda *_args, **_kwargs: None)
+    key = ("http", "42")
+    results = {}
+    old = threading.Thread(
+        target=lambda: results.__setitem__("old", gw.handle(*key, "old")))
+    new = threading.Thread(
+        target=lambda: results.__setitem__("new", gw.handle(*key, "new")))
+
+    old.start()
+    assert old_asking.wait(timeout=2)
+    assert old.is_alive()
+    new.start()
+    assert new_preparing.wait(timeout=2)
+    assert new.is_alive()
+    try:
+        overlap_interrupted = gw.interrupt(*key)
+        assert old.is_alive()
+        allow_new_failure.set()
+        new.join(timeout=2)
+        assert not new.is_alive()
+        assert old.is_alive()
+        assert not new_asked.is_set()
+        assert pool.release_calls == [(key, new_session)]
+        predecessor_interrupted = gw.interrupt(*key)
+    finally:
+        allow_new_failure.set()
+        release_old.set()
+        old.join(timeout=2)
+        new.join(timeout=2)
+
+    assert not old.is_alive() and not new.is_alive()
+    assert predecessor_interrupted is True
+    assert overlap_interrupted is True
+    assert old_session.interrupt_calls == 2
+    assert new_session.interrupt_calls == 1
+    assert pool.borrow_calls == [key, key]
+    assert pool.release_calls == [(key, new_session), (key, old_session)]
+    assert results == {"new": TURN_ERROR_REPLY, "old": "old-done"}
+    assert key not in gw._inflight
+
+
 def test_interrupt_calls_session_after_releasing_inflight_lock(
         tmp_path, monkeypatch):
     class _OwnershipLock:
@@ -338,17 +434,31 @@ def test_interrupt_calls_session_after_releasing_inflight_lock(
 
     gw = _gateway(tmp_path, monkeypatch)
     lock = _OwnershipLock()
+    calls = []
 
     class _OwnershipSession:
+        def __init__(self, name, *, error=False):
+            self.name = name
+            self.error = error
+
         def interrupt(self):
             assert not lock.owned_by_current_thread()
+            calls.append(self.name)
+            if self.error:
+                raise RuntimeError("interrupt failed")
             return True
 
     gw._inflight_lock = lock
-    gw._inflight[("http", "42")] = (object(), _OwnershipSession())
+    old = _OwnershipSession("old")
+    gw._inflight[("http", "42")] = [
+        (object(), old),
+        (object(), old),
+        (object(), _OwnershipSession("new", error=True)),
+    ]
 
     assert gw.interrupt("http", "42") is True
     assert lock.acquisitions == 1
+    assert calls == ["new", "old"]
 
 
 # -- codex session interrupt sends turn/interrupt -----------------------------
@@ -453,3 +563,91 @@ def test_telegram_new_message_interrupts_previous(tmp_path, monkeypatch):
     assert gw.interrupts == ["42"]
     w1.join(timeout=2)
     assert gw.handled == ["first"]           # first turn ran (and was signalled)
+
+
+def test_telegram_messages_interrupt_gateway_behind_dead_worker(monkeypatch):
+    from birkin.gateway import workflow
+    from birkin.gateway.channels import telegram
+
+    class _StopPolling(BaseException):
+        pass
+
+    class _DeadWorker:
+        def __init__(self):
+            self.join_calls = 0
+
+        def is_alive(self):
+            return False
+
+        def join(self, timeout=None):
+            self.join_calls += 1
+
+    class _InlineThread:
+        def __init__(self, target, args, daemon):
+            self.target = target
+            self.args = args
+
+        def start(self):
+            self.target(*self.args)
+
+        def is_alive(self):
+            return False
+
+    class _FakeGateway:
+        def __init__(self):
+            self.interrupts = []
+
+        def take_restart_greeting(self, channel):
+            return None
+
+        def _command_trusted(self, channel):
+            return True
+
+        def interrupt(self, channel, chat_id):
+            self.interrupts.append((channel, chat_id))
+            return True
+
+    ch = telegram.TelegramChannel(
+        "tok", allowed_chat_ids=["42"], stream=False)
+    gateway = _FakeGateway()
+    dead = _DeadWorker()
+    ch._workers["42"] = dead
+    pending = []
+    turns = []
+    responses = [
+        {},
+        {},
+        {"result": [
+            {"update_id": 1, "message": {
+                "chat": {"id": 99}, "text": "unauthorized"}},
+            {"update_id": 2, "message": {
+                "chat": {"id": 42}, "text": "/pending"}},
+            {"update_id": 3, "message": {
+                "chat": {"id": 42}, "text": "hello"}},
+        ]},
+    ]
+
+    def call(_method, _params, timeout=60):
+        if responses:
+            return responses.pop(0)
+        raise _StopPolling
+
+    monkeypatch.setattr(workflow, "restore_stranded_claims", lambda: 0)
+    monkeypatch.setattr(ch, "_call", call)
+    monkeypatch.setattr(
+        ch, "_send_pending_buttons",
+        lambda _gateway, chat_id: pending.append(chat_id))
+    monkeypatch.setattr(
+        ch, "_run_turn",
+        lambda _gateway, chat_id, text, _offset:
+        turns.append((chat_id, text)))
+    monkeypatch.setattr(telegram.threading, "Thread", _InlineThread)
+
+    with pytest.raises(_StopPolling):
+        ch.start(gateway)
+
+    assert gateway.interrupts == [
+        ("telegram", "42"), ("telegram", "42")]
+    assert dead.join_calls == 0
+    assert pending == ["42"]
+    assert turns == [("42", "hello")]

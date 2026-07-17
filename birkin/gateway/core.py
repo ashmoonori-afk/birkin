@@ -220,9 +220,9 @@ class Gateway:
         self._spare: ClaudeStreamSession | None = None
         self._spare_lock = threading.Lock()
         self._spare_gen = 0
-        # Warm session currently running a turn, per (channel, chat_id) — a new
-        # message on the same chat interrupts it (mid-input interruption).
-        self._inflight: dict[tuple[str, str], tuple[Any, Any]] = {}
+        # Warm sessions currently running a turn, per (channel, chat_id) — a new
+        # message on the same chat interrupts them (mid-input interruption).
+        self._inflight: dict[tuple[str, str], list[tuple[Any, Any]]] = {}
         self._inflight_lock = threading.Lock()
         # Set by a /hard-restart command; the channel re-execs after replying.
         self._hard_restart = False
@@ -411,15 +411,22 @@ class Gateway:
         a channel when a NEW message arrives mid-turn. Returns True if a turn
         was signalled. Safe to call from a different thread than handle()."""
         with self._inflight_lock:
-            inflight = self._inflight.get((channel, str(chat_id)))
-            sess = inflight[1] if inflight is not None else None
-        fn = getattr(sess, "interrupt", None) if sess is not None else None
-        if callable(fn):
+            owners = tuple(self._inflight.get((channel, str(chat_id)), ()))
+        interrupted = False
+        seen_sessions: set[int] = set()
+        for _token, sess in reversed(owners):
+            session_id = id(sess)
+            if session_id in seen_sessions:
+                continue
+            seen_sessions.add(session_id)
+            fn = getattr(sess, "interrupt", None)
+            if not callable(fn):
+                continue
             try:
-                return bool(fn())
+                interrupted = bool(fn()) or interrupted
             except Exception:
-                return False
-        return False
+                continue
+        return interrupted
 
     def handle(self, channel: str, chat_id: str, text: str,
                on_text=None, workflow_id: str | None = None) -> str:
@@ -551,7 +558,8 @@ class Gateway:
                     # Track the in-flight session so a new message on the same
                     # chat can interrupt() this turn (mid-input interruption).
                     with self._inflight_lock:
-                        self._inflight[key] = (inflight_token, sess)
+                        self._inflight.setdefault(key, []).append(
+                            (inflight_token, sess))
                 except RuntimeError as exc:
                     dt = time.monotonic() - t0
                     print(f"[gateway] {channel}:{chat_id} ✗ error after "
@@ -632,9 +640,13 @@ class Gateway:
             if persistent:
                 try:
                     with self._inflight_lock:
-                        inflight = self._inflight.get(key)
-                        if (inflight is not None
-                                and inflight[0] is inflight_token):
+                        owners = self._inflight.get(key)
+                        if owners is not None:
+                            for index, owner in enumerate(owners):
+                                if owner[0] is inflight_token:
+                                    owners.pop(index)
+                                    break
+                        if not owners:
                             self._inflight.pop(key, None)
                 finally:
                     self._claude_sessions.release(key, sess)

@@ -698,13 +698,6 @@ class TelegramChannel(Channel):
                     text = self._compose_media_text(msg) or ""
                 if not text:
                     continue
-                # /pending on a trusted channel renders as inline buttons
-                # here; the gateway's text fallback serves everything else.
-                from ..core import match_command
-                if (match_command(text)[0] == "pending"
-                        and gateway._command_trusted("telegram")):
-                    self._send_pending_buttons(gateway, chat_id)
-                    continue
                 # A new message while this chat's previous turn is still running
                 # interrupts it (mid-input interruption), then runs the new one.
                 prev = self._workers.get(chat_id)
@@ -714,6 +707,15 @@ class TelegramChannel(Channel):
                         workflow.mark_interrupted(workflow_id)
                     gateway.interrupt("telegram", chat_id)
                     prev.join(timeout=20)
+                else:
+                    gateway.interrupt("telegram", chat_id)
+                # /pending on a trusted channel renders as inline buttons
+                # here; the gateway's text fallback serves everything else.
+                from ..core import match_command
+                if (match_command(text)[0] == "pending"
+                        and gateway._command_trusted("telegram")):
+                    self._send_pending_buttons(gateway, chat_id)
+                    continue
                 # Run the turn in a worker so the loop keeps polling (and can
                 # see the next message to interrupt this one).
                 w = threading.Thread(target=self._run_turn,
