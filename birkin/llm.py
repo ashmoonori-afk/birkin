@@ -82,7 +82,56 @@ StreamCallback = Optional[Callable[[str], None]]
 
 
 class LLMError(RuntimeError):
-    """Raised when the provider call fails after retries."""
+    """Raised when the provider call fails after retries.
+
+    Carries the HTTP ``status`` (when the failure came from one) and a coarse
+    ``kind`` so callers can react without re-parsing the message string:
+    failover picks a fallback model for transient/auth failures, and the
+    compactor retries after shrinking history on ``overflow``.
+    """
+
+    def __init__(self, message: str, *, status: Optional[int] = None,
+                 kind: str = "unknown"):
+        super().__init__(message)
+        self.status = status
+        self.kind = kind
+
+
+# Kinds worth trying a different provider/model for. "client" (a malformed or
+# oversized request) is deliberately absent — a different model won't fix it.
+FAILOVER_KINDS = frozenset({"auth", "billing", "rate_limit", "server", "network"})
+
+
+def _kind_for_status(code: int, body: str = "") -> str:
+    """Map an HTTP status to a coarse failure kind.
+
+    ponytail: status codes only. First-party Anthropic/OpenAI APIs return
+    honest codes, so hermes' ~500 lines of message-pattern matching buys
+    nothing here. The one exception is 400, which Anthropic uses for context
+    overflow as well as for genuine request bugs — hence the body sniff.
+    """
+    if code in (401, 403):
+        return "auth"
+    if code == 402:
+        return "billing"
+    if code == 429:
+        return "rate_limit"
+    if code >= 500:
+        return "server"
+    if code == 413 or (code == 400 and _looks_like_overflow(body)):
+        return "overflow"
+    return "client"
+
+
+_OVERFLOW_MARKERS = (
+    "prompt is too long", "context length", "context window", "context_length",
+    "input length", "too many tokens", "maximum context",
+)
+
+
+def _looks_like_overflow(text: str) -> bool:
+    low = (text or "").lower()
+    return any(m in low for m in _OVERFLOW_MARKERS)
 
 
 class LLMClient:
@@ -385,7 +434,10 @@ class LLMClient:
         if aborted:
             return "[birkin] (aborted)"
         if timed_out:
-            raise LLMError(f"Codex timed out after {self.cli_timeout}s.")
+            # kind="timeout" (not in FAILOVER_KINDS): a CLI provider's own
+            # subprocess stalling is not something a fallback API model fixes.
+            raise LLMError(f"Codex timed out after {self.cli_timeout}s.",
+                           kind="timeout")
         if text:
             return text
         err = (stderr or "").strip() or (stdout or "").strip()
@@ -437,19 +489,24 @@ class LLMClient:
                 return resp  # caller reads (stream) or .read()
             except urllib.error.HTTPError as exc:
                 body = exc.read().decode("utf-8", "replace")
+                kind = _kind_for_status(exc.code, body)
                 # Retry on rate-limit / transient server errors.
                 if exc.code in (429, 500, 502, 503, 529) and attempt < 3:
                     _wait(f"rate-limited (HTTP {exc.code})" if exc.code == 429
                           else f"server error (HTTP {exc.code})", attempt)
-                    last_exc = LLMError(f"HTTP {exc.code}: {body[:500]}")
+                    last_exc = LLMError(f"HTTP {exc.code}: {body[:500]}",
+                                        status=exc.code, kind=kind)
                     continue
-                raise LLMError(f"HTTP {exc.code}: {body[:1000]}") from exc
+                raise LLMError(f"HTTP {exc.code}: {body[:1000]}",
+                               status=exc.code, kind=kind) from exc
             except urllib.error.URLError as exc:
                 if attempt < 3:
                     _wait(f"network error ({exc.reason})", attempt)
-                    last_exc = LLMError(f"network error: {exc.reason}")
+                    last_exc = LLMError(f"network error: {exc.reason}",
+                                        kind="network")
                     continue
-                raise LLMError(f"network error: {exc.reason}") from exc
+                raise LLMError(f"network error: {exc.reason}",
+                               kind="network") from exc
         raise last_exc or LLMError("request failed")
 
     # -- Anthropic ---------------------------------------------------------
@@ -470,7 +527,7 @@ class LLMClient:
                 raise LLMError(
                     "Not logged in to Claude. Run `claude /login` (or "
                     "`claude setup-token`) so birkin can use your subscription, "
-                    "then retry.")
+                    "then retry.", kind="auth")
             headers.update(_oauth.auth_headers(token))
             # OAuth requires the Claude Code identity as the FIRST system block.
             system_blocks: list[dict[str, Any]] = [
@@ -590,7 +647,9 @@ class LLMClient:
                     stop_reason = sr
             elif etype == "error":
                 msg = event.get("error", {}).get("message", "stream error")
-                raise LLMError(f"anthropic stream error: {msg}")
+                raise LLMError(
+                    f"anthropic stream error: {msg}",
+                    kind="overflow" if _looks_like_overflow(msg) else "server")
             # message_start / message_stop / ping: ignored
 
         # Drop any empty trailing text blocks we pre-allocated but never filled.
