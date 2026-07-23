@@ -226,6 +226,46 @@ def test_slug_collision_resistant_on_long_ideas():
     assert neurosis._slug("Build a CRM") == "build-a-crm"
 
 
+def test_slug_keeps_korean_ideas():
+    """The common case: birkin's house rule is 대화는 한국어.
+
+    An ASCII-only slug erased Korean entirely and fell through to a timestamp,
+    so two unrelated ideas raised in the same second collided onto one
+    interview and the same idea raised a second later started a duplicate.
+    """
+    assert neurosis._slug("텔레그램 배포 알림") == "텔레그램-배포-알림"
+    assert neurosis._slug("telegram 배포 알림 bot") == "telegram-배포-알림-bot"
+
+    # Distinct ideas must not collide...
+    assert neurosis._slug("텔레그램 봇") != neurosis._slug("전혀 다른 것")
+    # ...and the same idea must be stable, which a clock-based slug is not.
+    assert neurosis._slug("같은 아이디어") == neurosis._slug("같은 아이디어")
+    assert not neurosis._slug("같은 아이디어").startswith("idea-")
+
+
+def test_slug_fallback_is_deterministic_when_nothing_survives():
+    # Pure punctuation/emoji still has to resume, so it hashes rather than
+    # stamping the clock.
+    assert neurosis._slug("🚀🚀") == neurosis._slug("🚀🚀")
+    assert neurosis._slug("🚀") != neurosis._slug("🎉")
+    # No idea at all has nothing to be stable about — timestamp is fine.
+    assert neurosis._slug("   ").startswith("idea-")
+
+
+def test_korean_idea_resumes_instead_of_duplicating(tmp_path, monkeypatch):
+    monkeypatch.setenv("BIRKIN_HOME", str(tmp_path))
+    idea = "텔레그램으로 팀 배포 상태를 알려주는 무언가"
+    first = neurosis.seed_or_resume(idea, cfg={})
+    second = neurosis.seed_or_resume(idea, cfg={})
+    assert second["resume"] is True
+    assert second["slug"] == first["slug"]
+    assert len(list((tmp_path / "neurosis").glob("*.json"))) == 1
+
+    other = neurosis.seed_or_resume("완전히 다른 아이디어", cfg={})
+    assert other["slug"] != first["slug"], "distinct ideas must not collide"
+    assert other["resume"] is False
+
+
 def test_start_prompt_does_not_leak_bundled_skill_path(tmp_path, monkeypatch):
     monkeypatch.setenv("BIRKIN_HOME", str(tmp_path))
     seed = neurosis.seed_state("vague idea", cfg={}, resolution="deep")

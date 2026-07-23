@@ -24,7 +24,12 @@ from . import config, store
 
 DEFAULT_THRESHOLD = 0.05
 RESOLUTION_THRESHOLDS = {"quick": 0.6, "standard": 0.5, "deep": 0.35}
-_SLUG_RE = re.compile(r"[^a-z0-9]+")
+# Keep word characters of ANY script, not just ASCII. birkin's house rule is
+# 대화는 한국어, so ideas normally arrive in Korean — an ASCII-only rule erased
+# them completely and sent every Korean idea to the timestamp fallback below,
+# which made slugs neither unique (two ideas in the same second collided onto
+# one interview) nor stable (the same idea a second later started a new one).
+_SLUG_RE = re.compile(r"[\W_]+", re.UNICODE)
 
 
 def neurosis_dir() -> Path:
@@ -40,7 +45,8 @@ def specs_dir() -> Path:
 
 
 def _slug(idea: str, *, n: int = 48) -> str:
-    full = _SLUG_RE.sub("-", (idea or "").strip().lower()).strip("-")
+    raw = (idea or "").strip()
+    full = _SLUG_RE.sub("-", raw.lower()).strip("-")
     if len(full) > n:
         # Plain truncation would collide distinct ideas sharing a kebab prefix,
         # silently resuming the wrong interview. Append a short deterministic
@@ -49,7 +55,14 @@ def _slug(idea: str, *, n: int = 48) -> str:
         digest = hashlib.sha256(full.encode("utf-8")).hexdigest()[:8]
         body = full[: max(1, n - 9)].strip("-")
         full = f"{body}-{digest}"
-    return full or datetime.now(timezone.utc).strftime("idea-%Y%m%d-%H%M%S")
+    if full:
+        return full
+    if raw:
+        # Nothing survived normalization (all punctuation/emoji) but there IS an
+        # idea — hash it rather than stamping the clock, or the same idea would
+        # never resume.
+        return "idea-" + hashlib.sha256(raw.encode("utf-8")).hexdigest()[:12]
+    return datetime.now(timezone.utc).strftime("idea-%Y%m%d-%H%M%S")
 
 
 def resolve_threshold(cfg: dict[str, Any], *, resolution: Optional[str] = None,
