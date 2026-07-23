@@ -57,8 +57,10 @@ from `~/.birkin/config.json` if set, else `0.05`. Create the state file yourself
 ### Phase 0 — resolve the threshold (internal), open naturally
 
 Resolve the ambiguity threshold (run param → config `neurosis_threshold` → resolution preset → 0.05)
-and store it in state. Do **NOT** announce a "threshold" or any tool/skill name to
-the user — keep the mechanic internal. Open with a natural, confident statement of
+and store it in state. Do **NOT** announce a "threshold", a raw ambiguity score,
+a tool call, or how you loaded this skill — keep the mechanic internal. (The one
+exception is the `[Neurosis]` progress label below: that is a deliberate mode
+indicator, not plumbing.) Open with a natural, confident statement of
 intent in Korean (NOT a permission question), e.g.:
 
 > 진행 전에 모호한 부분과 핵심 결정사항을 다시 한번 확인하겠습니다.
