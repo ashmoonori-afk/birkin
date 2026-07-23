@@ -65,13 +65,34 @@ def run(cfg: dict[str, Any] | None = None) -> int:
             line = raw.strip()
         if not line:
             continue
-        inline_complete.append_history(line, prior=history)
         if line.startswith("/"):
             # A slash handler that raises (or Ctrl-C mid-command) must not
             # escape the loop — otherwise session.close() at the end is
             # skipped and the warm CLI subprocess leaks.
             try:
+                session.intent_engine().cancel("repl")
+                inline_complete.append_history(line, prior=history)
                 if slashcommands.dispatch(session, line) == "exit":
+                    break
+            except KeyboardInterrupt:
+                print(f"\n{DIM}(interrupted){RESET}")
+            except Exception as exc:
+                print(f"\n{RED}Error: {exc}{RESET}")
+            continue
+
+        intent = session.intent_engine().resolve(line, "repl")
+        history_line = intent.retained_text if intent.attempted else line
+        inline_complete.append_history(history_line, prior=history)
+        if intent.kind in {"reply", "reject"}:
+            print(intent.question)
+            continue
+        if intent.kind == "preview":
+            detail = f" {intent.argument}" if intent.argument else ""
+            print(f"Confirm {intent.action}{detail}: type 승인 to continue.")
+            continue
+        if intent.kind == "command":
+            try:
+                if slashcommands.dispatch_command(session, intent.action, intent.argument) == "exit":
                     break
             except KeyboardInterrupt:
                 print(f"\n{DIM}(interrupted){RESET}")
@@ -131,7 +152,9 @@ def run(cfg: dict[str, Any] | None = None) -> int:
         listener = abortkey.listen_for_interrupt(on_interrupt)
         start_spin()
         try:
-            reply = session.ask(line, on_text=on_text)  # streamed live above
+            reply = session.ask(line, on_text=on_text,
+                                retained_text=intent.retained_text or line,
+                                retained_replacements=intent.retained_replacements)
             stop_spin()
             if first["v"] and (reply or "").strip():
                 # Provider emitted no incremental text — print it once so the
@@ -141,8 +164,9 @@ def run(cfg: dict[str, Any] | None = None) -> int:
                 print(f"\n{CYAN}birkin{RESET} >\n", end="")
                 print(ui.render_markdown((reply or "").strip()))
             print()   # terminate the streamed line
-            store.append_activity(f"chat: {line[:120]}")
-            transcripts.append_turn("repl", run_id, line, reply or "",
+            store.append_activity(f"chat: {session.retained_text[:120]}")
+            transcripts.append_turn("repl", run_id, session.retained_text,
+                                    session.retained_reply,
                                     cfg=session.cfg)
         except KeyboardInterrupt:
             session.abort.set()

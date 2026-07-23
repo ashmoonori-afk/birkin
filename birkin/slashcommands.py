@@ -52,12 +52,16 @@ def dispatch(session: Any, line: str) -> str:
         return "continue"
     name = parts[0].lower()
     arg = parts[1].strip() if len(parts) > 1 else ""
+    return dispatch_command(session, name, arg)
+
+
+def dispatch_command(session: Any, name: str, argument: str) -> str:
     name = _ALIASES.get(name, name)
     cmd = _REGISTRY.get(name)
     if not cmd:
         print(f"{RED}Unknown command /{name}. Try /help.{RESET}")
         return "continue"
-    result = cmd.handler(session, arg)
+    result = cmd.handler(session, argument)
     return "exit" if result == "exit" else "continue"
 
 
@@ -575,17 +579,30 @@ def _neurosis(session: Any, arg: str) -> None:
     else:
         print(f"{DIM}neurosis '{seed['slug']}' · threshold {seed['threshold_percent']} "
               f"({seed['threshold_source']}) · spec → {seed['spec_path']}{RESET}")
-    sys_write(session, neurosis.start_prompt(seed))
+    prompt = neurosis.start_prompt(seed)
+    retained_seed = {**seed, "idea": "[redacted idea]", "slug": "[redacted slug]",
+                     "state_path": "[redacted state path]",
+                     "spec_path": "[redacted spec path]"}
+    retained_prompt = neurosis.start_prompt(retained_seed)
+    replacements = tuple(
+        (str(seed[key]), retained_seed[key])
+        for key in ("idea", "slug", "state_path", "spec_path")
+        if seed.get(key)
+    ) + ((prompt, retained_prompt),)
+    sys_write(session, prompt, retained_text=retained_prompt,
+              retained_replacements=replacements)
 
 
-def sys_write(session: Any, text: str) -> None:
+def sys_write(session: Any, text: str, *, retained_text: str | None = None,
+              retained_replacements: tuple[tuple[str, str], ...] = ()) -> None:
     """Send `text` to the agent and stream the reply (used by /retry)."""
     import sys
     sys.stdout.write(f"\n{CYAN}birkin{RESET} > ")
     sys.stdout.flush()
     try:
-        session.ask(text, on_text=ui.stream_text)
+        session.ask(text, on_text=ui.stream_text, retained_text=retained_text,
+                    retained_replacements=retained_replacements)
         sys.stdout.write("\n")
-        store.append_activity(f"chat: {text[:120]}")
+        store.append_activity(f"chat: {session.retained_text[:120]}")
     except Exception as exc:
         print(f"\n{RED}Error: {exc}{RESET}")

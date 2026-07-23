@@ -12,7 +12,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Callable, Optional
 
-from . import budget, config, promptgate, store
+from . import budget, config, promptgate, store, transcripts
 from .agent import Agent
 from .llm import LLMClient, LLMError, build_client
 from .memory import Memory
@@ -45,6 +45,36 @@ class Session:
     _skill_review_thread: threading.Thread | None = None
     _skill_review_lock: Any = field(default_factory=threading.Lock)
     _memory_review_transcripts: list[str] = field(default_factory=list)
+    _intent: Any = None
+    retained_text: str = ""
+    retained_reply: str = ""
+
+    def intent_engine(self):
+        if self._intent is None:
+            from .intents import IntentEngine
+            from .slashcommands import _REGISTRY
+            self._intent = IntentEngine(self.cfg, self.client, _REGISTRY, surface="repl")
+        return self._intent
+
+    @staticmethod
+    def _retain(text: str, replacements: tuple[tuple[str, str], ...]) -> str:
+        retained = transcripts.redact_text(text)
+        for source, replacement in sorted(replacements, key=lambda item: len(item[0]), reverse=True):
+            if source:
+                retained = retained.replace(source, replacement)
+        return retained
+
+    def _redact_messages(self, start: int, replacements: tuple[tuple[str, str], ...]) -> None:
+        def redact(value: Any) -> Any:
+            if isinstance(value, str):
+                return self._retain(value, replacements)
+            if isinstance(value, list):
+                return [redact(item) for item in value]
+            if isinstance(value, dict):
+                return {key: redact(item) for key, item in value.items()}
+            return value
+
+        self.agent.messages[start:] = [redact(message) for message in self.agent.messages[start:]]
 
     def refresh_system_prompt(self) -> None:
         """Rebuild the system prompt to reflect current skills/memory/persona.
@@ -96,7 +126,13 @@ class Session:
             on_text: Optional[Callable[[str], None]] = None, *,
             review_skills: bool = True,
             route_query: str | None = None,
-            record_turn: bool = True) -> str:
+            record_turn: bool = True,
+            retained_text: str | None = None,
+            retained_replacements: tuple[tuple[str, str], ...] = ()) -> str:
+        kept_text = self._retain(text if retained_text is None else retained_text,
+                                 retained_replacements)
+        self.retained_text = kept_text
+        self.retained_reply = ""
         # Budget gate — refuse with a clear message instead of silently spending.
         over, why = budget.is_over(self.cfg)
         if over:
@@ -105,23 +141,31 @@ class Session:
                                details={"provider": self.cfg.get("provider"),
                                         "model": self.cfg.get("model"),
                                         "blocked_by": "budget"},
-                               usage=store.estimate_usage(text))
+                               usage=store.estimate_usage(kept_text))
             return why
         self.skills.reload_if_changed()  # pick up edited/added skills live
         self.abort.clear()               # fresh turn — drop any stale abort
         if self._use_warm():
             reply = self._warm_ask(text, on_text)
+            self.retained_reply = self._retain(reply, retained_replacements)
             if record_turn:
-                self._record_turn(text, reply, review_skills=review_skills)
+                self._record_turn(kept_text, self.retained_reply,
+                                  review_skills=review_skills)
             return reply
         if self.cfg.get("provider") in config.CLI_PROVIDERS:
             self._build_cli_system(
                 text if route_query is None else route_query)
         else:
             self.refresh_system_prompt()
-        reply = self.agent.run(text, on_text=on_text, abort=self.abort)
+        message_start = len(self.agent.messages)
+        try:
+            reply = self.agent.run(text, on_text=on_text, abort=self.abort)
+        finally:
+            self._redact_messages(message_start, retained_replacements)
+        self.retained_reply = self._retain(reply, retained_replacements)
         if record_turn:
-            self._record_turn(text, reply, review_skills=review_skills)
+            self._record_turn(kept_text, self.retained_reply,
+                              review_skills=review_skills)
         return reply
 
     def _use_warm(self) -> bool:
@@ -269,6 +313,7 @@ class Session:
         self.ctx.client = self.client
         self.agent.client = self.client
         self.agent.model = self.cfg.get("model")
+        self._intent = None
         with self._skill_review_lock:
             self._skill_review_turns = 0
             self._memory_review_transcripts.clear()
