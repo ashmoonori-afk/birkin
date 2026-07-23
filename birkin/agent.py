@@ -39,6 +39,28 @@ _MEMORY_NUDGE = (
     "or project, persist it with remember or memory_write_note (and link related "
     "notes). Otherwise ignore this note.")
 
+_GRACE_PROMPT = (
+    "[birkin] You've hit the maximum number of tool-calling turns for this "
+    "request, so no further tools will run. Without calling any more tools, "
+    "briefly tell the user what you accomplished, what you found, and what "
+    "still needs doing.")
+
+
+def _append_user_text(messages: list[dict[str, Any]], text: str) -> None:
+    """Add ``text`` to the conversation as user-authored content.
+
+    Folds into a trailing user message when there is one — so a tool-result
+    message gains a text block rather than being followed by a second user
+    message — and otherwise appends a new one.
+    """
+    block = {"type": "text", "text": text}
+    if messages and messages[-1].get("role") == "user" \
+            and isinstance(messages[-1].get("content"), list):
+        messages[-1] = {**messages[-1],
+                        "content": messages[-1]["content"] + [block]}
+    else:
+        messages.append({"role": "user", "content": [block]})
+
 
 class Registry(Protocol):
     def specs(self) -> list[dict[str, Any]]: ...
@@ -248,9 +270,44 @@ class Agent:
             self.messages.append({"role": "user", "content": results})
 
         self._update_nudges(used_skill, used_memory)
+        final_text = self._grace_summary(system, on_text, abort) or final_text
         final_text += "\n\n[birkin] Reached the maximum number of tool turns " \
                       f"({self.max_turns}); stopping to avoid a loop."
         return final_text
+
+    def _grace_summary(self, system: str, on_text, abort) -> str:
+        """One last turn so an exhausted run reports what it got done.
+
+        Without this the user just gets the stop notice plus whatever text the
+        model happened to emit before its final tool call — often nothing.
+
+        The call goes out with no tools, which makes it impossible for the
+        model to start more work it cannot finish. Any failure here is
+        swallowed: the grace call is a courtesy and must never turn an
+        exhausted run into a raised error.
+        """
+        if self._aborted(abort):
+            return ""
+        restore = list(self.messages)
+        _append_user_text(self.messages, _GRACE_PROMPT)
+        try:
+            assistant = self._complete(system, None, on_text, abort)
+        except Exception:
+            self.messages = restore     # leave history exactly as we found it
+            return ""
+        self.messages.append(
+            {"role": "assistant", "content": assistant["content"]})
+        # Belt and braces: a provider that returns tool_use despite being sent
+        # no tools would otherwise leave a dangling tool_use and 400 the next
+        # turn of this conversation.
+        stray = [b for b in assistant["content"] if b.get("type") == "tool_use"]
+        if stray:
+            self.messages.append({"role": "user", "content": [
+                {"type": "tool_result", "tool_use_id": b.get("id"),
+                 "content": "turn budget exhausted; not executed",
+                 "is_error": True} for b in stray]})
+        return "".join(b["text"] for b in assistant["content"]
+                       if b.get("type") == "text").strip()
 
     def _update_nudges(self, used_skill: bool, used_memory: bool) -> None:
         """Queue an ephemeral self-improvement nudge for the next turn."""
