@@ -409,7 +409,7 @@ def _cmd_cron(args: argparse.Namespace) -> int:
         return 0
     for j in jobs:
         state = "on" if j.get("enabled", True) else "off"
-        print(f"{j['id']}  {int(j.get('hour',0)):02d}:{int(j.get('minute',0)):02d}  "
+        print(f"{j['id']}  {cron.schedule_display(j)}  "
               f"[{state}] {j.get('type')}  {j.get('name')}")
     return 0
 

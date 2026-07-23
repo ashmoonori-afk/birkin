@@ -75,15 +75,22 @@ def execute_action(category: str, payload: dict[str, Any],
             except (TypeError, ValueError):
                 n = d
             return max(0, min(hi, n))
+        # A proposal may carry a schedule expression ("every 30m", "0 9 * * 1")
+        # or the original hour/minute pair. An unparseable expression falls
+        # back to hour/minute rather than failing the approved action.
+        schedule = payload.get("schedule")
+        if schedule and cron.parse_schedule(str(schedule)) is None:
+            schedule = None
         job = cron.add_job(
             name=payload.get("name", "job"),
             hour=_clk(payload.get("hour", 9), 9, 23),
             minute=_clk(payload.get("minute", 0), 0, 59),
             action_type=payload.get("type", "prompt"),
             value=payload.get("value", ""),
-            deliver_chat_id=payload.get("deliver_chat_id"))
+            deliver_chat_id=payload.get("deliver_chat_id"),
+            schedule=str(schedule) if schedule else None)
         return f"Registered cron job '{job['name']}' at " \
-               f"{job['hour']:02d}:{job['minute']:02d} (id {job['id']})."
+               f"{cron.schedule_display(job)} (id {job['id']})."
     if category == "shell":
         command = payload.get("command", "")
         if not command:

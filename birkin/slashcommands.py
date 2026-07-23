@@ -346,7 +346,7 @@ def _cron(session: Any, arg: str) -> None:
         print(f"{DIM}No cron jobs.{RESET}")
         return
     for j in jobs:
-        print(f"  {j['id']} {int(j.get('hour',0)):02d}:{int(j.get('minute',0)):02d} "
+        print(f"  {j['id']} {cron.schedule_display(j)} "
               f"{j.get('type')} — {j.get('name')}")
 
 

@@ -166,6 +166,23 @@ _BACK_GREETING = "다시 왔습니다 👋 무엇을 도와드릴까요?"
 _RESTART_GREETING = "✅ 재시작 완료! 코드·설정을 새로 반영했어요. " + _BACK_GREETING
 
 
+def _split_schedule(arg: str) -> tuple[dict[str, Any] | None, str]:
+    """Split ``"<schedule> <task>"``, trying the longest schedule prefix first.
+
+    Longest-first matters: "0 9 * * 1 weekly review" must be read as a 5-field
+    cron expression, not as the one-token schedule "0".
+    """
+    from .. import cron
+    tokens = arg.split()
+    for n in (5, 2, 1):
+        if len(tokens) <= n:      # a reminder needs a task after the schedule
+            continue
+        spec = cron.parse_schedule(" ".join(tokens[:n]))
+        if spec is not None:
+            return spec, " ".join(tokens[n:]).strip()
+    return None, arg
+
+
 def _restart_marker_path():
     """One-shot marker dropped before a hard re-exec so the new process can greet
     the chat that asked for the restart."""
@@ -747,7 +764,7 @@ class Gateway:
                         "오늘 할 일 정리해줘")
             lines = ["⏰ 리마인더:"]
             for j in jobs:
-                lines.append(f"- {j['hour']:02d}:{j['minute']:02d} "
+                lines.append(f"- {cron.schedule_display(j)} "
                              f"{j.get('value', '')[:60]} (id {j['id']})")
             lines.append("삭제: /remind del <id>")
             return "\n".join(lines)
@@ -763,24 +780,35 @@ class Gateway:
                 return ("⚠ 리마인더 저장소가 사용 중입니다. "
                         "잠시 후 다시 시도해 주세요.")
             return f"🗑️ 리마인더 삭제됨 (id {aid})."
-        m = re.match(r"(\d{1,2})[:시](\d{2})?\s+(.+)", arg, re.S)
-        if not m:
-            return ("형식: /remind HH:MM <할 일>. 예: /remind 09:00 "
-                    "오늘 날씨랑 일정 요약해줘")
-        hour = int(m.group(1))
-        minute = int(m.group(2) or 0)
-        if hour > 23 or minute > 59:
-            # reject rather than silently clamp — 25:99 shouldn't become 23:59
-            return f"시간이 올바르지 않아요 ({hour:02d}:{minute:02d}). 00:00–23:59 범위로 다시 보내 주세요."
-        prompt = m.group(3).strip()
+        # Richer schedules first ("every 30m ...", "2h ...", "0 9 * * 1 ..."),
+        # then the original HH:MM / HH시MM form.
+        spec, prompt = _split_schedule(arg)
+        if spec is None:
+            m = re.match(r"(\d{1,2})[:시](\d{2})?\s+(.+)", arg, re.S)
+            if not m:
+                return ("형식: /remind <시각|주기> <할 일>. 예: /remind 09:00 "
+                        "오늘 할 일 정리 · /remind every 30m 메일 확인 · "
+                        "/remind 2h 스트레칭 · /remind 0 9 * * 1 주간 리뷰")
+            hour = int(m.group(1))
+            minute = int(m.group(2) or 0)
+            if hour > 23 or minute > 59:
+                # reject rather than silently clamp — 25:99 shouldn't become 23:59
+                return f"시간이 올바르지 않아요 ({hour:02d}:{minute:02d}). 00:00–23:59 범위로 다시 보내 주세요."
+            spec, prompt = {"kind": "daily", "hour": hour, "minute": minute,
+                            "display": f"{hour:02d}:{minute:02d} daily"}, \
+                m.group(3).strip()
+        if not prompt:
+            return "할 일을 함께 적어 주세요. 예: /remind every 30m 메일 확인"
         try:
-            job = cron.add_job(name="remind", hour=hour, minute=minute,
-                               action_type="prompt", value=prompt,
-                               deliver_chat_id=chat_id)
+            job = cron.add_job(name="remind", action_type="prompt",
+                               value=prompt, deliver_chat_id=chat_id,
+                               schedule=spec)
         except store.FileLockTimeout:
             return ("⚠ 리마인더 저장소가 사용 중입니다. "
                     "잠시 후 다시 시도해 주세요.")
-        return (f"⏰ 매일 {hour:02d}:{minute:02d}에 알려드릴게요: "
+        except ValueError as exc:
+            return f"스케줄을 이해하지 못했어요: {exc}"
+        return (f"⏰ {cron.schedule_display(job)}에 알려드릴게요: "
                 f"\"{prompt[:60]}\" (id {job['id']}, 취소는 /remind del {job['id']})")
 
     def resolve_action(self, aid: str, approve: bool) -> str:

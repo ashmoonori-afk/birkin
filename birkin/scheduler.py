@@ -211,7 +211,7 @@ def _write_status(cfg: dict[str, Any], next_morpheus: datetime, running: bool) -
         "nightly_hour": hour,
         "cron_jobs": [
             {"id": j["id"], "name": j.get("name"),
-             "at": f"{int(j.get('hour', 0)):02d}:{int(j.get('minute', 0)):02d}",
+             "at": cron.schedule_display(j),
              "type": j.get("type"), "enabled": j.get("enabled", True),
              "last_run": j.get("last_run")}
             for j in cron.load_jobs()],

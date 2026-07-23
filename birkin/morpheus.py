@@ -399,9 +399,12 @@ def _attach_propose_tool(session, cfg: dict[str, Any],
         name="propose_action",
         description="Propose a convenience action or cron job for tomorrow. It "
                     "is queued for the user's approval (not executed now). Use "
-                    "category 'cron' with payload {name, hour, minute, type "
+                    "category 'cron' with payload {name, schedule, type "
                     "('prompt'|'shell'), value}, or 'shell' with payload "
-                    "{command}.",
+                    "{command}. 'schedule' accepts '09:00' (daily), "
+                    "'every 30m', '2h' (once), or a 5-field cron expression "
+                    "like '0 9 * * 1'; omit it and pass hour/minute for a "
+                    "plain daily job.",
         input_schema={"type": "object", "properties": {
             "category": {"type": "string", "enum": ["cron", "shell"]},
             "title": {"type": "string"},
