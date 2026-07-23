@@ -59,9 +59,26 @@ class Session:
         """For CLI-agent backends: inject identity + memory + skills routed to
         the request (they can't call load_skill themselves)."""
         preloaded = self._route_cli_skills(text)
+        extra = ""
+        if not preloaded:
+            # Routing is keyword overlap against skill text, which is
+            # written in English — so a request in another language matches
+            # nothing and the CLI child would see no skills at all. That is
+            # the common case here, not an edge case: birkin's house rule
+            # is 대화는 한국어. Fall back to the catalog index and let the
+            # model, which is multilingual, pick. Same block the warm
+            # session already carries.
+            try:
+                idx = self.skills.index()
+            except Exception:
+                idx = ""
+            if idx:
+                extra = ("\n\n## birkin skills available\n"
+                         "Read the referenced SKILL.md with your own file "
+                         "tools to follow one when it fits the task.\n" + idx)
         self.agent.system = promptgate.compose_cli(
             self.cfg, memory_block=self.memory.render(),
-            preloaded=preloaded or None)
+            preloaded=preloaded or None, extra=extra)
 
     def _route_cli_skills(self, text: str,
                           loaded_skills: set[str] | None = None) -> list[str]:

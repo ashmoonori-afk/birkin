@@ -85,7 +85,13 @@ def validate_skill(skill_md: Path, source: str = "user") -> SkillReport:
             rep.warnings.append(f"missing recommended frontmatter field: {fld!r}")
 
     if not WHEN_TO_USE_RE.search(body or ""):
-        rep.warnings.append("no '## When to Use' section — agent routing degraded")
+        # The section IS the routing signal, so a skill without one is
+        # degraded either way. It is an ERROR for skills birkin ships — as a
+        # warning this was reported and ignored until one shipped without it
+        # — and a warning for the user's own skills, whose exit code is not
+        # birkin's to fail.
+        note = "no '## When to Use' section — agent routing degraded"
+        (rep.errors if source == "bundled" else rep.warnings).append(note)
 
     # Compile every Python file in this skill's directory (bundled scripts).
     for py in skill_md.parent.rglob("*.py"):
