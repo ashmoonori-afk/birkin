@@ -60,6 +60,43 @@ def test_restart_reloads_cli_access_safety(tmp_path, monkeypatch):
     assert gw.cfg["cli_access"] == "workspace"
 
 
+def test_soft_restart_rebuilds_intent_engine_with_reloaded_rollout(tmp_path, monkeypatch):
+    from birkin import config
+
+    class _Classifier:
+        provider = "openai"
+        model = "test"
+
+        def __init__(self):
+            self.calls = 0
+
+        def complete(self, **_kwargs):
+            self.calls += 1
+            return {"content": [{"type": "tool_use", "name": "resolve_command",
+                                 "input": {"kind": "action", "action": "restart",
+                                           "argument": "", "question": ""}}]}
+
+    # Use non-persistent mode so gw.session.ask is the actual turn handler,
+    # keeping this test focused on intent-engine rollout rather than pool wiring.
+    gw = _gateway(tmp_path, monkeypatch)
+    config.save_config({**gw.cfg, "natural_language_commands": "assist",
+                        "gateway_persistent": False})
+    gw.handle("http", "c1", "/restart")
+    classifier = _Classifier()
+    gw._intent_engine.client = classifier
+
+    assert "Confirm" in gw.handle("http", "c1", "restart gateway")
+    assert classifier.calls == 1
+
+    config.save_config({**gw.cfg, "natural_language_commands": "off",
+                        "gateway_persistent": False})
+    gw.handle("http", "c1", "/restart")
+    gw.session.ask = lambda _text, **_kwargs: "ordinary chat"
+
+    assert gw.handle("http", "c1", "restart gateway") == "ordinary chat"
+    assert classifier.calls == 1
+
+
 def test_hard_restart_sets_flag_without_execing(tmp_path, monkeypatch):
     """handle() must only FLAG a hard restart — the channel re-execs after reply."""
     gw = _gateway(tmp_path, monkeypatch)

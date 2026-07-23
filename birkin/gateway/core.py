@@ -3,12 +3,14 @@
 from __future__ import annotations
 
 import re
+import inspect
 import threading
 import time
 from typing import Any
 
 from .. import config, models, pools, promptgate, security, store
 from ..claude_session import ClaudeStreamSession
+from ..intents import IntentEngine
 from ..runtime import ConfigError, Session, build_session
 from .workflow import WORKFLOW_POLICY, is_running as workflow_is_running
 
@@ -63,6 +65,34 @@ _TELEGRAM_EXECUTION_POLICY = (
     "workspace, and tell the user the receipt path.\n"
     "</gateway-execution-policy>\n\n"
 )
+
+
+class _GatewayPending(dict[str, Any]):
+    """Drop previews that an open Telegram bot may never authorize."""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self._lock = threading.Lock()
+        self._blocked: dict[str, int] = {}
+
+    def block(self, key: str) -> None:
+        with self._lock:
+            self._blocked[key] = self._blocked.get(key, 0) + 1
+
+    def unblock(self, key: str) -> None:
+        with self._lock:
+            count = self._blocked.get(key, 0) - 1
+            if count > 0:
+                self._blocked[key] = count
+            else:
+                self._blocked.pop(key, None)
+
+    def __setitem__(self, key: str, value: Any) -> None:
+        action = getattr(getattr(value, "result", None), "action", "")
+        with self._lock:
+            if key in self._blocked and action in _PRIVILEGED_COMMANDS:
+                return
+        super().__setitem__(key, value)
 
 
 def _gateway_model_choices(provider: str, cfg: dict[str, Any]) -> list[str]:
@@ -198,6 +228,11 @@ class Gateway:
             cfg = {**cfg, "cli_access": "workspace"}
         self.cfg = cfg
         self.session: Session = build_session(cfg)  # may raise ConfigError
+        self._intent_engine = IntentEngine(
+            cfg, getattr(self.session, "client", None),
+            (canonical for canonical, _desc, _triggers in _GATEWAY_COMMANDS),
+            surface="gateway")
+        self._intent_engine._pending = _GatewayPending()
         self._chats: dict[tuple[str, str], list[dict[str, Any]]] = {}
         self._lock = threading.Lock()
 
@@ -231,6 +266,11 @@ class Gateway:
         self._restart_origin: tuple[str, str] | None = None
         # Loaded by run() from the restart marker after a re-exec (one-shot).
         self._restart_notice: dict[str, Any] | None = None
+
+    def _retained(self, text: str,
+                  replacements: tuple[tuple[str, str], ...]) -> str:
+        retain = getattr(self.session, "_retain", None)
+        return retain(text, replacements) if callable(retain) else text
 
     def _system_prompt(self) -> str:
         """birkin persona + memory + skill index, snapshot for a warm session.
@@ -362,6 +402,11 @@ class Gateway:
             self.session = build_session(cfg)
         except ConfigError as exc:
             return f"[restart] config error: {exc}"
+        self._intent_engine = IntentEngine(
+            cfg, getattr(self.session, "client", None),
+            (canonical for canonical, _desc, _triggers in _GATEWAY_COMMANDS),
+            surface="gateway")
+        self._intent_engine._pending = _GatewayPending()
         self.prewarm()   # rebuild the spare from the RELOADED config
         return ("♻️ Gateway restarted — reloaded config, persona, memory and "
                 "skills; warm sessions cleared (conversations start fresh).\n\n"
@@ -451,6 +496,39 @@ class Gateway:
         cmd, cmd_arg = match_command(text)
         display_text = text
         skill_query = display_text
+        retained_replacements: tuple[tuple[str, str], ...] = ()
+        natural_neurosis = False
+        intent_key = f"{channel}:{chat_id}"
+        if text.startswith("/"):
+            self._intent_engine.cancel(intent_key)
+        elif cmd is None:
+            pending = self._intent_engine._pending
+            blocked_preview = (channel == "telegram"
+                               and not self._command_trusted(channel))
+            if blocked_preview:
+                pending.block(intent_key)
+            try:
+                intent = self._intent_engine.resolve(text, intent_key)
+            finally:
+                if blocked_preview:
+                    pending.unblock(intent_key)
+            retained_replacements = intent.retained_replacements
+            if intent.attempted:
+                display_text = intent.retained_text
+                skill_query = display_text
+            if intent.kind in {"reply", "reject"}:
+                return intent.question
+            if intent.kind == "preview":
+                if (intent.action in _PRIVILEGED_COMMANDS
+                        and not self._command_trusted(channel)):
+                    self._intent_engine.cancel(intent_key)
+                    return ("This command is restricted. Set "
+                            "channels.telegram.allowed_chat_ids so only you can run "
+                            "/update, /models, /effort, /restart and /hard_restart.")
+                return f"Confirm /{intent.action}: reply confirm to continue."
+            if intent.kind == "command":
+                cmd, cmd_arg = intent.action, intent.argument
+                natural_neurosis = cmd == "neurosis"
         if cmd == "neurosis":
             # Seed/resume the interview, then run the kickoff as a normal turn so
             # it works on both the persistent and non-persistent paths.
@@ -475,8 +553,18 @@ class Gateway:
                 return ("아이디어를 함께 주세요: /neurosis <모호한 아이디어> "
                         "(진행 중인 인터뷰가 있으면 /neurosis 만으로 재개).")
             text = neurosis.start_prompt(seed)               # sent to the agent
-            display_text = idea_arg or "/neurosis (resume)"  # logged / auto-saved
-            skill_query = f"neurosis {display_text}"
+            if natural_neurosis:
+                retained_replacements += tuple(
+                    (str(seed[name]), f"[redacted neurosis {name}]")
+                    for name in ("idea", "slug", "state_path", "spec_path")
+                    if seed.get(name))
+                if idea_arg:
+                    retained_replacements += ((idea_arg, "[redacted neurosis idea]"),)
+                display_text = "neurosis [redacted intent candidate]"
+                skill_query = display_text
+            else:
+                display_text = idea_arg or "/neurosis (resume)"  # logged / auto-saved
+                skill_query = f"neurosis {display_text}"
             cmd = None                                       # fall through to a turn
         with self._lock:
             # Privileged commands pull code / restart the service / rewrite config.
@@ -563,7 +651,8 @@ class Gateway:
                 except RuntimeError as exc:
                     dt = time.monotonic() - t0
                     print(f"[gateway] {channel}:{chat_id} ✗ error after "
-                          f"{dt:.1f}s: {exc}", flush=True)
+                          f"{dt:.1f}s: {self._retained(str(exc), retained_replacements)}",
+                          flush=True)
                     return TURN_ERROR_REPLY
 
             trusted_telegram = (channel == "telegram"
@@ -602,10 +691,21 @@ class Gateway:
                             ctx.subagent_approval_required = trusted_telegram
                             ctx.approved_work = approved_work
                         try:
-                            reply = self.session.ask(
-                                text,
-                                review_skills=self._command_trusted(channel),
-                                route_query=skill_query)
+                            params = inspect.signature(self.session.ask).parameters
+                            accepts_kwargs = any(
+                                param.kind is inspect.Parameter.VAR_KEYWORD
+                                for param in params.values())
+                            kwargs = {}
+                            if accepts_kwargs or "review_skills" in params:
+                                kwargs["review_skills"] = self._command_trusted(channel)
+                            if accepts_kwargs or "route_query" in params:
+                                kwargs["route_query"] = skill_query
+                            if hasattr(self.session, "_retain"):
+                                if accepts_kwargs or "retained_text" in params:
+                                    kwargs["retained_text"] = display_text
+                                if accepts_kwargs or "retained_replacements" in params:
+                                    kwargs["retained_replacements"] = retained_replacements
+                            reply = self.session.ask(text, **kwargs)
                         finally:
                             if ctx is not None:
                                 ctx.subagent_approval_required = old_required
@@ -616,7 +716,8 @@ class Gateway:
                 # Full detail to the server log; a friendly line to the chat —
                 # the raw exception can leak paths/internals to a Telegram user.
                 print(f"[gateway] {channel}:{chat_id} ✗ error after "
-                      f"{dt:.1f}s: {exc}", flush=True)
+                      f"{dt:.1f}s: {self._retained(str(exc), retained_replacements)}",
+                      flush=True)
                 return TURN_ERROR_REPLY
             dt = time.monotonic() - t0
             print(f"[gateway] {channel}:{chat_id} » {len(reply or '')} chars in "
@@ -625,7 +726,8 @@ class Gateway:
                 f"gateway[{channel}:{chat_id}]: {display_text[:100]}")
             if persistent:
                 self.session._record_turn(
-                    display_text, reply or "",
+                    display_text,
+                    self._retained(reply or "", retained_replacements),
                     review_skills=self._command_trusted(channel))
             # Auto-save the turn so the nightly Morpheus routine can extract
             # memory — but ONLY for trusted conversations (an open Telegram bot's
@@ -634,7 +736,9 @@ class Gateway:
             if self._autosave_trusted(channel):
                 from .. import transcripts
                 transcripts.append_turn(
-                    channel, str(chat_id), display_text, reply or "", cfg=self.cfg)
+                    channel, str(chat_id), display_text,
+                    self._retained(reply or "", retained_replacements),
+                    cfg=self.cfg)
             return reply or "(no reply)"
         finally:
             if persistent:
