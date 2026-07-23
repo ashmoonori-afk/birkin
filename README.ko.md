@@ -252,6 +252,54 @@ birkin web                          # 모니터링 대시보드
 
 ### REPL 슬래시 명령
 
+### 자연어 명령 라우팅 (선택 기능)
+
+Birkin은 한국어 또는 영어의 명령처럼 보이는 채팅 한 문장을 인식할 수 있습니다.
+기존의 리터럴 `/명령`은 현재 동작을 그대로 유지하며, 이 기능은 기본적으로 꺼져
+있습니다.
+
+```json
+{
+  "natural_language_commands": "off"
+}
+```
+
+예: `도움말 보여줘`, `현재 모델 보여줘`, `list reminders`,
+`게이트웨이 재시작해`. REPL과 Gateway에서 같은 기능을 쓰지만, 실제 실행은 기존
+명령 핸들러와 각 표면의 신뢰 검사가 계속 결정합니다.
+
+| 모드 | 동작 |
+|---|---|
+| `off` | 분류하지 않고 일반 채팅으로 처리합니다. 기본값이며 잘못된 값도 `off`가 됩니다. |
+| `observe` | 명령 후보를 분류·감사하지만 항상 일반 채팅으로 계속합니다. |
+| `assist` | 인식한 모든 동작의 연결된 미리보기를 보여 주고 확인을 기다립니다. |
+| `auto-safe` | 아래 읽기/UI 형식만 자동 실행하고, 나머지 유효 동작은 모두 미리보기로 확인합니다. |
+
+`auto-safe`에서 REPL은 `help`, `skills`, `skill`, `memory`, `vault`, `tools`,
+`system`, `config`, `cron`, `sessions`, `mcp`, `clear`와 인자 없는 `model`,
+`provider`, `temp`, `permission`, `soul`, `personality` 표시만 자동 실행합니다.
+Gateway는 `help`, `pending`, 인자 없는 `models`/`effort`, 인자 없거나 `list`인
+`remind`만 자동 실행합니다. 모델 변경, 리마인더 추가/삭제, 재시작/업데이트,
+영구 쓰기, 세션 파괴 동작 등 다른 유효 동작은 확인합니다. 정책은 기본 거부이므로
+새 명령은 명시적으로 추가되기 전까지 자동 안전이 아닙니다.
+
+미리보기 확인은 정확히 `승인`, `실행`, `예`, `네`, `yes`, `y`, `confirm`, `run` 중
+하나로 답합니다. 거절은 `취소`, `아니요`, `아니`, `no`, `n`, `cancel`, `reject` 중
+하나입니다. 답변 전체가 그 단어 하나여야 합니다. 미리보기는 REPL 세션 또는
+Gateway 채팅 하나에 묶이고 5분 뒤 만료되며, 실행 전에 소비됩니다. 거절, 교체,
+리터럴 명령, 재시작 때 폐기되고, 재시작 뒤 저장·재생되지 않습니다. 비어 있지 않은
+`permission` 인자가 든 자연어는 로컬에서 거절됩니다. 기존 변경 동작은 리터럴
+`/permission ...`만 사용하세요.
+
+API 제공자는 제한된 단일 action 스키마로 컴파일합니다. 내장 `claude-cli`와
+`codex-cli`는 읽기 전용·도구 없음·출력 제한의 별도 분류기를 사용합니다. 잘못된
+출력, 지원하지 않는 제공자, 시간 초과, 제공자 오류는 일반 채팅으로 돌아갑니다.
+`local-cli`는 자연어 명령을 실행하지 않으며 역시 일반 채팅으로 돌아갑니다.
+
+즉시 되돌리려면 `config.json`에서 `natural_language_commands`를 `"off"`로
+설정하고 REPL 또는 Gateway를 평소처럼 재시작하세요. 대기 중인 미리보기는 재시작을
+넘어가지 않습니다.
+
 `/help`로 전체 목록. 라인 에디터: **Ctrl+←/→** 단어 이동, **Ctrl-W** 단어 삭제,
 **Ctrl-U/Ctrl-K** 현재 줄의 시작/끝까지 삭제, **↑/↓** 히스토리, **Shift+Enter**
 줄바꿈, 인라인 `/` 드롭다운.
@@ -352,6 +400,7 @@ ADR-029·ADR-032:
   "gateway_persistent": true,
   "gateway_allowed_tools": [],
   "autosave_transcripts": true,
+  "natural_language_commands": "off",
   "neurosis_auto": true,
   "neurosis_threshold": null,
   "morpheus_hour": 4,

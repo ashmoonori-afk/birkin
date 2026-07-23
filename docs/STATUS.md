@@ -1,6 +1,10 @@
 # birkin — Build Status
 
-> Snapshot: 2026-07-15 · **800+ tests, green** (coverage 78.2 %) · Newest:
+> Snapshot: 2026-07-23 · **0.1.61 natural-language command engine**:
+> opt-in `off`/`observe`/`assist`/`auto-safe` classification across REPL and
+> Gateway, bound previews, exact Korean/English confirmation, surface-specific
+> canonical action allowlists, read-only Claude/Codex CLI classification, and
+> soft-restart config reload. Earlier:
 > **Telegram long-work workflow approval** — proactive plan buttons before
 > 3-minute/multi-phase/subagent work, chat-bound single-claim execution,
 > 180-second edit-in-place heartbeat, interruption/recovery states, and a hard

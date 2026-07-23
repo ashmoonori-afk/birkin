@@ -352,7 +352,48 @@ Secrets are read from the environment first (`ANTHROPIC_API_KEY` /
 
 ---
 
-## 12. Roadmap / open questions
+## 12. Natural-language command routing
+
+Natural-language routing is a small, default-off layer in front of ordinary
+non-slash chat on the REPL and Gateway. Literal slash commands and argparse do
+not enter it.
+
+```
+candidate cue
+  -> provider compilation (one strict action/clarify/chat result)
+  -> local validation (canonical action, argument, surface)
+  -> current surface trust + effect policy
+  -> auto dispatch or bound confirmation
+  -> existing canonical command handler
+```
+
+The compiler is advisory only: it cannot execute raw model text or aliases.
+The catalog resolves only current canonical commands, and the existing REPL or
+Gateway handler remains the executor. API providers use one restricted action
+schema. Built-in Claude/Codex CLI classification uses a separate read-only,
+tool-free, bounded one-shot client. `local-cli`, malformed or unsupported
+results, provider errors, and timeouts return to ordinary chat.
+
+`off` bypasses cue matching and compilation. `observe` compiles and audits a
+candidate but always chats; `assist` confirms every recognized action; and
+`auto-safe` dispatches only its explicit read/UI matrix. The matrix is
+default-deny: REPL auto-safe actions are `help`, `skills`, `skill`, `memory`,
+`vault`, `tools`, `system`, `config`, `cron`, `sessions`, `mcp`, `clear`, and
+empty display forms of `model`, `provider`, `temp`, `permission`, `soul`, and
+`personality`. Gateway auto-safe actions are `help`, `pending`, empty
+`models`/`effort`, and empty or `list` `remind`. All other valid actions need
+confirmation. A natural `permission` action with a nonempty argument is
+rejected locally; only its literal slash command keeps its existing mutation
+path.
+
+Each REPL session or Gateway `(channel, chat_id)` holds at most one in-memory
+clarification/confirmation. It expires after five minutes, is atomically
+consumed before dispatch, and is cancelled by rejection, replacement, literal
+command, or restart. Nothing is persisted, and no confirmation is replayed
+after a restart. Consequential actions receive a durable redacted audit record
+before dispatch, but that audit is not an approval store.
+
+## 13. Roadmap / open questions
 
 - Embedding-based semantic search as an *optional* upgrade over keyword search.
 - OS-native scheduler registration (`crontab` / `schtasks`) as an opt-in for

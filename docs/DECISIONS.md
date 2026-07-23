@@ -4,7 +4,7 @@ Lightweight architecture decision records. Each entry: context, decision,
 rationale, alternatives considered, status. Newest decisions may supersede
 older ones (noted inline).
 
-> Last updated: 2026-07-15
+> Last updated: 2026-07-23
 
 ---
 
@@ -1675,3 +1675,37 @@ guarded by a lock. No async framework.
 handling avoids races on the shared agent/session and keeps the code tiny.
 
 **Status.** Accepted.
+
+---
+
+## ADR-050 — Natural-language commands are default-off, compiled read-only, and narrowly auto-safe
+
+- **Context.** Korean and English command-like chat is convenient, but a model
+  suggestion must not become a second command surface, broaden privileges, or
+  create a durable approval channel.
+- **Decision.** Add one global `natural_language_commands` rollout setting:
+  `off` (default), `observe`, `assist`, and `auto-safe`; invalid values become
+  `off`. There is no `auto-all`. Literal slash commands and argparse remain
+  outside the feature and retain their existing behavior.
+- **Compiler boundary.** API providers receive one strict action schema.
+  Built-in Claude/Codex CLI providers use a separate read-only, tool-free,
+  bounded classifier. `local-cli` does not execute natural-language commands.
+  Provider errors, timeouts, malformed/unsupported output, unknown actions, and
+  invalid surface/argument combinations fail closed to ordinary chat.
+- **Execution policy.** `observe` always chats; `assist` confirms every
+  recognized action; `auto-safe` dispatches only this explicit matrix:
+  REPL `help`, `skills`, `skill`, `memory`, `vault`, `tools`, `system`,
+  `config`, `cron`, `sessions`, `mcp`, `clear`, plus empty display forms of
+  `model`, `provider`, `temp`, `permission`, `soul`, and `personality`; Gateway
+  `help`, `pending`, empty `models`/`effort`, and empty or `list` `remind`.
+  Every missing matrix entry confirms. A natural `permission` action with a
+  nonempty argument is rejected locally, rather than confirmed or dispatched;
+  literal `/permission ...` keeps its existing behavior.
+- **Confirmation.** At most one confirmation/clarification exists in memory for
+  a REPL session or Gateway `(channel, chat_id)`. It expires after five minutes,
+  is consumed before dispatch, and is cancelled on rejection, replacement,
+  literal command, or restart. It has no durable record and cannot replay after
+  restart. Existing surface trust checks and handlers remain authoritative.
+- **Rationale.** A default-off, exact allowlist keeps the feature additive and
+  auditable while retaining current command, trust, and rollback behavior.
+- **Status.** Accepted.

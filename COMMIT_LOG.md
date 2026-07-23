@@ -5,3 +5,4 @@
 | C3 | feat(config): add intent rollout modes | 0.1.58 |
 | C4 | feat(repl): route natural-language commands safely | 0.1.59 |
 | C5 | feat(gateway): route natural-language commands safely | 0.1.60 |
+| C6 | docs(intent): document rollout and safeguards | 0.1.61 |

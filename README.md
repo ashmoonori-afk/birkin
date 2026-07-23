@@ -292,6 +292,57 @@ birkin web                          # monitoring dashboard
 
 ### In-chat slash commands (REPL)
 
+### Natural-language command routing (opt-in)
+
+Birkin can recognize one command-like Korean or English chat message, while
+literal `/commands` keep their current behavior. It starts disabled:
+
+```json
+{
+  "natural_language_commands": "off"
+}
+```
+
+Examples: `show help`, `현재 모델 보여줘`, `list reminders`, and
+`게이트웨이 재시작해`. The same feature is available in the REPL and Gateway;
+the existing command handler and each surface's trust checks still decide what
+can run.
+
+| Mode | Behavior |
+|---|---|
+| `off` | Do not classify; use ordinary chat. This is the default and invalid values become `off`. |
+| `observe` | Classify and audit a command candidate, then always continue as ordinary chat. |
+| `assist` | Show a bound preview for every recognized action and wait for confirmation. |
+| `auto-safe` | Run only the read/UI forms below automatically; preview every other valid action. |
+
+In `auto-safe`, REPL automatically allows `help`, `skills`, `skill`, `memory`,
+`vault`, `tools`, `system`, `config`, `cron`, `sessions`, `mcp`, and `clear`,
+plus empty display forms of `model`, `provider`, `temp`, `permission`, `soul`,
+and `personality`. Gateway automatically allows `help`, `pending`, empty
+`models`/`effort`, and empty or `list` `remind`. Everything else confirms,
+including model changes, reminders that add/delete, restart/update, durable
+writes, and session-destructive actions. The policy is default-deny: new
+commands are never auto-safe until explicitly added.
+
+Confirm a preview with exactly `승인`, `실행`, `예`, `네`, `yes`, `y`, `confirm`,
+or `run`; reject it with `취소`, `아니요`, `아니`, `no`, `n`, `cancel`, or `reject`.
+The reply must be exactly one of those words. A preview is bound to one session
+or Gateway chat, expires after five minutes, is consumed before execution, and
+is discarded on rejection, replacement, literal command, or restart. It is
+never persisted or replayed after restart. Natural language with a nonempty
+`permission` argument is rejected locally; use the existing literal
+`/permission ...` command for its existing mutation behavior.
+
+API providers compile through one restricted action schema. Built-in
+`claude-cli` and `codex-cli` use a separate read-only, tool-free bounded
+classifier; malformed, unsupported, timed-out, or unavailable provider output
+falls back to ordinary chat. `local-cli` does not execute natural-language
+commands and also falls back to chat.
+
+To roll back immediately, set `natural_language_commands` to `"off"` in
+`config.json`, then restart the REPL or Gateway normally. Pending previews do
+not survive that restart.
+
 Type `/help` for the full list. Line editor: **Ctrl+←/→** word motion, **Ctrl-W**
 delete word, **Ctrl-U/Ctrl-K** clear to start/end, **↑/↓** history, **Shift+Enter**
 newline, inline `/`-dropdown.
@@ -396,6 +447,7 @@ Keys you'll actually touch:
   "gateway_persistent": true,
   "gateway_allowed_tools": [],
   "autosave_transcripts": true,
+  "natural_language_commands": "off",
   "neurosis_auto": true,
   "neurosis_threshold": null,
   "morpheus_hour": 4,
