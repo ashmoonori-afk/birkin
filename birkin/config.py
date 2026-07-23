@@ -83,6 +83,12 @@ DEFAULT_CONFIG: dict[str, Any] = {
     # prompt, which anyone able to write config.json can then abuse.
     "hooks": {},
     "hooks_auto_accept": False,
+    # Scan skills the AGENT writes with the same threat rules used for
+    # third-party ones, rolling back a create/improve that trips them.
+    # Off by default for the same reason hermes leaves it off: on the
+    # native loop the agent already has shell, so this stops mistakes,
+    # not a determined agent. See skills/guard.py.
+    "skills_guard_agent_created": False,
     "checkpoint_keep": 20,       # snapshots retained per workspace
     # Commands permanently allowed without asking (exact match or glob).
     # Grown by answering "always" at the prompt. Compound commands never

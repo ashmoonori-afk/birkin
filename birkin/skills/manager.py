@@ -279,6 +279,28 @@ class SkillManager:
         ]
 
 
+def _guard_agent_written(path: Path, what: str) -> None:
+    """Scan a skill the agent just wrote, rolling the write back if it trips.
+
+    Opt-in (``skills_guard_agent_created``) for the same reason hermes leaves
+    it off: on the native loop the agent already has shell, so this catches a
+    model that copied something hostile into a skill, not a determined agent.
+    """
+    if not config.load_config().get("skills_guard_agent_created"):
+        return
+    from . import guard
+    result = guard.scan_skill(path.parent, source="agent-created")
+    if guard.should_allow_install(result) is True:
+        return
+    try:
+        path.unlink()
+    except OSError:
+        pass
+    raise SkillProposalError(
+        f"{what} was rolled back — the security scan returned "
+        f"{result.verdict}:\n{guard.format_report(result, path.parent.name)}")
+
+
 def apply_skill_proposal(payload: dict[str, Any]) -> str:
     """Carry out an approved skill change (create / improve). Returns a human
     summary. Used by ``approvals.execute_action(category="skill")``."""
@@ -299,6 +321,7 @@ def apply_skill_proposal(payload: dict[str, Any]) -> str:
                 path = _write_skill(name, desc, body, payload.get("tags") or [])
         except store.FileLockTimeout:
             raise SkillProposalError("skill store is busy") from None
+        _guard_agent_written(path, f"skill {name!r}")
         return f"Created skill {name!r} at {path}"
     if action == "improve":
         target_name = payload.get("target", "").strip()

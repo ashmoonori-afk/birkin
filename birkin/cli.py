@@ -82,6 +82,9 @@ def _cmd_compare(args: argparse.Namespace) -> int:
 def _cmd_skills(args: argparse.Namespace) -> int:
     from . import config
     from .skills import build_manager
+    if args.name in ("install", "uninstall", "audit", "scan"):
+        return {"install": _skills_install, "uninstall": _skills_uninstall,
+                "audit": _skills_audit, "scan": _skills_scan}[args.name](args)
     if args.name == "sync":
         return _skills_sync(args)
     if args.name == "validate":
@@ -135,6 +138,76 @@ def _skills_validate(args: argparse.Namespace) -> int:
     summary = skv.validate_all()
     print(skv.format_summary(summary, verbose=getattr(args, "verbose", False)))
     return 0 if summary.ok else 1
+
+
+def _skills_install(args) -> int:
+    """`birkin skills install <owner/repo[/path]> [--force]` — fetch a skill
+    from GitHub into quarantine, scan it, and install only if allowed."""
+    from .skills import hub
+
+    def confirm(report: str) -> bool:
+        print(report)
+        print("\nThis skill comes from a third party. Its SKILL.md becomes "
+              "instructions your agent follows, and its scripts run on this "
+              "machine.")
+        try:
+            return input("Install it? [y/N] ").strip().lower() in ("y", "yes")
+        except (EOFError, KeyboardInterrupt):
+            return False
+
+    identifier = (getattr(args, "target", "") or "").strip()
+    if not identifier:
+        print("Which skill? `birkin skills install <owner/repo[/path]>`")
+        return 1
+    ok, report = hub.install(identifier, force=args.force, confirm=confirm)
+    print(report)
+    return 0 if ok else 1
+
+
+def _skills_uninstall(args) -> int:
+    """`birkin skills uninstall <name>` — remove an installed hub skill."""
+    from .skills import hub
+    name = (args.target or "").strip()
+    if not name:
+        print("Which skill? `birkin skills uninstall <name>`")
+        return 1
+    try:
+        removed = hub.uninstall(name)
+    except hub.HubError as exc:
+        print(f"Refused: {exc}")
+        return 1
+    print(f"Removed {name}." if removed else f"Not installed: {name}")
+    return 0 if removed else 1
+
+
+def _skills_audit(args) -> int:
+    """`birkin skills audit` — installed hub skills and the install log."""
+    from .skills import hub
+    lock = hub.load_lock()
+    if lock:
+        print("Installed from the hub:")
+        for name, entry in sorted(lock.items()):
+            print(f"  {name:<24} {entry.get('identifier', '?'):<36} "
+                  f"{entry.get('verdict', '?')}/{entry.get('trust', '?')}")
+    else:
+        print("No hub-installed skills.")
+    lines = hub.read_audit()
+    if lines:
+        print("\nRecent activity:")
+        for line in lines:
+            print(f"  {line}")
+    return 0
+
+
+def _skills_scan(args) -> int:
+    """`birkin skills scan <dir>` — run the security scanner over a bundle."""
+    from pathlib import Path as _Path
+
+    from .skills import guard
+    target = _Path(args.target or ".").expanduser()
+    result = guard.scan_skill(target, source=args.source or "community")
+    print(guard.format_report(result, target.name))
+    return 0 if result.verdict != "dangerous" else 1
 
 
 def _cmd_web(args: argparse.Namespace) -> int:
@@ -502,6 +575,9 @@ def build_parser() -> argparse.ArgumentParser:
     sp.add_argument("--force", action="store_true", help="overwrite existing mirrors")
     sp.add_argument("--verbose", action="store_true",
                     help="show warnings-only skills in `skills validate`")
+    sp.add_argument("target", nargs="?",
+                    help="argument for install/uninstall/scan")
+    sp.add_argument("--source", help="trust source for `skills scan`")
     sp.set_defaults(func=_cmd_skills)
 
     wp = sub.add_parser("web", help="launch the local WebUI")
