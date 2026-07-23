@@ -14,7 +14,7 @@ the agent can recover.
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Callable, Optional
 
@@ -40,6 +40,12 @@ class ToolContext:
     emit: Optional[Callable[[str, dict[str, Any]], None]] = None
     subagent_approval_required: bool = False
     approved_work: bool = False
+    # Dangerous-command gate (see shellguard.py). ``shell_prompt_cb`` is
+    # set only by interactive surfaces:
+    #     (command, why) -> once|session|always|deny
+    # Without it a flagged command is queued for approval instead.
+    shell_prompt_cb: Optional[Callable[[str, str], str]] = None
+    shellguard_approved: set[str] = field(default_factory=set)
 
 
 @dataclass

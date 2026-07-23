@@ -139,7 +139,31 @@ def run(cfg: dict[str, Any] | None = None) -> int:
             start_spin()
             return True
 
+        listener_cell: dict[str, Any] = {"v": None}
+
+        def shell_prompt(command: str, why: str) -> str:
+            """Ask before a flagged shell command runs.
+
+            The key listener owns stdin during a turn, so it has to be
+            stopped for the question and restarted afterwards — otherwise
+            it eats the answer keystroke by keystroke."""
+            stop_spin()
+            if listener_cell["v"] is not None:
+                listener_cell["v"].stop()
+            print(f"\n{YELLOW}⚠ {why}{RESET}\n  {command[:300]}")
+            try:
+                answer = input("  run [o]nce / this [s]ession / "
+                               "[a]lways / [d]eny? ").strip().lower()
+            except (EOFError, KeyboardInterrupt):
+                answer = "deny"
+            listener_cell["v"] = abortkey.listen_for_interrupt(
+                on_interrupt, on_line)
+            start_spin()
+            return answer or "deny"
+
+        session.ctx.shell_prompt_cb = shell_prompt
         listener = abortkey.listen_for_interrupt(on_interrupt, on_line)
+        listener_cell["v"] = listener
         start_spin()
         try:
             reply = session.ask(line, on_text=on_text)  # streamed live above
@@ -163,9 +187,13 @@ def run(cfg: dict[str, Any] | None = None) -> int:
             stop_spin()
             print(f"\n{RED}Error: {exc}{RESET}")
         finally:
-            listener.stop()
+            # Read through the cell: an approval prompt may have swapped
+            # the listener, and stopping the stale one would leave a
+            # thread holding the terminal in cbreak mode.
+            live = listener_cell["v"] or listener
+            live.stop()
             # A line typed during the reply (Enter-interrupt) becomes next input.
-            pending = (getattr(listener, "pending_line", "") or "").strip()
+            pending = (getattr(live, "pending_line", "") or "").strip()
             session.agent.on_event = base_event
     session.close()   # release the warm CLI process, if repl_warm_session
     print(f"{DIM}bye.{RESET}")

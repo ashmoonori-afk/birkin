@@ -24,6 +24,10 @@ def _run_shell(inp: dict[str, Any], ctx: ToolContext) -> ToolResult:
     command = inp.get("command", "").strip()
     if not command:
         return ToolResult("Empty command", is_error=True)
+    from .. import shellguard
+    blocked = shellguard.check(command, ctx)
+    if blocked is not None:
+        return blocked
     cwd = Path(inp["cwd"]).expanduser() if inp.get("cwd") else ctx.cwd
     timeout = int(inp.get("timeout", DEFAULT_TIMEOUT))
     try:

@@ -36,13 +36,22 @@ def gateway_warnings(cfg: dict[str, Any]) -> list[str]:
     if provider not in _GATED_PROVIDERS:
         # The non-persistent gateway path drives the native loop, where
         # run_shell has no approval gate (risk tiers only sort the inbox).
-        if "run_shell" not in disabled:
+        if "run_shell" not in disabled and str(
+                cfg.get("shell_approval", "manual")).lower() == "off":
             out.append(
-                f"provider={provider!r} uses birkin's NATIVE tool loop, where "
-                "run_shell runs with NO approval gate — a chat message reaching "
-                "the gateway can execute shell. Lock it down with "
-                'disabled_tools: ["run_shell", "subagent"] in config, or use '
-                "provider=claude-cli (Claude Code gates every tool).")
+                f"provider={provider!r} uses birkin's NATIVE tool loop and "
+                'shell_approval is "off", so run_shell executes anything the '
+                "model produces — a chat message reaching the gateway can run "
+                'shell. Set shell_approval: "manual" (destructive commands '
+                "are then queued for `birkin review`), or lock it down with "
+                'disabled_tools: ["run_shell", "subagent"].')
+        elif "run_shell" not in disabled:
+            out.append(
+                f"provider={provider!r} uses birkin's NATIVE tool loop. "
+                "shellguard flags destructive run_shell commands and queues "
+                "them for approval, but it is pattern-based — a seatbelt, "
+                "not a sandbox. For an untrusted/company gateway prefer "
+                'disabled_tools: ["run_shell", "subagent"].')
         if not cfg.get("fs_jail"):
             out.append(
                 "file tools (write_file/edit_file) are not path-confined on the "

@@ -63,6 +63,18 @@ DEFAULT_CONFIG: dict[str, Any] = {
     # restore strictly serial execution.
     "parallel_tools": True,
     "parallel_tool_workers": 8,
+    # Gate destructive run_shell commands on the native loop
+    # (shellguard.py).
+    #   "manual" — prompt in the REPL; queue for approval when unattended
+    #   "smart"  — let `approval_model` clear obviously-safe commands first
+    #   "off"    — no gate (the pre-shellguard behavior)
+    # A small set of catastrophic commands is refused in every mode.
+    "shell_approval": "manual",
+    # Commands permanently allowed without asking (exact match or glob).
+    # Grown by answering "always" at the prompt. Compound commands never
+    # match, so an approval cannot carry a chained command in with it.
+    "command_allowlist": [],
+    "approval_model": "",        # empty -> session model, for "smart"
     "max_depth": 2,  # subagent recursion bound
     "extra_skill_dirs": [],  # additional directories to scan for SKILL.md
     "disabled_tools": [],  # tool names the agent may NOT use (see `birkin tools`)
