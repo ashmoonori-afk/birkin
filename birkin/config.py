@@ -70,6 +70,11 @@ DEFAULT_CONFIG: dict[str, Any] = {
     #   "off"    — no gate (the pre-shellguard behavior)
     # A small set of catastrophic commands is refused in every mode.
     "shell_approval": "manual",
+    # Snapshot the workspace before a mutating tool runs, into a bare git
+    # store under <birkin_home>/checkpoints (never inside your project,
+    # and never touching your own git history). Undo with /rollback.
+    "checkpoints": True,
+    "checkpoint_keep": 20,       # snapshots retained per workspace
     # Commands permanently allowed without asking (exact match or glob).
     # Grown by answering "always" at the prompt. Compound commands never
     # match, so an approval cannot carry a chained command in with it.

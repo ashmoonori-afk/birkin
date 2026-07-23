@@ -12,7 +12,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Callable, Optional
 
-from . import budget, config, promptgate, store
+from . import budget, checkpoints, config, promptgate, store
 from .agent import Agent
 from .llm import LLMClient, LLMError, build_client
 from .memory import Memory
@@ -109,6 +109,15 @@ class Session:
             return why
         self.skills.reload_if_changed()  # pick up edited/added skills live
         self.abort.clear()               # fresh turn — drop any stale abort
+        if self.ctx.checkpoints is not None:
+            self.ctx.checkpoints.new_turn()
+            if (self._use_warm()
+                    or self.cfg.get("provider") in config.CLI_PROVIDERS):
+                # A CLI provider's child process edits files with its own
+                # tools, which never reach our registry — so the only
+                # chance to snapshot is here, before the turn starts.
+                self.ctx.checkpoints.ensure_checkpoint(
+                    self.ctx.cwd, "before CLI turn")
         if self._use_warm():
             reply = self._warm_ask(text, on_text)
             if record_turn:
@@ -308,10 +317,14 @@ def build_session(cfg: Optional[dict[str, Any]] = None,
     client = build_client(cfg, api_key)
     skills = build_manager(cfg)
     memory = Memory(cfg)
+    checkpoint_mgr = checkpoints.CheckpointManager(
+        enabled=bool(cfg.get("checkpoints", True)),
+        keep=int(cfg.get("checkpoint_keep", 20)))
     ctx = ToolContext(
         cfg=cfg, client=client, cwd=Path.cwd(),
         skills=skills, memory=memory,
-        max_depth=int(cfg.get("max_depth", 2)), emit=on_event)
+        max_depth=int(cfg.get("max_depth", 2)), emit=on_event,
+        checkpoints=checkpoint_mgr)
     registry = build_registry(ctx)
     system = promptgate.compose_main(
         cfg, skills_index=skills.index(), memory_block=memory.render())

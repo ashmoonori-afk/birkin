@@ -130,6 +130,71 @@ def _undo(session: Any, arg: str) -> None:
     print(f"{DIM}Removed the last exchange ({len(session.agent.messages)} messages left).{RESET}")
 
 
+@command("rollback", "Undo file changes from an earlier checkpoint.",
+         "/rollback [N | diff N | N <file>]")
+def _rollback(session: Any, arg: str) -> None:
+    """Restore workspace files snapshotted before a turn.
+
+    Bare lists checkpoints; ``diff N`` previews; ``N`` restores everything from
+    that checkpoint; ``N <file>`` restores just one file.
+    """
+    mgr = getattr(session.ctx, "checkpoints", None)
+    if mgr is None or not getattr(mgr, "enabled", False):
+        print(f"{DIM}Checkpoints are disabled (config \"checkpoints\").{RESET}")
+        return
+    cwd = session.ctx.cwd
+    entries = mgr.list_checkpoints(cwd)
+    if not entries:
+        print(f"{DIM}No checkpoints yet for {cwd}.{RESET}")
+        return
+
+    parts = arg.split(maxsplit=2)
+    if not parts:
+        print(f"{BOLD}Checkpoints for {cwd}{RESET}")
+        for i, e in enumerate(entries, 1):
+            print(f"  {i:>2}. {e['short']}  {e['date'][:19]}  {e['reason']}")
+        print(f"{DIM}  /rollback diff 1   preview · "
+              f"/rollback 1   restore · /rollback 1 path/to/file{RESET}")
+        return
+
+    preview = parts[0].lower() == "diff"
+    if preview:
+        parts = parts[1:]
+    if not parts or not parts[0].isdigit():
+        print(f"{RED}Give a checkpoint number from /rollback.{RESET}")
+        return
+    n = int(parts[0])
+    if not 1 <= n <= len(entries):
+        print(f"{RED}No checkpoint {n} (have 1..{len(entries)}).{RESET}")
+        return
+    entry = entries[n - 1]
+
+    if preview:
+        text = mgr.diff(cwd, entry["hash"])
+        if not text.strip():
+            print(f"{DIM}No differences from that checkpoint.{RESET}")
+            return
+        lines = text.splitlines()
+        print("\n".join(lines[:80]))
+        if len(lines) > 80:
+            print(f"{DIM}… {len(lines) - 80} more lines{RESET}")
+        return
+
+    target = parts[1] if len(parts) > 1 else None
+    ok, message = mgr.restore(cwd, entry["hash"], target)
+    if not ok:
+        print(f"{RED}Rollback failed: {message}{RESET}")
+        return
+    print(f"{GREEN}{message} ({entry['short']}, {entry['reason']}).{RESET}")
+    print(f"{DIM}A checkpoint was taken first, so this is itself undoable. "
+          f"Files created after the checkpoint are left in place.{RESET}")
+    idx = _last_user_index(session.agent.messages)
+    if idx >= 0:
+        session.agent.messages = session.agent.messages[:idx]
+        print(f"{DIM}Dropped the last exchange so the chat matches the "
+              f"files.{RESET}")
+
+
 @command("compact", "Summarize the conversation to shrink context.", "/compact",
          aliases=["compress"])
 def _compact(session: Any, arg: str) -> None:

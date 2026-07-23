@@ -46,6 +46,9 @@ class ToolContext:
     # Without it a flagged command is queued for approval instead.
     shell_prompt_cb: Optional[Callable[[str, str], str]] = None
     shellguard_approved: set[str] = field(default_factory=set)
+    # checkpoints.CheckpointManager — snapshots the workspace before a
+    # mutating tool runs, so /rollback can undo it.
+    checkpoints: Any = None
 
 
 @dataclass
@@ -75,6 +78,9 @@ class ToolRegistry:
         tool = self._tools.get(name)
         if tool is None:
             return ToolResult(f"Unknown tool: {name!r}", is_error=True)
+        if self.ctx.checkpoints is not None:
+            from .. import checkpoints
+            checkpoints.preflight(self.ctx, name, tool_input or {})
         try:
             result = tool.fn(tool_input or {}, self.ctx)
         except Exception as exc:  # tools must never crash the agent loop
