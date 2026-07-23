@@ -17,7 +17,7 @@ from urllib.parse import urlparse
 
 from . import Tool, ToolContext, ToolResult
 
-MAX_TEXT = 40_000
+MAX_TEXT = 40_000     # historical visible cap; spill.py now applies the limit
 USER_AGENT = "birkin/0.1 (+https://github.com/NousResearch/hermes-agent)"
 
 
@@ -111,8 +111,8 @@ def _web_fetch(inp: dict[str, Any], ctx: ToolContext) -> ToolResult:
         text = "\n".join(parser.parts)
     else:
         text = body
-    if len(text) > MAX_TEXT:
-        text = text[:MAX_TEXT] + "\n[truncated]"
+    # No slicing here: the 2MB read above already bounds memory, and
+    # tools/spill.py saves the whole page before capping what the model sees.
     return ToolResult(f"# {url}\n\n{text}")
 
 

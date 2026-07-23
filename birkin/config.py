@@ -47,6 +47,12 @@ DEFAULT_CONFIG: dict[str, Any] = {
     "fallback_model": "",
     "fallback_base_url": "",
     "fallback_cooldown": 300,
+    # Tool results longer than this are written to disk and replaced by a
+    # preview plus the path, so the agent can grep or page through the rest
+    # instead of losing it. 0 disables. See tools/spill.py.
+    "spill_threshold": 30000,
+    "spill_dir": "",             # empty -> <birkin_home>/tool-results
+    "spill_retention_days": 7,
     "max_depth": 2,  # subagent recursion bound
     "extra_skill_dirs": [],  # additional directories to scan for SKILL.md
     "disabled_tools": [],  # tool names the agent may NOT use (see `birkin tools`)

@@ -70,9 +70,15 @@ class ToolRegistry:
         if tool is None:
             return ToolResult(f"Unknown tool: {name!r}", is_error=True)
         try:
-            return tool.fn(tool_input or {}, self.ctx)
+            result = tool.fn(tool_input or {}, self.ctx)
         except Exception as exc:  # tools must never crash the agent loop
             return ToolResult(f"Tool {name!r} failed: {exc}", is_error=True)
+        # The single choke point every native tool call passes through, so
+        # oversized output is handled once rather than in each tool.
+        from .spill import maybe_spill
+        content = maybe_spill(result.content, name, self.ctx.cfg)
+        return result if content is result.content \
+            else ToolResult(content, result.is_error)
 
 
 def build_registry(ctx: ToolContext, *, include: Optional[set[str]] = None) -> ToolRegistry:

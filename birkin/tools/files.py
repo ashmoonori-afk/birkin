@@ -80,14 +80,31 @@ def _read_file(inp: dict[str, Any], ctx: ToolContext) -> ToolResult:
     if not path.is_file():
         return ToolResult(f"No such file: {path}", is_error=True)
     data = path.read_bytes()
-    truncated = len(data) > MAX_READ_BYTES
-    text = data[:MAX_READ_BYTES].decode("utf-8", "replace")
+    try:
+        offset = max(0, int(inp.get("offset", 0) or 0))
+    except (TypeError, ValueError):
+        offset = 0
+    if offset >= len(data) and len(data):
+        return ToolResult(
+            f"offset {offset} is past the end of the file ({len(data)} bytes).",
+            is_error=True)
+    if offset and inp.get("annotate"):
+        # Annotation numbers lines from 1, so an offset read would hand
+        # edit_file line numbers that point somewhere else in the file. The
+        # hash anchor would reject the edit anyway — fail clearly instead.
+        return ToolResult(
+            "annotate cannot be combined with offset: line numbers would not "
+            "match the file. Re-read from offset=0 to edit.", is_error=True)
+    window = data[offset:offset + MAX_READ_BYTES]
+    truncated = offset + len(window) < len(data)
+    text = window.decode("utf-8", "replace")
     # annotate=true tags each line "{n}#{hash}| " so a later edit_file can be
     # hash-anchored (reject stale writes). See tools/hashline.py.
     if inp.get("annotate"):
         text = hashline.annotate(_normalize_newlines(text))
     if truncated:
-        text += f"\n\n[truncated; file is {len(data)} bytes]"
+        text += (f"\n\n[truncated at {offset + len(window)} of {len(data)} "
+                 f"bytes; continue with offset={offset + len(window)}]")
     return ToolResult(text)
 
 
@@ -155,12 +172,16 @@ def tools() -> list[Tool]:
         Tool(
             name="read_file",
             description="Read a UTF-8 text file relative to the workspace. "
-                        "Large files are truncated. Set annotate=true to tag each "
-                        "line '{n}#{hash}| ' for a later hash-anchored edit_file.",
+                        "Large files are read in windows — pass offset to "
+                        "continue past a truncation point. Set annotate=true to "
+                        "tag each line '{n}#{hash}| ' for a later hash-anchored "
+                        "edit_file (annotate cannot be used with offset).",
             input_schema={
                 "type": "object",
                 "properties": {
                     "path": {"type": "string", "description": "File path"},
+                    "offset": {"type": "integer", "description":
+                               "Byte offset to start reading from (default 0)"},
                     "annotate": {"type": "boolean", "description":
                                  "Prefix lines with {n}#{hash}| for edit_file"},
                 },
