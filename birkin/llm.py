@@ -89,7 +89,8 @@ class LLMClient:
     def __init__(self, *, provider: str, model: str, api_key: str,
                  base_url: str, max_tokens: int = 4096, temperature: float = 1.0,
                  cli_access: str = "workspace", cli_command: list[str] | None = None,
-                 cli_timeout: int = 300, oauth: bool = False):
+                 cli_timeout: int = 300, oauth: bool = False,
+                 cli_output_limit: int | None = None):
         self.provider = provider
         self.model = model
         self.api_key = api_key
@@ -114,6 +115,8 @@ class LLMClient:
         # subprocess (e.g. a blocking Claude Code hook) surfaces fast instead of
         # looking dead for many minutes. Tune via config "cli_timeout".
         self.cli_timeout = int(cli_timeout)
+        self.cli_output_limit = cli_output_limit
+        self._cli_output_overflow = False
         self.birkin_mcp = False
         self.birkin_mcp_scope = "full"
 
@@ -187,7 +190,8 @@ class LLMClient:
 
     def _run_cli_capture(self, argv: list[str], prompt: str, abort=None,
                          env: Optional[dict[str, str]] = None,
-                         on_line: Optional[Callable[[str], None]] = None
+                         on_line: Optional[Callable[[str], None]] = None,
+                         output_limit: int | None = None
                          ) -> tuple[str, str, bool, bool]:
         """Run ``argv`` feeding ``prompt`` on stdin; capture stdout/stderr.
 
@@ -205,10 +209,15 @@ class LLMClient:
                                 stderr=subprocess.PIPE, text=True, encoding="utf-8",
                                 errors="replace", env=env)
         chunks: dict[str, list[str]] = {"out": [], "err": []}
+        overflow = [False]
 
         def _drain(stream, key: str) -> None:
             try:
                 for line in stream:
+                    if key == "out" and output_limit is not None and (
+                            sum(map(len, chunks["out"])) + len(line) > output_limit):
+                        overflow[0] = True
+                        break
                     chunks[key].append(line)
                     if on_line is not None and key == "out":
                         try:
@@ -239,6 +248,8 @@ class LLMClient:
         deadline = time.monotonic() + self.cli_timeout
         timed_out = aborted = False
         while proc.poll() is None:
+            if overflow[0]:
+                break
             if abort is not None and abort.is_set():
                 aborted = True
                 break
@@ -246,7 +257,7 @@ class LLMClient:
                 timed_out = True
                 break
             time.sleep(0.05)
-        if timed_out or aborted:
+        if timed_out or aborted or overflow[0]:
             kill_tree(proc)
         try:
             proc.wait(timeout=2)
@@ -254,6 +265,7 @@ class LLMClient:
             pass
         for t in threads:
             t.join(timeout=1)
+        self._cli_output_overflow = overflow[0]
         return "".join(chunks["out"]), "".join(chunks["err"]), timed_out, aborted
 
     def _run_claude(self, prompt: str, model: Optional[str], abort=None,
@@ -316,13 +328,17 @@ class LLMClient:
                     st["result"] = res
 
         try:
+            capture_args = {"env": claude_child_env(), "on_line": _on_line}
+            if self.cli_output_limit is not None:
+                capture_args["output_limit"] = self.cli_output_limit
             stdout, stderr, timed_out, aborted = self._run_cli_capture(
-                cli_argv(parts), prompt, abort, env=claude_child_env(),
-                on_line=_on_line)
+                cli_argv(parts), prompt, abort, **capture_args)
         except FileNotFoundError:
             return "[birkin] command not found: claude", False
 
         streamed_text = "".join(st["delta"])
+        if self._cli_output_overflow:
+            raise LLMError("Claude output exceeded limit")
         if aborted:
             return (streamed_text, True) if streamed_text else ("[birkin] (aborted)", False)
         if timed_out:
@@ -360,7 +376,8 @@ class LLMClient:
             parts.append("--dangerously-bypass-approvals-and-sandbox")
         elif self.cli_access == "read-only":
             parts += ["--sandbox", "read-only", "--ephemeral",
-                      "--ignore-user-config", "--ignore-rules"]
+                      "--ignore-user-config", "--ignore-rules",
+                      "-c", "features.shell_tool=false", "-c", 'web_search="disabled"']
         parts += ["-o", path]
         if model and model not in ("codex", "default", ""):
             parts += ["-m", model]
@@ -372,7 +389,11 @@ class LLMClient:
                 cli_argv(parts), prompt, abort)
             try:
                 with open(path, encoding="utf-8", errors="replace") as fh:
-                    text = fh.read().strip()
+                    limit = self.cli_output_limit
+                    text = fh.read() if limit is None else fh.read(limit + 1)
+                    if limit is not None and len(text) > limit:
+                        raise LLMError("Codex output exceeded limit")
+                    text = text.strip()
             except OSError:
                 text = ""
         except FileNotFoundError:
