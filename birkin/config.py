@@ -58,6 +58,11 @@ DEFAULT_CONFIG: dict[str, Any] = {
     # restores the old behavior of interrupting and queueing it as the next
     # message. Esc always interrupts either way.
     "repl_typed_line": "steer",
+    # Run adjacent READ-ONLY tool calls from one assistant turn concurrently
+    # (see parallel.py). Writers stay sequential barriers. Set false to
+    # restore strictly serial execution.
+    "parallel_tools": True,
+    "parallel_tool_workers": 8,
     "max_depth": 2,  # subagent recursion bound
     "extra_skill_dirs": [],  # additional directories to scan for SKILL.md
     "disabled_tools": [],  # tool names the agent may NOT use (see `birkin tools`)

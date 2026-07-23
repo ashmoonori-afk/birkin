@@ -322,7 +322,9 @@ def build_session(cfg: Optional[dict[str, Any]] = None,
                   skill_nudge_interval=int(cfg.get("skill_nudge_interval", 3)),
                   memory_nudge_interval=int(cfg.get("memory_nudge_interval", 6)),
                   auto_compact=bool(cfg.get("auto_compact", True)),
-                  context_window=int(cfg.get("context_window", 200000)))
+                  context_window=int(cfg.get("context_window", 200000)),
+                  parallel_tools=bool(cfg.get("parallel_tools", True)),
+                  parallel_workers=int(cfg.get("parallel_tool_workers", 8)))
     return Session(cfg=cfg, client=client, skills=skills, memory=memory,
                    ctx=ctx, agent=agent)
 

@@ -22,7 +22,7 @@ from __future__ import annotations
 import threading
 from typing import Any, Callable, Optional, Protocol
 
-from . import compaction
+from . import compaction, parallel
 from .config import CLI_PROVIDERS
 from .llm import LLMClient, LLMError
 
@@ -97,7 +97,8 @@ class Agent:
                  max_turns: int = 24, model: Optional[str] = None,
                  on_event: EventCallback = None, self_improve: bool = True,
                  skill_nudge_interval: int = 3, memory_nudge_interval: int = 6,
-                 auto_compact: bool = True, context_window: int = 200_000):
+                 auto_compact: bool = True, context_window: int = 200_000,
+                 parallel_tools: bool = True, parallel_workers: int = 8):
         self.client = client
         self.system = system
         self.registry = registry
@@ -132,6 +133,10 @@ class Agent:
         # the lock guards the slot, and only the loop thread touches messages.
         self._pending_steer = ""
         self._steer_lock = threading.Lock()
+
+        # Concurrent execution of read-only tool batches.
+        self.parallel_tools = bool(parallel_tools)
+        self.parallel_workers = max(1, int(parallel_workers))
 
     def reset(self) -> None:
         self.messages = []
@@ -296,25 +301,19 @@ class Agent:
             if self.skill_nudge_interval > 0:
                 self._iters_since_skill += 1
 
-            results: list[dict[str, Any]] = []
+            # Bookkeeping for the whole batch happens here, on the loop
+            # thread, before anything fans out — so the nudge counters are
+            # never touched from a worker.
             for tu in tool_uses:
-                name, tool_input = tu.get("name", ""), tu.get("input", {}) or {}
+                name = tu.get("name", "")
                 self.last_tools.append(name)
                 if name in SKILL_TOOLS:
                     used_skill = True
                     self._iters_since_skill = 0
                 if name in MEMORY_TOOLS:
                     used_memory = True
-                self._emit("tool_start", {"name": name, "input": tool_input})
-                res = self.registry.execute(name, tool_input)
-                self._emit("tool_end", {"name": name, "is_error": res.is_error,
-                                        "content": res.content})
-                results.append({
-                    "type": "tool_result",
-                    "tool_use_id": tu.get("id"),
-                    "content": res.content,
-                    "is_error": res.is_error,
-                })
+
+            results = self._run_tools(tool_uses, abort)
             self.messages.append({"role": "user", "content": results})
 
         self._update_nudges(used_skill, used_memory)
@@ -322,6 +321,98 @@ class Agent:
         final_text += "\n\n[birkin] Reached the maximum number of tool turns " \
                       f"({self.max_turns}); stopping to avoid a loop."
         return final_text
+
+    # -- tool execution ----------------------------------------------------
+
+    def _result_block(self, tool_use: dict[str, Any], content: str,
+                      is_error: bool) -> dict[str, Any]:
+        return {"type": "tool_result", "tool_use_id": tool_use.get("id"),
+                "content": content, "is_error": is_error}
+
+    def _run_one(self, tool_use: dict[str, Any]) -> dict[str, Any]:
+        name = tool_use.get("name", "")
+        res = self.registry.execute(name, tool_use.get("input", {}) or {})
+        return self._result_block(tool_use, res.content, res.is_error)
+
+    def _run_tools(self, tool_uses: list[dict[str, Any]],
+                   abort: Optional["AbortLike"]) -> list[dict[str, Any]]:
+        """Execute a tool batch, returning results in EMISSION order.
+
+        Exactly one tool_result per tool_use, always: a missing or duplicated
+        one makes the next API call fail outright.
+        """
+        if not self.parallel_tools or len(tool_uses) < 2:
+            return [self._execute_with_events(tu) for tu in tool_uses]
+
+        results: list[dict[str, Any]] = []
+        for kind, calls in parallel.plan_segments(tool_uses):
+            if kind == "parallel":
+                results.extend(self._run_parallel(calls, abort))
+            else:
+                results.extend(self._execute_with_events(tu) for tu in calls)
+        return results
+
+    def _execute_with_events(self, tool_use: dict[str, Any]) -> dict[str, Any]:
+        name = tool_use.get("name", "")
+        tool_input = tool_use.get("input", {}) or {}
+        self._emit("tool_start", {"name": name, "input": tool_input})
+        block = self._run_one(tool_use)
+        self._emit("tool_end", {"name": name, "is_error": block["is_error"],
+                                "content": block["content"]})
+        return block
+
+    def _run_parallel(self, calls: list[dict[str, Any]],
+                      abort: Optional["AbortLike"]) -> list[dict[str, Any]]:
+        """Run read-only calls concurrently, preserving their order.
+
+        Events are emitted from this thread only — ui.py's printer and the
+        REPL spinner both assume single-threaded output, and keeping the
+        emission here means neither needs to learn about threads.
+        """
+        from concurrent.futures import ThreadPoolExecutor, wait
+
+        for tu in calls:
+            self._emit("tool_start", {"name": tu.get("name", ""),
+                                      "input": tu.get("input", {}) or {}})
+
+        slots: list[Optional[dict[str, Any]]] = [None] * len(calls)
+        with ThreadPoolExecutor(
+                max_workers=min(len(calls), self.parallel_workers)) as pool:
+            futures = {}
+            for i, tu in enumerate(calls):
+                futures[pool.submit(self._run_one, tu)] = i
+            pending = set(futures)
+            while pending:
+                done, pending = wait(pending, timeout=0.25)
+                for fut in done:
+                    i = futures[fut]
+                    try:
+                        slots[i] = fut.result()
+                    except Exception as exc:   # registry.execute catches its
+                        slots[i] = self._result_block(  # own; this is a guard
+                            calls[i], f"Tool failed: {exc}", True)
+                if pending and self._aborted(abort):
+                    for fut in pending:
+                        fut.cancel()
+                    # Running reads cannot be killed; give them a moment, then
+                    # answer whatever is still missing so history stays valid.
+                    done, pending = wait(pending, timeout=3.0)
+                    for fut in done:
+                        i = futures[fut]
+                        try:
+                            slots[i] = fut.result()
+                        except Exception:
+                            slots[i] = None
+                    break
+
+        out: list[dict[str, Any]] = []
+        for i, tu in enumerate(calls):
+            block = slots[i] or self._result_block(tu, "aborted", True)
+            self._emit("tool_end", {"name": tu.get("name", ""),
+                                    "is_error": block["is_error"],
+                                    "content": block["content"]})
+            out.append(block)
+        return out
 
     def _grace_summary(self, system: str, on_text, abort) -> str:
         """One last turn so an exhausted run reports what it got done.
