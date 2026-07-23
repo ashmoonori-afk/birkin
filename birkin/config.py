@@ -53,6 +53,11 @@ DEFAULT_CONFIG: dict[str, Any] = {
     "spill_threshold": 30000,
     "spill_dir": "",             # empty -> <birkin_home>/tool-results
     "spill_retention_days": 7,
+    # What a line typed DURING a REPL turn does: "steer" hands it to the
+    # running turn (in-flight work is kept, the model adjusts course), "kill"
+    # restores the old behavior of interrupting and queueing it as the next
+    # message. Esc always interrupts either way.
+    "repl_typed_line": "steer",
     "max_depth": 2,  # subagent recursion bound
     "extra_skill_dirs": [],  # additional directories to scan for SKILL.md
     "disabled_tools": [],  # tool names the agent may NOT use (see `birkin tools`)

@@ -124,6 +124,17 @@ class Session:
             self._record_turn(text, reply, review_skills=review_skills)
         return reply
 
+    def steer(self, text: str) -> bool:
+        """Send an instruction into the turn already running, without killing it.
+
+        Returns False when this session cannot be steered, which tells the
+        caller to fall back to interrupting.
+        """
+        if self._warm is not None:
+            steer = getattr(self._warm, "steer", None)
+            return bool(steer(text)) if steer else False
+        return self.agent.steer(text)
+
     def _use_warm(self) -> bool:
         """Opt-in warm CLI session, for claude-cli/codex-cli only. Trades the
         per-turn skill routing for a gateway-style skill index fixed at process

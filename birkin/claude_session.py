@@ -299,6 +299,24 @@ class ClaudeStreamSession:
         self._proc.stdin.write(json.dumps(msg, ensure_ascii=False) + "\n")
         self._proc.stdin.flush()
 
+    def steer(self, text: str) -> bool:
+        """Deliver a mid-turn instruction WITHOUT cancelling the turn.
+
+        Written straight to the child's stdin like interrupt() does, as a
+        normal user message; Claude Code applies it to the running turn. The
+        blocked _turn keeps waiting for its single result event, and the
+        stale-event flush at the start of the next turn absorbs the case where
+        an older CLI queues it as a separate turn instead. Best-effort — never
+        raises."""
+        text = (text or "").strip()
+        if not text or self._proc is None or self._proc.stdin is None:
+            return False
+        try:                    # no turn lock: this only writes to stdin
+            self._send(text)
+            return True
+        except (OSError, ValueError, ClaudeSessionError):
+            return False
+
     def interrupt(self) -> bool:
         """Cancel the in-flight turn (called from another thread). Sends the
         stream-json control interrupt; if the CLI version ignores it the turn

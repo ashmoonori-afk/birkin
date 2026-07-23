@@ -19,6 +19,7 @@ added to the system prompt for a turn only and never stored in history.
 
 from __future__ import annotations
 
+import threading
 from typing import Any, Callable, Optional, Protocol
 
 from . import compaction
@@ -38,6 +39,9 @@ _MEMORY_NUDGE = (
     "[birkin self-improvement] If you've learned a durable fact about the user "
     "or project, persist it with remember or memory_write_note (and link related "
     "notes). Otherwise ignore this note.")
+
+_STEER_NOTE = ("[birkin: mid-turn message from the user — a direct instruction "
+               "sent while you were working, not tool output. Adjust course.]")
 
 _GRACE_PROMPT = (
     "[birkin] You've hit the maximum number of tool-calling turns for this "
@@ -123,12 +127,41 @@ class Agent:
         # make progress. Retry only once the conversation has grown past it.
         self._compact_floor = 0
 
+        # Mid-turn steering. Written from another thread (the REPL key
+        # listener, a gateway channel poller) and drained by the loop thread;
+        # the lock guards the slot, and only the loop thread touches messages.
+        self._pending_steer = ""
+        self._steer_lock = threading.Lock()
+
     def reset(self) -> None:
         self.messages = []
         self._iters_since_skill = 0
         self._turns_since_memory = 0
         self._pending_nudge = ""
         self._compact_floor = 0
+        with self._steer_lock:
+            self._pending_steer = ""
+
+    # -- mid-turn steering -------------------------------------------------
+
+    def steer(self, text: str) -> bool:
+        """Queue a user instruction for the turn already running.
+
+        Thread-safe. Returns False for empty text. Several steers arriving
+        before the next drain are concatenated rather than overwriting.
+        """
+        text = (text or "").strip()
+        if not text:
+            return False
+        with self._steer_lock:
+            self._pending_steer = (f"{self._pending_steer}\n{text}"
+                                   if self._pending_steer else text)
+        return True
+
+    def _drain_steer(self) -> str:
+        with self._steer_lock:
+            text, self._pending_steer = self._pending_steer, ""
+        return text
 
     def _emit(self, event: str, payload: dict[str, Any]) -> None:
         if self.on_event:
@@ -147,6 +180,11 @@ class Agent:
         caller interrupt: it is checked between turns and threaded into the LLM
         call so a streaming response or CLI subprocess stops promptly (Esc in the
         REPL)."""
+        # A steer that landed after the last tool batch of the previous turn
+        # has nowhere to go but here — carry it rather than dropping it.
+        carried = self._drain_steer()
+        if carried:
+            user_text = f"{user_text}\n\n[carried over from mid-turn]\n{carried}"
         self.messages.append(
             {"role": "user", "content": [{"type": "text", "text": user_text}]})
         self.last_tools = []
@@ -212,7 +250,16 @@ class Agent:
 
         for _turn in range(self.max_turns):
             if self._aborted(abort):
+                self._drain_steer()      # an interrupt supersedes a steer
                 return (final_text + "\n\n[birkin] aborted.").strip()
+            # Deliver anything the user typed while the previous model call or
+            # tool batch was running. Folding it into the trailing user message
+            # (rather than appending a new one) keeps it user-authored content
+            # arriving before the next model call, which is the whole point.
+            steer = self._drain_steer()
+            if steer:
+                _append_user_text(self.messages, f"{_STEER_NOTE}\n{steer}")
+                self._emit("steer", {"text": steer})
             assistant = self._complete(system, tool_specs, on_text, abort)
             self.messages.append(
                 {"role": "assistant", "content": assistant["content"]})
@@ -234,6 +281,7 @@ class Agent:
                         {"type": "tool_result", "tool_use_id": tu.get("id"),
                          "content": "aborted", "is_error": True}
                         for tu in tool_uses]})
+                self._drain_steer()      # an interrupt supersedes a steer
                 self._update_nudges(used_skill, used_memory)
                 return (final_text + "\n\n[birkin] aborted.").strip()
 

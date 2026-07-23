@@ -128,7 +128,18 @@ def run(cfg: dict[str, Any] | None = None) -> int:
                 stop_spin()
                 print(f"\n{DIM}(interrupting…){RESET}")
 
-        listener = abortkey.listen_for_interrupt(on_interrupt)
+        def on_line(text: str) -> bool:
+            """A typed line during a turn: steer it instead of killing it."""
+            if session.cfg.get("repl_typed_line", "steer") != "steer":
+                return False
+            if not session.steer(text):
+                return False
+            stop_spin()
+            print(f"{DIM}(steering: {text.strip()[:60]}){RESET}")
+            start_spin()
+            return True
+
+        listener = abortkey.listen_for_interrupt(on_interrupt, on_line)
         start_spin()
         try:
             reply = session.ask(line, on_text=on_text)  # streamed live above
