@@ -24,6 +24,8 @@ skills/**/*.zip
 # stay out of the public repo (owner's decision, 2026-07-03)
 benchmarks/
 docs/paper/
+# hermes-agent re-comparison research note (local only, 2026-07-23)
+docs/hermes-comparison-20260723.md
 # Working evidence/drafts dir (codex receipts, model-test logs) — local only
 .omo/
 # Tests that load the local-only benchmark harness (benchmarks/ is ignored)
