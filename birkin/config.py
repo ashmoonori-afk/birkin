@@ -37,6 +37,16 @@ DEFAULT_CONFIG: dict[str, Any] = {
     # (claude-cli/codex-cli) compact their own context and ignore this.
     "auto_compact": True,
     "context_window": 200000,  # tokens; Claude family default
+    # Keep answering when the primary model stops: on an auth / billing /
+    # rate-limit / server / network failure, turns are served by this model for
+    # `fallback_cooldown` seconds, then the primary is probed again. Both keys
+    # must be set to enable it, and the fallback needs its own credentials.
+    # Ignored for CLI providers (they report failures as text, not errors).
+    # Typical: primary claude-oauth -> fallback anthropic (paid key) or openai.
+    "fallback_provider": "",
+    "fallback_model": "",
+    "fallback_base_url": "",
+    "fallback_cooldown": 300,
     "max_depth": 2,  # subagent recursion bound
     "extra_skill_dirs": [],  # additional directories to scan for SKILL.md
     "disabled_tools": [],  # tool names the agent may NOT use (see `birkin tools`)

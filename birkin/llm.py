@@ -830,7 +830,7 @@ def _stringify(content: Any) -> str:
     return str(content)
 
 
-def build_client(cfg: dict[str, Any], api_key: str) -> LLMClient:
+def _plain_client(cfg: dict[str, Any], api_key: str) -> LLMClient:
     from .config import OAUTH_PROVIDERS, resolve_base_url
     provider = cfg.get("provider", "anthropic")
     return LLMClient(
@@ -845,3 +845,46 @@ def build_client(cfg: dict[str, Any], api_key: str) -> LLMClient:
         cli_timeout=int(cfg.get("cli_timeout", 300)),
         oauth=provider in OAUTH_PROVIDERS,
     )
+
+
+def build_client(cfg: dict[str, Any], api_key: str) -> Any:
+    """Build the client for ``cfg``, wrapped for failover when configured."""
+    primary = _plain_client(cfg, api_key)
+    return _maybe_wrap_failover(cfg, primary)
+
+
+def _maybe_wrap_failover(cfg: dict[str, Any], primary: LLMClient) -> Any:
+    """Wrap ``primary`` in a FailoverClient when a usable fallback is set.
+
+    Returns ``primary`` untouched — with a warning — whenever the fallback
+    cannot actually serve, so a misconfiguration degrades to today's behavior
+    instead of failing at the worst moment.
+    """
+    from .config import CLI_PROVIDERS, get_api_key
+
+    provider = (cfg.get("fallback_provider") or "").strip()
+    model = (cfg.get("fallback_model") or "").strip()
+    if not provider or not model:
+        return primary
+
+    if primary.provider in CLI_PROVIDERS:
+        # A CLI provider reports failures as reply *text*, not exceptions, so
+        # there is nothing for the wrapper to catch.
+        print(f"[birkin] fallback_model is ignored for provider "
+              f"{primary.provider!r} (CLI agents handle their own errors).",
+              flush=True)
+        return primary
+    if provider == primary.provider and model == primary.model:
+        return primary
+
+    fb_cfg = {**cfg, "provider": provider, "model": model,
+              "base_url": cfg.get("fallback_base_url", "")}
+    key = get_api_key(fb_cfg)
+    if not key:
+        print(f"[birkin] fallback {provider}/{model} has no credentials — "
+              f"running without a fallback.", flush=True)
+        return primary
+
+    from .failover import FailoverClient
+    return FailoverClient(primary, _plain_client(fb_cfg, key),
+                          cooldown_s=float(cfg.get("fallback_cooldown", 300)))
