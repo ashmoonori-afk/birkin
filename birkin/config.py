@@ -74,6 +74,15 @@ DEFAULT_CONFIG: dict[str, Any] = {
     # store under <birkin_home>/checkpoints (never inside your project,
     # and never touching your own git history). Undo with /rollback.
     "checkpoints": True,
+    # Shell scripts run on lifecycle events (see hooks.py). Shape:
+    #   {"pre_tool_call": [{"matcher": "run_shell",
+    #                       "command": "python ~/.birkin/hooks/guard.py"}]}
+    # Events: pre_tool_call (can block), post_tool_call, pre_llm_call.
+    # SECURITY: a hook is arbitrary code run with your permissions. Each
+    # (event, command) is confirmed once; hooks_auto_accept skips that
+    # prompt, which anyone able to write config.json can then abuse.
+    "hooks": {},
+    "hooks_auto_accept": False,
     "checkpoint_keep": 20,       # snapshots retained per workspace
     # Commands permanently allowed without asking (exact match or glob).
     # Grown by answering "always" at the prompt. Compound commands never

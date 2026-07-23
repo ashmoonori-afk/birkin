@@ -98,7 +98,8 @@ class Agent:
                  on_event: EventCallback = None, self_improve: bool = True,
                  skill_nudge_interval: int = 3, memory_nudge_interval: int = 6,
                  auto_compact: bool = True, context_window: int = 200_000,
-                 parallel_tools: bool = True, parallel_workers: int = 8):
+                 parallel_tools: bool = True, parallel_workers: int = 8,
+                 hooks: Any = None):
         self.client = client
         self.system = system
         self.registry = registry
@@ -137,6 +138,8 @@ class Agent:
         # Concurrent execution of read-only tool batches.
         self.parallel_tools = bool(parallel_tools)
         self.parallel_workers = max(1, int(parallel_workers))
+        # hooks.HookBus | None — pre_llm_call context injection.
+        self.hooks = hooks
 
     def reset(self) -> None:
         self.messages = []
@@ -197,6 +200,19 @@ class Agent:
         self._turns_since_memory += 1
         nudge = self._pending_nudge       # consume any nudge queued last turn
         self._pending_nudge = ""
+        if self.hooks is not None:
+            # Rides the same ephemeral per-turn channel as the
+            # self-improvement nudges. birkin rebuilds its system prompt
+            # every turn anyway, so unlike hermes there is no cached
+            # prefix to protect by injecting into the user message.
+            try:
+                extra = self.hooks.pre_llm(
+                    user_text, model=self.model or "",
+                    provider=getattr(self.client, "provider", ""))
+            except Exception:
+                extra = ""
+            if extra:
+                nudge = f"{nudge}\n\n{extra}" if nudge else extra
         return self._loop(on_text, extra_system=nudge, abort=abort)
 
     @staticmethod

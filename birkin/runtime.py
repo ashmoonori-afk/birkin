@@ -12,7 +12,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Callable, Optional
 
-from . import budget, checkpoints, config, promptgate, store
+from . import budget, checkpoints, config, hooks, promptgate, store
 from .agent import Agent
 from .llm import LLMClient, LLMError, build_client
 from .memory import Memory
@@ -320,11 +320,12 @@ def build_session(cfg: Optional[dict[str, Any]] = None,
     checkpoint_mgr = checkpoints.CheckpointManager(
         enabled=bool(cfg.get("checkpoints", True)),
         keep=int(cfg.get("checkpoint_keep", 20)))
+    hook_bus = hooks.build_bus(cfg)
     ctx = ToolContext(
         cfg=cfg, client=client, cwd=Path.cwd(),
         skills=skills, memory=memory,
         max_depth=int(cfg.get("max_depth", 2)), emit=on_event,
-        checkpoints=checkpoint_mgr)
+        checkpoints=checkpoint_mgr, hooks=hook_bus)
     registry = build_registry(ctx)
     system = promptgate.compose_main(
         cfg, skills_index=skills.index(), memory_block=memory.render())
@@ -337,7 +338,8 @@ def build_session(cfg: Optional[dict[str, Any]] = None,
                   auto_compact=bool(cfg.get("auto_compact", True)),
                   context_window=int(cfg.get("context_window", 200000)),
                   parallel_tools=bool(cfg.get("parallel_tools", True)),
-                  parallel_workers=int(cfg.get("parallel_tool_workers", 8)))
+                  parallel_workers=int(cfg.get("parallel_tool_workers", 8)),
+                  hooks=hook_bus)
     return Session(cfg=cfg, client=client, skills=skills, memory=memory,
                    ctx=ctx, agent=agent)
 

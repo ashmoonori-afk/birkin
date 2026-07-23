@@ -49,6 +49,8 @@ class ToolContext:
     # checkpoints.CheckpointManager — snapshots the workspace before a
     # mutating tool runs, so /rollback can undo it.
     checkpoints: Any = None
+    # hooks.HookBus — user shell scripts on tool lifecycle events.
+    hooks: Any = None
 
 
 @dataclass
@@ -78,6 +80,12 @@ class ToolRegistry:
         tool = self._tools.get(name)
         if tool is None:
             return ToolResult(f"Unknown tool: {name!r}", is_error=True)
+        if self.ctx.hooks is not None:
+            # A blocking hook's message becomes the tool result, so the
+            # model sees why it was refused and can choose another path.
+            blocked = self.ctx.hooks.pre_tool(name, tool_input or {})
+            if blocked:
+                return ToolResult(blocked, is_error=True)
         if self.ctx.checkpoints is not None:
             from .. import checkpoints
             checkpoints.preflight(self.ctx, name, tool_input or {})
@@ -85,6 +93,12 @@ class ToolRegistry:
             result = tool.fn(tool_input or {}, self.ctx)
         except Exception as exc:  # tools must never crash the agent loop
             return ToolResult(f"Tool {name!r} failed: {exc}", is_error=True)
+        if self.ctx.hooks is not None:
+            try:
+                self.ctx.hooks.post_tool(name, tool_input or {},
+                                         result.content, result.is_error)
+            except Exception:
+                pass          # observers must not break the loop
         # The single choke point every native tool call passes through, so
         # oversized output is handled once rather than in each tool.
         from .spill import maybe_spill
