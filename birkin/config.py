@@ -30,6 +30,13 @@ DEFAULT_CONFIG: dict[str, Any] = {
     "max_tokens": 4096,
     "temperature": 1.0,
     "max_turns": 24,  # safety guard on the agent tool-calling loop
+    # Automatic history compaction on the native API loop: when a request is
+    # about to exceed the model's window, the middle of the conversation is
+    # replaced by a summary (protected head + recent tail are kept). Also
+    # retries once after a real overflow. See compaction.py. CLI providers
+    # (claude-cli/codex-cli) compact their own context and ignore this.
+    "auto_compact": True,
+    "context_window": 200000,  # tokens; Claude family default
     "max_depth": 2,  # subagent recursion bound
     "extra_skill_dirs": [],  # additional directories to scan for SKILL.md
     "disabled_tools": [],  # tool names the agent may NOT use (see `birkin tools`)

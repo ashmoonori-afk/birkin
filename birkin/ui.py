@@ -150,6 +150,11 @@ def make_event_printer() -> Callable[[str, dict[str, Any]], None]:
                                             payload.get("content", "") or "")
                 if line:
                     sys.stdout.write(f"  {CYAN}{line}{RESET}\n")
+        elif event == "compact":
+            sys.stdout.write(
+                f"\n{DIM}  ⤵ compacted context ({payload.get('reason')}): "
+                f"{payload.get('before')} → {payload.get('after')} messages"
+                f"{RESET}\n")
         elif event == "subagent.start":
             sys.stdout.write(f"\n{DIM}  ⇲ subagent: {payload.get('task', '')}{RESET}\n")
         elif event == "subagent.done":

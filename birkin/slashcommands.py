@@ -133,27 +133,20 @@ def _undo(session: Any, arg: str) -> None:
 @command("compact", "Summarize the conversation to shrink context.", "/compact",
          aliases=["compress"])
 def _compact(session: Any, arg: str) -> None:
-    msgs = session.agent.messages
-    if len(msgs) < 4:
+    before = len(session.agent.messages)
+    if before < 6:
         print(f"{DIM}Conversation is already short.{RESET}")
         return
-    transcript = selfimprove.transcript_from_messages(msgs, limit=200)
     print(f"{DIM}Summarizing…{RESET}")
-    try:
-        res = session.client.complete(
-            system="You compress conversations. Produce a dense summary that "
-                   "preserves decisions, facts, open threads, and user "
-                   "preferences. No preamble.",
-            messages=[{"role": "user", "content": [{"type": "text",
-                      "text": "Summarize this conversation:\n\n" + transcript}]}],
-            tools=None)
-        summary = "".join(b["text"] for b in res["content"] if b.get("type") == "text")
-    except Exception as exc:
-        print(f"{RED}Compact failed: {exc}{RESET}")
+    # Shares the automatic path: keeps the opening exchange and the recent
+    # tail, and folds any previous summary in rather than starting over.
+    session.agent._compact_floor = 0   # an explicit ask overrides the latch
+    if not session.agent.compact_now("manual"):
+        print(f"{YELLOW}Nothing to compact (or the summarizer failed) — "
+              f"history left untouched.{RESET}")
         return
-    session.agent.messages = [{"role": "user", "content": [{"type": "text",
-        "text": "[Summary of earlier conversation]\n" + summary}]}]
-    print(f"{GREEN}Compacted to a summary ({len(summary)} chars).{RESET}")
+    print(f"{GREEN}Compacted {before} → {len(session.agent.messages)} "
+          f"messages.{RESET}")
 
 
 @command("clear", "Clear the screen.", "/clear")

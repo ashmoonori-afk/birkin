@@ -21,7 +21,9 @@ from __future__ import annotations
 
 from typing import Any, Callable, Optional, Protocol
 
-from .llm import LLMClient
+from . import compaction
+from .config import CLI_PROVIDERS
+from .llm import LLMClient, LLMError
 
 SKILL_TOOLS = {"create_skill", "improve_skill"}
 MEMORY_TOOLS = {"remember", "memory_write_note", "memory_link"}
@@ -56,14 +58,20 @@ class AbortLike(Protocol):
 # Event hook: (event_type, payload) for UI / logging.
 #   "tool_start" -> {"name", "input"}
 #   "tool_end"   -> {"name", "is_error", "content"}
+#   "compact"    -> {"reason", "before", "after"}
 EventCallback = Optional[Callable[[str, dict[str, Any]], None]]
+
+# How many times one turn may compact-and-retry after a context overflow before
+# giving up and surfacing the error.
+_MAX_COMPACT_RETRIES = 2
 
 
 class Agent:
     def __init__(self, *, client: LLMClient, system: str, registry: Registry,
                  max_turns: int = 24, model: Optional[str] = None,
                  on_event: EventCallback = None, self_improve: bool = True,
-                 skill_nudge_interval: int = 3, memory_nudge_interval: int = 6):
+                 skill_nudge_interval: int = 3, memory_nudge_interval: int = 6,
+                 auto_compact: bool = True, context_window: int = 200_000):
         self.client = client
         self.system = system
         self.registry = registry
@@ -83,11 +91,22 @@ class Agent:
         self.last_tools: list[str] = []
         self.last_iterations = 0
 
+        # Automatic context compaction. CLI providers run their own agent loop
+        # in a child process and compact their own context, so birkin only
+        # guards the native API transports.
+        self.auto_compact = bool(auto_compact) and getattr(
+            client, "provider", "") not in CLI_PROVIDERS
+        self.context_window = int(context_window)
+        # Anti-thrash latch: history length at which compaction last failed to
+        # make progress. Retry only once the conversation has grown past it.
+        self._compact_floor = 0
+
     def reset(self) -> None:
         self.messages = []
         self._iters_since_skill = 0
         self._turns_since_memory = 0
         self._pending_nudge = ""
+        self._compact_floor = 0
 
     def _emit(self, event: str, payload: dict[str, Any]) -> None:
         if self.on_event:
@@ -119,6 +138,49 @@ class Agent:
     def _aborted(abort: Optional["AbortLike"]) -> bool:
         return abort is not None and abort.is_set()
 
+    # -- context compaction ------------------------------------------------
+
+    def compact_now(self, reason: str = "manual") -> bool:
+        """Compact the history in place. True when it actually shrank."""
+        if len(self.messages) <= self._compact_floor:
+            return False
+        compacted = compaction.compact(
+            self.client, self.messages, model=self.model,
+            tail_budget=compaction.tail_budget_for(self.context_window))
+        if compacted is self.messages:
+            self._compact_floor = len(self.messages)
+            return False
+        before, after = len(self.messages), len(compacted)
+        self.messages = compacted
+        self._compact_floor = 0
+        self._emit("compact", {"reason": reason, "before": before, "after": after})
+        return True
+
+    def _complete(self, system: str, tool_specs, on_text, abort):
+        """One model call, wrapped in the two compaction gates.
+
+        Preflight catches the common case cheaply; the overflow retry is the
+        backstop for when the chars/4 estimate was wrong (it usually is, by a
+        little — prompt-cached blocks and CJK both skew it).
+        """
+        if self.auto_compact and len(self.messages) >= 8:
+            est = compaction.estimate_tokens(self.messages, system, tool_specs)
+            if compaction.should_compact(est, self.context_window):
+                self.compact_now("preflight")
+
+        attempts = 0
+        while True:
+            try:
+                return self.client.complete(
+                    system=system, messages=self.messages, tools=tool_specs,
+                    model=self.model, on_text=on_text, abort=abort)
+            except LLMError as exc:
+                attempts += 1
+                if (attempts > _MAX_COMPACT_RETRIES or not self.auto_compact
+                        or not compaction.is_overflow(exc)
+                        or not self.compact_now("overflow")):
+                    raise
+
     def _loop(self, on_text, extra_system: str = "",
               abort: Optional["AbortLike"] = None) -> str:
         final_text = ""
@@ -129,9 +191,7 @@ class Agent:
         for _turn in range(self.max_turns):
             if self._aborted(abort):
                 return (final_text + "\n\n[birkin] aborted.").strip()
-            assistant = self.client.complete(
-                system=system, messages=self.messages,
-                tools=tool_specs, model=self.model, on_text=on_text, abort=abort)
+            assistant = self._complete(system, tool_specs, on_text, abort)
             self.messages.append(
                 {"role": "assistant", "content": assistant["content"]})
 

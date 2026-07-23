@@ -309,7 +309,9 @@ def build_session(cfg: Optional[dict[str, Any]] = None,
                   model=cfg.get("model"), on_event=on_event,
                   self_improve=bool(cfg.get("self_improve", True)),
                   skill_nudge_interval=int(cfg.get("skill_nudge_interval", 3)),
-                  memory_nudge_interval=int(cfg.get("memory_nudge_interval", 6)))
+                  memory_nudge_interval=int(cfg.get("memory_nudge_interval", 6)),
+                  auto_compact=bool(cfg.get("auto_compact", True)),
+                  context_window=int(cfg.get("context_window", 200000)))
     return Session(cfg=cfg, client=client, skills=skills, memory=memory,
                    ctx=ctx, agent=agent)
 
