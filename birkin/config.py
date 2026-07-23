@@ -97,6 +97,7 @@ DEFAULT_CONFIG: dict[str, Any] = {
     # acceptance — instead of guessing. Specific/simple requests are acted on
     # directly. False -> neurosis only on explicit /neurosis. See neurosis.py.
     "neurosis_auto": True,
+    "natural_language_commands": "off",
     "channels": {
         "http": {"enabled": True},
         # Prefer the TELEGRAM_BOT_TOKEN env var over the plaintext "token" here.
@@ -348,6 +349,10 @@ def load_config() -> dict[str, Any]:
     # safe default rather than mis-routing to the dangerous "full" path.
     if cfg.get("cli_access") not in ("workspace", "full"):
         cfg["cli_access"] = "workspace"
+    if cfg.get("natural_language_commands") not in (
+        "off", "observe", "assist", "auto-safe",
+    ):
+        cfg["natural_language_commands"] = "off"
     return cfg
 
 
