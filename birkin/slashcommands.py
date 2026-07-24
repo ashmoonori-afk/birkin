@@ -387,6 +387,13 @@ def _config(session: Any, arg: str) -> None:
     print(json.dumps(safe, indent=2, ensure_ascii=False))
 
 
+@command("status", "Show the live status line (model · daemon · budget · 대기).",
+         "/status")
+def _status(session: Any, arg: str) -> None:
+    from . import statusline
+    print(statusline.render(session.cfg))
+
+
 # -- autonomy --------------------------------------------------------------
 
 @command("morpheus", "Run the Morpheus self-improvement routine now.",

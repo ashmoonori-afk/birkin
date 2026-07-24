@@ -11,7 +11,8 @@ import os
 from datetime import datetime
 from typing import Any
 
-from . import abortkey, inline_complete, slashcommands, store, transcripts, ui
+from . import (abortkey, inline_complete, slashcommands, statusline, store,
+               transcripts, ui)
 from .runtime import ConfigError, Session, build_session
 from .ui import BIRKIN_BANNER, CYAN, DIM, RED, RESET, YELLOW
 
@@ -176,6 +177,11 @@ def run(cfg: dict[str, Any] | None = None) -> int:
                 print(f"\n{CYAN}birkin{RESET} >\n", end="")
                 print(ui.render_markdown((reply or "").strip()))
             print()   # terminate the streamed line
+            # Reprint the one-line status (identity · daemon · budget · pending)
+            # at the turn boundary — the line-flow translation of a pinned bar.
+            _sl = statusline.render(session.cfg)
+            if _sl.strip():
+                print(_sl)
             store.append_activity(f"chat: {line[:120]}")
             transcripts.append_turn("repl", run_id, line, reply or "",
                                     cfg=session.cfg)

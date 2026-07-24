@@ -96,9 +96,13 @@ def stream_text(piece: str) -> None:
 # needs the override below.
 import unicodedata  # noqa: E402
 
+# ANSI CSI sequences (colors, cursor moves) occupy zero display cells.
+_ANSI_RE = re.compile(r"\033\[[0-9;?]*[ -/]*[@-~]")
+
 
 def cell_width(s: str, *, ambiguous_wide: bool = False) -> int:
-    """Display width of ``s`` in terminal cells."""
+    """Display width of ``s`` in terminal cells, ignoring ANSI escapes."""
+    s = _ANSI_RE.sub("", s)
     w = 0
     for ch in s:
         if unicodedata.combining(ch) or unicodedata.category(ch) in (
