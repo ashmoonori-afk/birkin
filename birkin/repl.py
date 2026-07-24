@@ -27,10 +27,17 @@ def _banner(session: Session) -> None:
     n = len(session.skills.skills)
     print(f"{CYAN}{BIRKIN_BANNER}{RESET}")
     print(f" {DIM}The AI agent that actually remembers you.{RESET}\n")
-    print(f" model {CYAN}{cfg.get('model')}{RESET} · {n} skill(s) · "
-          f"vault {DIM}{session.memory.vault}{RESET}")
-    print(f" type {YELLOW}/help{RESET} for commands, or just chat · "
-          f"{YELLOW}Esc{RESET} (or type + Enter) interrupts a reply · Ctrl-C to quit.")
+    # Live launch status — daemon heartbeat, budget, pending approvals — so the
+    # first screen is a dashboard, not a static banner. Same line reprinted at
+    # each turn boundary and on /status.
+    try:
+        print(statusline.render(cfg))
+    except Exception:
+        pass
+    print(f" {DIM}{n} skill(s) · vault {session.memory.vault}{RESET}")
+    print(f" {YELLOW}/help{RESET} 명령 · {YELLOW}/dash{RESET} 미션 컨트롤 · "
+          f"{YELLOW}/status{RESET} 상태 · {YELLOW}?{RESET} 도움말 · "
+          f"{YELLOW}Esc{RESET} 중단 · Ctrl-C 종료")
     print(f" {DIM}edit: Ctrl+←/→ word · Ctrl-W delete word · Ctrl-U/Ctrl-K clear "
           f"to start/end · ↑/↓ history{RESET}")
 
