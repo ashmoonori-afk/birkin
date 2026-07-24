@@ -8,19 +8,61 @@ from __future__ import annotations
 
 import itertools
 import json
+import os
 import re
 import sys
 import threading
 from typing import Any, Callable
 
-DIM = "\033[2m"
-BOLD = "\033[1m"
-CYAN = "\033[36m"
-GREEN = "\033[32m"
-YELLOW = "\033[33m"
-RED = "\033[31m"
-UNDERLINE = "\033[4m"
-RESET = "\033[0m"
+
+def should_color(stream: Any = None) -> bool:
+    """Whether to emit ANSI SGR/animation. Single choke-point.
+
+    Priority chain fixed by the NO_COLOR spec, CLICOLOR_FORCE (bixense) and
+    clig.dev — getting the order wrong (especially "empty vs set" and
+    "FORCE vs TTY") is the #1 CLI color bug:
+      1. NO_COLOR / BIRKIN_NO_COLOR set & non-empty -> off (absolute)
+      2. CLICOLOR_FORCE non-empty                   -> on (even non-TTY)
+      3. stdout is a TTY and TERM != dumb           -> on
+      4. otherwise (pipe, CI, redirect)             -> off
+    An empty value ("") is treated as unset, per spec, because
+    ``os.environ.get`` returns a falsy empty string.
+    """
+    stream = stream or sys.stdout
+    if os.environ.get("NO_COLOR"):
+        return False
+    if os.environ.get("BIRKIN_NO_COLOR"):
+        return False
+    if os.environ.get("CLICOLOR_FORCE"):
+        return True
+    try:
+        tty = stream.isatty()
+    except Exception:
+        tty = False
+    return bool(tty) and os.environ.get("TERM") != "dumb"
+
+
+def plain_mode() -> bool:
+    """Reduced-motion / screen-reader mode: no animation, static tokens.
+
+    Implied whenever color is off (pipe/CI), or forced with BIRKIN_PLAIN so a
+    screen-reader user keeps color but drops the spinner. See clig.dev
+    "don't animate unless stdout is an interactive terminal"."""
+    return bool(os.environ.get("BIRKIN_PLAIN")) or not should_color()
+
+
+# Palette — every SGR passes through the gate once, so a piped/CI/NO_COLOR run
+# emits no escapes at all and ``f"{RED}✗{RESET}"`` degrades to a bare ``✗``
+# (glyphs/labels always carry the meaning; color only reinforces it).
+_C = should_color()
+DIM = "\033[2m" if _C else ""
+BOLD = "\033[1m" if _C else ""
+CYAN = "\033[36m" if _C else ""
+GREEN = "\033[32m" if _C else ""
+YELLOW = "\033[33m" if _C else ""
+RED = "\033[31m" if _C else ""
+UNDERLINE = "\033[4m" if _C else ""
+RESET = "\033[0m" if _C else ""
 
 
 BIRKIN_ART = [
@@ -111,6 +153,10 @@ class Spinner:
         self._thread: threading.Thread | None = None
 
     def start(self) -> None:
+        # No animation in plain/piped/CI mode — a braille spinner streamed to a
+        # file or a screen reader is noise. The turn still runs; it's just quiet.
+        if plain_mode():
+            return
         self._thread = threading.Thread(target=self._run, daemon=True)
         self._thread.start()
 
