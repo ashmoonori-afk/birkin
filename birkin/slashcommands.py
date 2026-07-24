@@ -84,6 +84,23 @@ def _last_user_text(messages: list[dict[str, Any]]) -> str:
 
 # -- conversation ----------------------------------------------------------
 
+# Commands grouped by domain so /help is scannable, not a flat 30-line dump
+# (gh-dash/lazygit group contextual keys). The registry stays the single
+# source: any command not listed here falls into "기타" so nothing is hidden.
+_HELP_GROUPS: list[tuple[str, list[str]]] = [
+    ("세션·대화", ["new", "retry", "undo", "rollback", "compact", "clear",
+                 "save", "load", "sessions", "status"]),
+    ("모델", ["model", "models", "provider", "temp"]),
+    ("기억", ["memory", "remember", "vault", "learn"]),
+    ("스킬·도구", ["skills", "skill", "reload", "tools", "system", "mcp"]),
+    ("운영·승인", ["review", "cron", "permission", "config", "morpheus",
+                 "update"]),
+    ("페르소나·인터뷰", ["soul", "personality", "neurosis"]),
+    ("게이트웨이", ["restart-gateway", "hard-restart"]),
+    ("종료·도움", ["help", "quit"]),
+]
+
+
 @command("help", "List commands, or show detailed help for one.", "/help [command]")
 def _help(session: Any, arg: str) -> None:
     if arg:
@@ -96,11 +113,34 @@ def _help(session: Any, arg: str) -> None:
         if cmd.aliases:
             print(f"  aliases: {', '.join('/' + a for a in cmd.aliases)}")
         return
-    print(f"{BOLD}Slash commands{RESET} (use /help <name> for detail):")
-    for name in sorted(_REGISTRY):
+
+    print(f"{BOLD}Slash commands{RESET} {DIM}(/help <name> 으로 상세 · "
+          f"? 로 다시 열기){RESET}")
+    grouped: set[str] = set()
+
+    def _row(name: str) -> None:
         c = _REGISTRY[name]
-        al = f" {DIM}({', '.join('/' + a for a in c.aliases)}){RESET}" if c.aliases else ""
-        print(f"  {CYAN}/{name}{RESET}{al} — {c.summary}")
+        al = (f" {DIM}({', '.join('/' + a for a in c.aliases)}){RESET}"
+              if c.aliases else "")
+        # ASCII command names -> left-pad with len() aligns; the Korean summary
+        # is the last column, so there is nothing to its right to misalign.
+        print(f"  {CYAN}/{name}{RESET}{al}{' ' * max(1, 13 - len(name))}"
+              f"{c.summary}")
+
+    for title, names in _HELP_GROUPS:
+        present = [n for n in names if n in _REGISTRY]
+        if not present:
+            continue
+        print(f"\n{BOLD}{title}{RESET}")
+        for n in present:
+            _row(n)
+            grouped.add(n)
+
+    leftover = sorted(n for n in _REGISTRY if n not in grouped)
+    if leftover:
+        print(f"\n{BOLD}기타{RESET}")
+        for n in leftover:
+            _row(n)
 
 
 @command("new", "Start a fresh conversation (clears history).", "/new", aliases=["reset"])
