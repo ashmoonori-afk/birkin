@@ -62,8 +62,10 @@ birkin은 Claude Pro/Max 구독으로 **API 키 없이, 토큰 과금 없이 종
    임베딩이 아닙니다. 손으로 편집 가능.
 5. **승인 우선.** 메모리·스킬 쓰기는 자동(되돌릴 수 있는 로컬 파일), cron·shell은
    큐잉(위험도 정렬). 무인 Morpheus는 샌드박스(shell 없음).
-6. **CLI 우선, 대시보드는 보조.** 진짜 터미널 라인 에디터(인라인 `/cmd` 드롭다운,
-   단어 단위 편집, 멀티라인, 히스토리). 웹 UI는 *모니터링*.
+6. **CLI 우선, 대시보드는 보조.** 진짜 터미널 TUI — 라이브 상태줄(데몬·예산·
+   대기승인), 중첩·타이밍 도구 트레이스 트리, 그룹화된 `/help`, 퍼지 `/`-자동완성,
+   전체화면 `/dash` 미션 컨트롤 — 전부 순수 ANSI·stdlib·CJK 폭 인식. 웹 UI는
+   *모니터링*.
 
 ---
 
@@ -245,28 +247,32 @@ birkin morpheus [--dry-run]         # 야간 자기개선 즉시 실행
 birkin daemon  [--install]          # Morpheus + cron 스케줄러
 birkin review                       # 제안 동작 승인/거부
 birkin runs / trace <id> / budget   # 감사 로그 · 재생 · 토큰 예산
-birkin skills [validate|sync]       # 스킬 목록 / 린트 / 미러
+birkin skills [validate|sync|install owner/repo|scan <dir>]  # 목록 / 린트 / 설치(스캔)
 birkin permission [--access …]      # 자동 승인 · CLI 접근 수준
 birkin web                          # 모니터링 대시보드
 ```
 
 ### REPL 슬래시 명령
 
-`/help`로 전체 목록. 라인 에디터: **Ctrl+←/→** 단어 이동, **Ctrl-W** 단어 삭제,
-**Ctrl-U/Ctrl-K** 현재 줄의 시작/끝까지 삭제, **↑/↓** 히스토리, **Shift+Enter**
-줄바꿈, 인라인 `/` 드롭다운.
+`/help`(또는 `?`)로 전체 목록 — 도메인별 그룹으로 출력. 라인 에디터: **Ctrl+←/→**
+단어 이동, **Ctrl-W** 단어 삭제, **Ctrl-U/Ctrl-K** 현재 줄의 시작/끝까지 삭제,
+**↑/↓** 히스토리, **Shift+Enter** 줄바꿈, 인라인 `/` 드롭다운(퍼지 서브시퀀스 —
+`/prm`→`/permission`).
 
 | 그룹 | 명령 |
 |---|---|
-| **대화** | `/new` · `/retry` · `/undo` · `/compact` · `/clear` |
+| **대화** | `/new` · `/retry` · `/undo` · `/rollback` · `/compact` · `/clear` · `/status` · `/dash` |
 | **명료화** | `/neurosis [name]` (딥 인터뷰) |
 | **모델** | `/model` · `/models [name]` · `/provider` · `/temp` |
-| **스킬** | `/skills` · `/skill <name>` · `/reload` · `/learn` |
+| **스킬·도구** | `/skills` · `/skill <name>` · `/reload` · `/learn` · `/mcp` · `/tools` · `/details` |
 | **메모리** | `/memory <query>` · `/remember <text>` · `/vault` · `/soul` · `/personality` |
-| **도구** | `/mcp` · `/tools` |
 | **자율** | `/morpheus` · `/review` · `/cron` · `/permission` |
 | **세션** | `/save` · `/load` · `/sessions` |
 | **시스템** | `/system` · `/config` · `/update` · `/help` · `/quit` |
+
+`/status`는 라이브 상태줄을 재출력, `/dash`는 전체화면 미션 컨트롤(세션·크론·승인·
+기억 존), `/rollback`은 워크스페이스 체크포인트 되돌리기, `/details`는 도구 트레이스
+전체 입출력 토글.
 
 ---
 
@@ -294,13 +300,51 @@ direct`로 프리셋 교체, `/soul`로 보기/편집.
 ## 🧩 스킬
 
 스킬은 `SKILL.md`(frontmatter + 마크다운)를 가진 디렉토리로 agentskills.io /
-hermes 표준과 호환. [`skills/`](./skills) 아래 **54개 번들**(research·software·
+hermes 표준과 호환. [`skills/`](./skills) 아래 **55개 번들**(research·software·
 writing·data·devops·marketing·planning/**neurosis**·automation/**morpheus**·
 **odyssey**·**camoufox**·creative/**codex-image-gen**·quality/**model-compare** 등)
 + `~/.birkin/skills/`의
 내 스킬(번들을 이름으로 가림). `load_skill`로 필요 시 전체 로드, `create_skill`/
 `improve_skill`은 승인 게이트 경유, `birkin skills validate`로 린트 +
-`py_compile`, 편집 시 **핫리로드**.
+`py_compile`, 편집 시 **핫리로드**. `birkin skills install owner/repo/path`는
+GitHub 스킬을 보안 스캔(아래 보안 참조)을 거쳐 설치, `birkin skills scan <dir>`는
+스캐너만 단독 실행.
+
+---
+
+## 🖥️ 터미널 UI
+
+REPL은 진짜 TUI — 전부 순수 ANSI·stdlib(curses/rich/textual 없음), CJK 더블폭
+인식, 깔끔한 저하(파이프·`NO_COLOR` 출력은 escape 코드 **0**).
+
+- **라이브 상태줄** — 턴 경계·`/status`마다 재출력: model·provider·데몬 하트비트·
+  예산 게이지·대기승인 수, self-hiding 세그먼트(뉴스 있을 때만 노출).
+- **도구 트레이스 트리** — 서브에이전트 아래 중첩, 도구별 한 줄+개별 경과시간;
+  `/details`로 전체 입력 + 결과 스니펫.
+- **디스커버빌리티** — 그룹화된 `/help`(또는 `?`), 퍼지 `/`-자동완성, 맥락 힌트
+  (예: 되돌릴 게 생긴 바로 그 순간 체크포인트를 `/undo`와 함께 안내).
+- **`/dash` 미션 컨트롤** — 전체화면 대체스크린 대시보드(세션·크론·승인·기억 존),
+  3중 터미널 복원, non-TTY용 `--plain`/`--json` 폴백.
+
+---
+
+## 🧯 신뢰성
+
+네이티브-API 루프는 길고 무인인 실행에서 살아남도록 설계:
+
+- **자동 컴팩션.** 컨텍스트 창을 넘칠 대화는 호출 전 제자리에서 요약(보호된
+  헤드 + 예산 배분된 테일), 오버플로 재시도 백스톱까지 — 며칠짜리 게이트웨이
+  대화가 더는 *"prompt is too long"*으로 죽지 않음.
+- **프로바이더 페일오버.** 인증·레이트리밋·서버 실패 시 그 턴은 설정된 폴백
+  모델이 쿨다운 동안 처리, 이후 주 프로바이더를 재탐침(`fallback_provider`/
+  `fallback_model`).
+- **그레이스 콜.** 작업 중 턴 예산이 소진되면, 차갑게 멈추는 대신 무도구 마지막
+  한 턴이 한 일과 남은 일을 요약.
+- **디스크 스필.** 초과 도구 출력은 잘려나가는 대신 미리보기 + 경로로 파일 저장
+  (`read_file offset=`로 이어읽기).
+- **턴 중 스티어링.** 에이전트가 일하는 중 타이핑하면 진행 중 작업을 버리지 않고
+  지시를 주입(Esc는 여전히 중단).
+- **병렬 읽기.** 한 턴의 독립 읽기전용 도구 호출은 동시 실행; 쓰기는 순차 유지.
 
 ---
 
@@ -309,6 +353,15 @@ writing·data·devops·marketing·planning/**neurosis**·automation/**morpheus**
 무인으로도 놀라게 하지 않도록 설계 — [`docs/DECISIONS.md`](./docs/DECISIONS.md)
 ADR-029·ADR-032:
 
+- **run_shell 승인 게이트.** 파괴적 셸 명령(`rm -rf`·`curl | sh`·force-push…)은
+  즉시 거부(하드라인)하거나 REPL에서 프롬프트·무인 시 승인 큐잉 — 네이티브 루프의
+  셸 구멍을 봉인. 패턴 기반(샌드박스 아닌 안전벨트); 영구 허용목록은 "always"에서만
+  자라며 복합 명령엔 매칭 안 함.
+- **워크스페이스 체크포인트.** 모든 변경 도구는 실행 전 워크스페이스를 프로젝트
+  *바깥* bare git 저장소로 스냅샷 — `/rollback`으로 잘못된 편집을 되돌림; 내
+  `.git`·`.env`는 건드리지 않음.
+- **스킬 스캐닝.** `birkin skills install owner/repo`는 격리 구역으로 받아 신뢰
+  매트릭스 대비 유출·프롬프트 인젝션·파괴 패턴을 스캔, 클린 판정 + 확인 시에만 설치.
 - **cron→shell 게이트.** 자동 승인된 `cron`이 `shell` 페이로드를 우회시킬 수
   없음 — `shell`도 승인돼 있지 않으면 검토용으로 큐잉.
 - **게이트웨이는 절대 `--dangerously-skip-permissions` 아님.** 도달 가능한 채팅이
@@ -319,6 +372,9 @@ ADR-029·ADR-032:
   제한; *열린* 봇의 낯선 메시지는 자동 저장·기억 **안 함**(메모리 오염 방지).
 - **시크릿 redaction.** 트랜스크립트는 디스크/메모리에 닿기 전 마스킹
   (Anthropic/OpenAI/Google/GitHub/Slack/AWS 키·토큰·Bearer·PEM).
+- **라이프사이클 훅.** pre/post-tool·pre-LLM 이벤트에 선택적 사용자 셸 스크립트
+  (Claude Code 호환 JSON 와이어) — 도구를 차단하거나 컨텍스트를 주입 가능; 각
+  `(event, command)`는 최초 실행 전 1회 확인.
 - **At rest.** 상태·트랜스크립트는 원자적·`0o600`. 평문 config 토큰보다
   `TELEGRAM_BOT_TOKEN` 환경변수 권장.
 
@@ -356,12 +412,32 @@ ADR-029·ADR-032:
   "neurosis_threshold": null,
   "morpheus_hour": 4,
   "auto_approve": ["memory", "skill"],
+
+  "auto_compact": true,
+  "context_window": 200000,
+  "fallback_provider": "",
+  "fallback_model": "",
+  "shell_approval": "manual",
+  "command_allowlist": [],
+  "checkpoints": true,
+  "hooks": {},
+  "parallel_tools": true,
+  "spill_threshold": 30000,
+  "repl_typed_line": "steer",
+
   "channels": {
     "http": {"enabled": true},
     "telegram": {"enabled": false, "token": "", "allowed_chat_ids": []}
   }
 }
 ```
+
+두 번째 블록이 신뢰성 / 안전 / TUI 레이어: `auto_compact`+`context_window`
+(오버플로 전 자동 요약), `fallback_*`(프로바이더 페일오버), `shell_approval`+
+`command_allowlist`(파괴 명령 게이트), `checkpoints`(`/rollback`용 워크스페이스
+스냅샷), `hooks`(라이프사이클 셸 스크립트), `parallel_tools`, `spill_threshold`,
+`repl_typed_line`(턴 중 타이핑을 스티어 vs 중단). 색은 `NO_COLOR`/`CLICOLOR_FORCE`를
+따르고, `BIRKIN_PLAIN=1`은 스크린 리더용으로 애니메이션을 끔.
 
 API 키는 환경변수 우선; Claude Code 백엔드는 불필요. config.json의 키는
 `chmod 600`으로 저장.
@@ -392,11 +468,15 @@ Agents* — 재현 가능한 벤치마크 하네스는 [`benchmarks/`](./benchma
 
 ## 🛠️ 현재 위치
 
-- 오프라인 **테스트 740+개** 통과(API 키 없이, 커버리지 게이트 ≥75%), **번들
-  스킬 54개**, **런타임 의존성 0**, Python 3.10+.
+- 오프라인 **테스트 1,300+개** 통과(API 키 없이, 커버리지 게이트 ≥75%), **번들
+  스킬 55개**, **런타임 의존성 0**, Python 3.10+.
 - 무료·빠른 게이트웨이(웜 영속 Claude, ~3초, 실시간 스트리밍), Neurosis 딥
   인터뷰, 자동저장 → Morpheus 야간 기억, 회사 MCP, 회사급 보안 하드닝, 데몬
   리소스 레이어(idle-TTL/LRU 세션 풀·run ledger·모델별 게이트웨이 프리셋).
+- 신뢰성 + 진짜 터미널 TUI: 자동 컴팩션·프로바이더 페일오버·예산 그레이스 콜·
+  도구 출력 디스크 스필·턴 중 스티어링·병렬 읽기; 라이브 상태줄·`/dash` 미션
+  컨트롤·타이밍 도구 트레이스 트리·그룹화된 `/help`·퍼지 자동완성; run_shell 승인
+  게이트·워크스페이스 체크포인트(`/rollback`)·스캔된 스킬 설치·라이프사이클 훅.
 - 결정 근거: [`docs/DECISIONS.md`](./docs/DECISIONS.md). 라이브 상태:
   [`docs/STATUS.md`](./docs/STATUS.md). 비교:
   [`docs/COMPARISON.md`](./docs/COMPARISON.md).
