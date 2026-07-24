@@ -110,8 +110,12 @@ def filter_commands(buffer: str, commands: Sequence[CommandHint]) -> list[Comman
     - Buffer that doesn't start with ``/`` -> no dropdown.
     - Buffer that already contains whitespace (the user is typing args) -> no
       dropdown.
-    - Otherwise rank ``starts-with`` first, then substring matches (both
-      case-insensitive). Bare ``/`` lists every command.
+    - Otherwise rank ``starts-with`` first, then substring, then fuzzy
+      subsequence (all case-insensitive). Bare ``/`` lists every command.
+
+    The subsequence tier lets ``/prm`` reach ``/permission`` and ``/sns`` reach
+    ``/sessions`` — an exact prefix always outranks it, so precise typing is
+    never bumped.
     """
     if not buffer.startswith("/"):
         return []
@@ -124,7 +128,16 @@ def filter_commands(buffer: str, commands: Sequence[CommandHint]) -> list[Comman
     starts = [c for c in commands if c.name.lower().startswith(needle)]
     subs = [c for c in commands
             if needle in c.name.lower() and c not in starts]
-    return starts + subs
+    ranked = starts + subs
+    fuzzy = [c for c in commands
+             if _subseq(needle, c.name.lower()) and c not in ranked]
+    return ranked + fuzzy
+
+
+def _subseq(needle: str, name: str) -> bool:
+    """True if every char of ``needle`` appears in ``name`` in order."""
+    it = iter(name)
+    return all(ch in it for ch in needle)
 
 
 def common_prefix(strings: Iterable[str]) -> str:
