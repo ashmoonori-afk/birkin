@@ -66,6 +66,10 @@ def run(cfg: dict[str, Any] | None = None) -> int:
             line = raw.strip()
         if not line:
             continue
+        # A bare "?" is the reflexive "what can I do here" key (tig/clig.dev):
+        # route it to /help rather than sending it to the model.
+        if line == "?":
+            line = "/help"
         inline_complete.append_history(line, prior=history)
         if line.startswith("/"):
             # A slash handler that raises (or Ctrl-C mid-command) must not

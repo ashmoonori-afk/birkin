@@ -312,6 +312,21 @@ class Spinner:
         sys.stdout.flush()
 
 
+def hint(*parts: str) -> None:
+    """Print a DIM one-line key/action hint at the moment a choice is offered.
+
+    The line-flow translation of lazygit/gitui's contextual key bar: no box, no
+    cursor move, no scroll region — just an appended line, so it needs no width
+    math (nothing to the right to align). Silent when color is off would hide
+    the guidance, so it prints plainly (the text still helps a piped reader).
+    """
+    if not parts:
+        return
+    body = f"{DIM} · {RESET}".join(parts)
+    sys.stdout.write(f"  {DIM}{body}{RESET}\n")
+    sys.stdout.flush()
+
+
 def make_event_printer() -> Callable[[str, dict[str, Any]], None]:
     """Return an on_event callback that prints compact tool activity."""
     def emit(event: str, payload: dict[str, Any]) -> None:
@@ -340,5 +355,13 @@ def make_event_printer() -> Callable[[str, dict[str, Any]], None]:
             sys.stdout.write(f"\n{DIM}  ⇲ subagent: {payload.get('task', '')}{RESET}\n")
         elif event == "subagent.done":
             sys.stdout.write(f"{DIM}  ⇱ subagent done{RESET}\n")
+        elif event == "checkpoint":
+            # Teach /undo the moment there's something to undo (lazygit shows
+            # the commit key right after you stage). Was silent before.
+            mark = "checkpoint 저장됨 · /undo 로 되돌리기"
+            sys.stdout.write(f"{DIM}  {mark}{RESET}\n")
+        elif event == "steer":
+            said = str(payload.get("text", "") or "")[:60]
+            sys.stdout.write(f"{DIM}  steer 반영: {said}{RESET}\n")
         sys.stdout.flush()
     return emit

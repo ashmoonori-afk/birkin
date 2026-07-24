@@ -358,11 +358,17 @@ def project_root_for(path: Path) -> Path:
 
 
 def preflight(ctx: Any, tool_name: str, tool_input: dict[str, Any]) -> None:
-    """Snapshot before a mutating tool runs. Never raises."""
+    """Snapshot before a mutating tool runs. Never raises.
+
+    Emits a ``checkpoint`` event whenever a snapshot is actually recorded, so
+    the UI can teach ``/undo`` / ``/rollback`` at the moment there is something
+    to undo (the event was silent before — a dead capability).
+    """
     manager = getattr(ctx, "checkpoints", None)
     if manager is None or not getattr(manager, "enabled", False):
         return
     try:
+        commit = None
         if tool_name in ("write_file", "edit_file"):
             raw = (tool_input or {}).get("path", "")
             if not raw:
@@ -370,8 +376,8 @@ def preflight(ctx: Any, tool_name: str, tool_input: dict[str, Any]) -> None:
             target = Path(str(raw)).expanduser()
             if not target.is_absolute():
                 target = Path(ctx.cwd) / target
-            manager.ensure_checkpoint(project_root_for(target),
-                                      f"before {tool_name}")
+            commit = manager.ensure_checkpoint(project_root_for(target),
+                                               f"before {tool_name}")
         elif tool_name == "run_shell":
             command = (tool_input or {}).get("command", "")
             # Reuse shellguard's classifier rather than keeping a second list
@@ -379,6 +385,8 @@ def preflight(ctx: Any, tool_name: str, tool_input: dict[str, Any]) -> None:
             from .shellguard import detect
             if command and detect(str(command))[0] is not None:
                 cwd = (tool_input or {}).get("cwd") or ctx.cwd
-                manager.ensure_checkpoint(cwd, "before run_shell")
+                commit = manager.ensure_checkpoint(cwd, "before run_shell")
+        if commit and getattr(ctx, "emit", None):
+            ctx.emit("checkpoint", {"before": tool_name})
     except Exception:
         pass
