@@ -89,10 +89,11 @@ def _last_user_text(messages: list[dict[str, Any]]) -> str:
 # source: any command not listed here falls into "기타" so nothing is hidden.
 _HELP_GROUPS: list[tuple[str, list[str]]] = [
     ("세션·대화", ["new", "retry", "undo", "rollback", "compact", "clear",
-                 "save", "load", "sessions", "status"]),
+                 "save", "load", "sessions", "status", "dash"]),
     ("모델", ["model", "models", "provider", "temp"]),
     ("기억", ["memory", "remember", "vault", "learn"]),
-    ("스킬·도구", ["skills", "skill", "reload", "tools", "system", "mcp"]),
+    ("스킬·도구", ["skills", "skill", "reload", "tools", "system", "mcp",
+                 "details"]),
     ("운영·승인", ["review", "cron", "permission", "config", "morpheus",
                  "update"]),
     ("페르소나·인터뷰", ["soul", "personality", "neurosis"]),
@@ -432,6 +433,14 @@ def _config(session: Any, arg: str) -> None:
 def _status(session: Any, arg: str) -> None:
     from . import statusline
     print(statusline.render(session.cfg))
+
+
+@command("dash", "Full-screen mission control (세션·크론·승인·기억).",
+         "/dash [--plain|--json]", aliases=["dashboard"])
+def _dash(session: Any, arg: str) -> None:
+    from . import dash
+    a = arg.strip().lower()
+    dash.run(session, plain=(a == "--plain"), as_json=(a == "--json"))
 
 
 @command("details", "Toggle verbose tool traces (full input + result snippet).",
