@@ -26,6 +26,8 @@ benchmarks/
 docs/paper/
 # hermes-agent re-comparison research note (local only, 2026-07-23)
 docs/hermes-comparison-20260723.md
+# TUI redesign plan (local research note, 2026-07-24)
+docs/tui-redesign-plan.md
 # Working evidence/drafts dir (codex receipts, model-test logs) — local only
 .omo/
 # Tests that load the local-only benchmark harness (benchmarks/ is ignored)
