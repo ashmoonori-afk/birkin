@@ -370,11 +370,12 @@ class Agent:
 
     def _execute_with_events(self, tool_use: dict[str, Any]) -> dict[str, Any]:
         name = tool_use.get("name", "")
+        tid = tool_use.get("id")
         tool_input = tool_use.get("input", {}) or {}
-        self._emit("tool_start", {"name": name, "input": tool_input})
+        self._emit("tool_start", {"name": name, "input": tool_input, "id": tid})
         block = self._run_one(tool_use)
         self._emit("tool_end", {"name": name, "is_error": block["is_error"],
-                                "content": block["content"]})
+                                "content": block["content"], "id": tid})
         return block
 
     def _run_parallel(self, calls: list[dict[str, Any]],
@@ -389,7 +390,8 @@ class Agent:
 
         for tu in calls:
             self._emit("tool_start", {"name": tu.get("name", ""),
-                                      "input": tu.get("input", {}) or {}})
+                                      "input": tu.get("input", {}) or {},
+                                      "id": tu.get("id")})
 
         slots: list[Optional[dict[str, Any]]] = [None] * len(calls)
         with ThreadPoolExecutor(
@@ -426,7 +428,8 @@ class Agent:
             block = slots[i] or self._result_block(tu, "aborted", True)
             self._emit("tool_end", {"name": tu.get("name", ""),
                                     "is_error": block["is_error"],
-                                    "content": block["content"]})
+                                    "content": block["content"],
+                                    "id": tu.get("id")})
             out.append(block)
         return out
 

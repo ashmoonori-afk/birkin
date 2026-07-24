@@ -434,6 +434,16 @@ def _status(session: Any, arg: str) -> None:
     print(statusline.render(session.cfg))
 
 
+@command("details", "Toggle verbose tool traces (full input + result snippet).",
+         "/details [on|off]")
+def _details(session: Any, arg: str) -> None:
+    a = arg.strip().lower()
+    on = True if a in ("on", "1", "true") else False if a in (
+        "off", "0", "false") else not ui.details_on()
+    ui.set_details(on)
+    print(f"{DIM}툴 트레이스 상세 {'켜짐' if on else '꺼짐'}.{RESET}")
+
+
 # -- autonomy --------------------------------------------------------------
 
 @command("morpheus", "Run the Morpheus self-improvement routine now.",

@@ -327,41 +327,79 @@ def hint(*parts: str) -> None:
     sys.stdout.flush()
 
 
+# /details toggles verbose tool traces (full input + a result snippet).
+# opencode's /details; a module flag so the /details command and the per-session
+# printer share one switch without threading cfg through.
+_DETAILS = {"on": False}
+
+
+def set_details(on: bool) -> bool:
+    _DETAILS["on"] = bool(on)
+    return _DETAILS["on"]
+
+
+def details_on() -> bool:
+    return _DETAILS["on"]
+
+
 def make_event_printer() -> Callable[[str, dict[str, Any]], None]:
-    """Return an on_event callback that prints compact tool activity."""
+    """Return an on_event callback that prints tool activity as an indented,
+    timed trace tree. subagent.start/done nest the depth; each tool shows its
+    own elapsed time.
+    """
+    import time
+    state: dict[str, Any] = {"depth": 0, "t0": {}}   # id/name -> start time
+
+    def _pad() -> str:
+        return "  " + "  " * state["depth"]
+
+    def _key(payload: dict[str, Any]) -> str:
+        return str(payload.get("id") or payload.get("name") or "")
+
     def emit(event: str, payload: dict[str, Any]) -> None:
+        pad = _pad()
         if event == "tool_start":
+            state["t0"][_key(payload)] = time.monotonic()
             inp = json.dumps(payload.get("input", {}), ensure_ascii=False)
-            if len(inp) > 80:
-                inp = inp[:80] + "…"
-            sys.stdout.write(f"\n{DIM}  → {payload.get('name')} {inp}{RESET}\n")
+            cap = 200 if _DETAILS["on"] else 80
+            if len(inp) > cap:
+                inp = inp[:cap] + "…"
+            sys.stdout.write(f"\n{DIM}{pad}→ {payload.get('name')} {inp}{RESET}\n")
         elif event == "tool_end":
-            mark = f"{RED}✗{RESET}" if payload.get("is_error") else f"{GREEN}✓{RESET}"
-            sys.stdout.write(f"{DIM}  {mark} {payload.get('name')}{RESET}\n")
-            # Memory tools get a visible, non-dim line: the user should SEE
-            # what was remembered/recalled (P1-2).
+            t0 = state["t0"].pop(_key(payload), None)
+            dt = f" · {time.monotonic() - t0:.1f}s" if t0 else ""
+            mark = (f"{RED}✗{RESET}" if payload.get("is_error")
+                    else f"{GREEN}✓{RESET}")
+            sys.stdout.write(f"{DIM}{pad}{mark} {payload.get('name')}{dt}{RESET}\n")
+            content = payload.get("content", "") or ""
             if not payload.get("is_error"):
+                # Memory tools get a visible, non-dim line (P1-2).
                 from .memory import memory_activity_line
-                line = memory_activity_line(payload.get("name", ""),
-                                            payload.get("content", "") or "")
+                line = memory_activity_line(payload.get("name", ""), content)
                 if line:
-                    sys.stdout.write(f"  {CYAN}{line}{RESET}\n")
+                    sys.stdout.write(f"{pad}{CYAN}{line}{RESET}\n")
+            if _DETAILS["on"] and content:
+                snippet = content.strip().replace("\n", " ")[:200]
+                sys.stdout.write(f"{DIM}{pad}  ↳ {snippet}{RESET}\n")
         elif event == "compact":
             sys.stdout.write(
-                f"\n{DIM}  ⤵ compacted context ({payload.get('reason')}): "
+                f"\n{DIM}{pad}⤵ compacted context ({payload.get('reason')}): "
                 f"{payload.get('before')} → {payload.get('after')} messages"
                 f"{RESET}\n")
         elif event == "subagent.start":
-            sys.stdout.write(f"\n{DIM}  ⇲ subagent: {payload.get('task', '')}{RESET}\n")
+            sys.stdout.write(
+                f"\n{DIM}{pad}⇲ subagent: {payload.get('task', '')}{RESET}\n")
+            state["depth"] += 1
         elif event == "subagent.done":
-            sys.stdout.write(f"{DIM}  ⇱ subagent done{RESET}\n")
+            state["depth"] = max(0, state["depth"] - 1)
+            sys.stdout.write(f"{DIM}{_pad()}⇱ subagent done{RESET}\n")
         elif event == "checkpoint":
             # Teach /undo the moment there's something to undo (lazygit shows
             # the commit key right after you stage). Was silent before.
-            mark = "checkpoint 저장됨 · /undo 로 되돌리기"
-            sys.stdout.write(f"{DIM}  {mark}{RESET}\n")
+            sys.stdout.write(
+                f"{DIM}{pad}checkpoint 저장됨 · /undo 로 되돌리기{RESET}\n")
         elif event == "steer":
             said = str(payload.get("text", "") or "")[:60]
-            sys.stdout.write(f"{DIM}  steer 반영: {said}{RESET}\n")
+            sys.stdout.write(f"{DIM}{pad}steer 반영: {said}{RESET}\n")
         sys.stdout.flush()
     return emit
