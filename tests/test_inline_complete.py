@@ -646,11 +646,11 @@ def test_fuzzy_subsequence_reaches_non_prefix_commands():
 
 def test_exact_prefix_always_outranks_fuzzy():
     from birkin.inline_complete import CommandHint, filter_commands
-    cmds = [CommandHint(n, "") for n in ("compact", "config", "cron", "provider")]
-    # "/co" prefixes compact/config; provider only matches as a subsequence.
-    ranked = [c.name for c in filter_commands("/co", cmds)]
-    assert ranked[0].startswith("co")
-    assert ranked.index("provider") > ranked.index("compact")
+    cmds = [CommandHint(n, "") for n in ("run", "reunion")]
+    # "/run": prefix-matches "run"; "reunion" matches only as a subsequence
+    # (r-e-u-n). The prefix must come first.
+    ranked = [c.name for c in filter_commands("/run", cmds)]
+    assert ranked == ["run", "reunion"]
 
 
 def test_subseq_helper():
