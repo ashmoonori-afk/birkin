@@ -150,6 +150,50 @@ def pad(s: str, width: int, *, align: str = "left",
     return (" " * gap + s) if align == "right" else (s + " " * gap)
 
 
+# -- gauges / sparklines / severity ----------------------------------------
+#
+# Pure-ANSI primitives that return strings, so they drop straight into a
+# line-flow status line or a /dash cell (a sparkline is the only line-flow-safe
+# time series — no fixed 2D plot region). Block glyphs are the default: btop and
+# bottom both warn braille "renders as broken boxes without font setup", and
+# birkin is Windows + CJK first, so braille width/coverage is unreliable.
+
+_SPARK = "▁▂▃▄▅▆▇█"          # U+2581..2588, 8 levels
+
+
+def bar(frac: float, width: int = 8) -> str:
+    """Horizontal fill meter, e.g. ``██████░░``. Empty track is ``░`` (not a
+    space) so it stays visible on any background (htop)."""
+    frac = 0.0 if frac != frac else max(0.0, min(1.0, frac))  # clamp; NaN->0
+    fill = round(frac * width)
+    return "█" * fill + "░" * (width - fill)
+
+
+def spark(series: list[float]) -> str:
+    """Block sparkline of a series compressed to one glyph per point (btop)."""
+    if not series:
+        return ""
+    lo, hi = min(series), max(series)
+    span = (hi - lo) or 1.0
+    return "".join(_SPARK[min(7, int((v - lo) / span * 7))] for v in series)
+
+
+def severity(value: float, careful: float, warning: float,
+             critical: float) -> str:
+    """Map a value to a semantic color by threshold (glances careful/warn/crit).
+
+    Thresholds are passed in, never hard-coded — a user's budget caps and
+    "stale" windows differ, so callers read them from config.
+    """
+    if value >= critical:
+        return RED
+    if value >= warning:
+        return YELLOW
+    if value >= careful:
+        return GREEN
+    return DIM
+
+
 # -- markdown -> ANSI ------------------------------------------------------
 
 _CODE_RE = re.compile(r"`([^`]+)`")
