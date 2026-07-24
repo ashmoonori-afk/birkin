@@ -81,6 +81,75 @@ def stream_text(piece: str) -> None:
     sys.stdout.flush()
 
 
+# -- display width (CJK-aware) ---------------------------------------------
+#
+# The load-bearing primitive for every alignment: columns, gauges, box edges,
+# and truncation must count *display cells*, not bytes or code points. Hangul
+# (U+AC00–D7A3) is East-Asian Wide = 2 cells, so ``len()`` tears every box in a
+# Korean-first app. stdlib ``unicodedata.east_asian_width`` already ships the
+# UAX#11 table, so no wcwidth port is needed.
+#
+# Caveats (per the plan's adversarial review): the Unicode table tracks the
+# running Python version, and emoji width (VS16 / ZWJ / regional indicators) is
+# not composed — harmless for Hangul, approximate for emoji in tool output.
+# Ambiguous width is mapped to 1 (modern terminals); a Wide-ambiguous terminal
+# needs the override below.
+import unicodedata  # noqa: E402
+
+
+def cell_width(s: str, *, ambiguous_wide: bool = False) -> int:
+    """Display width of ``s`` in terminal cells."""
+    w = 0
+    for ch in s:
+        if unicodedata.combining(ch) or unicodedata.category(ch) in (
+                "Mn", "Me", "Cf"):
+            continue                       # combining / zero-width marks
+        eaw = unicodedata.east_asian_width(ch)
+        if eaw in ("W", "F"):
+            w += 2
+        elif eaw == "A":
+            w += 2 if ambiguous_wide else 1
+        else:
+            w += 1
+    return w
+
+
+def fit(s: str, width: int, *, marker: str = "…",
+        ambiguous_wide: bool = False) -> str:
+    """Truncate ``s`` to at most ``width`` display cells, adding ``marker``.
+
+    Never splits inside a wide glyph. Returns ``s`` unchanged when it fits.
+    """
+    if width <= 0:
+        return ""
+    if cell_width(s, ambiguous_wide=ambiguous_wide) <= width:
+        return s
+    mw = cell_width(marker, ambiguous_wide=ambiguous_wide)
+    budget = max(0, width - mw)
+    out, used = [], 0
+    for ch in s:
+        cw = cell_width(ch, ambiguous_wide=ambiguous_wide)
+        if used + cw > budget:
+            break
+        out.append(ch)
+        used += cw
+    return "".join(out) + marker
+
+
+def pad(s: str, width: int, *, align: str = "left",
+        ambiguous_wide: bool = False) -> str:
+    """Pad ``s`` with spaces to exactly ``width`` display cells (or fit if over).
+
+    ``align`` is ``left`` or ``right``. Uses display width so a column of
+    mixed Hangul/ASCII lines up.
+    """
+    s = fit(s, width, ambiguous_wide=ambiguous_wide)
+    gap = width - cell_width(s, ambiguous_wide=ambiguous_wide)
+    if gap <= 0:
+        return s
+    return (" " * gap + s) if align == "right" else (s + " " * gap)
+
+
 # -- markdown -> ANSI ------------------------------------------------------
 
 _CODE_RE = re.compile(r"`([^`]+)`")
