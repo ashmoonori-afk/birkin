@@ -71,8 +71,10 @@ birkin is deliberately **smaller and more careful** than the inspirations.
    files); cron and shell are queued, risk-tiered. Built-in Morpheus providers
    use provider-specific isolation; arbitrary local CLI permissions remain
    user-managed, and local-CLI dry-run is refused.
-6. **CLI first, dashboard second.** A real terminal line editor (inline `/cmd`
-   dropdown, word-wise editing, multi-line, history). The web UI is *monitoring*.
+6. **CLI first, dashboard second.** A real terminal TUI — a live status line
+   (daemon · budget · pending), a nested timed tool-trace tree, grouped `/help`,
+   fuzzy `/`-completion, and a full-screen `/dash` mission control — all pure
+   ANSI, stdlib-only, CJK-aware. The web UI is *monitoring*.
 
 ### WebUI monitoring workbench
 
@@ -285,7 +287,7 @@ birkin morpheus [--dry-run]         # run the nightly self-improvement now
 birkin daemon  [--install]          # Morpheus + cron scheduler
 birkin review                       # approve / reject proposed actions
 birkin runs / trace <id> / budget   # audit log · replay · token budget
-birkin skills [validate|sync]       # list / lint / mirror skills
+birkin skills [validate|sync|install owner/repo|scan <dir>]  # list / lint / install (scanned)
 birkin permission [--access …]      # auto-approve categories · CLI access level
 birkin web                          # monitoring dashboard
 ```
@@ -296,17 +298,25 @@ Type `/help` for the full list. Line editor: **Ctrl+←/→** word motion, **Ctr
 delete word, **Ctrl-U/Ctrl-K** clear to start/end, **↑/↓** history, **Shift+Enter**
 newline, inline `/`-dropdown.
 
+Type `/help` (or just **`?`**) for a domain-grouped list; the `/`-dropdown does
+fuzzy-subsequence matching (`/prm` → `/permission`).
+
 | Group | Commands |
 |---|---|
-| **Conversation** | `/new` · `/retry` · `/undo` · `/compact` · `/clear` |
+| **Conversation** | `/new` · `/retry` · `/undo` · `/rollback` · `/compact` · `/clear` · `/status` · `/dash` |
 | **Clarify** | `/neurosis [name]` (deep interview) |
 | **Model** | `/model` · `/models [name]` · `/provider` · `/temp` |
-| **Skills** | `/skills` · `/skill <name>` · `/reload` · `/learn` |
-| **Memory** | `/memory <query>` · `/remember <text>` · `/vault` · `/soul` · `/personality` |
-| **Tools** | `/mcp` · `/tools` |
+| **Skills · tools** | `/skills` · `/skill <name>` · `/reload` · `/tools` · `/system` · `/mcp` · `/details` |
+| **Memory** | `/memory <query>` · `/remember <text>` · `/vault` · `/learn` |
+| **Persona** | `/soul` · `/personality` |
 | **Autonomy** | `/morpheus` · `/review` · `/cron` · `/permission` |
 | **Session** | `/save` · `/load` · `/sessions` |
-| **System** | `/system` · `/config` · `/update` · `/help` · `/quit` |
+| **System** | `/config` · `/update` · `/help` · `/quit` |
+
+`/rollback` restores workspace files from a checkpoint taken before a mutating
+tool; `/dash` opens the full-screen mission control (sessions · cron · approvals
+· memory zones); `/status` reprints the live status line; `/details` toggles
+verbose tool traces.
 
 ---
 
@@ -337,7 +347,7 @@ surface (read fresh each turn in the REPL; on session start in the gateway).
 ## 🧩 Skills
 
 A skill is a directory with a `SKILL.md` (frontmatter + markdown), compatible
-with the agentskills.io / hermes standard. **54 bundled** under
+with the agentskills.io / hermes standard. **55 bundled** under
 [`skills/`](./skills) (research, software, writing, data, devops, marketing,
 planning/**neurosis**, automation/**morpheus** · **odyssey** · **camoufox**,
 creative/**codex-image-gen**, quality/**model-compare**, …), plus your own
@@ -345,14 +355,65 @@ under `~/.birkin/skills/` (which shadow
 bundled ones). `load_skill` pulls full text on demand; `create_skill` /
 `improve_skill` route through the approval gate; `birkin skills validate` lints
 frontmatter + `py_compile`s bundled scripts; skills **hot-reload** on edit.
+`birkin skills install owner/repo/path` fetches a skill from GitHub through a
+security scan (see Security); `birkin skills scan <dir>` runs the scanner alone.
 
 ---
+
+## 🖥️ Terminal UI
+
+The REPL is a real TUI, all pure ANSI on the stdlib (no curses / rich /
+textual), CJK double-width-aware, and it degrades cleanly — piped or `NO_COLOR`
+output carries **zero escape codes**.
+
+- **Live status line** reprinted at each turn boundary and on `/status`: model ·
+  provider · daemon heartbeat · budget gauge · pending-approval count, with
+  self-hiding segments (a segment appears only when it has news).
+- **Tool-trace tree** — nested under subagents, one line per tool with its own
+  elapsed time; `/details` shows full input + a result snippet.
+- **Discoverability** — grouped `/help` (or `?`), fuzzy `/`-completion, and
+  contextual hints (e.g. a checkpoint is announced with `/undo` right when
+  there's something to undo).
+- **`/dash` mission control** — a full-screen alternate-screen dashboard
+  (sessions · cron · approvals · memory zones) with a three-fold terminal
+  restore and a `--plain` / `--json` fallback for non-TTY.
+
+## 🧯 Reliability
+
+The native-API loop is built to survive a long, unattended run:
+
+- **Auto-compaction.** A conversation that would overflow the context window is
+  summarized in place (protected head + budgeted tail) before the call, with an
+  overflow-retry backstop — so a multi-day gateway chat no longer dies on
+  *"prompt is too long"*.
+- **Provider failover.** On an auth / rate-limit / server failure the turn is
+  served by a configured fallback model for a cooldown, then the primary is
+  probed again (`fallback_provider` / `fallback_model`).
+- **Grace call.** When the turn budget trips mid-task, one final no-tools turn
+  summarizes what was done and what remains instead of stopping cold.
+- **Spill-to-disk.** Oversized tool output is saved to a file with a preview +
+  path (read on with `read_file offset=`) instead of being truncated away.
+- **Mid-turn steering.** Typing while the agent works injects an instruction
+  without discarding in-flight work (Esc still interrupts).
+- **Parallel reads.** Independent read-only tool calls in one turn run
+  concurrently; writers stay sequential.
 
 ## 🔒 Security (company-grade)
 
 birkin is built to run unattended in a company without surprising you — see
 [`docs/DECISIONS.md`](./docs/DECISIONS.md) ADR-029:
 
+- **run_shell approval gate.** Destructive shell commands (`rm -rf`, `curl | sh`,
+  force-push, …) are refused outright (hardline) or prompted in the REPL /
+  queued for approval when unattended — closing the native-loop shell hole.
+  Pattern-based (a seatbelt, not a sandbox); a permanent allowlist grows from
+  "always" and never matches a compound command.
+- **Workspace checkpoints.** Every mutating tool snapshots the workspace into a
+  bare git store *outside* the project first, so `/rollback` can undo a bad
+  edit; your own `.git` and `.env` are never touched.
+- **Skill scanning.** `birkin skills install owner/repo` fetches into quarantine,
+  scans for exfiltration / prompt-injection / destructive patterns against a
+  trust matrix, and only installs on a clean verdict + confirmation.
 - **cron→shell gate.** An auto-approved `cron` can't launder a `shell` payload
   past the shell gate — it's queued for review unless `shell` is also approved.
 - **Gateway is never `--dangerously-skip-permissions`.** A reachable chat
@@ -363,6 +424,9 @@ birkin is built to run unattended in a company without surprising you — see
   memorized (anti memory-poisoning).
 - **Secret redaction.** Transcripts are scrubbed (Anthropic/OpenAI/Google/GitHub/
   Slack/AWS keys, tokens, Bearer, PEM) before they hit disk or memory.
+- **Lifecycle hooks.** Optional user shell scripts on pre/post-tool and pre-LLM
+  events (Claude-Code-compatible JSON wire) can block a tool or inject context —
+  each `(event, command)` confirmed once before it ever runs.
 - **At rest.** State + transcripts are written atomically, `0o600`. Prefer
   `TELEGRAM_BOT_TOKEN` env over a plaintext config token.
 
@@ -400,12 +464,33 @@ Keys you'll actually touch:
   "neurosis_threshold": null,
   "morpheus_hour": 4,
   "auto_approve": ["memory", "skill"],
+
+  "auto_compact": true,
+  "context_window": 200000,
+  "fallback_provider": "",
+  "fallback_model": "",
+  "shell_approval": "manual",
+  "command_allowlist": [],
+  "checkpoints": true,
+  "hooks": {},
+  "parallel_tools": true,
+  "spill_threshold": 30000,
+  "repl_typed_line": "steer",
+
   "channels": {
     "http": {"enabled": true},
     "telegram": {"enabled": false, "token": "", "allowed_chat_ids": []}
   }
 }
 ```
+
+The second block is the reliability / safety / TUI layer: `auto_compact` +
+`context_window` (auto-summarize before overflow), `fallback_*` (provider
+failover), `shell_approval` + `command_allowlist` (destructive-command gate),
+`checkpoints` (workspace snapshots for `/rollback`), `hooks` (lifecycle shell
+scripts), `parallel_tools`, `spill_threshold`, and `repl_typed_line` (a typed
+line during a turn steers vs. interrupts). Colour obeys `NO_COLOR` /
+`CLICOLOR_FORCE`; `BIRKIN_PLAIN=1` drops animation for screen readers.
 
 API keys are read from the environment first; the Claude Code backend needs
 none. A key in `config.json` is stored `chmod 600`.
@@ -438,12 +523,17 @@ accuracy halves). Research log: [`docs/ranking-v2-plan.md`](./docs/ranking-v2-pl
 
 ## 🛠️ Where birkin sits today
 
-- **740+ tests** passing offline (no API key, `pytest`, ≥75 % coverage gate),
-  **54 bundled skills**, **0 runtime dependencies**, Python 3.10+.
+- **1,300+ tests** passing offline (no API key, `pytest`, ≥75 % coverage gate),
+  **55 bundled skills**, **0 runtime dependencies**, Python 3.10+.
 - Free + fast gateway (warm persistent Claude, ~3s, live streaming), Neurosis
   deep-interview, auto-save → Morpheus nightly memory, company MCP,
   company-grade security hardening, daemon resource layer (session pool with
   idle-TTL/LRU, run ledger, per-model gateway presets).
+- Reliability + a real terminal TUI: auto-compaction, provider failover,
+  budget-grace call, tool-output spill-to-disk, mid-turn steering, parallel
+  reads; a live status line, `/dash` mission control, a timed tool-trace tree,
+  grouped `/help`, fuzzy completion; run_shell approval gate, workspace
+  checkpoints (`/rollback`), scanned skill install, and lifecycle hooks.
 - Rationale per decision: [`docs/DECISIONS.md`](./docs/DECISIONS.md). Live
   status: [`docs/STATUS.md`](./docs/STATUS.md). Comparison:
   [`docs/COMPARISON.md`](./docs/COMPARISON.md).
