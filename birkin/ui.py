@@ -252,32 +252,49 @@ def render_markdown(text: str) -> str:
         return text
 
 
+_CLEAR_EOL = "\033[K"          # CSI 0K — erase to end of line, width-independent
+
+
 class Spinner:
-    """A minimal 'thinking…' indicator for non-streaming waits.
+    """A 'thinking…' indicator: braille frame + elapsed seconds + an interrupt
+    hint. The hint is not a lie — birkin's abortkey listener makes Esc actually
+    interrupt and a typed line actually steer.
 
     Runs in a daemon thread; ``stop()`` clears the line. Safe to stop twice.
+    Inert in plain/piped mode (see ``start``).
     """
 
     _FRAMES = "⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏"
 
-    def __init__(self, label: str = "thinking…"):
+    def __init__(self, label: str = "thinking…",
+                 hint: str = "esc 중단 · 입력 후 Enter=조종"):
         self.label = label
+        self.hint = hint
         self._stop = threading.Event()
         self._thread: threading.Thread | None = None
+        self._t0 = 0.0
 
     def start(self) -> None:
         # No animation in plain/piped/CI mode — a braille spinner streamed to a
         # file or a screen reader is noise. The turn still runs; it's just quiet.
         if plain_mode():
             return
+        import time
+        self._t0 = time.monotonic()
         self._thread = threading.Thread(target=self._run, daemon=True)
         self._thread.start()
 
     def _run(self) -> None:
+        import time
         for frame in itertools.cycle(self._FRAMES):
             if self._stop.wait(0.09):
                 break
-            sys.stdout.write(f"\r{DIM}{frame} {self.label}{RESET} ")
+            elapsed = int(time.monotonic() - self._t0)
+            tail = f" · {DIM}{self.hint}{RESET}" if self.hint else ""
+            # \r to column 0, draw, then \033[K wipes any leftover tail from a
+            # previously longer line — width-independent, unlike padding spaces.
+            sys.stdout.write(
+                f"\r{DIM}{frame} {self.label} {elapsed}s{RESET}{tail}{_CLEAR_EOL}")
             sys.stdout.flush()
 
     def stop(self) -> None:
@@ -286,7 +303,8 @@ class Spinner:
         self._stop.set()
         self._thread.join(timeout=0.3)
         self._thread = None
-        sys.stdout.write("\r" + " " * (len(self.label) + 6) + "\r")
+        # Erase the whole live line regardless of its (variable) width.
+        sys.stdout.write("\r" + _CLEAR_EOL)
         sys.stdout.flush()
 
 
