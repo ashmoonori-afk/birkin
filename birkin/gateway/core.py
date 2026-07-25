@@ -36,6 +36,8 @@ _GATEWAY_COMMANDS: list[tuple[str, str, set[str]]] = [
      {"update", "upgrade", "pull"}),
     ("pending", "List pending approvals (approve/reject from chat)",
      {"pending", "approvals", "review"}),
+    ("deny", "Refuse a pending action with a reason — /deny <id> <why>",
+     {"deny", "refuse"}),
     ("remind", "Schedule a daily message — /remind 09:00 <what to do>; "
      "/remind list; /remind del <id>",
      {"remind", "cron", "schedule"}),
@@ -47,7 +49,7 @@ _CODEX_REASONING_EFFORTS = ["default", "low", "medium", "high", "xhigh"]
 # Commands that pull code / restart the service / rewrite config — gated to
 # trusted channels only (see Gateway._command_trusted).
 _PRIVILEGED_COMMANDS = {"update", "models", "effort", "restart", "hard_restart",
-                        "pending", "remind"}
+                        "pending", "deny", "remind"}
 # Providers with a warm persistent-session implementation (see
 # claude_session.ClaudeStreamSession / codex_session.CodexAppServerSession).
 _PERSISTENT_PROVIDERS = ("claude-cli", "codex-cli")
@@ -543,6 +545,8 @@ class Gateway:
                 return f"{'✅' if result.get('ok') else '⚠️'} {result['message']}"
             if cmd == "pending":
                 return self.pending_text()
+            if cmd == "deny":
+                return self.deny_command(cmd_arg)
             if cmd == "remind":
                 return self.remind_command(cmd_arg, channel, str(chat_id))
             if cmd == "restart":
@@ -829,6 +833,22 @@ class Gateway:
             return "⚠ not found or already resolved"
         store.append_activity(f"approval[{aid}]: rejected via gateway")
         return "❌ rejected"
+
+    def deny_command(self, arg: str) -> str:
+        """/deny <id> <reason> — refuse, and tell the agent why."""
+        from .. import approvals
+        parts = (arg or "").strip().split(None, 1)
+        if not parts:
+            return "형식: /deny <id> <이유>  (대기 목록은 /pending)"
+        aid, reason = parts[0], (parts[1] if len(parts) > 1 else "")
+        out = approvals.reject(aid, reason=reason)
+        if not out.get("ok"):
+            return "⚠ not found or already resolved"
+        store.append_activity(
+            f"approval[{aid}]: rejected via gateway"
+            + (f" — {reason[:120]}" if reason else ""))
+        return ("❌ 거부했습니다." if not reason
+                else f"❌ 거부했습니다 — 사유를 에이전트에게 전달합니다: {reason[:200]}")
 
     def claim_action(self, aid: str) -> tuple[str, bool]:
         from .. import approvals

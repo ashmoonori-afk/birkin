@@ -220,10 +220,19 @@ def _queue_for_approval(command: str, why: str, cfg: dict[str, Any]) -> Any:
                           is_error=True)
     if status.get("auto"):
         return None          # "shell" is auto-approved: policy says run it
+    prior = ""
+    try:
+        said = approvals.denial_reason_for(command)
+    except Exception:
+        said = ""
+    if said:
+        prior = (f" The user refused this same command before, saying: "
+                 f"{said!r} — take that into account rather than "
+                 f"retrying a variant.")
     return ToolResult(
         f"Not run — {why}. This surface has no one to ask, so the command was "
         f"queued for approval (id {status.get('id')}). Do not retry it; tell "
-        f"the user to approve it with `birkin review`.", is_error=True)
+        f"the user to approve it with `birkin review`.{prior}", is_error=True)
 
 
 def _remember_forever(command: str, cfg: dict[str, Any]) -> None:

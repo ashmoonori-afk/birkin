@@ -200,7 +200,7 @@ def approve(aid: str) -> dict[str, Any]:
     return execute_claimed(aid)
 
 
-def reject(aid: str) -> dict[str, Any]:
+def reject(aid: str, reason: str = "") -> dict[str, Any]:
     if not store.valid_pending_id(aid):
         return {"ok": False}
     try:
@@ -208,10 +208,33 @@ def reject(aid: str) -> dict[str, Any]:
             rec = store.get_pending(aid)
             if not rec or rec.get("status") != "pending":
                 return {"ok": False}      # already resolved — don't clobber
-            store.resolve_pending(aid, "rejected")
+            store.resolve_pending(aid, "rejected", reason=reason)
     except store.FileLockTimeout:
         return {"ok": False}
     return {"ok": True}
+
+
+def denial_reason_for(command: str) -> str:
+    """Why the user last refused this exact command, if they said.
+
+    A denial with no reason leaves the model guessing: it either retries a
+    variant blind or gives up. Feeding the reason back is what makes the
+    approval loop converge instead of just stopping.
+    """
+    want = (command or "").strip()
+    if not want:
+        return ""
+    newest, when = "", ""
+    for rec in store.list_resolved("rejected"):
+        if not rec.get("deny_reason"):
+            continue
+        payload = rec.get("payload") or {}
+        if str(payload.get("command", "")).strip() != want:
+            continue
+        stamp = str(rec.get("resolved_at", ""))
+        if stamp >= when:
+            newest, when = str(rec["deny_reason"]), stamp
+    return newest
 
 
 def review_cli() -> int:
@@ -234,7 +257,13 @@ def review_cli() -> int:
             res = approve(rec["id"])
             print(f"   ✓ {res.get('result', res)}\n")
         elif choice in ("n", "no"):
-            reject(rec["id"])
+            why = ""
+            try:
+                why = input("   why? (optional, helps the agent) "
+                            ).strip()
+            except (EOFError, KeyboardInterrupt):
+                why = ""
+            reject(rec["id"], reason=why)
             print("   ✗ rejected\n")
         else:
             print("   … skipped\n")
