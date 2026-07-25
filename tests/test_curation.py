@@ -587,3 +587,67 @@ def test_annotated_anchors_become_searchable():
                         vault, dex)
     dex.refresh()
     assert [h for h in dex.search(q, limit=5) if h["slug"] == "budget-plan"]
+
+
+# ---------------- dry-run + vault checkpoint -------------------------------
+
+def test_dry_run_gates_the_plan_but_changes_nothing():
+    vault = _seed_vault()
+    before = {p: p.read_bytes() for p in sorted(vault.rglob("*.md"))}
+    plan = json.dumps({"plan_version": 2, "ops": [
+        {"op": "rezone", "slug": "cluster-ingress", "zone": "kubernetes"},
+        {"op": "annotate", "slug": "budget-plan", "aliases": ["가계부"]},
+    ], "summary": "s"})
+
+    outcome = curation.run_curation_pass(vault, lambda _p: plan,
+                                         provider="test", apply=False)
+    assert len(outcome.accepted) >= 2
+    assert outcome.effected == []
+    after = {p: p.read_bytes() for p in sorted(vault.rglob("*.md"))}
+    assert after == before, "dry run modified the vault"
+
+
+def test_curation_snapshots_the_vault_before_applying(monkeypatch):
+    vault = _seed_vault()
+    taken: list = []
+    monkeypatch.setattr(curation, "snapshot_vault",
+                        lambda v, cfg=None: taken.append(v) or "abc123")
+    plan = json.dumps({"plan_version": 2, "ops": [
+        {"op": "rezone", "slug": "cluster-ingress", "zone": "kubernetes"}],
+        "summary": "s"})
+    curation.run_curation_pass(vault, lambda _p: plan, provider="test")
+    assert taken == [vault], "vault was rewritten without a checkpoint"
+
+
+def test_no_snapshot_when_the_gate_accepts_nothing(monkeypatch):
+    vault = _seed_vault()
+    taken: list = []
+    monkeypatch.setattr(curation, "snapshot_vault",
+                        lambda v, cfg=None: taken.append(v))
+    plan = json.dumps({"plan_version": 2,
+                       "ops": [{"op": "archive", "slug": "nope"}],
+                       "summary": "s"})
+    curation.run_curation_pass(vault, lambda _p: plan, provider="test")
+    assert taken == []
+
+
+def test_snapshot_vault_is_a_real_restorable_checkpoint(tmp_path, monkeypatch):
+    import pytest
+    monkeypatch.setenv("BIRKIN_HOME", str(tmp_path / "home"))
+    vault = tmp_path / "vault"
+    vault.mkdir()
+    (vault / "note.md").write_text("original\n", encoding="utf-8")
+    commit = curation.snapshot_vault(vault, cfg={"checkpoints": True})
+    if commit is None:
+        pytest.skip("git unavailable")
+    from birkin import checkpoints
+    mgr = checkpoints.CheckpointManager(enabled=True)
+    entries = mgr.list_checkpoints(vault)
+    assert any(c["hash"] == commit for c in entries), entries
+    assert any(c["reason"].startswith("curate-memory") for c in entries)
+
+
+def test_curate_memory_cli_exposes_dry_run():
+    from birkin.cli import build_parser
+    args = build_parser().parse_args(["curate-memory", "--dry-run"])
+    assert args.dry_run is True
