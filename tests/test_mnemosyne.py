@@ -333,3 +333,51 @@ def test_zone_priority_reflects_access_concentration():
     pri = eng.zone_priorities(today=NOW.date())
     assert pri["projects"] == pytest.approx(1.0)
     assert pri.get("knowledge", 0.0) < 1.0
+
+
+# ---------------- temporal prior -------------------------------------------
+
+def test_temporal_target_korean_cues():
+    from datetime import datetime
+    now = datetime(2026, 7, 25, 12, 0)
+    for cue, days in [("지난주에 정리한 배포 노트", 7), ("어제 쓴 메모", 1),
+                      ("지난달 회고", 30), ("3일 전에 만든 계획", 3),
+                      ("2주 전 아이디어", 14), ("작년 목표", 365)]:
+        got = mnemosyne.temporal_target(cue, now)
+        assert got is not None, f"{cue!r} not parsed"
+        assert abs((now - got[0]).days - days) <= 1, cue
+
+
+def test_temporal_target_english_cues_still_work():
+    from datetime import datetime
+    now = datetime(2026, 7, 25, 12, 0)
+    assert mnemosyne.temporal_target("yesterday's note", now) is not None
+    assert mnemosyne.temporal_target("3 weeks ago", now) is not None
+
+
+def test_temporal_target_is_none_without_a_cue():
+    from datetime import datetime
+    now = datetime(2026, 7, 25, 12, 0)
+    assert mnemosyne.temporal_target("배포 파이프라인 정리", now) is None
+    assert mnemosyne.temporal_target("kubernetes ingress", now) is None
+
+
+def test_search_prefers_the_note_from_the_named_week(tmp_path):
+    """Two notes, same words, different dates: the temporal cue decides."""
+    from datetime import datetime, timedelta, timezone
+    vault = tmp_path / "vault"
+    (vault / "knowledge").mkdir(parents=True)
+    now = datetime.now(timezone.utc)
+    for name, when in (("recent", now - timedelta(days=7)),
+                       ("ancient", now - timedelta(days=400))):
+        (vault / "knowledge" / f"{name}.md").write_text(
+            f"---\ntitle: {name}\nupdated: {when.date().isoformat()}\n---\n\n"
+            "배포 파이프라인 정리 회의 기록\n", encoding="utf-8")
+    m = mnemosyne.Mnemosyne(vault)
+    m.refresh()
+
+    plain = [h["slug"] for h in m.search("배포 파이프라인", limit=5)]
+    assert set(plain) == {"recent", "ancient"}
+
+    cued = [h["slug"] for h in m.search("지난주 배포 파이프라인", limit=5)]
+    assert cued[0] == "recent", f"temporal cue ignored: {cued}"
