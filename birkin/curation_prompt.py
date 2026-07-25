@@ -6,7 +6,7 @@ from datetime import datetime, timezone
 from typing import Any
 
 from . import mnemosyne
-from .curation_contract import PLAN_VERSION
+from .curation_contract import PLAN_VERSION, SUPPORTED_PLAN_VERSIONS
 from .mnemosyne import Mnemosyne
 
 
@@ -51,7 +51,7 @@ def extract_plan(text: str) -> dict[str, Any]:
         except (json.JSONDecodeError, ValueError):
             continue
         if isinstance(obj, dict) and isinstance(obj.get("ops"), list) \
-                and obj.get("plan_version") == PLAN_VERSION:
+                and obj.get("plan_version") in SUPPORTED_PLAN_VERSIONS:
             return obj
     for cand in candidates:
         try:
@@ -97,7 +97,7 @@ change.
 
 Return EXACTLY ONE fenced JSON object (```json ... ```) matching this schema:
 
-{{"plan_version": 1, "ops": [ ... ], "summary": "<one short paragraph>"}}
+{{"plan_version": 2, "ops": [ ... ], "summary": "<one short paragraph>"}}
 
 Each op references notes by their existing SLUG. Include every op key
 (`op`, `slug`, `zone`, `a`, `b`, `stale`, `by`, `reason`) and set unused keys
@@ -112,6 +112,14 @@ to null:
 - {{"op": "archive", "slug": "<slug>", "zone": null, "a": null, "b": null, "stale": null, "by": null, "reason": "..."}}
     Soft-archive a clearly obsolete note. Never archive current facts, notes
     marked polarity=negative, or already well-filed notes.
+- {{"op": "annotate", "slug": "<slug>", "aliases": [...], "queries": [...], "xlang": [...], "reason": "..."}}
+    Write retrieval anchors into the note's frontmatter so a future search
+    finds it by words it does not literally contain: `aliases` = synonyms and
+    alternative names, `queries` = 3-5 phrasings someone might actually search
+    for, `xlang` = the same key terms in the other language (Korean note ->
+    English keywords, and vice versa). Anchors must be things the note really
+    is about; never invent facts. The body is never modified by this op, and
+    at most 5 short items per field survive the executor.
 
 Guidance - placement is everything; linking is automatic:
 - Your MAIN job is to assign notes to the correct topical zone. The

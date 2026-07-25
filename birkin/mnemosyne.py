@@ -290,8 +290,19 @@ def _note_entry(path: Path, rel: str) -> dict[str, Any] | None:
         confidence = float(meta.get("confidence", 0.5))
     except (TypeError, ValueError):
         confidence = 0.5
+    # Retrieval anchors written by the curator's `annotate` op (aliases /
+    # queries / xlang) are indexed like any other text — otherwise the op
+    # would write frontmatter nothing ever reads. No INDEX_VERSION bump is
+    # needed: annotating rewrites the file, so its stat fingerprint changes
+    # and only that note is re-parsed.
+    anchors: list[str] = []
+    for key in ("aliases", "queries", "xlang"):
+        raw = meta.get(key)
+        if isinstance(raw, list):
+            anchors.extend(str(v) for v in raw)
     terms: dict[str, int] = {}
-    for tok in tokenize(" ".join([title, " ".join(tags), body])):
+    for tok in tokenize(" ".join([title, " ".join(tags), " ".join(anchors),
+                                  body])):
         terms[tok] = terms.get(tok, 0) + 1
     rel = rel.replace("\\", "/")
     zone = rel.rsplit("/", 1)[0] if "/" in rel else ""

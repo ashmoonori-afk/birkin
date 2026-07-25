@@ -5,11 +5,23 @@ from dataclasses import dataclass, field
 from typing import Any
 
 
-PLAN_VERSION = 1
+PLAN_VERSION = 2
+# A v1 plan is still valid: the op set only grew, so an older prompt or a
+# stored plan keeps working rather than silently evaluating to no ops.
+SUPPORTED_PLAN_VERSIONS = {1, 2}
 ARCHIVE_CAP_FRACTION = 0.20
 ARCHIVE_CAP_MIN = 2
 PROTECT_TYPES = {"identity", "preference"}
-OPS = {"rezone", "link", "supersede", "archive"}
+OPS = {"rezone", "link", "supersede", "archive", "annotate"}
+
+# `annotate` (CurationPlan/2) lets the curator write retrieval anchors —
+# synonyms, likely phrasings, cross-language keywords — for a note it just
+# read. Still safety-by-construction: only these three frontmatter fields are
+# expressible, the body is not addressable at all, and both the item count
+# and each item's length are clamped by the executor, not trusted.
+ANNOTATE_FIELDS = ("aliases", "queries", "xlang")
+ANNOTATE_MAX_ITEMS = 5
+ANNOTATE_MAX_CHARS = 80
 
 FORBIDDEN_PHRASE_TOKENS = ("ALL", "NOTES", "ARCHIVED", "SUCCESSFULLY")
 _FORBIDDEN_RE = re.compile(r"\s*".join(FORBIDDEN_PHRASE_TOKENS),

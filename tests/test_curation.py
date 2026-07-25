@@ -12,7 +12,7 @@ import json
 from datetime import datetime, timezone
 from pathlib import Path
 
-from birkin import config, curation, mnemosyne
+from birkin import config, curation, curation_contract, mnemosyne
 from birkin.memory import VaultMemory
 
 
@@ -88,9 +88,16 @@ def test_extract_lenient_missing_version():
 
 
 def test_extract_wrong_plan_version_is_safe_empty_plan():
-    text = '{"plan_version":2,"ops":[{"op":"archive","slug":"z"}]}'
+    text = '{"plan_version":99,"ops":[{"op":"archive","slug":"z"}]}'
     p = curation.extract_plan(text)
     assert p["ops"] == []
+
+
+def test_extract_accepts_every_supported_plan_version():
+    """v1 plans keep working after the v2 bump — the op set only grew."""
+    for v in sorted(curation_contract.SUPPORTED_PLAN_VERSIONS):
+        text = ('{"plan_version":%d,"ops":[{"op":"archive","slug":"z"}]}' % v)
+        assert curation.extract_plan(text)["ops"], f"v{v} plan rejected"
 
 
 # ---------------- the gate: invariants --------------------------------------
@@ -487,3 +494,96 @@ def test_run_pass_empty_output_is_noop():
                                      now=NOW)
     after = {p.relative_to(vault).as_posix() for p in vault.rglob("*.md")}
     assert before == after and out.effected == []
+
+
+# ---------------- CurationPlan/2: annotate ---------------------------------
+
+def _annotate_plan(**fields):
+    return {"plan_version": 2, "ops": [dict(op="annotate", **fields)],
+            "summary": "anchors"}
+
+
+def test_gate_accepts_annotate_and_clamps_it():
+    vault = _seed_vault()
+    dex = mnemosyne.Mnemosyne(vault); dex.refresh()
+    snap = _snap(vault)
+    plan = _annotate_plan(slug="budget-plan",
+                          aliases=["예산 계획", "지출 계획"],
+                          queries=["how much can we spend", "예산 얼마"],
+                          xlang=["budget", "예산"])
+    g = curation.validate_clamp(plan, dex, snap, now=NOW)
+    assert len(g.accepted) == 1
+    op = g.accepted[0]
+    assert op["aliases"] == ["예산 계획", "지출 계획"]
+    assert op["queries"] and op["xlang"]
+
+
+def test_gate_annotate_cannot_touch_the_body_or_unknown_fields():
+    vault = _seed_vault()
+    dex = mnemosyne.Mnemosyne(vault); dex.refresh()
+    snap = _snap(vault)
+    plan = _annotate_plan(slug="budget-plan", aliases=["ok"],
+                          body="REPLACE EVERYTHING", type="identity",
+                          zone="_archive")
+    g = curation.validate_clamp(plan, dex, snap, now=NOW)
+    assert len(g.accepted) == 1
+    assert set(g.accepted[0]) == {"op", "slug", "aliases"}
+
+
+def test_gate_annotate_drops_unknown_slug_and_empty_payload():
+    vault = _seed_vault()
+    dex = mnemosyne.Mnemosyne(vault); dex.refresh()
+    snap = _snap(vault)
+    for bad in (_annotate_plan(slug="does-not-exist", aliases=["x"]),
+                _annotate_plan(slug="budget-plan"),
+                _annotate_plan(slug="budget-plan", aliases=[]),
+                _annotate_plan(slug="budget-plan", aliases=[1, 2, 3])):
+        g = curation.validate_clamp(bad, dex, snap, now=NOW)
+        assert g.accepted == [] and g.dropped
+
+
+def test_gate_annotate_clamps_item_count_and_length():
+    vault = _seed_vault()
+    dex = mnemosyne.Mnemosyne(vault); dex.refresh()
+    snap = _snap(vault)
+    plan = _annotate_plan(slug="budget-plan",
+                          queries=[f"query number {i}" for i in range(50)],
+                          aliases=["x" * 500])
+    g = curation.validate_clamp(plan, dex, snap, now=NOW)
+    op = g.accepted[0]
+    assert len(op["queries"]) <= curation_contract.ANNOTATE_MAX_ITEMS
+    assert all(len(a) <= curation_contract.ANNOTATE_MAX_CHARS
+               for a in op["aliases"])
+
+
+def test_apply_annotate_writes_frontmatter_only_and_body_is_untouched():
+    vault = _seed_vault()
+    dex = mnemosyne.Mnemosyne(vault); dex.refresh()
+    path = vault / dex.note_meta("budget-plan")["rel"]
+    before_body = mnemosyne.frontmatter.parse(
+        path.read_text(encoding="utf-8"))[1]
+
+    curation.apply_plan([{"op": "annotate", "slug": "budget-plan",
+                          "aliases": ["예산 계획"],
+                          "queries": ["돈 얼마나 쓸 수 있나"]}], vault, dex)
+
+    text = path.read_text(encoding="utf-8")
+    meta, after_body = mnemosyne.frontmatter.parse(text)
+    assert after_body == before_body, "annotate must not touch the body"
+    assert "예산 계획" in str(meta.get("aliases"))
+    assert "돈 얼마나 쓸 수 있나" in str(meta.get("queries"))
+
+
+def test_annotated_anchors_become_searchable():
+    """An anchor the curator wrote must actually change retrieval, or the
+    whole annotate op is decoration."""
+    vault = _seed_vault()
+    dex = mnemosyne.Mnemosyne(vault); dex.refresh()
+    q = "가계부 지출 관리"
+    assert not [h for h in dex.search(q, limit=5) if h["slug"] == "budget-plan"]
+
+    curation.apply_plan([{"op": "annotate", "slug": "budget-plan",
+                          "aliases": ["가계부"], "queries": ["지출 관리"]}],
+                        vault, dex)
+    dex.refresh()
+    assert [h for h in dex.search(q, limit=5) if h["slug"] == "budget-plan"]
