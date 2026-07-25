@@ -27,7 +27,7 @@
 > **CodexAppServerSession** (ADR-046) — warm codex turns 37.5 s → **3 s**;
 > **TDAI adoption** (ADR-047) — write-time near-duplicate advisory;
 > **token diet** (ADR-044); **ranking-v2 parity** (ADR-043,
-> 0.900/0.977/0.933 — benchmark; production port pending); **paper v4**
+> shipped to production 2026-07-25: R@1 0.870→0.891, MRR 0.910→0.926); **paper v4**
 > (ADR-042). Research logs:
 > [`ranking-v2-plan.md`](./ranking-v2-plan.md) ·
 > [`tdai-comparison.md`](./tdai-comparison.md).
