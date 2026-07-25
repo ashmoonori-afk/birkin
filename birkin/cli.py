@@ -413,6 +413,37 @@ def _cmd_permission(args: argparse.Namespace) -> int:
     return 0
 
 
+def _cmd_sessions(args: argparse.Namespace) -> int:
+    """`birkin sessions [export …]` — list conversations, or export to Markdown."""
+    from . import sessions_export
+    if getattr(args, "action", "") != "export":
+        files = sessions_export.list_sessions()
+        if not files:
+            print("No saved sessions.")
+            return 0
+        for f in files:
+            print(f"  {f.stem}")
+        print("\nExport one with `birkin sessions export <name> [--vault]`.")
+        return 0
+
+    stems = ([f.stem for f in sessions_export.list_sessions()]
+             if args.all else [s for s in (args.name or []) if s != "--"])
+    if not stems:
+        print('Which session? `birkin sessions export <name>` or --all.')
+        return 1
+    written, failed = [], []
+    for stem in stems:
+        try:
+            written.append(sessions_export.export(stem, to_vault=args.vault))
+        except (FileNotFoundError, ValueError, OSError) as exc:
+            failed.append(f"{stem}: {exc}")
+    for path in written:
+        print(f"  wrote {path}")
+    for line in failed:
+        print(f"  skipped {line}")
+    return 0 if written or not failed else 1
+
+
 def _cmd_odyssey(args: argparse.Namespace) -> int:
     """Seed an odyssey goal cycle; the cycle is driven via /odyssey in chat."""
     from . import config, odyssey
@@ -712,6 +743,19 @@ def build_parser() -> argparse.ArgumentParser:
         help="run birkin as an MCP server (stdio) exposing memory/skills/propose "
              "tools — used by Morpheus and the gateway via `claude --mcp-config`"
         ).set_defaults(func=_cmd_mcp_serve)
+
+    ses = sub.add_parser(
+        "sessions",
+        help="list saved conversations, or export one as Markdown you own")
+    ses.add_argument("action", nargs="?", default="",
+                     help="'export' to write Markdown (omit to list)")
+    ses.add_argument("name", nargs=argparse.REMAINDER,
+                     help="session name(s) to export")
+    ses.add_argument("--all", action="store_true",
+                     help="export every saved session")
+    ses.add_argument("--vault", action="store_true",
+                     help="file the export in the vault's journal zone")
+    ses.set_defaults(func=_cmd_sessions)
 
     ody = sub.add_parser(
         "odyssey",
