@@ -170,11 +170,13 @@ def _split_schedule(arg: str) -> tuple[dict[str, Any] | None, str]:
     """Split ``"<schedule> <task>"``, trying the longest schedule prefix first.
 
     Longest-first matters: "0 9 * * 1 weekly review" must be read as a 5-field
-    cron expression, not as the one-token schedule "0".
+    cron expression, not as the one-token schedule "0". 3 covers the Korean
+    weekly form ("매주 월요일 09:00 주간 리뷰") — without it the parser accepts
+    the expression but the splitter never hands it three tokens.
     """
     from .. import cron
     tokens = arg.split()
-    for n in (5, 2, 1):
+    for n in (5, 3, 2, 1):
         if len(tokens) <= n:      # a reminder needs a task after the schedule
             continue
         spec = cron.parse_schedule(" ".join(tokens[:n]))
@@ -787,8 +789,9 @@ class Gateway:
             m = re.match(r"(\d{1,2})[:시](\d{2})?\s+(.+)", arg, re.S)
             if not m:
                 return ("형식: /remind <시각|주기> <할 일>. 예: /remind 09:00 "
-                        "오늘 할 일 정리 · /remind every 30m 메일 확인 · "
-                        "/remind 2h 스트레칭 · /remind 0 9 * * 1 주간 리뷰")
+                        "오늘 할 일 정리 · /remind 30분마다 메일 확인 · "
+                        "/remind 1시간 후 스트레칭 · /remind 매주 월요일 09:00 "
+                        "주간 리뷰 (every 30m · 2h · 0 9 * * 1 도 됩니다)")
             hour = int(m.group(1))
             minute = int(m.group(2) or 0)
             if hour > 23 or minute > 59:
@@ -798,7 +801,7 @@ class Gateway:
                             "display": f"{hour:02d}:{minute:02d} daily"}, \
                 m.group(3).strip()
         if not prompt:
-            return "할 일을 함께 적어 주세요. 예: /remind every 30m 메일 확인"
+            return "할 일을 함께 적어 주세요. 예: /remind 30분마다 메일 확인"
         try:
             job = cron.add_job(name="remind", action_type="prompt",
                                value=prompt, deliver_chat_id=chat_id,

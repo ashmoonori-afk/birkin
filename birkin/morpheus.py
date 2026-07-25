@@ -401,10 +401,11 @@ def _attach_propose_tool(session, cfg: dict[str, Any],
                     "is queued for the user's approval (not executed now). Use "
                     "category 'cron' with payload {name, schedule, type "
                     "('prompt'|'shell'), value}, or 'shell' with payload "
-                    "{command}. 'schedule' accepts '09:00' (daily), "
-                    "'every 30m', '2h' (once), or a 5-field cron expression "
-                    "like '0 9 * * 1'; omit it and pass hour/minute for a "
-                    "plain daily job.",
+                    "{command}. 'schedule' accepts '09:00' or '매일 09:00' "
+                    "(daily), 'every 30m'/'30분마다' (interval), '2h'/'30분 후' "
+                    "(once), or a 5-field cron expression like '0 9 * * 1' "
+                    "('매주 월요일 09:00' also works); omit it and pass "
+                    "hour/minute for a plain daily job.",
         input_schema={"type": "object", "properties": {
             "category": {"type": "string", "enum": ["cron", "shell"]},
             "title": {"type": "string"},

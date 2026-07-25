@@ -8,10 +8,10 @@ Schedules come in four shapes, all parsed by :func:`parse_schedule`:
 ===============  ==================================  ========================
 kind             examples                            meaning
 ===============  ==================================  ========================
-``daily``        ``09:00``                           every day at that time
-``interval``     ``every 30m``, ``every 2h``         repeating, from last run
-``once``         ``2h``, ``2026-07-24T09:00``        fires a single time
-``cron``         ``0 9 * * 1``                       5-field cron expression
+``daily``        ``09:00``, ``매일 09:00``            every day at that time
+``interval``     ``every 30m``, ``30분마다``           repeating, from last run
+``once``         ``2h``, ``30분 후``, ISO timestamp    fires a single time
+``cron``         ``0 9 * * 1``, ``매주 월요일 09:00``    5-field cron expression
 ===============  ==================================  ========================
 
 Jobs written before this grammar existed carry a bare ``hour``/``minute`` and
@@ -35,7 +35,11 @@ _MIN_INTERVAL_MINUTES = 1
 _CRON_SEARCH_DAYS = 366
 
 _DURATION_RE = re.compile(r"^(\d+)\s*(m|min|mins|minute|minutes|h|hr|hrs|hour|"
-                          r"hours|d|day|days)$", re.I)
+                          r"hours|d|day|days|분|시간|일)$", re.I)
+# Korean weekday -> cron day-of-week. '월'/'월요일' both accepted (the '요일'
+# suffix is stripped before lookup).
+_KO_WEEKDAYS = {"일": 0, "월": 1, "화": 2, "수": 3,
+                "목": 4, "금": 5, "토": 6}
 _CLOCK_RE = re.compile(r"^(\d{1,2}):(\d{2})$")
 _CRON_FIELD_RE = re.compile(r"^[\d*,/-]+$")
 
@@ -48,11 +52,22 @@ def parse_duration(text: str) -> Optional[int]:
     if not m:
         return None
     n, unit = int(m.group(1)), m.group(2).lower()
-    if unit.startswith("d"):
+    if unit.startswith("d") or unit == "일":
         return n * 1440
-    if unit.startswith("h"):
+    if unit.startswith("h") or unit == "시간":
         return n * 60
     return n
+
+
+def _ko_clock(text: str, build) -> Optional[dict[str, Any]]:
+    """Shared 'HH:MM or reject' step for the Korean 매일/매주 forms."""
+    m = _CLOCK_RE.match(text)
+    if not m:
+        return None
+    hour, minute = int(m.group(1)), int(m.group(2))
+    if hour > 23 or minute > 59:
+        return None
+    return build(hour, minute)
 
 
 def parse_schedule(text: str) -> Optional[dict[str, Any]]:
@@ -64,6 +79,33 @@ def parse_schedule(text: str) -> Optional[dict[str, Any]]:
     text = (text or "").strip()
     if not text:
         return None
+
+    # '30분 후' means the same as '30분'; normalize the suffix away and let the
+    # duration -> one-shot path below handle it.
+    if text.endswith("후"):
+        text = text[:-1].strip()
+
+    if text.startswith("매일"):
+        return _ko_clock(text[2:].strip(), lambda h, m: {
+            "kind": "daily", "hour": h, "minute": m,
+            "display": f"매일 {h:02d}:{m:02d}"})
+    if text.startswith("매주"):
+        parts = text[2:].split()
+        if len(parts) != 2:
+            return None
+        dow = _KO_WEEKDAYS.get(parts[0].removesuffix("요일"))
+        if dow is None:
+            return None
+        return _ko_clock(parts[1], lambda h, m: {
+            "kind": "cron", "expr": f"{m} {h} * * {dow}",
+            "display": f"매주 {parts[0]} {h:02d}:{m:02d}"})
+    if text.endswith("마다"):
+        body = text[:-2].strip()
+        minutes = parse_duration(body)
+        if minutes is None or minutes < _MIN_INTERVAL_MINUTES:
+            return None
+        return {"kind": "interval", "minutes": minutes,
+                "display": f"{body}마다"}
 
     low = text.lower()
     if low.startswith("every "):

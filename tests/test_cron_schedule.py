@@ -244,3 +244,63 @@ def test_disabled_jobs_never_fire():
                        schedule="every 1m", enabled=False)
     later = datetime.fromisoformat(job["next_run"]) + timedelta(minutes=5)
     assert cron.due_jobs(later) == []
+
+
+# -- Korean grammar (the project's primary language) ------------------------
+
+@pytest.mark.parametrize("text,minutes", [
+    ("30분", 30), ("2시간", 120), ("1일", 1440), ("90 분", 90),
+])
+def test_parse_duration_korean_units(text, minutes):
+    assert cron.parse_duration(text) == minutes
+
+
+def test_korean_interval_every_n_minutes():
+    got = cron.parse_schedule("30분마다")
+    assert got["kind"] == "interval" and got["minutes"] == 30
+
+
+def test_korean_daily_at_clock():
+    got = cron.parse_schedule("매일 09:00")
+    assert got["kind"] == "daily" and (got["hour"], got["minute"]) == (9, 0)
+
+
+def test_korean_weekly_maps_to_cron_expression():
+    got = cron.parse_schedule("매주 월요일 09:00")
+    assert got["kind"] == "cron" and got["expr"] == "0 9 * * 1"
+    nxt = datetime.fromisoformat(
+        cron.compute_next_run(got, datetime(2026, 7, 25, 12, 0)))
+    assert nxt.weekday() == 0 and (nxt.hour, nxt.minute) == (9, 0)
+
+
+def test_korean_once_after_duration():
+    base = datetime.now()
+    got = cron.parse_schedule("30분 후")
+    assert got["kind"] == "once"
+    when = datetime.fromisoformat(got["run_at"])
+    assert timedelta(minutes=29) <= when - base <= timedelta(minutes=31)
+
+
+@pytest.mark.parametrize("text", ["매일", "매주 09:00", "매일 25:00", "분마다"])
+def test_korean_malformed_schedules_rejected(text):
+    assert cron.parse_schedule(text) is None
+
+
+@pytest.mark.parametrize("arg,kind,task", [
+    ("30분마다 메일 확인", "interval", "메일 확인"),
+    ("매일 09:00 오늘 할 일 정리", "daily", "오늘 할 일 정리"),
+    ("매주 월요일 09:00 주간 리뷰", "cron", "주간 리뷰"),
+    ("1시간 후 스트레칭", "once", "스트레칭"),
+    ("0 9 * * 1 weekly review", "cron", "weekly review"),
+    ("every 30m mail", "interval", "mail"),
+])
+def test_remind_splits_korean_schedule_from_task(arg, kind, task):
+    """The /remind splitter must hand the parser the right token count.
+
+    The 3-token Korean weekly form parsed fine standalone but the splitter
+    only tried 5/2/1 tokens, so '매주 월요일 09:00 주간 리뷰' fell through.
+    """
+    from birkin.gateway.core import _split_schedule
+    spec, prompt = _split_schedule(arg)
+    assert spec is not None and spec["kind"] == kind
+    assert prompt == task
