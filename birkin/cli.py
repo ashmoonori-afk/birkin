@@ -536,8 +536,21 @@ def _cmd_budget(args: argparse.Namespace) -> int:
     month_flag = f"{RED}OVER{RESET}" if st["over_monthly"] else f"{CYAN}ok{RESET}"
     print(f"  today : {st['used_today']:>8} / {st['daily_cap']:<8}  [{daily_flag}]")
     print(f"  month : {st['used_month']:>8} / {st['monthly_cap']:<8}  [{month_flag}]")
+    model = str(cfg.get("model") or "sonnet")
+    day_usd = budget.estimate_cost_usd(st["used_today"], model)
+    month_usd = budget.estimate_cost_usd(st["used_month"], model)
+    print(f"\n{BOLD}At API list rates{RESET} ({model}, ~20 % output)")
+    print(f"  today : ${day_usd:>8.2f}")
+    print(f"  month : ${month_usd:>8.2f}")
+    tiers = budget.ANNOUNCED_CREDIT_TIERS_USD
+    fits = [name for name, cap in sorted(tiers.items(), key=lambda kv: kv[1])
+            if month_usd <= cap]
+    verdict = (f"fits the {fits[0]} credit tier (${tiers[fits[0]]}/mo)"
+               if fits else "exceeds every announced credit tier")
+    print(f"  {DIM}this month {verdict}.{RESET}")
     print(f"\n{DIM}Set caps via config.json: budget_tokens_daily, "
-          f"budget_tokens_monthly.{RESET}")
+          f"budget_tokens_monthly. Cost is an estimate over recorded tokens, "
+          f"not a bill — see ADR-050.{RESET}")
     return 0
 
 
