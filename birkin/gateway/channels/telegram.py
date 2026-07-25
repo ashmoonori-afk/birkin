@@ -599,6 +599,10 @@ class TelegramChannel(Channel):
         finally:
             stop.set()
             pinger.join(timeout=16)
+        # The reply exists now; the sends below can still die with it
+        # unsent. Record the obligation first, discharge it after.
+        from ... import delivery
+        obligation = delivery.record("telegram", chat_id, reply or "")
         proposal = workflow.parse_proposal(reply or "")
         if proposal is not None and workflow_id is not None:
             failed = True
@@ -612,6 +616,7 @@ class TelegramChannel(Channel):
             self._finalize_stream(chat_id, streamer, reply or "(no reply)")
         else:
             self._send_reply(chat_id, reply or "(no reply)")
+        delivery.clear(obligation)
         if workflow_id is not None:
             workflow.finish(workflow_id, "error" if failed else "completed")
             if self._workflow_ids.get(chat_id) == workflow_id:
@@ -625,6 +630,12 @@ class TelegramChannel(Channel):
 
     def start(self, gateway: "Gateway") -> None:
         print("  · telegram channel polling for updates")
+        from ... import delivery
+        owed = delivery.redeliver(
+            "telegram", lambda chat_id, text: self._send_reply(chat_id, text))
+        if owed:
+            print(f"[telegram] redelivered {owed} reply(ies) owed from a "
+                  f"previous run")
         restored = workflow.restore_stranded_claims()
         if restored:
             print(f"[telegram] restored {restored} unstarted workflow approval(s)")
