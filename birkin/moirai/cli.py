@@ -12,7 +12,7 @@ from typing import Any, Optional
 
 from .. import config, ui
 from . import bindings as B
-from . import journal
+from . import journal, picker
 from .engine import MoiraiError, load_script, run_script
 
 
@@ -194,3 +194,15 @@ def _print_outcome(out: dict) -> None:
         rendered = json.dumps(out["result"], ensure_ascii=False, indent=1,
                               default=str)
         print(rendered if len(rendered) < 1200 else rendered[:1200] + " …")
+
+
+def _should_ask(args: Any, cli_binds: dict) -> bool:
+    """Interactive picking happens only where a human can answer.
+
+    --defaults skips it and an unattended surface has no TTY — the same rule
+    the rest of birkin uses for anything that would otherwise prompt nobody.
+    """
+    if getattr(args, "defaults", False):
+        return False
+    from ..inline_complete import _is_interactive
+    return _is_interactive()

@@ -771,6 +771,10 @@ def build_parser() -> argparse.ArgumentParser:
                      help="pin a role to a model, e.g. --bind critic=claude:opus")
     moi.add_argument("--args", default="", metavar="JSON",
                      help="JSON object passed to the script as m.args")
+    moi.add_argument("--defaults", action="store_true",
+                     help="skip the picker; resolve bindings non-interactively")
+    moi.add_argument("--bind-save", dest="bind_save", action="store_true",
+                     help="save the chosen bindings as your defaults")
     moi.add_argument("--limit", type=int, default=10)
     moi.set_defaults(func=_cmd_moirai)
 
