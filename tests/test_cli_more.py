@@ -1,4 +1,4 @@
-"""More CLI handler coverage — non-interactive paths that monkeypatch the
+"""More CLI handler coverage ??non-interactive paths that monkeypatch the
 side-effectful operations (web/gateway/daemon/nightly/setup)."""
 
 from __future__ import annotations
@@ -26,7 +26,7 @@ def test_dry_run_prints_packet_without_calling_llm(capsys):
 
 
 def test_dry_run_blank_message_is_noop(capsys, monkeypatch):
-    # empty stdin → input() returns "" → return 0
+    # empty stdin ??input() returns "" ??return 0
     monkeypatch.setattr("builtins.input", lambda *_: "")
     rc = cli_mod._dry_run(_ns(message=""))
     assert rc == 0
@@ -180,7 +180,7 @@ def test_cmd_curate_memory_persists_audit_manifest(monkeypatch, capsys):
     slug = mnemosyne.slug("Inbox idea")
 
     def fake_get_completer(provider, *, model=None, cfg=None, timeout=0,
-                           cwd=None):
+                           cwd=None, schema=None):
         return lambda prompt: json.dumps({"plan_version": 1, "ops": [
             {"op": "rezone", "slug": slug, "zone": "ideas",
              "reason": "file it"}],
