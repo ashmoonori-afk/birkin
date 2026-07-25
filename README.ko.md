@@ -243,6 +243,7 @@ birkin gateway                      # 무료·웜 서비스 (HTTP + Telegram)
 birkin neurosis "<아이디어>"        # 딥 인터뷰 시드 (/neurosis로 진행)
 birkin model                        # 모델 선택 (Claude Code = 무료)
 birkin mcp [list|add|remove|…]      # MCP 서버 관리 (회사 도구)
+birkin mcp-serve                    # 볼트를 MCP 호스트에 제공 (Claude Code 등)
 birkin morpheus [--dry-run]         # 야간 자기개선 즉시 실행
 birkin daemon  [--install]          # Morpheus + cron 스케줄러
 birkin review                       # 제안 동작 승인/거부
@@ -306,6 +307,26 @@ literally 없는 단어로도 찾히게 합니다. 다른 op와 같이 설계상
 **페르소나**는 `~/.birkin/SOUL.md` — 모든 표면에 주입되는 따뜻하고 편집 가능한
 말투(REPL은 매 턴, 게이트웨이는 세션 시작 시). `/personality warm|concise|mentor|
 direct`로 프리셋 교체, `/soul`로 보기/편집.
+
+---
+
+## 🔌 Claude Code(또는 아무 MCP 호스트)에서 볼트 쓰기
+
+birkin의 기억은 birkin 안에 갇혀 있지 않습니다. 야간 루틴이 쓰는 그 stdio MCP
+서버는 평범한 MCP 서버라서, 어떤 호스트든 마운트할 수 있습니다:
+
+```bash
+claude mcp add birkin -- birkin mcp-serve
+```
+
+이러면 Claude Code가 `memory_search`·`memory_get_note`·`memory_write_note`·
+`memory_link`와 스킬 도구를 갖게 됩니다 — 볼트도, 랭킹도, 위키링크 그래프도
+Claude Code를 떠나지 않고 그대로. 이 경계를 넘는 건 안전하고 되돌릴 수 있는
+도구뿐입니다: **셸 없음**, 파급 있는 제안은 여전히 승인 큐 경유.
+
+Claude Code 자체 메모리를 대체하는 게 아니라 함께 씁니다 —
+`autoMemoryDirectory`를 볼트 하위 폴더로 지정하면 둘 다 당신이 소유한 같은
+옵시디언 폴더에 씁니다.
 
 ---
 

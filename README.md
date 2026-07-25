@@ -282,7 +282,7 @@ birkin gateway                      # run as a warm, free service (HTTP + Telegr
 birkin neurosis "<idea>"            # seed a deep-interview (drive it with /neurosis)
 birkin model                        # pick a model (Claude Code = free)
 birkin mcp [list|add|remove|…]      # manage MCP servers (company tools)
-birkin mcp-serve                    # run birkin as an MCP server (used internally)
+birkin mcp-serve                    # serve the vault to any MCP host (Claude Code, …)
 birkin morpheus [--dry-run]         # run the nightly self-improvement now
 birkin daemon  [--install]          # Morpheus + cron scheduler
 birkin review                       # approve / reject proposed actions
@@ -355,6 +355,27 @@ subfolder of the vault and its notes land in your Obsidian vault too.
 **Persona** is `~/.birkin/SOUL.md` — a warm, editable voice injected into every
 surface (read fresh each turn in the REPL; on session start in the gateway).
 `/personality warm|concise|mentor|direct` swaps presets; `/soul` shows/edits it.
+
+---
+
+## 🔌 Use the vault from Claude Code (or any MCP host)
+
+birkin's memory is not locked inside birkin. The same stdio MCP server the
+nightly routine uses is a normal MCP server, so any host can mount it:
+
+```bash
+claude mcp add birkin -- birkin mcp-serve
+```
+
+Claude Code then has `memory_search`, `memory_get_note`, `memory_write_note`,
+`memory_link`, and the skill tools — the vault, the ranking, and the wikilink
+graph, without leaving Claude Code. Only safe, reversible tools cross this
+boundary: **no shell**, and consequential proposals still route through the
+approval queue.
+
+It composes with Claude Code's own memory rather than replacing it — point
+`autoMemoryDirectory` at a subfolder of the vault and both write into the same
+Obsidian folder you own.
 
 ---
 
