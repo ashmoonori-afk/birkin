@@ -679,6 +679,8 @@ def build_parser() -> argparse.ArgumentParser:
                     help="claude | codex | api | gemini | local "
                          "(default: config provider)")
     cm.add_argument("--model", default=None)
+    cm.add_argument("--dry-run", action="store_true",
+                    help="propose and gate the plan, print it, change nothing")
     cm.set_defaults(func=_cmd_curate_memory)
 
     tp_ = sub.add_parser("trace", help="print a run record (audit replay)")

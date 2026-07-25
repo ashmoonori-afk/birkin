@@ -40,13 +40,19 @@ def cmd_curate_memory(args) -> int:
                                         cwd=str(vault))
     print(f"curate-memory: provider={provider} "
           f"model={args.model or '(default)'} vault={vault}")
+    dry_run = bool(getattr(args, "dry_run", False))
+    if dry_run:
+        print("  (dry run \u2014 the vault will not be modified)")
     before_files = _vault_file_manifest(vault)
     outcome = curation.run_curation_pass(vault, completer,
-                                         provider=provider, model=args.model)
+                                         provider=provider, model=args.model,
+                                         apply=not dry_run)
     after_files = _vault_file_manifest(vault)
     print(f"proposed {outcome.plan_ops} ops -> "
           f"{len(outcome.accepted)} accepted, {len(outcome.dropped)} dropped "
           f"(archive cap {outcome.archive_cap})")
+    for a in (outcome.accepted if dry_run else []):
+        print("  would apply:", a)
     for e in outcome.effected:
         print("  applied:", e)
     if outcome.dropped:

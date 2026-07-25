@@ -28,7 +28,7 @@ from datetime import date, datetime, timezone
 from pathlib import Path
 from typing import Any
 
-from . import config
+from . import config, transcripts
 from .mnemosyne import (ARCHIVE_ZONE, IDENTITY_ZONE, TYPE_ZONE, Mnemosyne,
                         _entry_expired, tokenize)
 from .mnemosyne import atomic_write as _atomic_write
@@ -226,7 +226,12 @@ class VaultMemory:
             if pol not in VALID_POLARITIES:   # defensive — bad on-disk value
                 pol = "positive"
 
-            body = body.strip()
+            # Vault notes outlive the conversation they came from and
+            # sync to the user's other devices, so a key pasted into
+            # chat must not be remembered verbatim. Same masker as the
+            # transcript autosave — this was the higher-value surface
+            # and it was the one left uncovered.
+            body = transcripts.redact_text(body.strip())
             if append and existing_body:
                 body = existing_body + "\n\n" + body
 

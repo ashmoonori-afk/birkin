@@ -136,3 +136,23 @@ def test_list_notes_counts():
 
 def test_get_missing_note_returns_none():
     assert _mem().get_note("does-not-exist") is None
+
+
+def test_note_body_is_redacted_before_it_reaches_the_vault():
+    """A key pasted into chat must not be remembered verbatim.
+
+    Vault notes outlive the conversation and sync to other devices, so this
+    surface matters more than the transcript autosave that was already
+    covered — and it was the one left uncovered.
+    """
+    m = VaultMemory(config.load_config())
+    p = m.write_note("Deploy creds",
+                     "the key is sk-ant-api03-AAAABBBBCCCCDDDDEEEEFFFF1234\n"
+                     "api_key: hunter2-super-secret\n"
+                     "and the host is prod.example.com",
+                     source="dogfood")
+    text = p.read_text(encoding="utf-8")
+    assert "sk-ant-api03-AAAABBBBCCCCDDDDEEEEFFFF1234" not in text
+    assert "hunter2-super-secret" not in text
+    assert "[redacted]" in text
+    assert "prod.example.com" in text      # ordinary content survives
