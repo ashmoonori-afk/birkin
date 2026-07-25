@@ -413,6 +413,20 @@ def _cmd_permission(args: argparse.Namespace) -> int:
     return 0
 
 
+def _cmd_moirai(args: argparse.Namespace) -> int:
+    """`birkin moirai run|list|status|resume` — deterministic workflows."""
+    from .moirai import cli as moirai_cli
+    action = (getattr(args, "action", "") or "list").strip()
+    handlers = {"run": moirai_cli.cmd_run, "list": moirai_cli.cmd_list,
+                "status": moirai_cli.cmd_status,
+                "resume": moirai_cli.cmd_resume}
+    handler = handlers.get(action)
+    if handler is None:
+        print(f"모르는 하위 명령: {action} (run|list|status|resume)")
+        return 1
+    return handler(args)
+
+
 def _cmd_sessions(args: argparse.Namespace) -> int:
     """`birkin sessions [export …]` — list conversations, or export to Markdown."""
     from . import sessions_export
@@ -743,6 +757,22 @@ def build_parser() -> argparse.ArgumentParser:
         help="run birkin as an MCP server (stdio) exposing memory/skills/propose "
              "tools — used by Morpheus and the gateway via `claude --mcp-config`"
         ).set_defaults(func=_cmd_mcp_serve)
+
+    moi = sub.add_parser(
+        "moirai",
+        help="deterministic multi-agent workflows across claude / codex / API")
+    moi.add_argument("action", nargs="?", default="list",
+                     help="run | list | status | resume")
+    moi.add_argument("script", nargs="?", default="",
+                     help="workflow file or name (run)")
+    moi.add_argument("--run-id", dest="run_id", default="",
+                     help="run id (status / resume)")
+    moi.add_argument("--bind", action="append", default=[], metavar="ROLE=SPEC",
+                     help="pin a role to a model, e.g. --bind critic=claude:opus")
+    moi.add_argument("--args", default="", metavar="JSON",
+                     help="JSON object passed to the script as m.args")
+    moi.add_argument("--limit", type=int, default=10)
+    moi.set_defaults(func=_cmd_moirai)
 
     ses = sub.add_parser(
         "sessions",

@@ -61,6 +61,10 @@ DEFAULT_CONFIG: dict[str, Any] = {
     # Run adjacent READ-ONLY tool calls from one assistant turn concurrently
     # (see parallel.py). Writers stay sequential barriers. Set false to
     # restore strictly serial execution.
+    "moirai_workers": 4,
+    "moirai_max_agents": 100,
+    "moirai_roles": {},
+    "moirai_token_budget": 0,
     "parallel_tools": True,
     "parallel_tool_workers": 8,
     # Gate destructive run_shell commands on the native loop
