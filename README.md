@@ -338,6 +338,20 @@ Measured (see 📄 Research below): retrieval at **parity with a tuned
 embedding hybrid, with no encoder at all**, and per-query context cost
 **371× below** loading the vault wholesale.
 
+The nightly curator can also write **retrieval anchors** into a note's
+frontmatter (`annotate`, CurationPlan/2): synonyms, phrasings you might search
+for, and cross-language keywords, so a note is findable by words it does not
+literally contain. Like every curation op it is safety-by-construction — the
+body is not addressable, only three whitelisted fields are, and the executor
+clamps them. The vault is snapshotted before any curation pass, so even the
+accepted ops are reversible; `birkin curate-memory --dry-run` shows the plan
+without touching anything.
+
+**Works alongside Claude Code's own memory,** rather than against it. Claude
+Code writes per-repository project notes; birkin's vault is your life across
+projects, ranked and curated. Point Claude Code's `autoMemoryDirectory` at a
+subfolder of the vault and its notes land in your Obsidian vault too.
+
 **Persona** is `~/.birkin/SOUL.md` — a warm, editable voice injected into every
 surface (read fresh each turn in the REPL; on session start in the gateway).
 `/personality warm|concise|mentor|direct` swaps presets; `/soul` shows/edits it.
@@ -495,6 +509,15 @@ line during a turn steers vs. interrupts). Colour obeys `NO_COLOR` /
 API keys are read from the environment first; the Claude Code backend needs
 none. A key in `config.json` is stored `chmod 600`.
 
+**Running on an API key** is a first-class option, not a downgrade: set
+`provider` to `anthropic` (or `openai`) and export `ANTHROPIC_API_KEY` —
+birkin's LLM client talks to the Messages API directly, over the standard
+library. `birkin budget` reports the month's recorded tokens as dollars at
+list rates so the choice is informed rather than assumed. Which backend
+you use is a cost question, never a capability one; see
+[`docs/DECISIONS.md`](./docs/DECISIONS.md) ADR-050/051 for birkin's posture on
+subscription vs. key, including which surfaces run unattended.
+
 ---
 
 ## 📄 Research
@@ -523,7 +546,7 @@ accuracy halves). Research log: [`docs/ranking-v2-plan.md`](./docs/ranking-v2-pl
 
 ## 🛠️ Where birkin sits today
 
-- **1,300+ tests** passing offline (no API key, `pytest`, ≥75 % coverage gate),
+- **1,400+ tests** passing offline (no API key, `pytest`, ≥75 % coverage gate),
   **55 bundled skills**, **0 runtime dependencies**, Python 3.10+.
 - Free + fast gateway (warm persistent Claude, ~3s, live streaming), Neurosis
   deep-interview, auto-save → Morpheus nightly memory, company MCP,

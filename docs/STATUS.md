@@ -1,6 +1,6 @@
 # birkin — Build Status
 
-> Snapshot: 2026-07-25 · **1,350+ tests, green** (measured 2026-07-25;
+> Snapshot: 2026-07-25 · **1,400+ tests, green** (measured 2026-07-25;
 > coverage gate ≥75 %) · Newest:
 > **Telegram long-work workflow approval** — proactive plan buttons before
 > 3-minute/multi-phase/subagent work, chat-bound single-claim execution,
@@ -453,5 +453,5 @@ export ANTHROPIC_API_KEY=sk-ant-...   # required for chat / Morpheus
   dashboard treats as stopped via the stale-`heartbeat` check.
 - Memory search is index-backed BM25 + dynamics + zone priority + `[[wikilink]]`
   graph (ADR-040); embeddings remain a future optional upgrade.
-- Automated test suite: **1,350+ pytest tests** (offline, ≥75 % coverage gate),
+- Automated test suite: **1,400+ pytest tests** (offline, ≥75 % coverage gate),
   covering frontmatter, memory, approvals, llm stream parsing, gateway, and more.

@@ -291,6 +291,18 @@ birkin web                          # 모니터링 대시보드
 실측(아래 📄 연구 참조): **인코더 없이 튜닝 임베딩 하이브리드와 동급** 검색,
 vault 전체 로딩 대비 질의당 컨텍스트 비용 **371× 절감**.
 
+야간 큐레이터는 노트 frontmatter에 **검색 앵커**를 쓸 수도 있습니다
+(`annotate`, CurationPlan/2): 동의어·검색할 법한 표현·한↔영 키워드 — 노트에
+literally 없는 단어로도 찾히게 합니다. 다른 op와 같이 설계상 안전: 본문은 주소
+지정 자체가 불가, 화이트리스트 3개 필드만, 개수·길이는 executor가 클램프.
+큐레이션 전에 볼트를 스냅샷하므로 수락된 op조차 되돌릴 수 있고,
+`birkin curate-memory --dry-run`은 아무것도 건드리지 않고 계획만 보여줍니다.
+
+**Claude Code 자체 메모리와 함께 씁니다** — 경쟁이 아니라 보완. Claude Code는
+저장소별 프로젝트 노트를, birkin 볼트는 프로젝트를 가로지르는 당신의 삶을
+랭킹·큐레이션과 함께 담습니다. Claude Code의 `autoMemoryDirectory`를 볼트 하위
+폴더로 지정하면 그 노트도 당신의 옵시디언 볼트 안에 쌓입니다.
+
 **페르소나**는 `~/.birkin/SOUL.md` — 모든 표면에 주입되는 따뜻하고 편집 가능한
 말투(REPL은 매 턴, 게이트웨이는 세션 시작 시). `/personality warm|concise|mentor|
 direct`로 프리셋 교체, `/soul`로 보기/편집.
@@ -442,6 +454,14 @@ ADR-029·ADR-032:
 API 키는 환경변수 우선; Claude Code 백엔드는 불필요. config.json의 키는
 `chmod 600`으로 저장.
 
+**API 키로 돌리는 것도 1급 선택지**입니다(하위 옵션이 아님): `provider`를
+`anthropic`(또는 `openai`)로 두고 `ANTHROPIC_API_KEY`를 export하면 birkin의 LLM
+클라이언트가 표준 라이브러리만으로 Messages API에 직접 붙습니다. `birkin budget`이
+이번 달 기록된 토큰을 정가 기준 달러로 알려주므로 감이 아니라 숫자로 고를 수
+있습니다. 어떤 백엔드를 쓰든 기능 차이는 없고 비용 문제일 뿐 — 구독 대 API 키에
+대한 birkin의 입장(무인 실행 표면 포함)은
+[`docs/DECISIONS.md`](./docs/DECISIONS.md) ADR-050/051 참조.
+
 ---
 
 ## 📄 연구
@@ -468,7 +488,7 @@ Agents* — 재현 가능한 벤치마크 하네스는 [`benchmarks/`](./benchma
 
 ## 🛠️ 현재 위치
 
-- 오프라인 **테스트 1,300+개** 통과(API 키 없이, 커버리지 게이트 ≥75%), **번들
+- 오프라인 **테스트 1,400+개** 통과(API 키 없이, 커버리지 게이트 ≥75%), **번들
   스킬 55개**, **런타임 의존성 0**, Python 3.10+.
 - 무료·빠른 게이트웨이(웜 영속 Claude, ~3초, 실시간 스트리밍), Neurosis 딥
   인터뷰, 자동저장 → Morpheus 야간 기억, 회사 MCP, 회사급 보안 하드닝, 데몬
