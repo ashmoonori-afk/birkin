@@ -377,8 +377,18 @@ def _safe(thunk: Callable[[], Any]) -> Any:
 
 
 def _decode(text: Any, schema: Optional[dict]) -> Any:
-    """Placeholder for M2's structured decoding; text passes through today."""
-    return text
+    """Parse a structured answer, or return the text unchanged."""
+    if not schema or not isinstance(text, str):
+        return text
+    from . import schema as _s
+    value = _s.extract(text)
+    if value is None:
+        raise _s.SchemaError("응답에서 JSON을 찾지 못했습니다")
+    # A provider that needed the strict dialect fills optional fields with
+    # null; drop those before checking against the script's own schema.
+    value = _s.relax(value, schema)
+    _s.validate(value, schema)
+    return value
 
 
 def _run_token_budget(cfg: dict) -> Optional[int]:
@@ -400,13 +410,39 @@ def _default_spawn(prompt: str, binding: Binding, opts: dict, cfg: dict, *,
     asked for.
     """
     from .. import providers
+    from . import schema as _schema
     if (opts.get("tools") or "none") != "none":
         raise MoiraiError(
             "tools= 에이전트는 아직 지원되지 않습니다 (M3) — tools='none'으로 두세요")
+
+    want = opts.get("schema")
+    # codex enforces a schema itself, but only in OpenAI's strict dialect;
+    # everyone else is asked in the prompt and checked afterwards.
+    native = bool(want) and binding.provider == "codex"
     completer = providers.get_completer(
         binding.provider, model=binding.model or None, cfg=cfg,
-        timeout=int(timeout), cwd=opts.get("cwd"))
-    return completer(prompt)
+        timeout=int(timeout), cwd=opts.get("cwd"),
+        schema=_schema.to_strict(want) if native else None)
+
+    ask = prompt if (native or not want) else prompt + _schema.instruction(want)
+    text = completer(ask)
+    if not want or (isinstance(text, str)
+                    and text.startswith("[provider-error]")):
+        return text
+
+    try:
+        _decode(text, want)
+        return text
+    except _schema.SchemaError as first:
+        # One retry with the complaint attached. A second miss fails this
+        # agent (the script sees None); it does not end the workflow.
+        retry = completer(ask + _schema.retry_instruction(str(first)))
+        try:
+            _decode(retry, want)
+            return retry
+        except _schema.SchemaError as second:
+            raise MoiraiError(
+                f"스키마에 맞지 않는 응답 (2회 시도): {second}") from second
 
 
 # -- top level -------------------------------------------------------------
