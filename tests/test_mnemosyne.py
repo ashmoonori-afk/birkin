@@ -53,15 +53,49 @@ def test_tokenize_mixed_korean_ascii():
 # ---------------- BM25 ------------------------------------------------------
 
 def test_bm25_length_normalization_hand_computed():
+    """Hand-computed against k1=0.9, b=0.5 with an idf^1 query weight.
+
+    The query weight makes each term contribute idf**2 (query side × document
+    side), which is what ranking-v2 measured as the win (ADR-043).
+    """
     import math
+    k1, b = mnemosyne.K1, mnemosyne.B
     postings = {"cat": {"d1": 2, "d2": 1}, "dog": {"d1": 1}}
     doclens = {"d1": 3, "d2": 1}
     scores = mnemosyne.bm25_scores(["cat"], postings, doclens,
                                    avgdl=2.0, n_docs=2)
     idf = math.log(1 + 0.5 / 2.5)
-    assert scores["d1"] == pytest.approx(idf * 2 * 2.5 / 4.0625)
-    assert scores["d2"] == pytest.approx(idf * 1 * 2.5 / 1.9375)
-    assert scores["d2"] > scores["d1"]   # shorter doc wins at equal tf-ish
+
+    def expect(tf, dl):
+        denom = tf + k1 * (1 - b + b * dl / 2.0)
+        return idf * idf * tf * (k1 + 1) / denom
+
+    assert scores["d1"] == pytest.approx(expect(2, 3))
+    assert scores["d2"] == pytest.approx(expect(1, 1))
+
+
+def test_bm25_shorter_document_wins_at_equal_term_frequency():
+    """Length normalization: same tf, shorter document scores higher.
+
+    The old form of this check compared tf=2/len=3 against tf=1/len=1 and
+    relied on b=0.75 normalizing hard enough for the shorter doc to win — a
+    property of that tuning, not of BM25. Holding tf equal tests the
+    invariant itself, so it survives a retune.
+    """
+    postings = {"cat": {"short": 1, "long": 1}}
+    doclens = {"short": 1, "long": 20}
+    scores = mnemosyne.bm25_scores(["cat"], postings, doclens,
+                                   avgdl=10.5, n_docs=2)
+    assert scores["short"] > scores["long"]
+
+
+def test_bm25_query_weight_favours_the_rare_term():
+    """A rare query term must outweigh a term that is in every document."""
+    postings = {"common": {"d1": 5, "d2": 5, "d3": 5}, "rare": {"d2": 1}}
+    doclens = {"d1": 6, "d2": 6, "d3": 6}
+    scores = mnemosyne.bm25_scores(["common", "rare"], postings, doclens,
+                                   avgdl=6.0, n_docs=3)
+    assert max(scores, key=lambda s: scores[s]) == "d2"
 
 
 def test_bm25_unknown_terms_yield_empty():

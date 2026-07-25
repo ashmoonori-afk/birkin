@@ -43,7 +43,7 @@ from .skills import frontmatter
 
 # -- constants (single tuning source; see design §8) -------------------------
 
-K1, B = 1.5, 0.75                     # Okapi BM25 (mempalace searcher.py)
+K1, B = 0.9, 0.5                     # Okapi BM25 (mempalace searcher.py)
 CAND = 32                             # BM25 candidates before re-ranking
 STRENGTH_STEP, STRENGTH_CAP = 0.25, 5.0
 STABILITY_INIT, STABILITY_GROWTH, STABILITY_CAP = 7.0, 1.5, 365.0
@@ -122,7 +122,13 @@ def tokenize(text: str) -> list[str]:
 def bm25_scores(terms: list[str], postings: dict[str, dict[str, int]],
                 doclens: dict[str, int], avgdl: float,
                 n_docs: int) -> dict[str, float]:
-    """Okapi BM25 over an inverted index; returns {slug: score}."""
+    """Okapi BM25 over an inverted index; returns {slug: score}.
+
+    Query terms carry an idf^1 weight (ranking-v2 / ADR-043). A long natural
+    question mixes one or two terms that identify the note with a dozen that
+    appear everywhere; weighting the query side by idf lets the rare term
+    decide the ranking instead of being outvoted by common ones.
+    """
     scores: dict[str, float] = {}
     avgdl = avgdl or 1.0
     for t in dict.fromkeys(terms):          # unique, order-preserving
@@ -131,10 +137,11 @@ def bm25_scores(terms: list[str], postings: dict[str, dict[str, int]],
             continue
         df = len(post)
         idf = math.log(1 + (n_docs - df + 0.5) / (df + 0.5))
+        qw = idf                            # query-side weight (idf^1)
         for s, tf in post.items():
             dl = doclens.get(s, avgdl)
             denom = tf + K1 * (1 - B + B * dl / avgdl)
-            scores[s] = scores.get(s, 0.0) + idf * tf * (K1 + 1) / denom
+            scores[s] = scores.get(s, 0.0) + qw * idf * tf * (K1 + 1) / denom
     return scores
 
 
