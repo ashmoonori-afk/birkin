@@ -413,6 +413,22 @@ def _cmd_permission(args: argparse.Namespace) -> int:
     return 0
 
 
+def _cmd_odyssey(args: argparse.Namespace) -> int:
+    """Seed an odyssey goal cycle; the cycle is driven via /odyssey in chat."""
+    from . import config, odyssey
+    goal = " ".join(t for t in (args.goal or []) if t != "--").strip()
+    if not goal:
+        print('Give a goal, e.g. `birkin odyssey "ship the export feature"`.')
+        return 1
+    s = odyssey.seed(goal, cfg=config.load_config())
+    print(f"odyssey '{s['slug']}' seeded · plan: {s['boulder_path']}")
+    if s["resume"]:
+        print("  an active plan for this goal exists — /odyssey resumes it.")
+    print("Run `/odyssey` inside `birkin` (or message your gateway) to drive "
+          "the cycle.")
+    return 0
+
+
 def _cmd_neurosis(args: argparse.Namespace) -> int:
     """Seed a neurosis deep-interview; the interview is driven via /neurosis in chat."""
     from . import config, neurosis
@@ -681,6 +697,13 @@ def build_parser() -> argparse.ArgumentParser:
         help="run birkin as an MCP server (stdio) exposing memory/skills/propose "
              "tools — used by Morpheus and the gateway via `claude --mcp-config`"
         ).set_defaults(func=_cmd_mcp_serve)
+
+    ody = sub.add_parser(
+        "odyssey",
+        help="seed a goal-completion cycle (plan → critique → execute → "
+             "verify); then run /odyssey in chat to drive it")
+    ody.add_argument("goal", nargs=argparse.REMAINDER, help="the goal")
+    ody.set_defaults(func=_cmd_odyssey)
 
     nrp = sub.add_parser(
         "neurosis",

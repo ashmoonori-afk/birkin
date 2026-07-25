@@ -96,7 +96,7 @@ _HELP_GROUPS: list[tuple[str, list[str]]] = [
                  "details"]),
     ("운영·승인", ["review", "cron", "permission", "config", "morpheus",
                  "update"]),
-    ("페르소나·인터뷰", ["soul", "personality", "neurosis"]),
+    ("페르소나·인터뷰", ["soul", "personality", "neurosis", "odyssey"]),
     ("게이트웨이", ["restart-gateway", "hard-restart"]),
     ("종료·도움", ["help", "quit"]),
 ]
@@ -700,6 +700,22 @@ def _neurosis(session: Any, arg: str) -> None:
         print(f"{DIM}neurosis '{seed['slug']}' · threshold {seed['threshold_percent']} "
               f"({seed['threshold_source']}) · spec → {seed['spec_path']}{RESET}")
     sys_write(session, neurosis.start_prompt(seed))
+
+
+# -- odyssey (goal-completion cycle) ---------------------------------------
+
+@command("odyssey", "Goal-completion cycle: plan, critique, execute, verify.",
+         "/odyssey <goal>", aliases=["ultrawork", "ulw"])
+def _odyssey(session: Any, arg: str) -> None:
+    from . import odyssey
+    goal = arg.strip()
+    if not goal:
+        print(f"{DIM}Give a goal: /odyssey <goal>{RESET}")
+        return
+    s = odyssey.seed(goal, cfg=session.cfg)
+    head = "Resuming" if s["resume"] else "Starting"
+    print(f"{DIM}{head} odyssey '{s['slug']}' · plan → {s['boulder_path']}{RESET}")
+    sys_write(session, odyssey.start_prompt(s))
 
 
 def sys_write(session: Any, text: str) -> None:
