@@ -1,4 +1,4 @@
-"""birkin — a lightweight, self-improving CLI agent workspace.
+﻿"""birkin ??a lightweight, self-improving CLI agent workspace.
 
 Inspired by NousResearch/hermes-agent (skills system, self-improvement,
 subagents) and openclaw/openclaw (gateway/CLI, skillsets, control UI).
@@ -9,4 +9,4 @@ Design goals:
 - CLI-first, with an optional local WebUI.
 """
 
-__version__ = "0.3.25"
+__version__ = "0.3.100"
