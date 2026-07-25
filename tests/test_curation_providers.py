@@ -33,6 +33,7 @@ def test_codex_completer_uses_readonly_isolated_home_and_cwd(
 
     monkeypatch.setattr(providers, "_run", fake_run)
     complete = providers.codex_completer("gpt-test", timeout=12,
+                                       schema=providers.CURATION_PLAN_SCHEMA,
                                          cwd=str(vault))
 
     assert complete("prompt") == "```json\n{\"plan_version\":1,\"ops\":[]}\n```"
@@ -66,8 +67,9 @@ def test_codex_completer_uses_readonly_isolated_home_and_cwd(
 def test_get_completer_passes_cwd_to_codex_alias(monkeypatch):
     called = {}
 
-    def fake_codex(model=None, timeout=0, cwd=None):
-        called.update({"model": model, "timeout": timeout, "cwd": cwd})
+    def fake_codex(model=None, timeout=0, cwd=None, schema=None):
+        called.update({"model": model, "timeout": timeout, "cwd": cwd,
+                       "schema": schema})
         return lambda prompt: "ok"
 
     monkeypatch.setattr(providers, "codex_completer", fake_codex)
@@ -76,7 +78,7 @@ def test_get_completer_passes_cwd_to_codex_alias(monkeypatch):
 
     assert complete("prompt") == "ok"
     assert called == {"model": "gpt-test", "timeout": 7,
-                      "cwd": "vault-path"}
+                      "cwd": "vault-path", "schema": None}
 
 
 def test_rmtree_retry_removes_transiently_locked_home(monkeypatch, tmp_path):
@@ -100,3 +102,27 @@ def test_rmtree_retry_removes_transiently_locked_home(monkeypatch, tmp_path):
     assert len(calls) == 2
     assert all(str(path).endswith("locked-codex-home") for path in calls)
     assert not target.exists()
+
+
+def test_the_provider_layer_does_not_impose_a_schema_by_default():
+    """A generic completer must not force one application's output shape.
+
+    codex_completer used to write the CurationPlan schema on every call, so
+    asking codex for a word came back as {"plan_version":1,"summary":"..."} —
+    found by dogfooding the workflow engine, which shares this layer.
+    """
+    import inspect
+
+    from birkin import providers
+    src = inspect.getsource(providers.codex_completer)
+    assert "if schema:" in src, "schema must be opt-in"
+    assert "plan_version" not in src, "no application schema inside the completer"
+    assert "plan_version" in str(providers.CURATION_PLAN_SCHEMA)
+
+
+def test_curation_still_asks_for_its_schema_explicitly():
+    import inspect
+
+    from birkin import curation_cli
+    src = inspect.getsource(curation_cli.cmd_curate_memory)
+    assert "CURATION_PLAN_SCHEMA" in src

@@ -71,6 +71,39 @@ def _rmtree_retry(path: Path, attempts: int = 20, delay: float = 0.15) -> None:
             time.sleep(delay * (attempt + 1))
 
 
+# The CurationPlan/1 wire shape. Lives here because codex can enforce a
+# JSON schema natively; it is passed IN by the curation caller rather
+# than baked into the completer — a generic provider layer must not
+# impose one application's output format on every other caller.
+CURATION_PLAN_SCHEMA = {
+    "type": "object",
+    "required": ["plan_version", "ops", "summary"],
+    "properties": {
+        "plan_version": {"type": "integer", "const": 1},
+        "summary": {"type": "string"},
+        "ops": {"type": "array", "items": {
+            "type": "object",
+            "required": [
+                "op", "slug", "zone", "a", "b", "stale", "by",
+                "reason",
+            ],
+            "properties": {
+                "op": {"type": "string"},
+                "slug": {"type": ["string", "null"]},
+                "zone": {"type": ["string", "null"]},
+                "a": {"type": ["string", "null"]},
+                "b": {"type": ["string", "null"]},
+                "stale": {"type": ["string", "null"]},
+                "by": {"type": ["string", "null"]},
+                "reason": {"type": ["string", "null"]},
+            },
+            "additionalProperties": False,
+        }},
+    },
+    "additionalProperties": False,
+}
+
+
 def claude_completer(model: Optional[str] = None,
                      timeout: int = _CLI_TIMEOUT) -> Completer:
     """Claude Code with NO tools — pure text generation of the plan."""
@@ -97,7 +130,8 @@ def claude_completer(model: Optional[str] = None,
 def codex_completer(model: Optional[str] = None,
                     timeout: int = _CLI_TIMEOUT,
                     isolate_home: bool = True,
-                    cwd: Optional[str] = None) -> Completer:
+                    cwd: Optional[str] = None,
+                    schema: Optional[dict] = None) -> Completer:
     """codex exec in a READ-ONLY sandbox — it only needs to emit text.
 
     Read-only means codex structurally cannot touch the vault even if it wanted
@@ -118,39 +152,17 @@ def codex_completer(model: Optional[str] = None,
             return "[provider-error] codex CLI not found"
         fd, outpath = tempfile.mkstemp(suffix="-codex-plan.txt")
         os.close(fd)
-        sfd, schema_path = tempfile.mkstemp(suffix="-curation-plan.schema.json")
-        os.close(sfd)
-        Path(schema_path).write_text(json.dumps({
-            "type": "object",
-            "required": ["plan_version", "ops", "summary"],
-            "properties": {
-                "plan_version": {"type": "integer", "const": 1},
-                "summary": {"type": "string"},
-                "ops": {"type": "array", "items": {
-                    "type": "object",
-                    "required": [
-                        "op", "slug", "zone", "a", "b", "stale", "by",
-                        "reason",
-                    ],
-                    "properties": {
-                        "op": {"type": "string"},
-                        "slug": {"type": ["string", "null"]},
-                        "zone": {"type": ["string", "null"]},
-                        "a": {"type": ["string", "null"]},
-                        "b": {"type": ["string", "null"]},
-                        "stale": {"type": ["string", "null"]},
-                        "by": {"type": ["string", "null"]},
-                        "reason": {"type": ["string", "null"]},
-                    },
-                    "additionalProperties": False,
-                }},
-            },
-            "additionalProperties": False,
-        }), encoding="utf-8")
+        schema_path = ""
+        if schema:
+            sfd, schema_path = tempfile.mkstemp(suffix="-schema.json")
+            os.close(sfd)
+            Path(schema_path).write_text(
+                json.dumps(schema), encoding="utf-8")
         argv = [exe, "exec", "--skip-git-repo-check", "--color", "never",
                 "--sandbox", "read-only", "--ignore-user-config",
-                "--ignore-rules", "--ephemeral", "--output-schema", schema_path,
-                "-o", outpath]
+                "--ignore-rules", "--ephemeral", "-o", outpath]
+        if schema_path:
+            argv += ["--output-schema", schema_path]
         if cwd:
             argv += ["--cd", cwd]
         if model:
@@ -183,10 +195,11 @@ def codex_completer(model: Optional[str] = None,
                 os.unlink(outpath)
             except OSError:
                 pass
-            try:
-                os.unlink(schema_path)
-            except OSError:
-                pass
+            if schema_path:
+                try:
+                    os.unlink(schema_path)
+                except OSError:
+                    pass
             if home is not None:
                 _rmtree_retry(home)
     return complete
@@ -251,7 +264,8 @@ def local_completer(model: Optional[str] = None,
 def get_completer(provider: str, *, model: Optional[str] = None,
                   cfg: Optional[dict] = None,
                   timeout: int = _CLI_TIMEOUT,
-                  cwd: Optional[str] = None) -> Completer:
+                  cwd: Optional[str] = None,
+                  schema: Optional[dict] = None) -> Completer:
     """Resolve ``provider`` (claude|codex|api|gemini|local, or the ``*-cli``
     aliases) to a ``complete(prompt) -> text`` function.
 
@@ -261,7 +275,7 @@ def get_completer(provider: str, *, model: Optional[str] = None,
     if p in ("claude", "claude-code"):
         return claude_completer(model, timeout)
     if p == "codex":
-        return codex_completer(model, timeout, cwd=cwd)
+        return codex_completer(model, timeout, cwd=cwd, schema=schema)
     if p in ("api", "anthropic", "openai"):
         return api_completer(cfg or {}, model)
     if p == "gemini":

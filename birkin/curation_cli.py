@@ -36,8 +36,11 @@ def cmd_curate_memory(args) -> int:
     vault = config.vault_dir(cfg)
     provider = args.provider or (cfg.get("provider", "claude-cli")
                                  .removesuffix("-cli"))
+    # The plan shape is the caller's concern, not the provider layer's:
+    # codex enforces it natively, everyone else gets it via the prompt.
     completer = providers.get_completer(provider, model=args.model, cfg=cfg,
-                                        cwd=str(vault))
+                                        cwd=str(vault),
+                                        schema=providers.CURATION_PLAN_SCHEMA)
     print(f"curate-memory: provider={provider} "
           f"model={args.model or '(default)'} vault={vault}")
     dry_run = bool(getattr(args, "dry_run", False))
