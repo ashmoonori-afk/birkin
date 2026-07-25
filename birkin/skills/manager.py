@@ -9,6 +9,7 @@ by hermes and the agentskills standard.
 
 from __future__ import annotations
 
+import hashlib
 import json
 import re
 import time
@@ -364,8 +365,22 @@ def _bundled_files(directory: Path, limit: int = 40) -> list[str]:
 
 
 def _slug(name: str) -> str:
-    s = re.sub(r"[^a-z0-9-]+", "-", name.strip().lower()).strip("-")
-    return s or "skill"
+    """Canonical skill id — also the directory name and the lockfile path.
+
+    Unicode-preserving (same semantics as ``mnemosyne.slug``): an ASCII-only
+    filter collapsed every all-Hangul name to the fallback, so '번역 도우미'
+    and '회의록 정리' claimed one directory and the second create failed as
+    "already exists". The deterministic hash covers names that are pure
+    punctuation — distinct inputs stay distinct, the same input stays stable.
+    """
+    s = re.sub(r"[^\w\s-]", "", name.strip().lower())
+    s = re.sub(r"[\s_-]+", "-", s).strip("-")
+    if s:
+        return s
+    raw = name.strip()
+    if not raw:
+        return "skill"
+    return "skill-" + hashlib.sha256(raw.encode("utf-8")).hexdigest()[:8]
 
 
 def _skill_exists(canonical: str) -> bool:
