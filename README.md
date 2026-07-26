@@ -41,6 +41,7 @@ Built Korean-first. Not translated.
 | **Clarity before action** | For a vague request birkin interviews you — one question at a time, with ambiguity scoring — writes a spec, and acts only once you approve. |
 | **Overnight, with receipts** | Every turn is auto-saved; Morpheus reads the day, updates memory, drafts skills, and queues anything consequential for your morning review. Every turn is replayable with `birkin trace`. |
 | **Korean as a first language** | Hangul-bigram retrieval, `지난주에 정리한…` date cues, `매주 월요일 09:00` schedules, CJK-correct terminal widths. Tested in Korean, not localized after the fact. |
+| **Workflows across model families** | Run a script, not a prompt: one workflow can have codex draft, three claude critics attack it in parallel, and codex revise. Which model plays each role is chosen before the run, not hardcoded. |
 | **Zero runtime dependencies** | `dependencies = []`. One stdlib Python package you can read in an afternoon — no Node, no Docker, no lockfile drift. |
 
 ---
@@ -174,6 +175,75 @@ It composes with Claude Code's own memory rather than competing with it. Claude
 Code writes per-repository project notes; the vault is your life across
 projects. Point `autoMemoryDirectory` at a subfolder of the vault and both write
 into the same folder you own.
+
+---
+
+## 🧵 Moirai — workflows across model families
+
+A model deciding for itself whether to spawn another agent is not
+orchestration. Moirai is: a workflow is a Python file, control flow is code,
+and each agent is routed to whichever model should answer it.
+
+```bash
+birkin moirai run cross-examine --args '{"topic": "..."}'
+```
+
+The bundled `cross-examine` pattern has codex draft a claim, three claude
+critics attack it from different angles **in parallel**, then codex revise.
+Measured on one run: 71 s wall for 191 s of work.
+
+A script declares *roles*, not models:
+
+```python
+meta = {
+    "name": "cross-examine",
+    "roles": {
+        "drafter": {"default": "codex:gpt-5.6-sol", "hint": "makes the claim"},
+        "critic":  {"default": "claude:haiku", "hint": "attacks it"},
+    },
+}
+
+def main(m):
+    draft = m.agent("Argue for X", role="drafter")
+    votes = m.parallel([lambda a=a: m.agent(f"Attack via {a}: {draft}",
+                                            role="critic")
+                        for a in ("facts", "assumptions", "counterexamples")])
+    return m.agent(f"Revise given {votes}", role="drafter")
+```
+
+**Who runs each role is decided before the run.** The launcher asks — keep the
+current binding, reuse last run's, take the script's default, or browse
+provider then model — and `--bind critic=claude:opus` pins one from the command
+line. `--defaults` skips the asking; an unattended surface never prompts.
+
+Before it starts, the launcher shows what will happen — deliberately not in
+dollars, since birkin's usual path is a CLI login where a per-token price does
+not exist:
+
+```
+  drafter → codex:gpt-5.6-sol     ●●○   12초 ×1        중량
+  critic  → claude:opus           ●●●   62초 ×3        중량
+  ─────────────────────────────────────────────────────
+  합계                            예상 3분 18초 · 에이전트 4
+```
+
+Weight is a relative grade that cannot go stale on a reprice; the duration is
+the median **this machine** actually recorded for that model (a published
+figure marked `~` until your first run replaces it); a budget column appears
+only if you set a token cap.
+
+Other pieces: `schema=` returns validated data (codex enforces it natively,
+everyone else is asked in the prompt and checked, with one retry); every call
+is journalled, so `birkin moirai resume <id>` replays until the first thing
+that actually changed — rebind one role and only that role's calls re-run.
+A failed agent returns `None` rather than ending the workflow.
+
+Entry is always explicit — CLI only. No tool lets a model start a workflow,
+because that is the one spawn path with no natural ceiling. Agents are
+text-only today; tool-bearing agents are refused with a clear message rather
+than silently downgraded.
+
+Design notes: `docs/moirai-design.md`.
 
 ---
 
@@ -324,6 +394,8 @@ birkin                              # start chatting (first run → onboarding)
 birkin gateway                      # warm service: HTTP + Telegram
 birkin neurosis "<idea>"            # seed a deep interview (drive it with /neurosis)
 birkin odyssey "<goal>"             # seed a goal-completion cycle (/odyssey)
+birkin moirai run <script> [--bind role=provider:model] [--defaults]
+birkin moirai list / status --run-id <id> / resume --run-id <id>
 birkin sessions [export … --vault]  # list conversations · export as Markdown
 birkin curate-memory [--dry-run]    # vault curation pass (preview or apply)
 birkin morpheus [--dry-run]         # run the nightly routine now
@@ -467,7 +539,7 @@ available, and reverted rather than shipped on a hunch. Research log:
 
 ## 🛠️ Where birkin sits today
 
-- **1,400+ tests** passing offline with no API key, ≥75 % coverage gate,
+- **1,500+ tests** passing offline with no API key, ≥75 % coverage gate,
   **55 bundled skills**, **0 runtime dependencies**, Python 3.10+.
 - Deliberately smaller than its inspirations —
   [hermes-agent](https://github.com/NousResearch/hermes-agent) and
