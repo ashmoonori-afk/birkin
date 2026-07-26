@@ -66,6 +66,9 @@ DEFAULT_CONFIG: dict[str, Any] = {
     "moirai_max_agents": 100,
     "moirai_roles": {},
     "moirai_token_budget": 0,
+    # Optional. web_search works without it — Marginalia's shared public
+    # key is the default. Set this only if you have your own.
+    "marginalia_api_key": "",
     "parallel_tools": True,
     "parallel_tool_workers": 8,
     # Gate destructive run_shell commands on the native loop

@@ -31,7 +31,8 @@ sources. Output a clear verdict with evidence.
 1. Restate the claim precisely (e.g., "X released product Y on date Z").
 2. Identify 2–3 authoritative primary sources (official websites, academic
    databases, regulatory filings, established news outlets).
-3. For each source, `web_fetch` the relevant page and extract the relevant fact.
+3. For each source, `web_search` for it if you do not already have the URL,
+   then `web_fetch` the page and extract the relevant fact.
 4. Compare findings: do they agree, conflict, or remain unclear?
 5. If conflicting, fetch a third source or note the discrepancy and its possible
    causes.

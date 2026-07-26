@@ -256,9 +256,10 @@ until two consecutive waves turn up nothing new. Claims are then handed to a
 unresolved rather than promoted into the answer.
 
 The algorithm is adapted from oh-my-openagent's `ulw-research` (MIT, credited
-in the file). Note the honest limit: birkin has `web_fetch` but no web-search
-tool, so a web-heavy question leans on what the model knows plus URLs it can
-name.
+in the file). Note the honest limit: Moirai agents are text-only for now — the
+`web_search` below belongs to birkin's own agent, not to them — so a web-heavy
+question here leans on what the bound model knows plus what its own CLI can
+reach.
 
 ### Letting birkin suggest a workflow
 
@@ -460,6 +461,33 @@ history, **Shift+Enter** newline, inline `/`-dropdown.
 | **Autonomy** | `/morpheus` · `/review` · `/cron` · `/permission` |
 | **Session** | `/save` · `/load` · `/sessions` |
 | **System** | `/config` · `/update` · `/help` · `/quit` |
+
+---
+
+## 🔎 Web search without an account
+
+birkin can look things up, not just fetch a URL you already have:
+
+```
+web_search  → Marginalia, then Mwmbl if it can't answer
+web_fetch   → read one of the URLs it returned
+```
+
+Both are independent, non-commercial indexes with public HTTP APIs. There is
+no account to create, no API key to paste, no card on file, and nothing extra
+to install — the dependency count is still zero, because this is `urllib` and
+`json`.
+
+The trade is coverage, and it is stated in the tool description so the model
+reads an empty result correctly: these indexes are strong on documentation,
+blogs, forums and technical writing, and weak on news, shopping and local
+queries. Nothing is retried on a rate limit — the public key's bucket is
+shared with every other birkin user, so a retry loop would degrade it for
+everyone. Marginalia results carry their CC-BY-NC-SA 4.0 attribution into the
+output.
+
+Set `MARGINALIA_API_KEY` (or `marginalia_api_key` in config) if you have your
+own key; you do not need one.
 
 ---
 

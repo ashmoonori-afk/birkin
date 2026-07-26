@@ -243,8 +243,9 @@ birkin moirai run deep-research --args '{"question": "..."}'
 답에 올리는 대신 미해결로 보고합니다.
 
 알고리즘은 oh-my-openagent의 `ulw-research`에서 각색했습니다(MIT, 파일에 출처
-표기). 정직한 한계: birkin에는 `web_fetch`는 있어도 웹 검색 도구가 없어서, 웹
-비중이 큰 질문은 모델이 이미 아는 것과 지목할 수 있는 URL에 기댑니다.
+표기). 정직한 한계: Moirai 에이전트는 아직 텍스트 전용입니다 — 아래의
+`web_search`는 birkin 본체 에이전트의 도구지 이들의 도구가 아닙니다 — 그래서 웹
+비중이 큰 질문은 바인딩된 모델이 아는 것과 그 CLI가 닿는 범위에 기댑니다.
 
 ### birkin이 워크플로우를 먼저 제안하게 하기
 
@@ -437,6 +438,30 @@ birkin model / permission / web     # 백엔드 · 게이트 · 모니터링
 | **자율** | `/morpheus` · `/review` · `/cron` · `/permission` |
 | **세션** | `/save` · `/load` · `/sessions` |
 | **시스템** | `/config` · `/update` · `/help` · `/quit` |
+
+---
+
+## 🔎 계정 없는 웹 검색
+
+birkin은 이미 아는 URL을 열기만 하는 게 아니라, 찾아볼 수도 있습니다:
+
+```
+web_search  → Marginalia, 답을 못 하면 Mwmbl
+web_fetch   → 돌려받은 URL 중 하나를 읽기
+```
+
+둘 다 공개 HTTP API를 제공하는 독립·비영리 인덱스입니다. 만들 계정도, 붙여넣을
+API 키도, 등록할 카드도, 추가로 깔 것도 없습니다 — `urllib`와 `json`이라
+의존성은 여전히 0입니다.
+
+대가는 커버리지이고, 모델이 빈 결과를 오해하지 않도록 도구 설명에 그대로
+적어뒀습니다: 문서·블로그·포럼·기술 글에는 강하고 뉴스·쇼핑·지역 검색에는
+약합니다. 레이트 리밋에 재시도하지 않습니다 — 공개 키의 버킷은 다른 모든 birkin
+사용자와 공유되니, 재시도 루프는 모두의 몫을 갉아먹습니다. Marginalia 결과에는
+CC-BY-NC-SA 4.0 출처 표기가 출력에 함께 실립니다.
+
+자기 키가 있으면 `MARGINALIA_API_KEY`(또는 설정의 `marginalia_api_key`)로 쓸 수
+있지만, 없어도 됩니다.
 
 ---
 

@@ -16,9 +16,10 @@ caps at moirai_workers) and its HTML/PDF export (weasyprint is a dependency).
 
     birkin moirai run deep-research --args '{"question": "..."}'
 
-Sources are whatever the bound model can reach. birkin has no web-search tool
-— only `web_fetch` — so a web-heavy question leans on what the model already
-knows plus URLs it can name; that limit is stated in the report rather than
+Sources are whatever the bound model can reach. birkin's own agent has
+`web_search` and `web_fetch`, but Moirai agents are text-only for now, so a
+web-heavy question here leans on what the bound model already knows plus
+whatever its own CLI can reach; that limit is stated in the report rather than
 hidden.
 """
 
