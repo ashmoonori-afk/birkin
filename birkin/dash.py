@@ -73,7 +73,8 @@ def snapshot(session: Any) -> dict[str, Any]:
     """Gather every pane's data from the live backend. No escapes, testable."""
     cfg = getattr(session, "cfg", {}) or {}
     snap: dict[str, Any] = {"cfg": cfg, "header": {}, "sessions": [],
-                            "cron": [], "approvals": [], "zones": []}
+                            "cron": [], "approvals": [], "zones": [],
+                            "errors": {}}
 
     # header: identity + budget + daemon
     h = snap["header"]
@@ -105,8 +106,8 @@ def snapshot(session: Any) -> dict[str, Any]:
                    reverse=True)
         snap["sessions"] = [{"title": f.stem, "age": _mtime_age(f),
                              "path": str(f)} for f in files]
-    except Exception:
-        pass
+    except Exception as exc:
+        snap["errors"]["세션"] = str(exc) or type(exc).__name__
 
     # cron jobs
     try:
@@ -119,8 +120,8 @@ def snapshot(session: Any) -> dict[str, Any]:
                 "enabled": j.get("enabled", True),
                 "id": j.get("id"),
             })
-    except Exception:
-        pass
+    except Exception as exc:
+        snap["errors"]["크론"] = str(exc) or type(exc).__name__
 
     # pending approvals
     try:
@@ -130,8 +131,8 @@ def snapshot(session: Any) -> dict[str, Any]:
                 "id": a.get("id"), "category": a.get("category", "?"),
                 "title": a.get("title", ""), "status": a.get("status", ""),
             })
-    except Exception:
-        pass
+    except Exception as exc:
+        snap["errors"]["승인"] = str(exc) or type(exc).__name__
 
     # memory zones (aggregate)
     try:
@@ -143,8 +144,8 @@ def snapshot(session: Any) -> dict[str, Any]:
         snap["zones"] = [{"zone": z, "count": c}
                          for z, c in sorted(counts.items(),
                                             key=lambda kv: -kv[1])]
-    except Exception:
-        pass
+    except Exception as exc:
+        snap["errors"]["기억"] = str(exc) or type(exc).__name__
 
     return snap
 
@@ -169,7 +170,7 @@ def _body_h(rows_h: int) -> int:
     return max(3, rows_h - _CHROME_H)
 
 
-def _row_capacity(height: int, n_rows: int) -> int:
+def _row_capacity(height: int, n_rows: int, extra: int = 0) -> int:
     """Data rows that fit in a body slot `height` lines tall.
 
     _table_lines always spends one line on the column header, and one more on
@@ -177,7 +178,7 @@ def _row_capacity(height: int, n_rows: int) -> int:
     is never the row count. Getting this wrong truncated the indicator itself,
     which is the one line that says the list continues.
     """
-    avail = max(1, height - 1)                       # column header
+    avail = max(1, height - 1 - extra)               # column header + extra
     return max(1, avail - 1) if n_rows > avail else avail
 
 
@@ -241,11 +242,19 @@ def _table_lines(snap: dict[str, Any], section: str, cursor: int,
         ui.pad(lbl, w, align=al) for lbl, _k_, w, al in cols)
     out.append(f"{D}{ui.fit(header, tw)}{RST_}")
 
+    # An empty pane and a broken backend used to render identically. The
+    # 승인 pane claiming "nothing needs you" when it merely could not read is
+    # the one version of that lie which costs something.
+    err = (snap.get("errors") or {}).get(section)
+    if err:
+        out.append(f"{ui.RED}{ui.fit(f'  (불러오기 실패: {err})', tw)}{RST_}")
+
     if not rows:
-        out.append(f"{D}  (없음){RST_}")
+        if not err:
+            out.append(f"{D}  (없음){RST_}")
         return out
 
-    cap = _row_capacity(height, len(rows))
+    cap = _row_capacity(height, len(rows), extra=1 if err else 0)
     visible = rows[top:top + cap]
     for i, row in enumerate(visible, start=top):
         cells = "  ".join(
@@ -268,13 +277,18 @@ def _rail_lines(snap: dict[str, Any], active: str, height: int) -> list[str]:
     for i, s in enumerate(SECTIONS, 1):
         mark = "▸" if s == active else " "
         style = f"{B}{C}" if s == active else D
-        out.append(ui.pad(f"{style}{mark}{i} {s} {counts[s]}{RST_}", _RAIL_W))
+        # A confident "0" next to a pane that failed to load is the lie
+        # the rail is most able to tell, since it is what you glance at.
+        badge = "!" if (snap.get("errors") or {}).get(s) else counts[s]
+        out.append(ui.pad(f"{style}{mark}{i} {s} {badge}{RST_}", _RAIL_W))
     while len(out) < height:
         out.append(" " * _RAIL_W)
     return out
 
 
-def _hint_line(section: str, width: int = 200) -> str:
+def _hint_line(section: str, width: int = 200, note: str = "") -> str:
+    if note:
+        return f"{ui.BOLD}  {ui.fit(note, width - 2)}{ui.RESET}"
     base = "1-4 페인 · j/k 이동 · g/G 처음끝 · r 새로 · q 종료"
     extra = {"세션": " · Enter 열기", "크론": "", "승인": " · a 승인 · d 거부",
              "기억": ""}[section]
@@ -300,7 +314,7 @@ def render(snap: dict[str, Any], state: dict[str, Any],
         lines.append(f"{r}{ui.DIM}│{ui.RESET} {t}")
 
     lines.append("")
-    lines.append(_hint_line(active, cols))
+    lines.append(_hint_line(active, cols, state.get("note", "")))
     return lines[:rows_h]
 
 
@@ -313,8 +327,11 @@ def dump_plain(snap: dict[str, Any], as_json: bool = False) -> str:
         return json.dumps(safe, ensure_ascii=False, indent=2, default=str)
     h = snap["header"]
     out = [f"birkin mission control — {h['model']}·{h['provider']}"]
+    errors = snap.get("errors") or {}
     for s in SECTIONS:
-        out.append(f"\n[{s}] ({len(_rows(snap, s))})")
+        err = errors.get(s)
+        out.append(f"\n[{s}] ({len(_rows(snap, s))})"
+                   + (f"  불러오기 실패: {err}" if err else ""))
         for row in _rows(snap, s)[:20]:
             out.append("  " + " · ".join(f"{k}={v}" for k, v in row.items()
                                          if k != "path"))
@@ -452,6 +469,7 @@ def _loop(session, w, keys, state):
             continue
 
         rows = _rows(snap, state["section"])
+        state["note"] = ""                  # any keypress clears the last one
         if key in ("q", "esc"):
             return
         elif key in ("1", "2", "3", "4"):
@@ -474,7 +492,14 @@ def _loop(session, w, keys, state):
             _open_session(session, rows[state["cursor"]])
             return                                 # leave dash into the loaded convo
         elif state["section"] == "승인" and rows and key in ("a", "d"):
-            _resolve_approval(rows[state["cursor"]], approve=(key == "a"))
+            out = _resolve_approval(rows[state["cursor"]],
+                                    approve=(key == "a"))
+            # Approving a queued shell command used to print nothing at all:
+            # success, a non-zero exit and a raised exception were the same
+            # blank screen. The row vanishing is not an outcome report.
+            state["note"] = (f"\u2713 {str(out.get('result') or '\uc644\ub8cc')[:120]}"
+                             if out.get("ok")
+                             else f"\u26a0 {out.get('error') or '\uc2e4\ud328'}")
             snap = snapshot(session)
 
 
@@ -487,9 +512,10 @@ def _open_session(session, row):
         pass
 
 
-def _resolve_approval(row, *, approve: bool):
+def _resolve_approval(row, *, approve: bool) -> dict[str, Any]:
     try:
         from . import approvals
-        (approvals.approve if approve else approvals.reject)(row["id"])
-    except Exception:
-        pass
+        fn = approvals.approve if approve else approvals.reject
+        return fn(row["id"]) or {"ok": False, "error": "결과 없음"}
+    except Exception as exc:
+        return {"ok": False, "error": str(exc)[:120]}
