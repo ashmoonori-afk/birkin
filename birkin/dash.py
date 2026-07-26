@@ -37,6 +37,7 @@ HOME, EL, RST = "\033[H", "\033[0K", "\033[0m"
 SECTIONS = ("세션", "크론", "승인", "기억")
 _RAIL_W = 14
 _REFRESH_S = 2.0
+_CHROME_H = 5        # 헤더 2줄 + 구분선 + 빈 줄 + 힌트 줄
 
 
 # -- data snapshot (pure) --------------------------------------------------
@@ -159,6 +160,27 @@ def _counts(snap: dict[str, Any]) -> dict[str, int]:
 
 # -- rendering (pure) ------------------------------------------------------
 
+def _body_h(rows_h: int) -> int:
+    """Body lines between the header block and the hint line.
+
+    render() and the input loop have to agree on this. They used to differ by
+    one, which let the cursor sit on a row that was never painted.
+    """
+    return max(3, rows_h - _CHROME_H)
+
+
+def _row_capacity(height: int, n_rows: int) -> int:
+    """Data rows that fit in a body slot `height` lines tall.
+
+    _table_lines always spends one line on the column header, and one more on
+    the "더 있음" indicator when it cannot show everything — so the slot height
+    is never the row count. Getting this wrong truncated the indicator itself,
+    which is the one line that says the list continues.
+    """
+    avail = max(1, height - 1)                       # column header
+    return max(1, avail - 1) if n_rows > avail else avail
+
+
 def _k(n: int) -> str:
     n = int(n or 0)
     if n >= 1_000_000:
@@ -223,7 +245,8 @@ def _table_lines(snap: dict[str, Any], section: str, cursor: int,
         out.append(f"{D}  (없음){RST_}")
         return out
 
-    visible = rows[top:top + height]
+    cap = _row_capacity(height, len(rows))
+    visible = rows[top:top + cap]
     for i, row in enumerate(visible, start=top):
         cells = "  ".join(
             ui.pad(str(row.get(key, "")), w, align=al)
@@ -233,7 +256,7 @@ def _table_lines(snap: dict[str, Any], section: str, cursor: int,
         marker = "> " if i == cursor else "  "
         line = ui.fit(marker + cells, tw)
         out.append(f"{INV}{line}{RST_}" if i == cursor else line)
-    if len(rows) > height:
+    if len(rows) > cap:
         out.append(f"{D}  {cursor + 1}/{len(rows)}  ↓ 더 있음{RST_}")
     return out
 
@@ -268,7 +291,7 @@ def render(snap: dict[str, Any], state: dict[str, Any],
     lines += _header_lines(snap, cols)
     lines.append(ui.DIM + "─" * min(cols, 100) + ui.RESET)
 
-    body_h = max(3, rows_h - len(lines) - 2)     # leave a blank + hint line
+    body_h = _body_h(rows_h)
     rail = _rail_lines(snap, active, body_h)
     table = _table_lines(snap, active, state["cursor"], state["top"], body_h, tw)
     for i in range(body_h):
@@ -409,8 +432,10 @@ def _loop(session, w, keys, state):
     last = time.monotonic()
     while True:
         size = _size()
-        body_h = max(3, size[1] - 6)
-        _clamp_cursor(snap, state, body_h)
+        body_h = _body_h(size[1])
+        # Clamp against what is actually PAINTED, not the slot height.
+        _clamp_cursor(snap, state, _row_capacity(
+            body_h, len(_rows(snap, state["section"]))))
         frame = render(snap, state, size)
         w(SYNC_ON + HOME)
         for line in frame:
