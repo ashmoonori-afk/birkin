@@ -306,7 +306,17 @@ class Run:
                      f"{self.script.name}/{label} {binding.spec} {elapsed:.1f}s",
                      tokens=tokens)
         self._emit("subagent.done", {"chars": len(text or "")})
-        return _decode(text, call_opts.get("schema"))
+        try:
+            return _decode(text, call_opts.get("schema"))
+        except Exception as exc:
+            # A malformed answer is one agent failing, not the workflow. The
+            # spawner already retries a schema miss once; reaching here means
+            # it still did not fit, so the script sees None like any other
+            # failure rather than the run dying under it.
+            journal.finish_call(self.run_id, seq, status="error",
+                                error=f"schema: {exc}"[:2000], tokens=tokens)
+            self.emit_log(f"에이전트 응답이 스키마에 맞지 않음 [{label}]: {exc}")
+            return None
 
     def _binding_for(self, role: Optional[str], opts: dict) -> Binding:
         """Rung 1 of the ladder: an explicit provider/model on the call wins
