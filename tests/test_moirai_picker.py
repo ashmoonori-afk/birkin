@@ -140,7 +140,7 @@ def test_defaults_flag_skips_the_picker():
     import argparse
 
     from birkin.moirai.cli import _should_ask
-    assert _should_ask(argparse.Namespace(defaults=True), {}) is False
+    assert _should_ask(argparse.Namespace(defaults=True)) is False
 
 
 def test_a_non_interactive_surface_never_prompts(monkeypatch):
@@ -149,7 +149,7 @@ def test_a_non_interactive_surface_never_prompts(monkeypatch):
     from birkin.moirai import cli as moirai_cli
     monkeypatch.setattr("birkin.inline_complete._is_interactive",
                         lambda: False)
-    assert moirai_cli._should_ask(argparse.Namespace(defaults=False), {}) is False
+    assert moirai_cli._should_ask(argparse.Namespace(defaults=False)) is False
 
 
 def test_the_picker_offers_last_run_and_script_default_without_duplicates(
@@ -177,3 +177,116 @@ def test_cancelling_the_picker_cancels_the_run(monkeypatch):
     assert picker.choose({"w": {"default": "codex:x"}},
                          {"w": Binding("w", "codex", "x", "meta")},
                          cfg={}) is None
+
+
+# ---------------- the picker is actually reached --------------------------
+
+def _cmd_args(**kw):
+    import argparse
+    base = dict(script="", bind=[], args="", defaults=False, bind_save=False)
+    base.update(kw)
+    return argparse.Namespace(**base)
+
+
+def _wf(tmp_path):
+    p = tmp_path / "w.py"
+    p.write_text('''
+meta = {"name": "picked", "roles": {"w": {"default": "codex:x"}}}
+
+def main(m):
+    return m.agent("hi", role="w")
+''', encoding="utf-8")
+    return p
+
+
+def test_cmd_run_actually_calls_the_picker_when_interactive(tmp_path,
+                                                            monkeypatch):
+    """Regression: the picker was written, imported, and never called.
+
+    Everything it does is unit-tested, the README describes it, and none of
+    that noticed that cmd_run went straight past it — a static audit found it.
+    Assert reachability, not existence.
+    """
+    from birkin.moirai import cli as moirai_cli
+
+    called = {}
+    monkeypatch.setattr(moirai_cli, "_should_ask", lambda args: True)
+    def fake_choose(*a, **k):
+        called["choose"] = True
+        return {"w": "codex:x"}
+
+    def fake_confirm(*a, **k):
+        called["confirm"] = "y"
+        return "y"
+
+    monkeypatch.setattr(moirai_cli.picker, "choose", fake_choose)
+    monkeypatch.setattr(moirai_cli.picker, "confirm", fake_confirm)
+    monkeypatch.setattr(moirai_cli, "run_script",
+                        lambda *a, **k: {"status": "completed", "agents": 1,
+                                         "cache_hits": 0, "seconds": 0.1,
+                                         "tokens": 1, "run_id": "r",
+                                         "result": None})
+    assert moirai_cli.cmd_run(_cmd_args(script=str(_wf(tmp_path)))) == 0
+    assert called.get("choose") and called.get("confirm") == "y"
+
+
+def test_declining_at_the_confirmation_does_not_run_anything(tmp_path,
+                                                             monkeypatch):
+    from birkin.moirai import cli as moirai_cli
+
+    ran = []
+    monkeypatch.setattr(moirai_cli, "_should_ask", lambda args: True)
+    monkeypatch.setattr(moirai_cli.picker, "choose",
+                        lambda *a, **k: {"w": "codex:x"})
+    monkeypatch.setattr(moirai_cli.picker, "confirm", lambda *a, **k: "n")
+    monkeypatch.setattr(moirai_cli, "run_script",
+                        lambda *a, **k: ran.append(1))
+    assert moirai_cli.cmd_run(_cmd_args(script=str(_wf(tmp_path)))) == 130
+    assert not ran, "declining still started the workflow"
+
+
+def test_cancelling_the_picker_stops_before_the_plan_table(tmp_path,
+                                                           monkeypatch):
+    from birkin.moirai import cli as moirai_cli
+
+    ran = []
+    monkeypatch.setattr(moirai_cli, "_should_ask", lambda args: True)
+    monkeypatch.setattr(moirai_cli.picker, "choose", lambda *a, **k: None)
+    monkeypatch.setattr(moirai_cli, "run_script",
+                        lambda *a, **k: ran.append(1))
+    assert moirai_cli.cmd_run(_cmd_args(script=str(_wf(tmp_path)))) == 130
+    assert not ran
+
+
+def test_defaults_runs_without_asking_but_still_prints_the_plan(
+        tmp_path, monkeypatch, capsys):
+    from birkin.moirai import cli as moirai_cli
+
+    monkeypatch.setattr(moirai_cli, "run_script",
+                        lambda *a, **k: {"status": "completed", "agents": 1,
+                                         "cache_hits": 0, "seconds": 0.1,
+                                         "tokens": 1, "run_id": "r",
+                                         "result": None})
+
+    def boom(*a, **k):
+        raise AssertionError("--defaults must not prompt")
+
+    monkeypatch.setattr(moirai_cli.picker, "choose", boom)
+    monkeypatch.setattr(moirai_cli.picker, "confirm", boom)
+    assert moirai_cli.cmd_run(
+        _cmd_args(script=str(_wf(tmp_path)), defaults=True)) == 0
+    assert "확정 바인딩" in capsys.readouterr().out
+
+
+def test_bind_save_persists_even_without_the_prompt(tmp_path, monkeypatch):
+    from birkin import config
+    from birkin.moirai import cli as moirai_cli
+
+    monkeypatch.setattr(moirai_cli, "run_script",
+                        lambda *a, **k: {"status": "completed", "agents": 1,
+                                         "cache_hits": 0, "seconds": 0.1,
+                                         "tokens": 1, "run_id": "r",
+                                         "result": None})
+    moirai_cli.cmd_run(_cmd_args(script=str(_wf(tmp_path)), defaults=True,
+                                 bind_save=True))
+    assert config.load_config()["moirai_roles"]["w"] == "codex:x"

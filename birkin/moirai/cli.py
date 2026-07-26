@@ -65,8 +65,42 @@ def cmd_run(args: Any) -> int:
 
     print(f"{ui.BOLD}{script.name}{ui.RESET}"
           + (f" — {script.description}" if script.description else ""))
-    for role, b in resolved.items():
-        print(f"  {role:<12} {b.spec:<28} {ui.DIM}[{b.source_label}]{ui.RESET}")
+
+    asking = bool(script.roles) and _should_ask(args)
+    if asking:
+        # Rung 3 of the ladder: the user picks, then the ladder re-resolves so
+        # an explicit --bind still outranks the choice.
+        picked = picker.choose(script.roles, resolved, cfg=cfg,
+                               last=journal.last_bindings(script.name))
+        if picked is None:
+            print(f"{ui.DIM}취소했습니다.{ui.RESET}")
+            return 130
+        try:
+            resolved = B.resolve(script.roles, cli=cli_binds, picked=picked,
+                                 last=journal.last_bindings(script.name),
+                                 cfg=cfg)
+            B.validate(resolved, cfg)
+        except B.BindingError as exc:
+            print(f"{ui.RED}{exc}{ui.RESET}")
+            return 1
+    else:
+        for role, b in resolved.items():
+            print(f"  {role:<12} {b.spec:<28} "
+                  f"{ui.DIM}[{b.source_label}]{ui.RESET}")
+
+    if script.roles:
+        print()
+        print(picker.plan_table(resolved, script.estimated_calls(), cfg))
+        if asking:
+            answer = picker.confirm()
+            if answer == "n":
+                print(f"{ui.DIM}실행하지 않았습니다.{ui.RESET}")
+                return 130
+            if answer == "s":
+                picker.save_bindings(resolved, cfg)
+                print(f"{ui.DIM}바인딩을 기본값으로 저장했습니다.{ui.RESET}")
+        if getattr(args, "bind_save", False):
+            picker.save_bindings(resolved, cfg)
 
     try:
         out = run_script(script, cfg=cfg, bindings_map=resolved,
@@ -196,7 +230,7 @@ def _print_outcome(out: dict) -> None:
         print(rendered if len(rendered) < 1200 else rendered[:1200] + " …")
 
 
-def _should_ask(args: Any, cli_binds: dict) -> bool:
+def _should_ask(args: Any) -> bool:
     """Interactive picking happens only where a human can answer.
 
     --defaults skips it and an unattended surface has no TTY — the same rule
