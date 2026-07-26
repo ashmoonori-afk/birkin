@@ -243,6 +243,41 @@ because that is the one spawn path with no natural ceiling. Agents are
 text-only today; tool-bearing agents are refused with a clear message rather
 than silently downgraded.
 
+### Research that keeps going until it runs dry
+
+```bash
+birkin moirai run deep-research --args '{"question": "..."}'
+```
+
+`deep-research` splits a question into orthogonal axes, investigates them in
+parallel, then follows every lead the answers opened — and keeps doing that
+until two consecutive waves turn up nothing new. Claims are then handed to a
+*different model family* to refute; anything it cannot settle is reported as
+unresolved rather than promoted into the answer.
+
+The algorithm is adapted from oh-my-openagent's `ulw-research` (MIT, credited
+in the file). Note the honest limit: birkin has `web_fetch` but no web-search
+tool, so a web-heavy question leans on what the model knows plus URLs it can
+name.
+
+### Letting birkin suggest a workflow
+
+Off by default. With `"moirai_auto": true`, a request that would genuinely be
+better as several parallel agents gets *proposed* rather than answered — and
+the proposal lands in the same `birkin review` inbox as everything else
+consequential:
+
+```
+🧵 세 접근 비교
+   세 갈래를 병렬로 파는 게 낫다
+   워크플로우: deep-research
+```
+
+The model judges and proposes; it still cannot start one. No tool exposes
+Moirai to a model, and a test enforces that. Turning this on reverses a
+deliberate 2026-07-07 decision to stop auto-detecting intent, which is why it
+takes an explicit config change.
+
 Design notes: `docs/moirai-design.md`.
 
 ---
@@ -539,7 +574,7 @@ available, and reverted rather than shipped on a hunch. Research log:
 
 ## 🛠️ Where birkin sits today
 
-- **1,500+ tests** passing offline with no API key, ≥75 % coverage gate,
+- **1,550+ tests** passing offline with no API key, ≥75 % coverage gate,
   **55 bundled skills**, **0 runtime dependencies**, Python 3.10+.
 - Deliberately smaller than its inspirations —
   [hermes-agent](https://github.com/NousResearch/hermes-agent) and
