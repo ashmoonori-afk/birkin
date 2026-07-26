@@ -397,6 +397,8 @@ textual — CJK-aware, and it degrades cleanly: piped or `NO_COLOR` output carri
   `/undo` exactly when there is something to undo.
 - **`/dash`**: full-screen mission control (sessions · cron · approvals · memory
   zones) with a three-fold terminal restore and a `--plain` / `--json` fallback.
+  A pane that fails to load says so instead of rendering empty, and approving
+  from it reports what the action actually did.
 
 `birkin web` opens a monitoring workbench for runtime health, pending proposals,
 scheduled jobs and installed skills. Chat and configuration stay in the CLI.
