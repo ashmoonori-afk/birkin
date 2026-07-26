@@ -108,6 +108,9 @@ def execute_action(category: str, payload: dict[str, Any],
             return "Command timed out."
         out = (proc.stdout or "") + (proc.stderr or "")
         return f"[exit {proc.returncode}] {out[:2000]}"
+    if category == "moirai":
+        from .moirai.trigger import run_approved
+        return run_approved(payload)
     if category == "skill":
         from .skills.manager import apply_skill_proposal
         return apply_skill_proposal(payload)
