@@ -96,10 +96,18 @@ def claude_completer(model: Optional[str] = None,
         out = out.strip()
         if out:
             try:
-                import json
-                return str(json.loads(out).get("result") or out)
+                payload = json.loads(out)
             except (ValueError, json.JSONDecodeError):
                 return out
+            text = str(payload.get("result") or out)
+            # `claude -p` reports auth and API trouble *in band*: exit 0, a
+            # normal-looking envelope, and the complaint sitting in "result".
+            # Without this check "Failed to authenticate: OAuth session
+            # expired" is handed back as if the model had said it, and a
+            # workflow happily builds on the sentence.
+            if payload.get("is_error"):
+                return f"[provider-error] claude: {text[:300]}"
+            return text
         return f"[provider-error] claude: {err.strip()[:300]}"
     return complete
 

@@ -427,10 +427,38 @@ def _cmd_moirai(args: argparse.Namespace) -> int:
     return handler(args)
 
 
+def _auth_claude(action: str) -> int:
+    """`birkin auth claude status` — why Claude auth is or isn't working.
+
+    Read-only: logging in is `claude /login`, which owns the browser flow.
+    """
+    if action not in ("status", ""):
+        print("claude는 status만 지원합니다 (로그인은 `claude /login`)")
+        return 1
+    from . import oauth
+    info = oauth.diagnose()
+    print(f"claude: {oauth.explain(info)}")
+    print(f"  file    : {info['path']} ({'있음' if info['file_exists'] else '없음'})")
+    if "access_token_len" in info:
+        print(f"  tokens  : access={info['access_token_len']}자, "
+              f"refresh={info['refresh_token_len']}자")
+    if info.get("subscription"):
+        print(f"  plan    : {info['subscription']}")
+    if info.get("env"):
+        print(f"  env     : {', '.join(info['env'])}")
+    return 0 if info["token"] else 1
+
+
 def _cmd_auth(args: argparse.Namespace) -> int:
-    """`birkin auth codex login|status|logout|import` — Codex ChatGPT session."""
-    from . import codex_oauth
+    """`birkin auth <codex|claude> …` — subscription backend sessions."""
+    provider = (getattr(args, "provider", "") or "codex").strip()
     action = (getattr(args, "action", "") or "status").strip()
+    if provider == "claude":
+        return _auth_claude(action)
+    if provider != "codex":
+        print(f"모르는 백엔드: {provider} (codex|claude)")
+        return 1
+    from . import codex_oauth
 
     if action == "status":
         info = codex_oauth.status()
@@ -735,7 +763,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     ap = sub.add_parser("auth", help="sign in to a subscription backend (codex)")
     ap.add_argument("provider", nargs="?", default="codex",
-                    help="backend to authenticate (currently: codex)")
+                    help="codex (login/status/logout/import) | claude (status)")
     ap.add_argument("action", nargs="?", default="status",
                     help="login | status | logout | import")
     ap.set_defaults(func=_cmd_auth)
