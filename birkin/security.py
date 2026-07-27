@@ -56,7 +56,9 @@ def gateway_warnings(cfg: dict[str, Any]) -> list[str]:
             out.append(
                 "file tools (write_file/edit_file) are not path-confined on the "
                 "native loop. Set fs_jail: true to restrict them to the "
-                "workspace and ~/.birkin.")
+                "workspace and ~/.birkin. (birkin's own control plane — "
+                "config.json, cron.json, hooks_allowlist.json, hooks/ — is "
+                "refused either way; see tools/files.py.)")
 
     if cfg.get("allow_unattended_full") and cfg.get("cli_access") == "full":
         out.append(
