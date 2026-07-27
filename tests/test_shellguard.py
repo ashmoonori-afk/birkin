@@ -16,6 +16,12 @@ def _home(tmp_path, monkeypatch):
     yield tmp_path
 
 
+class _Completed:
+    returncode = 0
+    stdout = ""
+    stderr = ""
+
+
 def _ctx(**kw):
     cfg = {"shell_approval": "manual", "command_allowlist": []}
     cfg.update(kw.pop("cfg", {}))
@@ -183,10 +189,47 @@ def test_unattended_queues_for_approval_instead_of_running():
     assert pending[0]["payload"]["command"] == "git reset --hard"
 
 
-def test_unattended_runs_when_shell_is_auto_approved():
+def test_unattended_runs_when_shell_is_auto_approved(tmp_path):
     ctx = _ctx(cfg={"auto_approve": ["shell"]})
-    # propose() applies it directly; the guard then lets the tool proceed.
+    ctx.cwd = tmp_path
     assert shellguard.check("git reset --hard", ctx) is None
+
+
+def test_the_gate_decides_and_never_runs_the_command(tmp_path, monkeypatch):
+    """A gate must not execute. This one did, and it ate working trees.
+
+    `check()` routed an auto-approved command through approvals.propose(),
+    which *applies* the payload — and applying category "shell" runs it, with
+    no cwd of its own, in whatever directory the process happened to be in.
+    Running the test suite from a checkout therefore executed
+    `git reset --hard` against that checkout and discarded every uncommitted
+    change to a tracked file. The caller then ran the same command again.
+    """
+    import subprocess as _sp
+    ran = []
+    monkeypatch.setattr(_sp, "run", lambda *a, **k: ran.append(a) or _Completed())
+    monkeypatch.chdir(tmp_path)
+
+    ctx = _ctx(cfg={"auto_approve": ["shell"]})
+    ctx.cwd = tmp_path
+    assert shellguard.check("git reset --hard", ctx) is None
+    assert ran == [], "the gate ran the command instead of only allowing it"
+
+
+def test_auto_approved_shell_executes_exactly_once(tmp_path, monkeypatch):
+    """One run_shell call must be one execution, not two."""
+    calls = []
+
+    import subprocess as _sp
+    monkeypatch.setattr(_sp, "run",
+                        lambda *a, **k: calls.append(a) or _Completed())
+    monkeypatch.chdir(tmp_path)
+
+    ctx = _ctx(cfg={"auto_approve": ["shell"]})
+    ctx.cwd = tmp_path
+    reg = build_registry(ctx, include={"shell"})
+    reg.execute("run_shell", {"command": "git reset --hard"})
+    assert len(calls) == 1, f"expected one execution, got {len(calls)}"
 
 
 # -- smart mode ------------------------------------------------------------

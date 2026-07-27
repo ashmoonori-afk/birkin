@@ -209,6 +209,17 @@ def _queue_for_approval(command: str, why: str, cfg: dict[str, Any]) -> Any:
     """Unattended surface: route into the existing approvals inbox."""
     from . import approvals
     from .tools import ToolResult
+
+    # A gate decides; it must not act. propose() *applies* an auto-approved
+    # payload, and for category "shell" applying means running the command —
+    # so asking it here executed the command and then returned None, letting
+    # the caller run the very same command a second time. Measured: one
+    # run_shell call produced two executions, and `check()` alone was enough
+    # to destroy a working tree. When policy already says yes, say yes and let
+    # the one caller run it once.
+    if approvals.is_auto("shell", cfg):
+        return None
+
     try:
         status = approvals.propose(
             category="shell", title=f"shell: {command[:60]}",
@@ -218,8 +229,6 @@ def _queue_for_approval(command: str, why: str, cfg: dict[str, Any]) -> Any:
     except Exception as exc:
         return ToolResult(f"Refused ({why}) and could not queue it: {exc}",
                           is_error=True)
-    if status.get("auto"):
-        return None          # "shell" is auto-approved: policy says run it
     prior = ""
     try:
         said = approvals.denial_reason_for(command)
