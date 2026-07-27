@@ -352,7 +352,7 @@ birkin > Round 0 | 구성요소 확인 …        # topology → targeted questi
 ### Overnight self-improvement (Morpheus)
 
 ```bash
-birkin daemon --install   # register the OS task (cron / launchd / schtasks)
+birkin daemon --install   # register the OS task (login/boot; cron + launchd + schtasks)
 birkin morpheus --dry-run # preview; unsandboxed local-cli dry-run is refused
 birkin review             # next morning: approve / reject, one by one
 birkin trace <run-id>     # audit replay of any past turn

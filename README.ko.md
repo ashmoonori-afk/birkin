@@ -333,7 +333,7 @@ birkin > Round 0 | 구성요소 확인 …        # 구성요소 → 표적 질�
 ### 밤사이 자기개선 (Morpheus)
 
 ```bash
-birkin daemon --install   # OS 작업 등록 (cron / launchd / schtasks)
+birkin daemon --install   # OS 작업 등록 (로그인 시 상주; cron / launchd / schtasks)
 birkin morpheus --dry-run # 미리보기; 샌드박스 없는 local-cli는 거부됩니다
 birkin review             # 다음 날 아침: 하나씩 승인/거부
 birkin trace <run-id>     # 지난 턴의 감사 재생
