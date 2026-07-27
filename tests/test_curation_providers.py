@@ -6,8 +6,14 @@ from pathlib import Path
 from birkin import providers
 
 
-def test_codex_completer_is_readonly_and_uses_the_given_cwd(
+def test_codex_completer_is_readonly_and_never_copies_the_login(
         monkeypatch, tmp_path):
+    """The CLI path must not clone ~/.codex/auth.json.
+
+    It used to copy the credential into a throwaway CODEX_HOME. OpenAI rotates
+    the refresh token, so the first refresh inside the copy killed the user's
+    real codex login — the copy is the bug, not the isolation.
+    """
     source_home = tmp_path / "source-codex"
     source_home.mkdir()
     (source_home / "auth.json").write_text("{}", encoding="utf-8")
@@ -26,8 +32,7 @@ def test_codex_completer_is_readonly_and_uses_the_given_cwd(
         captured.update({"argv": argv, "timeout": timeout, "cwd": cwd,
                          "env": env, "outpath": outpath, "stdin": stdin,
                          "schema": json.loads(schema_path.read_text(
-                             encoding="utf-8")),
-                         })
+                             encoding="utf-8"))})
         return "", "", 0
 
     monkeypatch.setattr(providers, "_run", fake_run)
@@ -55,9 +60,11 @@ def test_codex_completer_is_readonly_and_uses_the_given_cwd(
     assert set(items["required"]) == set(items["properties"])
     assert captured["timeout"] == 12
     assert captured["cwd"] == str(vault)
-    # CODEX_HOME is left exactly as the user set it. See
-    # test_codex_never_copies_the_user_auth_token for why.
-    assert captured["env"] is None or         captured["env"].get("CODEX_HOME") == str(source_home)
+    # No env override at all: codex uses the real CODEX_HOME and refreshes its
+    # own credential in place, so nothing is burned.
+    assert captured["env"] is None
+    assert (source_home / "auth.json").read_text(encoding="utf-8") == "{}"
+    assert list(tmp_path.glob("**/*-codex-home*")) == []
     assert not captured["outpath"].exists()
     assert not schema_path.exists()
 
@@ -71,12 +78,36 @@ def test_get_completer_passes_cwd_to_codex_alias(monkeypatch):
         return lambda prompt: "ok"
 
     monkeypatch.setattr(providers, "codex_completer", fake_codex)
+    monkeypatch.setattr(providers, "codex_oauth_available", lambda: False)
     complete = providers.get_completer("codex-cli", model="gpt-test",
                                        timeout=7, cwd="vault-path")
 
     assert complete("prompt") == "ok"
     assert called == {"model": "gpt-test", "timeout": 7,
                       "cwd": "vault-path", "schema": None}
+
+
+def test_get_completer_prefers_oauth_when_birkin_has_its_own_login(monkeypatch):
+    """OAuth beats the CLI: no subprocess, and the CLI need not be installed."""
+    called = {}
+
+    def fake_oauth(model=None, timeout=0, cfg=None, schema=None):
+        called.update({"model": model, "timeout": timeout, "cfg": cfg,
+                       "schema": schema})
+        return lambda prompt: "oauth-ok"
+
+    def boom(*a, **k):  # the CLI path must not be taken
+        raise AssertionError("codex CLI used despite an OAuth login")
+
+    monkeypatch.setattr(providers, "codex_oauth_available", lambda: True)
+    monkeypatch.setattr(providers, "codex_oauth_completer", fake_oauth)
+    monkeypatch.setattr(providers, "codex_completer", boom)
+    complete = providers.get_completer("codex", model="gpt-test", timeout=7,
+                                       cfg={"k": 1}, cwd="vault-path")
+
+    assert complete("prompt") == "oauth-ok"
+    assert called == {"model": "gpt-test", "timeout": 7, "cfg": {"k": 1},
+                      "schema": None}
 
 
 def test_the_provider_layer_does_not_impose_a_schema_by_default():

@@ -76,7 +76,15 @@ a capability one — every feature works on every backend.
 | **Claude Code** (`claude`) — *default* | be logged into `claude`, pick it in `birkin model` | your Claude subscription |
 | **Anthropic API** | `export ANTHROPIC_API_KEY=sk-ant-…` | per token — `birkin budget` shows the month in dollars |
 | **OpenAI-compatible** | provider `openai` + `base_url` (works with **Ollama**) | per token, or free locally |
-| **Codex** (`codex`) | pick it in `birkin model` | its own CLI login |
+| **Codex** (`codex`) | `birkin auth codex login`, then pick it in `birkin model` | your ChatGPT subscription |
+
+`birkin auth codex login` signs birkin in to Codex with its own OAuth session —
+one in-process HTTPS call per request, no `codex` subprocess, and the `codex`
+CLI does not even have to be installed. birkin keeps that credential in
+`$BIRKIN_HOME/codex-auth.json` and **never writes `~/.codex/`**: OpenAI rotates
+the refresh token on every grant, so sharing one credential between two clients
+logs the other one out. Without a birkin login, `codex` still falls back to the
+CLI. `birkin auth codex status` shows which session is in use.
 
 The gateway keeps one warm process per conversation, so replies after the first
 are model-time (**~3 s**) rather than a cold start per message.

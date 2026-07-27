@@ -76,7 +76,15 @@ birkin은 이미 갖고 계신 모델을 씁니다. 어느 백엔드냐는 **비
 | **Claude Code** (`claude`) — *기본* | `claude`에 로그인 후 `birkin model`에서 선택 | Claude 구독 |
 | **Anthropic API** | `export ANTHROPIC_API_KEY=sk-ant-…` | 토큰당 — `birkin budget`이 이번 달을 달러로 알려줍니다 |
 | **OpenAI 호환** | provider `openai` + `base_url` (**Ollama** 가능) | 토큰당, 로컬이면 무료 |
-| **Codex** (`codex`) | `birkin model`에서 선택 | 자체 CLI 로그인 |
+| **Codex** (`codex`) | `birkin auth codex login` 후 `birkin model`에서 선택 | ChatGPT 구독 |
+
+`birkin auth codex login`은 birkin을 Codex에 **자체 OAuth 세션**으로 로그인시킵니다.
+요청마다 인프로세스 HTTPS 한 번이라 `codex` 서브프로세스가 없고, `codex` CLI가
+설치돼 있지 않아도 됩니다. 자격증명은 `$BIRKIN_HOME/codex-auth.json`에 두고
+**`~/.codex/`에는 절대 쓰지 않습니다** — OpenAI는 갱신할 때마다 refresh token을
+회전시키므로, 자격증명 하나를 두 클라이언트가 공유하면 한쪽이 로그아웃됩니다.
+birkin 로그인이 없으면 `codex`는 기존대로 CLI로 폴백합니다. 어느 세션을 쓰는지는
+`birkin auth codex status`로 확인합니다.
 
 게이트웨이는 대화별로 따뜻한 프로세스를 유지하므로, 첫 응답 이후는 콜드 스타트가
 아니라 모델시간(**~3초**)입니다.

@@ -427,6 +427,49 @@ def _cmd_moirai(args: argparse.Namespace) -> int:
     return handler(args)
 
 
+def _cmd_auth(args: argparse.Namespace) -> int:
+    """`birkin auth codex login|status|logout|import` — Codex ChatGPT session."""
+    from . import codex_oauth
+    action = (getattr(args, "action", "") or "status").strip()
+
+    if action == "status":
+        info = codex_oauth.status()
+        if not info["logged_in"]:
+            print("codex: 로그인 안 됨 — `birkin auth codex login`")
+            return 1
+        left = info["expires_in_seconds"]
+        when = f"{left}s 남음" if isinstance(left, int) else "만료시각 불명"
+        print(f"codex: 로그인됨 ({when})")
+        print(f"  account : {info['account_id'] or '(불명)'}")
+        print(f"  store   : {info['store']}")
+        print(f"  backend : {info['base_url']}")
+        return 0
+
+    if action == "logout":
+        print("codex: 자격증명 삭제됨" if codex_oauth.logout()
+              else "codex: 삭제할 자격증명 없음")
+        return 0
+
+    try:
+        if action == "login":
+            codex_oauth.device_login()
+        elif action == "import":
+            print("주의: codex CLI 로그인은 무효화됩니다 "
+                  "(refresh token 회전). 취소하려면 Ctrl+C.")
+            codex_oauth.import_cli_tokens()
+        else:
+            print(f"모르는 하위 명령: {action} (login|status|logout|import)")
+            return 1
+    except codex_oauth.CodexAuthError as exc:
+        print(f"codex 로그인 실패: {exc}")
+        return 1
+    except KeyboardInterrupt:
+        print("\n취소됨.")
+        return 130
+    print("codex: 로그인 완료 — `birkin auth codex status` 로 확인")
+    return 0
+
+
 def _cmd_sessions(args: argparse.Namespace) -> int:
     """`birkin sessions [export …]` — list conversations, or export to Markdown."""
     from . import sessions_export
@@ -689,6 +732,13 @@ def build_parser() -> argparse.ArgumentParser:
     dp.add_argument("--install", action="store_true",
                     help="register an OS-native daily task instead of running the loop")
     dp.set_defaults(func=_cmd_daemon)
+
+    ap = sub.add_parser("auth", help="sign in to a subscription backend (codex)")
+    ap.add_argument("provider", nargs="?", default="codex",
+                    help="backend to authenticate (currently: codex)")
+    ap.add_argument("action", nargs="?", default="status",
+                    help="login | status | logout | import")
+    ap.set_defaults(func=_cmd_auth)
 
     sub.add_parser("review", help="approve/reject pending proposed actions").set_defaults(func=_cmd_review)
 
