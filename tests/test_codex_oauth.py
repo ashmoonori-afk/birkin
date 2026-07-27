@@ -187,6 +187,41 @@ def test_auth_headers_carry_the_first_party_identity(home):
     assert headers["ChatGPT-Account-ID"] == "acct-9"
 
 
+def test_every_auth_request_announces_itself_as_the_codex_cli(home, monkeypatch):
+    """Login must carry the identity too, not just inference.
+
+    Cloudflare fronts auth.openai.com and answers urllib's default user-agent
+    with HTTP 530 before OpenAI sees the request — device login failed with
+    "A 1xxx error occured" until these headers were added.
+    """
+    captured = {}
+
+    class FakeResponse:
+        status = 200
+
+        def read(self):
+            return b'{"ok": true}'
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *a):
+            return False
+
+    def fake_urlopen(req, timeout=0):
+        captured["headers"] = dict(req.headers)
+        return FakeResponse()
+
+    monkeypatch.setattr(codex_oauth.urllib.request, "urlopen", fake_urlopen)
+    codex_oauth._post(codex_oauth._DEVICE_CODE_URL, payload={"client_id": "x"})
+
+    # urllib title-cases header keys it is given.
+    lowered = {k.lower(): v for k, v in captured["headers"].items()}
+    assert lowered["originator"] == "codex_cli_rs"
+    assert lowered["user-agent"].startswith("codex_cli_rs/")
+    assert "python-urllib" not in lowered["user-agent"].lower()
+
+
 def test_base_url_is_overridable(home, monkeypatch):
     assert codex_oauth.base_url() == codex_oauth.DEFAULT_BASE_URL
     monkeypatch.setenv("BIRKIN_CODEX_BASE_URL", "https://example.test/api/")
