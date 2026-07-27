@@ -359,7 +359,11 @@ birkin trace <run-id>     # audit replay of any past turn
 ```
 
 Memory and skill writes apply themselves — they are reversible local files.
-Anything consequential waits for you.
+Anything consequential waits for you, and that is enforced rather than merely
+intended: Morpheus runs with no shell, and birkin's own control plane
+(`config.json`, `cron.json`, `hooks_allowlist.json`, `hooks/`) is refused to
+the file tools outright, so an unattended run cannot schedule a command or
+pre-approve a hook to get shell back.
 
 ### On Telegram
 
