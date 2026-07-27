@@ -91,7 +91,13 @@ def _read_store() -> Optional[dict[str, Any]]:
 
 
 def _write_store(tokens: dict[str, str]) -> None:
-    """Persist tokens atomically at 0600 — a half-written file leaks nothing."""
+    """Persist tokens atomically, 0600 where the OS honours it.
+
+    The rename is what matters: a crash mid-write leaves the old credential,
+    never a truncated one, and no readable ``.tmp`` behind. On Windows
+    ``chmod`` only toggles the read-only bit, so the mode is a no-op there and
+    the file rests on the profile directory's ACL — same as ``~/.codex``.
+    """
     path = store_path()
     payload = {
         "tokens": tokens,
