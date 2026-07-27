@@ -14,6 +14,7 @@ daemon — offered as an opt-in, per ADR-008.
 from __future__ import annotations
 
 import atexit
+import getpass
 import os
 import signal
 import subprocess
@@ -108,7 +109,34 @@ def _next_morpheus(cfg: dict[str, Any], after: datetime) -> datetime:
 _next_nightly = _next_morpheus
 
 
+def already_running() -> bool:
+    """Is another daemon alive right now?
+
+    Cron jobs are safe against a second daemon — ``cron.claim_if_due`` stamps
+    them atomically — but the Morpheus trigger below is a plain time comparison
+    per process, so two daemons would run the nightly routine TWICE: real
+    duplicated model spend. Nothing prevented that before, and the collision is
+    one step away now that a Startup entry fires at logon while a hand-started
+    daemon may already be up.
+
+    The heartbeat already exists; this just reads it. A crashed daemon leaves a
+    stale heartbeat, which ``is_status_stale`` treats as stopped, so this
+    cannot wedge shut.
+
+    (Counting OS processes is NOT a substitute: on Windows a venv's
+    ``Scripts/python.exe`` is a launcher stub that runs the real interpreter as
+    a child, so one daemon shows up as two python.exe entries with identical
+    command lines.)
+    """
+    status = store.read_status()
+    return bool(status.get("daemon")) and not store.is_status_stale(status)
+
+
 def run_daemon() -> int:
+    if already_running():
+        print("birkin daemon: 이미 실행 중입니다 (heartbeat 확인). "
+              "중복 실행은 Morpheus를 두 번 돌리므로 종료합니다.")
+        return 0
     cfg = config.load_config()
     next_morpheus = _next_morpheus(cfg, datetime.now())
     next_reap = datetime.now() + timedelta(hours=1)
@@ -246,8 +274,17 @@ def install_os_schedule() -> int:
         cmd = f'cmd.exe /d /c "cd /d ""{working_dir}"" && ""{py}"" -m birkin daemon"'
         # ONLOGON, not DAILY: a 30s poll loop cannot live in a one-shot. /ST is
         # rejected in combination with ONLOGON, hence no start time here.
+        #
+        # /RU + /IT are load-bearing, not decoration. An ONLOGON task with no
+        # /RU triggers on ANY user's logon, which is an administrator-only
+        # registration — a plain user gets "Access is denied" with nothing
+        # naming the cause. Scoping it to this account (and /IT, run only while
+        # that account is actually logged on) keeps it installable without
+        # elevation and without a stored password, which is also how the old
+        # DAILY task ended up as "Run As User: <you>, Logon Mode: Interactive".
+        user = os.environ.get("USERNAME") or getpass.getuser()
         args = ["schtasks", "/Create", "/SC", "ONLOGON", "/TN", "birkin-nightly",
-                "/TR", cmd, "/F"]
+                "/TR", cmd, "/RU", user, "/IT", "/F"]
         try:
             # schtasks prints in the Windows OEM codepage (e.g. cp949 on Korean
             # Windows); decode with "oem" so the message is readable.
@@ -256,11 +293,59 @@ def install_os_schedule() -> int:
         except FileNotFoundError:
             print("schtasks not available on this system.")
             return 1
-        print(proc.stdout or proc.stderr)
-        return proc.returncode
+        if proc.returncode == 0:
+            print((proc.stdout or proc.stderr).strip())
+            return 0
+        # Denied is the NORMAL outcome for a non-administrator. Measured on
+        # Windows 11: DAILY succeeds for a plain user, ONLOGON is refused with
+        # or without /RU — the logon trigger is the privileged part, not the
+        # account scoping. Fall back rather than making the user run an
+        # elevated shell for a personal background task.
+        print((proc.stdout or proc.stderr).strip())
+        return _install_windows_startup(py, working_dir)
 
-    # POSIX: append a crontab line if not present. @reboot for the same reason
-    # ONLOGON is used above — the daemon has to stay up to poll the queue.
+    return _install_posix_crontab(py)
+
+
+def _install_windows_startup(py: str, working_dir: str) -> int:
+    """No-elevation fallback: a .cmd in this account's Startup folder.
+
+    The daemon has to be resident to poll the cron queue at all, and Startup is
+    the mechanism Windows gives an unprivileged user for "run this at my logon".
+    One plain-text file the user can read and delete.
+    """
+    appdata = os.environ.get("APPDATA") or str(Path.home() / "AppData" / "Roaming")
+    startup = (Path(appdata) / "Microsoft" / "Windows" / "Start Menu"
+               / "Programs" / "Startup")
+    try:
+        startup.mkdir(parents=True, exist_ok=True)
+        path = startup / "birkin-daemon.cmd"
+        path.write_text(f'@echo off\r\ncd /d "{working_dir}"\r\n'
+                        f'start "" /min "{py}" -m birkin daemon\r\n',
+                        encoding="utf-8")
+    except OSError as exc:
+        print(f"시작 프로그램 등록도 실패했습니다: {exc}")
+        return 1
+    print(f"\n관리자 권한이 없어 작업 스케줄러 대신 시작 프로그램에 등록했습니다:\n"
+          f"  {path}\n  (지우려면 이 파일만 삭제하세요. 다음 로그인부터 적용됩니다.)")
+    # The old birkin-nightly task ran `birkin morpheus` on its own. Leaving it
+    # alongside the daemon means Morpheus runs twice every night — real
+    # duplicated model spend — so retire it now that the daemon covers it.
+    try:
+        gone = subprocess.run(["schtasks", "/Delete", "/TN", "birkin-nightly",
+                               "/F"], capture_output=True, text=True,
+                              encoding="oem", errors="replace")
+        if gone.returncode == 0:
+            print("  기존 birkin-nightly 작업은 제거했습니다 "
+                  "(데몬이 Morpheus까지 맡으므로 중복 실행 방지).")
+    except (FileNotFoundError, OSError):
+        pass
+    return 0
+
+
+def _install_posix_crontab(py: str) -> int:
+    # Append a crontab line if not present. @reboot for the same reason the
+    # daemon is used above — it has to stay up to poll the queue.
     line = f"@reboot {py} -m birkin daemon  # birkin-nightly"
     try:
         existing = subprocess.run(["crontab", "-l"], capture_output=True,
