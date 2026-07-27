@@ -47,30 +47,6 @@ def _run(argv: list[str], stdin: str | None = None,
         return "", "command not found", 127
 
 
-def _rmtree_retry(path: Path, attempts: int = 20, delay: float = 0.15) -> None:
-    target = Path(path)
-    delete_path = target
-    if os.name == "nt":
-        resolved = str(target.resolve())
-        if not resolved.startswith("\\\\?\\"):
-            delete_path = Path("\\\\?\\" + resolved)
-
-    def retry_readonly(func, name, _exc):
-        os.chmod(name, 0o700)
-        func(name)
-
-    for attempt in range(attempts):
-        if not target.exists():
-            return
-        try:
-            shutil.rmtree(delete_path, onerror=retry_readonly)
-            return
-        except OSError:
-            if attempt == attempts - 1:
-                raise
-            time.sleep(delay * (attempt + 1))
-
-
 # The CurationPlan/1 wire shape. Lives here because codex can enforce a
 # JSON schema natively; it is passed IN by the curation caller rather
 # than baked into the completer — a generic provider layer must not
@@ -129,7 +105,6 @@ def claude_completer(model: Optional[str] = None,
 
 def codex_completer(model: Optional[str] = None,
                     timeout: int = _CLI_TIMEOUT,
-                    isolate_home: bool = True,
                     cwd: Optional[str] = None,
                     schema: Optional[dict] = None) -> Completer:
     """codex exec in a READ-ONLY sandbox — it only needs to emit text.
@@ -143,9 +118,16 @@ def codex_completer(model: Optional[str] = None,
     Point it at the vault being curated so any files it inspects are the same
     notes the prompt describes — otherwise it may ground its plan in whatever
     unrelated project happens to sit in the launch directory (it reads, e.g.,
-    a repo's ``memory/`` folder and invents slugs from there). Runs in an
-    isolated fresh CODEX_HOME with an ``exec.allow_untrusted`` project entry so
-    a throwaway vault dir is runnable without a manual trust prompt."""
+    a repo's ``memory/`` folder and invents slugs from there).
+
+    CODEX_HOME is deliberately left alone. An earlier version copied
+    ``auth.json`` into a throwaway home to "isolate" the run; the child then
+    refreshed the token, the server rotated it, the copy was deleted with the
+    temp dir, and the user's real ``~/.codex/auth.json`` was left holding a
+    spent refresh token — so the next codex call anywhere died with
+    ``refresh_token_reused``. It bought nothing either: the flags above already
+    ignore the user's config, and the ``exec.allow_untrusted`` entry the old
+    docstring claimed was never actually written."""
     def complete(prompt: str) -> str:
         exe = shutil.which("codex")
         if not exe:
@@ -168,21 +150,9 @@ def codex_completer(model: Optional[str] = None,
         if model:
             argv += ["-m", model]
         argv.append("-")
-        env = dict(os.environ)
-        home: Path | None = None
-        if isolate_home:
-            src = Path(os.environ.get("CODEX_HOME", Path.home() / ".codex"))
-            tmp_root = Path.cwd() / ".omo" / "tmp"
-            tmp_root.mkdir(parents=True, exist_ok=True)
-            home = Path(tempfile.mkdtemp(suffix="-codex-home",
-                                         dir=str(tmp_root)))
-            auth = src / "auth.json"
-            if auth.is_file():
-                shutil.copy2(auth, home / "auth.json")
-            env["CODEX_HOME"] = str(home)
         try:
             out, err, code = _run(argv, stdin=prompt, timeout=timeout,
-                                  env=env, cwd=cwd)
+                                  cwd=cwd)
             text = ""
             try:
                 text = Path(outpath).read_text(encoding="utf-8",
@@ -200,8 +170,6 @@ def codex_completer(model: Optional[str] = None,
                     os.unlink(schema_path)
                 except OSError:
                     pass
-            if home is not None:
-                _rmtree_retry(home)
     return complete
 
 
