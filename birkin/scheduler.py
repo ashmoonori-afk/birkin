@@ -221,22 +221,33 @@ def _write_status(cfg: dict[str, Any], next_morpheus: datetime, running: bool) -
 # -- optional OS-native registration --------------------------------------
 
 def install_os_schedule() -> int:
-    """Register a daily OS task that runs `birkin morpheus`.
+    """Register the OS task that keeps `birkin daemon` running.
 
-    Uses Task Scheduler on Windows and crontab elsewhere. Opt-in.
-    The task / crontab entry name stays ``birkin-nightly`` so an existing
-    installation isn't duplicated when this is re-run after the rename.
+    The daemon, not a one-shot, because ``run_daemon`` is the only thing that
+    polls ``cron.due_jobs`` — it covers BOTH duties (Morpheus at
+    ``morpheus_hour`` and the cron queue every 30s). This used to register
+    ``-m birkin morpheus``, so every cron job a user scheduled, and everything
+    ``/remind`` created, silently never fired: birkin said "scheduled" and
+    nothing was.
+
+    The daemon reads ``morpheus_hour``/``morpheus_minute`` from config itself,
+    so the OS task carries no time — it only has to start the process and let
+    it survive. Uses Task Scheduler on Windows and crontab elsewhere. Opt-in.
+    The task / crontab entry name stays ``birkin-nightly`` so re-running this
+    REPLACES an existing (including the old morpheus-only) installation
+    instead of leaving both.
     """
     cfg = config.load_config()
-    hour, minute = _morpheus_hour(cfg), _morpheus_minute(cfg)
     py = sys.executable
 
     if sys.platform.startswith("win"):
         roots = cfg.get("workspace_roots") or []
         working_dir = str(Path(roots[0]).expanduser() if roots else Path.cwd())
-        cmd = f'cmd.exe /d /c "cd /d ""{working_dir}"" && ""{py}"" -m birkin morpheus"'
-        args = ["schtasks", "/Create", "/SC", "DAILY", "/TN", "birkin-nightly",
-                "/ST", f"{hour:02d}:{minute:02d}", "/TR", cmd, "/F"]
+        cmd = f'cmd.exe /d /c "cd /d ""{working_dir}"" && ""{py}"" -m birkin daemon"'
+        # ONLOGON, not DAILY: a 30s poll loop cannot live in a one-shot. /ST is
+        # rejected in combination with ONLOGON, hence no start time here.
+        args = ["schtasks", "/Create", "/SC", "ONLOGON", "/TN", "birkin-nightly",
+                "/TR", cmd, "/F"]
         try:
             # schtasks prints in the Windows OEM codepage (e.g. cp949 on Korean
             # Windows); decode with "oem" so the message is readable.
@@ -248,8 +259,9 @@ def install_os_schedule() -> int:
         print(proc.stdout or proc.stderr)
         return proc.returncode
 
-    # POSIX: append a crontab line if not present.
-    line = f"{minute} {hour} * * * {py} -m birkin morpheus  # birkin-nightly"
+    # POSIX: append a crontab line if not present. @reboot for the same reason
+    # ONLOGON is used above — the daemon has to stay up to poll the queue.
+    line = f"@reboot {py} -m birkin daemon  # birkin-nightly"
     try:
         existing = subprocess.run(["crontab", "-l"], capture_output=True,
                                   text=True, errors="replace").stdout

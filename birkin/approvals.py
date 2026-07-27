@@ -1,8 +1,11 @@
 """Human-in-the-loop approval gate for consequential actions.
 
 Policy (configurable via the REPL ``/permission`` command):
-- Categories in ``config["auto_approve"]`` (default ``memory``, ``skills``) are
-  applied immediately.
+- Categories in ``config["auto_approve"]`` (default ``memory``, ``skill``) are
+  applied immediately. The name must match :func:`is_auto`'s exact membership
+  test — ``skill``, not ``skills``. A plural that matches nothing looks
+  configured and behaves as if it were not, so :func:`security.gateway_warnings`
+  flags any category it does not recognise.
 - Everything else (e.g. ``cron``, ``shell``) is queued in
   ``~/.birkin/pending/`` and only executes after the user approves it with
   ``birkin review`` or the dashboard.

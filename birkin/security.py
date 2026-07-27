@@ -33,6 +33,19 @@ def gateway_warnings(cfg: dict[str, Any]) -> list[str]:
     provider = str(cfg.get("provider", ""))
     disabled = set(cfg.get("disabled_tools", []) or [])
 
+    # is_auto() is exact membership, so a mistyped category allowlists nothing
+    # while reading as if it were configured — the failure is invisible until
+    # someone notices proposals piling up. "skills" for "skill" is the one the
+    # docs themselves taught for a while.
+    from .risk import CATEGORY_RISK
+    unknown = [str(c) for c in (cfg.get("auto_approve") or [])
+               if str(c) not in CATEGORY_RISK]
+    if unknown:
+        out.append(
+            "auto_approve lists " + ", ".join(repr(u) for u in unknown) +
+            " — no such approval category, so the entry does nothing. Known: "
+            + ", ".join(sorted(CATEGORY_RISK)) + ".")
+
     if provider not in _GATED_PROVIDERS:
         # The non-persistent gateway path drives the native loop, where
         # run_shell has no approval gate (risk tiers only sort the inbox).
