@@ -23,7 +23,8 @@ import json
 import shutil
 import subprocess
 import tempfile
-import time
+import urllib.error
+import urllib.request
 from pathlib import Path
 from typing import Callable, Optional
 
@@ -173,6 +174,123 @@ def codex_completer(model: Optional[str] = None,
     return complete
 
 
+def _responses_text(raw: str) -> str:
+    """Pull the assistant text out of a Responses API reply (SSE or JSON).
+
+    The Codex backend streams Server-Sent Events, but the same endpoint answers
+    plain JSON when a proxy buffers it, so both shapes are handled here rather
+    than assuming one and failing opaquely on the other.
+    """
+    def from_output(response: dict) -> str:
+        chunks = []
+        for item in response.get("output") or []:
+            if not isinstance(item, dict):
+                continue
+            for block in item.get("content") or []:
+                if isinstance(block, dict) and block.get("type") == "output_text":
+                    chunks.append(str(block.get("text") or ""))
+        return "".join(chunks)
+
+    stripped = raw.lstrip()
+    if stripped.startswith("{"):
+        try:
+            return from_output(json.loads(stripped)).strip()
+        except json.JSONDecodeError:
+            return ""
+
+    deltas: list[str] = []
+    final = ""
+    for line in raw.splitlines():
+        if not line.startswith("data:"):
+            continue
+        body = line[5:].strip()
+        if not body or body == "[DONE]":
+            continue
+        try:
+            event = json.loads(body)
+        except json.JSONDecodeError:
+            continue
+        if not isinstance(event, dict):
+            continue
+        kind = event.get("type")
+        if kind == "response.output_text.delta":
+            deltas.append(str(event.get("delta") or ""))
+        elif kind in ("response.completed", "response.incomplete"):
+            response = event.get("response")
+            if isinstance(response, dict):
+                final = from_output(response)
+    # Deltas are the live text; the terminal event repeats it in full and is
+    # the only source when the server decides not to stream token-by-token.
+    return ("".join(deltas) or final).strip()
+
+
+def codex_oauth_available() -> bool:
+    """True when birkin has its own Codex login (cheap check, no network)."""
+    from . import codex_oauth
+    return codex_oauth.is_logged_in()
+
+
+def codex_oauth_completer(model: Optional[str] = None,
+                          timeout: int = _CLI_TIMEOUT,
+                          cfg: Optional[dict] = None,
+                          schema: Optional[dict] = None) -> Completer:
+    """Codex over OAuth — a direct HTTPS call, no ``codex`` CLI subprocess.
+
+    Uses birkin's own ChatGPT session (:mod:`birkin.codex_oauth`), so it neither
+    needs the CLI installed nor disturbs its login.
+    """
+    from . import codex_oauth
+
+    def complete(prompt: str) -> str:
+        try:
+            token = codex_oauth.resolve_token()
+        except codex_oauth.CodexAuthError as exc:
+            return f"[provider-error] codex oauth: {exc}"
+        if not token:
+            return ("[provider-error] codex oauth: not logged in — "
+                    "run `birkin auth codex login`")
+
+        chosen = model
+        if not chosen:
+            from .models import codex_model_ids
+            ids = codex_model_ids(cfg)
+            chosen = ids[0] if ids else "gpt-5.5"
+        payload: dict = {
+            "model": chosen,
+            "instructions": "You output only what the user asks for.",
+            "input": [{"role": "user",
+                       "content": [{"type": "input_text", "text": prompt}]}],
+            "store": False,
+            "stream": True,
+            "include": [],
+        }
+        if schema:
+            payload["text"] = {"format": {"type": "json_schema",
+                                          "name": "birkin_schema",
+                                          "schema": schema, "strict": False}}
+        headers = codex_oauth.auth_headers(token)
+        headers["Content-Type"] = "application/json"
+        headers["Accept"] = "text/event-stream"
+        req = urllib.request.Request(
+            f"{codex_oauth.base_url()}/responses",
+            data=json.dumps(payload).encode(), method="POST", headers=headers)
+        try:
+            with urllib.request.urlopen(req, timeout=timeout) as resp:
+                raw = resp.read().decode("utf-8", "replace")
+        except urllib.error.HTTPError as exc:
+            detail = exc.read().decode("utf-8", "replace")[:500]
+            hint = ""
+            if exc.code == 401:
+                hint = " — run `birkin auth codex login`"
+            elif exc.code == 403:
+                hint = " — Codex rejected the client identity or the account"
+            return f"[provider-error] codex oauth HTTP {exc.code}{hint}: {detail}"
+        except (urllib.error.URLError, OSError, TimeoutError) as exc:
+            return f"[provider-error] codex oauth: {exc}"
+        return _responses_text(raw) or "[provider-error] codex oauth: empty reply"
+    return complete
+
+
 def api_completer(cfg: dict, model: Optional[str] = None) -> Completer:
     """Anthropic/OpenAI via the existing LLMClient (single-turn, no tools)."""
     from .config import get_api_key
@@ -238,11 +356,17 @@ def get_completer(provider: str, *, model: Optional[str] = None,
     aliases) to a ``complete(prompt) -> text`` function.
 
     ``cwd`` anchors filesystem-reading agentic CLIs (codex) to the vault being
-    curated; ignored by pure text providers."""
+    curated; ignored by pure text providers.
+
+    ``codex`` prefers birkin's own OAuth session (no subprocess, no CLI needed)
+    and falls back to the ``codex`` CLI when the user has not run
+    ``birkin auth codex login``."""
     p = provider.removesuffix("-cli")
     if p in ("claude", "claude-code"):
         return claude_completer(model, timeout)
     if p == "codex":
+        if codex_oauth_available():
+            return codex_oauth_completer(model, timeout, cfg=cfg, schema=schema)
         return codex_completer(model, timeout, cwd=cwd, schema=schema)
     if p in ("api", "anthropic", "openai"):
         return api_completer(cfg or {}, model)
