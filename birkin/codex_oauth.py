@@ -49,6 +49,16 @@ _DEVICE_VERIFY_URL = f"{_ISSUER}/codex/device"
 # clock. Matches the codex CLI's own skew.
 _REFRESH_SKEW_SECONDS = 120
 
+# Cloudflare fronts both auth.openai.com and the Codex backend and whitelists a
+# small set of first-party originators. It rejects urllib's default user-agent
+# with a 530 ("A 1xxx error occured") before any OpenAI handler sees the
+# request, so every call here — login included, not just inference — has to
+# announce itself as the codex CLI.
+_IDENTITY_HEADERS = {
+    "User-Agent": "codex_cli_rs/0.0.0 (birkin)",
+    "originator": "codex_cli_rs",
+}
+
 # Serializes refresh so concurrent callers don't both spend the single-use
 # refresh_token (the loser would 400 and look "logged out").
 _token_lock = threading.Lock()
@@ -186,6 +196,7 @@ def _post(url: str, *, form: Optional[dict] = None,
     req = urllib.request.Request(url, data=body, method="POST", headers={
         "Content-Type": ctype,
         "Accept": "application/json",
+        **_IDENTITY_HEADERS,
     })
     try:
         with urllib.request.urlopen(req, timeout=timeout) as resp:
@@ -395,11 +406,7 @@ def auth_headers(token: str) -> dict[str, str]:
     Without ``originator``/user-agent, Cloudflare answers a 403 challenge
     regardless of whether the token is good.
     """
-    headers = {
-        "Authorization": f"Bearer {token}",
-        "User-Agent": "codex_cli_rs/0.0.0 (birkin)",
-        "originator": "codex_cli_rs",
-    }
+    headers = {"Authorization": f"Bearer {token}", **_IDENTITY_HEADERS}
     data = _read_store() or {}
     acct = account_id(token, data.get("tokens") if data else None)
     if acct:
