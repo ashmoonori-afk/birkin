@@ -3,6 +3,15 @@
 *.log
 .env
 .omc/
+# Credential files. These normally live in $BIRKIN_HOME or ~/.codex, but a
+# stray copy inside the repo must never become committable — the audit found
+# only .env was covered.
+codex-auth.json
+auth.json
+.credentials.json
+secrets.json
+*.pem
+id_rsa*
 # Legacy local artifacts (old birkin app)
 birkin_config.json
 *.db
