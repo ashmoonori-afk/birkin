@@ -110,6 +110,37 @@ def test_get_completer_prefers_oauth_when_birkin_has_its_own_login(monkeypatch):
                       "schema": None}
 
 
+def test_claude_auth_failure_is_an_error_not_an_answer(monkeypatch):
+    """`claude -p` reports auth trouble in band — exit 0, normal envelope.
+
+    birkin used to return payload["result"] unconditionally, so
+    "Failed to authenticate: OAuth session expired and could not be refreshed"
+    came back as the model's answer and workflows built on that sentence.
+    """
+    monkeypatch.setattr(providers.shutil, "which",
+                        lambda name: "claude.exe" if name == "claude" else None)
+    envelope = json.dumps({
+        "type": "result", "subtype": "success", "is_error": True,
+        "result": "Failed to authenticate: OAuth session expired and "
+                  "could not be refreshed"})
+    monkeypatch.setattr(providers, "_run",
+                        lambda *a, **k: (envelope, "", 0))
+
+    out = providers.claude_completer()("hi")
+    assert out.startswith("[provider-error] claude:")
+    assert "Failed to authenticate" in out
+
+
+def test_claude_success_still_returns_plain_text(monkeypatch):
+    monkeypatch.setattr(providers.shutil, "which",
+                        lambda name: "claude.exe" if name == "claude" else None)
+    envelope = json.dumps({"type": "result", "subtype": "success",
+                           "is_error": False, "result": "PONG"})
+    monkeypatch.setattr(providers, "_run", lambda *a, **k: (envelope, "", 0))
+
+    assert providers.claude_completer()("hi") == "PONG"
+
+
 def test_the_provider_layer_does_not_impose_a_schema_by_default():
     """A generic completer must not force one application's output shape.
 
