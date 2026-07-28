@@ -216,7 +216,12 @@ def _run_job(job: dict[str, Any]) -> None:
             except ConfigError as exc:
                 store.save_run("cron", f"[{job.get('name')}] skipped: {exc}")
                 return
-            summary = session.ask(value)
+            # record_turn=False: the "cron" record below IS this event's
+            # record. Letting ask() also file a "chat" run wrote two records
+            # per firing with the same timestamp — and double-counted the
+            # tokens in the ledger and the daily budget. Morpheus already
+            # passes the same flag for the same reason.
+            summary = session.ask(value, record_turn=False)
             delivery = _deliver(job, summary)
             store.save_run("cron", f"[{job.get('name')}] {summary[:200]}",
                            {"summary": summary, "job": job["id"],

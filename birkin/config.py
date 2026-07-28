@@ -197,6 +197,13 @@ DEFAULT_CONFIG: dict[str, Any] = {
     # dreams — it runs while you sleep). The legacy keys ``nightly_hour`` /
     # ``nightly_minute`` are honored as fallbacks by readers and migrated
     # on next ``save_config``; new installs only see the canonical names.
+    # Run the NIGHTLY on a different backend than chat. Empty = same as
+    # "provider". Set to "claude-cli" when chat is on codex: `codex exec`
+    # pins approval to "never", which CANCELS every MCP tool call, so a codex
+    # nightly can produce prose but cannot write memory or queue a proposal
+    # unless cli_access is "full" (which also grants it a shell). The claude
+    # path allowlists mcp__birkin__* instead of asking per call.
+    "morpheus_provider": "",
     "morpheus_hour": 4,
     "morpheus_minute": 0,
     # Governs the UNATTENDED path (nightly routine's propose_action): these

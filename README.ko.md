@@ -528,6 +528,7 @@ quality/**model-compare** — 그리고 `~/.birkin/skills/`의 내 스킬(같은
   "autosave_transcripts": true,
   "neurosis_auto": true,
   "morpheus_hour": 4,
+  "morpheus_provider": "",
   "auto_approve": ["memory", "skill"],
 
   "auto_compact": true,

@@ -224,8 +224,23 @@ def run_once(dry_run: bool = False) -> int:
     # so it is claude-cli-specific. Every other provider — including codex-cli —
     # uses the generic agent-loop morpheus; otherwise a user who chose Codex would
     # silently get `claude` spawned.
-    if cfg.get("provider") == "claude-cli":
-        return _run_claude_morpheus(cfg, task, dry_run, n_files)
+    # ``morpheus_provider`` runs the NIGHTLY on a different backend than chat.
+    # The reason is concrete rather than theoretical: on codex-cli the nightly
+    # can save nothing at all, because `codex exec` pins approval to "never"
+    # and that CANCELS every MCP tool call ("user cancelled MCP tool call") —
+    # so memory writes and proposals are impossible below cli_access "full",
+    # which would also hand the unattended run a shell. The claude path takes
+    # a different shape: it ALLOWLISTS mcp__birkin__* via --allowedTools
+    # instead of asking for per-call approval, so the calls land without
+    # granting Bash.
+    #
+    # Opt-in and explicit — the dispatch below was deliberately keyed on the
+    # chat provider so "a user who chose Codex would [not] silently get
+    # `claude` spawned", and that stays true unless the user asks for it.
+    backend = str(cfg.get("morpheus_provider") or cfg.get("provider") or "")
+    if backend == "claude-cli":
+        return _run_claude_morpheus({**cfg, "provider": backend}, task,
+                                    dry_run, n_files)
     return _run_birkin_morpheus(cfg, task, dry_run, n_files)
 
 
