@@ -1,0 +1,14 @@
+{
+  "name": "birkin-vault",
+  "description": "Your Obsidian memory vault inside Claude Code — BM25-ranked search over Markdown notes you own.",
+  "version": "0.1.0",
+  "author": {
+    "name": "ashmoonori"
+  },
+  "mcpServers": {
+    "birkin": {
+      "command": "birkin",
+      "args": ["mcp-serve"]
+    }
+  }
+}

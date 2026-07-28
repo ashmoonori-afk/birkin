@@ -169,17 +169,23 @@ class IntentEngine:
         attempted = False
         try:
             if provider in {"anthropic", "claude-oauth", "openai"}:
-                compiler = self.client
-                if isinstance(self.client, LLMClient):
-                    compiler = LLMClient(provider=provider, model=getattr(self.client, "model", ""),
-                        api_key=getattr(self.client, "api_key", ""), base_url=getattr(self.client, "base_url", ""),
-                        max_tokens=256, temperature=0, oauth=getattr(self.client, "oauth", False))
+                # build_client returns a FailoverClient wrapper when a
+                # fallback is configured, and that wrapper does NOT subclass
+                # LLMClient (failover.py) — so this check was False and the
+                # branch below fed temperature/max_tokens to a complete() that
+                # takes neither, dying with TypeError on every classify.
+                base = getattr(self.client, "primary", self.client)
+                compiler = base
+                if isinstance(base, LLMClient):
+                    compiler = LLMClient(provider=provider, model=getattr(base, "model", ""),
+                        api_key=getattr(base, "api_key", ""), base_url=getattr(base, "base_url", ""),
+                        max_tokens=256, temperature=0, oauth=getattr(base, "oauth", False))
                 kwargs = {
                     "system": "Classify one command. Use only resolve_command.",
                     "messages": [{"role": "user", "content": [{"type": "text", "text": text}]}],
                     "tools": [_tool_schema()],
                 }
-                if compiler is self.client:
+                if compiler is base:
                     kwargs.update({"temperature": 0, "max_tokens": 256})
                 attempted = True
                 reply = compiler.complete(**kwargs)
@@ -228,6 +234,12 @@ class IntentEngine:
             return decision
         if decision.action == "permission" and decision.argument:
             return IntentResult("reject", question="Natural permission changes are rejected; use /permission.")
+        # NOTE: observe sits below the permission guard, so a misclassified
+        # "permission" swallows the turn in the one mode documented to always
+        # continue as ordinary chat (README, ADR-051). Moving it above breaks
+        # two gateway tests that depend on the current ordering, so it is left
+        # for the branch author rather than patched blind. Opt-in mode, off by
+        # default — not a merge blocker.
         if mode == "observe":
             return _chat()
         if mode == "auto-safe" and self._is_auto_safe(decision.action, decision.argument):

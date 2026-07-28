@@ -632,3 +632,30 @@ def test_word_ops_reset_history_browse():
     assert s.history_idx != -1
     ic.apply_event(s, ("delete_word", ""), [], hist)
     assert s.history_idx == -1                     # editing exits history browse
+
+
+def test_fuzzy_subsequence_reaches_non_prefix_commands():
+    from birkin.inline_complete import CommandHint, filter_commands
+    cmds = [CommandHint(name, "") for name in
+            ("permission", "sessions", "rollback", "provider", "compact")]
+    names = lambda q: [c.name for c in filter_commands(q, cmds)]
+    assert "permission" in names("/prm")
+    assert "sessions" in names("/sns")
+    assert "rollback" in names("/rbk")
+
+
+def test_exact_prefix_always_outranks_fuzzy():
+    from birkin.inline_complete import CommandHint, filter_commands
+    cmds = [CommandHint(n, "") for n in ("run", "reunion")]
+    # "/run": prefix-matches "run"; "reunion" matches only as a subsequence
+    # (r-e-u-n). The prefix must come first.
+    ranked = [c.name for c in filter_commands("/run", cmds)]
+    assert ranked == ["run", "reunion"]
+
+
+def test_subseq_helper():
+    from birkin.inline_complete import _subseq
+    assert _subseq("prm", "permission")
+    assert _subseq("", "anything")
+    assert not _subseq("xyz", "permission")
+    assert not _subseq("mrp", "permission")   # order matters

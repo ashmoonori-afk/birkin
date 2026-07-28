@@ -30,6 +30,79 @@ DEFAULT_CONFIG: dict[str, Any] = {
     "max_tokens": 4096,
     "temperature": 1.0,
     "max_turns": 24,  # safety guard on the agent tool-calling loop
+    # Automatic history compaction on the native API loop: when a request is
+    # about to exceed the model's window, the middle of the conversation is
+    # replaced by a summary (protected head + recent tail are kept). Also
+    # retries once after a real overflow. See compaction.py. CLI providers
+    # (claude-cli/codex-cli) compact their own context and ignore this.
+    "auto_compact": True,
+    "context_window": 200000,  # tokens; Claude family default
+    # Keep answering when the primary model stops: on an auth / billing /
+    # rate-limit / server / network failure, turns are served by this model for
+    # `fallback_cooldown` seconds, then the primary is probed again. Both keys
+    # must be set to enable it, and the fallback needs its own credentials.
+    # Ignored for CLI providers (they report failures as text, not errors).
+    # Typical: primary claude-oauth -> fallback anthropic (paid key) or openai.
+    "fallback_provider": "",
+    "fallback_model": "",
+    "fallback_base_url": "",
+    "fallback_cooldown": 300,
+    # Tool results longer than this are written to disk and replaced by a
+    # preview plus the path, so the agent can grep or page through the rest
+    # instead of losing it. 0 disables. See tools/spill.py.
+    "spill_threshold": 30000,
+    "spill_dir": "",             # empty -> <birkin_home>/tool-results
+    "spill_retention_days": 7,
+    # What a line typed DURING a REPL turn does: "steer" hands it to the
+    # running turn (in-flight work is kept, the model adjusts course), "kill"
+    # restores the old behavior of interrupting and queueing it as the next
+    # message. Esc always interrupts either way.
+    "repl_typed_line": "steer",
+    # Run adjacent READ-ONLY tool calls from one assistant turn concurrently
+    # (see parallel.py). Writers stay sequential barriers. Set false to
+    # restore strictly serial execution.
+    "moirai_auto": False,
+    "moirai_workers": 4,
+    "moirai_max_agents": 100,
+    "moirai_roles": {},
+    "moirai_token_budget": 0,
+    # Optional. web_search works without it — Marginalia's shared public
+    # key is the default. Set this only if you have your own.
+    "marginalia_api_key": "",
+    "parallel_tools": True,
+    "parallel_tool_workers": 8,
+    # Gate destructive run_shell commands on the native loop
+    # (shellguard.py).
+    #   "manual" — prompt in the REPL; queue for approval when unattended
+    #   "smart"  — let `approval_model` clear obviously-safe commands first
+    #   "off"    — no gate (the pre-shellguard behavior)
+    # A small set of catastrophic commands is refused in every mode.
+    "shell_approval": "manual",
+    # Snapshot the workspace before a mutating tool runs, into a bare git
+    # store under <birkin_home>/checkpoints (never inside your project,
+    # and never touching your own git history). Undo with /rollback.
+    "checkpoints": True,
+    # Shell scripts run on lifecycle events (see hooks.py). Shape:
+    #   {"pre_tool_call": [{"matcher": "run_shell",
+    #                       "command": "python ~/.birkin/hooks/guard.py"}]}
+    # Events: pre_tool_call (can block), post_tool_call, pre_llm_call.
+    # SECURITY: a hook is arbitrary code run with your permissions. Each
+    # (event, command) is confirmed once; hooks_auto_accept skips that
+    # prompt, which anyone able to write config.json can then abuse.
+    "hooks": {},
+    "hooks_auto_accept": False,
+    # Scan skills the AGENT writes with the same threat rules used for
+    # third-party ones, rolling back a create/improve that trips them.
+    # Off by default for the same reason hermes leaves it off: on the
+    # native loop the agent already has shell, so this stops mistakes,
+    # not a determined agent. See skills/guard.py.
+    "skills_guard_agent_created": False,
+    "checkpoint_keep": 20,       # snapshots retained per workspace
+    # Commands permanently allowed without asking (exact match or glob).
+    # Grown by answering "always" at the prompt. Compound commands never
+    # match, so an approval cannot carry a chained command in with it.
+    "command_allowlist": [],
+    "approval_model": "",        # empty -> session model, for "smart"
     "max_depth": 2,  # subagent recursion bound
     "extra_skill_dirs": [],  # additional directories to scan for SKILL.md
     "disabled_tools": [],  # tool names the agent may NOT use (see `birkin tools`)
@@ -125,6 +198,17 @@ DEFAULT_CONFIG: dict[str, Any] = {
     # dreams — it runs while you sleep). The legacy keys ``nightly_hour`` /
     # ``nightly_minute`` are honored as fallbacks by readers and migrated
     # on next ``save_config``; new installs only see the canonical names.
+    # Run the NIGHTLY on a different backend than chat. Empty = same as
+    # "provider". Set to "claude-cli" when chat is on codex: `codex exec`
+    # pins approval to "never", which CANCELS every MCP tool call, so a codex
+    # nightly can produce prose but cannot write memory or queue a proposal
+    # unless cli_access is "full" (which also grants it a shell). The claude
+    # path allowlists mcp__birkin__* instead of asking per call.
+    "morpheus_provider": "",
+    # Model for the nightly. Empty = the backend's own default. Required when
+    # morpheus_provider differs from provider: the chat model belongs to the
+    # chat backend, and handing claude an OpenAI model name fails the run.
+    "morpheus_model": "",
     "morpheus_hour": 4,
     "morpheus_minute": 0,
     # Governs the UNATTENDED path (nightly routine's propose_action): these

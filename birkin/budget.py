@@ -39,6 +39,42 @@ def usage_window(hours: float) -> int:
     return total
 
 
+# Anthropic list prices, USD per million tokens (published rates; update
+# when they change). A birkin turn is mostly input — cached system prefix +
+# history — so a blended estimate is stated as a range, not a single number.
+LIST_PRICE_USD_PER_MTOK = {
+    "opus": (15.0, 75.0),          # (input, output)
+    "sonnet": (3.0, 15.0),
+    "haiku": (0.80, 4.0),
+}
+# The metered Agent-SDK credit tiers Anthropic announced for 2026-06-15 and
+# then paused. Kept here so `birkin budget` can answer "would this day have
+# fit?" rather than the project having to argue about billing (ADR-050).
+ANNOUNCED_CREDIT_TIERS_USD = {"pro": 20, "max5x": 100, "max20x": 200}
+
+
+def _price_for(model: str) -> tuple[float, float]:
+    name = (model or "").lower()
+    for key, price in LIST_PRICE_USD_PER_MTOK.items():
+        if key in name:
+            return price
+    return LIST_PRICE_USD_PER_MTOK["sonnet"]
+
+
+def estimate_cost_usd(tokens: int, model: str,
+                      output_fraction: float = 0.2) -> float:
+    """What ``tokens`` would cost at API list rates for ``model``.
+
+    An estimate, not a bill: the ledger records a single total per event, so
+    the input/output split is assumed rather than measured.
+    """
+    inp, out = _price_for(model)
+    tokens = max(0, int(tokens))
+    frac = min(1.0, max(0.0, float(output_fraction)))
+    blended = inp * (1.0 - frac) + out * frac
+    return tokens / 1_000_000.0 * blended
+
+
 def status(cfg: dict[str, Any]) -> dict[str, Any]:
     """Current usage vs caps. ``0`` means no cap."""
     daily = int(cfg.get("budget_tokens_daily", 0) or 0)

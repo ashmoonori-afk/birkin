@@ -1,8 +1,11 @@
 """Human-in-the-loop approval gate for consequential actions.
 
 Policy (configurable via the REPL ``/permission`` command):
-- Categories in ``config["auto_approve"]`` (default ``memory``, ``skills``) are
-  applied immediately.
+- Categories in ``config["auto_approve"]`` (default ``memory``, ``skill``) are
+  applied immediately. The name must match :func:`is_auto`'s exact membership
+  test — ``skill``, not ``skills``. A plural that matches nothing looks
+  configured and behaves as if it were not, so :func:`security.gateway_warnings`
+  flags any category it does not recognise.
 - Everything else (e.g. ``cron``, ``shell``) is queued in
   ``~/.birkin/pending/`` and only executes after the user approves it with
   ``birkin review`` or the dashboard.
@@ -75,15 +78,22 @@ def execute_action(category: str, payload: dict[str, Any],
             except (TypeError, ValueError):
                 n = d
             return max(0, min(hi, n))
+        # A proposal may carry a schedule expression ("every 30m", "0 9 * * 1")
+        # or the original hour/minute pair. An unparseable expression falls
+        # back to hour/minute rather than failing the approved action.
+        schedule = payload.get("schedule")
+        if schedule and cron.parse_schedule(str(schedule)) is None:
+            schedule = None
         job = cron.add_job(
             name=payload.get("name", "job"),
             hour=_clk(payload.get("hour", 9), 9, 23),
             minute=_clk(payload.get("minute", 0), 0, 59),
             action_type=payload.get("type", "prompt"),
             value=payload.get("value", ""),
-            deliver_chat_id=payload.get("deliver_chat_id"))
+            deliver_chat_id=payload.get("deliver_chat_id"),
+            schedule=str(schedule) if schedule else None)
         return f"Registered cron job '{job['name']}' at " \
-               f"{job['hour']:02d}:{job['minute']:02d} (id {job['id']})."
+               f"{cron.schedule_display(job)} (id {job['id']})."
     if category == "shell":
         command = payload.get("command", "")
         if not command:
@@ -101,6 +111,9 @@ def execute_action(category: str, payload: dict[str, Any],
             return "Command timed out."
         out = (proc.stdout or "") + (proc.stderr or "")
         return f"[exit {proc.returncode}] {out[:2000]}"
+    if category == "moirai":
+        from .moirai.trigger import run_approved
+        return run_approved(payload)
     if category == "skill":
         from .skills.manager import apply_skill_proposal
         return apply_skill_proposal(payload)
@@ -193,7 +206,7 @@ def approve(aid: str) -> dict[str, Any]:
     return execute_claimed(aid)
 
 
-def reject(aid: str) -> dict[str, Any]:
+def reject(aid: str, reason: str = "") -> dict[str, Any]:
     if not store.valid_pending_id(aid):
         return {"ok": False}
     try:
@@ -201,10 +214,33 @@ def reject(aid: str) -> dict[str, Any]:
             rec = store.get_pending(aid)
             if not rec or rec.get("status") != "pending":
                 return {"ok": False}      # already resolved — don't clobber
-            store.resolve_pending(aid, "rejected")
+            store.resolve_pending(aid, "rejected", reason=reason)
     except store.FileLockTimeout:
         return {"ok": False}
     return {"ok": True}
+
+
+def denial_reason_for(command: str) -> str:
+    """Why the user last refused this exact command, if they said.
+
+    A denial with no reason leaves the model guessing: it either retries a
+    variant blind or gives up. Feeding the reason back is what makes the
+    approval loop converge instead of just stopping.
+    """
+    want = (command or "").strip()
+    if not want:
+        return ""
+    newest, when = "", ""
+    for rec in store.list_resolved("rejected"):
+        if not rec.get("deny_reason"):
+            continue
+        payload = rec.get("payload") or {}
+        if str(payload.get("command", "")).strip() != want:
+            continue
+        stamp = str(rec.get("resolved_at", ""))
+        if stamp >= when:
+            newest, when = str(rec["deny_reason"]), stamp
+    return newest
 
 
 def review_cli() -> int:
@@ -227,7 +263,13 @@ def review_cli() -> int:
             res = approve(rec["id"])
             print(f"   ✓ {res.get('result', res)}\n")
         elif choice in ("n", "no"):
-            reject(rec["id"])
+            why = ""
+            try:
+                why = input("   why? (optional, helps the agent) "
+                            ).strip()
+            except (EOFError, KeyboardInterrupt):
+                why = ""
+            reject(rec["id"], reason=why)
             print("   ✗ rejected\n")
         else:
             print("   … skipped\n")

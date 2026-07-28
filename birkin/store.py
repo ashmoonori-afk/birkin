@@ -201,6 +201,16 @@ def list_pending() -> list[dict[str, Any]]:
     return out
 
 
+def list_resolved(status: str) -> list[dict[str, Any]]:
+    """Records that reached ``status`` (e.g. "rejected"), oldest file first."""
+    out = []
+    for f in sorted(config.pending_dir().glob("*.json")):
+        rec = _read_json(f, None)
+        if rec and rec.get("status") == status:
+            out.append(rec)
+    return out
+
+
 def valid_pending_id(aid: str) -> bool:
     return (isinstance(aid, str) and len(aid) == 12
             and all(char in "0123456789abcdef" for char in aid))
@@ -212,7 +222,8 @@ def get_pending(aid: str) -> dict[str, Any] | None:
     return _read_json(config.pending_dir() / f"{aid}.json", None)
 
 
-def resolve_pending(aid: str, status: str) -> dict[str, Any] | None:
+def resolve_pending(aid: str, status: str,
+                    reason: str = "") -> dict[str, Any] | None:
     if not valid_pending_id(aid):
         return None
     path = config.pending_dir() / f"{aid}.json"
@@ -221,6 +232,8 @@ def resolve_pending(aid: str, status: str) -> dict[str, Any] | None:
         return None
     rec["status"] = status
     rec["resolved_at"] = _now()
+    if reason:
+        rec["deny_reason"] = reason[:300]
     _write_json(path, rec)
     return rec
 

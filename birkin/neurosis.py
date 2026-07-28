@@ -24,7 +24,12 @@ from . import config, store
 
 DEFAULT_THRESHOLD = 0.05
 RESOLUTION_THRESHOLDS = {"quick": 0.6, "standard": 0.5, "deep": 0.35}
-_SLUG_RE = re.compile(r"[^a-z0-9]+")
+# Keep word characters of ANY script, not just ASCII. birkin's house rule is
+# 대화는 한국어, so ideas normally arrive in Korean — an ASCII-only rule erased
+# them completely and sent every Korean idea to the timestamp fallback below,
+# which made slugs neither unique (two ideas in the same second collided onto
+# one interview) nor stable (the same idea a second later started a new one).
+_SLUG_RE = re.compile(r"[\W_]+", re.UNICODE)
 
 
 def neurosis_dir() -> Path:
@@ -40,7 +45,8 @@ def specs_dir() -> Path:
 
 
 def _slug(idea: str, *, n: int = 48) -> str:
-    full = _SLUG_RE.sub("-", (idea or "").strip().lower()).strip("-")
+    raw = (idea or "").strip()
+    full = _SLUG_RE.sub("-", raw.lower()).strip("-")
     if len(full) > n:
         # Plain truncation would collide distinct ideas sharing a kebab prefix,
         # silently resuming the wrong interview. Append a short deterministic
@@ -49,7 +55,14 @@ def _slug(idea: str, *, n: int = 48) -> str:
         digest = hashlib.sha256(full.encode("utf-8")).hexdigest()[:8]
         body = full[: max(1, n - 9)].strip("-")
         full = f"{body}-{digest}"
-    return full or datetime.now(timezone.utc).strftime("idea-%Y%m%d-%H%M%S")
+    if full:
+        return full
+    if raw:
+        # Nothing survived normalization (all punctuation/emoji) but there IS an
+        # idea — hash it rather than stamping the clock, or the same idea would
+        # never resume.
+        return "idea-" + hashlib.sha256(raw.encode("utf-8")).hexdigest()[:12]
+    return datetime.now(timezone.utc).strftime("idea-%Y%m%d-%H%M%S")
 
 
 def resolve_threshold(cfg: dict[str, Any], *, resolution: Optional[str] = None,
@@ -210,8 +223,10 @@ def auto_trigger_note(cfg: dict[str, Any]) -> str:
         " and interview them ONE question at a time (한국어로) until ambiguity is "
         "low, then write the spec and act only after approval. For specific, "
         "well-scoped, or simple requests, act directly — do not interview. Do NOT "
-        "ask permission to interview and do NOT surface tool/skill names to the "
-        "user; instead open naturally with a statement of intent, e.g. "
+        "ask permission to interview, and do NOT narrate plumbing to the user "
+        "(no tool calls, no 'let me load my X skill', no threshold numbers) — "
+        "the skill's own `[Neurosis]` progress label is the one intended "
+        "exception. Instead open naturally with a statement of intent, e.g. "
         "'진행 전에 모호한 부분과 핵심 결정사항을 다시 한번 확인하겠습니다.', then ask "
         "the first clarifying question. If you start an interview "
         "without the /neurosis launcher, derive your own slug from the idea and use "
@@ -230,7 +245,8 @@ def start_prompt(seed: dict[str, Any]) -> str:
             f"- spec_path: {seed['spec_path']}\n"
             f"- threshold: {seed['threshold']} ({seed['threshold_percent']}, "
             f"source: {seed['threshold_source']}) — keep this internal\n"
-            "Open naturally (no tool names / no permission question), briefly "
+            "Open naturally (no narrated tool calls, no permission question; "
+            "the skill's `[Neurosis]` progress label is expected), briefly "
             "summarize where we left off, then ask the next single question (한국어로).")
     return (
         "Run the **neurosis** deep-interview skill now. " + load + "\n"

@@ -14,7 +14,9 @@ from typing import Any
 from . import Tool, ToolContext, ToolResult
 from ..proc import shell_argv
 
-MAX_OUTPUT = 30_000
+# Memory bound only. The visible cap is applied by tools/spill.py, which saves
+# the full output to disk first — slicing it away here would destroy it.
+MAX_OUTPUT = 5_000_000
 DEFAULT_TIMEOUT = 120
 
 
@@ -22,6 +24,10 @@ def _run_shell(inp: dict[str, Any], ctx: ToolContext) -> ToolResult:
     command = inp.get("command", "").strip()
     if not command:
         return ToolResult("Empty command", is_error=True)
+    from .. import shellguard
+    blocked = shellguard.check(command, ctx)
+    if blocked is not None:
+        return blocked
     cwd = Path(inp["cwd"]).expanduser() if inp.get("cwd") else ctx.cwd
     timeout = int(inp.get("timeout", DEFAULT_TIMEOUT))
     try:
@@ -35,7 +41,7 @@ def _run_shell(inp: dict[str, Any], ctx: ToolContext) -> ToolResult:
         return ToolResult(f"Command timed out after {timeout}s", is_error=True)
     out = (proc.stdout or "") + (("\n[stderr]\n" + proc.stderr) if proc.stderr else "")
     if len(out) > MAX_OUTPUT:
-        out = out[:MAX_OUTPUT] + "\n[output truncated]"
+        out = out[:MAX_OUTPUT] + "\n[output truncated at 5MB]"
     header = f"[exit {proc.returncode}]\n"
     return ToolResult(header + (out or "(no output)"), is_error=proc.returncode != 0)
 

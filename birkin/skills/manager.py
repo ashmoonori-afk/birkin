@@ -9,6 +9,7 @@ by hermes and the agentskills standard.
 
 from __future__ import annotations
 
+import hashlib
 import json
 import re
 import time
@@ -279,6 +280,28 @@ class SkillManager:
         ]
 
 
+def _guard_agent_written(path: Path, what: str) -> None:
+    """Scan a skill the agent just wrote, rolling the write back if it trips.
+
+    Opt-in (``skills_guard_agent_created``) for the same reason hermes leaves
+    it off: on the native loop the agent already has shell, so this catches a
+    model that copied something hostile into a skill, not a determined agent.
+    """
+    if not config.load_config().get("skills_guard_agent_created"):
+        return
+    from . import guard
+    result = guard.scan_skill(path.parent, source="agent-created")
+    if guard.should_allow_install(result) is True:
+        return
+    try:
+        path.unlink()
+    except OSError:
+        pass
+    raise SkillProposalError(
+        f"{what} was rolled back — the security scan returned "
+        f"{result.verdict}:\n{guard.format_report(result, path.parent.name)}")
+
+
 def apply_skill_proposal(payload: dict[str, Any]) -> str:
     """Carry out an approved skill change (create / improve). Returns a human
     summary. Used by ``approvals.execute_action(category="skill")``."""
@@ -299,6 +322,7 @@ def apply_skill_proposal(payload: dict[str, Any]) -> str:
                 path = _write_skill(name, desc, body, payload.get("tags") or [])
         except store.FileLockTimeout:
             raise SkillProposalError("skill store is busy") from None
+        _guard_agent_written(path, f"skill {name!r}")
         return f"Created skill {name!r} at {path}"
     if action == "improve":
         target_name = payload.get("target", "").strip()
@@ -341,8 +365,22 @@ def _bundled_files(directory: Path, limit: int = 40) -> list[str]:
 
 
 def _slug(name: str) -> str:
-    s = re.sub(r"[^a-z0-9-]+", "-", name.strip().lower()).strip("-")
-    return s or "skill"
+    """Canonical skill id — also the directory name and the lockfile path.
+
+    Unicode-preserving (same semantics as ``mnemosyne.slug``): an ASCII-only
+    filter collapsed every all-Hangul name to the fallback, so '번역 도우미'
+    and '회의록 정리' claimed one directory and the second create failed as
+    "already exists". The deterministic hash covers names that are pure
+    punctuation — distinct inputs stay distinct, the same input stays stable.
+    """
+    s = re.sub(r"[^\w\s-]", "", name.strip().lower())
+    s = re.sub(r"[\s_-]+", "-", s).strip("-")
+    if s:
+        return s
+    raw = name.strip()
+    if not raw:
+        return "skill"
+    return "skill-" + hashlib.sha256(raw.encode("utf-8")).hexdigest()[:8]
 
 
 def _skill_exists(canonical: str) -> bool:

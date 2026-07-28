@@ -14,7 +14,7 @@ the agent can recover.
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Callable, Optional
 
@@ -40,6 +40,17 @@ class ToolContext:
     emit: Optional[Callable[[str, dict[str, Any]], None]] = None
     subagent_approval_required: bool = False
     approved_work: bool = False
+    # Dangerous-command gate (see shellguard.py). ``shell_prompt_cb`` is
+    # set only by interactive surfaces:
+    #     (command, why) -> once|session|always|deny
+    # Without it a flagged command is queued for approval instead.
+    shell_prompt_cb: Optional[Callable[[str, str], str]] = None
+    shellguard_approved: set[str] = field(default_factory=set)
+    # checkpoints.CheckpointManager — snapshots the workspace before a
+    # mutating tool runs, so /rollback can undo it.
+    checkpoints: Any = None
+    # hooks.HookBus — user shell scripts on tool lifecycle events.
+    hooks: Any = None
 
 
 @dataclass
@@ -69,10 +80,31 @@ class ToolRegistry:
         tool = self._tools.get(name)
         if tool is None:
             return ToolResult(f"Unknown tool: {name!r}", is_error=True)
+        if self.ctx.hooks is not None:
+            # A blocking hook's message becomes the tool result, so the
+            # model sees why it was refused and can choose another path.
+            blocked = self.ctx.hooks.pre_tool(name, tool_input or {})
+            if blocked:
+                return ToolResult(blocked, is_error=True)
+        if self.ctx.checkpoints is not None:
+            from .. import checkpoints
+            checkpoints.preflight(self.ctx, name, tool_input or {})
         try:
-            return tool.fn(tool_input or {}, self.ctx)
+            result = tool.fn(tool_input or {}, self.ctx)
         except Exception as exc:  # tools must never crash the agent loop
             return ToolResult(f"Tool {name!r} failed: {exc}", is_error=True)
+        if self.ctx.hooks is not None:
+            try:
+                self.ctx.hooks.post_tool(name, tool_input or {},
+                                         result.content, result.is_error)
+            except Exception:
+                pass          # observers must not break the loop
+        # The single choke point every native tool call passes through, so
+        # oversized output is handled once rather than in each tool.
+        from .spill import maybe_spill
+        content = maybe_spill(result.content, name, self.ctx.cfg)
+        return result if content is result.content \
+            else ToolResult(content, result.is_error)
 
 
 def build_registry(ctx: ToolContext, *, include: Optional[set[str]] = None) -> ToolRegistry:

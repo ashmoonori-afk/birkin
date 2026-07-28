@@ -1,4 +1,4 @@
-"""birkin as an MCP server — exposes birkin's structured self-improvement tools.
+"""birkin as an MCP server — the vault, offered to any MCP host.
 
 Claude Code (the free, warm backend birkin runs on) can't call birkin's in-loop
 tools directly. So birkin *provides* them over MCP: a tiny stdio JSON-RPC 2.0

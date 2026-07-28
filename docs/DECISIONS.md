@@ -4,9 +4,58 @@ Lightweight architecture decision records. Each entry: context, decision,
 rationale, alternatives considered, status. Newest decisions may supersede
 older ones (noted inline).
 
-> Last updated: 2026-07-23
+> Last updated: 2026-07-25
 
 ---
+
+## ADR-050 — Usage-policy posture: interactive is the sanctioned path
+
+- **Context.** ADR-026 chose the Claude-subscription path over direct-API
+  OAuth, but its entire analysis was *cost* ("is this billed as paid
+  `extra_usage` or does it draw from the subscription?"). It never asked
+  whether the usage is *permitted*, and no other ADR, doc, or README covered
+  it. That is a blind spot in the decision that defines birkin's core, and it
+  matters in two directions at once: Anthropic's Consumer Terms restrict
+  automated/non-human access to the Services outside an API key, and the
+  metered-credit change announced for 2026-06-15 (Agent SDK / `claude -p` /
+  third-party apps moved to a separate paid credit pool at API list rates) was
+  **paused on the day it was due, not cancelled** — the help-center article
+  states nothing has changed *for now* and that the plan is being reworked
+  with advance notice. birkin's own surfaces split cleanly along the same line
+  the paused plan drew: the REPL is a human at a keyboard; the gateway,
+  `cron`, and Morpheus are unattended programmatic use.
+- **Decision.**
+  1. **Interactive use is the supported path.** The REPL driving `claude -p` /
+     stream-json under the user's own login is scripting Anthropic's own CLI
+     and is what birkin documents, tests, and recommends.
+  2. **Unattended modes stay off by default and are the user's own election.**
+     The gateway, cron/`/remind`, and Morpheus are opt-in, documented as
+     running unattended on the user's account, and carry the user's own
+     responsibility for their plan's terms. birkin will not ship a default,
+     an onboarding step, or a marketing line that puts a user into unattended
+     subscription-billed operation without them choosing it.
+  3. **No "free 24/7" framing.** Positioning may not lead with running all day
+     free on a subscription. The durable claims are the owned Markdown vault,
+     safety-by-construction curation, the approval-first trust layer, and
+     Korean-first support — none of which depend on who is billed.
+  4. **API-key mode is a first-class fallback,** not a fallback of last
+     resort (see ADR-051). It is the documented answer if the reworked credit
+     plan lands.
+  5. **The policy is a watched external dependency.** The help-center Agent-SDK
+     article and the Consumer Terms are on the maintenance checklist; a change
+     to either forces a revision of this ADR before any release or promotion.
+- **Rationale.** birkin's differentiator is that it is careful. A project whose
+  decision log tracks 50 engineering choices but is silent on the legal footing
+  of its own core is not careful, it is lucky. Writing the posture down also
+  makes the honest answer available when a user (or a launch thread) asks.
+- **Alternatives considered.** *Say nothing* — the status quo; fails the
+  project's own honesty standard and leaves users to discover the exposure
+  themselves. *Drop unattended modes entirely* — throws away Morpheus and the
+  gateway, which are legitimate on an API key and are the user's choice on a
+  subscription. *Extract OAuth tokens for a third-party client* — explicitly
+  rejected in ADR-026 and the behavior most clearly enforced against.
+- **Status.** Accepted 2026-07-25. Supersedes nothing; supplements ADR-026
+  (billing), ADR-028 (Morpheus), ADR-041 (cron grammar). Doc-only.
 
 ## ADR-049 — Telegram long work is proposed, approved, then heartbeated
 
@@ -1298,7 +1347,14 @@ is hard-stop (no soft warning yet). All adjustable in config / future ADRs.
 
 ---
 
-## ADR-028 — Rename the nightly routine to "Morpheus"
+> **Numbering note.** The three ADRs below carry an `L` suffix. An early
+> REPL-era series reused 026/027/028, which the current series had already
+> taken (gateway free+fast, company MCP, Morpheus). Every reference elsewhere
+> in the repo — README, STATUS.md, COMPARISON.md — means the current series,
+> so those numbers stay put and the older entries are disambiguated here
+> rather than renumbered into the modern range.
+
+## ADR-028L — Rename the nightly routine to "Morpheus"
 
 **Context.** The 04:00 self-improvement routine was named "nightly" — a
 description, not a name. As the surface around it grew (CLI command,
@@ -1341,7 +1397,7 @@ was later removed; the `birkin nightly` CLI alias and the `nightly_hour` /
 
 ---
 
-## ADR-027 — Shift+Enter via Kitty Keyboard Protocol (opt-in by terminal)
+## ADR-027L — Shift+Enter via Kitty Keyboard Protocol (opt-in by terminal)
 
 **Context.** ADR-026 shipped multi-line input bound to Ctrl-J / Alt+Enter.
 Users asked for **Shift+Enter** (the chat-app convention) but the
@@ -1386,7 +1442,7 @@ documented bindings there.
 
 ---
 
-## ADR-026 — Multi-line input
+## ADR-026L — Multi-line input
 
 **Context.** ADR-023/024/025 incrementally built the line editor up to
 "5000-character single-line input never breaks layout." Users still
@@ -1678,7 +1734,7 @@ handling avoids races on the shared agent/session and keeps the code tiny.
 
 ---
 
-## ADR-050 — Natural-language commands are default-off, compiled read-only, and narrowly auto-safe
+## ADR-051 — Natural-language commands are default-off, compiled read-only, and narrowly auto-safe
 
 - **Context.** Korean and English command-like chat is convenient, but a model
   suggestion must not become a second command surface, broaden privileges, or

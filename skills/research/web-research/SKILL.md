@@ -11,8 +11,8 @@ metadata:
 
 # Web Research
 
-Investigate a question using `web_fetch` and produce a concise summary where
-every claim is traceable to a source.
+Investigate a question using `web_search` and `web_fetch`, and produce a
+concise summary where every claim is traceable to a source.
 
 ## When to Use
 
@@ -27,8 +27,11 @@ every claim is traceable to a source.
 ## Procedure
 
 1. Decompose the question into 2–4 concrete sub-questions.
-2. For each, `web_fetch` an authoritative URL. Prefer primary sources
-   (official docs, the vendor, the repo) over aggregators.
+2. For each, `web_search` to find candidate URLs, then `web_fetch` the ones
+   worth reading. Prefer primary sources (official docs, the vendor, the
+   repo) over aggregators. If search returns nothing, say so — the indexes
+   skew technical and non-commercial, so an empty result is a real signal
+   about coverage, not permission to invent a URL.
 3. Extract only what the page actually says. **Do not fabricate**; if a fact
    cannot be sourced, drop the sentence.
 4. Cross-check anything surprising against a second source.

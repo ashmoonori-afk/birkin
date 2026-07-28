@@ -54,3 +54,23 @@ def test_active_lists_only_unfinished(tmp_path, monkeypatch):
     slugs = {b["slug"] for b in boulder.active()}
     assert any("goal-one" in s for s in slugs)
     assert not any("goal-two" in s for s in slugs)
+
+
+def test_korean_goals_get_distinct_resumable_plans(tmp_path, monkeypatch):
+    """boulder.create slugs through neurosis._slug, so it inherited the
+    ASCII-only bug: two unrelated Korean goals raised in the same second
+    collapsed onto one slug, and create() returns an existing active plan
+    unchanged — silently handing the user someone else's checklist.
+    """
+    monkeypatch.setenv("BIRKIN_HOME", str(tmp_path))
+    a = boulder.create("배포 파이프라인 정리", ["파악", "수정"])
+    b = boulder.create("문서 번역 작업", ["초벌", "검수"])
+
+    assert a["slug"] != b["slug"]
+    assert a["slug"] == "배포-파이프라인-정리"
+    assert boulder.load(b["slug"])["steps"][0]["title"] == "초벌"
+
+    # The same goal still resumes rather than duplicating.
+    again = boulder.create("배포 파이프라인 정리", ["다른", "단계"])
+    assert again["slug"] == a["slug"]
+    assert boulder.load(a["slug"])["steps"][0]["title"] == "파악"

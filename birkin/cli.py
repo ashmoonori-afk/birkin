@@ -82,6 +82,9 @@ def _cmd_compare(args: argparse.Namespace) -> int:
 def _cmd_skills(args: argparse.Namespace) -> int:
     from . import config
     from .skills import build_manager
+    if args.name in ("install", "uninstall", "audit", "scan"):
+        return {"install": _skills_install, "uninstall": _skills_uninstall,
+                "audit": _skills_audit, "scan": _skills_scan}[args.name](args)
     if args.name == "sync":
         return _skills_sync(args)
     if args.name == "validate":
@@ -135,6 +138,76 @@ def _skills_validate(args: argparse.Namespace) -> int:
     summary = skv.validate_all()
     print(skv.format_summary(summary, verbose=getattr(args, "verbose", False)))
     return 0 if summary.ok else 1
+
+
+def _skills_install(args) -> int:
+    """`birkin skills install <owner/repo[/path]> [--force]` — fetch a skill
+    from GitHub into quarantine, scan it, and install only if allowed."""
+    from .skills import hub
+
+    def confirm(report: str) -> bool:
+        print(report)
+        print("\nThis skill comes from a third party. Its SKILL.md becomes "
+              "instructions your agent follows, and its scripts run on this "
+              "machine.")
+        try:
+            return input("Install it? [y/N] ").strip().lower() in ("y", "yes")
+        except (EOFError, KeyboardInterrupt):
+            return False
+
+    identifier = (getattr(args, "target", "") or "").strip()
+    if not identifier:
+        print("Which skill? `birkin skills install <owner/repo[/path]>`")
+        return 1
+    ok, report = hub.install(identifier, force=args.force, confirm=confirm)
+    print(report)
+    return 0 if ok else 1
+
+
+def _skills_uninstall(args) -> int:
+    """`birkin skills uninstall <name>` — remove an installed hub skill."""
+    from .skills import hub
+    name = (args.target or "").strip()
+    if not name:
+        print("Which skill? `birkin skills uninstall <name>`")
+        return 1
+    try:
+        removed = hub.uninstall(name)
+    except hub.HubError as exc:
+        print(f"Refused: {exc}")
+        return 1
+    print(f"Removed {name}." if removed else f"Not installed: {name}")
+    return 0 if removed else 1
+
+
+def _skills_audit(args) -> int:
+    """`birkin skills audit` — installed hub skills and the install log."""
+    from .skills import hub
+    lock = hub.load_lock()
+    if lock:
+        print("Installed from the hub:")
+        for name, entry in sorted(lock.items()):
+            print(f"  {name:<24} {entry.get('identifier', '?'):<36} "
+                  f"{entry.get('verdict', '?')}/{entry.get('trust', '?')}")
+    else:
+        print("No hub-installed skills.")
+    lines = hub.read_audit()
+    if lines:
+        print("\nRecent activity:")
+        for line in lines:
+            print(f"  {line}")
+    return 0
+
+
+def _skills_scan(args) -> int:
+    """`birkin skills scan <dir>` — run the security scanner over a bundle."""
+    from pathlib import Path as _Path
+
+    from .skills import guard
+    target = _Path(args.target or ".").expanduser()
+    result = guard.scan_skill(target, source=args.source or "community")
+    print(guard.format_report(result, target.name))
+    return 0 if result.verdict != "dangerous" else 1
 
 
 def _cmd_web(args: argparse.Namespace) -> int:
@@ -340,6 +413,138 @@ def _cmd_permission(args: argparse.Namespace) -> int:
     return 0
 
 
+def _cmd_moirai(args: argparse.Namespace) -> int:
+    """`birkin moirai run|list|status|resume` — deterministic workflows."""
+    from .moirai import cli as moirai_cli
+    action = (getattr(args, "action", "") or "list").strip()
+    handlers = {"run": moirai_cli.cmd_run, "list": moirai_cli.cmd_list,
+                "status": moirai_cli.cmd_status,
+                "resume": moirai_cli.cmd_resume}
+    handler = handlers.get(action)
+    if handler is None:
+        print(f"모르는 하위 명령: {action} (run|list|status|resume)")
+        return 1
+    return handler(args)
+
+
+def _auth_claude(action: str) -> int:
+    """`birkin auth claude status` — why Claude auth is or isn't working.
+
+    Read-only: logging in is `claude /login`, which owns the browser flow.
+    """
+    if action not in ("status", ""):
+        print("claude는 status만 지원합니다 (로그인은 `claude /login`)")
+        return 1
+    from . import oauth
+    info = oauth.diagnose()
+    print(f"claude: {oauth.explain(info)}")
+    print(f"  file    : {info['path']} ({'있음' if info['file_exists'] else '없음'})")
+    if "access_token_len" in info:
+        print(f"  tokens  : access={info['access_token_len']}자, "
+              f"refresh={info['refresh_token_len']}자")
+    if info.get("subscription"):
+        print(f"  plan    : {info['subscription']}")
+    if info.get("env"):
+        print(f"  env     : {', '.join(info['env'])}")
+    return 0 if info["token"] else 1
+
+
+def _cmd_auth(args: argparse.Namespace) -> int:
+    """`birkin auth <codex|claude> …` — subscription backend sessions."""
+    provider = (getattr(args, "provider", "") or "codex").strip()
+    action = (getattr(args, "action", "") or "status").strip()
+    if provider == "claude":
+        return _auth_claude(action)
+    if provider != "codex":
+        print(f"모르는 백엔드: {provider} (codex|claude)")
+        return 1
+    from . import codex_oauth
+
+    if action == "status":
+        info = codex_oauth.status()
+        if not info["logged_in"]:
+            print("codex: 로그인 안 됨 — `birkin auth codex login`")
+            return 1
+        left = info["expires_in_seconds"]
+        when = f"{left}s 남음" if isinstance(left, int) else "만료시각 불명"
+        print(f"codex: 로그인됨 ({when})")
+        print(f"  account : {info['account_id'] or '(불명)'}")
+        print(f"  store   : {info['store']}")
+        print(f"  backend : {info['base_url']}")
+        return 0
+
+    if action == "logout":
+        print("codex: 자격증명 삭제됨" if codex_oauth.logout()
+              else "codex: 삭제할 자격증명 없음")
+        return 0
+
+    try:
+        if action == "login":
+            codex_oauth.device_login()
+        elif action == "import":
+            print("주의: codex CLI 로그인은 무효화됩니다 "
+                  "(refresh token 회전). 취소하려면 Ctrl+C.")
+            codex_oauth.import_cli_tokens()
+        else:
+            print(f"모르는 하위 명령: {action} (login|status|logout|import)")
+            return 1
+    except codex_oauth.CodexAuthError as exc:
+        print(f"codex 로그인 실패: {exc}")
+        return 1
+    except KeyboardInterrupt:
+        print("\n취소됨.")
+        return 130
+    print("codex: 로그인 완료 — `birkin auth codex status` 로 확인")
+    return 0
+
+
+def _cmd_sessions(args: argparse.Namespace) -> int:
+    """`birkin sessions [export …]` — list conversations, or export to Markdown."""
+    from . import sessions_export
+    if getattr(args, "action", "") != "export":
+        files = sessions_export.list_sessions()
+        if not files:
+            print("No saved sessions.")
+            return 0
+        for f in files:
+            print(f"  {f.stem}")
+        print("\nExport one with `birkin sessions export <name> [--vault]`.")
+        return 0
+
+    stems = ([f.stem for f in sessions_export.list_sessions()]
+             if args.all else [s for s in (args.name or []) if s != "--"])
+    if not stems:
+        print('Which session? `birkin sessions export <name>` or --all.')
+        return 1
+    written, failed = [], []
+    for stem in stems:
+        try:
+            written.append(sessions_export.export(stem, to_vault=args.vault))
+        except (FileNotFoundError, ValueError, OSError) as exc:
+            failed.append(f"{stem}: {exc}")
+    for path in written:
+        print(f"  wrote {path}")
+    for line in failed:
+        print(f"  skipped {line}")
+    return 0 if written or not failed else 1
+
+
+def _cmd_odyssey(args: argparse.Namespace) -> int:
+    """Seed an odyssey goal cycle; the cycle is driven via /odyssey in chat."""
+    from . import config, odyssey
+    goal = " ".join(t for t in (args.goal or []) if t != "--").strip()
+    if not goal:
+        print('Give a goal, e.g. `birkin odyssey "ship the export feature"`.')
+        return 1
+    s = odyssey.seed(goal, cfg=config.load_config())
+    print(f"odyssey '{s['slug']}' seeded · plan: {s['boulder_path']}")
+    if s["resume"]:
+        print("  an active plan for this goal exists — /odyssey resumes it.")
+    print("Run `/odyssey` inside `birkin` (or message your gateway) to drive "
+          "the cycle.")
+    return 0
+
+
 def _cmd_neurosis(args: argparse.Namespace) -> int:
     """Seed a neurosis deep-interview; the interview is driven via /neurosis in chat."""
     from . import config, neurosis
@@ -409,7 +614,7 @@ def _cmd_cron(args: argparse.Namespace) -> int:
         return 0
     for j in jobs:
         state = "on" if j.get("enabled", True) else "off"
-        print(f"{j['id']}  {int(j.get('hour',0)):02d}:{int(j.get('minute',0)):02d}  "
+        print(f"{j['id']}  {cron.schedule_display(j)}  "
               f"[{state}] {j.get('type')}  {j.get('name')}")
     return 0
 
@@ -447,8 +652,21 @@ def _cmd_budget(args: argparse.Namespace) -> int:
     month_flag = f"{RED}OVER{RESET}" if st["over_monthly"] else f"{CYAN}ok{RESET}"
     print(f"  today : {st['used_today']:>8} / {st['daily_cap']:<8}  [{daily_flag}]")
     print(f"  month : {st['used_month']:>8} / {st['monthly_cap']:<8}  [{month_flag}]")
+    model = str(cfg.get("model") or "sonnet")
+    day_usd = budget.estimate_cost_usd(st["used_today"], model)
+    month_usd = budget.estimate_cost_usd(st["used_month"], model)
+    print(f"\n{BOLD}At API list rates{RESET} ({model}, ~20 % output)")
+    print(f"  today : ${day_usd:>8.2f}")
+    print(f"  month : ${month_usd:>8.2f}")
+    tiers = budget.ANNOUNCED_CREDIT_TIERS_USD
+    fits = [name for name, cap in sorted(tiers.items(), key=lambda kv: kv[1])
+            if month_usd <= cap]
+    verdict = (f"fits the {fits[0]} credit tier (${tiers[fits[0]]}/mo)"
+               if fits else "exceeds every announced credit tier")
+    print(f"  {DIM}this month {verdict}.{RESET}")
     print(f"\n{DIM}Set caps via config.json: budget_tokens_daily, "
-          f"budget_tokens_monthly.{RESET}")
+          f"budget_tokens_monthly. Cost is an estimate over recorded tokens, "
+          f"not a bill — see ADR-050.{RESET}")
     return 0
 
 
@@ -502,6 +720,9 @@ def build_parser() -> argparse.ArgumentParser:
     sp.add_argument("--force", action="store_true", help="overwrite existing mirrors")
     sp.add_argument("--verbose", action="store_true",
                     help="show warnings-only skills in `skills validate`")
+    sp.add_argument("target", nargs="?",
+                    help="argument for install/uninstall/scan")
+    sp.add_argument("--source", help="trust source for `skills scan`")
     sp.set_defaults(func=_cmd_skills)
 
     wp = sub.add_parser("web", help="launch the local WebUI")
@@ -539,6 +760,13 @@ def build_parser() -> argparse.ArgumentParser:
     dp.add_argument("--install", action="store_true",
                     help="register an OS-native daily task instead of running the loop")
     dp.set_defaults(func=_cmd_daemon)
+
+    ap = sub.add_parser("auth", help="sign in to a subscription backend (codex)")
+    ap.add_argument("provider", nargs="?", default="codex",
+                    help="codex (login/status/logout/import) | claude (status)")
+    ap.add_argument("action", nargs="?", default="status",
+                    help="login | status | logout | import")
+    ap.set_defaults(func=_cmd_auth)
 
     sub.add_parser("review", help="approve/reject pending proposed actions").set_defaults(func=_cmd_review)
 
@@ -587,6 +815,8 @@ def build_parser() -> argparse.ArgumentParser:
                     help="claude | codex | api | gemini | local "
                          "(default: config provider)")
     cm.add_argument("--model", default=None)
+    cm.add_argument("--dry-run", action="store_true",
+                    help="propose and gate the plan, print it, change nothing")
     cm.set_defaults(func=_cmd_curate_memory)
 
     tp_ = sub.add_parser("trace", help="print a run record (audit replay)")
@@ -605,6 +835,46 @@ def build_parser() -> argparse.ArgumentParser:
         help="run birkin as an MCP server (stdio) exposing memory/skills/propose "
              "tools — used by Morpheus and the gateway via `claude --mcp-config`"
         ).set_defaults(func=_cmd_mcp_serve)
+
+    moi = sub.add_parser(
+        "moirai",
+        help="deterministic multi-agent workflows across claude / codex / API")
+    moi.add_argument("action", nargs="?", default="list",
+                     help="run | list | status | resume")
+    moi.add_argument("script", nargs="?", default="",
+                     help="workflow file or name (run)")
+    moi.add_argument("--run-id", dest="run_id", default="",
+                     help="run id (status / resume)")
+    moi.add_argument("--bind", action="append", default=[], metavar="ROLE=SPEC",
+                     help="pin a role to a model, e.g. --bind critic=claude:opus")
+    moi.add_argument("--args", default="", metavar="JSON",
+                     help="JSON object passed to the script as m.args")
+    moi.add_argument("--defaults", action="store_true",
+                     help="skip the picker; resolve bindings non-interactively")
+    moi.add_argument("--bind-save", dest="bind_save", action="store_true",
+                     help="save the chosen bindings as your defaults")
+    moi.add_argument("--limit", type=int, default=10)
+    moi.set_defaults(func=_cmd_moirai)
+
+    ses = sub.add_parser(
+        "sessions",
+        help="list saved conversations, or export one as Markdown you own")
+    ses.add_argument("action", nargs="?", default="",
+                     help="'export' to write Markdown (omit to list)")
+    ses.add_argument("name", nargs=argparse.REMAINDER,
+                     help="session name(s) to export")
+    ses.add_argument("--all", action="store_true",
+                     help="export every saved session")
+    ses.add_argument("--vault", action="store_true",
+                     help="file the export in the vault's journal zone")
+    ses.set_defaults(func=_cmd_sessions)
+
+    ody = sub.add_parser(
+        "odyssey",
+        help="seed a goal-completion cycle (plan → critique → execute → "
+             "verify); then run /odyssey in chat to drive it")
+    ody.add_argument("goal", nargs=argparse.REMAINDER, help="the goal")
+    ody.set_defaults(func=_cmd_odyssey)
 
     nrp = sub.add_parser(
         "neurosis",

@@ -13,6 +13,24 @@ metadata:
 
 # Memory curation — one interface, every model
 
+## When to Use
+
+- The memory vault needs reorganizing: inbox notes filed into zones,
+  related notes linked, superseded facts marked, genuinely stale notes
+  archived.
+- The user asks for it in any of these words: "기억 정리", "메모리 정리",
+  "벌트 정리해줘", "노트 정리", "curate memory", "clean up the vault",
+  "organize my notes", "file the inbox notes".
+- `morpheus` is running its nightly duties and reaches the curation step.
+- A curation plan needs proposing or reviewing before it is applied.
+
+## When NOT to Use
+
+- Writing or recalling a single memory — use the memory tools directly.
+- The user wants to search the vault, not reorganize it — that is
+  `semantic-memory`.
+- Anything outside the memory vault: this never touches project files.
+
 Birkin's nightly memory curation (a duty of `morpheus`) reorganizes the
 markdown memory vault: file inbox notes into topical zone folders, link related
 notes, mark superseded facts, and soft-archive the genuinely stale. The problem

@@ -1,0 +1,13 @@
+{
+  "name": "birkin",
+  "owner": {
+    "name": "ashmoonori"
+  },
+  "plugins": [
+    {
+      "name": "birkin-vault",
+      "source": "./plugins/birkin-vault",
+      "description": "Your Obsidian memory vault inside Claude Code: BM25-ranked search over Markdown notes you own, with wikilinks, zones and Ebbinghaus decay. Requires birkin on PATH."
+    }
+  ]
+}

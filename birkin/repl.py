@@ -11,7 +11,8 @@ import os
 from datetime import datetime
 from typing import Any
 
-from . import abortkey, inline_complete, slashcommands, store, transcripts, ui
+from . import (abortkey, inline_complete, slashcommands, statusline, store,
+               transcripts, ui)
 from .runtime import ConfigError, Session, build_session
 from .ui import BIRKIN_BANNER, CYAN, DIM, RED, RESET, YELLOW
 
@@ -26,10 +27,17 @@ def _banner(session: Session) -> None:
     n = len(session.skills.skills)
     print(f"{CYAN}{BIRKIN_BANNER}{RESET}")
     print(f" {DIM}The AI agent that actually remembers you.{RESET}\n")
-    print(f" model {CYAN}{cfg.get('model')}{RESET} · {n} skill(s) · "
-          f"vault {DIM}{session.memory.vault}{RESET}")
-    print(f" type {YELLOW}/help{RESET} for commands, or just chat · "
-          f"{YELLOW}Esc{RESET} (or type + Enter) interrupts a reply · Ctrl-C to quit.")
+    # Live launch status — daemon heartbeat, budget, pending approvals — so the
+    # first screen is a dashboard, not a static banner. Same line reprinted at
+    # each turn boundary and on /status.
+    try:
+        print(statusline.render(cfg))
+    except Exception:
+        pass
+    print(f" {DIM}{n} skill(s) · vault {session.memory.vault}{RESET}")
+    print(f" {YELLOW}/help{RESET} 명령 · {YELLOW}/dash{RESET} 미션 컨트롤 · "
+          f"{YELLOW}/status{RESET} 상태 · {YELLOW}?{RESET} 도움말 · "
+          f"{YELLOW}Esc{RESET} 중단 · Ctrl-C 종료")
     print(f" {DIM}edit: Ctrl+←/→ word · Ctrl-W delete word · Ctrl-U/Ctrl-K clear "
           f"to start/end · ↑/↓ history{RESET}")
 
@@ -65,6 +73,11 @@ def run(cfg: dict[str, Any] | None = None) -> int:
             line = raw.strip()
         if not line:
             continue
+        # A bare "?" is the reflexive "what can I do here" key (tig/clig.dev):
+        # route it to /help rather than sending it to the model.
+        if line == "?":
+            line = "/help"
+        inline_complete.append_history(line, prior=history)
         if line.startswith("/"):
             # A slash handler that raises (or Ctrl-C mid-command) must not
             # escape the loop — otherwise session.close() at the end is
@@ -149,7 +162,42 @@ def run(cfg: dict[str, Any] | None = None) -> int:
                 stop_spin()
                 print(f"\n{DIM}(interrupting…){RESET}")
 
-        listener = abortkey.listen_for_interrupt(on_interrupt)
+        def on_line(text: str) -> bool:
+            """A typed line during a turn: steer it instead of killing it."""
+            if session.cfg.get("repl_typed_line", "steer") != "steer":
+                return False
+            if not session.steer(text):
+                return False
+            stop_spin()
+            print(f"{DIM}(steering: {text.strip()[:60]}){RESET}")
+            start_spin()
+            return True
+
+        listener_cell: dict[str, Any] = {"v": None}
+
+        def shell_prompt(command: str, why: str) -> str:
+            """Ask before a flagged shell command runs.
+
+            The key listener owns stdin during a turn, so it has to be
+            stopped for the question and restarted afterwards — otherwise
+            it eats the answer keystroke by keystroke."""
+            stop_spin()
+            if listener_cell["v"] is not None:
+                listener_cell["v"].stop()
+            print(f"\n{YELLOW}⚠ {why}{RESET}\n  {command[:300]}")
+            try:
+                answer = input("  run [o]nce / this [s]ession / "
+                               "[a]lways / [d]eny? ").strip().lower()
+            except (EOFError, KeyboardInterrupt):
+                answer = "deny"
+            listener_cell["v"] = abortkey.listen_for_interrupt(
+                on_interrupt, on_line)
+            start_spin()
+            return answer or "deny"
+
+        session.ctx.shell_prompt_cb = shell_prompt
+        listener = abortkey.listen_for_interrupt(on_interrupt, on_line)
+        listener_cell["v"] = listener
         start_spin()
         try:
             reply = session.ask(line, on_text=on_text,
@@ -164,9 +212,13 @@ def run(cfg: dict[str, Any] | None = None) -> int:
                 print(f"\n{CYAN}birkin{RESET} >\n", end="")
                 print(ui.render_markdown((reply or "").strip()))
             print()   # terminate the streamed line
-            store.append_activity(f"chat: {session.retained_text[:120]}")
-            transcripts.append_turn("repl", run_id, session.retained_text,
-                                    session.retained_reply,
+            # Reprint the one-line status (identity · daemon · budget · pending)
+            # at the turn boundary — the line-flow translation of a pinned bar.
+            _sl = statusline.render(session.cfg)
+            if _sl.strip():
+                print(_sl)
+            store.append_activity(f"chat: {line[:120]}")
+            transcripts.append_turn("repl", run_id, line, reply or "",
                                     cfg=session.cfg)
         except KeyboardInterrupt:
             session.abort.set()
@@ -176,9 +228,13 @@ def run(cfg: dict[str, Any] | None = None) -> int:
             stop_spin()
             print(f"\n{RED}Error: {exc}{RESET}")
         finally:
-            listener.stop()
+            # Read through the cell: an approval prompt may have swapped
+            # the listener, and stopping the stale one would leave a
+            # thread holding the terminal in cbreak mode.
+            live = listener_cell["v"] or listener
+            live.stop()
             # A line typed during the reply (Enter-interrupt) becomes next input.
-            pending = (getattr(listener, "pending_line", "") or "").strip()
+            pending = (getattr(live, "pending_line", "") or "").strip()
             session.agent.on_event = base_event
     session.close()   # release the warm CLI process, if repl_warm_session
     print(f"{DIM}bye.{RESET}")

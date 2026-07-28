@@ -35,7 +35,7 @@ import os
 import re
 import tempfile
 import threading
-from datetime import date, datetime, timezone
+from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
 
@@ -43,7 +43,7 @@ from .skills import frontmatter
 
 # -- constants (single tuning source; see design §8) -------------------------
 
-K1, B = 1.5, 0.75                     # Okapi BM25 (mempalace searcher.py)
+K1, B = 0.9, 0.5                     # Okapi BM25 (mempalace searcher.py)
 CAND = 32                             # BM25 candidates before re-ranking
 STRENGTH_STEP, STRENGTH_CAP = 0.25, 5.0
 STABILITY_INIT, STABILITY_GROWTH, STABILITY_CAP = 7.0, 1.5, 365.0
@@ -122,7 +122,13 @@ def tokenize(text: str) -> list[str]:
 def bm25_scores(terms: list[str], postings: dict[str, dict[str, int]],
                 doclens: dict[str, int], avgdl: float,
                 n_docs: int) -> dict[str, float]:
-    """Okapi BM25 over an inverted index; returns {slug: score}."""
+    """Okapi BM25 over an inverted index; returns {slug: score}.
+
+    Query terms carry an idf^1 weight (ranking-v2 / ADR-043). A long natural
+    question mixes one or two terms that identify the note with a dozen that
+    appear everywhere; weighting the query side by idf lets the rare term
+    decide the ranking instead of being outvoted by common ones.
+    """
     scores: dict[str, float] = {}
     avgdl = avgdl or 1.0
     for t in dict.fromkeys(terms):          # unique, order-preserving
@@ -131,11 +137,75 @@ def bm25_scores(terms: list[str], postings: dict[str, dict[str, int]],
             continue
         df = len(post)
         idf = math.log(1 + (n_docs - df + 0.5) / (df + 0.5))
+        qw = idf                            # query-side weight (idf^1)
         for s, tf in post.items():
             dl = doclens.get(s, avgdl)
             denom = tf + K1 * (1 - B + B * dl / avgdl)
-            scores[s] = scores.get(s, 0.0) + idf * tf * (K1 + 1) / denom
+            scores[s] = scores.get(s, 0.0) + qw * idf * tf * (K1 + 1) / denom
     return scores
+
+
+# Relative-time cues. Korean first: the benchmark's parser was English-only,
+# so porting it verbatim would have shipped a feature birkin's primary user
+# cannot trigger ("지난달에 정리한…" is exactly how the query gets typed).
+_KO_UNIT_DAYS = {"일": 1, "주": 7, "개월": 30, "달": 30, "년": 365}
+_KO_REL_RE = re.compile(r"(\d+)\s*(개월|일|주|달|년)\s*전")
+_KO_WORD_CUES = {
+    "그저께": 2, "그제": 2, "어제": 1, "엊그제": 2,
+    "지난주": 7, "저번주": 7, "지난달": 30, "저번달": 30,
+    "지난해": 365, "작년": 365,
+}
+_EN_REL_RE = re.compile(
+    r"(\d+|a|one|two|three|four|five|six|seven|eight|nine|ten)\s+"
+    r"(day|week|month|year)s?\s+ago")
+_EN_WORDS = {"a": 1, "one": 1, "two": 2, "three": 3, "four": 4, "five": 5,
+             "six": 6, "seven": 7, "eight": 8, "nine": 9, "ten": 10}
+_EN_UNIT_DAYS = {"day": 1, "week": 7, "month": 30, "year": 365}
+TIME_PRIOR_LAMBDA = 0.3               # ranking-v2 sweep2/sweep3 frozen value
+
+
+def temporal_target(query: str, now: datetime) -> tuple[datetime, float] | None:
+    """``(target date, window sigma in days)`` for a relative-time cue.
+
+    Returns None when the query carries no cue — which is the common case, so
+    the prior costs nothing and changes nothing for ordinary searches.
+    """
+    q = (query or "").lower()
+
+    def hit(days: int) -> tuple[datetime, float]:
+        # Looser window the further back you point: "어제" is a day, "작년"
+        # is not a day in particular.
+        return now - timedelta(days=days), max(1.0, days * 0.15)
+
+    m = _KO_REL_RE.search(q)
+    if m:
+        return hit(int(m.group(1)) * _KO_UNIT_DAYS[m.group(2)])
+    for cue, days in _KO_WORD_CUES.items():
+        if cue in q:
+            return hit(days)
+    m = _EN_REL_RE.search(q)
+    if m:
+        n = _EN_WORDS.get(m.group(1))
+        if n is None and m.group(1).isdigit():
+            n = int(m.group(1))
+        if n:
+            return hit(n * _EN_UNIT_DAYS[m.group(2)])
+    if "yesterday" in q:
+        return hit(1)
+    if "last week" in q:
+        return hit(7)
+    if "last month" in q:
+        return hit(30)
+    return None
+
+
+def time_prior(dt: datetime | None, target: datetime, sigma: float,
+               lam: float = TIME_PRIOR_LAMBDA) -> float:
+    """Gaussian recency multiplier; 1.0 (neutral) for an undated note."""
+    if dt is None:
+        return 1.0
+    dist = abs((dt.date() - target.date()).days)
+    return 1.0 + lam * math.exp(-(dist * dist) / (2 * sigma * sigma))
 
 
 def _parse_dt(raw: Any) -> datetime | None:
@@ -220,8 +290,19 @@ def _note_entry(path: Path, rel: str) -> dict[str, Any] | None:
         confidence = float(meta.get("confidence", 0.5))
     except (TypeError, ValueError):
         confidence = 0.5
+    # Retrieval anchors written by the curator's `annotate` op (aliases /
+    # queries / xlang) are indexed like any other text — otherwise the op
+    # would write frontmatter nothing ever reads. No INDEX_VERSION bump is
+    # needed: annotating rewrites the file, so its stat fingerprint changes
+    # and only that note is re-parsed.
+    anchors: list[str] = []
+    for key in ("aliases", "queries", "xlang"):
+        raw = meta.get(key)
+        if isinstance(raw, list):
+            anchors.extend(str(v) for v in raw)
     terms: dict[str, int] = {}
-    for tok in tokenize(" ".join([title, " ".join(tags), body])):
+    for tok in tokenize(" ".join([title, " ".join(tags), " ".join(anchors),
+                                  body])):
         terms[tok] = terms.get(tok, 0) + 1
     rel = rel.replace("\\", "/")
     zone = rel.rsplit("/", 1)[0] if "/" in rel else ""
@@ -561,6 +642,9 @@ class Mnemosyne:
             cands = sorted(base.items(), key=lambda kv: kv[1],
                            reverse=True)[:CAND]
             pri = self.zone_priorities(today=now.date())
+            # "지난주에 정리한 …" — when the query names a time, notes from
+            # around it get a gentle multiplier. No cue, no effect.
+            when = temporal_target(query, now)
             # TTL is a user-facing calendar date -> LOCAL today, matching
             # memory._is_expired (render/list/purge) so no path disagrees.
             expiry_today = date.today()
@@ -578,6 +662,10 @@ class Mnemosyne:
                 eff = effective_strength(self.dynamics_of(s), now)
                 score = bm * (1 + W_DYN * eff / STRENGTH_CAP
                               + W_ZONE * pri.get(z, 0.0))
+                if when is not None:
+                    score *= time_prior(
+                        _parse_dt(e.get("updated")) or _parse_dt(e.get("created")),
+                        when[0], when[1])
                 hits.append({"slug": s, "title": e["title"], "zone": z,
                              "rel": e["rel"], "type": e["type"],
                              "summary": e["summary"], "links": e["links"],

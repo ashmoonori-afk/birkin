@@ -331,7 +331,23 @@ def test_run_once_unattended_full_opt_in_keeps_full(monkeypatch):
     assert seen.get("cli_access") == "full"
 
 
-def test_codex_morpheus_uses_read_only_birkin_mcp(monkeypatch):
+def test_codex_morpheus_skips_mcp_it_cannot_call(monkeypatch, capsys):
+    """Was `assert session.client.birkin_mcp is True` at cli_access=workspace.
+
+    That pinned a combination which cannot work: `codex exec` hardwires
+    approval to "never", and that CANCELS MCP tool calls. Measured on codex
+    0.145 with morpheus's exact flags —
+
+        "call the birkin memory_search tool" -> "user cancelled MCP tool call"
+
+    — while `-a` is rejected by `exec` and `-c approval_policy=…` is ignored
+    (the banner still reads approval: never). Only cli_access="full", which
+    sends --dangerously-bypass-approvals-and-sandbox, lets a call through, and
+    that also hands over shell.
+
+    The cost of attaching them anyway was three consecutive nightly runs with
+    proposals=[] whose own summaries said the tools were missing or cancelled.
+    """
     from birkin.runtime import build_session
 
     session = build_session({**config.DEFAULT_CONFIG, "provider": "codex-cli",
@@ -349,9 +365,28 @@ def test_codex_morpheus_uses_read_only_birkin_mcp(monkeypatch):
 
     assert rc == 0
     assert session.client.cli_access == "read-only"
-    assert session.client.birkin_mcp is True
+    assert session.client.birkin_mcp is False, (
+        "attached tools that codex exec will cancel on every call")
+    out = capsys.readouterr().out
+    assert "cancels every MCP call" in out, (
+        "a run that can save nothing must say so, not just save nothing")
     assert seen == {"review_skills": False, "route_query": "",
                     "record_turn": False}
+
+
+def test_codex_morpheus_attaches_mcp_when_calls_can_land(monkeypatch):
+    """cli_access="full" sends the bypass flag, so the calls actually work."""
+    from birkin.runtime import build_session
+
+    cfg = {**config.DEFAULT_CONFIG, "provider": "codex-cli", "model": "",
+           "cli_access": "full"}
+    session = build_session(cfg)
+    monkeypatch.setattr(morpheus, "build_session", lambda _cfg: session)
+    monkeypatch.setattr(session, "ask", lambda _task, **kw: "done")
+
+    assert morpheus._run_birkin_morpheus(cfg, "task", False, 0) == 0
+    assert session.client.cli_access == "full"
+    assert session.client.birkin_mcp is True
 
 
 def test_codex_morpheus_dry_run_disables_birkin_mcp(monkeypatch):

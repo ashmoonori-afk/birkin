@@ -224,8 +224,34 @@ def run_once(dry_run: bool = False) -> int:
     # so it is claude-cli-specific. Every other provider — including codex-cli —
     # uses the generic agent-loop morpheus; otherwise a user who chose Codex would
     # silently get `claude` spawned.
-    if cfg.get("provider") == "claude-cli":
-        return _run_claude_morpheus(cfg, task, dry_run, n_files)
+    # ``morpheus_provider`` runs the NIGHTLY on a different backend than chat.
+    # The reason is concrete rather than theoretical: on codex-cli the nightly
+    # can save nothing at all, because `codex exec` pins approval to "never"
+    # and that CANCELS every MCP tool call ("user cancelled MCP tool call") —
+    # so memory writes and proposals are impossible below cli_access "full",
+    # which would also hand the unattended run a shell. The claude path takes
+    # a different shape: it ALLOWLISTS mcp__birkin__* via --allowedTools
+    # instead of asking for per-call approval, so the calls land without
+    # granting Bash.
+    #
+    # Opt-in and explicit — the dispatch below was deliberately keyed on the
+    # chat provider so "a user who chose Codex would [not] silently get
+    # `claude` spawned", and that stays true unless the user asks for it.
+    override = str(cfg.get("morpheus_provider") or "")
+    backend = override or str(cfg.get("provider") or "")
+    if backend == "claude-cli":
+        # The model has to follow the backend. Carrying the chat model across a
+        # provider switch sends codex's `gpt-5.6-terra` to claude, which answers
+        # "There's an issue with the selected model" and the night is lost. But
+        # only across a SWITCH — when chat is already claude, its model is the
+        # right one and blanking it would be its own regression.
+        model = str(cfg.get("model") or "")
+        if override and override != cfg.get("provider"):
+            model = ""              # empty -> the backend's own default
+        if cfg.get("morpheus_model"):
+            model = str(cfg["morpheus_model"])   # explicit wins, like gateway_model
+        return _run_claude_morpheus({**cfg, "provider": backend, "model": model},
+                                    task, dry_run, n_files)
     return _run_birkin_morpheus(cfg, task, dry_run, n_files)
 
 
@@ -314,11 +340,30 @@ def _run_birkin_morpheus(cfg: dict[str, Any], task: str, dry_run: bool,
     session.cfg = session_cfg
     session.ctx.cfg = session_cfg
     if cfg.get("provider") == "codex-cli":
-        session.client.cli_access = (
-            "full" if cfg.get("cli_access") == "full" and not dry_run
-            else "read-only")
-        session.client.birkin_mcp = not dry_run
+        access = ("full" if cfg.get("cli_access") == "full" and not dry_run
+                  else "read-only")
+        session.client.cli_access = access
+        # `codex exec` hardwires approval to "never", and that CANCELS every
+        # MCP tool call rather than allowing it — measured on codex 0.145:
+        #     "user cancelled MCP tool call"
+        # `-a` is not accepted by `exec` and `-c approval_policy=…` is ignored
+        # (the banner still reads approval: never). The only policy that lets a
+        # call through is --dangerously-bypass-approvals-and-sandbox, which is
+        # what cli_access="full" sends and which also hands over shell.
+        #
+        # So outside "full" the tools are attachable but not callable. Attaching
+        # them anyway bought three nights of runs where the model hunted for a
+        # tool, called it, got cancelled, and wrote prose about what it would
+        # have saved. Say so once instead.
+        session.client.birkin_mcp = (access == "full")
         session.client.birkin_mcp_scope = "full"
+        if not dry_run and access != "full":
+            print("morpheus: codex-cli at cli_access=%r cannot call birkin's "
+                  "tools — `codex exec` cancels every MCP call. This run can "
+                  "only produce prose; nothing will be saved to memory and no "
+                  "proposal can be queued. Use an API provider for the nightly "
+                  "run, or set cli_access: \"full\" (which also grants shell)."
+                  % cfg.get("cli_access"))
 
     # Birkin's registry excludes shell/subagent tools. Codex is isolated above;
     # arbitrary local CLI commands retain their user-managed tool surface.
@@ -399,9 +444,13 @@ def _attach_propose_tool(session, cfg: dict[str, Any],
         name="propose_action",
         description="Propose a convenience action or cron job for tomorrow. It "
                     "is queued for the user's approval (not executed now). Use "
-                    "category 'cron' with payload {name, hour, minute, type "
+                    "category 'cron' with payload {name, schedule, type "
                     "('prompt'|'shell'), value}, or 'shell' with payload "
-                    "{command}.",
+                    "{command}. 'schedule' accepts '09:00' or '매일 09:00' "
+                    "(daily), 'every 30m'/'30분마다' (interval), '2h'/'30분 후' "
+                    "(once), or a 5-field cron expression like '0 9 * * 1' "
+                    "('매주 월요일 09:00' also works); omit it and pass "
+                    "hour/minute for a plain daily job.",
         input_schema={"type": "object", "properties": {
             "category": {"type": "string", "enum": ["cron", "shell"]},
             "title": {"type": "string"},

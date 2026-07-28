@@ -6,11 +6,15 @@ from typing import Any
 
 from . import mnemosyne
 from .curation_contract import (
+    ANNOTATE_FIELDS,
+    ANNOTATE_MAX_CHARS,
+    ANNOTATE_MAX_ITEMS,
     ARCHIVE_CAP_FRACTION,
     ARCHIVE_CAP_MIN,
     OPS,
     PROTECT_TYPES,
     GateResult,
+    sanitize_summary,
 )
 from .mnemosyne import Mnemosyne
 
@@ -85,6 +89,24 @@ def validate_clamp(plan: dict[str, Any], dex: Mnemosyne,
                 res.drop(raw, "self-supersede")
             else:
                 res.accepted.append(raw)
+        elif op == "annotate":
+            s = _str_field(raw, "slug")
+            if s is None or s not in known:
+                res.drop(raw, "unknown slug")
+                continue
+            clean: dict[str, Any] = {"op": "annotate", "slug": s}
+            for field_name in ANNOTATE_FIELDS:
+                items = raw.get(field_name)
+                if not isinstance(items, list):
+                    continue
+                kept = [sanitize_summary(v.strip())[:ANNOTATE_MAX_CHARS]
+                        for v in items if isinstance(v, str) and v.strip()]
+                if kept:
+                    clean[field_name] = kept[:ANNOTATE_MAX_ITEMS]
+            if len(clean) == 2:            # slug + op only: nothing to write
+                res.drop(raw, "annotate has no usable field")
+            else:
+                res.accepted.append(clean)
         elif op == "archive":
             s = _str_field(raw, "slug")
             if s is None or s not in known:

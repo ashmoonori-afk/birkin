@@ -12,7 +12,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Callable, Optional
 
-from . import budget, config, promptgate, store, transcripts
+from . import budget, checkpoints, config, hooks, promptgate, prompts, store
 from .agent import Agent
 from .llm import LLMClient, LLMError, build_client
 from .memory import Memory
@@ -58,6 +58,9 @@ class Session:
 
     @staticmethod
     def _retain(text: str, replacements: tuple[tuple[str, str], ...]) -> str:
+        # Masks secrets for the RECORD (transcript, activity line). Safe here
+        # because the result is only ever written to those sinks — see the
+        # guard on _redact_messages for why it must never reach agent.messages.
         retained = transcripts.redact_text(text)
         for source, replacement in sorted(replacements, key=lambda item: len(item[0]), reverse=True):
             if source:
@@ -89,9 +92,31 @@ class Session:
         """For CLI-agent backends: inject identity + memory + skills routed to
         the request (they can't call load_skill themselves)."""
         preloaded = self._route_cli_skills(text)
+        extra = ""
+        if not preloaded:
+            # Routing is keyword overlap against skill text, which is
+            # written in English — so a request in another language matches
+            # nothing and the CLI child would see no skills at all. That is
+            # the common case here, not an edge case: birkin's house rule
+            # is 대화는 한국어. Fall back to the catalog index and let the
+            # model, which is multilingual, pick. Same block the warm
+            # session already carries.
+            try:
+                idx = self.skills.index()
+            except Exception:
+                idx = ""
+            if idx:
+                extra = ("\n\n## birkin skills available\n"
+                         "Read the referenced SKILL.md with your own file "
+                         "tools to follow one when it fits the task.\n" + idx)
+        # Only promise the tools when they are actually attached — llm.py adds
+        # the MCP server iff birkin_mcp is set, and an API-provider client has
+        # no such attribute at all.
+        if getattr(self.client, "birkin_mcp", False):
+            extra += prompts.cli_mcp_block()
         self.agent.system = promptgate.compose_cli(
             self.cfg, memory_block=self.memory.render(),
-            preloaded=preloaded or None)
+            preloaded=preloaded or None, extra=extra)
 
     def _route_cli_skills(self, text: str,
                           loaded_skills: set[str] | None = None) -> list[str]:
@@ -145,6 +170,15 @@ class Session:
             return why
         self.skills.reload_if_changed()  # pick up edited/added skills live
         self.abort.clear()               # fresh turn — drop any stale abort
+        if self.ctx.checkpoints is not None:
+            self.ctx.checkpoints.new_turn()
+            if (self._use_warm()
+                    or self.cfg.get("provider") in config.CLI_PROVIDERS):
+                # A CLI provider's child process edits files with its own
+                # tools, which never reach our registry — so the only
+                # chance to snapshot is here, before the turn starts.
+                self.ctx.checkpoints.ensure_checkpoint(
+                    self.ctx.cwd, "before CLI turn")
         if self._use_warm():
             reply = self._warm_ask(text, on_text)
             self.retained_reply = self._retain(reply, retained_replacements)
@@ -161,12 +195,32 @@ class Session:
         try:
             reply = self.agent.run(text, on_text=on_text, abort=self.abort)
         finally:
-            self._redact_messages(message_start, retained_replacements)
+            # ONLY when the intent engine actually rewrote this turn. This used
+            # to run unconditionally, so every ordinary turn had its LIVE
+            # history masked — transcripts.redact_text collapses a whole line
+            # like "token = get_token()" to "[redacted]" — and the next turn
+            # was sent the mangled text. natural_language_commands ships off,
+            # so that hit the default path, not an opt-in one. Masking for the
+            # transcript is fine (see _retain); masking the conversation the
+            # model is still holding is not.
+            if retained_replacements:
+                self._redact_messages(message_start, retained_replacements)
         self.retained_reply = self._retain(reply, retained_replacements)
         if record_turn:
             self._record_turn(kept_text, self.retained_reply,
                               review_skills=review_skills)
         return reply
+
+    def steer(self, text: str) -> bool:
+        """Send an instruction into the turn already running, without killing it.
+
+        Returns False when this session cannot be steered, which tells the
+        caller to fall back to interrupting.
+        """
+        if self._warm is not None:
+            steer = getattr(self._warm, "steer", None)
+            return bool(steer(text)) if steer else False
+        return self.agent.steer(text)
 
     def _use_warm(self) -> bool:
         """Opt-in warm CLI session, for claude-cli/codex-cli only. Trades the
@@ -342,10 +396,15 @@ def build_session(cfg: Optional[dict[str, Any]] = None,
     client = build_client(cfg, api_key)
     skills = build_manager(cfg)
     memory = Memory(cfg)
+    checkpoint_mgr = checkpoints.CheckpointManager(
+        enabled=bool(cfg.get("checkpoints", True)),
+        keep=int(cfg.get("checkpoint_keep", 20)))
+    hook_bus = hooks.build_bus(cfg)
     ctx = ToolContext(
         cfg=cfg, client=client, cwd=Path.cwd(),
         skills=skills, memory=memory,
-        max_depth=int(cfg.get("max_depth", 2)), emit=on_event)
+        max_depth=int(cfg.get("max_depth", 2)), emit=on_event,
+        checkpoints=checkpoint_mgr, hooks=hook_bus)
     registry = build_registry(ctx)
     system = promptgate.compose_main(
         cfg, skills_index=skills.index(), memory_block=memory.render())
@@ -354,7 +413,12 @@ def build_session(cfg: Optional[dict[str, Any]] = None,
                   model=cfg.get("model"), on_event=on_event,
                   self_improve=bool(cfg.get("self_improve", True)),
                   skill_nudge_interval=int(cfg.get("skill_nudge_interval", 3)),
-                  memory_nudge_interval=int(cfg.get("memory_nudge_interval", 6)))
+                  memory_nudge_interval=int(cfg.get("memory_nudge_interval", 6)),
+                  auto_compact=bool(cfg.get("auto_compact", True)),
+                  context_window=int(cfg.get("context_window", 200000)),
+                  parallel_tools=bool(cfg.get("parallel_tools", True)),
+                  parallel_workers=int(cfg.get("parallel_tool_workers", 8)),
+                  hooks=hook_bus)
     return Session(cfg=cfg, client=client, skills=skills, memory=memory,
                    ctx=ctx, agent=agent)
 

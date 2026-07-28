@@ -5,9 +5,11 @@ While the agent works, the main thread is blocked inside ``session.ask``; so a
 daemon thread watches the terminal:
 
 - **Esc** -> interrupt now, discard anything typed.
-- typing then **Enter** -> interrupt AND carry the typed line as the next
-  message (``listener.pending_line``), so "start typing to interrupt" doesn't
-  lose your text.
+- typing then **Enter** -> hand the line to ``on_line`` if one is given. When
+  that callback accepts it (a *steer*: the running turn takes the instruction
+  and keeps its work), the listener stays live so more lines can follow.
+  Otherwise the original behavior applies: interrupt AND carry the typed line
+  as the next message (``listener.pending_line``).
 
 Fires ``on_interrupt`` once (sets ``session.abort`` -> the LLM stream stops / the
 CLI subprocess is killed). No-op when stdin is not a TTY, so piped /
@@ -22,7 +24,7 @@ import os
 import sys
 import threading
 import time
-from typing import Callable
+from typing import Callable, Optional
 
 ESC = "\x1b"
 
@@ -34,24 +36,36 @@ class _NullListener:
         pass
 
 
-def listen_for_interrupt(on_interrupt: Callable[[], None]):
-    """Start watching for Esc / typed-line interrupt; returns a listener with
+def listen_for_interrupt(on_interrupt: Callable[[], None],
+                         on_line: Optional[Callable[[str], bool]] = None):
+    """Start watching for Esc / typed-line input; returns a listener with
     ``.stop()`` and ``.pending_line``. No-op (null listener) when stdin is not a
-    TTY."""
+    TTY.
+
+    ``on_line`` receives a completed typed line and returns True if it was
+    consumed as a steer — in which case the turn is NOT interrupted.
+    """
     try:
         if not sys.stdin.isatty():
             return _NullListener()
     except Exception:
         return _NullListener()
     try:
-        return _WinListener(on_interrupt) if os.name == "nt" else _PosixListener(on_interrupt)
+        cls = _WinListener if os.name == "nt" else _PosixListener
+        return cls(on_interrupt, on_line)
     except Exception:
         return _NullListener()
 
 
 class _Base:
-    def __init__(self, on_interrupt: Callable[[], None]):
+    # Class-level default so an instance built without __init__ (tests drive
+    # _handle directly) still behaves as "no steering configured".
+    _on_line: Optional[Callable[[str], bool]] = None
+
+    def __init__(self, on_interrupt: Callable[[], None],
+                 on_line: Optional[Callable[[str], bool]] = None):
         self._on_interrupt = on_interrupt
+        self._on_line = on_line
         self._stop = threading.Event()
         self._fired = False
         self._buf: list[str] = []
@@ -67,7 +81,18 @@ class _Base:
             self.pending_line = ""
             self._fire()
         elif ch in ("\r", "\n"):
-            self.pending_line = "".join(self._buf)
+            line = "".join(self._buf)
+            if line.strip() and self._on_line is not None:
+                try:
+                    steered = bool(self._on_line(line))
+                except Exception:
+                    steered = False
+                if steered:
+                    # Consumed by the running turn. Keep listening so the user
+                    # can steer again, and leave Esc as the way to kill it.
+                    self._buf.clear()
+                    return
+            self.pending_line = line
             self._fire()
         elif ch in ("\x7f", "\x08"):     # backspace
             if self._buf:
@@ -91,11 +116,11 @@ class _Base:
 
 
 class _PosixListener(_Base):
-    def __init__(self, on_interrupt):
+    def __init__(self, on_interrupt, on_line=None):
         import termios
         self._fd = sys.stdin.fileno()
         self._old = termios.tcgetattr(self._fd)   # restored on stop()
-        super().__init__(on_interrupt)
+        super().__init__(on_interrupt, on_line)
 
     def _run(self) -> None:
         import codecs

@@ -1,10 +1,7 @@
 # birkin — Build Status
 
-> Snapshot: 2026-07-23 · **0.1.61 natural-language command engine**:
-> opt-in `off`/`observe`/`assist`/`auto-safe` classification across REPL and
-> Gateway, bound previews, exact Korean/English confirmation, surface-specific
-> canonical action allowlists, read-only Claude/Codex CLI classification, and
-> soft-restart config reload. Earlier:
+> Snapshot: 2026-07-25 · **1,400+ tests, green** (measured 2026-07-25;
+> coverage gate ≥75 %) · Newest:
 > **Telegram long-work workflow approval** — proactive plan buttons before
 > 3-minute/multi-phase/subagent work, chat-bound single-claim execution,
 > 180-second edit-in-place heartbeat, interruption/recovery states, and a hard
@@ -30,9 +27,9 @@
 > **CodexAppServerSession** (ADR-046) — warm codex turns 37.5 s → **3 s**;
 > **TDAI adoption** (ADR-047) — write-time near-duplicate advisory;
 > **token diet** (ADR-044); **ranking-v2 parity** (ADR-043,
-> 0.900/0.977/0.933); **paper v4** (ADR-042). Research logs:
+> shipped to production 2026-07-25: R@1 0.870→0.891, MRR 0.910→0.926); **paper v4**
+> (ADR-042). Research logs:
 > [`ranking-v2-plan.md`](./ranking-v2-plan.md) ·
-> [`hermes-comparison.md`](./hermes-comparison.md) ·
 > [`tdai-comparison.md`](./tdai-comparison.md).
 >
 > Previous snapshot (2026-07-02): **591 tests, 0 failures** (first fully-green tree;
@@ -456,5 +453,5 @@ export ANTHROPIC_API_KEY=sk-ant-...   # required for chat / Morpheus
   dashboard treats as stopped via the stale-`heartbeat` check.
 - Memory search is index-backed BM25 + dynamics + zone priority + `[[wikilink]]`
   graph (ADR-040); embeddings remain a future optional upgrade.
-- Automated test suite: **740+ pytest tests** (offline, ≥75 % coverage gate),
+- Automated test suite: **1,400+ pytest tests** (offline, ≥75 % coverage gate),
   covering frontmatter, memory, approvals, llm stream parsing, gateway, and more.

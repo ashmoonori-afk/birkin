@@ -3,8 +3,13 @@
 Full-text search over the saved session transcripts in ``sessions_dir()``
 (including the reserved ``auto__*`` gateway/REPL autosaves), so the agent can
 answer "what did we decide about X last week?" without the user re-pasting
-history. Plain substring scoring — sessions are small JSON files and recall
-beats ranking sophistication here.
+history.
+
+Ranking comes from a SQLite FTS5 index (``sessions_index``), which covers the
+whole corpus and handles Korean via bigram shadow text. That index is only a
+cache: when it cannot serve a query — no FTS5, corrupt database, a query that
+survives tokenization badly — this module falls back to the original substring
+scan over the newest files, so recall degrades rather than disappearing.
 """
 
 from __future__ import annotations
@@ -40,10 +45,36 @@ def _sessions(newest_first: bool = True) -> list[Path]:
     return files[:_MAX_FILES]
 
 
-def search_sessions(query: str, limit: int = 5) -> list[dict[str, Any]]:
-    terms = [t for t in query.lower().split() if t]
-    if not terms:
-        return []
+def _day(path: Path) -> str:
+    try:
+        return datetime.fromtimestamp(path.stat().st_mtime).date().isoformat()
+    except OSError:
+        return ""
+
+
+def _snippet(text: str, terms: list[str]) -> str:
+    """A window of the RAW transcript around the first matching term.
+
+    Deliberately sliced from the prose rather than taken from FTS5's snippet(),
+    which would happily quote the bigram shadow text back at the user.
+    """
+    low = text.lower()
+    i = next((low.find(t) for t in terms if low.find(t) >= 0), -1)
+    start = max(0, i - _SNIPPET // 2) if i >= 0 else 0
+    return text[start:start + _SNIPPET].replace("\n", " ").strip()
+
+
+def _hit(stem: str, terms: list[str]) -> dict[str, Any] | None:
+    path = config.sessions_dir() / f"{stem}.json"
+    text = _transcript(path)
+    if not text:
+        return None
+    return {"session": stem, "date": _day(path),
+            "snippet": _snippet(text, terms)}
+
+
+def _scan(terms: list[str], limit: int) -> list[dict[str, Any]]:
+    """Original substring scan — the no-index fallback path."""
     hits: list[tuple[int, dict[str, Any]]] = []
     for f in _sessions():
         text = _transcript(f)
@@ -53,17 +84,21 @@ def search_sessions(query: str, limit: int = 5) -> list[dict[str, Any]]:
         score = sum(low.count(t) for t in terms)
         if not score:
             continue
-        i = low.find(terms[0])
-        start = max(0, i - _SNIPPET // 2)
-        snippet = text[start:start + _SNIPPET].replace("\n", " ").strip()
-        try:
-            day = datetime.fromtimestamp(f.stat().st_mtime).date().isoformat()
-        except OSError:
-            day = ""
-        hits.append((score, {"session": f.stem, "date": day,
-                             "snippet": snippet}))
+        hits.append((score, {"session": f.stem, "date": _day(f),
+                             "snippet": _snippet(text, terms)}))
     hits.sort(key=lambda x: x[0], reverse=True)
     return [h[1] for h in hits[:limit]]
+
+
+def search_sessions(query: str, limit: int = 5) -> list[dict[str, Any]]:
+    terms = [t for t in query.lower().split() if t]
+    if not terms:
+        return []
+    from .. import sessions_index
+    ranked = sessions_index.search(query, limit=limit)
+    if ranked is None:                    # index unusable — scan instead
+        return _scan(terms, limit)
+    return [h for h in (_hit(r["session"], terms) for r in ranked) if h]
 
 
 def get_session(name: str) -> str | None:

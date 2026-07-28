@@ -33,21 +33,45 @@ def gateway_warnings(cfg: dict[str, Any]) -> list[str]:
     provider = str(cfg.get("provider", ""))
     disabled = set(cfg.get("disabled_tools", []) or [])
 
+    # is_auto() is exact membership, so a mistyped category allowlists nothing
+    # while reading as if it were configured — the failure is invisible until
+    # someone notices proposals piling up. "skills" for "skill" is the one the
+    # docs themselves taught for a while.
+    from .risk import CATEGORY_RISK
+    unknown = [str(c) for c in (cfg.get("auto_approve") or [])
+               if str(c) not in CATEGORY_RISK]
+    if unknown:
+        out.append(
+            "auto_approve lists " + ", ".join(repr(u) for u in unknown) +
+            " — no such approval category, so the entry does nothing. Known: "
+            + ", ".join(sorted(CATEGORY_RISK)) + ".")
+
     if provider not in _GATED_PROVIDERS:
         # The non-persistent gateway path drives the native loop, where
         # run_shell has no approval gate (risk tiers only sort the inbox).
-        if "run_shell" not in disabled:
+        if "run_shell" not in disabled and str(
+                cfg.get("shell_approval", "manual")).lower() == "off":
             out.append(
-                f"provider={provider!r} uses birkin's NATIVE tool loop, where "
-                "run_shell runs with NO approval gate — a chat message reaching "
-                "the gateway can execute shell. Lock it down with "
-                'disabled_tools: ["run_shell", "subagent"] in config, or use '
-                "provider=claude-cli (Claude Code gates every tool).")
+                f"provider={provider!r} uses birkin's NATIVE tool loop and "
+                'shell_approval is "off", so run_shell executes anything the '
+                "model produces — a chat message reaching the gateway can run "
+                'shell. Set shell_approval: "manual" (destructive commands '
+                "are then queued for `birkin review`), or lock it down with "
+                'disabled_tools: ["run_shell", "subagent"].')
+        elif "run_shell" not in disabled:
+            out.append(
+                f"provider={provider!r} uses birkin's NATIVE tool loop. "
+                "shellguard flags destructive run_shell commands and queues "
+                "them for approval, but it is pattern-based — a seatbelt, "
+                "not a sandbox. For an untrusted/company gateway prefer "
+                'disabled_tools: ["run_shell", "subagent"].')
         if not cfg.get("fs_jail"):
             out.append(
                 "file tools (write_file/edit_file) are not path-confined on the "
                 "native loop. Set fs_jail: true to restrict them to the "
-                "workspace and ~/.birkin.")
+                "workspace and ~/.birkin. (birkin's own control plane — "
+                "config.json, cron.json, hooks_allowlist.json, hooks/ — is "
+                "refused either way; see tools/files.py.)")
 
     if cfg.get("allow_unattended_full") and cfg.get("cli_access") == "full":
         out.append(

@@ -99,16 +99,51 @@ clear, compact Markdown (short paragraphs, bullets, code blocks). Never fabricat
 results — verify with your tools."""
 
 
+def cli_mcp_block() -> str:
+    """Tell a CLI backend that birkin's own tools are attached, and findable.
+
+    codex 0.145 does not list MCP tools upfront — they surface through
+    tool_search_tool. Probed with morpheus's exact flags, "list your
+    tools" returned 20 codex built-ins and zero birkin ones, while
+    "search for memory_write_note" found it every time. Without this note the
+    model concludes the tools do not exist and writes prose about what it
+    WOULD have saved: three consecutive nightly runs recorded proposals=[]
+    that way, and a tracking cron job reported "no previous record" on both
+    of its runs while holding memory_write_note.
+
+    Deliberately does not enumerate the twelve tools: there is no public
+    listing API to derive them from, so a hardcoded list would drift into a
+    lie. Naming the server and the three capability groups is enough for the
+    model to search.
+    """
+    from .mcp_server import _SERVER_NAME
+    return (
+        f"\n\n## Your birkin tools (MCP server `{_SERVER_NAME}`)\n"
+        "birkin has attached its own tool server to you: memory (search, read, "
+        "write, link, rezone), skills (list, load, create, improve), and "
+        "propose_action for anything that needs the user's approval.\n"
+        "Your client may NOT list them upfront. If you do not see them, call "
+        "tool_search_tool to surface them BEFORE concluding they are absent.\n"
+        "Use them. On an unattended run what you write through these tools is "
+        "the only thing that survives — a reply saying you had no tools, or "
+        "describing what you would have saved, is a lost run.\n")
+
+
 def build_cli_system(*, memory_block: str = "",
                      preloaded: Optional[list[str]] = None,
                      persona: str = "") -> str:
     """A concise prompt for CLI-agent backends (Claude Code / Codex).
 
-    Those backends can't call birkin's tools, so instead of the tool-loop
+    These backends run their own tool loop, so instead of birkin's tool-loop
     guidance we inject birkin's identity, memory, and any skills routed as
     relevant to the request (full text, including bundled-script paths the CLI
     can run with its own shell). The user's SOUL.md persona (when set) replaces
-    the default voice."""
+    the default voice.
+
+    They CAN call birkin's own tools when the MCP server is attached — see
+    :func:`cli_mcp_block`, which the caller appends via ``extra``. This
+    docstring used to claim the opposite, and that belief is why unattended
+    runs kept reporting they had no tools while holding twelve of them."""
     identity = persona.strip() if persona and persona.strip() else _CLI_IDENTITY
     parts: list[str] = [identity]
     workspace = workspace_prompt_block()

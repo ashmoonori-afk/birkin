@@ -53,15 +53,49 @@ def test_tokenize_mixed_korean_ascii():
 # ---------------- BM25 ------------------------------------------------------
 
 def test_bm25_length_normalization_hand_computed():
+    """Hand-computed against k1=0.9, b=0.5 with an idf^1 query weight.
+
+    The query weight makes each term contribute idf**2 (query side × document
+    side), which is what ranking-v2 measured as the win (ADR-043).
+    """
     import math
+    k1, b = mnemosyne.K1, mnemosyne.B
     postings = {"cat": {"d1": 2, "d2": 1}, "dog": {"d1": 1}}
     doclens = {"d1": 3, "d2": 1}
     scores = mnemosyne.bm25_scores(["cat"], postings, doclens,
                                    avgdl=2.0, n_docs=2)
     idf = math.log(1 + 0.5 / 2.5)
-    assert scores["d1"] == pytest.approx(idf * 2 * 2.5 / 4.0625)
-    assert scores["d2"] == pytest.approx(idf * 1 * 2.5 / 1.9375)
-    assert scores["d2"] > scores["d1"]   # shorter doc wins at equal tf-ish
+
+    def expect(tf, dl):
+        denom = tf + k1 * (1 - b + b * dl / 2.0)
+        return idf * idf * tf * (k1 + 1) / denom
+
+    assert scores["d1"] == pytest.approx(expect(2, 3))
+    assert scores["d2"] == pytest.approx(expect(1, 1))
+
+
+def test_bm25_shorter_document_wins_at_equal_term_frequency():
+    """Length normalization: same tf, shorter document scores higher.
+
+    The old form of this check compared tf=2/len=3 against tf=1/len=1 and
+    relied on b=0.75 normalizing hard enough for the shorter doc to win — a
+    property of that tuning, not of BM25. Holding tf equal tests the
+    invariant itself, so it survives a retune.
+    """
+    postings = {"cat": {"short": 1, "long": 1}}
+    doclens = {"short": 1, "long": 20}
+    scores = mnemosyne.bm25_scores(["cat"], postings, doclens,
+                                   avgdl=10.5, n_docs=2)
+    assert scores["short"] > scores["long"]
+
+
+def test_bm25_query_weight_favours_the_rare_term():
+    """A rare query term must outweigh a term that is in every document."""
+    postings = {"common": {"d1": 5, "d2": 5, "d3": 5}, "rare": {"d2": 1}}
+    doclens = {"d1": 6, "d2": 6, "d3": 6}
+    scores = mnemosyne.bm25_scores(["common", "rare"], postings, doclens,
+                                   avgdl=6.0, n_docs=3)
+    assert max(scores, key=lambda s: scores[s]) == "d2"
 
 
 def test_bm25_unknown_terms_yield_empty():
@@ -299,3 +333,51 @@ def test_zone_priority_reflects_access_concentration():
     pri = eng.zone_priorities(today=NOW.date())
     assert pri["projects"] == pytest.approx(1.0)
     assert pri.get("knowledge", 0.0) < 1.0
+
+
+# ---------------- temporal prior -------------------------------------------
+
+def test_temporal_target_korean_cues():
+    from datetime import datetime
+    now = datetime(2026, 7, 25, 12, 0)
+    for cue, days in [("지난주에 정리한 배포 노트", 7), ("어제 쓴 메모", 1),
+                      ("지난달 회고", 30), ("3일 전에 만든 계획", 3),
+                      ("2주 전 아이디어", 14), ("작년 목표", 365)]:
+        got = mnemosyne.temporal_target(cue, now)
+        assert got is not None, f"{cue!r} not parsed"
+        assert abs((now - got[0]).days - days) <= 1, cue
+
+
+def test_temporal_target_english_cues_still_work():
+    from datetime import datetime
+    now = datetime(2026, 7, 25, 12, 0)
+    assert mnemosyne.temporal_target("yesterday's note", now) is not None
+    assert mnemosyne.temporal_target("3 weeks ago", now) is not None
+
+
+def test_temporal_target_is_none_without_a_cue():
+    from datetime import datetime
+    now = datetime(2026, 7, 25, 12, 0)
+    assert mnemosyne.temporal_target("배포 파이프라인 정리", now) is None
+    assert mnemosyne.temporal_target("kubernetes ingress", now) is None
+
+
+def test_search_prefers_the_note_from_the_named_week(tmp_path):
+    """Two notes, same words, different dates: the temporal cue decides."""
+    from datetime import datetime, timedelta, timezone
+    vault = tmp_path / "vault"
+    (vault / "knowledge").mkdir(parents=True)
+    now = datetime.now(timezone.utc)
+    for name, when in (("recent", now - timedelta(days=7)),
+                       ("ancient", now - timedelta(days=400))):
+        (vault / "knowledge" / f"{name}.md").write_text(
+            f"---\ntitle: {name}\nupdated: {when.date().isoformat()}\n---\n\n"
+            "배포 파이프라인 정리 회의 기록\n", encoding="utf-8")
+    m = mnemosyne.Mnemosyne(vault)
+    m.refresh()
+
+    plain = [h["slug"] for h in m.search("배포 파이프라인", limit=5)]
+    assert set(plain) == {"recent", "ancient"}
+
+    cued = [h["slug"] for h in m.search("지난주 배포 파이프라인", limit=5)]
+    assert cued[0] == "recent", f"temporal cue ignored: {cued}"

@@ -1,3 +1,12 @@
+"""NOTE: these were exact-equality snapshots of three registries, taken
+94 commits before they landed on main. main has since added dash,
+details, odyssey, rollback, status (+dashboard/ultrawork/ulw aliases),
+gateway deny, CLI auth and moirai — so they failed on merge and would
+have failed again on every future command. Superset assertions keep the
+contract they were protecting (nothing DISAPPEARS) without freezing the
+registries.
+"""
+
 from __future__ import annotations
 
 import pytest
@@ -71,7 +80,7 @@ def test_argparse_retains_command_dispatches() -> None:
         "nightly", "onboard", "permission", "reindex", "review", "runs", "setup",
         "skills", "tools", "trace", "update", "web",
     ]
-    assert sorted(action.choices) == expected
+    assert set(expected) <= set(action.choices)
     required_arguments = {"trace": ["run-id"]}
     for command in expected:
         namespace = parser.parse_args([command, *required_arguments.get(command, [])])

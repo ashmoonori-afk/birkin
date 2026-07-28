@@ -47,6 +47,50 @@ def _enforce_jail(ctx: ToolContext, p: Path) -> None:
         f"fs_jail: refusing a path outside the workspace and ~/.birkin: {p}")
 
 
+# birkin's own control plane. A write here is not a file edit, it is a
+# privilege escalation:
+#   cron.json            scheduler._run_job runs type="shell" jobs through
+#                        subprocess with no consent check at all, and the
+#                        daemon re-reads the file every 30s. approvals.propose
+#                        has an explicit gate (ADR-029) stopping a shell-typed
+#                        cron from auto-applying; writing the file skips it.
+#   config.json          declares "hooks" — arbitrary commands.
+#   hooks_allowlist.json IS the consent record hooks.is_allowed() reads, so a
+#                        planted entry makes _consent return True before it
+#                        reaches the "not approved, skipping" branch.
+#   hooks/               the documented home for hook scripts; overwriting one
+#                        that is already consented-to is execution too.
+# `birkin morpheus` runs unattended with write_file but deliberately WITHOUT
+# shell ("Birkin's registry excludes shell/subagent tools"); these writes hand
+# it back. Unconditional rather than fs_jail-gated, because _jail_roots()
+# lists birkin_home() as an allowed root — the jail cannot express this.
+_CONTROL_FILES = ("config.json", "cron.json", "hooks_allowlist.json")
+_CONTROL_DIRS = ("hooks",)
+
+
+def _control_plane_error(p: Path) -> str:
+    """Why this path must not be written, or "" if it is ordinary."""
+    try:
+        from .. import config
+        home = Path(os.path.realpath(config.birkin_home()))
+    except Exception:
+        return ""
+    # realpath both sides so "sub/.." and a symlink land on the real target,
+    # the same reasoning _enforce_jail already applies.
+    rp = Path(os.path.realpath(p))
+    if rp.parent == home and rp.name in _CONTROL_FILES:
+        return (f"protected: {rp.name} is birkin's own control plane — it "
+                f"schedules or authorises command execution, so the file "
+                f"tools cannot write it. Use the approval flow instead "
+                f"(propose_action), or edit it yourself outside birkin.")
+    for d in _CONTROL_DIRS:
+        root = home / d
+        if rp == root or root in rp.parents:
+            return (f"protected: files under ~/.birkin/{d}/ are run as "
+                    f"approved hooks, so the file tools cannot write them.")
+    return ""
+
+
 def _normalize_newlines(s: str) -> str:
     """CRLF/CR -> LF so hashline operates on clean ``\\n`` lines cross-platform."""
     return s.replace("\r\n", "\n").replace("\r", "\n")
@@ -80,14 +124,31 @@ def _read_file(inp: dict[str, Any], ctx: ToolContext) -> ToolResult:
     if not path.is_file():
         return ToolResult(f"No such file: {path}", is_error=True)
     data = path.read_bytes()
-    truncated = len(data) > MAX_READ_BYTES
-    text = data[:MAX_READ_BYTES].decode("utf-8", "replace")
+    try:
+        offset = max(0, int(inp.get("offset", 0) or 0))
+    except (TypeError, ValueError):
+        offset = 0
+    if offset >= len(data) and len(data):
+        return ToolResult(
+            f"offset {offset} is past the end of the file ({len(data)} bytes).",
+            is_error=True)
+    if offset and inp.get("annotate"):
+        # Annotation numbers lines from 1, so an offset read would hand
+        # edit_file line numbers that point somewhere else in the file. The
+        # hash anchor would reject the edit anyway — fail clearly instead.
+        return ToolResult(
+            "annotate cannot be combined with offset: line numbers would not "
+            "match the file. Re-read from offset=0 to edit.", is_error=True)
+    window = data[offset:offset + MAX_READ_BYTES]
+    truncated = offset + len(window) < len(data)
+    text = window.decode("utf-8", "replace")
     # annotate=true tags each line "{n}#{hash}| " so a later edit_file can be
     # hash-anchored (reject stale writes). See tools/hashline.py.
     if inp.get("annotate"):
         text = hashline.annotate(_normalize_newlines(text))
     if truncated:
-        text += f"\n\n[truncated; file is {len(data)} bytes]"
+        text += (f"\n\n[truncated at {offset + len(window)} of {len(data)} "
+                 f"bytes; continue with offset={offset + len(window)}]")
     return ToolResult(text)
 
 
@@ -95,6 +156,9 @@ def _edit_file(inp: dict[str, Any], ctx: ToolContext) -> ToolResult:
     """Apply hash-anchored line edits — only if each line still matches the hash
     the agent saw (read the file with annotate=true first). All-or-nothing."""
     path = _resolve(ctx, inp.get("path", ""))
+    blocked = _control_plane_error(path)
+    if blocked:
+        return ToolResult(blocked, is_error=True)
     if not path.is_file():
         return ToolResult(f"No such file: {path}", is_error=True)
     edits = inp.get("edits") or []
@@ -114,6 +178,9 @@ def _edit_file(inp: dict[str, Any], ctx: ToolContext) -> ToolResult:
 
 def _write_file(inp: dict[str, Any], ctx: ToolContext) -> ToolResult:
     path = _resolve(ctx, inp.get("path", ""))
+    blocked = _control_plane_error(path)
+    if blocked:
+        return ToolResult(blocked, is_error=True)
     content = inp.get("content", "")
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(content, encoding="utf-8")
@@ -155,12 +222,16 @@ def tools() -> list[Tool]:
         Tool(
             name="read_file",
             description="Read a UTF-8 text file relative to the workspace. "
-                        "Large files are truncated. Set annotate=true to tag each "
-                        "line '{n}#{hash}| ' for a later hash-anchored edit_file.",
+                        "Large files are read in windows — pass offset to "
+                        "continue past a truncation point. Set annotate=true to "
+                        "tag each line '{n}#{hash}| ' for a later hash-anchored "
+                        "edit_file (annotate cannot be used with offset).",
             input_schema={
                 "type": "object",
                 "properties": {
                     "path": {"type": "string", "description": "File path"},
+                    "offset": {"type": "integer", "description":
+                               "Byte offset to start reading from (default 0)"},
                     "annotate": {"type": "boolean", "description":
                                  "Prefix lines with {n}#{hash}| for edit_file"},
                 },

@@ -165,6 +165,67 @@ def read_credentials() -> Optional[dict[str, Any]]:
     return None
 
 
+def diagnose() -> dict[str, Any]:
+    """Why is there no usable Claude token? Non-secret answer.
+
+    ``read_credentials`` returns None for both "no file" and "file present but
+    the token strings are empty" — Claude Code leaves the metadata behind when
+    the secret moves elsewhere, so the second case looks identical to the first
+    and reads as "expired" when nothing has expired. This separates them.
+    """
+    path = _credentials_path()
+    out: dict[str, Any] = {"path": str(path), "file_exists": path.exists(),
+                           "state": "missing", "token": False}
+    raw: dict[str, Any] = {}
+    if path.exists():
+        try:
+            raw = json.loads(path.read_text(encoding="utf-8"))
+        except (json.JSONDecodeError, OSError) as exc:
+            out["state"] = "unreadable"
+            out["detail"] = f"{type(exc).__name__}: {exc}"
+            return out
+    block = raw.get("claudeAiOauth") if isinstance(raw, dict) else None
+    if isinstance(block, dict):
+        out["has_oauth_block"] = True
+        out["access_token_len"] = len(str(block.get("accessToken") or ""))
+        out["refresh_token_len"] = len(str(block.get("refreshToken") or ""))
+        out["subscription"] = block.get("subscriptionType") or ""
+        if not out["access_token_len"] and not out["refresh_token_len"]:
+            out["state"] = "emptied"
+    elif path.exists():
+        out["has_oauth_block"] = False
+        out["state"] = "no_oauth_block"
+
+    for name in ("ANTHROPIC_TOKEN", "CLAUDE_CODE_OAUTH_TOKEN",
+                 "ANTHROPIC_API_KEY"):
+        if os.environ.get(name, "").strip():
+            out.setdefault("env", []).append(name)
+
+    if read_credentials():
+        out["state"] = "present"
+    if resolve_token():
+        out["state"] = "ok"
+        out["token"] = True
+    return out
+
+
+def explain(info: dict[str, Any]) -> str:
+    """One actionable line for a :func:`diagnose` result."""
+    return {
+        "ok": "logged in",
+        "present": "credential found but the token could not be refreshed — "
+                   "re-run `claude /login`",
+        "emptied": "credential file has an OAuth block with EMPTY tokens "
+                   "(the secret is not here) — run `claude setup-token`, or "
+                   "set CLAUDE_CODE_OAUTH_TOKEN",
+        "no_oauth_block": "credential file has no claudeAiOauth block — "
+                          "run `claude /login`",
+        "unreadable": "credential file could not be parsed",
+        "missing": "no credential file — run `claude /login`, or set "
+                   "CLAUDE_CODE_OAUTH_TOKEN",
+    }.get(str(info.get("state")), "unknown state")
+
+
 def _token_valid(creds: dict[str, Any]) -> bool:
     exp = creds.get("expiresAt", 0)
     if not exp:

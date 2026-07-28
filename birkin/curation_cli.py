@@ -36,17 +36,26 @@ def cmd_curate_memory(args) -> int:
     vault = config.vault_dir(cfg)
     provider = args.provider or (cfg.get("provider", "claude-cli")
                                  .removesuffix("-cli"))
+    # The plan shape is the caller's concern, not the provider layer's:
+    # codex enforces it natively, everyone else gets it via the prompt.
     completer = providers.get_completer(provider, model=args.model, cfg=cfg,
-                                        cwd=str(vault))
+                                        cwd=str(vault),
+                                        schema=providers.CURATION_PLAN_SCHEMA)
     print(f"curate-memory: provider={provider} "
           f"model={args.model or '(default)'} vault={vault}")
+    dry_run = bool(getattr(args, "dry_run", False))
+    if dry_run:
+        print("  (dry run \u2014 the vault will not be modified)")
     before_files = _vault_file_manifest(vault)
     outcome = curation.run_curation_pass(vault, completer,
-                                         provider=provider, model=args.model)
+                                         provider=provider, model=args.model,
+                                         apply=not dry_run)
     after_files = _vault_file_manifest(vault)
     print(f"proposed {outcome.plan_ops} ops -> "
           f"{len(outcome.accepted)} accepted, {len(outcome.dropped)} dropped "
           f"(archive cap {outcome.archive_cap})")
+    for a in (outcome.accepted if dry_run else []):
+        print("  would apply:", a)
     for e in outcome.effected:
         print("  applied:", e)
     if outcome.dropped:

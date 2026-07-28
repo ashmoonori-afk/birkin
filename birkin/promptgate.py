@@ -16,6 +16,7 @@ from __future__ import annotations
 from typing import Any, Optional
 
 from . import neurosis, persona, presets, prompts
+from .moirai import trigger as moirai_trigger
 
 
 def _persona(persona_text: Optional[str]) -> str:
@@ -32,7 +33,8 @@ def compose_main(cfg: dict[str, Any], *, skills_index: str = "",
         skills_index=skills_index, memory_block=memory_block, role=role,
         extra=extra, persona=_persona(persona_text)
     ) + presets.role_overlay(cfg.get("model"), cfg) \
-        + neurosis.auto_trigger_note(cfg)
+        + neurosis.auto_trigger_note(cfg) \
+        + moirai_trigger.auto_trigger_note(cfg)
 
 
 def compose_cli(cfg: dict[str, Any], *, memory_block: str = "",
@@ -46,4 +48,5 @@ def compose_cli(cfg: dict[str, Any], *, memory_block: str = "",
     if extra:
         sysp += extra
     return sysp + presets.role_overlay(cfg.get("model"), cfg) \
-        + neurosis.auto_trigger_note(cfg)
+        + neurosis.auto_trigger_note(cfg) \
+        + moirai_trigger.auto_trigger_note(cfg)

@@ -352,3 +352,23 @@ def test_skill_proposal_reports_busy_on_lock_timeout(
         path.relative_to(skill_root): path.read_bytes()
         for path in skill_root.rglob("*") if path.is_file()
     } == before
+
+
+def test_korean_skill_names_do_not_collide(tmp_path, monkeypatch):
+    """All-Hangul names must slug to distinct directories.
+
+    _slug used to strip every non-ASCII character, so '번역 도우미' and
+    '회의록 정리' both collapsed to the fallback 'skill' — the second create
+    hit "already exists" and, worse, would have shared one directory.
+    """
+    from birkin.skills.manager import apply_skill_proposal
+
+    monkeypatch.setenv("BIRKIN_HOME", str(tmp_path))
+    for name in ("번역 도우미", "회의록 정리"):
+        apply_skill_proposal({
+            "action": "create", "name": name,
+            "description": f"{name} 설명", "body": f"{name} 본문",
+        })
+    dirs = sorted(p.name for p in config.user_skills_dir().iterdir()
+                  if p.is_dir())
+    assert len(dirs) == 2, f"Korean skill names collided: {dirs}"

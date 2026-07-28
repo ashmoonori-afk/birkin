@@ -1,9 +1,12 @@
 from __future__ import annotations
 
+import json
 from pathlib import Path
 
 from . import mnemosyne
+from .curation_contract import ANNOTATE_FIELDS, ANNOTATE_MAX_ITEMS
 from .mnemosyne import Mnemosyne
+from .skills import frontmatter
 
 
 def _title_of(dex: Mnemosyne, s: str) -> str:
@@ -47,6 +50,51 @@ def _append_line(vault: Path, dex: Mnemosyne, s: str, line: str) -> bool:
     return True
 
 
+def _write_anchors(vault: Path, dex: Mnemosyne, s: str,
+                   fields: dict[str, list[str]]) -> bool:
+    """Merge retrieval anchors into a note's frontmatter. Body untouched.
+
+    The body is not addressable by this code path at all — we split the
+    frontmatter off, rewrite only whitelisted key lines, and re-attach the
+    body bytes unchanged. That is the safety property `annotate` claims.
+    """
+    e = dex.note_meta(s)
+    if e is None:
+        return False
+    path = vault / e["rel"]
+    try:
+        text = path.read_text(encoding="utf-8", errors="replace")
+    except OSError:
+        return False
+    fm, body = frontmatter.split_frontmatter(text)
+    if not fm.strip():
+        return False                       # no frontmatter block to extend
+    meta, _ = frontmatter.parse(text)
+
+    merged: dict[str, list[str]] = {}
+    changed = False
+    for key, incoming in fields.items():
+        old = meta.get(key)
+        old_list = [str(v) for v in old] if isinstance(old, list) else []
+        combined = list(dict.fromkeys(old_list + list(incoming)))
+        combined = combined[:ANNOTATE_MAX_ITEMS]
+        merged[key] = combined
+        if combined != old_list:
+            changed = True
+    if not changed:
+        return False
+
+    kept = [ln for ln in fm.splitlines()
+            if ln.split(":", 1)[0].strip() not in merged]
+    for key, values in merged.items():
+        rendered = ", ".join(json.dumps(v, ensure_ascii=False)
+                             for v in values)
+        kept.append(f"{key}: [{rendered}]")
+    mnemosyne.atomic_write(path, "---\n" + "\n".join(kept) + "\n---\n" + body)
+    dex.note_written(path)
+    return True
+
+
 def apply_plan(accepted: list[dict], vault: Path,
                dex: Mnemosyne) -> list[dict]:
     effected: list[dict] = []
@@ -66,6 +114,11 @@ def apply_plan(accepted: list[dict], vault: Path,
                 ok2 = _append_related(vault, dex, b, _title_of(dex, a))
                 if ok1 or ok2:
                     effected.append({"op": "link", "a": a, "b": b})
+            elif kind == "annotate":
+                fields = {k: op[k] for k in ANNOTATE_FIELDS if k in op}
+                if fields and _write_anchors(vault, dex, op["slug"], fields):
+                    effected.append({"op": "annotate", "slug": op["slug"],
+                                     "fields": sorted(fields)})
             elif kind == "supersede":
                 st, by = op["stale"], op["by"]
                 ok = _append_line(vault, dex, st,

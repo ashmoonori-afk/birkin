@@ -88,6 +88,24 @@ def _last_user_text(messages: list[dict[str, Any]]) -> str:
 
 # -- conversation ----------------------------------------------------------
 
+# Commands grouped by domain so /help is scannable, not a flat 30-line dump
+# (gh-dash/lazygit group contextual keys). The registry stays the single
+# source: any command not listed here falls into "기타" so nothing is hidden.
+_HELP_GROUPS: list[tuple[str, list[str]]] = [
+    ("세션·대화", ["new", "retry", "undo", "rollback", "compact", "clear",
+                 "save", "load", "sessions", "status", "dash"]),
+    ("모델", ["model", "models", "provider", "temp"]),
+    ("기억", ["memory", "remember", "vault", "learn"]),
+    ("스킬·도구", ["skills", "skill", "reload", "tools", "system", "mcp",
+                 "details"]),
+    ("운영·승인", ["review", "cron", "permission", "config", "morpheus",
+                 "update"]),
+    ("페르소나·인터뷰", ["soul", "personality", "neurosis", "odyssey"]),
+    ("게이트웨이", ["restart-gateway", "hard-restart"]),
+    ("종료·도움", ["help", "quit"]),
+]
+
+
 @command("help", "List commands, or show detailed help for one.", "/help [command]")
 def _help(session: Any, arg: str) -> None:
     if arg:
@@ -100,11 +118,34 @@ def _help(session: Any, arg: str) -> None:
         if cmd.aliases:
             print(f"  aliases: {', '.join('/' + a for a in cmd.aliases)}")
         return
-    print(f"{BOLD}Slash commands{RESET} (use /help <name> for detail):")
-    for name in sorted(_REGISTRY):
+
+    print(f"{BOLD}Slash commands{RESET} {DIM}(/help <name> 으로 상세 · "
+          f"? 로 다시 열기){RESET}")
+    grouped: set[str] = set()
+
+    def _row(name: str) -> None:
         c = _REGISTRY[name]
-        al = f" {DIM}({', '.join('/' + a for a in c.aliases)}){RESET}" if c.aliases else ""
-        print(f"  {CYAN}/{name}{RESET}{al} — {c.summary}")
+        al = (f" {DIM}({', '.join('/' + a for a in c.aliases)}){RESET}"
+              if c.aliases else "")
+        # ASCII command names -> left-pad with len() aligns; the Korean summary
+        # is the last column, so there is nothing to its right to misalign.
+        print(f"  {CYAN}/{name}{RESET}{al}{' ' * max(1, 13 - len(name))}"
+              f"{c.summary}")
+
+    for title, names in _HELP_GROUPS:
+        present = [n for n in names if n in _REGISTRY]
+        if not present:
+            continue
+        print(f"\n{BOLD}{title}{RESET}")
+        for n in present:
+            _row(n)
+            grouped.add(n)
+
+    leftover = sorted(n for n in _REGISTRY if n not in grouped)
+    if leftover:
+        print(f"\n{BOLD}기타{RESET}")
+        for n in leftover:
+            _row(n)
 
 
 @command("new", "Start a fresh conversation (clears history).", "/new", aliases=["reset"])
@@ -134,30 +175,88 @@ def _undo(session: Any, arg: str) -> None:
     print(f"{DIM}Removed the last exchange ({len(session.agent.messages)} messages left).{RESET}")
 
 
+@command("rollback", "Undo file changes from an earlier checkpoint.",
+         "/rollback [N | diff N | N <file>]")
+def _rollback(session: Any, arg: str) -> None:
+    """Restore workspace files snapshotted before a turn.
+
+    Bare lists checkpoints; ``diff N`` previews; ``N`` restores everything from
+    that checkpoint; ``N <file>`` restores just one file.
+    """
+    mgr = getattr(session.ctx, "checkpoints", None)
+    if mgr is None or not getattr(mgr, "enabled", False):
+        print(f"{DIM}Checkpoints are disabled (config \"checkpoints\").{RESET}")
+        return
+    cwd = session.ctx.cwd
+    entries = mgr.list_checkpoints(cwd)
+    if not entries:
+        print(f"{DIM}No checkpoints yet for {cwd}.{RESET}")
+        return
+
+    parts = arg.split(maxsplit=2)
+    if not parts:
+        print(f"{BOLD}Checkpoints for {cwd}{RESET}")
+        for i, e in enumerate(entries, 1):
+            print(f"  {i:>2}. {e['short']}  {e['date'][:19]}  {e['reason']}")
+        print(f"{DIM}  /rollback diff 1   preview · "
+              f"/rollback 1   restore · /rollback 1 path/to/file{RESET}")
+        return
+
+    preview = parts[0].lower() == "diff"
+    if preview:
+        parts = parts[1:]
+    if not parts or not parts[0].isdigit():
+        print(f"{RED}Give a checkpoint number from /rollback.{RESET}")
+        return
+    n = int(parts[0])
+    if not 1 <= n <= len(entries):
+        print(f"{RED}No checkpoint {n} (have 1..{len(entries)}).{RESET}")
+        return
+    entry = entries[n - 1]
+
+    if preview:
+        text = mgr.diff(cwd, entry["hash"])
+        if not text.strip():
+            print(f"{DIM}No differences from that checkpoint.{RESET}")
+            return
+        lines = text.splitlines()
+        print("\n".join(lines[:80]))
+        if len(lines) > 80:
+            print(f"{DIM}… {len(lines) - 80} more lines{RESET}")
+        return
+
+    target = parts[1] if len(parts) > 1 else None
+    ok, message = mgr.restore(cwd, entry["hash"], target)
+    if not ok:
+        print(f"{RED}Rollback failed: {message}{RESET}")
+        return
+    print(f"{GREEN}{message} ({entry['short']}, {entry['reason']}).{RESET}")
+    print(f"{DIM}A checkpoint was taken first, so this is itself undoable. "
+          f"Files created after the checkpoint are left in place.{RESET}")
+    idx = _last_user_index(session.agent.messages)
+    if idx >= 0:
+        session.agent.messages = session.agent.messages[:idx]
+        print(f"{DIM}Dropped the last exchange so the chat matches the "
+              f"files.{RESET}")
+
+
 @command("compact", "Summarize the conversation to shrink context.", "/compact",
          aliases=["compress"])
 def _compact(session: Any, arg: str) -> None:
-    msgs = session.agent.messages
-    if len(msgs) < 4:
+    before = len(session.agent.messages)
+    if before < 6:
         print(f"{DIM}Conversation is already short.{RESET}")
         return
-    transcript = selfimprove.transcript_from_messages(msgs, limit=200)
     print(f"{DIM}Summarizing…{RESET}")
-    try:
-        res = session.client.complete(
-            system="You compress conversations. Produce a dense summary that "
-                   "preserves decisions, facts, open threads, and user "
-                   "preferences. No preamble.",
-            messages=[{"role": "user", "content": [{"type": "text",
-                      "text": "Summarize this conversation:\n\n" + transcript}]}],
-            tools=None)
-        summary = "".join(b["text"] for b in res["content"] if b.get("type") == "text")
-    except Exception as exc:
-        print(f"{RED}Compact failed: {exc}{RESET}")
+    # Shares the automatic path: keeps the opening exchange and the recent
+    # tail, and folds any previous summary in rather than starting over.
+    session.agent._compact_floor = 0   # an explicit ask overrides the latch
+    if not session.agent.compact_now("manual"):
+        print(f"{YELLOW}Nothing to compact (or the summarizer failed) — "
+              f"history left untouched.{RESET}")
         return
-    session.agent.messages = [{"role": "user", "content": [{"type": "text",
-        "text": "[Summary of earlier conversation]\n" + summary}]}]
-    print(f"{GREEN}Compacted to a summary ({len(summary)} chars).{RESET}")
+    print(f"{GREEN}Compacted {before} → {len(session.agent.messages)} "
+          f"messages.{RESET}")
 
 
 @command("clear", "Clear the screen.", "/clear")
@@ -333,6 +432,31 @@ def _config(session: Any, arg: str) -> None:
     print(json.dumps(safe, indent=2, ensure_ascii=False))
 
 
+@command("status", "Show the live status line (model · daemon · budget · 대기).",
+         "/status")
+def _status(session: Any, arg: str) -> None:
+    from . import statusline
+    print(statusline.render(session.cfg))
+
+
+@command("dash", "Full-screen mission control (세션·크론·승인·기억).",
+         "/dash [--plain|--json]", aliases=["dashboard"])
+def _dash(session: Any, arg: str) -> None:
+    from . import dash
+    a = arg.strip().lower()
+    dash.run(session, plain=(a == "--plain"), as_json=(a == "--json"))
+
+
+@command("details", "Toggle verbose tool traces (full input + result snippet).",
+         "/details [on|off]")
+def _details(session: Any, arg: str) -> None:
+    a = arg.strip().lower()
+    on = True if a in ("on", "1", "true") else False if a in (
+        "off", "0", "false") else not ui.details_on()
+    ui.set_details(on)
+    print(f"{DIM}툴 트레이스 상세 {'켜짐' if on else '꺼짐'}.{RESET}")
+
+
 # -- autonomy --------------------------------------------------------------
 
 @command("morpheus", "Run the Morpheus self-improvement routine now.",
@@ -357,7 +481,7 @@ def _cron(session: Any, arg: str) -> None:
         print(f"{DIM}No cron jobs.{RESET}")
         return
     for j in jobs:
-        print(f"  {j['id']} {int(j.get('hour',0)):02d}:{int(j.get('minute',0)):02d} "
+        print(f"  {j['id']} {cron.schedule_display(j)} "
               f"{j.get('type')} — {j.get('name')}")
 
 
@@ -593,8 +717,23 @@ def _neurosis(session: Any, arg: str) -> None:
               retained_replacements=replacements)
 
 
-def sys_write(session: Any, text: str, *, retained_text: str | None = None,
-              retained_replacements: tuple[tuple[str, str], ...] = ()) -> None:
+# -- odyssey (goal-completion cycle) ---------------------------------------
+
+@command("odyssey", "Goal-completion cycle: plan, critique, execute, verify.",
+         "/odyssey <goal>", aliases=["ultrawork", "ulw"])
+def _odyssey(session: Any, arg: str) -> None:
+    from . import odyssey
+    goal = arg.strip()
+    if not goal:
+        print(f"{DIM}Give a goal: /odyssey <goal>{RESET}")
+        return
+    s = odyssey.seed(goal, cfg=session.cfg)
+    head = "Resuming" if s["resume"] else "Starting"
+    print(f"{DIM}{head} odyssey '{s['slug']}' · plan → {s['boulder_path']}{RESET}")
+    sys_write(session, odyssey.start_prompt(s))
+
+
+def sys_write(session: Any, text: str) -> None:
     """Send `text` to the agent and stream the reply (used by /retry)."""
     import sys
     sys.stdout.write(f"\n{CYAN}birkin{RESET} > ")

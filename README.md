@@ -9,14 +9,7 @@
  ╚═════╝ ╚═╝╚═╝  ╚═╝╚═╝  ╚═╝╚═╝╚═╝  ╚═══╝
 ```
 
-### Free. Fast. Self-improving by night — audited by you.
-
-A lightweight CLI + Telegram agent that runs **free on your Claude
-subscription**, replies in **~3s** from a warm persistent session, **interviews
-you to clarity** before tackling vague work (**Neurosis**), **auto-saves every
-conversation** and turns it into memory overnight (**Morpheus**), connects to
-your **company tools over MCP**, and keeps **you the auditor** — all in a
-**zero-dependency** Python core.
+### The Claude agent that remembers you — in Markdown files you own.
 
 🌐 **Language**: English · [한국어](./README.ko.md)
 
@@ -24,67 +17,36 @@ your **company tools over MCP**, and keeps **you the auditor** — all in a
 
 ---
 
-birkin is a personal/company agent you can run **all day for free** on a Claude
-Pro/Max subscription — no API key, no per-token bill. It chats in your terminal
-and over Telegram from **one shared memory + skills + persona**, and it is built
-around a simple promise: **be genuinely useful without surprising you.**
+birkin is a personal agent for Claude, in your terminal and on Telegram, whose
+memory is a folder of Obsidian-compatible Markdown. Open it in Obsidian. Grep
+it. Put it in git. It is yours, and it outlives birkin.
 
-- **Free + fast.** The gateway runs on **Claude Code itself** as a *warm,
-  persistent* process per conversation (stream-json). The cold start is paid
-  once; subsequent replies are ~model-time (**~3s**), billed to your Claude
-  subscription — not a paid API key. See [`docs/DECISIONS.md`](./docs/DECISIONS.md) ADR-026.
-- **Clarity before action (Neurosis).** For a vague or complex request, birkin
-  doesn't guess — it runs a **Socratic deep-interview** with mathematical
-  ambiguity scoring, one question at a time, until the idea is crystal clear,
-  then writes a spec and acts only after you approve.
-- **Self-improving, with receipts (Morpheus).** Every turn is auto-saved; each
-  night Morpheus reads the day, updates an Obsidian memory vault, drafts skills,
-  and **queues anything consequential** for your morning review.
-- **Company-ready.** Inherits Claude Code's **MCP** servers (Notion, Drive,
-  Gmail, internal tools) natively, with company-grade security hardening.
+It is the only agent whose memory curator **cannot express a delete**. The
+nightly pass doesn't get a filesystem and a promise to behave — it emits a typed
+plan over four operations, none of which is deletion, and a deterministic
+executor clamps what survives. An adversarial model, a prompt injection in a
+note, a bad night: none of them can erase what you asked it to remember.
 
-Inspired by [hermes-agent](https://github.com/NousResearch/hermes-agent) and
-[openclaw](https://github.com/openclaw/openclaw); the deep-interview is ported
-from [gajae-code](https://github.com/Yeachan-Heo/gajae-code). Positioned
-deliberately *not* on breadth but on **the depth of the trust + clarity
-story** — see [`docs/COMPARISON.md`](./docs/COMPARISON.md).
+Built Korean-first. Not translated.
 
 ---
 
-## 🎯 Design intent
+## What you get
 
-birkin is deliberately **smaller and more careful** than the inspirations.
-
-1. **Free by default.** The recommended backend is the **Claude subscription**
-   via the `claude` CLI — no API key, no paid `extra_usage`. (Direct-API OAuth
-   is *parked*, not default: Anthropic meters third-party OAuth-app use as paid
-   credits — see ADR-026.)
-2. **Fast by default.** The gateway keeps **one warm `claude` process per
-   conversation** (stream-json), so warm replies are model-time, not a fresh
-   cold start per message.
-3. **Stdlib-only runtime.** `pyproject.toml` `dependencies = []`. Install
-   anywhere — no version drift. (Dev tooling like `pytest` is opt-in.)
-4. **Compile over retrieve.** Memory is a real Obsidian vault of markdown notes
-   with `[[wikilinks]]`, frontmatter, **polarity**, **version** (optimistic
-   lock), and TTL — not an opaque embedding store. Edit it by hand.
-5. **Approval-first.** Memory + skill writes auto-apply (reversible local
-   files); cron and shell are queued, risk-tiered. Built-in Morpheus providers
-   use provider-specific isolation; arbitrary local CLI permissions remain
-   user-managed, and local-CLI dry-run is refused.
-6. **CLI first, dashboard second.** A real terminal line editor (inline `/cmd`
-   dropdown, word-wise editing, multi-line, history). The web UI is *monitoring*.
-
-### WebUI monitoring workbench
-
-Run `birkin web` to inspect runtime health, review pending proposals, and scan
-scheduled jobs, recent runs, and installed skills without leaving the local
-workspace. Chat and configuration remain in the CLI.
-
-![Birkin WebUI monitoring workbench](docs/assets/webui-workbench.png)
+| | |
+|---|---|
+| **A vault you own** | Markdown notes with `[[wikilinks]]`, frontmatter, zones and TTL under `~/.birkin/vault`. BM25 retrieval with an Ebbinghaus forgetting curve wired into ranking — no embeddings, nothing opaque, hand-editable. |
+| **Curation that can't delete** | Each night the model proposes a typed JSON plan; a deterministic executor applies only the safe operations, caps archiving, protects your known-failure notes, and snapshots the vault first so even accepted edits are reversible. |
+| **Approval before consequence** | Destructive shell commands are refused or queued, never silently run. A refusal carries your reason back to the agent so it corrects instead of retrying blind. A model never approves its own shell command. |
+| **Clarity before action** | For a vague request birkin interviews you — one question at a time, with ambiguity scoring — writes a spec, and acts only once you approve. |
+| **Overnight, with receipts** | Every turn is auto-saved; Morpheus reads the day, updates memory, drafts skills, and queues anything consequential for your morning review. On codex-cli it can only do that at `cli_access: full` — `codex exec` cancels MCP tool calls otherwise, and the run says so instead of quietly saving nothing. Every turn is replayable with `birkin trace`. |
+| **Korean as a first language** | Hangul-bigram retrieval, `지난주에 정리한…` date cues, `매주 월요일 09:00` schedules, CJK-correct terminal widths. Tested in Korean, not localized after the fact. |
+| **Workflows across model families** | Run a script, not a prompt: one workflow can have codex draft, three claude critics attack it in parallel, and codex revise. Which model plays each role is chosen before the run, not hardcoded. |
+| **Zero runtime dependencies** | `dependencies = []`. One stdlib Python package you can read in an afternoon — no Node, no Docker, no lockfile drift. |
 
 ---
 
-## 🚀 Install
+## Install
 
 **macOS / Linux**
 ```bash
@@ -102,338 +64,484 @@ git clone https://github.com/ashmoonori-afk/birkin && cd birkin
 uv run birkin            # or:  pip install -e .  &&  birkin
 ```
 
-Requires **Python 3.10+**. The first run launches an onboarding wizard
-(arrow-key navigation).
+Python 3.10+. The first run opens an onboarding wizard.
 
-### Pick a backend
+### What it runs on
+
+birkin drives a model you already have. Which one is a **cost** question, never
+a capability one — every feature works on every backend.
 
 | Backend | How | Cost |
 |---|---|---|
-| **Claude Code** (`claude`) — *recommended* | be logged into `claude`; pick it in `birkin model` | **free** — your Claude subscription, no API key |
-| **Anthropic API** | `export ANTHROPIC_API_KEY=sk-ant-…` | paid (per token) |
-| **OpenAI-compatible** | provider `openai` + `base_url` (works with **Ollama**) | paid\* |
-| **Codex** (`codex`) | pick it in `birkin model` | uses its own CLI login |
+| **Claude Code** (`claude`) — *default* | be logged into `claude`, pick it in `birkin model` | your Claude subscription |
+| **Anthropic API** | `export ANTHROPIC_API_KEY=sk-ant-…` | per token — `birkin budget` shows the month in dollars |
+| **OpenAI-compatible** | provider `openai` + `base_url` (works with **Ollama**) | per token, or free locally |
+| **Codex** (`codex`) | `birkin auth codex login`, then pick it in `birkin model` | your ChatGPT subscription |
 
-\* Ollama accepts any key. The **gateway** uses the Claude (claude-cli) path and
-runs it warm + persistent for speed.
+`birkin auth codex login` signs birkin in to Codex with its own OAuth session —
+one in-process HTTPS call per request, no `codex` subprocess, and the `codex`
+CLI does not even have to be installed. birkin keeps that credential in
+`$BIRKIN_HOME/codex-auth.json` and **never writes `~/.codex/`**: OpenAI rotates
+the refresh token on every grant, so sharing one credential between two clients
+logs the other one out. Without a birkin login, `codex` still falls back to the
+CLI. `birkin auth codex status` shows which session is in use.
 
----
+The gateway keeps one warm process per conversation, so replies after the first
+are model-time (**~3 s**) rather than a cold start per message.
 
-## 🗺️ Architecture
-
-```
-        terminal (REPL)                         Telegram / HTTP
-              │                                       │
-              ▼                                       ▼
-   ┌────────────────────────┐          ┌──────────────────────────────────┐
-   │ repl.py + inline_      │          │ gateway/core.py                  │
-   │ complete.py            │          │  · /help /new /restart /hard_    │
-   │  · /cmd dropdown       │          │    restart /models /neurosis     │
-   │  · word-wise editing   │          │  · per-conversation WARM claude  │
-   │  · multi-line, history │          │    (claude_session.py, stream-   │
-   └───────────┬────────────┘          │    json) — free + ~3s            │
-               │                       └───────────────┬──────────────────┘
-               │   one shared memory · skills · persona │
-               └───────────────┬───────────────────────┘
-                               ▼
-        ┌──────────────────────────────────────────────────────────────┐
-        │   the agent  (Claude Code, or birkin's own loop on API keys)  │
-        │   tools: files · shell · web · subagent · memory_* · skills   │
-        │   + inherits Claude Code's MCP servers (company tools)        │
-        │   + birkin-as-MCP-server (mcp_server.py): memory/skills/      │
-        │     propose tools, so the free claude path stays structured   │
-        └───────────────┬───────────────────────────────┬──────────────┘
-                         ▼                               ▼
-              ~/.birkin/vault/*.md                ~/.birkin/sessions/
-              (Obsidian memory:                   auto__*.json
-               polarity · version · TTL)          (every turn, auto-saved)
-                         ▲                               │
-                         │                               ▼
-        ┌────────────────┴───────────────────────────────────────────┐
-        │  Morpheus (morpheus.py) — nightly 04:00, FREE + SANDBOXED   │
-        │   reads last 24h of auto-saved turns ─▶ writes memory/skills │
-        │   (via birkin MCP) ─▶ proposes cron/shell (approval-gated)  │
-        └──────────────────────────┬──────────────────────────────────┘
-                                   ▼
-                    approvals.py + risk.py  ─▶  `birkin review`
-        (memory/skill = auto · cron/shell = queued; shell-cron can't
-         launder past the shell gate)
-
-   Neurosis (deep interview): a vague request ─▶ Socratic Q&A with
-   ambiguity gating ─▶ spec (~/.birkin/specs/) ─▶ act only after approval
-```
+> On subscription vs. API key — including which surfaces run unattended and
+> what that means for your plan's terms — see
+> [`docs/DECISIONS.md`](./docs/DECISIONS.md) ADR-050 / ADR-051. birkin states
+> its posture rather than leaving you to discover it.
 
 ---
 
-## 🤔 Why birkin, vs. Claude.ai or the API?
+## 🧠 The vault
 
-birkin doesn't replace Claude — it *wraps* the `claude` CLI and adds persistence,
-structure, and overnight learning. For one-off chats, Claude.ai is fine. For an
-agent that knows your context by Wednesday, birkin is the wrapper.
+Memory is **Mnemosyne**: a memory palace at `~/.birkin/vault`, built out of
+files rather than vectors.
 
-| | Claude.ai / API | birkin |
-|---|---|---|
-| Cost | Subscription, or per-token API | **Subscription only — no API bill** |
-| Memory | Per-session | Persists across sessions; searchable Obsidian vault |
-| Telegram | — | Same session, memory & persona as the terminal |
-| Ambiguity | Guesses, then proceeds | **Neurosis** asks until clear, then writes a spec |
-| Self-improvement | — | **Morpheus** updates memory/skills nightly |
-| Audit trail | — | Every turn logged; `birkin trace <id>` replay |
-| Your files / MCP | Manual paste | Native: Notion, Drive, Gmail, custom servers |
-| Security model | Managed by Anthropic | You hold the gates: redaction + approval queues |
-
----
-
-## 🎮 Quick start
-
-### Run it free + fast (gateway)
-
-```bash
-$ birkin model          # pick "claude" (Claude Code) — free, no API key
-$ birkin gateway        # warm persistent service: HTTP + (optional) Telegram
-                        # warm replies ~3s, billed to your Claude subscription
-```
-
-In any chat (terminal or Telegram), type `/` to see the commands. Gateway chat
-commands:
-
-| Command | What |
-|---|---|
-| `/new` (`/reset`) | fresh conversation |
-| `/restart` (`/restart-gateway`) | **soft restart** — reload config/persona/memory, no process kill |
-| `/hard_restart` | **hard restart** — re-exec the gateway (picks up code changes), no restart loop |
-| `/models [name]` | list or **select the gateway model** — auto hard-restarts to apply |
-| `/update` (`/upgrade`) | **remote update** — fast-forward pull (shows the version, not a commit hash); auto hard-restart on a code change |
-| `/neurosis [--quick\|--standard\|--deep] <idea>` | start/resume a **deep interview** |
-
-### Approve long Telegram work before it runs
-
-On an allowlisted Telegram bot, work expected to take at least three minutes,
-use multiple phases, or spawn a subagent is first rendered as a plan with
-**Approve** and **Reject** buttons. Approval is bound to the originating chat;
-the same conversation then resumes the accepted plan. From three minutes on,
-one heartbeat message is updated in place and removed when the work ends.
-
-Birkin's in-process `spawn_subagent` tool has a hard approval gate for these
-Telegram turns. Warm Claude/Codex CLI processes do not expose every internal
-subagent event, so that provider path follows the injected proposal policy and
-reports generic elapsed-time heartbeat updates rather than per-subagent detail.
-
-### Let it interview you to clarity (Neurosis)
-
-For a vague/complex request, birkin proactively says *"진행 전에 모호한 부분과
-핵심 결정사항을 다시 한번 확인하겠습니다"* and asks one question at a time until
-ambiguity is low — then writes a spec and acts only after you approve.
-
-```bash
-you > /neurosis 회사 인스타 캠페인 새로 기획해줘
-birkin > Round 0 | 구성요소 확인 …            # topology → targeted questions → spec
-```
-
-`birkin neurosis "<idea>"` seeds one from the CLI. Auto-trigger is on by default
-(`neurosis_auto`); set it false for explicit-only.
-
-### Chat that remembers — automatically
-
-Every turn is auto-saved to `~/.birkin/sessions/` and turned into memory by
-Morpheus overnight. You can also persist a fact on the spot:
+Notes live in **zone** directories and carry `type`, `polarity`
+(positive / known-failure), `version` (optimistic lock), TTL and
+`[[wikilinks]]`. Retrieval is an inverted index with **Okapi BM25** — idf-weighted
+queries, Hangul bigrams, an **Ebbinghaus forgetting curve** folded into the
+score, and a date prior so *"지난주에 정리한 배포 노트"* finds last week's note.
 
 ```bash
 you > /remember I prefer concise replies, no preamble
 birkin > Noted as [[Profile - reply-style]].
+
+you > /memory 배포 파이프라인
 ```
 
-### Morpheus — self-improve overnight, review in the morning
+Tools: `memory_search` (best-window snippets — a cheap preview layer),
+`memory_get_note` (full text on demand), `memory_write_note`, `memory_link`.
+Set `evidence_required: true` to refuse sourceless notes. Secrets are masked
+before a note is written, not after.
+
+**Measured, not asserted** (see [Research](#-research)): retrieval at parity
+with a tuned embedding hybrid **with no encoder at all**, and per-query context
+cost **371× below** loading the vault wholesale.
+
+### Curation that cannot delete
+
+Each night the curator may propose only `rezone`, `link`, `supersede`,
+`archive`, and `annotate`. There is no delete operation to emit. Then a
+deterministic executor decides what survives: archiving is capped at a fraction
+of the vault, protected and negative-polarity notes are untouchable, a rezone
+cannot smuggle a note into the archive, and invented note names are dropped.
+
+`annotate` lets the curator write **retrieval anchors** — synonyms, phrasings
+you might search for, cross-language keywords — into a note's frontmatter, so a
+note becomes findable by words it does not literally contain. The body is not
+addressable by that operation at all; only three whitelisted fields are, and
+their length and count are clamped by code rather than trusted.
 
 ```bash
-$ birkin daemon --install   # register the OS task (cron / launchd / schtasks)
-$ birkin morpheus --dry-run # preview; unsandboxed local-cli fails closed
-$ birkin review             # next morning: approve / reject, one by one
-$ birkin trace <run-id>     # audit replay of any past turn
+birkin curate-memory --dry-run   # show the plan; touch nothing
+birkin curate-memory             # snapshot the vault, then apply the safe ops
 ```
 
-Claude and Codex CLI runs use provider-specific sandboxes; Codex receives
-Birkin's structured memory/skill tools over MCP. API providers use Birkin's
-restricted registry. Dry-run disables semantic writes and delivery, though
-rebuildable memory-index caches may refresh; unsandboxed local-cli dry-run is
-refused. In normal runs, memory/skills auto-apply and consequential proposals
-are queued for review.
+This is the difference between "the agent is instructed not to delete your
+notes" and "deletion is not expressible". Free-form read-modify-write memory can
+wipe itself; this shape cannot.
 
-### Connect company tools (MCP)
+### Your conversations, too
 
 ```bash
-$ birkin mcp                # list MCP servers the gateway inherits (Notion, …)
-$ birkin mcp add <name> …   # passes through to `claude mcp`
+birkin sessions export <name> --vault
 ```
 
-The gateway inherits Claude Code's MCP servers natively. Set
-`gateway_allowed_tools` to let the unattended gateway call specific company
-tools without a prompt.
+Transcripts become Obsidian-shaped notes in your vault — the same files, the
+same folder, the same ownership.
 
 ---
 
-## 📟 Command cheat sheet
+## 🔌 Use the vault from Claude Code
+
+The vault is not locked inside birkin. It ships as an ordinary stdio MCP
+server, so any MCP host can mount it:
+
+```bash
+/plugin marketplace add ashmoonori-afk/birkin
+/plugin install birkin-vault@birkin
+```
+
+or, without the plugin layer:
+
+```bash
+claude mcp add birkin -- birkin mcp-serve
+```
+
+Claude Code then has `memory_search`, `memory_get_note`, `memory_write_note`,
+`memory_link` and the skill tools — the vault, the ranking and the wikilink
+graph, without leaving Claude Code. Only safe, reversible tools cross that
+boundary: **no shell**, and consequential proposals still route to the approval
+queue.
+
+It composes with Claude Code's own memory rather than competing with it. Claude
+Code writes per-repository project notes; the vault is your life across
+projects. Point `autoMemoryDirectory` at a subfolder of the vault and both write
+into the same folder you own.
+
+---
+
+## 🧵 Moirai — workflows across model families
+
+A model deciding for itself whether to spawn another agent is not
+orchestration. Moirai is: a workflow is a Python file, control flow is code,
+and each agent is routed to whichever model should answer it.
+
+```bash
+birkin moirai run cross-examine --args '{"topic": "..."}'
+```
+
+The bundled `cross-examine` pattern has codex draft a claim, three claude
+critics attack it from different angles **in parallel**, then codex revise.
+Measured on one run: 71 s wall for 191 s of work.
+
+A script declares *roles*, not models:
+
+```python
+meta = {
+    "name": "cross-examine",
+    "roles": {
+        "drafter": {"default": "codex:gpt-5.6-sol", "hint": "makes the claim"},
+        "critic":  {"default": "claude:haiku", "hint": "attacks it"},
+    },
+}
+
+def main(m):
+    draft = m.agent("Argue for X", role="drafter")
+    votes = m.parallel([lambda a=a: m.agent(f"Attack via {a}: {draft}",
+                                            role="critic")
+                        for a in ("facts", "assumptions", "counterexamples")])
+    return m.agent(f"Revise given {votes}", role="drafter")
+```
+
+**Who runs each role is decided before the run.** The launcher asks — keep the
+current binding, reuse last run's, take the script's default, or browse
+provider then model — and `--bind critic=claude:opus` pins one from the command
+line. `--defaults` skips the asking; an unattended surface never prompts.
+
+Before it starts, the launcher shows what will happen — deliberately not in
+dollars, since birkin's usual path is a CLI login where a per-token price does
+not exist:
+
+```
+  drafter → codex:gpt-5.6-sol     ●●○   12초 ×1        중량
+  critic  → claude:opus           ●●●   62초 ×3        중량
+  ─────────────────────────────────────────────────────
+  합계                            예상 3분 18초 · 에이전트 4
+```
+
+Weight is a relative grade that cannot go stale on a reprice; the duration is
+the median **this machine** actually recorded for that model (a published
+figure marked `~` until your first run replaces it); a budget column appears
+only if you set a token cap.
+
+Other pieces: `schema=` returns validated data (codex enforces it natively,
+everyone else is asked in the prompt and checked, with one retry); every call
+is journalled, so `birkin moirai resume <id>` replays until the first thing
+that actually changed — rebind one role and only that role's calls re-run.
+A failed agent returns `None` rather than ending the workflow.
+
+Entry is always explicit — CLI only. No tool lets a model start a workflow,
+because that is the one spawn path with no natural ceiling. Agents are
+text-only today; tool-bearing agents are refused with a clear message rather
+than silently downgraded.
+
+### Research that keeps going until it runs dry
+
+```bash
+birkin moirai run deep-research --args '{"question": "..."}'
+```
+
+`deep-research` splits a question into orthogonal axes, investigates them in
+parallel, then follows every lead the answers opened — and keeps doing that
+until two consecutive waves turn up nothing new. Claims are then handed to a
+*different model family* to refute; anything it cannot settle is reported as
+unresolved rather than promoted into the answer.
+
+The algorithm is adapted from oh-my-openagent's `ulw-research` (MIT, credited
+in the file). Note the honest limit: Moirai agents are text-only for now — the
+`web_search` below belongs to birkin's own agent, not to them — so a web-heavy
+question here leans on what the bound model knows plus what its own CLI can
+reach.
+
+### Letting birkin suggest a workflow
+
+Off by default. With `"moirai_auto": true`, a request that would genuinely be
+better as several parallel agents gets *proposed* rather than answered — and
+the proposal lands in the same `birkin review` inbox as everything else
+consequential:
+
+```
+🧵 세 접근 비교
+   세 갈래를 병렬로 파는 게 낫다
+   워크플로우: deep-research
+```
+
+The model judges and proposes; it still cannot start one. No tool exposes
+Moirai to a model, and a test enforces that. Turning this on reverses a
+deliberate 2026-07-07 decision to stop auto-detecting intent, which is why it
+takes an explicit config change.
+
+Design notes: `docs/moirai-design.md`.
+
+---
+
+## 🔒 Safety by construction
+
+**Every shell command asks first. Every memory edit leaves a diff.**
+
+The industry is moving the other way — the largest open agent now has an LLM
+reviewer approve flagged commands by default. birkin deliberately does not: a
+model never approves its own shell command.
+
+- **run_shell approval gate.** `rm -rf`, `curl | sh`, force-push and friends are
+  refused outright or queued for you when nobody is watching. Pattern-based — a
+  seatbelt, not a sandbox — and a permanent allowlist never matches a compound
+  command.
+- **Denials teach.** `/deny <id> <why>` sends your reason back to the agent, so
+  it corrects course instead of retrying a variant blind. Human-in-the-loop only
+  wins if the loop converges.
+- **Workspace checkpoints.** Every mutating tool snapshots the workspace into a
+  bare git store *outside* your project first, so `/rollback` undoes a bad edit.
+  Your own `.git` and `.env` are never touched.
+- **Scanned skill install.** `birkin skills install owner/repo` fetches into
+  quarantine and scans for exfiltration, prompt injection and destructive
+  patterns before anything lands.
+- **cron can't launder shell.** An auto-approved `cron` job carrying a shell
+  payload is still queued for review.
+- **The gateway is never `--dangerously-skip-permissions`.** A reachable chat
+  message cannot reach a fully-permissioned process.
+- **Trust-gated memory.** An open Telegram bot's strangers are not auto-saved or
+  memorized — memory poisoning needs a door, and this one is shut.
+- **Secret redaction** before disk and before memory; state written atomically,
+  `0o600`. Optional **lifecycle hooks** can block a tool or inject context, each
+  confirmed once before it ever runs.
+
+Rationale per decision: [`docs/DECISIONS.md`](./docs/DECISIONS.md) ADR-029.
+
+---
+
+## 🇰🇷 Korean-first
+
+Not a translation layer — the failure modes Korean input actually hits are what
+gets fixed and regression-tested:
+
+- **Retrieval**: Hangul runs + character bigrams, so search works without a
+  morphological analyzer or an encoder.
+- **Time**: `지난주`, `그저께`, `3일 전`, `작년` are parsed as date cues that
+  bias ranking toward the week you mean.
+- **Schedules**: `/remind 30분마다 메일 확인`, `매일 09:00`, `매주 월요일 09:00`,
+  `1시간 후` — alongside the English forms.
+- **Terminal**: every box, bar and column is measured in East-Asian display
+  cells, so mixed Korean/English never breaks the layout.
+- **Names**: an all-Hangul skill or note name gets its own identity instead of
+  collapsing into a shared slug.
+
+---
+
+## 🎮 A day with birkin
+
+### Clarity before action (Neurosis)
+
+For a vague or complex request, birkin doesn't guess. It runs a Socratic
+interview with ambiguity scoring, one question at a time, writes a spec, and
+acts only after you approve.
+
+```bash
+you > /neurosis 회사 인스타 캠페인 새로 기획해줘
+birkin > Round 0 | 구성요소 확인 …        # topology → targeted questions → spec
+```
+
+### Overnight self-improvement (Morpheus)
+
+```bash
+birkin daemon --install   # register the OS task (login/boot; cron + launchd + schtasks)
+birkin morpheus --dry-run # preview; unsandboxed local-cli dry-run is refused
+birkin review             # next morning: approve / reject, one by one
+birkin trace <run-id>     # audit replay of any past turn
+```
+
+Memory and skill writes apply themselves — they are reversible local files.
+Anything consequential waits for you, and that is enforced rather than merely
+intended: Morpheus runs with no shell, and birkin's own control plane
+(`config.json`, `cron.json`, `hooks_allowlist.json`, `hooks/`) is refused to
+the file tools outright, so an unattended run cannot schedule a command or
+pre-approve a hook to get shell back.
+
+### On Telegram
+
+```bash
+birkin gateway            # HTTP + (optional) Telegram, warm and persistent
+```
+
+Same memory, same skills, same persona as the terminal. Long work is proposed
+with **Approve** / **Reject** buttons before it starts, bound to the chat that
+asked, with a heartbeat while it runs. A finished reply is recorded before it is
+sent, so a crash in that window redelivers it instead of losing it.
+
+### Company tools (MCP)
+
+```bash
+birkin mcp                # MCP servers the gateway inherits (Notion, Drive, …)
+birkin mcp add <name> …   # passes through to `claude mcp`
+```
+
+---
+
+## 🖥️ Terminal UI
+
+A real TUI in pure ANSI on the standard library — no curses, no rich, no
+textual — CJK-aware, and it degrades cleanly: piped or `NO_COLOR` output carries
+**zero escape codes**.
+
+- **Live status line** at every turn boundary and on `/status`: model · provider
+  · daemon heartbeat · budget gauge · pending approvals, each segment appearing
+  only when it has news.
+- **Tool-trace tree** nested under subagents, one line per tool with its own
+  elapsed time; `/details` expands to full input and a result snippet.
+- **Discoverability**: grouped `/help` (or just `?`), fuzzy `/`-completion
+  (`/prm` → `/permission`), and contextual hints — a checkpoint announces
+  `/undo` exactly when there is something to undo.
+- **`/dash`**: full-screen mission control (sessions · cron · approvals · memory
+  zones) with a three-fold terminal restore and a `--plain` / `--json` fallback.
+  A pane that fails to load says so instead of rendering empty, and approving
+  from it reports what the action actually did.
+
+`birkin web` opens a monitoring workbench for runtime health, pending proposals,
+scheduled jobs and installed skills. Chat and configuration stay in the CLI.
+
+![Birkin WebUI monitoring workbench](docs/assets/webui-workbench.png)
+
+---
+
+## 🧯 Built for a long unattended run
+
+- **Auto-compaction** — a conversation that would overflow the context window is
+  summarized in place before the call, with an overflow-retry backstop, so a
+  multi-day chat doesn't die on *"prompt is too long"*.
+- **Provider failover** — on an auth, rate-limit or server failure the turn is
+  served by a fallback model for a cooldown, then the primary is probed again.
+- **Grace call** — when the turn budget trips mid-task, one final no-tools turn
+  reports what was done and what remains instead of stopping cold.
+- **Spill-to-disk** — oversized tool output is saved with a preview and a path
+  rather than truncated away.
+- **Mid-turn steering** — typing while the agent works injects an instruction
+  without discarding in-flight work; Esc still interrupts.
+- **Parallel reads** — independent read-only calls run concurrently; writers
+  stay sequential.
+
+---
+
+## 📟 Commands
 
 ```bash
 birkin                              # start chatting (first run → onboarding)
-birkin gateway                      # run as a warm, free service (HTTP + Telegram)
-birkin neurosis "<idea>"            # seed a deep-interview (drive it with /neurosis)
-birkin model                        # pick a model (Claude Code = free)
-birkin mcp [list|add|remove|…]      # manage MCP servers (company tools)
-birkin mcp-serve                    # run birkin as an MCP server (used internally)
-birkin morpheus [--dry-run]         # run the nightly self-improvement now
-birkin daemon  [--install]          # Morpheus + cron scheduler
+birkin gateway                      # warm service: HTTP + Telegram
+birkin neurosis "<idea>"            # seed a deep interview (drive it with /neurosis)
+birkin odyssey "<goal>"             # seed a goal-completion cycle (/odyssey)
+birkin moirai run <script> [--bind role=provider:model] [--defaults]
+birkin moirai list / status --run-id <id> / resume --run-id <id>
+birkin sessions [export … --vault]  # list conversations · export as Markdown
+birkin curate-memory [--dry-run]    # vault curation pass (preview or apply)
+birkin morpheus [--dry-run]         # run the nightly routine now
+birkin daemon [--install]           # Morpheus + cron scheduler
 birkin review                       # approve / reject proposed actions
-birkin runs / trace <id> / budget   # audit log · replay · token budget
-birkin skills [validate|sync]       # list / lint / mirror skills
-birkin permission [--access …]      # auto-approve categories · CLI access level
-birkin web                          # monitoring dashboard
+birkin runs / trace <id> / budget   # audit log · replay · tokens and cost
+birkin skills [validate|sync|install owner/repo|scan <dir>]
+birkin mcp [list|add|remove|…]      # company MCP servers
+birkin mcp-serve                    # serve the vault to any MCP host
+birkin model / permission / web     # backend · gates · monitoring
 ```
 
-### In-chat slash commands (REPL)
+### In chat
 
-### Natural-language command routing (opt-in)
-
-Birkin can recognize one command-like Korean or English chat message, while
-literal `/commands` keep their current behavior. It starts disabled:
-
-```json
-{
-  "natural_language_commands": "off"
-}
-```
-
-Examples: `show help`, `현재 모델 보여줘`, `list reminders`, and
-`게이트웨이 재시작해`. The same feature is available in the REPL and Gateway;
-the existing command handler and each surface's trust checks still decide what
-can run.
-
-| Mode | Behavior |
-|---|---|
-| `off` | Do not classify; use ordinary chat. This is the default and invalid values become `off`. |
-| `observe` | Classify and audit a command candidate, then always continue as ordinary chat. |
-| `assist` | Show a bound preview for every recognized action and wait for confirmation. |
-| `auto-safe` | Run only the read/UI forms below automatically; preview every other valid action. |
-
-In `auto-safe`, REPL automatically allows `help`, `skills`, `skill`, `memory`,
-`vault`, `tools`, `system`, `config`, `cron`, `sessions`, `mcp`, and `clear`,
-plus empty display forms of `model`, `provider`, `temp`, `permission`, `soul`,
-and `personality`. Gateway automatically allows `help`, `pending`, empty
-`models`/`effort`, and empty or `list` `remind`. Everything else confirms,
-including model changes, reminders that add/delete, restart/update, durable
-writes, and session-destructive actions. The policy is default-deny: new
-commands are never auto-safe until explicitly added.
-
-Confirm a preview with exactly `승인`, `실행`, `예`, `네`, `yes`, `y`, `confirm`,
-or `run`; reject it with `취소`, `아니요`, `아니`, `no`, `n`, `cancel`, or `reject`.
-The reply must be exactly one of those words. A preview is bound to one session
-or Gateway chat, expires after five minutes, is consumed before execution, and
-is discarded on rejection, replacement, literal command, or restart. It is
-never persisted or replayed after restart. Natural language with a nonempty
-`permission` argument is rejected locally; use the existing literal
-`/permission ...` command for its existing mutation behavior.
-
-API providers compile through one restricted action schema. Built-in
-`claude-cli` and `codex-cli` use a separate read-only, tool-free bounded
-classifier; malformed, unsupported, timed-out, or unavailable provider output
-falls back to ordinary chat. `local-cli` does not execute natural-language
-commands and also falls back to chat.
-
-To roll back immediately, set `natural_language_commands` to `"off"` in
-`config.json`, then restart the REPL or Gateway normally. Pending previews do
-not survive that restart.
-
-Type `/help` for the full list. Line editor: **Ctrl+←/→** word motion, **Ctrl-W**
-delete word, **Ctrl-U/Ctrl-K** clear to start/end, **↑/↓** history, **Shift+Enter**
-newline, inline `/`-dropdown.
+`/help` (or `?`) lists everything, grouped. Line editor: **Ctrl+←/→** word
+motion, **Ctrl-W** delete word, **Ctrl-U/Ctrl-K** clear to start/end, **↑/↓**
+history, **Shift+Enter** newline, inline `/`-dropdown.
 
 | Group | Commands |
 |---|---|
-| **Conversation** | `/new` · `/retry` · `/undo` · `/compact` · `/clear` |
-| **Clarify** | `/neurosis [name]` (deep interview) |
+| **Conversation** | `/new` · `/retry` · `/undo` · `/rollback` · `/compact` · `/clear` · `/status` · `/dash` |
+| **Clarify** | `/neurosis [name]` · `/odyssey <goal>` |
 | **Model** | `/model` · `/models [name]` · `/provider` · `/temp` |
-| **Skills** | `/skills` · `/skill <name>` · `/reload` · `/learn` |
-| **Memory** | `/memory <query>` · `/remember <text>` · `/vault` · `/soul` · `/personality` |
-| **Tools** | `/mcp` · `/tools` |
+| **Skills · tools** | `/skills` · `/skill <name>` · `/reload` · `/tools` · `/system` · `/mcp` · `/details` |
+| **Memory** | `/memory <query>` · `/remember <text>` · `/vault` · `/learn` |
+| **Persona** | `/soul` · `/personality` |
 | **Autonomy** | `/morpheus` · `/review` · `/cron` · `/permission` |
 | **Session** | `/save` · `/load` · `/sessions` |
-| **System** | `/system` · `/config` · `/update` · `/help` · `/quit` |
+| **System** | `/config` · `/update` · `/help` · `/quit` |
 
 ---
 
-## 🧠 Memory & 🗣️ Persona
+## 🔎 Web search without an account
 
-**Memory** is **Mnemosyne** — a zero-dependency memory palace at
-`~/.birkin/vault`: markdown notes in **zone** directories, an inverted index
-with **Okapi BM25** (+ Hangul bigrams), an **Ebbinghaus forgetting curve**
-wired into ranking, and nightly **CurationPlan/1** reorganization where the
-model only *proposes* a typed JSON plan and a deterministic executor clamps
-it under file-safety invariants (never-delete, archive cap, protected notes,
-path containment). Notes carry `type`, `polarity` (positive / known-failure),
-`version` (optimistic lock), TTL, and `[[wikilinks]]`. Tools:
-`memory_search` (multi-term best-window snippets — a cheap preview layer),
-`memory_get_note` (full text, on demand), `memory_write_note`, `memory_link`.
-Set `evidence_required: true` to refuse sourceless notes.
+birkin can look things up, not just fetch a URL you already have:
 
-Measured (see 📄 Research below): retrieval at **parity with a tuned
-embedding hybrid, with no encoder at all**, and per-query context cost
-**371× below** loading the vault wholesale.
+```
+web_search  → Marginalia, then Mwmbl if it can't answer
+web_fetch   → read one of the URLs it returned
+```
 
-**Persona** is `~/.birkin/SOUL.md` — a warm, editable voice injected into every
-surface (read fresh each turn in the REPL; on session start in the gateway).
-`/personality warm|concise|mentor|direct` swaps presets; `/soul` shows/edits it.
+Both are independent, non-commercial indexes with public HTTP APIs. There is
+no account to create, no API key to paste, no card on file, and nothing extra
+to install — the dependency count is still zero, because this is `urllib` and
+`json`.
+
+The trade is coverage, and it is stated in the tool description so the model
+reads an empty result correctly: these indexes are strong on documentation,
+blogs, forums and technical writing, and weak on news, shopping and local
+queries. Nothing is retried on a rate limit — the public key's bucket is
+shared with every other birkin user, so a retry loop would degrade it for
+everyone. Marginalia results carry their CC-BY-NC-SA 4.0 attribution into the
+output.
+
+Set `MARGINALIA_API_KEY` (or `marginalia_api_key` in config) if you have your
+own key; you do not need one.
 
 ---
 
 ## 🧩 Skills
 
 A skill is a directory with a `SKILL.md` (frontmatter + markdown), compatible
-with the agentskills.io / hermes standard. **54 bundled** under
-[`skills/`](./skills) (research, software, writing, data, devops, marketing,
+with the agentskills.io / hermes standard. **55 bundled** under
+[`skills/`](./skills) — research, software, writing, data, devops, marketing,
 planning/**neurosis**, automation/**morpheus** · **odyssey** · **camoufox**,
-creative/**codex-image-gen**, quality/**model-compare**, …), plus your own
-under `~/.birkin/skills/` (which shadow
-bundled ones). `load_skill` pulls full text on demand; `create_skill` /
-`improve_skill` route through the approval gate; `birkin skills validate` lints
-frontmatter + `py_compile`s bundled scripts; skills **hot-reload** on edit.
+creative/**codex-image-gen**, quality/**model-compare** — plus your own under
+`~/.birkin/skills/`, which shadow the bundled ones by name.
+
+`load_skill` pulls the full text on demand; `create_skill` / `improve_skill`
+route through the approval gate; `birkin skills validate` lints frontmatter and
+`py_compile`s bundled scripts; skills hot-reload on edit.
 
 ---
 
-## 🔒 Security (company-grade)
+## 🗣️ Persona
 
-birkin is built to run unattended in a company without surprising you — see
-[`docs/DECISIONS.md`](./docs/DECISIONS.md) ADR-029:
-
-- **cron→shell gate.** An auto-approved `cron` can't launder a `shell` payload
-  past the shell gate — it's queued for review unless `shell` is also approved.
-- **Gateway is never `--dangerously-skip-permissions`.** A reachable chat
-  message can't reach a fully-permissioned process; `cli_access:full` is forced
-  to `workspace` for the gateway.
-- **Telegram access control + trust-gated memory.** `allowed_chat_ids` gates who
-  may drive the bot; an *open* bot's strangers are **not** auto-saved or
-  memorized (anti memory-poisoning).
-- **Secret redaction.** Transcripts are scrubbed (Anthropic/OpenAI/Google/GitHub/
-  Slack/AWS keys, tokens, Bearer, PEM) before they hit disk or memory.
-- **At rest.** State + transcripts are written atomically, `0o600`. Prefer
-  `TELEGRAM_BOT_TOKEN` env over a plaintext config token.
+`~/.birkin/SOUL.md` — a warm, editable voice injected into every surface, read
+fresh each turn in the REPL. `/personality warm|concise|mentor|direct` swaps
+presets; `/soul` shows and edits it.
 
 ---
 
 ## ⚙️ Configuration
 
-All state lives under `~/.birkin` (override with `BIRKIN_HOME`):
+Everything lives under `~/.birkin` (override with `BIRKIN_HOME`):
 
 ```
 ~/.birkin/
 ├── config.json     # provider, model, gateway, autosave, neurosis, permissions…
-├── vault/          # Obsidian semantic memory (markdown notes)
+├── vault/          # your Obsidian memory
 ├── skills/         # user- and agent-authored skills
-├── sessions/       # auto-saved transcripts (auto__*.json) — Morpheus input
-├── specs/          # Neurosis deep-interview specs
-├── neurosis/       # interview state (resumable)
-├── runs/           # per-turn + per-Morpheus run summaries
+├── sessions/       # auto-saved transcripts — Morpheus input
+├── specs/          # Neurosis interview specs
+├── runs/           # per-turn and per-Morpheus summaries
 ├── ledger.jsonl    # append-only audit log
-├── pending/        # proposed actions awaiting approval
+├── pending/        # actions awaiting your approval
 └── status.json     # daemon heartbeat
 ```
 
@@ -445,13 +553,25 @@ Keys you'll actually touch:
   "model": "opus",
   "gateway_model": "sonnet",
   "gateway_persistent": true,
-  "gateway_allowed_tools": [],
   "autosave_transcripts": true,
   "natural_language_commands": "off",
   "neurosis_auto": true,
-  "neurosis_threshold": null,
   "morpheus_hour": 4,
+  "morpheus_provider": "",
   "auto_approve": ["memory", "skill"],
+
+  "auto_compact": true,
+  "context_window": 200000,
+  "fallback_provider": "",
+  "fallback_model": "",
+  "shell_approval": "manual",
+  "command_allowlist": [],
+  "checkpoints": true,
+  "hooks": {},
+  "parallel_tools": true,
+  "spill_threshold": 30000,
+  "repl_typed_line": "steer",
+
   "channels": {
     "http": {"enabled": true},
     "telegram": {"enabled": false, "token": "", "allowed_chat_ids": []}
@@ -459,66 +579,73 @@ Keys you'll actually touch:
 }
 ```
 
-API keys are read from the environment first; the Claude Code backend needs
-none. A key in `config.json` is stored `chmod 600`.
+The second block is the reliability and safety layer: auto-summarize before
+overflow, provider failover, the destructive-command gate, workspace snapshots
+for `/rollback`, lifecycle hooks, parallel reads, tool-output spill, and whether
+a line typed mid-turn steers or interrupts.
+
+API keys are read from the environment first; a key in `config.json` is stored
+`chmod 600`. Colour obeys `NO_COLOR` / `CLICOLOR_FORCE`; `BIRKIN_PLAIN=1` drops
+animation for screen readers.
 
 ---
 
 ## 📄 Research
 
 The memory engine is written up as a paper — *Birkin-Mnemosyne: A
-Zero-Dependency Lexical Memory Palace with Safe, Provider-Portable Curation
-for Personal LLM Agents* — with a reproducible benchmark harness under
-[`benchmarks/`](./benchmarks). Headline measurements (LongMemEval-S session
-retrieval, 470 questions, one harness):
+Zero-Dependency Lexical Memory Palace with Safe, Provider-Portable Curation for
+Personal LLM Agents* — with a reproducible harness under
+[`benchmarks/`](./benchmarks). LongMemEval-S session retrieval, 470 questions,
+one harness:
 
 | system | R@1 | R@5 | MRR |
 |---|---|---|---|
-| BM25 + bigram (ours) | 0.870 | 0.968 | 0.910 |
+| BM25 + bigram | 0.870 | 0.968 | 0.910 |
 | best embedding hybrid (RRF k=20, chunked bge) | 0.894 | 0.977 | 0.931 |
-| **tuned lexical stack (ours — no encoder)** | **0.900** | **0.977** | **0.933** |
+| **tuned lexical stack — no encoder** | **0.900** | **0.977** | **0.933** |
+| **shipped in production today** | **0.891** | **0.974** | **0.926** |
 
-Also measured: curation accuracy across engines (n=10, bootstrap CIs — plus a
-hidden second fixture that *reverses* the engine ranking, reported rather
-than hidden); a real 1,910-note vault study (curation moves structure, not
-top-k); context-token cost (retrieval top-5 is **9.1× cheaper** than
-long-context, **371×** cheaper than wholesale vault loading); and honest
-negatives (snippets cannot replace full-note reads — ×14.7 cheaper but e2e
-accuracy halves). Research log: [`docs/ranking-v2-plan.md`](./docs/ranking-v2-plan.md).
+Also measured: curation accuracy across engines (n=10, bootstrap CIs — including
+a hidden second fixture that *reverses* the ranking, reported rather than
+buried); a 1,910-note vault study; context cost (retrieval top-5 is **9.1×**
+cheaper than long-context, **371×** cheaper than loading the vault wholesale);
+and honest negatives — snippets cannot replace full-note reads, and BM25F field
+weighting was implemented, measured as indiscriminable on every corpus
+available, and reverted rather than shipped on a hunch. Research log:
+[`docs/ranking-v2-plan.md`](./docs/ranking-v2-plan.md).
 
 ---
 
 ## 🛠️ Where birkin sits today
 
-- **740+ tests** passing offline (no API key, `pytest`, ≥75 % coverage gate),
-  **54 bundled skills**, **0 runtime dependencies**, Python 3.10+.
-- Free + fast gateway (warm persistent Claude, ~3s, live streaming), Neurosis
-  deep-interview, auto-save → Morpheus nightly memory, company MCP,
-  company-grade security hardening, daemon resource layer (session pool with
-  idle-TTL/LRU, run ledger, per-model gateway presets).
-- Rationale per decision: [`docs/DECISIONS.md`](./docs/DECISIONS.md). Live
-  status: [`docs/STATUS.md`](./docs/STATUS.md). Comparison:
-  [`docs/COMPARISON.md`](./docs/COMPARISON.md).
+- **1,550+ tests** passing offline with no API key, ≥75 % coverage gate,
+  **55 bundled skills**, **0 runtime dependencies**, Python 3.10+.
+- Deliberately smaller than its inspirations —
+  [hermes-agent](https://github.com/NousResearch/hermes-agent) and
+  [openclaw](https://github.com/openclaw/openclaw); the deep-interview lineage
+  comes from [gajae-code](https://github.com/Yeachan-Heo/gajae-code). Not
+  competing on breadth: on the depth of the trust and memory story. See
+  [`docs/COMPARISON.md`](./docs/COMPARISON.md), which lists where birkin loses.
+- Every decision has a written rationale:
+  [`docs/DECISIONS.md`](./docs/DECISIONS.md). Live status:
+  [`docs/STATUS.md`](./docs/STATUS.md).
 
 ---
 
 ## 🙌 Contributing
 
-Skills are **MIT-licensed** and the easiest place to contribute: a skill is just a
-directory with a `SKILL.md` (frontmatter + markdown) — see any folder under
-[`skills/`](./skills) for the format, run `birkin skills validate` to lint it, and
-open a PR with a new skill or an improvement. Bug reports and feature requests are
+Skills are the easiest place to start: a skill is just a directory with a
+`SKILL.md` — copy any folder under [`skills/`](./skills), run
+`birkin skills validate`, open a PR. Bug reports and feature requests are
 welcome as issues.
 
-If birkin saves you money or time, **starring the repo** is the single most
-helpful thing you can do — it helps other Claude subscribers find it. ⭐
+If birkin is useful to you, **starring the repo** helps other people find it. ⭐
 
 ---
 
 ## 📄 License
 
 **MIT** (© 2026 ashmoonori). Use it, fork it, ship it. Portions of the bundled
-skill catalog (`skills/`) are adapted or ported from MIT projects — NousResearch/
-hermes-agent, openclaw, and Yeachan-Heo/gajae-code (the deep-interview lineage
-behind `neurosis`); their attribution is preserved. See [`LICENSE`](./LICENSE)
-and [`NOTICE`](./NOTICE).
+skill catalog are adapted from MIT projects — NousResearch/hermes-agent,
+openclaw, and Yeachan-Heo/gajae-code — with attribution preserved. See
+[`LICENSE`](./LICENSE) and [`NOTICE`](./NOTICE).

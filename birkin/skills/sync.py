@@ -37,6 +37,7 @@ def sync_skills(source: Path, limit: int | None = None,
         raise NotADirectoryError(source)
     dest_root = config.user_skills_dir() / "mirrors"
     synced: list[str] = []
+    rejected: list[str] = []
     for skill_md in sorted(source.rglob("SKILL.md")):
         rel = skill_md.parent.relative_to(source)
         dest = dest_root / rel
@@ -44,9 +45,21 @@ def sync_skills(source: Path, limit: int | None = None,
             continue
         shutil.copytree(skill_md.parent, dest, dirs_exist_ok=True, ignore=_IGNORE)
         _attribute(dest / "SKILL.md", skill_md.parent)
+        # A mirrored SKILL.md becomes instructions the agent follows, so
+        # scan it here too — this path used to copy third-party text in
+        # with nothing looking at it.
+        from . import guard
+        verdict = guard.scan_skill(dest, source="community")
+        if verdict.verdict == "dangerous":
+            shutil.rmtree(dest, ignore_errors=True)
+            rejected.append(rel.as_posix())
+            continue
         synced.append(rel.as_posix())
         if limit and len(synced) >= limit:
             break
+    for name in rejected:
+        print(f"[birkin] skipped {name}: the security scan flagged it "
+              f"as dangerous (run `birkin skills scan` to see why).")
     return synced
 
 
