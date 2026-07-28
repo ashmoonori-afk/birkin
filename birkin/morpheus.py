@@ -237,10 +237,21 @@ def run_once(dry_run: bool = False) -> int:
     # Opt-in and explicit — the dispatch below was deliberately keyed on the
     # chat provider so "a user who chose Codex would [not] silently get
     # `claude` spawned", and that stays true unless the user asks for it.
-    backend = str(cfg.get("morpheus_provider") or cfg.get("provider") or "")
+    override = str(cfg.get("morpheus_provider") or "")
+    backend = override or str(cfg.get("provider") or "")
     if backend == "claude-cli":
-        return _run_claude_morpheus({**cfg, "provider": backend}, task,
-                                    dry_run, n_files)
+        # The model has to follow the backend. Carrying the chat model across a
+        # provider switch sends codex's `gpt-5.6-terra` to claude, which answers
+        # "There's an issue with the selected model" and the night is lost. But
+        # only across a SWITCH — when chat is already claude, its model is the
+        # right one and blanking it would be its own regression.
+        model = str(cfg.get("model") or "")
+        if override and override != cfg.get("provider"):
+            model = ""              # empty -> the backend's own default
+        if cfg.get("morpheus_model"):
+            model = str(cfg["morpheus_model"])   # explicit wins, like gateway_model
+        return _run_claude_morpheus({**cfg, "provider": backend, "model": model},
+                                    task, dry_run, n_files)
     return _run_birkin_morpheus(cfg, task, dry_run, n_files)
 
 

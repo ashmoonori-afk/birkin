@@ -204,6 +204,10 @@ DEFAULT_CONFIG: dict[str, Any] = {
     # unless cli_access is "full" (which also grants it a shell). The claude
     # path allowlists mcp__birkin__* instead of asking per call.
     "morpheus_provider": "",
+    # Model for the nightly. Empty = the backend's own default. Required when
+    # morpheus_provider differs from provider: the chat model belongs to the
+    # chat backend, and handing claude an OpenAI model name fails the run.
+    "morpheus_model": "",
     "morpheus_hour": 4,
     "morpheus_minute": 0,
     # Governs the UNATTENDED path (nightly routine's propose_action): these

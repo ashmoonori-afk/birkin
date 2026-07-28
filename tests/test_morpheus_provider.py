@@ -133,3 +133,39 @@ def test_a_prompt_cron_job_files_exactly_one_run_record(monkeypatch):
     assert asked.get("record_turn") is False, (
         "the cron job let ask() file a second record for the same firing")
     assert saved == ["cron"], f"expected one record, got {saved}"
+
+
+# -- the model has to move with the provider -------------------------------
+
+def test_the_chat_model_does_not_follow_the_nightly_to_claude(routed, monkeypatch):
+    """Carrying provider over without the model sent codex's model name to
+    claude, and the whole night died on:
+
+        [birkin] Claude error: There's an issue with the selected model
+        (gpt-5.6-terra). It may not exist or you may not have access to it.
+
+    Empty means "the backend's own default" — claude gets no --model flag.
+    """
+    _cfg(monkeypatch, provider="codex-cli", model="gpt-5.6-terra",
+         morpheus_provider="claude-cli")
+    morpheus.run_once()
+    assert routed["cfg"]["model"] == "", (
+        "claude was handed the codex chat model: %r" % routed["cfg"]["model"])
+
+
+def test_morpheus_model_overrides_when_set(routed, monkeypatch):
+    _cfg(monkeypatch, provider="codex-cli", model="gpt-5.6-terra",
+         morpheus_provider="claude-cli", morpheus_model="sonnet")
+    morpheus.run_once()
+    assert routed["cfg"]["model"] == "sonnet"
+
+
+def test_same_provider_keeps_its_own_model(routed, monkeypatch):
+    """No override in play — the chat model is the right model."""
+    _cfg(monkeypatch, provider="claude-cli", model="sonnet", morpheus_provider="")
+    morpheus.run_once()
+    assert routed["cfg"]["model"] == "sonnet"
+
+
+def test_both_keys_ship_empty():
+    assert config.DEFAULT_CONFIG["morpheus_model"] == ""
