@@ -297,7 +297,15 @@ class Gateway:
                 reasoning_effort=str(
                     self.cfg.get("gateway_reasoning_effort", "") or ""),
                 turn_timeout=float(self.cfg.get("cli_timeout", 300)),
-                sandbox_mode=sandbox, approval_policy="never")
+                sandbox_mode=sandbox, approval_policy="never",
+                # Without this the gateway has NO birkin tools at all: on a
+                # CLI provider birkin's own registry is unreachable (the child
+                # runs its own tool loop), and nothing attached the MCP server
+                # here. So "remember that I'm called Jane" came back as "I
+                # have no local memory path" — birkin's headline feature, and
+                # the gateway could not do it. memory/skills/propose_action
+                # only; propose_action still queues to `birkin review`.
+                birkin_mcp=True, birkin_mcp_scope="full")
         # Tools the headless gateway may use without a permission prompt
         # (e.g. company MCP servers). Empty -> rely on Claude Code settings.
         allowed = [str(t) for t in self.cfg.get("gateway_allowed_tools", []) if t]
