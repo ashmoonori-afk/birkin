@@ -314,11 +314,30 @@ def _run_birkin_morpheus(cfg: dict[str, Any], task: str, dry_run: bool,
     session.cfg = session_cfg
     session.ctx.cfg = session_cfg
     if cfg.get("provider") == "codex-cli":
-        session.client.cli_access = (
-            "full" if cfg.get("cli_access") == "full" and not dry_run
-            else "read-only")
-        session.client.birkin_mcp = not dry_run
+        access = ("full" if cfg.get("cli_access") == "full" and not dry_run
+                  else "read-only")
+        session.client.cli_access = access
+        # `codex exec` hardwires approval to "never", and that CANCELS every
+        # MCP tool call rather than allowing it — measured on codex 0.145:
+        #     "user cancelled MCP tool call"
+        # `-a` is not accepted by `exec` and `-c approval_policy=…` is ignored
+        # (the banner still reads approval: never). The only policy that lets a
+        # call through is --dangerously-bypass-approvals-and-sandbox, which is
+        # what cli_access="full" sends and which also hands over shell.
+        #
+        # So outside "full" the tools are attachable but not callable. Attaching
+        # them anyway bought three nights of runs where the model hunted for a
+        # tool, called it, got cancelled, and wrote prose about what it would
+        # have saved. Say so once instead.
+        session.client.birkin_mcp = (access == "full")
         session.client.birkin_mcp_scope = "full"
+        if not dry_run and access != "full":
+            print("morpheus: codex-cli at cli_access=%r cannot call birkin's "
+                  "tools — `codex exec` cancels every MCP call. This run can "
+                  "only produce prose; nothing will be saved to memory and no "
+                  "proposal can be queued. Use an API provider for the nightly "
+                  "run, or set cli_access: \"full\" (which also grants shell)."
+                  % cfg.get("cli_access"))
 
     # Birkin's registry excludes shell/subagent tools. Codex is isolated above;
     # arbitrary local CLI commands retain their user-managed tool surface.

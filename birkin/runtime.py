@@ -12,7 +12,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Callable, Optional
 
-from . import budget, checkpoints, config, hooks, promptgate, store
+from . import budget, checkpoints, config, hooks, promptgate, prompts, store
 from .agent import Agent
 from .llm import LLMClient, LLMError, build_client
 from .memory import Memory
@@ -76,6 +76,11 @@ class Session:
                 extra = ("\n\n## birkin skills available\n"
                          "Read the referenced SKILL.md with your own file "
                          "tools to follow one when it fits the task.\n" + idx)
+        # Only promise the tools when they are actually attached — llm.py adds
+        # the MCP server iff birkin_mcp is set, and an API-provider client has
+        # no such attribute at all.
+        if getattr(self.client, "birkin_mcp", False):
+            extra += prompts.cli_mcp_block()
         self.agent.system = promptgate.compose_cli(
             self.cfg, memory_block=self.memory.render(),
             preloaded=preloaded or None, extra=extra)
