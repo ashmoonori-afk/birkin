@@ -11,6 +11,7 @@ reading environment variables.
 
 from __future__ import annotations
 
+import copy
 import json
 import os
 from pathlib import Path
@@ -396,7 +397,13 @@ def load_config() -> dict[str, Any]:
     present in the saved file, so configs written before the rename keep
     working unchanged.
     """
-    cfg = dict(DEFAULT_CONFIG)
+    # DEEP copy. A shallow dict() hands out the SAME nested objects every
+    # caller then owns, so one `cfg["channels"]["telegram"][...] = x` rewrites
+    # the process-wide default for everyone who loads afterwards. The deep
+    # merge below only rebuilt "channels" when the saved file happened to
+    # contain it, which used to be always — config.json was a full dump — so
+    # the hazard was masked rather than absent.
+    cfg = copy.deepcopy(DEFAULT_CONFIG)
     saved: dict[str, Any] = {}
     path = config_path()
     if path.is_file():

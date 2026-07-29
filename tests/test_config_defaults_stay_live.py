@@ -18,6 +18,7 @@ anything a user hand-added are none of save_config's business.
 
 from __future__ import annotations
 
+import copy
 import json
 
 import pytest
@@ -124,3 +125,33 @@ def test_the_file_is_still_owner_only_and_atomic(cfg_path):
     assert "os.replace" in src, "lost the atomic swap"
     assert "0o600" in src, "lost the owner-only mode"
     assert ".tmp" in src
+
+
+# -- load_config must never hand out the global defaults -------------------
+
+def test_a_loaded_config_cannot_mutate_the_global_defaults(cfg_path):
+    """load_config did a SHALLOW dict(DEFAULT_CONFIG), so every caller got the
+    same nested objects and one
+
+        cfg["channels"]["telegram"]["allowed_chat_ids"] = ["c1"]
+
+    rewrote the process-wide default for everyone loading afterwards. Six test
+    sites do exactly that, and gateway trust is decided from that list — so a
+    later load saw an allowlisted (trusted) Telegram where the config said
+    open. It was masked only because config.json used to be a full dump, which
+    made load_config take its rebuild-the-subtree branch every time; pruning
+    the file to real overrides exposed it."""
+    from birkin import config as c
+    before = copy.deepcopy(c.DEFAULT_CONFIG["channels"])
+    cfg = c.load_config()
+    cfg["channels"]["telegram"]["allowed_chat_ids"] = ["POLLUTED"]
+    assert c.DEFAULT_CONFIG["channels"] == before, (
+        "a loaded config rewrote DEFAULT_CONFIG for the whole process")
+    assert c.load_config()["channels"]["telegram"]["allowed_chat_ids"] != ["POLLUTED"]
+
+
+def test_two_loads_do_not_share_nested_objects(cfg_path):
+    from birkin import config as c
+    a, b = c.load_config(), c.load_config()
+    assert a["channels"] is not b["channels"]
+    assert a["channels"] is not c.DEFAULT_CONFIG["channels"]
