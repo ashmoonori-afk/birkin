@@ -245,14 +245,24 @@ def test_reads_are_not_checkpointed(work):
     assert ctx.checkpoints.list_checkpoints(work) == []
 
 
-def test_a_failing_checkpoint_never_blocks_the_tool(work, monkeypatch):
+def test_a_failing_checkpoint_blocks_the_tool(work, monkeypatch):
+    # Given: the required pre-mutation snapshot cannot be persisted.
+    original = (work / "main.py").read_text(encoding="utf-8")
     ctx = _ctx(work)
     monkeypatch.setattr(ctx.checkpoints, "_take",
-                        lambda *a, **k: (_ for _ in ()).throw(OSError("disk")))
+                        lambda *a, **k: (
+                            _ for _ in ()).throw(OSError("disk full")))
     reg = build_registry(ctx, include={"files"})
-    res = reg.execute("write_file", {"path": "main.py", "content": "still works\n"})
-    assert not res.is_error
-    assert (work / "main.py").read_text(encoding="utf-8") == "still works\n"
+
+    # When: a mutating tool reaches the registry boundary.
+    res = reg.execute(
+        "write_file", {"path": "main.py", "content": "must not write\n"})
+
+    # Then: the mutation is refused and the workspace remains recoverable.
+    assert res.is_error
+    assert "checkpoint" in res.content.lower()
+    assert "disk full" in res.content.lower()
+    assert (work / "main.py").read_text(encoding="utf-8") == original
 
 
 def test_no_manager_means_no_hook(work):

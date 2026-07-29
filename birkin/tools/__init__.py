@@ -88,7 +88,12 @@ class ToolRegistry:
                 return ToolResult(blocked, is_error=True)
         if self.ctx.checkpoints is not None:
             from .. import checkpoints
-            checkpoints.preflight(self.ctx, name, tool_input or {})
+            try:
+                checkpoints.preflight(self.ctx, name, tool_input or {})
+            except Exception as exc:
+                return ToolResult(
+                    f"Checkpoint failed before {name!r}: {exc}",
+                    is_error=True)
         try:
             result = tool.fn(tool_input or {}, self.ctx)
         except Exception as exc:  # tools must never crash the agent loop

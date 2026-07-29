@@ -43,6 +43,10 @@ _GIT_TIMEOUT = 30
 _DEFAULT_KEEP = 20
 
 
+class CheckpointError(RuntimeError):
+    """A required pre-mutation snapshot could not be recorded."""
+
+
 def _run(argv: list[str], env: dict[str, str],
          cwd: Optional[str] = None) -> tuple[int, str]:
     kwargs: dict[str, Any] = {}
@@ -144,30 +148,36 @@ class CheckpointManager:
     def ensure_checkpoint(self, workdir: Any, reason: str = "") -> Optional[str]:
         """Snapshot ``workdir`` unless it already happened this turn.
 
-        Returns the commit hash, or None when nothing was recorded. Never
-        raises: a failed snapshot must not block the tool it was protecting.
+        Returns the commit hash, or None when the workspace was already
+        snapshotted or has no changes. Raises when protection was required but
+        the snapshot could not be recorded.
         """
         if not self.enabled:
             return None
         try:
             path = Path(workdir).resolve()
-        except OSError:
-            return None
+        except OSError as exc:
+            raise CheckpointError(f"cannot resolve workspace: {exc}") from exc
         key = str(path)
-        if key in self._this_turn or not path.is_dir():
+        if key in self._this_turn:
+            return None
+        if not path.is_dir():
             return None
         # Refuse the obviously-wrong targets outright.
         if path == Path(path.anchor) or path == Path.home():
             return None
-        self._this_turn.add(key)
         try:
-            return self._take(path, reason)
-        except Exception:
-            return None
+            commit = self._take(path, reason)
+        except CheckpointError:
+            raise
+        except Exception as exc:
+            raise CheckpointError(str(exc)) from exc
+        self._this_turn.add(key)
+        return commit
 
     def _take(self, workdir: Path, reason: str) -> Optional[str]:
         if not self._ensure_store():
-            return None
+            raise CheckpointError("could not initialize checkpoint store")
         env = self._env(workdir)
         ref = _ref_for(workdir)
 
@@ -177,25 +187,31 @@ class CheckpointManager:
         # Seed the index from the ref tip so `add -A` produces a real diff
         # rather than re-adding the whole tree every time.
         if parent:
-            _run(["git", "read-tree", parent], env)
+            code, out = _run(["git", "read-tree", parent], env)
         else:
-            _run(["git", "read-tree", "--empty"], env)
+            code, out = _run(["git", "read-tree", "--empty"], env)
+        if code != 0:
+            raise CheckpointError(f"git read-tree failed: {out.strip()}")
 
         if self._too_big(workdir):
-            return None
-        code, _ = _run(["git", "add", "-A", "--", str(workdir)], env)
+            raise CheckpointError(
+                f"workspace exceeds {_MAX_FILES} checkpointable files")
+        code, out = _run(["git", "add", "-A", "--", str(workdir)], env)
         if code != 0:
-            return None
+            raise CheckpointError(f"git add failed: {out.strip()}")
 
         if parent:
-            code, _ = _run(["git", "diff-index", "--cached", "--quiet", parent],
-                           env)
+            code, out = _run(
+                ["git", "diff-index", "--cached", "--quiet", parent], env)
             if code == 0:
                 return None            # nothing changed: snapshot is free
+            if code != 1:
+                raise CheckpointError(
+                    f"git diff-index failed: {out.strip()}")
 
         code, out = _run(["git", "write-tree"], env)
         if code != 0:
-            return None
+            raise CheckpointError(f"git write-tree failed: {out.strip()}")
         tree = out.strip()
 
         argv = ["git", "commit-tree", tree, "-m", reason or "birkin checkpoint"]
@@ -203,15 +219,15 @@ class CheckpointManager:
             argv[3:3] = ["-p", parent]
         code, out = _run(argv, env)
         if code != 0:
-            return None
+            raise CheckpointError(f"git commit-tree failed: {out.strip()}")
         commit = out.strip()
 
         update = ["git", "update-ref", ref, commit]
         if parent:
             update.append(parent)      # compare-and-swap
-        code, _ = _run(update, env)
+        code, out = _run(update, env)
         if code != 0:
-            return None
+            raise CheckpointError(f"git update-ref failed: {out.strip()}")
         self._prune(workdir)
         self._record_project(workdir)
         return commit
@@ -358,7 +374,7 @@ def project_root_for(path: Path) -> Path:
 
 
 def preflight(ctx: Any, tool_name: str, tool_input: dict[str, Any]) -> None:
-    """Snapshot before a mutating tool runs. Never raises.
+    """Snapshot before a mutating tool runs.
 
     Emits a ``checkpoint`` event whenever a snapshot is actually recorded, so
     the UI can teach ``/undo`` / ``/rollback`` at the moment there is something
@@ -367,26 +383,23 @@ def preflight(ctx: Any, tool_name: str, tool_input: dict[str, Any]) -> None:
     manager = getattr(ctx, "checkpoints", None)
     if manager is None or not getattr(manager, "enabled", False):
         return
-    try:
-        commit = None
-        if tool_name in ("write_file", "edit_file"):
-            raw = (tool_input or {}).get("path", "")
-            if not raw:
-                return
-            target = Path(str(raw)).expanduser()
-            if not target.is_absolute():
-                target = Path(ctx.cwd) / target
-            commit = manager.ensure_checkpoint(project_root_for(target),
-                                               f"before {tool_name}")
-        elif tool_name == "run_shell":
-            command = (tool_input or {}).get("command", "")
-            # Reuse shellguard's classifier rather than keeping a second list
-            # of destructive patterns in sync with it.
-            from .shellguard import detect
-            if command and detect(str(command))[0] is not None:
-                cwd = (tool_input or {}).get("cwd") or ctx.cwd
-                commit = manager.ensure_checkpoint(cwd, "before run_shell")
-        if commit and getattr(ctx, "emit", None):
-            ctx.emit("checkpoint", {"before": tool_name})
-    except Exception:
-        pass
+    commit = None
+    if tool_name in ("write_file", "edit_file"):
+        raw = (tool_input or {}).get("path", "")
+        if not raw:
+            return
+        target = Path(str(raw)).expanduser()
+        if not target.is_absolute():
+            target = Path(ctx.cwd) / target
+        commit = manager.ensure_checkpoint(project_root_for(target),
+                                           f"before {tool_name}")
+    elif tool_name == "run_shell":
+        command = (tool_input or {}).get("command", "")
+        # Reuse shellguard's classifier rather than keeping a second list
+        # of destructive patterns in sync with it.
+        from .shellguard import detect
+        if command and detect(str(command))[0] is not None:
+            cwd = (tool_input or {}).get("cwd") or ctx.cwd
+            commit = manager.ensure_checkpoint(cwd, "before run_shell")
+    if commit and getattr(ctx, "emit", None):
+        ctx.emit("checkpoint", {"before": tool_name})
