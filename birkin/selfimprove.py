@@ -15,7 +15,7 @@ from __future__ import annotations
 import copy
 import json
 import re
-from typing import Any, Literal, assert_never
+from typing import Any, Literal
 
 from . import approvals, prompts
 from .agent import Agent
@@ -186,7 +186,8 @@ def review_cli_turn(ctx: ToolContext, transcript: str) -> str:
         case "none":
             return "Nothing new worth saving."
         case unreachable:
-            assert_never(unreachable)
+            # ponytail: typing.assert_never is 3.11+; floor is 3.10.
+            raise AssertionError(f"unexpected action: {unreachable!r}")
 
     status = approvals.propose(
         category="skill", title=title, description=description,
