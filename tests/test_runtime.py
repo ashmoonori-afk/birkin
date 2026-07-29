@@ -43,6 +43,26 @@ def test_record_turn_writes_run_and_ledger():
     assert any(e["kind"] == "chat" for e in ledger)
 
 
+def test_record_turn_warns_when_run_record_cannot_be_saved(
+        monkeypatch, capsys):
+    # Given: the chat completed but its audit record cannot reach disk.
+    session = build_session({"provider": "codex-cli", "model": ""})
+    monkeypatch.setattr(
+        store, "save_run",
+        lambda *args, **kwargs: (
+            _ for _ in ()).throw(OSError("disk full")))
+    capsys.readouterr()
+
+    # When: the runtime records the completed turn.
+    result = session._record_turn("hello", "reply")
+
+    # Then: chat remains available and the persistence loss is visible.
+    assert result is None
+    error = capsys.readouterr().err
+    assert "could not save run record" in error
+    assert "disk full" in error
+
+
 def test_build_cli_system_injects_identity_memory_and_routed_skills():
     cfg = {"provider": "codex-cli", "model": ""}
     s = build_session(cfg)

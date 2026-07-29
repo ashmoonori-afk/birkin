@@ -7,6 +7,7 @@ configured identically in either surface.
 from __future__ import annotations
 
 import copy
+import sys
 import threading
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -231,8 +232,9 @@ class Session:
                 "tools": list(self.agent.last_tools),
                 "iterations": self.agent.last_iterations,
             }, usage=usage)
-        except Exception:
-            pass  # auditing must never break a chat turn
+        except OSError as exc:
+            print(f"[birkin] warning: could not save run record: {exc}",
+                  file=sys.stderr, flush=True)
         if review_skills:
             self._schedule_skill_review(text, reply)
 
