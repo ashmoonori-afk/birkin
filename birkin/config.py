@@ -456,9 +456,29 @@ def _overrides_only(cfg: dict[str, Any]) -> dict[str, Any]:
     (``nightly_hour``), forward-compat keys written by a newer build, and
     anything hand-added are none of this function's business.
     """
+    return _prune(cfg, DEFAULT_CONFIG)
+
+
+def _prune(cfg: dict[str, Any], defaults: dict[str, Any]) -> dict[str, Any]:
+    """One level of the diff, recursing into nested defaults.
+
+    A top-level-only diff still pinned the sub-keys of the one nested section
+    that carries defaults: enabling Telegram wrote channels.http.enabled,
+    channels.telegram.allowed_chat_ids and channels.telegram.stream, none of
+    which the user chose. Same bug as the outer one, one level down.
+    """
     out: dict[str, Any] = {}
     for key, value in cfg.items():
-        if key in DEFAULT_CONFIG and value == DEFAULT_CONFIG[key]:
+        if key not in defaults:
+            out[key] = value                 # not ours to judge
+            continue
+        base = defaults[key]
+        if isinstance(value, dict) and isinstance(base, dict):
+            inner = _prune(value, base)
+            if inner:                        # {} means "all defaults" -> omit
+                out[key] = inner
+            continue
+        if value == base:
             continue
         out[key] = value
     return out

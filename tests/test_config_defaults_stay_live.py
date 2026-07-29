@@ -107,6 +107,37 @@ def test_nested_channels_only_records_the_difference(cfg_path):
         "an untouched nested default was pinned")
 
 
+def test_only_the_changed_nested_keys_are_written(cfg_path):
+    """A top-level-only diff pinned the sub-keys too. Enabling Telegram the way
+    onboarding does wrote channels.http.enabled,
+    channels.telegram.allowed_chat_ids and channels.telegram.stream — three
+    values nobody chose, one level below the bug a3fc969 set out to kill."""
+    cfg = config.load_config()
+    cfg["channels"]["telegram"]["enabled"] = True
+    cfg["channels"]["telegram"]["token"] = "T"
+    config.save_config(cfg)
+
+    written = _written(cfg_path)["channels"]
+    assert written == {"telegram": {"enabled": True, "token": "T"}}, (
+        f"nested defaults pinned: {written}")
+
+
+def test_a_fully_default_subtree_is_omitted_entirely(cfg_path):
+    cfg = config.load_config()
+    cfg["model"] = "m"
+    config.save_config(cfg)
+    assert "channels" not in _written(cfg_path)
+
+
+def test_nested_round_trip_is_lossless(cfg_path):
+    cfg = config.load_config()
+    cfg["channels"]["telegram"]["enabled"] = True
+    cfg["channels"]["telegram"]["allowed_chat_ids"] = ["42"]
+    config.save_config(cfg)
+    again = config.load_config()
+    assert again["channels"] == cfg["channels"]
+
+
 def test_round_trip_preserves_the_effective_config(cfg_path):
     """Pruning must not change what the program actually sees."""
     cfg = config.load_config()
