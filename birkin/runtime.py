@@ -232,7 +232,7 @@ class Session:
                 "tools": list(self.agent.last_tools),
                 "iterations": self.agent.last_iterations,
             }, usage=usage)
-        except OSError as exc:
+        except Exception as exc:
             print(f"[birkin] warning: could not save run record: {exc}",
                   file=sys.stderr, flush=True)
         if review_skills:

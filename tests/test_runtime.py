@@ -63,6 +63,27 @@ def test_record_turn_warns_when_run_record_cannot_be_saved(
     assert "disk full" in error
 
 
+def test_record_turn_warns_for_unexpected_persistence_error(
+        monkeypatch, capsys):
+    # Given: persistence violates its normal I/O-only failure contract.
+    session = build_session({"provider": "codex-cli", "model": ""})
+    monkeypatch.setattr(
+        store, "save_run",
+        lambda *args, **kwargs: (
+            _ for _ in ()).throw(ValueError("invalid run payload")))
+    capsys.readouterr()
+
+    # When: the completed turn reaches the audit boundary.
+    result = session._record_turn(
+        "hello", "reply", review_skills=False)
+
+    # Then: the chat still returns and the unexpected loss remains visible.
+    assert result is None
+    error = capsys.readouterr().err
+    assert "could not save run record" in error
+    assert "invalid run payload" in error
+
+
 def test_build_cli_system_injects_identity_memory_and_routed_skills():
     cfg = {"provider": "codex-cli", "model": ""}
     s = build_session(cfg)
