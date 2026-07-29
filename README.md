@@ -306,9 +306,12 @@ model never approves its own shell command.
 - **Denials teach.** `/deny <id> <why>` sends your reason back to the agent, so
   it corrects course instead of retrying a variant blind. Human-in-the-loop only
   wins if the loop converges.
-- **Workspace checkpoints.** Every mutating tool snapshots the workspace into a
-  bare git store *outside* your project first, so `/rollback` undoes a bad edit.
-  Your own `.git` and `.env` are never touched.
+- **Workspace checkpoints, fail-closed.** Every mutating tool snapshots the
+  workspace into a bare git store *outside* your project first, so `/rollback`
+  undoes a bad edit. If that snapshot cannot be taken, the tool is refused
+  instead of running unprotected, and a `/rollback` that cannot save the current
+  state first reports why rather than proceeding. Your own `.git` and `.env` are
+  never touched.
 - **Scanned skill install.** `birkin skills install owner/repo` fetches into
   quarantine and scans for exfiltration, prompt injection and destructive
   patterns before anything lands.
@@ -316,8 +319,11 @@ model never approves its own shell command.
   payload is still queued for review.
 - **The gateway is never `--dangerously-skip-permissions`.** A reachable chat
   message cannot reach a fully-permissioned process.
-- **Trust-gated memory.** An open Telegram bot's strangers are not auto-saved or
-  memorized — memory poisoning needs a door, and this one is shut.
+- **There is no open Telegram bot.** Without
+  `channels.telegram.allowed_chat_ids` the gateway refuses to start Telegram at
+  all — no "warn once and run anyway" path. Past that gate, strangers are still
+  never auto-saved or memorized: memory poisoning needs a door, and this one is
+  shut.
 - **Secret redaction** before disk and before memory; state written atomically,
   `0o600`. Optional **lifecycle hooks** can block a tool or inject context, each
   confirmed once before it ever runs.
@@ -585,6 +591,13 @@ overflow, provider failover, the destructive-command gate, workspace snapshots
 for `/rollback`, lifecycle hooks, parallel reads, tool-output spill, and whether
 a line typed mid-turn steers or interrupts.
 
+Those are the *defaults* — `config.json` on disk holds only the keys you
+actually changed, nested sections included. That matters on upgrade: a file that
+mirrored every default would replay yesterday's values over a better default
+forever, so `birkin update` could ship an improvement no existing install ever
+received. Keys birkin does not recognize — legacy names, anything you added by
+hand — are preserved untouched.
+
 API keys are read from the environment first; a key in `config.json` is stored
 `chmod 600`. Colour obeys `NO_COLOR` / `CLICOLOR_FORCE`; `BIRKIN_PLAIN=1` drops
 animation for screen readers.
@@ -619,8 +632,10 @@ available, and reverted rather than shipped on a hunch. Research log:
 
 ## 🛠️ Where birkin sits today
 
-- **1,550+ tests** passing offline with no API key, ≥75 % coverage gate,
-  **55 bundled skills**, **0 runtime dependencies**, Python 3.10+.
+- **1,700+ tests** passing offline with no API key, ≥75 % coverage gate,
+  **55 bundled skills**, **0 runtime dependencies**, Python 3.10+. CI runs the
+  full suite on Windows / 3.13 and a compile-and-collect smoke on Linux / 3.10,
+  so the version floor is enforced rather than asserted.
 - Deliberately smaller than its inspirations —
   [hermes-agent](https://github.com/NousResearch/hermes-agent) and
   [openclaw](https://github.com/openclaw/openclaw); the deep-interview lineage
