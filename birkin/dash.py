@@ -497,9 +497,9 @@ def _loop(session, w, keys, state):
             # Approving a queued shell command used to print nothing at all:
             # success, a non-zero exit and a raised exception were the same
             # blank screen. The row vanishing is not an outcome report.
-            state["note"] = (f"\u2713 {str(out.get('result') or '\uc644\ub8cc')[:120]}"
+            state["note"] = (f"\u2713 {str(out.get('result') or '완료')[:120]}"
                              if out.get("ok")
-                             else f"\u26a0 {out.get('error') or '\uc2e4\ud328'}")
+                             else f"\u26a0 {out.get('error') or '실패'}")
             snap = snapshot(session)
 
 
