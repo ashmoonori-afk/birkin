@@ -333,7 +333,10 @@ class CheckpointManager:
 
         # Snapshot first, so an unwanted rollback is itself undoable.
         self._this_turn.discard(str(path))
-        self.ensure_checkpoint(path, "before rollback")
+        try:
+            self.ensure_checkpoint(path, "before rollback")
+        except CheckpointError as exc:
+            return False, f"could not protect current state: {exc}"
 
         env = self._env(path)
         target = ["--", file] if file else ["--", "."]

@@ -49,6 +49,27 @@ def test_snapshot_and_restore_round_trip(work):
     assert (work / "main.py").read_text(encoding="utf-8") == "print('original')\n"
 
 
+def test_restore_reports_when_safety_snapshot_fails(work, monkeypatch):
+    # Given: a valid rollback target, but no way to protect the current state.
+    manager = _mgr()
+    commit = manager.ensure_checkpoint(work, "before edit")
+    assert commit
+    target = work / "main.py"
+    target.write_text("print('changed')\n", encoding="utf-8")
+    monkeypatch.setattr(
+        manager, "_take",
+        lambda *args, **kwargs: (
+            _ for _ in ()).throw(OSError("disk full")))
+
+    # When: rollback tries to take its mandatory undo checkpoint.
+    ok, message = manager.restore(work, commit)
+
+    # Then: the tuple API reports failure and no rollback occurs.
+    assert not ok
+    assert "disk full" in message
+    assert target.read_text(encoding="utf-8") == "print('changed')\n"
+
+
 def test_nothing_is_written_into_the_users_project(work):
     mgr = _mgr()
     mgr.ensure_checkpoint(work, "snap")
