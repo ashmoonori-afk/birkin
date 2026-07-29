@@ -59,7 +59,8 @@ class ClaudeStreamSession:
                  startup_timeout: float = 90.0,
                  turn_timeout: float = 300.0,
                  settings: Optional[dict] = None,
-                 env_extra: Optional[dict] = None):
+                 env_extra: Optional[dict] = None,
+                 birkin_mcp: bool = False):
         self.model = model
         self.permission_mode = permission_mode
         self.cli_access = cli_access
@@ -77,6 +78,7 @@ class ClaudeStreamSession:
         self.settings = dict(settings or {})
         # Extra child env (e.g. MAX_THINKING_TOKENS=0 for fast chat turns).
         self.env_extra = {k: str(v) for k, v in (env_extra or {}).items()}
+        self.birkin_mcp = bool(birkin_mcp)
 
         self._proc: Optional[subprocess.Popen] = None
         self._q: "queue.Queue[tuple[str, Optional[str]]]" = queue.Queue()
@@ -84,6 +86,7 @@ class ClaudeStreamSession:
         self._session_id: Optional[str] = None
         self._sys_file: Optional[Path] = None
         self._settings_file: Optional[Path] = None
+        self._mcp_file: Optional[Path] = None
         # Set by close() (terminal retire, e.g. gateway /new). ask() must NOT
         # resurrect a deliberately-closed session: a racing in-flight turn could
         # otherwise restart a process on an object the gateway already dropped,
@@ -129,6 +132,12 @@ class ClaudeStreamSession:
             except OSError:
                 pass
             self._settings_file = None
+        if self._mcp_file is not None:
+            try:
+                self._mcp_file.unlink()
+            except OSError:
+                pass
+            self._mcp_file = None
 
     def _ensure_settings_file(self) -> Optional[Path]:
         """Materialize the per-child settings overrides to a temp file."""
@@ -141,6 +150,25 @@ class ClaudeStreamSession:
             json.dump(self.settings, fh)
         self._settings_file = Path(path)
         return self._settings_file
+
+    def _ensure_mcp_file(self) -> Optional[Path]:
+        """Materialize Birkin's MCP launch config for this child."""
+        if not self.birkin_mcp:
+            return None
+        if self._mcp_file and self._mcp_file.exists():
+            return self._mcp_file
+
+        from . import mcp_server
+
+        fd, path = tempfile.mkstemp(suffix="-birkin-mcp.json")
+        os.close(fd)
+        self._mcp_file = Path(path)
+        try:
+            return mcp_server.write_mcp_config(self._mcp_file)
+        except Exception:
+            self._mcp_file.unlink(missing_ok=True)
+            self._mcp_file = None
+            raise
 
     def child_env(self) -> dict[str, str]:
         """Environment for the child process: claude_child_env + env_extra."""
@@ -168,6 +196,9 @@ class ClaudeStreamSession:
         settings_file = self._ensure_settings_file()
         if settings_file is not None:
             parts += ["--settings", str(settings_file)]
+        mcp_file = self._ensure_mcp_file()
+        if mcp_file is not None:
+            parts += ["--mcp-config", str(mcp_file)]
         for d in self.add_dirs:
             parts += ["--add-dir", d]
         parts += self.extra_args

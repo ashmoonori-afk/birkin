@@ -321,7 +321,8 @@ class Gateway:
             model=self.cfg.get("model"),
             cli_access=self.cfg.get("cli_access", "workspace"),
             append_system_prompt=self._system_prompt(),
-            extra_args=extra, settings=settings, env_extra=env_extra)
+            extra_args=extra, settings=settings, env_extra=env_extra,
+            birkin_mcp=True)
 
     def _make_spare(self) -> None:
         """Spawn one warm, unclaimed session so the next new conversation

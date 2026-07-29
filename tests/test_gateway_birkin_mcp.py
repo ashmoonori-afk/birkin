@@ -32,6 +32,9 @@ declines even a birkin-shaped ask.
 
 from __future__ import annotations
 
+import json
+from pathlib import Path
+
 import pytest
 
 from birkin.codex_session import (_MCP_ELICITATION, CodexAppServerSession,
@@ -111,12 +114,35 @@ def test_sandbox_and_approval_flags_survive_the_addition():
 
 # -- and the gateway asks for it -------------------------------------------
 
-def test_gateway_attaches_birkin_mcp_to_its_codex_session():
-    """Without this the gateway is a chat that cannot write to the vault —
-    which is the product's headline feature."""
-    import inspect
-
+def test_gateway_attaches_birkin_mcp_to_its_claude_session():
+    """Claude gateways need Birkin tools without hiding company MCP servers."""
     from birkin.gateway import core
-    src = inspect.getsource(core.Gateway)
-    assert "birkin_mcp=True" in src, (
-        "the gateway builds its codex session without birkin's tools")
+
+    # Given: the gateway is constructing its persistent Claude child.
+    gateway = core.Gateway.__new__(core.Gateway)
+    gateway.cfg = {
+        "provider": "claude-cli",
+        "model": "claude-sonnet-4-5",
+        "cli_access": "workspace",
+        "gateway_clean_hooks": True,
+        "gateway_thinking_tokens": 0,
+    }
+    gateway._system_prompt = lambda: "birkin gateway"
+
+    # When: the exact child argv is materialized.
+    session = gateway._build_claude_session()
+    mcp_path: Path | None = None
+    try:
+        argv = session._build_argv()
+        mcp_index = argv.index("--mcp-config")
+        mcp_path = Path(argv[mcp_index + 1])
+        payload = json.loads(mcp_path.read_text(encoding="utf-8"))
+
+        # Then: Birkin MCP is added without replacing user/company MCP config.
+        assert "birkin" in payload["mcpServers"]
+        assert "--strict-mcp-config" not in argv
+    finally:
+        session.close()
+
+    assert mcp_path is not None
+    assert not mcp_path.exists()
