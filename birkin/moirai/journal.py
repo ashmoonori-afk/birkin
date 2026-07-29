@@ -21,6 +21,7 @@ import hashlib
 import json
 import sqlite3
 import statistics
+from contextlib import closing
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Optional
@@ -100,7 +101,7 @@ def call_key(prompt: str, opts: dict[str, Any]) -> str:
 def start_run(run_id: str, *, name: str, script_path: str,
               script_sha256: str, args: dict, bindings: dict) -> None:
     try:
-        with _connect() as con:
+        with closing(_connect()) as con, con:
             con.execute(
                 "INSERT OR REPLACE INTO runs (run_id, name, script_path, "
                 "script_sha256, args_json, bindings_json, status, started) "
@@ -115,7 +116,7 @@ def start_run(run_id: str, *, name: str, script_path: str,
 def finish_run(run_id: str, status: str, *, result: Any = None,
                tokens: int = 0) -> None:
     try:
-        with _connect() as con:
+        with closing(_connect()) as con, con:
             con.execute(
                 "UPDATE runs SET status = ?, finished = ?, result_json = ?, "
                 "tokens = ? WHERE run_id = ?",
@@ -129,7 +130,7 @@ def finish_run(run_id: str, status: str, *, result: Any = None,
 
 def get_run(run_id: str) -> Optional[dict]:
     try:
-        with _connect() as con:
+        with closing(_connect()) as con, con:
             con.row_factory = sqlite3.Row
             row = con.execute("SELECT * FROM runs WHERE run_id = ?",
                               (run_id,)).fetchone()
@@ -140,7 +141,7 @@ def get_run(run_id: str) -> Optional[dict]:
 
 def list_runs(limit: int = 20, name: Optional[str] = None) -> list[dict]:
     try:
-        with _connect() as con:
+        with closing(_connect()) as con, con:
             con.row_factory = sqlite3.Row
             if name:
                 rows = con.execute(
@@ -173,7 +174,7 @@ def record_call(run_id: str, seq: int, key: str, *, role: str = "",
                 provider: str = "", model: str = "", label: str = "",
                 phase: str = "") -> None:
     try:
-        with _connect() as con:
+        with closing(_connect()) as con, con:
             con.execute(
                 "INSERT OR REPLACE INTO calls (run_id, seq, call_key, role, "
                 "provider, model, label, phase, status, started) "
@@ -187,7 +188,7 @@ def record_call(run_id: str, seq: int, key: str, *, role: str = "",
 def finish_call(run_id: str, seq: int, *, status: str, result: str = "",
                 error: str = "", tokens: int = 0) -> None:
     try:
-        with _connect() as con:
+        with closing(_connect()) as con, con:
             con.execute(
                 "UPDATE calls SET status = ?, result = ?, error = ?, "
                 "tokens = ?, finished = ? WHERE run_id = ? AND seq = ?",
@@ -200,7 +201,7 @@ def finish_call(run_id: str, seq: int, *, status: str, result: str = "",
 def cached_calls(run_id: str) -> dict[int, dict]:
     """Successful calls from a prior run, by sequence — the resume source."""
     try:
-        with _connect() as con:
+        with closing(_connect()) as con, con:
             con.row_factory = sqlite3.Row
             rows = con.execute(
                 "SELECT * FROM calls WHERE run_id = ? AND status = 'ok' "
@@ -212,7 +213,7 @@ def cached_calls(run_id: str) -> dict[int, dict]:
 
 def run_calls(run_id: str) -> list[dict]:
     try:
-        with _connect() as con:
+        with closing(_connect()) as con, con:
             con.row_factory = sqlite3.Row
             rows = con.execute(
                 "SELECT * FROM calls WHERE run_id = ? ORDER BY seq", (run_id,))
@@ -231,7 +232,7 @@ def observed(provider: str, model: str) -> Optional[dict[str, float]]:
     silently would make the picker's most useful column its least trustworthy.
     """
     try:
-        with _connect() as con:
+        with closing(_connect()) as con, con:
             rows = con.execute(
                 "SELECT started, finished, tokens FROM calls "
                 "WHERE provider = ? AND model = ? AND status = 'ok' "

@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import json
 import sqlite3
+from contextlib import closing
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -53,7 +54,7 @@ def event(kind: str, summary: str = "", *, tokens: int = 0,
           data: dict[str, Any] | None = None) -> None:
     """Append one event. Never raises — the ledger must not break a run."""
     try:
-        with _connect() as con:
+        with closing(_connect()) as con, con:
             con.execute(
                 "INSERT INTO events (ts, kind, summary, tokens, data) "
                 "VALUES (?, ?, ?, ?, ?)",
@@ -69,7 +70,7 @@ def usage(period: str = "day", now: datetime | None = None) -> int:
     now = now or datetime.now(timezone.utc)
     prefix = now.strftime("%Y-%m-%d" if period == "day" else "%Y-%m")
     try:
-        with _connect() as con:
+        with closing(_connect()) as con, con:
             row = con.execute(
                 "SELECT COALESCE(SUM(tokens), 0) FROM events WHERE ts LIKE ?",
                 (prefix + "%",)).fetchone()
@@ -80,7 +81,7 @@ def usage(period: str = "day", now: datetime | None = None) -> int:
 
 def recent(limit: int = 50, kind: str | None = None) -> list[dict[str, Any]]:
     try:
-        with _connect() as con:
+        with closing(_connect()) as con, con:
             con.row_factory = sqlite3.Row
             if kind:
                 rows = con.execute(

@@ -19,6 +19,7 @@ a human reading it; a silently lost answer is not.
 from __future__ import annotations
 
 import sqlite3
+from contextlib import closing
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -56,7 +57,7 @@ def record(channel: str, chat_id: str, text: str) -> int | None:
     if not (text or "").strip():
         return None
     try:
-        with _connect() as con:
+        with closing(_connect()) as con, con:
             cur = con.execute(
                 "INSERT INTO outbox (channel, chat_id, text, created) "
                 "VALUES (?, ?, ?, ?)",
@@ -72,7 +73,7 @@ def clear(row_id: int | None) -> None:
     if row_id is None:
         return
     try:
-        with _connect() as con:
+        with closing(_connect()) as con, con:
             con.execute("DELETE FROM outbox WHERE id = ?", (int(row_id),))
     except Exception:
         pass
@@ -81,7 +82,7 @@ def clear(row_id: int | None) -> None:
 def pending(channel: str | None = None) -> list[dict[str, Any]]:
     """Obligations that outlived the process that took them on."""
     try:
-        with _connect() as con:
+        with closing(_connect()) as con, con:
             con.row_factory = sqlite3.Row
             if channel:
                 rows = con.execute(
