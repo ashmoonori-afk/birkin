@@ -11,6 +11,7 @@ import pytest
 
 from birkin.gateway import core as gw_core
 from birkin.gateway.channels import build_channels
+from birkin.gateway.channels import local_http
 from birkin.gateway.channels.local_http import LocalHTTPChannel
 from birkin.gateway.channels.telegram import verify_token
 
@@ -204,6 +205,47 @@ def test_local_http_fixture_stops_server():
 
     # Then: serve_forever returned and readiness was cleared.
     assert not thread.is_alive()
+    assert not channel.wait_until_ready(0)
+
+
+def test_local_http_stop_does_not_deadlock_before_serve_loop(monkeypatch):
+    # Given: startup has published the listener but is blocked before serving.
+    print_entered = threading.Event()
+    release_print = threading.Event()
+
+    def blocking_print(*_args, **_kwargs):
+        print_entered.set()
+        assert release_print.wait(2.0)
+
+    monkeypatch.setattr(
+        local_http, "print", blocking_print, raising=False)
+    gateway = types.SimpleNamespace(
+        handle=lambda *_args: "ok", pending_hard_restart=False)
+    channel = LocalHTTPChannel(0)
+    server_thread = threading.Thread(
+        target=channel.start, args=(gateway,), daemon=True)
+    server_thread.start()
+    assert print_entered.wait(1.0)
+
+    stopped = threading.Event()
+
+    def stop_channel():
+        channel.stop()
+        stopped.set()
+
+    stop_thread = threading.Thread(target=stop_channel, daemon=True)
+    stop_thread.start()
+
+    # When/Then: stop returns without waiting for serve_forever to begin.
+    try:
+        assert stopped.wait(0.5)
+    finally:
+        release_print.set()
+        stop_thread.join(timeout=2.0)
+        server_thread.join(timeout=2.0)
+
+    assert not stop_thread.is_alive()
+    assert not server_thread.is_alive()
     assert not channel.wait_until_ready(0)
 
 

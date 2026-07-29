@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import json
 import os
+import socket
 import threading
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from typing import TYPE_CHECKING, Any
@@ -34,6 +35,7 @@ class LocalHTTPChannel(Channel):
     def __init__(self, port: int):
         self.port = port
         self._ready = threading.Event()
+        self._stop_requested = threading.Event()
         self._httpd: ThreadingHTTPServer | None = None
         self._lifecycle_lock = threading.Lock()
 
@@ -43,12 +45,19 @@ class LocalHTTPChannel(Channel):
 
     def stop(self) -> None:
         """Stop a running listener from its owning thread."""
+        self._stop_requested.set()
         with self._lifecycle_lock:
             httpd = self._httpd
         if httpd is not None:
-            httpd.shutdown()
+            try:
+                with socket.create_connection(
+                        httpd.server_address, timeout=1.0):
+                    pass
+            except OSError:
+                pass
 
     def start(self, gateway: "Gateway") -> None:
+        self._stop_requested.clear()
         gw = gateway
 
         class Handler(BaseHTTPRequestHandler):
@@ -126,7 +135,8 @@ class LocalHTTPChannel(Channel):
         print(f"  · http channel on http://127.0.0.1:{self.port} "
               f"(POST /message, GET /health)")
         try:
-            httpd.serve_forever()
+            while not self._stop_requested.is_set():
+                httpd.handle_request()
         finally:
             httpd.server_close()
             with self._lifecycle_lock:
