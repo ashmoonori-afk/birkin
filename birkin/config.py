@@ -174,8 +174,8 @@ DEFAULT_CONFIG: dict[str, Any] = {
     "channels": {
         "http": {"enabled": True},
         # Prefer the TELEGRAM_BOT_TOKEN env var over the plaintext "token" here.
-        # "allowed_chat_ids" gates who may drive the bot — leave empty ONLY for a
-        # private/local bot; set your chat id(s) for any shared/company use.
+        # "allowed_chat_ids" gates who may drive the bot. Telegram is refused
+        # at startup when this list is empty.
         # "stream": edit-stream partial replies into the chat as they arrive
         # (hermes-style perceived latency) instead of one final message.
         "telegram": {"enabled": False, "token": "", "allowed_chat_ids": [],

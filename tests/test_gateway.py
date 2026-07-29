@@ -11,6 +11,7 @@ import types
 import pytest
 
 from birkin.gateway import core as gw_core
+from birkin.gateway.channels import build_channels
 from birkin.gateway.channels.local_http import LocalHTTPChannel
 from birkin.gateway.channels.telegram import verify_token
 
@@ -146,6 +147,31 @@ def test_local_http_bad_paths_and_payloads(http_channel):
 
 
 # ---------------- Telegram verify_token (offline error path) ----------------
+
+def test_open_telegram_without_allowlist_is_refused(capsys, monkeypatch):
+    # Given: Telegram is enabled with a token but no authorized chat ids.
+    monkeypatch.delenv("TELEGRAM_BOT_TOKEN", raising=False)
+    monkeypatch.delenv("BIRKIN_TELEGRAM_TOKEN", raising=False)
+    cfg = {
+        "channels": {
+            "http": {"enabled": False},
+            "telegram": {
+                "enabled": True,
+                "token": "probe-token",
+                "allowed_chat_ids": [],
+            },
+        },
+    }
+
+    # When: the gateway constructs its enabled channels.
+    channels = build_channels(cfg)
+
+    # Then: the reachable Telegram channel is refused before it can start.
+    assert channels == []
+    output = capsys.readouterr().out
+    assert "allowed_chat_ids" in output
+    assert "refusing" in output.lower()
+
 
 def test_verify_token_empty_returns_false():
     ok, info = verify_token("")

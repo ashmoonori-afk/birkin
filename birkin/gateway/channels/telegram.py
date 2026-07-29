@@ -144,7 +144,7 @@ class TelegramChannel(Channel):
                  stream: bool = True):
         self.token = token
         # When non-empty, only these chat ids may drive the agent (access control
-        # for a reachable bot). Empty -> open (a startup warning is printed).
+        # for a reachable bot). build_channels refuses an empty allowlist.
         self.allowed_chat_ids = set(allowed_chat_ids or [])
         self.stream = bool(stream)
         # Per-chat edit cooldown from 429 retry_after — edits during the

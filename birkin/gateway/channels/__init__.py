@@ -31,7 +31,6 @@ def build_channels(cfg: dict[str, Any]) -> list[Channel]:
             print("[gateway] telegram enabled but no token "
                   "(set TELEGRAM_BOT_TOKEN or channels.telegram.token) — skipping.")
         else:
-            from .telegram import TelegramChannel
             if tg.get("token") and not (os.environ.get("TELEGRAM_BOT_TOKEN")
                                         or os.environ.get("BIRKIN_TELEGRAM_TOKEN")):
                 print("[gateway] SECURITY: Telegram token is stored in plaintext in "
@@ -40,11 +39,13 @@ def build_channels(cfg: dict[str, Any]) -> list[Channel]:
             allowed = [str(c).strip() for c in (tg.get("allowed_chat_ids") or [])
                        if str(c).strip()]
             if not allowed:
-                print("[gateway] WARNING: Telegram has no allowed_chat_ids — ANYONE "
-                      "who finds the bot can drive the agent. Set "
-                      "channels.telegram.allowed_chat_ids to your chat id(s).")
-            channels.append(TelegramChannel(token, allowed_chat_ids=allowed,
-                                            stream=bool(tg.get("stream", True))))
+                print("[gateway] refusing Telegram: "
+                      "channels.telegram.allowed_chat_ids is required.")
+            else:
+                from .telegram import TelegramChannel
+                channels.append(TelegramChannel(
+                    token, allowed_chat_ids=allowed,
+                    stream=bool(tg.get("stream", True))))
 
     return channels
 
