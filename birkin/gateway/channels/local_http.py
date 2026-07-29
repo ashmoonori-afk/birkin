@@ -11,7 +11,8 @@ from __future__ import annotations
 
 import json
 import os
-from http.server import BaseHTTPRequestHandler, HTTPServer
+import threading
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from typing import TYPE_CHECKING, Any
 
 from .base import Channel
@@ -32,6 +33,20 @@ class LocalHTTPChannel(Channel):
 
     def __init__(self, port: int):
         self.port = port
+        self._ready = threading.Event()
+        self._httpd: ThreadingHTTPServer | None = None
+        self._lifecycle_lock = threading.Lock()
+
+    def wait_until_ready(self, timeout: float | None = None) -> bool:
+        """Wait until the listener is bound and its actual port is published."""
+        return self._ready.wait(timeout)
+
+    def stop(self) -> None:
+        """Stop a running listener from its owning thread."""
+        with self._lifecycle_lock:
+            httpd = self._httpd
+        if httpd is not None:
+            httpd.shutdown()
 
     def start(self, gateway: "Gateway") -> None:
         gw = gateway
@@ -100,10 +115,21 @@ class LocalHTTPChannel(Channel):
                         pass
                     gw.do_hard_restart()  # replaces the process; never returns
 
-        httpd = HTTPServer(("127.0.0.1", self.port), Handler)
+        httpd = ThreadingHTTPServer(("127.0.0.1", self.port), Handler)
+        with self._lifecycle_lock:
+            if self._httpd is not None:
+                httpd.server_close()
+                raise RuntimeError("HTTP channel is already running")
+            self._httpd = httpd
+            self.port = int(httpd.server_address[1])
+            self._ready.set()
         print(f"  · http channel on http://127.0.0.1:{self.port} "
               f"(POST /message, GET /health)")
         try:
             httpd.serve_forever()
         finally:
             httpd.server_close()
+            with self._lifecycle_lock:
+                if self._httpd is httpd:
+                    self._httpd = None
+                    self._ready.clear()

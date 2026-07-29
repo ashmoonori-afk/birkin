@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import http.client
 import json
-import socket
 import threading
 import types
 
@@ -77,35 +76,33 @@ def test_gateway_returns_friendly_error_not_raw(monkeypatch):
 
 # ---------------- LocalHTTPChannel ----------------
 
-def _free_port() -> int:
-    s = socket.socket()
-    s.bind(("127.0.0.1", 0))
-    port = s.getsockname()[1]
-    s.close()
-    return port
+def _start_http_channel(gateway):
+    channel = LocalHTTPChannel(0)
+    thread = threading.Thread(
+        target=channel.start, args=(gateway,), daemon=True)
+    thread.start()
+    assert channel.wait_until_ready(1.0)
+    return channel, thread
 
 
 @pytest.fixture
 def http_channel():
-    port = _free_port()
-    ch = LocalHTTPChannel(port)
-    fake_gw = types.SimpleNamespace(handle=lambda ch_name, cid, txt: f"[{ch_name}:{cid}] {txt}")
-    t = threading.Thread(target=ch.start, args=(fake_gw,), daemon=True)
-    t.start()
-
-    # wait briefly for the server to bind
-    import time
-    for _ in range(40):
-        try:
-            with socket.create_connection(("127.0.0.1", port), timeout=0.1):
-                break
-        except OSError:
-            time.sleep(0.05)
-    yield port
+    fake_gw = types.SimpleNamespace(
+        handle=lambda ch_name, cid, txt: f"[{ch_name}:{cid}] {txt}",
+        pending_hard_restart=False)
+    channel, thread = _start_http_channel(fake_gw)
+    try:
+        yield channel
+    finally:
+        channel.stop()
+        thread.join(timeout=2.0)
+        assert not thread.is_alive()
 
 
-def _req(port, method, path, host="127.0.0.1", body=None):
-    conn = http.client.HTTPConnection("127.0.0.1", port)
+def _req(channel, method, path, host="127.0.0.1", body=None,
+         timeout=2.0):
+    conn = http.client.HTTPConnection(
+        "127.0.0.1", channel.port, timeout=timeout)
     headers = {"Host": host}
     if body is not None:
         headers["Content-Type"] = "application/json"
@@ -144,6 +141,70 @@ def test_local_http_bad_paths_and_payloads(http_channel):
     assert code == 400
     code, _ = _req(http_channel, "POST", "/message", body=b"{}")
     assert code == 400  # empty text
+
+
+def test_local_http_stays_responsive_during_a_blocked_turn():
+    # Given: one message is held inside the gateway turn.
+    entered = threading.Event()
+    release = threading.Event()
+
+    def handle(_channel, _chat_id, text):
+        if text == "block":
+            entered.set()
+            assert release.wait(2.0)
+        return text
+
+    channel, server_thread = _start_http_channel(
+        types.SimpleNamespace(
+            handle=handle, pending_hard_restart=False))
+    response: dict[str, tuple[int, bytes]] = {}
+    error: list[Exception] = []
+
+    def send_blocking_message():
+        try:
+            body = json.dumps(
+                {"session": "slow", "text": "block"}).encode()
+            response["message"] = _req(
+                channel, "POST", "/message", body=body)
+        except Exception as exc:
+            error.append(exc)
+
+    request_thread = threading.Thread(target=send_blocking_message)
+    request_thread.start()
+    assert entered.wait(1.0)
+
+    # When: health is queried before the blocked turn is released.
+    try:
+        code, body = _req(
+            channel, "GET", "/health", timeout=1.0)
+    finally:
+        release.set()
+        request_thread.join(timeout=2.0)
+        channel.stop()
+        server_thread.join(timeout=2.0)
+
+    # Then: request dispatch was concurrent and every thread stopped.
+    assert code == 200
+    assert json.loads(body) == {"ok": True, "channel": "http"}
+    assert not error
+    assert response["message"][0] == 200
+    assert not request_thread.is_alive()
+    assert not server_thread.is_alive()
+
+
+def test_local_http_fixture_stops_server():
+    # Given: a listening server with explicit lifecycle ownership.
+    gateway = types.SimpleNamespace(
+        handle=lambda *_args: "ok", pending_hard_restart=False)
+    channel, thread = _start_http_channel(gateway)
+
+    # When: the owner stops it.
+    channel.stop()
+    thread.join(timeout=2.0)
+
+    # Then: serve_forever returned and readiness was cleared.
+    assert not thread.is_alive()
+    assert not channel.wait_until_ready(0)
 
 
 # ---------------- Telegram verify_token (offline error path) ----------------
