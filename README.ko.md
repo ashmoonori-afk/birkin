@@ -614,10 +614,7 @@ top-5가 long-context 대비 **9.1×**, 볼트 전체 로딩 대비 **371×** �
 
 ## 🛠️ 현재 위치
 
-- API 키 없이 **테스트 1,700+개** 오프라인 통과, 커버리지 게이트 ≥75%,
-  **번들 스킬 55개**, **런타임 의존성 0**, Python 3.10+. CI는 Windows/3.13에서
-  전체 스위트를, Linux/3.10에서 컴파일·수집 스모크를 돌리므로 최소 버전은
-  주장이 아니라 강제됩니다.
+- **번들 스킬 55개**, **런타임 의존성 0**, Python 3.10+.
 - 영감을 준 프로젝트들보다 의도적으로 작습니다 —
   [hermes-agent](https://github.com/NousResearch/hermes-agent),
   [openclaw](https://github.com/openclaw/openclaw); 딥 인터뷰 계보는

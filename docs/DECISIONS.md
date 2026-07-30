@@ -248,7 +248,8 @@ older ones (noted inline).
   (3) negative results (fixture-B ranking reversal, snippet e2e, curation
   does-not-move-top-k) are reported in the main text, not hidden; (4) fixture
   B stays frozen — no engine reruns, ever.
-- **Status.** Accepted 2026-07-11. Paper: `docs/paper/mnemosyne-paper.md`.
+- **Status.** Accepted 2026-07-11. The paper draft and generated figures remain
+  local research artifacts rather than shipped project documentation.
 
 ---
 

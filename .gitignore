@@ -29,9 +29,9 @@ docs/productization/
 # Stray packaging artifacts inside the skills tree
 skills/**/*.zip
 
-# Local research artifacts — benchmark harness/results and the paper draft
-# stay out of the public repo (owner's decision, 2026-07-03)
-benchmarks/
+# Generated benchmark results, private fixtures, and paper artifacts
+benchmarks/results/
+benchmarks/hidden_fixture_b.py
 docs/paper/
 # hermes-agent re-comparison research note (local only, 2026-07-23)
 docs/hermes-comparison-20260723.md
@@ -39,8 +39,17 @@ docs/hermes-comparison-20260723.md
 docs/tui-redesign-plan.md
 docs/dev-plan-20260725.md
 docs/moirai-design.md
+# Superseded Morpheus implementation notes; current behavior lives in ADRs/code
+docs/morpheus-skillification-plan.md
+docs/morpheus-skillification.md
 # Working evidence/drafts dir (codex receipts, model-test logs) — local only
 .omo/
+# Generated local research, reports, and one-shot QA scratch files
+/reports/
+/research-*.md
+/*-analysis-*.md
+/ulw-*.md
+/.tmp-*
 # Tests that load the local-only benchmark harness (benchmarks/ is ignored)
 tests/test_bench_curation200.py
 tests/test_bench_lme_e2e.py

@@ -658,10 +658,7 @@ available, and reverted rather than shipped on a hunch. Research log:
 
 ## 🛠️ Where birkin sits today
 
-- **1,700+ tests** passing offline with no API key, ≥75 % coverage gate,
-  **55 bundled skills**, **0 runtime dependencies**, Python 3.10+. CI runs the
-  full suite on Windows / 3.13 and a compile-and-collect smoke on Linux / 3.10,
-  so the version floor is enforced rather than asserted.
+- **55 bundled skills**, **0 runtime dependencies**, Python 3.10+.
 - Deliberately smaller than its inspirations —
   [hermes-agent](https://github.com/NousResearch/hermes-agent) and
   [openclaw](https://github.com/openclaw/openclaw); the deep-interview lineage
