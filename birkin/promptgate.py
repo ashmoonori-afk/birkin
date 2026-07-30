@@ -29,12 +29,13 @@ def compose_main(cfg: dict[str, Any], *, skills_index: str = "",
                  persona_text: Optional[str] = None) -> str:
     """System prompt for the native agent loop (API providers). Persona + tool
     guidance + skills + memory, then the neurosis auto-trigger note."""
-    return prompts.build_system_prompt(
+    system = prompts.build_system_prompt(
         skills_index=skills_index, memory_block=memory_block, role=role,
         extra=extra, persona=_persona(persona_text)
     ) + presets.role_overlay(cfg.get("model"), cfg) \
         + neurosis.auto_trigger_note(cfg) \
         + moirai_trigger.auto_trigger_note(cfg)
+    return prompts.seal_research_policy(system)
 
 
 def compose_cli(cfg: dict[str, Any], *, memory_block: str = "",
@@ -47,6 +48,7 @@ def compose_cli(cfg: dict[str, Any], *, memory_block: str = "",
         persona=_persona(persona_text))
     if extra:
         sysp += extra
-    return sysp + presets.role_overlay(cfg.get("model"), cfg) \
+    system = sysp + presets.role_overlay(cfg.get("model"), cfg) \
         + neurosis.auto_trigger_note(cfg) \
         + moirai_trigger.auto_trigger_note(cfg)
+    return prompts.seal_research_policy(system)

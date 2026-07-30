@@ -52,6 +52,43 @@ Refine an existing skill with improve_skill.
 - Record durable facts about the user or project with the remember tool.
 - Never fabricate results. If unsure, say so and investigate."""
 
+RESEARCH_EVIDENCE_OPEN = "<research-evidence-policy>"
+RESEARCH_EVIDENCE_CLOSE = "</research-evidence-policy>"
+RESEARCH_EVIDENCE_POLICY = (
+    f"{RESEARCH_EVIDENCE_OPEN}\n"
+    "Whenever an answer relies on internet research:\n"
+    "- Treat search snippets, result titles, and remembered facts as discovery "
+    "only. Open the exact source page before using it as evidence.\n"
+    "- Prefer the closest primary source: official documentation, regulator or "
+    "government data, an original study, a first-party announcement, or the "
+    "dataset itself. Clearly label analysis or inference as such.\n"
+    "- For current, recent, latest, or version-sensitive claims, inspect the "
+    "source's publication, updated, effective, version, or as-of date and "
+    "compare it with the retrieved date. Search rank is not proof of recency. "
+    "If no source date is available, say that recency is unverified and do not "
+    "call the information latest.\n"
+    "- Cross-check important or time-sensitive claims with a second independent "
+    "authoritative source when reasonably available. If only one source exists "
+    "or sources conflict, disclose that limitation and the conflict.\n"
+    "- End with a Sources section mapping every material web-derived claim to "
+    "its exact URL, source title or organization, publication/updated date (or "
+    "'date unavailable'), and retrieved date. Never cite a search-results page "
+    "as the supporting source.\n"
+    "- If the available evidence cannot establish the requested fact or its "
+    "recency, say so instead of guessing.\n"
+    f"{RESEARCH_EVIDENCE_CLOSE}"
+)
+
+
+def seal_research_policy(system_prompt: str) -> str:
+    """Keep one authoritative research contract after all other prompt text."""
+    without_policy = system_prompt.replace(
+        RESEARCH_EVIDENCE_POLICY, ""
+    ).strip()
+    if not without_policy:
+        return RESEARCH_EVIDENCE_POLICY
+    return f"{without_policy}\n\n{RESEARCH_EVIDENCE_POLICY}"
+
 
 def build_system_prompt(*, skills_index: str = "", memory_block: str = "",
                         role: str = "main", extra: str = "",
@@ -88,6 +125,7 @@ def build_system_prompt(*, skills_index: str = "", memory_block: str = "",
     if extra:
         parts.append(extra)
 
+    parts.append(RESEARCH_EVIDENCE_POLICY)
     return "\n\n".join(parts)
 
 
@@ -155,4 +193,5 @@ def build_cli_system(*, memory_block: str = "",
     if preloaded:
         parts.append("## Relevant skills — follow these if they apply\n\n"
                      + "\n\n---\n\n".join(preloaded))
+    parts.append(RESEARCH_EVIDENCE_POLICY)
     return "\n\n".join(parts)

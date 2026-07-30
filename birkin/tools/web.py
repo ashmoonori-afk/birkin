@@ -28,11 +28,16 @@ import os
 import socket
 import urllib.error
 import urllib.request
-from html.parser import HTMLParser
+from datetime import datetime, timezone
 from typing import Any
 from urllib.parse import quote, urlparse
 
 from . import Tool, ToolContext, ToolResult
+from .web_document import (
+    ContentDecodingError,
+    decode_http_body,
+    extract_document,
+)
 
 MAX_TEXT = 40_000     # historical visible cap; spill.py now applies the limit
 USER_AGENT = "birkin/0.1 (+https://github.com/NousResearch/hermes-agent)"
@@ -79,7 +84,7 @@ class _GuardedRedirectHandler(urllib.request.HTTPRedirectHandler):
     ``http://169.254.169.254/...`` (cloud metadata) or an internal address and
     bypass the up-front ``_is_blocked_url`` check. Refuse a blocked hop."""
 
-    def redirect_request(self, req, fp, code, msg, headers, newurl):  # type: ignore[override]
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
         if _is_blocked_url(newurl):
             raise urllib.error.HTTPError(
                 newurl, code, "redirect to a local/internal/reserved address "
@@ -87,27 +92,8 @@ class _GuardedRedirectHandler(urllib.request.HTTPRedirectHandler):
         return super().redirect_request(req, fp, code, msg, headers, newurl)
 
 
-class _TextExtractor(HTMLParser):
-    _SKIP = {"script", "style", "noscript", "head"}
-
-    def __init__(self) -> None:
-        super().__init__()
-        self.parts: list[str] = []
-        self._skip_depth = 0
-
-    def handle_starttag(self, tag: str, attrs: Any) -> None:
-        if tag in self._SKIP:
-            self._skip_depth += 1
-
-    def handle_endtag(self, tag: str) -> None:
-        if tag in self._SKIP and self._skip_depth > 0:
-            self._skip_depth -= 1
-
-    def handle_data(self, data: str) -> None:
-        if self._skip_depth == 0:
-            text = data.strip()
-            if text:
-                self.parts.append(text)
+def _utc_now() -> datetime:
+    return datetime.now(timezone.utc)
 
 
 def _web_fetch(inp: dict[str, Any], ctx: ToolContext) -> ToolResult:
@@ -125,20 +111,43 @@ def _web_fetch(inp: dict[str, Any], ctx: ToolContext) -> ToolResult:
     try:
         with opener.open(req, timeout=30) as resp:
             ctype = resp.headers.get("Content-Type", "")
+            content_encoding = resp.headers.get("Content-Encoding", "")
+            last_modified = resp.headers.get("Last-Modified")
+            final_url = (
+                resp.geturl()
+                if callable(getattr(resp, "geturl", None))
+                else url
+            )
             raw = resp.read(2_000_000)
-    except Exception as exc:
+    except (OSError, ValueError) as exc:
         return ToolResult(f"Fetch failed: {exc}", is_error=True)
 
-    body = raw.decode("utf-8", "replace")
+    try:
+        body = decode_http_body(raw, content_encoding).decode(
+            "utf-8", "replace"
+        )
+    except ContentDecodingError as exc:
+        return ToolResult(f"Fetch failed: {exc}", is_error=True)
+    published_at: str | None = None
+    modified_at: str | None = None
     if "html" in ctype.lower() or body.lstrip()[:1] == "<":
-        parser = _TextExtractor()
-        parser.feed(body)
-        text = "\n".join(parser.parts)
+        document = extract_document(body)
+        text = document.text
+        published_at = document.published_at
+        modified_at = document.modified_at
     else:
         text = body
     # No slicing here: the 2MB read above already bounds memory, and
     # tools/spill.py saves the whole page before capping what the model sees.
-    return ToolResult(f"# {url}\n\n{text}")
+    metadata = [
+        "# Source",
+        f"URL: {final_url}",
+        f"Retrieved-At: {_utc_now().isoformat(timespec='seconds')}",
+        f"Published-At: {published_at or 'unavailable'}",
+        f"Modified-At: {modified_at or 'unavailable'}",
+        f"HTTP-Last-Modified: {last_modified or 'unavailable'}",
+    ]
+    return ToolResult("\n".join(metadata) + f"\n\n# Content\n\n{text}")
 
 
 # -- search ----------------------------------------------------------------
@@ -193,7 +202,12 @@ def _segments(value: Any) -> str:
 
 
 def _render(results: list[dict], source: str, license_note: str = "") -> str:
-    lines = [f"# {len(results)} result(s) — {source}"]
+    lines = [
+        f"# {len(results)} result(s) — {source}",
+        f"Retrieved-At: {_utc_now().isoformat(timespec='seconds')}",
+        "_Search snippets are discovery only; source publication/update date "
+        "unavailable. Open the exact URL with web_fetch before citing it._",
+    ]
     if license_note:
         lines.append(f"_Results licensed {license_note}_")
     for r in results:
@@ -218,7 +232,7 @@ def _web_search(inp: dict[str, Any], ctx: ToolContext) -> ToolResult:
         if hits:
             return ToolResult(_render(hits, "Marginalia", MARGINALIA_LICENSE))
         tried.append("Marginalia: no results")
-    except Exception as exc:
+    except (AttributeError, OSError, TypeError, ValueError) as exc:
         # 503 here is the shared public key's rate limit. Do NOT retry or back
         # off: that bucket is shared with every other birkin user, so a retry
         # loop degrades it for all of them. Fall through instead.
@@ -229,7 +243,7 @@ def _web_search(inp: dict[str, Any], ctx: ToolContext) -> ToolResult:
         if hits:
             return ToolResult(_render(hits, "Mwmbl"))
         tried.append("Mwmbl: no results")
-    except Exception as exc:
+    except (AttributeError, OSError, TypeError, ValueError) as exc:
         tried.append(f"Mwmbl: {exc}")
 
     return ToolResult(
@@ -243,8 +257,10 @@ def tools() -> list[Tool]:
     return [
         Tool(
             name="web_fetch",
-            description="Fetch a URL and return its readable text content. "
-                        "Use for documentation, articles, and pages.",
+            description="Fetch an exact URL and return readable text plus "
+                        "source metadata: final URL, retrieval time, and any "
+                        "publication/update dates exposed by the page or HTTP "
+                        "headers. Use for documentation, articles, and pages.",
             input_schema={
                 "type": "object",
                 "properties": {"url": {"type": "string"}},
@@ -256,7 +272,10 @@ def tools() -> list[Tool]:
             name="web_search",
             description=(
                 "Search the web and return result URLs with titles and "
-                "snippets. The indexes (Marginalia, then Mwmbl) are "
+                "snippets. Search snippets are discovery only and do not "
+                "provide a reliable publication/update date; open the exact "
+                "source URL with web_fetch before citing it. The indexes "
+                "(Marginalia, then Mwmbl) are "
                 "independent and non-commercial: strong on documentation, "
                 "blogs, forums and technical writing; weak on news, shopping "
                 "and local queries — an empty result there often means "

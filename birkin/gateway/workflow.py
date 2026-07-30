@@ -9,8 +9,35 @@ PROPOSAL_OPEN = "<birkin-work-proposal>"
 PROPOSAL_CLOSE = "</birkin-work-proposal>"
 APPROVED_OPEN = "<birkin-approved-work>"
 APPROVED_CLOSE = "</birkin-approved-work>"
+DELIVERY_OPEN = "<telegram-delivery-contract>"
+DELIVERY_CLOSE = "</telegram-delivery-contract>"
+MARKET_DATA_OPEN = "<verified-market-data-policy>"
+MARKET_DATA_CLOSE = "</verified-market-data-policy>"
 
-WORKFLOW_POLICY = (
+DELIVERY_POLICY = (
+    f"{DELIVERY_OPEN}\n"
+    "Put the complete user-requested deliverable in the final Telegram reply. "
+    "Telegram supports long replies by splitting them into multiple messages, so "
+    "never replace requested content with a workspace file name or path. Do not "
+    "create a report-only document unless the user explicitly asks for a file. "
+    "Operational logs or test receipts may remain files, but report their result "
+    "in the final reply.\n"
+    f"{DELIVERY_CLOSE}\n"
+)
+
+MARKET_DATA_POLICY = (
+    f"{MARKET_DATA_OPEN}\n"
+    "For every current security, ETF, or index price, call market_quote for all "
+    "symbols and use its exact price, currency, as_of timestamp, and source_url. "
+    "Never present a search snippet, article value, analyst target, 52-week "
+    "extreme, or remembered value as the current price. If market_quote fails or "
+    "is stale, state that the current price is unavailable instead of guessing. "
+    "Show the quote timestamp and distinguish live/intraday data from the latest "
+    "close before calculating entry, exit, or target levels.\n"
+    f"{MARKET_DATA_CLOSE}\n"
+)
+
+WORKFLOW_POLICY = DELIVERY_POLICY + MARKET_DATA_POLICY + (
     "For this trusted Telegram turn, decide BEFORE using any tool whether the "
     "request is likely to take at least three minutes, needs multiple execution "
     "phases, or would use any subagent. If so, do not start the work or call a "

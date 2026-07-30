@@ -48,7 +48,7 @@ def _build_tools() -> dict[str, dict[str, Any]]:
         from . import approvals, config
         from .memory import Memory
         from .skills import build_manager
-        from .tools import ToolContext
+        from .tools import ToolContext, market
 
         cfg = config.load_config()
         memory = Memory(cfg)
@@ -70,6 +70,15 @@ def _build_tools() -> dict[str, dict[str, Any]]:
         tools[t.name] = {"description": t.description,
                          "schema": t.input_schema, "handler": _mk(t)}
         memory_tool_names.add(t.name)
+
+    # Read-only structured market quotes are safe for every full MCP session.
+    if os.environ.get("BIRKIN_MCP_SCOPE", "full") != "memory":
+        for t in market.tools():
+            tools[t.name] = {
+                "description": t.description,
+                "schema": t.input_schema,
+                "handler": _mk(t),
+            }
 
     skill_tools = {tool.name: tool for tool in skills.tools(origin="mcp")}
 

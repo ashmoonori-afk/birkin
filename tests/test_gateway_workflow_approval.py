@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 
 from birkin import store
-from birkin.gateway import workflow
+from birkin.gateway import core, workflow
 from birkin.gateway.channels import telegram
 from birkin.gateway.channels.telegram import TelegramChannel, _Streamer
 
@@ -60,6 +60,22 @@ def test_approved_workflow_is_bound_to_chat_and_builds_resume_prompt(
     assert "원래 작업" in approved.resume_prompt
     assert "관련 경로 조사" in approved.resume_prompt
     assert store.get_pending(aid)["status"] == "claimed"
+
+
+def test_telegram_execution_policy_has_in_chat_delivery_contract() -> None:
+    # Given
+    policy = core._TELEGRAM_EXECUTION_POLICY
+
+    # When
+    open_count = policy.count(workflow.DELIVERY_OPEN)
+    close_count = policy.count(workflow.DELIVERY_CLOSE)
+
+    # Then
+    assert open_count == 1
+    assert close_count == 1
+    assert policy.index(workflow.DELIVERY_OPEN) < policy.index(
+        workflow.DELIVERY_CLOSE
+    )
 
 
 def test_rejected_workflow_never_builds_resume_prompt(tmp_path, monkeypatch) -> None:

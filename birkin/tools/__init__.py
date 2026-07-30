@@ -120,13 +120,13 @@ def build_registry(ctx: ToolContext, *, include: Optional[set[str]] = None) -> T
     ``files``, ``shell``, ``web``, ``sessions``, ``skills``, ``memory``,
     ``subagent``.
     """
-    from . import files, sessions, shell, web  # local imports avoid cycles
+    from . import files, market, sessions, shell, web  # local imports avoid cycles
     from .subagent_tool import subagent_tools
 
     groups: dict[str, list[Tool]] = {
         "files": files.tools(),
         "shell": shell.tools(),
-        "web": web.tools(),
+        "web": web.tools() + market.tools(),
         "sessions": sessions.tools(),
     }
     if ctx.skills is not None:
