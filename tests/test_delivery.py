@@ -59,6 +59,13 @@ def test_a_failing_send_keeps_the_obligation_for_the_next_boot():
     assert len(delivery.pending("telegram")) == 1
 
 
+def test_falsey_send_keeps_the_obligation_for_the_next_boot():
+    delivery.record("telegram", "42", "keep me")
+
+    assert delivery.redeliver("telegram", lambda _c, _t: False) == 0
+    assert len(delivery.pending("telegram")) == 1
+
+
 def test_pending_lists_every_channel_when_unfiltered():
     delivery.record("telegram", "1", "a")
     delivery.record("http", "2", "b")
@@ -83,3 +90,80 @@ def test_telegram_turn_records_then_clears_the_obligation(monkeypatch):
     assert seen["owed_during_send"] == 1
     delivery.clear(rid)
     assert delivery.pending("telegram") == []
+
+
+def test_failed_telegram_document_keeps_turn_obligation(
+        monkeypatch, tmp_path):
+    import birkin.gateway.channels.telegram as tg
+
+    artifact = tmp_path / "report.html"
+    artifact.write_text("<!doctype html>", encoding="utf-8")
+    monkeypatch.chdir(tmp_path)
+    ch = tg.TelegramChannel("tok", stream=False)
+    monkeypatch.setattr(
+        ch, "_keep_typing",
+        lambda _chat_id, stop: stop.wait())
+    monkeypatch.setattr(ch, "_send_reply", lambda _chat_id, _text: None)
+    monkeypatch.setattr(
+        ch, "_send_document", lambda _chat_id, _path: False)
+
+    class _Gateway:
+        pending_hard_restart = False
+
+        @staticmethod
+        def handle(_channel, _chat_id, _text, **_kwargs):
+            return '<telegram-attachment path="report.html" />'
+
+    ch._run_turn(_Gateway(), "42", "send the report", 1)
+
+    assert len(delivery.pending("telegram")) == 1
+
+
+def test_failed_telegram_text_keeps_turn_obligation(monkeypatch):
+    import birkin.gateway.channels.telegram as tg
+
+    ch = tg.TelegramChannel("tok", stream=False)
+    monkeypatch.setattr(
+        ch, "_keep_typing",
+        lambda _chat_id, stop: stop.wait())
+    monkeypatch.setattr(
+        ch, "_send_reply", lambda _chat_id, _text: False)
+
+    class _Gateway:
+        pending_hard_restart = False
+
+        @staticmethod
+        def handle(_channel, _chat_id, _text, **_kwargs):
+            return "ordinary reply"
+
+    ch._run_turn(_Gateway(), "42", "say hello", 1)
+
+    assert len(delivery.pending("telegram")) == 1
+
+
+def test_telegram_redelivery_uses_marker_safe_prefix(monkeypatch):
+    import birkin.gateway.channels.telegram as tg
+
+    captured = {}
+    monkeypatch.setattr(
+        delivery, "redeliver",
+        lambda _channel, _send, *, prefix="[재전송] ":
+        captured.setdefault("prefix", prefix) and 0)
+    ch = tg.TelegramChannel("tok")
+
+    def fake_call(method, _params, timeout=60):
+        if method == "getUpdates":
+            raise SystemExit
+        return {"ok": True}
+
+    monkeypatch.setattr(ch, "_call", fake_call)
+
+    class _Gateway:
+        @staticmethod
+        def take_restart_greeting(_channel):
+            return None
+
+    with pytest.raises(SystemExit):
+        ch.start(_Gateway())
+
+    assert captured["prefix"] == "[재전송]\n"

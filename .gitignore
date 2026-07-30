@@ -50,6 +50,9 @@ docs/morpheus-skillification.md
 /*-analysis-*.md
 /ulw-*.md
 /.tmp-*
+# One-shot generated UI handoff artifacts
+/DESIGN.md
+/market-terminal*.html
 # Tests that load the local-only benchmark harness (benchmarks/ is ignored)
 tests/test_bench_curation200.py
 tests/test_bench_lme_e2e.py

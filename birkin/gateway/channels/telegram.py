@@ -10,12 +10,17 @@ Create a bot and get the token from @BotFather.
 
 from __future__ import annotations
 
+import html
 import json
+import mimetypes
+import re
 import threading
 import time
 import urllib.error
 import urllib.parse
 import urllib.request
+import uuid
+from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 from .. import workflow
@@ -26,6 +31,21 @@ if TYPE_CHECKING:
     from ..core import Gateway
 
 _API = "https://api.telegram.org/bot{token}/{method}"
+_ATTACHMENT_RE = re.compile(
+    r"(?m)^[ \t]*<telegram-attachment[ \t]+"
+    r"path=([\"'])(.+?)\1[ \t]*/?>[ \t]*(?:\n|$)"
+)
+_MAX_DOCUMENT_BYTES = 50 * 1024 * 1024
+
+
+def _stream_visible_text(text: str) -> str:
+    """Hide a final attachment marker, including while it is still streaming."""
+    line_start = text.rfind("\n") + 1
+    tail = text[line_start:].lstrip()
+    marker = "<telegram-attachment"
+    if tail.startswith(marker) or marker.startswith(tail):
+        return text[:line_start].rstrip()
+    return text
 
 
 def verify_token(token: str) -> tuple[bool, str]:
@@ -111,7 +131,10 @@ class _Streamer:
         try:
             if self.message_id is None:
                 if self._len >= self.min_first:
-                    mid = self._send(self._preview())
+                    preview = self._preview()
+                    if not preview:
+                        return
+                    mid = self._send(preview)
                     if mid is None:      # send failed -> stay silent, deliver
                         self._saturated = True   # the finalized reply instead
                         return
@@ -120,7 +143,9 @@ class _Streamer:
                     self._flushed_len = self._len
             elif (now - self._last_flush >= self.interval
                   and self._len - self._flushed_len >= self.min_delta):
-                self._edit(self.message_id, self._preview())
+                preview = self._preview()
+                if preview:
+                    self._edit(self.message_id, preview)
                 self._last_flush = now
                 self._flushed_len = self._len
                 # back off: long streams edit progressively less often
@@ -129,7 +154,7 @@ class _Streamer:
             self._saturated = True       # cosmetic path must never break a turn
 
     def _preview(self) -> str:
-        t = self.text()
+        t = _stream_visible_text(self.text())
         if len(t) > self.cap:
             self._saturated = True
             return t[:self.cap] + " …"
@@ -156,10 +181,15 @@ class TelegramChannel(Channel):
         self._action_workers: dict[str, threading.Thread] = {}
         self._workflow_ids: dict[str, str] = {}
 
-    def _call(self, method: str, params: dict[str, Any], timeout: int = 60) -> dict[str, Any]:
+    def _call(self, method: str, params: dict[str, Any], timeout: int = 60, *,
+              body: bytes | None = None,
+              content_type: str | None = None) -> dict[str, Any]:
         url = _API.format(token=self.token, method=method)
-        data = urllib.parse.urlencode(params).encode("utf-8")
+        data = (body if body is not None
+                else urllib.parse.urlencode(params).encode("utf-8"))
         req = urllib.request.Request(url, data=data, method="POST")
+        if content_type:
+            req.add_header("Content-Type", content_type)
         with urllib.request.urlopen(req, timeout=timeout) as resp:
             return json.loads(resp.read().decode("utf-8", "replace"))
 
@@ -174,7 +204,7 @@ class TelegramChannel(Channel):
             print(f"[telegram] send error ({parse_mode or 'plain'}): {exc}")
             return False
 
-    def _send_reply(self, chat_id: str, reply: str) -> None:
+    def _send_reply(self, chat_id: str, reply: str) -> bool:
         """Render the agent's markdown to Telegram HTML and send it in size-safe
         chunks. If Telegram rejects a chunk's HTML (a converter edge case), that
         chunk degrades to plain text — so a reply is never dropped or duplicated.
@@ -183,12 +213,96 @@ class TelegramChannel(Channel):
             chunks = tg_format.split(tg_format.to_html(reply))
         except Exception as exc:  # converter bug must never eat the message
             print(f"[telegram] format error: {exc}")
-            for plain in tg_format.split(reply):
-                self._send_chunk(chat_id, plain)
-            return
+            chunks = tg_format.split(reply)
+            delivered = bool(chunks)
+            for plain in chunks:
+                delivered = self._send_chunk(chat_id, plain) and delivered
+            return delivered
+        delivered = bool(chunks)
         for chunk in chunks:
-            if not self._send_chunk(chat_id, chunk, parse_mode="HTML"):
-                self._send_chunk(chat_id, tg_format.to_plain(chunk))
+            accepted = self._send_chunk(
+                chat_id, chunk, parse_mode="HTML")
+            if not accepted:
+                accepted = self._send_chunk(
+                    chat_id, tg_format.to_plain(chunk))
+            delivered = accepted and delivered
+        return delivered
+
+    @staticmethod
+    def _extract_attachments(reply: str) -> tuple[str, list[Path]]:
+        """Remove explicit attachment markers and resolve safe workspace files."""
+        root = Path.cwd().resolve()
+        paths: list[Path] = []
+        for match in _ATTACHMENT_RE.finditer(reply):
+            raw = html.unescape(match.group(2)).strip()
+            candidate = Path(raw).expanduser()
+            if not candidate.is_absolute():
+                candidate = root / candidate
+            try:
+                resolved = candidate.resolve(strict=True)
+            except (OSError, RuntimeError):
+                continue
+            if root != resolved and root not in resolved.parents:
+                continue
+            if resolved.is_file() and resolved not in paths:
+                paths.append(resolved)
+        return _ATTACHMENT_RE.sub("", reply).strip(), paths
+
+    def _send_document(self, chat_id: str, path: Path) -> bool:
+        """Upload one workspace file through Telegram's multipart API."""
+        try:
+            if path.stat().st_size > _MAX_DOCUMENT_BYTES:
+                return False
+            with path.open("rb") as handle:
+                content = handle.read(_MAX_DOCUMENT_BYTES + 1)
+            if len(content) > _MAX_DOCUMENT_BYTES:
+                return False
+            boundary = f"----birkin-{uuid.uuid4().hex}"
+            filename = path.name.replace('"', "_").replace("\r", "").replace(
+                "\n", "")
+            content_type = (mimetypes.guess_type(filename)[0]
+                            or "application/octet-stream")
+            prefix = (
+                f"--{boundary}\r\n"
+                'Content-Disposition: form-data; name="chat_id"\r\n\r\n'
+                f"{chat_id}\r\n"
+                f"--{boundary}\r\n"
+                'Content-Disposition: form-data; name="document"; '
+                f'filename="{filename}"\r\n'
+                f"Content-Type: {content_type}\r\n\r\n"
+            ).encode("utf-8")
+            suffix = f"\r\n--{boundary}--\r\n".encode("ascii")
+            result = self._call(
+                "sendDocument",
+                {},
+                body=prefix + content + suffix,
+                content_type=f"multipart/form-data; boundary={boundary}",
+            )
+            return bool(result.get("ok"))
+        except Exception as exc:
+            print(f"[telegram] document send error ({path.name}): {exc}")
+            return False
+
+    def _deliver_reply(self, chat_id: str, reply: str,
+                       streamer: "_Streamer | None" = None) -> bool:
+        """Deliver visible reply text followed by explicitly marked files."""
+        visible, paths = self._extract_attachments(reply)
+        delivered = True
+        if visible:
+            if streamer is not None:
+                delivered = (
+                    self._finalize_stream(chat_id, streamer, visible) is not False
+                )
+            else:
+                delivered = self._send_reply(chat_id, visible) is not False
+        elif not paths:
+            delivered = self._send_reply(chat_id, "(no reply)") is not False
+        for path in paths:
+            if not self._send_document(chat_id, path):
+                delivered = False
+                self._send_reply(
+                    chat_id, f"⚠️ 파일을 첨부하지 못했습니다: `{path.name}`")
+        return delivered
 
     def _send_plain(self, chat_id: str, text: str) -> str | None:
         """Send one plain message; return its message_id (for later edits).
@@ -240,7 +354,7 @@ class TelegramChannel(Channel):
             return False   # network etc. — let the fallback chain deliver
 
     def _finalize_stream(self, chat_id: str, streamer: "_Streamer",
-                         reply: str) -> None:
+                         reply: str) -> bool:
         """Turn the streamed preview into the delivery of record.
 
         The streamed message is edited to the (formatted) first chunk of the
@@ -248,8 +362,7 @@ class TelegramChannel(Channel):
         nothing was ever streamed, fall back to the plain send path.
         """
         if streamer.message_id is None:
-            self._send_reply(chat_id, reply)
-            return
+            return self._send_reply(chat_id, reply)
         try:
             chunks = tg_format.split(tg_format.to_html(reply))
             first_html = True
@@ -257,21 +370,29 @@ class TelegramChannel(Channel):
             chunks = tg_format.split(reply)
             first_html = False
         if not chunks:
-            return
+            return False
         mid = streamer.message_id
         first = chunks[0]
+        delivered = True
         # _edit treats "message is not modified" as success, so this chain is
         # a straight escalation: HTML edit -> plain edit -> fresh message.
         if not (first_html and self._edit(chat_id, mid, first,
                                           parse_mode="HTML")):
             plain = tg_format.to_plain(first) if first_html else first
             if not self._edit(chat_id, mid, plain):
-                self._send_chunk(chat_id, plain)
+                delivered = self._send_chunk(chat_id, plain)
         for chunk in chunks[1:]:
-            if not (first_html and self._send_chunk(chat_id, chunk,
-                                                    parse_mode="HTML")):
-                self._send_chunk(chat_id, tg_format.to_plain(chunk)
-                                 if first_html else chunk)
+            accepted = (
+                first_html
+                and self._send_chunk(chat_id, chunk, parse_mode="HTML")
+            )
+            if not accepted:
+                accepted = self._send_chunk(
+                    chat_id,
+                    tg_format.to_plain(chunk) if first_html else chunk,
+                )
+            delivered = accepted and delivered
+        return delivered
 
     # -- inline-button approvals (P0-2) --------------------------------------
 
@@ -604,6 +725,7 @@ class TelegramChannel(Channel):
         from ... import delivery
         obligation = delivery.record("telegram", chat_id, reply or "")
         proposal = workflow.parse_proposal(reply or "")
+        delivered = True
         if proposal is not None and workflow_id is not None:
             failed = True
             self._send_reply(
@@ -612,11 +734,11 @@ class TelegramChannel(Channel):
             )
         elif proposal is not None:
             self._send_workflow_proposal(chat_id, proposal, text)
-        elif streamer is not None:
-            self._finalize_stream(chat_id, streamer, reply or "(no reply)")
         else:
-            self._send_reply(chat_id, reply or "(no reply)")
-        delivery.clear(obligation)
+            delivered = self._deliver_reply(
+                chat_id, reply or "(no reply)", streamer=streamer)
+        if delivered:
+            delivery.clear(obligation)
         if workflow_id is not None:
             workflow.finish(workflow_id, "error" if failed else "completed")
             if self._workflow_ids.get(chat_id) == workflow_id:
@@ -632,7 +754,8 @@ class TelegramChannel(Channel):
         print("  · telegram channel polling for updates")
         from ... import delivery
         owed = delivery.redeliver(
-            "telegram", lambda chat_id, text: self._send_reply(chat_id, text))
+            "telegram", lambda chat_id, text: self._deliver_reply(chat_id, text),
+            prefix="[재전송]\n")
         if owed:
             print(f"[telegram] redelivered {owed} reply(ies) owed from a "
                   f"previous run")

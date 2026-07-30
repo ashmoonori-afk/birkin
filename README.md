@@ -42,6 +42,7 @@ Built Korean-first. Not translated.
 | **Overnight, with receipts** | Every turn is auto-saved; Morpheus reads the day, updates memory, drafts skills, and queues anything consequential for your morning review. On codex-cli it can only do that at `cli_access: full` — `codex exec` cancels MCP tool calls otherwise, and the run says so instead of quietly saving nothing. Every turn is replayable with `birkin trace`. |
 | **Korean as a first language** | Hangul-bigram retrieval, `지난주에 정리한…` date cues, `매주 월요일 09:00` schedules, CJK-correct terminal widths. Tested in Korean, not localized after the fact. |
 | **Workflows across model families** | Run a script, not a prompt: one workflow can have codex draft, three claude critics attack it in parallel, and codex revise. Which model plays each role is chosen before the run, not hardcoded. |
+| **A default UI component book** | Frontend work starts from [shadcn/ui](https://ui.shadcn.com/docs/components) composition, state and accessibility patterns unless the project names another design system. React/Tailwind projects can use the components directly; other stacks translate the patterns without pretending the dependency is installed. |
 | **Zero runtime dependencies** | `dependencies = []`. One stdlib Python package you can read in an afternoon — no Node, no Docker, no lockfile drift. |
 
 ---
@@ -391,6 +392,11 @@ just read a digest of it. Long work is proposed
 with **Approve** / **Reject** buttons before it starts, bound to the chat that
 asked, with a heartbeat while it runs. A finished reply is recorded before it is
 sent, so a crash in that window redelivers it instead of losing it.
+When you explicitly ask for a generated file, the gateway uploads the
+workspace file as a Telegram document instead of merely naming its local path.
+Internal attachment markers stay out of streamed chat text, oversized files are
+rejected before they are read, and failed text or document sends remain in the
+outbox for restart-time retry.
 
 ### Company tools (MCP)
 
@@ -677,6 +683,10 @@ Skills are the easiest place to start: a skill is just a directory with a
 `SKILL.md` — copy any folder under [`skills/`](./skills), run
 `birkin skills validate`, open a PR. Bug reports and feature requests are
 welcome as issues.
+
+Before any commit-and-push handoff, run the relevant CLI tests and manual CLI
+smoke, update and cross-check both READMEs, and complete static plus targeted
+security checks. The binding agent checklist lives in [`AGENTS.md`](./AGENTS.md).
 
 If birkin is useful to you, **starring the repo** helps other people find it. ⭐
 

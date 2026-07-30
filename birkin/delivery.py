@@ -99,16 +99,18 @@ def pending(channel: str | None = None) -> list[dict[str, Any]]:
 def redeliver(channel: str, send: Any, *, prefix: str = "[재전송] ") -> int:
     """Send every outstanding reply for ``channel``; returns how many went out.
 
-    ``send(chat_id, text)`` should return falsey only when it definitely did
-    not deliver — a row is cleared unless the send raises, so a permanently
-    failing chat cannot wedge the boot path forever.
+    ``send(chat_id, text)`` may return ``False`` when it definitely did not
+    deliver. Other falsey values preserve compatibility with senders that do
+    not return a status.
     """
     sent = 0
     for row in pending(channel):
         try:
-            send(row["chat_id"], prefix + row["text"])
-            sent += 1
+            delivered = send(row["chat_id"], prefix + row["text"])
         except Exception:
             continue                 # leave it recorded; try again next boot
+        if delivered is False:
+            continue
+        sent += 1
         clear(row["id"])
     return sent

@@ -64,6 +64,12 @@ _TELEGRAM_EXECUTION_POLICY = (
     "test suite. If broader verification is warranted, start it as a detached "
     "background job, write its output and exit status to a receipt inside the "
     "workspace, and tell the user the receipt path.\n"
+    "When the user explicitly asks you to send a generated file back through "
+    "Telegram, create it inside the current workspace and append one standalone "
+    "marker per file as the final line: "
+    '<telegram-attachment path="relative/path.ext" />. '
+    "Do not wrap the marker in a code fence, and never emit it before the file "
+    "exists.\n"
     "</gateway-execution-policy>\n\n"
 )
 

@@ -52,6 +52,25 @@ Refine an existing skill with improve_skill.
 - Record durable facts about the user or project with the remember tool.
 - Never fabricate results. If unsure, say so and investigate."""
 
+UI_COMPONENT_POLICY_OPEN = "<ui-component-policy>"
+UI_COMPONENT_POLICY_CLOSE = "</ui-component-policy>"
+UI_COMPONENT_POLICY = (
+    f"{UI_COMPONENT_POLICY_OPEN}\n"
+    "For frontend and web UI design or implementation:\n"
+    "- Use shadcn/ui (https://ui.shadcn.com/docs/components) as the default "
+    "component book unless the user or workspace specifies another design "
+    "system.\n"
+    "- Prefer its established component composition, interaction, state, and "
+    "accessibility patterns before inventing custom controls.\n"
+    "- In a compatible React and Tailwind project, use or adapt the actual "
+    "components. For standalone HTML or another stack, translate the relevant "
+    "structure and behavior without pretending shadcn/ui is an installed "
+    "dependency.\n"
+    "- Preserve the product's own visual identity; shadcn/ui is the component "
+    "reference, not a requirement to copy its default theme.\n"
+    f"{UI_COMPONENT_POLICY_CLOSE}"
+)
+
 RESEARCH_EVIDENCE_OPEN = "<research-evidence-policy>"
 RESEARCH_EVIDENCE_CLOSE = "</research-evidence-policy>"
 RESEARCH_EVIDENCE_POLICY = (
@@ -125,6 +144,7 @@ def build_system_prompt(*, skills_index: str = "", memory_block: str = "",
     if extra:
         parts.append(extra)
 
+    parts.append(UI_COMPONENT_POLICY)
     parts.append(RESEARCH_EVIDENCE_POLICY)
     return "\n\n".join(parts)
 
@@ -193,5 +213,6 @@ def build_cli_system(*, memory_block: str = "",
     if preloaded:
         parts.append("## Relevant skills — follow these if they apply\n\n"
                      + "\n\n---\n\n".join(preloaded))
+    parts.append(UI_COMPONENT_POLICY)
     parts.append(RESEARCH_EVIDENCE_POLICY)
     return "\n\n".join(parts)
