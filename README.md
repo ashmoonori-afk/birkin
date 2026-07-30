@@ -174,10 +174,10 @@ claude mcp add birkin -- birkin mcp-serve
 ```
 
 Claude Code then has `memory_search`, `memory_get_note`, `memory_write_note`,
-`memory_link` and the skill tools — the vault, the ranking and the wikilink
-graph, without leaving Claude Code. Only safe, reversible tools cross that
-boundary: **no shell**, and consequential proposals still route to the approval
-queue.
+`memory_link`, `market_quote` and the skill tools — the vault, the ranking and
+the wikilink graph, without leaving Claude Code. Only safe, reversible tools
+cross that boundary: **no shell**, and consequential proposals still route to
+the approval queue.
 
 It composes with Claude Code's own memory rather than competing with it. Claude
 Code writes per-repository project notes; the vault is your life across
@@ -493,6 +493,7 @@ birkin can look things up, not just fetch a URL you already have:
 ```
 web_search  → Marginalia, then Mwmbl if it can't answer
 web_fetch   → read one of the URLs it returned
+market_quote → structured price, currency, market timestamp and source by symbol
 ```
 
 Both are independent, non-commercial indexes with public HTTP APIs. There is
@@ -503,13 +504,30 @@ to install — the dependency count is still zero, because this is `urllib` and
 The trade is coverage, and it is stated in the tool description so the model
 reads an empty result correctly: these indexes are strong on documentation,
 blogs, forums and technical writing, and weak on news, shopping and local
-queries. Nothing is retried on a rate limit — the public key's bucket is
-shared with every other birkin user, so a retry loop would degrade it for
-everyone. Marginalia results carry their CC-BY-NC-SA 4.0 attribution into the
-output.
+queries. Search titles and snippets are discovery aids, not evidence.
+`web_fetch` returns the final source URL, retrieval time, page-supplied
+publication/update dates, and HTTP last-modified date with the source text.
+Nothing is retried on a rate limit — the public key's bucket is shared with
+every other birkin user, so a retry loop would degrade it for everyone.
+Marginalia results carry their CC-BY-NC-SA 4.0 attribution into the output.
 
 Set `MARGINALIA_API_KEY` (or `marginalia_api_key` in config) if you have your
 own key; you do not need one.
+
+The same research contract applies to every Birkin agent surface. An answer
+using internet research must list the exact source URL and organization,
+publication/update date, and retrieval date in Sources. Recency is determined
+from dates and versions, never search rank. Important time-sensitive claims are
+cross-checked against a second independent authoritative source when available.
+If a page has no source date, Birkin says recency is unverified; if sources
+conflict, it reports the conflict instead of guessing.
+
+`market_quote` does not read quote articles or search snippets. It consumes
+Yahoo's structured chart response for symbols such as `MSFT`, `NVDA`,
+`005930.KS`, and `000660.KS`, returning price, currency, exchange-local `as_of`,
+an `intraday`/`latest_close` status, previous close, day high/low, and the source
+URL together. Values older than seven days or future-dated values are rejected
+rather than labeled current.
 
 ---
 
@@ -560,6 +578,8 @@ Keys you'll actually touch:
   "provider": "claude-cli",
   "model": "opus",
   "gateway_model": "sonnet",
+  "gateway_polish_provider": "claude-cli",
+  "gateway_polish_model": "sonnet",
   "gateway_persistent": true,
   "autosave_transcripts": true,
   "neurosis_auto": true,
@@ -585,6 +605,12 @@ Keys you'll actually touch:
   }
 }
 ```
+
+When `gateway_polish_provider` is set, approved long-running Telegram results
+receive an isolated, no-tools editorial pass. The Claude path is accepted only
+when every URL and numeric fact survives; authentication or integrity failures
+fall back to the original reply. `claude auth status` must report
+`loggedIn: true`.
 
 The second block is the reliability and safety layer: auto-summarize before
 overflow, provider failover, the destructive-command gate, workspace snapshots

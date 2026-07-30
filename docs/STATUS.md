@@ -87,9 +87,12 @@
 > provider-aware (codex model ids pass through). Persistent warm gateway uses
 > stream-json for Claude and app-server for Codex. Also: **Telegram replies render
 > Markdown** — GFM → Telegram HTML (`parse_mode="HTML"`) via
-> `gateway/channels/tg_format.py`, with tables → aligned (CJK-aware) monospace
-> `<pre>`, 4096-safe splitting, and a plain-text fallback if Telegram rejects a
-> chunk (ADR-033). Earlier this session:
+> `gateway/channels/tg_format.py`, with tables → stacked mobile cards,
+> 4096-safe splitting, and a plain-text fallback if Telegram rejects a
+> chunk (ADR-033). Structured `market_quote` data now gates every current-price
+> claim in trusted Telegram analysis (ADR-051). All internet research now
+> carries exact-source and recency evidence across native and CLI agent surfaces
+> (ADR-052). Earlier this session:
 > of the free+fast gateway / Neurosis / autosave work — **0 CRITICAL**, 8 HIGH
 > fixed, then a MEDIUM/LOW follow-up pass (19-agent triage) fixed **16 more** real
 > findings: atomic `save_config`, transcript mask-before-truncate, cron clock

@@ -57,6 +57,63 @@ older ones (noted inline).
 - **Status.** Accepted 2026-07-25. Supersedes nothing; supplements ADR-026
   (billing), ADR-028 (Morpheus), ADR-041 (cron grammar). Doc-only.
 
+## ADR-052 — Internet research carries source and recency evidence
+
+- **Context.** Fixing market quotes alone leaves the same failure mode available
+  to every other web-researched topic: a model can promote a search snippet,
+  undated page, old version, or remembered fact into a current claim without
+  showing what exact source and date support it.
+- **Decision.** Put one research-evidence contract in the central native and CLI
+  system-prompt builders, covering REPL, WebUI, Gateway, warm Claude/Codex
+  sessions, and subagents. Search results are discovery only. Internet-backed
+  answers must open exact source pages, prefer primary sources, assess
+  publication/update/effective/as-of dates against retrieval time, cross-check
+  important time-sensitive claims independently when possible, disclose
+  missing dates or conflicts, and provide an exact-URL Sources section.
+  `web_fetch` now emits final URL, retrieval time, page-reported publication and
+  modification dates, and HTTP last-modified metadata; `web_search` labels its
+  snippets and missing source dates explicitly.
+- **Status.** Accepted 2026-07-30. Tests:
+  `tests/test_research_evidence.py`,
+  `tests/test_web_source_metadata.py`.
+
+## ADR-051 — Current market prices require structured timestamped quotes
+
+- **Context.** Repeated stock reports labeled stale Yahoo page/snippet values as
+  current prices. The raw assistant turn was already wrong: Telegram rendering
+  and the Claude editor preserved the numbers they received. At the same moment,
+  Yahoo's structured chart endpoint returned different prices plus currency and
+  market timestamps for all four disputed symbols.
+- **Decision.** Add the read-only `market_quote` tool to native agents and the
+  full Birkin MCP surface. It normalizes common US/Korean names, parses Yahoo
+  chart metadata, and returns exact price, currency, exchange-local timestamp,
+  `intraday`/`latest_close` status, previous close, day range, and source URL as
+  JSON. Missing, future-dated, or seven-day-stale responses are errors. Trusted
+  Telegram policy requires this
+  tool for every claimed current security price and forbids substituting search
+  snippets, analyst targets, 52-week extremes, or remembered values; failure
+  must be disclosed instead of guessed.
+- **Status.** Accepted 2026-07-30. Tests: `tests/test_market_quote.py`.
+
+## ADR-050 — Claude polishes approved Telegram deliverables
+
+- **Context.** A primary Codex research turn returned factually dense but
+  unpolished Korean, while its wide financial tables remained hard to read on a
+  phone. Replacing Codex as the reasoning provider would conflate analysis and
+  presentation.
+- **Decision.** After an approved trusted-Telegram workflow finishes, Birkin may
+  run one isolated no-tools editor selected by `gateway_polish_provider`, falling
+  back to the existing `morpheus_provider` when unset. The editor may reorganize
+  prose and tables
+  but may not add analysis or change facts. Birkin accepts the candidate only
+  when every distinct URL and numeric token in the draft remains; provider,
+  authentication, empty-output, or integrity failures are logged and fall back
+  to the original reply. Independently, `tg_format` renders every GFM table as
+  stacked labeled cards, so readability does not depend on the editor obeying
+  the no-table instruction.
+- **Status.** Accepted 2026-07-30. Tests:
+  `tests/test_gateway_polish.py`, `tests/gateway/test_tg_format.py`.
+
 ## ADR-049 — Telegram long work is proposed, approved, then heartbeated
 
 - **Context.** Multi-phase and subagent work could begin from Telegram with no
@@ -70,7 +127,11 @@ older ones (noted inline).
   claims recover after restart. The native `spawn_subagent` tool also checks
   the approved-work context, while warm Claude/Codex CLI internals remain a
   cooperative prompt policy because those providers do not expose a stable
-  subagent lifecycle hook.
+  subagent lifecycle hook. The policy also keeps the requested deliverable in
+  the final Telegram reply: the channel already chunks long responses, so a
+  workspace report path cannot replace the content, and report-only files are
+  created only when the user explicitly requests one. Operational test receipts
+  may remain files but cannot replace the user-facing result.
 - **Status.** Accepted 2026-07-15. Tests:
   `tests/test_gateway_workflow_*.py`,
   `tests/test_gateway_approval_integrity.py`.
@@ -501,11 +562,12 @@ Telegram.
 and send with `parse_mode="HTML"`. New module `gateway/channels/tg_format.py`
 (pure stdlib): `to_html()` maps bold/italic/strike/inline-code/fenced-code/
 headings/links/bullets/blockquotes, and — since Telegram has no `<table>`/heading
-tags — renders pipe tables as an **aligned monospace `<pre>`** (CJK-width aware
-via `unicodedata.east_asian_width`, so Korean tables line up) and headings as
-bold. `split()` chunks output under Telegram's 4096 limit on safe boundaries,
-never tearing a `<pre>`/`<blockquote>` (oversized ones split into multiple valid
-same-tag blocks). The channel sends each chunk as HTML; if Telegram rejects one
+tags — renders headings as bold and pipe tables as stacked mobile cards: the
+first column identifies each card and every remaining cell is a labeled bullet.
+`split()` chunks output under Telegram's
+4096 limit on safe boundaries, never tearing a `<pre>`/`<blockquote>` (oversized
+code blocks split into multiple valid same-tag blocks). The channel sends each
+chunk as HTML; if Telegram rejects one
 (`ok:false`/HTTPError), that chunk **degrades to plain text** via `to_plain()` —
 so a converter edge case can never drop or duplicate a reply.
 
@@ -522,7 +584,8 @@ text) whenever tags would cross; (3) `split()` tore a long multi-line
 `<blockquote>` → it is now protected like `<pre>`. Known LOW (unfixed): a literal
 `)` inside a link URL truncates it (markdown-regex limitation).
 
-**Status.** Done; `tg_format` + channel wiring + 20 tests. 432 tests pass offline.
+**Status.** Done; `tg_format` + channel wiring are covered by
+`tests/gateway/test_tg_format.py`.
 Localized to the Telegram channel — REPL/HTTP render markdown themselves
 (`ui.render_markdown`), so they are untouched.
 

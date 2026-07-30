@@ -167,9 +167,9 @@ claude mcp add birkin -- birkin mcp-serve
 ```
 
 이러면 Claude Code가 `memory_search`·`memory_get_note`·`memory_write_note`·
-`memory_link`와 스킬 도구를 갖습니다 — 볼트도, 랭킹도, 위키링크 그래프도 Claude
-Code를 떠나지 않고. 그 경계를 넘는 건 안전하고 되돌릴 수 있는 도구뿐입니다:
-**셸 없음**, 파급 있는 제안은 여전히 승인 큐로.
+`memory_link`·`market_quote`와 스킬 도구를 갖습니다 — 볼트도, 랭킹도,
+위키링크 그래프도 Claude Code를 떠나지 않고. 그 경계를 넘는 건 안전하고
+되돌릴 수 있는 도구뿐입니다: **셸 없음**, 파급 있는 제안은 여전히 승인 큐로.
 
 Claude Code 자체 메모리와 경쟁하는 게 아니라 함께 씁니다. Claude Code는 저장소별
 프로젝트 노트를, 볼트는 프로젝트를 가로지르는 당신의 삶을 담습니다.
@@ -466,6 +466,7 @@ birkin은 이미 아는 URL을 열기만 하는 게 아니라, 찾아볼 수도 
 ```
 web_search  → Marginalia, 답을 못 하면 Mwmbl
 web_fetch   → 돌려받은 URL 중 하나를 읽기
+market_quote → 종목별 가격·통화·거래시각·출처를 구조화해 조회
 ```
 
 둘 다 공개 HTTP API를 제공하는 독립·비영리 인덱스입니다. 만들 계정도, 붙여넣을
@@ -474,12 +475,26 @@ API 키도, 등록할 카드도, 추가로 깔 것도 없습니다 — `urllib`�
 
 대가는 커버리지이고, 모델이 빈 결과를 오해하지 않도록 도구 설명에 그대로
 적어뒀습니다: 문서·블로그·포럼·기술 글에는 강하고 뉴스·쇼핑·지역 검색에는
-약합니다. 레이트 리밋에 재시도하지 않습니다 — 공개 키의 버킷은 다른 모든 birkin
-사용자와 공유되니, 재시도 루프는 모두의 몫을 갉아먹습니다. Marginalia 결과에는
-CC-BY-NC-SA 4.0 출처 표기가 출력에 함께 실립니다.
+약합니다. 검색 제목과 스니펫은 발견용일 뿐 근거가 아닙니다. `web_fetch`가 최종
+원문 URL, 조회 시각, 페이지가 제공한 발행·갱신일, HTTP 최종 수정일을 원문과 함께
+돌려줍니다. 레이트 리밋에 재시도하지 않습니다 — 공개 키의 버킷은 다른 모든
+birkin 사용자와 공유되니, 재시도 루프는 모두의 몫을 갉아먹습니다. Marginalia
+결과에는 CC-BY-NC-SA 4.0 출처 표기가 출력에 함께 실립니다.
 
 자기 키가 있으면 `MARGINALIA_API_KEY`(또는 설정의 `marginalia_api_key`)로 쓸 수
 있지만, 없어도 됩니다.
+
+Birkin의 모든 에이전트 표면에는 같은 조사 계약이 적용됩니다. 인터넷 자료를 쓴
+답변은 정확한 원문 URL·출처명·발행/갱신일·조회일을 Sources에 남기며, 최신성은
+검색 순위가 아니라 날짜와 버전으로 판단합니다. 중요한 최신 주장은 가능하면
+독립된 권위 있는 두 번째 출처로 교차 확인합니다. 원문 날짜가 없으면
+`최신성 확인 불가`, 출처가 충돌하면 그 충돌을 명시하고 추측하지 않습니다.
+
+`market_quote`는 시세 기사나 검색 스니펫을 읽지 않고 Yahoo의 구조화된 chart
+응답을 사용합니다. `MSFT`, `NVDA`, `005930.KS`, `000660.KS` 같은 심볼을 받아
+가격과 통화, 거래소 현지 `as_of`, `intraday`/`latest_close` 상태, 전일 종가,
+당일 고가·저가, 원본 URL을 함께 돌려줍니다. 7일보다 오래됐거나 미래 시각인
+값은 현재가로 내보내지 않습니다.
 
 ---
 
@@ -530,6 +545,8 @@ quality/**model-compare** — 그리고 `~/.birkin/skills/`의 내 스킬(같은
   "provider": "claude-cli",
   "model": "opus",
   "gateway_model": "sonnet",
+  "gateway_polish_provider": "claude-cli",
+  "gateway_polish_model": "sonnet",
   "gateway_persistent": true,
   "autosave_transcripts": true,
   "neurosis_auto": true,
@@ -550,6 +567,11 @@ quality/**model-compare** — 그리고 `~/.birkin/skills/`의 내 스킬(같은
   "repl_typed_line": "steer"
 }
 ```
+
+`gateway_polish_provider`를 설정하면 승인된 Telegram 장기 작업의 최종 답변을
+도구 없는 별도 모델이 윤문합니다. 기본 Claude 경로는 모든 숫자와 URL이
+보존될 때만 윤문본을 채택하며, 인증 실패나 사실 누락 시 원문으로 되돌아갑니다.
+`claude auth status`가 `loggedIn: true`여야 합니다.
 
 두 번째 블록이 신뢰성·안전 레이어입니다: 오버플로 전 자동 요약, 프로바이더
 페일오버, 파괴 명령 게이트, `/rollback`용 워크스페이스 스냅샷, 라이프사이클 훅,
