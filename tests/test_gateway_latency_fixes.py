@@ -600,14 +600,18 @@ def test_codex_turn_streams_items_and_sends_preamble_once(monkeypatch):
         sent.append((method, params or {}))
         # queue this turn's notifications at turn/start time
         s._notes.put({"method": "item/completed",
-                      "params": {"item": {"type": "agentMessage",
+                      "params": {"threadId": "t1", "turnId": "turn-1",
+                                 "item": {"type": "agentMessage",
                                           "text": "part one"}}})
         s._notes.put({"method": "item/completed",
-                      "params": {"item": {"type": "agentMessage",
+                      "params": {"threadId": "t1", "turnId": "turn-1",
+                                 "item": {"type": "agentMessage",
                                           "text": "final answer"}}})
         s._notes.put({"method": "turn/completed",
-                      "params": {"turn": {"status": "completed"}}})
-        return {}
+                      "params": {"threadId": "t1",
+                                 "turn": {"id": "turn-1",
+                                          "status": "completed"}}})
+        return {"turn": {"id": "turn-1"}}
     monkeypatch.setattr(s, "request", fake_request)
     got: list[str] = []
     out = s._turn("hello", got.append, timeout=5)

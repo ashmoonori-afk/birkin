@@ -54,30 +54,32 @@ def test_inline_markers_inside_code_are_not_formatted():
     assert "<code>a**b**c</code>" in out  # literal, not <b>
 
 
-def test_table_becomes_aligned_pre_without_pipes():
+def test_table_becomes_stacked_mobile_cards():
     md = "| A | B |\n|---|---|\n| 1 | longer |\n| 22 | x |"
     out = tf.to_html(md)
-    assert "<pre>" in out and "</pre>" in out
-    pre = re.search(r"<pre>(.*?)</pre>", out, re.DOTALL).group(1)
-    assert "|" not in pre and "---" in pre  # pipes gone, separator kept
-    assert "A" in pre and "B" in pre and "longer" in pre
+    assert "<pre>" not in out
+    assert "<b>A: 1</b>" in out
+    assert "• <b>B:</b> longer" in out
+    assert "<b>A: 22</b>" in out
+    assert "• <b>B:</b> x" in out
+    assert "|" not in out and "---" not in out
 
 
-def test_cjk_table_columns_align_by_display_width():
-    # Korean chars are double-width; columns must still line up.
-    md = "| 이름 | 값 |\n|---|---|\n| 가 | 1 |\n| 가나다 | 2 |"
-    pre = re.search(r"<pre>(.*?)</pre>", tf.to_html(md), re.DOTALL).group(1)
-    rows = pre.split("\n")
-    # the data rows ('가 …' and '가나다 …') start the 2nd column at the same column
-    data = [r for r in rows if "1" in r or "2" in r]
-    starts = [_second_col_start(r) for r in data]
-    assert len(set(starts)) == 1  # aligned
-
-
-def _second_col_start(line: str) -> int:
-    # display-column where the run of 2+ spaces (column gap) ends
-    m = re.search(r"\S(\s{2,})\S", line)
-    return tf._disp_width(line[:m.start(1) + len(m.group(1))]) if m else -1
+def test_wide_stock_table_uses_labeled_mobile_rows():
+    md = (
+        "| 종목 | 기준가 | 1차 진입 | 손절·탈출 기준 | 6~12개월 목표 | 3년 목표 | 판단 |\n"
+        "|---|---|---|---|---|---|---|\n"
+        "| SPY | 약 $741 | $700~725 | $665 이탈 | $800~835 | $950~1,050 | 최우선 핵심자산 |\n"
+        "| 삼성전자 | 약 254,000원 | 225,000~245,000원 | 200,000원 이탈 | "
+        "300,000~340,000원 | 400,000~500,000원 | 한국 대형주 중 선호 |"
+    )
+    out = tf.to_html(md)
+    assert "<pre>" not in out
+    assert "<b>종목: SPY</b>" in out
+    assert "• <b>1차 진입:</b> $700~725" in out
+    assert "• <b>3년 목표:</b> $950~1,050" in out
+    assert "<b>종목: 삼성전자</b>" in out
+    assert "• <b>판단:</b> 한국 대형주 중 선호" in out
 
 
 def test_blockquote():

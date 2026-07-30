@@ -42,9 +42,9 @@ def build_channels(cfg: dict[str, Any]) -> list[Channel]:
                 print("[gateway] refusing Telegram: "
                       "channels.telegram.allowed_chat_ids is required.")
             else:
-                from .telegram import TelegramChannel
-                channels.append(TelegramChannel(
-                    token, allowed_chat_ids=allowed,
+                from .polished_telegram import PolishedTelegramChannel
+                channels.append(PolishedTelegramChannel(
+                    token, cfg=cfg, allowed_chat_ids=allowed,
                     stream=bool(tg.get("stream", True))))
 
     return channels

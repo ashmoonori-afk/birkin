@@ -448,6 +448,13 @@ class CodexAppServerSession:
                 raise CodexSessionError("codex process exited unexpectedly")
             method = note.get("method") or ""
             params = note.get("params") or {}
+            if method in ("item/completed", "turn/completed"):
+                note_turn_id = params.get("turnId")
+                if method == "turn/completed":
+                    note_turn_id = (params.get("turn") or {}).get("id")
+                if (params.get("threadId") != self._thread_id
+                        or note_turn_id != self._active_turn_id):
+                    continue
             if method == "item/completed":
                 piece = _agent_text(params.get("item") or {})
                 if piece:

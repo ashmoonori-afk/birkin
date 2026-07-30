@@ -9,8 +9,8 @@ module converts that GFM into the small HTML subset Telegram *does* render via
 Why HTML and not MarkdownV2: HTML mode only needs ``& < >`` escaped, whereas
 MarkdownV2 must escape ~18 characters *everywhere* and returns 400 on a single
 stray ``.``/``-``/``!`` — fragile for arbitrary model output. Telegram supports
-no table or heading tags, so tables become an aligned monospace ``<pre>`` block
-and headings become bold lines.
+no table or heading tags, so tables become stacked labeled cards that fit a
+phone viewport and headings become bold lines.
 
 Pure standard library. The caller (telegram channel) falls back to plain text if
 Telegram ever rejects the HTML, so a converter edge case can never drop a reply.
@@ -19,7 +19,6 @@ Telegram ever rejects the HTML, so a converter edge case can never drop a reply.
 from __future__ import annotations
 
 import re
-import unicodedata
 
 TG_LIMIT = 4096          # Telegram hard cap per message, in UTF-16 code units
 _SAFE_LIMIT = 3900       # leave headroom (emojis cost 2 units; tag overhead)
@@ -77,28 +76,27 @@ def _is_separator(line: str) -> bool:
         and any(c for c in cells)
 
 
-def _disp_width(s: str) -> int:
-    """Monospace display width: CJK/full-width chars occupy two columns."""
-    return sum(2 if unicodedata.east_asian_width(c) in ("W", "F") else 1 for c in s)
-
-
-def _pad(s: str, width: int) -> str:
-    return s + " " * max(0, width - _disp_width(s))
-
-
-def _render_table(header: list[str], rows: list[list[str]]) -> str:
+def _render_table_cards(header: list[str], rows: list[list[str]]) -> str:
     cols = max([len(header)] + [len(r) for r in rows] or [0])
+
     def cell(r: list[str], i: int) -> str:
         return _strip_inline_md(r[i]) if i < len(r) else ""
-    widths = [0] * cols
-    for r in [header] + rows:
-        for i in range(cols):
-            widths[i] = max(widths[i], _disp_width(cell(r, i)))
-    def fmt(r: list[str]) -> str:
-        return "  ".join(_pad(cell(r, i), widths[i]) for i in range(cols)).rstrip()
-    sep = "  ".join("-" * widths[i] for i in range(cols)).rstrip()
-    body = "\n".join(fmt(r) for r in rows)
-    return fmt(header) + "\n" + sep + ("\n" + body if body else "")
+
+    labels = [cell(header, i) or f"열 {i + 1}" for i in range(cols)]
+    cards: list[str] = []
+    for row in rows:
+        values = [cell(row, i) for i in range(cols)]
+        if not any(values):
+            continue
+        title = f"{labels[0]}: {values[0]}" if values[0] else labels[0]
+        lines = [f"<b>{_esc(title)}</b>"]
+        lines.extend(
+            f"• <b>{_esc(labels[i])}:</b> {_esc(values[i])}"
+            for i in range(1, cols)
+            if values[i]
+        )
+        cards.append("\n".join(lines))
+    return "\n\n".join(cards)
 
 
 def to_html(md: str) -> str:
@@ -114,8 +112,8 @@ def to_html(md: str) -> str:
     md = _FENCE_RE.sub(
         lambda m: "\n" + put(f"<pre>{_esc(m.group(1).rstrip(chr(10)))}</pre>") + "\n", md)
 
-    # 2. Pipe tables -> aligned monospace <pre> (Telegram has no <table>).
-    md = _tables_to_pre(md, put)
+    # 2. Pipe tables -> stacked labeled cards (Telegram has no <table>).
+    md = _tables_to_cards(md, put)
 
     # 3. Inline code, links — captured from raw text, escaped into stable tags.
     md = _INLINE_CODE_RE.sub(lambda m: put(f"<code>{_esc(m.group(1))}</code>"), md)
@@ -192,7 +190,7 @@ def _balance_emphasis(s: str) -> str:
     return _EMPH_TAG_RE.sub("", s) if stack else s
 
 
-def _tables_to_pre(md: str, put) -> str:
+def _tables_to_cards(md: str, put) -> str:
     lines = md.split("\n")
     out: list[str] = []
     i = 0
@@ -206,7 +204,7 @@ def _tables_to_pre(md: str, put) -> str:
             while j < n and lines[j].strip() and "|" in lines[j]:
                 rows.append(_split_row(lines[j]))
                 j += 1
-            out.append(put(f"<pre>{_esc(_render_table(header, rows))}</pre>"))
+            out.append(put(_render_table_cards(header, rows)))
             i = j
         else:
             out.append(lines[i])
