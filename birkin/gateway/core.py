@@ -55,6 +55,7 @@ _PRIVILEGED_COMMANDS = {"update", "models", "effort", "restart", "hard_restart",
 _PERSISTENT_PROVIDERS = ("claude-cli", "codex-cli")
 TURN_ERROR_REPLY = ("⚠️ 문제가 생겨서 이번 메시지를 처리하지 못했어요. "
                     "잠시 후 다시 시도해 주세요.")
+TURN_INTERRUPTED_REPLY = "(interrupted :o)"
 _TELEGRAM_EXECUTION_POLICY = (
     "<gateway-execution-policy>\n"
     + WORKFLOW_POLICY
@@ -243,7 +244,9 @@ class Gateway:
         self._spare_gen = 0
         # Warm sessions currently running a turn, per (channel, chat_id) — a new
         # message on the same chat interrupts them (mid-input interruption).
-        self._inflight: dict[tuple[str, str], list[tuple[Any, Any]]] = {}
+        self._inflight: dict[
+            tuple[str, str], list[tuple[Any, Any, threading.Event]]
+        ] = {}
         self._inflight_lock = threading.Lock()
         # Set by a /hard-restart command; the channel re-execs after replying.
         self._hard_restart = False
@@ -442,9 +445,11 @@ class Gateway:
         was signalled. Safe to call from a different thread than handle()."""
         with self._inflight_lock:
             owners = tuple(self._inflight.get((channel, str(chat_id)), ()))
+            for _token, _sess, interrupted_event in owners:
+                interrupted_event.set()
         interrupted = False
         seen_sessions: set[int] = set()
-        for _token, sess in reversed(owners):
+        for _token, sess, _interrupted_event in reversed(owners):
             session_id = id(sess)
             if session_id in seen_sessions:
                 continue
@@ -575,6 +580,7 @@ class Gateway:
             # could flip self._persistent between here and the ask() below.
             persistent = self._persistent
             inflight_token = object()
+            interrupted_event = threading.Event()
             if persistent:
                 try:
                     sess = self._claude_sessions.borrow(key)
@@ -591,7 +597,7 @@ class Gateway:
                     # chat can interrupt() this turn (mid-input interruption).
                     with self._inflight_lock:
                         self._inflight.setdefault(key, []).append(
-                            (inflight_token, sess))
+                            (inflight_token, sess, interrupted_event))
                 except RuntimeError as exc:
                     dt = time.monotonic() - t0
                     print(f"[gateway] {channel}:{chat_id} ✗ error after "
@@ -650,6 +656,8 @@ class Gateway:
                 print(f"[gateway] {channel}:{chat_id} ✗ error after "
                       f"{dt:.1f}s: {exc}", flush=True)
                 return TURN_ERROR_REPLY
+            if interrupted_event.is_set() and not reply:
+                reply = TURN_INTERRUPTED_REPLY
             dt = time.monotonic() - t0
             print(f"[gateway] {channel}:{chat_id} » {len(reply or '')} chars in "
                   f"{dt:.1f}s", flush=True)

@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import threading
-import time
 
 import pytest
 
@@ -22,11 +21,13 @@ def _gateway(tmp_path, monkeypatch):
 class _SlowSession:
     """A warm session whose ask() blocks until interrupt() is called."""
     def __init__(self):
+        self.started = threading.Event()
         self.interrupted = threading.Event()
         self.interrupt_calls = 0
 
     def ask(self, text, on_text=None):
         # block up to 5s or until interrupted
+        self.started.set()
         if self.interrupted.wait(timeout=5):
             return "[interrupted]"
         return "done"
@@ -51,11 +52,7 @@ def test_gateway_interrupt_cancels_inflight_turn(tmp_path, monkeypatch):
     t = threading.Thread(
         target=lambda: result.__setitem__("r", gw.handle("telegram", "42", "hi")))
     t.start()
-    # wait until the turn registers as in-flight, then interrupt
-    for _ in range(50):
-        if ("telegram", "42") in gw._inflight:
-            break
-        time.sleep(0.02)
+    assert sess.started.wait(timeout=2)
     assert gw.interrupt("telegram", "42") is True
     t.join(timeout=3)
     assert sess.interrupt_calls == 1
@@ -451,9 +448,9 @@ def test_interrupt_calls_session_after_releasing_inflight_lock(
     gw._inflight_lock = lock
     old = _OwnershipSession("old")
     gw._inflight[("http", "42")] = [
-        (object(), old),
-        (object(), old),
-        (object(), _OwnershipSession("new", error=True)),
+        (object(), old, threading.Event()),
+        (object(), old, threading.Event()),
+        (object(), _OwnershipSession("new", error=True), threading.Event()),
     ]
 
     assert gw.interrupt("http", "42") is True
@@ -534,17 +531,21 @@ def test_telegram_new_message_interrupts_previous(tmp_path, monkeypatch):
         def __init__(self):
             self.interrupts = []
             self.handled = []
+            self.started = threading.Event()
+            self.release = threading.Event()
 
         def _command_trusted(self, ch):
             return True
 
         def interrupt(self, channel, chat_id):
             self.interrupts.append(chat_id)
+            self.release.set()
             return True
 
         def handle(self, channel, chat_id, text, on_text=None):
             self.handled.append(text)
-            time.sleep(0.3)                  # simulate a slow turn
+            self.started.set()
+            assert self.release.wait(timeout=2)
             return f"reply to {text}"
 
     gw = _FakeGateway()
@@ -555,7 +556,7 @@ def test_telegram_new_message_interrupts_previous(tmp_path, monkeypatch):
                           daemon=True)
     ch._workers["42"] = w1
     w1.start()
-    time.sleep(0.05)
+    assert gw.started.wait(timeout=2)
     # simulate the loop seeing a SECOND message for the same chat
     prev = ch._workers.get("42")
     assert prev.is_alive()
