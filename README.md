@@ -415,6 +415,29 @@ Internal attachment markers stay out of streamed chat text, oversized files are
 rejected before they are read, and failed text or document sends remain in the
 outbox for restart-time retry.
 
+### Follow-through on what you committed to (Companion)
+
+```bash
+birkin companion policy --enable --tz Asia/Seoul   # opt in — off by default
+birkin companion bind telegram:<chat-id>           # where check-ins arrive
+birkin companion add --outcome "ship the draft" --at 2026-08-01T09:00
+birkin companion list                              # what birkin is holding
+```
+
+Tell birkin you'll do something, and it asks you about it at the agreed time —
+over Telegram, with one-tap answers (**done / blocked / later / stop / wrong**).
+The answer is recorded and the next concrete step is captured, so a commitment
+either closes or moves.
+
+The model may only *propose* a candidate: every create, schedule, transition,
+and close goes through `companion.py`'s functions, so an LLM cannot silently
+change what you're on the hook for. Contact is bounded by policy — quiet hours
+(22:00–08:00 by default), one check-in a day, a 12-hour cooldown — and the
+tapping chat is re-verified against the commitment's stored binding before any
+state changes, because `callback_data` is client-supplied. State lives in
+`~/.birkin/companion/` next to an append-only `events.jsonl` of transitions —
+no conversation bodies, grep-able like everything else.
+
 ### Company tools (MCP)
 
 ```bash
@@ -477,6 +500,7 @@ birkin neurosis "<idea>"            # seed a deep interview (drive it with /neur
 birkin odyssey "<goal>"             # seed a goal-completion cycle (/odyssey)
 birkin moirai run <script> [--bind role=provider:model] [--defaults]
 birkin moirai list / status --run-id <id> / resume --run-id <id>
+birkin companion <action> [...]     # commitments birkin follows up on (opt-in)
 birkin sessions [export … --vault]  # list conversations · export as Markdown
 birkin curate-memory [--dry-run]    # vault curation pass (preview or apply)
 birkin morpheus [--dry-run]         # run the nightly routine now
@@ -587,6 +611,7 @@ Everything lives under `~/.birkin` (override with `BIRKIN_HOME`):
 ├── vault/          # your Obsidian memory
 ├── skills/         # user- and agent-authored skills
 ├── sessions/       # auto-saved transcripts — Morpheus input
+├── companion/      # commitments + check-in policy (state.json, events.jsonl)
 ├── specs/          # Neurosis interview specs
 ├── runs/           # per-turn and per-Morpheus summaries
 ├── ledger.jsonl    # append-only audit log

@@ -389,6 +389,27 @@ Telegram 문서로 업로드합니다. 내부 첨부 표식은 스트리밍 채�
 대용량 파일은 읽기 전에 거부되며, 텍스트나 문서 전송 실패는 outbox에 남아
 재시작 때 다시 시도됩니다.
 
+### 약속한 것의 사후 관리 (Companion)
+
+```bash
+birkin companion policy --enable --tz Asia/Seoul   # 옵트인 — 기본은 꺼짐
+birkin companion bind telegram:<chat-id>           # 체크인이 도착할 곳
+birkin companion add --outcome "초안 보내기" --at 2026-08-01T09:00
+birkin companion list                              # birkin이 쥐고 있는 약속들
+```
+
+birkin에게 뭘 하겠다고 말하면, 약속한 시각에 birkin이 물어봅니다 — 텔레그램에서
+원탭 답변(**완료 / 막힘 / 나중에 / 그만 / 아니에요**)으로. 답은 기록되고 다음
+구체적 행동이 잡히므로, 약속은 닫히거나 앞으로 나아갑니다.
+
+모델은 후보를 *제안*할 수만 있습니다: 생성·예약·전이·종료는 전부
+`companion.py`의 함수를 거치므로, LLM이 당신이 책임진 것을 조용히 바꿀 수
+없습니다. 연락은 정책이 제한합니다 — 방해 금지 시간(기본 22:00–08:00), 하루 1회,
+12시간 쿨다운 — 그리고 `callback_data`는 클라이언트가 보내는 값이라, 버튼을 누른
+채팅이 약속에 저장된 바인딩과 일치하는지 상태 변경 전에 다시 검증합니다. 상태는
+`~/.birkin/companion/`에, 전이 기록은 append-only `events.jsonl`에 —
+대화 본문 없이, 다른 모든 것처럼 grep 가능하게.
+
 ### 회사 도구 (MCP)
 
 ```bash
@@ -447,6 +468,7 @@ birkin neurosis "<아이디어>"        # 딥 인터뷰 시드 (/neurosis로 진
 birkin odyssey "<목표>"             # 목표완수 사이클 시드 (/odyssey)
 birkin moirai run <스크립트> [--bind role=provider:model] [--defaults]
 birkin moirai list / status --run-id <id> / resume --run-id <id>
+birkin companion <action> [...]     # birkin이 사후 관리하는 약속들 (옵트인)
 birkin sessions [export … --vault]  # 대화 목록 · 마크다운 내보내기
 birkin curate-memory [--dry-run]    # 볼트 큐레이션 (미리보기 또는 적용)
 birkin morpheus [--dry-run]         # 야간 루틴 즉시 실행
@@ -551,6 +573,7 @@ quality/**model-compare** — 그리고 `~/.birkin/skills/`의 내 스킬(같은
 ├── vault/          # 내 옵시디언 기억
 ├── skills/         # 사용자·에이전트 작성 스킬
 ├── sessions/       # 자동 저장 트랜스크립트 — Morpheus 입력
+├── companion/      # 약속 + 체크인 정책 (state.json, events.jsonl)
 ├── specs/          # Neurosis 인터뷰 spec
 ├── runs/           # 턴별·Morpheus별 요약
 ├── ledger.jsonl    # append-only 감사 로그
