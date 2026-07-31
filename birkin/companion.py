@@ -759,3 +759,73 @@ def why_message(record: dict[str, Any]) -> str:
             f"· 약속: {record['outcome']}\n"
             f"· 출처: {record.get('source_ref') or '-'}\n"
             f"· 예정 시각: {record.get('check_in_at') or '-'}")
+
+
+# -- natural-language entry (model proposes, the approval queue disposes) ---
+
+def active_context_id() -> str:
+    """The single active bound context, or "" (ambiguous / none)."""
+    contexts = load_state()["contexts"]
+    active = [cid for cid, c in contexts.items() if c.get("state") == "active"]
+    return active[0] if len(active) == 1 else ""
+
+
+def propose_checkin(*, outcome: str, check_in_at: str,
+                    cfg: dict[str, Any], next_action: str = "",
+                    context_id: str = "", origin: str = "chat",
+                    now: datetime | None = None) -> dict[str, Any]:
+    """Record a candidate and queue its activation for the user's approval.
+
+    This is the ONLY entry a model gets: it cannot activate, so nothing is
+    scheduled — and nothing can ever be sent — until a human approves the
+    pending record (``birkin review`` / the gateway buttons), or the user has
+    opted ``companion`` into ``auto_approve``.
+    """
+    policy = get_policy()
+    if not policy.get("enabled"):
+        raise CompanionError(
+            "proactive check-ins are disabled — "
+            "run `birkin companion policy --enable` first")
+    ctx_id = str(context_id).strip() or active_context_id()
+    if not ctx_id:
+        raise CompanionError(
+            "no bound context — run `birkin companion bind telegram:<chat-id>`"
+            " (or pass context_id when several are bound)")
+    when = parse_iso(check_in_at)
+    if when is None:
+        raise CompanionError(f"unparseable check-in time: {check_in_at!r}")
+    moment = now or _utcnow()
+    candidate = add_candidate(context_id=ctx_id, outcome=outcome,
+                              source_ref=f"{origin}:{_iso(moment)}",
+                              next_action=next_action, now=moment)
+    from . import approvals  # local: approvals imports back for the executor
+    offset = when.utcoffset()
+    status = approvals.propose(
+        category="companion",
+        title=f"check-in: {candidate['outcome'][:60]}",
+        description=(f"Ask about it at {check_in_at} in {ctx_id}. "
+                     f"Next action: {candidate['next_action'] or '-'}"),
+        payload={"commitment_id": candidate["id"],
+                 "check_in_at": check_in_at,
+                 "tz_name": str(policy.get("timezone", "UTC")),
+                 "utc_offset_minutes": (int(offset.total_seconds() // 60)
+                                        if offset else None)},
+        cfg=cfg, origin=origin)
+    return {**status, "commitment_id": candidate["id"]}
+
+
+def apply_proposal(payload: dict[str, Any]) -> str:
+    """Carry out an approved check-in proposal. Returns a human summary.
+    Used by ``approvals.execute_action(category="companion")``."""
+    cid = str((payload or {}).get("commitment_id", "")).strip()
+    if not cid:
+        raise CompanionError("companion proposal missing commitment_id")
+    try:  # model/user payload may carry a non-int offset
+        offset = int(payload.get("utc_offset_minutes"))
+    except (TypeError, ValueError):
+        offset = None
+    record = activate(cid, check_in_at=str(payload.get("check_in_at", "")),
+                      tz_name=str(payload.get("tz_name") or "UTC"),
+                      utc_offset_minutes=offset)
+    return (f"Check-in scheduled: {record['outcome']!r} at "
+            f"{record['check_in_at']} in {record['context_id']}.")

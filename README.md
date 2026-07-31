@@ -429,9 +429,13 @@ over Telegram, with one-tap answers (**done / blocked / later / stop / wrong**).
 The answer is recorded and the next concrete step is captured, so a commitment
 either closes or moves.
 
-The model may only *propose* a candidate: every create, schedule, transition,
-and close goes through `companion.py`'s functions, so an LLM cannot silently
-change what you're on the hook for. Contact is bounded by policy — quiet hours
+You can also just say it in chat — "ask me about the draft Monday 9am" — and
+the model calls `companion_propose`, which lands in the same approval inbox as
+every other consequential action (`birkin review`, or the gateway's buttons).
+The model may only *propose* a candidate: activation happens in the approval
+executor, every transition goes through `companion.py`'s functions, and the
+state files are control-plane-protected from the file tools — so an LLM cannot
+silently change what you're on the hook for, by any route. Contact is bounded by policy — quiet hours
 (22:00–08:00 by default), one check-in a day, a 12-hour cooldown — and the
 tapping chat is re-verified against the commitment's stored binding before any
 state changes, because `callback_data` is client-supplied. State lives in

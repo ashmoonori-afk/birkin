@@ -166,6 +166,41 @@ def _build_tools() -> dict[str, dict[str, Any]]:
             "required": ["category", "title"]},
         "handler": _propose}
 
+    # companion_propose — natural-language check-ins, same approval hook.
+    # Registered only once the user has bound a context (opt-in feature).
+    def _companion_propose(args: dict[str, Any]) -> tuple[str, bool]:
+        from . import companion
+        try:
+            with contextlib.redirect_stdout(sys.stderr):
+                status = companion.propose_checkin(
+                    outcome=str(args.get("outcome", "")),
+                    check_in_at=str(args.get("check_in_at", "")),
+                    next_action=str(args.get("next_action", "")),
+                    context_id=str(args.get("context_id", "")),
+                    cfg=cfg, origin="mcp")
+        except companion.CompanionError as exc:
+            return f"Cannot propose a check-in: {exc}", True
+        if status.get("auto"):
+            if not status.get("ok"):
+                return f"Could not schedule: {status.get('result')}", True
+            return f"Scheduled: {status.get('result')}", False
+        return (f"Queued for the user's approval (id {status.get('id')}). "
+                f"Nothing is scheduled unless they approve it."), False
+
+    if (config.birkin_home() / "companion" / "state.json").is_file():
+        tools["companion_propose"] = {
+            "description": "Propose a follow-up check-in for something the "
+                           "user explicitly committed to do at an agreed time "
+                           "(NOT executed now — queued for their approval). "
+                           "check_in_at is ISO 8601 with a UTC offset.",
+            "schema": {"type": "object", "properties": {
+                "outcome": {"type": "string"},
+                "check_in_at": {"type": "string"},
+                "next_action": {"type": "string"},
+                "context_id": {"type": "string"}},
+                "required": ["outcome", "check_in_at"]},
+            "handler": _companion_propose}
+
     skill_tool_names = {
         "skills_list",
         "load_skill",
@@ -177,6 +212,7 @@ def _build_tools() -> dict[str, dict[str, Any]]:
         **{name: "web" for name in market_tool_names},
         **{name: "skills" for name in skill_tool_names},
         "propose_action": "approvals",
+        "companion_propose": "companion",
     }
     allowed = {
         name: tool

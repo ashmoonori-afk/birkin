@@ -117,6 +117,9 @@ def execute_action(category: str, payload: dict[str, Any],
     if category == "skill":
         from .skills.manager import apply_skill_proposal
         return apply_skill_proposal(payload)
+    if category == "companion":
+        from .companion import apply_proposal
+        return apply_proposal(payload)
     # memory is applied by the agent directly; nothing else has an executor.
     return f"(no executor for category '{category}')"
 

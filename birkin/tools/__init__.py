@@ -118,7 +118,7 @@ def build_registry(ctx: ToolContext, *, include: Optional[set[str]] = None) -> T
     ``include`` optionally restricts which tool *groups* are registered
     (used to give subagents a scoped toolset). Groups:
     ``files``, ``shell``, ``web``, ``sessions``, ``skills``, ``memory``,
-    ``subagent``.
+    ``companion``, ``subagent``.
     """
     from . import files, market, sessions, shell, web  # local imports avoid cycles
     from .subagent_tool import subagent_tools
@@ -133,6 +133,13 @@ def build_registry(ctx: ToolContext, *, include: Optional[set[str]] = None) -> T
         groups["skills"] = ctx.skills.tools()
     if ctx.memory is not None:
         groups["memory"] = ctx.memory.tools()
+    # Companion is opt-in; don't spend prompt tokens on the tool until the
+    # user has bound a context (path checked directly — companion_dir() would
+    # mkdir as a side effect).
+    from .. import config as _config
+    if (_config.birkin_home() / "companion" / "state.json").is_file():
+        from . import companion_tool
+        groups["companion"] = companion_tool.tools()
     # Subagents may spawn further subagents only until max_depth.
     if ctx.depth < ctx.max_depth:
         groups["subagent"] = subagent_tools()

@@ -64,8 +64,19 @@ def _enforce_jail(ctx: ToolContext, p: Path) -> None:
 # shell ("Birkin's registry excludes shell/subagent tools"); these writes hand
 # it back. Unconditional rather than fs_jail-gated, because _jail_roots()
 # lists birkin_home() as an allowed root — the jail cannot express this.
+#   companion/           the commitment/check-in store. "The LLM may propose a
+#                        candidate; only companion.py's functions transition
+#                        one" (its module contract) is hollow if write_file can
+#                        edit state.json — a planted policy/commitment turns
+#                        into unattended outbound Telegram messages.
 _CONTROL_FILES = ("config.json", "cron.json", "hooks_allowlist.json")
-_CONTROL_DIRS = ("hooks",)
+_CONTROL_DIRS = {
+    "hooks": "files under ~/.birkin/hooks/ are run as approved hooks, so "
+             "the file tools cannot write them.",
+    "companion": "~/.birkin/companion/ is the approval-gated check-in state — "
+                 "propose changes with companion_propose instead of editing "
+                 "its files.",
+}
 
 
 def _control_plane_error(p: Path) -> str:
@@ -83,11 +94,10 @@ def _control_plane_error(p: Path) -> str:
                 f"schedules or authorises command execution, so the file "
                 f"tools cannot write it. Use the approval flow instead "
                 f"(propose_action), or edit it yourself outside birkin.")
-    for d in _CONTROL_DIRS:
+    for d, why in _CONTROL_DIRS.items():
         root = home / d
         if rp == root or root in rp.parents:
-            return (f"protected: files under ~/.birkin/{d}/ are run as "
-                    f"approved hooks, so the file tools cannot write them.")
+            return f"protected: {why}"
     return ""
 
 
