@@ -406,6 +406,51 @@ class TelegramChannel(Channel):
             {"text": "❌ 거부", "callback_data": f"rej:{aid}"},
         ]]})
 
+    @staticmethod
+    def companion_markup(commitment_id: str) -> str:
+        """reply_markup JSON for one check-in (same 64-byte callback_data cap)."""
+        cid = str(commitment_id)[:40]
+        return json.dumps({"inline_keyboard": [
+            [{"text": "✅ 완료", "callback_data": f"companion:done:{cid}"},
+             {"text": "🚧 막힘", "callback_data": f"companion:blocked:{cid}"}],
+            [{"text": "⏰ 나중에", "callback_data": f"companion:snooze:{cid}"},
+             {"text": "🛑 그만", "callback_data": f"companion:stop:{cid}"},
+             {"text": "🙏 아니에요", "callback_data": f"companion:wrong:{cid}"}],
+        ]})
+
+    def _handle_companion_callback(self, cq_id: str, data: str, chat_id: str,
+                                   message_id: str, original: str) -> None:
+        """Apply one check-in button tap and edit the receipt in place.
+
+        The commitment's stored context is re-checked against the tapping chat:
+        ``callback_data`` is client-supplied, so the binding is verified in
+        storage before any state changes.
+        """
+        from ... import companion
+        parts = data.split(":", 2)
+        if len(parts) != 3 or not parts[2]:
+            self._answer_callback(cq_id, "")
+            return
+        _, verb, commitment_id = parts
+        record = companion.get_commitment(commitment_id)
+        if record is None:
+            self._answer_callback(cq_id, "이미 삭제된 약속이에요")
+            return
+        if record.get("context_id") != f"telegram:{chat_id}":
+            self._answer_callback(cq_id, "unauthorized")
+            return
+        try:
+            result = companion.answer(
+                commitment_id, verb,
+                source_ref=f"telegram:{chat_id}:{message_id}")
+        except companion.CompanionError as exc:
+            self._answer_callback(cq_id, str(exc)[:190])
+            return
+        self._answer_callback(cq_id, result["message"].splitlines()[0][:190])
+        if message_id:
+            self._edit(chat_id, message_id,
+                       f"{original}\n\n{result['message']}"[:4000])
+
     def _send_pending_buttons(self, gateway: "Gateway", chat_id: str) -> None:
         """Render /pending as one message per action with approve/reject
         buttons (inline buttons add no chat clutter — the official pattern)."""
@@ -468,6 +513,11 @@ class TelegramChannel(Channel):
             return
         if ":" not in data:
             self._answer_callback(cq_id, "")
+            return
+        if data.startswith("companion:"):
+            self._handle_companion_callback(
+                cq_id, data, chat_id, str(msg.get("message_id", "")),
+                str(msg.get("text", "")))
             return
         verb, aid = data.split(":", 1)
         if verb not in ("apv", "rej"):

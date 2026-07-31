@@ -13,8 +13,9 @@ Subcommands:
 from __future__ import annotations
 
 import argparse
+import json
 import sys
-from typing import Optional
+from typing import Any, Optional
 
 
 def _cmd_chat(args: argparse.Namespace) -> int:
@@ -598,6 +599,122 @@ def _cmd_mcp(args: argparse.Namespace) -> int:
     return mcp.run(sub).returncode
 
 
+def _cmd_companion(args: argparse.Namespace) -> int:
+    from . import companion
+    try:
+        return _run_companion(companion, args)
+    except companion.CompanionError as exc:
+        print(f"error: {exc}")
+        return 1
+
+
+def _run_companion(companion, args: argparse.Namespace) -> int:
+    action = args.action
+    if action == "bind":
+        chat = args.target or args.context
+        if not chat:
+            print("bind needs a chat id: birkin companion bind telegram:<chat-id>")
+            return 1
+        record = companion.bind_context(chat, owner_id=chat.rpartition(":")[2])
+        print(f"bound {record['id']} (check-ins stay off until "
+              f"`companion policy --enable`)")
+        return 0
+
+    if action == "add":
+        if not args.context:
+            print("add needs --context telegram:<chat-id>")
+            return 1
+        record = companion.add_candidate(
+            context_id=args.context, outcome=args.outcome,
+            source_ref=args.source, next_action=args.next_action)
+        print(f"{record['id']}  candidate  {record['outcome']}")
+        return 0
+
+    if action == "activate":
+        if not args.target or not args.at:
+            print("activate needs a commitment id and --at <ISO time>")
+            return 1
+        record = companion.activate(args.target, check_in_at=args.at,
+                                    tz_name=args.tz,
+                                    utc_offset_minutes=args.offset)
+        print(f"{record['id']}  active  check-in {record['check_in_at']}")
+        return 0
+
+    if action == "answer":
+        if not args.target or not args.do:
+            print("answer needs a commitment id and --do <action>")
+            return 1
+        result = companion.answer(args.target, args.do,
+                                  next_action=args.next_action,
+                                  snooze_minutes=args.snooze_minutes)
+        print(result["message"])
+        return 0
+
+    if action == "delete":
+        if not args.target:
+            print("delete needs a commitment id")
+            return 1
+        gone = companion.delete_commitment(args.target)
+        print("deleted." if gone else "no such commitment.")
+        return 0 if gone else 1
+
+    if action == "policy":
+        changes: dict[str, Any] = {}
+        if args.enable:
+            changes["enabled"] = True
+        if args.tz and args.tz != "UTC":
+            changes["timezone"] = args.tz
+        if args.offset is not None:
+            changes["utc_offset_minutes"] = args.offset
+        if args.quiet_start and args.quiet_end:
+            changes["quiet_hours"] = {"start": args.quiet_start,
+                                      "end": args.quiet_end}
+        if args.daily_cap is not None:
+            changes["daily_cap"] = args.daily_cap
+        if args.cooldown is not None:
+            changes["cooldown_minutes"] = args.cooldown
+        policy = (companion.set_policy(**changes) if changes
+                  else companion.get_policy())
+        print(json.dumps(policy, indent=2, ensure_ascii=False))
+        return 0
+
+    if action == "pause":
+        companion.pause_all()
+        print("proactive check-ins paused.")
+        return 0
+
+    if action == "resume":
+        companion.resume()
+        print("proactive check-ins resumed.")
+        return 0
+
+    if action == "events":
+        for event in companion.read_events(commitment_id=args.target):
+            print(f"{event['at']}  {event['type']:<22} {event['summary']}")
+        return 0
+
+    if action == "status":
+        policy = companion.get_policy()
+        print(f"proactive: {'on' if policy.get('enabled') else 'off'}  "
+              f"tz={policy.get('timezone')}  cap={policy.get('daily_cap')}  "
+              f"cooldown={policy.get('cooldown_minutes')}m")
+        if not companion.tz_available():
+            print("note: no IANA tz database here — using the stored UTC "
+                  "offset (pip install tzdata for DST-aware times).")
+        for ctx in companion.load_state()["contexts"].values():
+            print(f"context {ctx['id']}  {ctx['state']}  "
+                  f"proactive={ctx.get('proactive_mode')}")
+
+    records = companion.list_commitments(context_id=args.context)
+    if not records:
+        print("no commitments yet.")
+        return 0
+    for record in records:
+        print(f"{record['id']}  {record['status']:<9} "
+              f"{record.get('check_in_at') or '-':<25} {record['outcome']}")
+    return 0
+
+
 def _cmd_cron(args: argparse.Namespace) -> int:
     from . import cron, store
     jobs = cron.load_jobs()
@@ -788,6 +905,41 @@ def build_parser() -> argparse.ArgumentParser:
     cp = sub.add_parser("cron", help="list or remove daily cron jobs")
     cp.add_argument("--remove", help="job id to remove")
     cp.set_defaults(func=_cmd_cron)
+
+    comp = sub.add_parser(
+        "companion",
+        help="commitments birkin follows up on (add/activate/list/answer)")
+    comp.add_argument(
+        "action",
+        choices=["status", "list", "bind", "add", "activate", "answer",
+                 "policy", "pause", "resume", "delete", "events"],
+        help="what to do")
+    comp.add_argument("target", nargs="?", default="",
+                      help="commitment id, or chat id for bind")
+    comp.add_argument("--outcome", default="", help="what the user committed to")
+    comp.add_argument("--next", dest="next_action", default="",
+                      help="the next concrete step")
+    comp.add_argument("--source", default="",
+                      help="source reference, e.g. telegram:<chat>:<message-id>")
+    comp.add_argument("--context", default="", help="context id (telegram:<chat>)")
+    comp.add_argument("--at", default="", help="check-in time (ISO 8601)")
+    comp.add_argument("--tz", default="UTC", help="IANA timezone name")
+    comp.add_argument("--offset", type=int, default=None,
+                      help="UTC offset in minutes (fallback without a tz database)")
+    comp.add_argument("--do", default="",
+                      choices=["", "done", "blocked", "snooze", "stop", "wrong"],
+                      help="answer: how the check-in was answered")
+    comp.add_argument("--snooze-minutes", type=int, default=60,
+                      help="answer --do snooze: how long to wait")
+    comp.add_argument("--enable", action="store_true",
+                      help="policy: turn proactive check-ins on")
+    comp.add_argument("--quiet-start", default="", help="policy: HH:MM")
+    comp.add_argument("--quiet-end", default="", help="policy: HH:MM")
+    comp.add_argument("--daily-cap", type=int, default=None,
+                      help="policy: max sends per day")
+    comp.add_argument("--cooldown", type=int, default=None,
+                      help="policy: minutes between sends")
+    comp.set_defaults(func=_cmd_companion)
 
     rp = sub.add_parser("runs", help="show recent run records + usage (audit log)")
     rp.add_argument("--limit", type=int, default=20)

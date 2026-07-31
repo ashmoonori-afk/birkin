@@ -341,6 +341,22 @@ def pending_dir() -> Path:
     return d
 
 
+def companion_dir() -> Path:
+    """Commitment / check-in domain state (mutable, outside memory curation)."""
+    d = birkin_home() / "companion"
+    d.mkdir(parents=True, exist_ok=True)
+    return d
+
+
+def companion_state_path() -> Path:
+    return companion_dir() / "state.json"
+
+
+def companion_events_path() -> Path:
+    """Append-only domain transitions (no conversation bodies)."""
+    return companion_dir() / "events.jsonl"
+
+
 def cron_path() -> Path:
     return birkin_home() / "cron.json"
 

@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import atexit
 import getpass
+import json
 import os
 import signal
 import subprocess
@@ -84,6 +85,68 @@ def deliver(name: str, chat_id: str | None, text: str) -> str:
     convention and the outbound allowlist — used by Morpheus for the
     morning digest (P0-3) in addition to cron jobs."""
     return _deliver({"name": name, "deliver_chat_id": chat_id or ""}, text)
+
+
+def _send_checkin(chat_id: str, text: str, markup: str) -> str | None:
+    """Send one check-in with its inline keyboard; return the message_id.
+
+    Honors the same outbound allowlist as cron delivery, re-checked here at send
+    time rather than only when the commitment was created.
+    """
+    cfg = config.load_config()
+    tg = (cfg.get("channels") or {}).get("telegram") or {}
+    allowed = [str(x) for x in (tg.get("allowed_chat_ids") or [])]
+    if not allowed or chat_id not in allowed:
+        return None
+    token = os.environ.get("TELEGRAM_BOT_TOKEN") or tg.get("token") or ""
+    if not token:
+        return None
+    body = urllib.parse.urlencode({"chat_id": chat_id, "text": text[:3500],
+                                   "reply_markup": markup}).encode()
+    req = urllib.request.Request(_TG_SEND.format(token=token), data=body)
+    with urllib.request.urlopen(req, timeout=15) as resp:
+        payload = json.loads(resp.read().decode("utf-8", "replace"))
+    if not payload.get("ok"):
+        return None
+    return str((payload.get("result") or {}).get("message_id") or "")
+
+
+def run_checkins(now: datetime | None = None, *, send=_send_checkin) -> int:
+    """Deliver every due, eligible commitment check-in. Returns how many went.
+
+    The claim happens before the network call, so a crash between the two loses
+    one check-in rather than sending it twice — the same at-most-once trade
+    ``cron.claim_if_due`` makes.
+    """
+    from . import companion
+    from .gateway.channels.telegram import TelegramChannel
+    sent = 0
+    for record in companion.due_checkins(now):
+        ok, _key = companion.claim_checkin(record["id"], now=now)
+        if not ok:
+            continue
+        chat_id = str(record["context_id"]).partition(":")[2]
+        text = (companion.checkin_text(record) + "\n\n"
+                + companion.why_message(record))
+        try:
+            message_id = send(chat_id, text,
+                              TelegramChannel.companion_markup(record["id"]))
+        except Exception as exc:
+            companion.append_event(kind="checkin_send_failed",
+                                   context_id=record["context_id"],
+                                   commitment_id=record["id"],
+                                   summary=f"send failed: {exc}")
+            continue
+        if message_id is None:
+            companion.append_event(kind="checkin_send_failed",
+                                   context_id=record["context_id"],
+                                   commitment_id=record["id"],
+                                   summary="send refused: chat not allowed or "
+                                           "no token")
+            continue
+        companion.record_delivery(record["id"], message_id)
+        sent += 1
+    return sent
 
 
 def _morpheus_hour(cfg: dict[str, Any]) -> int:
@@ -172,6 +235,14 @@ def run_daemon() -> int:
                     continue
                 print(f"[{now:%H:%M}] running cron job '{job.get('name')}'…")
                 _run_job(job)
+
+            try:
+                delivered = run_checkins()
+                if delivered:
+                    print(f"[{now:%H:%M}] sent {delivered} commitment "
+                          f"check-in(s)")
+            except Exception as exc:      # never kill the daemon
+                print(f"[{now:%H:%M}] check-in error: {exc}")
 
             if now >= next_reap and cfg.get("reaper_enabled", True):
                 try:
