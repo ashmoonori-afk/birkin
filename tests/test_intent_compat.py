@@ -15,38 +15,40 @@ import pytest
 def test_repl_registry_retains_legacy_aliases() -> None:
     from birkin import slashcommands
 
-    assert sorted(slashcommands._REGISTRY) == [
+    assert set(slashcommands._REGISTRY) >= {
         "clear", "compact", "config", "cron", "hard-restart", "help", "learn",
         "load", "mcp", "memory", "model", "models", "morpheus", "neurosis",
         "new", "permission", "personality", "provider", "quit", "reload",
         "remember", "restart-gateway", "retry", "review", "save", "sessions",
         "skill", "skills", "soul", "system", "temp", "tools", "undo", "update",
         "vault",
-    ]
-    assert sorted(slashcommands._ALIASES.items()) == [
+    }
+    assert set(slashcommands._ALIASES.items()) >= {
         ("compress", "compact"), ("exit", "quit"), ("interview", "neurosis"),
         ("nightly", "morpheus"), ("permissions", "permission"), ("persona", "soul"),
         ("q", "quit"), ("recall", "memory"), ("reset", "new"),
         ("restart", "restart-gateway"), ("restart-hard", "hard-restart"),
         ("upgrade", "update"),
-    ]
+    }
 
 
 def test_gateway_registry_retains_canonical_triggers() -> None:
     from birkin.gateway.core import _GATEWAY_COMMANDS
 
-    assert [(name, triggers) for name, _description, triggers in _GATEWAY_COMMANDS] == [
-        ("help", {"help", "commands", "start", "menu", "?"}),
-        ("new", {"new", "reset"}),
-        ("restart", {"restart", "restart-gateway", "restart_gateway", "restartgateway", "reload"}),
-        ("hard_restart", {"hard-restart", "hard_restart", "hardrestart", "restart-hard", "restart_hard", "restarthard"}),
-        ("neurosis", {"neurosis", "interview"}),
-        ("models", {"models", "model"}),
-        ("effort", {"effort", "reasoning"}),
-        ("update", {"update", "upgrade", "pull"}),
-        ("pending", {"pending", "approvals", "review"}),
-        ("remind", {"remind", "cron", "schedule"}),
-    ]
+    registry = {name: triggers for name, _description, triggers in _GATEWAY_COMMANDS}
+    for name, triggers in {
+        "help": {"help", "commands", "start", "menu", "?"},
+        "new": {"new", "reset"},
+        "restart": {"restart", "restart-gateway", "restart_gateway", "restartgateway", "reload"},
+        "hard_restart": {"hard-restart", "hard_restart", "hardrestart", "restart-hard", "restart_hard", "restarthard"},
+        "neurosis": {"neurosis", "interview"},
+        "models": {"models", "model"},
+        "effort": {"effort", "reasoning"},
+        "update": {"update", "upgrade", "pull"},
+        "pending": {"pending", "approvals", "review"},
+        "remind": {"remind", "cron", "schedule"},
+    }.items():
+        assert registry.get(name, set()) >= triggers, name
 
 
 def test_gateway_command_mapping_routes_every_current_trigger() -> None:

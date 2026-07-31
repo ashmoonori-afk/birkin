@@ -379,7 +379,9 @@ pre-approve a hook to get shell back.
 birkin gateway            # HTTP + (optional) Telegram, warm and persistent
 ```
 
-Same memory, same skills, same persona as the terminal. Long work is proposed
+Same memory, same skills, same persona as the terminal — birkin attaches its own
+tool server to the CLI child so the gateway can actually write to the vault, not
+just read a digest of it. Long work is proposed
 with **Approve** / **Reject** buttons before it starts, bound to the chat that
 asked, with a heartbeat while it runs. A finished reply is recorded before it is
 sent, so a crash in that window redelivers it instead of losing it.

@@ -20,6 +20,15 @@ apply_patch) are **auto-declined** — a chat gateway must never approve
 writes on its own. Codex's own default sandbox (read-only unless the user's
 ~/.codex/config.toml says otherwise) applies.
 
+One exception, opt-in per session via ``birkin_mcp``: a tool call to birkin's
+OWN MCP server is approved. Codex asks for those with an MCP elicitation
+(``mcpServer/elicitation/request``, ``serverName: "birkin"``), and declining
+them left the gateway unable to write memory at all — asked to remember a
+name, it answered that it had no memory path. The tools behind that server
+are birkin's own gated surface: memory (reversible files under the birkin
+home), skills (guard-scanned), and ``propose_action``, which queues to
+``birkin review`` instead of executing. Any other MCP server still declines.
+
 The system prompt (persona + memory digest) has no app-server-level slot, so
 it is sent as a preamble block on the FIRST turn of the thread.
 
@@ -46,6 +55,21 @@ StreamCallback = Optional[Callable[[str], None]]
 
 _MODEL_RE = re.compile(r"[A-Za-z0-9._:-]+")
 
+# Codex asks permission for an MCP tool call with an MCP *elicitation*, not
+# with its exec/apply_patch approval shape. Captured live from codex 0.145:
+#   {"method": "mcpServer/elicitation/request", "id": 0, "params": {
+#      "serverName": "birkin", "mode": "form", "requestedSchema": {...},
+#      "message": "Allow the birkin MCP server to run tool \"memory_search\"?",
+#      "_meta": {"codex_approval_kind": "mcp_tool_call", ...}}}
+# The reply is the MCP elicitation result ({"action": ...}), not codex's
+# {"decision": ...} — answering with the latter reads as a rejection.
+_MCP_ELICITATION = "mcpServer/elicitation/request"
+
+
+def _server_name() -> str:
+    from .mcp_server import _SERVER_NAME
+    return _SERVER_NAME
+
 
 class CodexSessionError(RuntimeError):
     """Raised when the persistent codex process cannot produce a reply."""
@@ -64,6 +88,8 @@ class CodexAppServerSession:
                  reasoning_effort: str = "",
                  sandbox_mode: str = "workspace-write",
                  approval_policy: str = "never",
+                 birkin_mcp: bool = False,
+                 birkin_mcp_scope: str = "full",
                  startup_timeout: float = 90.0,
                  turn_timeout: float = 300.0,
                  request_timeout: float = 30.0):
@@ -78,6 +104,12 @@ class CodexAppServerSession:
         # host access opt in explicitly (e.g. an interactive REPL turn).
         self.sandbox_mode = sandbox_mode
         self.approval_policy = approval_policy
+        # Attach birkin's OWN MCP server (memory, skills, propose_action) to
+        # this codex child. Off by default: a session that carries the tools
+        # must also answer their approval prompts, and only birkin's server is
+        # ever answered — see _read_stdout.
+        self.birkin_mcp = bool(birkin_mcp)
+        self.birkin_mcp_scope = birkin_mcp_scope
         # Codex reasoning effort ("minimal"/"low"/"medium"/"high"). Empty =
         # the model default. A chat gateway wants fast replies, so a heavy
         # reasoning model (e.g. gpt-5.6-sol) is capped low here — cuts a
@@ -113,6 +145,9 @@ class CodexAppServerSession:
                 raise CodexSessionError(
                     f"unsafe codex model name: {self.model!r}")
             parts += ["-c", f'model="{self.model}"']
+        if self.birkin_mcp:
+            from .mcp_server import codex_config_args
+            parts += codex_config_args(scope=self.birkin_mcp_scope)
         if self.reasoning_effort:
             if self.reasoning_effort not in (
                     "minimal", "low", "medium", "high", "xhigh"):
@@ -265,6 +300,21 @@ class CodexAppServerSession:
                 f"{method} failed: {err.get('message')} ({err.get('code')})")
         return msg.get("result") or {}
 
+    def _approval_result(self, msg: dict) -> dict:
+        """How to answer one server-initiated approval ask.
+
+        Accept ONLY an MCP elicitation from birkin's own server, and only when
+        this session attached it. Everything else — exec, apply_patch, any
+        other MCP server — declines, which is the pre-existing behaviour.
+        """
+        if self.birkin_mcp and msg.get("method") == _MCP_ELICITATION:
+            params = msg.get("params") or {}
+            if params.get("serverName") == _server_name():
+                # MCP elicitation result shape, not codex's decision shape.
+                # requestedSchema is an empty object for a tool-call ask.
+                return {"action": "accept", "content": {}}
+        return {"decision": "decline"}
+
     def _read_stdout(self, pipe: Any, notes: "queue.Queue") -> None:
         try:
             for line in pipe:
@@ -284,13 +334,30 @@ class CodexAppServerSession:
                             pass
                 elif "id" in msg and "method" in msg:
                     # Server-initiated request = an approval ask. A headless
-                    # session never approves: decline immediately. (With
-                    # approval_policy='never' the server shouldn't ask at all;
-                    # this is a backstop.) The app-server v2 schema expects
-                    # decision 'decline'. Never let a failure kill the reader.
+                    # session never approves a WRITE it was asked to judge —
+                    # exec commands and apply_patch are declined immediately,
+                    # as before.
+                    #
+                    # The one exception is birkin's own MCP server, and only
+                    # when this session deliberately attached it. Codex asks
+                    # per tool call via an MCP elicitation:
+                    #   method  mcpServer/elicitation/request
+                    #   params  {serverName: "birkin", _meta:
+                    #            {codex_approval_kind: "mcp_tool_call", ...}}
+                    # Declining that is what made the gateway unable to
+                    # remember anything: every memory_write_note came back as
+                    # "user rejected MCP tool call", so a user asking birkin to
+                    # remember a fact got a reply saying it could not.
+                    #
+                    # Approving is narrow and stays inside birkin's own gates:
+                    # the exposed tools are memory (reversible files under the
+                    # birkin home, already in auto_approve), skills (guard
+                    # scanned) and propose_action — which QUEUES to the
+                    # approvals inbox rather than executing. Any other MCP
+                    # server, and every exec/apply_patch ask, still declines.
                     try:
                         self._send({"id": msg["id"],
-                                    "result": {"decision": "decline"}})
+                                    "result": self._approval_result(msg)})
                     except Exception:
                         pass
                 elif "method" in msg:

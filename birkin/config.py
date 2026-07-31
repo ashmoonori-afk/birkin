@@ -414,13 +414,18 @@ def load_config() -> dict[str, Any]:
     # default channels.http). A plain dict.update() replaces the whole sub-tree.
     for nk in ("channels",):
         base, sv = DEFAULT_CONFIG.get(nk), saved.get(nk)
-        if isinstance(base, dict) and isinstance(sv, dict):
+        if isinstance(base, dict):
+            # Always rebuild from a copy — even with nothing saved, handing out
+            # DEFAULT_CONFIG's own nested dicts lets a caller mutate the
+            # defaults for every later load (the 0.4.58 load_config bug, one
+            # level down).
             merged = {k: (dict(v) if isinstance(v, dict) else v)
                       for k, v in base.items()}
-            for k, v in sv.items():
-                merged[k] = ({**merged[k], **v}
-                             if isinstance(v, dict) and isinstance(merged.get(k), dict)
-                             else v)
+            if isinstance(sv, dict):
+                for k, v in sv.items():
+                    merged[k] = ({**merged[k], **v}
+                                 if isinstance(v, dict) and isinstance(merged.get(k), dict)
+                                 else v)
             cfg[nk] = merged
     # Migrate legacy keys (in-memory only). We look at the *saved* data so we
     # don't overwrite a real ``morpheus_hour`` with the static default just
@@ -440,11 +445,34 @@ def load_config() -> dict[str, Any]:
     return cfg
 
 
+def _overrides_only(cfg: dict[str, Any]) -> dict[str, Any]:
+    """Drop keys that just repeat DEFAULT_CONFIG.
+
+    Every caller passes ``load_config()``'s result, which is DEFAULT_CONFIG
+    merged with the file — so writing it verbatim froze every default on the
+    first save. From then on ``cfg.update(saved)`` in load_config replayed the
+    frozen values over any newer default, and an install could never receive an
+    improved default again. Measured on a real install: 84 keys on disk, 8 ever
+    chosen by the user.
+
+    Keys birkin does not know about are kept as-is — legacy names
+    (``nightly_hour``), forward-compat keys written by a newer build, and
+    anything hand-added are none of this function's business.
+    """
+    out: dict[str, Any] = {}
+    for key, value in cfg.items():
+        if key in DEFAULT_CONFIG and value == DEFAULT_CONFIG[key]:
+            continue
+        out[key] = value
+    return out
+
+
 def save_config(cfg: dict[str, Any]) -> Path:
     # config.json may hold an API key, so write atomically (mirrors
     # store._write_json): write a temp sibling, restrict it before it is
     # briefly visible, then os.replace() for an atomic swap. A crash mid-write
     # then cannot truncate the live config.
+    cfg = _overrides_only(cfg)
     path = config_path()
     tmp = path.with_suffix(path.suffix + ".tmp")
     try:

@@ -733,7 +733,9 @@ def _odyssey(session: Any, arg: str) -> None:
     sys_write(session, odyssey.start_prompt(s))
 
 
-def sys_write(session: Any, text: str) -> None:
+def sys_write(session: Any, text: str, *,
+              retained_text: str | None = None,
+              retained_replacements: tuple[tuple[str, str], ...] = ()) -> None:
     """Send `text` to the agent and stream the reply (used by /retry)."""
     import sys
     sys.stdout.write(f"\n{CYAN}birkin{RESET} > ")
@@ -742,6 +744,6 @@ def sys_write(session: Any, text: str) -> None:
         session.ask(text, on_text=ui.stream_text, retained_text=retained_text,
                     retained_replacements=retained_replacements)
         sys.stdout.write("\n")
-        store.append_activity(f"chat: {session.retained_text[:120]}")
+        store.append_activity(f"chat: {(retained_text or text)[:120]}")
     except Exception as exc:
         print(f"\n{RED}Error: {exc}{RESET}")

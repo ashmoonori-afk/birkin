@@ -12,7 +12,8 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Callable, Optional
 
-from . import budget, checkpoints, config, hooks, promptgate, prompts, store
+from . import (budget, checkpoints, config, hooks, promptgate, prompts, store,
+               transcripts)
 from .agent import Agent
 from .llm import LLMClient, LLMError, build_client
 from .memory import Memory
