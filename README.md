@@ -684,9 +684,13 @@ available, and reverted rather than shipped on a hunch. Research log:
 - **55 bundled skills**, **0 runtime dependencies**, Python 3.10+.
 - Deliberately smaller than its inspirations —
   [hermes-agent](https://github.com/NousResearch/hermes-agent) and
-  [openclaw](https://github.com/openclaw/openclaw); the deep-interview lineage
-  comes from [gajae-code](https://github.com/Yeachan-Heo/gajae-code). Not
-  competing on breadth: on the depth of the trust and memory story. See
+  [openclaw](https://github.com/openclaw/openclaw). The deep-interview lineage
+  comes from [gajae-code](https://github.com/Yeachan-Heo/gajae-code),
+  model-aware prompt adaptation was informed by
+  [senpi](https://github.com/code-yeongyu/senpi), and
+  [shadcn/ui](https://github.com/shadcn-ui/ui) is the default component book
+  for generated interfaces. Not competing on breadth: on the depth of the
+  trust and memory story. See
   [`docs/COMPARISON.md`](./docs/COMPARISON.md), which lists where birkin loses.
 - Every decision has a written rationale:
   [`docs/DECISIONS.md`](./docs/DECISIONS.md). Live status:

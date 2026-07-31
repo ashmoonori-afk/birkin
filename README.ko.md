@@ -637,10 +637,13 @@ top-5가 long-context 대비 **9.1×**, 볼트 전체 로딩 대비 **371×** �
 - **번들 스킬 55개**, **런타임 의존성 0**, Python 3.10+.
 - 영감을 준 프로젝트들보다 의도적으로 작습니다 —
   [hermes-agent](https://github.com/NousResearch/hermes-agent),
-  [openclaw](https://github.com/openclaw/openclaw); 딥 인터뷰 계보는
-  [gajae-code](https://github.com/Yeachan-Heo/gajae-code)에서 왔습니다. 폭이
-  아니라 **신뢰와 기억의 깊이**로 경쟁합니다. birkin이 **지는 지점까지 적어 둔**
-  비교: [`docs/COMPARISON.md`](./docs/COMPARISON.md).
+  [openclaw](https://github.com/openclaw/openclaw). 딥 인터뷰 계보는
+  [gajae-code](https://github.com/Yeachan-Heo/gajae-code)에서 왔고, 모델 인식
+  프롬프트 적응은 [senpi](https://github.com/code-yeongyu/senpi)에서 영감을
+  받았습니다. 생성 인터페이스의 기본 컴포넌트 북은
+  [shadcn/ui](https://github.com/shadcn-ui/ui)입니다. 폭이 아니라 **신뢰와 기억의
+  깊이**로 경쟁합니다. birkin이 **지는 지점까지 적어 둔** 비교:
+  [`docs/COMPARISON.md`](./docs/COMPARISON.md).
 - 모든 결정에 근거가 남아 있습니다: [`docs/DECISIONS.md`](./docs/DECISIONS.md).
   라이브 상태: [`docs/STATUS.md`](./docs/STATUS.md).
 
