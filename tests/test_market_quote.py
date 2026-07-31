@@ -137,6 +137,11 @@ def test_market_quote_tool_returns_machine_readable_verified_fields(
         "_fetch_chart",
         lambda _symbol: (_chart_payload(), source),
     )
+    monkeypatch.setattr(
+        market,
+        "_utc_now",
+        lambda: datetime(2026, 7, 30, 5, 0, tzinfo=timezone.utc),
+    )
 
     # When
     result = market._market_quote({"symbols": ["삼성전자"]}, None)

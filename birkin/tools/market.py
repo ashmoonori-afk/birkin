@@ -53,6 +53,10 @@ class MarketQuote:
     source_url: str
 
 
+def _utc_now() -> datetime:
+    return datetime.now(timezone.utc)
+
+
 def _number(value: Any) -> float | None:
     if isinstance(value, bool) or not isinstance(value, (int, float)):
         return None
@@ -93,7 +97,7 @@ def parse_chart(
     if price is None or price <= 0 or market_time is None:
         raise MarketQuoteError("current price or timestamp is missing")
     observed_utc = datetime.fromtimestamp(market_time, tz=timezone.utc)
-    current = (now or datetime.now(timezone.utc)).astimezone(timezone.utc)
+    current = (now or _utc_now()).astimezone(timezone.utc)
     age = current - observed_utc
     if age > _MAX_AGE:
         raise MarketQuoteError(f"quote is stale by {age}")
