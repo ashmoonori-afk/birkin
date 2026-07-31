@@ -32,12 +32,11 @@ def test_neurosis_note_off_when_disabled():
 def test_static_audit_main_turn_prompt_goes_through_the_gate():
     """The PRIMARY conversational system prompt (REPL/gateway/dry-run, both
     provider paths) must be assembled via promptgate. Exempt: prompts.py (defs),
-    promptgate.py (the gate), and two intentionally-specialized assemblers —
-    subagent.py (role=subagent, no neurosis note) and selfimprove.py (extraction
-    prompts). Matches on the ``prompts.`` prefix so the local method name
+    promptgate.py (the gate), and the intentionally-specialized
+    selfimprove.py extraction prompts. Matches on the ``prompts.`` prefix so the local method name
     ``_build_cli_system`` is not a false positive."""
     pkg = Path(birkin.__file__).parent
-    allowed = {"promptgate.py", "prompts.py", "subagent.py", "selfimprove.py"}
+    allowed = {"promptgate.py", "prompts.py", "selfimprove.py"}
     offenders = []
     for py in pkg.rglob("*.py"):
         if py.name in allowed or "__pycache__" in py.parts:

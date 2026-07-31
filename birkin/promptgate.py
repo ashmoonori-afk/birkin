@@ -33,6 +33,9 @@ def compose_main(cfg: dict[str, Any], *, skills_index: str = "",
         skills_index=skills_index, memory_block=memory_block, role=role,
         extra=extra, persona=_persona(persona_text)
     ) + presets.role_overlay(cfg.get("model"), cfg) \
+        + presets.tool_policy_overlay(
+            cfg.get("model"), cfg, surface="native"
+        ) \
         + neurosis.auto_trigger_note(cfg) \
         + moirai_trigger.auto_trigger_note(cfg)
     return prompts.seal_research_policy(system)
@@ -49,6 +52,24 @@ def compose_cli(cfg: dict[str, Any], *, memory_block: str = "",
     if extra:
         sysp += extra
     system = sysp + presets.role_overlay(cfg.get("model"), cfg) \
+        + presets.tool_policy_overlay(
+            cfg.get("model"), cfg, surface="cli"
+        ) \
         + neurosis.auto_trigger_note(cfg) \
         + moirai_trigger.auto_trigger_note(cfg)
+    return prompts.seal_research_policy(system)
+
+
+def compose_subagent(cfg: dict[str, Any], *, skills_index: str = "",
+                     preloaded: Optional[list[tuple[str, str]]] = None) -> str:
+    """System prompt for a native subagent using its effective model preset."""
+    system = prompts.build_system_prompt(
+        skills_index=skills_index,
+        role="subagent",
+        preloaded=preloaded,
+    )
+    system += presets.role_overlay(cfg.get("model"), cfg)
+    system += presets.tool_policy_overlay(
+        cfg.get("model"), cfg, surface="native"
+    )
     return prompts.seal_research_policy(system)

@@ -9,7 +9,7 @@ from __future__ import annotations
 import copy
 import sys
 import threading
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import Any, Callable, Optional
 
@@ -309,9 +309,13 @@ class Session:
         takes effect on this live session with no restart. Rewires the client on
         the session, the tool context (for subagents), and the agent."""
         api_key = config.get_api_key(self.cfg) or ""
-        self.client = build_client(self.cfg, api_key)
-        self.ctx.client = self.client
-        self.agent.client = self.client
+        client = build_client(self.cfg, api_key)
+        ctx = replace(self.ctx, client=client)
+        registry = build_registry(ctx)
+        self.client = client
+        self.ctx = ctx
+        self.agent.client = client
+        self.agent.registry = registry
         self.agent.model = self.cfg.get("model")
         with self._skill_review_lock:
             self._skill_review_turns = 0

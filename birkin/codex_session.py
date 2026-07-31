@@ -147,7 +147,10 @@ class CodexAppServerSession:
             parts += ["-c", f'model="{self.model}"']
         if self.birkin_mcp:
             from .mcp_server import codex_config_args
-            parts += codex_config_args(scope=self.birkin_mcp_scope)
+            parts += codex_config_args(
+                scope=self.birkin_mcp_scope,
+                model=self.model,
+            )
         if self.reasoning_effort:
             if self.reasoning_effort not in (
                     "minimal", "low", "medium", "high", "xhigh"):

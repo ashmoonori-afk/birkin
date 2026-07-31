@@ -69,8 +69,9 @@ Python 3.10+. The first run opens an onboarding wizard.
 
 ### What it runs on
 
-birkin drives a model you already have. Which one is a **cost** question, never
-a capability one — every feature works on every backend.
+birkin drives a model you already have. Product features work across backends,
+but the execution and permission boundary differs between Birkin's native tool
+loop and external Claude/Codex CLI tool loops.
 
 | Backend | How | Cost |
 |---|---|---|
@@ -89,6 +90,22 @@ CLI. `birkin auth codex status` shows which session is in use.
 
 The gateway keeps one warm process per conversation, so replies after the first
 are model-time (**~3 s**) rather than a cold start per message.
+
+### Model-aware presets and tool boundaries
+
+Birkin resolves the effective model before building its prompt and tools.
+Known model families receive a small role overlay; unknown models use an
+explicit neutral preset. Restricted native presets omit denied tool groups from
+the registry, so those tools are neither advertised nor executable. A live
+`/model` change and a `subagent_model` both rebuild that registry from the newly
+selected model.
+
+External Claude/Codex CLI agents own their tool loop, so the same preset text is
+**advisory**, not an authorization control. Their sandbox and permission mode
+remain the real boundary. Birkin passes the effective model into its attached
+MCP server so MCP tool exposure follows the same preset. Custom
+`model_presets` may change role/style and add denials, but cannot remove a
+built-in restriction.
 
 > On subscription vs. API key — including which surfaces run unattended and
 > what that means for your plan's terms — see

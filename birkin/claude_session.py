@@ -164,7 +164,10 @@ class ClaudeStreamSession:
         os.close(fd)
         self._mcp_file = Path(path)
         try:
-            return mcp_server.write_mcp_config(self._mcp_file)
+            return mcp_server.write_mcp_config(
+                self._mcp_file,
+                model=self.model,
+            )
         except Exception:
             self._mcp_file.unlink(missing_ok=True)
             self._mcp_file = None

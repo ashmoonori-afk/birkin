@@ -388,9 +388,15 @@ class Gateway:
         if spare is not None:
             spare.close()
         cfg = config.load_config()
-        if (cfg.get("gateway_model")
-                and _model_fits_provider(cfg.get("provider", ""),
-                                         cfg["gateway_model"])):
+        provider = cfg.get("provider", "")
+        gateway_model = cfg.get("gateway_model")
+        known_models = _gateway_model_choices(provider, cfg)
+        if (gateway_model
+                and _gateway_model_accepted(
+                    provider,
+                    gateway_model,
+                    known_models,
+                )):
             cfg = {**cfg, "model": cfg["gateway_model"]}
         if cfg.get("cli_access") == "full":
             cfg = {**cfg, "cli_access": "workspace"}

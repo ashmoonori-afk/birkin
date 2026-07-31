@@ -22,7 +22,7 @@ import json
 import os
 import sys
 from pathlib import Path
-from typing import Any
+from typing import Any, Optional
 
 _PROTOCOL_VERSION = "2024-11-05"
 _SERVER_NAME = "birkin"
@@ -45,12 +45,16 @@ def _build_tools() -> dict[str, dict[str, Any]]:
     warning can't corrupt the protocol stream.
     """
     with contextlib.redirect_stdout(sys.stderr):
-        from . import approvals, config
+        from . import approvals, config, presets
         from .memory import Memory
         from .skills import build_manager
         from .tools import ToolContext, market
 
         cfg = config.load_config()
+        effective_model = os.environ.get("BIRKIN_MCP_MODEL") or cfg.get("model")
+        cfg = {**cfg, "model": effective_model}
+        disabled = set(cfg.get("disabled_tools", []) or [])
+        disabled |= presets.deny_tools(effective_model, cfg)
         memory = Memory(cfg)
         skills = build_manager(cfg)
         ctx = ToolContext(cfg=cfg, client=None, cwd=Path.cwd(),
@@ -58,6 +62,7 @@ def _build_tools() -> dict[str, dict[str, Any]]:
 
     tools: dict[str, dict[str, Any]] = {}
     memory_tool_names: set[str] = set()
+    market_tool_names: set[str] = set()
 
     # Memory tools (LLM-free; they ignore ctx).
     for t in memory.tools():
@@ -79,6 +84,7 @@ def _build_tools() -> dict[str, dict[str, Any]]:
                 "schema": t.input_schema,
                 "handler": _mk(t),
             }
+            market_tool_names.add(t.name)
 
     skill_tools = {tool.name: tool for tool in skills.tools(origin="mcp")}
 
@@ -160,10 +166,30 @@ def _build_tools() -> dict[str, dict[str, Any]]:
             "required": ["category", "title"]},
         "handler": _propose}
 
+    skill_tool_names = {
+        "skills_list",
+        "load_skill",
+        "create_skill",
+        "improve_skill",
+    }
+    groups = {
+        **{name: "memory" for name in memory_tool_names},
+        **{name: "web" for name in market_tool_names},
+        **{name: "skills" for name in skill_tool_names},
+        "propose_action": "approvals",
+    }
+    allowed = {
+        name: tool
+        for name, tool in tools.items()
+        if name not in disabled and groups.get(name) not in disabled
+    }
     if os.environ.get("BIRKIN_MCP_SCOPE") == "memory":
-        return {name: tool for name, tool in tools.items()
-                if name in memory_tool_names}
-    return tools
+        return {
+            name: tool
+            for name, tool in allowed.items()
+            if name in memory_tool_names
+        }
+    return allowed
 
 
 # -- JSON-RPC plumbing -----------------------------------------------------
@@ -244,19 +270,33 @@ def serve(stdin=None, stdout=None) -> int:
 
 # -- launch config helpers (so claude can spawn this server) ---------------
 
-def mcp_config_dict() -> dict[str, Any]:
+def mcp_config_dict(*, model: Optional[str] = None,
+                    scope: str = "full") -> dict[str, Any]:
     """An ``--mcp-config`` payload that launches THIS birkin as the server."""
-    return {"mcpServers": {_SERVER_NAME: {
-        "command": sys.executable, "args": ["-m", "birkin", "mcp-serve"]}}}
+    server: dict[str, Any] = {
+        "command": sys.executable,
+        "args": ["-m", "birkin", "mcp-serve"],
+    }
+    env: dict[str, str] = {}
+    if model:
+        env["BIRKIN_MCP_MODEL"] = model
+    if scope == "memory":
+        env["BIRKIN_MCP_SCOPE"] = "memory"
+    if env:
+        server["env"] = env
+    return {"mcpServers": {_SERVER_NAME: server}}
 
 
-def write_mcp_config(path: Path) -> Path:
-    path.write_text(json.dumps(mcp_config_dict(), indent=2), encoding="utf-8")
+def write_mcp_config(path: Path, *, model: Optional[str] = None,
+                     scope: str = "full") -> Path:
+    payload = mcp_config_dict(model=model, scope=scope)
+    path.write_text(json.dumps(payload, indent=2), encoding="utf-8")
     return path
 
 
-def codex_config_args(*, scope: str = "full") -> list[str]:
-    server = mcp_config_dict()["mcpServers"][_SERVER_NAME]
+def codex_config_args(*, scope: str = "full",
+                      model: Optional[str] = None) -> list[str]:
+    server = mcp_config_dict(model=model, scope=scope)["mcpServers"][_SERVER_NAME]
     args = [
         "-c", f"mcp_servers.{_SERVER_NAME}.command="
               f"{json.dumps(server['command'])}",
@@ -264,11 +304,15 @@ def codex_config_args(*, scope: str = "full") -> list[str]:
               f"{json.dumps(server['args'])}",
         "-c", f"mcp_servers.{_SERVER_NAME}.enabled=true",
     ]
-    if scope == "memory":
+    env = server.get("env") or {}
+    if env:
+        values = ", ".join(
+            f"{key} = {json.dumps(value)}"
+            for key, value in sorted(env.items())
+        )
         args += [
             "-c",
-            f"mcp_servers.{_SERVER_NAME}.env={{ BIRKIN_MCP_SCOPE = "
-            '"memory" }',
+            f"mcp_servers.{_SERVER_NAME}.env={{ {values} }}",
         ]
     return args
 

@@ -424,6 +424,30 @@ def test_restart_discards_the_stale_spare(tmp_path, monkeypatch):
     assert gw._spare is not stale
 
 
+def test_restart_rejects_unknown_gateway_model(tmp_path, monkeypatch):
+    gw = _gateway(tmp_path, monkeypatch)
+    from birkin import config
+    from birkin.gateway import core
+
+    cfg = {
+        **config.load_config(),
+        "provider": "codex-cli",
+        "model": "gpt-5.3-codex",
+        "gateway_model": "gpt-unknown-beta",
+    }
+    config.save_config(cfg)
+    monkeypatch.setattr(
+        core,
+        "_gateway_model_choices",
+        lambda _provider, _cfg: ["gpt-5.3-codex"],
+    )
+
+    with gw._lock:
+        gw.restart()
+
+    assert gw.cfg["model"] == "gpt-5.3-codex"
+
+
 def test_stale_inflight_spare_cannot_publish_after_restart(tmp_path,
                                                            monkeypatch):
     # regression (reproduced in review): a spare still BUILDING when /restart

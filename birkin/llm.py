@@ -415,7 +415,10 @@ class LLMClient:
             parts += ["-m", model]
         if self.birkin_mcp:
             from .mcp_server import codex_config_args
-            parts += codex_config_args(scope=self.birkin_mcp_scope)
+            parts += codex_config_args(
+                scope=self.birkin_mcp_scope,
+                model=model,
+            )
         try:
             stdout, stderr, timed_out, aborted = self._run_cli_capture(
                 cli_argv(parts), prompt, abort)

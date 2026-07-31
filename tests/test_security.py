@@ -3,6 +3,8 @@ Plus the advisory gateway warnings module (birkin.security)."""
 
 from __future__ import annotations
 
+import pytest
+
 from birkin import approvals, security
 
 
@@ -17,6 +19,19 @@ def test_gateway_warnings_flag_native_loop_exposure():
 def test_gateway_warnings_quiet_for_gated_provider_with_lockdowns():
     warns = security.gateway_warnings({"provider": "claude-cli"})
     assert warns == []
+
+
+@pytest.mark.parametrize("provider", ["codex-cli", "local-cli"])
+def test_gateway_warnings_describe_external_cli_boundary(provider):
+    warns = security.gateway_warnings({"provider": provider})
+    text = "\n".join(warns)
+    assert "external CLI tool loop" in text
+    assert "NATIVE tool loop" not in text
+    assert "fs_jail settings do not constrain" in text
+    if provider == "local-cli":
+        assert "may have unrestricted host access" in text
+    else:
+        assert "CLI's sandbox/permission policy" in text
 
 
 def test_gateway_warnings_respect_optins():

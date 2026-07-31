@@ -16,14 +16,16 @@ Families, matched by substring on the model id (first hit wins):
   spark  fast codex worker; plan-only bias; no web/subagent
   gpt    codex engine; emit typed plans / patches, not prose edits
   local  minimal: no tools that assume strong instruction-following
+  neutral unknown engine; no behavioral overlay; least-privilege native tools
 
-Unknown models get the sonnet (default) preset. Config can override or extend
-via ``cfg["model_presets"] = {"substring": {"role": ..., "deny_tools": [...]}}``.
+Unknown models get the explicit neutral preset. Config can override role/style
+and add tool restrictions via
+``cfg["model_presets"] = {"substring": {"role": ..., "deny_tools": [...]}}``.
 """
 
 from __future__ import annotations
 
-from typing import Any, Optional
+from typing import Any, Literal, Optional
 
 # Strong per-family guidelines (docs/hermes-comparison.md §5). Each is a firm
 # directive block — role, tool discipline, output format, verification — not a
@@ -111,9 +113,24 @@ PRESETS: dict[str, dict[str, Any]] = {
             "you, say exactly that in one sentence."),
         "deny_tools": ["web", "subagent"],
     },
+    "neutral": {
+        "role": "",
+        "deny_tools": ["web", "subagent"],
+    },
 }
 
-_FAMILY_ORDER = ("opus", "sonnet", "haiku", "spark", "gpt", "local")
+PromptSurface = Literal["native", "cli"]
+ToolPolicyMode = Literal["enforced", "advisory"]
+
+_FAMILY_ORDER = (
+    "opus",
+    "sonnet",
+    "haiku",
+    "spark",
+    "gpt",
+    "local",
+    "neutral",
+)
 
 _ALIASES = {  # model-id substring -> family
     "opus": "opus", "sonnet": "sonnet", "haiku": "haiku", "fable": "opus",
@@ -123,23 +140,33 @@ _ALIASES = {  # model-id substring -> family
 
 
 def family_of(model: Optional[str]) -> str:
+    if not model:
+        return "sonnet"
     m = (model or "").lower()
     for needle, fam in _ALIASES.items():
         if needle in m:
             return fam
-    return "sonnet"
+    return "neutral"
 
 
 def resolve(model: Optional[str],
             cfg: Optional[dict[str, Any]] = None) -> dict[str, Any]:
-    """Preset for ``model``: built-in family preset, then any cfg override
-    whose key substring-matches the model id (override wins per field)."""
-    preset = dict(PRESETS[family_of(model)])
+    """Resolve a preset while keeping built-in tool restrictions monotonic."""
+    family = family_of(model)
+    preset = {**PRESETS[family], "family": family}
+    denied = {str(name) for name in preset.get("deny_tools") or []}
     m = (model or "").lower()
     for needle, over in ((cfg or {}).get("model_presets") or {}).items():
+        if not isinstance(needle, str) or not needle:
+            continue
         if isinstance(over, dict) and needle.lower() in m:
-            preset.update({k: v for k, v in over.items() if k in
-                           ("role", "deny_tools", "style")})
+            preset.update({
+                key: value
+                for key, value in over.items()
+                if key in ("role", "style")
+            })
+            denied.update(str(name) for name in over.get("deny_tools") or [])
+    preset["deny_tools"] = sorted(denied)
     return preset
 
 
@@ -147,6 +174,32 @@ def role_overlay(model: Optional[str],
                  cfg: Optional[dict[str, Any]] = None) -> str:
     role = str(resolve(model, cfg).get("role") or "").strip()
     return f"\n\n## Engine preset\n{role}" if role else ""
+
+
+def tool_policy_mode(surface: PromptSurface) -> ToolPolicyMode:
+    return "enforced" if surface == "native" else "advisory"
+
+
+def tool_policy_overlay(model: Optional[str],
+                        cfg: Optional[dict[str, Any]] = None, *,
+                        surface: PromptSurface) -> str:
+    denied = sorted(deny_tools(model, cfg))
+    if not denied:
+        return ""
+    names = ", ".join(denied)
+    mode = tool_policy_mode(surface)
+    if mode == "enforced":
+        detail = (
+            "Birkin omits these groups/tools from the native registry: "
+            f"{names}."
+        )
+    else:
+        detail = (
+            f"Avoid these groups/tools: {names}. This is guidance only; the "
+            "child CLI owns its toolset, while authorization and sandboxing "
+            "remain enforced outside this prompt."
+        )
+    return f"\n\n## Tool policy ({mode})\n{detail}"
 
 
 def deny_tools(model: Optional[str],

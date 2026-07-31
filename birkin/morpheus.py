@@ -268,7 +268,10 @@ def _run_claude_morpheus(cfg: dict[str, Any], task: str, dry_run: bool,
 
     fd, cfg_path = tempfile.mkstemp(suffix="-birkin-mcp.json")
     os.close(fd)
-    mcp_server.write_mcp_config(Path(cfg_path))
+    mcp_server.write_mcp_config(
+        Path(cfg_path),
+        model=str(cfg.get("model") or "unknown"),
+    )
     allowed = ["Read", "Glob", "Grep"]
     if not dry_run:
         allowed += mcp_server.birkin_tool_patterns()  # mcp__birkin__*

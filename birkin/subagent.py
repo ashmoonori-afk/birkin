@@ -11,7 +11,7 @@ from __future__ import annotations
 from dataclasses import replace
 from typing import Any, Optional
 
-from . import prompts
+from . import promptgate
 from .agent import Agent
 from .tools import ToolContext, build_registry
 
@@ -20,9 +20,16 @@ def run_subagent(task: str, parent_ctx: ToolContext, *,
                  skill_names: Optional[list[str]] = None,
                  max_turns: int = 12) -> str:
     cfg = parent_ctx.cfg
+    sub_model = cfg.get("subagent_model") or cfg.get("model")
+    child_cfg = {**cfg, "model": sub_model}
 
     # Child context: deeper, isolated from parent memory.
-    child_ctx = replace(parent_ctx, depth=parent_ctx.depth + 1, memory=None)
+    child_ctx = replace(
+        parent_ctx,
+        cfg=child_cfg,
+        depth=parent_ctx.depth + 1,
+        memory=None,
+    )
 
     # Preload any requested skills' bodies directly into the prompt.
     preloaded: list[tuple[str, str]] = []
@@ -34,9 +41,11 @@ def run_subagent(task: str, parent_ctx: ToolContext, *,
                 preloaded.append((sk.name, sk.body()))
 
     skills_index = skills.index() if skills else ""
-    system = prompts.build_system_prompt(
-        skills_index=skills_index, role="subagent",
-        preloaded=preloaded or None)
+    system = promptgate.compose_subagent(
+        child_cfg,
+        skills_index=skills_index,
+        preloaded=preloaded or None,
+    )
 
     registry = build_registry(child_ctx)
 
@@ -44,8 +53,6 @@ def run_subagent(task: str, parent_ctx: ToolContext, *,
         if parent_ctx.emit:
             parent_ctx.emit("subagent." + event, payload)
 
-    # Subagents use the (cheaper) subagent model when configured.
-    sub_model = cfg.get("subagent_model") or cfg.get("model")
     agent = Agent(client=parent_ctx.client, system=system, registry=registry,
                   max_turns=max_turns, model=sub_model, on_event=on_event)
 

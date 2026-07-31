@@ -17,9 +17,9 @@ from __future__ import annotations
 
 from typing import Any
 
-# Providers whose tools are gated by an *external* CLI (Claude Code), so the
-# native ``run_shell``/file tools are not in play for them.
-_GATED_PROVIDERS = {"claude-cli"}
+# Providers whose tool loops belong to an external CLI, so Birkin's native
+# registry, disabled_tools and fs_jail do not constrain the child's own tools.
+_EXTERNAL_CLI_PROVIDERS = {"claude-cli", "codex-cli", "local-cli"}
 
 
 def gateway_warnings(cfg: dict[str, Any]) -> list[str]:
@@ -46,7 +46,7 @@ def gateway_warnings(cfg: dict[str, Any]) -> list[str]:
             " — no such approval category, so the entry does nothing. Known: "
             + ", ".join(sorted(CATEGORY_RISK)) + ".")
 
-    if provider not in _GATED_PROVIDERS:
+    if provider not in _EXTERNAL_CLI_PROVIDERS:
         # The non-persistent gateway path drives the native loop, where
         # run_shell has no approval gate (risk tiers only sort the inbox).
         if "run_shell" not in disabled and str(
@@ -72,6 +72,17 @@ def gateway_warnings(cfg: dict[str, Any]) -> list[str]:
                 "workspace and ~/.birkin. (birkin's own control plane — "
                 "config.json, cron.json, hooks_allowlist.json, hooks/ — is "
                 "refused either way; see tools/files.py.)")
+    elif provider == "local-cli":
+        out.append(
+            "provider='local-cli' uses an external CLI tool loop. Birkin's "
+            "native disabled_tools and fs_jail settings do not constrain that "
+            "child, and a generic local command may have unrestricted host "
+            "access unless the configured command enforces its own sandbox.")
+    elif provider == "codex-cli":
+        out.append(
+            f"provider={provider!r} uses an external CLI tool loop. Birkin's "
+            "native disabled_tools and fs_jail settings do not constrain that "
+            "child; rely on the CLI's sandbox/permission policy instead.")
 
     if cfg.get("allow_unattended_full") and cfg.get("cli_access") == "full":
         out.append(
