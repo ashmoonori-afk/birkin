@@ -1,4 +1,4 @@
-"""Local WebUI for birkin (standard-library http server + streaming chat)."""
+"""Local WebUI monitoring dashboard for birkin (standard-library HTTP server)."""
 
 from .server import run
 
