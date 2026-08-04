@@ -33,6 +33,7 @@ from typing import Any
 from urllib.parse import quote, urlparse
 
 from . import Tool, ToolContext, ToolResult
+from .. import __version__
 from .web_document import (
     ContentDecodingError,
     decode_http_body,
@@ -40,7 +41,10 @@ from .web_document import (
 )
 
 MAX_TEXT = 40_000     # historical visible cap; spill.py now applies the limit
-USER_AGENT = "birkin/0.1 (+https://github.com/NousResearch/hermes-agent)"
+# Identify as ourselves, at the real package version. This line used to
+# carry the upstream hermes-agent repository URL, which attributed every
+# outbound birkin request to another project in the operator's logs.
+USER_AGENT = f"birkin/{__version__}"
 
 # Search backends. Hosts are constants so the model never influences them.
 MARGINALIA_URL = "https://api2.marginalia-search.com/search"
