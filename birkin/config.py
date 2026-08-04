@@ -54,6 +54,11 @@ DEFAULT_CONFIG: dict[str, Any] = {
     "spill_threshold": 30000,
     "spill_dir": "",             # empty -> <birkin_home>/tool-results
     "spill_retention_days": 7,
+    # Mask credential material (vendor-prefixed keys, auth headers, JWTs,
+    # URL passwords, private-key blocks, secret-named assignments) in tool
+    # results before they reach the model, the transcript, or a spill file.
+    # See redact.py. Set false to opt out.
+    "redact_secrets": True,
     # What a line typed DURING a REPL turn does: "steer" hands it to the
     # running turn (in-flight work is kept, the model adjusts course), "kill"
     # restores the old behavior of interrupting and queueing it as the next

@@ -106,8 +106,12 @@ class ToolRegistry:
                 pass          # observers must not break the loop
         # The single choke point every native tool call passes through, so
         # oversized output is handled once rather than in each tool.
+        from ..redact import redact_tool_output
         from .spill import maybe_spill
-        content = maybe_spill(result.content, name, self.ctx.cfg)
+        # Mask BEFORE spilling: a secret must be absent from the file written
+        # to disk too, not merely from the text the model is shown.
+        content = redact_tool_output(result.content, self.ctx.cfg)
+        content = maybe_spill(content, name, self.ctx.cfg)
         return result if content is result.content \
             else ToolResult(content, result.is_error)
 
