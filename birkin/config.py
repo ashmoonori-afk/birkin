@@ -59,6 +59,12 @@ DEFAULT_CONFIG: dict[str, Any] = {
     # exist -- this is an inbound execution surface and nobody should
     # acquire one by upgrading. See a2a/__init__.py.
     "a2a_enabled": False,
+    # Language servers by file suffix, e.g.
+    #   {".py": ["pyright-langserver", "--stdio"]}
+    # After an edit, birkin asks that server whether the file still
+    # compiles and reports only what THIS edit introduced. Empty means no
+    # server, no subprocess, and an unchanged tool result. See lsp/.
+    "lsp_servers": {},
     # Tool results longer than this are written to disk and replaced by a
     # preview plus the path, so the agent can grep or page through the rest
     # instead of losing it. 0 disables. See tools/spill.py.
