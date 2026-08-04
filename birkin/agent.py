@@ -128,6 +128,9 @@ class Agent:
         # Anti-thrash latch: history length at which compaction last failed to
         # make progress. Retry only once the conversation has grown past it.
         self._compact_floor = 0
+        # Newest pre-compaction snapshot id -- the head of the lineage chain
+        # that keeps compacted-away history recoverable (see lineage.py).
+        self._lineage_head: Optional[str] = None
 
         # Mid-turn steering. Written from another thread (the REPL key
         # listener, a gateway channel poller) and drained by the loop thread;
@@ -232,9 +235,18 @@ class Agent:
             self._compact_floor = len(self.messages)
             return False
         before, after = len(self.messages), len(compacted)
+        # Snapshot the history being replaced BEFORE swapping it out, so the
+        # summarized turns stay recoverable. Best-effort: a failed snapshot
+        # must never block the compaction that keeps the chat alive.
+        from . import lineage
+        snap = lineage.snapshot(self.messages, parent=self._lineage_head,
+                                reason=reason)
+        if snap:
+            self._lineage_head = snap
         self.messages = compacted
         self._compact_floor = 0
-        self._emit("compact", {"reason": reason, "before": before, "after": after})
+        self._emit("compact", {"reason": reason, "before": before,
+                               "after": after, "lineage": snap})
         return True
 
     def _complete(self, system: str, tool_specs, on_text, abort):
