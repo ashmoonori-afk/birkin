@@ -410,6 +410,32 @@ def skill_dirs(cfg: dict[str, Any]) -> list[tuple[Path, str]]:
 
 # --- Load / save ----------------------------------------------------------
 
+# Set once a run has attempted secret resolution. A manager lookup spawns a
+# subprocess, and one run calls load_config() many times -- without this latch a
+# single credential becomes a subprocess storm (and, with a vault that prompts
+# for unlock, a wall of prompts).
+_secrets_resolved = False
+
+
+def _resolve_secrets(cfg: dict[str, Any]) -> None:
+    """Put configured secret references into the environment, once per process.
+
+    Every surface reaches its configuration through :func:`load_config`, so this
+    is the one place a reference can become an environment variable before any
+    provider asks for a key. Costs nothing for the common case: no ``secrets``
+    entry means no import and no subprocess.
+
+    The latch is set *before* the attempt, so a backend that fails cannot be
+    retried on every subsequent load.
+    """
+    global _secrets_resolved
+    if _secrets_resolved or not cfg.get("secrets"):
+        return
+    _secrets_resolved = True
+    from . import secrets as _secrets
+    _secrets.apply_all(cfg)
+
+
 def load_config() -> dict[str, Any]:
     """Load config merged over defaults. Missing file -> defaults.
 
@@ -460,6 +486,7 @@ def load_config() -> dict[str, Any]:
     # safe default rather than mis-routing to the dangerous "full" path.
     if cfg.get("cli_access") not in ("workspace", "full"):
         cfg["cli_access"] = "workspace"
+    _resolve_secrets(cfg)
     return cfg
 
 
