@@ -62,6 +62,8 @@ _PRIVILEGED_COMMANDS = {"update", "models", "effort", "restart", "hard_restart",
 _PERSISTENT_PROVIDERS = ("claude-cli", "codex-cli")
 TURN_ERROR_REPLY = ("⚠️ 문제가 생겨서 이번 메시지를 처리하지 못했어요. "
                     "잠시 후 다시 시도해 주세요.")
+TURN_PARTIAL_SUFFIX = ("\n\n⏱️ 시간 제한에 걸려 여기까지만 받았어요. "
+                       "이어서 하려면 다시 물어봐 주세요.")
 TURN_INTERRUPTED_REPLY = "(interrupted :o)"
 _TELEGRAM_EXECUTION_POLICY = (
     "<gateway-execution-policy>\n"
@@ -677,6 +679,12 @@ class Gateway:
                 # the raw exception can leak paths/internals to a Telegram user.
                 print(f"[gateway] {channel}:{chat_id} ✗ error after "
                       f"{dt:.1f}s: {exc}", flush=True)
+                partial = str(getattr(exc, "partial", "") or "").strip()
+                if partial:
+                    # A turn that spent its whole budget still did work.
+                    # Returning a generic error threw it away, so a 15-minute
+                    # wait produced nothing; hand it back, labelled.
+                    return partial + TURN_PARTIAL_SUFFIX
                 return TURN_ERROR_REPLY
             if interrupted_event.is_set() and not reply:
                 reply = TURN_INTERRUPTED_REPLY
