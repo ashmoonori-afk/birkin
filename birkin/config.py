@@ -53,6 +53,12 @@ DEFAULT_CONFIG: dict[str, Any] = {
     # model; each exhausted key cools down on its own timer. Empty = the
     # single key from the environment / api_key. See credpool.py.
     "api_keys": [],
+    # Agent2Agent (A2A v1.0): let ANOTHER agent hand birkin a task over
+    # JSON-RPC, with a discovery card at /.well-known/agent-card.json.
+    # Off means every A2A path 404s, exactly as if the feature did not
+    # exist -- this is an inbound execution surface and nobody should
+    # acquire one by upgrading. See a2a/__init__.py.
+    "a2a_enabled": False,
     # Tool results longer than this are written to disk and replaced by a
     # preview plus the path, so the agent can grep or page through the rest
     # instead of losing it. 0 disables. See tools/spill.py.

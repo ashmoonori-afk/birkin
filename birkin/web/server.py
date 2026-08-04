@@ -153,8 +153,45 @@ class Handler(BaseHTTPRequestHandler):
                             for s in sorted(mgr.skills.values(), key=lambda x: x.name)])
             except Exception as exc:
                 self._json({"error": str(exc)}, code=500)
+        elif self.path == "/.well-known/agent-card.json":
+            # Discovery only: the card names what birkin can do and where
+            # to ask. It needs no token -- a peer must be able to read it
+            # before it has been given one -- and it carries no secrets.
+            from .. import a2a
+            cfg = config.load_config()
+            if not a2a.enabled(cfg):
+                self._send(404, b"not found", "text/plain")
+                return
+            host = self.headers.get("Host") or "127.0.0.1"
+            self._json(a2a.agent_card(f"http://{host}", cfg))
         else:
             self._send(404, b"not found", "text/plain")
+
+    def _handle_a2a(self) -> None:
+        """One A2A JSON-RPC call.
+
+        Reached only after do_POST has checked the dashboard token: this
+        endpoint submits work, which is at least as consequential as
+        approving it. While the feature is off it is a plain 404, so a
+        scan cannot tell birkin from a birkin without A2A.
+        """
+        from .. import a2a
+        cfg = config.load_config()
+        if not a2a.enabled(cfg):
+            self._send(404, b"not found", "text/plain")
+            return
+        body, body_status = self._read_body()
+        if body_status != 200:
+            self._json({"error": "bad request body"}, code=body_status)
+            return
+        try:
+            payload = json.loads(body or b"{}")
+        except (ValueError, UnicodeDecodeError):
+            self._json({"jsonrpc": "2.0", "id": None,
+                        "error": {"code": -32700, "message": "parse error"}},
+                       code=400)
+            return
+        self._json(a2a.handle(payload, run=_a2a_run))
 
     def do_POST(self) -> None:
         if not self._host_ok():
@@ -162,6 +199,9 @@ class Handler(BaseHTTPRequestHandler):
             return
         if not secrets.compare_digest(self.headers.get("X-Birkin-Token", ""), _TOKEN):
             self._json({"error": "missing or invalid token"}, code=403)
+            return
+        if self.path == "/a2a":
+            self._handle_a2a()
             return
         if self.path != "/api/approvals":
             self._send(404, b"not found", "text/plain")
@@ -191,6 +231,17 @@ class Handler(BaseHTTPRequestHandler):
             return
         result = approvals.approve(aid) if action == "approve" else approvals.reject(aid)
         self._json(result)
+
+
+def _a2a_run(text: str) -> str:
+    """Answer a peer's task with a one-shot birkin turn.
+
+    Deliberately one-shot rather than the warm gateway session: a peer's
+    task must not land in, or disturb, a human conversation already in
+    progress.
+    """
+    from ..runtime import build_session
+    return build_session().ask(text)
 
 
 def run(port: Optional[int] = None, *, open_browser: bool = True) -> int:
