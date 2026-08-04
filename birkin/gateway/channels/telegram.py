@@ -161,6 +161,62 @@ class _Streamer:
         return t
 
 
+# Characters markdown gives a meaning to, and therefore the only ones a client
+# has any reason to escape. A backslash before anything else -- C:\Users, \d+,
+# a line-ending backslash -- is the user's own text and is left alone. Getting
+# this wrong would corrupt every Windows path and regex pasted into the bot,
+# which is most of what this particular bot is handed.
+_MARKDOWN_SPECIALS = set("_*[]()~`>#+-=|{}.!\\")
+
+
+def _unescape_markdown(text: str) -> str:
+    """Undo ``\\x`` where markdown defines the escape; leave every other one."""
+    out: list[str] = []
+    i = 0
+    while i < len(text):
+        char = text[i]
+        if char == "\\" and i + 1 < len(text) and text[i + 1] in _MARKDOWN_SPECIALS:
+            out.append(text[i + 1])
+            i += 2
+            continue
+        out.append(char)
+        i += 1
+    return "".join(out)
+
+
+def recover_inbound_text(text: str, entities: Any) -> str:
+    """The message as the sender meant it, not as markdown encoded it.
+
+    A client that formats an outgoing link escapes the characters markdown
+    treats specially, so a tracking URL arrives as ``...&utm\\_source=...``.
+    Passed through verbatim that asks for a query parameter named
+    ``utm\\_source``; the page does not answer, and the model retries until the
+    turn's budget is gone.
+
+    Two recoveries, in order of authority:
+
+    * a ``text_link`` entity carries the real URL, which may not appear in the
+      text at all (a hyperlinked word). Telegram is telling us the truth
+      directly, so it wins.
+    * otherwise the markdown escapes are undone -- and only those. See
+      ``_MARKDOWN_SPECIALS``.
+
+    Returns the SAME object when nothing needed recovering, so a caller can
+    tell with ``is`` whether the message was touched.
+    """
+    recovered = _unescape_markdown(text) if "\\" in (text or "") else text
+    extra: list[str] = []
+    for entity in entities or []:
+        if not isinstance(entity, dict) or entity.get("type") != "text_link":
+            continue
+        url = str(entity.get("url") or "").strip()
+        if url and url not in recovered:
+            extra.append(url)
+    if extra:
+        return recovered + "\n" + "\n".join(extra)
+    return recovered
+
+
 class TelegramChannel(Channel):
     name = "telegram"
     _HEARTBEAT_INTERVAL = 180.0
@@ -406,6 +462,51 @@ class TelegramChannel(Channel):
             {"text": "❌ 거부", "callback_data": f"rej:{aid}"},
         ]]})
 
+    @staticmethod
+    def companion_markup(commitment_id: str) -> str:
+        """reply_markup JSON for one check-in (same 64-byte callback_data cap)."""
+        cid = str(commitment_id)[:40]
+        return json.dumps({"inline_keyboard": [
+            [{"text": "✅ 완료", "callback_data": f"companion:done:{cid}"},
+             {"text": "🚧 막힘", "callback_data": f"companion:blocked:{cid}"}],
+            [{"text": "⏰ 나중에", "callback_data": f"companion:snooze:{cid}"},
+             {"text": "🛑 그만", "callback_data": f"companion:stop:{cid}"},
+             {"text": "🙏 아니에요", "callback_data": f"companion:wrong:{cid}"}],
+        ]})
+
+    def _handle_companion_callback(self, cq_id: str, data: str, chat_id: str,
+                                   message_id: str, original: str) -> None:
+        """Apply one check-in button tap and edit the receipt in place.
+
+        The commitment's stored context is re-checked against the tapping chat:
+        ``callback_data`` is client-supplied, so the binding is verified in
+        storage before any state changes.
+        """
+        from ... import companion
+        parts = data.split(":", 2)
+        if len(parts) != 3 or not parts[2]:
+            self._answer_callback(cq_id, "")
+            return
+        _, verb, commitment_id = parts
+        record = companion.get_commitment(commitment_id)
+        if record is None:
+            self._answer_callback(cq_id, "이미 삭제된 약속이에요")
+            return
+        if record.get("context_id") != f"telegram:{chat_id}":
+            self._answer_callback(cq_id, "unauthorized")
+            return
+        try:
+            result = companion.answer(
+                commitment_id, verb,
+                source_ref=f"telegram:{chat_id}:{message_id}")
+        except companion.CompanionError as exc:
+            self._answer_callback(cq_id, str(exc)[:190])
+            return
+        self._answer_callback(cq_id, result["message"].splitlines()[0][:190])
+        if message_id:
+            self._edit(chat_id, message_id,
+                       f"{original}\n\n{result['message']}"[:4000])
+
     def _send_pending_buttons(self, gateway: "Gateway", chat_id: str) -> None:
         """Render /pending as one message per action with approve/reject
         buttons (inline buttons add no chat clutter — the official pattern)."""
@@ -468,6 +569,11 @@ class TelegramChannel(Channel):
             return
         if ":" not in data:
             self._answer_callback(cq_id, "")
+            return
+        if data.startswith("companion:"):
+            self._handle_companion_callback(
+                cq_id, data, chat_id, str(msg.get("message_id", "")),
+                str(msg.get("text", "")))
             return
         verb, aid = data.split(":", 1)
         if verb not in ("apv", "rej"):
@@ -819,7 +925,8 @@ class TelegramChannel(Channel):
                     continue
                 msg = upd.get("message") or {}
                 chat_id = str(msg.get("chat", {}).get("id", ""))
-                text = msg.get("text", "")
+                text = recover_inbound_text(msg.get("text", ""),
+                                            msg.get("entities"))
                 if not chat_id:
                     continue
                 # Access control BEFORE any download — an unauthorized chat must

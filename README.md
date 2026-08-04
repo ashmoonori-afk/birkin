@@ -415,6 +415,33 @@ Internal attachment markers stay out of streamed chat text, oversized files are
 rejected before they are read, and failed text or document sends remain in the
 outbox for restart-time retry.
 
+### Follow-through on what you committed to (Companion)
+
+```bash
+birkin companion policy --enable --tz Asia/Seoul   # opt in — off by default
+birkin companion bind telegram:<chat-id>           # where check-ins arrive
+birkin companion add --outcome "ship the draft" --at 2026-08-01T09:00
+birkin companion list                              # what birkin is holding
+```
+
+Tell birkin you'll do something, and it asks you about it at the agreed time —
+over Telegram, with one-tap answers (**done / blocked / later / stop / wrong**).
+The answer is recorded and the next concrete step is captured, so a commitment
+either closes or moves.
+
+You can also just say it in chat — "ask me about the draft Monday 9am" — and
+the model calls `companion_propose`, which lands in the same approval inbox as
+every other consequential action (`birkin review`, or the gateway's buttons).
+The model may only *propose* a candidate: activation happens in the approval
+executor, every transition goes through `companion.py`'s functions, and the
+state files are control-plane-protected from the file tools — so an LLM cannot
+silently change what you're on the hook for, by any route. Contact is bounded by policy — quiet hours
+(22:00–08:00 by default), one check-in a day, a 12-hour cooldown — and the
+tapping chat is re-verified against the commitment's stored binding before any
+state changes, because `callback_data` is client-supplied. State lives in
+`~/.birkin/companion/` next to an append-only `events.jsonl` of transitions —
+no conversation bodies, grep-able like everything else.
+
 ### Company tools (MCP)
 
 ```bash
@@ -477,6 +504,7 @@ birkin neurosis "<idea>"            # seed a deep interview (drive it with /neur
 birkin odyssey "<goal>"             # seed a goal-completion cycle (/odyssey)
 birkin moirai run <script> [--bind role=provider:model] [--defaults]
 birkin moirai list / status --run-id <id> / resume --run-id <id>
+birkin companion <action> [...]     # commitments birkin follows up on (opt-in)
 birkin sessions [export … --vault]  # list conversations · export as Markdown
 birkin curate-memory [--dry-run]    # vault curation pass (preview or apply)
 birkin morpheus [--dry-run]         # run the nightly routine now
@@ -567,6 +595,15 @@ creative/**codex-image-gen**, quality/**model-compare** — plus your own under
 route through the approval gate; `birkin skills validate` lints frontmatter and
 `py_compile`s bundled scripts; skills hot-reload on edit.
 
+`birkin skills install` takes `owner/repo[/path]`, **a local directory**, or an
+**https URL** to a `SKILL.md`. All three land in quarantine and are scanned
+there first — only the way the bytes arrive differs.
+
+The **grounded-citations** skill is worth naming: it drives `verify_citations`,
+which checks each claim against the text actually fetched and names the ones no
+source states. Skills that tell a model to cite cannot detect when it cited
+something the page never said; this can.
+
 ---
 
 ## 🗣️ Persona
@@ -587,6 +624,7 @@ Everything lives under `~/.birkin` (override with `BIRKIN_HOME`):
 ├── vault/          # your Obsidian memory
 ├── skills/         # user- and agent-authored skills
 ├── sessions/       # auto-saved transcripts — Morpheus input
+├── companion/      # commitments + check-in policy (state.json, events.jsonl)
 ├── specs/          # Neurosis interview specs
 ├── runs/           # per-turn and per-Morpheus summaries
 ├── ledger.jsonl    # append-only audit log
@@ -621,6 +659,10 @@ Keys you'll actually touch:
   "parallel_tools": true,
   "spill_threshold": 30000,
   "repl_typed_line": "steer",
+  "redact_secrets": true,
+  "api_keys": [],
+  "lsp_servers": {},
+  "a2a_enabled": false,
 
   "channels": {
     "http": {"enabled": true},
@@ -639,6 +681,38 @@ The second block is the reliability and safety layer: auto-summarize before
 overflow, provider failover, the destructive-command gate, workspace snapshots
 for `/rollback`, lifecycle hooks, parallel reads, tool-output spill, and whether
 a line typed mid-turn steers or interrupts.
+
+The last four are newer:
+
+- **`redact_secrets`** — every tool result passes one choke point, and
+  credential material (vendor-prefixed keys, auth headers, JWTs, URL
+  passwords, private-key blocks) is masked there *before* it reaches the
+  model, the transcript, or a spill file on disk. Set `false` to opt out.
+- **`api_keys`** — more than one credential for the same provider. A
+  rate-limited key rotates to the next one here *before* `fallback_provider`
+  switches provider and model; each exhausted key cools down on its own timer
+  (5 minutes for a 401, an hour for a 429).
+- **`lsp_servers`** — `{".py": ["pyright-langserver", "--stdio"]}`. After an
+  edit, birkin asks that language server whether the file still compiles and
+  reports only the problems *this edit* introduced. Empty means no server, no
+  subprocess, and no change to the tool result.
+- **`a2a_enabled`** — see below. Off by default.
+
+### Agent2Agent (A2A v1.0)
+
+Another agent can hand birkin a task over JSON-RPC, discovering it at
+`/.well-known/agent-card.json` on the local web server. `message/send`,
+`tasks/get` and `tasks/cancel`; streaming and push notifications are declared
+**false** in the card rather than half-built.
+
+It is **off by default, and off means invisible**: every A2A path returns a
+plain 404, exactly as if the feature did not exist. This is an inbound
+execution surface, so nobody acquires one by upgrading, and only a real
+`true` turns it on — a `"false"` string will not. The RPC sits behind the same
+`X-Birkin-Token` the dashboard already requires for POST; the card itself is
+unauthenticated, because a peer has to read it before it has a token and it
+carries nothing secret. A peer's task runs as a one-shot session, so it cannot
+land in a conversation you are having.
 
 Those are the *defaults* — `config.json` on disk holds only the keys you
 actually changed, nested sections included. That matters on upgrade: a file that

@@ -41,6 +41,12 @@ _GATEWAY_COMMANDS: list[tuple[str, str, set[str]]] = [
     ("remind", "Schedule a daily message — /remind 09:00 <what to do>; "
      "/remind list; /remind del <id>",
      {"remind", "cron", "schedule"}),
+    ("commitment", "Show the commitment birkin is following up on",
+     {"commitment", "commitments"}),
+    ("checkin", "Check-in settings — /checkin; /checkin pause; /checkin on",
+     {"checkin", "check_in", "checkins"}),
+    ("companion", "Turn proactive follow-through off — /companion off",
+     {"companion"}),
 ]
 
 # Friendly short model names accepted by `claude --model` (full claude-… IDs also OK).
@@ -49,12 +55,15 @@ _CODEX_REASONING_EFFORTS = ["default", "low", "medium", "high", "xhigh"]
 # Commands that pull code / restart the service / rewrite config — gated to
 # trusted channels only (see Gateway._command_trusted).
 _PRIVILEGED_COMMANDS = {"update", "models", "effort", "restart", "hard_restart",
-                        "pending", "deny", "remind"}
+                        "pending", "deny", "remind", "commitment", "checkin",
+                        "companion"}
 # Providers with a warm persistent-session implementation (see
 # claude_session.ClaudeStreamSession / codex_session.CodexAppServerSession).
 _PERSISTENT_PROVIDERS = ("claude-cli", "codex-cli")
 TURN_ERROR_REPLY = ("⚠️ 문제가 생겨서 이번 메시지를 처리하지 못했어요. "
                     "잠시 후 다시 시도해 주세요.")
+TURN_PARTIAL_SUFFIX = ("\n\n⏱️ 시간 제한에 걸려 여기까지만 받았어요. "
+                       "이어서 하려면 다시 물어봐 주세요.")
 TURN_INTERRUPTED_REPLY = "(interrupted :o)"
 _TELEGRAM_EXECUTION_POLICY = (
     "<gateway-execution-policy>\n"
@@ -575,6 +584,9 @@ class Gateway:
                 return self.deny_command(cmd_arg)
             if cmd == "remind":
                 return self.remind_command(cmd_arg, channel, str(chat_id))
+            if cmd in ("commitment", "checkin", "companion"):
+                return self.companion_command(cmd, cmd_arg, channel,
+                                              str(chat_id))
             if cmd == "restart":
                 print(f"[gateway] restart requested via {channel}:{chat_id}",
                       flush=True)
@@ -667,6 +679,12 @@ class Gateway:
                 # the raw exception can leak paths/internals to a Telegram user.
                 print(f"[gateway] {channel}:{chat_id} ✗ error after "
                       f"{dt:.1f}s: {exc}", flush=True)
+                partial = str(getattr(exc, "partial", "") or "").strip()
+                if partial:
+                    # A turn that spent its whole budget still did work.
+                    # Returning a generic error threw it away, so a 15-minute
+                    # wait produced nothing; hand it back, labelled.
+                    return partial + TURN_PARTIAL_SUFFIX
                 return TURN_ERROR_REPLY
             if interrupted_event.is_set() and not reply:
                 reply = TURN_INTERRUPTED_REPLY
@@ -779,6 +797,57 @@ class Gateway:
                          f"(id {rec.get('id')})")
         lines.append("Approve/reject in the CLI with `birkin review` — or "
                      "tap the buttons if your channel shows them.")
+        return "\n".join(lines)
+
+    def companion_command(self, cmd: str, arg: str, channel: str,
+                          chat_id: str) -> str:
+        """``/commitment``, ``/checkin`` and ``/companion off`` from chat.
+
+        Inspection plus the two controls that must be reachable in one step:
+        pause and stop. Creating or confirming a commitment stays out of chat —
+        activation needs an explicit outcome, time and source, which the CLI
+        takes.
+        """
+        from .. import companion
+        if channel != "telegram":
+            return "후속 확인은 Telegram 채널에서만 설정할 수 있어요."
+        context_id = f"telegram:{chat_id}"
+        arg = (arg or "").strip().lower()
+
+        if cmd == "companion":
+            if arg != "off":
+                return "/companion off — 후속 확인을 완전히 끕니다."
+            companion.pause_all()
+            return "🛑 후속 확인을 껐어요. 다시 켜려면 /checkin on 을 보내 주세요."
+
+        if cmd == "checkin":
+            if arg in ("pause", "off"):
+                companion.pause_all()
+                return "⏸ 체크인을 멈췄어요. 다시 켜려면 /checkin on."
+            if arg == "on":
+                companion.resume()
+                return "▶️ 체크인을 다시 켰어요."
+            if arg and arg not in ("help", "?", "status"):
+                return "/checkin · /checkin pause · /checkin on"
+            policy = companion.get_policy()
+            quiet = policy.get("quiet_hours") or {}
+            return (f"체크인: {'켜짐' if policy.get('enabled') else '꺼짐'}\n"
+                    f"시간대: {policy.get('timezone')}\n"
+                    f"방해 금지: {quiet.get('start')}–{quiet.get('end')}\n"
+                    f"하루 최대: {policy.get('daily_cap')}회")
+
+        records = [r for r in companion.list_commitments(context_id=context_id)
+                   if r["status"] in ("active", "blocked", "snoozed")]
+        if not records:
+            return ("지금 따라가고 있는 약속이 없어요. "
+                    "`birkin companion add` 로 등록할 수 있어요.")
+        lines = []
+        for record in records:
+            lines.append(f"[{record['status']}] {record['outcome']}")
+            if record.get("next_action"):
+                lines.append(f"  다음 할 일: {record['next_action']}")
+            lines.append(f"  예정: {record.get('check_in_at') or '-'}")
+            lines.append(f"  출처: {record.get('source_ref') or '-'}")
         return "\n".join(lines)
 
     def remind_command(self, arg: str, channel: str, chat_id: str) -> str:

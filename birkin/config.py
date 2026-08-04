@@ -48,12 +48,34 @@ DEFAULT_CONFIG: dict[str, Any] = {
     "fallback_model": "",
     "fallback_base_url": "",
     "fallback_cooldown": 300,
+    # More than one credential for the SAME provider. A rate-limited key
+    # rotates to the next one here before failover switches provider and
+    # model; each exhausted key cools down on its own timer. Empty = the
+    # single key from the environment / api_key. See credpool.py.
+    "api_keys": [],
+    # Agent2Agent (A2A v1.0): let ANOTHER agent hand birkin a task over
+    # JSON-RPC, with a discovery card at /.well-known/agent-card.json.
+    # Off means every A2A path 404s, exactly as if the feature did not
+    # exist -- this is an inbound execution surface and nobody should
+    # acquire one by upgrading. See a2a/__init__.py.
+    "a2a_enabled": False,
+    # Language servers by file suffix, e.g.
+    #   {".py": ["pyright-langserver", "--stdio"]}
+    # After an edit, birkin asks that server whether the file still
+    # compiles and reports only what THIS edit introduced. Empty means no
+    # server, no subprocess, and an unchanged tool result. See lsp/.
+    "lsp_servers": {},
     # Tool results longer than this are written to disk and replaced by a
     # preview plus the path, so the agent can grep or page through the rest
     # instead of losing it. 0 disables. See tools/spill.py.
     "spill_threshold": 30000,
     "spill_dir": "",             # empty -> <birkin_home>/tool-results
     "spill_retention_days": 7,
+    # Mask credential material (vendor-prefixed keys, auth headers, JWTs,
+    # URL passwords, private-key blocks, secret-named assignments) in tool
+    # results before they reach the model, the transcript, or a spill file.
+    # See redact.py. Set false to opt out.
+    "redact_secrets": True,
     # What a line typed DURING a REPL turn does: "steer" hands it to the
     # running turn (in-flight work is kept, the model adjusts course), "kill"
     # restores the old behavior of interrupting and queueing it as the next
@@ -341,6 +363,22 @@ def pending_dir() -> Path:
     return d
 
 
+def companion_dir() -> Path:
+    """Commitment / check-in domain state (mutable, outside memory curation)."""
+    d = birkin_home() / "companion"
+    d.mkdir(parents=True, exist_ok=True)
+    return d
+
+
+def companion_state_path() -> Path:
+    return companion_dir() / "state.json"
+
+
+def companion_events_path() -> Path:
+    """Append-only domain transitions (no conversation bodies)."""
+    return companion_dir() / "events.jsonl"
+
+
 def cron_path() -> Path:
     return birkin_home() / "cron.json"
 
@@ -388,6 +426,32 @@ def skill_dirs(cfg: dict[str, Any]) -> list[tuple[Path, str]]:
 
 
 # --- Load / save ----------------------------------------------------------
+
+# Set once a run has attempted secret resolution. A manager lookup spawns a
+# subprocess, and one run calls load_config() many times -- without this latch a
+# single credential becomes a subprocess storm (and, with a vault that prompts
+# for unlock, a wall of prompts).
+_secrets_resolved = False
+
+
+def _resolve_secrets(cfg: dict[str, Any]) -> None:
+    """Put configured secret references into the environment, once per process.
+
+    Every surface reaches its configuration through :func:`load_config`, so this
+    is the one place a reference can become an environment variable before any
+    provider asks for a key. Costs nothing for the common case: no ``secrets``
+    entry means no import and no subprocess.
+
+    The latch is set *before* the attempt, so a backend that fails cannot be
+    retried on every subsequent load.
+    """
+    global _secrets_resolved
+    if _secrets_resolved or not cfg.get("secrets"):
+        return
+    _secrets_resolved = True
+    from . import secrets as _secrets
+    _secrets.apply_all(cfg)
+
 
 def load_config() -> dict[str, Any]:
     """Load config merged over defaults. Missing file -> defaults.
@@ -439,6 +503,7 @@ def load_config() -> dict[str, Any]:
     # safe default rather than mis-routing to the dangerous "full" path.
     if cfg.get("cli_access") not in ("workspace", "full"):
         cfg["cli_access"] = "workspace"
+    _resolve_secrets(cfg)
     return cfg
 
 

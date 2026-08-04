@@ -24,6 +24,10 @@ def _agent(monkeypatch, n_messages: int):
     a.context_window = 200000
     a.messages = [{"role": "user", "content": f"m{i}"} for i in range(n_messages)]
     a._compact_floor = 0
+    # Agent.__init__ is bypassed on purpose here, so every attribute
+    # compact_now() reads must be set explicitly. _lineage_head is the head of
+    # the pre-compaction snapshot chain (lineage.py).
+    a._lineage_head = None
     a._emit = lambda *args, **kwargs: None
     return a
 

@@ -30,15 +30,40 @@ import re
 import unicodedata
 from typing import Any, Callable, Optional
 
+# Flags that may sit between `rm -rf` and its target. The double-dash form is
+# load-bearing: GNU rm REFUSES to delete `/` without --no-preserve-root, so the
+# most likely spelling of the worst command carries a flag the old pattern could
+# not match.
+_FLAGS = r"(--?[a-z][a-z-]*\s+)*"
+# Block devices, not just physical ones. vda is every KVM/QEMU guest, xvda is
+# EC2, mmcblk is the SD card a Raspberry Pi boots from -- the deployment targets
+# birkin actually runs on.
+_DISKS = r"(sd|nvme|hd|vd|xvd|mmcblk|disk)"
+# Directories whose loss is the machine, not the project.
+_SYSDIRS = r"/(etc|usr|boot|var|root|bin|sbin|lib64|lib|opt|sys|proc|srv)"
+# The credential-file family. .env/.ssh/.aws/.gnupg/.kube were guarded; these
+# hold tokens and passwords in exactly the same way.
+_CRED = r"(env|ssh|aws|gnupg|kube|netrc|pgpass|npmrc|pypirc)"
+
 # Refused outright, on every surface, with no way to allow them. These destroy
 # a machine rather than a project.
 HARDLINE: list[tuple[str, str]] = [
-    (r"\brm\s+(-[a-z]*\s+)*-[a-z]*[rf][a-z]*\s+(-[a-z]+\s+)*(/|/\*|~|~/\*|\$HOME)\s*$",
+    # The target must END the argument (or be followed by another flag or a
+    # redirect), never continue into a path -- `rm -rf /home/me/proj` stays a
+    # project-level delete. Anchoring to end-of-STRING instead is what let
+    # `rm -rf / --no-preserve-root` fall through to the approvable tier.
+    (rf"\brm\s+(-[a-z]*\s+)*-[a-z]*[rf][a-z]*\s+{_FLAGS}(/|/\*|~|~/\*|\$HOME)(\s|$)",
      "rm -rf of the filesystem or home root"),
+    (rf"\brm\s+(-[a-z]*\s+)*-[a-z]*[rf][a-z]*\s+{_FLAGS}{_SYSDIRS}(/\*)?(\s|$)",
+     "rm -rf of a system directory"),
     (r"\bmkfs(\.\w+)?\b", "formats a filesystem"),
-    (r"\bdd\b[^|;]*\bof=/dev/(sd|nvme|hd|disk)", "writes directly to a raw disk"),
+    (rf"\bdd\b[^|;]*\bof=/dev/{_DISKS}", "writes directly to a raw disk"),
+    (rf">\s*/dev/{_DISKS}[a-z0-9]*\b", "redirects output onto a raw disk"),
     (r":\(\)\s*\{\s*:\|\s*:\s*&\s*\}\s*;\s*:", "fork bomb"),
-    (r"\bkill\s+-9\s+-1\b", "kills every process"),
+    # `-1` as the TARGET means every process. Requiring it to be the last
+    # argument is what keeps `kill -1 <pid>` (SIGHUP to one process) legitimate,
+    # while catching -9 / -TERM / -s KILL alike.
+    (r"\bkill\s+(-?[a-zA-Z0-9]+\s+)*-1\s*$", "kills every process"),
     (r"\b(shutdown|reboot|halt|poweroff)\b", "shuts the machine down"),
     (r"\bformat\s+[a-z]:", "formats a Windows volume"),
     (r"\b(rd|rmdir)\s+/s\s+/q\s+[a-z]:\\?\s*$", "recursive delete of a drive root"),
@@ -67,10 +92,10 @@ DANGEROUS: list[tuple[str, str]] = [
     (r"\bgit\s+push\b[^|;]*(--force|-f)\b", "force push"),
     (r"\bgit\s+branch\s+-D\b", "force-deletes a branch"),
     (r"\bgit\s+checkout\s+--\s+\.", "discards all local changes"),
-    (r">\s*(~|\$HOME|/home/[^/\s]+)?/?\.(env|ssh|aws|gnupg|kube)\b",
+    (rf">\s*(~|\$HOME|/home/[^/\s]+)?/?\.{_CRED}\b",
      "writes into a credential store"),
-    (r"\b(tee|sed\s+-i)\b[^|;]*\.(env|bashrc|zshrc|profile)\b",
-     "rewrites a shell profile or env file"),
+    (rf"\b(tee|sed\s+-i)\b[^|;]*\.({_CRED[1:-1]}|bashrc|zshrc|profile)\b",
+     "rewrites a shell profile, env or credential file"),
     (r"\b(tee|sed\s+-i)\b[^|;]*\.birkin[/\\]config\.json",
      "rewrites birkin's own config"),
     (r"\bsudo\b", "runs as root"),

@@ -389,6 +389,30 @@ Telegram 문서로 업로드합니다. 내부 첨부 표식은 스트리밍 채�
 대용량 파일은 읽기 전에 거부되며, 텍스트나 문서 전송 실패는 outbox에 남아
 재시작 때 다시 시도됩니다.
 
+### 약속한 것의 사후 관리 (Companion)
+
+```bash
+birkin companion policy --enable --tz Asia/Seoul   # 옵트인 — 기본은 꺼짐
+birkin companion bind telegram:<chat-id>           # 체크인이 도착할 곳
+birkin companion add --outcome "초안 보내기" --at 2026-08-01T09:00
+birkin companion list                              # birkin이 쥐고 있는 약속들
+```
+
+birkin에게 뭘 하겠다고 말하면, 약속한 시각에 birkin이 물어봅니다 — 텔레그램에서
+원탭 답변(**완료 / 막힘 / 나중에 / 그만 / 아니에요**)으로. 답은 기록되고 다음
+구체적 행동이 잡히므로, 약속은 닫히거나 앞으로 나아갑니다.
+
+채팅에서 말로 해도 됩니다 — "월요일 9시에 초안 진행됐는지 물어봐줘" — 그러면
+모델이 `companion_propose`를 호출하고, 다른 모든 파급 있는 행동과 같은 승인
+인박스로 갑니다(`birkin review` 또는 게이트웨이 버튼). 모델은 후보를 *제안*할
+수만 있습니다: 활성화는 승인 executor에서만 일어나고, 모든 전이는
+`companion.py`의 함수를 거치며, 상태 파일은 파일 도구로부터 컨트롤 플레인으로
+보호됩니다 — 어떤 경로로도 LLM이 당신이 책임진 것을 조용히 바꿀 수 없습니다. 연락은 정책이 제한합니다 — 방해 금지 시간(기본 22:00–08:00), 하루 1회,
+12시간 쿨다운 — 그리고 `callback_data`는 클라이언트가 보내는 값이라, 버튼을 누른
+채팅이 약속에 저장된 바인딩과 일치하는지 상태 변경 전에 다시 검증합니다. 상태는
+`~/.birkin/companion/`에, 전이 기록은 append-only `events.jsonl`에 —
+대화 본문 없이, 다른 모든 것처럼 grep 가능하게.
+
 ### 회사 도구 (MCP)
 
 ```bash
@@ -447,6 +471,7 @@ birkin neurosis "<아이디어>"        # 딥 인터뷰 시드 (/neurosis로 진
 birkin odyssey "<목표>"             # 목표완수 사이클 시드 (/odyssey)
 birkin moirai run <스크립트> [--bind role=provider:model] [--defaults]
 birkin moirai list / status --run-id <id> / resume --run-id <id>
+birkin companion <action> [...]     # birkin이 사후 관리하는 약속들 (옵트인)
 birkin sessions [export … --vault]  # 대화 목록 · 마크다운 내보내기
 birkin curate-memory [--dry-run]    # 볼트 큐레이션 (미리보기 또는 적용)
 birkin morpheus [--dry-run]         # 야간 루틴 즉시 실행
@@ -531,6 +556,15 @@ quality/**model-compare** — 그리고 `~/.birkin/skills/`의 내 스킬(같은
 게이트를 거치며, `birkin skills validate`가 frontmatter를 린트하고 번들 스크립트를
 `py_compile`합니다. 편집하면 핫리로드됩니다.
 
+`birkin skills install`은 `owner/repo[/path]`, **로컬 디렉터리**, `SKILL.md`를
+가리키는 **https URL**을 받습니다. 셋 다 격리(quarantine)에 들어가 거기서
+검사받습니다 — 바이트가 도착하는 경로만 다를 뿐입니다.
+
+**grounded-citations** 스킬은 따로 언급할 값이 있습니다. `verify_citations`를
+몰아서, 각 주장을 실제로 가져온 본문과 대조하고 어떤 출처도 말하지 않는 주장을
+짚어냅니다. "인용하라"고 시키는 스킬은 모델이 그 페이지에 없는 말을 인용했을
+때를 잡아내지 못합니다. 이건 잡습니다.
+
 ---
 
 ## 🗣️ 페르소나
@@ -551,6 +585,7 @@ quality/**model-compare** — 그리고 `~/.birkin/skills/`의 내 스킬(같은
 ├── vault/          # 내 옵시디언 기억
 ├── skills/         # 사용자·에이전트 작성 스킬
 ├── sessions/       # 자동 저장 트랜스크립트 — Morpheus 입력
+├── companion/      # 약속 + 체크인 정책 (state.json, events.jsonl)
 ├── specs/          # Neurosis 인터뷰 spec
 ├── runs/           # 턴별·Morpheus별 요약
 ├── ledger.jsonl    # append-only 감사 로그
@@ -584,7 +619,16 @@ quality/**model-compare** — 그리고 `~/.birkin/skills/`의 내 스킬(같은
   "hooks": {},
   "parallel_tools": true,
   "spill_threshold": 30000,
-  "repl_typed_line": "steer"
+  "repl_typed_line": "steer",
+  "redact_secrets": true,
+  "api_keys": [],
+  "lsp_servers": {},
+  "a2a_enabled": false,
+
+  "channels": {
+    "http": {"enabled": true},
+    "telegram": {"enabled": false, "token": "", "allowed_chat_ids": []}
+  }
 }
 ```
 
@@ -596,6 +640,35 @@ quality/**model-compare** — 그리고 `~/.birkin/skills/`의 내 스킬(같은
 두 번째 블록이 신뢰성·안전 레이어입니다: 오버플로 전 자동 요약, 프로바이더
 페일오버, 파괴 명령 게이트, `/rollback`용 워크스페이스 스냅샷, 라이프사이클 훅,
 병렬 읽기, 도구 출력 스필, 그리고 턴 중 타이핑이 스티어인지 중단인지.
+
+마지막 넷은 최근에 들어왔습니다.
+
+- **`redact_secrets`** — 모든 도구 결과는 한 관문을 지나고, 자격증명(벤더
+  접두사 키, 인증 헤더, JWT, URL 비밀번호, 개인키 블록)은 거기서 마스킹됩니다.
+  모델에 닿기 전, 대화 기록에 남기 전, 디스크의 스필 파일에 쓰이기 *전*입니다.
+  끄려면 `false`.
+- **`api_keys`** — 같은 프로바이더의 키를 여러 개. 429를 맞은 키는
+  `fallback_provider`가 프로바이더와 모델을 바꾸기 *전에* 여기 다음 키로
+  넘어갑니다. 소진된 키는 각자 타이머로 쉽니다(401은 5분, 429는 1시간).
+- **`lsp_servers`** — `{".py": ["pyright-langserver", "--stdio"]}`. 편집 후
+  해당 언어 서버에 "아직 컴파일되냐"고 묻고, *이번 편집이 만든* 문제만
+  보고합니다. 비어 있으면 서버도 서브프로세스도 없고 결과도 그대로입니다.
+- **`a2a_enabled`** — 아래 참고. 기본 꺼짐.
+
+### Agent2Agent (A2A v1.0)
+
+다른 에이전트가 JSON-RPC로 birkin에게 일을 넘길 수 있습니다. 로컬 웹 서버의
+`/.well-known/agent-card.json`으로 발견하고, `message/send`·`tasks/get`·
+`tasks/cancel`을 씁니다. 스트리밍과 푸시 알림은 어설프게 만드는 대신 카드에
+**false**로 명시했습니다.
+
+**기본 꺼짐이고, 꺼짐은 곧 보이지 않음**입니다. 모든 A2A 경로가 그냥 404를
+냅니다 — 이 기능이 아예 없는 birkin과 구분되지 않습니다. 인바운드 실행
+표면이라 업그레이드만으로 생기면 안 되고, 진짜 `true`만 켭니다(`"false"`
+문자열로는 안 켜집니다). RPC는 대시보드가 이미 POST에 요구하는
+`X-Birkin-Token` 뒤에 있고, 카드 자체는 인증이 없습니다 — 상대는 토큰을 받기
+전에 카드를 읽어야 하고, 카드에는 비밀이 없습니다. 상대의 작업은 일회성
+세션으로 돌아서 당신이 하던 대화에 끼어들지 않습니다.
 
 위는 *기본값*이고, 디스크의 `config.json`에는 당신이 실제로 바꾼 키만 남습니다
 (중첩 섹션 안까지). 업데이트할 때 중요합니다: 모든 기본값을 그대로 적어 둔

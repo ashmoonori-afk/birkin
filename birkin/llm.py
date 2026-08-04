@@ -697,8 +697,12 @@ class LLMClient:
             raise LLMError(f"OpenAI response had no choices: {str(body)[:300]}")
         choice = choices[0]
         msg = choice.get("message", {})
+        from . import reasoning as _reasoning  # local import avoids cycles
+        extracted = _reasoning.extract_reasoning(msg)
         content: list[dict[str, Any]] = []
         text = msg.get("content") or ""
+        if text:
+            text = _reasoning.strip_think_blocks(text)
         if text:
             content.append({"type": "text", "text": text})
         for call in msg.get("tool_calls", []) or []:
@@ -711,7 +715,11 @@ class LLMClient:
                             "name": fn.get("name"), "input": args})
         finish = choice.get("finish_reason", "stop")
         stop_reason = "tool_use" if finish == "tool_calls" else "end_turn"
-        return {"role": "assistant", "content": content, "stop_reason": stop_reason}
+        out: dict[str, Any] = {"role": "assistant", "content": content,
+                               "stop_reason": stop_reason}
+        if extracted:
+            out["reasoning"] = extracted
+        return out
 
     @staticmethod
     def _read_openai_stream(resp, on_text, abort=None) -> dict[str, Any]:
@@ -720,6 +728,7 @@ class LLMClient:
         tool_call deltas accumulate by their ``index`` (name arrives once,
         arguments stream as JSON fragments)."""
         text_parts: list[str] = []
+        reasoning_parts: list[str] = []
         tools: dict[int, dict[str, Any]] = {}     # index -> {id,name,args}
         finish = "stop"
         for raw in resp:
@@ -751,6 +760,10 @@ class LLMClient:
             if piece:
                 text_parts.append(piece)
                 on_text(piece)
+            for _rkey in ("reasoning", "reasoning_content"):
+                _rpiece = delta.get(_rkey)
+                if _rpiece:
+                    reasoning_parts.append(_rpiece)
             for tc in delta.get("tool_calls") or []:
                 # OpenAI always sends 'index'; a non-strict proxy/local server
                 # might not. Fall back to the tool_call id, then to a fresh
@@ -769,8 +782,10 @@ class LLMClient:
                     slot["args"].append(fn["arguments"])
             if ch.get("finish_reason"):
                 finish = ch["finish_reason"]
+        from . import reasoning as _reasoning  # local import avoids cycles
         content: list[dict[str, Any]] = []
-        joined = "".join(text_parts)
+        raw = "".join(text_parts)
+        joined = _reasoning.strip_think_blocks(raw) if raw else ""
         if joined:
             content.append({"type": "text", "text": joined})
         # dict preserves insertion (arrival) order — don't sort, since keys may
@@ -785,8 +800,13 @@ class LLMClient:
         stop_reason = ("aborted" if finish == "aborted"
                        else "tool_use" if finish == "tool_calls"
                        else "end_turn")
-        return {"role": "assistant", "content": content,
-                "stop_reason": stop_reason}
+        out: dict[str, Any] = {"role": "assistant", "content": content,
+                               "stop_reason": stop_reason}
+        extracted = ("\n".join(reasoning_parts) if reasoning_parts
+                     else _reasoning.extract_reasoning({"content": raw}))
+        if extracted:
+            out["reasoning"] = extracted
+        return out
 
 
 def _to_openai_messages(system: str, messages: list[dict[str, Any]]) -> list[dict[str, Any]]:
@@ -851,12 +871,22 @@ def _plain_client(cfg: dict[str, Any], api_key: str) -> LLMClient:
 
 
 def build_client(cfg: dict[str, Any], api_key: str) -> Any:
-    """Build the client for ``cfg``, wrapped for failover when configured."""
-    primary = _plain_client(cfg, api_key)
+    """Build the client for ``cfg``, wrapped for rotation and failover.
+
+    Order matters. The credential pool sits INSIDE the failover wrapper, so a
+    rate-limited account spends its own remaining keys before the turn moves to
+    a different provider on a different model.
+    """
+    primary: Any = _plain_client(cfg, api_key)
+    from . import credpool
+    pool = credpool.from_config(cfg, api_key)
+    if pool is not None:
+        primary = credpool.RotatingClient(
+            pool, lambda key: _plain_client(cfg, key))
     return _maybe_wrap_failover(cfg, primary)
 
 
-def _maybe_wrap_failover(cfg: dict[str, Any], primary: LLMClient) -> Any:
+def _maybe_wrap_failover(cfg: dict[str, Any], primary: Any) -> Any:
     """Wrap ``primary`` in a FailoverClient when a usable fallback is set.
 
     Returns ``primary`` untouched — with a warning — whenever the fallback

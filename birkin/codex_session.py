@@ -76,8 +76,17 @@ class CodexSessionError(RuntimeError):
 
 
 class CodexTurnTimeout(CodexSessionError):
-    pass
+    """A turn hit its budget.
 
+    Carries ``partial``: whatever the agent had already streamed. A turn
+    that spends a 900s budget has usually produced real work by the time it
+    is cut off, and discarding it makes a fifteen-minute wait return
+    nothing at all.
+    """
+
+    def __init__(self, message: str, partial: str = ""):
+        super().__init__(message)
+        self.partial = partial
 
 class CodexAppServerSession:
     """One warm ``codex app-server`` process driven over JSON-RPC stdio."""
@@ -387,8 +396,13 @@ class CodexAppServerSession:
             if not self.is_alive():
                 self.start()
             self._interrupted = False
+            # ONE budget for the whole ask, not one per attempt. The
+            # deadline lives in _turn, so a restart-retry used to start a
+            # fresh full cli_timeout -- 2x900s of silence for one message.
+            budget = float(timeout or self.turn_timeout)
+            deadline = time.monotonic() + budget
             try:
-                return self._turn(text, on_text, timeout)
+                return self._turn(text, on_text, budget)
             except CodexTurnTimeout:
                 self._terminate(mark_closed=False)
                 raise
@@ -400,10 +414,13 @@ class CodexAppServerSession:
                         self._interrupted = False
                         return "⏹️ 중단했어요. 새 메시지로 진행할게요."
                     raise
+                remaining = deadline - time.monotonic()
+                if remaining <= 0:
+                    raise            # the budget is spent; do not restart
                 print("[birkin] codex session restarted (prior context lost)",
                       flush=True)
                 self.start()
-                return self._turn(text, on_text, timeout)
+                return self._turn(text, on_text, remaining)
 
     def _turn(self, text: str, on_text: StreamCallback,
               timeout: Optional[float]) -> str:
@@ -434,17 +451,24 @@ class CodexAppServerSession:
             self._sent_preamble = True
         deadline = time.monotonic() + (timeout or self.turn_timeout)
         final = ""
+        # `final` is last-message-canonical (a codex turn's last agent
+        # message is the answer). A timeout has no last message, so the
+        # partial has to keep EVERY piece or a long turn reports only its
+        # most recent sentence.
+        pieces: list[str] = []
         streamed = 0
         while True:
             remaining = deadline - time.monotonic()
             if remaining <= 0:
                 raise CodexTurnTimeout(
                     f"codex turn timed out after "
-                    f"{timeout or self.turn_timeout:.0f}s")
+                    f"{timeout or self.turn_timeout:.0f}s",
+                    partial="\n\n".join(pieces))
             try:
                 note = self._notes.get(timeout=remaining)
             except queue.Empty:
-                raise CodexTurnTimeout("codex turn timed out")
+                raise CodexTurnTimeout("codex turn timed out",
+                                       partial="\n\n".join(pieces))
             if note is None:
                 if self._interrupted:
                     return "⏹️ 중단했어요. 새 메시지로 진행할게요."
@@ -462,6 +486,7 @@ class CodexAppServerSession:
                 piece = _agent_text(params.get("item") or {})
                 if piece:
                     final = piece          # last agent message is canonical
+                    pieces.append(piece)
                     if on_text:
                         # append-style contract: emit only what's new
                         on_text(("\n\n" if streamed else "") + piece)
