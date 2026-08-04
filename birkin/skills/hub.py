@@ -5,9 +5,15 @@ fetches one from any GitHub repository — but never straight into the live
 skills directory: the bundle lands in quarantine, is scanned there, and is only
 moved into place once the verdict and the user allow it.
 
-Deliberately one source (GitHub) and one auth method (a token from the
-environment). hermes carries ten source adapters, a tap registry and an index
-cache; none of that is needed to install a skill you can already name.
+Deliberately one *fetcher* for remote skills (GitHub) and one auth method (a
+token from the environment). hermes carries a tap registry and an index cache;
+neither is needed to install a skill you can already name, and neither is
+ported.
+
+The identifier is no longer limited to ``owner/repo``. A skill sitting in a
+directory on this disk, or behind an https URL, goes through this very same
+quarantine, scan and audit -- that boundary is what makes an install safe, and
+it does not care how the bytes arrived. See ``sources.py``.
 """
 
 from __future__ import annotations
@@ -313,12 +319,13 @@ def install(identifier: str, *, force: bool = False,
     """Fetch, scan and (if allowed) install. Returns (installed, report)."""
     quarantine = None
     try:
-        probe = parse_identifier(identifier)
-        name = probe[2].split("/")[-1] if probe[2] else probe[1]
+        from . import sources
+        source = sources.source_for(identifier)
+        name = source.probe_name(identifier)
         if not valid_skill_name(name):
             return False, f"unsafe skill name derived from {identifier!r}"
         quarantine = quarantine_dir(name)
-        meta = fetch_bundle(identifier, quarantine)
+        meta = source.fetch(identifier, quarantine)
         name = meta["name"] if valid_skill_name(meta["name"]) else name
 
         result = guard.scan_skill(quarantine, source=identifier)
@@ -341,7 +348,8 @@ def install(identifier: str, *, force: bool = False,
             return False, f"{report}\n\nNot installed."
 
         target = install_from_quarantine(name, quarantine, {
-            "identifier": identifier, "verdict": result.verdict,
+            "identifier": identifier, "source": source.source_id(),
+            "verdict": result.verdict,
             "trust": result.trust, "content_hash": result.content_hash,
             "files": meta["files"], "description": meta["description"]})
         return True, f"{report}\n\nInstalled {name} -> {target}"

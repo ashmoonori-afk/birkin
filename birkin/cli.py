@@ -142,8 +142,11 @@ def _skills_validate(args: argparse.Namespace) -> int:
 
 
 def _skills_install(args) -> int:
-    """`birkin skills install <owner/repo[/path]> [--force]` — fetch a skill
-    from GitHub into quarantine, scan it, and install only if allowed."""
+    """`birkin skills install <source> [--force]` — quarantine, scan, install.
+
+    ``<source>`` is ``owner/repo[/path]``, a local directory, or an https URL
+    to a SKILL.md. Every one lands in quarantine and is scanned there first;
+    only the way the bytes arrive differs."""
     from .skills import hub
 
     def confirm(report: str) -> bool:
@@ -158,7 +161,8 @@ def _skills_install(args) -> int:
 
     identifier = (getattr(args, "target", "") or "").strip()
     if not identifier:
-        print("Which skill? `birkin skills install <owner/repo[/path]>`")
+        print("Which skill? `birkin skills install <owner/repo[/path] | "
+              "./local/dir | https://…/SKILL.md>`")
         return 1
     ok, report = hub.install(identifier, force=args.force, confirm=confirm)
     print(report)
