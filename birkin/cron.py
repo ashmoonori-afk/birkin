@@ -12,6 +12,7 @@ kind             examples                            meaning
 ``interval``     ``every 30m``, ``30분마다``           repeating, from last run
 ``once``         ``2h``, ``30분 후``, ISO timestamp    fires a single time
 ``cron``         ``0 9 * * 1``, ``매주 월요일 09:00``    5-field cron expression
+                 ``0 9 * * MON``, ``@daily``           names, Sunday-as-7, macros
 ===============  ==================================  ========================
 
 Jobs written before this grammar existed carry a bare ``hour``/``minute`` and
@@ -26,7 +27,7 @@ import uuid
 from datetime import date, datetime, timedelta
 from typing import Any, Optional
 
-from . import config, store
+from . import config, cronexpr, store
 
 # The scheduler polls every 30s, so anything under a minute cannot be honored.
 _MIN_INTERVAL_MINUTES = 1
@@ -41,7 +42,6 @@ _DURATION_RE = re.compile(r"^(\d+)\s*(m|min|mins|minute|minutes|h|hr|hrs|hour|"
 _KO_WEEKDAYS = {"일": 0, "월": 1, "화": 2, "수": 3,
                 "목": 4, "금": 5, "토": 6}
 _CLOCK_RE = re.compile(r"^(\d{1,2}):(\d{2})$")
-_CRON_FIELD_RE = re.compile(r"^[\d*,/-]+$")
 
 
 # -- schedule grammar ------------------------------------------------------
@@ -123,9 +123,8 @@ def parse_schedule(text: str) -> Optional[dict[str, Any]]:
         return {"kind": "daily", "hour": hour, "minute": minute,
                 "display": f"{hour:02d}:{minute:02d} daily"}
 
-    fields = text.split()
-    if len(fields) >= 5 and all(_CRON_FIELD_RE.match(f) for f in fields[:5]):
-        expr = " ".join(fields[:5])
+    expr = cronexpr.normalize(text)
+    if expr is not None:
         if _cron_next(expr, datetime.now()) is None:
             return None                       # unsatisfiable or malformed
         return {"kind": "cron", "expr": expr, "display": expr}
@@ -178,7 +177,7 @@ def _cron_next(expr: str, after: datetime) -> Optional[datetime]:
     would be complexity with nothing to show for it. Swap in croniter if that
     ever stops being true.
     """
-    parts = expr.split()
+    parts = (cronexpr.normalize(expr) or expr).split()
     if len(parts) < 5:
         return None
     minute_f, hour_f, dom_f, month_f, dow_f = parts[:5]
