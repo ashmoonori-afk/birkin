@@ -48,6 +48,11 @@ DEFAULT_CONFIG: dict[str, Any] = {
     "fallback_model": "",
     "fallback_base_url": "",
     "fallback_cooldown": 300,
+    # More than one credential for the SAME provider. A rate-limited key
+    # rotates to the next one here before failover switches provider and
+    # model; each exhausted key cools down on its own timer. Empty = the
+    # single key from the environment / api_key. See credpool.py.
+    "api_keys": [],
     # Tool results longer than this are written to disk and replaced by a
     # preview plus the path, so the agent can grep or page through the rest
     # instead of losing it. 0 disables. See tools/spill.py.

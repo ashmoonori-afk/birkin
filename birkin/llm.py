@@ -871,12 +871,22 @@ def _plain_client(cfg: dict[str, Any], api_key: str) -> LLMClient:
 
 
 def build_client(cfg: dict[str, Any], api_key: str) -> Any:
-    """Build the client for ``cfg``, wrapped for failover when configured."""
-    primary = _plain_client(cfg, api_key)
+    """Build the client for ``cfg``, wrapped for rotation and failover.
+
+    Order matters. The credential pool sits INSIDE the failover wrapper, so a
+    rate-limited account spends its own remaining keys before the turn moves to
+    a different provider on a different model.
+    """
+    primary: Any = _plain_client(cfg, api_key)
+    from . import credpool
+    pool = credpool.from_config(cfg, api_key)
+    if pool is not None:
+        primary = credpool.RotatingClient(
+            pool, lambda key: _plain_client(cfg, key))
     return _maybe_wrap_failover(cfg, primary)
 
 
-def _maybe_wrap_failover(cfg: dict[str, Any], primary: LLMClient) -> Any:
+def _maybe_wrap_failover(cfg: dict[str, Any], primary: Any) -> Any:
     """Wrap ``primary`` in a FailoverClient when a usable fallback is set.
 
     Returns ``primary`` untouched — with a warning — whenever the fallback
