@@ -183,7 +183,15 @@ def _edit_file(inp: dict[str, Any], ctx: ToolContext) -> ToolResult:
             + "\nRe-read the file with read_file annotate=true for fresh hashes.",
             is_error=True)
     _atomic_write_text(path, new_text)
-    return ToolResult(f"Applied {len(edits)} edit(s) to {path}.")
+    applied = f"Applied {len(edits)} edit(s) to {path}."
+    # Say whether the file still compiles, while the agent is still on
+    # this turn. Off unless lsp_servers maps the suffix, and a server
+    # that will not start costs the edit nothing -- the write already
+    # succeeded. Only NEW problems: a file that arrived with ten
+    # warnings must not blame all ten on this edit.
+    from ..lsp import diagnostics as _diagnostics
+    return ToolResult(applied + _diagnostics.report_for(
+        path, new_text, ctx.cfg, baseline_text=original))
 
 
 def _write_file(inp: dict[str, Any], ctx: ToolContext) -> ToolResult:
