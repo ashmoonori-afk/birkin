@@ -127,6 +127,10 @@ class CodexAppServerSession:
         self.startup_timeout = float(startup_timeout)
         self.turn_timeout = float(turn_timeout)
         self.request_timeout = float(request_timeout)
+        # Server-log heartbeat cadence while a turn runs (seconds). The
+        # log line is what tells a human a 30-minute turn is alive rather
+        # than wedged, now that the clock no longer kills it.
+        self.heartbeat_interval = 60.0
 
         self._proc: Optional[subprocess.Popen] = None
         self._notes: "queue.Queue[Optional[dict]]" = queue.Queue()
@@ -396,11 +400,12 @@ class CodexAppServerSession:
             if not self.is_alive():
                 self.start()
             self._interrupted = False
-            # ONE budget for the whole ask, not one per attempt. The
-            # deadline lives in _turn, so a restart-retry used to start a
-            # fresh full cli_timeout -- 2x900s of silence for one message.
+            # The budget is an IDLE window (see _turn): it bounds silence,
+            # never total work, so one ask may legitimately run for an
+            # hour while a wedged process is still reaped in minutes.
+            # Runaway retries are prevented by counting restarts (exactly
+            # one, below), not by shrinking a wall clock.
             budget = float(timeout or self.turn_timeout)
-            deadline = time.monotonic() + budget
             try:
                 return self._turn(text, on_text, budget)
             except CodexTurnTimeout:
@@ -414,13 +419,10 @@ class CodexAppServerSession:
                         self._interrupted = False
                         return "⏹️ 중단했어요. 새 메시지로 진행할게요."
                     raise
-                remaining = deadline - time.monotonic()
-                if remaining <= 0:
-                    raise            # the budget is spent; do not restart
                 print("[birkin] codex session restarted (prior context lost)",
                       flush=True)
                 self.start()
-                return self._turn(text, on_text, remaining)
+                return self._turn(text, on_text, budget)
 
     def _turn(self, text: str, on_text: StreamCallback,
               timeout: Optional[float]) -> str:
@@ -449,7 +451,14 @@ class CodexAppServerSession:
             # (timeout on a live process), the next turn re-attaches the
             # persona/memory block instead of silently dropping it forever.
             self._sent_preamble = True
-        deadline = time.monotonic() + (timeout or self.turn_timeout)
+        # The budget bounds SILENCE, not the clock. A turn that keeps
+        # producing items runs as long as the work takes -- the fix for
+        # long research turns dying mid-stream at cli_timeout -- while a
+        # process quiet for the whole window is still reaped.
+        budget = float(timeout or self.turn_timeout)
+        started = time.monotonic()
+        last_activity = started
+        last_beat = started
         final = ""
         # `final` is last-message-canonical (a codex turn's last agent
         # message is the answer). A timeout has no last message, so the
@@ -458,17 +467,24 @@ class CodexAppServerSession:
         pieces: list[str] = []
         streamed = 0
         while True:
-            remaining = deadline - time.monotonic()
-            if remaining <= 0:
+            now = time.monotonic()
+            if now - last_activity >= budget:
                 raise CodexTurnTimeout(
-                    f"codex turn timed out after "
-                    f"{timeout or self.turn_timeout:.0f}s",
-                    partial="\n\n".join(pieces))
+                    f"codex turn timed out after {budget:.0f}s "
+                    f"without progress", partial="\n\n".join(pieces))
+            if now - last_beat >= self.heartbeat_interval:
+                minutes = (now - started) / 60.0
+                print(f"[birkin] codex still working — {minutes:.1f}m "
+                      f"elapsed, {streamed} item(s) streamed so far",
+                      flush=True)
+                last_beat = now
             try:
-                note = self._notes.get(timeout=remaining)
+                note = self._notes.get(
+                    timeout=min(budget - (now - last_activity),
+                                self.heartbeat_interval))
             except queue.Empty:
-                raise CodexTurnTimeout("codex turn timed out",
-                                       partial="\n\n".join(pieces))
+                continue
+            last_activity = time.monotonic()
             if note is None:
                 if self._interrupted:
                     return "⏹️ 중단했어요. 새 메시지로 진행할게요."
