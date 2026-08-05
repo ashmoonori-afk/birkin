@@ -62,7 +62,8 @@ def propose(*, category: str, title: str, description: str,
 
 
 def execute_action(category: str, payload: dict[str, Any],
-                   cfg: dict[str, Any] | None = None) -> str:
+                   cfg: dict[str, Any] | None = None,
+                   on_event: Any = None) -> str:
     """Carry out an approved action. Returns a human-readable result.
 
     ``cfg`` is accepted for policy-aware callers (see :func:`propose`); manual
@@ -113,7 +114,7 @@ def execute_action(category: str, payload: dict[str, Any],
         return f"[exit {proc.returncode}] {out[:2000]}"
     if category == "moirai":
         from .moirai.trigger import run_approved
-        return run_approved(payload)
+        return run_approved(payload, on_event=on_event)
     if category == "skill":
         from .skills.manager import apply_skill_proposal
         return apply_skill_proposal(payload)
@@ -158,7 +159,7 @@ def claim(aid: str) -> dict[str, Any]:
     return {"ok": True}
 
 
-def execute_claimed(aid: str) -> dict[str, Any]:
+def execute_claimed(aid: str, on_event: Any = None) -> dict[str, Any]:
     if not store.valid_pending_id(aid):
         return {"ok": False, "error": "invalid approval id"}
     try:
@@ -170,7 +171,15 @@ def execute_claimed(aid: str) -> dict[str, Any]:
     except store.FileLockTimeout:
         return {"ok": False, "error": "approval store is busy"}
     try:
-        result = execute_action(rec["category"], rec.get("payload", {}))
+        # The bare two-argument call is the contract tests (and any older
+        # caller) replace execute_action through -- a surprise keyword on a
+        # monkeypatched fake TypeErrors and reads as ok: False. Forward the
+        # observer only when there is one.
+        if on_event is not None:
+            result = execute_action(rec["category"], rec.get("payload", {}),
+                                    on_event=on_event)
+        else:
+            result = execute_action(rec["category"], rec.get("payload", {}))
     except store.FileLockTimeout:
         try:
             with store.file_lock(_pending_path(aid)):

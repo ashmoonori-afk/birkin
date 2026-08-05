@@ -249,7 +249,48 @@ def heartbeat_text(elapsed_minutes: int, progress: dict | None = None) -> str:
         details.append(f"응답 {streamed}개 도착")
     if not details:
         return base
-    return base + " · " + " · ".join(details)
+    line = base + " · " + " · ".join(details)
+    # An approved hard task reports its current todo step as a phase;
+    # showing it is the whole point of the wiring.
+    phase = str((progress or {}).get("phase") or "")
+    if phase:
+        line = f"{line} · {phase}"
+    return line
+
+
+def execute_claimed_with_progress(gateway: Any, channel: Any,
+                                  chat_id: str, aid: str) -> str:
+    """Run one approved action with live heartbeats while it works.
+
+    An approved moirai task executes synchronously inside the callback
+    handler, which used to mean minutes of silence in chat. The gateway
+    now reports phase transitions through on_progress; this feeds them
+    into the per-chat holder _keep_typing already renders.
+
+    Capability-aware for the same reason ask_session is: existing test
+    fakes and older gateways expose execute_claimed_action(aid) with no
+    on_progress, and passing it blindly would TypeError every approval.
+    """
+    try:
+        accepts = "on_progress" in inspect.signature(
+            gateway.execute_claimed_action).parameters
+    except (TypeError, ValueError):
+        accepts = False
+    if not accepts:
+        return gateway.execute_claimed_action(aid)
+    progress = channel.__dict__.setdefault("_progress", {}).setdefault(
+        str(chat_id), {})
+    progress.clear()
+    stop = threading.Event()
+    pinger = threading.Thread(target=channel._keep_typing,
+                              args=(str(chat_id), stop), daemon=True)
+    pinger.start()
+    try:
+        return gateway.execute_claimed_action(aid,
+                                              on_progress=progress.update)
+    finally:
+        stop.set()
+        pinger.join(timeout=16)
 
 
 class TelegramChannel(Channel):
@@ -688,7 +729,8 @@ class TelegramChannel(Channel):
                                   args=(chat_id, stop), daemon=True)
         pinger.start()
         try:
-            result = gateway.execute_claimed_action(aid)
+            result = execute_claimed_with_progress(gateway, self,
+                                                   chat_id, aid)
         finally:
             stop.set()
             pinger.join(timeout=16)

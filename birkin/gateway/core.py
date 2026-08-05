@@ -983,9 +983,25 @@ class Gateway:
             return f"⚠ {out.get('error', 'approve failed')}", False
         return "✅ approved — 실행 중", True
 
-    def execute_claimed_action(self, aid: str) -> str:
+    def execute_claimed_action(self, aid: str, on_progress=None) -> str:
         from .. import approvals
-        out = approvals.execute_claimed(aid)
+        # moirai.phase carries what an approved hard task is doing right
+        # now ("할 일 3/7: ..."); mapping it into the progress holder is
+        # what turns a synchronous approval into a live heartbeat.
+        _seen = {"n": 0}
+
+        def _on_event(event: str, payload: dict) -> None:
+            if event != "moirai.phase" or on_progress is None:
+                return
+            _seen["n"] += 1
+            try:
+                on_progress({"phase": str((payload or {}).get("title") or ""),
+                             "activity": _seen["n"]})
+            except Exception:
+                pass          # an observer bug must not kill the action
+
+        out = approvals.execute_claimed(
+            aid, on_event=_on_event if on_progress is not None else None)
         if not out.get("ok"):
             return f"⚠ {out.get('error', 'approve failed')}"
         store.append_activity(f"approval[{aid}]: approved via gateway")
