@@ -5,6 +5,7 @@ from __future__ import annotations
 import re
 import threading
 import time
+from pathlib import Path
 from typing import Any
 
 from .. import config, models, pools, promptgate, security, store
@@ -37,6 +38,14 @@ def ask_session(sess: Any, text: str, on_text=None, timeout=None,
         if accepts:
             kwargs["on_progress"] = on_progress
     return sess.ask(text, **kwargs)
+
+
+def _configured_workspace(cfg: dict[str, Any]) -> str | None:
+    for root in cfg.get("workspace_roots") or ():
+        path = Path(str(root)).expanduser()
+        if path.is_dir():
+            return str(path)
+    return None
 
 # Gateway chat commands. Each: (canonical name, description, {accepted triggers}).
 # Triggers include hyphen / underscore / run-together variants because Telegram
@@ -337,6 +346,7 @@ class Gateway:
                        else "workspace-write")
             return CodexAppServerSession(
                 model=self.cfg.get("model"),
+                cwd=_configured_workspace(self.cfg),
                 preamble=self._system_prompt(),
                 reasoning_effort=str(
                     self.cfg.get("gateway_reasoning_effort", "") or ""),

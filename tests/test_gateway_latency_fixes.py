@@ -864,3 +864,25 @@ def test_gateway_passes_cli_timeout_to_codex(tmp_path, monkeypatch):
         assert s.turn_timeout == 900
     finally:
         s.close()
+
+
+def test_gateway_passes_configured_workspace_to_codex(tmp_path, monkeypatch):
+    monkeypatch.setenv("BIRKIN_HOME", str(tmp_path / "home"))
+    from birkin import config
+    from birkin.gateway.core import Gateway
+
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    config.save_config({
+        **config.DEFAULT_CONFIG,
+        "provider": "codex-cli",
+        "gateway_prewarm": False,
+        "workspace_roots": [str(workspace)],
+    })
+    g = Gateway(config.load_config())
+    s = g._build_claude_session()
+    try:
+        assert s.cwd == str(workspace)
+        assert s.sandbox_mode == "workspace-write"
+    finally:
+        s.close()
