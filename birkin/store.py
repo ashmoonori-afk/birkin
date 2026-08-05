@@ -91,7 +91,13 @@ class file_lock:
                 os.close(fd)
                 self._held = True
                 return self
-            except FileExistsError:
+            except (FileExistsError, PermissionError):
+                # PermissionError is Windows losing the race, not a
+                # permissions problem: os.open(O_CREAT|O_EXCL) raises it
+                # while another process is mid-unlink on the same lock
+                # file. Treating it as fatal made the LOSER of a healthy
+                # race crash -- the intermittent PermissionError the
+                # 2026-07-29 audit recorded in the skills suite.
                 try:
                     age = time.time() - self._lock.stat().st_mtime
                     if age > self._stale:
