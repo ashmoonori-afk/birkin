@@ -65,6 +65,38 @@ def _session(turn_timeout: float = 0.4, pending: tuple = (),
 
 
 class TestActivityKeepsTheTurnAlive:
+    def test_no_item_startup_is_bounded_before_idle_timeout(
+            self, monkeypatch) -> None:
+        class Clock:
+            now = 0.0
+
+            def monotonic(self) -> float:
+                return self.now
+
+        class SilentNotes:
+            def __init__(self, clock: Clock) -> None:
+                self.clock = clock
+
+            @staticmethod
+            def get_nowait() -> dict:
+                raise queue.Empty
+
+            def get(self, timeout: float) -> dict:
+                self.clock.now += timeout
+                raise queue.Empty
+
+        clock = Clock()
+        s = _session(turn_timeout=900.0, heartbeat=900.0)
+        s._notes = SilentNotes(clock)
+        monkeypatch.setattr(codex_session.time, "monotonic",
+                            clock.monotonic)
+
+        with pytest.raises(CodexTurnTimeout) as caught:
+            s._turn("go", None, None)
+
+        assert clock.now == 120.0
+        assert "before its first item" in str(caught.value)
+
     def test_unrelated_notifications_do_not_reset_the_idle_window(
             self, monkeypatch) -> None:
         """Status noise extended a 900s idle timeout to 2,759s in production."""
@@ -78,13 +110,27 @@ class TestActivityKeepsTheTurnAlive:
             def __init__(self, clock: Clock) -> None:
                 self.clock = clock
                 self.emitted = 0
+                self.started = False
 
             @staticmethod
             def get_nowait() -> dict:
                 raise queue.Empty
 
             def get(self, timeout: float) -> dict:
+                if not self.started:
+                    self.started = True
+                    return {
+                        "method": "item/completed",
+                        "params": {
+                            "threadId": "thread-1",
+                            "turnId": "turn-1",
+                            "item": {"type": "commandExecution"},
+                        },
+                    }
                 if self.emitted < 6:
+                    if timeout < 300.0:
+                        self.clock.now += timeout
+                        raise queue.Empty
                     self.clock.now += 300.0
                     self.emitted += 1
                     return {
@@ -106,6 +152,55 @@ class TestActivityKeepsTheTurnAlive:
 
         assert clock.now == 900.0
         assert notes.emitted == 3
+
+    def test_current_turn_deltas_refresh_the_idle_window(
+            self, monkeypatch) -> None:
+        class Clock:
+            now = 0.0
+
+            def monotonic(self) -> float:
+                return self.now
+
+        class DeltaNotes:
+            def __init__(self, clock: Clock) -> None:
+                self.clock = clock
+                self.emitted = 0
+                self.delays = (60.0, 300.0, 300.0)
+
+            @staticmethod
+            def get_nowait() -> dict:
+                raise queue.Empty
+
+            def get(self, timeout: float) -> dict:
+                if self.emitted < len(self.delays):
+                    delay = self.delays[self.emitted]
+                    if delay > timeout:
+                        self.clock.now += timeout
+                        raise queue.Empty
+                    self.clock.now += delay
+                    self.emitted += 1
+                    return {
+                        "method": "item/reasoning/textDelta",
+                        "params": {
+                            "threadId": "thread-1",
+                            "turnId": "turn-1",
+                            "itemId": "item-1",
+                            "delta": "work",
+                        },
+                    }
+                self.clock.now += timeout
+                raise queue.Empty
+
+        clock = Clock()
+        s = _session(turn_timeout=900.0, heartbeat=900.0)
+        s._notes = DeltaNotes(clock)
+        monkeypatch.setattr(codex_session.time, "monotonic",
+                            clock.monotonic)
+
+        with pytest.raises(CodexTurnTimeout):
+            s._turn("go", None, None)
+
+        assert clock.now == 1560.0
 
     def test_steady_progress_outlives_the_idle_window(self) -> None:
         """The reported case, scaled down: total time is 3x the window.

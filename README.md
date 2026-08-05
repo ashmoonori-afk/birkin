@@ -690,8 +690,14 @@ For a persistent Codex gateway, the first existing entry in
 the primary project first. This matters on Windows: using the user-profile
 root can make the Codex sandbox fail every PowerShell, Git Bash, and Kaggle
 CLI child with `SetTokenInformation(TokenDefaultDacl) failed: 1344`.
-`cli_timeout` is an idle window measured from the latest completed item in the
-current turn; unrelated app-server status notifications do not extend it.
+`cli_timeout` is an idle window measured from validated lifecycle or delta
+activity in the current conversation thread, including multi-agent child
+turns; unrelated app-server status notifications do not extend it. If Codex
+accepts a turn but emits no item at all, Birkin stops it after 120 seconds
+instead of waiting through a long idle budget. A started item is shown
+separately (`active: reasoning` in the server log, `추론 중` in Telegram)
+without inflating completed-event or agent-message counts. Child-turn items
+keep the parent alive, but only the parent turn can supply the final reply.
 When Codex returns the unmistakable Trusted Access for Cyber enrollment block,
 Birkin retries once with an explicit scope limited to the named public
 competition, organizer-provided assets, and the local workspace. A second

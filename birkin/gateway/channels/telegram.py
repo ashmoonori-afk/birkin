@@ -222,7 +222,11 @@ def recover_inbound_text(text: str, entities: Any) -> str:
 # fall back to a neutral word rather than leaking protocol names at a user.
 _PROGRESS_KIND_LABELS = {
     "command_execution": "도구 실행",
+    "commandExecution": "도구 실행",
     "agent_message": "응답 생성",
+    "agentMessage": "응답 생성",
+    "userMessage": "요청 전달",
+    "reasoning": "추론",
 }
 
 
@@ -247,6 +251,10 @@ def heartbeat_text(elapsed_minutes: int, progress: dict | None = None) -> str:
         details.append(f"{label} {activity}회")
     if streamed:
         details.append(f"응답 {streamed}개 도착")
+    active_kind = str(progress.get("active_kind") or "")
+    if active_kind:
+        label = _PROGRESS_KIND_LABELS.get(active_kind, "작업")
+        details.append(f"{label} 중")
     if not details:
         return base
     line = base + " · " + " · ".join(details)

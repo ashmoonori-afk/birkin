@@ -66,6 +66,7 @@ _MODEL_RE = re.compile(r"[A-Za-z0-9._:-]+")
 _MCP_ELICITATION = "mcpServer/elicitation/request"
 _SECURITY_SCOPE_OPEN = "<authorized-security-scope>"
 _SECURITY_SCOPE_CLOSE = "</authorized-security-scope>"
+_INITIAL_ACTIVITY_TIMEOUT = 120.0
 _SECURITY_SCOPE = (
     f"{_SECURITY_SCOPE_OPEN}\n"
     "This is authorized work for a named public security competition or "
@@ -502,6 +503,8 @@ class CodexAppServerSession:
         # that work visible in the heartbeat, the timeout, and on_progress.
         activity = 0
         last_kind = ""
+        active_kind = ""
+        saw_item = False
 
         def report() -> None:
             if on_progress is None:
@@ -509,31 +512,44 @@ class CodexAppServerSession:
             try:
                 on_progress({"activity": activity, "streamed": streamed,
                              "last_kind": last_kind,
+                             "active_kind": active_kind,
                              "elapsed": time.monotonic() - started})
             except Exception:
                 pass           # an observer bug must never kill the turn
 
         while True:
             now = time.monotonic()
-            if now - last_activity >= budget:
-                if activity:
+            silence_budget = (
+                budget if saw_item
+                else min(budget, _INITIAL_ACTIVITY_TIMEOUT)
+            )
+            if now - last_activity >= silence_budget:
+                if not saw_item:
+                    raise CodexTurnTimeout(
+                        f"codex turn timed out after {silence_budget:.0f}s "
+                        "without progress before its first item",
+                        partial="\n\n".join(pieces))
+                if activity or active_kind:
                     raise CodexTurnTimeout(
                         f"codex turn timed out after {budget:.0f}s of "
                         f"silence — {activity} event(s) completed before it "
-                        f"went quiet (last: {last_kind or 'unknown'})",
+                        f"went quiet (last: "
+                        f"{active_kind or last_kind or 'unknown'})",
                         partial="\n\n".join(pieces))
                 raise CodexTurnTimeout(
                     f"codex turn timed out after {budget:.0f}s "
                     f"without progress", partial="\n\n".join(pieces))
             if now - last_beat >= self.heartbeat_interval:
                 minutes = (now - started) / 60.0
+                active = (f", active: {active_kind}"
+                          if active_kind else "")
                 print(f"[birkin] codex still working — {minutes:.1f}m "
                       f"elapsed, {activity} event(s), {streamed} agent "
-                      f"message(s) so far", flush=True)
+                      f"message(s) so far{active}", flush=True)
                 last_beat = now
             try:
                 note = self._notes.get(
-                    timeout=min(budget - (now - last_activity),
+                    timeout=min(silence_budget - (now - last_activity),
                                 self.heartbeat_interval))
             except queue.Empty:
                 continue
@@ -543,19 +559,36 @@ class CodexAppServerSession:
                 raise CodexSessionError("codex process exited unexpectedly")
             method = note.get("method") or ""
             params = note.get("params") or {}
-            if method in ("item/completed", "turn/completed"):
-                note_turn_id = params.get("turnId")
-                if method == "turn/completed":
-                    note_turn_id = (params.get("turn") or {}).get("id")
+            is_item_event = method.startswith("item/")
+            if is_item_event:
+                # Multi-agent work reports child turn IDs here. The parent
+                # turn is the only Birkin turn running on this thread. Child
+                # items are liveness only; text remains parent-ID gated below.
+                if params.get("threadId") != self._thread_id:
+                    continue
+            elif method == "turn/completed":
+                note_turn_id = (params.get("turn") or {}).get("id")
                 if (params.get("threadId") != self._thread_id
                         or note_turn_id != self._active_turn_id):
                     continue
-            if method == "item/completed":
+            if is_item_event:
+                saw_item = True
                 last_activity = time.monotonic()
+            if method == "item/started":
+                item = params.get("item") or {}
+                active_kind = str(
+                    item.get("type") or item.get("itemType") or "")
+                report()
+            elif method == "item/completed":
                 item = params.get("item") or {}
                 activity += 1
                 last_kind = str(item.get("type") or item.get("itemType") or "")
-                piece = _agent_text(item)
+                active_kind = ""
+                # Child-turn messages prove the delegated work is alive, but
+                # only the parent turn owns the user-facing final answer.
+                piece = (_agent_text(item)
+                         if params.get("turnId") == self._active_turn_id
+                         else "")
                 if piece:
                     final = piece          # last agent message is canonical
                     pieces.append(piece)
@@ -563,6 +596,10 @@ class CodexAppServerSession:
                         # append-style contract: emit only what's new
                         on_text(("\n\n" if streamed else "") + piece)
                     streamed += 1
+                report()
+            elif is_item_event and not active_kind:
+                parts = method.split("/")
+                active_kind = parts[1] if len(parts) > 2 else ""
                 report()
             elif method == "turn/completed":
                 turn = params.get("turn") or {}

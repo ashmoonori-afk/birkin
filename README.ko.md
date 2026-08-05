@@ -649,8 +649,14 @@ Codex 영구 게이트웨이는 `workspace_roots`에서 실제로 존재하는 �
 맨 앞에 두세요. Windows에서 사용자 프로필 루트를 root로 쓰면 Codex sandbox가
 PowerShell, Git Bash, Kaggle CLI 자식을 만들 때마다
 `SetTokenInformation(TokenDefaultDacl) failed: 1344`로 실패할 수 있습니다.
-`cli_timeout`은 현재 turn에서 마지막으로 완료된 item 이후의 idle 시간이며,
-무관한 app-server status 알림은 제한을 연장하지 않습니다. Codex가 명확한
+`cli_timeout`은 multi-agent child turn을 포함한 현재 대화 thread에서 검증된
+lifecycle 또는 delta 활동 이후의 idle 시간이며, 무관한 app-server status
+알림은 제한을 연장하지 않습니다. Codex가 turn을 수락한 뒤 item을 하나도
+보내지 않으면 긴 idle 제한을 기다리지 않고 120초에 중단합니다. 시작된 item은
+완료 event나 agent message 수를 부풀리지 않고 server log의
+`active: reasoning`, Telegram의 `추론 중`으로 따로 표시됩니다. Child-turn
+item은 parent의 생존 신호로만 쓰며 최종 답변은 parent turn에서만 가져옵니다.
+Codex가 명확한
 Trusted Access for Cyber 가입 차단을 반환하면 Birkin은 공개 대회 이름,
 주최자가 제공한 자산, 로컬 workspace로 범위를 제한해 한 번만 재시도합니다.
 두 번째 차단은 그대로 반환하며 실제 시스템, 자격증명, 사용자, production
