@@ -1,53 +1,58 @@
-"""A 15-minute turn must not end with nothing to show for it.
+"""Long codex turns: silence is the failure, not the clock.
 
-A gateway turn against the codex CLI is bounded by ``cli_timeout``. That bound
-is correct and this module does not change it. What it changes is what happens
-when the bound is reached.
+A gateway turn was bounded by wall clock -- cli_timeout seconds from
+turn/start, regardless of what the model was doing. A long research turn that
+streamed steadily was killed mid-work at exactly the moment it was healthiest,
+which is the failure the user actually reported: work taking 15+ minutes kept
+dying at the timeout.
 
-Two defects, both observed in a real gateway session that spent its full
-configured 900s:
-
-* ``_turn`` accumulates the agent items as they stream, then raises a timeout
-  carrying only a message -- so every partial result is discarded. The user
-  waited fifteen minutes and received a generic error.
-* ``ask`` retries ``_turn`` after a session restart, and the deadline is
-  computed *inside* ``_turn``. The second attempt therefore starts a fresh full
-  budget, so one ask() can spend ``2 x cli_timeout``. With cli_timeout=900 that
-  is half an hour for one message.
+The bound is now an IDLE window. A turn that keeps producing -- items, tool
+activity -- runs as long as the work takes, with a heartbeat in the server log
+so a human can see it is alive. Only silence for the WHOLE window means codex
+is wedged, and a wedged process is still reaped: removing the bound entirely
+would trade "long turns die" for "a dead codex holds the gateway forever".
 """
 
 from __future__ import annotations
 
 import queue
+import threading
 import time
 
 import pytest
 
-from birkin.codex_session import (CodexAppServerSession,
-                                  CodexSessionError, CodexTurnTimeout)
+from birkin.codex_session import (CodexAppServerSession, CodexSessionError,
+                                  CodexTurnTimeout)
 
 
-def _session(turn_timeout: float = 0.4,
-             pending: tuple[str, ...] = ()) -> CodexAppServerSession:
-    """A session wired for the turn loop only -- no codex binary involved.
+def _item(text: str) -> dict:
+    return {"method": "item/completed",
+            "params": {"threadId": "thread-1", "turnId": "turn-1",
+                       "item": {"type": "agent_message", "text": text}}}
 
-    __init__ spawns a child process, which this test must not do; every
-    attribute _turn reads is set explicitly instead.
-    """
+
+def _completed() -> dict:
+    return {"method": "turn/completed",
+            "params": {"threadId": "thread-1",
+                       "turn": {"id": "turn-1", "status": "completed"}}}
+
+
+def _session(turn_timeout: float = 0.4, pending: tuple = (),
+             heartbeat: float = 60.0) -> CodexAppServerSession:
+    """A session wired for the turn loop only -- no codex binary involved."""
     s = CodexAppServerSession.__new__(CodexAppServerSession)
     s._notes = queue.Queue()
     s._thread_id = "thread-1"
     s._active_turn_id = "turn-1"
     s.turn_timeout = turn_timeout
     s.request_timeout = 5.0
+    s.heartbeat_interval = heartbeat
     s.preamble = ""
     s._sent_preamble = True
     s._interrupted = False
     s._closed = False
-    # _turn opens by DRAINING _notes of stale events, so anything queued
-    # beforehand is thrown away. A real server emits items only after
-    # turn/start is accepted, and the fixture has to do the same or it tests
-    # nothing.
+    s._lock = threading.RLock()
+
     def _request(method, params, timeout=None):
         if method == "turn/start":
             for piece in pending:
@@ -58,10 +63,67 @@ def _session(turn_timeout: float = 0.4,
     return s
 
 
-def _item(text: str) -> dict:
-    return {"method": "item/completed",
-            "params": {"threadId": "thread-1", "turnId": "turn-1",
-                       "item": {"type": "agent_message", "text": text}}}
+class TestActivityKeepsTheTurnAlive:
+    def test_steady_progress_outlives_the_idle_window(self) -> None:
+        """The reported case, scaled down: total time is 3x the window.
+
+        Four items spaced 0.3s apart against a 0.5s window. No single gap
+        reaches the window, so the turn must complete -- under the wall-clock
+        rule it died after 0.5s with three items still coming.
+        """
+        s = _session(turn_timeout=0.5)
+
+        def feed() -> None:
+            for i in range(4):
+                time.sleep(0.3)
+                s._notes.put(_item(f"piece {i}"))
+            time.sleep(0.3)
+            s._notes.put(_completed())
+
+        feeder = threading.Thread(target=feed, daemon=True)
+        feeder.start()
+        assert s._turn("go", None, None) == "piece 3"
+        feeder.join(timeout=5)
+
+    def test_silence_for_the_whole_window_still_reaps_the_turn(self) -> None:
+        """No bound at all would leave a wedged codex holding the gateway."""
+        s = _session(turn_timeout=0.3)
+        began = time.monotonic()
+        with pytest.raises(CodexTurnTimeout) as caught:
+            s._turn("go", None, None)
+        assert "timed out" in str(caught.value)
+        assert time.monotonic() - began < 3.0
+
+    def test_the_window_measures_from_the_last_activity(self) -> None:
+        s = _session(turn_timeout=0.4, pending=("one piece",))
+        with pytest.raises(CodexTurnTimeout) as caught:
+            s._turn("go", None, None)
+        assert "one piece" in caught.value.partial
+
+
+class TestHeartbeat:
+    def test_a_long_turn_reports_it_is_alive(self, capsys) -> None:
+        s = _session(turn_timeout=5.0, heartbeat=0.2)
+
+        def feed() -> None:
+            time.sleep(0.7)
+            s._notes.put(_completed())
+
+        threading.Thread(target=feed, daemon=True).start()
+        s._turn("go", None, None)
+        assert "still working" in capsys.readouterr().out
+
+    def test_a_quick_turn_stays_quiet(self, capsys) -> None:
+        """A heartbeat on every two-second turn is log spam, not a signal."""
+        s = _session(turn_timeout=5.0, heartbeat=60.0, pending=("hi",))
+
+        def feed() -> None:
+            time.sleep(0.1)
+            s._notes.put(_completed())
+
+        threading.Thread(target=feed, daemon=True).start()
+        s._turn("go", None, None)
+        assert "still working" not in capsys.readouterr().out
 
 
 class TestPartialOutputSurvivesTheTimeout:
@@ -70,9 +132,8 @@ class TestPartialOutputSurvivesTheTimeout:
                      pending=("첫 번째 분석 결과입니다.", "두 번째 항목."))
         with pytest.raises(CodexTurnTimeout) as caught:
             s._turn("분석해줘", None, None)
-        partial = getattr(caught.value, "partial", "")
-        assert "첫 번째 분석 결과입니다." in partial
-        assert "두 번째 항목." in partial
+        assert "첫 번째 분석 결과입니다." in caught.value.partial
+        assert "두 번째 항목." in caught.value.partial
 
     def test_a_timeout_with_nothing_streamed_carries_no_partial(self) -> None:
         s = _session(turn_timeout=0.3)
@@ -80,18 +141,14 @@ class TestPartialOutputSurvivesTheTimeout:
             s._turn("hi", None, None)
         assert getattr(caught.value, "partial", "") == ""
 
-    def test_the_message_still_names_the_budget_that_was_spent(self) -> None:
-        s = _session(turn_timeout=0.3)
-        with pytest.raises(CodexTurnTimeout) as caught:
-            s._turn("hi", None, None)
-        assert "timed out" in str(caught.value)
 
-
-class TestOneAskSpendsOneBudget:
-    def test_a_restart_retry_does_not_start_a_fresh_full_budget(self) -> None:
-        """The observed bug: deadline lives inside _turn, so attempt two got
-        another full cli_timeout. One message could cost 2 x the budget."""
-        seen: list[float | None] = []
+class TestRetryIsBoundedByRestartsNotWallClock:
+    def test_a_restart_retry_gets_the_same_idle_window(self) -> None:
+        """The budget measures SILENCE, so the retry is not handed a shrunk
+        window for the time the first attempt spent doing real work.
+        Runaway retries are prevented by counting restarts (exactly one),
+        not by shrinking the clock."""
+        seen: list = []
 
         def fake_turn(text, on_text, timeout):
             seen.append(timeout)
@@ -102,23 +159,21 @@ class TestOneAskSpendsOneBudget:
         s = _session(turn_timeout=10.0)
         s.is_alive = lambda: True
         s.start = lambda: None
-        s._lock = __import__("threading").RLock()
         s._turn = fake_turn
         assert s.ask("hello", None, 10.0) == "second attempt answered"
-        assert len(seen) == 2
-        # The retry must be given the REMAINING budget, never another full one.
-        assert seen[1] is not None
-        assert seen[1] < seen[0]
+        assert seen == [10.0, 10.0]
 
-    def test_an_exhausted_budget_is_not_retried_at_all(self) -> None:
-        def slow_turn(text, on_text, timeout):
-            time.sleep(0.25)
+    def test_a_second_death_is_not_retried_again(self) -> None:
+        calls: list = []
+
+        def dying_turn(text, on_text, timeout):
+            calls.append(timeout)
             raise CodexSessionError("codex process exited unexpectedly")
 
-        s = _session(turn_timeout=0.2)
+        s = _session(turn_timeout=10.0)
         s.is_alive = lambda: True
         s.start = lambda: None
-        s._lock = __import__("threading").RLock()
-        s._turn = slow_turn
-        with pytest.raises((CodexSessionError, CodexTurnTimeout)):
-            s.ask("hello", None, 0.2)
+        s._turn = dying_turn
+        with pytest.raises(CodexSessionError):
+            s.ask("hello", None, 10.0)
+        assert len(calls) == 2
