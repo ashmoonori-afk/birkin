@@ -150,7 +150,7 @@ class TestRetryIsBoundedByRestartsNotWallClock:
         not by shrinking the clock."""
         seen: list = []
 
-        def fake_turn(text, on_text, timeout):
+        def fake_turn(text, on_text, timeout, **kwargs):
             seen.append(timeout)
             if len(seen) == 1:
                 raise CodexSessionError("codex process exited unexpectedly")
@@ -166,7 +166,7 @@ class TestRetryIsBoundedByRestartsNotWallClock:
     def test_a_second_death_is_not_retried_again(self) -> None:
         calls: list = []
 
-        def dying_turn(text, on_text, timeout):
+        def dying_turn(text, on_text, timeout, **kwargs):
             calls.append(timeout)
             raise CodexSessionError("codex process exited unexpectedly")
 
