@@ -644,6 +644,8 @@ Keys you'll actually touch:
   "gateway_polish_provider": "claude-cli",
   "gateway_polish_model": "sonnet",
   "gateway_persistent": true,
+  "cli_timeout": 900,
+  "workspace_roots": ["/path/to/primary-workspace"],
   "autosave_transcripts": true,
   "neurosis_auto": true,
   "morpheus_hour": 4,
@@ -678,6 +680,23 @@ receive an isolated, no-tools editorial pass. The Claude path is accepted only
 when every URL and numeric fact survives; authentication or integrity failures
 fall back to the original reply. `claude auth status` must report
 `loggedIn: true`.
+
+Telegram long-work proposals render as escaped HTML cards with one explicit
+approve/reject row; the internal proposal envelope and its JSON are never the
+user-facing message.
+
+For a persistent Codex gateway, the first existing entry in
+`workspace_roots` is the process cwd and `workspace-write` sandbox root. Put
+the primary project first. This matters on Windows: using the user-profile
+root can make the Codex sandbox fail every PowerShell, Git Bash, and Kaggle
+CLI child with `SetTokenInformation(TokenDefaultDacl) failed: 1344`.
+`cli_timeout` is an idle window measured from the latest completed item in the
+current turn; unrelated app-server status notifications do not extend it.
+When Codex returns the unmistakable Trusted Access for Cyber enrollment block,
+Birkin retries once with an explicit scope limited to the named public
+competition, organizer-provided assets, and the local workspace. A second
+block is returned unchanged; the retry never broadens access to real systems,
+credentials, users, or production services.
 
 The second block is the reliability and safety layer: auto-summarize before
 overflow, provider failover, the destructive-command gate, workspace snapshots

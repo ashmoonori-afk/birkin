@@ -605,6 +605,8 @@ quality/**model-compare** — 그리고 `~/.birkin/skills/`의 내 스킬(같은
   "gateway_polish_provider": "claude-cli",
   "gateway_polish_model": "sonnet",
   "gateway_persistent": true,
+  "cli_timeout": 900,
+  "workspace_roots": ["/path/to/primary-workspace"],
   "autosave_transcripts": true,
   "neurosis_auto": true,
   "morpheus_hour": 4,
@@ -638,6 +640,21 @@ quality/**model-compare** — 그리고 `~/.birkin/skills/`의 내 스킬(같은
 도구 없는 별도 모델이 윤문합니다. 기본 Claude 경로는 모든 숫자와 URL이
 보존될 때만 윤문본을 채택하며, 인증 실패나 사실 누락 시 원문으로 되돌아갑니다.
 `claude auth status`가 `loggedIn: true`여야 합니다.
+
+Telegram 장기 작업 제안은 escape된 HTML 카드와 명확한 승인/거부 버튼 한 줄로
+표시됩니다. 내부 제안 envelope와 JSON은 사용자 메시지로 노출하지 않습니다.
+
+Codex 영구 게이트웨이는 `workspace_roots`에서 실제로 존재하는 첫 항목을
+프로세스 cwd이자 `workspace-write` sandbox root로 사용합니다. 주 작업 폴더를
+맨 앞에 두세요. Windows에서 사용자 프로필 루트를 root로 쓰면 Codex sandbox가
+PowerShell, Git Bash, Kaggle CLI 자식을 만들 때마다
+`SetTokenInformation(TokenDefaultDacl) failed: 1344`로 실패할 수 있습니다.
+`cli_timeout`은 현재 turn에서 마지막으로 완료된 item 이후의 idle 시간이며,
+무관한 app-server status 알림은 제한을 연장하지 않습니다. Codex가 명확한
+Trusted Access for Cyber 가입 차단을 반환하면 Birkin은 공개 대회 이름,
+주최자가 제공한 자산, 로컬 workspace로 범위를 제한해 한 번만 재시도합니다.
+두 번째 차단은 그대로 반환하며 실제 시스템, 자격증명, 사용자, production
+service로 권한 범위를 넓히지 않습니다.
 
 두 번째 블록이 신뢰성·안전 레이어입니다: 오버플로 전 자동 요약, 프로바이더
 페일오버, 파괴 명령 게이트, `/rollback`용 워크스페이스 스냅샷, 라이프사이클 훅,
