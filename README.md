@@ -206,6 +206,8 @@ into the same folder you own.
 
 ## 🧵 Moirai — workflows across model families
 
+The bundled **hard-task** pattern (`birkin moirai run hard-task --args '{"task": "..."}'`) decomposes a hard task into an internal todo list, executes it step by step, folds discovered follow-ups back into the list (bounded — anything dropped is named in the report), and announces each step through the progress channel chat heartbeats render — an approved long run reads `할 일 3/7 · 진행 중: …` in Telegram instead of silence.
+
 A model deciding for itself whether to spawn another agent is not
 orchestration. Moirai is: a workflow is a Python file, control flow is code,
 and each agent is routed to whichever model should answer it.

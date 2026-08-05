@@ -180,8 +180,14 @@ def queue(proposal: Proposal, *, task: str = "",
         payload=proposal.as_payload(task), cfg=cfg, origin="moirai-auto")
 
 
-def run_approved(payload: dict[str, Any]) -> str:
-    """Execute an approved proposal — the approvals executor's moirai branch."""
+def run_approved(payload: dict[str, Any],
+                 on_event: Any = None) -> str:
+    """Execute an approved proposal — the approvals executor's moirai branch.
+
+    ``on_event`` receives the engine's events (``moirai.phase`` above all),
+    which is how an approved hard task's progress reaches chat heartbeats
+    instead of vanishing into a synchronous call.
+    """
     from . import cli as moirai_cli
     from .engine import MoiraiError, load_script, run_script
     script_name = str((payload or {}).get("script") or "").strip()
@@ -193,7 +199,7 @@ def run_approved(payload: dict[str, Any]) -> str:
         return f"moirai: {exc}"
     args = {"task": str((payload or {}).get("task") or "")}
     try:
-        out = run_script(script, args=args)
+        out = run_script(script, args=args, on_event=on_event)
     except MoiraiError as exc:
         return f"moirai: 실행 실패 — {exc}"
     return (f"moirai: {script.name} {out['status']} — "
