@@ -12,6 +12,32 @@ from ..claude_session import ClaudeStreamSession
 from ..runtime import ConfigError, Session, build_session
 from .workflow import WORKFLOW_POLICY, is_running as workflow_is_running
 
+
+def ask_session(sess: Any, text: str, on_text=None, timeout=None,
+                on_progress=None) -> str:
+    """Call ``sess.ask`` with only the keywords its signature accepts.
+
+    The warm pool holds two session types: CodexAppServerSession.ask takes
+    ``on_progress`` (the activity feed a long turn reports through), and
+    ClaudeStreamSession.ask does not. Passing it blindly would TypeError
+    every claude-backed turn; dropping it silently would lose the feed the
+    codex side now provides. The signature is inspected per call, which is
+    nothing next to a model turn.
+    """
+    import inspect
+
+    kwargs: dict[str, Any] = {"on_text": on_text}
+    if timeout is not None:
+        kwargs["timeout"] = timeout
+    if on_progress is not None:
+        try:
+            accepts = "on_progress" in inspect.signature(sess.ask).parameters
+        except (TypeError, ValueError):
+            accepts = False
+        if accepts:
+            kwargs["on_progress"] = on_progress
+    return sess.ask(text, **kwargs)
+
 # Gateway chat commands. Each: (canonical name, description, {accepted triggers}).
 # Triggers include hyphen / underscore / run-together variants because Telegram
 # bot commands only allow [a-z0-9_] (no hyphen), while users still type hyphens.
@@ -485,7 +511,8 @@ class Gateway:
         return interrupted
 
     def handle(self, channel: str, chat_id: str, text: str,
-               on_text=None, workflow_id: str | None = None) -> str:
+               on_text=None, workflow_id: str | None = None,
+               on_progress=None) -> str:
         """Route one inbound message to the agent and return the reply.
 
         ``on_text`` (optional) receives append-style reply pieces as they
@@ -646,11 +673,12 @@ class Gateway:
                     if skill_state is None:
                         skill_state = {"revision": -1, "names": set()}
                         setattr(sess, "_birkin_skill_state", skill_state)
-                    reply = sess.ask(
+                    reply = ask_session(
+                        sess,
                         self.session._prepare_cli_turn(
                             text, route_query=skill_query,
                             skill_state=skill_state),
-                        on_text=on_text)
+                        on_text=on_text, on_progress=on_progress)
                 else:
                     # The non-persistent path shares the single self.session, so its
                     # history swap must stay serialized under the global lock.

@@ -14,6 +14,7 @@ import html
 import json
 import mimetypes
 import re
+import inspect
 import threading
 import time
 import urllib.error
@@ -215,6 +216,40 @@ def recover_inbound_text(text: str, entities: Any) -> str:
     if extra:
         return recovered + "\n" + "\n".join(extra)
     return recovered
+
+
+# What each codex item kind reads as in a chat heartbeat. Unknown kinds
+# fall back to a neutral word rather than leaking protocol names at a user.
+_PROGRESS_KIND_LABELS = {
+    "command_execution": "도구 실행",
+    "agent_message": "응답 생성",
+}
+
+
+def heartbeat_text(elapsed_minutes: int, progress: dict | None = None) -> str:
+    """One heartbeat line: elapsed time, plus what the turn is doing.
+
+    A 26-minute turn used to show only a minute counter while 12 minutes of
+    real tool work ran. ``progress`` is the holder the session's on_progress
+    updates from the turn thread; the pinger reads a snapshot here (plain
+    dict item reads are GIL-atomic, and a heartbeat one write behind is
+    fine). No holder, or one with nothing in it, reads exactly like before.
+    """
+    base = f"⏳ 작업 진행 중 · {elapsed_minutes}분"
+    if not progress:
+        return base
+    details: list[str] = []
+    activity = int(progress.get("activity") or 0)
+    streamed = int(progress.get("streamed") or 0)
+    if activity:
+        label = _PROGRESS_KIND_LABELS.get(
+            str(progress.get("last_kind") or ""), "작업 이벤트")
+        details.append(f"{label} {activity}회")
+    if streamed:
+        details.append(f"응답 {streamed}개 도착")
+    if not details:
+        return base
+    return base + " · " + " · ".join(details)
 
 
 class TelegramChannel(Channel):
@@ -746,7 +781,8 @@ class TelegramChannel(Channel):
                     f"도구로 열어 보세요. 이미지라면 직접 보고 설명해 주세요.]")
         return (caption + "\n\n" + note) if caption else note
 
-    def _keep_typing(self, chat_id: str, stop: threading.Event) -> None:
+    def _keep_typing(self, chat_id: str, stop: threading.Event,
+                     progress: dict | None = None) -> None:
         """Show a 'typing…' indicator until ``stop`` is set.
 
         Replies can take many seconds (the CLI backend spawns a full agent), so
@@ -770,7 +806,9 @@ class TelegramChannel(Channel):
                 now = time.monotonic()
                 if now >= next_heartbeat:
                     elapsed = max(1, int((now - started) // 60))
-                    text = f"⏳ 작업 진행 중 · {elapsed}분"
+                    text = heartbeat_text(
+                        elapsed,
+                        getattr(self, "_progress", {}).get(chat_id))
                     if heartbeat_id is None:
                         heartbeat_id = self._send_plain(chat_id, text)
                     else:
@@ -802,8 +840,12 @@ class TelegramChannel(Channel):
             self._workflow_ids.pop(chat_id, None)
             return
         stop = threading.Event()
+        # Written by the session's on_progress on the turn thread, read by
+        # the pinger for heartbeat lines. A plain dict suffices: item writes
+        # are GIL-atomic and a heartbeat one update behind is harmless.
+        progress: dict[str, Any] = {}
         pinger = threading.Thread(target=self._keep_typing,
-                                  args=(chat_id, stop), daemon=True)
+                                  args=(chat_id, stop, progress), daemon=True)
         pinger.start()
         streamer = (_Streamer(
             lambda t, c=chat_id: self._send_plain(c, t),
@@ -811,11 +853,31 @@ class TelegramChannel(Channel):
             if self.stream else None)
         failed = False
         try:
+            # One progress holder per chat, reused across turns so the
+            # pinger thread can read it without a signature change. Created
+            # via __dict__.setdefault because tests build this channel with
+            # __new__ and never run __init__.
+            progress = self.__dict__.setdefault(
+                "_progress", {}).setdefault(chat_id, {})
+            progress.clear()
             kwargs: dict[str, Any] = {
                 "on_text": streamer.feed if streamer else None,
             }
             if workflow_id is not None:
                 kwargs["workflow_id"] = workflow_id
+            # Forward progress only to a gateway whose handle() accepts it.
+            # Tests drive this channel against fakes carrying the older
+            # signature, and a blind kwarg TypeErrors every one of their
+            # turns into the generic error reply.
+            try:
+                _params = inspect.signature(gateway.handle).parameters
+                _takes = ("on_progress" in _params
+                          or any(p.kind is inspect.Parameter.VAR_KEYWORD
+                                 for p in _params.values()))
+            except (TypeError, ValueError):
+                _takes = False
+            if _takes:
+                kwargs["on_progress"] = progress.update
             reply = gateway.handle("telegram", chat_id, text, **kwargs)
             from ..core import TURN_ERROR_REPLY
             failed = reply == TURN_ERROR_REPLY
