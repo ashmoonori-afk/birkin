@@ -178,6 +178,7 @@ class Handler(BaseHTTPRequestHandler):
         from .. import a2a
         cfg = config.load_config()
         if not a2a.enabled(cfg):
+            self._drain_body()
             self._send(404, b"not found", "text/plain")
             return
         body, body_status = self._read_body()
@@ -193,17 +194,59 @@ class Handler(BaseHTTPRequestHandler):
             return
         self._json(a2a.handle(payload, run=_a2a_run))
 
+    def _drain_body(self) -> None:
+        """Consume request bytes already in the socket before an early refusal.
+
+        Closing a connection with unread request bytes in the receive buffer
+        makes Windows send RST, and the client reads WinError 10053 instead of
+        the 403/404 it was owed. Draining fixes that -- but it must never become
+        an obligation: a client that DECLARES 64 KB and sends nothing must not
+        hold this thread. So the read runs under a short socket timeout and
+        abandons the moment bytes stop arriving. An honest client's body is
+        already buffered and drains instantly; a liar costs half a second, once.
+
+        This deliberately does not call _read_body: the security contract is
+        that an untrusted request's body is never READ into memory before
+        authentication, and these bytes go nowhere -- they are discarded so the
+        socket can close cleanly.
+        """
+        try:
+            length = int(self.headers.get("Content-Length") or 0)
+        except ValueError:
+            return
+        if not 0 < length <= MAX_POST_BODY_BYTES:
+            return
+        connection = getattr(self, "connection", None)
+        try:
+            previous = connection.gettimeout() if connection else None
+            if connection:
+                connection.settimeout(0.5)
+            try:
+                remaining = length
+                while remaining > 0:
+                    chunk = self.rfile.read(min(remaining, 8192))
+                    if not chunk:
+                        break
+                    remaining -= len(chunk)
+            finally:
+                if connection:
+                    connection.settimeout(previous)
+        except (OSError, ValueError):
+            pass
     def do_POST(self) -> None:
         if not self._host_ok():
+            self._drain_body()
             self._send(403, b"forbidden host", "text/plain")
             return
         if not secrets.compare_digest(self.headers.get("X-Birkin-Token", ""), _TOKEN):
+            self._drain_body()
             self._json({"error": "missing or invalid token"}, code=403)
             return
         if self.path == "/a2a":
             self._handle_a2a()
             return
         if self.path != "/api/approvals":
+            self._drain_body()
             self._send(404, b"not found", "text/plain")
             return
         body, body_status = self._read_body()
