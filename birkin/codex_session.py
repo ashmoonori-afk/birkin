@@ -386,7 +386,8 @@ class CodexAppServerSession:
     # -- one turn ----------------------------------------------------------
 
     def ask(self, text: str, on_text: StreamCallback = None,
-            timeout: Optional[float] = None) -> str:
+            timeout: Optional[float] = None,
+            on_progress: Optional[Callable[[dict], None]] = None) -> str:
         """Send one user turn; return the final agent text.
 
         ``on_text`` receives append-style pieces (one per completed agent
@@ -407,7 +408,8 @@ class CodexAppServerSession:
             # one, below), not by shrinking a wall clock.
             budget = float(timeout or self.turn_timeout)
             try:
-                return self._turn(text, on_text, budget)
+                return self._turn(text, on_text, budget,
+                                  on_progress=on_progress)
             except CodexTurnTimeout:
                 self._terminate(mark_closed=False)
                 raise
@@ -422,10 +424,12 @@ class CodexAppServerSession:
                 print("[birkin] codex session restarted (prior context lost)",
                       flush=True)
                 self.start()
-                return self._turn(text, on_text, budget)
+                return self._turn(text, on_text, budget,
+                                  on_progress=on_progress)
 
     def _turn(self, text: str, on_text: StreamCallback,
-              timeout: Optional[float]) -> str:
+              timeout: Optional[float],
+              on_progress: Optional[Callable[[dict], None]] = None) -> str:
         while True:                        # drop stale events from a prior turn
             try:
                 stale = self._notes.get_nowait()
@@ -466,17 +470,40 @@ class CodexAppServerSession:
         # most recent sentence.
         pieces: list[str] = []
         streamed = 0
+        # Tool items do real work while streaming no agent text -- the exact
+        # turn shape that read "0 item(s) streamed" for 25 heartbeats while
+        # 12 minutes of commands ran. Counting every completed item makes
+        # that work visible in the heartbeat, the timeout, and on_progress.
+        activity = 0
+        last_kind = ""
+
+        def report() -> None:
+            if on_progress is None:
+                return
+            try:
+                on_progress({"activity": activity, "streamed": streamed,
+                             "last_kind": last_kind,
+                             "elapsed": time.monotonic() - started})
+            except Exception:
+                pass           # an observer bug must never kill the turn
+
         while True:
             now = time.monotonic()
             if now - last_activity >= budget:
+                if activity:
+                    raise CodexTurnTimeout(
+                        f"codex turn timed out after {budget:.0f}s of "
+                        f"silence — {activity} event(s) completed before it "
+                        f"went quiet (last: {last_kind or 'unknown'})",
+                        partial="\n\n".join(pieces))
                 raise CodexTurnTimeout(
                     f"codex turn timed out after {budget:.0f}s "
                     f"without progress", partial="\n\n".join(pieces))
             if now - last_beat >= self.heartbeat_interval:
                 minutes = (now - started) / 60.0
                 print(f"[birkin] codex still working — {minutes:.1f}m "
-                      f"elapsed, {streamed} item(s) streamed so far",
-                      flush=True)
+                      f"elapsed, {activity} event(s), {streamed} agent "
+                      f"message(s) so far", flush=True)
                 last_beat = now
             try:
                 note = self._notes.get(
@@ -499,14 +526,18 @@ class CodexAppServerSession:
                         or note_turn_id != self._active_turn_id):
                     continue
             if method == "item/completed":
-                piece = _agent_text(params.get("item") or {})
+                item = params.get("item") or {}
+                activity += 1
+                last_kind = str(item.get("type") or item.get("itemType") or "")
+                piece = _agent_text(item)
                 if piece:
                     final = piece          # last agent message is canonical
                     pieces.append(piece)
                     if on_text:
                         # append-style contract: emit only what's new
                         on_text(("\n\n" if streamed else "") + piece)
-                        streamed += 1
+                    streamed += 1
+                report()
             elif method == "turn/completed":
                 turn = params.get("turn") or {}
                 status = turn.get("status")
@@ -516,7 +547,6 @@ class CodexAppServerSession:
                     return (f"[birkin] codex error: "
                             f"{str(err.get('message') or status)[:400]}")
                 return final
-
     def interrupt(self) -> bool:
         """Cancel the in-flight turn (called from another thread — e.g. a new
         Telegram message arriving mid-turn).
