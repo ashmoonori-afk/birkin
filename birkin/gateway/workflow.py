@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 from dataclasses import dataclass
+from html import escape
 
 from .. import config, store
 
@@ -65,6 +66,19 @@ class WorkflowProposal:
         lines.extend(f"{index}. {step}" for index, step in enumerate(self.steps, 1))
         lines.extend(["", "승인하면 이 대화에서 바로 실행합니다."])
         return "\n".join(lines)
+
+    def render_html(self) -> str:
+        steps = "\n".join(
+            f"{index:02d}  {escape(step)}"
+            for index, step in enumerate(self.steps, 1)
+        )
+        return (
+            f"<b>{escape(self.title)}</b>\n"
+            f"{escape(self.summary)}\n\n"
+            f"<b>실행 계획 · {len(self.steps)}단계</b>\n"
+            f"<blockquote>{steps}</blockquote>\n"
+            "아래에서 실행 여부를 선택해 주세요."
+        )
 
 
 @dataclass(frozen=True, slots=True)

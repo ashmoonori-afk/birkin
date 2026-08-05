@@ -131,7 +131,10 @@ def test_run_turn_renders_proposal_as_one_button_message(
 
     channel = TelegramChannel("token", allowed_chat_ids=["42"])
     calls: list[tuple[str, dict]] = []
-    monkeypatch.setattr(channel, "_keep_typing", lambda _chat_id, _stop: None)
+    monkeypatch.setattr(
+        channel, "_keep_typing",
+        lambda _chat_id, _stop, _progress=None: None,
+    )
     monkeypatch.setattr(
         channel,
         "_call",
@@ -151,6 +154,36 @@ def test_run_turn_renders_proposal_as_one_button_message(
     assert "reply_markup" in sent[0]
     pending = store.list_pending()
     assert len(pending) == 1 and pending[0]["category"] == "workflow"
+
+
+def test_workflow_proposal_is_an_html_safe_approval_card(
+        tmp_path, monkeypatch) -> None:
+    monkeypatch.setenv("BIRKIN_HOME", str(tmp_path))
+    proposal = workflow.WorkflowProposal(
+        title="<b>Kaggle 보안 에이전트 대회</b>",
+        summary="규칙 & 데이터를 확인합니다.",
+        steps=("규칙 <확인>", "기준선 & 검증"),
+    )
+    channel = TelegramChannel("token", allowed_chat_ids=["42"])
+    calls: list[tuple[str, dict]] = []
+    monkeypatch.setattr(
+        channel,
+        "_call",
+        lambda method, params, timeout=60: (
+            calls.append((method, params))
+            or {"ok": True, "result": {"message_id": 7}}
+        ),
+    )
+
+    channel._send_workflow_proposal("42", proposal, "원래 요청")
+
+    sent = [params for method, params in calls if method == "sendMessage"]
+    assert len(sent) == 1
+    assert sent[0]["parse_mode"] == "HTML"
+    assert "<b>Kaggle" not in sent[0]["text"]
+    assert "&lt;b&gt;Kaggle" in sent[0]["text"]
+    assert "&amp;" in sent[0]["text"]
+    assert "reply_markup" in sent[0]
 
 
 def test_workflow_button_acknowledges_then_resumes_same_chat(

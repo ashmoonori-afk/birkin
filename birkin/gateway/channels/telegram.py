@@ -615,7 +615,8 @@ class TelegramChannel(Channel):
         try:
             self._call("sendMessage", {
                 "chat_id": chat_id,
-                "text": proposal.render(),
+                "text": proposal.render_html(),
+                "parse_mode": "HTML",
                 "reply_markup": self._approval_markup(aid),
             })
         except (OSError, urllib.error.URLError, ValueError) as exc:
