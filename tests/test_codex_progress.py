@@ -101,6 +101,16 @@ class TestOnProgressSeesTheWork:
         s = _session(pending=(_agent("answer"), _done()))
         assert s._turn("hi", None, None) == "answer"
 
+    def test_cyber_access_block_is_held_for_the_scoped_retry(self) -> None:
+        blocked = (
+            "Trusted Access for Cyber: https://chatgpt.com/cyber"
+        )
+        streamed: list[str] = []
+        s = _session(pending=(_agent(blocked), _done()))
+
+        assert s._turn("hi", streamed.append, None) == blocked
+        assert streamed == []
+
 
 class TestAskPlumbsItThrough:
     def test_ask_forwards_on_progress(self) -> None:

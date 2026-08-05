@@ -21,6 +21,7 @@ import time
 
 import pytest
 
+from birkin import codex_session
 from birkin.codex_session import (CodexAppServerSession, CodexSessionError,
                                   CodexTurnTimeout)
 
@@ -64,6 +65,48 @@ def _session(turn_timeout: float = 0.4, pending: tuple = (),
 
 
 class TestActivityKeepsTheTurnAlive:
+    def test_unrelated_notifications_do_not_reset_the_idle_window(
+            self, monkeypatch) -> None:
+        """Status noise extended a 900s idle timeout to 2,759s in production."""
+        class Clock:
+            now = 0.0
+
+            def monotonic(self) -> float:
+                return self.now
+
+        class NoisyNotes:
+            def __init__(self, clock: Clock) -> None:
+                self.clock = clock
+                self.emitted = 0
+
+            @staticmethod
+            def get_nowait() -> dict:
+                raise queue.Empty
+
+            def get(self, timeout: float) -> dict:
+                if self.emitted < 6:
+                    self.clock.now += 300.0
+                    self.emitted += 1
+                    return {
+                        "method": "thread/status/changed",
+                        "params": {"threadId": "another-thread"},
+                    }
+                self.clock.now += timeout
+                raise queue.Empty
+
+        clock = Clock()
+        notes = NoisyNotes(clock)
+        s = _session(turn_timeout=900.0, heartbeat=900.0)
+        s._notes = notes
+        monkeypatch.setattr(codex_session.time, "monotonic",
+                            clock.monotonic)
+
+        with pytest.raises(CodexTurnTimeout):
+            s._turn("go", None, None)
+
+        assert clock.now == 900.0
+        assert notes.emitted == 3
+
     def test_steady_progress_outlives_the_idle_window(self) -> None:
         """The reported case, scaled down: total time is 3x the window.
 
@@ -177,3 +220,56 @@ class TestRetryIsBoundedByRestartsNotWallClock:
         with pytest.raises(CodexSessionError):
             s.ask("hello", None, 10.0)
         assert len(calls) == 2
+
+
+class TestAuthorizedSecurityScopeRetry:
+    BLOCKED = (
+        "보안 위험 가능성이 있는 콘텐츠로 분류되어 요청이 차단됨. "
+        "Trusted Access for Cyber: https://chatgpt.com/cyber"
+    )
+
+    def test_an_unmistakable_cyber_block_retries_once_with_scope(self) -> None:
+        calls: list[str] = []
+
+        def blocked_then_ok(text, _on_text, _timeout, **_kwargs):
+            calls.append(text)
+            return self.BLOCKED if len(calls) == 1 else "baseline ready"
+
+        s = _session(turn_timeout=10.0)
+        s.is_alive = lambda: True
+        s._turn = blocked_then_ok
+
+        result = s.ask("Kaggle competition task", None, 10.0)
+
+        assert result == "baseline ready"
+        assert calls[0] == "Kaggle competition task"
+        assert "<authorized-security-scope>" in calls[1]
+        assert "Kaggle competition task" in calls[1]
+
+    def test_a_second_block_is_returned_without_a_retry_loop(self) -> None:
+        calls: list[str] = []
+
+        def always_blocked(text, _on_text, _timeout, **_kwargs):
+            calls.append(text)
+            return self.BLOCKED
+
+        s = _session(turn_timeout=10.0)
+        s.is_alive = lambda: True
+        s._turn = always_blocked
+
+        assert s.ask("Kaggle competition task", None, 10.0) == self.BLOCKED
+        assert len(calls) == 2
+
+    def test_an_ordinary_reply_is_not_retried(self) -> None:
+        calls: list[str] = []
+
+        def ordinary(text, _on_text, _timeout, **_kwargs):
+            calls.append(text)
+            return "done"
+
+        s = _session(turn_timeout=10.0)
+        s.is_alive = lambda: True
+        s._turn = ordinary
+
+        assert s.ask("ordinary task", None, 10.0) == "done"
+        assert calls == ["ordinary task"]
