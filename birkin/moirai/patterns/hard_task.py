@@ -22,6 +22,8 @@ meta = {
     "roles": {
         "planner": {"default": "claude:sonnet",
                     "hint": "업무를 실행 가능한 단계로 쪼갠다"},
+        "decomposer": {"default": "claude:haiku",
+                       "hint": "업무 흐름을 원자 단위 작업으로 세분화한다"},
         "worker": {"default": "codex:gpt-5.6-sol",
                    "hint": "단계 하나를 실제로 수행한다"},
     },
@@ -34,6 +36,17 @@ PLAN_SCHEMA = {
     "required": ["items"],
     "properties": {
         "items": {"type": "array",
+                  "maxItems": 6,
+                  "items": {"type": "string", "maxLength": 200}},
+    },
+}
+
+ATOMIC_SCHEMA = {
+    "type": "object",
+    "required": ["items"],
+    "properties": {
+        "items": {"type": "array",
+                  "maxItems": 8,
                   "items": {"type": "string", "maxLength": 200}},
     },
 }
@@ -44,6 +57,7 @@ WORK_SCHEMA = {
     "properties": {
         "result": {"type": "string", "maxLength": 2000},
         "followups": {"type": "array",
+                      "maxItems": 5,
                       "items": {"type": "string", "maxLength": 200}},
     },
 }
@@ -54,13 +68,30 @@ def main(m):
 
     m.phase("Plan")
     plan = m.agent(
-        "다음 업무를 실행 가능한 단계로 분해하라. 각 단계는 한 문장, "
-        "실행 순서대로. 5개 이내를 권장하되 필요한 만큼만.\n\n"
+        "다음 업무를 실행 순서가 있는 상위 작업 흐름으로 분해하라. "
+        "서로 독립적으로 세분화할 수 있는 흐름만, 최대 5개.\n\n"
         f"업무: {task}",
         role="planner", schema=PLAN_SCHEMA, label="plan")
-    todo = todos.TodoList(plan.get("items") or [task], max_items=MAX_ITEMS)
 
     dropped: list[str] = []
+    atomic_items: list[str] = []
+    workstreams = plan.get("items") or [task]
+    for index, item in enumerate(workstreams):
+        m.phase(f"세분화 {index + 1}/{len(workstreams)}: {item}")
+        split = m.agent(
+            "다음 작업 흐름을 한 subagent가 짧게 끝낼 수 있는 원자 단위로 "
+            "세분화하라. 각 항목은 산출물 하나와 그 검증 하나를 함께 명시하고, "
+            "독립 실행 가능한 순서로 작성하라.\n\n"
+            f"전체 업무: {task}\n작업 흐름: {item}",
+            role="decomposer", schema=ATOMIC_SCHEMA,
+            label=f"decompose-{index + 1}")
+        for atomic in split.get("items") or [item]:
+            if len(atomic_items) >= MAX_ITEMS:
+                dropped.append(str(atomic))
+            elif str(atomic).strip():
+                atomic_items.append(str(atomic).strip())
+
+    todo = todos.TodoList(atomic_items or [task], max_items=MAX_ITEMS)
     notes: list[str] = []
     while (index := todo.next_pending()) is not None:
         item = todo.items[index]["text"]
@@ -70,8 +101,9 @@ def main(m):
         out = m.agent(
             f"전체 업무: {task}\n"
             f"지금 수행할 단계: {item}\n"
-            "이 단계만 수행하고 결과를 보고하라. 수행 중 새로 발견한 후속 "
-            "작업이 있으면 followups에 담아라 (없으면 빈 배열).",
+            "이 원자 단계만 수행하고 명시된 검증까지 실행해 결과를 보고하라. "
+            "수행 중 새로 발견한 후속 작업은 산출물 하나와 검증 하나를 갖춘 "
+            "원자 단위로 followups에 담아라 (없으면 빈 배열).",
             role="worker", schema=WORK_SCHEMA, label=f"step-{index + 1}")
         note = str(out.get("result") or "")
         todo.done(index, note=note)

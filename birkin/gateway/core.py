@@ -10,6 +10,7 @@ from typing import Any
 
 from .. import config, models, pools, promptgate, security, store
 from ..claude_session import ClaudeStreamSession
+from ..codex_session import CodexTurnTimeout
 from ..runtime import ConfigError, Session, build_session
 from .workflow import WORKFLOW_POLICY, is_running as workflow_is_running
 
@@ -97,6 +98,9 @@ _PRIVILEGED_COMMANDS = {"update", "models", "effort", "restart", "hard_restart",
 _PERSISTENT_PROVIDERS = ("claude-cli", "codex-cli")
 TURN_ERROR_REPLY = ("⚠️ 문제가 생겨서 이번 메시지를 처리하지 못했어요. "
                     "잠시 후 다시 시도해 주세요.")
+TURN_MOIRAI_RECOVERY_ERROR_REPLY = (
+    "⚠️ Moirai 자동 복구를 실행하지 못했어요. "
+    "자세한 원인은 Birkin 서버 로그에 기록했습니다.")
 TURN_PARTIAL_SUFFIX = ("\n\n⏱️ 시간 제한에 걸려 여기까지만 받았어요. "
                        "이어서 하려면 다시 물어봐 주세요.")
 TURN_INTERRUPTED_REPLY = "(interrupted :o)"
@@ -711,6 +715,41 @@ class Gateway:
                                 ctx.subagent_approval_required = old_required
                                 ctx.approved_work = old_approved
                             self._chats[key] = self.session.agent.messages
+            except CodexTurnTimeout as exc:
+                dt = time.monotonic() - t0
+                print(f"[gateway] {channel}:{chat_id} ✗ error after "
+                      f"{dt:.1f}s: {exc}", flush=True)
+                partial = str(exc.partial or "").strip()
+                from ..moirai import trigger as moirai_trigger
+                _seen = {"n": 0}
+
+                def _on_moirai_event(event: str, payload: dict) -> None:
+                    if event != "moirai.phase" or on_progress is None:
+                        return
+                    _seen["n"] += 1
+                    try:
+                        on_progress({
+                            "phase": str((payload or {}).get("title") or ""),
+                            "activity": _seen["n"],
+                        })
+                    except Exception:
+                        pass
+
+                recovery_task = display_text
+                if partial:
+                    recovery_task += (
+                        "\n\nCodex가 중단되기 전 완료한 내용:\n" + partial
+                        + "\n\n완료된 내용은 반복하지 말고 남은 작업만 수행하라.")
+                try:
+                    recovered = moirai_trigger.run_approved(
+                        {"script": "hard-task", "task": recovery_task},
+                        on_event=(_on_moirai_event
+                                  if on_progress is not None else None))
+                except Exception as recovery_exc:
+                    print(f"[gateway] {channel}:{chat_id} ✗ Moirai recovery "
+                          f"failed: {recovery_exc}", flush=True)
+                    return TURN_MOIRAI_RECOVERY_ERROR_REPLY
+                return ((partial + "\n\n") if partial else "") + recovered
             except Exception as exc:
                 dt = time.monotonic() - t0
                 # Full detail to the server log; a friendly line to the chat —

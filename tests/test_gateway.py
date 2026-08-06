@@ -75,6 +75,73 @@ def test_gateway_returns_friendly_error_not_raw(monkeypatch):
     assert "⚠️" in out
 
 
+def test_gateway_persistent_codex_timeout_runs_moirai_recovery(monkeypatch):
+    # Given: a warm Codex session whose own timeout path reset its process.
+    from birkin.codex_session import CodexTurnTimeout
+    from birkin.moirai import trigger
+
+    fake = _fake_session()
+    fake._prepare_cli_turn = lambda text, **_kwargs: text
+    monkeypatch.setattr(gw_core, "build_session", lambda cfg: fake)
+    gateway = gw_core.Gateway({})
+    gateway._persistent = True
+
+    class TimedOutCodex:
+        def ask(self, *_args, **_kwargs):
+            raise CodexTurnTimeout("silence timeout")
+
+        def close(self):
+            return None
+
+    gateway._claude_sessions.put(("http", "u1"), TimedOutCodex())
+    recovered: list[dict] = []
+
+    def run_approved(payload, on_event=None):
+        recovered.append(payload)
+        if on_event is not None:
+            on_event("moirai.phase", {"title": "할 일 1/2: inspect"})
+        return "moirai: hard-task completed"
+
+    monkeypatch.setattr(trigger, "run_approved", run_approved)
+    progress: dict = {}
+
+    # When: the local user sends a request through the persistent gateway.
+    reply = gateway.handle("http", "u1", "continue the Kaggle work",
+                           on_progress=progress.update)
+
+    # Then: Moirai decomposes the original work and keeps progress observable.
+    assert recovered == [{"script": "hard-task",
+                          "task": "continue the Kaggle work"}]
+    assert progress["phase"] == "할 일 1/2: inspect"
+    assert reply == "moirai: hard-task completed"
+
+
+def test_gateway_moirai_recovery_failure_reports_server_error(monkeypatch):
+    # Given: Codex timed out and no Moirai worker route can start.
+    from birkin.codex_session import CodexTurnTimeout
+    from birkin.moirai import trigger
+
+    def timed_out_ask(_text, on_text=None, **_kwargs):
+        raise CodexTurnTimeout("silence timeout")
+
+    fake = _fake_session()
+    fake.ask = timed_out_ask
+    monkeypatch.setattr(gw_core, "build_session", lambda cfg: fake)
+    monkeypatch.setattr(
+        trigger, "run_approved",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(
+            RuntimeError("no Moirai route")))
+    gateway = gw_core.Gateway({})
+
+    # When: both the Codex turn and its automatic recovery route fail.
+    reply = gateway.handle("http", "u1", "continue the Kaggle work")
+
+    # Then: Birkin reports the failed recovery without the rejected timeout text.
+    assert reply == gw_core.TURN_MOIRAI_RECOVERY_ERROR_REPLY
+    assert "다시" not in reply
+    assert gw_core.TURN_ERROR_REPLY not in reply
+
+
 # ---------------- LocalHTTPChannel ----------------
 
 def _start_http_channel(gateway):
@@ -125,6 +192,69 @@ def test_local_http_message_routes_to_gateway(http_channel):
     code, payload = _req(http_channel, "POST", "/message", body=body)
     assert code == 200
     assert json.loads(payload)["reply"] == "[http:u1] hello"
+
+
+def test_local_http_timeout_runs_real_moirai_hard_task(
+        monkeypatch, tmp_path):
+    from birkin.codex_session import CodexTurnTimeout
+    from birkin.moirai import bindings, engine
+
+    monkeypatch.setenv("BIRKIN_HOME", str(tmp_path))
+    fake = _fake_session()
+    fake.ask = lambda *_args, **_kwargs: (_ for _ in ()).throw(
+        CodexTurnTimeout("silence timeout"))
+    monkeypatch.setattr(gw_core, "build_session", lambda cfg: fake)
+
+    roles: list[str] = []
+
+    def spawn(_prompt, binding, _opts, _cfg, *, timeout):
+        roles.append(binding.role)
+        if binding.role == "planner":
+            return json.dumps({"items": ["인증 기능 구현"]})
+        if binding.role == "decomposer":
+            return json.dumps({"items": [
+                "토큰 파서를 구현 — 단위 테스트로 검증",
+                "로그인 경로를 실행 — HTTP 응답으로 검증",
+            ]})
+        return json.dumps({"result": "완료", "followups": []})
+
+    real_run_script = engine.run_script
+
+    def run_script(script, **kwargs):
+        binding_map = {
+            role: bindings.Binding(
+                role=role,
+                provider=("codex" if role == "worker" else "claude"),
+                model=("gpt-5.6-sol" if role == "worker" else "haiku"),
+                source="meta",
+            )
+            for role in script.roles
+        }
+        return real_run_script(
+            script,
+            cfg={"moirai_max_agents": 8},
+            bindings_map=binding_map,
+            spawn=spawn,
+            **kwargs,
+        )
+
+    monkeypatch.setattr(engine, "run_script", run_script)
+    channel, thread = _start_http_channel(gw_core.Gateway({}))
+    try:
+        body = json.dumps({
+            "session": "timeout-e2e",
+            "text": "continue the Kaggle work",
+        }).encode()
+        code, payload = _req(channel, "POST", "/message", body=body)
+    finally:
+        channel.stop()
+        thread.join(timeout=2.0)
+
+    assert not thread.is_alive()
+    assert code == 200
+    assert json.loads(payload)["reply"].startswith(
+        "moirai: hard-task completed")
+    assert roles == ["planner", "decomposer", "worker", "worker"]
 
 
 def test_local_http_forged_host_403(http_channel):
