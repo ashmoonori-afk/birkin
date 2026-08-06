@@ -27,7 +27,9 @@ def _fake_session(reply_prefix="echo:"):
             {"type": "text", "text": text}]})
         return f"{reply_prefix}{text}"
 
-    return types.SimpleNamespace(cfg={}, agent=agent, ask=ask)
+    return types.SimpleNamespace(
+        cfg={}, agent=agent, ask=ask,
+        _record_turn=lambda *_args, **_kwargs: None)
 
 
 @pytest.fixture

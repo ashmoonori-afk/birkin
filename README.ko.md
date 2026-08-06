@@ -662,6 +662,14 @@ lifecycle 또는 delta 활동 이후의 idle 시간이며, 무관한 app-server 
 완료 event나 agent message 수를 부풀리지 않고 server log의
 `active: reasoning`, Telegram의 `추론 중`으로 따로 표시됩니다. Child-turn
 item은 parent의 생존 신호로만 쓰며 최종 답변은 parent turn에서만 가져옵니다.
+게이트웨이 시작 시 Moirai 저널을 마이그레이션하고 이전 프로세스가
+`running`으로 남긴 run/call을 `stale`로 정리합니다. 실패한 agent call의
+traceback, role, label, phase, reason은 `calls`와
+`runs.result_json.failures`에 보존됩니다. `CodexTurnTimeout`은 경과 시간,
+partial 길이, 마지막 event 종류, event 수를 `incidents` 행에 기록합니다.
+gateway stdout/stderr 모든 줄에는 UTC timestamp가 붙고, timeout turn도
+자가개선 recorder로 들어가며 review 입력은 최근 failed call과 gateway
+incident를 포함합니다.
 Codex가 명확한
 Trusted Access for Cyber 가입 차단을 반환하면 Birkin은 공개 대회 이름,
 주최자가 제공한 자산, 로컬 workspace로 범위를 제한해 한 번만 재시도합니다.

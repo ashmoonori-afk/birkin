@@ -23,6 +23,7 @@ import hashlib
 import re
 import threading
 import time
+import traceback as _traceback
 import uuid
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
@@ -209,6 +210,12 @@ class Run:
         self._spawned = 0
         self._cache = journal.cached_calls(resume_from) if resume_from else {}
         self.cache_hits = 0
+        # A failed agent returns None and the run keeps going, so the death
+        # that mattered surfaces later as a downstream symptom
+        # ("'NoneType' object has no attribute 'get'"). These rows name the
+        # real one and travel into the run's own result.
+        self.failures: list[dict[str, Any]] = []
+        self._fail_lock = threading.Lock()
 
     # -- guards (Atropos) --------------------------------------------------
 
@@ -233,6 +240,14 @@ class Run:
                 self.on_event(event, payload)
             except Exception:
                 pass
+
+    def _fail(self, *, seq: int, role: Optional[str], label: str,
+              phase: str, reason: str, error: str, tb: str = "") -> None:
+        with self._fail_lock:
+            self.failures.append({
+                "seq": int(seq), "role": role or "", "label": str(label),
+                "phase": phase, "reason": reason,
+                "error": error[:2000], "traceback": tb[:4000]})
 
     def set_phase(self, title: str) -> None:
         self._phase = title
@@ -265,17 +280,19 @@ class Run:
                                          "label": opts.get("label") or role or ""})
             return _decode(cached.get("result"), call_opts.get("schema"))
 
+        label = opts.get("label") or role or binding.model or binding.provider
+        phase = opts.get("phase") or self._phase
         blocked = self._guard()
         if blocked:
             self.emit_log(f"에이전트 건너뜀 ({blocked})")
+            self._fail(seq=seq, role=role, label=label, phase=phase,
+                       reason="blocked", error=blocked)
             return None
 
         self._spawned += 1
-        label = opts.get("label") or role or binding.model or binding.provider
         journal.record_call(self.run_id, seq, key, role=role or "",
                             provider=binding.provider, model=binding.model,
-                            label=label,
-                            phase=opts.get("phase") or self._phase)
+                            label=label, phase=phase)
         # Reuse the existing subagent vocabulary so the TUI's trace tree
         # renders a workflow with no changes.
         self._emit("subagent.start", {"task": f"[{label}] {prompt[:160]}"})
@@ -284,8 +301,11 @@ class Run:
             text = self._spawn(prompt, binding, call_opts, self.cfg,
                                timeout=opts.get("timeout", 900.0))
         except Exception as exc:
+            tb = _traceback.format_exc()
             journal.finish_call(self.run_id, seq, status="error",
-                                error=str(exc)[:2000])
+                                error=str(exc)[:2000], traceback=tb)
+            self._fail(seq=seq, role=role, label=label, phase=phase,
+                       reason="exception", error=str(exc), tb=tb)
             self._emit("subagent.done", {"error": str(exc)[:200]})
             self.emit_log(f"에이전트 실패 [{label}]: {exc}")
             return None
@@ -294,6 +314,8 @@ class Run:
         if isinstance(text, str) and text.startswith("[provider-error]"):
             journal.finish_call(self.run_id, seq, status="error",
                                 error=text[:2000])
+            self._fail(seq=seq, role=role, label=label, phase=phase,
+                       reason="provider-error", error=text)
             self._emit("subagent.done", {"error": text[:200]})
             self.emit_log(f"에이전트 실패 [{label}]: {text[:160]}")
             return None
@@ -313,8 +335,12 @@ class Run:
             # spawner already retries a schema miss once; reaching here means
             # it still did not fit, so the script sees None like any other
             # failure rather than the run dying under it.
+            tb = _traceback.format_exc()
             journal.finish_call(self.run_id, seq, status="error",
-                                error=f"schema: {exc}"[:2000], tokens=tokens)
+                                error=f"schema: {exc}"[:2000], tokens=tokens,
+                                traceback=tb)
+            self._fail(seq=seq, role=role, label=label, phase=phase,
+                       reason="schema", error=f"schema: {exc}", tb=tb)
             self.emit_log(f"에이전트 응답이 스키마에 맞지 않음 [{label}]: {exc}")
             return None
 
@@ -401,6 +427,14 @@ def _decode(text: Any, schema: Optional[dict]) -> Any:
     return value
 
 
+def _with_failures(result: Any, failures: list[dict[str, Any]]) -> Any:
+    if not failures:
+        return result
+    if isinstance(result, dict):
+        return {**result, "failures": failures}
+    return {"result": result, "failures": failures}
+
+
 def _run_token_budget(cfg: dict) -> Optional[int]:
     """A run's own token ceiling, if the user set one."""
     raw = cfg.get("moirai_token_budget") or 0
@@ -484,14 +518,19 @@ def run_script(script: Script, *, cfg: Optional[dict] = None,
         result = script.main(api)
         status = "aborted" if run._aborted() else "completed"
     except Exception as exc:
-        journal.finish_run(run.run_id, "error", result={"error": str(exc)},
-                           tokens=run.budget.spent())
+        journal.finish_run(
+            run.run_id, "error",
+            result=_with_failures({"error": str(exc),
+                                   "traceback": _traceback.format_exc()[:4000]},
+                                  run.failures),
+            tokens=run.budget.spent())
         store.save_run("moirai", f"{script.name}: 실패 — {exc}",
                        details={"run_id": run.run_id, "error": str(exc)})
         raise MoiraiError(f"워크플로우 실패 ({script.name}): {exc}") from exc
 
     elapsed = time.monotonic() - started
-    journal.finish_run(run.run_id, status, result=result,
+    journal.finish_run(run.run_id, status,
+                       result=_with_failures(result, run.failures),
                        tokens=run.budget.spent())
     store.save_run(
         "moirai", f"{script.name}: {status} · 에이전트 {run._spawned}",

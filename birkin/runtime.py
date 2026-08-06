@@ -251,6 +251,9 @@ class Session:
         if interval <= 0:
             return
         transcript = f"USER:\n{text}\n\nASSISTANT:\n{reply}"
+        failures = failure_context()
+        if failures:
+            transcript += "\n\n" + failures
         with self._skill_review_lock:
             self._skill_review_turns += 1
             if provider == "codex-cli":
@@ -323,6 +326,35 @@ class Session:
         # The warm CLI process baked the OLD --model at spawn; drop it so the
         # next warm ask() respawns with the new model/provider.
         self.close()
+
+
+def failure_context(limit: int = 5) -> str:
+    """Recent deaths, for the self-improvement pass to actually learn from.
+
+    The pass only ever saw `USER:`/`ASSISTANT:` of a turn that SUCCEEDED, so
+    every timeout and every failed agent — the material worth learning from —
+    was invisible to it.
+    """
+    from .moirai import journal
+    calls = journal.recent_failed_calls(limit)
+    incidents = journal.recent_incidents(limit)
+    if not calls and not incidents:
+        return ""
+    lines = ["FAILURES (recent, from the moirai journal):"]
+    for call in calls:
+        lines.append(
+            f"- moirai call {call.get('run_id')}#{call.get('seq')} "
+            f"[{call.get('role') or '?'}/{call.get('label') or '?'}] "
+            f"{(call.get('error') or '')[:300]}")
+    for row in incidents:
+        lines.append(
+            f"- gateway {row.get('kind')} on "
+            f"{row.get('channel')}:{row.get('chat_id')} after "
+            f"{float(row.get('elapsed_seconds') or 0):.1f}s — "
+            f"{row.get('event_count')} event(s), last "
+            f"{row.get('last_event_kind') or '?'}, "
+            f"partial {row.get('partial_chars')} chars")
+    return "\n".join(lines)
 
 
 def build_session(cfg: Optional[dict[str, Any]] = None,

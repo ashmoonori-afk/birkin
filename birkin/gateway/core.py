@@ -3,8 +3,10 @@
 from __future__ import annotations
 
 import re
+import sys
 import threading
 import time
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
@@ -13,6 +15,55 @@ from ..claude_session import ClaudeStreamSession
 from ..codex_session import CodexTurnTimeout
 from ..runtime import ConfigError, Session, build_session
 from .workflow import WORKFLOW_POLICY, is_running as workflow_is_running
+
+
+def _utc_stamp() -> str:
+    return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+
+class TimestampedStream:
+    """Stamp every completed line written to a gateway stream.
+
+    gateway.log carried no clock at all, so `✗ error after 3543.6s` could not
+    be lined up with the journal row for the same death. Stamping is done here
+    rather than at each print() so the codex heartbeats — written by another
+    module entirely — are covered too. Partial writes stay buffered until
+    their newline arrives, or a streamed line would be cut into stamped
+    fragments.
+    """
+
+    def __init__(self, stream: Any) -> None:
+        self._stream = stream
+        self._buffer = ""
+        self._lock = threading.Lock()
+
+    def write(self, data: str) -> int:
+        with self._lock:
+            self._buffer += data
+            while "\n" in self._buffer:
+                line, self._buffer = self._buffer.split("\n", 1)
+                self._stream.write(f"[{_utc_stamp()}] {line}\n")
+        return len(data)
+
+    def flush(self) -> None:
+        with self._lock:
+            self._stream.flush()
+
+    def isatty(self) -> bool:
+        try:
+            return bool(self._stream.isatty())
+        except (AttributeError, OSError):
+            return False
+
+    def __getattr__(self, name: str) -> Any:
+        return getattr(self._stream, name)
+
+
+def install_timestamped_logging() -> None:
+    if not isinstance(sys.stdout, TimestampedStream):
+        sys.stdout = TimestampedStream(sys.stdout)
+    if not isinstance(sys.stderr, TimestampedStream):
+        sys.stderr = TimestampedStream(sys.stderr)
 
 
 def ask_session(sess: Any, text: str, on_text=None, timeout=None,
@@ -703,6 +754,13 @@ class Gateway:
             if trusted_telegram:
                 text = _TELEGRAM_EXECUTION_POLICY + text
             print(f"[gateway] {channel}:{chat_id} « {display_text[:80]}", flush=True)
+            progress_seen: dict[str, Any] = {}
+
+            def _watch_progress(info: dict) -> None:
+                progress_seen.update(info or {})
+                if on_progress is not None:
+                    on_progress(info)
+
             try:
                 if persistent:
                     # Warm Claude Code process keeps its own conversation context,
@@ -716,7 +774,7 @@ class Gateway:
                         self.session._prepare_cli_turn(
                             text, route_query=skill_query,
                             skill_state=skill_state),
-                        on_text=on_text, on_progress=on_progress)
+                        on_text=on_text, on_progress=_watch_progress)
                 else:
                     # The non-persistent path shares the single self.session, so its
                     # history swap must stay serialized under the global lock.
@@ -744,6 +802,15 @@ class Gateway:
                 print(f"[gateway] {channel}:{chat_id} ✗ error after "
                       f"{dt:.1f}s: {exc}", flush=True)
                 partial = str(exc.partial or "").strip()
+                from ..moirai import journal as moirai_journal
+                moirai_journal.record_incident(
+                    kind="codex_timeout", channel=channel,
+                    chat_id=str(chat_id), elapsed_seconds=dt,
+                    partial_chars=len(partial),
+                    last_event_kind=str(progress_seen.get("active_kind")
+                                        or progress_seen.get("last_kind") or ""),
+                    event_count=int(progress_seen.get("activity") or 0),
+                    detail=str(exc))
                 from ..moirai import trigger as moirai_trigger
                 _seen = {"n": 0}
 
@@ -772,8 +839,15 @@ class Gateway:
                 except Exception as recovery_exc:
                     print(f"[gateway] {channel}:{chat_id} ✗ Moirai recovery "
                           f"failed: {recovery_exc}", flush=True)
+                    self._record_failed_turn(
+                        display_text, TURN_MOIRAI_RECOVERY_ERROR_REPLY, channel)
                     return TURN_MOIRAI_RECOVERY_ERROR_REPLY
-                return ((partial + "\n\n") if partial else "") + recovered
+                reply = ((partial + "\n\n") if partial else "") + recovered
+                # A turn that died is exactly the turn worth learning from,
+                # and returning here skipped the self-improvement hook that
+                # the success path below runs.
+                self._record_failed_turn(display_text, reply, channel)
+                return reply
             except Exception as exc:
                 dt = time.monotonic() - t0
                 # Full detail to the server log; a friendly line to the chat —
@@ -1084,6 +1158,12 @@ class Gateway:
         from .. import approvals
         approvals.restore_claim(aid)
 
+    def _record_failed_turn(self, display_text: str, reply: str,
+                            channel: str) -> None:
+        self.session._record_turn(
+            display_text, reply or "",
+            review_skills=self._command_trusted(channel))
+
     def _autosave_trusted(self, channel: str) -> bool:
         """Whether turns from ``channel`` may be auto-saved + memorized.
 
@@ -1104,6 +1184,14 @@ class Gateway:
 
 
 def run() -> int:
+    install_timestamped_logging()
+    # Anything still `running` when this process boots belongs to a process
+    # that is gone — leaving it makes a crashed run indistinguishable from a
+    # live one.
+    from ..moirai import journal as moirai_journal
+    stale = moirai_journal.reclaim_stale_runs()
+    if stale:
+        print(f"[gateway] moirai: {stale} stale run(s) reclaimed", flush=True)
     cfg = config.load_config()
     # Advisory (never blocking): make native-loop tool exposure visible
     # before the gateway becomes reachable over a channel.

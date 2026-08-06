@@ -60,6 +60,18 @@ CREATE TABLE IF NOT EXISTS calls (
   PRIMARY KEY (run_id, seq)
 );
 CREATE INDEX IF NOT EXISTS calls_by_model ON calls (provider, model, status);
+CREATE TABLE IF NOT EXISTS incidents (
+  id              INTEGER PRIMARY KEY AUTOINCREMENT,
+  kind            TEXT NOT NULL,
+  channel         TEXT NOT NULL DEFAULT '',
+  chat_id         TEXT NOT NULL DEFAULT '',
+  elapsed_seconds REAL NOT NULL DEFAULT 0,
+  partial_chars   INTEGER NOT NULL DEFAULT 0,
+  last_event_kind TEXT NOT NULL DEFAULT '',
+  event_count     INTEGER NOT NULL DEFAULT 0,
+  detail          TEXT NOT NULL DEFAULT '',
+  created         TEXT NOT NULL
+);
 """
 
 
@@ -78,6 +90,12 @@ def _connect() -> sqlite3.Connection:
     con.execute("PRAGMA journal_mode=WAL")
     con.execute("PRAGMA synchronous=NORMAL")
     con.executescript(_SCHEMA)
+    # A pre-existing moirai.db has no calls.traceback; CREATE TABLE IF NOT
+    # EXISTS never adds a column, so every already-installed journal would
+    # keep dropping the one field that makes a failure diagnosable.
+    if "traceback" not in {row[1] for row in
+                           con.execute("PRAGMA table_info(calls)")}:
+        con.execute("ALTER TABLE calls ADD COLUMN traceback TEXT")
     return con
 
 
@@ -186,14 +204,16 @@ def record_call(run_id: str, seq: int, key: str, *, role: str = "",
 
 
 def finish_call(run_id: str, seq: int, *, status: str, result: str = "",
-                error: str = "", tokens: int = 0) -> None:
+                error: str = "", tokens: int = 0,
+                traceback: str = "") -> None:
     try:
         with closing(_connect()) as con, con:
             con.execute(
                 "UPDATE calls SET status = ?, result = ?, error = ?, "
-                "tokens = ?, finished = ? WHERE run_id = ? AND seq = ?",
+                "tokens = ?, finished = ?, traceback = ? "
+                "WHERE run_id = ? AND seq = ?",
                 (status, result, error, int(tokens), _now(),
-                 run_id, int(seq)))
+                 traceback[:4000], run_id, int(seq)))
     except Exception:
         pass
 
@@ -220,6 +240,81 @@ def run_calls(run_id: str) -> list[dict]:
             return [dict(r) for r in rows]
     except Exception:
         return []
+
+
+def recent_failed_calls(limit: int = 10) -> list[dict]:
+    try:
+        with closing(_connect()) as con, con:
+            con.row_factory = sqlite3.Row
+            rows = con.execute(
+                "SELECT * FROM calls WHERE status = 'error' "
+                "ORDER BY rowid DESC LIMIT ?", (int(limit),))
+            return [dict(r) for r in rows]
+    except sqlite3.Error:
+        return []
+
+
+# -- incidents (deaths that happen OUTSIDE a run) --------------------------
+
+def record_incident(*, kind: str, channel: str = "", chat_id: str = "",
+                    elapsed_seconds: float = 0.0, partial_chars: int = 0,
+                    last_event_kind: str = "", event_count: int = 0,
+                    detail: str = "") -> None:
+    """One row for a turn that died without a workflow to blame.
+
+    A 59-minute codex turn timed out and left NOTHING in this database — the
+    only trace was a console line, so losing the terminal lost the evidence.
+    """
+    with closing(_connect()) as con, con:
+        con.execute(
+            "INSERT INTO incidents (kind, channel, chat_id, "
+            "elapsed_seconds, partial_chars, last_event_kind, "
+            "event_count, detail, created) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            (kind, channel, str(chat_id), float(elapsed_seconds),
+             int(partial_chars), last_event_kind, int(event_count),
+             detail[:2000], _now()))
+
+
+def recent_incidents(limit: int = 10) -> list[dict]:
+    try:
+        with closing(_connect()) as con, con:
+            con.row_factory = sqlite3.Row
+            rows = con.execute(
+                "SELECT * FROM incidents ORDER BY id DESC LIMIT ?",
+                (int(limit),))
+            return [dict(r) for r in rows]
+    except sqlite3.Error:
+        return []
+
+
+def reclaim_stale_runs(exclude: Optional[set[str]] = None) -> int:
+    """Close out runs a killed process left `running`, at boot.
+
+    Without this a crashed run is indistinguishable from a live one, so the
+    journal cannot answer "is it stuck or is it dead" — the exact question a
+    59-minute silence raises. Anything still `running` when a process boots
+    belongs to a process that is gone.
+    """
+    keep = set(exclude or ())
+    stamp = _now()
+    try:
+        with closing(_connect()) as con, con:
+            ids = [row[0] for row in
+                   con.execute("SELECT run_id FROM runs WHERE "
+                               "status = 'running'")
+                   if row[0] not in keep]
+            for run_id in ids:
+                con.execute(
+                    "UPDATE runs SET status = 'stale', finished = ? "
+                    "WHERE run_id = ?", (stamp, run_id))
+                con.execute(
+                    "UPDATE calls SET status = 'stale', finished = ? "
+                    "WHERE run_id = ? AND status = 'running'",
+                    (stamp, run_id))
+            return len(ids)
+    except sqlite3.Error:
+        return 0
 
 
 # -- estimates (the picker's signals) --------------------------------------

@@ -705,6 +705,14 @@ instead of waiting through a long idle budget. A started item is shown
 separately (`active: reasoning` in the server log, `추론 중` in Telegram)
 without inflating completed-event or agent-message counts. Child-turn items
 keep the parent alive, but only the parent turn can supply the final reply.
+Gateway startup also migrates the Moirai journal and marks runs and calls left
+`running` by a previous process as `stale`. Failed agent calls retain their
+traceback, role, label, phase, and reason in `calls` and
+`runs.result_json.failures`. A `CodexTurnTimeout` writes an `incidents` row with
+elapsed time, partial length, last event kind, and event count. Gateway stdout
+and stderr lines are UTC timestamped, and timed-out turns still enter the
+self-improvement recorder; review input includes recent failed calls and
+gateway incidents.
 When Codex returns the unmistakable Trusted Access for Cyber enrollment block,
 Birkin retries once with an explicit scope limited to the named public
 competition, organizer-provided assets, and the local workspace. A second
