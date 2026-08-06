@@ -415,7 +415,14 @@ When you explicitly ask for a generated file, the gateway uploads the
 workspace file as a Telegram document instead of merely naming its local path.
 Internal attachment markers stay out of streamed chat text, oversized files are
 rejected before they are read, and failed text or document sends remain in the
-outbox for restart-time retry.
+outbox for restart-time retry. Attachment paths resolve against the gateway's
+own cwd **and** every configured `workspace_roots` entry — the directories the
+agent actually writes into — and anything outside those roots is still refused.
+After a gateway restart, the first message of each conversation is seeded with
+that conversation's saved transcript tail, so birkin remembers what you were
+talking about before the restart (`/new` opts out and starts truly clean).
+The in-chat heartbeat names the work stage ("조사 중", "할 일 3/7: …") for
+ordinary and approved long-running turns alike, not just a minute counter.
 
 ### Follow-through on what you committed to (Companion)
 

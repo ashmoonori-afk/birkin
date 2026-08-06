@@ -275,6 +275,12 @@ class Gateway:
         self.cfg = cfg
         self.session: Session = build_session(cfg)  # may raise ConfigError
         self._chats: dict[tuple[str, str], list[dict[str, Any]]] = {}
+        # Conversation keys whose first turn already carried the transcript
+        # tail (or explicitly declined it via /new). Guarded by self._lock.
+        # Without this seed, a gateway restart forgets every conversation:
+        # transcripts.append_turn writes history to disk but nothing ever
+        # read it back.
+        self._history_seeded: set[tuple[str, str]] = set()
         self._lock = threading.Lock()
 
         # Persistent (warm) CLI processes — one per conversation — for the
@@ -640,10 +646,20 @@ class Gateway:
                     if old is not None:
                         old.close()
                 self._chats[key] = []
+                # /new asks for a CLEAN slate — the next session for this key
+                # must not resurrect the old conversation from transcripts.
+                self._history_seeded.add(key)
                 return "Started a new conversation."
             # Snapshot persistence + session together under the lock: a /restart
             # could flip self._persistent between here and the ask() below.
             persistent = self._persistent
+            # First turn for this key since the process started: seed it with
+            # the saved transcript tail so a restart does not forget the
+            # conversation. Check-and-mark under the lock; the file read runs
+            # outside it (below) to keep the lock cheap.
+            needs_seed = key not in self._history_seeded
+            if needs_seed:
+                self._history_seeded.add(key)
             inflight_token = object()
             interrupted_event = threading.Event()
             if persistent:
@@ -676,6 +692,14 @@ class Gateway:
                 and workflow_id
                 and workflow_is_running(workflow_id, str(chat_id))
             )
+            if needs_seed:
+                from .. import transcripts
+                tail = transcripts.read_recent(channel, str(chat_id))
+                if tail:
+                    text = ("## 이전 대화 기록 (프로세스 재시작 전, 참고용)\n"
+                            "아래는 이 대화의 저장된 최근 기록이다. 문맥 파악에만 "
+                            "사용하고, 답변은 마지막 사용자 메시지에만 하라.\n\n"
+                            + tail + "\n\n## 현재 메시지\n\n" + text)
             if trusted_telegram:
                 text = _TELEGRAM_EXECUTION_POLICY + text
             print(f"[gateway] {channel}:{chat_id} « {display_text[:80]}", flush=True)
