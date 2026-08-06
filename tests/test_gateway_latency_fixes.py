@@ -647,6 +647,78 @@ def test_codex_turn_streams_items_and_sends_preamble_once(monkeypatch):
     assert "PERSONA BLOCK" not in sent[1][1]["input"][0]["text"]  # once only
 
 
+def _run_codex_item_heartbeat(monkeypatch, events, on_progress=None):
+    from birkin.codex_session import CodexAppServerSession
+
+    session = CodexAppServerSession()
+    session._thread_id = "thread-1"
+    session.heartbeat_interval = 0
+
+    def fake_request(*_args, **_kwargs):
+        for method, item_type in events:
+            session._notes.put({
+                "method": method,
+                "params": {
+                    "threadId": "thread-1",
+                    "turnId": "turn-1",
+                    "item": {"type": item_type},
+                },
+            })
+        session._notes.put({
+            "method": "turn/completed",
+            "params": {
+                "threadId": "thread-1",
+                "turn": {"id": "turn-1", "status": "completed"},
+            },
+        })
+        return {"turn": {"id": "turn-1"}}
+
+    monkeypatch.setattr(session, "request", fake_request)
+    session._turn("hello", None, timeout=5, on_progress=on_progress)
+
+
+def test_codex_heartbeat_keeps_last_activity_label(
+        monkeypatch, capsys):
+    _run_codex_item_heartbeat(
+        monkeypatch,
+        [("item/completed", "reasoning")],
+    )
+    assert "조사 중 (1분)" in capsys.readouterr().out
+
+
+def test_codex_progress_prefers_active_item(monkeypatch):
+    progress: list[dict] = []
+    _run_codex_item_heartbeat(
+        monkeypatch,
+        [
+            ("item/completed", "reasoning"),
+            ("item/started", "commandExecution"),
+        ],
+        on_progress=progress.append,
+    )
+    assert progress[-1]["last_kind"] == "reasoning"
+    assert progress[-1]["active_kind"] == "commandExecution"
+
+
+def test_codex_heartbeat_uses_human_activity_with_elapsed() -> None:
+    from birkin.gateway.channels.telegram import heartbeat_text
+
+    expected = {
+        "reasoning": "조사 중",
+        "commandExecution": "명령 실행 중",
+        "fileChange": "파일 수정 중",
+        "webSearch": "검색 중",
+        "agentMessage": "답변 정리 중",
+    }
+    for kind, activity in expected.items():
+        line = heartbeat_text(
+            elapsed_minutes=3,
+            progress={"active_kind": kind},
+        )
+        assert line.startswith(f"⏳ {activity} (3분)")
+        assert "작업 진행 중" not in line
+
+
 def test_codex_turn_timeout_uses_typed_error(monkeypatch):
     from birkin.codex_session import CodexAppServerSession, CodexTurnTimeout
     import pytest

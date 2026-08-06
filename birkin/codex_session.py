@@ -78,6 +78,28 @@ _SECURITY_SCOPE = (
     f"{_SECURITY_SCOPE_CLOSE}\n\n"
 )
 
+_ACTIVITY_LABELS = {
+    "reasoning": "조사 중",
+    "command_execution": "명령 실행 중",
+    "commandExecution": "명령 실행 중",
+    "file_change": "파일 수정 중",
+    "fileChange": "파일 수정 중",
+    "mcp_tool_call": "도구 실행 중",
+    "mcpToolCall": "도구 실행 중",
+    "dynamic_tool_call": "도구 실행 중",
+    "dynamicToolCall": "도구 실행 중",
+    "web_search": "검색 중",
+    "webSearch": "검색 중",
+    "agent_message": "답변 정리 중",
+    "agentMessage": "답변 정리 중",
+    "userMessage": "요청 전달 중",
+}
+
+
+def codex_activity_label(kind: str) -> str:
+    """Translate a Codex protocol item kind into safe user-facing activity."""
+    return _ACTIVITY_LABELS.get(str(kind or ""), "작업 진행 중")
+
 
 def _server_name() -> str:
     from .mcp_server import _SERVER_NAME
@@ -541,11 +563,11 @@ class CodexAppServerSession:
                     f"without progress", partial="\n\n".join(pieces))
             if now - last_beat >= self.heartbeat_interval:
                 minutes = (now - started) / 60.0
-                active = (f", active: {active_kind}"
-                          if active_kind else "")
-                print(f"[birkin] codex still working — {minutes:.1f}m "
-                      f"elapsed, {activity} event(s), {streamed} agent "
-                      f"message(s) so far{active}", flush=True)
+                elapsed_minutes = max(1, int(minutes))
+                stage = codex_activity_label(active_kind or last_kind)
+                print(f"[birkin] codex still working — "
+                      f"{stage} ({elapsed_minutes}분) · {activity} event(s), "
+                      f"{streamed} agent message(s)", flush=True)
                 last_beat = now
             try:
                 note = self._notes.get(

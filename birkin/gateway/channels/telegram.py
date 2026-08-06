@@ -24,6 +24,7 @@ import uuid
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
+from ...codex_session import codex_activity_label
 from .. import workflow
 from . import tg_format
 from .base import Channel
@@ -218,18 +219,6 @@ def recover_inbound_text(text: str, entities: Any) -> str:
     return recovered
 
 
-# What each codex item kind reads as in a chat heartbeat. Unknown kinds
-# fall back to a neutral word rather than leaking protocol names at a user.
-_PROGRESS_KIND_LABELS = {
-    "command_execution": "도구 실행",
-    "commandExecution": "도구 실행",
-    "agent_message": "응답 생성",
-    "agentMessage": "응답 생성",
-    "userMessage": "요청 전달",
-    "reasoning": "추론",
-}
-
-
 def heartbeat_text(elapsed_minutes: int, progress: dict | None = None) -> str:
     """One heartbeat line: elapsed time, plus what the turn is doing.
 
@@ -239,30 +228,24 @@ def heartbeat_text(elapsed_minutes: int, progress: dict | None = None) -> str:
     dict item reads are GIL-atomic, and a heartbeat one write behind is
     fine). No holder, or one with nothing in it, reads exactly like before.
     """
-    base = f"⏳ 작업 진행 중 · {elapsed_minutes}분"
+    progress = progress or {}
+    active_kind = str(progress.get("active_kind") or "")
+    last_kind = str(progress.get("last_kind") or "")
+    phase = str(progress.get("phase") or "")
+    stage = phase or codex_activity_label(active_kind or last_kind)
+    base = f"⏳ {stage} ({elapsed_minutes}분)"
     if not progress:
         return base
     details: list[str] = []
     activity = int(progress.get("activity") or 0)
     streamed = int(progress.get("streamed") or 0)
     if activity:
-        label = _PROGRESS_KIND_LABELS.get(
-            str(progress.get("last_kind") or ""), "작업 이벤트")
-        details.append(f"{label} {activity}회")
+        details.append(f"이벤트 {activity}회")
     if streamed:
         details.append(f"응답 {streamed}개 도착")
-    active_kind = str(progress.get("active_kind") or "")
-    if active_kind:
-        label = _PROGRESS_KIND_LABELS.get(active_kind, "작업")
-        details.append(f"{label} 중")
     if not details:
         return base
     line = base + " · " + " · ".join(details)
-    # An approved hard task reports its current todo step as a phase;
-    # showing it is the whole point of the wiring.
-    phase = str((progress or {}).get("phase") or "")
-    if phase:
-        line = f"{line} · {phase}"
     return line
 
 
