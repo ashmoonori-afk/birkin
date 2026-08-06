@@ -647,7 +647,10 @@ def test_codex_turn_streams_items_and_sends_preamble_once(monkeypatch):
     assert "PERSONA BLOCK" not in sent[1][1]["input"][0]["text"]  # once only
 
 
-def _run_codex_item_heartbeat(monkeypatch, events, on_progress=None):
+def _capture_codex_item_heartbeat(monkeypatch, events, on_progress=None):
+    import io
+    from contextlib import redirect_stdout
+
     from birkin.codex_session import CodexAppServerSession
 
     session = CodexAppServerSession()
@@ -674,21 +677,25 @@ def _run_codex_item_heartbeat(monkeypatch, events, on_progress=None):
         return {"turn": {"id": "turn-1"}}
 
     monkeypatch.setattr(session, "request", fake_request)
-    session._turn("hello", None, timeout=5, on_progress=on_progress)
+    output = io.StringIO()
+    with redirect_stdout(output):
+        session._turn("hello", None, timeout=5, on_progress=on_progress)
+    return output.getvalue()
 
 
 def test_codex_heartbeat_keeps_last_activity_label(
-        monkeypatch, capsys):
-    _run_codex_item_heartbeat(
+        monkeypatch):
+    output = _capture_codex_item_heartbeat(
         monkeypatch,
         [("item/completed", "reasoning")],
     )
-    assert "조사 중 (1분)" in capsys.readouterr().out
+    assert "조사 중 (1분)" in output
+    print(output, end="")
 
 
 def test_codex_progress_prefers_active_item(monkeypatch):
     progress: list[dict] = []
-    _run_codex_item_heartbeat(
+    output = _capture_codex_item_heartbeat(
         monkeypatch,
         [
             ("item/completed", "reasoning"),
@@ -698,6 +705,7 @@ def test_codex_progress_prefers_active_item(monkeypatch):
     )
     assert progress[-1]["last_kind"] == "reasoning"
     assert progress[-1]["active_kind"] == "commandExecution"
+    assert "명령 실행 중 (1분)" in output
 
 
 def test_codex_heartbeat_uses_human_activity_with_elapsed() -> None:
