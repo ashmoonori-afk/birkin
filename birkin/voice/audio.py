@@ -17,6 +17,32 @@ class AudioData:
     sample_rate: int
 
 
+@dataclass(frozen=True)
+class PcmFileSink:
+    """Write raw PCM16/24 kHz response bytes to a configured path."""
+
+    path: Path
+
+    def write(self, data: bytes) -> None:
+        if not data:
+            raise ValueError("PCM output must not be empty")
+        self.path.parent.mkdir(parents=True, exist_ok=True)
+        self.path.write_bytes(data)
+
+
+class PcmSpeaker:
+    """Play raw mono PCM16 at 24 kHz through sounddevice."""
+
+    def write(self, data: bytes) -> None:
+        if not data:
+            raise ValueError("PCM output must not be empty")
+        import numpy as np
+        import sounddevice as sd
+
+        samples = np.frombuffer(data, dtype="<i2")
+        sd.play(samples, samplerate=24_000, blocking=True)
+
+
 def read_wav_mono(path: str | Path) -> AudioData:
     """Read uncompressed 16-bit PCM WAV and average its channels."""
     source = Path(path)

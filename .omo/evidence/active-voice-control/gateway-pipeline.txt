@@ -1,0 +1,39 @@
+SCENARIO: S2 live Gateway and OpenAI-compatible TTS pipeline
+TOOL: Python driver using real LocalHTTPChannel, real OpenAI SDK client, and a
+local OpenAI-compatible HTTP speech endpoint.
+COMMAND: uv --directory "C:/Users/lg/Documents/Claude/Projects/Birkin/active-voice-control" run python script/qa/voice_pipeline_smoke.py
+EXIT: 0
+
+TRANSCRIPT:
+  · http channel on http://127.0.0.1:52421 (POST /message, GET /health)
+CLI_EXIT=0
+WAKE_ACCEPTED
+COMMAND=status
+REPLY=voice-reply:status
+TTS_SAVED=C:\Users\lg\AppData\Local\Temp\birkin-voice-qa-gjxd3gjt\reply.pcm
+GATEWAY_CALL=PASS
+TTS_REQUEST=PASS
+PCM_SINK=PASS
+CLEANUP=PASS
+
+PROVEN REQUEST:
+Gateway received ("voice", "voice-fixed", "status").
+
+OpenAI SDK sent:
+{
+  "model": "gpt-4o-mini-tts",
+  "voice": "coral",
+  "input": "voice-reply:status",
+  "instructions": "Speak concisely and clearly.",
+  "response_format": "pcm"
+}
+
+The fake speech endpoint returned four deterministic PCM bytes and the
+configured file sink contained those exact bytes.
+
+CLEANUP RECEIPT:
+- LocalHTTPChannel stop requested and its owner thread joined.
+- Fake OpenAI HTTP server shutdown/server_close called and thread joined.
+- Temporary wake WAV, reply PCM, and temporary directory removed by
+  TemporaryDirectory.
+- No browser, shell, server, thread, port, or temp artifact remained.

@@ -113,9 +113,12 @@ class LocalHTTPChannel(Channel):
                     self._json({"error": "expected a JSON object"}, 400); return
                 text = (payload.get("text") or "").strip()
                 session_id = str(payload.get("session", "default"))
+                channel = payload.get("channel", "http")
+                if channel not in {"http", "voice"}:
+                    self._json({"error": "invalid channel"}, 400); return
                 if not text:
                     self._json({"error": "empty text"}, 400); return
-                reply = gw.handle("http", session_id, text)
+                reply = gw.handle(channel, session_id, text)
                 self._json({"reply": reply})
                 if gw.pending_hard_restart:
                     try:

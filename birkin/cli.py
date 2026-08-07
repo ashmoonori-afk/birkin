@@ -281,9 +281,20 @@ def _cmd_gateway(args: argparse.Namespace) -> int:
 
 
 def _cmd_voice(args: argparse.Namespace) -> int:
+    import os
+    from pathlib import Path
     from wave import Error as WaveError
 
-    from .voice import WakeConfig, WakeGate, read_wav_mono
+    from .voice import (
+        GatewayClient,
+        GatewayVoiceError,
+        OpenAITTS,
+        PcmFileSink,
+        PcmSpeaker,
+        WakeConfig,
+        WakeGate,
+        read_wav_mono,
+    )
 
     if not args.once:
         print("VOICE_ERROR --once is required", file=sys.stderr)
@@ -308,6 +319,31 @@ def _cmd_voice(args: argparse.Namespace) -> int:
 
     print("WAKE_ACCEPTED")
     print(f"COMMAND={args.command}")
+    if not args.gateway_url:
+        return 0
+
+    try:
+        reply = GatewayClient(
+            args.gateway_url,
+            session_id=args.session_id,
+            token=os.environ.get("BIRKIN_HTTP_TOKEN", ""),
+        ).send(args.command)
+        print(f"REPLY={reply}")
+
+        if args.tts_output or not args.no_playback:
+            pcm = OpenAITTS(
+                model=args.tts_model,
+                voice=args.tts_voice,
+                instructions=args.tts_instructions,
+            ).synthesize(reply)
+            if args.tts_output:
+                PcmFileSink(Path(args.tts_output)).write(pcm)
+                print(f"TTS_SAVED={args.tts_output}")
+            if not args.no_playback:
+                PcmSpeaker().write(pcm)
+    except (GatewayVoiceError, OSError, ValueError) as exc:
+        print(f"VOICE_ERROR {exc}", file=sys.stderr)
+        return 1
     return 0
 
 
@@ -915,6 +951,41 @@ def build_parser() -> argparse.ArgumentParser:
         "--wake-phrase",
         default="Daddy is home",
         help="normalized phrase required with the clap",
+    )
+    p_voice.add_argument(
+        "--gateway-url",
+        default="",
+        help="local Birkin POST /message URL",
+    )
+    p_voice.add_argument(
+        "--session-id",
+        default="voice-local",
+        help="stable local Gateway session id",
+    )
+    p_voice.add_argument(
+        "--tts-output",
+        default="",
+        help="write raw PCM16/24 kHz reply bytes to this path",
+    )
+    p_voice.add_argument(
+        "--tts-model",
+        default="gpt-4o-mini-tts",
+        help="OpenAI text-to-speech model",
+    )
+    p_voice.add_argument(
+        "--tts-voice",
+        default="coral",
+        help="OpenAI text-to-speech voice",
+    )
+    p_voice.add_argument(
+        "--tts-instructions",
+        default="Speak concisely and clearly.",
+        help="OpenAI speech style instructions",
+    )
+    p_voice.add_argument(
+        "--no-playback",
+        action="store_true",
+        help="do not play synthesized PCM through the speaker",
     )
     p_voice.set_defaults(func=_cmd_voice)
 

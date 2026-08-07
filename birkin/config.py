@@ -174,6 +174,18 @@ DEFAULT_CONFIG: dict[str, Any] = {
     # Keep one pre-warmed spare claude process so the FIRST message of a new
     # conversation skips the ~28 s CLI cold start.
     "gateway_prewarm": True,
+    "voice": {
+        "wake_phrase": "Daddy is home",
+        "gateway_url": "http://127.0.0.1:8788/message",
+        "session_id": "voice-local",
+        "sample_rate": 24000,
+        "stt_model": "gpt-live-transcribe",
+        "file_stt_model": "gpt-transcribe",
+        "tts_model": "gpt-4o-mini-tts",
+        "tts_voice": "coral",
+        "tts_instructions": "Speak concisely and clearly.",
+        "background_workers": 2,
+    },
     # Auto-save every conversation turn (gateway + REPL) to sessions_dir as
     # reserved ``auto__*.json`` in the canonical format the nightly Morpheus
     # routine already consumes — so memory is extracted from real conversations
