@@ -119,11 +119,14 @@ def _load_pattern():
 class _FakeM:
     """A MoiraiAPI stand-in: canned planner/worker answers, everything recorded."""
 
-    def __init__(self, plan_items, worker_outputs):
+    def __init__(self, plan_items, worker_outputs, decomposed_items=None):
         self.args = {"task": "어려운 배포 자동화"}
         self.phases: list[str] = []
         self.calls: list[dict] = []
         self._plan_items = list(plan_items)
+        self._decomposed_items = list(
+            decomposed_items
+            or [[item] for item in self._plan_items])
         self._worker_outputs = list(worker_outputs)
 
     def phase(self, title):
@@ -137,6 +140,8 @@ class _FakeM:
         self.calls.append({"role": role, "label": label, "prompt": prompt})
         if role == "planner":
             return {"items": self._plan_items}
+        if role == "decomposer":
+            return {"items": self._decomposed_items.pop(0)}
         if self._worker_outputs:
             return self._worker_outputs.pop(0)
         return {"result": "done"}
@@ -167,6 +172,24 @@ class TestHardTaskPattern:
         module.main(m)
         assert any("1/2" in p for p in m.phases), m.phases
         assert any("2/2" in p for p in m.phases), m.phases
+
+    def test_each_workstream_is_split_into_atomic_worker_calls(self) -> None:
+        module = _load_pattern()
+        m = _FakeM(
+            ["인증 기능 구현"],
+            [{"result": "코드 완료"}, {"result": "검증 완료"}],
+            decomposed_items=[[
+                "src/auth.py에 토큰 파서를 구현 — auth 단위 테스트로 검증",
+                "인증 E2E를 실행 — 실제 로그인 응답으로 검증",
+            ]],
+        )
+        module.main(m)
+        decomposers = [c for c in m.calls if c["role"] == "decomposer"]
+        workers = [c for c in m.calls if c["role"] == "worker"]
+        assert len(decomposers) == 1
+        assert len(workers) == 2
+        assert "토큰 파서" in workers[0]["prompt"]
+        assert "인증 E2E" in workers[1]["prompt"]
 
     def test_a_followup_is_discovered_and_executed(self) -> None:
         module = _load_pattern()

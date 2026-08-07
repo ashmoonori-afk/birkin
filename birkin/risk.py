@@ -30,6 +30,10 @@ CATEGORY_RISK: dict[str, str] = {
     # its agents are text-only and every consequential act inside one
     # still hits its own gate.
     "moirai": "medium",
+    # A harness prompt/subagent entry writes no files and runs nothing, but it
+    # is injected into the system prompt of every later turn -- it steers what
+    # the agent chooses to do, so it is reviewed with shell-level attention.
+    "harness": "high",
     "shell":  "high",
 }
 

@@ -131,7 +131,10 @@ def test_malformed_proposal_falls_back_to_normal_reply(monkeypatch) -> None:
 
     channel = TelegramChannel("token", allowed_chat_ids=["42"])
     sent: list[str] = []
-    monkeypatch.setattr(channel, "_keep_typing", lambda _chat, _stop: None)
+    monkeypatch.setattr(
+        channel, "_keep_typing",
+        lambda _chat, _stop, _progress=None: None,
+    )
     monkeypatch.setattr(
         channel, "_call",
         lambda method, params, timeout=60: (

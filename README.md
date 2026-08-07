@@ -415,7 +415,14 @@ When you explicitly ask for a generated file, the gateway uploads the
 workspace file as a Telegram document instead of merely naming its local path.
 Internal attachment markers stay out of streamed chat text, oversized files are
 rejected before they are read, and failed text or document sends remain in the
-outbox for restart-time retry.
+outbox for restart-time retry. Attachment paths resolve against the gateway's
+own cwd **and** every configured `workspace_roots` entry — the directories the
+agent actually writes into — and anything outside those roots is still refused.
+After a gateway restart, the first message of each conversation is seeded with
+that conversation's saved transcript tail, so birkin remembers what you were
+talking about before the restart (`/new` opts out and starts truly clean).
+The in-chat heartbeat names the work stage ("조사 중", "할 일 3/7: …") for
+ordinary and approved long-running turns alike, not just a minute counter.
 
 ### Follow-through on what you committed to (Companion)
 
@@ -644,6 +651,8 @@ Keys you'll actually touch:
   "gateway_polish_provider": "claude-cli",
   "gateway_polish_model": "sonnet",
   "gateway_persistent": true,
+  "cli_timeout": 900,
+  "workspace_roots": ["/path/to/primary-workspace"],
   "autosave_transcripts": true,
   "neurosis_auto": true,
   "morpheus_hour": 4,
@@ -666,6 +675,14 @@ Keys you'll actually touch:
   "lsp_servers": {},
   "a2a_enabled": false,
 
+  "harness_enabled": true,
+  "harness_turn_interval": 12,
+  "harness_cooldown_min": 15,
+  "harness_compact_review": true,
+  "harness_max_edits": 12,
+  "harness_prompt_budget": 20000,
+  "harness_auto_approve": ["memory", "skill"],
+
   "channels": {
     "http": {"enabled": true},
     "telegram": {"enabled": false, "token": "", "allowed_chat_ids": []}
@@ -678,6 +695,37 @@ receive an isolated, no-tools editorial pass. The Claude path is accepted only
 when every URL and numeric fact survives; authentication or integrity failures
 fall back to the original reply. `claude auth status` must report
 `loggedIn: true`.
+
+Telegram long-work proposals render as escaped HTML cards with one explicit
+approve/reject row; the internal proposal envelope and its JSON are never the
+user-facing message.
+
+For a persistent Codex gateway, the first existing entry in
+`workspace_roots` is the process cwd and `workspace-write` sandbox root. Put
+the primary project first. This matters on Windows: using the user-profile
+root can make the Codex sandbox fail every PowerShell, Git Bash, and Kaggle
+CLI child with `SetTokenInformation(TokenDefaultDacl) failed: 1344`.
+`cli_timeout` is an idle window measured from validated lifecycle or delta
+activity in the current conversation thread, including multi-agent child
+turns; unrelated app-server status notifications do not extend it. If Codex
+accepts a turn but emits no item at all, Birkin stops it after 120 seconds
+instead of waiting through a long idle budget. A started item is shown
+separately (`active: reasoning` in the server log, `추론 중` in Telegram)
+without inflating completed-event or agent-message counts. Child-turn items
+keep the parent alive, but only the parent turn can supply the final reply.
+Gateway startup also migrates the Moirai journal and marks runs and calls left
+`running` by a previous process as `stale`. Failed agent calls retain their
+traceback, role, label, phase, and reason in `calls` and
+`runs.result_json.failures`. A `CodexTurnTimeout` writes an `incidents` row with
+elapsed time, partial length, last event kind, and event count. Gateway stdout
+and stderr lines are UTC timestamped, and timed-out turns still enter the
+self-improvement recorder; review input includes recent failed calls and
+gateway incidents.
+When Codex returns the unmistakable Trusted Access for Cyber enrollment block,
+Birkin retries once with an explicit scope limited to the named public
+competition, organizer-provided assets, and the local workspace. A second
+block is returned unchanged; the retry never broadens access to real systems,
+credentials, users, or production services.
 
 The second block is the reliability and safety layer: auto-summarize before
 overflow, provider failover, the destructive-command gate, workspace snapshots
@@ -715,6 +763,58 @@ execution surface, so nobody acquires one by upgrading, and only a real
 unauthenticated, because a peer has to read it before it has a token and it
 carries nothing secret. A peer's task runs as a one-shot session, so it cannot
 land in a conversation you are having.
+
+### The continual harness
+
+Self-improvement is no longer a blind write. Morpheus and the in-session review
+emit a *proposal* — summary, rationale, expected outcome, and a list of edits —
+and the harness validates it, applies it, and records what it did in a versioned
+ledger under `~/.birkin/harness/`.
+
+Four entry kinds are tracked: **`prompt`** (supplemental behaviour notes),
+**`memory`**, **`skill`**, and **`subagent`** (reusable delegation specs). Every
+entry carries a `version` and an `updated_at`, and every applied proposal is
+appended to `refinements.jsonl` together with the `before` state of everything
+it touched — so a change is a *reversible refinement* by construction, not by
+hoping a backup exists.
+
+`harness_auto_approve` decides what lands without asking. `memory` and `skill`
+are reversible local files, so they apply themselves — the same policy
+`auto_approve` already uses. `prompt` and `subagent` are not: they change how the
+agent behaves on *every later turn*, so they are queued as `harness` proposals
+(approval tier **high**) and wait for `birkin review`.
+
+```bash
+birkin harness show                  # current entries, by kind, with versions
+birkin harness show --scope local    # the session-scoped harness instead
+birkin harness history -n 20         # the refinement ledger, oldest first
+birkin harness rollback <id>         # reverse one refinement, edit by edit
+birkin harness export <path>         # write the harness state to a JSON file
+birkin harness refine                # where proposals come from (see below)
+```
+
+`refine` writes nothing on its own — proposals come from `birkin morpheus` and
+from the in-session review, and the ones that are not auto-approved wait in
+`birkin review`. The command says so and exits rather than pretending to work.
+An unknown refinement id makes `rollback` exit `1` with a one-line reason, not a
+traceback.
+
+- **`harness_enabled`** — the master switch. Off restores the old direct-write
+  behaviour and puts no harness block in the system prompt.
+- **`harness_turn_interval`** — assistant turns that must pass before the
+  in-session review gate is even consulted; a gate on every turn costs a model
+  call on every turn.
+- **`harness_cooldown_min`** — minutes of quiet after a review runs.
+- **`harness_compact_review`** — review at compaction time too: the moment older
+  context is about to be summarized away is the last chance to keep what it
+  taught.
+- **`harness_max_edits`** — cap on the edits one proposal may carry. An
+  unattended pass that "improves" forty things at once is a runaway, not a good
+  night.
+- **`harness_prompt_budget`** — character budget for the harness block inside
+  the system prompt.
+- **`harness_auto_approve`** — the kinds applied without asking; everything else
+  is queued for `birkin review`.
 
 Those are the *defaults* — `config.json` on disk holds only the keys you
 actually changed, nested sections included. That matters on upgrade: a file that

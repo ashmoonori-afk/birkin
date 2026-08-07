@@ -3,14 +3,67 @@
 from __future__ import annotations
 
 import re
+import sys
 import threading
 import time
+from datetime import datetime, timezone
+from pathlib import Path
 from typing import Any
 
 from .. import config, models, pools, promptgate, security, store
 from ..claude_session import ClaudeStreamSession
+from ..codex_session import CodexTurnTimeout
 from ..runtime import ConfigError, Session, build_session
 from .workflow import WORKFLOW_POLICY, is_running as workflow_is_running
+
+
+def _utc_stamp() -> str:
+    return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+
+class TimestampedStream:
+    """Stamp every completed line written to a gateway stream.
+
+    gateway.log carried no clock at all, so `✗ error after 3543.6s` could not
+    be lined up with the journal row for the same death. Stamping is done here
+    rather than at each print() so the codex heartbeats — written by another
+    module entirely — are covered too. Partial writes stay buffered until
+    their newline arrives, or a streamed line would be cut into stamped
+    fragments.
+    """
+
+    def __init__(self, stream: Any) -> None:
+        self._stream = stream
+        self._buffer = ""
+        self._lock = threading.Lock()
+
+    def write(self, data: str) -> int:
+        with self._lock:
+            self._buffer += data
+            while "\n" in self._buffer:
+                line, self._buffer = self._buffer.split("\n", 1)
+                self._stream.write(f"[{_utc_stamp()}] {line}\n")
+        return len(data)
+
+    def flush(self) -> None:
+        with self._lock:
+            self._stream.flush()
+
+    def isatty(self) -> bool:
+        try:
+            return bool(self._stream.isatty())
+        except (AttributeError, OSError):
+            return False
+
+    def __getattr__(self, name: str) -> Any:
+        return getattr(self._stream, name)
+
+
+def install_timestamped_logging() -> None:
+    if not isinstance(sys.stdout, TimestampedStream):
+        sys.stdout = TimestampedStream(sys.stdout)
+    if not isinstance(sys.stderr, TimestampedStream):
+        sys.stderr = TimestampedStream(sys.stderr)
 
 
 def ask_session(sess: Any, text: str, on_text=None, timeout=None,
@@ -37,6 +90,14 @@ def ask_session(sess: Any, text: str, on_text=None, timeout=None,
         if accepts:
             kwargs["on_progress"] = on_progress
     return sess.ask(text, **kwargs)
+
+
+def _configured_workspace(cfg: dict[str, Any]) -> str | None:
+    for root in cfg.get("workspace_roots") or ():
+        path = Path(str(root)).expanduser()
+        if path.is_dir():
+            return str(path)
+    return None
 
 # Gateway chat commands. Each: (canonical name, description, {accepted triggers}).
 # Triggers include hyphen / underscore / run-together variants because Telegram
@@ -88,6 +149,9 @@ _PRIVILEGED_COMMANDS = {"update", "models", "effort", "restart", "hard_restart",
 _PERSISTENT_PROVIDERS = ("claude-cli", "codex-cli")
 TURN_ERROR_REPLY = ("⚠️ 문제가 생겨서 이번 메시지를 처리하지 못했어요. "
                     "잠시 후 다시 시도해 주세요.")
+TURN_MOIRAI_RECOVERY_ERROR_REPLY = (
+    "⚠️ Moirai 자동 복구를 실행하지 못했어요. "
+    "자세한 원인은 Birkin 서버 로그에 기록했습니다.")
 TURN_PARTIAL_SUFFIX = ("\n\n⏱️ 시간 제한에 걸려 여기까지만 받았어요. "
                        "이어서 하려면 다시 물어봐 주세요.")
 TURN_INTERRUPTED_REPLY = "(interrupted :o)"
@@ -262,6 +326,12 @@ class Gateway:
         self.cfg = cfg
         self.session: Session = build_session(cfg)  # may raise ConfigError
         self._chats: dict[tuple[str, str], list[dict[str, Any]]] = {}
+        # Conversation keys whose first turn already carried the transcript
+        # tail (or explicitly declined it via /new). Guarded by self._lock.
+        # Without this seed, a gateway restart forgets every conversation:
+        # transcripts.append_turn writes history to disk but nothing ever
+        # read it back.
+        self._history_seeded: set[tuple[str, str]] = set()
         self._lock = threading.Lock()
 
         # Persistent (warm) CLI processes — one per conversation — for the
@@ -337,6 +407,7 @@ class Gateway:
                        else "workspace-write")
             return CodexAppServerSession(
                 model=self.cfg.get("model"),
+                cwd=_configured_workspace(self.cfg),
                 preamble=self._system_prompt(),
                 reasoning_effort=str(
                     self.cfg.get("gateway_reasoning_effort", "") or ""),
@@ -626,10 +697,20 @@ class Gateway:
                     if old is not None:
                         old.close()
                 self._chats[key] = []
+                # /new asks for a CLEAN slate — the next session for this key
+                # must not resurrect the old conversation from transcripts.
+                self._history_seeded.add(key)
                 return "Started a new conversation."
             # Snapshot persistence + session together under the lock: a /restart
             # could flip self._persistent between here and the ask() below.
             persistent = self._persistent
+            # First turn for this key since the process started: seed it with
+            # the saved transcript tail so a restart does not forget the
+            # conversation. Check-and-mark under the lock; the file read runs
+            # outside it (below) to keep the lock cheap.
+            needs_seed = key not in self._history_seeded
+            if needs_seed:
+                self._history_seeded.add(key)
             inflight_token = object()
             interrupted_event = threading.Event()
             if persistent:
@@ -662,9 +743,24 @@ class Gateway:
                 and workflow_id
                 and workflow_is_running(workflow_id, str(chat_id))
             )
+            if needs_seed:
+                from .. import transcripts
+                tail = transcripts.read_recent(channel, str(chat_id))
+                if tail:
+                    text = ("## 이전 대화 기록 (프로세스 재시작 전, 참고용)\n"
+                            "아래는 이 대화의 저장된 최근 기록이다. 문맥 파악에만 "
+                            "사용하고, 답변은 마지막 사용자 메시지에만 하라.\n\n"
+                            + tail + "\n\n## 현재 메시지\n\n" + text)
             if trusted_telegram:
                 text = _TELEGRAM_EXECUTION_POLICY + text
             print(f"[gateway] {channel}:{chat_id} « {display_text[:80]}", flush=True)
+            progress_seen: dict[str, Any] = {}
+
+            def _watch_progress(info: dict) -> None:
+                progress_seen.update(info or {})
+                if on_progress is not None:
+                    on_progress(info)
+
             try:
                 if persistent:
                     # Warm Claude Code process keeps its own conversation context,
@@ -678,7 +774,7 @@ class Gateway:
                         self.session._prepare_cli_turn(
                             text, route_query=skill_query,
                             skill_state=skill_state),
-                        on_text=on_text, on_progress=on_progress)
+                        on_text=on_text, on_progress=_watch_progress)
                 else:
                     # The non-persistent path shares the single self.session, so its
                     # history swap must stay serialized under the global lock.
@@ -701,6 +797,57 @@ class Gateway:
                                 ctx.subagent_approval_required = old_required
                                 ctx.approved_work = old_approved
                             self._chats[key] = self.session.agent.messages
+            except CodexTurnTimeout as exc:
+                dt = time.monotonic() - t0
+                print(f"[gateway] {channel}:{chat_id} ✗ error after "
+                      f"{dt:.1f}s: {exc}", flush=True)
+                partial = str(exc.partial or "").strip()
+                from ..moirai import journal as moirai_journal
+                moirai_journal.record_incident(
+                    kind="codex_timeout", channel=channel,
+                    chat_id=str(chat_id), elapsed_seconds=dt,
+                    partial_chars=len(partial),
+                    last_event_kind=str(progress_seen.get("active_kind")
+                                        or progress_seen.get("last_kind") or ""),
+                    event_count=int(progress_seen.get("activity") or 0),
+                    detail=str(exc))
+                from ..moirai import trigger as moirai_trigger
+                _seen = {"n": 0}
+
+                def _on_moirai_event(event: str, payload: dict) -> None:
+                    if event != "moirai.phase" or on_progress is None:
+                        return
+                    _seen["n"] += 1
+                    try:
+                        on_progress({
+                            "phase": str((payload or {}).get("title") or ""),
+                            "activity": _seen["n"],
+                        })
+                    except Exception:
+                        pass
+
+                recovery_task = display_text
+                if partial:
+                    recovery_task += (
+                        "\n\nCodex가 중단되기 전 완료한 내용:\n" + partial
+                        + "\n\n완료된 내용은 반복하지 말고 남은 작업만 수행하라.")
+                try:
+                    recovered = moirai_trigger.run_approved(
+                        {"script": "hard-task", "task": recovery_task},
+                        on_event=(_on_moirai_event
+                                  if on_progress is not None else None))
+                except Exception as recovery_exc:
+                    print(f"[gateway] {channel}:{chat_id} ✗ Moirai recovery "
+                          f"failed: {recovery_exc}", flush=True)
+                    self._record_failed_turn(
+                        display_text, TURN_MOIRAI_RECOVERY_ERROR_REPLY, channel)
+                    return TURN_MOIRAI_RECOVERY_ERROR_REPLY
+                reply = ((partial + "\n\n") if partial else "") + recovered
+                # A turn that died is exactly the turn worth learning from,
+                # and returning here skipped the self-improvement hook that
+                # the success path below runs.
+                self._record_failed_turn(display_text, reply, channel)
+                return reply
             except Exception as exc:
                 dt = time.monotonic() - t0
                 # Full detail to the server log; a friendly line to the chat —
@@ -1011,6 +1158,12 @@ class Gateway:
         from .. import approvals
         approvals.restore_claim(aid)
 
+    def _record_failed_turn(self, display_text: str, reply: str,
+                            channel: str) -> None:
+        self.session._record_turn(
+            display_text, reply or "",
+            review_skills=self._command_trusted(channel))
+
     def _autosave_trusted(self, channel: str) -> bool:
         """Whether turns from ``channel`` may be auto-saved + memorized.
 
@@ -1031,6 +1184,14 @@ class Gateway:
 
 
 def run() -> int:
+    install_timestamped_logging()
+    # Anything still `running` when this process boots belongs to a process
+    # that is gone — leaving it makes a crashed run indistinguishable from a
+    # live one.
+    from ..moirai import journal as moirai_journal
+    stale = moirai_journal.reclaim_stale_runs()
+    if stale:
+        print(f"[gateway] moirai: {stale} stale run(s) reclaimed", flush=True)
     cfg = config.load_config()
     # Advisory (never blocking): make native-loop tool exposure visible
     # before the gateway becomes reachable over a channel.

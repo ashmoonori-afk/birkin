@@ -24,6 +24,8 @@ import uuid
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
+from ... import config
+from ...codex_session import codex_activity_label
 from .. import workflow
 from . import tg_format
 from .base import Channel
@@ -218,14 +220,6 @@ def recover_inbound_text(text: str, entities: Any) -> str:
     return recovered
 
 
-# What each codex item kind reads as in a chat heartbeat. Unknown kinds
-# fall back to a neutral word rather than leaking protocol names at a user.
-_PROGRESS_KIND_LABELS = {
-    "command_execution": "도구 실행",
-    "agent_message": "응답 생성",
-}
-
-
 def heartbeat_text(elapsed_minutes: int, progress: dict | None = None) -> str:
     """One heartbeat line: elapsed time, plus what the turn is doing.
 
@@ -235,26 +229,24 @@ def heartbeat_text(elapsed_minutes: int, progress: dict | None = None) -> str:
     dict item reads are GIL-atomic, and a heartbeat one write behind is
     fine). No holder, or one with nothing in it, reads exactly like before.
     """
-    base = f"⏳ 작업 진행 중 · {elapsed_minutes}분"
+    progress = progress or {}
+    active_kind = str(progress.get("active_kind") or "")
+    last_kind = str(progress.get("last_kind") or "")
+    phase = str(progress.get("phase") or "")
+    stage = phase or codex_activity_label(active_kind or last_kind)
+    base = f"⏳ {stage} ({elapsed_minutes}분)"
     if not progress:
         return base
     details: list[str] = []
     activity = int(progress.get("activity") or 0)
     streamed = int(progress.get("streamed") or 0)
     if activity:
-        label = _PROGRESS_KIND_LABELS.get(
-            str(progress.get("last_kind") or ""), "작업 이벤트")
-        details.append(f"{label} {activity}회")
+        details.append(f"이벤트 {activity}회")
     if streamed:
         details.append(f"응답 {streamed}개 도착")
     if not details:
         return base
     line = base + " · " + " · ".join(details)
-    # An approved hard task reports its current todo step as a phase;
-    # showing it is the whole point of the wiring.
-    phase = str((progress or {}).get("phase") or "")
-    if phase:
-        line = f"{line} · {phase}"
     return line
 
 
@@ -361,23 +353,49 @@ class TelegramChannel(Channel):
         return delivered
 
     @staticmethod
+    def _attachment_roots() -> list[Path]:
+        """Directories an outbound attachment may come from.
+
+        The gateway's codex session writes into ``workspace_roots`` (its cwd),
+        which is NOT the gateway process's own cwd — rooting only at
+        ``Path.cwd()`` rejected every file the agent actually produced.
+        """
+        roots = [Path.cwd().resolve()]
+        try:
+            for raw in config.load_config().get("workspace_roots") or ():
+                candidate = Path(str(raw)).expanduser()
+                try:
+                    resolved = candidate.resolve(strict=True)
+                except (OSError, RuntimeError):
+                    continue
+                if resolved.is_dir() and resolved not in roots:
+                    roots.append(resolved)
+        except Exception:
+            pass  # config trouble must not break reply delivery
+        return roots
+
+    @staticmethod
     def _extract_attachments(reply: str) -> tuple[str, list[Path]]:
         """Remove explicit attachment markers and resolve safe workspace files."""
-        root = Path.cwd().resolve()
+        roots = TelegramChannel._attachment_roots()
         paths: list[Path] = []
         for match in _ATTACHMENT_RE.finditer(reply):
             raw = html.unescape(match.group(2)).strip()
             candidate = Path(raw).expanduser()
-            if not candidate.is_absolute():
-                candidate = root / candidate
-            try:
-                resolved = candidate.resolve(strict=True)
-            except (OSError, RuntimeError):
-                continue
-            if root != resolved and root not in resolved.parents:
-                continue
-            if resolved.is_file() and resolved not in paths:
-                paths.append(resolved)
+            candidates = ([candidate] if candidate.is_absolute()
+                          else [root / candidate for root in roots])
+            for cand in candidates:
+                try:
+                    resolved = cand.resolve(strict=True)
+                except (OSError, RuntimeError):
+                    continue
+                if not resolved.is_file():
+                    continue
+                if not any(root in resolved.parents for root in roots):
+                    continue
+                if resolved not in paths:
+                    paths.append(resolved)
+                break
         return _ATTACHMENT_RE.sub("", reply).strip(), paths
 
     def _send_document(self, chat_id: str, path: Path) -> bool:
@@ -615,7 +633,8 @@ class TelegramChannel(Channel):
         try:
             self._call("sendMessage", {
                 "chat_id": chat_id,
-                "text": proposal.render(),
+                "text": proposal.render_html(),
+                "parse_mode": "HTML",
                 "reply_markup": self._approval_markup(aid),
             })
         except (OSError, urllib.error.URLError, ValueError) as exc:

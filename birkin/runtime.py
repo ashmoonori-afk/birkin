@@ -9,6 +9,7 @@ from __future__ import annotations
 import copy
 import sys
 import threading
+import time
 from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import Any, Callable, Optional
@@ -23,6 +24,15 @@ from .tools import ToolContext, build_registry
 
 class ConfigError(RuntimeError):
     pass
+
+
+def _harness_block(cfg: dict[str, Any]) -> str:
+    """The harness summary injected into the system prompt (empty when off)."""
+    if not cfg.get("harness_enabled", True):
+        return ""
+    from . import harness
+    return harness.render_block(harness.load(),
+                                budget=cfg.get("harness_prompt_budget"))
 
 
 @dataclass
@@ -46,6 +56,12 @@ class Session:
     _skill_review_thread: threading.Thread | None = None
     _skill_review_lock: Any = field(default_factory=threading.Lock)
     _memory_review_transcripts: list[str] = field(default_factory=list)
+    _harness_turns: int = 0
+    _harness_thread: threading.Thread | None = None
+    _harness_lock: Any = field(default_factory=threading.Lock)
+    _harness_transcripts: list[str] = field(default_factory=list)
+    # Monotonic stamp of the last harness review; 0.0 = never ran.
+    _harness_last: float = 0.0
 
     def refresh_system_prompt(self) -> None:
         """Rebuild the system prompt to reflect current skills/memory/persona.
@@ -54,7 +70,8 @@ class Session:
         ``/personality`` swaps — take effect with no restart."""
         self.agent.system = promptgate.compose_main(
             self.cfg, skills_index=self.skills.index(),
-            memory_block=self.memory.render())
+            memory_block=self.memory.render(),
+            harness_block=_harness_block(self.cfg))
 
     def _build_cli_system(self, text: str) -> None:
         """For CLI-agent backends: inject identity + memory + skills routed to
@@ -237,6 +254,7 @@ class Session:
                   file=sys.stderr, flush=True)
         if review_skills:
             self._schedule_skill_review(text, reply)
+        self._schedule_harness_review(text, reply)
 
     def _schedule_skill_review(self, text: str, reply: str) -> None:
         provider = self.cfg.get("provider")
@@ -251,6 +269,9 @@ class Session:
         if interval <= 0:
             return
         transcript = f"USER:\n{text}\n\nASSISTANT:\n{reply}"
+        failures = failure_context()
+        if failures:
+            transcript += "\n\n" + failures
         with self._skill_review_lock:
             self._skill_review_turns += 1
             if provider == "codex-cli":
@@ -294,10 +315,67 @@ class Session:
                 self._skill_review_thread = None
                 self._skill_review_turns = interval - 1
 
+    def _schedule_harness_review(self, text: str, reply: str) -> None:
+        """Review every ``harness_turn_interval`` turns, at most once per cooldown.
+
+        Gate ordering is the cost control: the turn counter and the cooldown are
+        both settled from local state BEFORE the evidence gate — which is a
+        model call — is spent.
+        """
+        if not self.cfg.get("harness_enabled", True):
+            return
+        interval = int(self.cfg.get("harness_turn_interval", 12) or 0)
+        if interval <= 0:
+            return
+        cooldown = float(self.cfg.get("harness_cooldown_min", 15) or 0) * 60
+        transcript = f"USER:\n{text}\n\nASSISTANT:\n{reply}"
+        with self._harness_lock:
+            self._harness_transcripts.append(transcript)
+            del self._harness_transcripts[:-interval]
+            self._harness_turns += 1
+            if self._harness_turns < interval:
+                return
+            if (self._harness_last
+                    and time.monotonic() - self._harness_last < cooldown):
+                return
+            if self._harness_thread and self._harness_thread.is_alive():
+                return
+            self._harness_turns = 0
+            self._harness_last = time.monotonic()
+            review_transcript = "\n\n".join(self._harness_transcripts)
+            self._harness_transcripts.clear()
+            review_ctx = copy.copy(self.ctx)
+            review_ctx.cfg = dict(self.cfg)
+            review_ctx.client = copy.copy(self.ctx.client)
+            provider = self.cfg.get("provider")
+            review_model = self.cfg.get("model")
+
+            def review() -> None:
+                from . import harness_review
+                try:
+                    summary = harness_review.review(
+                        review_ctx, review_transcript, reason="turn-interval")
+                except Exception as exc:
+                    summary = f"harness-review failed: {exc}"
+                store.save_run("harness-review", summary, details={
+                    "provider": provider,
+                    "model": review_model,
+                }, usage=store.estimate_usage(review_transcript, summary))
+
+            try:
+                self._harness_thread = threading.Thread(
+                    target=review, name="birkin-harness-review", daemon=True)
+                self._harness_thread.start()
+            except (OSError, RuntimeError):
+                self._harness_thread = None
+                self._harness_turns = interval - 1
+
     def new_conversation(self) -> None:
         self.agent.reset()
         self._skill_review_turns = 0
         self._memory_review_transcripts.clear()
+        self._harness_turns = 0
+        self._harness_transcripts.clear()
         # The warm session keeps its OWN conversation context in the child
         # process, so /new must drop it or the model still remembers the prior
         # turns despite "Started a new conversation."
@@ -323,6 +401,35 @@ class Session:
         # The warm CLI process baked the OLD --model at spawn; drop it so the
         # next warm ask() respawns with the new model/provider.
         self.close()
+
+
+def failure_context(limit: int = 5) -> str:
+    """Recent deaths, for the self-improvement pass to actually learn from.
+
+    The pass only ever saw `USER:`/`ASSISTANT:` of a turn that SUCCEEDED, so
+    every timeout and every failed agent — the material worth learning from —
+    was invisible to it.
+    """
+    from .moirai import journal
+    calls = journal.recent_failed_calls(limit)
+    incidents = journal.recent_incidents(limit)
+    if not calls and not incidents:
+        return ""
+    lines = ["FAILURES (recent, from the moirai journal):"]
+    for call in calls:
+        lines.append(
+            f"- moirai call {call.get('run_id')}#{call.get('seq')} "
+            f"[{call.get('role') or '?'}/{call.get('label') or '?'}] "
+            f"{(call.get('error') or '')[:300]}")
+    for row in incidents:
+        lines.append(
+            f"- gateway {row.get('kind')} on "
+            f"{row.get('channel')}:{row.get('chat_id')} after "
+            f"{float(row.get('elapsed_seconds') or 0):.1f}s — "
+            f"{row.get('event_count')} event(s), last "
+            f"{row.get('last_event_kind') or '?'}, "
+            f"partial {row.get('partial_chars')} chars")
+    return "\n".join(lines)
 
 
 def build_session(cfg: Optional[dict[str, Any]] = None,
@@ -356,7 +463,8 @@ def build_session(cfg: Optional[dict[str, Any]] = None,
         checkpoints=checkpoint_mgr, hooks=hook_bus)
     registry = build_registry(ctx)
     system = promptgate.compose_main(
-        cfg, skills_index=skills.index(), memory_block=memory.render())
+        cfg, skills_index=skills.index(), memory_block=memory.render(),
+        harness_block=_harness_block(cfg))
     agent = Agent(client=client, system=system, registry=registry,
                   max_turns=int(cfg.get("max_turns", 24)),
                   model=cfg.get("model"), on_event=on_event,

@@ -57,12 +57,32 @@ def _agent(text: str) -> dict:
                        "item": {"type": "agent_message", "text": text}}}
 
 
+def _started(kind: str) -> dict:
+    return {"method": "item/started",
+            "params": {"threadId": "t", "turnId": "turn-1",
+                       "item": {"id": "item-1", "type": kind}}}
+
+
 def _tool(command: str) -> dict:
     """A completed tool item: real work that streams no agent text."""
     return {"method": "item/completed",
             "params": {"threadId": "t", "turnId": "turn-1",
                        "item": {"type": "command_execution",
                                 "command": command}}}
+
+
+def _child_tool(command: str) -> dict:
+    """A multi-agent item uses its child turn id in the parent thread."""
+    return {"method": "item/completed",
+            "params": {"threadId": "t", "turnId": "child-turn",
+                       "item": {"type": "commandExecution",
+                                "command": command}}}
+
+
+def _child_agent(text: str) -> dict:
+    return {"method": "item/completed",
+            "params": {"threadId": "t", "turnId": "child-turn",
+                       "item": {"type": "agentMessage", "text": text}}}
 
 
 def _done() -> dict:
@@ -72,6 +92,16 @@ def _done() -> dict:
 
 
 class TestOnProgressSeesTheWork:
+    def test_started_reasoning_is_visible_before_it_completes(self) -> None:
+        seen: list[dict] = []
+        s = _session(pending=(_started("reasoning"), _done()))
+
+        s._turn("hi", None, None, on_progress=seen.append)
+
+        assert seen
+        assert seen[0]["activity"] == 0
+        assert seen[0]["active_kind"] == "reasoning"
+
     def test_agent_messages_are_reported(self) -> None:
         seen: list[dict] = []
         s = _session(pending=(_agent("hello"), _done()))
@@ -90,6 +120,43 @@ class TestOnProgressSeesTheWork:
         assert last["streamed"] == 0
         assert last["last_kind"] == "command_execution"
 
+    def test_child_turn_items_count_as_current_thread_activity(self) -> None:
+        seen: list[dict] = []
+        s = _session(pending=(_child_tool("kaggle competitions files"),
+                              _done()))
+
+        s._turn("hi", None, None, on_progress=seen.append)
+
+        assert seen[-1]["activity"] == 1
+        assert seen[-1]["last_kind"] == "commandExecution"
+
+    def test_foreign_thread_items_stay_ignored(self) -> None:
+        seen: list[dict] = []
+        foreign = _child_tool("unrelated")
+        foreign["params"]["threadId"] = "another-thread"
+        s = _session(pending=(foreign, _done()))
+
+        s._turn("hi", None, None, on_progress=seen.append)
+
+        assert seen == []
+
+    def test_child_agent_text_stays_out_of_parent_reply(self) -> None:
+        seen: list[dict] = []
+        streamed: list[str] = []
+        s = _session(pending=(
+            _child_agent("child inventory"),
+            _agent("parent answer"),
+            _done(),
+        ))
+
+        reply = s._turn("hi", streamed.append, None,
+                        on_progress=seen.append)
+
+        assert reply == "parent answer"
+        assert streamed == ["parent answer"]
+        assert seen[-1]["activity"] == 2
+        assert seen[-1]["streamed"] == 1
+
     def test_a_raising_callback_cannot_kill_the_turn(self) -> None:
         def boom(_info: dict) -> None:
             raise RuntimeError("observer bug")
@@ -100,6 +167,16 @@ class TestOnProgressSeesTheWork:
     def test_no_callback_is_the_ordinary_case(self) -> None:
         s = _session(pending=(_agent("answer"), _done()))
         assert s._turn("hi", None, None) == "answer"
+
+    def test_cyber_access_block_is_held_for_the_scoped_retry(self) -> None:
+        blocked = (
+            "Trusted Access for Cyber: https://chatgpt.com/cyber"
+        )
+        streamed: list[str] = []
+        s = _session(pending=(_agent(blocked), _done()))
+
+        assert s._turn("hi", streamed.append, None) == blocked
+        assert streamed == []
 
 
 class TestAskPlumbsItThrough:

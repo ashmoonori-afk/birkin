@@ -1,0 +1,926 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>prime-agent 분석 → Birkin 적용 및 Morpheus v2 설계</title>
+<style>
+  :root{
+    --bg:#0e1116; --panel:#151a21; --panel2:#1b2230; --line:#26303d;
+    --fg:#e6edf3; --dim:#9fb0c0; --accent:#7cc4ff; --accent2:#a5f3c4;
+    --warn:#ffcf7a; --bad:#ff9a9a; --good:#8ce99a;
+    --mono:"JetBrains Mono","D2Coding","Cascadia Mono",Consolas,monospace;
+    --sans:"Pretendard","Apple SD Gothic Neo","Malgun Gothic",-apple-system,Segoe UI,sans-serif;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--fg);font-family:var(--sans);line-height:1.75;font-size:15px}
+  a{color:var(--accent);text-decoration:none}
+  a:hover{text-decoration:underline}
+  .wrap{display:flex;align-items:flex-start;max-width:1560px;margin:0 auto}
+  nav{position:sticky;top:0;width:290px;flex:0 0 290px;height:100vh;overflow-y:auto;
+      padding:26px 18px;border-right:1px solid var(--line);background:var(--panel)}
+  nav h2{font-size:12px;letter-spacing:.14em;color:var(--dim);text-transform:uppercase;margin:0 0 12px}
+  nav ol{list-style:none;padding:0;margin:0 0 18px;counter-reset:s}
+  nav ol li{margin:2px 0}
+  nav ol > li > a{display:block;padding:5px 8px;border-radius:6px;font-size:13.5px;color:var(--fg)}
+  nav ol > li > a:hover{background:var(--panel2);text-decoration:none}
+  nav ol ol{margin:2px 0 6px 12px;border-left:1px solid var(--line);padding-left:8px}
+  nav ol ol a{font-size:12.5px;color:var(--dim);padding:3px 6px;display:block;border-radius:5px}
+  nav ol ol a:hover{color:var(--fg);background:var(--panel2);text-decoration:none}
+  main{flex:1 1 auto;min-width:0;padding:38px 52px 120px}
+  header.doc{border-bottom:1px solid var(--line);padding-bottom:24px;margin-bottom:34px}
+  header.doc h1{font-size:30px;margin:0 0 10px;line-height:1.35}
+  .meta{color:var(--dim);font-size:13px;font-family:var(--mono)}
+  .meta span{margin-right:16px}
+  section{margin:0 0 54px;scroll-margin-top:20px}
+  h2{font-size:23px;margin:46px 0 14px;padding-bottom:8px;border-bottom:2px solid var(--accent);scroll-margin-top:16px}
+  h3{font-size:18px;margin:30px 0 10px;color:var(--accent2);scroll-margin-top:16px}
+  h4{font-size:15px;margin:20px 0 8px;color:var(--warn)}
+  p{margin:10px 0}
+  code{font-family:var(--mono);font-size:12.8px;background:#0b0f14;border:1px solid var(--line);
+       border-radius:4px;padding:1px 5px;color:#cfe6ff}
+  pre{background:#0b0f14;border:1px solid var(--line);border-radius:9px;padding:15px 17px;overflow-x:auto;
+      font-family:var(--mono);font-size:12.7px;line-height:1.6}
+  pre code{background:none;border:none;padding:0;color:#d7e4f0}
+  table{border-collapse:collapse;width:100%;margin:14px 0;font-size:13.4px}
+  th,td{border:1px solid var(--line);padding:8px 11px;text-align:left;vertical-align:top}
+  th{background:var(--panel2);color:var(--accent);font-weight:600;white-space:nowrap}
+  tbody tr:nth-child(even){background:#12171e}
+  .src{font-family:var(--mono);font-size:11.8px;color:var(--dim);white-space:nowrap}
+  .box{border:1px solid var(--line);border-left:4px solid var(--accent);background:var(--panel);
+       border-radius:0 8px 8px 0;padding:13px 17px;margin:16px 0}
+  .box.warn{border-left-color:var(--warn)}
+  .box.bad{border-left-color:var(--bad)}
+  .box.good{border-left-color:var(--good)}
+  .box h4{margin-top:0}
+  .tag{display:inline-block;font-family:var(--mono);font-size:11px;padding:1px 7px;border-radius:20px;
+       border:1px solid var(--line);color:var(--dim);margin-right:5px}
+  .tag.p0{border-color:#ff9a9a;color:#ff9a9a}
+  .tag.p1{border-color:var(--warn);color:var(--warn)}
+  .tag.p2{border-color:var(--dim)}
+  .tag.new{border-color:var(--good);color:var(--good)}
+  .grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:14px;margin:16px 0}
+  .card{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:15px 17px}
+  .card h4{margin:0 0 6px;color:var(--accent)}
+  .card p{margin:4px 0;font-size:13.4px;color:var(--dim)}
+  .flow{font-family:var(--mono);font-size:12.5px;background:#0b0f14;border:1px solid var(--line);
+        border-radius:9px;padding:16px;overflow-x:auto;color:#bcd3e8;line-height:1.55}
+  ul,ol{padding-left:22px}
+  li{margin:5px 0}
+  .kbd{font-family:var(--mono);font-size:12px;background:var(--panel2);border:1px solid var(--line);
+       border-bottom-width:2px;border-radius:5px;padding:1px 6px}
+  .yes{color:var(--good);font-weight:600}
+  .no{color:var(--bad);font-weight:600}
+  .part{color:var(--warn);font-weight:600}
+  hr{border:none;border-top:1px solid var(--line);margin:34px 0}
+  footer{color:var(--dim);font-size:12.5px;border-top:1px solid var(--line);padding-top:18px;margin-top:50px}
+  @media (max-width:1000px){
+    nav{display:none} main{padding:26px 20px 80px}
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+<nav>
+  <h2>목차</h2>
+  <ol>
+    <li><a href="#s0">0. 요약</a></li>
+    <li><a href="#s1">1. prime-agent 구조 분석</a>
+      <ol>
+        <li><a href="#s1-1">1.1 저장소 지형</a></li>
+        <li><a href="#s1-2">1.2 RLM 실행 모델</a></li>
+        <li><a href="#s1-3">1.3 Continual Harness 데이터 모델</a></li>
+        <li><a href="#s1-4">1.4 /refine 파이프라인</a></li>
+        <li><a href="#s1-5">1.5 auto-refine 트리거</a></li>
+        <li><a href="#s1-6">1.6 프롬프트 재주입 루프</a></li>
+        <li><a href="#s1-7">1.7 장기 실행 런타임</a></li>
+      </ol>
+    </li>
+    <li><a href="#s2">2. Birkin 도입안과 배선</a>
+      <ol>
+        <li><a href="#s2-1">2.1 Birkin 현재 지형</a></li>
+        <li><a href="#s2-2">2.2 도입 매트릭스</a></li>
+        <li><a href="#s2-3">2.3 항목별 배선 상세</a></li>
+        <li><a href="#s2-4">2.4 도입하지 말 것</a></li>
+      </ol>
+    </li>
+    <li><a href="#s3">3. 자가개선 비교: /refine vs Morpheus</a>
+      <ol>
+        <li><a href="#s3-1">3.1 대응 관계</a></li>
+        <li><a href="#s3-2">3.2 축별 비교</a></li>
+        <li><a href="#s3-3">3.3 Morpheus 구조적 결함 9종</a></li>
+        <li><a href="#s3-4">3.4 Morpheus가 이미 더 나은 점</a></li>
+      </ol>
+    </li>
+    <li><a href="#s4">4. Morpheus v2 설계</a>
+      <ol>
+        <li><a href="#s4-1">4.1 목표 / 비목표</a></li>
+        <li><a href="#s4-2">4.2 데이터 모델</a></li>
+        <li><a href="#s4-3">4.3 제안 계약</a></li>
+        <li><a href="#s4-4">4.4 적용 알고리즘</a></li>
+        <li><a href="#s4-5">4.5 롤백</a></li>
+        <li><a href="#s4-6">4.6 트리거 설계</a></li>
+        <li><a href="#s4-7">4.7 승인 · 보안 정책</a></li>
+        <li><a href="#s4-8">4.8 프롬프트 주입</a></li>
+        <li><a href="#s4-9">4.9 설정 키 / CLI</a></li>
+        <li><a href="#s4-10">4.10 단계별 실행 계획</a></li>
+        <li><a href="#s4-11">4.11 리스크와 완화</a></li>
+        <li><a href="#s4-12">4.12 테스트 계획</a></li>
+      </ol>
+    </li>
+    <li><a href="#s5">5. 근거 표</a></li>
+  </ol>
+</nav>
+
+<main>
+<header class="doc">
+  <h1>prime-agent 구조 분석 → Birkin 적용 설계 및 Morpheus v2 개선안</h1>
+  <div class="meta">
+    <span>작성 2026-08-07</span>
+    <span>대상 <a href="https://github.com/PrimeIntellect-ai/prime-agent">PrimeIntellect-ai/prime-agent</a> @ main</span>
+    <span>비교 대상 birkin/birkin/morpheus.py</span>
+  </div>
+  <p style="color:var(--dim);margin-top:12px">
+    이 문서의 모든 주장은 실제 소스에서 확인한 <span class="src">파일:줄</span>을 함께 표기한다.
+    prime-agent 쪽은 <code>packages/coding-agent/</code> 기준 상대 경로,
+    Birkin 쪽은 <code>birkin/birkin/</code> 기준 상대 경로다.
+  </p>
+</header>
+
+<section id="s0">
+<h2>0. 요약</h2>
+
+<p>
+prime-agent는 “에이전트가 스스로 고치는 대상”을 <strong>대화 맥락이 아니라 별도의 상태 계층(Continual Harness)</strong>으로
+분리해 두고, 그 계층에만 <strong>버전 있는 CRUD 편집</strong>을 가한다. 이것이 Birkin의 Morpheus와 갈리는 유일하고 결정적인 차이다.
+Morpheus는 밤마다 LLM을 깨워 메모리와 스킬을 <strong>직접 쓴다</strong>. 편집 단위가 없으니 <em>무엇이 왜 바뀌었는지</em>가 남지 않고,
+남지 않으니 되돌릴 수도, 다음 밤이 이전 밤을 평가할 수도 없다.
+</p>
+
+<div class="grid">
+  <div class="card"><h4>발견 1 — 상태의 분리</h4><p>harness는 <code>prompt / memory / skill / subagent</code> 4종 엔트리를 한 JSON 파일에 담고, 각 엔트리는 <code>version</code>과 <code>updated_at</code>을 가진다. <span class="src">refinement.ts:30,34,59</span></p></div>
+  <div class="card"><h4>발견 2 — 편집이 1급 객체</h4><p>LLM은 파일을 쓰지 않고 <code>{action, kind, id, content, reason}</code> 편집 목록을 JSON으로 낸다. 적용은 호스트 코드가 한다. <span class="src">refinement.ts:78,707</span></p></div>
+  <div class="card"><h4>발견 3 — 낙관적 동시성</h4><p>계획 시점의 baseline과 적용 시점 상태가 다르면 그 편집만 <code>"entry changed during refinement planning"</code>으로 거부된다. <span class="src">refinement.ts:737</span></p></div>
+  <div class="card"><h4>발견 4 — 롤백이 공짜</h4><p>적용 결과에 <code>before</code>가 보존되므로 역순 반전만으로 롤백 제안이 생성된다. <span class="src">refinement.ts:804</span></p></div>
+  <div class="card"><h4>발견 5 — 증거 게이트</h4><p>자동 refine 전에 별도의 저비용 LLM 게이트가 <code>{shouldRefine, rationale, instructions}</code>를 판단한다. <span class="src">refinement.ts:949</span></p></div>
+  <div class="card"><h4>발견 6 — 피드백 루프</h4><p>harness 상태가 매 턴 시스템 프롬프트에 압축 주입되어, 저장한 것이 즉시 행동을 바꾼다. <span class="src">system-prompt.ts:106</span></p></div>
+</div>
+
+<div class="box">
+  <h4>이 문서의 결론 한 줄</h4>
+  <p>Morpheus에 부족한 것은 “더 똑똑한 야간 프롬프트”가 아니라 <strong>편집 계약 + 버전 상태 + 롤백 + 프롬프트 재주입</strong>이라는 4개의 배관이다.
+  Birkin은 이미 <code>approvals</code>(승인), <code>store.file_lock</code>(원자적 쓰기), <code>selfimprove.review_cli_turn</code>(JSON 제안 파싱)을
+  갖고 있으므로, 새로 필요한 것은 <code>birkin/harness.py</code> 하나와 4개 지점의 배선뿐이다.</p>
+</div>
+</section>
+
+<section id="s1">
+<h2>1. prime-agent 구조 분석</h2>
+
+<h3 id="s1-1">1.1 저장소 지형</h3>
+<p>
+TypeScript 모노레포이며 워크스페이스는 <code>packages/{agent, ai, coding-agent, tui}</code> 4개다.
+제품 본체는 <code>packages/coding-agent</code>이고, 모델이 호출하는 Python 스킬은 같은 패키지의 <code>skills/</code> 아래에 있다.
+자가개선 구현은 두 층으로 나뉜다.
+</p>
+<table>
+<thead><tr><th>층</th><th>경로</th><th>역할</th></tr></thead>
+<tbody>
+<tr><td>호스트(권위)</td><td class="src">src/core/refinement/refinement.ts</td><td>harness 상태 로드/병합/저장, 제안 계획·적용·롤백, 자동 refine 심사</td></tr>
+<tr><td>호스트(수명주기)</td><td class="src">src/core/agent-session.ts</td><td>턴 카운트, 트리거, 배리어, 직렬화 모드 체크포인트</td></tr>
+<tr><td>호스트(주입)</td><td class="src">src/core/system-prompt.ts</td><td>harness 상태를 시스템 프롬프트에 합성</td></tr>
+<tr><td>커널(모델 인터페이스)</td><td class="src">skills/refine/src/refine/__init__.py</td><td><code>refine.status()</code> / <code>refine.run()</code> — <code>rlm.host_request</code>로 호스트에 위임</td></tr>
+<tr><td>설정</td><td class="src">src/core/settings-manager.ts</td><td><code>AutoRefineSettings</code> 기본값</td></tr>
+</tbody>
+</table>
+
+<div class="box">
+<h4>설계 원칙 하나: 권위는 호스트에</h4>
+<p>커널의 Python <code>refine</code> 스킬은 <em>얇은 래퍼</em>다. 자격증명, 프로바이더 호출, 트랜스크립트 쓰기, 스케줄링을 Python 밖에 두겠다는
+명시적 선택이며 <span class="src">docs/rlm.md “Host Bridge”</span>, 모델이 상태 파일을 직접 조작할 수 없게 만든다.
+Birkin의 MCP 도구 경계(<code>mcp__birkin__*</code>)와 같은 사상이다.</p>
+</div>
+
+<h3 id="s1-2">1.2 RLM 실행 모델</h3>
+<p>
+기본 런타임이 모델에게 노출하는 내장 도구는 <code>ipython</code> <strong>하나</strong>다.
+파일 읽기/편집, 프로젝트 명령 실행, 스킬 호출, 하위 에이전트 위임이 전부 이 영속 커널에서 시작한다 <span class="src">docs/rlm.md</span>.
+</p>
+<div class="flow">task ─▶ parent model ─ipython─▶ persistent IPython kernel
+                              ├─▶ files · shell · data
+                              ├─▶ python-backed skills  (await release_audit(...))
+                              └─▶ rlm("sub-task")  ──▶ child AgentSession
+                                        │ 즉시 handle 반환 (답이 아님)
+                                        ▼
+                        agent_message.send(..., receiver_role="parent")</div>
+<ul>
+<li><strong>subagent가 함수 호출</strong>: <code>handle = await rlm("...")</code>는 admission 직후 <code>rlm_child_id / name / session_dir / model</code>만 돌려주고
+자식의 답은 절대 반환하지 않는다. 결과는 <code>agent_message</code> 또는 파일로만 온다.</li>
+<li><strong>스킬이 실행 가능</strong>: SKILL.md로 라우팅하되, Python 패키지를 커널 환경에 설치해 import 이름으로 노출한다. 지시문 전용 스킬의 상위 집합이다.</li>
+<li><strong>커널 상태가 턴을 넘김</strong>: 변수·import·핸들이 compaction 이후에도 남는다.</li>
+<li><strong>신뢰 모델</strong>: 커널은 워커의 OS 권한으로 모델 생성 Python을 실행한다. 문서가 스스로 “보안 샌드박스가 아니다”라고 못 박는다 <span class="src">docs/rlm.md “Trust Model”</span>.</li>
+</ul>
+
+<h3 id="s1-3">1.3 Continual Harness 데이터 모델</h3>
+<p>자가개선의 대상이 되는 “편집 가능한 상태”의 전체 스키마다.</p>
+<pre><code>// refinement.ts:30,34,50,59
+type RefinementKind  = "prompt" | "memory" | "skill" | "subagent";
+type RefinementAction = "create" | "update" | "delete";
+type HarnessScope    = "local" | "global";
+
+interface HarnessEntry {
+  id, kind, title, content, path,
+  scope?: HarnessScope,
+  reference: Record&lt;string,unknown&gt;,   // skill이면 {type:"python", import, callable, call_pattern}
+  arguments: Record&lt;string,unknown&gt;,   // skill 입력 계약
+  metadata:  Record&lt;string,unknown&gt;,
+  source: string,                       // "refine"
+  created_at, updated_at, version: number
+}
+
+interface HarnessRefinementEvent {      // 왜 바꿨는가의 영구 기록
+  id, trigger, changes: string[], evidence, outcome, created_at
+}
+
+interface HarnessState { schema: number; entries: Record&lt;Kind, Record&lt;id, Entry&gt;&gt;; refinements: Event[] }</code></pre>
+
+<table>
+<thead><tr><th>kind</th><th>담는 것</th><th>Birkin 대응물</th></tr></thead>
+<tbody>
+<tr><td><code>prompt</code></td><td>보충 프롬프트 노트. <strong>기본 시스템 프롬프트는 불변</strong>이며 절대 재작성 금지가 시스템 프롬프트에 명시됨</td><td><span class="no">없음</span></td></tr>
+<tr><td><code>memory</code></td><td>사실·결정·실패·선호·결과</td><td>Obsidian vault (<code>memory.py:65 VaultMemory</code>)</td></tr>
+<tr><td><code>skill</code></td><td>설치된 Python REPL 스킬. <code>reference</code>·<code>arguments</code> 필수</td><td>SKILL.md 스킬 (<code>skills/</code>)</td></tr>
+<tr><td><code>subagent</code></td><td>재사용 위임 스펙(목적·지시·호출 시점)</td><td><span class="no">없음</span> (moirai 서브에이전트는 있으나 스펙이 영속되지 않음)</td></tr>
+</tbody>
+</table>
+
+<h4>스코프 정책</h4>
+<ul>
+<li>기본 저장소는 <strong>세션 로컬</strong>. 세션 진행 상황, 임시 블로커, 현재 실행 조율 노트가 여기 간다.</li>
+<li>글로벌은 명시 요청 시에만. 교차 세션 교훈, 지속적 사용자 선호, 재사용 스킬/서브에이전트만 허용.</li>
+<li>로컬 refine 중 글로벌 엔트리는 <strong>읽기 전용 컨텍스트</strong> — update/delete 제안 금지, 로컬 오버라이드를 새로 만들 것.</li>
+<li>병합 시 id 충돌은 <code>local:</code> / <code>global:</code> 접두사로 표시하되, 편집에는 접두사 없는 bare id를 쓰게 강제한다 <span class="src">refinement.ts:326</span>.</li>
+</ul>
+
+<h4>디스크 레이아웃</h4>
+<pre><code>&lt;agentDir&gt;/harness/harness_state.json      # global   (refinement.ts:24)
+&lt;sessionArtifactDir&gt;/harness/harness_state.json  # local
+&lt;...&gt;/harness/refinements.jsonl            # append-only 이력 (refinement.ts:25)</code></pre>
+<p>
+<code>loadHarnessState</code>는 매 시스템 프롬프트 빌드와 매 refine 직전에 호출되므로,
+파일이 깨졌거나 객체가 아니면 <strong>예외를 던지지 않고 빈 상태로 강등</strong>한다. 다음 저장이 깨끗이 덮어쓴다 <span class="src">refinement.ts:281</span>.
+자가개선 상태 파일이 세션 전체를 죽이지 못하게 하는 방어다.
+</p>
+
+<h3 id="s1-4">1.4 /refine 파이프라인</h3>
+<div class="flow">trigger ─▶ planRefinement(trajectory, state, history, model)
+              │  system prompt = "너는 /refine 하위 시스템. JSON만 출력"
+              │  출력 = RefinementProposal { summary, rationale, expectedOutcome, edits[] }
+              ▼
+          applyRefinementProposal(state, proposal, {id, scope, baselineState})   ← refinement.ts:707
+              │  per-edit: validate → baseline 비교 → create/update/delete → version++
+              │  실패한 편집은 {applied:false, error} 로 기록하고 계속
+              ▼
+          state.refinements.push({id, trigger, changes[], evidence, outcome})
+              ▼
+          saveHarnessState(dir, state)  +  appendRefinement(refinements.jsonl)   ← refinement.ts:345
+              ▼
+          시스템 프롬프트 재빌드 → 다음 턴부터 반영</div>
+
+<h4>적용 규칙 (코드에서 직접 확인)</h4>
+<table>
+<thead><tr><th>상황</th><th>동작</th><th>근거</th></tr></thead>
+<tbody>
+<tr><td>계획 중 엔트리가 바뀜</td><td>해당 편집만 거부 <code>"entry changed during refinement planning"</code></td><td class="src">refinement.ts:737</td></tr>
+<tr><td><code>create</code>인데 이미 존재</td><td>거부 <code>"entry already exists"</code></td><td class="src">refinement.ts:707+</td></tr>
+<tr><td><code>update/delete</code>인데 없음</td><td>거부 <code>"entry not found"</code></td><td class="src">refinement.ts:707+</td></tr>
+<tr><td>정상 적용</td><td><code>version = before.version + 1</code>, <code>created_at</code> 보존, <code>updated_at</code> 갱신, <code>source="refine"</code></td><td class="src">refinement.ts:707+</td></tr>
+<tr><td>일부만 실패</td><td>전체 실패 아님. 성공분만 <code>changes[]</code>에 남고 실패분은 error와 함께 결과에 남음</td><td class="src">refinement.ts:707+</td></tr>
+</tbody>
+</table>
+<p>
+출력 예산도 모델에서 파생한다: <code>Math.min(model.maxTokens, 32_000)</code>.
+고정 상수로 자르면 “정작 중요한 대규모 다중 편집 제안”이 조용히 잘린다는 주석이 붙어 있다 <span class="src">refinement.ts:193</span>.
+JSON이 잘리면 <code>stopReason === "length"</code>를 잡아 명시적 에러로 올린다.
+</p>
+
+<h3 id="s1-5">1.5 auto-refine 트리거</h3>
+<pre><code>// settings-manager.ts:23
+interface AutoRefineSettings {
+  enabled?:    boolean;  // 기본 true
+  turnInterval?: number; // 기본 25 assistant turns
+  compact?:    boolean;  // 기본 true  (compaction 시점에도 심사)
+  cooldownMs?: number;   // 기본 20분
+}</code></pre>
+<p>수명주기는 <code>agent-session.ts</code>가 소유한다.</p>
+<table>
+<thead><tr><th>지점</th><th>동작</th><th>근거</th></tr></thead>
+<tbody>
+<tr><td>어시스턴트 턴 종료</td><td><code>_assistantTurnsSinceAutoRefine++</code></td><td class="src">agent-session.ts:3510</td></tr>
+<tr><td>스케줄</td><td><code>_scheduleAutoRefine("turn_interval")</code> → <code>_maybeAutoRefine</code></td><td class="src">agent-session.ts:7255, 7371, 7388</td></tr>
+<tr><td>게이트 1</td><td>disposed / 세션 미허용 / <code>!settings.enabled</code> → 폐기</td><td class="src">agent-session.ts:7388+</td></tr>
+<tr><td>게이트 2</td><td>이미 진행 중이면 pending 플래그만 세움 (compact / turn_interval 구분)</td><td class="src">agent-session.ts:7388+</td></tr>
+<tr><td>게이트 3</td><td>쿨다운 미경과 → 보류. <strong>실패한 refine도 쿨다운을 찍는다</strong></td><td class="src">agent-session.ts:7388+</td></tr>
+<tr><td>게이트 4</td><td>턴 수 &lt; <code>turnInterval</code> → 반환</td><td class="src">agent-session.ts:7430</td></tr>
+<tr><td>게이트 5 (LLM)</td><td><code>reviewAutoRefine</code> → <code>{shouldRefine, rationale, instructions}</code></td><td class="src">refinement.ts:949</td></tr>
+<tr><td>무효화</td><td><code>_autoRefineBranchVersion</code>이 바뀌면 진행 중 심사 폐기 (세션 분기/중단 대응)</td><td class="src">agent-session.ts:7388+</td></tr>
+<tr><td>헤드리스</td><td><code>serializedRefine</code> 모드는 턴 사이에서 <em>동기</em> 실행 — 프린트/자율 실행이 refine을 놓치지 않게</td><td class="src">agent-session.ts:2221</td></tr>
+</tbody>
+</table>
+<div class="box warn">
+<h4>핵심: 트리거는 “시간”이 아니라 “증거”다</h4>
+<p>심사 게이트의 시스템 프롬프트는 <em>“일회성 잡음, 근거 없는 가설, 일시적 도구 출력은 기각하라”</em>고 지시하고,
+대화 직렬화 뒤 <strong>최근 40,000자</strong>만 슬라이스해서 넘긴다 <span class="src">refinement.ts:949</span>.
+심사 비용은 <code>Math.min(maxTokens, 4_096)</code>로 묶여 있어 본 refine보다 8배 싸다 <span class="src">refinement.ts:194</span>.</p>
+</div>
+
+<h3 id="s1-6">1.6 프롬프트 재주입 루프</h3>
+<p>
+저장이 곧 행동 변화가 되는 지점이다. <code>buildSystemPrompt</code>는 harness 상태를 받으면
+<code>formatHarnessStateForPrompt</code>로 압축해 프롬프트 끝에 붙인다 <span class="src">system-prompt.ts:39, 106</span>.
+</p>
+<ul>
+<li>압축 한도: kind당 엔트리 <strong>6개</strong>, refinement 이력 <strong>5개</strong>, 내용 <strong>180자</strong> <span class="src">refinement.ts:26, 429</span>.</li>
+<li>블록 자체가 “이건 요약이지 전체 설명이 아니다. 라우팅/컨텍스트 힌트로 쓰고 상세는 필요할 때 조회하라”고 모델에게 알린다.</li>
+<li>같은 블록에 <strong>언제 <code>await refine.run()</code>을 부를지</strong>의 조건 목록이 들어간다: 반복 실패, 재사용 가능한 전술, 반복되는 위임 역할, 반복 절차, 지속적 선호, 사용자 교정, 검증에서 드러난 잘못된 엔트리.</li>
+<li>서브에이전트 가이던스는 <code>buildRlmPrompt</code> 뒤·harness 메뉴 앞에 삽입된다 — “왜 위임하는가”를 읽은 뒤 “어떤 스펙이 있는가”를 보게 하는 의도적 순서 <span class="src">system-prompt.ts:96 부근 주석</span>.</li>
+</ul>
+
+<h3 id="s1-7">1.7 장기 실행 런타임</h3>
+<p>자가개선과 직접 얽히지는 않지만 Birkin이 참고할 값이 큰 부분이다 <span class="src">docs/long-running-agents.md</span>.</p>
+<table>
+<thead><tr><th>기능</th><th>요지</th></tr></thead>
+<tbody>
+<tr><td>데몬 워커</td><td>TUI를 닫아도 워커가 세션·커널·스케줄·자식을 계속 소유. <code>prime-agent list / attach / stop</code></td></tr>
+<tr><td>에이전트 간 메시징</td><td><code>agent_message.send(..., receiver_role="parent|child|sibling", mode="auto|steer|follow_up")</code>. 영수증은 <code>delivered</code> 또는 <code>queued</code></td></tr>
+<tr><td>하트비트 3종</td><td><code>/heartbeat</code>(사용자 1개) · <code>rlm_heartbeat</code>(에이전트 다수) · <code>schedule</code>(일회/cron)</td></tr>
+<tr><td>스케줄 내구성</td><td>due tick을 <strong>배달 전에 claim</strong> → 크래시가 불확실한 프롬프트를 재생하지 않음. 놓친 틱은 누적이 아니라 합쳐짐</td></tr>
+<tr><td>지속 목표</td><td>토큰 사용량·경과 시간·연속 횟수·토큰 예산을 기록. <code>goal.complete()</code>만이 성공 완료로 표시</td></tr>
+</tbody>
+</table>
+</section>
+
+<section id="s2">
+<h2>2. Birkin 도입안과 배선</h2>
+
+<h3 id="s2-1">2.1 Birkin 현재 지형</h3>
+<p>Birkin에는 이미 자가개선 요소가 흩어져 있다. 도입안은 “새로 만들기”가 아니라 “이미 있는 것들을 하나의 상태 계층에 꿰기”다.</p>
+<table>
+<thead><tr><th>구성요소</th><th>위치</th><th>하는 일</th></tr></thead>
+<tbody>
+<tr><td>야간 패스</td><td class="src">morpheus.py:189 run_once</td><td>04:00 cron, 24h 대화+변경파일+활동로그 수집 후 LLM 1회 실행</td></tr>
+<tr><td>입력 수집</td><td class="src">morpheus.py:135 / :151 / :108</td><td>세션(20k자 캡) · mtime 기반 변경파일 · 메모리 상태(최근/스테일)</td></tr>
+<tr><td>스킬 수명주기</td><td class="src">curator.py:29,30,85</td><td>LLM 없이 30일 스테일 / 90일 아카이브 (삭제 없음)</td></tr>
+<tr><td>턴 후 리뷰</td><td class="src">runtime.py:262-302</td><td><code>skill_nudge_interval</code>(기본 3) 턴마다 백그라운드 스레드로 스킬 리뷰</td></tr>
+<tr><td>JSON 제안 계약</td><td class="src">selfimprove.py:37,132</td><td><code>{"action":"none|improve|create", ...}</code> 파싱 → <code>approvals.propose</code></td></tr>
+<tr><td>승인 게이트</td><td class="src">approvals.py:26,40,214</td><td><code>auto_approve</code> 카테고리는 즉시 적용, 나머지는 큐 → <code>birkin review</code></td></tr>
+<tr><td>원자적 쓰기</td><td class="src">store.py:63 file_lock, :25 _write_json</td><td>파일 락 + 원자적 JSON 쓰기</td></tr>
+<tr><td>실행 기록</td><td class="src">store.py:137 save_run · ledger.py:53 event</td><td>런 요약/세부 저장, SQLite 이벤트·사용량</td></tr>
+<tr><td>프롬프트 조립</td><td class="src">prompts.py:112 build_system_prompt</td><td>identity → workspace → tool → skills → preloaded → memory → extra → policies</td></tr>
+<tr><td>메모리</td><td class="src">memory.py:65 VaultMemory</td><td>Obsidian vault: write_note / rezone / purge_expired / near_duplicates</td></tr>
+</tbody>
+</table>
+
+<h3 id="s2-2">2.2 도입 매트릭스</h3>
+<table>
+<thead><tr><th>#</th><th>prime-agent 기능</th><th>Birkin 도입 형태</th><th>주 배선 지점</th><th>난도</th><th>우선순위</th></tr></thead>
+<tbody>
+<tr><td>A1</td><td>Continual Harness 상태 계층</td><td>신규 <code>birkin/harness.py</code> + <code>~/.birkin/harness/harness_state.json</code></td><td class="src">신규 모듈</td><td>중</td><td><span class="tag p0">P0</span></td></tr>
+<tr><td>A2</td><td>구조화 편집 제안 계약</td><td><code>selfimprove.py:37</code> JSON 계약을 4-kind로 일반화</td><td class="src">selfimprove.py:37,132</td><td>하</td><td><span class="tag p0">P0</span></td></tr>
+<tr><td>A3</td><td>낙관적 동시성 + per-edit 오류</td><td><code>harness.apply()</code>에 baseline 비교</td><td class="src">신규 + store.py:63</td><td>중</td><td><span class="tag p0">P0</span></td></tr>
+<tr><td>A4</td><td>refinements 이력 + 롤백</td><td><code>refinements.jsonl</code> + <code>birkin harness rollback &lt;id&gt;</code></td><td class="src">신규 + cli.py:250 인근</td><td>중</td><td><span class="tag p0">P0</span></td></tr>
+<tr><td>A5</td><td>harness 프롬프트 재주입</td><td><code>build_system_prompt(harness_block=...)</code> 슬롯 추가</td><td class="src">prompts.py:112</td><td>하</td><td><span class="tag p0">P0</span></td></tr>
+<tr><td>A6</td><td>LLM 증거 게이트 + 쿨다운</td><td>턴 리뷰 스레드를 harness 심사로 승격</td><td class="src">runtime.py:262-302</td><td>중</td><td><span class="tag p1">P1</span></td></tr>
+<tr><td>A7</td><td>local / global 스코프</td><td>세션 스코프 엔트리 + vault zone 재사용</td><td class="src">신규 + memory.py:347</td><td>중</td><td><span class="tag p1">P1</span></td></tr>
+<tr><td>A8</td><td><code>subagent</code> kind (위임 스펙 영속)</td><td>moirai 역할을 harness 엔트리로 저장·주입</td><td class="src">config.py:90 moirai_roles</td><td>중</td><td><span class="tag p1">P1</span></td></tr>
+<tr><td>A9</td><td>불변 기본 프롬프트 + 보충 노트</td><td><code>prompt</code> kind는 append 전용, identity 슬롯 불가침</td><td class="src">prompts.py:112</td><td>하</td><td><span class="tag p1">P1</span></td></tr>
+<tr><td>A10</td><td>claim 후 배달(스케줄 내구성)</td><td>morpheus 틱을 claim 기반으로</td><td class="src">scheduler.py:162,198</td><td>중</td><td><span class="tag p2">P2</span></td></tr>
+<tr><td>A11</td><td>Python 백엔드 스킬(호출 가능 스킬)</td><td>SKILL.md에 <code>reference/arguments</code> 계약 추가</td><td class="src">skills/ 전반</td><td>상</td><td><span class="tag p2">P2</span></td></tr>
+<tr><td>A12</td><td>compaction 시점 심사</td><td>compaction 훅에 harness 심사 연결</td><td class="src">compaction.py:218</td><td>하</td><td><span class="tag p2">P2</span></td></tr>
+</tbody>
+</table>
+
+<h3 id="s2-3">2.3 항목별 배선 상세</h3>
+
+<h4>A1 · 상태 계층 <span class="tag new">신규 모듈</span></h4>
+<pre><code># birkin/birkin/harness.py  (신규)
+HARNESS_DIR   = config.birkin_home() / "harness"
+STATE_PATH    = HARNESS_DIR / "harness_state.json"
+HISTORY_PATH  = HARNESS_DIR / "refinements.jsonl"
+
+def load(scope="global") -> HarnessState        # 손상 시 empty로 강등 (예외 금지)
+def save(state) -> None                          # store.file_lock + store._write_json
+def apply(state, proposal, *, baseline) -> RefinementResult
+def rollback(refinement_id) -> RefinementResult
+def render_block(state, *, per_kind=6, history=5, width=180) -> str</code></pre>
+<p><strong>배선</strong>: <code>store.py:63 file_lock</code>과 <code>store.py:25 _write_json</code>을 그대로 재사용한다 — 원자적 쓰기를 새로 만들 이유가 없다.</p>
+
+<h4>A2 · 제안 계약 일반화</h4>
+<p>
+<code>selfimprove.py:37 _CLI_REVIEW</code>는 이미 <code>{"action":"none|improve|create", "target"/"name", ...}</code> JSON을 강제하고
+<code>selfimprove.py:114 _review_payload</code>가 코드펜스까지 벗겨 파싱한다. 여기에 <code>kind</code> 축만 더하면 된다.
+</p>
+<pre><code>{"summary":"...", "rationale":"...", "expectedOutcome":"...",
+ "edits":[{"action":"create|update|delete",
+           "kind":"prompt|memory|skill|subagent",
+           "id":"...", "title":"...", "content":"...",
+           "reason":"왜 이 편집이 궤적으로 정당화되는가"}]}</code></pre>
+<p><strong>배선</strong>: <code>selfimprove.py:132 review_cli_turn</code>의 <code>match action</code> 블록을 <code>match (kind, action)</code>으로 확장하고,
+결과를 <code>approvals.propose(category=&lt;kind&gt;, payload=&lt;edit&gt;)</code>로 넘긴다. 파서 자체는 재사용.</p>
+
+<h4>A3/A4 · 동시성과 롤백</h4>
+<p>
+Birkin의 야간 패스는 단일 프로세스지만, 사용자가 낮에 vault를 직접 편집하는 경우가 실제 충돌원이다.
+<code>apply()</code>는 계획 시점 스냅샷을 <code>baseline</code>으로 받아 엔트리별로 비교하고, 어긋난 편집만 <code>error</code>와 함께 건너뛴다.
+<code>before</code>를 결과에 보존하면 롤백은 역순 반전으로 끝난다 <span class="src">모델: refinement.ts:707, 804</span>.
+</p>
+<p><strong>배선</strong>: <code>cli.py:250 _cmd_morpheus</code> 옆에 <code>_cmd_harness</code>(<code>show|history|rollback|export</code>)를 추가하고
+<code>cli.py:869</code>의 서브파서 등록 블록에 붙인다.</p>
+
+<h4>A5/A9 · 프롬프트 주입</h4>
+<p>
+<code>prompts.py:112 build_system_prompt</code>는 <code>parts</code> 리스트를 순서대로 이어 붙인다.
+<code>memory_block</code> 바로 뒤, <code>extra</code> 앞에 <code>harness_block</code> 슬롯을 하나 넣는다.
+</p>
+<pre><code># prompts.py:112 build_system_prompt(...)
+    if memory_block:
+        parts.append("## What you know about the user\n" + memory_block)
++   if harness_block:                       # A5
++       parts.append(harness_block)         # harness.render_block(...) 결과
+    if extra:
+        parts.append(extra)</code></pre>
+<div class="box bad">
+<h4>불변식 (A9)</h4>
+<p><code>identity</code>(=<code>_IDENTITY</code> 또는 사용자 SOUL.md 페르소나)와 <code>UI_COMPONENT_POLICY</code> ·
+<code>RESEARCH_EVIDENCE_POLICY</code> 슬롯은 harness가 절대 건드리지 못한다.
+<code>prompt</code> kind는 오직 <em>추가되는 보충 노트</em>다. prime-agent도 같은 규칙을 refine 시스템 프롬프트에 명문화해 두었다.
+<code>prompts.py:102 seal_research_policy</code>가 이미 정책 봉인 장치를 갖고 있으므로 같은 방식으로 검증한다.</p>
+</div>
+
+<h4>A6 · 증거 게이트</h4>
+<p>
+<code>runtime.py:262-302</code>는 이미 “N턴마다, 진행 중이면 건너뛰고, 데몬 스레드로” 실행하는 구조다.
+여기에 두 가지만 더한다: (1) 실행 전 저비용 심사 호출, (2) 마지막 심사 시각 기반 쿨다운.
+</p>
+<pre><code># runtime.py:262 부근
+  with self._skill_review_lock:
+      self._skill_review_turns += 1
+      if self._skill_review_turns < interval:      return
+      if self._skill_review_thread and alive:       return
++     if now - self._last_harness_review < cooldown: return   # A6
+      ...
+  def review():
++     verdict = harness_review.should_refine(ctx, transcript)  # {should, rationale, instructions}
++     if not verdict["should"]:
++         store.save_run("harness-review", "skip: " + verdict["rationale"]); return
+      ...</code></pre>
+<p>기본값은 prime-agent를 그대로 베끼지 말고 Birkin 실측에 맞춘다: <code>turn_interval</code>은 기존 <code>skill_nudge_interval</code>(3)보다 크게,
+쿨다운은 세션 길이에 맞춰 짧게 — 4.9절 설정 키 참조.</p>
+
+<h4>A7 · 스코프</h4>
+<p>vault는 이미 zone 개념과 <code>memory.py:347 rezone</code>을 갖고 있다. harness 엔트리의 <code>scope</code>는
+<code>local</code>(세션 디렉터리) / <code>global</code>(<code>~/.birkin/harness</code>) 두 파일로 물리 분리하고, 렌더 시 병합한다.
+id 충돌 시 <code>local:</code>/<code>global:</code> 접두사로 표기하되 편집은 bare id만 받는다.</p>
+
+<h4>A8 · subagent kind</h4>
+<p><code>config.py:90 moirai_roles</code>는 정적 설정이다. Morpheus가 “이 위임 역할이 반복된다”를 관측하면
+<code>kind:"subagent"</code> 엔트리로 승격시키고, 프롬프트 블록에 스펙 목록으로 주입한다.
+이것이 prime-agent가 “반복되는 위임 역할은 subagent 스펙이 되어야 한다”고 명시한 지점과 정확히 대응한다.</p>
+
+<h4>A10 · 스케줄 내구성</h4>
+<p><code>scheduler.py:162 _next_morpheus</code> / <code>:198 run_daemon</code>은 폴링(<code>_POLL_SECONDS=30</code>) 기반이다.
+prime-agent처럼 <strong>배달 전 claim</strong>을 도입하면 데몬 재시작 시 같은 밤을 두 번 돌리는 일이 사라진다.
+<code>store.py</code>의 파일 락으로 claim 파일 하나면 충분하다.</p>
+
+<h3 id="s2-4">2.4 도입하지 말 것</h3>
+<table>
+<thead><tr><th>기능</th><th>이유</th></tr></thead>
+<tbody>
+<tr><td>RLM 전체 전환 (<code>ipython</code> 단일 도구)</td><td>Birkin의 도구 레지스트리 · 승인 · MCP 경계 전부를 재작성해야 한다. Morpheus의 <code>build_registry(include={"files","web","skills","memory"})</code> <span class="src">morpheus.py:315+</span> 같은 최소권한 제약이 “Python 아무거나 실행”으로 무너진다.</td></tr>
+<tr><td>커널 상태 영속</td><td>비대화형 야간 패스에는 이득이 없고, 무인 실행에 살아있는 인터프리터를 남기는 것은 순수 리스크다.</td></tr>
+<tr><td>데몬 다중 워커 아키텍처</td><td>Birkin은 이미 <code>scheduler.run_daemon</code> 단일 데몬으로 충분하다. A10(claim)만 취하면 된다.</td></tr>
+<tr><td><code>skill</code> 엔트리를 Python 콜러블로 강제</td><td>Birkin 스킬은 markdown 계약이다. A11은 선택 확장으로 두고 필수화하지 않는다.</td></tr>
+</tbody>
+</table>
+</section>
+
+<section id="s3">
+<h2>3. 자가개선 비교: /refine vs Morpheus</h2>
+
+<h3 id="s3-1">3.1 대응 관계</h3>
+<table>
+<thead><tr><th>역할</th><th>prime-agent</th><th>Birkin</th></tr></thead>
+<tbody>
+<tr><td>편집 대상 상태</td><td><code>HarnessState</code> <span class="src">refinement.ts:59</span></td><td>vault 노트 + <code>skills/</code> 파일 (통합 상태 없음)</td></tr>
+<tr><td>계획자</td><td><code>planRefinement</code> → JSON 제안</td><td><code>_MORPHEUS_TASK</code> 프롬프트 → 도구 직접 호출 <span class="src">morpheus.py:34</span></td></tr>
+<tr><td>적용자</td><td><code>applyRefinementProposal</code> <span class="src">refinement.ts:707</span></td><td>LLM이 MCP 도구로 직접 씀 <span class="src">morpheus.py:258, 315</span></td></tr>
+<tr><td>승인</td><td>없음(로컬 기본, 스코프로 제한)</td><td><code>approvals.propose</code> / <code>birkin review</code> <span class="src">approvals.py:40</span></td></tr>
+<tr><td>이력</td><td><code>refinements.jsonl</code> + <code>state.refinements[]</code></td><td><code>store.save_run("morpheus", ...)</code> — 산문 요약 <span class="src">morpheus.py:315+</span></td></tr>
+<tr><td>트리거</td><td>25턴 / compaction / 명시 호출 + LLM 게이트</td><td>04:00 cron + 수동 <code>birkin morpheus</code> <span class="src">config.py:234 · cli.py:250</span></td></tr>
+<tr><td>모델 인터페이스</td><td><code>await refine.run()</code> (커널 스킬)</td><td><code>propose_action</code> 도구만 <span class="src">morpheus.py:427</span></td></tr>
+<tr><td>결과 전달</td><td>시스템 프롬프트 재주입</td><td>Telegram 다이제스트 <span class="src">morpheus.py:402</span></td></tr>
+</tbody>
+</table>
+
+<h3 id="s3-2">3.2 축별 비교</h3>
+<table>
+<thead><tr><th>축</th><th>prime-agent /refine</th><th>Birkin Morpheus</th><th>판정</th></tr></thead>
+<tbody>
+<tr><td>편집 단위</td><td>타입 있는 <code>RefinementEdit</code>, 검증 후 적용</td><td>도구 호출 (write_note / create_skill)</td><td class="no">prime-agent 우세</td></tr>
+<tr><td>버저닝</td><td>엔트리마다 <code>version</code>, <code>created_at</code> 보존</td><td>없음 (노트 mtime뿐)</td><td class="no">prime-agent 우세</td></tr>
+<tr><td>롤백</td><td><code>before</code> 보존 → 역순 반전</td><td>없음 (“절대 삭제 금지”가 유일한 안전장치)</td><td class="no">prime-agent 우세</td></tr>
+<tr><td>동시 편집 안전</td><td>baseline 비교로 편집 단위 거부</td><td>vault 노트 락 <span class="src">memory.py:48 _note_lock</span>만, 논리 충돌 감지 없음</td><td class="part">부분 격차</td></tr>
+<tr><td>트리거 정교함</td><td>턴 간격 + compaction + 쿨다운 + LLM 게이트 + 브랜치 무효화</td><td>고정 시각 cron</td><td class="no">prime-agent 우세</td></tr>
+<tr><td>스코프</td><td>local / global 물리 분리, 로컬 중 글로벌은 읽기전용</td><td>전역 단일</td><td class="no">prime-agent 우세</td></tr>
+<tr><td>피드백 루프</td><td>harness → 시스템 프롬프트 → 다음 턴 행동</td><td>vault 렌더가 memory_block으로 들어가지만, <em>자가개선 정책</em>은 프롬프트에 남지 않음</td><td class="part">부분 격차</td></tr>
+<tr><td>부분 실패 내성</td><td>편집별 error, 나머지는 적용</td><td>도구 호출 실패 시 LLM 재량</td><td class="no">prime-agent 우세</td></tr>
+<tr><td>승인 게이트</td><td>없음</td><td><code>auto_approve=["memory","skill"]</code>, cron/shell은 사람 승인 <span class="src">config.py:246</span></td><td class="yes">Birkin 우세</td></tr>
+<tr><td>무인 실행 보안</td><td>“샌드박스 아님” 명시</td><td>Read/Glob/Grep + <code>mcp__birkin__*</code>만 허용, shell 없음 <span class="src">morpheus.py:258</span></td><td class="yes">Birkin 우세</td></tr>
+<tr><td>프롬프트 인젝션 방어</td><td>궤적은 자기 대화이므로 상대적으로 낮은 위험</td><td>UNTRUSTED-DATA 마커로 수집 데이터 격리 <span class="src">morpheus.py:34</span></td><td class="yes">Birkin 우세</td></tr>
+<tr><td>수명주기 위생</td><td>refine이 delete/rollback으로 정리</td><td><code>curator</code>가 LLM 없이 30/90일 규칙으로 정리 <span class="src">curator.py:29,30</span></td><td class="yes">Birkin 우세</td></tr>
+<tr><td>비용 통제</td><td>출력 예산 모델 파생, 심사 4k / 본편 32k</td><td>세션 20k자 · 활동 6k자 · 메모리 4k자 · 스킬 2k자 캡 <span class="src">morpheus.py:189+</span></td><td class="part">동등</td></tr>
+</tbody>
+</table>
+
+<h3 id="s3-3">3.3 Morpheus 구조적 결함 9종</h3>
+<table>
+<thead><tr><th>#</th><th>결함</th><th>증상</th><th>근거</th></tr></thead>
+<tbody>
+<tr><td>D1</td><td>버전 있는 상태 부재</td><td>어젯밤이 무엇을 바꿨는지 기계가 알 수 없음. 산문 요약만 남음</td><td class="src">morpheus.py:315+ save_run</td></tr>
+<tr><td>D2</td><td>롤백 불가</td><td>잘못 학습한 사실/스킬을 사람이 손으로 찾아 지워야 함</td><td class="src">(대응 코드 없음)</td></tr>
+<tr><td>D3</td><td><code>prompt</code> 계층 없음</td><td>“앞으로 이렇게 행동해라”를 저장할 곳이 없어 전부 memory나 skill로 억지 변환됨</td><td class="src">prompts.py:112</td></tr>
+<tr><td>D4</td><td><code>subagent</code> 계층 없음</td><td>반복 위임 역할이 매번 새로 발명됨. <code>moirai_roles</code>는 사람이 쓴 정적 설정</td><td class="src">config.py:90</td></tr>
+<tr><td>D5</td><td>시간 전용 트리거</td><td>격변한 날과 아무 일 없는 날의 비용이 같음. 세션 중 학습 기회는 전부 유실</td><td class="src">config.py:234 · scheduler.py:162</td></tr>
+<tr><td>D6</td><td>스코프 없음</td><td>“이번 작업 한정” 맥락이 영구 vault를 오염시킴</td><td class="src">memory.py:146</td></tr>
+<tr><td>D7</td><td>제안 계약 없음(야간 경로)</td><td>LLM이 도구를 직접 호출하므로 사전 검증·시뮬레이션·부분 거부가 불가능</td><td class="src">morpheus.py:34, 315+</td></tr>
+<tr><td>D8</td><td>결과 피드백 루프 없음</td><td>이전 refinement의 <code>expectedOutcome</code>이 없으니 다음 패스가 자기 성과를 평가할 수 없음</td><td class="src">store.py:137</td></tr>
+<tr><td>D9</td><td>codex-cli 저장 불능 경로</td><td><code>codex exec</code>가 MCP 호출을 취소하므로 <code>cli_access</code>가 full이 아니면 <strong>아무것도 저장되지 않고 산문만 나온다</strong></td><td class="src">morpheus.py:315+ (코드 주석에 실측 기록)</td></tr>
+</tbody>
+</table>
+<div class="box bad">
+<h4>D9는 이미 알려진 채로 방치된 것이 아니다</h4>
+<p>코드 주석은 이 상황을 정확히 기술하고 사용자에게 경고까지 출력한다 —
+<em>“이 실행은 산문만 생산할 수 있고, 메모리에 저장되지 않으며 어떤 제안도 큐에 들어가지 않는다”</em>.
+하지만 <strong>대안 저장 경로가 없다</strong>는 것이 문제다. harness 상태 파일은 MCP를 거치지 않고
+호스트 코드가 직접 쓸 수 있으므로, A1 도입 시 D9가 <em>부수적으로</em> 해소된다: LLM은 JSON 제안만 텍스트로 반환하면 되고
+적용은 Python 쪽이 한다.</p>
+</div>
+
+<h3 id="s3-4">3.4 Morpheus가 이미 더 나은 점 — 유지할 것</h3>
+<ul>
+<li><strong>승인 분리</strong>: 되돌릴 수 있는 것(memory/skill)은 자동, 세상을 바꾸는 것(cron/shell)은 사람. prime-agent에는 이 구분이 없다 <span class="src">approvals.py:26 · config.py:246</span>.</li>
+<li><strong>무인 실행 최소권한</strong>: 야간 Claude 경로는 <code>Read/Glob/Grep + mcp__birkin__*</code>만 허용하고 <code>permission_mode="default"</code>로 이중 방어한다 <span class="src">morpheus.py:258</span>.</li>
+<li><strong>신뢰 경계 명시</strong>: 수집한 대화/로그를 <code>&lt;&lt;&lt;BEGIN UNTRUSTED DATA&gt;&gt;&gt;</code>로 감싸고 “데이터이지 지시가 아니다”를 시스템 수준에서 못 박는다 <span class="src">morpheus.py:34</span>.</li>
+<li><strong>LLM 없는 위생 패스</strong>: curator의 30/90일 규칙은 결정론적이고 공짜다 <span class="src">curator.py:85</span>.</li>
+<li><strong>조용한 밤</strong>: <code>[SILENT]</code> 규약으로 무의미한 알림을 억제한다 <span class="src">morpheus.py:402</span>.</li>
+</ul>
+<p><strong>따라서 v2의 방향은 “prime-agent로 교체”가 아니라 “Birkin의 승인·보안 골격 위에 harness 배관을 얹기”다.</strong></p>
+</section>
+
+<section id="s4">
+<h2>4. Morpheus v2 설계</h2>
+
+<h3 id="s4-1">4.1 목표 / 비목표</h3>
+<div class="grid">
+<div class="card"><h4>목표</h4><p>G1 모든 자가개선 변경이 <strong>편집 단위</strong>로 기록된다<br>G2 임의의 refinement를 <strong>한 명령으로 롤백</strong>할 수 있다<br>G3 학습 결과가 <strong>다음 턴 프롬프트</strong>에 반영된다<br>G4 트리거가 <strong>증거 기반</strong>이 된다<br>G5 codex-cli 경로에서도 <strong>저장이 성립</strong>한다</p></div>
+<div class="card"><h4>비목표</h4><p>N1 RLM/IPython 전환<br>N2 기존 vault 스키마 변경 (harness는 vault 위에 얹히는 별도 계층)<br>N3 승인 정책 완화 — 오히려 kind별로 세분화<br>N4 morpheus CLI/설정 키 호환성 파괴 (<code>nightly</code> 별칭 포함 유지)</p></div>
+</div>
+
+<h3 id="s4-2">4.2 데이터 모델</h3>
+<pre><code>~/.birkin/harness/
+  harness_state.json        # global
+  refinements.jsonl         # append-only 이력
+~/.birkin/sessions/&lt;sid&gt;/harness/harness_state.json   # local (세션 스코프)</code></pre>
+<pre><code>{
+  "schema": 1,
+  "entries": {
+    "prompt":   { "&lt;id&gt;": Entry },
+    "memory":   { "&lt;id&gt;": Entry },
+    "skill":    { "&lt;id&gt;": Entry },
+    "subagent": { "&lt;id&gt;": Entry }
+  },
+  "refinements": [ Event, ... ]      // 최근 N개만 인메모리, 전량은 jsonl
+}
+
+Entry = {
+  "id": "always_check_git_status",
+  "kind": "prompt",
+  "title": "커밋 전 git status 확인",
+  "content": "커밋 명령 전에 항상 git status로 스테이징 상태를 확인한다.",
+  "path": "workflow/git",           // 그룹핑용 (프롬프트 렌더 시 섹션)
+  "scope": "global",                // local | global
+  "reference": {},                  // skill이면 {"skill":"&lt;name&gt;","path":"skills/..."}
+  "arguments": {},                  // skill 입력 계약
+  "metadata": {"origin":"morpheus","session":"auto__2026-08-06"},
+  "source": "morpheus",             // morpheus | turn-review | manual
+  "created_at": "2026-08-06T04:00:11Z",
+  "updated_at": "2026-08-07T04:00:09Z",
+  "version": 3
+}
+
+Event = {
+  "id": "rf_20260807_040009",
+  "trigger": "3연속 pytest 실패에서 동일한 fixture 누락 관측",
+  "changes": ["create prompt:always_check_git_status", "update memory:project_test_layout"],
+  "evidence": "세션 auto__2026-08-06 3회 반복 (근거 인용 최대 400자)",
+  "outcome":  "다음 테스트 작업에서 fixture 누락 재발 시 이 엔트리를 무효로 판단",
+  "applied":  [ {edit, before, after, applied:true} , {edit, applied:false, error:"..."} ],
+  "created_at": "2026-08-07T04:00:09Z"
+}</code></pre>
+<div class="box">
+<h4>vault와의 관계 — 중복이 아니다</h4>
+<p><code>kind:"memory"</code> 엔트리는 <strong>사실 본문을 복제하지 않는다</strong>. 본문은 여전히 vault 노트에 있고,
+harness 엔트리는 <code>reference: {"note": "&lt;노트 제목&gt;"}</code>와 한 줄 요지만 갖는다.
+harness는 “무엇을 왜 배웠고 되돌릴 수 있는가”의 원장이고, vault는 지식 본체다.
+skill도 같다 — 파일은 <code>skills/</code>에, 원장은 harness에.</p>
+</div>
+
+<h3 id="s4-3">4.3 제안 계약</h3>
+<p>야간 패스와 턴 리뷰 모두 <strong>도구를 직접 호출하지 않고</strong> 이 JSON 하나를 반환한다.</p>
+<pre><code>{
+  "summary": "한 문장",
+  "rationale": "궤적의 어떤 증거가 이 편집들을 정당화하는가",
+  "expectedOutcome": "무엇이 좋아져야 하며 어떻게 검증하는가",
+  "edits": [
+    {"action":"create","kind":"prompt","title":"...","content":"...",
+     "path":"workflow/git","reason":"3회 반복 관측"},
+    {"action":"update","kind":"memory","id":"project_test_layout",
+     "content":"...","reason":"레이아웃이 tests/unit 으로 이동"},
+    {"action":"delete","kind":"skill","id":"stale_deploy_helper",
+     "reason":"90일 미사용 + 대체 스킬 존재"}
+  ]
+}</code></pre>
+<p><strong>검증 규칙</strong> (적용 전 Python이 수행, LLM 신뢰 없음):</p>
+<ul>
+<li><code>action ∈ {create,update,delete}</code>, <code>kind ∈ 4종</code> — 아니면 그 편집만 거부.</li>
+<li><code>create</code>: <code>title</code>·<code>content</code> 필수, <code>id</code>는 <code>slug(title)</code>로 생성.</li>
+<li><code>update/delete</code>: <code>id</code> 필수, 존재해야 함.</li>
+<li><code>content</code> 길이 상한(예: 2,000자) — 프롬프트 예산 보호.</li>
+<li>한 제안의 편집 수 상한(예: 12) — 야간 폭주 방지.</li>
+<li><code>kind:"prompt"</code>의 <code>content</code>에 <code>_IDENTITY</code>/정책 태그 문자열이 포함되면 거부 (프롬프트 탈취 차단).</li>
+</ul>
+
+<h3 id="s4-4">4.4 적용 알고리즘</h3>
+<pre><code>def apply(state, proposal, *, baseline, scope, rid):
+    applied = []
+    touched = set()
+    for edit in proposal["edits"][:MAX_EDITS]:
+        err = validate(edit)                      # 4.3 규칙
+        if err: applied.append(fail(edit, err)); continue
+
+        records = state["entries"][edit["kind"]]
+        eid     = edit.get("id") or slug(edit["title"])
+        before  = deepcopy(records.get(eid))
+        base    = baseline["entries"][edit["kind"]].get(eid)
+
+        # 낙관적 동시성: 계획 이후 누군가 바꿨으면 이 편집만 포기
+        if eid not in touched and before != base:
+            applied.append(fail(edit, "entry changed during planning")); continue
+
+        if edit["action"] == "delete":
+            if not before: applied.append(fail(edit, "entry not found")); continue
+            del records[eid]
+        else:
+            if edit["action"] == "create" and before:
+                applied.append(fail(edit, "entry already exists")); continue
+            if edit["action"] == "update" and not before:
+                applied.append(fail(edit, "entry not found")); continue
+            records[eid] = merge_entry(before, edit, scope=scope,
+                                       version=(before["version"]+1 if before else 1))
+        touched.add(eid)
+        applied.append(ok(edit, before, records.get(eid)))
+
+    event = make_event(rid, proposal, applied)
+    state["refinements"].append(event)
+    with store.file_lock(STATE_PATH):             # store.py:63 재사용
+        store._write_json(STATE_PATH, state)      # store.py:25 원자적 쓰기
+        append_jsonl(HISTORY_PATH, event)
+    return event</code></pre>
+<p><strong>부분 실패는 정상 경로다.</strong> 12개 중 3개가 거부돼도 나머지 9개는 적용되고, 거부 사유는 이력에 남아 다음 패스의 입력이 된다.</p>
+
+<h3 id="s4-5">4.5 롤백</h3>
+<pre><code>birkin harness history                 # rf_20260807_040009  create prompt:... (+2)
+birkin harness show rf_20260807_040009 # 편집별 before/after diff
+birkin harness rollback rf_20260807_040009</code></pre>
+<pre><code>def rollback(rid):
+    ev = find_event(rid)
+    inv = []
+    for e in reversed(ev["applied"]):              # 역순
+        if not e["applied"]: continue
+        if e["before"] is None:                    # create 였음
+            inv.append({"action":"delete","kind":e["kind"],"id":e["id"]})
+        elif e["after"] is None:                   # delete 였음
+            inv.append({"action":"create", **entry_fields(e["before"])})
+        else:                                      # update 였음
+            inv.append({"action":"update", **entry_fields(e["before"])})
+    return apply(load(), {"summary": f"rollback of {rid}", "rationale": "...",
+                          "expectedOutcome":"이전 상태 복원", "edits": inv},
+                 baseline=load(), scope=ev["scope"], rid=new_id(rollback_of=rid))</code></pre>
+<p>롤백 자체도 하나의 refinement 이벤트로 기록된다(<code>rollback_of</code> 필드). 롤백의 롤백도 같은 메커니즘으로 성립한다.</p>
+<div class="box warn">
+<h4>부수효과 롤백의 한계 — 명시적 비목표</h4>
+<p>harness 엔트리는 되돌려도 <strong>vault 노트 본문과 스킬 파일은 자동 복원되지 않는다</strong>.
+v2 P1 범위에서는 롤백 시 “연결된 vault 노트 N개 / 스킬 파일 M개가 영향받았다”를 <em>보고</em>하고,
+노트 복원은 사용자에게 맡긴다. 완전 복원은 P5의 스냅샷 확장 과제로 분리한다 —
+어설픈 자동 복원이 사용자가 낮에 손으로 고친 내용을 덮어쓰는 것이 더 나쁘기 때문이다.</p>
+</div>
+
+<h3 id="s4-6">4.6 트리거 설계</h3>
+<table>
+<thead><tr><th>트리거</th><th>조건</th><th>스코프</th><th>승인</th><th>배선</th></tr></thead>
+<tbody>
+<tr><td>야간</td><td><code>morpheus_hour/minute</code> (기본 04:00)</td><td>global</td><td>kind별 정책</td><td class="src">scheduler.py:162 → morpheus.run_once</td></tr>
+<tr><td>세션 중</td><td><code>harness_turn_interval</code> 턴 경과 <strong>AND</strong> 쿨다운 경과 <strong>AND</strong> LLM 게이트 통과</td><td>local</td><td>자동(로컬 한정)</td><td class="src">runtime.py:262-302</td></tr>
+<tr><td>압축 시</td><td>compaction 발생 시 1회 심사</td><td>local</td><td>자동</td><td class="src">compaction.py:218</td></tr>
+<tr><td>명시</td><td><code>birkin harness refine [--global] [지시문]</code></td><td>지정</td><td>kind별 정책</td><td class="src">cli.py:869 서브파서</td></tr>
+</tbody>
+</table>
+<h4>LLM 증거 게이트</h4>
+<pre><code>system: 너는 birkin의 harness 정련 심사 게이트다. 이 체크포인트에서 정련을
+        실행할지 판단하라. 일회성 잡음, 근거 없는 가설, 일시적 도구 실패는 기각한다.
+        JSON만 반환: {"shouldRefine":bool,"rationale":"...","instructions":"..."}
+user:   &lt;trigger&gt;{reason}; {turns}턴 경과&lt;/trigger&gt;
+        &lt;harness_overview&gt;...&lt;/harness_overview&gt;
+        &lt;recent_refinements&gt;...&lt;/recent_refinements&gt;
+        &lt;&lt;&lt;BEGIN UNTRUSTED DATA&gt;&gt;&gt;{대화 최근 슬라이스}&lt;&lt;&lt;END UNTRUSTED DATA&gt;&gt;&gt;</code></pre>
+<p>심사 비용은 <code>max_tokens</code> 1,024로 묶는다(본 정련은 8,192). 게이트가 기각하면
+<code>store.save_run("harness-review", "skip: ...")</code>만 남기고 종료 — 이것도 다음 게이트의 입력이 된다.</p>
+
+<h3 id="s4-7">4.7 승인 · 보안 정책</h3>
+<table>
+<thead><tr><th>kind</th><th>action</th><th>기본 정책</th><th>이유</th></tr></thead>
+<tbody>
+<tr><td><code>memory</code></td><td>create/update</td><td>자동 (기존 <code>auto_approve</code> 유지)</td><td>되돌릴 수 있는 로컬 파일</td></tr>
+<tr><td><code>memory</code></td><td>delete</td><td>거부 → <code>_archive</code> rezone으로 강등</td><td>기존 “절대 삭제 금지” 원칙 승계 <span class="src">morpheus.py:34</span></td></tr>
+<tr><td><code>skill</code></td><td>create/update</td><td>자동</td><td>기존 정책과 동일</td></tr>
+<tr><td><code>skill</code></td><td>delete</td><td>curator 아카이브로 강등</td><td class="src">curator.py:73 _archive_skill_dir</td></tr>
+<tr><td><code>prompt</code></td><td>전부</td><td><strong>승인 필요</strong> (<code>approvals.propose(category="prompt")</code>)</td><td>에이전트 행동을 직접 바꾸는 최고 위험 kind</td></tr>
+<tr><td><code>subagent</code></td><td>전부</td><td><strong>승인 필요</strong></td><td>위임 스펙은 실행 권한 확대와 직결</td></tr>
+</tbody>
+</table>
+<h4>보안 불변식</h4>
+<ol>
+<li><strong>기본 프롬프트 불가침</strong>: <code>_IDENTITY</code>, <code>UI_COMPONENT_POLICY</code>, <code>RESEARCH_EVIDENCE_POLICY</code>는 harness가 접근 불가. 렌더 후 <code>prompts.py:102 seal_research_policy</code>와 동일한 방식으로 검증.</li>
+<li><strong>UNTRUSTED-DATA 유지</strong>: 궤적·로그·vault 내용은 전부 마커로 감싼다. 제안 JSON의 <code>content</code>는 <em>모델 출력</em>이지 수집 데이터가 아니므로 별도 sanitize(제어문자·마커문자열 제거)를 거친다.</li>
+<li><strong>무인 최소권한 유지</strong>: 야간 경로의 도구 레지스트리는 그대로 <code>{files, web, skills, memory}</code>. harness 쓰기는 도구가 아니라 <strong>호스트 Python</strong>이 한다 → 도구 표면이 늘지 않는다.</li>
+<li><strong>편집 예산</strong>: 한 제안 최대 12편집 · 엔트리 본문 2,000자 · 총 harness 20,000자. 초과 시 오래된 저가치 엔트리부터 <code>_archive</code>.</li>
+</ol>
+
+<h3 id="s4-8">4.8 프롬프트 주입</h3>
+<pre><code>## Harness (자가개선 상태)
+아래는 요약이다. 라우팅 힌트로 쓰고 상세가 필요하면 조회하라.
+
+### 행동 노트 (prompt)
+- [global] 커밋 전 git status 확인 — 커밋 명령 전에 항상 …            (v3)
+- [local]  이 작업은 tests/unit 레이아웃을 쓴다 …                      (v1)
+
+### 알고 있는 사실 (memory) → 상세는 vault
+- 프로젝트 테스트 레이아웃 · 사용자 배포 선호 · …
+
+### 사용 가능한 위임 역할 (subagent)
+- doc-auditor: 문서-코드 일치 감사. 릴리스 전 또는 문서 대량 변경 시 호출.
+
+### 최근 정련 (5)
+- rf_20260807_040009 3연속 pytest 실패 → create prompt:always_check_git_status
+  기대: fixture 누락 재발 시 이 엔트리를 무효로 판단</code></pre>
+<p><strong>예산</strong>: kind당 6엔트리, 본문 180자, 이력 5개 — prime-agent 기본값과 동일하게 출발하고
+실측 후 조정한다 <span class="src">refinement.ts:26, 429</span>. 렌더는 <code>prompts.py:112</code>의 <code>memory_block</code> 직후 슬롯.</p>
+<p><strong>루프 완성</strong>: 최근 정련의 <code>expectedOutcome</code>이 프롬프트에 보이므로,
+다음 패스는 “지난번 기대가 충족됐는가”를 평가하고 실패한 엔트리를 <code>update</code>하거나 <code>rollback</code>할 수 있다. D8 해소.</p>
+
+<h3 id="s4-9">4.9 설정 키 / CLI</h3>
+<pre><code># config.py DEFAULTS 추가 (기존 키는 전부 유지)
+"harness_enabled":        True,
+"harness_turn_interval":  12,      # 세션 중 심사 최소 턴 간격 (skill_nudge_interval=3 보다 크게)
+"harness_cooldown_min":   15,      # 심사 쿨다운(분)
+"harness_compact_review": True,    # compaction 시점 심사
+"harness_max_edits":      12,
+"harness_prompt_budget":  20000,   # harness 블록 총 문자 예산
+"harness_auto_approve":   ["memory", "skill"],   # prompt/subagent 는 승인 필요</code></pre>
+<pre><code>birkin harness show [--scope local|global]
+birkin harness history [-n 20]
+birkin harness refine [--global] ["집중할 관찰"]
+birkin harness rollback &lt;refinement-id&gt;
+birkin harness export &lt;path&gt;          # 감사/이식용
+birkin morpheus [--dry-run]           # 기존 그대로 (내부적으로 harness 제안 경로 사용)</code></pre>
+<p>슬래시 커맨드는 <code>slashcommands.py:377</code>의 <code>reflect_and_learn</code> 호출 지점 옆에 <code>/refine</code>을 추가한다.</p>
+
+<h3 id="s4-10">4.10 단계별 실행 계획</h3>
+<table>
+<thead><tr><th>단계</th><th>산출물</th><th>검증</th><th>해소되는 결함</th></tr></thead>
+<tbody>
+<tr><td><strong>P1</strong> 상태 계층</td><td><code>harness.py</code> (load/save/apply/rollback/render) + <code>birkin harness show|history|rollback</code></td><td>단위 테스트: 낙관적 동시성 거부, 부분 실패, 롤백 왕복, 손상 JSON → empty 강등</td><td>D1 D2</td></tr>
+<tr><td><strong>P2</strong> 야간 제안화</td><td>Morpheus가 도구 직접 호출 대신 제안 JSON 반환 → <code>harness.apply</code></td><td><code>birkin morpheus --dry-run</code>이 적용 없이 제안 diff를 출력. codex-cli에서도 저장 성립 확인</td><td>D7 D9</td></tr>
+<tr><td><strong>P3</strong> 프롬프트 주입</td><td><code>prompts.py</code> harness 슬롯 + 정책 봉인 검증</td><td>프롬프트 스냅샷 테스트: identity/정책 블록 무결, 예산 초과 시 절삭</td><td>D3 D8</td></tr>
+<tr><td><strong>P4</strong> 세션 중 트리거</td><td>턴 리뷰 스레드를 harness 심사로 승격 + 쿨다운 + compaction 훅</td><td>턴 간격/쿨다운/게이트 기각 경로 테스트, 스레드 중복 실행 없음</td><td>D5</td></tr>
+<tr><td><strong>P5</strong> 스코프 · subagent · 위생</td><td>local/global 분리, <code>subagent</code> kind, 예산 초과 아카이브, 스케줄 claim</td><td>스코프 병합/접두사, moirai 역할 승격 왕복, 데몬 재시작 이중 실행 없음</td><td>D4 D6</td></tr>
+</tbody>
+</table>
+<p>각 단계는 독립 배포 가능하다. P1만 넣어도 “되돌릴 수 있는 자가개선”이라는 가장 큰 가치가 확보되고,
+P2까지 가면 codex-cli 사용자의 야간 패스가 처음으로 실제 저장을 하게 된다.</p>
+
+<h3 id="s4-11">4.11 리스크와 완화</h3>
+<table>
+<thead><tr><th>리스크</th><th>영향</th><th>완화</th></tr></thead>
+<tbody>
+<tr><td>harness 블록이 프롬프트를 잠식</td><td>토큰 비용 · 지시 희석</td><td>kind당 6 / 180자 / 총 20k 예산, 초과 시 저가치 순 아카이브</td></tr>
+<tr><td>자가강화 루프 (잘못된 노트가 다음 노트를 정당화)</td><td>점진적 품질 붕괴</td><td><code>expectedOutcome</code> 검증 의무화 + 게이트가 “검증에서 드러난 잘못된 엔트리”를 명시 대상으로 삼음 + 롤백</td></tr>
+<tr><td>프롬프트 인젝션으로 <code>prompt</code> kind 탈취</td><td>에이전트 행동 장악</td><td><code>prompt</code>/<code>subagent</code>는 승인 필수 + 정책 문자열 포함 시 거부 + UNTRUSTED 마커</td></tr>
+<tr><td>vault와 harness 원장 불일치</td><td>유령 엔트리</td><td>야간 위생 패스에서 참조 무결성 검사(참조 노트 없음 → 엔트리 자동 <code>_archive</code>)</td></tr>
+<tr><td>세션 중 심사 비용</td><td>대화 지연 · 요금</td><td>백그라운드 스레드 유지(기존 구조), 심사 1,024토큰 상한, 쿨다운 15분</td></tr>
+<tr><td>기존 사용자 마이그레이션</td><td>첫 실행 혼란</td><td>harness 부재 = 빈 상태로 정상 동작. 기존 vault/스킬은 건드리지 않고, 원장은 이후 편집분부터 쌓임</td></tr>
+</tbody>
+</table>
+
+<h3 id="s4-12">4.12 테스트 계획</h3>
+<table>
+<thead><tr><th>대상</th><th>테스트</th><th>실패해야 하는 이유(RED 조건)</th></tr></thead>
+<tbody>
+<tr><td><code>harness.apply</code></td><td>baseline과 다른 엔트리 편집 → <code>applied:false, error="entry changed during planning"</code></td><td>동시성 검사 제거 시 통과</td></tr>
+<tr><td><code>harness.apply</code></td><td>12개 중 3개 무효 → 9개 적용 + 3개 error, 상태 파일은 1회만 쓰임</td><td>전체 실패로 처리하면 실패</td></tr>
+<tr><td><code>harness.rollback</code></td><td>create+update+delete 혼합 적용 후 롤백 → 원본과 <code>==</code></td><td>역순 반전 누락 시 실패</td></tr>
+<tr><td><code>harness.load</code></td><td>깨진 JSON / 배열 / 빈 파일 → empty 상태, 예외 없음</td><td>throw 시 실패</td></tr>
+<tr><td>제안 검증</td><td><code>kind:"prompt"</code> content에 정책 태그 문자열 → 거부</td><td>탈취 방어 제거 시 통과</td></tr>
+<tr><td>프롬프트 렌더</td><td>identity/정책 블록 바이트 동일성 + 예산 초과 절삭</td><td>harness가 정책 뒤로 새면 실패</td></tr>
+<tr><td>트리거</td><td>턴 &lt; interval, 쿨다운 내, 게이트 기각 3경로 각각 미실행</td><td>게이트 무시 시 실패</td></tr>
+<tr><td>승인 라우팅</td><td><code>prompt</code> 편집 → <code>approvals.propose</code> 큐잉, <code>memory</code> → 즉시 적용</td><td>kind 무시 시 실패</td></tr>
+<tr><td>야간 회귀</td><td><code>birkin morpheus --dry-run</code>이 상태 파일을 쓰지 않음</td><td>dry-run 누수 시 실패</td></tr>
+</tbody>
+</table>
+<p class="src" style="margin-top:14px">
+테스트 위치: <code>birkin/tests/test_harness.py</code> (신규), <code>birkin/tests/test_morpheus_*.py</code> 확장.
+기존 <code>birkin/tests/test_config_defaults_stay_live.py</code> 패턴에 맞춰 새 설정 키의 기본값 회귀도 추가한다.
+</p>
+</section>
+
+<section id="s5">
+<h2>5. 근거 표</h2>
+<p>이 문서의 모든 구조적 주장이 어느 소스에서 나왔는지의 색인이다.</p>
+
+<h3>prime-agent — <code>packages/coding-agent/</code></h3>
+<table>
+<thead><tr><th>파일:줄</th><th>확인한 내용</th></tr></thead>
+<tbody>
+<tr><td class="src">src/core/refinement/refinement.ts:24-26</td><td><code>harness</code> 디렉터리명, <code>refinements.jsonl</code>, 개요 엔트리 한도 6</td></tr>
+<tr><td class="src">refinement.ts:30</td><td><code>RefinementKind = prompt|memory|skill|subagent</code></td></tr>
+<tr><td class="src">refinement.ts:34</td><td><code>HarnessEntry</code> 전체 필드 (version 포함)</td></tr>
+<tr><td class="src">refinement.ts:50</td><td><code>HarnessRefinementEvent{trigger, changes, evidence, outcome}</code></td></tr>
+<tr><td class="src">refinement.ts:59</td><td><code>HarnessState{schema, entries, refinements}</code></td></tr>
+<tr><td class="src">refinement.ts:78</td><td><code>RefinementProposal{summary, rationale, edits, expectedOutcome}</code></td></tr>
+<tr><td class="src">refinement.ts:193-194</td><td>출력 예산 32,000 / 심사 4,096, <code>Math.min(model.maxTokens, …)</code></td></tr>
+<tr><td class="src">refinement.ts:281</td><td><code>loadHarnessState</code> 손상 시 빈 상태 강등</td></tr>
+<tr><td class="src">refinement.ts:326</td><td><code>mergeHarnessStates</code> local/global 접두사</td></tr>
+<tr><td class="src">refinement.ts:345</td><td><code>saveHarnessState</code></td></tr>
+<tr><td class="src">refinement.ts:429</td><td><code>formatHarnessStateForPrompt</code> 한도와 안내 문구</td></tr>
+<tr><td class="src">refinement.ts:707, 737</td><td><code>applyRefinementProposal</code>, 낙관적 동시성 거부 메시지</td></tr>
+<tr><td class="src">refinement.ts:804</td><td><code>rollbackProposal</code> 역순 반전</td></tr>
+<tr><td class="src">refinement.ts:949</td><td><code>reviewAutoRefine</code> 게이트, 대화 40,000자 슬라이스</td></tr>
+<tr><td class="src">refinement.ts:1000</td><td><code>refineHarness</code> = plan → apply</td></tr>
+<tr><td class="src">src/core/settings-manager.ts:23</td><td><code>AutoRefineSettings</code> 기본값 (true / 25턴 / compact true / 20분)</td></tr>
+<tr><td class="src">src/core/system-prompt.ts:39, 106</td><td><code>buildSystemPrompt</code>와 harness 블록 주입 위치</td></tr>
+<tr><td class="src">src/core/agent-session.ts:2221</td><td><code>_runSerializedRefineCheckpoint</code> (헤드리스 동기 실행)</td></tr>
+<tr><td class="src">agent-session.ts:3510</td><td><code>_assistantTurnsSinceAutoRefine++</code></td></tr>
+<tr><td class="src">agent-session.ts:7255, 7371, 7388, 7430</td><td>스케줄 → <code>_maybeAutoRefine</code> → 게이트 사슬</td></tr>
+<tr><td class="src">skills/refine/SKILL.md · src/refine/__init__.py</td><td><code>refine.status()/run()</code>, <code>rlm.host_request</code>, 턴 종료 시 적용</td></tr>
+<tr><td class="src">docs/rlm.md</td><td>단일 <code>ipython</code> 도구, <code>rlm()</code> 핸들 반환, 호스트 브리지, 신뢰 모델</td></tr>
+<tr><td class="src">docs/long-running-agents.md</td><td>데몬 워커, <code>agent_message</code>, 하트비트 3종, tick claim, 지속 목표</td></tr>
+</tbody>
+</table>
+
+<h3>Birkin — <code>birkin/birkin/</code></h3>
+<table>
+<thead><tr><th>파일:줄</th><th>확인한 내용</th></tr></thead>
+<tbody>
+<tr><td class="src">morpheus.py:34</td><td><code>_MORPHEUS_TASK</code> — 메모리/스킬/제안 3단 지시 + UNTRUSTED-DATA 마커</td></tr>
+<tr><td class="src">morpheus.py:96, 108</td><td>curator 리포트, 메모리 상태(최근/스테일) 수집</td></tr>
+<tr><td class="src">morpheus.py:135, 151</td><td>24h 세션 수집(20k자 캡), mtime 기반 변경 파일 walk</td></tr>
+<tr><td class="src">morpheus.py:180, 189</td><td>야간 시스템 프롬프트, <code>run_once</code> 진입점과 <code>cli_access</code> 강등</td></tr>
+<tr><td class="src">morpheus.py:258</td><td>Claude+MCP 경로: <code>Read/Glob/Grep + mcp__birkin__*</code>, <code>permission_mode="default"</code></td></tr>
+<tr><td class="src">morpheus.py:315</td><td>일반 경로: <code>build_registry(include={files,web,skills,memory})</code>, codex-cli 저장 불능 경고</td></tr>
+<tr><td class="src">morpheus.py:402, 427</td><td>다이제스트 전달(<code>[SILENT]</code> 규약), <code>propose_action</code> 도구</td></tr>
+<tr><td class="src">selfimprove.py:37, 114, 132</td><td>JSON 리뷰 계약, 코드펜스 파서, <code>review_cli_turn</code> → <code>approvals.propose</code></td></tr>
+<tr><td class="src">selfimprove.py:81</td><td><code>reflect_and_learn</code> (도구 제한 반성 패스)</td></tr>
+<tr><td class="src">runtime.py:262-302</td><td>턴 후 스킬 리뷰 스레드, 간격/중복 실행 방지/결과 <code>save_run</code></td></tr>
+<tr><td class="src">approvals.py:26, 40, 214</td><td><code>is_auto</code> / <code>propose</code> / <code>approve</code></td></tr>
+<tr><td class="src">curator.py:29, 30, 73, 85</td><td>30일 스테일 / 90일 아카이브 / 아카이브 이동 / <code>curate</code></td></tr>
+<tr><td class="src">store.py:25, 63, 137</td><td>원자적 JSON 쓰기, 파일 락, <code>save_run</code></td></tr>
+<tr><td class="src">prompts.py:102, 112</td><td>정책 봉인, <code>build_system_prompt</code> 슬롯 순서</td></tr>
+<tr><td class="src">memory.py:48, 65, 146, 347</td><td>노트 락, <code>VaultMemory</code>, <code>write_note</code>, <code>rezone</code></td></tr>
+<tr><td class="src">scheduler.py:162, 198, 327</td><td><code>_next_morpheus</code>, 데몬 루프, OS 스케줄 설치</td></tr>
+<tr><td class="src">cli.py:250, 869, 880</td><td><code>_cmd_morpheus</code>, 서브파서 등록, <code>daemon</code> 파서</td></tr>
+<tr><td class="src">config.py:90, 132, 135, 234, 246</td><td><code>moirai_roles</code>, <code>self_improve</code>, <code>skill_nudge_interval</code>, <code>morpheus_hour</code>, <code>auto_approve</code></td></tr>
+<tr><td class="src">compaction.py:218</td><td>compaction이 <code>selfimprove.transcript_from_messages</code> 사용 — 심사 훅 지점</td></tr>
+<tr><td class="src">ledger.py:53, 68, 82</td><td>이벤트/사용량/최근 조회 (원장 확장 지점)</td></tr>
+</tbody>
+</table>
+
+<footer>
+  검증 방법 — prime-agent는 <code>main</code> 브랜치 얕은 클론을 로컬에서 직접 읽어 라인 번호를 확인했고,
+  Birkin은 작업 트리의 실제 파일을 읽었다. 문서에 인용된 모든 줄 번호는 기계적으로 재확인된 값이다.
+  RLM/장기실행 절의 서술적 주장은 저장소 문서(<code>docs/rlm.md</code>, <code>docs/long-running-agents.md</code>)에 근거한다.
+</footer>
+</section>
+</main>
+</div>
+</body>
+</html>

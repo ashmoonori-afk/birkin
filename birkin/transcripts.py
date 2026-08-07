@@ -34,7 +34,7 @@ import hashlib
 import re
 import threading
 import time
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
 
@@ -148,6 +148,42 @@ def append_turn(channel: str, chat_id: str, user_text: str, reply_text: str,
         return path
     except Exception:
         return None
+
+
+def read_recent(channel: str, chat_id: str, *, max_turns: int = 12,
+                max_chars: int = 6000) -> str:
+    """Last saved turns for one conversation (yesterday + today), as plain text.
+
+    This is the read-back side of :func:`append_turn`: a freshly (re)started
+    gateway seeds its first turn with this tail so the conversation survives a
+    process restart. Best-effort — any trouble reads as "no history" (an empty
+    string) rather than breaking the chat path.
+    """
+    try:
+        messages: list[dict[str, Any]] = []
+        now = datetime.now(timezone.utc)
+        for day in ((now - timedelta(days=1)).strftime("%Y%m%d"),
+                    now.strftime("%Y%m%d")):
+            path = (config.sessions_dir()
+                    / f"{auto_stem(channel, chat_id, day=day)}.json")
+            data = store._read_json(path, [])
+            if isinstance(data, list):
+                messages.extend(m for m in data if isinstance(m, dict))
+        if max_turns > 0:
+            messages = messages[-max_turns * 2:]
+        lines: list[str] = []
+        for msg in messages:
+            role = "사용자" if msg.get("role") == "user" else "birkin"
+            for part in msg.get("content") or []:
+                text = str((part or {}).get("text") or "").strip()
+                if text:
+                    lines.append(f"{role}: {text}")
+        text = "\n".join(lines)
+        if max_chars > 0 and len(text) > max_chars:
+            text = text[-max_chars:]
+        return text
+    except Exception:
+        return ""
 
 
 def _maybe_enforce_retention(cfg: dict[str, Any]) -> None:

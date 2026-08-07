@@ -389,7 +389,13 @@ birkin gateway            # HTTP + (선택) Telegram, 따뜻하고 영속적으�
 생성한 파일을 보내 달라고 명시하면 로컬 경로만 말하는 대신 작업공간 파일을
 Telegram 문서로 업로드합니다. 내부 첨부 표식은 스트리밍 채팅에 노출되지 않고,
 대용량 파일은 읽기 전에 거부되며, 텍스트나 문서 전송 실패는 outbox에 남아
-재시작 때 다시 시도됩니다.
+재시작 때 다시 시도됩니다. 첨부 경로는 게이트웨이 자체 cwd뿐 아니라 설정된
+모든 `workspace_roots`(에이전트가 실제로 파일을 쓰는 폴더) 기준으로 해석되며,
+그 밖의 경로는 여전히 거부됩니다. 게이트웨이를 재시작하면 각 대화의 첫
+메시지에 저장된 대화 기록 꼬리를 자동으로 붙여 재시작 전 내용을 기억합니다
+(`/new`를 쓰면 완전히 새로 시작). 채팅 하트비트는 분 카운터만이 아니라
+작업 단계("조사 중", "할 일 3/7: …")를 함께 보여 주며, 승인된 장기 작업
+턴에서도 동일하게 동작합니다.
 
 ### 약속한 것의 사후 관리 (Companion)
 
@@ -605,6 +611,8 @@ quality/**model-compare** — 그리고 `~/.birkin/skills/`의 내 스킬(같은
   "gateway_polish_provider": "claude-cli",
   "gateway_polish_model": "sonnet",
   "gateway_persistent": true,
+  "cli_timeout": 900,
+  "workspace_roots": ["/path/to/primary-workspace"],
   "autosave_transcripts": true,
   "neurosis_auto": true,
   "morpheus_hour": 4,
@@ -627,6 +635,14 @@ quality/**model-compare** — 그리고 `~/.birkin/skills/`의 내 스킬(같은
   "lsp_servers": {},
   "a2a_enabled": false,
 
+  "harness_enabled": true,
+  "harness_turn_interval": 12,
+  "harness_cooldown_min": 15,
+  "harness_compact_review": true,
+  "harness_max_edits": 12,
+  "harness_prompt_budget": 20000,
+  "harness_auto_approve": ["memory", "skill"],
+
   "channels": {
     "http": {"enabled": true},
     "telegram": {"enabled": false, "token": "", "allowed_chat_ids": []}
@@ -638,6 +654,35 @@ quality/**model-compare** — 그리고 `~/.birkin/skills/`의 내 스킬(같은
 도구 없는 별도 모델이 윤문합니다. 기본 Claude 경로는 모든 숫자와 URL이
 보존될 때만 윤문본을 채택하며, 인증 실패나 사실 누락 시 원문으로 되돌아갑니다.
 `claude auth status`가 `loggedIn: true`여야 합니다.
+
+Telegram 장기 작업 제안은 escape된 HTML 카드와 명확한 승인/거부 버튼 한 줄로
+표시됩니다. 내부 제안 envelope와 JSON은 사용자 메시지로 노출하지 않습니다.
+
+Codex 영구 게이트웨이는 `workspace_roots`에서 실제로 존재하는 첫 항목을
+프로세스 cwd이자 `workspace-write` sandbox root로 사용합니다. 주 작업 폴더를
+맨 앞에 두세요. Windows에서 사용자 프로필 루트를 root로 쓰면 Codex sandbox가
+PowerShell, Git Bash, Kaggle CLI 자식을 만들 때마다
+`SetTokenInformation(TokenDefaultDacl) failed: 1344`로 실패할 수 있습니다.
+`cli_timeout`은 multi-agent child turn을 포함한 현재 대화 thread에서 검증된
+lifecycle 또는 delta 활동 이후의 idle 시간이며, 무관한 app-server status
+알림은 제한을 연장하지 않습니다. Codex가 turn을 수락한 뒤 item을 하나도
+보내지 않으면 긴 idle 제한을 기다리지 않고 120초에 중단합니다. 시작된 item은
+완료 event나 agent message 수를 부풀리지 않고 server log의
+`active: reasoning`, Telegram의 `추론 중`으로 따로 표시됩니다. Child-turn
+item은 parent의 생존 신호로만 쓰며 최종 답변은 parent turn에서만 가져옵니다.
+게이트웨이 시작 시 Moirai 저널을 마이그레이션하고 이전 프로세스가
+`running`으로 남긴 run/call을 `stale`로 정리합니다. 실패한 agent call의
+traceback, role, label, phase, reason은 `calls`와
+`runs.result_json.failures`에 보존됩니다. `CodexTurnTimeout`은 경과 시간,
+partial 길이, 마지막 event 종류, event 수를 `incidents` 행에 기록합니다.
+gateway stdout/stderr 모든 줄에는 UTC timestamp가 붙고, timeout turn도
+자가개선 recorder로 들어가며 review 입력은 최근 failed call과 gateway
+incident를 포함합니다.
+Codex가 명확한
+Trusted Access for Cyber 가입 차단을 반환하면 Birkin은 공개 대회 이름,
+주최자가 제공한 자산, 로컬 workspace로 범위를 제한해 한 번만 재시도합니다.
+두 번째 차단은 그대로 반환하며 실제 시스템, 자격증명, 사용자, production
+service로 권한 범위를 넓히지 않습니다.
 
 두 번째 블록이 신뢰성·안전 레이어입니다: 오버플로 전 자동 요약, 프로바이더
 페일오버, 파괴 명령 게이트, `/rollback`용 워크스페이스 스냅샷, 라이프사이클 훅,
@@ -671,6 +716,52 @@ quality/**model-compare** — 그리고 `~/.birkin/skills/`의 내 스킬(같은
 `X-Birkin-Token` 뒤에 있고, 카드 자체는 인증이 없습니다 — 상대는 토큰을 받기
 전에 카드를 읽어야 하고, 카드에는 비밀이 없습니다. 상대의 작업은 일회성
 세션으로 돌아서 당신이 하던 대화에 끼어들지 않습니다.
+
+### 지속 하네스 (continual harness)
+
+자기개선은 더 이상 눈감고 쓰는 쓰기가 아닙니다. Morpheus와 세션 중 리뷰는
+*제안*(요약, 근거, 기대 결과, 편집 목록)을 내놓고, 하네스가 그것을 검증하고
+적용한 뒤 무엇을 했는지 `~/.birkin/harness/` 아래 버전이 붙은 원장에 남깁니다.
+
+추적하는 엔트리는 네 종류입니다: **`prompt`**(보충 행동 노트), **`memory`**,
+**`skill`**, **`subagent`**(재사용 가능한 위임 스펙). 각 엔트리는 `version`과
+`updated_at`을 갖고, 적용된 모든 제안은 건드린 것들의 `before` 상태와 함께
+`refinements.jsonl`에 덧붙습니다 — 그래서 모든 변경은 설계상 *되돌릴 수 있는
+refinement*입니다. 백업이 있기를 바라는 게 아닙니다.
+
+무엇이 묻지 않고 적용되는지는 `harness_auto_approve`가 정합니다. `memory`와
+`skill`은 되돌릴 수 있는 로컬 파일이라 스스로 적용됩니다 — `auto_approve`가
+이미 쓰는 정책과 같습니다. `prompt`와 `subagent`는 다릅니다. *이후 모든 턴*의
+행동을 바꾸므로 `harness` 제안(승인 등급 **high**)으로 대기열에 들어가
+`birkin review`를 기다립니다.
+
+```bash
+birkin harness show                  # 현재 엔트리를 종류별로, 버전과 함께
+birkin harness show --scope local    # 세션 스코프 하네스를 대신 보기
+birkin harness history -n 20         # refinement 원장, 오래된 것부터
+birkin harness rollback <id>         # refinement 하나를 편집 단위로 되돌리기
+birkin harness export <path>         # 하네스 상태를 JSON 파일로 내보내기
+birkin harness refine                # 제안이 어디서 오는지 안내 (아래 참조)
+```
+
+`refine`은 스스로 아무것도 쓰지 않습니다. 제안은 `birkin morpheus`와 세션 중
+리뷰가 만들고, 자동 승인되지 않은 것은 `birkin review` 대기열에서 기다립니다.
+이 명령은 그 사실을 안내하고 끝냅니다 — 일하는 척하지 않습니다. 없는
+refinement id로 `rollback`하면 트레이스백이 아니라 한 줄 사유와 함께 종료
+코드 `1`을 냅니다.
+
+- **`harness_enabled`** — 마스터 스위치. 끄면 예전의 직접 쓰기 동작으로
+  돌아가고 시스템 프롬프트에 하네스 블록이 들어가지 않습니다.
+- **`harness_turn_interval`** — 세션 중 리뷰 게이트를 보기 전에 지나야 하는
+  어시스턴트 턴 수. 매 턴 게이트를 걸면 매 턴 모델 호출이 듭니다.
+- **`harness_cooldown_min`** — 리뷰가 한 번 돈 뒤의 쿨다운(분).
+- **`harness_compact_review`** — compaction 시점에도 리뷰합니다. 오래된 맥락이
+  요약돼 사라지기 직전이 그 맥락이 가르친 것을 남길 마지막 기회입니다.
+- **`harness_max_edits`** — 제안 하나가 담을 수 있는 편집 수 상한. 무인 패스가
+  한 번에 마흔 개를 "개선"하는 건 좋은 밤이 아니라 폭주입니다.
+- **`harness_prompt_budget`** — 시스템 프롬프트 안 하네스 블록의 문자 예산.
+- **`harness_auto_approve`** — 묻지 않고 적용할 종류. 나머지는 `birkin review`
+  대기열로 갑니다.
 
 위는 *기본값*이고, 디스크의 `config.json`에는 당신이 실제로 바꾼 키만 남습니다
 (중첩 섹션 안까지). 업데이트할 때 중요합니다: 모든 기본값을 그대로 적어 둔

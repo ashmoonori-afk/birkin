@@ -280,6 +280,64 @@ def _cmd_gateway(args: argparse.Namespace) -> int:
     return run()
 
 
+def _cmd_harness(args: argparse.Namespace) -> int:
+    """Read/undo/export the self-improvement ledger (harness)."""
+    from pathlib import Path
+    from . import harness
+    scope = "global" if getattr(args, "global_scope", False) else args.scope
+    target = args.target[0] if args.target else ""
+
+    if args.action == "show":
+        block = harness.render_block(harness.load(scope))
+        print(block or f"The {scope} harness is empty — nothing recorded yet. "
+                       "Run `birkin morpheus` to propose the first refinements.")
+        return 0
+
+    if args.action == "history":
+        events = harness.history(scope, limit=args.limit)
+        if not events:
+            print(f"No refinements recorded yet in the {scope} harness.")
+            return 0
+        for event in events:
+            changes = ", ".join(event.get("changes") or []) or "(nothing applied)"
+            print(f"{event.get('id')}  {event.get('created_at')}  {changes}")
+        return 0
+
+    if args.action == "rollback":
+        if not target:
+            print("rollback needs a refinement id — see `birkin harness history`.")
+            return 1
+        try:
+            event = harness.rollback(target, scope)
+        except KeyError as exc:
+            print(f"error: {exc.args[0]}")
+            return 1
+        restored = ", ".join(event.get("changes") or []) or "(nothing to undo)"
+        print(f"rolled back {target}: {restored} (recorded as {event['id']})")
+        return 0
+
+    if args.action == "export":
+        if not target:
+            print("export needs a path: `birkin harness export <path>`")
+            return 1
+        path = Path(target).expanduser()
+        try:
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text(json.dumps(harness.load(scope), indent=2,
+                                       ensure_ascii=False), encoding="utf-8")
+        except OSError as exc:
+            print(f"could not write {target}: {exc}")
+            return 1
+        print(f"wrote the {scope} harness state to {target}")
+        return 0
+
+    print("`birkin harness refine` has no proposal source of its own. Morpheus "
+          "(`birkin morpheus`) and the in-session review pass produce harness "
+          "proposals; non-auto-approved ones wait in `birkin review`. "
+          f"Nothing in the {scope} harness was changed.")
+    return 0
+
+
 # Tools grouped by "toolset" for the Available Tools panel.
 _TOOL_GROUPS = ["files", "shell", "web", "skills", "memory", "subagent"]
 
@@ -890,6 +948,22 @@ def build_parser() -> argparse.ArgumentParser:
     ap.set_defaults(func=_cmd_auth)
 
     sub.add_parser("review", help="approve/reject pending proposed actions").set_defaults(func=_cmd_review)
+
+    hp = sub.add_parser(
+        "harness",
+        help="the self-improvement ledger: show / history / rollback / export / refine")
+    hp.add_argument("action", nargs="?", default="show",
+                    choices=["show", "history", "rollback", "export", "refine"],
+                    help="what to do (default: show)")
+    hp.add_argument("target", nargs="*",
+                    help="refinement id (rollback), path (export), or instructions (refine)")
+    hp.add_argument("--scope", choices=["local", "global"], default="global",
+                    help="which harness to read (default: global)")
+    hp.add_argument("--global", dest="global_scope", action="store_true",
+                    help="force the global harness")
+    hp.add_argument("-n", "--limit", type=int, default=None,
+                    help="history: show only the last N refinements")
+    hp.set_defaults(func=_cmd_harness)
 
     sub.add_parser("update", help="pull new code from the repo (fast-forward only)").set_defaults(func=_cmd_update)
 
