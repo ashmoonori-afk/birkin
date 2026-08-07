@@ -259,7 +259,9 @@ def test_render_block_caps_entries_per_kind():
                   scope="global", rid="rf_1")
 
     block = harness.render_block(harness.load())
-    listed = [l for l in block.splitlines() if l.startswith("- ") and "Fact" in l]
+    listed = [
+        line for line in block.splitlines() if line.startswith("- ") and "Fact" in line
+    ]
     assert len(listed) == harness.RENDER_PER_KIND
 
 
