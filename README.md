@@ -594,7 +594,7 @@ rather than labeled current.
 ## 🧩 Skills
 
 A skill is a directory with a `SKILL.md` (frontmatter + markdown), compatible
-with the agentskills.io / hermes standard. **55 bundled** under
+with the agentskills.io / hermes standard. **57 bundled** under
 [`skills/`](./skills) — research, software, writing, data, devops, marketing,
 planning/**neurosis**, automation/**morpheus** · **odyssey** · **camoufox**,
 creative/**codex-image-gen**, quality/**model-compare** — plus your own under
@@ -603,6 +603,13 @@ creative/**codex-image-gen**, quality/**model-compare** — plus your own under
 `load_skill` pulls the full text on demand; `create_skill` / `improve_skill`
 route through the approval gate; `birkin skills validate` lints frontmatter and
 `py_compile`s bundled scripts; skills hot-reload on edit.
+
+`frontend-system-design` turns product, rendering, API, state, quality, and
+release constraints into reviewable decision records. The existing `debugging`
+skill now carries Birkin's reproduce → hypothesis → RED → root-cause fix →
+real-surface QA protocol. Their source audit, provenance boundary, and migration
+design are published as a self-contained
+[`HTML research report`](./docs/frontend-debug-systems-research.html).
 
 `birkin skills install` takes `owner/repo[/path]`, **a local directory**, or an
 **https URL** to a `SKILL.md`. All three land in quarantine and are scanned
@@ -865,7 +872,7 @@ available, and reverted rather than shipped on a hunch. Research log:
 
 ## 🛠️ Where birkin sits today
 
-- **55 bundled skills**, **0 runtime dependencies**, Python 3.10+.
+- **57 bundled skills**, **0 runtime dependencies**, Python 3.10+.
 - Deliberately smaller than its inspirations —
   [hermes-agent](https://github.com/NousResearch/hermes-agent) and
   [openclaw](https://github.com/openclaw/openclaw). The deep-interview lineage
@@ -901,5 +908,6 @@ If birkin is useful to you, **starring the repo** helps other people find it. �
 
 **MIT** (© 2026 ashmoonori). Use it, fork it, ship it. Portions of the bundled
 skill catalog are adapted from MIT projects — NousResearch/hermes-agent,
-openclaw, and Yeachan-Heo/gajae-code — with attribution preserved. See
+openclaw, Yeachan-Heo/gajae-code, and Devkode.io/frontend-system-design — with
+attribution preserved. See
 [`LICENSE`](./LICENSE) and [`NOTICE`](./NOTICE).

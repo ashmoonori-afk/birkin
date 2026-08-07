@@ -554,7 +554,7 @@ Birkin의 모든 에이전트 표면에는 같은 조사 계약이 적용됩니�
 ## 🧩 스킬
 
 스킬은 `SKILL.md`(frontmatter + 마크다운)를 가진 디렉터리이고 agentskills.io /
-hermes 표준과 호환됩니다. [`skills/`](./skills) 아래 **55개 번들** — research·
+hermes 표준과 호환됩니다. [`skills/`](./skills) 아래 **57개 번들** — research·
 software·writing·data·devops·marketing·planning/**neurosis**·
 automation/**morpheus**·**odyssey**·**camoufox**·creative/**codex-image-gen**·
 quality/**model-compare** — 그리고 `~/.birkin/skills/`의 내 스킬(같은 이름이면
@@ -563,6 +563,12 @@ quality/**model-compare** — 그리고 `~/.birkin/skills/`의 내 스킬(같은
 `load_skill`이 필요할 때 전문을 불러오고, `create_skill`/`improve_skill`은 승인
 게이트를 거치며, `birkin skills validate`가 frontmatter를 린트하고 번들 스크립트를
 `py_compile`합니다. 편집하면 핫리로드됩니다.
+
+`frontend-system-design`은 제품·렌더링·API·상태·품질·릴리스 제약을 검토 가능한
+결정 기록으로 바꿉니다. 기존 `debugging` 스킬은 Birkin 독자
+재현 → 가설 → RED → 근본 원인 수정 → 실제 표면 QA 프로토콜로 강화했습니다.
+출처 감사, provenance 경계, 이식 설계는 self-contained
+[`HTML 연구 보고서`](./docs/frontend-debug-systems-research.html)에 있습니다.
 
 `birkin skills install`은 `owner/repo[/path]`, **로컬 디렉터리**, `SKILL.md`를
 가리키는 **https URL**을 받습니다. 셋 다 격리(quarantine)에 들어가 거기서
@@ -808,7 +814,7 @@ top-5가 long-context 대비 **9.1×**, 볼트 전체 로딩 대비 **371×** �
 
 ## 🛠️ 현재 위치
 
-- **번들 스킬 55개**, **런타임 의존성 0**, Python 3.10+.
+- **번들 스킬 57개**, **런타임 의존성 0**, Python 3.10+.
 - 영감을 준 프로젝트들보다 의도적으로 작습니다 —
   [hermes-agent](https://github.com/NousResearch/hermes-agent),
   [openclaw](https://github.com/openclaw/openclaw). 딥 인터뷰 계보는
@@ -841,5 +847,6 @@ birkin이 쓸모 있었다면 **레포에 별(star)** 을 눌러주는 게 다�
 ## 📄 라이선스
 
 **MIT** (© 2026 ashmoonori). 쓰고, 포크하고, 배포하세요. 번들 스킬 카탈로그 일부는
-MIT 프로젝트(NousResearch/hermes-agent·openclaw·Yeachan-Heo/gajae-code)에서
-각색했고 출처를 보존했습니다. [`LICENSE`](./LICENSE)와 [`NOTICE`](./NOTICE) 참조.
+MIT 프로젝트(NousResearch/hermes-agent·openclaw·Yeachan-Heo/gajae-code·
+Devkode.io/frontend-system-design)에서 각색했고 출처를 보존했습니다.
+[`LICENSE`](./LICENSE)와 [`NOTICE`](./NOTICE) 참조.
