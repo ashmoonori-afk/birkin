@@ -1,7 +1,7 @@
 """In-session harness review — the evidence gate (design: docs/prime-agent-analysis.html §4.6).
 
-Self-improvement used to happen only at 04:00 (``morpheus_hour``), so whatever a
-long session taught was lost by morning. This module reviews *during* the
+The daily pass runs at 07:00 by default (``morpheus_hour``), but whatever a long
+session taught could otherwise be lost before then. This module reviews *during* the
 session — every N assistant turns and at compaction — behind a cheap LLM gate
 that rejects one-off noise. The gate exists for cost: a full proposal call on
 every turn is not affordable, so the caller pays one short call to decide

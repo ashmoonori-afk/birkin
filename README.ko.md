@@ -615,7 +615,8 @@ quality/**model-compare** — 그리고 `~/.birkin/skills/`의 내 스킬(같은
   "workspace_roots": ["/path/to/primary-workspace"],
   "autosave_transcripts": true,
   "neurosis_auto": true,
-  "morpheus_hour": 4,
+  "morpheus_hour": 7,
+  "morpheus_deliver_chat_id": "",
   "morpheus_provider": "",
   "auto_approve": ["memory", "skill"],
 
@@ -649,6 +650,13 @@ quality/**model-compare** — 그리고 `~/.birkin/skills/`의 내 스킬(같은
   }
 }
 ```
+
+Morpheus는 기본적으로 매일 07:00에 실행됩니다. 전체 제안 digest는
+`morpheus_deliver_chat_id`로 전송되며, 이 값이 비어 있고 Telegram 허용
+채팅이 정확히 하나라면 Birkin이 해당 채팅을 자동 선택합니다. 허용 채팅이
+없거나 여러 개라면 목적지를 명시해야 합니다. Telegram에는 요약, 근거,
+기대 결과, 변경 목록을 읽기 쉬운 제안 카드로 보내며 원본 proposal JSON은
+노출하지 않습니다.
 
 `gateway_polish_provider`를 설정하면 승인된 Telegram 장기 작업의 최종 답변을
 도구 없는 별도 모델이 윤문합니다. 기본 Claude 경로는 모든 숫자와 URL이

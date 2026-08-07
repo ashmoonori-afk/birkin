@@ -655,7 +655,8 @@ Keys you'll actually touch:
   "workspace_roots": ["/path/to/primary-workspace"],
   "autosave_transcripts": true,
   "neurosis_auto": true,
-  "morpheus_hour": 4,
+  "morpheus_hour": 7,
+  "morpheus_deliver_chat_id": "",
   "morpheus_provider": "",
   "auto_approve": ["memory", "skill"],
 
@@ -689,6 +690,13 @@ Keys you'll actually touch:
   }
 }
 ```
+
+Morpheus runs daily at 07:00 by default. Its complete proposal digest is sent
+to `morpheus_deliver_chat_id`; when that key is empty and exactly one Telegram
+chat is allowlisted, Birkin selects that chat automatically. With zero or
+multiple allowlisted chats, set the destination explicitly. Telegram receives
+a readable proposal card with summary, rationale, expected outcome, and edits;
+the raw proposal JSON is never shown.
 
 When `gateway_polish_provider` is set, approved long-running Telegram results
 receive an isolated, no-tools editorial pass. The Claude path is accepted only

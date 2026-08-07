@@ -438,7 +438,8 @@ def _cmd_permission(args: argparse.Namespace) -> int:
         if args.add in ("shell", "cron"):
             print("⚠  Warning: auto-approving '" + args.add + "' lets the agent "
                   "and the unattended nightly routine run it WITHOUT asking — "
-                  "including arbitrary shell commands at 04:00. Only do this if "
+                  "including arbitrary shell commands at the configured Morpheus "
+                  "time. Only do this if "
                   "you fully trust the setup.")
         if args.add not in auto:
             auto.append(args.add)
@@ -925,7 +926,7 @@ def build_parser() -> argparse.ArgumentParser:
     mp.set_defaults(func=_cmd_model)
 
     # `morpheus` is the canonical name (the routine is named Morpheus —
-    # Greek god of dreams — because it runs at 04:00 while you sleep).
+    # Greek god of dreams — because it runs daily while you sleep).
     # `nightly` stays as a hidden alias so muscle memory still works.
     for canonical_name, alias_help in (
             ("morpheus", "run the self-improvement routine now (Morpheus)"),

@@ -66,8 +66,8 @@ def _status_payload() -> dict[str, Any]:
         # JS / external scripts that still read the old names keep working.
         "next_morpheus": st.get("next_morpheus") or st.get("next_nightly"),
         "next_nightly": st.get("next_nightly") or st.get("next_morpheus"),
-        "morpheus_hour": cfg.get("morpheus_hour", cfg.get("nightly_hour", 4)),
-        "nightly_hour": cfg.get("morpheus_hour", cfg.get("nightly_hour", 4)),
+        "morpheus_hour": cfg.get("morpheus_hour", cfg.get("nightly_hour", 7)),
+        "nightly_hour": cfg.get("morpheus_hour", cfg.get("nightly_hour", 7)),
         "pending_count": len(approvals.reviewable_pending()),
         "heartbeat": st.get("heartbeat"),
         "budget": budget_mod.status(cfg),
