@@ -26,6 +26,7 @@ own agent loops in a child process and compact their own context.
 from __future__ import annotations
 
 import json
+import warnings
 from typing import Any, Optional
 
 # Marks a compacted-history message so a later compaction can fold it in
@@ -218,8 +219,12 @@ def _harness_checkpoint(transcript: str) -> None:
         ctx = SimpleNamespace(cfg=cfg, client=build_client(cfg, api_key),
                               skills=None)
         harness_review.review(ctx, transcript, reason="compaction")
-    except Exception:
-        pass
+    except Exception as exc:
+        warnings.warn(
+            f"birkin harness review skipped during compaction: {exc}",
+            RuntimeWarning,
+            stacklevel=2,
+        )
 
 
 def compact(client: Any, messages: list[dict[str, Any]], *,

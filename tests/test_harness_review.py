@@ -15,6 +15,8 @@ from __future__ import annotations
 import json
 import time
 
+import pytest
+
 from birkin import compaction, config, harness, harness_review
 
 INTERVAL = config.DEFAULT_CONFIG["harness_turn_interval"]
@@ -279,8 +281,9 @@ def test_a_raising_review_never_breaks_compaction(monkeypatch):
     monkeypatch.setattr(harness_review, "review", boom)
 
     msgs = _pairs(12)
-    out = compaction.compact(FakeClient(["GOAL — ship it."]), msgs,
-                             tail_budget=200)
+    with pytest.warns(RuntimeWarning, match="review exploded"):
+        out = compaction.compact(FakeClient(["GOAL — ship it."]), msgs,
+                                 tail_budget=200)
 
     assert out is not msgs                     # history was still compacted
     assert len(out) < len(msgs)
