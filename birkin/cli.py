@@ -280,6 +280,37 @@ def _cmd_gateway(args: argparse.Namespace) -> int:
     return run()
 
 
+def _cmd_voice(args: argparse.Namespace) -> int:
+    from wave import Error as WaveError
+
+    from .voice import WakeConfig, WakeGate, read_wav_mono
+
+    if not args.once:
+        print("VOICE_ERROR --once is required", file=sys.stderr)
+        return 2
+
+    try:
+        audio = read_wav_mono(args.audio)
+        decision = WakeGate(
+            WakeConfig(wake_phrase=args.wake_phrase)
+        ).evaluate(
+            audio.samples,
+            sample_rate=audio.sample_rate,
+            transcript=args.transcript,
+        )
+    except (OSError, ValueError, WaveError) as exc:
+        print(f"VOICE_ERROR {exc}", file=sys.stderr)
+        return 2
+
+    if not decision.accepted:
+        print(f"WAKE_REJECTED reason={decision.reason}")
+        return 2
+
+    print("WAKE_ACCEPTED")
+    print(f"COMMAND={args.command}")
+    return 0
+
+
 # Tools grouped by "toolset" for the Available Tools panel.
 _TOOL_GROUPS = ["files", "shell", "web", "skills", "memory", "subagent"]
 
@@ -855,6 +886,37 @@ def build_parser() -> argparse.ArgumentParser:
     sub.add_parser("onboard", help="alias for setup (first-run wizard)").set_defaults(func=_cmd_setup)
 
     sub.add_parser("gateway", help="run birkin as a service (HTTP / Telegram channels)").set_defaults(func=_cmd_gateway)
+
+    p_voice = sub.add_parser(
+        "voice",
+        help="run one active voice-control turn",
+    )
+    p_voice.add_argument(
+        "--once",
+        action="store_true",
+        help="capture and process exactly one command",
+    )
+    p_voice.add_argument(
+        "--audio",
+        required=True,
+        help="wake-window 16-bit PCM WAV path",
+    )
+    p_voice.add_argument(
+        "--transcript",
+        required=True,
+        help="wake transcript (deterministic mode)",
+    )
+    p_voice.add_argument(
+        "--command",
+        required=True,
+        help="command text (deterministic mode)",
+    )
+    p_voice.add_argument(
+        "--wake-phrase",
+        default="Daddy is home",
+        help="normalized phrase required with the clap",
+    )
+    p_voice.set_defaults(func=_cmd_voice)
 
     tp = sub.add_parser("tools", help="list/enable/disable the agent's tools")
     tp.add_argument("--enable", help="tool name to enable")
