@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import copy
 import json
+from contextlib import contextmanager
 
 import pytest
 
@@ -280,6 +281,30 @@ def test_state_file_is_written_once_per_apply(monkeypatch):
 
     assert [w for w in writes if w.endswith("harness_state.json")] == [
         str(harness.state_path("global"))]
+
+
+def test_save_holds_file_lock_while_atomically_writing(monkeypatch):
+    events: list[tuple[str, str]] = []
+
+    @contextmanager
+    def recording_lock(path):
+        events.append(("lock", str(path)))
+        yield
+        events.append(("unlock", str(path)))
+
+    def recording_write(path, obj):
+        events.append(("write", str(path)))
+
+    monkeypatch.setattr(harness.store, "file_lock", recording_lock)
+    monkeypatch.setattr(harness.store, "_write_json", recording_write)
+
+    path = harness.save(harness.empty_state())
+
+    assert events == [
+        ("lock", str(path)),
+        ("write", str(path)),
+        ("unlock", str(path)),
+    ]
 
 
 def test_saved_state_is_valid_json_with_both_entries_and_refinements():

@@ -104,7 +104,8 @@ def load(scope: str = "global") -> dict[str, Any]:
 def save(state: dict[str, Any], scope: str = "global") -> Path:
     path = state_path(scope)
     path.parent.mkdir(parents=True, exist_ok=True)
-    store._write_json(path, state)
+    with store.file_lock(path):
+        store._write_json(path, state)
     return path
 
 
