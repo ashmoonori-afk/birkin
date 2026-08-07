@@ -1,0 +1,34 @@
+SCENARIO: recorded audio -> GPT STT -> command -> Gateway -> GPT TTS
+COMMAND: uv --directory "C:/Users/lg/Documents/Claude/Projects/Birkin/active-voice-control" run python script/qa/voice_stt_smoke.py
+EXIT: 0
+
+The CLI invocation omitted both `--transcript` and `--command`; it supplied
+only wake and command WAV files.
+
+TRANSCRIPT:
+  · http channel on http://127.0.0.1:49685 (POST /message, GET /health)
+SPEECH_API_REQUEST=/v1/audio/transcriptions bytes=2313
+SPEECH_API_REQUEST=/v1/audio/transcriptions bytes=2316
+SPEECH_API_REQUEST=/v1/audio/speech bytes=142
+CLI_EXIT=0
+WAKE_ACCEPTED
+COMMAND=status
+REPLY=voice-reply:status
+TTS_SAVED=C:\Users\lg\AppData\Local\Temp\birkin-stt-qa-hjuhutp2\reply.pcm
+STT_REQUESTS=PASS
+COMMAND_COLLECTION=PASS
+GATEWAY_ROUTE=PASS
+TTS_DELIVERY=PASS
+CLEANUP=PASS
+
+DEBUGGING RECEIPT:
+Two earlier 30-second CLI timeouts were caused by argparse destination
+collision: the voice `--command` option overwrote the parser's `command`
+subcommand field when omitted, so main entered chat. The option now stores in
+`voice_command`, and a parser regression test locks the distinction.
+
+CLEANUP RECEIPT:
+- Local Gateway and fake OpenAI server threads stopped and joined.
+- subprocess exited.
+- temporary wake WAV, command WAV, PCM, and directory removed.
+- post-run search found no `birkin-stt-qa-*` directory.

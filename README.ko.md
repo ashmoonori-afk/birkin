@@ -43,7 +43,7 @@ birkin은 터미널과 텔레그램에서 쓰는 Claude 개인 에이전트입�
 | **한국어가 제1언어** | 한글 바이그램 검색, `지난주에 정리한…` 날짜 단서, `매주 월요일 09:00` 스케줄, CJK 정확한 터미널 폭. 나중에 현지화한 게 아니라 한국어로 검증합니다. |
 | **모델 계열을 가로지르는 워크플로우** | 프롬프트가 아니라 스크립트를 실행합니다: 한 워크플로우 안에서 codex가 초안을 쓰고, claude 비평가 셋이 병렬로 공격하고, codex가 수정합니다. 어느 역할을 어느 모델이 맡을지는 하드코딩이 아니라 실행 전에 고릅니다. |
 | **기본 UI 컴포넌트 북** | 프로젝트가 다른 디자인 시스템을 지정하지 않으면 프론트엔드 작업은 [shadcn/ui](https://ui.shadcn.com/docs/components)의 구성·상태·접근성 패턴에서 시작합니다. React/Tailwind에서는 컴포넌트를 직접 쓸 수 있고, 다른 스택에서는 의존성이 설치된 척하지 않고 패턴만 옮깁니다. |
-| **런타임 의존성 0** | `dependencies = []`. 하루면 다 읽을 수 있는 stdlib 파이썬 패키지 하나 — Node도, Docker도, 로크파일 드리프트도 없습니다. |
+| **명시적인 런타임 의존성** | Active voice control은 공식 오픈소스 `openai` Python SDK와 realtime/audio helper를 사용합니다. 모든 의존성은 `pyproject.toml`에 선언되며 숨은 installer나 로컬 모델 fallback은 없습니다. |
 
 ---
 
@@ -66,6 +66,39 @@ uv run birkin            # 또는:  pip install -e .  &&  birkin
 ```
 
 Python 3.10+. 첫 실행에 온보딩 마법사가 뜹니다.
+
+### Active voice control
+
+음성 기능은 birkin과 함께 설치됩니다. OpenAI STT/TTS에는 Platform API
+키가 필요합니다.
+
+```bash
+export OPENAI_API_KEY="..."
+uv run birkin gateway
+```
+
+다른 터미널에서 녹음된 한 턴을 실행합니다.
+
+```bash
+uv run birkin voice --once \
+  --audio wake.wav \
+  --command-audio command.wav \
+  --gateway-url http://127.0.0.1:8788/message \
+  --tts-output reply.pcm \
+  --no-playback
+```
+
+`--audio`와 `--command-audio`를 생략하면 기본 마이크에서 wake/command
+구간을 제한 시간만큼 수집합니다. `--background`를 추가하면
+`~/.birkin/voice/jobs` 아래 durable receipt를 받습니다. CI나 문제 분석에는
+`--transcript "Daddy is home" --command "status"`로 결정적 입력을 줄 수
+있습니다.
+
+Wake phrase는 routing trigger일 뿐 인증이 아닙니다. 음성 요청도
+`Gateway.handle("voice", ...)`를 통과하며 Telegram의 approved-work flag를
+얻지 못합니다. 제한된 STT는 `gpt-transcribe`, 응답 음성은
+`gpt-4o-mini-tts`를 사용하며 생성 음성은 AI 음성입니다. Codex/ChatGPT
+로그인은 Audio API용 `OPENAI_API_KEY`를 대신하지 않습니다.
 
 ### 무엇 위에서 도나요
 
@@ -517,8 +550,8 @@ market_quote → 종목별 가격·통화·거래시각·출처를 구조화해 
 ```
 
 둘 다 공개 HTTP API를 제공하는 독립·비영리 인덱스입니다. 만들 계정도, 붙여넣을
-API 키도, 등록할 카드도, 추가로 깔 것도 없습니다 — `urllib`와 `json`이라
-의존성은 여전히 0입니다.
+API 키도, 등록할 카드도, 추가 검색 의존성도 없습니다. 이 도구 자체는
+`urllib`와 `json`을 사용합니다.
 
 대가는 커버리지이고, 모델이 빈 결과를 오해하지 않도록 도구 설명에 그대로
 적어뒀습니다: 문서·블로그·포럼·기술 글에는 강하고 뉴스·쇼핑·지역 검색에는
@@ -709,7 +742,7 @@ top-5가 long-context 대비 **9.1×**, 볼트 전체 로딩 대비 **371×** �
 
 ## 🛠️ 현재 위치
 
-- **번들 스킬 55개**, **런타임 의존성 0**, Python 3.10+.
+- **번들 스킬 55개**, 명시된 OpenAI voice/audio 의존성, Python 3.10+.
 - 영감을 준 프로젝트들보다 의도적으로 작습니다 —
   [hermes-agent](https://github.com/NousResearch/hermes-agent),
   [openclaw](https://github.com/openclaw/openclaw). 딥 인터뷰 계보는

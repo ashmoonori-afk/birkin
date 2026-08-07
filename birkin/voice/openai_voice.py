@@ -3,7 +3,11 @@
 from __future__ import annotations
 
 from collections.abc import Iterable
+from io import BytesIO
+from pathlib import Path
 from typing import Protocol, cast
+
+from .audio import AudioData, encode_wav
 
 
 class _SpeechResponse(Protocol):
@@ -43,6 +47,72 @@ class _Audio(Protocol):
 
 class SpeechClient(Protocol):
     audio: _Audio
+
+
+class _TranscriptResponse(Protocol):
+    text: str
+
+
+class _Transcriptions(Protocol):
+    def create(
+        self,
+        *,
+        model: str,
+        file: object,
+    ) -> _TranscriptResponse: ...
+
+
+class _TranscriptionAudio(Protocol):
+    transcriptions: _Transcriptions
+
+
+class TranscriptionClient(Protocol):
+    audio: _TranscriptionAudio
+
+
+class _NamedBytesIO(BytesIO):
+    name = "audio.wav"
+
+
+class OpenAISTT:
+    """Transcribe recorded or in-memory WAV through the official SDK."""
+
+    def __init__(
+        self,
+        *,
+        client: TranscriptionClient | None = None,
+        model: str = "gpt-transcribe",
+    ) -> None:
+        if client is None:
+            from openai import OpenAI
+
+            client = cast(TranscriptionClient, OpenAI())
+        self._client = client
+        self._model = model
+
+    def transcribe_path(self, path: str | Path) -> str:
+        source = Path(path)
+        with source.open("rb") as stream:
+            response = self._client.audio.transcriptions.create(
+                model=self._model,
+                file=stream,
+            )
+        return self._text(response)
+
+    def transcribe_audio(self, audio: AudioData) -> str:
+        stream = _NamedBytesIO(encode_wav(audio))
+        response = self._client.audio.transcriptions.create(
+            model=self._model,
+            file=stream,
+        )
+        return self._text(response)
+
+    @staticmethod
+    def _text(response: _TranscriptResponse) -> str:
+        text = response.text.strip()
+        if not text:
+            raise ValueError("OpenAI transcription was empty")
+        return text
 
 
 class OpenAITTS:

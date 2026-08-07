@@ -1,0 +1,45 @@
+SCENARIO: standalone HTML desktop/mobile visual QA
+COMMAND: npx --yes --package playwright node script/qa/voice_design_visual.cjs
+FINAL EXIT: 0
+
+FINAL ACTION LOG:
+VIEWPORT=desktop 1440x1000
+TITLE=Birkin Active Voice Control — Implemented Architecture
+SECTIONS=8
+CONTENT=PASS
+HORIZONTAL_OVERFLOW=PASS
+LAYOUT=PASS
+VIEWPORT=mobile 390x844
+TITLE=Birkin Active Voice Control — Implemented Architecture
+SECTIONS=8
+CONTENT=PASS
+HORIZONTAL_OVERFLOW=PASS
+LAYOUT=PASS
+CONSOLE_PAGE_ERRORS=0
+CLEANUP=PASS
+
+SCREENSHOTS:
+.omo/evidence/active-voice-control/design-desktop.png (367330 bytes)
+.omo/evidence/active-voice-control/design-mobile.png (300062 bytes)
+
+VISUAL DEBUGGING:
+- Initial desktop passed.
+- Initial mobile document expanded to 870px because grid command children held
+  preformatted min-content width.
+- Added bounded overflow containers, `min-width:0` grid children, and code
+  wrapping. Final document width equals the 390px viewport.
+
+REVIEWERS:
+- GPT design-system/functional reviewer: PASS. Hierarchy, contrast, responsive
+  structure, OSS/architecture/trust/status visibility, and operational
+  specificity all passed.
+- GPT visual-fidelity/CJK reviewer: PASS. Mixed Korean/English text, paths,
+  commands, tables, and mobile stacking are unclipped; the final preserves the
+  original operator-dossier intent.
+- Non-blocking reviewer note: the compact mobile architecture strip could add
+  a stronger horizontal-scroll cue.
+- Two prior Claude-backed reviewer attempts ended without output on provider
+  quota and are not counted as evidence.
+
+HTML and visual-QA script diagnostics are clean. Chromium closed in `finally`;
+no browser, page, server, or port remained.

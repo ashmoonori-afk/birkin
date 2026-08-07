@@ -285,14 +285,18 @@ def _cmd_voice(args: argparse.Namespace) -> int:
     from pathlib import Path
     from wave import Error as WaveError
 
+    from openai import OpenAIError
+
     from .voice import (
         GatewayClient,
         GatewayVoiceError,
+        OpenAISTT,
         OpenAITTS,
         PcmFileSink,
         PcmSpeaker,
         WakeConfig,
         WakeGate,
+        capture_microphone,
         read_wav_mono,
     )
 
@@ -301,15 +305,36 @@ def _cmd_voice(args: argparse.Namespace) -> int:
         return 2
 
     try:
-        audio = read_wav_mono(args.audio)
+        stt = (
+            OpenAISTT(model=args.stt_model)
+            if not args.transcript or not args.voice_command
+            else None
+        )
+        audio = (
+            read_wav_mono(args.audio)
+            if args.audio
+            else capture_microphone(
+                duration_seconds=args.wake_seconds,
+                sample_rate=args.sample_rate,
+            )
+        )
+        transcript = args.transcript
+        if not transcript:
+            if stt is None:
+                raise RuntimeError("STT client is unavailable")
+            transcript = (
+                stt.transcribe_path(args.audio)
+                if args.audio
+                else stt.transcribe_audio(audio)
+            )
         decision = WakeGate(
             WakeConfig(wake_phrase=args.wake_phrase)
         ).evaluate(
             audio.samples,
             sample_rate=audio.sample_rate,
-            transcript=args.transcript,
+            transcript=transcript,
         )
-    except (OSError, ValueError, WaveError) as exc:
+    except (OSError, OpenAIError, RuntimeError, ValueError, WaveError) as exc:
         print(f"VOICE_ERROR {exc}", file=sys.stderr)
         return 2
 
@@ -317,8 +342,25 @@ def _cmd_voice(args: argparse.Namespace) -> int:
         print(f"WAKE_REJECTED reason={decision.reason}")
         return 2
 
+    try:
+        command = args.voice_command
+        if not command:
+            if stt is None:
+                raise RuntimeError("STT client is unavailable")
+            if args.command_audio:
+                command = stt.transcribe_path(args.command_audio)
+            else:
+                command_audio = capture_microphone(
+                    duration_seconds=args.command_seconds,
+                    sample_rate=args.sample_rate,
+                )
+                command = stt.transcribe_audio(command_audio)
+    except (OSError, OpenAIError, RuntimeError, ValueError, WaveError) as exc:
+        print(f"VOICE_ERROR {exc}", file=sys.stderr)
+        return 2
+
     print("WAKE_ACCEPTED")
-    print(f"COMMAND={args.command}")
+    print(f"COMMAND={command}")
     if not args.gateway_url:
         return 0
 
@@ -361,7 +403,7 @@ def _cmd_voice(args: argparse.Namespace) -> int:
                     tts=tts,
                     sinks=sinks,
                 )
-                job = mission.submit(args.command)
+                job = mission.submit(command)
                 receipt = receipt_dir / f"{job.id}.json"
                 print("FOREGROUND_ACK=queued", flush=True)
                 print(f"BACKGROUND_RECEIPT={receipt}", flush=True)
@@ -379,7 +421,7 @@ def _cmd_voice(args: argparse.Namespace) -> int:
             args.gateway_url,
             session_id=args.session_id,
             token=os.environ.get("BIRKIN_HTTP_TOKEN", ""),
-        ).send(args.command)
+        ).send(command)
         print(f"REPLY={reply}")
 
         if args.tts_output or not args.no_playback:
@@ -986,18 +1028,44 @@ def build_parser() -> argparse.ArgumentParser:
     )
     p_voice.add_argument(
         "--audio",
-        required=True,
         help="wake-window 16-bit PCM WAV path",
     )
     p_voice.add_argument(
         "--transcript",
-        required=True,
         help="wake transcript (deterministic mode)",
     )
     p_voice.add_argument(
         "--command",
-        required=True,
+        dest="voice_command",
         help="command text (deterministic mode)",
+    )
+    p_voice.add_argument(
+        "--command-audio",
+        default="",
+        help="recorded command WAV (transcribed when --command is omitted)",
+    )
+    p_voice.add_argument(
+        "--wake-seconds",
+        type=float,
+        default=3.0,
+        help="live microphone wake-window duration",
+    )
+    p_voice.add_argument(
+        "--command-seconds",
+        type=float,
+        default=8.0,
+        help="live microphone command-window duration",
+    )
+    p_voice.add_argument(
+        "--sample-rate",
+        type=int,
+        default=24_000,
+        help="live microphone sample rate",
+    )
+    p_voice.add_argument(
+        "--stt-model",
+        default="gpt-transcribe",
+        help="OpenAI file/in-memory speech-to-text model",
     )
     p_voice.add_argument(
         "--wake-phrase",

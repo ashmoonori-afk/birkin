@@ -1,0 +1,415 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Birkin Active Voice Control — Implemented Architecture</title>
+  <style>
+    :root {
+      color-scheme: dark;
+      --bg: #071018;
+      --surface: #0d1824;
+      --surface-2: #111f2d;
+      --line: #24384a;
+      --text: #eef6ff;
+      --muted: #9ab0c4;
+      --cyan: #33d6ff;
+      --green: #5ee6a8;
+      --amber: #ffbd66;
+      --red: #ff7387;
+      --violet: #aa8cff;
+      --mono: ui-monospace, "Cascadia Code", "SFMono-Regular", Consolas, monospace;
+      --sans: Inter, Pretendard, "Segoe UI", sans-serif;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      background: var(--bg);
+      color: var(--text);
+      font: 15px/1.65 var(--sans);
+    }
+    a { color: var(--cyan); overflow-wrap: anywhere; }
+    code, pre { font-family: var(--mono); }
+    code {
+      color: #c9f3ff;
+      background: #07131e;
+      padding: .1rem .35rem;
+      border: 1px solid #183043;
+      border-radius: 4px;
+      overflow-wrap: anywhere;
+    }
+    .shell {
+      width: min(1180px, calc(100% - 32px));
+      margin: 0 auto;
+      padding: 28px 0 72px;
+    }
+    header {
+      border: 1px solid var(--line);
+      border-top: 3px solid var(--cyan);
+      background: var(--surface);
+      padding: 30px;
+      border-radius: 10px;
+    }
+    .eyebrow {
+      margin: 0 0 8px;
+      color: var(--cyan);
+      font: 700 12px/1.2 var(--mono);
+      letter-spacing: .14em;
+      text-transform: uppercase;
+    }
+    h1 {
+      max-width: 850px;
+      margin: 0;
+      font-size: clamp(32px, 6vw, 66px);
+      line-height: 1.02;
+      letter-spacing: -.045em;
+    }
+    h2 {
+      margin: 0 0 18px;
+      font-size: clamp(24px, 3vw, 34px);
+      letter-spacing: -.025em;
+    }
+    h3 { margin: 0 0 8px; font-size: 17px; }
+    p { margin: 0 0 14px; }
+    .lede {
+      max-width: 820px;
+      margin-top: 18px;
+      color: var(--muted);
+      font-size: 18px;
+    }
+    .badges {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      margin-top: 22px;
+    }
+    .badge {
+      border: 1px solid var(--line);
+      padding: 6px 10px;
+      border-radius: 999px;
+      color: var(--muted);
+      font: 700 12px/1.2 var(--mono);
+    }
+    .badge.pass { color: var(--green); border-color: #237957; }
+    .badge.warn { color: var(--amber); border-color: #765224; }
+    main { display: grid; gap: 18px; margin-top: 18px; min-width: 0; }
+    section {
+      border: 1px solid var(--line);
+      background: var(--surface);
+      padding: 26px;
+      border-radius: 10px;
+      min-width: 0;
+    }
+    .grid-3, .grid-2 {
+      display: grid;
+      gap: 14px;
+      min-width: 0;
+    }
+    .grid-3 { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+    .grid-2 { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    .grid-2 > *, .grid-3 > * { min-width: 0; }
+    .card {
+      border-left: 3px solid var(--cyan);
+      background: var(--surface-2);
+      padding: 18px;
+      min-width: 0;
+    }
+    .card.green { border-color: var(--green); }
+    .card.amber { border-color: var(--amber); }
+    .card.violet { border-color: var(--violet); }
+    .card p, .muted { color: var(--muted); }
+    .flow {
+      display: grid;
+      grid-template-columns: repeat(7, minmax(110px, 1fr));
+      gap: 8px;
+      overflow-x: auto;
+      padding-bottom: 6px;
+      width: 100%;
+      min-width: 0;
+      max-width: 100%;
+    }
+    .node {
+      min-height: 122px;
+      border: 1px solid var(--line);
+      border-top: 3px solid var(--cyan);
+      background: #081521;
+      padding: 14px;
+    }
+    .node:nth-child(3) { border-top-color: var(--violet); }
+    .node:nth-child(4) { border-top-color: var(--amber); }
+    .node:nth-child(5), .node:nth-child(6) { border-top-color: var(--green); }
+    .node strong {
+      display: block;
+      margin-bottom: 7px;
+      font: 700 12px/1.25 var(--mono);
+      color: var(--text);
+    }
+    .node span { color: var(--muted); font-size: 13px; }
+    .arrow {
+      color: var(--cyan);
+      font-family: var(--mono);
+      margin: 10px 0;
+    }
+    .table-wrap {
+      width: 100%;
+      min-width: 0;
+      max-width: 100%;
+      overflow-x: auto;
+    }
+    table { width: 100%; border-collapse: collapse; min-width: 720px; }
+    th, td {
+      padding: 12px 14px;
+      border-bottom: 1px solid var(--line);
+      text-align: left;
+      vertical-align: top;
+    }
+    th {
+      color: var(--cyan);
+      font: 700 12px/1.3 var(--mono);
+      text-transform: uppercase;
+      letter-spacing: .06em;
+    }
+    td { color: #cbd8e5; }
+    .yes { color: var(--green); font-weight: 700; }
+    .no { color: var(--red); font-weight: 700; }
+    pre {
+      margin: 12px 0 0;
+      overflow-x: auto;
+      border: 1px solid var(--line);
+      background: #050d14;
+      color: #d7edff;
+      padding: 16px;
+      border-radius: 6px;
+      font-size: 13px;
+      max-width: 100%;
+    }
+    .status-list {
+      display: grid;
+      gap: 8px;
+      padding: 0;
+      list-style: none;
+    }
+    .status-list li {
+      display: grid;
+      grid-template-columns: 26px 1fr auto;
+      gap: 10px;
+      align-items: start;
+      border-bottom: 1px solid var(--line);
+      padding: 10px 0;
+    }
+    .mark { color: var(--green); font: 800 15px var(--mono); }
+    .state { color: var(--green); font: 700 11px var(--mono); }
+    .risk { color: var(--amber); }
+    footer {
+      padding: 24px 4px 0;
+      color: var(--muted);
+      font-size: 13px;
+    }
+    @media (max-width: 880px) {
+      .grid-3, .grid-2 { grid-template-columns: 1fr; }
+      header, section { padding: 20px; }
+      .shell { width: min(100% - 20px, 1180px); }
+      .status-list li { grid-template-columns: 24px 1fr; }
+      .state { grid-column: 2; }
+    }
+  </style>
+</head>
+<body>
+  <div class="shell">
+    <header>
+      <p class="eyebrow">Birkin · active-voice-control · implementation dossier</p>
+      <h1>박수와 “Daddy is home”으로 깨우는 로컬 음성 제어</h1>
+      <p class="lede">
+        결정적 clap gate, OpenAI GPT STT/TTS, 기존 Birkin Gateway 승인 경계,
+        bounded background receipt를 하나의 실행 가능한 chained pipeline으로 연결했다.
+        새 agent loop를 만들지 않고 Birkin의 세션·도구·approval을 그대로 사용한다.
+      </p>
+      <div class="badges">
+        <span class="badge pass">IMPLEMENTED</span>
+        <span class="badge pass">15 VOICE TESTS PASS</span>
+        <span class="badge">OPENAI SDK OSS</span>
+        <span class="badge">PCM16 · 24 kHz</span>
+        <span class="badge warn">FINAL RELEASE GATES PENDING</span>
+      </div>
+    </header>
+
+    <main>
+      <section aria-labelledby="decision-title">
+        <p class="eyebrow">01 · decision</p>
+        <h2 id="decision-title">선택한 오픈소스 스택</h2>
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr><th>후보</th><th>결정</th><th>근거</th><th>적용 위치</th></tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td><a href="https://github.com/openai/openai-python">openai-python</a></td>
+                <td class="yes">선택</td>
+                <td>공식 MIT SDK, 현재 Audio/Realtime API contract, Python 3.10+.</td>
+                <td><code>birkin/voice/openai_voice.py</code></td>
+              </tr>
+              <tr>
+                <td><a href="https://github.com/openai/openai-agents-python">openai-agents-python</a></td>
+                <td class="no">초기 미채택</td>
+                <td>VoicePipeline은 유용하지만 Birkin의 기존 agent loop와 중복된다. 현재 transcription 설정 차이도 직접 계약보다 불리하다.</td>
+                <td>향후 opt-in realtime mode 후보</td>
+              </tr>
+              <tr>
+                <td><a href="https://github.com/spatialaudio/python-sounddevice">python-sounddevice</a></td>
+                <td class="yes">선택</td>
+                <td>Windows 포함 PortAudio capture/playback, OpenAI voice helper와 동일한 PCM 흐름.</td>
+                <td><code>birkin/voice/audio.py</code></td>
+              </tr>
+              <tr>
+                <td>별도 local STT/TTS 모델</td>
+                <td class="no">제외</td>
+                <td>사용자 결정에 따라 음성 모델은 GPT 계열로 통일한다. deterministic fake만 CI에 남긴다.</td>
+                <td>production fallback 없음</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </section>
+
+      <section aria-labelledby="architecture-title">
+        <p class="eyebrow">02 · shipped architecture</p>
+        <h2 id="architecture-title">Wake에서 delivery까지</h2>
+        <div class="flow">
+          <div class="node"><strong>01 AUDIO</strong><span>마이크 또는 16-bit PCM WAV<br>24 kHz mono</span></div>
+          <div class="node"><strong>02 WAKE</strong><span>20 ms peak + crest clap<br>NFKC phrase exact match</span></div>
+          <div class="node"><strong>03 GPT STT</strong><span><code>gpt-transcribe</code><br>file / in-memory WAV</span></div>
+          <div class="node"><strong>04 GATEWAY</strong><span>POST <code>/message</code><br><code>channel=voice</code></span></div>
+          <div class="node"><strong>05 BIRKIN</strong><span>기존 session · tools<br>approval boundary</span></div>
+          <div class="node"><strong>06 DELIVERY</strong><span>foreground reply 또는<br>durable job receipt</span></div>
+          <div class="node"><strong>07 GPT TTS</strong><span><code>gpt-4o-mini-tts</code><br>PCM sink / speaker</span></div>
+        </div>
+        <p class="arrow">audio → dual gate → text → trusted local boundary → controlled work → AI-generated speech</p>
+      </section>
+
+      <section aria-labelledby="contracts-title">
+        <p class="eyebrow">03 · code contracts</p>
+        <h2 id="contracts-title">실제 파일과 책임</h2>
+        <div class="grid-2">
+          <div class="card">
+            <h3><code>birkin/voice/wake.py</code></h3>
+            <p>박수 impulse와 정규화된 phrase를 동시에 요구한다. cooldown clock은 주입 가능하며 raw audio를 보존하지 않는다.</p>
+          </div>
+          <div class="card violet">
+            <h3><code>birkin/voice/openai_voice.py</code></h3>
+            <p><code>OpenAISTT</code>와 <code>OpenAITTS</code>. SDK client seam으로 실제 request shape를 fake endpoint에서 검증한다.</p>
+          </div>
+          <div class="card amber">
+            <h3><code>birkin/gateway/channels/local_http.py</code></h3>
+            <p><code>http|voice</code>만 허용한다. <code>telegram</code> spoof는 400이며 voice는 기존 <code>Gateway.handle()</code>로 간다.</p>
+          </div>
+          <div class="card green">
+            <h3><code>birkin/background.py</code></h3>
+            <p>bounded workers, ordered events, queued cancellation, transition마다 atomic JSON receipt, explicit shutdown.</p>
+          </div>
+        </div>
+      </section>
+
+      <section aria-labelledby="trust-title">
+        <p class="eyebrow">04 · trust boundary</p>
+        <h2 id="trust-title">Wake phrase는 인증이 아니다</h2>
+        <div class="grid-3">
+          <div class="card amber">
+            <h3>Routing only</h3>
+            <p>박수와 phrase는 listening state만 연다. 명령 권한이나 approval을 만들지 않는다.</p>
+          </div>
+          <div class="card">
+            <h3>Gateway preserved</h3>
+            <p>Voice request는 <code>channel=voice</code>로 기존 session/tool 경계를 통과한다. 임의 channel은 거부된다.</p>
+          </div>
+          <div class="card green">
+            <h3>Approval preserved</h3>
+            <p><code>approved_work</code>는 trusted Telegram workflow에만 설정된다. destructive voice QA는 두 flag가 false임을 확인했다.</p>
+          </div>
+        </div>
+      </section>
+
+      <section aria-labelledby="commands-title">
+        <p class="eyebrow">05 · operator commands</p>
+        <h2 id="commands-title">실행 명령</h2>
+        <div class="grid-2">
+          <div>
+            <h3>결정적 fixture 모드</h3>
+            <pre>uv run birkin voice --once \
+  --audio tests/fixtures/voice/clap_then_phrase.wav \
+  --transcript "Daddy is home" \
+  --command "status"</pre>
+          </div>
+          <div>
+            <h3>GPT STT + Gateway + TTS</h3>
+            <pre>uv run birkin voice --once \
+  --audio wake.wav \
+  --command-audio command.wav \
+  --gateway-url http://127.0.0.1:8788/message \
+  --tts-output reply.pcm --no-playback</pre>
+          </div>
+          <div>
+            <h3>기본 마이크</h3>
+            <pre>OPENAI_API_KEY=... uv run birkin voice --once \
+  --gateway-url http://127.0.0.1:8788/message</pre>
+          </div>
+          <div>
+            <h3>Background receipt</h3>
+            <pre>uv run birkin voice --once ... \
+  --background \
+  --receipt-dir ~/.birkin/voice/jobs</pre>
+          </div>
+        </div>
+      </section>
+
+      <section aria-labelledby="status-title">
+        <p class="eyebrow">06 · implementation ledger</p>
+        <h2 id="status-title">원자적 구현과 증거</h2>
+        <ul class="status-list">
+          <li><span class="mark">✓</span><span>Wake RED→GREEN, WAV happy/edge, baseline screenshot</span><span class="state">f4a45bc</span></li>
+          <li><span class="mark">✓</span><span>Voice HTTP allowlist, Gateway client, GPT TTS, PCM sink</span><span class="state">ae3e97a</span></li>
+          <li><span class="mark">✓</span><span>Bounded broker, cancellation, receipt, approval safety</span><span class="state">a917e91</span></li>
+          <li><span class="mark">✓</span><span>GPT STT file/in-memory, microphone seam, command collection</span><span class="state">IMPLEMENTED</span></li>
+          <li><span class="mark">✓</span><span>Targeted voice stack: 15 tests green without global coverage gate</span><span class="state">PASS</span></li>
+          <li><span class="mark">•</span><span>Full-suite/static/security/browser/release validation</span><span class="state risk">IN PROGRESS</span></li>
+        </ul>
+      </section>
+
+      <section aria-labelledby="evidence-title">
+        <p class="eyebrow">07 · evidence</p>
+        <h2 id="evidence-title">재현 가능한 QA</h2>
+        <div class="table-wrap">
+          <table>
+            <thead><tr><th>Scenario</th><th>Artifact</th><th>Observed result</th></tr></thead>
+            <tbody>
+              <tr><td>Wake</td><td><code>red-wake.txt</code>, <code>green-wake.txt</code>, <code>wake-cli.txt</code></td><td>RED 5 → GREEN 5; happy/reject CLI</td></tr>
+              <tr><td>Gateway/TTS</td><td><code>red-gateway.txt</code>, <code>green-gateway.txt</code>, <code>gateway-pipeline.txt</code></td><td>voice preserved, spoof 400, PCM bytes delivered</td></tr>
+              <tr><td>Background/safety</td><td><code>red-background.txt</code>, <code>green-background.txt</code>, <code>background-smoke.txt</code></td><td>ACK, receipt, delivery, approval PIN, cleanup PASS</td></tr>
+              <tr><td>STT</td><td><code>red-stt.txt</code>, <code>green-stt.txt</code>, <code>stt-cli.txt</code></td><td>2 transcription requests, collected command, TTS PASS</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </section>
+
+      <section aria-labelledby="sources-title">
+        <p class="eyebrow">08 · official sources</p>
+        <h2 id="sources-title">근거</h2>
+        <ul>
+          <li><a href="https://developers.openai.com/api/docs/guides/voice-agents">OpenAI voice-agent architectures</a> — existing text agent에는 chained pipeline 권장.</li>
+          <li><a href="https://developers.openai.com/api/docs/guides/speech-to-text">OpenAI speech-to-text</a> — <code>gpt-transcribe</code>, file formats, API contract.</li>
+          <li><a href="https://developers.openai.com/api/docs/guides/realtime-transcription">OpenAI realtime transcription</a> — <code>gpt-live-transcribe</code>, PCM stream events.</li>
+          <li><a href="https://developers.openai.com/api/docs/guides/text-to-speech">OpenAI text-to-speech</a> — <code>gpt-4o-mini-tts</code>, PCM/WAV streaming, AI voice disclosure.</li>
+          <li><a href="https://github.com/openai/openai-python">openai-python</a> — 선택한 공식 오픈소스 SDK.</li>
+          <li><a href="https://developers.openai.com/codex/auth">Codex authentication</a> — Codex sign-in과 Platform API key 경계.</li>
+        </ul>
+      </section>
+    </main>
+
+    <footer>
+      <strong>Birkin Active Voice Control</strong> · branch
+      <code>active-voice-control</code> · standalone implementation dossier ·
+      generated speech is AI-generated.
+    </footer>
+  </div>
+</body>
+</html>

@@ -202,6 +202,15 @@ captured scenario.
 - [ ] 17. Momus plan review: approve contracts before implementation
   - Recommended task executor category: `unspecified-high`
   - Verify: reviewer returns no success-criterion blocker.
+- [ ] 18. `tests/test_openai_voice.py`: capture STT contract RED
+  - Recommended task executor category: `unspecified-high`
+  - Verify: failure identifies missing GPT STT and microphone contracts.
+- [ ] 19. OpenAI STT and microphone: implement collection GREEN
+  - Recommended task executor category: `deep`
+  - Verify: recorded/in-memory STT and injected microphone tests pass.
+- [ ] 20. CLI STT surface: capture command collection evidence
+  - Recommended task executor category: `unspecified-high`
+  - Verify: fake OpenAI API collects wake phrase and command from audio.
 - [ ] 1. `docs/` and `.omo/`: preserve source and capture baseline design
   - Recommended task executor category: `quick`
   - Verify: source main-worktree bytes remain unchanged; baseline screenshot exists.

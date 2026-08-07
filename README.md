@@ -43,7 +43,7 @@ Built Korean-first. Not translated.
 | **Korean as a first language** | Hangul-bigram retrieval, `지난주에 정리한…` date cues, `매주 월요일 09:00` schedules, CJK-correct terminal widths. Tested in Korean, not localized after the fact. |
 | **Workflows across model families** | Run a script, not a prompt: one workflow can have codex draft, three claude critics attack it in parallel, and codex revise. Which model plays each role is chosen before the run, not hardcoded. |
 | **A default UI component book** | Frontend work starts from [shadcn/ui](https://ui.shadcn.com/docs/components) composition, state and accessibility patterns unless the project names another design system. React/Tailwind projects can use the components directly; other stacks translate the patterns without pretending the dependency is installed. |
-| **Zero runtime dependencies** | `dependencies = []`. One stdlib Python package you can read in an afternoon — no Node, no Docker, no lockfile drift. |
+| **Explicit runtime dependencies** | Active voice control uses the official open-source `openai` Python SDK plus its realtime/audio helpers. Dependencies are declared in `pyproject.toml`; no hidden installer or local-model fallback. |
 
 ---
 
@@ -66,6 +66,38 @@ uv run birkin            # or:  pip install -e .  &&  birkin
 ```
 
 Python 3.10+. The first run opens an onboarding wizard.
+
+### Active voice control
+
+Voice support is installed with birkin. OpenAI STT/TTS calls require a Platform
+API key:
+
+```bash
+export OPENAI_API_KEY="..."
+uv run birkin gateway
+```
+
+In another terminal, run one recorded turn:
+
+```bash
+uv run birkin voice --once \
+  --audio wake.wav \
+  --command-audio command.wav \
+  --gateway-url http://127.0.0.1:8788/message \
+  --tts-output reply.pcm \
+  --no-playback
+```
+
+Omit `--audio` and `--command-audio` to capture bounded wake and command windows
+from the default microphone. Add `--background` to receive a durable job
+receipt under `~/.birkin/voice/jobs`. For deterministic CI or troubleshooting,
+provide `--transcript "Daddy is home" --command "status"` instead.
+
+The wake phrase is a routing trigger, not authorization. Voice requests still
+cross `Gateway.handle("voice", ...)` and cannot gain Telegram's approved-work
+flags. `gpt-transcribe` performs bounded STT and `gpt-4o-mini-tts` produces the
+reply audio; generated speech is AI-generated. Codex/ChatGPT sign-in does not
+replace `OPENAI_API_KEY` for Audio API calls.
 
 ### What it runs on
 
@@ -550,8 +582,8 @@ market_quote → structured price, currency, market timestamp and source by symb
 ```
 
 Both are independent, non-commercial indexes with public HTTP APIs. There is
-no account to create, no API key to paste, no card on file, and nothing extra
-to install — the dependency count is still zero, because this is `urllib` and
+no account to create, no API key to paste, no card on file, and no additional
+search dependency to install, because this tool itself uses `urllib` and
 `json`.
 
 The trade is coverage, and it is stated in the tool description so the model
@@ -757,7 +789,7 @@ available, and reverted rather than shipped on a hunch. Research log:
 
 ## 🛠️ Where birkin sits today
 
-- **55 bundled skills**, **0 runtime dependencies**, Python 3.10+.
+- **55 bundled skills**, declared OpenAI voice/audio dependencies, Python 3.10+.
 - Deliberately smaller than its inspirations —
   [hermes-agent](https://github.com/NousResearch/hermes-agent) and
   [openclaw](https://github.com/openclaw/openclaw). The deep-interview lineage

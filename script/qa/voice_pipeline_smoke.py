@@ -31,6 +31,7 @@ class _Gateway:
 class _SpeechAPI:
     def __init__(self) -> None:
         self.request: dict[str, object] = {}
+        self.transcription_count = 0
         owner = self
 
         class Handler(BaseHTTPRequestHandler):
@@ -39,7 +40,27 @@ class _SpeechAPI:
 
             def do_POST(self) -> None:  # noqa: N802
                 length = int(self.headers.get("Content-Length", "0"))
-                owner.request = json.loads(self.rfile.read(length))
+                print(
+                    f"SPEECH_API_REQUEST={self.path} bytes={length}",
+                    flush=True,
+                )
+                body_in = self.rfile.read(length)
+                if self.path.endswith("/audio/transcriptions"):
+                    owner.transcription_count += 1
+                    transcript = (
+                        "Daddy is home"
+                        if owner.transcription_count == 1
+                        else "status"
+                    )
+                    body = json.dumps({"text": transcript}).encode("utf-8")
+                    self.send_response(200)
+                    self.send_header("Content-Type", "application/json")
+                    self.send_header("Content-Length", str(len(body)))
+                    self.end_headers()
+                    self.wfile.write(body)
+                    return
+
+                owner.request = json.loads(body_in)
                 body = b"\x01\x02\x03\x04"
                 self.send_response(200)
                 self.send_header("Content-Type", "application/octet-stream")

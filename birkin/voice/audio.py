@@ -6,7 +6,9 @@ import sys
 import wave
 from array import array
 from dataclasses import dataclass
+from io import BytesIO
 from pathlib import Path
+from typing import Protocol
 
 
 @dataclass(frozen=True)
@@ -41,6 +43,74 @@ class PcmSpeaker:
 
         samples = np.frombuffer(data, dtype="<i2")
         sd.play(samples, samplerate=24_000, blocking=True)
+
+
+class _SampleVector(Protocol):
+    def tolist(self) -> list[float]: ...
+
+
+class _SampleMatrix(Protocol):
+    def reshape(self, size: int) -> _SampleVector: ...
+
+
+class Recorder(Protocol):
+    def rec(
+        self,
+        frames: int,
+        *,
+        samplerate: int,
+        channels: int,
+        dtype: str,
+    ) -> _SampleMatrix: ...
+
+    def wait(self) -> None: ...
+
+
+def capture_microphone(
+    *,
+    duration_seconds: float,
+    sample_rate: int = 24_000,
+    recorder: Recorder | None = None,
+) -> AudioData:
+    """Capture one bounded mono float32 window from the default microphone."""
+    if duration_seconds <= 0.0:
+        raise ValueError("duration_seconds must be positive")
+    if sample_rate <= 0:
+        raise ValueError("sample_rate must be positive")
+    if recorder is None:
+        import sounddevice as sd
+
+        recorder = sd
+    frame_count = round(duration_seconds * sample_rate)
+    captured = recorder.rec(
+        frame_count,
+        samplerate=sample_rate,
+        channels=1,
+        dtype="float32",
+    )
+    recorder.wait()
+    samples = tuple(float(value) for value in captured.reshape(-1).tolist())
+    return AudioData(samples, sample_rate)
+
+
+def encode_wav(audio: AudioData) -> bytes:
+    """Encode normalized mono samples as uncompressed 16-bit PCM WAV."""
+    pcm = array(
+        "h",
+        (
+            round(max(-1.0, min(1.0, sample)) * 32_767)
+            for sample in audio.samples
+        ),
+    )
+    if sys.byteorder != "little":
+        pcm.byteswap()
+    output = BytesIO()
+    with wave.open(output, "wb") as stream:
+        stream.setnchannels(1)
+        stream.setsampwidth(2)
+        stream.setframerate(audio.sample_rate)
+        stream.writeframes(pcm.tobytes())
+    return output.getvalue()
 
 
 def read_wav_mono(path: str | Path) -> AudioData:
