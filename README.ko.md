@@ -635,6 +635,14 @@ quality/**model-compare** — 그리고 `~/.birkin/skills/`의 내 스킬(같은
   "lsp_servers": {},
   "a2a_enabled": false,
 
+  "harness_enabled": true,
+  "harness_turn_interval": 12,
+  "harness_cooldown_min": 15,
+  "harness_compact_review": true,
+  "harness_max_edits": 12,
+  "harness_prompt_budget": 20000,
+  "harness_auto_approve": ["memory", "skill"],
+
   "channels": {
     "http": {"enabled": true},
     "telegram": {"enabled": false, "token": "", "allowed_chat_ids": []}
@@ -708,6 +716,52 @@ service로 권한 범위를 넓히지 않습니다.
 `X-Birkin-Token` 뒤에 있고, 카드 자체는 인증이 없습니다 — 상대는 토큰을 받기
 전에 카드를 읽어야 하고, 카드에는 비밀이 없습니다. 상대의 작업은 일회성
 세션으로 돌아서 당신이 하던 대화에 끼어들지 않습니다.
+
+### 지속 하네스 (continual harness)
+
+자기개선은 더 이상 눈감고 쓰는 쓰기가 아닙니다. Morpheus와 세션 중 리뷰는
+*제안*(요약, 근거, 기대 결과, 편집 목록)을 내놓고, 하네스가 그것을 검증하고
+적용한 뒤 무엇을 했는지 `~/.birkin/harness/` 아래 버전이 붙은 원장에 남깁니다.
+
+추적하는 엔트리는 네 종류입니다: **`prompt`**(보충 행동 노트), **`memory`**,
+**`skill`**, **`subagent`**(재사용 가능한 위임 스펙). 각 엔트리는 `version`과
+`updated_at`을 갖고, 적용된 모든 제안은 건드린 것들의 `before` 상태와 함께
+`refinements.jsonl`에 덧붙습니다 — 그래서 모든 변경은 설계상 *되돌릴 수 있는
+refinement*입니다. 백업이 있기를 바라는 게 아닙니다.
+
+무엇이 묻지 않고 적용되는지는 `harness_auto_approve`가 정합니다. `memory`와
+`skill`은 되돌릴 수 있는 로컬 파일이라 스스로 적용됩니다 — `auto_approve`가
+이미 쓰는 정책과 같습니다. `prompt`와 `subagent`는 다릅니다. *이후 모든 턴*의
+행동을 바꾸므로 `harness` 제안(승인 등급 **high**)으로 대기열에 들어가
+`birkin review`를 기다립니다.
+
+```bash
+birkin harness show                  # 현재 엔트리를 종류별로, 버전과 함께
+birkin harness show --scope local    # 세션 스코프 하네스를 대신 보기
+birkin harness history -n 20         # refinement 원장, 오래된 것부터
+birkin harness rollback <id>         # refinement 하나를 편집 단위로 되돌리기
+birkin harness export <path>         # 하네스 상태를 JSON 파일로 내보내기
+birkin harness refine                # 제안이 어디서 오는지 안내 (아래 참조)
+```
+
+`refine`은 스스로 아무것도 쓰지 않습니다. 제안은 `birkin morpheus`와 세션 중
+리뷰가 만들고, 자동 승인되지 않은 것은 `birkin review` 대기열에서 기다립니다.
+이 명령은 그 사실을 안내하고 끝냅니다 — 일하는 척하지 않습니다. 없는
+refinement id로 `rollback`하면 트레이스백이 아니라 한 줄 사유와 함께 종료
+코드 `1`을 냅니다.
+
+- **`harness_enabled`** — 마스터 스위치. 끄면 예전의 직접 쓰기 동작으로
+  돌아가고 시스템 프롬프트에 하네스 블록이 들어가지 않습니다.
+- **`harness_turn_interval`** — 세션 중 리뷰 게이트를 보기 전에 지나야 하는
+  어시스턴트 턴 수. 매 턴 게이트를 걸면 매 턴 모델 호출이 듭니다.
+- **`harness_cooldown_min`** — 리뷰가 한 번 돈 뒤의 쿨다운(분).
+- **`harness_compact_review`** — compaction 시점에도 리뷰합니다. 오래된 맥락이
+  요약돼 사라지기 직전이 그 맥락이 가르친 것을 남길 마지막 기회입니다.
+- **`harness_max_edits`** — 제안 하나가 담을 수 있는 편집 수 상한. 무인 패스가
+  한 번에 마흔 개를 "개선"하는 건 좋은 밤이 아니라 폭주입니다.
+- **`harness_prompt_budget`** — 시스템 프롬프트 안 하네스 블록의 문자 예산.
+- **`harness_auto_approve`** — 묻지 않고 적용할 종류. 나머지는 `birkin review`
+  대기열로 갑니다.
 
 위는 *기본값*이고, 디스크의 `config.json`에는 당신이 실제로 바꾼 키만 남습니다
 (중첩 섹션 안까지). 업데이트할 때 중요합니다: 모든 기본값을 그대로 적어 둔

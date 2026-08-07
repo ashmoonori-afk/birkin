@@ -65,7 +65,19 @@ def test_the_two_readmes_document_the_same_keys() -> None:
 
 
 def test_the_keys_this_branch_added_are_documented_in_both() -> None:
-    added = {"redact_secrets", "api_keys", "lsp_servers", "a2a_enabled"}
+    added = {
+        "redact_secrets",
+        "api_keys",
+        "lsp_servers",
+        "a2a_enabled",
+        "harness_enabled",
+        "harness_turn_interval",
+        "harness_cooldown_min",
+        "harness_compact_review",
+        "harness_max_edits",
+        "harness_prompt_budget",
+        "harness_auto_approve",
+    }
     for readme in ("README.md", "README.ko.md"):
         missing = sorted(added - _documented_keys(readme))
         assert missing == [], f"{readme} does not document {missing}"

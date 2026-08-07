@@ -244,12 +244,43 @@ DEFAULT_CONFIG: dict[str, Any] = {
     # shell-typed "cron" proposal is treated as shell and will NOT auto-apply
     # unless "shell" is auto-approved — it is queued for `birkin review` instead.
     "auto_approve": ["memory", "skill"],
+    # --- Continual harness (docs/prime-agent-analysis.html section 4) ---
+    # The versioned ledger of self-improvement edits: what changed, why, and
+    # how to undo it. Off -> morpheus and the in-session review keep their old
+    # direct-write behaviour and no harness block enters the system prompt.
+    "harness_enabled": True,
+    # In-session review: assistant turns that must pass before the evidence
+    # gate is even consulted, and the cooldown after a review runs. Both exist
+    # because a gate on every turn costs a model call per turn.
+    "harness_turn_interval": 12,
+    "harness_cooldown_min": 15,
+    # Also review at compaction time -- the moment older context is about to
+    # be summarised away is the last chance to persist what it taught.
+    "harness_compact_review": True,
+    # Caps on one proposal: how many edits it may carry. An unattended pass
+    # that "improves" 40 things at once is a runaway, not a good night.
+    "harness_max_edits": 12,
+    # Character budget for the harness block inside the system prompt.
+    "harness_prompt_budget": 20000,
+    # Harness kinds applied without asking. memory/skill are reversible local
+    # files (same policy as auto_approve). prompt/subagent change how the agent
+    # behaves on every later turn, so they are queued for `birkin review`.
+    "harness_auto_approve": ["memory", "skill"],
     # CLI-agent (Claude Code / Codex) access level:
     #   "workspace" — writable & sandboxed to the workspace (default)
     #   "full"      — DANGEROUS: bypass all approvals + sandbox
     #                 (codex --dangerously-bypass-approvals-and-sandbox,
     #                  claude --dangerously-skip-permissions)
     "cli_access": "workspace",
+    # Raw Codex subprocess egress bypasses Birkin's payload inspection and is
+    # therefore explicit opt-in. Trusted transfers use Birkin's inspected path.
+    "cli_network_access": False,
+    "egress": {
+        "enabled": True,
+        "enforced": True,
+        "max_bytes": 1048576,
+        "destinations": {},
+    },
     # Opt-in (default False): let Codex Morpheus honor cli_access "full" instead
     # of read-only. Claude Morpheus keeps its workspace allowlist; local CLI owns
     # its permissions. The reachable gateway is unaffected.

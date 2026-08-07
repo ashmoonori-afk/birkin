@@ -193,6 +193,35 @@ def _previous_summary(messages: list[dict[str, Any]]) -> str:
 
 # -- the compaction itself -------------------------------------------------
 
+def _harness_checkpoint(transcript: str) -> None:
+    """Fire one in-session harness review at the compaction boundary.
+
+    This is the last moment the about-to-be-summarized context still exists, so
+    it is the last chance to persist what it taught. The review runs on its own
+    client built from config — not the summarizer's — so it cannot disturb the
+    turn in flight, and every failure is swallowed: a review must never cost the
+    user their history.
+    """
+    try:
+        from . import config
+        cfg = config.load_config()
+        if not (cfg.get("harness_enabled", True)
+                and cfg.get("harness_compact_review", True)):
+            return
+        api_key = config.get_api_key(cfg)
+        if not api_key:
+            return
+        from types import SimpleNamespace
+
+        from . import harness_review
+        from .llm import build_client
+        ctx = SimpleNamespace(cfg=cfg, client=build_client(cfg, api_key),
+                              skills=None)
+        harness_review.review(ctx, transcript, reason="compaction")
+    except Exception:
+        pass
+
+
 def compact(client: Any, messages: list[dict[str, Any]], *,
             model: Optional[str] = None, keep_head: int = 2,
             tail_budget: int = 20_000,
@@ -217,6 +246,7 @@ def compact(client: Any, messages: list[dict[str, Any]], *,
 
     from . import selfimprove
     transcript = selfimprove.transcript_from_messages(middle, limit=transcript_limit)
+    _harness_checkpoint(transcript)
     ask = ("Summarize this portion of an agent conversation:\n\n" + transcript)
     if prev:
         ask = ("An earlier part of this conversation was already summarized. "

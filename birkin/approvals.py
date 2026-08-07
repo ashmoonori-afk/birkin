@@ -121,6 +121,9 @@ def execute_action(category: str, payload: dict[str, Any],
     if category == "companion":
         from .companion import apply_proposal
         return apply_proposal(payload)
+    if category == "harness":
+        from .harness import apply_approved_edit
+        return apply_approved_edit(payload)
     # memory is applied by the agent directly; nothing else has an executor.
     return f"(no executor for category '{category}')"
 

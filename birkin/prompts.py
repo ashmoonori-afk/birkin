@@ -112,7 +112,7 @@ def seal_research_policy(system_prompt: str) -> str:
 def build_system_prompt(*, skills_index: str = "", memory_block: str = "",
                         role: str = "main", extra: str = "",
                         preloaded: Optional[list[tuple[str, str]]] = None,
-                        persona: str = "") -> str:
+                        persona: str = "", harness_block: str = "") -> str:
     # The user's SOUL.md persona (when set) replaces the default identity slot;
     # everything else (tool guidance, skills, memory) is appended as usual.
     identity = persona.strip() if persona and persona.strip() else _IDENTITY
@@ -140,6 +140,9 @@ def build_system_prompt(*, skills_index: str = "", memory_block: str = "",
 
     if memory_block:
         parts.append("## What you know about the user\n" + memory_block)
+
+    if harness_block:
+        parts.append(harness_block)
 
     if extra:
         parts.append(extra)

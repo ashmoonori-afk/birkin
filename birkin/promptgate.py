@@ -26,12 +26,14 @@ def _persona(persona_text: Optional[str]) -> str:
 
 def compose_main(cfg: dict[str, Any], *, skills_index: str = "",
                  memory_block: str = "", role: str = "main", extra: str = "",
-                 persona_text: Optional[str] = None) -> str:
+                 persona_text: Optional[str] = None,
+                 harness_block: str = "") -> str:
     """System prompt for the native agent loop (API providers). Persona + tool
     guidance + skills + memory, then the neurosis auto-trigger note."""
     system = prompts.build_system_prompt(
         skills_index=skills_index, memory_block=memory_block, role=role,
-        extra=extra, persona=_persona(persona_text)
+        extra=extra, persona=_persona(persona_text),
+        harness_block=harness_block
     ) + presets.role_overlay(cfg.get("model"), cfg) \
         + presets.tool_policy_overlay(
             cfg.get("model"), cfg, surface="native"

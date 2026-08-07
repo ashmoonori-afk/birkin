@@ -675,6 +675,14 @@ Keys you'll actually touch:
   "lsp_servers": {},
   "a2a_enabled": false,
 
+  "harness_enabled": true,
+  "harness_turn_interval": 12,
+  "harness_cooldown_min": 15,
+  "harness_compact_review": true,
+  "harness_max_edits": 12,
+  "harness_prompt_budget": 20000,
+  "harness_auto_approve": ["memory", "skill"],
+
   "channels": {
     "http": {"enabled": true},
     "telegram": {"enabled": false, "token": "", "allowed_chat_ids": []}
@@ -755,6 +763,58 @@ execution surface, so nobody acquires one by upgrading, and only a real
 unauthenticated, because a peer has to read it before it has a token and it
 carries nothing secret. A peer's task runs as a one-shot session, so it cannot
 land in a conversation you are having.
+
+### The continual harness
+
+Self-improvement is no longer a blind write. Morpheus and the in-session review
+emit a *proposal* — summary, rationale, expected outcome, and a list of edits —
+and the harness validates it, applies it, and records what it did in a versioned
+ledger under `~/.birkin/harness/`.
+
+Four entry kinds are tracked: **`prompt`** (supplemental behaviour notes),
+**`memory`**, **`skill`**, and **`subagent`** (reusable delegation specs). Every
+entry carries a `version` and an `updated_at`, and every applied proposal is
+appended to `refinements.jsonl` together with the `before` state of everything
+it touched — so a change is a *reversible refinement* by construction, not by
+hoping a backup exists.
+
+`harness_auto_approve` decides what lands without asking. `memory` and `skill`
+are reversible local files, so they apply themselves — the same policy
+`auto_approve` already uses. `prompt` and `subagent` are not: they change how the
+agent behaves on *every later turn*, so they are queued as `harness` proposals
+(approval tier **high**) and wait for `birkin review`.
+
+```bash
+birkin harness show                  # current entries, by kind, with versions
+birkin harness show --scope local    # the session-scoped harness instead
+birkin harness history -n 20         # the refinement ledger, oldest first
+birkin harness rollback <id>         # reverse one refinement, edit by edit
+birkin harness export <path>         # write the harness state to a JSON file
+birkin harness refine                # where proposals come from (see below)
+```
+
+`refine` writes nothing on its own — proposals come from `birkin morpheus` and
+from the in-session review, and the ones that are not auto-approved wait in
+`birkin review`. The command says so and exits rather than pretending to work.
+An unknown refinement id makes `rollback` exit `1` with a one-line reason, not a
+traceback.
+
+- **`harness_enabled`** — the master switch. Off restores the old direct-write
+  behaviour and puts no harness block in the system prompt.
+- **`harness_turn_interval`** — assistant turns that must pass before the
+  in-session review gate is even consulted; a gate on every turn costs a model
+  call on every turn.
+- **`harness_cooldown_min`** — minutes of quiet after a review runs.
+- **`harness_compact_review`** — review at compaction time too: the moment older
+  context is about to be summarized away is the last chance to keep what it
+  taught.
+- **`harness_max_edits`** — cap on the edits one proposal may carry. An
+  unattended pass that "improves" forty things at once is a runaway, not a good
+  night.
+- **`harness_prompt_budget`** — character budget for the harness block inside
+  the system prompt.
+- **`harness_auto_approve`** — the kinds applied without asking; everything else
+  is queued for `birkin review`.
 
 Those are the *defaults* — `config.json` on disk holds only the keys you
 actually changed, nested sections included. That matters on upgrade: a file that
