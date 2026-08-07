@@ -322,6 +322,58 @@ def _cmd_voice(args: argparse.Namespace) -> int:
     if not args.gateway_url:
         return 0
 
+    if args.background:
+        from . import config
+        from .background import BackgroundBroker
+        from .voice import VoiceMissionService
+
+        receipt_dir = (
+            Path(args.receipt_dir)
+            if args.receipt_dir
+            else config.birkin_home() / "voice" / "jobs"
+        )
+        sinks = []
+        if args.tts_output:
+            sinks.append(PcmFileSink(Path(args.tts_output)))
+        if not args.no_playback:
+            sinks.append(PcmSpeaker())
+        tts = (
+            OpenAITTS(
+                model=args.tts_model,
+                voice=args.tts_voice,
+                instructions=args.tts_instructions,
+            )
+            if sinks
+            else None
+        )
+        try:
+            with BackgroundBroker(
+                receipt_dir,
+                max_workers=args.background_workers,
+            ) as broker:
+                mission = VoiceMissionService(
+                    broker,
+                    GatewayClient(
+                        args.gateway_url,
+                        session_id=args.session_id,
+                        token=os.environ.get("BIRKIN_HTTP_TOKEN", ""),
+                    ),
+                    tts=tts,
+                    sinks=sinks,
+                )
+                job = mission.submit(args.command)
+                receipt = receipt_dir / f"{job.id}.json"
+                print("FOREGROUND_ACK=queued", flush=True)
+                print(f"BACKGROUND_RECEIPT={receipt}", flush=True)
+                done = broker.wait(job.id, timeout=args.background_timeout)
+            print(f"BACKGROUND_STATUS={done.status}")
+            if done.result:
+                print(f"BACKGROUND_RESULT={done.result}")
+            return 0 if done.status == "succeeded" else 1
+        except (OSError, RuntimeError, TimeoutError, ValueError) as exc:
+            print(f"VOICE_ERROR {exc}", file=sys.stderr)
+            return 1
+
     try:
         reply = GatewayClient(
             args.gateway_url,
@@ -986,6 +1038,28 @@ def build_parser() -> argparse.ArgumentParser:
         "--no-playback",
         action="store_true",
         help="do not play synthesized PCM through the speaker",
+    )
+    p_voice.add_argument(
+        "--background",
+        action="store_true",
+        help="enqueue the command and persist a durable receipt",
+    )
+    p_voice.add_argument(
+        "--receipt-dir",
+        default="",
+        help="background receipt directory (default: BIRKIN_HOME/voice/jobs)",
+    )
+    p_voice.add_argument(
+        "--background-workers",
+        type=int,
+        default=2,
+        help="maximum concurrent background voice jobs",
+    )
+    p_voice.add_argument(
+        "--background-timeout",
+        type=float,
+        default=300.0,
+        help="seconds to wait for this one-shot background result",
     )
     p_voice.set_defaults(func=_cmd_voice)
 

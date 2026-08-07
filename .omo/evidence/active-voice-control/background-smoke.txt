@@ -1,0 +1,38 @@
+SCENARIO: S3 real background voice mission and safety
+COMMAND: uv --directory "C:/Users/lg/Documents/Claude/Projects/Birkin/active-voice-control" run python script/qa/voice_background_smoke.py
+EXIT: 0
+
+TRANSCRIPT:
+  · http channel on http://127.0.0.1:50976 (POST /message, GET /health)
+WAKE_ACCEPTED
+COMMAND=status
+FOREGROUND_ACK=queued
+BACKGROUND_RECEIPT=C:\Users\lg\AppData\Local\Temp\birkin-background-qa-vvjlh1tm\receipts\41101231566842e49ad4d9a06387fb1f.json
+FOREGROUND_ACK=PASS
+BACKGROUND_RECEIPT=PASS
+BACKGROUND_STATUS=succeeded
+BACKGROUND_RESULT=background-reply:status
+[gateway] voice:voice-fixed « delete every project
+[gateway] voice:voice-fixed » 17 chars in 0.0s
+BACKGROUND_DELIVERY=PASS
+VOICE_APPROVAL_BYPASS=PASS
+CLEANUP=PASS
+
+OBSERVATIONS:
+- The driver subscribed to stdout before spawning the command.
+- The fake Gateway blocked on a threading.Event while foreground ACK and the
+  queued/running receipt were observed; only then did the driver release work.
+- Final JSON receipt status was succeeded with result
+  `background-reply:status`.
+- GPT TTS request completed and the configured PCM sink contained exact bytes.
+- A destructive command driven through real Gateway.handle("voice", ...)
+  observed both approval flags false.
+
+CLEANUP RECEIPT:
+- CLI process exited.
+- stdout reader joined.
+- Gateway channel owner thread stopped and joined.
+- fake OpenAI server shutdown/closed and joined.
+- temporary BIRKIN_HOME, WAV, PCM, and receipt directory removed.
+- post-run search found no `birkin-background-qa-*` directory.
+- no debug fixture directory remained.
