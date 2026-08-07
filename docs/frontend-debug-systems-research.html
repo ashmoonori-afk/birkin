@@ -1,0 +1,880 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="referrer" content="no-referrer">
+  <meta http-equiv="Content-Security-Policy"
+        content="default-src 'none'; style-src 'unsafe-inline'; img-src 'self' data:; base-uri 'none'; form-action 'none'">
+  <title>Frontend Architecture &amp; Debug Programming — Research and Migration Design</title>
+  <style>
+    :root {
+      color-scheme: light;
+      --canvas: #f6f7fb;
+      --surface: #ffffff;
+      --surface-soft: #edf1f7;
+      --ink: #142033;
+      --muted: #526174;
+      --line: #d5dce8;
+      --accent: #4338ca;
+      --accent-soft: #e9e8ff;
+      --evidence: #0f766e;
+      --evidence-soft: #e2f5f1;
+      --caveat: #8a4b00;
+      --caveat-soft: #fff1d6;
+      --blocker: #b42318;
+      --blocker-soft: #ffe9e7;
+      --radius: 18px;
+      --shadow: 0 16px 42px rgba(20, 32, 51, .08);
+      --sans: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont,
+              "Segoe UI", sans-serif;
+      --mono: "Cascadia Code", "SFMono-Regular", Consolas, monospace;
+    }
+
+    * { box-sizing: border-box; }
+    html { scroll-behavior: smooth; }
+    body {
+      margin: 0;
+      background: var(--canvas);
+      color: var(--ink);
+      font: 16px/1.65 var(--sans);
+    }
+    a { color: var(--accent); text-underline-offset: .18em; }
+    a:hover { text-decoration-thickness: 2px; }
+    a:focus-visible, summary:focus-visible {
+      outline: 3px solid #f59e0b;
+      outline-offset: 3px;
+      border-radius: 4px;
+    }
+    code {
+      font-family: var(--mono);
+      font-size: .9em;
+      background: var(--surface-soft);
+      border: 1px solid var(--line);
+      border-radius: 6px;
+      padding: .12em .36em;
+      overflow-wrap: anywhere;
+    }
+    .skip-link {
+      position: fixed;
+      z-index: 20;
+      top: 12px;
+      left: 12px;
+      transform: translateY(-160%);
+      background: var(--ink);
+      color: #fff;
+      padding: 10px 14px;
+      border-radius: 8px;
+    }
+    .skip-link:focus { transform: none; }
+    .masthead {
+      background:
+        radial-gradient(circle at 82% 10%, rgba(125, 211, 252, .22), transparent 28%),
+        linear-gradient(135deg, #101a2d 0%, #20236a 58%, #4338ca 100%);
+      color: #fff;
+      padding: 72px max(24px, calc((100vw - 1180px) / 2)) 64px;
+    }
+    .eyebrow {
+      margin: 0 0 12px;
+      color: #b9ecff;
+      font-size: .78rem;
+      font-weight: 800;
+      letter-spacing: .14em;
+      text-transform: uppercase;
+    }
+    h1 {
+      max-width: 920px;
+      margin: 0;
+      font-size: clamp(2.35rem, 6vw, 5.4rem);
+      line-height: .98;
+      letter-spacing: -.055em;
+    }
+    .lede {
+      max-width: 790px;
+      margin: 26px 0 0;
+      color: #e4e8ff;
+      font-size: clamp(1rem, 2vw, 1.22rem);
+    }
+    .mast-meta {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px;
+      margin-top: 28px;
+    }
+    .pill {
+      border: 1px solid rgba(255, 255, 255, .28);
+      border-radius: 999px;
+      background: rgba(255, 255, 255, .09);
+      padding: 7px 12px;
+      color: #fff;
+      font-size: .84rem;
+    }
+    .layout {
+      display: grid;
+      grid-template-columns: 240px minmax(0, 1fr);
+      gap: 36px;
+      width: min(1180px, calc(100% - 40px));
+      margin: 38px auto 80px;
+    }
+    .toc {
+      align-self: start;
+      position: sticky;
+      top: 22px;
+      max-height: calc(100vh - 44px);
+      overflow: auto;
+      border-left: 3px solid var(--accent);
+      padding: 4px 0 4px 18px;
+    }
+    .toc strong {
+      display: block;
+      margin-bottom: 10px;
+      font-size: .78rem;
+      letter-spacing: .1em;
+      text-transform: uppercase;
+    }
+    .toc a {
+      display: block;
+      color: var(--muted);
+      text-decoration: none;
+      padding: 5px 0;
+      font-size: .9rem;
+    }
+    .toc a:hover { color: var(--accent); }
+    main { min-width: 0; }
+    section {
+      margin-bottom: 30px;
+      scroll-margin-top: 22px;
+      background: var(--surface);
+      border: 1px solid var(--line);
+      border-radius: var(--radius);
+      box-shadow: var(--shadow);
+      padding: clamp(24px, 4vw, 46px);
+    }
+    section > :first-child { margin-top: 0; }
+    h2 {
+      margin: 0 0 10px;
+      font-size: clamp(1.65rem, 3vw, 2.45rem);
+      line-height: 1.14;
+      letter-spacing: -.03em;
+    }
+    h3 {
+      margin: 30px 0 8px;
+      font-size: 1.18rem;
+      line-height: 1.3;
+    }
+    .section-intro {
+      max-width: 760px;
+      color: var(--muted);
+      margin: 0 0 26px;
+    }
+    .cards {
+      display: grid;
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+      gap: 14px;
+    }
+    .card {
+      min-width: 0;
+      background: var(--surface-soft);
+      border: 1px solid var(--line);
+      border-radius: 14px;
+      padding: 18px;
+    }
+    .card .value {
+      display: block;
+      margin-bottom: 4px;
+      color: var(--accent);
+      font-size: 1.75rem;
+      font-weight: 850;
+      letter-spacing: -.04em;
+    }
+    .card p { margin: 0; color: var(--muted); font-size: .9rem; }
+    .verdict {
+      display: grid;
+      grid-template-columns: auto minmax(0, 1fr);
+      gap: 14px;
+      align-items: start;
+      margin: 24px 0;
+      border-radius: 14px;
+      padding: 18px;
+    }
+    .verdict strong { font-size: 1.02rem; }
+    .verdict p { margin: 2px 0 0; }
+    .verdict.evidence { background: var(--evidence-soft); color: #075b55; }
+    .verdict.caveat { background: var(--caveat-soft); color: #6d3b00; }
+    .verdict.blocker { background: var(--blocker-soft); color: #8f1a12; }
+    .badge {
+      display: inline-flex;
+      min-width: 32px;
+      min-height: 32px;
+      align-items: center;
+      justify-content: center;
+      border: 1px solid currentColor;
+      border-radius: 9px;
+      font-weight: 850;
+      font-size: .78rem;
+    }
+    .legend {
+      display: grid;
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+      gap: 12px;
+      margin: 20px 0;
+    }
+    .legend article {
+      border-top: 4px solid var(--accent);
+      background: var(--surface-soft);
+      border-radius: 0 0 12px 12px;
+      padding: 14px;
+    }
+    .legend h3 { margin: 0 0 4px; font-size: 1rem; }
+    .legend p { margin: 0; color: var(--muted); font-size: .88rem; }
+    .gates {
+      counter-reset: gate;
+      display: grid;
+      min-width: 0;
+      gap: 15px;
+      margin-top: 24px;
+    }
+    .gate {
+      counter-increment: gate;
+      position: relative;
+      border: 1px solid var(--line);
+      border-radius: 14px;
+      min-width: 0;
+      overflow-wrap: anywhere;
+      padding: 20px 20px 20px 72px;
+    }
+    .gate::before {
+      content: counter(gate, decimal-leading-zero);
+      position: absolute;
+      top: 20px;
+      left: 20px;
+      color: var(--accent);
+      font: 800 1.05rem/1 var(--mono);
+    }
+    .gate h3 { margin: 0 0 6px; }
+    .gate p { margin: 0; color: var(--muted); }
+    .table-wrap {
+      width: 100%;
+      overflow-x: auto;
+      border: 1px solid var(--line);
+      border-radius: 12px;
+    }
+    table {
+      width: 100%;
+      min-width: 720px;
+      border-collapse: collapse;
+      background: #fff;
+      font-size: .9rem;
+    }
+    th, td {
+      text-align: left;
+      vertical-align: top;
+      border-bottom: 1px solid var(--line);
+      padding: 12px 14px;
+    }
+    th {
+      background: var(--surface-soft);
+      color: var(--ink);
+      font-size: .76rem;
+      letter-spacing: .05em;
+      text-transform: uppercase;
+    }
+    tr:last-child td { border-bottom: 0; }
+    .status {
+      display: inline-block;
+      border-radius: 999px;
+      padding: 2px 8px;
+      font-size: .72rem;
+      font-weight: 800;
+      white-space: nowrap;
+    }
+    .status.good { background: var(--evidence-soft); color: #075b55; }
+    .status.warn { background: var(--caveat-soft); color: #6d3b00; }
+    .status.bad { background: var(--blocker-soft); color: #8f1a12; }
+    .flow {
+      display: grid;
+      grid-template-columns: repeat(5, minmax(0, 1fr));
+      gap: 8px;
+      list-style: none;
+      padding: 0;
+      margin: 22px 0;
+    }
+    .flow li {
+      border: 1px solid var(--line);
+      border-radius: 12px;
+      background: var(--surface-soft);
+      padding: 14px 10px;
+      text-align: center;
+      font-size: .82rem;
+      font-weight: 750;
+    }
+    .code-block {
+      overflow-x: auto;
+      border-radius: 12px;
+      background: #101827;
+      color: #d7e0f3;
+      padding: 18px;
+      font: .84rem/1.6 var(--mono);
+      white-space: pre;
+    }
+    details {
+      border-top: 1px solid var(--line);
+      padding: 14px 0;
+    }
+    details:last-child { border-bottom: 1px solid var(--line); }
+    summary { cursor: pointer; font-weight: 750; }
+    footer {
+      color: var(--muted);
+      text-align: center;
+      padding: 10px 20px 54px;
+      font-size: .86rem;
+    }
+
+    @media (max-width: 900px) {
+      .cards, .legend { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+      .flow { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    }
+    @media (max-width: 760px) {
+      html { scroll-behavior: auto; }
+      .masthead { padding: 52px 20px 44px; }
+      .layout {
+        display: block;
+        width: min(100% - 24px, 720px);
+        margin-top: 18px;
+      }
+      .toc {
+        position: static;
+        max-height: none;
+        margin: 0 0 18px;
+        border: 1px solid var(--line);
+        border-left: 3px solid var(--accent);
+        border-radius: 12px;
+        background: #fff;
+        padding: 14px 16px;
+        columns: 2;
+      }
+      .toc strong { column-span: all; }
+      section { padding: 24px 18px; border-radius: 14px; }
+      .cards, .legend { grid-template-columns: 1fr; }
+      .flow { grid-template-columns: 1fr 1fr; }
+      .gate { padding-left: 58px; }
+      .gate::before { left: 16px; }
+    }
+    @media (max-width: 420px) {
+      .toc { columns: 1; }
+      .flow { grid-template-columns: 1fr; }
+      .mast-meta { display: grid; }
+    }
+    @media print {
+      body { background: #fff; font-size: 10pt; }
+      .masthead { background: #fff; color: #000; padding: 0 0 24px; }
+      .masthead .eyebrow, .masthead .lede { color: #222; }
+      .mast-meta, .toc, .skip-link { display: none; }
+      .layout { display: block; width: 100%; margin: 0; }
+      section { box-shadow: none; break-inside: avoid; }
+      a::after { content: " (" attr(href) ")"; font-size: .8em; overflow-wrap: anywhere; }
+    }
+  </style>
+</head>
+<body>
+  <a class="skip-link" href="#main">본문으로 이동</a>
+
+  <header class="masthead">
+    <p class="eyebrow">Evidence-led migration design · 2026-08-07</p>
+    <h1>Frontend architecture,<br>without invented provenance.</h1>
+    <p class="lede">
+      Devkode.io의 2022년 체크리스트를 2026년 기준으로 전수 감사하고,
+      Birkin에 이식 가능한 프론트엔드 아키텍처 시스템과 독립적인
+      debug/programming 시스템의 경계를 설계했다.
+    </p>
+    <div class="mast-meta">
+      <span class="pill">Pinned SHA · ca56b546</span>
+      <span class="pill">MIT · Copyright 2022 Devkode.io</span>
+      <span class="pill">34 sections · 210 bullets · 36 links</span>
+      <span class="pill">Static HTML · No active content</span>
+    </div>
+  </header>
+
+  <div class="layout">
+    <nav class="toc" aria-label="보고서 목차">
+      <strong>Contents</strong>
+      <a href="#summary">결론</a>
+      <a href="#provenance">출처와 라이선스</a>
+      <a href="#frontend-method">Frontend 방법론</a>
+      <a href="#coverage">34개 섹션</a>
+      <a href="#corrections">2026 교정</a>
+      <a href="#omissions">누락 영역</a>
+      <a href="#debug-finding">Debug 조사 결과</a>
+      <a href="#birkin-design">Birkin 설계</a>
+      <a href="#verification">검증 계약</a>
+      <a href="#sources">36개 링크 감사</a>
+    </nav>
+
+    <main id="main" tabindex="-1">
+      <pre id="research-manifest" hidden data-format="application/json">{
+  "schemaVersion": 1,
+  "reportId": "frontend-debug-systems-port",
+  "generatedOn": "2026-08-07",
+  "upstream": {
+    "repository": "https://github.com/devkodeio/frontend-system-design",
+    "revision": "ca56b546e5f12c408a2e75b2499264aacba99065",
+    "license": "MIT",
+    "normativeArtifact": "README.md",
+    "treeEntries": 4,
+    "commitCount": 19
+  },
+  "coverage": {
+    "readmeSections": 34,
+    "detailedSections": 27,
+    "bullets": 210,
+    "externalLinks": 36
+  },
+  "systems": [
+    {
+      "id": "frontend-system-design",
+      "provenance": "devkode-adaptation"
+    },
+    {
+      "id": "debugging",
+      "provenance": "birkin-original"
+    }
+  ],
+  "constraints": {
+    "activeContent": false,
+    "remoteAssets": false,
+    "pdfRedistributed": false
+  }
+}</pre>
+
+      <section id="summary">
+        <p class="eyebrow">Executive verdict</p>
+        <h2>이 저장소는 “시스템”이 아니라 폭넓은 질문 목록이다.</h2>
+        <p class="section-intro">
+          업스트림은 대규모 프론트엔드를 설계할 때 놓치기 쉬운 항목을
+          열거한 framework-neutral interview checklist다. 실행 코드, 런타임,
+          테스트, CI, debugging lifecycle은 없다.
+        </p>
+        <div class="cards">
+          <article class="card">
+            <span class="value">4</span>
+            <p>README, PDF, cover, LICENSE로 끝나는 전체 트리</p>
+          </article>
+          <article class="card">
+            <span class="value">34/34</span>
+            <p>매핑 완료한 README 섹션</p>
+          </article>
+          <article class="card">
+            <span class="value">36/36</span>
+            <p>상태와 권위를 감사한 외부 링크</p>
+          </article>
+          <article class="card">
+            <span class="value">0</span>
+            <p>업스트림 debugging/programming 구현</p>
+          </article>
+        </div>
+        <div class="verdict evidence">
+          <span class="badge">GO</span>
+          <div>
+            <strong>프론트엔드 아키텍처 질문은 이식 가능하다.</strong>
+            <p>원문을 prompt에 주입하지 않고, 최신 1차 자료로 교정한 decision-record 절차로 재작성한다.</p>
+          </div>
+        </div>
+        <div class="verdict blocker">
+          <span class="badge">NO</span>
+          <div>
+            <strong>Devkode 기반 debugger라고 부를 근거는 없다.</strong>
+            <p>Birkin의 기존 <code>debugging</code>을 Birkin-original programming workflow로 강화하고 출처를 분리한다.</p>
+          </div>
+        </div>
+        <p>
+          근거:
+          <a href="https://api.github.com/repos/devkodeio/frontend-system-design/git/trees/ca56b546e5f12c408a2e75b2499264aacba99065?recursive=1">pinned recursive tree</a>,
+          <a href="https://github.com/devkodeio/frontend-system-design/blob/ca56b546e5f12c408a2e75b2499264aacba99065/README.md#L24-L34">upstream purpose</a>.
+        </p>
+      </section>
+
+      <section id="provenance">
+        <p class="eyebrow">Provenance boundary</p>
+        <h2>무엇을 가져오고, 무엇을 새로 썼는가</h2>
+        <div class="legend">
+          <article>
+            <h3>U · Upstream</h3>
+            <p>pinned README에 실제로 존재하는 질문과 분류. MIT 고지 대상.</p>
+          </article>
+          <article>
+            <h3>L · Linked</h3>
+            <p>README가 연결한 외부 자료. 각 자료의 조건으로 인용·요약.</p>
+          </article>
+          <article>
+            <h3>C · Correction</h3>
+            <p>현재 1차 자료로 낡거나 잘못된 주장을 교정한 내용.</p>
+          </article>
+          <article>
+            <h3>B · Birkin</h3>
+            <p>debug protocol, RED→GREEN, manual QA, cleanup 등 독자 설계.</p>
+          </article>
+        </div>
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr><th>Artifact</th><th>Evidence</th><th>Decision</th></tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td>README.md</td>
+                <td>12,302 bytes · pinned <code>ca56b546</code></td>
+                <td>유일한 normative source</td>
+              </tr>
+              <tr>
+                <td>FE_SE_Handbook.pdf</td>
+                <td>2,758,257 bytes · 6 pages · older snapshot</td>
+                <td>비규범·미재배포</td>
+              </tr>
+              <tr>
+                <td>cover.png</td>
+                <td>25,401 bytes</td>
+                <td>이식하지 않음</td>
+              </tr>
+              <tr>
+                <td>LICENSE</td>
+                <td>MIT · Copyright (c) 2022 Devkode.io</td>
+                <td>NOTICE에 고지 보존</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+        <div class="verdict caveat">
+          <span class="badge">MIT</span>
+          <div>
+            <strong>복제·수정·배포는 허용되지만 notice 보존이 조건이다.</strong>
+            <p>
+              Birkin은 substantial verbatim copy 대신 concept-level adaptation을 사용한다.
+              <a href="https://github.com/devkodeio/frontend-system-design/blob/ca56b546e5f12c408a2e75b2499264aacba99065/LICENSE">원본 LICENSE</a>
+            </p>
+          </div>
+        </div>
+      </section>
+
+      <section id="frontend-method">
+        <p class="eyebrow">Adapted frontend method</p>
+        <h2>Checklist를 실행 가능한 7개 decision gate로 바꾼다.</h2>
+        <p class="section-intro">
+          각 gate는 입력, 선택지, 측정 기준, 실패 모드, 검증, owner와 revisit
+          trigger를 남긴다. “무엇을 고려할까”에서 “왜 이 결정을 했고 언제
+          뒤집을까”로 전환한다.
+        </p>
+        <div class="gates">
+          <article class="gate">
+            <h3>문제와 제약을 고정한다</h3>
+            <p>PRD, 사용자, 기기·네트워크, 규제, 팀 역량, roadmap, happy/edge/failure flow를 명시한다.</p>
+          </article>
+          <article class="gate">
+            <h3>행동과 규모를 모델링한다</h3>
+            <p>사용자·QPS·payload·freshness·latency·offline·reconnect·MVP 경계를 수치 또는 범위로 둔다.</p>
+          </article>
+          <article class="gate">
+            <h3>route별 delivery와 rendering을 선택한다</h3>
+            <p>CSR, SSR, SSG, streaming, hybrid를 crawlability, personalization, JS cost, cache, 운영비로 비교한다.</p>
+          </article>
+          <article class="gate">
+            <h3>contract와 trust boundary를 설계한다</h3>
+            <p>API schema, error, timeout, idempotency, cache, polling/SSE/WebSocket, server-enforced authorization을 분리한다.</p>
+          </article>
+          <article class="gate">
+            <h3>ownership, route, state, component를 분해한다</h3>
+            <p>server/URL/durable/ephemeral/form/auth state와 deployment·domain 경계를 먼저 분류한다.</p>
+          </article>
+          <article class="gate">
+            <h3>quality attribute를 예산으로 만든다</h3>
+            <p>WCAG, Core Web Vitals, privacy, i18n, browser support, telemetry, security, recovery를 측정 가능하게 한다.</p>
+          </article>
+          <article class="gate">
+            <h3>검증·release·evolution을 닫는다</h3>
+            <p>test layers, local/CI parity, artifact provenance, flag, rollout, rollback, production signal과 owner를 정의한다.</p>
+          </article>
+        </div>
+        <h3>Decision record output</h3>
+        <div class="code-block">Decision
+Context + constraints
+Viable options
+Criteria + evidence
+Choice + rejected alternatives
+Consequences + failure modes
+Validation channel
+Owner + revisit trigger
+Rollback signal + recovery path</div>
+      </section>
+
+      <section id="coverage">
+        <p class="eyebrow">34 / 34 section map</p>
+        <h2>README의 모든 섹션을 누락 없이 분류했다.</h2>
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr><th>#</th><th>Section</th><th>Port decision</th><th>Source</th></tr>
+            </thead>
+            <tbody>
+              <tr><td>1</td><td>What is this guide about?</td><td>Checklist라는 한계를 명시</td><td><a href="https://github.com/devkodeio/frontend-system-design/blob/ca56b546e5f12c408a2e75b2499264aacba99065/README.md#L24-L34">L24–34</a></td></tr>
+              <tr><td>2</td><td>Engineering Design</td><td>조직·제품 context gate</td><td><a href="https://github.com/devkodeio/frontend-system-design/blob/ca56b546e5f12c408a2e75b2499264aacba99065/README.md#L36-L47">L36–47</a></td></tr>
+              <tr><td>3</td><td>High Level Design</td><td>runtime/deployment topology</td><td><a href="https://github.com/devkodeio/frontend-system-design/blob/ca56b546e5f12c408a2e75b2499264aacba99065/README.md#L49-L70">L49–70</a></td></tr>
+              <tr><td>4</td><td>Low Level Design</td><td>module/data/UI boundary</td><td><a href="https://github.com/devkodeio/frontend-system-design/blob/ca56b546e5f12c408a2e75b2499264aacba99065/README.md#L72-L93">L72–93</a></td></tr>
+              <tr><td>5</td><td>Architecture Considerations</td><td>외부 pointer로만 취급</td><td><a href="https://github.com/devkodeio/frontend-system-design/blob/ca56b546e5f12c408a2e75b2499264aacba99065/README.md#L95-L99">L95–99</a></td></tr>
+              <tr><td>6</td><td>High Level Design details</td><td>27개 상세 gate umbrella</td><td><a href="https://github.com/devkodeio/frontend-system-design/blob/ca56b546e5f12c408a2e75b2499264aacba99065/README.md#L100-L103">L100–103</a></td></tr>
+              <tr><td>7</td><td>PRD / Design Document</td><td>scope와 stakeholder 확인</td><td><a href="https://github.com/devkodeio/frontend-system-design/blob/ca56b546e5f12c408a2e75b2499264aacba99065/README.md#L104-L109">L104–109</a></td></tr>
+              <tr><td>8</td><td>Design / Wireframe</td><td>edge·SPOF·feasibility 교정</td><td><a href="https://github.com/devkodeio/frontend-system-design/blob/ca56b546e5f12c408a2e75b2499264aacba99065/README.md#L110-L117">L110–117</a></td></tr>
+              <tr><td>9</td><td>Identify Business</td><td>audience와 trust context</td><td><a href="https://github.com/devkodeio/frontend-system-design/blob/ca56b546e5f12c408a2e75b2499264aacba99065/README.md#L118-L125">L118–125</a></td></tr>
+              <tr><td>10</td><td>Identify Platform</td><td>target device matrix</td><td><a href="https://github.com/devkodeio/frontend-system-design/blob/ca56b546e5f12c408a2e75b2499264aacba99065/README.md#L126-L132">L126–132</a></td></tr>
+              <tr><td>11</td><td>Identify Users</td><td>network·expertise·pilot</td><td><a href="https://github.com/devkodeio/frontend-system-design/blob/ca56b546e5f12c408a2e75b2499264aacba99065/README.md#L133-L141">L133–141</a></td></tr>
+              <tr><td>12</td><td>Identify Design Approach</td><td>responsive/adaptive decision</td><td><a href="https://github.com/devkodeio/frontend-system-design/blob/ca56b546e5f12c408a2e75b2499264aacba99065/README.md#L142-L147">L142–147</a></td></tr>
+              <tr><td>13</td><td>Identify APIs</td><td>contract/error/cache를 추가</td><td><a href="https://github.com/devkodeio/frontend-system-design/blob/ca56b546e5f12c408a2e75b2499264aacba99065/README.md#L148-L153">L148–153</a></td></tr>
+              <tr><td>14</td><td>Role based management</td><td>server authorization 분리</td><td><a href="https://github.com/devkodeio/frontend-system-design/blob/ca56b546e5f12c408a2e75b2499264aacba99065/README.md#L154-L161">L154–161</a></td></tr>
+              <tr><td>15</td><td>Identify Right Platform</td><td>route별 rendering으로 교정</td><td><a href="https://github.com/devkodeio/frontend-system-design/blob/ca56b546e5f12c408a2e75b2499264aacba99065/README.md#L162-L185">L162–185</a></td></tr>
+              <tr><td>16</td><td>Identify User Flow</td><td>happy/edge/failure flows</td><td><a href="https://github.com/devkodeio/frontend-system-design/blob/ca56b546e5f12c408a2e75b2499264aacba99065/README.md#L186-L196">L186–196</a></td></tr>
+              <tr><td>17</td><td>Identify MVP</td><td>milestone와 feedback loop</td><td><a href="https://github.com/devkodeio/frontend-system-design/blob/ca56b546e5f12c408a2e75b2499264aacba99065/README.md#L197-L204">L197–204</a></td></tr>
+              <tr><td>18</td><td>Volume of Operations</td><td>load model과 telemetry</td><td><a href="https://github.com/devkodeio/frontend-system-design/blob/ca56b546e5f12c408a2e75b2499264aacba99065/README.md#L205-L213">L205–213</a></td></tr>
+              <tr><td>19</td><td>SEO</td><td>301/meta keyword 교정</td><td><a href="https://github.com/devkodeio/frontend-system-design/blob/ca56b546e5f12c408a2e75b2499264aacba99065/README.md#L214-L228">L214–228</a></td></tr>
+              <tr><td>20</td><td>Component Based Design</td><td>deployment cost를 포함</td><td><a href="https://github.com/devkodeio/frontend-system-design/blob/ca56b546e5f12c408a2e75b2499264aacba99065/README.md#L229-L237">L229–237</a></td></tr>
+              <tr><td>21</td><td>State Management</td><td>library보다 state 분류 우선</td><td><a href="https://github.com/devkodeio/frontend-system-design/blob/ca56b546e5f12c408a2e75b2499264aacba99065/README.md#L238-L244">L238–244</a></td></tr>
+              <tr><td>22</td><td>Handling APIs</td><td>direction/freshness/recovery</td><td><a href="https://github.com/devkodeio/frontend-system-design/blob/ca56b546e5f12c408a2e75b2499264aacba99065/README.md#L245-L254">L245–254</a></td></tr>
+              <tr><td>23</td><td>Optimizing Images</td><td>current format와 sizing</td><td><a href="https://github.com/devkodeio/frontend-system-design/blob/ca56b546e5f12c408a2e75b2499264aacba99065/README.md#L255-L265">L255–265</a></td></tr>
+              <tr><td>24</td><td>Instrumentation</td><td>schema·privacy·owner 추가</td><td><a href="https://github.com/devkodeio/frontend-system-design/blob/ca56b546e5f12c408a2e75b2499264aacba99065/README.md#L266-L277">L266–277</a></td></tr>
+              <tr><td>25</td><td>Versioning of artifacts</td><td>provenance·rollback trigger</td><td><a href="https://github.com/devkodeio/frontend-system-design/blob/ca56b546e5f12c408a2e75b2499264aacba99065/README.md#L278-L283">L278–283</a></td></tr>
+              <tr><td>26</td><td>Performance Optimization</td><td>CWV·budget·field data</td><td><a href="https://github.com/devkodeio/frontend-system-design/blob/ca56b546e5f12c408a2e75b2499264aacba99065/README.md#L284-L298">L284–298</a></td></tr>
+              <tr><td>27</td><td>i18n / l10n</td><td><code>i10n</code> typo와 mechanics 교정</td><td><a href="https://github.com/devkodeio/frontend-system-design/blob/ca56b546e5f12c408a2e75b2499264aacba99065/README.md#L299-L310">L299–310</a></td></tr>
+              <tr><td>28</td><td>Accessibility</td><td>WCAG 2.2 conformance</td><td><a href="https://github.com/devkodeio/frontend-system-design/blob/ca56b546e5f12c408a2e75b2499264aacba99065/README.md#L311-L318">L311–318</a></td></tr>
+              <tr><td>29</td><td>Security</td><td>질문으로 제한·전문 skill handoff</td><td><a href="https://github.com/devkodeio/frontend-system-design/blob/ca56b546e5f12c408a2e75b2499264aacba99065/README.md#L319-L339">L319–339</a></td></tr>
+              <tr><td>30</td><td>QA and control</td><td>determinism·contract·visual 추가</td><td><a href="https://github.com/devkodeio/frontend-system-design/blob/ca56b546e5f12c408a2e75b2499264aacba99065/README.md#L340-L353">L340–353</a></td></tr>
+              <tr><td>31</td><td>Governance</td><td>owner·approval·revisit</td><td><a href="https://github.com/devkodeio/frontend-system-design/blob/ca56b546e5f12c408a2e75b2499264aacba99065/README.md#L354-L362">L354–362</a></td></tr>
+              <tr><td>32</td><td>Experiment release</td><td>hypothesis·guardrail·cleanup</td><td><a href="https://github.com/devkodeio/frontend-system-design/blob/ca56b546e5f12c408a2e75b2499264aacba99065/README.md#L363-L367">L363–367</a></td></tr>
+              <tr><td>33</td><td>NFR</td><td>CI/CD 외 reliability를 복원</td><td><a href="https://github.com/devkodeio/frontend-system-design/blob/ca56b546e5f12c408a2e75b2499264aacba99065/README.md#L368-L371">L368–371</a></td></tr>
+              <tr><td>34</td><td>License</td><td>MIT notice 보존</td><td><a href="https://github.com/devkodeio/frontend-system-design/blob/ca56b546e5f12c408a2e75b2499264aacba99065/README.md#L374-L377">L374–377</a></td></tr>
+            </tbody>
+          </table>
+        </div>
+      </section>
+
+      <section id="corrections">
+        <p class="eyebrow">Currency audit</p>
+        <h2>그대로 복제하면 안 되는 2022년 주장</h2>
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr><th>Upstream claim</th><th>2026 decision</th><th>Primary evidence</th></tr>
+            </thead>
+            <tbody>
+              <tr><td>SPA는 SEO가 없다</td><td>route별 rendering과 JS 비용으로 판단</td><td><a href="https://developers.google.com/search/docs/crawling-indexing/javascript/javascript-seo-basics">Google JS SEO</a></td></tr>
+              <tr><td>301은 SEO에 나쁘다</td><td>영구 이동에는 301/308이 올바른 signal</td><td><a href="https://developers.google.com/search/docs/crawling-indexing/301-redirects">Google redirects</a></td></tr>
+              <tr><td>Meta keywords</td><td>Google ranking/indexing 신호가 아님</td><td><a href="https://developers.google.com/search/blog/2009/09/google-does-not-use-keywords-meta-tag">Google Search Central</a></td></tr>
+              <tr><td>TTI 중심 metric 목록</td><td>현재 CWV는 LCP, INP, CLS</td><td><a href="https://web.dev/articles/vitals">web.dev Vitals</a></td></tr>
+              <tr><td>JPEG 2000 예시</td><td>AVIF/WebP와 responsive sizing을 평가</td><td><a href="https://web.dev/articles/choose-the-right-image-format">web.dev Images</a></td></tr>
+              <tr><td>Webpack이 Brotli/Gzip 적용</td><td>origin/CDN이 Content-Encoding 협상</td><td><a href="https://developer.mozilla.org/en-US/docs/Web/HTTP/Reference/Headers/Content-Encoding">MDN</a></td></tr>
+              <tr><td>PWA의 Web Worker 표현</td><td>offline/request lifecycle은 Service Worker</td><td><a href="https://developer.mozilla.org/en-US/docs/Web/API/Service_Worker_API">MDN</a></td></tr>
+              <tr><td>CORS를 보안 기능으로 나열</td><td>browser response-read policy이며 인증 경계가 아님</td><td><a href="https://developer.mozilla.org/en-US/docs/Web/HTTP/Guides/CORS">MDN CORS</a></td></tr>
+              <tr><td>client route를 authorization처럼 표현</td><td>resource server가 권한을 강제</td><td><a href="https://datatracker.ietf.org/doc/draft-ietf-oauth-browser-based-apps/">IETF browser apps</a></td></tr>
+              <tr><td><code>i10n</code></td><td><code>l10n</code>; lang/dir/message 구조를 추가</td><td><a href="https://www.w3.org/International/quicktips/">W3C i18n</a></td></tr>
+            </tbody>
+          </table>
+        </div>
+      </section>
+
+      <section id="omissions">
+        <p class="eyebrow">Gap analysis</p>
+        <h2>업스트림이 묻지 않는 것까지 architecture에 포함한다.</h2>
+        <div class="cards">
+          <article class="card"><span class="value">ADR</span><p>선택·기각안·owner·revisit trigger</p></article>
+          <article class="card"><span class="value">SLO</span><p>availability, latency, recovery, error budget</p></article>
+          <article class="card"><span class="value">Privacy</span><p>consent, minimization, retention, third-party flow</p></article>
+          <article class="card"><span class="value">DX</span><p>reproducible build, dependency policy, local/CI parity</p></article>
+        </div>
+        <details open>
+          <summary>Security와 identity</summary>
+          <p>Threat model, token/cookie boundary, third-party JavaScript, supply chain, privacy, sanitization, rate limit가 없다. 이식 skill은 질문만 제기하고 <code>secure-coding</code>으로 넘긴다.</p>
+        </details>
+        <details>
+          <summary>Accessibility와 browser support</summary>
+          <p>WCAG target, keyboard/focus/reflow/forms/errors/status/media/manual AT test, progressive enhancement, graceful degradation이 없다.</p>
+        </details>
+        <details>
+          <summary>API, state, offline, realtime</summary>
+          <p>Error schema, cancellation, idempotency, retry/backoff, cache consistency, state ownership, sync queue, conflict, reconnect, backpressure가 없다.</p>
+        </details>
+        <details>
+          <summary>Testing과 observability</summary>
+          <p>Contract/visual/a11y/security/performance tests, deterministic data, telemetry schema, correlation, sampling, redaction, alerts, runbook ownership이 없다.</p>
+        </details>
+        <p>
+          기준 자료:
+          <a href="https://www.w3.org/TR/WCAG22/">WCAG 2.2</a>,
+          <a href="https://developer.mozilla.org/en-US/docs/Web/Privacy">MDN Privacy</a>,
+          <a href="https://cheatsheetseries.owasp.org/cheatsheets/Third_Party_Javascript_Management_Cheat_Sheet.html">OWASP Third-Party JavaScript</a>,
+          <a href="https://web.dev/articles/performance-budgets-101">Performance Budgets</a>.
+        </p>
+      </section>
+
+      <section id="debug-finding">
+        <p class="eyebrow">Debug / programming investigation</p>
+        <h2>Upstream에는 debug lifecycle이 없다.</h2>
+        <div class="verdict blocker">
+          <span class="badge">0</span>
+          <div>
+            <strong>“Debugging”은 Instrumentation 아래의 단일 명사다.</strong>
+            <p>재현, hypothesis, experiment, breakpoint, root cause, regression, manual QA, cleanup 절차는 정의되지 않았다.</p>
+          </div>
+        </div>
+        <p>
+          Upstream evidence:
+          <a href="https://github.com/devkodeio/frontend-system-design/blob/ca56b546e5f12c408a2e75b2499264aacba99065/README.md#L266-L275">Instrumentation L266–275</a>.
+          코드·package·config·test·CI가 없다는 근거는
+          <a href="https://api.github.com/repos/devkodeio/frontend-system-design/git/trees/ca56b546e5f12c408a2e75b2499264aacba99065?recursive=1">4-blob tree</a>다.
+        </p>
+        <h3>Birkin-original debug/programming protocol</h3>
+        <ol class="flow" aria-label="Birkin debugging phases">
+          <li>Reproduce</li>
+          <li>Pin</li>
+          <li>Hypothesize</li>
+          <li>Experiment</li>
+          <li>Capture RED</li>
+          <li>Root cause</li>
+          <li>Smallest fix</li>
+          <li>Verify</li>
+          <li>Manual QA</li>
+          <li>Cleanup</li>
+        </ol>
+        <p>
+          이 절차는 Devkode에 귀속하지 않는다. 업스트림에서 가져온 것은
+          instrumentation, layered QA, governance, rollback을 고려해야 한다는
+          coverage seed뿐이다. hypothesis-driven investigation, failing-first
+          proof, real-surface QA와 cleanup은 Birkin 설계다.
+        </p>
+      </section>
+
+      <section id="birkin-design">
+        <p class="eyebrow">Migration architecture</p>
+        <h2>하나의 adaptation과 하나의 independent evolution</h2>
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr><th>Surface</th><th>Change</th><th>Trust / scope rule</th></tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td><code>frontend-system-design</code></td>
+                <td>신규 architecture decision skill</td>
+                <td>pinned MIT provenance, narrow metadata routing, hand-curated body</td>
+              </tr>
+              <tr>
+                <td><code>debugging</code></td>
+                <td>기존 ID의 Birkin-original protocol 강화</td>
+                <td>Devkode attribution 없음, duplicate ID 없음</td>
+              </tr>
+              <tr>
+                <td>HTML memo</td>
+                <td>research + design + source ledger</td>
+                <td>static, CSP, no script/remote assets, repository/sdist-only</td>
+              </tr>
+              <tr>
+                <td>NOTICE</td>
+                <td>Devkode MIT 고지와 modified statement</td>
+                <td>substantial adaptation notice 보존</td>
+              </tr>
+              <tr>
+                <td>Tests</td>
+                <td>manifest, metadata, routing, guard, malformed boundary</td>
+                <td>machine contracts만 검증; prose pinning 없음</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+        <h3>Rejected alternatives</h3>
+        <ul>
+          <li><strong>Raw README/PDF ingestion:</strong> stale directives와 semantic prompt risk 때문에 기각.</li>
+          <li><strong>새 <code>debug-programming</code> ID:</strong> 기존 <code>debugging</code>과 중복·shadow 위험 때문에 기각.</li>
+          <li><strong>PDF/cover 재배포:</strong> 가치 없이 크기와 snapshot drift만 늘려 기각.</li>
+          <li><strong>Live sync:</strong> floating source, link rot, privileged prompt mutation 때문에 기각.</li>
+          <li><strong>Security/performance verifier 주장:</strong> checklist가 구현 표준이 아니므로 기각.</li>
+        </ul>
+      </section>
+
+      <section id="verification">
+        <p class="eyebrow">Evidence contract</p>
+        <h2>테스트는 계약을, 실제 surface는 사용 가능성을 증명한다.</h2>
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr><th>Criterion</th><th>Automated proof</th><th>Real-surface proof</th></tr>
+            </thead>
+            <tbody>
+              <tr><td>Research report</td><td>manifest parse, 36 source rows, active-content gate</td><td>Chromium 1440×1000 and 390×844 screenshots</td></tr>
+              <tr><td>Frontend skill</td><td>metadata, provenance, route/non-route, guard</td><td><code>python -m birkin skills frontend-system-design</code></td></tr>
+              <tr><td>Debug system</td><td>Birkin provenance, protocol, ID preservation, routing</td><td><code>python -m birkin skills debugging</code></td></tr>
+              <tr><td>Boundary</td><td>malformed frontmatter mutation proof</td><td>unknown skill returns readable nonzero error</td></tr>
+              <tr><td>Packaging</td><td>sdist contains docs; wheel contains skills by policy</td><td>fresh artifact inspection</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </section>
+
+      <section id="sources">
+        <p class="eyebrow">36 / 36 linked-source audit</p>
+        <h2>링크가 있다는 것과 현재 권위가 있다는 것은 다르다.</h2>
+        <p class="section-intro">
+          아래 목록은 pinned README가 연결한 36개 자료를 2026-08-07에
+          감사한 결과다. Devkode의 MIT는 연결된 페이지의 저작권으로
+          전이되지 않는다.
+        </p>
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr><th>ID</th><th>Reference</th><th>Health</th><th>Use / caveat</th></tr>
+            </thead>
+            <tbody>
+              <tr data-source-id="1"><td>01</td><td><a href="https://philipwalton.com/articles/performant-a-b-testing-with-cloudflare-workers/">A/B with Cloudflare Workers</a></td><td><span class="status good">reachable</span></td><td>구체적 edge 실험 기법, 범용 구조 아님</td></tr>
+              <tr data-source-id="2"><td>02</td><td><a href="https://developer.mozilla.org/en-US/docs/Learn/Performance/CSS">MDN CSS performance</a></td><td><span class="status good">current</span></td><td>CSS 최적화 참고</td></tr>
+              <tr data-source-id="3"><td>03</td><td><a href="https://web.dev/fast/#lazy-load-images-and-video">web.dev lazy media anchor</a></td><td><span class="status warn">redirected</span></td><td>현재 focused article로 대체 필요</td></tr>
+              <tr data-source-id="4"><td>04</td><td><a href="https://www.w3.org/WAI/tips/developing/">W3C developing tips</a></td><td><span class="status good">reachable</span></td><td>입문 자료; conformance는 WCAG 2.2</td></tr>
+              <tr data-source-id="5"><td>05</td><td><a href="https://web.dev/fast/#optimize-your-images">web.dev image anchor</a></td><td><span class="status warn">redirected</span></td><td>현재 image-format guidance로 대체</td></tr>
+              <tr data-source-id="6"><td>06</td><td><a href="https://developer.mozilla.org/en-US/docs/Web/Performance">MDN Web Performance</a></td><td><span class="status good">current</span></td><td>권위 있는 portal, decision method는 아님</td></tr>
+              <tr data-source-id="7"><td>07</td><td><a href="https://khalilstemmler.com/articles/client-side-architecture/introduction/">Client-side architecture</a></td><td><span class="status good">reachable</span></td><td>2020 secondary/opinionated source</td></tr>
+              <tr data-source-id="8"><td>08</td><td><a href="https://github.com/rwaldron/idiomatic.js">idiomatic.js</a></td><td><span class="status good">reachable</span></td><td>style consistency, system architecture 아님</td></tr>
+              <tr data-source-id="9"><td>09</td><td><a href="https://github.com/marcobiedermann/search-engine-optimization">SEO checklist</a></td><td><span class="status good">reachable</span></td><td>community checklist, search specification 아님</td></tr>
+              <tr data-source-id="10"><td>10</td><td><a href="https://htmlreference.io/">HTML Reference</a></td><td><span class="status good">reachable</span></td><td>element semantics reference</td></tr>
+              <tr data-source-id="11"><td>11</td><td><a href="https://ogp.me/">Open Graph protocol</a></td><td><span class="status good">primary</span></td><td>social metadata protocol, ranking 근거 아님</td></tr>
+              <tr data-source-id="12"><td>12</td><td><a href="https://blog.bitsrc.io/how-we-build-micro-front-ends-d3eeeac0acfc">Bit micro-frontends</a></td><td><span class="status bad">timeout</span></td><td>단독 근거로 사용 금지</td></tr>
+              <tr data-source-id="13"><td>13</td><td><a href="https://github.com/GoogleChromeLabs/sw-precache/tree/master/app-shell-demo">sw-precache app shell</a></td><td><span class="status bad">archived</span></td><td>deprecated; current Service Worker guidance 사용</td></tr>
+              <tr data-source-id="14"><td>14</td><td><a href="https://germano.dev/sse-websockets/">SSE vs WebSockets</a></td><td><span class="status good">reachable</span></td><td>secondary transport comparison</td></tr>
+              <tr data-source-id="15"><td>15</td><td><a href="https://github.com/woltapp/blurhash">BlurHash</a></td><td><span class="status good">primary</span></td><td>placeholder implementation source</td></tr>
+              <tr data-source-id="16"><td>16</td><td><a href="https://www.fastfwd.com/improve-http-compression-with-brotli/">FastFwd Brotli</a></td><td><span class="status bad">WAF</span></td><td>본문 미검증; MDN Content-Encoding 사용</td></tr>
+              <tr data-source-id="17"><td>17</td><td><a href="https://www.keycdn.com/support/enable-gzip-compression">KeyCDN gzip</a></td><td><span class="status warn">dated</span></td><td>2018 operational guide</td></tr>
+              <tr data-source-id="18"><td>18</td><td><a href="https://10up.github.io/Engineering-Best-Practices/performance/#core-web-vitals">10up performance</a></td><td><span class="status warn">secondary</span></td><td>CWV는 current web.dev와 교차검증</td></tr>
+              <tr data-source-id="19"><td>19</td><td><a href="https://web.dev/fast/">web.dev fast landing</a></td><td><span class="status warn">broad</span></td><td>구체적 근거는 focused article 필요</td></tr>
+              <tr data-source-id="20"><td>20</td><td><a href="https://roadmap.sh/guides/http-caching">roadmap.sh caching</a></td><td><span class="status warn">secondary</span></td><td>normative semantics는 standards/MDN</td></tr>
+              <tr data-source-id="21"><td>21</td><td><a href="https://userguiding.com/blog/microinteraction/">Microinteraction examples</a></td><td><span class="status warn">secondary</span></td><td>UX examples, architecture authority 아님</td></tr>
+              <tr data-source-id="22"><td>22</td><td><a href="https://addyosmani.com/blog/adaptive-loading/">Adaptive loading</a></td><td><span class="status good">reachable</span></td><td>API/support는 현재 자료로 재검증</td></tr>
+              <tr data-source-id="23"><td>23</td><td><a href="https://auth0.com/blog/cross-site-scripting-xss/">Auth0 XSS</a></td><td><span class="status warn">vendor</span></td><td>OWASP와 교차검증</td></tr>
+              <tr data-source-id="24"><td>24</td><td><a href="https://ponyfoo.com/articles/content-security-policy-in-express-apps#to-get-started-let-s-use-report-only">CSP in Express</a></td><td><span class="status warn">older</span></td><td>server-specific example</td></tr>
+              <tr data-source-id="25"><td>25</td><td><a href="https://securityheaders.com/">SecurityHeaders</a></td><td><span class="status bad">WAF</span></td><td>scanner 존재만 확인, 본문 미검증</td></tr>
+              <tr data-source-id="26"><td>26</td><td><a href="https://www.ssllabs.com/ssltest/analyze.html">SSL Labs</a></td><td><span class="status good">tool</span></td><td>TLS diagnostic, frontend architecture 아님</td></tr>
+              <tr data-source-id="27"><td>27</td><td><a href="https://tools.keycdn.com/http2-test">KeyCDN HTTP/2 test</a></td><td><span class="status good">tool</span></td><td>live diagnostic</td></tr>
+              <tr data-source-id="28"><td>28</td><td><a href="https://tools.keycdn.com/curl">KeyCDN header checker</a></td><td><span class="status good">tool</span></td><td>live diagnostic</td></tr>
+              <tr data-source-id="29"><td>29</td><td><a href="https://tools.keycdn.com/speed">KeyCDN speed test</a></td><td><span class="status good">tool</span></td><td>synthetic measurement</td></tr>
+              <tr data-source-id="30"><td>30</td><td><a href="https://tools.keycdn.com/performance">KeyCDN performance</a></td><td><span class="status good">tool</span></td><td>single-asset synthetic tool</td></tr>
+              <tr data-source-id="31"><td>31</td><td><a href="https://whatdoesmysitecost.com/">What Does My Site Cost</a></td><td><span class="status bad">redirect only</span></td><td>현재 동작 미검증</td></tr>
+              <tr data-source-id="32"><td>32</td><td><a href="https://cheatsheetseries.owasp.org/cheatsheets/HTML5_Security_Cheat_Sheet.html">OWASP HTML5 Security</a></td><td><span class="status good">authoritative</span></td><td>broader OWASP corpus의 한 부분</td></tr>
+              <tr data-source-id="33"><td>33</td><td><a href="https://expressjs.com/en/advanced/best-practice-security.html">Express production security</a></td><td><span class="status good">primary</span></td><td>Express 사용 시에만 적용</td></tr>
+              <tr data-source-id="34"><td>34</td><td><a href="https://www.netsparker.com/web-vulnerability-scanner/vulnerabilities/">Invicti vulnerability index</a></td><td><span class="status warn">vendor</span></td><td>normative standard 아님</td></tr>
+              <tr data-source-id="35"><td>35</td><td><a href="https://github.com/philipwalton/blog/blob/main/articles/learning-how-to-set-up-automated-cross-browser-javascript-unit-testing.md">Philip Walton cited path</a></td><td><span class="status bad">404</span></td><td><a href="https://philipwalton.com/articles/learning-how-to-set-up-automated-cross-browser-javascript-unit-testing/">canonical article</a>로 대체</td></tr>
+              <tr data-source-id="36"><td>36</td><td><a href="https://www.atlassian.com/git/tutorials/comparing-workflows/gitflow-workflow">Atlassian Gitflow</a></td><td><span class="status warn">legacy</span></td><td>페이지 자체가 legacy workflow로 분류</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </section>
+    </main>
+  </div>
+
+  <footer>
+    Birkin research artifact · Source pinned to
+    <a href="https://github.com/devkodeio/frontend-system-design/tree/ca56b546e5f12c408a2e75b2499264aacba99065">ca56b546</a>
+    · Generated 2026-08-07 · No JavaScript or remote assets
+  </footer>
+</body>
+</html>

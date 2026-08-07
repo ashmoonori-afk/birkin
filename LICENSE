@@ -24,5 +24,7 @@ SOFTWARE.
 
 Portions of the bundled skill catalog (`skills/`) are adapted or ported from
 MIT-licensed open-source projects — NousResearch/hermes-agent, openclaw, and
-Yeachan-Heo/gajae-code (the deep-interview lineage behind the `neurosis` skill).
-Their upstream copyright and attribution are preserved; see `NOTICE`.
+Yeachan-Heo/gajae-code (the deep-interview lineage behind the `neurosis` skill),
+and Devkode.io/frontend-system-design (the checklist lineage behind the
+`frontend-system-design` skill). Their upstream copyright and attribution are
+preserved; see `NOTICE`.
