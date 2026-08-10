@@ -1,7 +1,13 @@
 # birkin — Build Status
 
-> Snapshot: 2026-07-25 · **1,400+ tests, green** (measured 2026-07-25;
-> coverage gate ≥75 %) · Newest:
+> Snapshot: 2026-08-10 · **2,300+ tests, green** (measured 2026-08-10;
+> coverage 82.89 %, gate ≥75 %) · Newest:
+> **inspected outbound egress** (ADR-053) — allowlisted `submit_payload`
+> broker; bounded encoded-secret scanning before DNS; pre-socket endpoint and
+> generated-header validation; strict Claude/Codex child capabilities;
+> HTTPS-only pinned web/market transports; metadata-only prepared/outcome
+> receipts; UNC/device/mapped-drive file blocking; bounded MCP frame reads;
+> CLI help and positional dry-run regression-pinned. Before that:
 > **Telegram long-work workflow approval** — proactive plan buttons before
 > 3-minute/multi-phase/subagent work, chat-bound single-claim execution,
 > 180-second edit-in-place heartbeat, interruption/recovery states, and a hard
