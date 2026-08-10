@@ -255,7 +255,7 @@ def _header_lines(snap: dict[str, Any], width: int) -> list[str]:
 
 def _table_lines(snap: dict[str, Any], section: str, cursor: int,
                  top: int, height: int, tw: int) -> list[str]:
-    C, D, RST_, INV = ui.CYAN, ui.DIM, ui.RESET, "\033[7m" if ui.CYAN else ""
+    D, RST_, INV = ui.DIM, ui.RESET, "\033[7m" if ui.CYAN else ""
     rows = _rows(snap, section)
     out: list[str] = []
 

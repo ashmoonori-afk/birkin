@@ -102,7 +102,7 @@ def test_failed_telegram_document_keeps_turn_obligation(
     ch = tg.TelegramChannel("tok", stream=False)
     monkeypatch.setattr(
         ch, "_keep_typing",
-        lambda _chat_id, stop: stop.wait())
+        lambda _chat_id, stop, _progress=None: stop.wait())
     monkeypatch.setattr(ch, "_send_reply", lambda _chat_id, _text: None)
     monkeypatch.setattr(
         ch, "_send_document", lambda _chat_id, _path: False)
@@ -125,7 +125,7 @@ def test_failed_telegram_text_keeps_turn_obligation(monkeypatch):
     ch = tg.TelegramChannel("tok", stream=False)
     monkeypatch.setattr(
         ch, "_keep_typing",
-        lambda _chat_id, stop: stop.wait())
+        lambda _chat_id, stop, _progress=None: stop.wait())
     monkeypatch.setattr(
         ch, "_send_reply", lambda _chat_id, _text: False)
 
