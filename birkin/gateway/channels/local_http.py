@@ -78,7 +78,8 @@ class LocalHTTPChannel(Channel):
 
             def do_GET(self) -> None:
                 if not self._host_ok():
-                    self._json({"error": "forbidden host"}, 403); return
+                    self._json({"error": "forbidden host"}, 403)
+                    return
                 if self.path == "/health":
                     self._json({"ok": True, "channel": "http"})
                 else:
@@ -86,9 +87,11 @@ class LocalHTTPChannel(Channel):
 
             def do_POST(self) -> None:
                 if not self._host_ok():
-                    self._json({"error": "forbidden host"}, 403); return
+                    self._json({"error": "forbidden host"}, 403)
+                    return
                 if self.path != "/message":
-                    self._json({"error": "not found"}, 404); return
+                    self._json({"error": "not found"}, 404)
+                    return
                 # CSRF defense: require Content-Type application/json. A browser
                 # on a malicious page can only send a "simple" request
                 # (text/plain, form, multipart) without a CORS preflight; an
@@ -97,10 +100,13 @@ class LocalHTTPChannel(Channel):
                 # local clients already send JSON.
                 ctype = (self.headers.get("Content-Type", "") or "").split(";", 1)[0].strip().lower()
                 if ctype != "application/json":
-                    self._json({"error": "Content-Type must be application/json"}, 415); return
+                    self._json(
+                        {"error": "Content-Type must be application/json"}, 415)
+                    return
                 # Optional shared-secret lockdown (off unless BIRKIN_HTTP_TOKEN set).
                 if _HTTP_TOKEN and self.headers.get("X-Birkin-Token", "") != _HTTP_TOKEN:
-                    self._json({"error": "unauthorized"}, 401); return
+                    self._json({"error": "unauthorized"}, 401)
+                    return
                 # Tolerate junk: bad Content-Length, non-UTF-8 bytes (port
                 # scanners / wrong-encoding clients), or non-object JSON must
                 # return 400 — never crash the request handler.
@@ -108,13 +114,16 @@ class LocalHTTPChannel(Channel):
                     length = int(self.headers.get("Content-Length", 0) or 0)
                     payload = json.loads(self.rfile.read(length) or b"{}")
                 except (ValueError, UnicodeDecodeError):
-                    self._json({"error": "bad request"}, 400); return
+                    self._json({"error": "bad request"}, 400)
+                    return
                 if not isinstance(payload, dict):
-                    self._json({"error": "expected a JSON object"}, 400); return
+                    self._json({"error": "expected a JSON object"}, 400)
+                    return
                 text = (payload.get("text") or "").strip()
                 session_id = str(payload.get("session", "default"))
                 if not text:
-                    self._json({"error": "empty text"}, 400); return
+                    self._json({"error": "empty text"}, 400)
+                    return
                 reply = gw.handle("http", session_id, text)
                 self._json({"reply": reply})
                 if gw.pending_hard_restart:
