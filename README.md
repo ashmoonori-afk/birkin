@@ -390,7 +390,9 @@ model never approves its own shell command.
 - **run_shell approval gate.** `rm -rf`, `curl | sh`, force-push and friends are
   refused outright or queued for you when nobody is watching. Pattern-based — a
   seatbelt, not a sandbox — and a permanent allowlist never matches a compound
-  command.
+  command. On Windows, shell jobs run through `cmd.exe` (PowerShell only when
+  explicitly requested) and receive a verified writable `TEMP`/`TMP`, so tools
+  such as Bun and npm keep working from long-lived gateway or daemon processes.
 - **Denials teach.** `/deny <id> <why>` sends your reason back to the agent, so
   it corrects course instead of retrying a variant blind. Human-in-the-loop only
   wins if the loop converges.

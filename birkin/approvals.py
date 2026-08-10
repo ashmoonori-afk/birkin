@@ -20,7 +20,7 @@ import subprocess
 from typing import Any
 
 from . import config, cron, risk, store
-from .proc import shell_argv
+from .proc import shell_argv, shell_env
 
 
 def is_auto(category: str, cfg: dict[str, Any]) -> bool:
@@ -107,7 +107,8 @@ def execute_action(category: str, payload: dict[str, Any],
                 to = 300
             proc = subprocess.run(shell_argv(command), capture_output=True,
                                   text=True, errors="replace",
-                                  timeout=max(1, min(3600, to)))
+                                  timeout=max(1, min(3600, to)),
+                                  env=shell_env(), check=False)
         except subprocess.TimeoutExpired:
             return "Command timed out."
         out = (proc.stdout or "") + (proc.stderr or "")
