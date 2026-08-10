@@ -10,7 +10,6 @@ from typing import Any
 import pytest
 
 from birkin import promptgate
-from birkin.agent import Agent
 from birkin.llm import LLMClient
 from birkin.tools import ToolContext, build_registry
 from birkin.tools import market as market_tools
@@ -174,31 +173,11 @@ def test_disabled_egress_is_not_advertised_by_native_registry(
     assert "submit_payload" not in registry.names()
 
 
-def test_enforced_agent_prompt_omits_unavailable_subagent_tool(
-    tmp_path: Path,
-) -> None:
+def test_enforced_agent_prompt_omits_unavailable_subagent_tool() -> None:
     cfg = _config()
-    client = LLMClient(
-        provider="",
-        model="",
-        api_key="",
-        base_url="",
-    )
-    registry = build_registry(ToolContext(
-        cfg=cfg,
-        client=client,
-        cwd=tmp_path,
-        skills=None,
-        memory=None,
-    ))
+    system = promptgate.compose_main(cfg, persona_text="")
 
-    agent = Agent(
-        client=client,
-        registry=registry,
-        system=promptgate.compose_main(cfg, persona_text=""),
-    )
-
-    assert "spawn_subagent" not in agent.system
+    assert "spawn_subagent" not in system
 
 
 def test_enforced_egress_scans_web_url_and_query_before_network(
@@ -299,6 +278,7 @@ def test_trusted_clean_payload_auto_sends_exact_canonical_bytes(
     )
 
     assert not result.is_error
+    assert isinstance(result.content, str)
     visible = json.loads(result.content)
     assert visible["state"] == "succeeded"
     assert visible["destination"] == "trusted"
