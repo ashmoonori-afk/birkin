@@ -84,8 +84,13 @@ def test_cmd_tools_panel(capsys):
     out = capsys.readouterr().out
     assert rc == 0
     assert "Available Tools" in out
-    assert "files" in out and "shell" in out and "skills" in out
+    assert all(
+        group in out
+        for group in ("files", "sessions", "skills", "egress")
+    )
     assert "vision_analyze" in out
+    assert "shell" not in out
+    assert "subagent" not in out
 
 
 def test_cmd_tools_panel_includes_opted_in_desktop_tools(capsys):
@@ -102,6 +107,19 @@ def test_cmd_tools_panel_includes_opted_in_desktop_tools(capsys):
     assert rc == 0
     assert "desktop_windows" in out
     assert "window_screenshot" in out
+
+
+def test_cmd_tools_panel_restores_bypass_tools_when_enforcement_off(capsys):
+    cfg = config.load_config()
+    cfg["egress"]["enforced"] = False
+    config.save_config(cfg)
+
+    rc = _cmd_tools(_ns(enable=None, disable=None))
+    out = capsys.readouterr().out
+
+    assert rc == 0
+    assert "shell" in out
+    assert "subagent" in out
 
 
 def test_cmd_tools_toggle_disable_persists(capsys):
