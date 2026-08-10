@@ -42,6 +42,17 @@ def test_pyproject_parses_and_agrees_with_the_package_version():
     assert data["project"]["version"] == birkin.__version__
 
 
+def test_desktop_extra_declares_runtime_dependencies():
+    try:
+        import tomllib
+    except ModuleNotFoundError:                      # py3.10
+        pytest.skip("tomllib needs Python 3.11+")
+    data = tomllib.loads((ROOT / "pyproject.toml").read_text(encoding="utf-8"))
+    desktop = data["project"]["optional-dependencies"]["desktop"]
+    assert any(requirement.startswith("pillow") for requirement in desktop)
+    assert any(requirement.startswith("pywin32") for requirement in desktop)
+
+
 def test_no_typing_name_newer_than_the_python_floor():
     offenders = []
     for path in sorted((ROOT / "birkin").rglob("*.py")):
