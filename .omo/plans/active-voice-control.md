@@ -274,7 +274,7 @@ captured scenario.
 - [x] F4. Momus and self-review: approve criteria and code quality
   - Recommended task executor category: `unspecified-high`
   - Verify: no criterion blocker; spaghetti/docs/security checks recorded.
-- [ ] F5. Final commit and push: publish verified clean branch
+- [x] F5. Final commit and push: publish verified clean branch
   - Recommended task executor category: `quick`
   - Verify: clean status and remote branch HEAD equals local HEAD.
 
