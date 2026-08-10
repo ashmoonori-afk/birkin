@@ -39,7 +39,7 @@ def test_record_turn_writes_run_and_ledger():
     assert r["summary"].startswith("hi back")
     assert r["usage"]["estTokens"] > 0
     lines = config.ledger_path().read_text(encoding="utf-8").splitlines()
-    ledger = [json.loads(l) for l in lines if l.strip()]
+    ledger = [json.loads(line) for line in lines if line.strip()]
     assert any(e["kind"] == "chat" for e in ledger)
 
 

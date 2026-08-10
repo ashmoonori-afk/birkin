@@ -17,8 +17,6 @@ from __future__ import annotations
 
 import types
 
-import pytest
-
 from birkin import dash
 
 
@@ -86,7 +84,7 @@ def test_error_line_does_not_silently_eat_a_row():
     lines = dash._table_lines(snap, "세션", 0, 0, height, 60)
     assert len(lines) <= height, (
         f"table built {len(lines)} lines for a {height}-line slot")
-    assert any("더 있음" in l for l in lines), "overflow indicator lost again"
+    assert any("더 있음" in line for line in lines), "overflow indicator lost again"
 
 
 def test_dump_plain_reports_the_failure():

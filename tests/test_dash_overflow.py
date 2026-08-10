@@ -62,7 +62,7 @@ def test_no_row_is_silently_dropped():
     _, _, frame = _frame(42, 24)
     shown = _visible_titles(frame)
     assert shown, "nothing rendered at all"
-    indicator = [l for l in frame if "더 있음" in l]
+    indicator = [line for line in frame if "더 있음" in line]
     assert indicator, "rows were dropped with no indicator"
     assert "42" in indicator[0], f"indicator does not report the total: {indicator[0]!r}"
 

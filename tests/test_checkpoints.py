@@ -9,7 +9,7 @@ from pathlib import Path
 import pytest
 
 from birkin import checkpoints
-from birkin.tools import ToolContext, ToolRegistry, Tool, ToolResult, build_registry
+from birkin.tools import ToolContext, build_registry
 
 pytestmark = pytest.mark.skipif(shutil.which("git") is None,
                                 reason="git is not installed")
@@ -160,7 +160,6 @@ def test_excluded_paths_are_not_snapshotted(work):
     commit = mgr.ensure_checkpoint(work, "snap")
     assert commit
 
-    import os
     env = mgr._env(work)
     out = subprocess.run(["git", "ls-tree", "-r", "--name-only", commit],
                          env=env, capture_output=True, text=True).stdout

@@ -41,13 +41,15 @@ def test_transcript_respects_limit():
 def test_reflect_disabled_returns_message():
     cfg_off = {"self_improve": False}
     # cheap ctx — selfimprove.reflect only checks ctx.cfg.self_improve before any work
-    class _Ctx: cfg = cfg_off
+    class _Ctx:
+        cfg = cfg_off
     res = selfimprove.reflect_and_learn(_Ctx(), "anything")
     assert "disabled" in res.lower()
 
 
 def test_reflect_empty_transcript_short_circuits():
-    class _Ctx: cfg = {"self_improve": True}
+    class _Ctx:
+        cfg = {"self_improve": True}
     res = selfimprove.reflect_and_learn(_Ctx(), "")
     assert "nothing" in res.lower() or "empty" in res.lower()
 
