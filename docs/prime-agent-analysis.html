@@ -368,7 +368,7 @@ interface AutoRefineSettings {
 <table>
 <thead><tr><th>구성요소</th><th>위치</th><th>하는 일</th></tr></thead>
 <tbody>
-<tr><td>야간 패스</td><td class="src">morpheus.py:189 run_once</td><td>04:00 cron, 24h 대화+변경파일+활동로그 수집 후 LLM 1회 실행</td></tr>
+<tr><td>야간 패스</td><td class="src">morpheus.py:189 run_once</td><td>07:00 cron, 24h 대화+변경파일+활동로그 수집 후 LLM 1회 실행</td></tr>
 <tr><td>입력 수집</td><td class="src">morpheus.py:135 / :151 / :108</td><td>세션(20k자 캡) · mtime 기반 변경파일 · 메모리 상태(최근/스테일)</td></tr>
 <tr><td>스킬 수명주기</td><td class="src">curator.py:29,30,85</td><td>LLM 없이 30일 스테일 / 90일 아카이브 (삭제 없음)</td></tr>
 <tr><td>턴 후 리뷰</td><td class="src">runtime.py:262-302</td><td><code>skill_nudge_interval</code>(기본 3) 턴마다 백그라운드 스레드로 스킬 리뷰</td></tr>
@@ -516,7 +516,7 @@ prime-agent처럼 <strong>배달 전 claim</strong>을 도입하면 데몬 재�
 <tr><td>적용자</td><td><code>applyRefinementProposal</code> <span class="src">refinement.ts:707</span></td><td>LLM이 MCP 도구로 직접 씀 <span class="src">morpheus.py:258, 315</span></td></tr>
 <tr><td>승인</td><td>없음(로컬 기본, 스코프로 제한)</td><td><code>approvals.propose</code> / <code>birkin review</code> <span class="src">approvals.py:40</span></td></tr>
 <tr><td>이력</td><td><code>refinements.jsonl</code> + <code>state.refinements[]</code></td><td><code>store.save_run("morpheus", ...)</code> — 산문 요약 <span class="src">morpheus.py:315+</span></td></tr>
-<tr><td>트리거</td><td>25턴 / compaction / 명시 호출 + LLM 게이트</td><td>04:00 cron + 수동 <code>birkin morpheus</code> <span class="src">config.py:234 · cli.py:250</span></td></tr>
+<tr><td>트리거</td><td>25턴 / compaction / 명시 호출 + LLM 게이트</td><td>07:00 cron + 수동 <code>birkin morpheus</code> <span class="src">config.py:234 · cli.py:250</span></td></tr>
 <tr><td>모델 인터페이스</td><td><code>await refine.run()</code> (커널 스킬)</td><td><code>propose_action</code> 도구만 <span class="src">morpheus.py:427</span></td></tr>
 <tr><td>결과 전달</td><td>시스템 프롬프트 재주입</td><td>Telegram 다이제스트 <span class="src">morpheus.py:402</span></td></tr>
 </tbody>
@@ -729,7 +729,7 @@ v2 P1 범위에서는 롤백 시 “연결된 vault 노트 N개 / 스킬 파일 
 <table>
 <thead><tr><th>트리거</th><th>조건</th><th>스코프</th><th>승인</th><th>배선</th></tr></thead>
 <tbody>
-<tr><td>야간</td><td><code>morpheus_hour/minute</code> (기본 04:00)</td><td>global</td><td>kind별 정책</td><td class="src">scheduler.py:162 → morpheus.run_once</td></tr>
+<tr><td>야간</td><td><code>morpheus_hour/minute</code> (기본 07:00)</td><td>global</td><td>kind별 정책</td><td class="src">scheduler.py:162 → morpheus.run_once</td></tr>
 <tr><td>세션 중</td><td><code>harness_turn_interval</code> 턴 경과 <strong>AND</strong> 쿨다운 경과 <strong>AND</strong> LLM 게이트 통과</td><td>local</td><td>자동(로컬 한정)</td><td class="src">runtime.py:262-302</td></tr>
 <tr><td>압축 시</td><td>compaction 발생 시 1회 심사</td><td>local</td><td>자동</td><td class="src">compaction.py:218</td></tr>
 <tr><td>명시</td><td><code>birkin harness refine [--global] [지시문]</code></td><td>지정</td><td>kind별 정책</td><td class="src">cli.py:869 서브파서</td></tr>

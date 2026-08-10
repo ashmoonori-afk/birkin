@@ -5,7 +5,17 @@ from __future__ import annotations
 import subprocess
 from datetime import datetime
 
-from birkin import cron, scheduler, store
+from birkin import config, cron, scheduler, store
+
+
+def test_default_morpheus_proposal_runs_at_seven():
+    assert config.DEFAULT_CONFIG["morpheus_hour"] == 7
+
+    before = datetime(2026, 5, 28, 6, 30)
+    assert scheduler._next_morpheus({}, before) == datetime(2026, 5, 28, 7, 0)
+
+    after = datetime(2026, 5, 28, 7, 0)
+    assert scheduler._next_morpheus({}, after) == datetime(2026, 5, 29, 7, 0)
 
 
 def test_next_nightly_today_vs_tomorrow():

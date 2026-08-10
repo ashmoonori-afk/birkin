@@ -206,10 +206,12 @@ DEFAULT_CONFIG: dict[str, Any] = {
     },
     # --- Obsidian-vault semantic memory ---
     "vault_path": "",  # empty -> <birkin_home>/vault
-    # --- Morpheus (nightly 04:00 self-improvement routine) ---
+    # --- Morpheus (daily 07:00 self-improvement routine) ---
     # Telegram chat to receive the nightly summary as a morning digest
-    # (P0-3). Empty = no delivery. Honors the outbound allowlist and the
-    # [SILENT] convention; appends a pending-approvals count when relevant.
+    # (P0-3). Empty selects the sole allowlisted Telegram chat when exactly one
+    # exists; zero or multiple chats require an explicit destination. Honors
+    # the outbound allowlist and the [SILENT] convention; appends a
+    # pending-approvals count when relevant.
     "morpheus_deliver_chat_id": "",
     "workspace_roots": [],
     # Hourly reaper: kill orphaned claude/codex->node subprocesses left behind
@@ -232,7 +234,7 @@ DEFAULT_CONFIG: dict[str, Any] = {
     # morpheus_provider differs from provider: the chat model belongs to the
     # chat backend, and handing claude an OpenAI model name fails the run.
     "morpheus_model": "",
-    "morpheus_hour": 4,
+    "morpheus_hour": 7,
     "morpheus_minute": 0,
     # Governs the UNATTENDED path (nightly routine's propose_action): these
     # categories are applied automatically; everything else (e.g. "cron",

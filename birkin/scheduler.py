@@ -152,7 +152,7 @@ def run_checkins(now: datetime | None = None, *, send=_send_checkin) -> int:
 def _morpheus_hour(cfg: dict[str, Any]) -> int:
     """Read the configured Morpheus hour, honoring the legacy ``nightly_hour``
     key so existing config.json files keep working unchanged."""
-    return int(cfg.get("morpheus_hour", cfg.get("nightly_hour", 4)))
+    return int(cfg.get("morpheus_hour", cfg.get("nightly_hour", 7)))
 
 
 def _morpheus_minute(cfg: dict[str, Any]) -> int:

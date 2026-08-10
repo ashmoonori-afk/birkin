@@ -28,7 +28,7 @@ From the project owner, in priority order:
 3. **Subagents** — isolated agents for parallel / context-heavy sub-tasks.
 4. **Obsidian-vault semantic memory** — *mandatory*. Persistent, transparent,
    local-first knowledge built as an Obsidian-compatible markdown vault.
-5. **Self-improving** — a **nightly 04:00** routine that reviews the last 24h of
+5. **Self-improving** — a **daily 07:00** routine that reviews the last 24h of
    conversation and newly added files, then improves the user's next day:
    authors/refines skills, proposes cron jobs and convenience actions, and
    **asks the user for approval before executing** anything consequential.
@@ -91,7 +91,7 @@ Added for this rebuild:
                               isolated child Agent
 
    ┌─────────────────────────── self-improvement ───────────────────────────┐
-   │  scheduler.py (daemon)  ──04:00──▶  morpheus.py ──proposes──▶ store.py   │
+│  scheduler.py (daemon)  ──07:00──▶  morpheus.py ──proposes──▶ store.py   │
    │       │                                                  (runs, pending, │
    │       └── due cron jobs ───────────────────────────────▶  cron, status) │
    └──────────────────────────────────────────────────────────────┬─────────┘
@@ -116,7 +116,7 @@ Added for this rebuild:
 | `birkin/runtime.py` | wires a `Session` for both CLI and dashboard |
 | `birkin/repl.py` | interactive CLI chat |
 | `birkin/store.py` | JSON state: runs, pending approvals, cron jobs, heartbeat |
-| `birkin/morpheus.py` | the 04:00 self-improvement routine |
+| `birkin/morpheus.py` | the 07:00 self-improvement routine |
 | `birkin/scheduler.py` | cross-platform daemon (nightly + due cron jobs) |
 | `birkin/cron.py` | register/list/run cron jobs |
 | `birkin/approvals.py` | review/approve/reject + execute approved actions |
@@ -199,12 +199,12 @@ write to memory. Recursion is bounded by `max_depth` (default 2).
 
 ---
 
-## 7. Self-improvement — the nightly 04:00 routine
+## 7. Self-improvement — the daily 07:00 routine
 
 The defining autonomy feature.
 
 **Trigger.** `scheduler.py` runs as a daemon (`birkin daemon`) and wakes at the
-configured hour (`nightly_hour`, default `4`). It also runs due cron jobs.
+configured hour (`morpheus_hour`, default `7`). It also runs due cron jobs.
 `birkin nightly` runs the routine immediately on demand.
 
 **Inputs.** The routine gathers:

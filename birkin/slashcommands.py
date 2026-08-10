@@ -507,7 +507,8 @@ def _permission(session: Any, arg: str) -> None:
         cat = sub[1]
         if sub[0] == "add" and cat in ("shell", "cron"):
             print(f"{YELLOW}⚠ auto-approving '{cat}' lets the unattended nightly "
-                  f"routine run it without asking (incl. shell at 04:00).{RESET}")
+                    f"routine run it without asking (incl. shell at the "
+                    f"configured Morpheus time).{RESET}")
         if sub[0] == "add" and cat not in auto:
             auto.append(cat)
         elif sub[0] == "remove" and cat in auto:

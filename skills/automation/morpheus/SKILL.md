@@ -7,7 +7,7 @@ license: MIT
 metadata:
   birkin:
     tags: [automation, self-improvement, memory, nightly, unattended]
-    entrypoint: "birkin morpheus  ·  birkin daemon --install (cron/launchd/schtasks @ morpheus_hour, default 04:00)"
+entrypoint: "birkin morpheus  ·  birkin daemon --install (cron/launchd/schtasks @ morpheus_hour, default 07:00)"
     legacy_alias: nightly
 ---
 
@@ -26,7 +26,7 @@ deferred to a human.
 
 ## When to Use
 
-- Triggered automatically each night at `morpheus_hour` (default 04:00) by the
+- Triggered automatically each day at `morpheus_hour` (default 07:00) by the
   installed daemon (`birkin daemon --install`).
 - On demand: `birkin morpheus` (full pass) or `birkin morpheus --dry-run`
   (analyze only — write nothing, propose nothing).
