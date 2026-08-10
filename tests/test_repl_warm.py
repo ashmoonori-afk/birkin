@@ -135,4 +135,5 @@ def test_build_warm_picks_codex_for_codex_provider(tmp_path, monkeypatch):
     w = s._build_warm()                                 # constructor: no spawn
     assert isinstance(w, CodexAppServerSession)
     assert w.preamble                                   # persona/memory rides it
+    assert w.network_access is False
     w.close()

@@ -2,9 +2,6 @@
 
 from __future__ import annotations
 
-import io
-
-
 # #1 — approve() must resolve a raising action instead of wedging it -----------
 
 def test_approve_resolves_on_executor_error(tmp_path, monkeypatch):
@@ -151,6 +148,7 @@ def test_gateway_codex_is_sandboxed(tmp_path, monkeypatch):
     try:
         assert s.sandbox_mode == "workspace-write"   # NOT danger-full-access
         assert s.approval_policy == "never"
+        assert s.network_access is False
     finally:
         s.close()
 
