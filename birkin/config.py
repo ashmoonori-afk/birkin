@@ -203,6 +203,10 @@ DEFAULT_CONFIG: dict[str, Any] = {
         # (hermes-style perceived latency) instead of one final message.
         "telegram": {"enabled": False, "token": "", "allowed_chat_ids": [],
                      "stream": True},
+        # Send-only incoming-webhook targets. They do not start listeners and
+        # remain inert unless explicitly enabled with an HTTPS URL.
+        "slack": {"enabled": False, "webhook_url": ""},
+        "discord": {"enabled": False, "webhook_url": ""},
     },
     # --- Obsidian-vault semantic memory ---
     "vault_path": "",  # empty -> <birkin_home>/vault
@@ -390,9 +394,23 @@ def runs_dir() -> Path:
     return d
 
 
+def agent_runs_dir() -> Path:
+    """Durable subagent run records and message inboxes."""
+    d = birkin_home() / "agent_runs"
+    d.mkdir(parents=True, exist_ok=True)
+    return d
+
+
 def pending_dir() -> Path:
     """Proposed actions awaiting user approval."""
     d = birkin_home() / "pending"
+    d.mkdir(parents=True, exist_ok=True)
+    return d
+
+
+def goals_dir() -> Path:
+    """Persisted session goals."""
+    d = birkin_home() / "goals"
     d.mkdir(parents=True, exist_ok=True)
     return d
 

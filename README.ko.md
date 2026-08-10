@@ -238,7 +238,9 @@ Registry가 노출할 수 있는 기능:
       "token": "",
       "allowed_chat_ids": [],
       "stream": true
-    }
+    },
+    "slack": {"enabled": false, "webhook_url": ""},
+    "discord": {"enabled": false, "webhook_url": ""}
   }
 }
 ```
@@ -251,6 +253,8 @@ Registry가 노출할 수 있는 기능:
 - `disabled_tools`는 이름이 지정된 네이티브 tool을 registry에서 제거합니다.
 - Gateway를 외부에 노출할 때는 HTTP 인증 또는 Telegram
   `allowed_chat_ids`를 함께 설정해야 합니다.
+- Slack과 Discord는 송신 전용 adapter입니다. HTTPS incoming-webhook URL이
+  필요하며 message를 각각 3,500자와 2,000자로 제한합니다.
 - 일/월 token budget은 `0`이면 비활성화됩니다.
 
 대화형 설정에는 `birkin setup`, 유효한 tool set 확인과 toggle에는
@@ -289,6 +293,31 @@ birkin curate-memory
 - **MCP**는 호환 client에 birkin tool을 노출합니다.
 - **A2A**는 opt-in Agent2Agent v1.0 JSON-RPC endpoint와 agent card를 제공합니다.
 - **Gateway**는 로컬 HTTP와 Telegram turn 사이에서 session을 warm 상태로 유지합니다.
+
+## Integration workflow
+
+지속되는 subagent run은 `/dash`와 REPL에서 확인할 수 있습니다.
+
+```text
+/agents
+/attach <run-id>
+/send <run-id> <message>
+```
+
+`/goal set <objective> [--budget N] [--gate "command"]`로 active goal 하나를
+저장합니다. `/goal show`, `/goal pause`, `/goal done`으로 상태를 관리합니다.
+gate command는 goal store에서 직접 실행하지 않으며, goal을 완료할 때 기존 shell
+approval queue를 거칩니다.
+
+`/sessions <query>`는 저장된 transcript를 검색하고 date, channel, model,
+snippet, score metadata를 반환합니다. `--since 30d`, `--from telegram`
+(`--channel`도 지원), `--model <name>` filter는 AND로 결합됩니다. 인자 없는
+`/sessions`는 기존 saved-session 목록을 그대로 표시합니다.
+
+Cron job은 `"type": "monitor"`와 `monitor_url` 또는 `monitor_script` 중 정확히
+하나를 사용할 수 있습니다. 제한된 결과가 바뀔 때만 알림을 보내며 URL monitor는
+web SSRF guard, 30초 timeout, 최대 256 KiB response 제한을 적용합니다. Fetch
+실패는 변경으로 취급하지 않습니다.
 
 ## 검증
 

@@ -11,7 +11,7 @@ from __future__ import annotations
 from dataclasses import replace
 from typing import Any, Optional
 
-from . import promptgate
+from . import agentruns, promptgate
 from .agent import Agent
 from .tools import ToolContext, build_registry
 
@@ -48,8 +48,16 @@ def run_subagent(task: str, parent_ctx: ToolContext, *,
     )
 
     registry = build_registry(child_ctx)
+    run = agentruns.register_run(task)
+    run_id = run["id"]
+
+    def deliver_messages() -> None:
+        for message in agentruns.drain_messages(run_id):
+            agent.steer(message)
 
     def on_event(event: str, payload: dict[str, Any]) -> None:
+        agentruns.heartbeat(run_id)
+        deliver_messages()
         if parent_ctx.emit:
             parent_ctx.emit("subagent." + event, payload)
 
@@ -57,8 +65,19 @@ def run_subagent(task: str, parent_ctx: ToolContext, *,
                   max_turns=max_turns, model=sub_model, on_event=on_event)
 
     if parent_ctx.emit:
-        parent_ctx.emit("subagent.start", {"task": task[:200]})
-    result = agent.run(task)
+        parent_ctx.emit("subagent.start", {"task": task[:200], "id": run_id})
+    try:
+        # Pick up messages queued in the short window between registration and
+        # the first model call. Later messages are drained by the event hook,
+        # between the agent's tool-calling turns.
+        deliver_messages()
+        with agentruns._run_scope(run_id):
+            raw_result = agent.run(task)
+        result = raw_result or "(subagent returned no text)"
+        agentruns.finish_run(run_id, "done", result)
+    except Exception as exc:
+        agentruns.finish_run(run_id, "error", f"{type(exc).__name__}: {exc}")
+        raise
     if parent_ctx.emit:
-        parent_ctx.emit("subagent.done", {"chars": len(result)})
-    return result or "(subagent returned no text)"
+        parent_ctx.emit("subagent.done", {"chars": len(result), "id": run_id})
+    return result

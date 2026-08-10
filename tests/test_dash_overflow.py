@@ -24,7 +24,7 @@ def _snap(n_sessions: int):
         "header": {"model": "claude-sonnet-4-6", "provider": "anthropic"},
         "sessions": [{"title": f"SESSION-{i:04d}", "age": "1h",
                       "path": f"/tmp/s{i}.json"} for i in range(n_sessions)],
-        "cron": [], "approvals": [], "zones": [],
+        "agents": [], "cron": [], "approvals": [], "zones": [],
     }
 
 

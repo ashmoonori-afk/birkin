@@ -29,7 +29,7 @@ from .proc import shell_argv
 from datetime import datetime, timedelta
 from typing import Any
 
-from . import config, cron, store
+from . import config, cron, monitor, store
 
 _POLL_SECONDS = 30
 _TG_SEND = "https://api.telegram.org/bot{token}/sendMessage"
@@ -272,6 +272,28 @@ def _run_job(job: dict[str, Any]) -> None:
     jtype = job.get("type", "prompt")
     value = job.get("value", "")
     try:
+        if jtype == "monitor":
+            result = monitor.check(job)
+            if not result.changed:
+                status = (f"monitor error: {result.error}"
+                          if result.error else "unchanged")
+                silent = f"[SILENT] {status}"
+                delivery = _deliver(job, silent)
+                store.save_run(
+                    "cron", f"[{job.get('name')}] {silent}",
+                    {"job": job["id"], "error": result.error,
+                     "delivery": delivery},
+                    usage={"tokens": 0},
+                )
+                return
+            context = ["[Monitor change context]"]
+            if result.diff_context:
+                context.extend(["", result.diff_context])
+            if result.content_tail:
+                context.extend(["", "Content tail:", result.content_tail])
+            value = f"{value}\n\n" + "\n".join(context)
+            jtype = "prompt"
+
         if jtype == "shell":
             proc = subprocess.run(shell_argv(value), capture_output=True,
                                   text=True, errors="replace", timeout=600)

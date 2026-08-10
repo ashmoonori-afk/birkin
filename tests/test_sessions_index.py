@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 import json
+import os
 import sqlite3
+from datetime import datetime, timezone
 
 import pytest
 
@@ -17,13 +19,14 @@ def _home(tmp_path, monkeypatch):
     yield tmp_path
 
 
-def _write(stem: str, *turns: str) -> None:
+def _write(stem: str, *turns: str, metadata=None) -> None:
     msgs = []
     for i, t in enumerate(turns):
         msgs.append({"role": "user" if i % 2 == 0 else "assistant",
                      "content": [{"type": "text", "text": t}]})
+    payload = {"metadata": metadata, "messages": msgs} if metadata else msgs
     (config.sessions_dir() / f"{stem}.json").write_text(
-        json.dumps(msgs), encoding="utf-8")
+        json.dumps(payload), encoding="utf-8")
 
 
 # -- shadow text -----------------------------------------------------------
@@ -84,6 +87,25 @@ def test_no_match_returns_empty():
     assert sessions.search_sessions("zzzznothing") == []
 
 
+def test_index_search_returns_metadata_snippet_and_score():
+    _write("meta", "redis deployment notes",
+           metadata={"source": "telegram", "model": "gpt-5.6-sol"})
+    timestamp = datetime(2026, 8, 2, 12, tzinfo=timezone.utc).timestamp()
+    path = config.sessions_dir() / "meta.json"
+    os.utime(path, (timestamp, timestamp))
+
+    hits = sessions_index.search("redis")
+
+    assert hits and set(hits[0]) == {
+        "session", "date", "channel", "model", "snippet", "score"}
+    assert hits[0]["session"] == "meta"
+    assert hits[0]["date"].startswith("2026-08-02T12:00:00")
+    assert hits[0]["channel"] == "telegram"
+    assert hits[0]["model"] == "gpt-5.6-sol"
+    assert "redis" in hits[0]["snippet"]
+    assert isinstance(hits[0]["score"], float)
+
+
 def test_search_covers_more_than_the_old_400_file_cap():
     for i in range(420):
         _write(f"bulk{i}", "filler text")
@@ -119,6 +141,35 @@ def test_refresh_only_reindexes_changed_files():
     con.close()
 
 
+def test_refresh_reports_progress_for_every_discovered_file():
+    _write("a", "alpha")
+    _write("b", "beta")
+    progress = []
+    con = sessions_index._connect()
+    sessions_index.refresh(con, progress_cb=lambda done, total: progress.append(
+        (done, total)))
+    con.close()
+    assert progress == [(1, 2), (2, 2)]
+
+
+def test_schema_version_rebuilds_an_old_index():
+    con = sqlite3.connect(sessions_index._path())
+    con.executescript(
+        "CREATE TABLE files (stem TEXT PRIMARY KEY, mtime REAL, size INTEGER);"
+        "CREATE VIRTUAL TABLE session_fts USING fts5(stem UNINDEXED, body);"
+        "PRAGMA user_version = 1;")
+    con.close()
+    _write("fresh", "schema migration needle")
+
+    assert [h["session"] for h in sessions_index.search("needle")] == ["fresh"]
+    con = sqlite3.connect(sessions_index._path())
+    assert con.execute("PRAGMA user_version").fetchone()[0] \
+        == sessions_index._SCHEMA_VERSION
+    columns = {row[1] for row in con.execute("PRAGMA table_info(session_fts)")}
+    con.close()
+    assert {"date", "channel", "model"} <= columns
+
+
 # -- degradation -----------------------------------------------------------
 
 def test_corrupt_index_is_discarded_and_recall_survives():
@@ -138,7 +189,7 @@ def test_corrupt_index_is_discarded_and_recall_survives():
 def test_falls_back_to_the_scan_when_the_index_cannot_serve(monkeypatch):
     _write("s1", "kubernetes deploys")
     monkeypatch.setattr(sessions_index, "search",
-                        lambda query, limit=5: None)
+                        lambda query, limit=5, **filters: None)
     hits = sessions.search_sessions("kubernetes")
     assert [h["session"] for h in hits] == ["s1"]      # scan path still works
 

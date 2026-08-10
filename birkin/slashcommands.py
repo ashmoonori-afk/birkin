@@ -11,6 +11,7 @@ This set is intentionally broader and more detailed than hermes' built-ins.
 from __future__ import annotations
 
 import json
+import shlex
 from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Any, Callable, Optional
@@ -89,13 +90,14 @@ def _last_user_text(messages: list[dict[str, Any]]) -> str:
 # source: any command not listed here falls into "기타" so nothing is hidden.
 _HELP_GROUPS: list[tuple[str, list[str]]] = [
     ("세션·대화", ["new", "retry", "undo", "rollback", "compact", "clear",
-                 "save", "load", "sessions", "status", "dash"]),
+                 "save", "load", "sessions", "status", "dash", "agents",
+                 "attach", "send"]),
     ("모델", ["model", "models", "provider", "temp"]),
     ("기억", ["memory", "remember", "vault", "learn"]),
     ("스킬·도구", ["skills", "skill", "reload", "tools", "system", "mcp",
                  "details"]),
-    ("운영·승인", ["review", "cron", "permission", "config", "morpheus",
-                 "update"]),
+    ("운영·승인", ["goal", "review", "cron", "permission", "config",
+                 "morpheus", "update"]),
     ("페르소나·인터뷰", ["soul", "personality", "neurosis", "odyssey"]),
     ("게이트웨이", ["restart-gateway", "hard-restart"]),
     ("종료·도움", ["help", "quit"]),
@@ -443,6 +445,72 @@ def _dash(session: Any, arg: str) -> None:
     dash.run(session, plain=(a == "--plain"), as_json=(a == "--json"))
 
 
+def _agent_run_rows() -> list[tuple[dict[str, Any], int]]:
+    from . import agentruns
+    rows: list[tuple[dict[str, Any], int]] = []
+
+    def visit(run: dict[str, Any], depth: int) -> None:
+        rows.append((run, depth))
+        for child in run.get("children", []):
+            visit(child, depth + 1)
+
+    for root in agentruns.list_runs():
+        visit(root, 0)
+    return rows
+
+
+def _find_agent_run(run_id: str) -> dict[str, Any] | None:
+    from . import agentruns
+    exact = agentruns.get_run(run_id)
+    if exact is not None:
+        return exact
+    matches = [run for run, _depth in _agent_run_rows()
+               if run["id"].startswith(run_id)]
+    return matches[0] if len(matches) == 1 else None
+
+
+@command("agents", "List durable parent/child agent runs.", "/agents")
+def _agents(session: Any, arg: str) -> None:
+    rows = _agent_run_rows()
+    if not rows:
+        print(f"{DIM}No agent runs.{RESET}")
+        return
+    print(f"{BOLD}Agent runs{RESET}")
+    for run, depth in rows:
+        prefix = "  " + "  " * depth
+        age = int(run.get("heartbeat_age", 0))
+        print(f"{prefix}{CYAN}{run['id'][:8]}{RESET}  "
+              f"{run['status']:<8}  {run['task'][:36]:<36}  "
+              f"{DIM}hb {age}s ago{RESET}")
+
+
+@command("attach", "Show one durable agent run.", "/attach <run-id>")
+def _attach(session: Any, arg: str) -> None:
+    run = _find_agent_run(arg.strip()) if arg.strip() else None
+    if run is None:
+        print(f"{RED}No run {arg.strip()!r}. See /agents.{RESET}")
+        return
+    print(f"{BOLD}{run['id']}{RESET}  {run['status']}")
+    print(run["task"])
+    if run.get("result"):
+        print(f"\n{run['result']}")
+
+
+@command("send", "Queue a message for a running agent.",
+         "/send <run-id> <message>")
+def _send(session: Any, arg: str) -> None:
+    from . import agentruns
+    parts = arg.split(maxsplit=1)
+    if len(parts) != 2 or not parts[1].strip():
+        print(f"{RED}Usage: /send <run-id> <message>{RESET}")
+        return
+    run = _find_agent_run(parts[0])
+    if run is None or not agentruns.append_message(run["id"], parts[1].strip()):
+        print(f"{RED}No run {parts[0]!r}. See /agents.{RESET}")
+        return
+    print(f"{GREEN}Queued for {run['id'][:8]}.{RESET}")
+
+
 @command("details", "Toggle verbose tool traces (full input + result snippet).",
          "/details [on|off]")
 def _details(session: Any, arg: str) -> None:
@@ -467,6 +535,83 @@ def _morpheus(session: Any, arg: str) -> None:
 def _review(session: Any, arg: str) -> None:
     from .approvals import review_cli
     review_cli()
+
+
+@command("goal", "Persist a session goal with an optional budget and verifier.",
+         "/goal set <objective> [--budget N] [--gate \"command\"] | "
+         "show | pause | done")
+def _goal(session: Any, arg: str) -> None:
+    from . import goals
+    try:
+        parts = shlex.split(arg)
+    except ValueError as exc:
+        print(f"{RED}Invalid /goal arguments: {exc}{RESET}")
+        return
+    if not parts:
+        print(f"{DIM}Usage: /goal set <objective> [--budget N] "
+              f"[--gate \"command\"] | show | pause | done{RESET}")
+        return
+
+    action = parts.pop(0).lower()
+    if action == "show":
+        status = goals.render_status()
+        print(status or f"{DIM}No active goal.{RESET}")
+        return
+    if action == "pause":
+        state = goals.pause()
+        print(f"{DIM}Goal paused.{RESET}" if state else
+              f"{DIM}No active goal.{RESET}")
+        return
+    if action == "done":
+        state = goals.get_active()
+        if state is None:
+            print(f"{DIM}No active goal.{RESET}")
+            return
+        if state.gate_cmd:
+            goals.run_gate(state, session.cfg)
+        goals.done()
+        print(f"{GREEN}Goal done: {state.objective}{RESET}")
+        return
+    if action != "set":
+        print(f"{RED}Unknown /goal action {action!r}.{RESET}")
+        return
+
+    objective: list[str] = []
+    budget: int | None = None
+    gate: str | None = None
+    i = 0
+    while i < len(parts):
+        part = parts[i]
+        if part in ("--budget", "--gate"):
+            if i + 1 >= len(parts):
+                print(f"{RED}{part} needs a value.{RESET}")
+                return
+            value = parts[i + 1]
+            if part == "--budget":
+                try:
+                    budget = int(value)
+                except ValueError:
+                    print(f"{RED}--budget must be a positive integer.{RESET}")
+                    return
+            else:
+                gate = value
+            i += 2
+            continue
+        if part.startswith("--"):
+            print(f"{RED}Unknown /goal option {part!r}.{RESET}")
+            return
+        objective.append(part)
+        i += 1
+    try:
+        state = goals.set_goal(" ".join(objective), budget=budget, gate=gate)
+    except ValueError as exc:
+        print(f"{RED}{exc}{RESET}")
+        return
+    print(f"{GREEN}Goal set: {state.objective}{RESET}")
+    print(goals.render_status())
+    if state.gate_cmd:
+        print(f"{DIM}The verifier runs through the approval queue "
+              f"when /goal done is used.{RESET}")
 
 
 @command("cron", "List scheduled cron jobs.", "/cron")
@@ -550,10 +695,14 @@ def _load(session: Any, arg: str) -> None:
     print(f"{DIM}Loaded {arg} ({len(session.agent.messages)} messages).{RESET}")
 
 
-@command("sessions", "List saved conversations.", "/sessions")
+@command("sessions", "List or search saved conversations.",
+         "/sessions [query] [--since 30d] [--from telegram] [--model name]")
 def _sessions(session: Any, arg: str) -> None:
     # Hide reserved auto__* transcripts (auto-saved for memory extraction); they
     # are not meant for manual /load and would flood this list.
+    if arg.strip():
+        _sessions_search(arg)
+        return
     files = [f for f in sorted(config.sessions_dir().glob("*.json"), reverse=True)
              if not transcripts.is_auto(f.stem)]
     if not files:
@@ -561,6 +710,55 @@ def _sessions(session: Any, arg: str) -> None:
         return
     for f in files[:30]:
         print(f"  {f.stem}")
+
+
+def _sessions_search(arg: str) -> None:
+    from .tools import sessions as sessions_tool
+    try:
+        parts = shlex.split(arg)
+    except ValueError as exc:
+        print(f"{RED}Invalid /sessions arguments: {exc}{RESET}")
+        return
+    query: list[str] = []
+    filters: dict[str, str | None] = {
+        "since": None, "channel": None, "model": None}
+    aliases = {"--since": "since", "--from": "channel",
+               "--channel": "channel", "--model": "model"}
+    i = 0
+    while i < len(parts):
+        part = parts[i]
+        key = aliases.get(part)
+        if key is not None:
+            if i + 1 >= len(parts):
+                print(f"{RED}{part} needs a value.{RESET}")
+                return
+            filters[key] = parts[i + 1]
+            i += 2
+            continue
+        if part.startswith("--"):
+            print(f"{RED}Unknown /sessions option {part!r}.{RESET}")
+            return
+        query.append(part)
+        i += 1
+    if not query:
+        print(f"{RED}Give a search query, or use bare /sessions to list.{RESET}")
+        return
+    try:
+        hits = sessions_tool.search_sessions(
+            " ".join(query), since=filters["since"],
+            channel=filters["channel"], model=filters["model"])
+    except ValueError as exc:
+        print(f"{RED}{exc}{RESET}")
+        return
+    if not hits:
+        print(f"{DIM}No matching sessions.{RESET}")
+        return
+    for hit in hits:
+        model = f" · {hit['model']}" if hit.get("model") else ""
+        print(f"  {CYAN}{hit['session']}{RESET} · {hit['date'][:10]} · "
+              f"{hit['channel']}{model} · score {hit['score']:.3f}")
+        if hit.get("snippet"):
+            print(f"    {DIM}{hit['snippet']}{RESET}")
 
 
 # -- gateway ---------------------------------------------------------------

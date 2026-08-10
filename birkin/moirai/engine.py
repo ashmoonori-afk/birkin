@@ -176,6 +176,22 @@ class MoiraiAPI:
     def log(self, message: str) -> None:
         self._run.emit_log(str(message))
 
+    def verify(self, cmd: str) -> dict[str, Any] | None:
+        """Run an active goal verifier through Birkin's shell approval gate.
+
+        With no active goal there is no verifier to update, so this is a no-op.
+        """
+        from dataclasses import replace
+
+        from .. import goals
+
+        state = goals.get_active()
+        command = str(cmd or "").strip()
+        if state is None or not command:
+            return None
+        updated = goals.run_gate(replace(state, gate_cmd=command), self._run.cfg)
+        return updated.gate_last
+
 
 # -- the run ---------------------------------------------------------------
 
