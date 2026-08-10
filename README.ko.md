@@ -77,7 +77,34 @@ export OPENAI_API_KEY="..."
 uv run birkin gateway
 ```
 
-다른 터미널에서 녹음된 한 턴을 실행합니다.
+다른 터미널에서 기본 마이크를 계속 사용하는 음성 모드를 시작합니다.
+
+```bash
+uv run birkin voice start \
+  --gateway-url http://127.0.0.1:8788/message
+uv run birkin voice status
+```
+
+`start`는 인증된 worker 준비 완료를 기다리고 중복 daemon을 거부하며,
+인증된 제어 상태와 로그를 `~/.birkin/voice` 아래에 기록합니다. 상태
+디렉터리는 현재 OS 계정으로 제한되므로, 사용자 지정 `BIRKIN_HOME`은
+사용자 ACL을 지원하는 파일 시스템에 두십시오. 실행 중인 daemon PID가
+일시적으로 응답하지 않으면 `start`는 상태를 삭제하고 고아 중복 daemon을
+실행하는 대신 `UNREACHABLE`을 보고합니다. `status`는 현재 PID를 보여
+주며 `RUNNING`일 때만 종료 코드 `0`을 반환합니다. `STOPPING`,
+`UNREACHABLE`, `INACTIVE`는 종료 코드 `1`을 반환합니다. 현재의 제한된
+음성 턴이 끝난 뒤 daemon을
+종료하려면 다음을 실행합니다.
+
+```bash
+uv run birkin voice stop
+```
+
+해당 턴이 제어 대기 시간보다 오래 걸리면 `stop`은 `STOPPING`을 출력하고
+종료 코드 `1`을 반환하지만, 수락된 종료는 계속 진행됩니다. `voice
+status`로 상태를 확인하십시오.
+
+녹음 파일과 결정적 입력은 계속 one-shot 모드에서만 사용합니다.
 
 ```bash
 uv run birkin voice --once \
@@ -88,11 +115,13 @@ uv run birkin voice --once \
   --no-playback
 ```
 
-`--audio`와 `--command-audio`를 생략하면 기본 마이크에서 깨우기/명령
-구간을 제한 시간만큼 수집합니다. `--background`를 추가하면
+one-shot에서 `--audio`와 `--command-audio`를 생략하면 기본 마이크에서
+깨우기/명령 구간을 제한 시간만큼 수집합니다. `--background`를 추가하면
 `~/.birkin/voice/jobs` 아래 영속 작업 영수증을 받습니다. CI나 문제 분석에는
 `--transcript "Daddy is home" --command "status"`로 결정적 입력을 줄 수
-있습니다.
+있습니다. Daemon `start`는 live microphone 옵션만 받습니다. 파일,
+transcript, command, background, `--once` 입력은 worker를 실행하기 전에
+실패합니다.
 
 중첩된 `voice` 설정 블록은 대응하는 CLI 플래그의 기본값이며, 명시한
 플래그가 우선합니다. 빈 `gateway_url`은 깨우기 fixture 실행을 오프라인으로

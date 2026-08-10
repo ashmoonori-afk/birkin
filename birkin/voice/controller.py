@@ -206,7 +206,7 @@ def run_once(args: argparse.Namespace) -> int:
         WaveError,
     ) as exc:
         print(f"VOICE_ERROR {exc}", file=sys.stderr)
-        return 2
+        return 1
 
     if not decision.accepted:
         print(f"WAKE_REJECTED reason={decision.reason}")
@@ -216,7 +216,7 @@ def run_once(args: argparse.Namespace) -> int:
         command = _capture_command(args, options, stt)
     except (OSError, OpenAIError, RuntimeError, ValueError, WaveError) as exc:
         print(f"VOICE_ERROR {exc}", file=sys.stderr)
-        return 2
+        return 1
 
     print("WAKE_ACCEPTED")
     print(f"COMMAND={command}")

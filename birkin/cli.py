@@ -281,6 +281,22 @@ def _cmd_gateway(args: argparse.Namespace) -> int:
 
 
 def _cmd_voice(args: argparse.Namespace) -> int:
+    from .voice.daemon import (
+        start_daemon,
+        status_daemon,
+        stop_daemon,
+    )
+    from .voice.daemon_worker import run_worker
+
+    if args.daemon_worker:
+        return run_worker(args)
+    if args.voice_action == "start":
+        return start_daemon(args)
+    if args.voice_action == "status":
+        return status_daemon()
+    if args.voice_action == "stop":
+        return stop_daemon()
+
     from .voice.controller import run_once
 
     return run_once(args)
@@ -878,7 +894,18 @@ def build_parser() -> argparse.ArgumentParser:
 
     p_voice = sub.add_parser(
         "voice",
-        help="run one active voice-control turn",
+        help="manage the voice daemon or run one deterministic turn",
+    )
+    p_voice.add_argument(
+        "voice_action",
+        nargs="?",
+        choices=("start", "status", "stop"),
+        help="daemon lifecycle action",
+    )
+    p_voice.add_argument(
+        "--daemon-worker",
+        action="store_true",
+        help=argparse.SUPPRESS,
     )
     p_voice.add_argument(
         "--once",

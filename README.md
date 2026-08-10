@@ -77,7 +77,32 @@ export OPENAI_API_KEY="..."
 uv run birkin gateway
 ```
 
-In another terminal, run one recorded turn:
+In another terminal, start continuous live-microphone voice mode:
+
+```bash
+uv run birkin voice start \
+  --gateway-url http://127.0.0.1:8788/message
+uv run birkin voice status
+```
+
+`start` waits for authenticated worker readiness, rejects duplicate daemons,
+and writes its authenticated control state and log under `~/.birkin/voice`.
+The state directory is restricted to the current OS account; keep any custom
+`BIRKIN_HOME` on a filesystem that supports user ACLs. If a live daemon PID
+temporarily stops answering, `start` reports it as `UNREACHABLE` instead of
+deleting its state and launching an orphaned duplicate.
+`status` reports the current PID and exits `0` only for `RUNNING`;
+`STOPPING`, `UNREACHABLE`, and `INACTIVE` exit `1`. Stop the daemon after its
+current bounded voice turn with:
+
+```bash
+uv run birkin voice stop
+```
+
+If that turn outlives the control wait, `stop` prints `STOPPING`, exits `1`,
+and the accepted shutdown continues; poll with `voice status`.
+
+Recorded and deterministic inputs remain one-shot only:
 
 ```bash
 uv run birkin voice --once \
@@ -88,10 +113,12 @@ uv run birkin voice --once \
   --no-playback
 ```
 
-Omit `--audio` and `--command-audio` to capture bounded wake and command windows
-from the default microphone. Add `--background` to receive a durable job
-receipt under `~/.birkin/voice/jobs`. For deterministic CI or troubleshooting,
-provide `--transcript "Daddy is home" --command "status"` instead.
+For a one-shot live capture, omit `--audio` and `--command-audio`. Add
+`--background` to receive a durable job receipt under
+`~/.birkin/voice/jobs`. For deterministic CI or troubleshooting, provide
+`--transcript "Daddy is home" --command "status"` instead. Daemon `start`
+accepts live-microphone options only; file, transcript, command, background,
+and `--once` inputs fail before a worker is launched.
 
 The nested `voice` config block supplies defaults for the matching CLI flags;
 an explicit flag wins. Its empty `gateway_url` keeps wake-only fixture runs
