@@ -5,9 +5,12 @@ The subprocess boundary (_run_cli_capture) is mocked to replay a canned JSONL
 event stream through the on_line hook, so no real `claude` is spawned.
 """
 
+import json
+from pathlib import Path
+
 import pytest
 
-from birkin.llm import LLMClient, LLMError
+from birkin.llm import LLMClient, LLMError, _plain_client
 
 USER = [{"role": "user", "content": [{"type": "text", "text": "hi"}]}]
 
@@ -119,6 +122,48 @@ def test_read_only_claude_cli_disables_tools(monkeypatch):
     assert "--no-session-persistence" in seen["argv"]
 
 
+def test_enforced_claude_cli_uses_only_birkin_mcp_tools(monkeypatch):
+    seen = {}
+
+    def fake_capture(self, argv, prompt, abort=None, env=None, on_line=None):
+        seen["argv"] = argv
+        index = argv.index("--mcp-config")
+        seen["mcp_path"] = Path(argv[index + 1])
+        seen["mcp"] = json.loads(
+            seen["mcp_path"].read_text(encoding="utf-8"))
+        return '{"type":"result","result":"ok"}', "", False, False
+
+    monkeypatch.setattr(LLMClient, "_run_cli_capture", fake_capture)
+    client = _client()
+    client.egress_enforced = True
+    client._run_claude("prompt", "", None)
+
+    argv = seen["argv"]
+    assert argv[argv.index("--tools") + 1] == ""
+    assert argv[argv.index("--allowedTools") + 1] == "mcp__birkin__*"
+    assert argv[argv.index("--setting-sources") + 1] == ""
+    assert "--strict-mcp-config" in argv
+    assert "--disable-slash-commands" in argv
+    assert "--no-chrome" in argv
+    assert "--no-session-persistence" in argv
+    assert "--dangerously-skip-permissions" not in argv
+    assert set(seen["mcp"]["mcpServers"]) == {"birkin"}
+    assert not seen["mcp_path"].exists()
+
+
+def test_plain_client_propagates_enforced_egress():
+    client = _plain_client(
+        {
+            "provider": "claude-cli",
+            "model": "claude-code",
+            "egress": {"enabled": True, "enforced": True},
+        },
+        "",
+    )
+
+    assert client.egress_enforced is True
+
+
 def test_read_only_codex_cli_sets_read_only_sandbox(monkeypatch):
     seen = {}
 
@@ -132,6 +177,49 @@ def test_read_only_codex_cli_sets_read_only_sandbox(monkeypatch):
     client._run_codex("prompt", "", None)
     assert "--sandbox" in seen["argv"]
     assert seen["argv"][seen["argv"].index("--sandbox") + 1] == "read-only"
+    assert "sandbox_workspace_write.network_access=false" in seen["argv"]
+
+
+def test_workspace_codex_cli_sets_network_policy(monkeypatch):
+    seen = {}
+
+    def fake_capture(self, argv, prompt, abort=None, env=None, on_line=None):
+        seen["argv"] = argv
+        return "", "", False, False
+
+    monkeypatch.setattr(LLMClient, "_run_cli_capture", fake_capture)
+    client = LLMClient(
+        provider="codex-cli",
+        model="",
+        api_key="cli",
+        base_url="",
+        cli_network_access=True,
+    )
+    client._run_codex("prompt", "", None)
+
+    assert "--sandbox" in seen["argv"]
+    assert seen["argv"][seen["argv"].index("--sandbox") + 1] == "workspace-write"
+    assert "sandbox_workspace_write.network_access=true" in seen["argv"]
+
+
+def test_workspace_codex_cli_supports_offline_override(monkeypatch):
+    seen = {}
+
+    def fake_capture(self, argv, prompt, abort=None, env=None, on_line=None):
+        seen["argv"] = argv
+        return "", "", False, False
+
+    monkeypatch.setattr(LLMClient, "_run_cli_capture", fake_capture)
+    client = LLMClient(
+        provider="codex-cli",
+        model="",
+        api_key="cli",
+        base_url="",
+        cli_network_access=False,
+    )
+    client._run_codex("prompt", "", None)
+
+    assert "sandbox_workspace_write.network_access=false" in seen["argv"]
 
 
 def test_codex_cli_adds_birkin_mcp_only_when_enabled(monkeypatch):

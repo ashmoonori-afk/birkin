@@ -48,7 +48,7 @@ def _build_tools() -> dict[str, dict[str, Any]]:
         from . import approvals, config, presets
         from .memory import Memory
         from .skills import build_manager
-        from .tools import ToolContext, market
+        from .tools import ToolContext, egress, market
 
         cfg = config.load_config()
         effective_model = os.environ.get("BIRKIN_MCP_MODEL") or cfg.get("model")
@@ -63,15 +63,17 @@ def _build_tools() -> dict[str, dict[str, Any]]:
     tools: dict[str, dict[str, Any]] = {}
     memory_tool_names: set[str] = set()
     market_tool_names: set[str] = set()
+    egress_tool_names: set[str] = set()
+
+    def _mk(tool):
+        def handler(args: dict[str, Any]) -> tuple[str, bool]:
+            with contextlib.redirect_stdout(sys.stderr):
+                res = tool.fn(args or {}, ctx)
+            return res.content, bool(res.is_error)
+        return handler
 
     # Memory tools (LLM-free; they ignore ctx).
     for t in memory.tools():
-        def _mk(tool):
-            def handler(args: dict[str, Any]) -> tuple[str, bool]:
-                with contextlib.redirect_stdout(sys.stderr):
-                    res = tool.fn(args or {}, ctx)
-                return res.content, bool(res.is_error)
-            return handler
         tools[t.name] = {"description": t.description,
                          "schema": t.input_schema, "handler": _mk(t)}
         memory_tool_names.add(t.name)
@@ -85,6 +87,17 @@ def _build_tools() -> dict[str, dict[str, Any]]:
                 "handler": _mk(t),
             }
             market_tool_names.add(t.name)
+
+        egress_cfg = cfg.get("egress", {})
+        if (isinstance(egress_cfg, dict)
+                and egress_cfg.get("enabled") is True):
+            for t in egress.tools():
+                tools[t.name] = {
+                    "description": t.description,
+                    "schema": t.input_schema,
+                    "handler": _mk(t),
+                }
+                egress_tool_names.add(t.name)
 
     skill_tools = {tool.name: tool for tool in skills.tools(origin="mcp")}
 
@@ -210,6 +223,7 @@ def _build_tools() -> dict[str, dict[str, Any]]:
     groups = {
         **{name: "memory" for name in memory_tool_names},
         **{name: "web" for name in market_tool_names},
+        **{name: "egress" for name in egress_tool_names},
         **{name: "skills" for name in skill_tool_names},
         "propose_action": "approvals",
         "companion_propose": "companion",
@@ -258,9 +272,15 @@ def handle_message(msg: dict[str, Any], tools: dict[str, dict[str, Any]]):
             {"name": n, "description": t["description"], "inputSchema": t["schema"]}
             for n, t in tools.items()]})
     if method == "tools/call":
-        params = msg.get("params") or {}
+        raw_params = msg.get("params")
+        params = raw_params if isinstance(raw_params, dict) else {}
         name = params.get("name")
-        args = params.get("arguments") or {}
+        if not isinstance(name, str):
+            return _result(rid, {"content": [{"type": "text",
+                            "text": "Unknown tool: missing name"}],
+                            "isError": True})
+        raw_args = params.get("arguments")
+        args = raw_args if isinstance(raw_args, dict) else {}
         tool = tools.get(name)
         if tool is None:
             return _result(rid, {"content": [{"type": "text",

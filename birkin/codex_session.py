@@ -132,6 +132,7 @@ class CodexAppServerSession:
                  reasoning_effort: str = "",
                  sandbox_mode: str = "workspace-write",
                  approval_policy: str = "never",
+                 network_access: bool = False,
                  birkin_mcp: bool = False,
                  birkin_mcp_scope: str = "full",
                  startup_timeout: float = 90.0,
@@ -142,12 +143,13 @@ class CodexAppServerSession:
         self.preamble = preamble
         # SECURITY: override the user's ~/.codex/config.toml so an exposed
         # gateway can't inherit sandbox_mode=danger-full-access + network.
-        # Default is the safe cwd-scoped, no-network posture; approval_policy
-        # 'never' means the model never gets to escalate (and the server won't
-        # send approval requests we'd have to decline). Callers wanting full
-        # host access opt in explicitly (e.g. an interactive REPL turn).
+        # Default is the safe cwd-scoped, no-network posture. Classified
+        # workspace callers may grant network independently of filesystem
+        # scope. approval_policy 'never' means the model never gets to escalate
+        # (and the server won't send approval requests we'd have to decline).
         self.sandbox_mode = sandbox_mode
         self.approval_policy = approval_policy
+        self.network_access = network_access
         # Attach birkin's OWN MCP server (memory, skills, propose_action) to
         # this codex child. Off by default: a session that carries the tools
         # must also answer their approval prompts, and only birkin's server is
@@ -216,8 +218,13 @@ class CodexAppServerSession:
                 "untrusted", "on-request", "on-failure", "never"):
             raise CodexSessionError(
                 f"bad approval_policy: {self.approval_policy!r}")
+        if not isinstance(self.network_access, bool):
+            raise CodexSessionError(
+                f"bad network_access: {self.network_access!r}")
         parts += ["-c", f'sandbox_mode="{self.sandbox_mode}"',
-                  "-c", f'approval_policy="{self.approval_policy}"']
+                  "-c", f'approval_policy="{self.approval_policy}"',
+                  "-c", "sandbox_workspace_write.network_access="
+                  f"{str(self.network_access).lower()}"]
         return cli_argv(parts)
 
     def is_alive(self) -> bool:

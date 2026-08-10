@@ -22,9 +22,11 @@ from __future__ import annotations
 import json
 import os
 import subprocess
+import tempfile
 import time
 import urllib.error
 import urllib.request
+from pathlib import Path
 from typing import Any, Callable, Optional
 
 ANTHROPIC_VERSION = "2023-06-01"
@@ -138,7 +140,9 @@ class LLMClient:
     def __init__(self, *, provider: str, model: str, api_key: str,
                  base_url: str, max_tokens: int = 4096, temperature: float = 1.0,
                  cli_access: str = "workspace", cli_command: list[str] | None = None,
-                 cli_timeout: int = 300, oauth: bool = False):
+                 cli_timeout: int = 300, oauth: bool = False,
+                 cli_network_access: bool = False,
+                 egress_enforced: bool = False):
         self.provider = provider
         self.model = model
         self.api_key = api_key
@@ -157,6 +161,8 @@ class LLMClient:
         # CLI-agent access level: "workspace" (writable, sandboxed) or
         # "full" (dangerous: bypass approvals/sandbox).
         self.cli_access = cli_access
+        self.cli_network_access = cli_network_access
+        self.egress_enforced = bool(egress_enforced)
         # argv for the generic "local-cli" provider.
         self.cli_command = list(cli_command or [])
         # Hard cap on a single CLI-agent call (seconds). Kept modest so a hung
@@ -322,7 +328,22 @@ class LLMClient:
         from .proc import claude_child_env, cli_argv
         parts = ["claude", "-p", "--output-format", "stream-json", "--verbose",
                  "--include-partial-messages"]
-        if self.cli_access == "full":
+        mcp_path: str | None = None
+        if self.egress_enforced:
+            from .claude_session import enforced_egress_args
+            from .mcp_server import write_mcp_config
+
+            fd, mcp_path = tempfile.mkstemp(suffix="-birkin-mcp.json")
+            os.close(fd)
+            try:
+                mcp_path = str(
+                    write_mcp_config(Path(mcp_path), model=model))
+            except Exception:
+                os.unlink(mcp_path)
+                raise
+            parts += ["--mcp-config", mcp_path]
+            parts.extend(enforced_egress_args())
+        elif self.cli_access == "full":
             parts.append("--dangerously-skip-permissions")
         elif self.cli_access == "read-only":
             parts += ["--safe-mode", "--tools", "",
@@ -370,6 +391,12 @@ class LLMClient:
                 on_line=_on_line)
         except FileNotFoundError:
             return "[birkin] command not found: claude", False
+        finally:
+            if mcp_path:
+                try:
+                    os.unlink(mcp_path)
+                except FileNotFoundError:
+                    pass
 
         streamed_text = "".join(st["delta"])
         if aborted:
@@ -409,7 +436,15 @@ class LLMClient:
             parts.append("--dangerously-bypass-approvals-and-sandbox")
         elif self.cli_access == "read-only":
             parts += ["--sandbox", "read-only", "--ephemeral",
-                      "--ignore-user-config", "--ignore-rules"]
+                      "--ignore-user-config", "--ignore-rules",
+                      "-c", "sandbox_workspace_write.network_access=false"]
+        else:
+            parts += [
+                "--sandbox", "workspace-write",
+                "-c",
+                "sandbox_workspace_write.network_access="
+                f"{str(self.cli_network_access is True).lower()}",
+            ]
         parts += ["-o", path]
         if model and model not in ("codex", "default", ""):
             parts += ["-m", model]
@@ -856,6 +891,13 @@ def _stringify(content: Any) -> str:
 def _plain_client(cfg: dict[str, Any], api_key: str) -> LLMClient:
     from .config import OAUTH_PROVIDERS, resolve_base_url
     provider = cfg.get("provider", "anthropic")
+    egress_cfg = cfg.get("egress", {})
+    egress_enforced = (
+        isinstance(egress_cfg, dict)
+        and bool(egress_cfg)
+        and bool(egress_cfg.get("enabled", True))
+        and bool(egress_cfg.get("enforced", True))
+    )
     return LLMClient(
         provider=provider,
         model=cfg.get("model", "claude-sonnet-4-6"),
@@ -864,6 +906,8 @@ def _plain_client(cfg: dict[str, Any], api_key: str) -> LLMClient:
         max_tokens=int(cfg.get("max_tokens", 4096)),
         temperature=float(cfg.get("temperature", 1.0)),
         cli_access=cfg.get("cli_access", "workspace"),
+        cli_network_access=cfg.get("cli_network_access", False) is True,
+        egress_enforced=egress_enforced,
         cli_command=cfg.get("cli_command", []),
         cli_timeout=int(cfg.get("cli_timeout", 300)),
         oauth=provider in OAUTH_PROVIDERS,

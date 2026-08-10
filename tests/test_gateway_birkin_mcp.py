@@ -35,8 +35,6 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-import pytest
-
 from birkin.codex_session import (_MCP_ELICITATION, CodexAppServerSession,
                                   _server_name)
 
@@ -146,3 +144,24 @@ def test_gateway_attaches_birkin_mcp_to_its_claude_session():
 
     assert mcp_path is not None
     assert not mcp_path.exists()
+
+
+def test_gateway_propagates_enforced_egress_to_claude_session():
+    from birkin.gateway import core
+
+    gateway = core.Gateway.__new__(core.Gateway)
+    gateway.cfg = {
+        "provider": "claude-cli",
+        "model": "claude-sonnet-4-5",
+        "cli_access": "workspace",
+        "gateway_clean_hooks": True,
+        "gateway_thinking_tokens": 0,
+        "egress": {"enabled": True, "enforced": True},
+    }
+    gateway._system_prompt = lambda: "birkin gateway"
+
+    session = gateway._build_claude_session()
+    try:
+        assert session.egress_enforced is True
+    finally:
+        session.close()

@@ -566,6 +566,8 @@ def load_config() -> dict[str, Any]:
     # safe default rather than mis-routing to the dangerous "full" path.
     if cfg.get("cli_access") not in ("workspace", "full"):
         cfg["cli_access"] = "workspace"
+    if not isinstance(cfg.get("cli_network_access"), bool):
+        cfg["cli_network_access"] = DEFAULT_CONFIG["cli_network_access"]
     _resolve_secrets(cfg)
     return cfg
 

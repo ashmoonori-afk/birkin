@@ -84,6 +84,22 @@ def gateway_warnings(cfg: dict[str, Any]) -> list[str]:
             "native disabled_tools and fs_jail settings do not constrain that "
             "child; rely on the CLI's sandbox/permission policy instead.")
 
+    if provider == "codex-cli" and cfg.get("cli_network_access") is True:
+        out.append(
+            "cli_network_access enables raw network for the Codex child. "
+            "That traffic bypasses Birkin's inspected egress payload and "
+            "destination checks; leave it false unless this explicit bypass "
+            "is required.")
+
+    egress_cfg = cfg.get("egress")
+    if (isinstance(egress_cfg, dict)
+            and egress_cfg.get("enabled") is True
+            and egress_cfg.get("enforced") is False):
+        out.append(
+            "egress.enforced is false: raw native tools can bypass inspected "
+            "egress. Keep enforcement true unless this explicit escape hatch "
+            "is required.")
+
     if cfg.get("allow_unattended_full") and cfg.get("cli_access") == "full":
         out.append(
             "allow_unattended_full is ON: the nightly Morpheus run keeps full "

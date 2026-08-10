@@ -29,6 +29,19 @@ def test_neurosis_note_off_when_disabled():
     assert "when to run it automatically" not in out.lower()
 
 
+def test_enforced_cli_prompt_scrubs_unavailable_skill_tool_ids():
+    out = promptgate.compose_cli(
+        {
+            "egress": {"enabled": True, "enforced": True},
+            "neurosis_auto": False,
+        },
+        persona_text="",
+        preloaded=["Use `run_shell` to validate the result."],
+    )
+
+    assert "run_shell" not in out
+
+
 def test_static_audit_main_turn_prompt_goes_through_the_gate():
     """The PRIMARY conversational system prompt (REPL/gateway/dry-run, both
     provider paths) must be assembled via promptgate. Exempt: prompts.py (defs),

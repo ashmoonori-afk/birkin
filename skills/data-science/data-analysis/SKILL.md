@@ -1,6 +1,6 @@
 ---
 name: data-analysis
-description: "Explore a dataset, compute summary stats, surface insights via run_shell."
+description: "Explore a dataset, compute summary stats, and surface insights."
 version: 1.0.0
 author: birkin
 license: MIT
@@ -30,7 +30,7 @@ and surface actionable insights using shell-based data tools (awk, grep, Python)
 
 1. Use `list_files` to locate the dataset.
 2. Use `read_file` to inspect structure (first 20 lines, data types, column names).
-3. Use `run_shell` to compute summary stats:
+3. Use the available execution tools to compute summary stats:
    - Row count, column count, missing values
    - Min, max, mean, median, standard deviation (for numeric columns)
    - Unique value counts (for categorical columns)

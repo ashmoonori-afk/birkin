@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import os
+import ctypes
+import ntpath
 import tempfile
 from pathlib import Path
 from typing import Any
@@ -13,9 +15,42 @@ from .hashline import annotate, edit_text
 MAX_READ_BYTES = 200_000
 
 
+def _windows_drive_type(root: str) -> int | None:
+    if os.name != "nt":
+        return None
+    get_drive_type = ctypes.windll.kernel32.GetDriveTypeW
+    get_drive_type.argtypes = [ctypes.c_wchar_p]
+    get_drive_type.restype = ctypes.c_uint
+    return int(get_drive_type(root))
+
+
+def _network_path_blocked(ctx: ToolContext, raw: str) -> bool:
+    egress = ctx.cfg.get("egress", {})
+    enforced = (
+        isinstance(egress, dict)
+        and bool(egress)
+        and bool(egress.get("enabled", True))
+        and bool(egress.get("enforced", True))
+    )
+    if not enforced:
+        return False
+    normalized = raw.replace("/", "\\")
+    if normalized.startswith("\\\\"):
+        return True
+    drive, _tail = ntpath.splitdrive(normalized)
+    return (
+        len(drive) == 2
+        and drive.endswith(":")
+        and _windows_drive_type(f"{drive}\\") == 4
+    )
+
+
 def _resolve(ctx: ToolContext, raw: str) -> Path:
     p = Path(raw).expanduser()
     p = p if p.is_absolute() else (ctx.cwd / p)
+    if _network_path_blocked(ctx, str(p)):
+        raise ValueError(
+            "blocked: network file paths are disabled during enforced egress")
     # Opt-in path jail (default off — see config "fs_jail"). When on, confine
     # file tools to the workspace and ~/.birkin so the native loop can't read or
     # overwrite arbitrary files via an absolute path or "..". Off by default to

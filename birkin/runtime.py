@@ -219,7 +219,12 @@ class Session:
                        else "workspace-write")
             return CodexAppServerSession(model=self.cfg.get("model"),
                                          preamble=system, sandbox_mode=sandbox,
-                                         approval_policy="never")
+                                         approval_policy="never",
+                                         network_access=(
+                                             sandbox == "workspace-write"
+                                             and self.cfg.get(
+                                                 "cli_network_access", False)
+                                             is True))
         from .claude_session import ClaudeStreamSession
         return ClaudeStreamSession(
             model=self.cfg.get("model"),

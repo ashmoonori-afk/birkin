@@ -130,6 +130,13 @@ def build_registry(ctx: ToolContext, *, include: Optional[set[str]] = None) -> T
         groups["subagent"] = subagent_tools()
 
     disabled = set(ctx.cfg.get("disabled_tools", []) or [])
+    egress_cfg = ctx.cfg.get("egress")
+    if isinstance(egress_cfg, dict):
+        if egress_cfg.get("enabled") is False:
+            disabled.add("egress")
+        elif (egress_cfg.get("enabled") is True
+                and egress_cfg.get("enforced") is True):
+            disabled.update({"shell", "subagent"})
     # Per-model engine preset (senpi-style): fast/local models drop whole
     # groups (e.g. web, subagent). Entries match a group OR a tool name.
     from .. import presets

@@ -12,6 +12,9 @@ import urllib.request
 from typing import Any
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
+from ..egress import record_tool_receipt
+from ..egress_scan import EgressScanError, inspect_payload
+from ..httpguard import PinnedHTTPSHandler
 from ._types import Tool, ToolContext, ToolResult
 
 _BASE_URL = "https://query1.finance.yahoo.com/v8/finance/chart/"
@@ -164,6 +167,25 @@ def _normalize_symbol(value: str) -> str:
     return symbol
 
 
+class _NoRedirectHandler(urllib.request.HTTPRedirectHandler):
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
+        raise urllib.error.HTTPError(
+            newurl,
+            code,
+            "market provider redirects are disabled",
+            headers,
+            fp,
+        )
+
+
+def _market_opener() -> urllib.request.OpenerDirector:
+    return urllib.request.build_opener(
+        urllib.request.ProxyHandler({}),
+        _NoRedirectHandler(),
+        PinnedHTTPSHandler(),
+    )
+
+
 def _fetch_chart(symbol: str) -> tuple[dict[str, Any], str]:
     encoded = urllib.parse.quote(symbol, safe=".^=-")
     url = f"{_BASE_URL}{encoded}?range=5d&interval=1d"
@@ -171,7 +193,7 @@ def _fetch_chart(symbol: str) -> tuple[dict[str, Any], str]:
         url,
         headers={"User-Agent": "Birkin/market-quote"},
     )
-    with urllib.request.urlopen(request, timeout=12) as response:
+    with _market_opener().open(request, timeout=12) as response:
         payload = json.loads(response.read().decode("utf-8"))
     if not isinstance(payload, dict):
         raise MarketQuoteError("quote response is not an object")
@@ -180,7 +202,7 @@ def _fetch_chart(symbol: str) -> tuple[dict[str, Any], str]:
 
 def _market_quote(
     inp: dict[str, Any],
-    _ctx: ToolContext | None,
+    ctx: ToolContext | None,
 ) -> ToolResult:
     raw_symbols = inp.get("symbols")
     if not isinstance(raw_symbols, list) or not 1 <= len(
@@ -197,10 +219,40 @@ def _market_quote(
             errors.append({"symbol": str(raw), "error": "symbol must be text"})
             continue
         try:
+            if ctx is not None:
+                egress = ctx.cfg.get("egress")
+                if (isinstance(egress, dict)
+                        and egress.get("enabled") is True
+                        and egress.get("enforced") is True):
+                    inspect_payload(raw, None, ctx.cfg)
             symbol = _normalize_symbol(raw)
-            payload, source_url = _fetch_chart(symbol)
+            receipt_id = record_tool_receipt(
+                ctx.cfg if ctx is not None else {},
+                operation="market_quote",
+                outcome="prepared",
+                provider="yahoo",
+            )
+            try:
+                payload, source_url = _fetch_chart(symbol)
+            except Exception:
+                record_tool_receipt(
+                    ctx.cfg if ctx is not None else {},
+                    operation="market_quote",
+                    outcome="failed",
+                    receipt_id=receipt_id,
+                    provider="yahoo",
+                )
+                raise
+            record_tool_receipt(
+                ctx.cfg if ctx is not None else {},
+                operation="market_quote",
+                outcome="sent",
+                receipt_id=receipt_id,
+                provider="yahoo",
+            )
             quotes.append(asdict(parse_chart(payload, source_url=source_url)))
         except (
+            EgressScanError,
             MarketQuoteError,
             TimeoutError,
             UnicodeError,

@@ -43,6 +43,28 @@ def test_gateway_warnings_respect_optins():
     assert any("unattended" in w for w in security.gateway_warnings(cfg2))
 
 
+def test_gateway_warns_when_raw_network_bypasses_inspected_egress():
+    warns = security.gateway_warnings({
+        "provider": "codex-cli",
+        "cli_network_access": True,
+    })
+    text = "\n".join(warns)
+    assert "raw network" in text
+    assert "inspected egress" in text
+
+
+def test_gateway_warns_when_native_egress_enforcement_is_disabled():
+    warns = security.gateway_warnings({
+        "provider": "anthropic",
+        "disabled_tools": ["run_shell"],
+        "fs_jail": True,
+        "egress": {"enabled": True, "enforced": False},
+    })
+    text = "\n".join(warns)
+    assert "egress.enforced is false" in text
+    assert "raw native tools" in text
+
+
 def test_shell_cron_not_auto_applied_when_only_cron_approved(tmp_path, monkeypatch):
     """An auto-approved `cron` must NOT launder a shell payload past the shell gate."""
     monkeypatch.setenv("BIRKIN_HOME", str(tmp_path))

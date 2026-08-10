@@ -70,6 +70,8 @@ def test_the_keys_this_branch_added_are_documented_in_both() -> None:
         "api_keys",
         "lsp_servers",
         "a2a_enabled",
+        "cli_network_access",
+        "egress",
         "harness_enabled",
         "harness_turn_interval",
         "harness_cooldown_min",

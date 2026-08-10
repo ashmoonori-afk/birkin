@@ -285,6 +285,22 @@ a representative configuration using real defaults from `birkin/config.py`:
   "max_tokens": 4096,
   "temperature": 1.0,
   "max_turns": 24,
+  "cli_network_access": false,
+  "egress": {
+    "enabled": true,
+    "enforced": true,
+    "max_bytes": 1048576,
+    "destinations": {
+      "trusted-api": {
+        "url": "https://api.example.com/submissions",
+        "method": "POST",
+        "automatic": true,
+        "content_types": ["application/json"],
+        "max_bytes": 1048576,
+        "auth_env": "EXAMPLE_SUBMIT_TOKEN"
+      }
+    }
+  },
   "context_window": 200000,
   "auto_compact": true,
   "fallback_provider": "",
@@ -359,6 +375,31 @@ Important boundaries:
 
 Run `birkin setup` for guided configuration and `birkin tools` to inspect or
 toggle the effective tool set.
+
+`submit_payload` is the default outbound-write path. It accepts inline JSON or
+text, resolves only an exact destination name from `egress.destinations`,
+canonicalizes and scans the final bytes before DNS or a socket, injects
+destination-scoped authentication from `auth_env`, sends once, and writes
+metadata-only intent/outcome records to
+`~/.birkin/egress-receipts.jsonl`. Automatic transfer requires
+`automatic: true`; unknown and non-automatic destinations are blocked. Profiles
+are HTTPS/443 only, with a fixed method/path/content-type/byte cap and no
+query, fragment, userinfo, proxy, or redirect. Normal `redact_secrets` settings
+cannot disable this pre-send scan.
+
+With the default `egress.enforced: true`, Birkin omits native `run_shell` and
+`spawn_subagent` capabilities that could bypass the broker. Model-controlled
+`web_fetch` URLs and `web_search` queries receive the same pre-network secret
+scan while normal public research remains available. Setting `enforced` to
+`false` restores those raw native capabilities and emits a security warning.
+
+`cli_network_access` defaults to `false`. Turning it on grants the Codex child
+raw network and bypasses inspected-egress destination and payload checks, so
+Birkin emits a security warning. Workspace filesystem confinement and
+`approval_policy="never"` remain in force, but raw network is an explicit
+escape hatch, not the submission default. `cli_access: "full"` remains the
+separate, dangerous host-access opt-in and is never inherited by the reachable
+gateway.
 
 ## Memory and self-improvement
 

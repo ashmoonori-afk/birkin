@@ -400,8 +400,8 @@ class Gateway:
         if self.cfg.get("provider") == "codex-cli":
             from ..codex_session import CodexAppServerSession
             # cli_access is already forced to "workspace" in __init__ for the
-            # gateway, so codex runs cwd-scoped with no network and can never
-            # escalate — regardless of the user's danger-full-access config.
+            # gateway, so codex stays cwd-scoped and can never escalate —
+            # network is granted independently of host filesystem access.
             sandbox = ("danger-full-access"
                        if self.cfg.get("cli_access") == "full"
                        else "workspace-write")
@@ -413,6 +413,9 @@ class Gateway:
                     self.cfg.get("gateway_reasoning_effort", "") or ""),
                 turn_timeout=float(self.cfg.get("cli_timeout", 300)),
                 sandbox_mode=sandbox, approval_policy="never",
+                network_access=(
+                    sandbox == "workspace-write"
+                    and self.cfg.get("cli_network_access", False) is True),
                 # Without this the gateway has NO birkin tools at all: on a
                 # CLI provider birkin's own registry is unreachable (the child
                 # runs its own tool loop), and nothing attached the MCP server
@@ -432,12 +435,19 @@ class Gateway:
                     if self.cfg.get("gateway_clean_hooks", True) else None)
         env_extra = {"MAX_THINKING_TOKENS":
                      str(int(self.cfg.get("gateway_thinking_tokens", 0) or 0))}
+        egress_cfg = self.cfg.get("egress", {})
+        egress_enforced = (
+            isinstance(egress_cfg, dict)
+            and bool(egress_cfg)
+            and bool(egress_cfg.get("enabled", True))
+            and bool(egress_cfg.get("enforced", True))
+        )
         return ClaudeStreamSession(
             model=self.cfg.get("model"),
             cli_access=self.cfg.get("cli_access", "workspace"),
             append_system_prompt=self._system_prompt(),
             extra_args=extra, settings=settings, env_extra=env_extra,
-            birkin_mcp=True)
+            birkin_mcp=True, egress_enforced=egress_enforced)
 
     def _make_spare(self) -> None:
         """Spawn one warm, unclaimed session so the next new conversation
