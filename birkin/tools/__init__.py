@@ -98,10 +98,10 @@ def build_registry(ctx: ToolContext, *, include: Optional[set[str]] = None) -> T
     ``include`` optionally restricts which tool *groups* are registered
     (used to give subagents a scoped toolset). Groups:
     ``files``, ``shell``, ``web``, ``sessions``, ``skills``, ``memory``,
-    ``vision``, ``desktop``, ``companion``, ``subagent``.
+    ``vision``, ``desktop``, ``egress``, ``companion``, ``subagent``.
     """
-    from . import (citations, desktop, files, market, sessions,  # local: avoid cycles
-                   shell, vision, web)
+    from . import (citations, desktop, egress, files, market,  # local: avoid cycles
+                   sessions, shell, vision, web)
     from .subagent_tool import subagent_tools
 
     groups: dict[str, list[Tool]] = {
@@ -110,6 +110,7 @@ def build_registry(ctx: ToolContext, *, include: Optional[set[str]] = None) -> T
         "web": web.tools() + market.tools() + citations.tools(),
         "sessions": sessions.tools(),
         "vision": vision.tools(),
+        "egress": egress.tools(),
     }
     if ctx.cfg.get("desktop_tools") is True:
         groups["desktop"] = desktop.tools()

@@ -545,7 +545,7 @@ def load_config() -> dict[str, Any]:
     # Deep-merge nested sub-sections so setting one entry doesn't drop the
     # defaults for the others (e.g. saving only channels.telegram must keep the
     # default channels.http). A plain dict.update() replaces the whole sub-tree.
-    for nk in ("channels",):
+    for nk in ("channels", "egress"):
         base, sv = DEFAULT_CONFIG.get(nk), saved.get(nk)
         if isinstance(base, dict) and isinstance(sv, dict):
             merged = {k: (dict(v) if isinstance(v, dict) else v)
