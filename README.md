@@ -107,6 +107,24 @@ MCP server so MCP tool exposure follows the same preset. Custom
 `model_presets` may change role/style and add denials, but cannot remove a
 built-in restriction.
 
+### Vision and Windows desktop observation
+
+The native tool loop includes `vision_analyze`, ported from
+[hermes-agent](https://github.com/NousResearch/hermes-agent). It loads a local
+file or HTTP(S) URL as a native image tool result, so a vision-capable active
+model sees the pixels directly rather than receiving a lossy prose
+description. PNG, JPEG, GIF, and WebP images up to 5 MB are accepted; remote
+URLs pass the same private-address and redirect SSRF guard as `web_fetch`.
+
+Desktop observation is a separate, explicit authority. On Windows, set
+`"desktop_tools": true` in `config.json` to register `desktop_windows` and
+`window_screenshot`; the default is `false`. The first tool returns visible
+window handles, titles, bounds, and minimized state. The second captures one
+non-minimized window by handle or title substring and attaches it to the model
+for visual inspection. This path uses pywin32 and Pillow when enabled and
+returns a tool error if either is unavailable; it never starts a polling loop
+or silently keeps a process alive.
+
 > On subscription vs. API key — including which surfaces run unattended and
 > what that means for your plan's terms — see
 > [`docs/DECISIONS.md`](./docs/DECISIONS.md) ADR-050 / ADR-051. birkin states

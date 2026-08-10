@@ -105,6 +105,23 @@ Birkin은 프롬프트와 도구를 만들기 전에 실제 실행 모델을 확
 같은 프리셋에 맞춥니다. 사용자 `model_presets`는 역할·스타일을 바꾸고 제한을 더할
 수 있지만, 내장 제한을 해제할 수는 없습니다.
 
+### 비전과 Windows 데스크톱 관찰
+
+네이티브 도구 루프에는
+[hermes-agent](https://github.com/NousResearch/hermes-agent)에서 이식한
+`vision_analyze`가 포함됩니다. 로컬 파일이나 HTTP(S) URL을 네이티브 이미지
+tool result로 로드하므로, 비전을 지원하는 현재 모델이 손실된 텍스트 설명 대신
+픽셀을 직접 봅니다. PNG·JPEG·GIF·WebP를 5 MB까지 지원하고, 원격 URL에는
+`web_fetch`와 같은 사설 주소 및 리다이렉트 SSRF 차단을 적용합니다.
+
+데스크톱 관찰은 별도의 명시적 권한입니다. Windows에서 `config.json`에
+`"desktop_tools": true`를 설정해야 `desktop_windows`와 `window_screenshot`이
+등록되며 기본값은 `false`입니다. 전자는 보이는 창의 handle·제목·경계·최소화
+상태를 반환하고, 후자는 handle 또는 제목 부분 문자열로 최소화되지 않은 창 하나를
+캡처해 모델의 시각 컨텍스트에 첨부합니다. 이 경로는 활성화됐을 때 pywin32와
+Pillow를 사용하며, 둘 중 하나가 없으면 tool error를 반환합니다. polling loop를
+시작하거나 프로세스를 몰래 계속 살려 두지는 않습니다.
+
 > 구독 대 API 키 — 어떤 표면이 무인으로 도는지, 그게 내 플랜 약관에 무슨 의미인지
 > 포함 — 은 [`docs/DECISIONS.md`](./docs/DECISIONS.md) ADR-050 / ADR-051에 적혀
 > 있습니다. 알아서 발견하시라고 두지 않고 입장을 밝힙니다.

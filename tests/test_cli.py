@@ -85,6 +85,23 @@ def test_cmd_tools_panel(capsys):
     assert rc == 0
     assert "Available Tools" in out
     assert "files" in out and "shell" in out and "skills" in out
+    assert "vision_analyze" in out
+
+
+def test_cmd_tools_panel_includes_opted_in_desktop_tools(capsys):
+    # Given
+    cfg = config.load_config()
+    cfg["desktop_tools"] = True
+    config.save_config(cfg)
+
+    # When
+    rc = _cmd_tools(_ns(enable=None, disable=None))
+    out = capsys.readouterr().out
+
+    # Then
+    assert rc == 0
+    assert "desktop_windows" in out
+    assert "window_screenshot" in out
 
 
 def test_cmd_tools_toggle_disable_persists(capsys):

@@ -207,7 +207,7 @@ class LLMClient:
                     parts.append(f"{role}: {b.get('text', '')}")
                 elif b.get("type") == "tool_result":
                     c = b.get("content", "")
-                    parts.append(f"TOOL_RESULT: {c if isinstance(c, str) else c}")
+                    parts.append(f"TOOL_RESULT: {_stringify(c)}")
         return "\n\n".join(parts).strip()
 
     def _cli_complete(self, system, messages, model, on_text,

@@ -72,7 +72,7 @@ class Registry(Protocol):
 
 
 class ToolResultLike(Protocol):
-    content: str
+    content: str | list[dict[str, Any]]
     is_error: bool
 
 
@@ -86,6 +86,18 @@ class AbortLike(Protocol):
 #   "tool_end"   -> {"name", "is_error", "content"}
 #   "compact"    -> {"reason", "before", "after"}
 EventCallback = Optional[Callable[[str, dict[str, Any]], None]]
+
+
+def _visible_tool_content(content: str | list[dict[str, Any]]) -> str:
+    """Keep image bytes out of UI/event payloads while preserving useful text."""
+    if isinstance(content, str):
+        return content
+    text = "\n".join(
+        str(block.get("text", ""))
+        for block in content
+        if block.get("type") == "text"
+    )
+    return text or "[image attached]"
 
 # How many times one turn may compact-and-retry after a context overflow before
 # giving up and surfacing the error.
@@ -352,7 +364,8 @@ class Agent:
 
     # -- tool execution ----------------------------------------------------
 
-    def _result_block(self, tool_use: dict[str, Any], content: str,
+    def _result_block(self, tool_use: dict[str, Any],
+                      content: str | list[dict[str, Any]],
                       is_error: bool) -> dict[str, Any]:
         return {"type": "tool_result", "tool_use_id": tool_use.get("id"),
                 "content": content, "is_error": is_error}
@@ -387,7 +400,8 @@ class Agent:
         self._emit("tool_start", {"name": name, "input": tool_input, "id": tid})
         block = self._run_one(tool_use)
         self._emit("tool_end", {"name": name, "is_error": block["is_error"],
-                                "content": block["content"], "id": tid})
+                                "content": _visible_tool_content(block["content"]),
+                                "id": tid})
         return block
 
     def _run_parallel(self, calls: list[dict[str, Any]],
@@ -440,7 +454,8 @@ class Agent:
             block = slots[i] or self._result_block(tu, "aborted", True)
             self._emit("tool_end", {"name": tu.get("name", ""),
                                     "is_error": block["is_error"],
-                                    "content": block["content"],
+                                    "content": _visible_tool_content(
+                                        block["content"]),
                                     "id": tu.get("id")})
             out.append(block)
         return out

@@ -129,6 +129,7 @@ DEFAULT_CONFIG: dict[str, Any] = {
     "max_depth": 2,  # subagent recursion bound
     "extra_skill_dirs": [],  # additional directories to scan for SKILL.md
     "disabled_tools": [],  # tool names the agent may NOT use (see `birkin tools`)
+    "desktop_tools": False,  # opt in to visible-window listing/screenshots
     "self_improve": True,  # allow the agent to write/refine skills after tasks
     # Automatic self-improvement nudges (native: no extra call; Claude: skill
     # review; Codex: trusted memory review; local CLI: no review):
