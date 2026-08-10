@@ -1,698 +1,235 @@
-<div align="center">
+# birkin
 
+**A dependency-free Python agent that treats memory, execution, and
+self-improvement as inspectable local state.**
+
+birkin is a local-first CLI agent, HTTP/Telegram gateway, MCP server, and
+multi-agent runtime. Its production package uses only the Python standard
+library. The repository is roughly 32,000 lines of Python and ships with more
+than 2,000 offline tests and 56 bundled skills.
+
+The interesting part is not another chat loop. It is the way the code joins
+the loop to operational machinery: resumable goals, isolated subagents,
+workspace checkpoints, secret redaction, model failover, transparent Markdown
+memory, deterministic multi-agent workflows, and a reversible
+self-improvement ledger.
+
+[한국어](./README.ko.md)
+
+## Why birkin exists
+
+There are already excellent general-purpose agent projects. birkin makes a
+different trade:
+
+- one installable Python package instead of a multi-language runtime;
+- zero mandatory runtime dependencies instead of SDK-heavy provider stacks;
+- visible files and append-only records instead of opaque hosted state;
+- a small native tool surface instead of browser/computer automation;
+- explicit approval, checkpoint, and redaction choke points around execution;
+- continual improvement as reviewable proposals that can be rolled back.
+
+This makes birkin unusually easy to audit, embed, test offline, and repair with
+ordinary Python tools.
+
+## Code-level comparison
+
+The following comparison comes from the code in birkin and the current source
+trees of
+[hermes-agent](https://github.com/NousResearch/hermes-agent) and
+[prime-agent](https://github.com/PrimeIntellect-ai/prime-agent), inspected on
+2026-08-10. It does not rely on product claims or architecture documents.
+
+| | birkin | hermes-agent | prime-agent |
+|---|---|---|---|
+| Main shape | One Python package | Large Python application plus JS/TS surfaces | TypeScript monorepo plus Python kernel shim |
+| Approximate source scale | 32K Python LOC | 166K Python + 132K JS/TS LOC | 152K TypeScript LOC |
+| Mandatory runtime dependencies | 0 | Large exact-pinned Python set plus extras | Multiple npm package dependency graphs; Python runtime uses IPython |
+| Agent/tool organization | One native loop and one registry choke point | Broad provider, gateway, browser, media, and tool subsystems | Layered `ai`, `agent`, `coding-agent`, and `tui` packages |
+| Memory | Editable Markdown/YAML/wikilink vault | Multiple state and memory integrations | Session/context-tree centric |
+| Self-improvement | Versioned proposal ledger with validation and rollback | Broad skill and runtime ecosystem | Extension and package ecosystem |
+| UI/channel breadth | CLI, WebUI, local HTTP, Telegram, MCP, A2A | Much broader browser, gateway, and messaging surface | Rich terminal UI and coding-agent extensions |
+| Best fit | Small, auditable, long-running local agent | Feature breadth and many integrations | TypeScript-native coding-agent platform and TUI |
+
+### Where birkin is stronger
+
+**Small dependency and supply-chain surface.** `pyproject.toml` declares no
+runtime dependencies. HTTP, streaming, JSON-RPC, cron parsing, persistence,
+provider clients, and the native agent loop are implemented in the package.
+Optional desktop screenshots use Pillow and pywin32 only when explicitly
+enabled.
+
+**A single enforcement path for tool results.** Every native tool call passes
+through `ToolRegistry.run`. Hooks observe there; textual output is redacted
+there; oversized text spills only after redaction; image bytes are kept out of
+event payloads and spill files. The agent loop receives one typed
+`ToolResult` shape.
+
+**Self-improvement is data, not an invisible mutation.** `harness.py` accepts
+typed proposals, validates their limits, records prompt/memory/skill/config
+edits in a ledger, and supports rollback. `morpheus.py` produces proposals from
+recent work instead of directly rewriting the agent. The same harness can run
+at turn boundaries.
+
+**Transparent memory.** `memory.py` stores YAML-frontmatter Markdown notes and
+wikilinks in an Obsidian-compatible vault. `mnemosyne.py` supplies an LLM-free
+index, zones, priority, and decay. Users can inspect and edit the knowledge
+base without a vector database or migration tool.
+
+**Failure handling is layered.** Provider calls can retry, rotate credentials
+after rate limits, and fall back to another provider. Long conversations
+compact automatically. Workspace edits can create checkpoints. Goal execution
+persists a resumable Boulder plan instead of depending on one uninterrupted
+process.
+
+**One prompt assembly gate.** `promptgate.py` composes persona, memory, skills,
+and runtime notices for every surface. The REPL, gateway, dry-run path, and
+warm sessions do not each invent a different system prompt.
+
+**Multi-agent work without a second runtime.** Isolated subagents, concurrent
+read-only tool batches, deterministic Moirai workflows, A2A JSON-RPC, and MCP
+all run from the same package and storage conventions.
+
+### Where hermes-agent and prime-agent are stronger
+
+birkin intentionally has less surface area.
+
+- hermes-agent has far more gateway platforms, browser/computer-use code,
+  provider adapters, media tools, and deployment integrations.
+- prime-agent has a richer TypeScript package ecosystem, terminal UI,
+  extension surface, browser-oriented build targets, and an IPython-backed
+  coding runtime.
+- birkin has no native browser automation and no equivalent to their full TUI
+  stacks.
+- birkin is primarily a single-process local runtime. It is not a distributed
+  control plane.
+- Native tools execute with the current user's authority. `shell_approval`,
+  `fs_jail`, disabled tools, gateway authentication, and allowlists must be
+  configured for the deployment rather than assumed.
+
+Choose birkin when smallness, local inspectability, and reversible operation
+matter more than integration breadth.
+
+## Structural map
+
+```text
+birkin/
+  agent.py          native tool-calling loop, compaction, parallel calls
+  llm.py            provider protocol, streaming, retry and failover boundary
+  runtime.py        constructs clients, prompts, registries, memory and skills
+  promptgate.py     single system-prompt assembly point
+  tools/            files, shell, web, vision, sessions, memory and subagents
+  gateway/          local HTTP and Telegram channels
+  memory.py         Obsidian-compatible semantic memory
+  mnemosyne.py      mechanical memory index, zones and decay
+  harness.py        validated self-improvement ledger and rollback
+  morpheus.py       scheduled proposal generation
+  moirai/           deterministic multi-agent workflow engine
+  boulder.py        durable resumable goal plans
+  checkpoints.py    workspace snapshots and restore
+  shellguard.py     destructive-command approval
+  security.py       deployment-facing security diagnostics
+  a2a/              Agent2Agent JSON-RPC server
+  web/              local WebUI server
+skills/             56 bundled Markdown skills
+tests/              offline unit, integration, gateway and e2e coverage
 ```
- ██████╗ ██╗██████╗ ██╗  ██╗██╗███╗   ██╗
- ██╔══██╗██║██╔══██╗██║ ██╔╝██║████╗  ██║
- ██████╔╝██║██████╔╝█████╔╝ ██║██╔██╗ ██║
- ██╔══██╗██║██╔══██╗██╔═██╗ ██║██║╚██╗██║
- ██████╔╝██║██║  ██║██║  ██╗██║██║ ╚████║
- ╚═════╝ ╚═╝╚═╝  ╚═╝╚═╝  ╚═╝╚═╝╚═╝  ╚═══╝
-```
 
-### The Claude agent that remembers you — in Markdown files you own.
-
-🌐 **Language**: English · [한국어](./README.ko.md)
-
-</div>
-
----
-
-birkin is a personal agent for Claude, in your terminal and on Telegram, whose
-memory is a folder of Obsidian-compatible Markdown. Open it in Obsidian. Grep
-it. Put it in git. It is yours, and it outlives birkin.
-
-It is the only agent whose memory curator **cannot express a delete**. The
-nightly pass doesn't get a filesystem and a promise to behave — it emits a typed
-plan over four operations, none of which is deletion, and a deterministic
-executor clamps what survives. An adversarial model, a prompt injection in a
-note, a bad night: none of them can erase what you asked it to remember.
-
-Built Korean-first. Not translated.
-
----
-
-## What you get
-
-| | |
-|---|---|
-| **A vault you own** | Markdown notes with `[[wikilinks]]`, frontmatter, zones and TTL under `~/.birkin/vault`. BM25 retrieval with an Ebbinghaus forgetting curve wired into ranking — no embeddings, nothing opaque, hand-editable. |
-| **Curation that can't delete** | Each night the model proposes a typed JSON plan; a deterministic executor applies only the safe operations, caps archiving, protects your known-failure notes, and snapshots the vault first so even accepted edits are reversible. |
-| **Approval before consequence** | Destructive shell commands are refused or queued, never silently run. A refusal carries your reason back to the agent so it corrects instead of retrying blind. A model never approves its own shell command. |
-| **Clarity before action** | For a vague request birkin interviews you — one question at a time, with ambiguity scoring — writes a spec, and acts only once you approve. |
-| **Overnight, with receipts** | Every turn is auto-saved; Morpheus reads the day, updates memory, drafts skills, and queues anything consequential for your morning review. On codex-cli it can only do that at `cli_access: full` — `codex exec` cancels MCP tool calls otherwise, and the run says so instead of quietly saving nothing. Every turn is replayable with `birkin trace`. |
-| **Korean as a first language** | Hangul-bigram retrieval, `지난주에 정리한…` date cues, `매주 월요일 09:00` schedules, CJK-correct terminal widths. Tested in Korean, not localized after the fact. |
-| **Workflows across model families** | Run a script, not a prompt: one workflow can have codex draft, three claude critics attack it in parallel, and codex revise. Which model plays each role is chosen before the run, not hardcoded. |
-| **A default UI component book** | Frontend work starts from [shadcn/ui](https://ui.shadcn.com/docs/components) composition, state and accessibility patterns unless the project names another design system. React/Tailwind projects can use the components directly; other stacks translate the patterns without pretending the dependency is installed. |
-| **Zero runtime dependencies** | `dependencies = []`. One stdlib Python package you can read in an afternoon — no Node, no Docker, no lockfile drift. |
-
----
+The structure is deliberately flat. Most behavior is a module with explicit
+inputs and file-backed state rather than a framework hierarchy.
 
 ## Install
 
-**macOS / Linux**
-```bash
-curl -fsSL https://raw.githubusercontent.com/ashmoonori-afk/birkin/main/scripts/install.sh | bash
-```
-
-**Windows (PowerShell)**
-```powershell
-irm https://raw.githubusercontent.com/ashmoonori-afk/birkin/main/scripts/install.ps1 | iex
-```
-
-**From source**
-```bash
-git clone https://github.com/ashmoonori-afk/birkin && cd birkin
-uv run birkin            # or:  pip install -e .  &&  birkin
-```
-
-Python 3.10+. The first run opens an onboarding wizard.
-
-### What it runs on
-
-birkin drives a model you already have. Product features work across backends,
-but the execution and permission boundary differs between Birkin's native tool
-loop and external Claude/Codex CLI tool loops.
-
-| Backend | How | Cost |
-|---|---|---|
-| **Claude Code** (`claude`) — *default* | be logged into `claude`, pick it in `birkin model` | your Claude subscription |
-| **Anthropic API** | `export ANTHROPIC_API_KEY=sk-ant-…` | per token — `birkin budget` shows the month in dollars |
-| **OpenAI-compatible** | provider `openai` + `base_url` (works with **Ollama**) | per token, or free locally |
-| **Codex** (`codex`) | `birkin auth codex login`, then pick it in `birkin model` | your ChatGPT subscription |
-
-`birkin auth codex login` signs birkin in to Codex with its own OAuth session —
-one in-process HTTPS call per request, no `codex` subprocess, and the `codex`
-CLI does not even have to be installed. birkin keeps that credential in
-`$BIRKIN_HOME/codex-auth.json` and **never writes `~/.codex/`**: OpenAI rotates
-the refresh token on every grant, so sharing one credential between two clients
-logs the other one out. Without a birkin login, `codex` still falls back to the
-CLI. `birkin auth codex status` shows which session is in use.
-
-The gateway keeps one warm process per conversation, so replies after the first
-are model-time (**~3 s**) rather than a cold start per message.
-
-### Model-aware presets and tool boundaries
-
-Birkin resolves the effective model before building its prompt and tools.
-Known model families receive a small role overlay; unknown models use an
-explicit neutral preset. Restricted native presets omit denied tool groups from
-the registry, so those tools are neither advertised nor executable. A live
-`/model` change and a `subagent_model` both rebuild that registry from the newly
-selected model.
-
-External Claude/Codex CLI agents own their tool loop, so the same preset text is
-**advisory**, not an authorization control. Their sandbox and permission mode
-remain the real boundary. Birkin passes the effective model into its attached
-MCP server so MCP tool exposure follows the same preset. Custom
-`model_presets` may change role/style and add denials, but cannot remove a
-built-in restriction.
-
-### Vision and Windows desktop observation
-
-The native tool loop includes `vision_analyze`, ported from
-[hermes-agent](https://github.com/NousResearch/hermes-agent). It loads a local
-file or HTTP(S) URL as a native image tool result, so a vision-capable active
-model sees the pixels directly rather than receiving a lossy prose
-description. PNG, JPEG, GIF, and WebP images up to 5 MB are accepted; remote
-URLs pass the same private-address and redirect SSRF guard as `web_fetch`.
-
-Desktop observation is a separate, explicit authority. On Windows, set
-`"desktop_tools": true` in `config.json` to register `desktop_windows` and
-`window_screenshot`; the default is `false`. The first tool returns visible
-window handles, titles, bounds, and minimized state. The second captures one
-non-minimized window by handle or title substring and attaches it to the model
-for visual inspection. This path uses pywin32 and Pillow when enabled and
-returns a tool error if either is unavailable; it never starts a polling loop
-or silently keeps a process alive.
-
-> On subscription vs. API key — including which surfaces run unattended and
-> what that means for your plan's terms — see
-> [`docs/DECISIONS.md`](./docs/DECISIONS.md) ADR-050 / ADR-051. birkin states
-> its posture rather than leaving you to discover it.
-
----
-
-## 🧠 The vault
-
-Memory is **Mnemosyne**: a memory palace at `~/.birkin/vault`, built out of
-files rather than vectors.
-
-Notes live in **zone** directories and carry `type`, `polarity`
-(positive / known-failure), `version` (optimistic lock), TTL and
-`[[wikilinks]]`. Retrieval is an inverted index with **Okapi BM25** — idf-weighted
-queries, Hangul bigrams, an **Ebbinghaus forgetting curve** folded into the
-score, and a date prior so *"지난주에 정리한 배포 노트"* finds last week's note.
+Python 3.10 or newer is required.
 
 ```bash
-you > /remember I prefer concise replies, no preamble
-birkin > Noted as [[Profile - reply-style]].
-
-you > /memory 배포 파이프라인
+git clone https://github.com/ashmoonori-afk/birkin.git
+cd birkin
+python -m pip install -e .
+birkin setup
 ```
 
-Tools: `memory_search` (best-window snippets — a cheap preview layer),
-`memory_get_note` (full text on demand), `memory_write_note`, `memory_link`.
-Set `evidence_required: true` to refuse sourceless notes. Secrets are masked
-before a note is written, not after.
-
-**Measured, not asserted** (see [Research](#-research)): retrieval at parity
-with a tuned embedding hybrid **with no encoder at all**, and per-query context
-cost **371× below** loading the vault wholesale.
-
-### Curation that cannot delete
-
-Each night the curator may propose only `rezone`, `link`, `supersede`,
-`archive`, and `annotate`. There is no delete operation to emit. Then a
-deterministic executor decides what survives: archiving is capped at a fraction
-of the vault, protected and negative-polarity notes are untouchable, a rezone
-cannot smuggle a note into the archive, and invented note names are dropped.
-
-`annotate` lets the curator write **retrieval anchors** — synonyms, phrasings
-you might search for, cross-language keywords — into a note's frontmatter, so a
-note becomes findable by words it does not literally contain. The body is not
-addressable by that operation at all; only three whitelisted fields are, and
-their length and count are clamped by code rather than trusted.
+For development:
 
 ```bash
-birkin curate-memory --dry-run   # show the plan; touch nothing
-birkin curate-memory             # snapshot the vault, then apply the safe ops
+python -m pip install -e ".[dev]"
+pytest
 ```
 
-This is the difference between "the agent is instructed not to delete your
-notes" and "deletion is not expressible". Free-form read-modify-write memory can
-wipe itself; this shape cannot.
-
-### Your conversations, too
+## First run
 
 ```bash
-birkin sessions export <name> --vault
+# Guided setup
+birkin setup
+
+# Interactive agent
+birkin chat
+
+# Inspect models and native tools
+birkin models
+birkin tools
+
+# Start the local gateway or WebUI
+birkin gateway
+birkin web
 ```
 
-Transcripts become Obsidian-shaped notes in your vault — the same files, the
-same folder, the same ownership.
-
----
-
-## 🔌 Use the vault from Claude Code
-
-The vault is not locked inside birkin. It ships as an ordinary stdio MCP
-server, so any MCP host can mount it:
-
-```bash
-/plugin marketplace add ashmoonori-afk/birkin
-/plugin install birkin-vault@birkin
-```
-
-or, without the plugin layer:
-
-```bash
-claude mcp add birkin -- birkin mcp-serve
-```
-
-Claude Code then has `memory_search`, `memory_get_note`, `memory_write_note`,
-`memory_link`, `market_quote` and the skill tools — the vault, the ranking and
-the wikilink graph, without leaving Claude Code. Only safe, reversible tools
-cross that boundary: **no shell**, and consequential proposals still route to
-the approval queue.
-
-It composes with Claude Code's own memory rather than competing with it. Claude
-Code writes per-repository project notes; the vault is your life across
-projects. Point `autoMemoryDirectory` at a subfolder of the vault and both write
-into the same folder you own.
-
----
-
-## 🧵 Moirai — workflows across model families
-
-The bundled **hard-task** pattern (`birkin moirai run hard-task --args '{"task": "..."}'`) decomposes a hard task into an internal todo list, executes it step by step, folds discovered follow-ups back into the list (bounded — anything dropped is named in the report), and announces each step through the progress channel chat heartbeats render — an approved long run reads `할 일 3/7 · 진행 중: …` in Telegram instead of silence.
-
-A model deciding for itself whether to spawn another agent is not
-orchestration. Moirai is: a workflow is a Python file, control flow is code,
-and each agent is routed to whichever model should answer it.
-
-```bash
-birkin moirai run cross-examine --args '{"topic": "..."}'
-```
-
-The bundled `cross-examine` pattern has codex draft a claim, three claude
-critics attack it from different angles **in parallel**, then codex revise.
-Measured on one run: 71 s wall for 191 s of work.
-
-A script declares *roles*, not models:
-
-```python
-meta = {
-    "name": "cross-examine",
-    "roles": {
-        "drafter": {"default": "codex:gpt-5.6-sol", "hint": "makes the claim"},
-        "critic":  {"default": "claude:haiku", "hint": "attacks it"},
-    },
-}
-
-def main(m):
-    draft = m.agent("Argue for X", role="drafter")
-    votes = m.parallel([lambda a=a: m.agent(f"Attack via {a}: {draft}",
-                                            role="critic")
-                        for a in ("facts", "assumptions", "counterexamples")])
-    return m.agent(f"Revise given {votes}", role="drafter")
-```
-
-**Who runs each role is decided before the run.** The launcher asks — keep the
-current binding, reuse last run's, take the script's default, or browse
-provider then model — and `--bind critic=claude:opus` pins one from the command
-line. `--defaults` skips the asking; an unattended surface never prompts.
-
-Before it starts, the launcher shows what will happen — deliberately not in
-dollars, since birkin's usual path is a CLI login where a per-token price does
-not exist:
-
-```
-  drafter → codex:gpt-5.6-sol     ●●○   12초 ×1        중량
-  critic  → claude:opus           ●●●   62초 ×3        중량
-  ─────────────────────────────────────────────────────
-  합계                            예상 3분 18초 · 에이전트 4
-```
-
-Weight is a relative grade that cannot go stale on a reprice; the duration is
-the median **this machine** actually recorded for that model (a published
-figure marked `~` until your first run replaces it); a budget column appears
-only if you set a token cap.
-
-Other pieces: `schema=` returns validated data (codex enforces it natively,
-everyone else is asked in the prompt and checked, with one retry); every call
-is journalled, so `birkin moirai resume <id>` replays until the first thing
-that actually changed — rebind one role and only that role's calls re-run.
-A failed agent returns `None` rather than ending the workflow.
-
-Entry is always explicit — CLI only. No tool lets a model start a workflow,
-because that is the one spawn path with no natural ceiling. Agents are
-text-only today; tool-bearing agents are refused with a clear message rather
-than silently downgraded.
-
-### Research that keeps going until it runs dry
-
-```bash
-birkin moirai run deep-research --args '{"question": "..."}'
-```
-
-`deep-research` splits a question into orthogonal axes, investigates them in
-parallel, then follows every lead the answers opened — and keeps doing that
-until two consecutive waves turn up nothing new. Claims are then handed to a
-*different model family* to refute; anything it cannot settle is reported as
-unresolved rather than promoted into the answer.
-
-The algorithm is adapted from oh-my-openagent's `ulw-research` (MIT, credited
-in the file). Note the honest limit: Moirai agents are text-only for now — the
-`web_search` below belongs to birkin's own agent, not to them — so a web-heavy
-question here leans on what the bound model knows plus what its own CLI can
-reach.
-
-### Letting birkin suggest a workflow
-
-Off by default. With `"moirai_auto": true`, a request that would genuinely be
-better as several parallel agents gets *proposed* rather than answered — and
-the proposal lands in the same `birkin review` inbox as everything else
-consequential:
-
-```
-🧵 세 접근 비교
-   세 갈래를 병렬로 파는 게 낫다
-   워크플로우: deep-research
-```
-
-The model judges and proposes; it still cannot start one. No tool exposes
-Moirai to a model, and a test enforces that. Turning this on reverses a
-deliberate 2026-07-07 decision to stop auto-detecting intent, which is why it
-takes an explicit config change.
-
-Design notes: `docs/moirai-design.md`.
-
----
-
-## 🔒 Safety by construction
-
-**Every shell command asks first. Every memory edit leaves a diff.**
-
-The industry is moving the other way — the largest open agent now has an LLM
-reviewer approve flagged commands by default. birkin deliberately does not: a
-model never approves its own shell command.
-
-- **run_shell approval gate.** `rm -rf`, `curl | sh`, force-push and friends are
-  refused outright or queued for you when nobody is watching. Pattern-based — a
-  seatbelt, not a sandbox — and a permanent allowlist never matches a compound
-  command.
-- **Denials teach.** `/deny <id> <why>` sends your reason back to the agent, so
-  it corrects course instead of retrying a variant blind. Human-in-the-loop only
-  wins if the loop converges.
-- **Workspace checkpoints, fail-closed.** Every mutating tool snapshots the
-  workspace into a bare git store *outside* your project first, so `/rollback`
-  undoes a bad edit. If that snapshot cannot be taken, the tool is refused
-  instead of running unprotected, and a `/rollback` that cannot save the current
-  state first reports why rather than proceeding. Your own `.git` and `.env` are
-  never touched.
-- **Scanned skill install.** `birkin skills install owner/repo` fetches into
-  quarantine and scans for exfiltration, prompt injection and destructive
-  patterns before anything lands.
-- **cron can't launder shell.** An auto-approved `cron` job carrying a shell
-  payload is still queued for review.
-- **The gateway is never `--dangerously-skip-permissions`.** A reachable chat
-  message cannot reach a fully-permissioned process.
-- **There is no open Telegram bot.** Without
-  `channels.telegram.allowed_chat_ids` the gateway refuses to start Telegram at
-  all — no "warn once and run anyway" path. Past that gate, strangers are still
-  never auto-saved or memorized: memory poisoning needs a door, and this one is
-  shut.
-- **Secret redaction** before disk and before memory; state written atomically,
-  `0o600`. Optional **lifecycle hooks** can block a tool or inject context, each
-  confirmed once before it ever runs.
-
-Rationale per decision: [`docs/DECISIONS.md`](./docs/DECISIONS.md) ADR-029.
-
----
-
-## 🇰🇷 Korean-first
-
-Not a translation layer — the failure modes Korean input actually hits are what
-gets fixed and regression-tested:
-
-- **Retrieval**: Hangul runs + character bigrams, so search works without a
-  morphological analyzer or an encoder.
-- **Time**: `지난주`, `그저께`, `3일 전`, `작년` are parsed as date cues that
-  bias ranking toward the week you mean.
-- **Schedules**: `/remind 30분마다 메일 확인`, `매일 09:00`, `매주 월요일 09:00`,
-  `1시간 후` — alongside the English forms.
-- **Terminal**: every box, bar and column is measured in East-Asian display
-  cells, so mixed Korean/English never breaks the layout.
-- **Names**: an all-Hangul skill or note name gets its own identity instead of
-  collapsing into a shared slug.
-
----
-
-## 🎮 A day with birkin
-
-### Clarity before action (Neurosis)
-
-For a vague or complex request, birkin doesn't guess. It runs a Socratic
-interview with ambiguity scoring, one question at a time, writes a spec, and
-acts only after you approve.
-
-```bash
-you > /neurosis 회사 인스타 캠페인 새로 기획해줘
-birkin > Round 0 | 구성요소 확인 …        # topology → targeted questions → spec
-```
-
-### Overnight self-improvement (Morpheus)
-
-```bash
-birkin daemon --install   # register the OS task (login/boot; cron + launchd + schtasks)
-birkin morpheus --dry-run # preview; unsandboxed local-cli dry-run is refused
-birkin review             # next morning: approve / reject, one by one
-birkin trace <run-id>     # audit replay of any past turn
-```
-
-Memory and skill writes apply themselves — they are reversible local files.
-Anything consequential waits for you, and that is enforced rather than merely
-intended: Morpheus runs with no shell, and birkin's own control plane
-(`config.json`, `cron.json`, `hooks_allowlist.json`, `hooks/`) is refused to
-the file tools outright, so an unattended run cannot schedule a command or
-pre-approve a hook to get shell back.
-
-### On Telegram
-
-```bash
-birkin gateway            # HTTP + (optional) Telegram, warm and persistent
-```
-
-Same memory, same skills, same persona as the terminal — birkin attaches its own
-tool server to the CLI child so the gateway can actually write to the vault, not
-just read a digest of it. Long work is proposed
-with **Approve** / **Reject** buttons before it starts, bound to the chat that
-asked, with a heartbeat while it runs. A finished reply is recorded before it is
-sent, so a crash in that window redelivers it instead of losing it.
-When you explicitly ask for a generated file, the gateway uploads the
-workspace file as a Telegram document instead of merely naming its local path.
-Internal attachment markers stay out of streamed chat text, oversized files are
-rejected before they are read, and failed text or document sends remain in the
-outbox for restart-time retry. Attachment paths resolve against the gateway's
-own cwd **and** every configured `workspace_roots` entry — the directories the
-agent actually writes into — and anything outside those roots is still refused.
-After a gateway restart, the first message of each conversation is seeded with
-that conversation's saved transcript tail, so birkin remembers what you were
-talking about before the restart (`/new` opts out and starts truly clean).
-The in-chat heartbeat names the work stage ("조사 중", "할 일 3/7: …") for
-ordinary and approved long-running turns alike, not just a minute counter.
-
-### Follow-through on what you committed to (Companion)
-
-```bash
-birkin companion policy --enable --tz Asia/Seoul   # opt in — off by default
-birkin companion bind telegram:<chat-id>           # where check-ins arrive
-birkin companion add --outcome "ship the draft" --at 2026-08-01T09:00
-birkin companion list                              # what birkin is holding
-```
-
-Tell birkin you'll do something, and it asks you about it at the agreed time —
-over Telegram, with one-tap answers (**done / blocked / later / stop / wrong**).
-The answer is recorded and the next concrete step is captured, so a commitment
-either closes or moves.
-
-You can also just say it in chat — "ask me about the draft Monday 9am" — and
-the model calls `companion_propose`, which lands in the same approval inbox as
-every other consequential action (`birkin review`, or the gateway's buttons).
-The model may only *propose* a candidate: activation happens in the approval
-executor, every transition goes through `companion.py`'s functions, and the
-state files are control-plane-protected from the file tools — so an LLM cannot
-silently change what you're on the hook for, by any route. Contact is bounded by policy — quiet hours
-(22:00–08:00 by default), one check-in a day, a 12-hour cooldown — and the
-tapping chat is re-verified against the commitment's stored binding before any
-state changes, because `callback_data` is client-supplied. State lives in
-`~/.birkin/companion/` next to an append-only `events.jsonl` of transitions —
-no conversation bodies, grep-able like everything else.
-
-### Company tools (MCP)
-
-```bash
-birkin mcp                # MCP servers the gateway inherits (Notion, Drive, …)
-birkin mcp add <name> …   # passes through to `claude mcp`
-```
-
----
-
-## 🖥️ Terminal UI
-
-A real TUI in pure ANSI on the standard library — no curses, no rich, no
-textual — CJK-aware, and it degrades cleanly: piped or `NO_COLOR` output carries
-**zero escape codes**.
-
-- **Live status line** at every turn boundary and on `/status`: model · provider
-  · daemon heartbeat · budget gauge · pending approvals, each segment appearing
-  only when it has news.
-- **Tool-trace tree** nested under subagents, one line per tool with its own
-  elapsed time; `/details` expands to full input and a result snippet.
-- **Discoverability**: grouped `/help` (or just `?`), fuzzy `/`-completion
-  (`/prm` → `/permission`), and contextual hints — a checkpoint announces
-  `/undo` exactly when there is something to undo.
-- **`/dash`**: full-screen mission control (sessions · cron · approvals · memory
-  zones) with a three-fold terminal restore and a `--plain` / `--json` fallback.
-  A pane that fails to load says so instead of rendering empty, and approving
-  from it reports what the action actually did.
-
-`birkin web` opens a monitoring workbench for runtime health, pending proposals,
-scheduled jobs and installed skills. Chat and configuration stay in the CLI.
-
-![Birkin WebUI monitoring workbench](docs/assets/webui-workbench.png)
-
----
-
-## 🧯 Built for a long unattended run
-
-- **Auto-compaction** — a conversation that would overflow the context window is
-  summarized in place before the call, with an overflow-retry backstop, so a
-  multi-day chat doesn't die on *"prompt is too long"*.
-- **Provider failover** — on an auth, rate-limit or server failure the turn is
-  served by a fallback model for a cooldown, then the primary is probed again.
-- **Grace call** — when the turn budget trips mid-task, one final no-tools turn
-  reports what was done and what remains instead of stopping cold.
-- **Spill-to-disk** — oversized tool output is saved with a preview and a path
-  rather than truncated away.
-- **Mid-turn steering** — typing while the agent works injects an instruction
-  without discarding in-flight work; Esc still interrupts.
-- **Parallel reads** — independent read-only calls run concurrently; writers
-  stay sequential.
-
----
-
-## 📟 Commands
-
-```bash
-birkin                              # start chatting (first run → onboarding)
-birkin gateway                      # warm service: HTTP + Telegram
-birkin neurosis "<idea>"            # seed a deep interview (drive it with /neurosis)
-birkin odyssey "<goal>"             # seed a goal-completion cycle (/odyssey)
-birkin moirai run <script> [--bind role=provider:model] [--defaults]
-birkin moirai list / status --run-id <id> / resume --run-id <id>
-birkin companion <action> [...]     # commitments birkin follows up on (opt-in)
-birkin sessions [export … --vault]  # list conversations · export as Markdown
-birkin curate-memory [--dry-run]    # vault curation pass (preview or apply)
-birkin morpheus [--dry-run]         # run the nightly routine now
-birkin daemon [--install]           # Morpheus + cron scheduler
-birkin review                       # approve / reject proposed actions
-birkin runs / trace <id> / budget   # audit log · replay · tokens and cost
-birkin skills [validate|sync|install owner/repo|scan <dir>]
-birkin mcp [list|add|remove|…]      # company MCP servers
-birkin mcp-serve                    # serve the vault to any MCP host
-birkin model / permission / web     # backend · gates · monitoring
-```
-
-### In chat
-
-`/help` (or `?`) lists everything, grouped. Line editor: **Ctrl+←/→** word
-motion, **Ctrl-W** delete word, **Ctrl-U/Ctrl-K** clear to start/end, **↑/↓**
-history, **Shift+Enter** newline, inline `/`-dropdown.
-
-| Group | Commands |
-|---|---|
-| **Conversation** | `/new` · `/retry` · `/undo` · `/rollback` · `/compact` · `/clear` · `/status` · `/dash` |
-| **Clarify** | `/neurosis [name]` · `/odyssey <goal>` |
-| **Model** | `/model` · `/models [name]` · `/provider` · `/temp` |
-| **Skills · tools** | `/skills` · `/skill <name>` · `/reload` · `/tools` · `/system` · `/mcp` · `/details` |
-| **Memory** | `/memory <query>` · `/remember <text>` · `/vault` · `/learn` |
-| **Persona** | `/soul` · `/personality` |
-| **Autonomy** | `/morpheus` · `/review` · `/cron` · `/permission` |
-| **Session** | `/save` · `/load` · `/sessions` |
-| **System** | `/config` · `/update` · `/help` · `/quit` |
-
----
-
-## 🔎 Web search without an account
-
-birkin can look things up, not just fetch a URL you already have:
-
-```
-web_search  → Marginalia, then Mwmbl if it can't answer
-web_fetch   → read one of the URLs it returned
-market_quote → structured price, currency, market timestamp and source by symbol
-```
-
-Both are independent, non-commercial indexes with public HTTP APIs. There is
-no account to create, no API key to paste, no card on file, and nothing extra
-to install — the dependency count is still zero, because this is `urllib` and
-`json`.
-
-The trade is coverage, and it is stated in the tool description so the model
-reads an empty result correctly: these indexes are strong on documentation,
-blogs, forums and technical writing, and weak on news, shopping and local
-queries. Search titles and snippets are discovery aids, not evidence.
-`web_fetch` returns the final source URL, retrieval time, page-supplied
-publication/update dates, and HTTP last-modified date with the source text.
-Nothing is retried on a rate limit — the public key's bucket is shared with
-every other birkin user, so a retry loop would degrade it for everyone.
-Marginalia results carry their CC-BY-NC-SA 4.0 attribution into the output.
-
-Set `MARGINALIA_API_KEY` (or `marginalia_api_key` in config) if you have your
-own key; you do not need one.
-
-The same research contract applies to every Birkin agent surface. An answer
-using internet research must list the exact source URL and organization,
-publication/update date, and retrieval date in Sources. Recency is determined
-from dates and versions, never search rank. Important time-sensitive claims are
-cross-checked against a second independent authoritative source when available.
-If a page has no source date, Birkin says recency is unverified; if sources
-conflict, it reports the conflict instead of guessing.
-
-`market_quote` does not read quote articles or search snippets. It consumes
-Yahoo's structured chart response for symbols such as `MSFT`, `NVDA`,
-`005930.KS`, and `000660.KS`, returning price, currency, exchange-local `as_of`,
-an `intraday`/`latest_close` status, previous close, day high/low, and the source
-URL together. Values older than seven days or future-dated values are rejected
-rather than labeled current.
-
----
-
-## 🧩 Skills
-
-A skill is a directory with a `SKILL.md` (frontmatter + markdown), compatible
-with the agentskills.io / hermes standard. **55 bundled** under
-[`skills/`](./skills) — research, software, writing, data, devops, marketing,
-planning/**neurosis**, automation/**morpheus** · **odyssey** · **camoufox**,
-creative/**codex-image-gen**, quality/**model-compare** — plus your own under
-`~/.birkin/skills/`, which shadow the bundled ones by name.
-
-`load_skill` pulls the full text on demand; `create_skill` / `improve_skill`
-route through the approval gate; `birkin skills validate` lints frontmatter and
-`py_compile`s bundled scripts; skills hot-reload on edit.
-
-`birkin skills install` takes `owner/repo[/path]`, **a local directory**, or an
-**https URL** to a `SKILL.md`. All three land in quarantine and are scanned
-there first — only the way the bytes arrive differs.
-
-The **grounded-citations** skill is worth naming: it drives `verify_citations`,
-which checks each claim against the text actually fetched and names the ones no
-source states. Skills that tell a model to cite cannot detect when it cited
-something the page never said; this can.
-
----
-
-## 🗣️ Persona
-
-`~/.birkin/SOUL.md` — a warm, editable voice injected into every surface, read
-fresh each turn in the REPL. `/personality warm|concise|mentor|direct` swaps
-presets; `/soul` shows and edits it.
-
----
-
-## ⚙️ Configuration
-
-Everything lives under `~/.birkin` (override with `BIRKIN_HOME`):
-
-```
-~/.birkin/
-├── config.json     # provider, model, gateway, autosave, neurosis, permissions…
-├── vault/          # your Obsidian memory
-├── skills/         # user- and agent-authored skills
-├── sessions/       # auto-saved transcripts — Morpheus input
-├── companion/      # commitments + check-in policy (state.json, events.jsonl)
-├── specs/          # Neurosis interview specs
-├── runs/           # per-turn and per-Morpheus summaries
-├── ledger.jsonl    # append-only audit log
-├── pending/        # actions awaiting your approval
-└── status.json     # daemon heartbeat
-```
-
-Keys you'll actually touch:
+The default provider is Anthropic. API keys may be supplied through setup,
+environment variables, or `~/.birkin/config.json`. Subscription-backed Claude
+and Codex CLI providers are also supported when their CLIs are installed and
+authenticated.
+
+## Native tools
+
+The registry can expose:
+
+- workspace-scoped file read, edit, write, and listing;
+- shell execution with destructive-command approval;
+- HTTP fetch, web search, quote lookup, and citation verification;
+- session lookup and transcript access;
+- transparent memory operations;
+- isolated subagents with scoped tool groups;
+- skill loading, creation, and refinement;
+- `vision_analyze` for local or HTTP(S) PNG, JPEG, GIF, and WebP images;
+- opt-in Windows window listing and screenshot capture.
+
+Remote images use the same private/reserved-address and redirect checks as web
+fetching. Desktop tools are absent from the registry unless
+`desktop_tools` is exactly `true`.
+
+## Configuration
+
+Configuration lives at `~/.birkin/config.json` or under `BIRKIN_HOME`. This is
+a representative configuration using real defaults from `birkin/config.py`:
 
 ```json
 {
-  "provider": "claude-cli",
-  "model": "opus",
-  "gateway_model": "sonnet",
-  "gateway_polish_provider": "claude-cli",
-  "gateway_polish_model": "sonnet",
-  "gateway_persistent": true,
-  "cli_timeout": 900,
-  "workspace_roots": ["/path/to/primary-workspace"],
-  "autosave_transcripts": true,
-  "neurosis_auto": true,
-  "morpheus_hour": 4,
-  "morpheus_provider": "",
-  "auto_approve": ["memory", "skill"],
-
-  "auto_compact": true,
+  "provider": "anthropic",
+  "model": "claude-sonnet-4-6",
+  "subagent_model": "claude-haiku-4-5-20251001",
+  "api_key": null,
+  "api_keys": [],
+  "max_tokens": 4096,
+  "temperature": 1.0,
+  "max_turns": 24,
   "context_window": 200000,
+  "auto_compact": true,
   "fallback_provider": "",
   "fallback_model": "",
+  "fallback_cooldown": 300,
+  "parallel_tools": true,
+  "max_depth": 2,
   "shell_approval": "manual",
   "command_allowlist": [],
+  "fs_jail": false,
   "checkpoints": true,
-  "hooks": {},
-  "parallel_tools": true,
-  "spill_threshold": 30000,
-  "repl_typed_line": "steer",
+  "checkpoint_keep": 20,
   "redact_secrets": true,
-  "api_keys": [],
-  "lsp_servers": {},
+  "spill_threshold": 30000,
+  "disabled_tools": [],
+  "desktop_tools": false,
+  "self_improve": true,
   "a2a_enabled": false,
-
+  "lsp_servers": {},
   "harness_enabled": true,
   "harness_turn_interval": 12,
   "harness_cooldown_min": 15,
@@ -700,216 +237,89 @@ Keys you'll actually touch:
   "harness_max_edits": 12,
   "harness_prompt_budget": 20000,
   "harness_auto_approve": ["memory", "skill"],
-
+  "web_port": 8787,
+  "gateway_port": 8788,
+  "budget_tokens_daily": 0,
+  "budget_tokens_monthly": 0,
   "channels": {
     "http": {"enabled": true},
-    "telegram": {"enabled": false, "token": "", "allowed_chat_ids": []}
+    "telegram": {
+      "enabled": false,
+      "token": "",
+      "allowed_chat_ids": [],
+      "stream": true
+    }
   }
 }
 ```
 
-When `gateway_polish_provider` is set, approved long-running Telegram results
-receive an isolated, no-tools editorial pass. The Claude path is accepted only
-when every URL and numeric fact survives; authentication or integrity failures
-fall back to the original reply. `claude auth status` must report
-`loggedIn: true`.
+Important boundaries:
 
-Telegram long-work proposals render as escaped HTML cards with one explicit
-approve/reject row; the internal proposal envelope and its JSON are never the
-user-facing message.
+- `shell_approval: "manual"` asks before destructive shell commands.
+- `fs_jail: true` restricts native file tools to configured workspace roots.
+- `redact_secrets: true` masks detected credentials before output is persisted.
+- `disabled_tools` removes named native tools from the registry.
+- Gateway exposure should be paired with HTTP authentication or Telegram
+  `allowed_chat_ids`.
+- Daily/monthly token budgets are disabled when set to `0`.
 
-For a persistent Codex gateway, the first existing entry in
-`workspace_roots` is the process cwd and `workspace-write` sandbox root. Put
-the primary project first. This matters on Windows: using the user-profile
-root can make the Codex sandbox fail every PowerShell, Git Bash, and Kaggle
-CLI child with `SetTokenInformation(TokenDefaultDacl) failed: 1344`.
-`cli_timeout` is an idle window measured from validated lifecycle or delta
-activity in the current conversation thread, including multi-agent child
-turns; unrelated app-server status notifications do not extend it. If Codex
-accepts a turn but emits no item at all, Birkin stops it after 120 seconds
-instead of waiting through a long idle budget. A started item is shown
-separately (`active: reasoning` in the server log, `추론 중` in Telegram)
-without inflating completed-event or agent-message counts. Child-turn items
-keep the parent alive, but only the parent turn can supply the final reply.
-Gateway startup also migrates the Moirai journal and marks runs and calls left
-`running` by a previous process as `stale`. Failed agent calls retain their
-traceback, role, label, phase, and reason in `calls` and
-`runs.result_json.failures`. A `CodexTurnTimeout` writes an `incidents` row with
-elapsed time, partial length, last event kind, and event count. Gateway stdout
-and stderr lines are UTC timestamped, and timed-out turns still enter the
-self-improvement recorder; review input includes recent failed calls and
-gateway incidents.
-When Codex returns the unmistakable Trusted Access for Cyber enrollment block,
-Birkin retries once with an explicit scope limited to the named public
-competition, organizer-provided assets, and the local workspace. A second
-block is returned unchanged; the retry never broadens access to real systems,
-credentials, users, or production services.
+Run `birkin setup` for guided configuration and `birkin tools` to inspect or
+toggle the effective tool set.
 
-The second block is the reliability and safety layer: auto-summarize before
-overflow, provider failover, the destructive-command gate, workspace snapshots
-for `/rollback`, lifecycle hooks, parallel reads, tool-output spill, and whether
-a line typed mid-turn steers or interrupts.
+## Memory and self-improvement
 
-The last four are newer:
+birkin's memory is a directory of normal Markdown files. Notes remain usable
+without birkin and can be versioned with Git.
 
-- **`redact_secrets`** — every tool result passes one choke point, and
-  credential material (vendor-prefixed keys, auth headers, JWTs, URL
-  passwords, private-key blocks) is masked there *before* it reaches the
-  model, the transcript, or a spill file on disk. Set `false` to opt out.
-- **`api_keys`** — more than one credential for the same provider. A
-  rate-limited key rotates to the next one here *before* `fallback_provider`
-  switches provider and model; each exhausted key cools down on its own timer
-  (5 minutes for a 401, an hour for a 429).
-- **`lsp_servers`** — `{".py": ["pyright-langserver", "--stdio"]}`. After an
-  edit, birkin asks that language server whether the file still compiles and
-  reports only the problems *this edit* introduced. Empty means no server, no
-  subprocess, and no change to the tool result.
-- **`a2a_enabled`** — see below. Off by default.
+The improvement path is deliberately separate:
 
-### Agent2Agent (A2A v1.0)
+1. recent work is reviewed;
+2. the reviewer emits bounded edits;
+3. the harness validates target, type, and budget;
+4. approved edits are applied and appended to the ledger;
+5. an entry can be inspected or rolled back.
 
-Another agent can hand birkin a task over JSON-RPC, discovering it at
-`/.well-known/agent-card.json` on the local web server. `message/send`,
-`tasks/get` and `tasks/cancel`; streaming and push notifications are declared
-**false** in the card rather than half-built.
-
-It is **off by default, and off means invisible**: every A2A path returns a
-plain 404, exactly as if the feature did not exist. This is an inbound
-execution surface, so nobody acquires one by upgrading, and only a real
-`true` turns it on — a `"false"` string will not. The RPC sits behind the same
-`X-Birkin-Token` the dashboard already requires for POST; the card itself is
-unauthenticated, because a peer has to read it before it has a token and it
-carries nothing secret. A peer's task runs as a one-shot session, so it cannot
-land in a conversation you are having.
-
-### The continual harness
-
-Self-improvement is no longer a blind write. Morpheus and the in-session review
-emit a *proposal* — summary, rationale, expected outcome, and a list of edits —
-and the harness validates it, applies it, and records what it did in a versioned
-ledger under `~/.birkin/harness/`.
-
-Four entry kinds are tracked: **`prompt`** (supplemental behaviour notes),
-**`memory`**, **`skill`**, and **`subagent`** (reusable delegation specs). Every
-entry carries a `version` and an `updated_at`, and every applied proposal is
-appended to `refinements.jsonl` together with the `before` state of everything
-it touched — so a change is a *reversible refinement* by construction, not by
-hoping a backup exists.
-
-`harness_auto_approve` decides what lands without asking. `memory` and `skill`
-are reversible local files, so they apply themselves — the same policy
-`auto_approve` already uses. `prompt` and `subagent` are not: they change how the
-agent behaves on *every later turn*, so they are queued as `harness` proposals
-(approval tier **high**) and wait for `birkin review`.
+Useful commands:
 
 ```bash
-birkin harness show                  # current entries, by kind, with versions
-birkin harness show --scope local    # the session-scoped harness instead
-birkin harness history -n 20         # the refinement ledger, oldest first
-birkin harness rollback <id>         # reverse one refinement, edit by edit
-birkin harness export <path>         # write the harness state to a JSON file
-birkin harness refine                # where proposals come from (see below)
+birkin harness
+birkin harness history
+birkin morpheus
+birkin nightly
+birkin curate
+birkin curate-memory
 ```
 
-`refine` writes nothing on its own — proposals come from `birkin morpheus` and
-from the in-session review, and the ones that are not auto-approved wait in
-`birkin review`. The command says so and exits rather than pretending to work.
-An unknown refinement id makes `rollback` exit `1` with a one-line reason, not a
-traceback.
+## Multi-agent and protocol surfaces
 
-- **`harness_enabled`** — the master switch. Off restores the old direct-write
-  behaviour and puts no harness block in the system prompt.
-- **`harness_turn_interval`** — assistant turns that must pass before the
-  in-session review gate is even consulted; a gate on every turn costs a model
-  call on every turn.
-- **`harness_cooldown_min`** — minutes of quiet after a review runs.
-- **`harness_compact_review`** — review at compaction time too: the moment older
-  context is about to be summarized away is the last chance to keep what it
-  taught.
-- **`harness_max_edits`** — cap on the edits one proposal may carry. An
-  unattended pass that "improves" forty things at once is a runaway, not a good
-  night.
-- **`harness_prompt_budget`** — character budget for the harness block inside
-  the system prompt.
-- **`harness_auto_approve`** — the kinds applied without asking; everything else
-  is queued for `birkin review`.
+- **Subagents** receive a fresh conversation, scoped tools, and optional
+  skills. They do not inherit the parent's transcript or write to its memory.
+- **Moirai** executes deterministic workflows across Claude, Codex, and API
+  workers.
+- **Boulder/Odyssey** persist and verify long-running goal steps.
+- **MCP** exposes birkin tools to compatible clients.
+- **A2A** exposes an opt-in Agent2Agent v1.0 JSON-RPC endpoint and agent card.
+- **Gateway** keeps sessions warm across local HTTP and Telegram turns.
 
-Those are the *defaults* — `config.json` on disk holds only the keys you
-actually changed, nested sections included. That matters on upgrade: a file that
-mirrored every default would replay yesterday's values over a better default
-forever, so `birkin update` could ship an improvement no existing install ever
-received. Keys birkin does not recognize — legacy names, anything you added by
-hand — are preserved untouched.
+## Verification
 
-API keys are read from the environment first; a key in `config.json` is stored
-`chmod 600`. Colour obeys `NO_COLOR` / `CLICOLOR_FORCE`; `BIRKIN_PLAIN=1` drops
-animation for screen readers.
+The default test run is offline:
 
----
+```bash
+pytest
+```
 
-## 📄 Research
+At the time of this rewrite the suite passes more than 2,300 tests with over
+82% package coverage. Live-provider tests are excluded by default and require
+`BIRKIN_LIVE=1`.
 
-The memory engine is written up as a paper — *Birkin-Mnemosyne: A
-Zero-Dependency Lexical Memory Palace with Safe, Provider-Portable Curation for
-Personal LLM Agents* — with a reproducible harness under
-[`benchmarks/`](./benchmarks). LongMemEval-S session retrieval, 470 questions,
-one harness:
+Static checks used by the project:
 
-| system | R@1 | R@5 | MRR |
-|---|---|---|---|
-| BM25 + bigram | 0.870 | 0.968 | 0.910 |
-| best embedding hybrid (RRF k=20, chunked bge) | 0.894 | 0.977 | 0.931 |
-| **tuned lexical stack — no encoder** | **0.900** | **0.977** | **0.933** |
-| **shipped in production today** | **0.891** | **0.974** | **0.926** |
+```bash
+python -m ruff check .
+python -m bandit -r birkin
+```
 
-Also measured: curation accuracy across engines (n=10, bootstrap CIs — including
-a hidden second fixture that *reverses* the ranking, reported rather than
-buried); a 1,910-note vault study; context cost (retrieval top-5 is **9.1×**
-cheaper than long-context, **371×** cheaper than loading the vault wholesale);
-and honest negatives — snippets cannot replace full-note reads, and BM25F field
-weighting was implemented, measured as indiscriminable on every corpus
-available, and reverted rather than shipped on a hunch. Research log:
-[`docs/ranking-v2-plan.md`](./docs/ranking-v2-plan.md).
+## License
 
----
-
-## 🛠️ Where birkin sits today
-
-- **55 bundled skills**, **0 runtime dependencies**, Python 3.10+.
-- Deliberately smaller than its inspirations —
-  [hermes-agent](https://github.com/NousResearch/hermes-agent) and
-  [openclaw](https://github.com/openclaw/openclaw). The deep-interview lineage
-  comes from [gajae-code](https://github.com/Yeachan-Heo/gajae-code),
-  model-aware prompt adaptation was informed by
-  [senpi](https://github.com/code-yeongyu/senpi), and
-  [shadcn/ui](https://github.com/shadcn-ui/ui) is the default component book
-  for generated interfaces. Not competing on breadth: on the depth of the
-  trust and memory story. See
-  [`docs/COMPARISON.md`](./docs/COMPARISON.md), which lists where birkin loses.
-- Every decision has a written rationale:
-  [`docs/DECISIONS.md`](./docs/DECISIONS.md). Live status:
-  [`docs/STATUS.md`](./docs/STATUS.md).
-
----
-
-## 🙌 Contributing
-
-Skills are the easiest place to start: a skill is just a directory with a
-`SKILL.md` — copy any folder under [`skills/`](./skills), run
-`birkin skills validate`, open a PR. Bug reports and feature requests are
-welcome as issues.
-
-Before any commit-and-push handoff, run the relevant CLI tests and manual CLI
-smoke, update and cross-check both READMEs, and complete static plus targeted
-security checks. The binding agent checklist lives in [`AGENTS.md`](./AGENTS.md).
-
-If birkin is useful to you, **starring the repo** helps other people find it. ⭐
-
----
-
-## 📄 License
-
-**MIT** (© 2026 ashmoonori). Use it, fork it, ship it. Portions of the bundled
-skill catalog are adapted from MIT projects — NousResearch/hermes-agent,
-openclaw, and Yeachan-Heo/gajae-code — with attribution preserved. See
-[`LICENSE`](./LICENSE) and [`NOTICE`](./NOTICE).
+birkin is released under the [MIT License](./LICENSE).
