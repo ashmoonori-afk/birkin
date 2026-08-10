@@ -4,8 +4,12 @@ interactive or long-running and are exercised by their own focused tests."""
 
 from __future__ import annotations
 
+import subprocess
+from pathlib import Path
+
 from birkin import config, cron, store
 from birkin.cli import (
+    _cmd_chat,
     _cmd_cron,
     _cmd_permission,
     _cmd_runs,
@@ -18,6 +22,20 @@ SUBCOMMANDS = [
     "chat", "skills", "web", "setup", "onboard", "gateway", "tools",
     "model", "nightly", "daemon", "review", "permission", "cron", "runs",
 ]
+
+
+def test_uv_installed_console_script_help():
+    result = subprocess.run(
+        ["uv", "run", "--no-sync", "birkin", "--help"],
+        cwd=Path(__file__).resolve().parents[1],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+    assert result.returncode == 0, result.stderr
+    assert "chat" in result.stdout
+    assert "mcp-serve" in result.stdout
 
 
 def test_parser_accepts_every_subcommand():
@@ -33,6 +51,29 @@ def test_parser_dry_run_flag_on_chat():
     ns = p.parse_args(["chat", "--dry-run", "-m", "hi"])
     assert ns.dry_run is True
     assert ns.message == "hi"
+
+
+def test_parser_accepts_positional_dry_run_message():
+    p = build_parser()
+    ns = p.parse_args(["chat", "--dry-run", "wiring-smoke"])
+    assert ns.positional_message == "wiring-smoke"
+    assert ns.message is None
+
+
+def test_chat_dry_run_rejects_two_message_sources(capsys):
+    p = build_parser()
+    ns = p.parse_args(
+        ["chat", "--dry-run", "positional", "-m", "flagged"]
+    )
+    assert _cmd_chat(ns) == 2
+    assert capsys.readouterr().err
+
+
+def test_chat_rejects_positional_message_without_dry_run(capsys):
+    p = build_parser()
+    ns = p.parse_args(["chat", "wiring-smoke"])
+    assert _cmd_chat(ns) == 2
+    assert capsys.readouterr().err
 
 
 def test_cmd_curate_parses_dry_run_and_reports(capsys):

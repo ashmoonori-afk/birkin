@@ -306,15 +306,20 @@ def serve(stdin=None, stdout=None) -> int:
         stdout.write(text + "\n")
         stdout.flush()
 
-    for line in stdin:
-        line = line.strip()
-        if not line:
+    while True:
+        line = stdin.readline(_MAX_LINE_BYTES + 1)
+        if line == "":
+            break
+        stripped = line.strip()
+        if not stripped:
             continue
-        if len(line.encode("utf-8", "surrogatepass")) > _MAX_LINE_BYTES:
+        if len(stripped.encode("utf-8", "surrogatepass")) > _MAX_LINE_BYTES:
             _emit(_error(None, -32700, "request too large"))
+            while line and not line.endswith("\n"):
+                line = stdin.readline(_MAX_LINE_BYTES + 1)
             continue
         try:
-            msg = json.loads(line)
+            msg = json.loads(stripped)
         except json.JSONDecodeError:
             _emit(_error(None, -32700, "parse error"))  # JSON-RPC 2.0 §5
             continue
