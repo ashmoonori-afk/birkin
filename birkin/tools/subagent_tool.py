@@ -7,9 +7,10 @@ lazily to avoid an import cycle (tools <- subagent <- tools).
 
 from __future__ import annotations
 
+from importlib import import_module
 from typing import Any
 
-from . import Tool, ToolContext, ToolResult
+from ._types import Tool, ToolContext, ToolResult
 
 
 def _spawn_subagent(inp: dict[str, Any], ctx: ToolContext) -> ToolResult:
@@ -24,7 +25,7 @@ def _spawn_subagent(inp: dict[str, Any], ctx: ToolContext) -> ToolResult:
             is_error=True,
         )
 
-    from ..subagent import run_subagent  # lazy import
+    run_subagent = import_module("birkin.subagent").run_subagent
     skills = inp.get("skills") or None
     max_turns = int(inp.get("max_turns", 12))
     result = run_subagent(task, ctx, skill_names=skills, max_turns=max_turns)

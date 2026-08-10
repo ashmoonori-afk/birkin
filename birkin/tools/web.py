@@ -32,7 +32,7 @@ from datetime import datetime, timezone
 from typing import Any
 from urllib.parse import quote, urlparse
 
-from . import Tool, ToolContext, ToolResult
+from ._types import Tool, ToolContext, ToolResult
 from .. import __version__
 from .web_document import (
     ContentDecodingError,

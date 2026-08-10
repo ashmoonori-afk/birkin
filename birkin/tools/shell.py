@@ -12,7 +12,7 @@ from pathlib import Path
 from typing import Any
 
 from ..proc import shell_argv, shell_env
-from . import Tool, ToolContext, ToolResult
+from ._types import Tool, ToolContext, ToolResult
 
 # Memory bound only. The visible cap is applied by tools/spill.py, which saves
 # the full output to disk first — slicing it away here would destroy it.

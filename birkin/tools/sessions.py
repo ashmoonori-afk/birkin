@@ -17,10 +17,12 @@ from __future__ import annotations
 import json
 import re
 from datetime import datetime, timedelta, timezone
+from importlib import import_module
 from pathlib import Path
 from typing import Any
 
 from .. import config
+from ._types import Tool, ToolContext, ToolResult
 
 _MAX_FILES = 400          # newest-first cap; older sessions age out of recall
 _SNIPPET = 160
@@ -54,7 +56,9 @@ def _session_data(path: Path) -> tuple[str, str, str | None]:
     raw_model = metadata.get("model")
     model = str(raw_model).strip() if raw_model is not None else None
     model = model or None
-    from ..selfimprove import transcript_from_messages
+    transcript_from_messages = import_module(
+        "birkin.selfimprove"
+    ).transcript_from_messages
     try:
         return transcript_from_messages(messages), source, model
     except Exception:   # malformed message shapes must not break recall
@@ -169,8 +173,7 @@ def get_session(name: str) -> str | None:
     return text[:_GET_CAP] if text else None
 
 
-def tools() -> list[Any]:
-    from . import Tool, ToolContext, ToolResult
+def tools() -> list[Tool]:
 
     def session_search(inp: dict[str, Any], ctx: ToolContext) -> ToolResult:
         query = (inp.get("query") or "").strip()

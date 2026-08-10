@@ -7,8 +7,8 @@ import tempfile
 from pathlib import Path
 from typing import Any
 
-from . import Tool, ToolContext, ToolResult
-from . import hashline
+from ._types import Tool, ToolContext, ToolResult
+from .hashline import annotate, edit_text
 
 MAX_READ_BYTES = 200_000
 
@@ -155,7 +155,7 @@ def _read_file(inp: dict[str, Any], ctx: ToolContext) -> ToolResult:
     # annotate=true tags each line "{n}#{hash}| " so a later edit_file can be
     # hash-anchored (reject stale writes). See tools/hashline.py.
     if inp.get("annotate"):
-        text = hashline.annotate(_normalize_newlines(text))
+        text = annotate(_normalize_newlines(text))
     if truncated:
         text += (f"\n\n[truncated at {offset + len(window)} of {len(data)} "
                  f"bytes; continue with offset={offset + len(window)}]")
@@ -176,7 +176,7 @@ def _edit_file(inp: dict[str, Any], ctx: ToolContext) -> ToolResult:
         return ToolResult("Provide a non-empty 'edits' list "
                           "({line, hash, new}).", is_error=True)
     original = _normalize_newlines(path.read_bytes().decode("utf-8", "replace"))
-    new_text, errors = hashline.edit_text(original, edits)
+    new_text, errors = edit_text(original, edits)
     if errors:
         return ToolResult(
             "Edit rejected — file left UNCHANGED:\n- " + "\n- ".join(errors)

@@ -8,7 +8,7 @@ import http.client
 import urllib.parse
 from typing import Any, Final
 
-from . import (
+from ._types import (
     ImageContentBlock,
     ImageSource,
     TextContentBlock,

@@ -7,7 +7,7 @@ import json
 from dataclasses import asdict, dataclass
 from typing import Any
 
-from . import Tool, ToolContext, ToolResult
+from ._types import Tool, ToolContext, ToolResult
 from .vision import MAX_IMAGE_BYTES, _image_content
 
 

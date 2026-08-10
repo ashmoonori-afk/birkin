@@ -12,7 +12,7 @@ import urllib.request
 from typing import Any
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
-from . import Tool, ToolContext, ToolResult
+from ._types import Tool, ToolContext, ToolResult
 
 _BASE_URL = "https://query1.finance.yahoo.com/v8/finance/chart/"
 _MAX_AGE = timedelta(days=7)
