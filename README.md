@@ -91,6 +91,11 @@ CLI. `birkin auth codex status` shows which session is in use.
 The gateway keeps one warm process per conversation, so replies after the first
 are model-time (**~3 s**) rather than a cold start per message.
 
+When Birkin runs a `codex app-server` child, it disables Codex plugin hooks
+for that child while leaving plugins and MCP servers available. This prevents
+global `UserPromptSubmit` hooks from treating Birkin's internal
+`<system-context>` as user text.
+
 ### Model-aware presets and tool boundaries
 
 Birkin resolves the effective model before building its prompt and tools.

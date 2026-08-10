@@ -91,6 +91,10 @@ birkin 로그인이 없으면 `codex`는 기존대로 CLI로 폴백합니다. �
 게이트웨이는 대화별로 따뜻한 프로세스를 유지하므로, 첫 응답 이후는 콜드 스타트가
 아니라 모델시간(**~3초**)입니다.
 
+Birkin이 `codex app-server` 자식을 실행할 때는 plugin과 MCP 서버는 유지하되 해당
+자식의 Codex plugin hook을 비활성화합니다. 따라서 전역 `UserPromptSubmit` hook이
+Birkin 내부 `<system-context>`를 사용자 입력으로 오인하지 않습니다.
+
 ### 모델 인식 프리셋과 도구 경계
 
 Birkin은 프롬프트와 도구를 만들기 전에 실제 실행 모델을 확정합니다. 알려진 모델

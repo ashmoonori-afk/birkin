@@ -183,7 +183,10 @@ class CodexAppServerSession:
     # -- process lifecycle ---------------------------------------------------
 
     def _build_argv(self) -> list[str]:
-        parts = ["codex", "app-server"]
+        # Birkin sends its system context through turn/start, so inherited
+        # user-level prompt hooks could mistake internal context for user input.
+        parts = ["codex", "app-server",
+                 "-c", "features.plugin_hooks=false"]
         if self.model:
             # -c overrides ~/.codex/config.toml; value parsed as TOML. The
             # model name is interpolated into a quoted TOML string, so only a
