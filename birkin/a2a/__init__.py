@@ -24,7 +24,7 @@ from __future__ import annotations
 import threading
 import time
 import uuid
-from typing import Any, Callable, Optional
+from typing import Any, Callable
 
 PROTOCOL_VERSION = "1.0"
 

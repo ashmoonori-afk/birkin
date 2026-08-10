@@ -21,8 +21,6 @@ front of the user with a footnote on it.
 
 from __future__ import annotations
 
-import pytest
-
 from birkin import grounded
 
 KAGGLE = ("Kaggriculture is a Kaggle competition about agricultural data, "

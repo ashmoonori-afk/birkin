@@ -33,7 +33,6 @@ cron.add_job(), hooks are edited by the user.
 
 from __future__ import annotations
 
-import json
 import types
 
 import pytest
@@ -86,7 +85,6 @@ def test_edit_file_refuses_the_control_plane(ctx, jail):
 def test_refusal_survives_a_symlink_and_relative_traversal(ctx, tmp_path):
     """realpath, not string matching — the jail already learned this lesson."""
     home = config.birkin_home()
-    sneaky = tmp_path / ".." / tmp_path.name / ".." / "cron.json"
     res = files._write_file(
         {"path": str(home / "sub" / ".." / "cron.json"), "content": "x"}, ctx)
     assert res.is_error, "traversal back onto cron.json was allowed"

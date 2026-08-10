@@ -78,7 +78,9 @@ def test_cmd_skills_sync_from_dir(tmp_path: Path, capsys):
 def test_cmd_web_delegates(monkeypatch):
     called = {}
     def fake_run(port=None, *, open_browser=True):
-        called["port"] = port; called["open"] = open_browser; return 0
+        called["port"] = port
+        called["open"] = open_browser
+        return 0
     monkeypatch.setattr("birkin.web.run", fake_run)
     rc = cli_mod._cmd_web(_ns(port=8800, no_browser=True))
     assert rc == 0 and called == {"port": 8800, "open": False}

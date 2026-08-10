@@ -7,8 +7,6 @@ the model either retried a variant blind or gave up.
 
 from __future__ import annotations
 
-import types
-
 from birkin import approvals, store
 
 
