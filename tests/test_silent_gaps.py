@@ -5,9 +5,7 @@ from __future__ import annotations
 import io
 import urllib.error
 
-import pytest
-
-from birkin.llm import LLMClient, LLMError
+from birkin.llm import LLMClient
 
 
 def _client():

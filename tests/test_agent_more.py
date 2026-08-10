@@ -35,7 +35,8 @@ class _MultiToolThenText:
     """Two tool_uses in one turn, then a final text."""
     def __init__(self):
         self.calls = 0
-        self.provider = "anthropic"; self.model = "m"
+        self.provider = "anthropic"
+        self.model = "m"
 
     def complete(self, *, system, messages, tools, model=None, on_text=None, abort=None):
         self.calls += 1
@@ -58,7 +59,8 @@ def test_max_turns_guard_reports_and_stops():
 
 def test_tool_error_is_propagated_into_messages():
     class _OneTool:
-        provider = "anthropic"; model = "m"
+        provider = "anthropic"
+        model = "m"
         def __init__(self): self.n = 0
         def complete(self, *, system, messages, tools, model=None, on_text=None, abort=None):
             self.n += 1

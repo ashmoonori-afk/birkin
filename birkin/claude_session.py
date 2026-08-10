@@ -46,6 +46,21 @@ class ClaudeSessionError(RuntimeError):
     """Raised when the persistent Claude process cannot produce a reply."""
 
 
+def enforced_egress_args() -> list[str]:
+    from .mcp_server import birkin_tool_patterns
+
+    return [
+        "--permission-mode", "dontAsk",
+        "--tools", "",
+        "--allowedTools", *birkin_tool_patterns(),
+        "--setting-sources", "",
+        "--strict-mcp-config",
+        "--disable-slash-commands",
+        "--no-chrome",
+        "--no-session-persistence",
+    ]
+
+
 class ClaudeStreamSession:
     """One warm ``claude`` process driven over stream-json stdin/stdout."""
 
@@ -60,7 +75,8 @@ class ClaudeStreamSession:
                  turn_timeout: float = 300.0,
                  settings: Optional[dict] = None,
                  env_extra: Optional[dict] = None,
-                 birkin_mcp: bool = False):
+                 birkin_mcp: bool = False,
+                 egress_enforced: bool = False):
         self.model = model
         self.permission_mode = permission_mode
         self.cli_access = cli_access
@@ -79,6 +95,7 @@ class ClaudeStreamSession:
         # Extra child env (e.g. MAX_THINKING_TOKENS=0 for fast chat turns).
         self.env_extra = {k: str(v) for k, v in (env_extra or {}).items()}
         self.birkin_mcp = bool(birkin_mcp)
+        self.egress_enforced = bool(egress_enforced)
 
         self._proc: Optional[subprocess.Popen] = None
         self._q: "queue.Queue[tuple[str, Optional[str]]]" = queue.Queue()
@@ -153,7 +170,7 @@ class ClaudeStreamSession:
 
     def _ensure_mcp_file(self) -> Optional[Path]:
         """Materialize Birkin's MCP launch config for this child."""
-        if not self.birkin_mcp:
+        if not (self.birkin_mcp or self.egress_enforced):
             return None
         if self._mcp_file and self._mcp_file.exists():
             return self._mcp_file
@@ -187,7 +204,9 @@ class ClaudeStreamSession:
                  # token-level deltas so channels can stream partial replies
                  # (hermes-style perceived latency; see hermes-comparison §6)
                  "--include-partial-messages"]
-        if self.cli_access == "full":
+        if self.egress_enforced:
+            parts.extend(enforced_egress_args())
+        elif self.cli_access == "full":
             parts.append("--dangerously-skip-permissions")
         else:
             parts += ["--permission-mode", self.permission_mode]
@@ -204,7 +223,8 @@ class ClaudeStreamSession:
             parts += ["--mcp-config", str(mcp_file)]
         for d in self.add_dirs:
             parts += ["--add-dir", d]
-        parts += self.extra_args
+        if not self.egress_enforced:
+            parts += self.extra_args
         return cli_argv(parts)
 
     def is_alive(self) -> bool:

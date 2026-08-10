@@ -28,7 +28,7 @@ from __future__ import annotations
 import fnmatch
 import re
 import unicodedata
-from typing import Any, Callable, Optional
+from typing import Any, Optional
 
 # Flags that may sit between `rm -rf` and its target. The double-dash form is
 # load-bearing: GNU rm REFUSES to delete `/` without --no-preserve-root, so the

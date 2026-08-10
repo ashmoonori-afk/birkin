@@ -8,7 +8,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from . import Tool, ToolContext, ToolResult
+from ._types import Tool, ToolContext, ToolResult
 
 
 def _verify(inp: dict[str, Any], _ctx: ToolContext) -> ToolResult:

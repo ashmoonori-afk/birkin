@@ -36,6 +36,20 @@ def _written(path) -> dict:
     return json.loads(path.read_text(encoding="utf-8"))
 
 
+def test_cli_network_access_default_and_override_validation(cfg_path):
+    assert config.DEFAULT_CONFIG["cli_network_access"] is False
+    assert config.DEFAULT_CONFIG["egress"]["enforced"] is True
+
+    cfg_path.parent.mkdir(parents=True, exist_ok=True)
+    cfg_path.write_text(
+        json.dumps({"cli_network_access": False}), encoding="utf-8")
+    assert config.load_config()["cli_network_access"] is False
+
+    cfg_path.write_text(
+        json.dumps({"cli_network_access": "false"}), encoding="utf-8")
+    assert config.load_config()["cli_network_access"] is False
+
+
 def test_untouched_defaults_are_not_written(cfg_path):
     """The whole bug: saving one setting used to pin all the others."""
     cfg = dict(config.DEFAULT_CONFIG)

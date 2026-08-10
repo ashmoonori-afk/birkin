@@ -14,51 +14,9 @@ the agent can recover.
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
-from pathlib import Path
-from typing import Any, Callable, Optional
+from typing import Any, Optional
 
-from ..llm import LLMClient
-
-
-@dataclass
-class ToolResult:
-    content: str
-    is_error: bool = False
-
-
-@dataclass
-class ToolContext:
-    """Everything a tool might need, passed explicitly (no globals)."""
-    cfg: dict[str, Any]
-    client: LLMClient
-    cwd: Path
-    skills: Any = None          # skills.manager.SkillManager
-    memory: Any = None          # memory.Memory
-    depth: int = 0              # subagent recursion depth
-    max_depth: int = 2
-    emit: Optional[Callable[[str, dict[str, Any]], None]] = None
-    subagent_approval_required: bool = False
-    approved_work: bool = False
-    # Dangerous-command gate (see shellguard.py). ``shell_prompt_cb`` is
-    # set only by interactive surfaces:
-    #     (command, why) -> once|session|always|deny
-    # Without it a flagged command is queued for approval instead.
-    shell_prompt_cb: Optional[Callable[[str, str], str]] = None
-    shellguard_approved: set[str] = field(default_factory=set)
-    # checkpoints.CheckpointManager — snapshots the workspace before a
-    # mutating tool runs, so /rollback can undo it.
-    checkpoints: Any = None
-    # hooks.HookBus — user shell scripts on tool lifecycle events.
-    hooks: Any = None
-
-
-@dataclass
-class Tool:
-    name: str
-    description: str
-    input_schema: dict[str, Any]
-    fn: Callable[[dict[str, Any], ToolContext], ToolResult]
+from ._types import Tool, ToolContext, ToolResult
 
 
 class ToolRegistry:
@@ -122,10 +80,10 @@ def build_registry(ctx: ToolContext, *, include: Optional[set[str]] = None) -> T
     ``include`` optionally restricts which tool *groups* are registered
     (used to give subagents a scoped toolset). Groups:
     ``files``, ``shell``, ``web``, ``sessions``, ``skills``, ``memory``,
-    ``companion``, ``subagent``.
+    ``egress``, ``companion``, ``subagent``.
     """
-    from . import (citations, files, market, sessions, shell,  # local: avoid cycles
-                   web)
+    from . import (citations, egress, files, market, sessions,  # local: avoid cycles
+                   shell, web)
     from .subagent_tool import subagent_tools
 
     groups: dict[str, list[Tool]] = {
@@ -133,6 +91,7 @@ def build_registry(ctx: ToolContext, *, include: Optional[set[str]] = None) -> T
         "shell": shell.tools(),
         "web": web.tools() + market.tools() + citations.tools(),
         "sessions": sessions.tools(),
+        "egress": egress.tools(),
     }
     if ctx.skills is not None:
         groups["skills"] = ctx.skills.tools()
@@ -150,6 +109,13 @@ def build_registry(ctx: ToolContext, *, include: Optional[set[str]] = None) -> T
         groups["subagent"] = subagent_tools()
 
     disabled = set(ctx.cfg.get("disabled_tools", []) or [])
+    egress_cfg = ctx.cfg.get("egress")
+    if isinstance(egress_cfg, dict):
+        if egress_cfg.get("enabled") is False:
+            disabled.add("egress")
+        elif (egress_cfg.get("enabled") is True
+                and egress_cfg.get("enforced") is True):
+            disabled.update({"shell", "subagent"})
     # Per-model engine preset (senpi-style): fast/local models drop whole
     # groups (e.g. web, subagent). Entries match a group OR a tool name.
     from .. import presets

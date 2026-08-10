@@ -19,6 +19,33 @@ from . import neurosis, persona, presets, prompts
 from .moirai import trigger as moirai_trigger
 
 
+def _filter_tool_guidance(system: str, cfg: dict[str, Any]) -> str:
+    disabled = {
+        str(name)
+        for name in (cfg.get("disabled_tools", []) or [])
+    }
+    disabled |= presets.deny_tools(cfg.get("model"), cfg)
+    egress = cfg.get("egress", {})
+    if (isinstance(egress, dict)
+            and egress.get("enabled") is True
+            and egress.get("enforced") is True):
+        disabled.update({"run_shell", "spawn_subagent"})
+    if "spawn_subagent" in disabled:
+        system = "\n".join(
+            line for line in system.splitlines()
+            if "spawn_subagent" not in line
+        )
+    if "run_shell" in disabled:
+        system = system.replace(
+            "`run_shell`",
+            "the available execution tools",
+        ).replace(
+            "run_shell",
+            "the available execution tools",
+        )
+    return system
+
+
 def _persona(persona_text: Optional[str]) -> str:
     # None -> read SOUL.md fresh (REPL/per-turn); "" -> explicitly no persona.
     return persona.read_soul() if persona_text is None else persona_text
@@ -30,11 +57,11 @@ def compose_main(cfg: dict[str, Any], *, skills_index: str = "",
                  harness_block: str = "") -> str:
     """System prompt for the native agent loop (API providers). Persona + tool
     guidance + skills + memory, then the neurosis auto-trigger note."""
-    system = prompts.build_system_prompt(
+    system = _filter_tool_guidance(prompts.build_system_prompt(
         skills_index=skills_index, memory_block=memory_block, role=role,
         extra=extra, persona=_persona(persona_text),
         harness_block=harness_block
-    ) + presets.role_overlay(cfg.get("model"), cfg) \
+    ), cfg) + presets.role_overlay(cfg.get("model"), cfg) \
         + presets.tool_policy_overlay(
             cfg.get("model"), cfg, surface="native"
         ) \
@@ -48,9 +75,9 @@ def compose_cli(cfg: dict[str, Any], *, memory_block: str = "",
                 persona_text: Optional[str] = None) -> str:
     """System prompt for CLI-agent backends (Claude Code / Codex). ``extra`` is
     appended before the neurosis note (e.g. the gateway's skills-index block)."""
-    sysp = prompts.build_cli_system(
+    sysp = _filter_tool_guidance(prompts.build_cli_system(
         memory_block=memory_block, preloaded=preloaded,
-        persona=_persona(persona_text))
+        persona=_persona(persona_text)), cfg)
     if extra:
         sysp += extra
     system = sysp + presets.role_overlay(cfg.get("model"), cfg) \

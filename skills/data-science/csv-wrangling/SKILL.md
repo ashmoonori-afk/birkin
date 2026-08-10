@@ -1,6 +1,6 @@
 ---
 name: csv-wrangling
-description: "Clean, transform, join CSVs with run_shell and scripts."
+description: "Clean, transform, and join CSVs with available execution tools."
 version: 1.0.0
 author: birkin
 license: MIT
@@ -40,7 +40,8 @@ missing values, format inconsistencies, duplicates, and multi-file merges.
 4. For multi-file operations:
    - Join CSVs on a common key (using awk, join, or Python)
    - Concatenate rows (with header handling)
-5. Use `run_shell` to execute the script and validate output (sample rows, row count).
+5. Use the available execution tools to run the script and validate output
+   (sample rows, row count).
 6. Save the cleaned/transformed CSV with a descriptive name.
 7. Document the transformation in memory with `memory_write_note` (source,
    transformations applied, any data loss or decisions made).

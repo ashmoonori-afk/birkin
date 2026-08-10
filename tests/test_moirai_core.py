@@ -18,7 +18,7 @@ import pytest
 
 from birkin import moirai
 from birkin.moirai import bindings as B
-from birkin.moirai import engine, journal
+from birkin.moirai import journal
 
 
 @pytest.fixture(autouse=True)

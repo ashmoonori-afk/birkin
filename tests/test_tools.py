@@ -5,6 +5,8 @@ from __future__ import annotations
 import urllib.request
 from pathlib import Path
 
+import pytest
+
 from birkin.tools import ToolContext, build_registry
 from birkin.tools import files as files_mod
 from birkin.tools import shell as shell_mod
@@ -38,6 +40,177 @@ def test_files_read_write_list_roundtrip(tmp_path: Path):
     # nested write creates parent dirs
     res = write({"path": "sub/dir/b.txt", "content": "x"}, ctx)
     assert (tmp_path / "sub" / "dir" / "b.txt").is_file()
+
+
+@pytest.mark.parametrize(
+    "network_path",
+    [
+        "//attacker.example/share/leak.txt",
+        r"\\attacker.example\share\leak.txt",
+        r"\\?\UNC\attacker.example\share\leak.txt",
+        r"\\.\pipe\birkin-leak",
+    ],
+)
+def test_enforced_egress_rejects_network_file_write_before_filesystem(
+    tmp_path: Path,
+    monkeypatch,
+    network_path: str,
+) -> None:
+    ctx = ToolContext(
+        cfg={"egress": {"enabled": True, "enforced": True}},
+        client=None,
+        cwd=tmp_path,
+        skills=None,
+        memory=None,
+    )
+    registry = build_registry(ctx)
+    calls: list[tuple[str, str]] = []
+
+    def mkdir(path: Path, *_args, **_kwargs) -> None:
+        calls.append(("mkdir", str(path)))
+
+    def write_text(
+        path: Path,
+        content: str,
+        *_args,
+        **_kwargs,
+    ) -> int:
+        calls.append(("write_text", str(path)))
+        return len(content)
+
+    monkeypatch.setattr(files_mod.Path, "mkdir", mkdir)
+    monkeypatch.setattr(files_mod.Path, "write_text", write_text)
+
+    result = registry.execute(
+        "write_file",
+        {"path": network_path, "content": "sensitive payload"},
+    )
+
+    assert result.is_error
+    assert calls == []
+
+
+@pytest.mark.parametrize(
+    "network_path",
+    [
+        "Z:/share/leak.txt",
+        r"Y:\sensitive.txt",
+    ],
+    ids=["forward-slash", "backslash"],
+)
+def test_enforced_egress_rejects_mapped_drive_before_filesystem(
+    tmp_path: Path,
+    monkeypatch,
+    network_path: str,
+) -> None:
+    ctx = ToolContext(
+        cfg={"egress": {"enabled": True, "enforced": True}},
+        client=None,
+        cwd=tmp_path,
+        skills=None,
+        memory=None,
+    )
+    registry = build_registry(ctx)
+    calls: list[tuple[str, str]] = []
+    monkeypatch.setattr(
+        files_mod,
+        "_windows_drive_type",
+        lambda _root: 4,
+        raising=False,
+    )
+    monkeypatch.setattr(
+        files_mod.Path,
+        "mkdir",
+        lambda path, *_args, **_kwargs: calls.append(("mkdir", str(path))),
+    )
+    monkeypatch.setattr(
+        files_mod.Path,
+        "write_text",
+        lambda path, *_args, **_kwargs: calls.append(
+            ("write_text", str(path))
+        ) or 1,
+    )
+
+    result = registry.execute(
+        "write_file",
+        {"path": network_path, "content": "sensitive payload"},
+    )
+
+    assert result.is_error
+    assert calls == []
+
+
+@pytest.mark.parametrize(
+    "network_path",
+    [
+        "relative-secret.txt",
+        r"\root-relative-secret.txt",
+    ],
+    ids=["relative", "root-relative"],
+)
+def test_enforced_egress_rejects_relative_write_from_mapped_workspace(
+    monkeypatch,
+    network_path: str,
+) -> None:
+    ctx = ToolContext(
+        cfg={"egress": {"enabled": True, "enforced": True}},
+        client=None,
+        cwd=Path(r"Z:\mapped-workspace"),
+        skills=None,
+        memory=None,
+    )
+    registry = build_registry(ctx)
+    drive_checks: list[str] = []
+    filesystem_calls: list[str] = []
+
+    def drive_type(root: str) -> int:
+        drive_checks.append(root)
+        return 4
+
+    monkeypatch.setattr(files_mod, "_windows_drive_type", drive_type)
+    monkeypatch.setattr(
+        files_mod.Path,
+        "mkdir",
+        lambda *_args, **_kwargs: filesystem_calls.append("mkdir"),
+    )
+    monkeypatch.setattr(
+        files_mod.Path,
+        "write_text",
+        lambda *_args, **_kwargs: filesystem_calls.append("write_text") or 1,
+    )
+
+    result = registry.execute(
+        "write_file",
+        {"path": network_path, "content": "sensitive payload"},
+    )
+
+    assert result.is_error
+    assert drive_checks == ["Z:\\"]
+    assert filesystem_calls == []
+
+
+def test_enforced_egress_allows_local_windows_drive_type(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    ctx = ToolContext(
+        cfg={"egress": {"enabled": True, "enforced": True}},
+        client=None,
+        cwd=tmp_path,
+        skills=None,
+        memory=None,
+    )
+    monkeypatch.setattr(
+        files_mod,
+        "_windows_drive_type",
+        lambda _root: 3,
+        raising=False,
+    )
+
+    assert not files_mod._network_path_blocked(
+        ctx,
+        r"C:\local\file.txt",
+    )
 
 
 def test_files_read_missing(tmp_path: Path):

@@ -50,7 +50,7 @@ def test_save_run_records_usage_and_appends_ledger():
     assert runs[0]["usage"]["estTokens"] == usage["estTokens"]
     assert runs[0]["details"]["tools"] == ["read_file"]
     lines = config.ledger_path().read_text(encoding="utf-8").splitlines()
-    ledger = [json.loads(l) for l in lines if l.strip()]
+    ledger = [json.loads(line) for line in lines if line.strip()]
     assert len(ledger) == 1
     assert ledger[0]["kind"] == "chat"
     assert ledger[0]["usage"]["estTokens"] == usage["estTokens"]

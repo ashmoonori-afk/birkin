@@ -7,6 +7,8 @@ lost the answer AND the tokens, silently.
 
 from __future__ import annotations
 
+from collections.abc import Callable, Mapping
+
 import pytest
 
 from birkin import delivery
@@ -95,6 +97,7 @@ def test_telegram_turn_records_then_clears_the_obligation(monkeypatch):
 def test_failed_telegram_document_keeps_turn_obligation(
         monkeypatch, tmp_path):
     import birkin.gateway.channels.telegram as tg
+    from birkin.gateway.core import Gateway
 
     artifact = tmp_path / "report.html"
     artifact.write_text("<!doctype html>", encoding="utf-8")
@@ -102,47 +105,63 @@ def test_failed_telegram_document_keeps_turn_obligation(
     ch = tg.TelegramChannel("tok", stream=False)
     monkeypatch.setattr(
         ch, "_keep_typing",
-        lambda _chat_id, stop: stop.wait())
+        lambda _chat_id, stop, _progress=None: stop.wait())
     monkeypatch.setattr(ch, "_send_reply", lambda _chat_id, _text: None)
     monkeypatch.setattr(
         ch, "_send_document", lambda _chat_id, _path: False)
 
-    class _Gateway:
-        pending_hard_restart = False
+    class _Gateway(Gateway):
+        @property
+        def pending_hard_restart(self) -> bool:
+            return False
 
-        @staticmethod
-        def handle(_channel, _chat_id, _text, **_kwargs):
+        def handle(
+            self, channel: str, chat_id: str, text: str,
+            on_text: Callable[[str], None] | None = None,
+            workflow_id: str | None = None,
+            on_progress: Callable[[Mapping[str, object]], None] | None = None,
+        ) -> str:
             return '<telegram-attachment path="report.html" />'
 
-    ch._run_turn(_Gateway(), "42", "send the report", 1)
+    # __new__: the double answers from the overrides alone, so it must not run
+    # Gateway.__init__ (which builds a real LLM session).
+    ch._run_turn(_Gateway.__new__(_Gateway), "42", "send the report", 1)
 
     assert len(delivery.pending("telegram")) == 1
 
 
 def test_failed_telegram_text_keeps_turn_obligation(monkeypatch):
     import birkin.gateway.channels.telegram as tg
+    from birkin.gateway.core import Gateway
 
     ch = tg.TelegramChannel("tok", stream=False)
     monkeypatch.setattr(
         ch, "_keep_typing",
-        lambda _chat_id, stop: stop.wait())
+        lambda _chat_id, stop, _progress=None: stop.wait())
     monkeypatch.setattr(
         ch, "_send_reply", lambda _chat_id, _text: False)
 
-    class _Gateway:
-        pending_hard_restart = False
+    class _Gateway(Gateway):
+        @property
+        def pending_hard_restart(self) -> bool:
+            return False
 
-        @staticmethod
-        def handle(_channel, _chat_id, _text, **_kwargs):
+        def handle(
+            self, channel: str, chat_id: str, text: str,
+            on_text: Callable[[str], None] | None = None,
+            workflow_id: str | None = None,
+            on_progress: Callable[[Mapping[str, object]], None] | None = None,
+        ) -> str:
             return "ordinary reply"
 
-    ch._run_turn(_Gateway(), "42", "say hello", 1)
+    ch._run_turn(_Gateway.__new__(_Gateway), "42", "say hello", 1)
 
     assert len(delivery.pending("telegram")) == 1
 
 
 def test_telegram_redelivery_uses_marker_safe_prefix(monkeypatch):
     import birkin.gateway.channels.telegram as tg
+    from birkin.gateway.core import Gateway
 
     captured = {}
     monkeypatch.setattr(
@@ -158,12 +177,11 @@ def test_telegram_redelivery_uses_marker_safe_prefix(monkeypatch):
 
     monkeypatch.setattr(ch, "_call", fake_call)
 
-    class _Gateway:
-        @staticmethod
-        def take_restart_greeting(_channel):
+    class _Gateway(Gateway):
+        def take_restart_greeting(self, channel: str) -> str | None:
             return None
 
     with pytest.raises(SystemExit):
-        ch.start(_Gateway())
+        ch.start(_Gateway.__new__(_Gateway))
 
     assert captured["prefix"] == "[재전송]\n"

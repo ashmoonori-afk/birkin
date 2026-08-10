@@ -2,9 +2,26 @@
 
 from __future__ import annotations
 
+import io
+import json
+import subprocess
 import threading
+from typing import ClassVar
 
 import pytest
+
+from birkin import pools
+from birkin.gateway.core import Gateway
+
+
+class _BufferPopen(subprocess.Popen[str]):
+    pass
+
+
+def _buffer_popen(stdin: io.StringIO | None = None) -> _BufferPopen:
+    proc = _BufferPopen.__new__(_BufferPopen)
+    proc.stdin = stdin
+    return proc
 
 
 # -- gateway.interrupt targets the in-flight session --------------------------
@@ -69,7 +86,7 @@ class _LeaseSession:
     def __init__(self, *, error=None):
         self.error = error
 
-    def ask(self, text, on_text=None):
+    def ask(self, text, on_text=None) -> str:
         if self.error is not None:
             raise self.error
         return "done"
@@ -88,8 +105,9 @@ class _BookkeepingError(RuntimeError):
     pass
 
 
-class _LeasePoolSpy:
+class _LeasePoolSpy(pools.SessionPool):
     def __init__(self, gateway, session, *, borrow_error=None):
+        super().__init__(lambda _key: session)
         self.gateway = gateway
         self.session = session
         self.borrow_error = borrow_error
@@ -108,12 +126,12 @@ class _LeasePoolSpy:
         self.outstanding += 1
         return self.session
 
-    def release(self, key, session):
+    def release(self, key, sess):
         assert self.outstanding == 1
-        assert session is self.session
+        assert sess is self.session
         assert not self.release_calls
         self.inflight_at_release.append(key in self.gateway._inflight)
-        self.release_calls.append((key, session))
+        self.release_calls.append((key, sess))
         self.outstanding -= 1
 
 
@@ -180,7 +198,7 @@ def test_gateway_releases_session_when_inflight_registration_fails(
 
     gw, pool, session = _lease_gateway(tmp_path, monkeypatch)
     lock = _FailFirstLock()
-    gw._inflight_lock = lock
+    monkeypatch.setattr(gw, "_inflight_lock", lock)
 
     assert gw.handle("http", "42", "hello") == TURN_ERROR_REPLY
     assert lock.calls == 2
@@ -226,7 +244,7 @@ def test_gateway_release_survives_inflight_cleanup_error(tmp_path, monkeypatch):
 
     gw, pool, session = _lease_gateway(tmp_path, monkeypatch)
     lock = _FailCleanupLock()
-    gw._inflight_lock = lock
+    monkeypatch.setattr(gw, "_inflight_lock", lock)
 
     with pytest.raises(_BookkeepingError, match="cleanup failed"):
         gw.handle("http", "42", "hello")
@@ -337,8 +355,9 @@ def test_failed_new_turn_leaves_active_predecessor_interruptible(
             self.interrupt_calls += 1
             return True
 
-    class _TwoSessionPool:
+    class _TwoSessionPool(pools.SessionPool):
         def __init__(self, sessions):
+            super().__init__(lambda _key: sessions[0])
             self.sessions = list(sessions)
             self.borrow_calls = []
             self.release_calls = []
@@ -347,8 +366,8 @@ def test_failed_new_turn_leaves_active_predecessor_interruptible(
             self.borrow_calls.append(key)
             return self.sessions.pop(0)
 
-        def release(self, key, session):
-            self.release_calls.append((key, session))
+        def release(self, key, sess):
+            self.release_calls.append((key, sess))
 
     old_session = _BlockingSession(old_asking)
     new_asked = threading.Event()
@@ -445,7 +464,7 @@ def test_interrupt_calls_session_after_releasing_inflight_lock(
                 raise RuntimeError("interrupt failed")
             return True
 
-    gw._inflight_lock = lock
+    monkeypatch.setattr(gw, "_inflight_lock", lock)
     old = _OwnershipSession("old")
     gw._inflight[("http", "42")] = [
         (object(), old, threading.Event()),
@@ -466,7 +485,7 @@ def test_codex_interrupt_kills_process_after_graceful_attempt(monkeypatch):
     s = CodexAppServerSession(model="gpt-5.6-sol")
     s._thread_id = "t1"
     s._active_turn_id = "turn-9"
-    s._proc = object()
+    s._proc = _buffer_popen()
     alive = {"v": True}
     monkeypatch.setattr(s, "is_alive", lambda: alive["v"])
     sent = []
@@ -506,11 +525,10 @@ def test_codex_turn_returns_marker_when_interrupted(monkeypatch):
 
 def test_claude_interrupt_writes_control_request(monkeypatch):
     from birkin.claude_session import ClaudeStreamSession
-    import io
-    import json
+
     s = ClaudeStreamSession()
     buf = io.StringIO()
-    s._proc = type("P", (), {"stdin": buf})()
+    s._proc = _buffer_popen(buf)
     assert s.interrupt() is True
     sent = json.loads(buf.getvalue())
     assert sent == {"type": "control_request",
@@ -525,16 +543,17 @@ def test_telegram_new_message_interrupts_previous(tmp_path, monkeypatch):
     from birkin.gateway.channels.telegram import TelegramChannel
     ch = TelegramChannel("tok", allowed_chat_ids=["42"], stream=False)
 
-    class _FakeGateway:
-        pending_hard_restart = False
+    class _FakeGateway(Gateway):
+        interrupts: ClassVar[list[str]] = []
+        handled: ClassVar[list[str]] = []
+        started = threading.Event()
+        release = threading.Event()
 
-        def __init__(self):
-            self.interrupts = []
-            self.handled = []
-            self.started = threading.Event()
-            self.release = threading.Event()
+        @property
+        def pending_hard_restart(self) -> bool:
+            return False
 
-        def _command_trusted(self, ch):
+        def _command_trusted(self, channel):
             return True
 
         def interrupt(self, channel, chat_id):
@@ -542,15 +561,23 @@ def test_telegram_new_message_interrupts_previous(tmp_path, monkeypatch):
             self.release.set()
             return True
 
-        def handle(self, channel, chat_id, text, on_text=None):
+        def handle(
+                self, channel, chat_id, text, on_text=None,
+                workflow_id=None, on_progress=None):
             self.handled.append(text)
             self.started.set()
             assert self.release.wait(timeout=2)
             return f"reply to {text}"
 
-    gw = _FakeGateway()
+    gw = _FakeGateway.__new__(_FakeGateway)
+    gw.started = threading.Event()
+    gw.release = threading.Event()
     monkeypatch.setattr(ch, "_send_reply", lambda c, r: None)
-    monkeypatch.setattr(ch, "_keep_typing", lambda c, stop: None)
+    monkeypatch.setattr(
+        ch,
+        "_keep_typing",
+        lambda c, stop, progress=None: None,
+    )
     # first message -> starts a worker
     w1 = threading.Thread(target=ch._run_turn, args=(gw, "42", "first", 0),
                           daemon=True)
@@ -559,6 +586,7 @@ def test_telegram_new_message_interrupts_previous(tmp_path, monkeypatch):
     assert gw.started.wait(timeout=2)
     # simulate the loop seeing a SECOND message for the same chat
     prev = ch._workers.get("42")
+    assert prev is not None
     assert prev.is_alive()
     gw.interrupt("telegram", "42")           # what the loop does
     assert gw.interrupts == ["42"]
@@ -573,8 +601,9 @@ def test_telegram_messages_interrupt_gateway_behind_dead_worker(monkeypatch):
     class _StopPolling(BaseException):
         pass
 
-    class _DeadWorker:
+    class _DeadWorker(threading.Thread):
         def __init__(self):
+            super().__init__()
             self.join_calls = 0
 
         def is_alive(self):
@@ -594,9 +623,8 @@ def test_telegram_messages_interrupt_gateway_behind_dead_worker(monkeypatch):
         def is_alive(self):
             return False
 
-    class _FakeGateway:
-        def __init__(self):
-            self.interrupts = []
+    class _FakeGateway(Gateway):
+        interrupts: ClassVar[list[tuple[str, str]]] = []
 
         def take_restart_greeting(self, channel):
             return None
@@ -610,7 +638,7 @@ def test_telegram_messages_interrupt_gateway_behind_dead_worker(monkeypatch):
 
     ch = telegram.TelegramChannel(
         "tok", allowed_chat_ids=["42"], stream=False)
-    gateway = _FakeGateway()
+    gateway = _FakeGateway.__new__(_FakeGateway)
     dead = _DeadWorker()
     ch._workers["42"] = dead
     pending = []

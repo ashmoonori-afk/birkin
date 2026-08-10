@@ -1,0 +1,669 @@
+<!doctype html>
+<html lang="ko" data-horizontal-overflow="pending">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Birkin 전체 코드 감사 · 2026-08-10</title>
+  <style>
+    :root {
+      color-scheme: dark;
+      --bg: #07111f;
+      --panel: #0d1a2b;
+      --panel-2: #122238;
+      --line: #263b56;
+      --text: #e8f0fa;
+      --muted: #9eb0c6;
+      --blue: #72b7ff;
+      --cyan: #50dfd5;
+      --green: #6fe3a5;
+      --amber: #ffd37a;
+      --red: #ff8f9b;
+      --shadow: 0 18px 48px rgba(0, 0, 0, .28);
+    }
+    * { box-sizing: border-box; }
+    html { scroll-behavior: smooth; background: var(--bg); }
+    body {
+      margin: 0;
+      color: var(--text);
+      background:
+        radial-gradient(circle at 8% 2%, rgba(80, 223, 213, .12), transparent 30rem),
+        radial-gradient(circle at 92% 12%, rgba(114, 183, 255, .13), transparent 28rem),
+        var(--bg);
+      font-family: "Noto Sans KR", "Apple SD Gothic Neo", "Malgun Gothic",
+        Inter, system-ui, sans-serif;
+      line-height: 1.65;
+    }
+    a { color: var(--blue); text-underline-offset: 3px; }
+    code, pre {
+      font-family: "Cascadia Code", "SFMono-Regular", Consolas, monospace;
+    }
+    code {
+      overflow-wrap: anywhere;
+      color: #cce7ff;
+    }
+    .skip-link {
+      position: fixed;
+      z-index: 20;
+      left: 1rem;
+      top: -5rem;
+      padding: .7rem 1rem;
+      color: #06111e;
+      background: var(--cyan);
+      border-radius: .5rem;
+    }
+    .skip-link:focus { top: 1rem; }
+    .hero {
+      padding: 4.5rem max(1.25rem, calc((100vw - 1180px) / 2)) 2.8rem;
+      border-bottom: 1px solid var(--line);
+    }
+    .eyebrow {
+      margin: 0 0 .75rem;
+      color: var(--cyan);
+      font-weight: 800;
+      letter-spacing: .12em;
+      text-transform: uppercase;
+    }
+    h1 {
+      max-width: 980px;
+      margin: 0;
+      font-size: clamp(2.15rem, 6vw, 4.8rem);
+      line-height: 1.06;
+      letter-spacing: -.045em;
+      word-break: keep-all;
+      overflow-wrap: break-word;
+    }
+    .lede {
+      max-width: 860px;
+      margin: 1.25rem 0 0;
+      color: var(--muted);
+      font-size: 1.08rem;
+    }
+    .hero-meta, .metric-grid, .split, .gate-grid {
+      display: grid;
+      gap: 1rem;
+    }
+    .hero-meta {
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+      margin-top: 2rem;
+    }
+    .meta-card, .metric, article, .callout {
+      border: 1px solid var(--line);
+      background: linear-gradient(145deg, rgba(18, 34, 56, .94), rgba(9, 22, 38, .95));
+      box-shadow: var(--shadow);
+      border-radius: 1rem;
+    }
+    .meta-card { padding: 1rem; min-width: 0; }
+    .label {
+      display: block;
+      margin-bottom: .25rem;
+      color: var(--muted);
+      font-size: .75rem;
+      font-weight: 800;
+      letter-spacing: .08em;
+      text-transform: uppercase;
+    }
+    nav {
+      position: sticky;
+      z-index: 10;
+      top: 0;
+      border-bottom: 1px solid var(--line);
+      background: rgba(7, 17, 31, .92);
+      backdrop-filter: blur(14px);
+    }
+    nav ul {
+      display: flex;
+      gap: .35rem;
+      max-width: 1180px;
+      margin: 0 auto;
+      padding: .75rem 1rem;
+      overflow-x: auto;
+      list-style: none;
+    }
+    nav a {
+      display: block;
+      padding: .55rem .75rem;
+      border-radius: .55rem;
+      color: var(--muted);
+      font-size: .88rem;
+      font-weight: 700;
+      text-decoration: none;
+      white-space: nowrap;
+    }
+    nav a:hover, nav a:focus-visible {
+      color: var(--text);
+      background: var(--panel-2);
+      outline: 2px solid var(--cyan);
+      outline-offset: 2px;
+    }
+    main { max-width: 1180px; margin: 0 auto; padding: 1rem 1rem 5rem; }
+    section { padding: 3.8rem 0 0; scroll-margin-top: 4.5rem; }
+    h2 {
+      margin: 0 0 1.2rem;
+      font-size: clamp(1.65rem, 3vw, 2.45rem);
+      letter-spacing: -.025em;
+    }
+    h3 { margin: 0 0 .7rem; font-size: 1.08rem; }
+    p { margin: .5rem 0 0; }
+    .section-intro { max-width: 850px; color: var(--muted); }
+    .metric-grid {
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+      margin-top: 1.4rem;
+    }
+    .metric { padding: 1.15rem; }
+    .metric strong {
+      display: block;
+      color: var(--cyan);
+      font-size: 2rem;
+      line-height: 1.1;
+    }
+    .metric span { color: var(--muted); font-size: .9rem; }
+    .split { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    article { padding: 1.2rem; }
+    article ul { margin: .65rem 0 0; padding-left: 1.2rem; }
+    .callout {
+      margin-top: 1.25rem;
+      padding: 1.15rem 1.25rem;
+      border-left: 4px solid var(--amber);
+    }
+    .callout.pass { border-left-color: var(--green); }
+    .callout.pending { border-left-color: var(--amber); }
+    .table-wrap {
+      margin-top: 1.25rem;
+      overflow-x: auto;
+      border: 1px solid var(--line);
+      border-radius: 1rem;
+      box-shadow: var(--shadow);
+    }
+    table {
+      width: 100%;
+      min-width: 780px;
+      border-collapse: collapse;
+      background: rgba(10, 24, 41, .96);
+    }
+    th, td {
+      padding: .85rem .9rem;
+      border-bottom: 1px solid var(--line);
+      text-align: left;
+      vertical-align: top;
+      font-size: .89rem;
+    }
+    th {
+      color: var(--cyan);
+      background: rgba(18, 34, 56, .98);
+      font-size: .78rem;
+      letter-spacing: .04em;
+      text-transform: uppercase;
+    }
+    tr:last-child td { border-bottom: 0; }
+    .badge {
+      display: inline-block;
+      padding: .18rem .48rem;
+      border: 1px solid currentColor;
+      border-radius: 999px;
+      font-size: .72rem;
+      font-weight: 900;
+      white-space: nowrap;
+    }
+    .critical { color: var(--red); }
+    .high { color: #ffb28c; }
+    .medium { color: var(--amber); }
+    .low { color: var(--blue); }
+    .green { color: var(--green); }
+    .pending-text { color: var(--amber); }
+    pre {
+      margin: 1rem 0 0;
+      padding: 1rem;
+      overflow-x: auto;
+      border: 1px solid var(--line);
+      border-radius: .75rem;
+      color: #d8e9fb;
+      background: #06101d;
+      font-size: .82rem;
+    }
+    .gate-grid {
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      margin-top: 1.25rem;
+    }
+    .gate {
+      padding: 1rem;
+      border: 1px solid var(--line);
+      border-radius: .8rem;
+      background: rgba(18, 34, 56, .72);
+    }
+    .gate strong { color: var(--green); }
+    footer {
+      max-width: 1180px;
+      margin: 0 auto;
+      padding: 1.5rem 1rem 3rem;
+      color: var(--muted);
+      border-top: 1px solid var(--line);
+    }
+    @media (max-width: 820px) {
+      .hero { padding-top: 3rem; }
+      .hero-meta, .metric-grid, .split, .gate-grid {
+        grid-template-columns: 1fr;
+      }
+      h1 { font-size: clamp(2rem, 12vw, 3.4rem); }
+      section { padding-top: 3rem; }
+    }
+    @media (prefers-reduced-motion: reduce) {
+      html { scroll-behavior: auto; }
+    }
+    @media print {
+      nav { position: static; }
+      body { background: #fff; color: #111; }
+      article, .meta-card, .metric, .table-wrap, .callout { box-shadow: none; }
+    }
+  </style>
+</head>
+<body>
+  <a class="skip-link" href="#main-content">본문으로 건너뛰기</a>
+  <header class="hero">
+    <p class="eyebrow">Repository-wide security &amp; wiring audit</p>
+    <h1>Birkin 전체 코드 감사 보고서</h1>
+    <p class="lede">
+      <code>feat/hermes-port</code>의 dirty 변경과 인접 런타임을 대상으로
+      egress 경계, 도구 레지스트리, Claude/Codex 세션, MCP, CLI, 문서·테스트
+      와이어링을 추적했다. 확인된 결함은 독립 RED 테스트 후 최소 수정으로
+      GREEN 전환했고, 최종 전체 검증과 독립 재검토를 수행했다.
+    </p>
+    <div class="hero-meta">
+      <div class="meta-card">
+        <span class="label">기준 HEAD</span>
+        <code>4558f03fe7c677bebb621ac9fe1cb1e03cb18620</code>
+      </div>
+      <div class="meta-card">
+        <span class="label">merge-base</span>
+        <code>9af7f259c83c059228c60e73dbc91f7703ef7f09</code>
+      </div>
+      <div class="meta-card">
+        <span class="label">검증 상태</span>
+        <strong class="green">코드 게이트 GREEN</strong>
+      </div>
+      <div class="meta-card">
+        <span class="label">전달 상태</span>
+        <strong class="pending-text">main 통합 대기</strong>
+      </div>
+    </div>
+  </header>
+
+  <nav aria-label="보고서 목차">
+    <ul>
+      <li><a href="#summary">요약</a></li>
+      <li><a href="#scope">범위</a></li>
+      <li><a href="#findings">발견 사항</a></li>
+      <li><a href="#red-green">RED→GREEN</a></li>
+      <li><a href="#wiring">정합성·와이어링</a></li>
+      <li><a href="#validation">전체 검증</a></li>
+      <li><a href="#residual">잔여 위험</a></li>
+      <li><a href="#delivery">커밋·전달</a></li>
+    </ul>
+  </nav>
+
+  <main id="main-content">
+    <section id="summary" aria-labelledby="summary-heading">
+      <h2 id="summary-heading">1. 감사 결론</h2>
+      <p class="section-intro">
+        현재 feature snapshot에서 확인된 21개 결함 묶음은 모두 GREEN이다.
+        최종 full pytest, Ruff, build, attributable type scope와 독립 보안 재검토가
+        통과했다. 단, 이 문서는 최신 <code>origin/main</code> 통합 전 상태이므로
+        commit SHA와 최종 Chrome 증거는 전달 단계에서 삽입한다.
+      </p>
+      <div class="metric-grid">
+        <div class="metric"><strong>21</strong><span>확인·수정된 결함 묶음</span></div>
+        <div class="metric"><strong>82.89%</strong><span>최종 전체 테스트 커버리지</span></div>
+        <div class="metric"><strong>0 / 0 / 0</strong><span>attributable basedpyright 오류/경고/노트</span></div>
+        <div class="metric"><strong>3 PASS</strong><span>goal · security · quality 최종 재검토</span></div>
+      </div>
+      <div class="callout pass">
+        <strong>현재 판정: 코드·테스트·정적 게이트 PASS.</strong>
+        <p>
+          근거: <code>uv run pytest -q</code> exit 0, coverage 82.89%;
+          <code>uv run ruff check .</code> exit 0; <code>uv build</code> exit 0;
+          변경 귀속 type scope <code>0 errors, 0 warnings, 0 notes</code>.
+          출처: 최종 명령 transcript와
+          <code>.omo/ulw-birkin-review-20260810.iOldx1.md</code>.
+        </p>
+      </div>
+    </section>
+
+    <section id="scope" aria-labelledby="scope-heading">
+      <h2 id="scope-heading">2. 범위와 방법</h2>
+      <div class="split">
+        <article>
+          <h3>검토 범위</h3>
+          <ul>
+            <li>현재 dirty 상태: 90 entries — tracked 79, untracked 11.</li>
+            <li>tracked diff: 79 files, +1,423 / −287.</li>
+            <li>egress broker/scanner/policy, file/web/market tools, MCP.</li>
+            <li>Claude/Codex cold·warm child capability와 Gateway wiring.</li>
+            <li>CLI help/dry-run, tool panel, prompt/skill advertisements.</li>
+            <li>README·ADR·status 및 최신 main 통합 제약.</li>
+          </ul>
+          <p class="label">출처</p>
+          <code>git status --short</code>, <code>git diff --stat</code>,
+          <code>git rev-parse</code>.
+        </article>
+        <article>
+          <h3>검증 방식</h3>
+          <ul>
+            <li>결함별 독립 회귀 테스트를 먼저 실패시킨 뒤 최소 수정.</li>
+            <li>DNS/socket/filesystem tripwire로 외부 I/O 전 차단을 관찰.</li>
+            <li>LSP, Ruff, basedpyright, targeted/full pytest, package build.</li>
+            <li>실제 CLI help, dry-run, 잘못된 입력을 사용자 표면에서 실행.</li>
+            <li>5개 독립 리뷰 lane 후 FAIL 항목을 재수정·재검토.</li>
+            <li>HTML은 실제 Chrome HTTP 렌더·DOM·overflow·screenshot으로 판정.</li>
+          </ul>
+        </article>
+      </div>
+      <div class="callout">
+        <strong>원칙.</strong>
+        <p>
+          실제 credentialed 전송과 외부 모델 호출은 수행하지 않았다. 보안 경계는
+          hermetic doubles와 네트워크 tripwire로 확인했다. 출처:
+          <code>tests/test_egress*.py</code>, <code>tests/test_web_ssrf.py</code>,
+          <code>tests/test_tools.py</code>, 독립 보안 리뷰 transcript.
+        </p>
+      </div>
+    </section>
+
+    <section id="findings" aria-labelledby="findings-heading">
+      <h2 id="findings-heading">3. 심각도별 발견 사항</h2>
+      <p class="section-intro">
+        유사 원인의 세부 재현은 한 묶음으로 합쳤다. 모든 행은 현재 GREEN이며,
+        파일·라인은 feature snapshot의 최종 검토 위치다.
+      </p>
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr><th>ID</th><th>심각도</th><th>결함·root cause</th><th>최소 수정</th><th>근거</th></tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td>F-01</td><td><span class="badge critical">CRITICAL</span></td>
+              <td>짧은/인접/URL-safe/hex/3중 Base64 credential이 bounded token 추출·재귀 깊이를 우회.</td>
+              <td>보호 secret의 canonical encoding 직접 비교와 bounded recursive scan.</td>
+              <td><code>birkin/egress_scan.py:25-31,125-151,182-201</code></td>
+            </tr>
+            <tr>
+              <td>F-02</td><td><span class="badge critical">CRITICAL</span></td>
+              <td>UNC/device, mapped drive, mapped <code>ctx.cwd</code>의 상대 경로가 SMB 파일 egress 가능.</td>
+              <td>effective path를 먼저 구성하고 UNC/device 및 Win32 <code>DRIVE_REMOTE</code>를 filesystem 전 차단.</td>
+              <td><code>birkin/tools/files.py:17-55</code>, <code>tests/test_tools.py:43-213</code></td>
+            </tr>
+            <tr>
+              <td>F-03</td><td><span class="badge high">HIGH</span></td>
+              <td>enforced mode가 Claude CLI built-in Web/Bash와 inherited MCP/settings를 제한하지 않음.</td>
+              <td>cold/warm child 모두 Birkin MCP only, built-ins/browser/persistence/inherited settings 차단.</td>
+              <td><code>birkin/claude_session.py:49-61,173-227</code>, <code>birkin/llm.py:332-345</code></td>
+            </tr>
+            <tr>
+              <td>F-04</td><td><span class="badge high">HIGH</span></td>
+              <td><code>web_fetch</code>가 검증 DNS와 연결 DNS를 분리해 rebinding race 발생.</td>
+              <td>공개 IP를 1회 검증·pin하고 Host/TLS SNI를 원 hostname으로 유지; redirect마다 반복.</td>
+              <td><code>birkin/httpguard.py:26-99</code>, <code>birkin/tools/web.py:59-201</code></td>
+            </tr>
+            <tr>
+              <td>F-05</td><td><span class="badge high">HIGH</span></td>
+              <td>market provider가 unrestricted <code>urlopen</code>으로 DNS/redirect 경계를 우회.</td>
+              <td>proxy-free pinned HTTPS, public IP 검증, redirect 거부.</td>
+              <td><code>birkin/tools/market.py:169-198</code></td>
+            </tr>
+            <tr>
+              <td>F-06</td><td><span class="badge high">HIGH</span></td>
+              <td>Unicode path, invalid header name/value, control-character token이 socket 이후 직렬화 실패.</td>
+              <td>request target·header name·완성 header value를 DNS 전 검증하고 terminal failed-before-send receipt 기록.</td>
+              <td><code>birkin/egress_policy.py:35-50,101-108</code>, <code>birkin/egress.py:192-218</code></td>
+            </tr>
+            <tr>
+              <td>F-07</td><td><span class="badge high">HIGH</span></td>
+              <td>market symbol이 provider request 전에 egress scanner를 통과하지 않음.</td>
+              <td>symbol 요청을 outbound inspection seam에 연결.</td>
+              <td><code>birkin/tools/market.py</code>, <code>tests/test_egress.py</code></td>
+            </tr>
+            <tr>
+              <td>F-08</td><td><span class="badge high">HIGH</span></td>
+              <td>scanner limit가 destination의 더 엄격한 byte cap과 불일치.</td>
+              <td>global/local endpoint limit 중 최소값을 scanner와 send path에 동일 적용.</td>
+              <td><code>birkin/egress_policy.py</code>, <code>birkin/egress_scan.py</code></td>
+            </tr>
+            <tr>
+              <td>F-09</td><td><span class="badge medium">MEDIUM</span></td>
+              <td>web fetch, market, web search provider attempt에 audit receipt 누락.</td>
+              <td>provider-only prepared/sent/failed receipt와 write-failure fail-closed fallback.</td>
+              <td><code>birkin/tools/web.py:253-291,347-399</code>, <code>birkin/tools/market.py:229-253</code></td>
+            </tr>
+            <tr>
+              <td>F-10</td><td><span class="badge medium">MEDIUM</span></td>
+              <td>plaintext HTTP와 HTTPS→HTTP downgrade redirect 허용.</td>
+              <td>web 도구 전 경로 HTTPS-only, downgrade redirect 거부.</td>
+              <td><code>birkin/tools/web.py:59-126</code></td>
+            </tr>
+            <tr>
+              <td>F-11</td><td><span class="badge medium">MEDIUM</span></td>
+              <td>disabled/enforced tool과 system prompt·bundled skill 광고가 불일치.</td>
+              <td>registry availability를 prompt와 skill rendering에 반영.</td>
+              <td><code>birkin/promptgate.py</code>, <code>birkin/tools/__init__.py</code>, <code>skills/</code></td>
+            </tr>
+            <tr>
+              <td>F-12</td><td><span class="badge medium">MEDIUM</span></td>
+              <td>positional <code>chat --dry-run</code>이 parser wiring에 없어 요구 CLI 실패.</td>
+              <td>positional/flag 상호 배타 parsing과 model-before-input 차단.</td>
+              <td><code>birkin/cli.py</code>, <code>tests/test_cli.py</code></td>
+            </tr>
+            <tr>
+              <td>F-13</td><td><span class="badge medium">MEDIUM</span></td>
+              <td>Windows workspace에서 <code>uv run birkin</code>이 package directory shadowing으로 launcher 없이 실패.</td>
+              <td>설치 launcher bootstrap과 direct-module 호환을 맞춤.</td>
+              <td><code>birkin/__main__.py</code>, <code>sitecustomize.py</code>, <code>tests/test_cli_entrypoint.py</code></td>
+            </tr>
+            <tr>
+              <td>F-14</td><td><span class="badge medium">MEDIUM</span></td>
+              <td>web helper의 optional context 계약과 registry call signature 불일치.</td>
+              <td><code>ToolContext | None</code> 계약을 실제 handler 경로에 반영.</td>
+              <td><code>birkin/tools/web.py</code>, <code>tests/test_web_search.py</code></td>
+            </tr>
+            <tr>
+              <td>F-15</td><td><span class="badge medium">MEDIUM</span></td>
+              <td>neutral tool type module이 concrete <code>LLMClient</code>를 import해 cycle 유지; MCP는 <code>None</code> 전달.</td>
+              <td>type-only protocol/optional client로 import graph 분리.</td>
+              <td><code>birkin/tools/_types.py</code>, <code>birkin/mcp_server.py</code></td>
+            </tr>
+            <tr>
+              <td>F-16</td><td><span class="badge medium">MEDIUM</span></td>
+              <td>CLI tools panel이 registry group을 수동 열거해 egress 등 신규 group 누락.</td>
+              <td>registry group 전체를 source-of-truth로 표시.</td>
+              <td><code>birkin/cli.py</code>, <code>birkin/tools/__init__.py</code></td>
+            </tr>
+            <tr>
+              <td>F-17</td><td><span class="badge low">LOW</span></td>
+              <td>MCP stdio line을 전부 할당한 뒤 4 MiB limit 확인.</td>
+              <td>bounded chunk read와 oversized frame drain 후 JSON parse 차단.</td>
+              <td><code>birkin/mcp_server.py:299-321</code></td>
+            </tr>
+            <tr>
+              <td>F-18</td><td><span class="badge low">LOW</span></td>
+              <td>blocked receipt byte 수가 UTF-8 bytes가 아닌 character count.</td>
+              <td>단일 UTF-8 buffer를 hash와 receipt byte count에 재사용.</td>
+              <td><code>birkin/egress.py:170-173</code></td>
+            </tr>
+            <tr>
+              <td>F-19</td><td><span class="badge low">LOW</span></td>
+              <td>async callback test doubles가 production 3-argument contract와 달라 warning·false confidence 발생.</td>
+              <td>Telegram/Gateway mocks를 실제 callback shape에 정렬.</td>
+              <td><code>tests/test_delivery.py</code>, <code>tests/test_gateway_workflow_failure.py</code></td>
+            </tr>
+            <tr>
+              <td>F-20</td><td><span class="badge low">LOW</span></td>
+              <td>변경 주변과 기존 파일의 Ruff diagnostics가 전체 gate를 차단.</td>
+              <td>동작 변경 없는 최소 lint debt 정리; suppression 없음.</td>
+              <td><code>uv run ruff check .</code> exit 0</td>
+            </tr>
+            <tr>
+              <td>F-21</td><td><span class="badge low">LOW</span></td>
+              <td>초기 한국어 report 제목이 Chrome viewport에서 줄바꿈 결함.</td>
+              <td>responsive typography와 <code>word-break: keep-all</code>; 직접 screenshot 확인.</td>
+              <td><code>reports/birkin-code-review-2026-08-10.html</code></td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <section id="red-green" aria-labelledby="red-green-heading">
+      <h2 id="red-green-heading">4. RED→GREEN 증거</h2>
+      <p class="section-intro">
+        RED는 production 수정 전 독립 실패이며, GREEN은 동일 테스트와 인접 suite의
+        통과다. 상세 stdout은 ultrawork notepad와 debug journal에 보존했다.
+      </p>
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr><th>트랙</th><th>RED</th><th>최종 GREEN</th><th>핵심 테스트</th></tr>
+          </thead>
+          <tbody>
+            <tr><td>market + embedded secret</td><td>provider/DNS 도달로 실패</td><td>최초 확정 2 tests pass</td><td><code>test_enforced_egress_scans_market_symbols_before_network</code><br><code>test_embedded_encoded_secret_blocks_before_resolution</code></td></tr>
+            <tr><td>short/adjacent/triple encoding</td><td>3 payloads fake send 도달</td><td>scanner suite GREEN</td><td><code>tests/test_egress_scanner.py</code></td></tr>
+            <tr><td>request path/header name</td><td>2 failed, socket 호출</td><td>2 passed; egress suite 26 passed</td><td><code>tests/test_egress_policy.py</code></td></tr>
+            <tr><td>generated header values</td><td>2 failed, <code>93.184.216.34:443</code> 도달</td><td>2 passed; egress/receipt 33 passed</td><td><code>test_invalid_auth_header_value_is_rejected_before_socket_open</code></td></tr>
+            <tr><td>Claude capability boundary</td><td>cold/warm 2 failed</td><td>4 passed; adjacent 37 passed</td><td><code>tests/test_claude_session.py</code></td></tr>
+            <tr><td>web DNS rebinding</td><td>1 failed; hostname 2회 resolve</td><td>1 passed; web 52 passed</td><td><code>tests/test_web_ssrf.py</code></td></tr>
+            <tr><td>HTTPS-only</td><td>2 failed; HTTP/downgrade 허용</td><td>2 passed; web 54 passed</td><td><code>tests/test_web_ssrf.py</code></td></tr>
+            <tr><td>market pinning</td><td>1 failed; hostname socket 전달</td><td>1 passed; market/egress 15 passed</td><td><code>tests/test_market_quote.py</code></td></tr>
+            <tr><td>UNC/device/mapped filesystem</td><td>4 direct + 2 mapped variants filesystem 도달</td><td>network path matrix 9 passed</td><td><code>tests/test_tools.py</code></td></tr>
+            <tr><td>relative mapped workspace</td><td>2 failed in 0.60s</td><td>2 passed in 0.50s; independent 7 passed</td><td><code>test_enforced_egress_rejects_relative_write_from_mapped_workspace</code></td></tr>
+            <tr><td>web/market receipts</td><td>2 failed; receipt 없음</td><td>2 passed; adjacent 91 passed</td><td><code>tests/test_outbound_receipts.py</code></td></tr>
+            <tr><td>web search receipts</td><td>3 failed; provider 2회 실행</td><td>3 passed; adjacent 26 passed</td><td><code>tests/test_outbound_receipts.py</code></td></tr>
+            <tr><td>MCP bounded frame</td><td>1 failed; iterator 전체 line 소비</td><td>1 passed; MCP/Gateway 55 passed</td><td><code>tests/test_mcp_server.py</code></td></tr>
+            <tr><td>UTF-8 receipt bytes</td><td>12 chars를 12 bytes로 기록</td><td>1 passed; egress/receipt 31 passed</td><td><code>tests/test_egress.py</code></td></tr>
+            <tr><td>tool/prompt advertisement</td><td>2 failed; disabled tool 광고</td><td>3 passed; adjacent 67 passed</td><td><code>tests/test_promptgate.py</code>, <code>tests/test_tools.py</code></td></tr>
+            <tr><td>installed CLI</td><td>1 failed; relative import traceback</td><td>1 passed; CLI 34 passed</td><td><code>tests/test_cli_entrypoint.py</code></td></tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <section id="wiring" aria-labelledby="wiring-heading">
+      <h2 id="wiring-heading">5. 정합성·와이어링 검사</h2>
+      <div class="gate-grid">
+        <div class="gate"><strong>Registry → Prompt</strong><br>enforced/disabled tool 집합이 CLI panel, system prompt, bundled skills와 동일하게 노출된다. <code>birkin/tools/__init__.py</code>, <code>birkin/promptgate.py</code>.</div>
+        <div class="gate"><strong>Claude child</strong><br>cold/warm 모두 Birkin MCP only이며 built-in network/Bash/browser/inherited MCP를 제거한다. <code>birkin/claude_session.py</code>.</div>
+        <div class="gate"><strong>Broker boundary</strong><br>canonical bytes → scan → prepared receipt → header validation → DNS pin → socket 순서를 유지한다. <code>birkin/egress.py</code>.</div>
+        <div class="gate"><strong>Web/Market</strong><br>HTTPS-only, pinned public address, redirect 제한, metadata receipts가 provider 호출을 감싼다. <code>birkin/httpguard.py</code>, <code>birkin/tools/web.py</code>, <code>market.py</code>.</div>
+        <div class="gate"><strong>Filesystem</strong><br>model raw path가 아니라 <code>ctx.cwd</code> 적용 후 effective Windows root를 분류한다. <code>birkin/tools/files.py:48-54</code>.</div>
+        <div class="gate"><strong>MCP/Types</strong><br>bounded stdio frame, neutral tool protocols, optional client 계약으로 cycle과 runtime mismatch를 제거했다. <code>birkin/mcp_server.py</code>, <code>tools/_types.py</code>.</div>
+      </div>
+      <div class="callout pass">
+        <strong>독립 최종 재검토.</strong>
+        <p>
+          Goal/constraint: 7 focused tests와 독립 zero-DNS/socket probe PASS.
+          Code-quality: mapped-workspace controls 10 PASS, Ruff/type clean.
+          Security: 7 PASS/17 deselected, relative/root-relative/absolute remote의
+          filesystem calls 0. 출처: 독립 reviewer terminal verdicts.
+        </p>
+      </div>
+    </section>
+
+    <section id="validation" aria-labelledby="validation-heading">
+      <h2 id="validation-heading">6. 전체 검증</h2>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>Gate</th><th>명령/표면</th><th>결과</th><th>판정 근거</th></tr></thead>
+          <tbody>
+            <tr><td>Full test</td><td><code>uv run pytest -q</code></td><td><span class="badge green">EXIT 0</span></td><td>coverage 82.89%, minimum 75%</td></tr>
+            <tr><td>Affected matrix</td><td>egress/security/web/files/CLI/Claude tests</td><td><span class="badge green">173 PASS / 1 SKIP</span></td><td>13.65s, external I/O 없음</td></tr>
+            <tr><td>Lint</td><td><code>uv run ruff check .</code></td><td><span class="badge green">EXIT 0</span></td><td><code>All checks passed!</code></td></tr>
+            <tr><td>Type</td><td>attributable basedpyright source/test scope</td><td><span class="badge green">0 / 0 / 0</span></td><td>errors / warnings / notes</td></tr>
+            <tr><td>LSP</td><td>변경 security/runtime seams</td><td><span class="badge green">0 diagnostics</span></td><td>file diagnostics</td></tr>
+            <tr><td>Build</td><td><code>uv build</code></td><td><span class="badge green">EXIT 0</span></td><td>wheel + sdist 생성</td></tr>
+            <tr><td>CLI help</td><td><code>uv run birkin --help</code></td><td><span class="badge green">EXIT 0</span></td><td><code>chat</code>, <code>mcp-serve</code> 존재</td></tr>
+            <tr><td>CLI dry-run</td><td><code>uv run birkin chat --dry-run "wiring-smoke"</code></td><td><span class="badge green">EXIT 0</span></td><td>provider/model/system/TOOLS 출력, model call 없음</td></tr>
+            <tr><td>CLI bad input</td><td>positional + <code>-m</code> 충돌</td><td><span class="badge green">EXIT 2</span></td><td>model 접근 전 parser 차단</td></tr>
+            <tr><td>Diff</td><td><code>git diff --check</code></td><td><span class="badge green">CLEAN</span></td><td>non-warning output 없음</td></tr>
+            <tr><td>Browser</td><td>final Chrome HTTP/DOM/overflow/screenshot</td><td><span class="badge pending-text">DELIVERY PENDING</span></td><td>commit SHA 삽입 후 최종 렌더 예정</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <pre>최종 코드 게이트
+pytest      exit 0 · coverage 82.89%
+ruff        exit 0 · All checks passed!
+basedpyright 0 errors · 0 warnings · 0 notes
+uv build    exit 0 · wheel + sdist
+CLI help    exit 0 · chat + mcp-serve
+CLI dry-run exit 0 · provider/model/system/TOOLS · external LLM call 0</pre>
+    </section>
+
+    <section id="residual" aria-labelledby="residual-heading">
+      <h2 id="residual-heading">7. 잔여 위험과 비차단 항목</h2>
+      <div class="split">
+        <article>
+          <h3>명시적 검증 공백</h3>
+          <ul>
+            <li>실 credentialed egress send와 live model call은 정책상 실행하지 않았다.</li>
+            <li>live Codex child는 binary 부재로 argv 구성만 검증했다.</li>
+            <li>Win32 mapped/UNC는 차단했으나 POSIX mounted network filesystem 분류는 별도 구현이 아니다.</li>
+            <li><code>bandit</code>/<code>pip-audit</code>가 환경에 없어 별도 static security scanner는 실행 불가했다.</li>
+          </ul>
+        </article>
+        <article>
+          <h3>기존 debt·전달 제약</h3>
+          <ul>
+            <li>repo 전체 basedpyright recommended mode에는 기존 대규모 typing debt가 있다; 본 변경 귀속 scope는 0/0/0이다.</li>
+            <li><code>uvx ruff</code> 최신 버전과 project <code>uv run ruff</code> 버전 차이가 있다; 판정은 project toolchain 기준이다.</li>
+            <li><code>docs/DECISIONS.md</code>의 duplicate ADR-050은 기존 문제로 이번 범위에서 삭제하지 않았다.</li>
+            <li>latest main README/tools-panel union, ADR/status 갱신은 fresh-main 통합 단계의 필수 작업이다.</li>
+          </ul>
+        </article>
+      </div>
+    </section>
+
+    <section id="delivery" aria-labelledby="delivery-heading">
+      <h2 id="delivery-heading">8. 원자적 커밋과 main 전달</h2>
+      <p class="section-intro">
+        아래 표는 fresh <code>origin/main</code> 통합 직전에 갱신된다. 보고서 자체의
+        최종 commit SHA는 self-reference가 불가능하므로 최종 답변과 remote SHA
+        검증에 기록하고, 표에는 구현·테스트·문서 atomic commit을 열거한다.
+      </p>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>순서</th><th>SHA</th><th>제목</th><th>상태</th></tr></thead>
+          <tbody>
+            <tr><td>1</td><td><code>pending</code></td><td>egress/security boundary fixes</td><td><span class="badge pending-text">PENDING</span></td></tr>
+            <tr><td>2</td><td><code>pending</code></td><td>runtime/wiring/CLI consistency fixes</td><td><span class="badge pending-text">PENDING</span></td></tr>
+            <tr><td>3</td><td><code>pending</code></td><td>tests/docs/audit report</td><td><span class="badge pending-text">PENDING</span></td></tr>
+          </tbody>
+        </table>
+      </div>
+      <div class="callout pending">
+        <strong>전달 전 필수 체크.</strong>
+        <p>
+          최신 <code>origin/main</code>에서 별도 worktree 생성 → README 양언어 egress
+          문서 재적용 → vision/desktop 포함 tool group union → ADR/status 갱신 →
+          atomic commits 적용 → 전체 gate와 Chrome 재검증 →
+          <code>git push origin main</code> → local/remote SHA 동일성과 clean worktree 확인.
+        </p>
+      </div>
+    </section>
+  </main>
+
+  <footer>
+    <strong>Birkin code audit · 2026-08-10</strong>
+    <p>
+      근거 파일: <code>.omo/ulw-birkin-review-20260810.iOldx1.md</code>,
+      <code>birkin/.debug-journal.md</code>, test/build/CLI/browser transcripts.
+    </p>
+  </footer>
+
+  <script>
+    (() => {
+      const updateOverflow = () => {
+        const root = document.documentElement;
+        root.dataset.horizontalOverflow =
+          root.scrollWidth > root.clientWidth ? "true" : "false";
+      };
+      updateOverflow();
+      window.addEventListener("resize", updateOverflow, { passive: true });
+    })();
+  </script>
+</body>
+</html>

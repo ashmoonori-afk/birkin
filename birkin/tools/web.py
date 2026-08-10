@@ -29,16 +29,20 @@ import socket
 import urllib.error
 import urllib.request
 from datetime import datetime, timezone
-from typing import Any
-from urllib.parse import quote, urlparse
+from typing import Any, Callable
+from urllib.parse import quote, urlparse, urlsplit
 
-from . import Tool, ToolContext, ToolResult
 from .. import __version__
+from ..egress import record_tool_receipt
+from ..egress_scan import EgressScanError, inspect_payload
+from ..httpguard import PinnedHTTPSHandler, is_public_ip
 from .web_document import (
     ContentDecodingError,
     decode_http_body,
     extract_document,
 )
+
+from ._types import Tool, ToolContext, ToolResult
 
 MAX_TEXT = 40_000     # historical visible cap; spill.py now applies the limit
 # Identify as ourselves, at the real package version. This line used to
@@ -53,6 +57,24 @@ MARGINALIA_LICENSE = "CC-BY-NC-SA 4.0"
 MARGINALIA_PUBLIC_KEY = "public"   # the key its operator publishes for anyone
 SEARCH_TIMEOUT = 10   # a lookup, not a page read: fail into the fallback fast
 MAX_RESULTS = 20
+
+
+def _is_blocked_literal_url(url: str) -> bool:
+    """Reject malformed URLs and unsafe literal addresses without DNS."""
+    try:
+        parsed = urlsplit(url)
+        if parsed.scheme != "https" or not parsed.hostname:
+            return True
+        host = parsed.hostname.lower()
+        if host == "localhost" or host.endswith(".localhost"):
+            return True
+        try:
+            ip = ipaddress.ip_address(host)
+        except ValueError:
+            return False
+        return not is_public_ip(str(ip))
+    except (ValueError, UnicodeError):
+        return True
 
 
 def _is_blocked_url(url: str) -> bool:
@@ -89,7 +111,15 @@ class _GuardedRedirectHandler(urllib.request.HTTPRedirectHandler):
     bypass the up-front ``_is_blocked_url`` check. Refuse a blocked hop."""
 
     def redirect_request(self, req, fp, code, msg, headers, newurl):
-        if _is_blocked_url(newurl):
+        if urlsplit(newurl).scheme != "https":
+            raise urllib.error.HTTPError(
+                newurl,
+                code,
+                "SSRF: HTTPS is required for redirect targets",
+                headers,
+                fp,
+            )
+        if _is_blocked_literal_url(newurl):
             raise urllib.error.HTTPError(
                 newurl, code, "redirect to a local/internal/reserved address "
                 "(SSRF guard)", headers, fp)
@@ -100,20 +130,52 @@ def _utc_now() -> datetime:
     return datetime.now(timezone.utc)
 
 
-def _web_fetch(inp: dict[str, Any], ctx: ToolContext) -> ToolResult:
+def _inspect_outgoing_request(
+    value: str,
+    ctx: ToolContext | None,
+) -> ToolResult | None:
+    from ._types import ToolResult
+    if ctx is None:
+        return None
+    settings = ctx.cfg.get("egress")
+    if (not isinstance(settings, dict)
+            or settings.get("enabled") is not True
+            or settings.get("enforced") is not True):
+        return None
+    try:
+        inspect_payload(value, None, ctx.cfg)
+    except EgressScanError as exc:
+        return ToolResult(f"Refused: outgoing request {exc}", is_error=True)
+    return None
+
+
+def _web_fetch(
+    inp: dict[str, Any],
+    ctx: ToolContext | None,
+) -> ToolResult:
+    from ._types import ToolResult
     url = inp.get("url", "").strip()
     if not url:
         return ToolResult("Missing url", is_error=True)
     if not url.startswith(("http://", "https://")):
         url = "https://" + url
-    if _is_blocked_url(url):
+    inspection = _inspect_outgoing_request(url, ctx)
+    if inspection is not None:
+        return inspection
+    if _is_blocked_literal_url(url):
         return ToolResult(
             "Refused: that URL targets a local/internal/reserved address "
             "(SSRF guard).", is_error=True)
     req = urllib.request.Request(url, headers={"User-Agent": USER_AGENT})
-    opener = urllib.request.build_opener(_GuardedRedirectHandler)
+    opener = urllib.request.build_opener(urllib.request.ProxyHandler({}), _GuardedRedirectHandler(), PinnedHTTPSHandler())
+    receipt_id = record_tool_receipt(
+        ctx.cfg if ctx is not None else {},
+        operation="web_fetch",
+        outcome="prepared",
+    )
     try:
         with opener.open(req, timeout=30) as resp:
+            http_status = getattr(resp, "status", None)
             ctype = resp.headers.get("Content-Type", "")
             content_encoding = resp.headers.get("Content-Encoding", "")
             last_modified = resp.headers.get("Last-Modified")
@@ -124,7 +186,21 @@ def _web_fetch(inp: dict[str, Any], ctx: ToolContext) -> ToolResult:
             )
             raw = resp.read(2_000_000)
     except (OSError, ValueError) as exc:
+        record_tool_receipt(
+            ctx.cfg if ctx is not None else {},
+            operation="web_fetch",
+            outcome="failed",
+            receipt_id=receipt_id,
+        )
         return ToolResult(f"Fetch failed: {exc}", is_error=True)
+    record_tool_receipt(
+        ctx.cfg if ctx is not None else {},
+        operation="web_fetch",
+        outcome="sent",
+        receipt_id=receipt_id,
+        byte_count=len(raw),
+        http_status=http_status if isinstance(http_status, int) else None,
+    )
 
     try:
         body = decode_http_body(raw, content_encoding).decode(
@@ -165,12 +241,57 @@ def _get_json(url: str, headers: dict[str, str] | None = None) -> Any:
     """
     req = urllib.request.Request(
         url, headers={"User-Agent": USER_AGENT, **(headers or {})})
-    opener = urllib.request.build_opener(_GuardedRedirectHandler)
+    opener = urllib.request.build_opener(urllib.request.ProxyHandler({}), _GuardedRedirectHandler(), PinnedHTTPSHandler())
     with opener.open(req, timeout=SEARCH_TIMEOUT) as resp:
         return json.loads(resp.read(2_000_000).decode("utf-8", "replace"))
 
 
-def _marginalia(query: str, count: int, cfg: dict[str, Any]) -> list[dict]:
+class _SearchReceiptError(RuntimeError):
+    pass
+
+
+def _search_attempt(
+    cfg: dict[str, Any],
+    provider: str,
+    search: Callable[[], list[dict[str, str]]],
+) -> list[dict[str, str]]:
+    try:
+        receipt_id = record_tool_receipt(
+            cfg,
+            operation="web_search",
+            outcome="prepared",
+            provider=provider,
+        )
+    except OSError as exc:
+        raise _SearchReceiptError from exc
+    try:
+        results = search()
+    except Exception:
+        try:
+            record_tool_receipt(
+                cfg,
+                operation="web_search",
+                outcome="failed",
+                receipt_id=receipt_id,
+                provider=provider,
+            )
+        except OSError as receipt_exc:
+            raise _SearchReceiptError from receipt_exc
+        raise
+    try:
+        record_tool_receipt(
+            cfg,
+            operation="web_search",
+            outcome="sent",
+            receipt_id=receipt_id,
+            provider=provider,
+        )
+    except OSError as exc:
+        raise _SearchReceiptError from exc
+    return results
+
+
+def _marginalia(query: str, count: int, cfg: dict[str, Any]) -> list[dict[str, str]]:
     key = (os.environ.get("MARGINALIA_API_KEY")
            or (cfg or {}).get("marginalia_api_key")
            or MARGINALIA_PUBLIC_KEY)
@@ -184,7 +305,7 @@ def _marginalia(query: str, count: int, cfg: dict[str, Any]) -> list[dict]:
     return out
 
 
-def _mwmbl(query: str, count: int) -> list[dict]:
+def _mwmbl(query: str, count: int) -> list[dict[str, str]]:
     """Fallback. Returns a bare array, and its title/extract are segment lists
     (the shape that lets a UI bold query terms) rather than strings."""
     data = _get_json(f"{MWMBL_URL}?s={quote(query)}")
@@ -205,12 +326,12 @@ def _segments(value: Any) -> str:
     return str(value or "").strip()
 
 
-def _render(results: list[dict], source: str, license_note: str = "") -> str:
+def _render(results: list[dict[str, str]], source: str, license_note: str = "") -> str:
     lines = [
         f"# {len(results)} result(s) — {source}",
         f"Retrieved-At: {_utc_now().isoformat(timespec='seconds')}",
-        "_Search snippets are discovery only; source publication/update date "
-        "unavailable. Open the exact URL with web_fetch before citing it._",
+        ("_Search snippets are discovery only; source publication/update date "
+        "unavailable. Open the exact URL with web_fetch before citing it._"),
     ]
     if license_note:
         lines.append(f"_Results licensed {license_note}_")
@@ -223,19 +344,35 @@ def _render(results: list[dict], source: str, license_note: str = "") -> str:
     return "\n".join(lines)
 
 
-def _web_search(inp: dict[str, Any], ctx: ToolContext) -> ToolResult:
+def _web_search(
+    inp: dict[str, Any],
+    ctx: ToolContext | None,
+) -> ToolResult:
+    from ._types import ToolResult
     query = str(inp.get("query", "")).strip()
     if not query:
         return ToolResult("Missing query", is_error=True)
+    inspection = _inspect_outgoing_request(query, ctx)
+    if inspection is not None:
+        return inspection
     count = max(1, min(MAX_RESULTS, int(inp.get("count") or 5)))
     cfg = getattr(ctx, "cfg", None) or {}
 
     tried: list[str] = []
     try:
-        hits = _marginalia(query, count, cfg)
+        hits = _search_attempt(
+            cfg,
+            "marginalia",
+            lambda: _marginalia(query, count, cfg),
+        )
         if hits:
             return ToolResult(_render(hits, "Marginalia", MARGINALIA_LICENSE))
         tried.append("Marginalia: no results")
+    except _SearchReceiptError:
+        return ToolResult(
+            "Web search blocked: receipt storage unavailable",
+            is_error=True,
+        )
     except (AttributeError, OSError, TypeError, ValueError) as exc:
         # 503 here is the shared public key's rate limit. Do NOT retry or back
         # off: that bucket is shared with every other birkin user, so a retry
@@ -243,10 +380,19 @@ def _web_search(inp: dict[str, Any], ctx: ToolContext) -> ToolResult:
         tried.append(f"Marginalia: {exc}")
 
     try:
-        hits = _mwmbl(query, count)
+        hits = _search_attempt(
+            cfg,
+            "mwmbl",
+            lambda: _mwmbl(query, count),
+        )
         if hits:
             return ToolResult(_render(hits, "Mwmbl"))
         tried.append("Mwmbl: no results")
+    except _SearchReceiptError:
+        return ToolResult(
+            "Web search blocked: receipt storage unavailable",
+            is_error=True,
+        )
     except (AttributeError, OSError, TypeError, ValueError) as exc:
         tried.append(f"Mwmbl: {exc}")
 

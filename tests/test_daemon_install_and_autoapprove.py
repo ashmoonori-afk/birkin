@@ -20,8 +20,6 @@ from __future__ import annotations
 
 import types
 
-import pytest
-
 from birkin import approvals, scheduler, security
 
 

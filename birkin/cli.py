@@ -20,6 +20,10 @@ from typing import Any, Optional
 
 def _cmd_chat(args: argparse.Namespace) -> int:
     from . import config
+    positional = getattr(args, "positional_message", None)
+    if positional and not getattr(args, "dry_run", False):
+        print("positional chat message requires --dry-run", file=sys.stderr)
+        return 2
     if getattr(args, "dry_run", False):
         return _dry_run(args)
     if not config.config_path().exists():  # first run -> onboard
@@ -34,7 +38,14 @@ def _dry_run(args: argparse.Namespace) -> int:
     """Build and print the prompt packet for a message — no model call, no key."""
     from .runtime import build_dry_run_packet
     from .ui import BOLD, CYAN, DIM, RESET
-    msg = args.message
+    positional = getattr(args, "positional_message", None)
+    if args.message and positional:
+        print(
+            "choose either positional message or --message, not both",
+            file=sys.stderr,
+        )
+        return 2
+    msg = args.message or positional
     if not msg:
         try:
             msg = input("Message to inspect: ").strip()
@@ -339,7 +350,17 @@ def _cmd_harness(args: argparse.Namespace) -> int:
 
 
 # Tools grouped by "toolset" for the Available Tools panel.
-_TOOL_GROUPS = ["files", "shell", "web", "skills", "memory", "subagent"]
+_TOOL_GROUPS = [
+    "files",
+    "shell",
+    "web",
+    "sessions",
+    "skills",
+    "memory",
+    "egress",
+    "companion",
+    "subagent",
+]
 
 def _cmd_curate(args: argparse.Namespace) -> int:
     """Skill lifecycle pass: report stale, archive long-unused user skills."""
@@ -388,7 +409,10 @@ def _cmd_tools(args: argparse.Namespace) -> int:
     base = dict(cfg)
     base["disabled_tools"] = []
     skills, memory = build_manager(cfg), VaultMemory(cfg)
-    ctx = ToolContext(cfg=base, client=None, cwd=Path.cwd(),
+    from .llm import LLMClient
+    # Inspection-only context: no network calls needed, use local-cli stub
+    client = LLMClient(provider="local-cli", model="", api_key="", base_url="")
+    ctx = ToolContext(cfg=base, client=client, cwd=Path.cwd(),
                       skills=skills, memory=memory)
 
     # group -> [tool names], skipping empty groups
@@ -888,6 +912,11 @@ def build_parser() -> argparse.ArgumentParser:
     chatp.add_argument("--dry-run", action="store_true",
                        help="build & print the prompt packet without calling the model")
     chatp.add_argument("-m", "--message", help="message to inspect with --dry-run")
+    chatp.add_argument(
+        "positional_message",
+        nargs="?",
+        help="message to inspect with --dry-run",
+    )
     chatp.set_defaults(func=_cmd_chat)
 
     sp = sub.add_parser("skills",

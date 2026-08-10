@@ -616,6 +616,23 @@ quality/**model-compare** — 그리고 `~/.birkin/skills/`의 내 스킬(같은
   "gateway_polish_model": "sonnet",
   "gateway_persistent": true,
   "cli_timeout": 900,
+  "cli_access": "workspace",
+  "cli_network_access": false,
+  "egress": {
+    "enabled": true,
+    "enforced": true,
+    "max_bytes": 1048576,
+    "destinations": {
+      "trusted-api": {
+        "url": "https://api.example.com/submissions",
+        "method": "POST",
+        "automatic": true,
+        "content_types": ["application/json"],
+        "max_bytes": 1048576,
+        "auth_env": "EXAMPLE_SUBMIT_TOKEN"
+      }
+    }
+  },
   "workspace_roots": ["/path/to/primary-workspace"],
   "autosave_transcripts": true,
   "neurosis_auto": true,
@@ -667,6 +684,29 @@ Codex 영구 게이트웨이는 `workspace_roots`에서 실제로 존재하는 �
 맨 앞에 두세요. Windows에서 사용자 프로필 루트를 root로 쓰면 Codex sandbox가
 PowerShell, Git Bash, Kaggle CLI 자식을 만들 때마다
 `SetTokenInformation(TokenDefaultDacl) failed: 1344`로 실패할 수 있습니다.
+`submit_payload`가 기본 outbound-write 경로입니다. inline JSON 또는 text를
+받아 `egress.destinations`의 정확한 destination 이름만 해석하고, 최종 bytes를
+canonicalize한 뒤 DNS/socket보다 먼저 검사합니다. 인증은 `auth_env`에서
+destination별로 주입하고, 한 번만 전송하며, body나 credential이 없는
+intent/outcome metadata를 `~/.birkin/egress-receipts.jsonl`에 기록합니다.
+자동 전송은 `automatic: true`인 profile만 허용하고, 알 수 없거나
+non-automatic인 destination은 차단합니다. Profile은 HTTPS/443, 고정된
+method/path/content-type/byte cap만 허용하며 query, fragment, userinfo, proxy,
+redirect를 허용하지 않습니다. 일반 `redact_secrets` 설정으로 이 pre-send
+검사를 끌 수 없습니다.
+
+기본 `egress.enforced: true`에서는 broker를 우회할 수 있는 native
+`run_shell`과 `spawn_subagent` capability를 노출하지 않습니다. Model이 제어하는
+`web_fetch` URL과 `web_search` query에도 network 전에 같은 secret scan을
+적용하며, 일반 public research는 계속 사용할 수 있습니다. `enforced`를
+`false`로 바꾸면 raw native capability가 복원되고 security warning이 표시됩니다.
+
+`cli_network_access`의 기본값은 `false`입니다. 이를 켜면 Codex child가 raw
+network를 사용해 inspected-egress destination/payload 검사를 우회하므로 Birkin이
+security warning을 냅니다. Workspace 파일시스템 격리와
+`approval_policy="never"`는 유지되지만 raw network는 명시적 escape hatch이며
+기본 submission 경로가 아닙니다. `cli_access: "full"`은 별도의 위험한
+host-access opt-in이며, 외부에서 접근 가능한 gateway에는 절대 상속되지 않습니다.
 `cli_timeout`은 multi-agent child turn을 포함한 현재 대화 thread에서 검증된
 lifecycle 또는 delta 활동 이후의 idle 시간이며, 무관한 app-server status
 알림은 제한을 연장하지 않습니다. Codex가 turn을 수락한 뒤 item을 하나도

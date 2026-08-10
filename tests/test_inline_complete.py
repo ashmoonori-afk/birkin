@@ -638,7 +638,8 @@ def test_fuzzy_subsequence_reaches_non_prefix_commands():
     from birkin.inline_complete import CommandHint, filter_commands
     cmds = [CommandHint(name, "") for name in
             ("permission", "sessions", "rollback", "provider", "compact")]
-    names = lambda q: [c.name for c in filter_commands(q, cmds)]
+    def names(q):
+        return [c.name for c in filter_commands(q, cmds)]
     assert "permission" in names("/prm")
     assert "sessions" in names("/sns")
     assert "rollback" in names("/rbk")

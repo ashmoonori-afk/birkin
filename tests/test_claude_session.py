@@ -208,6 +208,27 @@ def test_system_prompt_written_to_tempfile(monkeypatch):
     assert not pathlib.Path(path).exists()  # cleaned up
 
 
+def test_enforced_warm_session_uses_only_birkin_mcp_tools():
+    session = ClaudeStreamSession(birkin_mcp=True)
+    session.egress_enforced = True
+
+    argv = session._build_argv()
+    mcp_index = argv.index("--mcp-config")
+    with open(argv[mcp_index + 1], encoding="utf-8") as handle:
+        mcp = json.load(handle)
+
+    assert argv[argv.index("--tools") + 1] == ""
+    assert argv[argv.index("--allowedTools") + 1] == "mcp__birkin__*"
+    assert argv[argv.index("--setting-sources") + 1] == ""
+    assert "--strict-mcp-config" in argv
+    assert "--disable-slash-commands" in argv
+    assert "--no-chrome" in argv
+    assert "--no-session-persistence" in argv
+    assert "--dangerously-skip-permissions" not in argv
+    assert set(mcp["mcpServers"]) == {"birkin"}
+    session.close()
+
+
 def test_send_raises_without_process():
     """_send must raise (not assert, stripped under -O) when there's no proc."""
     s = ClaudeStreamSession()

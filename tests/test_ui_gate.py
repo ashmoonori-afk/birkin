@@ -24,7 +24,7 @@ def _run(env_over):
     env.update(env_over)
     out = subprocess.run([sys.executable, "-c", _PROBE], capture_output=True,
                          text=True, env=env).stdout
-    return dict(l.split(" ", 1) for l in out.strip().splitlines())
+    return dict(line.split(" ", 1) for line in out.strip().splitlines())
 
 
 def test_piped_output_has_no_escapes():

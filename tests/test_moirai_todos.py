@@ -21,8 +21,6 @@ from __future__ import annotations
 import importlib.util
 from pathlib import Path
 
-import pytest
-
 from birkin.moirai import todos
 
 
@@ -66,7 +64,8 @@ class TestTodoList:
 
     def test_snapshot_carries_what_a_heartbeat_needs(self) -> None:
         t = todos.TodoList(["하나", "둘", "셋"])
-        t.start(0); t.done(0)
+        t.start(0)
+        t.done(0)
         t.start(1)
         snap = t.snapshot()
         assert snap["todo_total"] == 3
@@ -75,7 +74,8 @@ class TestTodoList:
 
     def test_render_reads_like_progress(self) -> None:
         t = todos.TodoList(["하나", "둘"])
-        t.start(0); t.done(0)
+        t.start(0)
+        t.done(0)
         t.start(1)
         line = t.render()
         assert "1/2" in line

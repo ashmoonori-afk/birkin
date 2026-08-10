@@ -88,17 +88,21 @@ def test_codex_sandbox_forced_in_argv():
     argv = s._build_argv()
     assert 'sandbox_mode="workspace-write"' in argv
     assert 'approval_policy="never"' in argv
+    assert "sandbox_workspace_write.network_access=false" in argv
     assert not any("danger-full-access" in a for a in argv)
     s.close()
+    networked = CodexAppServerSession(
+        model="gpt-5.6-sol", network_access=True)
+    assert "sandbox_workspace_write.network_access=true" in (
+        networked._build_argv())
+    networked.close()
     full = CodexAppServerSession(model="gpt-5.6-sol",
                                  sandbox_mode="danger-full-access")
     assert 'sandbox_mode="danger-full-access"' in full._build_argv()
     full.close()
     bad = CodexAppServerSession(model="gpt-5.6-sol", sandbox_mode="yolo")
-    try:
-        bad._build_argv(); assert False
-    except CodexSessionError:
-        pass
+    with pytest.raises(CodexSessionError):
+        bad._build_argv()
 
 
 @pytest.mark.parametrize(

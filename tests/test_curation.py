@@ -505,7 +505,8 @@ def _annotate_plan(**fields):
 
 def test_gate_accepts_annotate_and_clamps_it():
     vault = _seed_vault()
-    dex = mnemosyne.Mnemosyne(vault); dex.refresh()
+    dex = mnemosyne.Mnemosyne(vault)
+    dex.refresh()
     snap = _snap(vault)
     plan = _annotate_plan(slug="budget-plan",
                           aliases=["예산 계획", "지출 계획"],
@@ -520,7 +521,8 @@ def test_gate_accepts_annotate_and_clamps_it():
 
 def test_gate_annotate_cannot_touch_the_body_or_unknown_fields():
     vault = _seed_vault()
-    dex = mnemosyne.Mnemosyne(vault); dex.refresh()
+    dex = mnemosyne.Mnemosyne(vault)
+    dex.refresh()
     snap = _snap(vault)
     plan = _annotate_plan(slug="budget-plan", aliases=["ok"],
                           body="REPLACE EVERYTHING", type="identity",
@@ -532,7 +534,8 @@ def test_gate_annotate_cannot_touch_the_body_or_unknown_fields():
 
 def test_gate_annotate_drops_unknown_slug_and_empty_payload():
     vault = _seed_vault()
-    dex = mnemosyne.Mnemosyne(vault); dex.refresh()
+    dex = mnemosyne.Mnemosyne(vault)
+    dex.refresh()
     snap = _snap(vault)
     for bad in (_annotate_plan(slug="does-not-exist", aliases=["x"]),
                 _annotate_plan(slug="budget-plan"),
@@ -544,7 +547,8 @@ def test_gate_annotate_drops_unknown_slug_and_empty_payload():
 
 def test_gate_annotate_clamps_item_count_and_length():
     vault = _seed_vault()
-    dex = mnemosyne.Mnemosyne(vault); dex.refresh()
+    dex = mnemosyne.Mnemosyne(vault)
+    dex.refresh()
     snap = _snap(vault)
     plan = _annotate_plan(slug="budget-plan",
                           queries=[f"query number {i}" for i in range(50)],
@@ -558,7 +562,8 @@ def test_gate_annotate_clamps_item_count_and_length():
 
 def test_apply_annotate_writes_frontmatter_only_and_body_is_untouched():
     vault = _seed_vault()
-    dex = mnemosyne.Mnemosyne(vault); dex.refresh()
+    dex = mnemosyne.Mnemosyne(vault)
+    dex.refresh()
     path = vault / dex.note_meta("budget-plan")["rel"]
     before_body = mnemosyne.frontmatter.parse(
         path.read_text(encoding="utf-8"))[1]
@@ -578,7 +583,8 @@ def test_annotated_anchors_become_searchable():
     """An anchor the curator wrote must actually change retrieval, or the
     whole annotate op is decoration."""
     vault = _seed_vault()
-    dex = mnemosyne.Mnemosyne(vault); dex.refresh()
+    dex = mnemosyne.Mnemosyne(vault)
+    dex.refresh()
     q = "가계부 지출 관리"
     assert not [h for h in dex.search(q, limit=5) if h["slug"] == "budget-plan"]
 

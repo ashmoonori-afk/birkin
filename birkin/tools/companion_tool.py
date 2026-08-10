@@ -11,7 +11,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from . import Tool, ToolContext, ToolResult
+from ._types import Tool, ToolContext, ToolResult
 
 
 def _propose(tool_input: dict[str, Any], ctx: ToolContext) -> ToolResult:

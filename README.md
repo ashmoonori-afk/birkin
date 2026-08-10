@@ -657,6 +657,23 @@ Keys you'll actually touch:
   "gateway_polish_model": "sonnet",
   "gateway_persistent": true,
   "cli_timeout": 900,
+  "cli_access": "workspace",
+  "cli_network_access": false,
+  "egress": {
+    "enabled": true,
+    "enforced": true,
+    "max_bytes": 1048576,
+    "destinations": {
+      "trusted-api": {
+        "url": "https://api.example.com/submissions",
+        "method": "POST",
+        "automatic": true,
+        "content_types": ["application/json"],
+        "max_bytes": 1048576,
+        "auth_env": "EXAMPLE_SUBMIT_TOKEN"
+      }
+    }
+  },
   "workspace_roots": ["/path/to/primary-workspace"],
   "autosave_transcripts": true,
   "neurosis_auto": true,
@@ -710,6 +727,30 @@ For a persistent Codex gateway, the first existing entry in
 the primary project first. This matters on Windows: using the user-profile
 root can make the Codex sandbox fail every PowerShell, Git Bash, and Kaggle
 CLI child with `SetTokenInformation(TokenDefaultDacl) failed: 1344`.
+`submit_payload` is the default outbound-write path. It accepts inline JSON or
+text, resolves only an exact destination name from `egress.destinations`,
+canonicalizes and scans the final bytes before DNS or a socket, injects
+destination-scoped authentication from `auth_env`, sends once, and writes
+metadata-only intent/outcome records to
+`~/.birkin/egress-receipts.jsonl`. Automatic transfer requires
+`automatic: true`; unknown and non-automatic destinations are blocked. Profiles
+are HTTPS/443 only, with a fixed method/path/content-type/byte cap and no
+query, fragment, userinfo, proxy, or redirect. Normal `redact_secrets` settings
+cannot disable this pre-send scan.
+
+With the default `egress.enforced: true`, Birkin omits native `run_shell` and
+`spawn_subagent` capabilities that could bypass the broker. Model-controlled
+`web_fetch` URLs and `web_search` queries receive the same pre-network secret
+scan while normal public research remains available. Setting `enforced` to
+`false` restores those raw native capabilities and emits a security warning.
+
+`cli_network_access` defaults to `false`. Turning it on grants the Codex child
+raw network and bypasses inspected-egress destination and payload checks, so
+Birkin emits a security warning. Workspace filesystem confinement and
+`approval_policy="never"` remain in force, but raw network is an explicit
+escape hatch, not the submission default. `cli_access: "full"` remains the
+separate, dangerous host-access opt-in and is never inherited by the reachable
+gateway.
 `cli_timeout` is an idle window measured from validated lifecycle or delta
 activity in the current conversation thread, including multi-agent child
 turns; unrelated app-server status notifications do not extend it. If Codex

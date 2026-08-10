@@ -115,8 +115,47 @@ def test_serve_roundtrip_and_parse_error(monkeypatch):
     assert mcp_server.serve(stdin=inp, stdout=out) == 0
     lines = [json.loads(x) for x in out.getvalue().splitlines() if x.strip()]
     assert lines[0]["id"] == 1 and "result" in lines[0]
-    assert any(l.get("error", {}).get("code") == -32700 for l in lines)
+    assert any(line.get("error", {}).get("code") == -32700 for line in lines)
     assert lines[-1]["id"] == 2 and lines[-1]["result"] == {}
+
+
+def test_serve_bounds_frame_read_before_allocation(monkeypatch):
+    import io
+
+    class _Input:
+        def __init__(self) -> None:
+            self.data = "x" * 33 + "\n"
+            self.offset = 0
+            self.iterated = False
+            self.read_sizes: list[int] = []
+
+        def __iter__(self):
+            self.iterated = True
+            yield self.data
+
+        def readline(self, size: int = -1) -> str:
+            self.read_sizes.append(size)
+            if self.offset >= len(self.data):
+                return ""
+            end = len(self.data)
+            if size >= 0:
+                end = min(end, self.offset + size)
+            chunk = self.data[self.offset:end]
+            self.offset = end
+            return chunk
+
+    source = _Input()
+    stdout = io.StringIO()
+    monkeypatch.setattr(mcp_server, "_MAX_LINE_BYTES", 32)
+    monkeypatch.setattr(mcp_server, "_build_tools", lambda: {})
+
+    assert mcp_server.serve(stdin=source, stdout=stdout) == 0
+
+    assert not source.iterated
+    assert source.read_sizes
+    assert all(0 < size <= 33 for size in source.read_sizes)
+    assert "request too large" in stdout.getvalue()
+    assert "parse error" not in stdout.getvalue()
 
 
 def test_create_skill_handler_success_and_error(tmp_path, monkeypatch):

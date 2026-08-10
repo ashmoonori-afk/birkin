@@ -513,7 +513,7 @@ def load_config() -> dict[str, Any]:
     # Deep-merge nested sub-sections so setting one entry doesn't drop the
     # defaults for the others (e.g. saving only channels.telegram must keep the
     # default channels.http). A plain dict.update() replaces the whole sub-tree.
-    for nk in ("channels",):
+    for nk in ("channels", "egress"):
         base, sv = DEFAULT_CONFIG.get(nk), saved.get(nk)
         if isinstance(base, dict) and isinstance(sv, dict):
             merged = {k: (dict(v) if isinstance(v, dict) else v)
@@ -534,6 +534,8 @@ def load_config() -> dict[str, Any]:
     # safe default rather than mis-routing to the dangerous "full" path.
     if cfg.get("cli_access") not in ("workspace", "full"):
         cfg["cli_access"] = "workspace"
+    if not isinstance(cfg.get("cli_network_access"), bool):
+        cfg["cli_network_access"] = DEFAULT_CONFIG["cli_network_access"]
     _resolve_secrets(cfg)
     return cfg
 

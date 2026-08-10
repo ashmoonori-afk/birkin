@@ -17,8 +17,6 @@ from __future__ import annotations
 
 import types
 
-import pytest
-
 from birkin import approvals
 from birkin.gateway import core as gateway_core
 from birkin.gateway.channels import telegram as tg

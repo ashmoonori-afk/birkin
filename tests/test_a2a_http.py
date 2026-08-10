@@ -121,9 +121,9 @@ class TestWhileOnItServesTheProtocol:
                      "X-Birkin-Token": web._TOKEN})
         try:
             with urllib.request.urlopen(request, timeout=5) as resp:
-                code, body = resp.status, resp.read()
+                code, _ = resp.status, resp.read()
         except urllib.error.HTTPError as exc:
-            code, body = exc.code, exc.read()
+            code, _ = exc.code, exc.read()
         assert code == 400
 
     def test_the_dashboard_still_works_with_a2a_on(self, live) -> None:

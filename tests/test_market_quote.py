@@ -5,6 +5,8 @@ from __future__ import annotations
 import importlib
 import importlib.util
 import json
+import socket
+import urllib.error
 from datetime import datetime, timezone
 from typing import TypeAlias
 
@@ -25,6 +27,45 @@ def _market_module():
     spec = importlib.util.find_spec("birkin.tools.market")
     assert spec is not None, "birkin.tools.market must provide verified quotes"
     return importlib.import_module("birkin.tools.market")
+
+
+def test_market_transport_pins_validated_public_address(monkeypatch):
+    market = _market_module()
+    host = "query1.finance.yahoo.com"
+    dns_calls: list[str] = []
+    connection_attempts: list[str] = []
+
+    def fake_getaddrinfo(resolved_host, _port, *_args, **_kwargs):
+        dns_calls.append(resolved_host)
+        return [("AF_INET", 0, 0, "", ("93.184.216.34", 443))]
+
+    def fake_create_connection(address, *_args, **_kwargs):
+        connection_attempts.append(address[0])
+        raise OSError("connection tripwire")
+
+    monkeypatch.setattr(socket, "getaddrinfo", fake_getaddrinfo)
+    monkeypatch.setattr(socket, "create_connection", fake_create_connection)
+
+    with pytest.raises(urllib.error.URLError):
+        market._fetch_chart("AAPL")
+
+    assert dns_calls == [host]
+    assert connection_attempts == ["93.184.216.34"]
+
+
+def test_market_transport_refuses_provider_redirects():
+    market = _market_module()
+    handler = market._NoRedirectHandler()
+
+    with pytest.raises(urllib.error.HTTPError):
+        handler.redirect_request(
+            req=None,
+            fp=None,
+            code=302,
+            msg="Found",
+            headers={},
+            newurl="https://attacker.example/collect",
+        )
 
 
 def _chart_payload(

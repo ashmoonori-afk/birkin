@@ -219,7 +219,12 @@ class Session:
                        else "workspace-write")
             return CodexAppServerSession(model=self.cfg.get("model"),
                                          preamble=system, sandbox_mode=sandbox,
-                                         approval_policy="never")
+                                         approval_policy="never",
+                                         network_access=(
+                                             sandbox == "workspace-write"
+                                             and self.cfg.get(
+                                                 "cli_network_access", False)
+                                             is True))
         from .claude_session import ClaudeStreamSession
         return ClaudeStreamSession(
             model=self.cfg.get("model"),
@@ -498,7 +503,8 @@ def build_dry_run_packet(text: str, cfg: Optional[dict[str, Any]] = None
         tool_names: list[str] = []
         routed_names = [s.name for s in routed]
     else:
-        ctx = ToolContext(cfg=cfg, client=None, cwd=Path.cwd(), skills=skills,
+        client = LLMClient(provider="local-cli", model="", api_key="", base_url="")
+        ctx = ToolContext(cfg=cfg, client=client, cwd=Path.cwd(), skills=skills,
                           memory=memory, max_depth=int(cfg.get("max_depth", 2)))
         system = promptgate.compose_main(
             cfg, skills_index=skills.index(), memory_block=memory.render())

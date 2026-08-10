@@ -135,7 +135,6 @@ def test_abort_skips_the_grace_call():
             return False
 
     flag = Flag()
-    client = LoopsForever()
 
     class StopsAfterTwo(LoopsForever):
         def complete(self, *, system, messages, tools=None, model=None,

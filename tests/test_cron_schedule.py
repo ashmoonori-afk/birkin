@@ -6,7 +6,7 @@ from datetime import datetime, timedelta
 
 import pytest
 
-from birkin import config, cron
+from birkin import cron
 
 
 @pytest.fixture(autouse=True)
@@ -231,8 +231,8 @@ def test_a_job_without_next_run_recovers_from_its_own_history():
 
 
 def test_a_fresh_job_without_next_run_waits_for_its_interval():
-    job = cron.add_job(name="x", action_type="prompt", value="v",
-                       schedule="every 30m")
+    cron.add_job(name="x", action_type="prompt", value="v",
+                 schedule="every 30m")
     jobs = cron.load_jobs()
     jobs[0].pop("next_run")
     cron.save_jobs(jobs)

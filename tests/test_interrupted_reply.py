@@ -60,7 +60,11 @@ def test_telegram_labels_empty_interrupted_turn(
     gateway._claude_sessions.put(("telegram", "42"), session)
     channel = TelegramChannel("tok", allowed_chat_ids=["42"], stream=False)
     sent: list[str] = []
-    monkeypatch.setattr(channel, "_keep_typing", lambda _chat_id, stop: stop.wait())
+    monkeypatch.setattr(
+        channel,
+        "_keep_typing",
+        lambda _chat_id, stop, _progress=None: stop.wait(),
+    )
     monkeypatch.setattr(
         channel, "_send_reply", lambda _chat_id, reply: sent.append(reply)
     )

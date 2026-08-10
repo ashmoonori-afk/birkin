@@ -38,6 +38,81 @@ def test_web_fetch_refuses_blocked(monkeypatch):
     assert called["n"] == 0
 
 
+def test_web_fetch_pins_validated_address_against_dns_rebinding(monkeypatch):
+    public = ("AF_INET", 0, 0, "", ("93.184.216.34", 443))
+    private = ("AF_INET", 0, 0, "", ("127.0.0.1", 443))
+    dns_answers = [[public], [private]]
+    dns_calls: list[str] = []
+    connection_attempts: list[str] = []
+
+    def fake_getaddrinfo(host, _port, *_args, **_kwargs):
+        dns_calls.append(host)
+        return dns_answers.pop(0)
+
+    def fake_create_connection(address, *_args, **_kwargs):
+        host, port = address
+        if host == "rebind.example":
+            host = fake_getaddrinfo(host, port)[0][4][0]
+        connection_attempts.append(host)
+        raise OSError("connection tripwire")
+
+    monkeypatch.setattr(web.socket, "getaddrinfo", fake_getaddrinfo)
+    monkeypatch.setattr(web.socket, "create_connection", fake_create_connection)
+
+    result = web._web_fetch(
+        {"url": "https://rebind.example/resource"},
+        None,
+    )
+
+    assert result.is_error
+    assert dns_calls == ["rebind.example"]
+    assert connection_attempts == ["93.184.216.34"]
+
+
+def test_web_fetch_rejects_plain_http_before_network(monkeypatch):
+    network_calls: list[str] = []
+
+    def fake_getaddrinfo(host, _port, *_args, **_kwargs):
+        network_calls.append(f"dns:{host}")
+        return [("AF_INET", 0, 0, "", ("93.184.216.34", 80))]
+
+    def fake_create_connection(address, *_args, **_kwargs):
+        network_calls.append(f"connect:{address[0]}")
+        raise OSError("connection tripwire")
+
+    monkeypatch.setattr(web.socket, "getaddrinfo", fake_getaddrinfo)
+    monkeypatch.setattr(web.socket, "create_connection", fake_create_connection)
+
+    result = web._web_fetch(
+        {"url": "http://public.example/resource"},
+        None,
+    )
+
+    assert result.is_error
+    assert network_calls == []
+
+
+def test_web_redirect_rejects_https_downgrade():
+    import http.client
+    import io
+    import urllib.error
+    import urllib.request
+
+    handler = web._GuardedRedirectHandler()
+    try:
+        handler.redirect_request(
+            req=urllib.request.Request("https://origin.example/"),
+            fp=io.BytesIO(),
+            code=302,
+            msg="Found",
+            headers=http.client.HTTPMessage(),
+            newurl="http://93.184.216.34/downgrade",
+        )
+        raise AssertionError("expected an HTTPError for HTTPS downgrade")
+    except urllib.error.HTTPError as exc:
+        assert "HTTPS" in str(exc.reason)
+
+
 def test_redirect_to_blocked_address_is_refused():
     # The guard must re-run on each redirect hop: a public URL that 302s to the
     # cloud-metadata IP would otherwise bypass the up-front check.

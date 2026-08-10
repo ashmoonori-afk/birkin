@@ -11,7 +11,7 @@ import subprocess
 from pathlib import Path
 from typing import Any
 
-from . import Tool, ToolContext, ToolResult
+from ._types import Tool, ToolContext, ToolResult
 from ..proc import shell_argv
 
 # Memory bound only. The visible cap is applied by tools/spill.py, which saves

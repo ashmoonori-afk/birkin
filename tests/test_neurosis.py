@@ -47,7 +47,7 @@ def test_reseed_with_flag_retunes_active_interview(tmp_path, monkeypatch):
 
 def test_reseed_without_flag_keeps_active_tuning(tmp_path, monkeypatch):
     monkeypatch.setenv("BIRKIN_HOME", str(tmp_path))
-    s1 = neurosis.seed_state("ship a landing page", cfg={}, resolution="quick")  # 0.6
+    neurosis.seed_state("ship a landing page", cfg={}, resolution="quick")  # 0.6
     # a plain resume (no flag) leaves the existing threshold untouched
     s2 = neurosis.seed_state("ship a landing page", cfg={})
     assert s2["resume"] is True and s2["threshold"] == 0.6

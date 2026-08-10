@@ -17,8 +17,6 @@ from __future__ import annotations
 
 import threading
 
-import pytest
-
 from birkin import store
 
 

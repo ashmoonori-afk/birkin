@@ -20,8 +20,6 @@ explicit and empty by default.
 
 from __future__ import annotations
 
-import types
-
 import pytest
 
 from birkin import config, morpheus, scheduler, store
