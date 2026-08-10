@@ -339,6 +339,10 @@ a representative configuration using real defaults from `birkin/config.py`:
 Important boundaries:
 
 - `shell_approval: "manual"` asks before destructive shell commands.
+- On Windows, shell jobs use `cmd.exe` and receive a verified writable
+  `TEMP`/`TMP`, so tools such as Bun and npm keep working in long-lived
+  gateway, scheduler, and daemon processes. PowerShell is used only when
+  explicitly requested.
 - `fs_jail: true` restricts native file tools to configured workspace roots.
 - `redact_secrets: true` masks detected credentials before output is persisted.
 - `disabled_tools` removes named native tools from the registry.

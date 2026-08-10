@@ -2,8 +2,14 @@
 
 from __future__ import annotations
 
+import os
+import subprocess
+import tempfile
 import urllib.request
 from pathlib import Path
+from typing import cast
+
+import pytest
 
 from birkin.tools import ToolContext, build_registry
 from birkin.tools import files as files_mod
@@ -80,6 +86,34 @@ def test_shell_empty_command_errors(tmp_path: Path):
     fn = next(t for t in shell_mod.tools() if t.name == "run_shell").fn
     res = fn({"command": "   "}, ctx)
     assert res.is_error and "Empty" in res.content
+
+
+@pytest.mark.skipif(os.name != "nt", reason="Windows TEMP normalization")
+def test_shell_replaces_unwritable_windows_temp_env(
+        tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    expected_temp = tempfile.gettempdir()
+    protected_temp = str(
+        Path(os.environ.get("SystemRoot", "C:\\Windows")) / "System32"
+    )
+    monkeypatch.setenv("TEMP", protected_temp)
+    monkeypatch.setenv("TMP", protected_temp)
+    captured: dict[str, object] = {}
+
+    def fake_run(
+            argv: list[str], **kwargs: object
+    ) -> subprocess.CompletedProcess[str]:
+        captured.update(kwargs)
+        return subprocess.CompletedProcess(argv, 0, "ok", "")
+
+    monkeypatch.setattr(shell_mod.subprocess, "run", fake_run)
+    fn = next(t for t in shell_mod.tools() if t.name == "run_shell").fn
+
+    result = fn({"command": "echo ok"}, _ctx(tmp_path))
+    child_env = cast(dict[str, str], captured["env"])
+
+    assert result.is_error is False
+    assert child_env["TEMP"] == expected_temp
+    assert child_env["TMP"] == expected_temp
 
 
 # ---------------- web (monkeypatch the opener — no network) ----------------

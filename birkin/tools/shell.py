@@ -11,8 +11,8 @@ import subprocess
 from pathlib import Path
 from typing import Any
 
+from ..proc import shell_argv, shell_env
 from . import Tool, ToolContext, ToolResult
-from ..proc import shell_argv
 
 # Memory bound only. The visible cap is applied by tools/spill.py, which saves
 # the full output to disk first — slicing it away here would destroy it.
@@ -35,7 +35,8 @@ def _run_shell(inp: dict[str, Any], ctx: ToolContext) -> ToolResult:
         # via an explicit platform shell argv — never shell=True. See proc.py.
         proc = subprocess.run(
             shell_argv(command), cwd=str(cwd), capture_output=True,
-            text=True, errors="replace", timeout=timeout,
+            text=True, errors="replace", timeout=timeout, env=shell_env(),
+            check=False,
         )
     except subprocess.TimeoutExpired:
         return ToolResult(f"Command timed out after {timeout}s", is_error=True)
@@ -52,7 +53,8 @@ def tools() -> list[Tool]:
             name="run_shell",
             description="Run a shell command in the workspace and return its "
                         "stdout/stderr and exit code. Use for builds, tests, git, "
-                        "and file operations.",
+                        "and file operations. On Windows this uses cmd.exe; use "
+                        "PowerShell only when the user explicitly requests it.",
             input_schema={
                 "type": "object",
                 "properties": {

@@ -23,13 +23,12 @@ import sys
 import time
 import urllib.parse
 import urllib.request
-from pathlib import Path
-
-from .proc import shell_argv
 from datetime import datetime, timedelta
+from pathlib import Path
 from typing import Any
 
 from . import config, cron, monitor, store
+from .proc import shell_argv, shell_env
 
 _POLL_SECONDS = 30
 _TG_SEND = "https://api.telegram.org/bot{token}/sendMessage"
@@ -296,7 +295,8 @@ def _run_job(job: dict[str, Any]) -> None:
 
         if jtype == "shell":
             proc = subprocess.run(shell_argv(value), capture_output=True,
-                                  text=True, errors="replace", timeout=600)
+                                  text=True, errors="replace", timeout=600,
+                                  env=shell_env(), check=False)
             out = (proc.stdout or "") + (proc.stderr or "")
             delivery = _deliver(job, out.strip() or f"exit {proc.returncode}")
             store.save_run("cron", f"[{job.get('name')}] exit {proc.returncode}",

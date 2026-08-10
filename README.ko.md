@@ -332,6 +332,10 @@ Registry가 노출할 수 있는 기능:
 중요한 경계:
 
 - `shell_approval: "manual"`은 파괴적 shell command 전에 묻습니다.
+- Windows shell 작업은 `cmd.exe`로 실행되고 검증된 쓰기 가능한
+  `TEMP`/`TMP`를 받으므로 장시간 실행되는 gateway, scheduler, daemon에서도
+  Bun·npm 같은 도구가 정상 동작합니다. PowerShell은 명시적으로 요청할 때만
+  사용합니다.
 - `fs_jail: true`는 네이티브 file tool을 설정된 workspace root로 제한합니다.
 - `redact_secrets: true`는 output 저장 전에 감지한 credential을 마스킹합니다.
 - `disabled_tools`는 이름이 지정된 네이티브 tool을 registry에서 제거합니다.
