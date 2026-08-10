@@ -339,7 +339,10 @@ def _cmd_harness(args: argparse.Namespace) -> int:
 
 
 # Tools grouped by "toolset" for the Available Tools panel.
-_TOOL_GROUPS = ["files", "shell", "web", "skills", "memory", "subagent"]
+_TOOL_GROUPS = [
+    "files", "shell", "web", "vision", "desktop", "skills", "memory",
+    "subagent",
+]
 
 def _cmd_curate(args: argparse.Namespace) -> int:
     """Skill lifecycle pass: report stale, archive long-unused user skills."""
