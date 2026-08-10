@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "birkin"
-version = "0.4.135"
+version = "0.4.136"
 description = "Lightweight, self-improving CLI agent workspace with skill management, subagents, and a WebUI. Inspired by hermes-agent and openclaw."
 readme = "README.md"
 requires-python = ">=3.10"
@@ -40,6 +40,7 @@ packages = ["birkin"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+norecursedirs = [".git", ".venv", "tmp"]
 # Offline runs skip the live suite by default; opt in with `BIRKIN_LIVE=1
 # pytest -m live` (and a real backend ??API key, or installed claude/codex CLI).
 addopts = "-q --cov=birkin --cov-report=term-missing -m 'not live'"
