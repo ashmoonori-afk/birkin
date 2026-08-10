@@ -8,8 +8,8 @@ from types import ModuleType, SimpleNamespace
 
 import pytest
 
-from birkin.voice.audio import AudioData
 from birkin.cli import build_parser
+from birkin.voice.audio import AudioData
 
 
 def _openai_module() -> ModuleType:
@@ -139,6 +139,19 @@ def test_microphone_capture_uses_mono_float32_and_waits() -> None:
     assert captured == AudioData((0.25, -0.25), 24_000)
 
 
+def test_microphone_capture_rejects_duration_below_one_frame() -> None:
+    recorder = _Recorder()
+
+    with pytest.raises(ValueError, match="at least one frame"):
+        _audio_module().capture_microphone(
+            duration_seconds=0.000_001,
+            sample_rate=1,
+            recorder=recorder,
+        )
+
+    assert recorder.request is None
+
+
 def test_voice_command_flag_does_not_overwrite_subcommand() -> None:
     args = build_parser().parse_args(
         ["voice", "--once", "--audio", "wake.wav"]
@@ -146,3 +159,45 @@ def test_voice_command_flag_does_not_overwrite_subcommand() -> None:
 
     assert args.command == "voice"
     assert args.voice_command is None
+
+
+def test_voice_config_parses_merged_mapping() -> None:
+    voice_config = importlib.import_module("birkin.voice.config")
+
+    parsed = voice_config.VoiceConfig.from_mapping(
+        {
+            "wake_phrase": "Computer",
+            "gateway_url": "http://127.0.0.1:9000/message",
+            "session_id": "bridge",
+            "sample_rate": 16_000,
+            "stt_model": "gpt-transcribe",
+            "tts_model": "gpt-4o-mini-tts",
+            "tts_voice": "alloy",
+            "tts_instructions": "Be brief.",
+            "background_workers": 3,
+        }
+    )
+
+    assert parsed.wake_phrase == "Computer"
+    assert parsed.gateway_url == "http://127.0.0.1:9000/message"
+    assert parsed.session_id == "bridge"
+    assert parsed.sample_rate == 16_000
+    assert parsed.stt_model == "gpt-transcribe"
+    assert parsed.tts_model == "gpt-4o-mini-tts"
+    assert parsed.tts_voice == "alloy"
+    assert parsed.tts_instructions == "Be brief."
+    assert parsed.background_workers == 3
+
+
+def test_voice_parser_defers_config_backed_defaults() -> None:
+    args = build_parser().parse_args(["voice", "--once"])
+
+    assert args.wake_phrase is None
+    assert args.gateway_url is None
+    assert args.session_id is None
+    assert args.sample_rate is None
+    assert args.stt_model is None
+    assert args.tts_model is None
+    assert args.tts_voice is None
+    assert args.tts_instructions is None
+    assert args.background_workers is None

@@ -67,7 +67,7 @@ uv run birkin            # 또는:  pip install -e .  &&  birkin
 
 Python 3.10+. 첫 실행에 온보딩 마법사가 뜹니다.
 
-### Active voice control
+### 능동 음성 제어
 
 음성 기능은 birkin과 함께 설치됩니다. OpenAI STT/TTS에는 Platform API
 키가 필요합니다.
@@ -88,14 +88,23 @@ uv run birkin voice --once \
   --no-playback
 ```
 
-`--audio`와 `--command-audio`를 생략하면 기본 마이크에서 wake/command
+`--audio`와 `--command-audio`를 생략하면 기본 마이크에서 깨우기/명령
 구간을 제한 시간만큼 수집합니다. `--background`를 추가하면
-`~/.birkin/voice/jobs` 아래 durable receipt를 받습니다. CI나 문제 분석에는
+`~/.birkin/voice/jobs` 아래 영속 작업 영수증을 받습니다. CI나 문제 분석에는
 `--transcript "Daddy is home" --command "status"`로 결정적 입력을 줄 수
 있습니다.
 
-Wake phrase는 routing trigger일 뿐 인증이 아닙니다. 음성 요청도
-`Gateway.handle("voice", ...)`를 통과하며 Telegram의 approved-work flag를
+중첩된 `voice` 설정 블록은 대응하는 CLI 플래그의 기본값이며, 명시한
+플래그가 우선합니다. 빈 `gateway_url`은 깨우기 fixture 실행을 오프라인으로
+유지합니다. Gateway 전달에는 값을 설정하거나
+`http://127.0.0.1:8788/message` 같은 정확한 loopback HTTP `/message`
+주소를 `--gateway-url`로 넘깁니다. loopback이 아닌 host, HTTPS, 자격증명,
+query, fragment는 거부됩니다. 로컬 HTTP 채널에 공유 비밀을 설정했다면
+`BIRKIN_HTTP_TOKEN`을 지정하십시오. 음성 client는 검증된 loopback
+endpoint에만 이 token을 전달합니다.
+
+깨우기 문구는 명령 경로를 여는 신호일 뿐 인증이 아닙니다. 음성 요청도
+`Gateway.handle("voice", ...)`를 통과하며 Telegram의 승인 작업 표식을
 얻지 못합니다. 제한된 STT는 `gpt-transcribe`, 응답 음성은
 `gpt-4o-mini-tts`를 사용하며 생성 음성은 AI 음성입니다. Codex/ChatGPT
 로그인은 Audio API용 `OPENAI_API_KEY`를 대신하지 않습니다.
@@ -659,6 +668,18 @@ quality/**model-compare** — 그리고 `~/.birkin/skills/`의 내 스킬(같은
   "api_keys": [],
   "lsp_servers": {},
   "a2a_enabled": false,
+
+  "voice": {
+    "wake_phrase": "Daddy is home",
+    "gateway_url": "",
+    "session_id": "voice-local",
+    "sample_rate": 24000,
+    "stt_model": "gpt-transcribe",
+    "tts_model": "gpt-4o-mini-tts",
+    "tts_voice": "coral",
+    "tts_instructions": "Speak concisely and clearly.",
+    "background_workers": 2
+  },
 
   "channels": {
     "http": {"enabled": true},

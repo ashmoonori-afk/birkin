@@ -4,7 +4,7 @@ EXACT COMMAND:
 uv --directory "C:/Users/lg/Documents/Claude/Projects/Birkin/active-voice-control" run pytest tests/test_background_broker.py tests/test_voice_security.py -q
 
 ASSERTION RESULT:
-3 passed
+7 passed
 
 PROCESS RESULT:
 exit 1 only because the pre-existing pytest defaults require 75% whole-project
@@ -15,17 +15,25 @@ uv --directory "C:/Users/lg/Documents/Claude/Projects/Birkin/active-voice-contro
 
 CLEAN TARGETED RESULT:
 exit 0
-6 passed
+21 passed
 
 PROVEN CONTRACTS:
 - max_workers=1 prevents a queued job from starting while the first is blocked.
 - events are ordered queued -> running -> progress -> succeeded.
 - every transition is atomically reflected in the JSON receipt.
 - queued cancellation prevents the callable from executing.
+- admission backpressure rejects work beyond the max_workers-sized queue.
+- a full queue closes without deadlock because sentinel delivery occurs outside
+  the broker lock.
+- daemon workers let `close(wait=False)` return and let the interpreter exit
+  even when a running task never completes.
+- terminal receipt `OSError` becomes a failed snapshot and always signals
+  completion instead of killing the worker or timing out the waiter.
 - destructive `Gateway.handle("voice", ...)` keeps both approval flags false.
-- broker close joins all worker threads.
+- `close(wait=True)` drains accepted work and joins all worker threads.
 
 DIAGNOSTICS:
-birkin/background.py: no diagnostics, 246 lines.
+birkin/background.py: no diagnostics, 264 physical / 230 pure lines.
+birkin/background_receipts.py: no diagnostics, 103 physical / 86 pure lines.
 birkin/voice/mission.py: no diagnostics, 50 lines.
 birkin/cli.py: no diagnostics.

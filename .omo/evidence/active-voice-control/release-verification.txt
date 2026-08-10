@@ -1,0 +1,141 @@
+SCENARIO: final frozen active-voice-control release verification
+WORKTREE: C:/Users/lg/Documents/Claude/Projects/Birkin/active-voice-control
+BRANCH: active-voice-control
+
+EXACT FULL SUITE
+COMMAND:
+uv --directory "C:/Users/lg/Documents/Claude/Projects/Birkin/active-voice-control" run pytest -q
+RESULT:
+exit 0
+Required test coverage of 75.0% reached.
+Total coverage: 82.13%
+
+TARGETED VOICE AND DOCUMENTATION
+COMMAND:
+uv --directory "C:/Users/lg/Documents/Claude/Projects/Birkin/active-voice-control" run pytest tests/test_background_broker.py tests/test_gateway_voice.py tests/test_openai_voice.py tests/test_voice_security.py tests/test_voice_wake.py tests/test_readme_config.py -q --no-cov
+RESULT:
+exit 0
+37 passed
+
+STRICT CHANGED-SCOPE LINT
+COMMAND:
+uvx ruff check birkin/background.py birkin/background_receipts.py birkin/cli.py birkin/config.py birkin/gateway/channels/local_http.py birkin/voice script/qa tests/test_background_broker.py tests/test_gateway_voice.py tests/test_openai_voice.py tests/test_voice_security.py tests/test_voice_wake.py tests/test_readme_config.py
+RESULT:
+exit 0
+All checks passed!
+
+CHANGED-SCOPE TYPE CHECK
+COMMAND:
+uvx basedpyright --project . --pythonpath .venv/Scripts/python.exe --level error birkin/background.py birkin/background_receipts.py birkin/cli.py birkin/config.py birkin/gateway/channels/local_http.py birkin/voice script/qa tests/test_background_broker.py tests/test_gateway_voice.py tests/test_openai_voice.py tests/test_voice_security.py tests/test_voice_wake.py
+RESULT:
+exit 0
+0 errors, 0 warnings, 0 notes
+
+SECURITY REGRESSIONS
+COMMAND:
+uv run pytest tests/test_security.py tests/test_shellguard.py tests/test_shellguard_tiers.py tests/test_gateway_approval_integrity.py tests/test_gateway_workflow_security.py tests/test_voice_security.py tests/test_gateway_voice.py -q --no-cov
+RESULT:
+exit 0
+143 passed
+NOTE:
+The run retains one pre-existing PytestUnhandledThreadExceptionWarning in
+test_malformed_proposal_falls_back_to_normal_reply; it was present before this
+voice branch and is not suppressed.
+
+STATIC SECURITY AND DEPENDENCIES
+COMMAND:
+uvx bandit -q -r birkin/voice birkin/background.py birkin/background_receipts.py birkin/gateway/channels/local_http.py
+RESULT: exit 0, no findings
+COMMAND:
+uvx pip-audit --progress-spinner off .
+RESULT: exit 0, No known vulnerabilities found
+
+DIAGNOSTICS AND BUILDABILITY
+- LSP error diagnostics: zero on every changed Python file, QA driver, and the
+  standalone HTML design.
+- `uv run python -m compileall -q birkin script/qa`: exit 0.
+- `git diff --check`: exit 0. Git emitted only configured LF/CRLF conversion
+  notices; no whitespace error.
+
+REAL CLI SURFACES
+- `uv run birkin voice --help`: exit 0 and all wake, STT/TTS, Gateway,
+  background, receipt, worker, and timeout flags shown.
+- happy fixture command: exit 0, `WAKE_ACCEPTED`, `COMMAND=status`.
+- phrase-only fixture command: exit 2, `WAKE_REJECTED reason=clap_missing`.
+- missing WAV: exit 2, `VOICE_ERROR [Errno 2] ...`, no traceback.
+- generated `tests/fixtures/voice` assets removed after the run.
+
+REAL PIPELINE SURFACES
+- `script/qa/voice_pipeline_smoke.py`: Gateway/TTS/PCM/CLEANUP PASS.
+- `script/qa/voice_stt_smoke.py`: two STT requests, command collection,
+  Gateway route, TTS delivery, CLEANUP PASS.
+- `script/qa/voice_background_smoke.py`: immediate ACK, durable receipt,
+  succeeded delivery, approval bypass prevention, CLEANUP PASS.
+- process regression: one running plus one queued job, full admission state,
+  `close(wait=False)`, and interpreter exit all complete within the bounded
+  subprocess timeout.
+- raw HTTP regression: incomplete legal-size body returns 408 within the
+  two-second server read timeout and never dispatches to Gateway.
+
+BROWSER AND DOCUMENTATION
+COMMAND:
+node script/qa/voice_design_visual.cjs
+RESULT:
+desktop 1440x1000: CONTENT/LAYOUT/overflow PASS
+mobile 390x844: CONTENT/LAYOUT/overflow PASS
+console/page errors: 0
+CLEANUP=PASS
+SCREENSHOTS:
+.omo/evidence/active-voice-control/design-desktop.png (390704 bytes)
+.omo/evidence/active-voice-control/design-mobile.png (327221 bytes)
+- README.md and README.ko.md config-key parity tests: 4 passed.
+- VoiceConfig, CLI defaults, `gpt-transcribe`, loopback `/message`, token,
+  body cap/read timeout, approval boundary, and daemon queue semantics agree
+  across code, both READMEs, DESIGN.md, and the standalone HTML.
+
+SELF-REVIEW
+- `birkin/background.py`: 264 physical / 230 pure lines.
+- `birkin/background_receipts.py`: 103 physical / 86 pure lines.
+- `birkin/voice/controller.py`: 239 physical / 214 pure lines.
+- No fixed sleeps in changed runtime or tests.
+- Queue admission is bounded by a max_workers-sized BoundedSemaphore; sentinel
+  transport is deliberately nonblocking and occurs outside the broker lock.
+- Ordinary job exceptions become durable failed receipts; BaseException
+  process interrupts are not swallowed.
+- Terminal receipt I/O failures become failed in-memory snapshots and signal
+  waiter completion in `finally`; the dedicated RED→GREEN regression passes.
+- Original source design remains untracked and unchanged at
+  C:/Users/lg/projects/birkin/docs/ironman-voice-agent-workflow-design.html,
+  SHA-256 25b01d0b7f59b76aa21ff8324ffe0a166fe3ce50dfd7a6ede2ea65cba737eb61.
+
+IMPORT NORMALIZATION REVALIDATION
+- Four import groups were normalized for worktree-root Ruff classification
+  only; no executable statement changed.
+- Root-CWD strict Ruff over the exact Git-derived 25-file Python set: exit 0,
+  `All checks passed!`.
+- Affected `test_gateway_voice.py` + `test_openai_voice.py`: 21 passed.
+- Background and STT smoke drivers reran against those imports with all PASS
+  sentinels and `CLEANUP=PASS`.
+- All changed-file basedpyright remained 0 errors, 0 warnings, 0 notes; LSP
+  diagnostics remained zero on all four normalized files.
+- The final exact full suite at the top of this receipt ran after these edits
+  and the terminal receipt-failure fix, so 82.13% covers the shipped tree.
+
+CLEANUP
+- no generated WAV/PCM or voice receipt directory remains in the worktree.
+- no `birkin-voice-qa-*`, `birkin-stt-qa-*`, or
+  `birkin-background-qa-*` temporary directory remains.
+- all smoke servers, threads, subprocesses, ports, and browser instances
+  reported `CLEANUP=PASS`.
+
+FINAL REVIEW
+- Plan-gated Momus was unavailable because the harness rejected a second plan
+  review after `start-work`; the exact harness limitation is recorded in this
+  evidence directory. The pre-implementation bounded GPT ultrabrain fallback
+  returned `APPROVE`.
+- Final frozen-tree goal, code-quality, security, and context/accuracy reviews:
+  PASS with no current blockers.
+- Final QA: artifact accuracy PASS and cleanup CLEAN. Its sole commit-readiness
+  condition is to force-stage this gitignored receipt; delivery verifies that
+  it is included before committing.
+- Spaghetti-code and documentation-consistency self-review: PASS.

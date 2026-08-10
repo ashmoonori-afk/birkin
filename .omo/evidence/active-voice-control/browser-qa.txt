@@ -1,5 +1,5 @@
 SCENARIO: standalone HTML desktop/mobile visual QA
-COMMAND: npx --yes --package playwright node script/qa/voice_design_visual.cjs
+COMMAND: node script/qa/voice_design_visual.cjs
 FINAL EXIT: 0
 
 FINAL ACTION LOG:
@@ -19,8 +19,8 @@ CONSOLE_PAGE_ERRORS=0
 CLEANUP=PASS
 
 SCREENSHOTS:
-.omo/evidence/active-voice-control/design-desktop.png (367330 bytes)
-.omo/evidence/active-voice-control/design-mobile.png (300062 bytes)
+.omo/evidence/active-voice-control/design-desktop.png (390704 bytes)
+.omo/evidence/active-voice-control/design-mobile.png (327221 bytes)
 
 VISUAL DEBUGGING:
 - Initial desktop passed.
@@ -28,6 +28,14 @@ VISUAL DEBUGGING:
   preformatted min-content width.
 - Added bounded overflow containers, `min-width:0` grid children, and code
   wrapping. Final document width equals the 390px viewport.
+- Added config/controller cards and hardened-boundary copy. The driver exposed
+  a missing `Gateway.handle` contract string; restoring that accurate route
+  made CONTENT/LAYOUT pass at both final viewports.
+- Replaced stale numeric test/status badges with `TARGETED TESTS PASS` and
+  `RELEASE VALIDATED`; the implementation ledger now records the completed
+  full-suite/static/security/browser validation.
+- Split the daemon broker from `background_receipts.py` in the final file map
+  and reran both viewports after the card update.
 
 REVIEWERS:
 - GPT design-system/functional reviewer: PASS. Hierarchy, contrast, responsive

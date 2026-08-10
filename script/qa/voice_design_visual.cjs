@@ -68,9 +68,11 @@ async function main() {
         "gpt-4o-mini-tts",
         "implementation ledger",
       ];
-      const contentPass = required.every((value) =>
-        facts.text.toLowerCase().includes(value.toLowerCase()),
+      const missing = required.filter(
+        (value) =>
+          !facts.text.toLowerCase().includes(value.toLowerCase()),
       );
+      const contentPass = missing.length === 0;
       const pass =
         facts.title.includes("Active Voice Control") &&
         facts.h1.includes("Daddy is home") &&
@@ -83,6 +85,9 @@ async function main() {
       console.log(`TITLE=${facts.title}`);
       console.log(`SECTIONS=${facts.sections}`);
       console.log(`CONTENT=${contentPass ? "PASS" : "FAIL"}`);
+      if (missing.length) {
+        console.log(`MISSING_CONTENT=${JSON.stringify(missing)}`);
+      }
       console.log(`HORIZONTAL_OVERFLOW=${facts.overflow ? "FAIL" : "PASS"}`);
       if (facts.overflow) {
         console.log(`OVERFLOW_OFFENDERS=${JSON.stringify(facts.offenders)}`);

@@ -21,3 +21,20 @@ npx playwright screenshot --browser chromium --full-page file:///C:/Users/lg/pro
 
 PASS means the command exits 0, the screenshot exists and is non-empty, and
 the original source hash remains unchanged.
+
+## Final release receipt
+
+`release-verification.txt` is the current-tree release ledger. It records the
+exact full-suite result and coverage, 37 targeted voice/documentation tests,
+root-CWD strict Ruff, changed-scope basedpyright, security regressions, Bandit,
+dependency audit, real CLI/HTTP/STT/background surfaces, final browser
+screenshots, module-size self-review, source preservation, and cleanup.
+
+The scenario-specific RED/GREEN and real-surface receipts remain the detailed
+evidence behind that consolidated ledger:
+
+- `red-wake.txt`, `green-wake.txt`, `wake-cli.txt`
+- `red-gateway.txt`, `green-gateway.txt`, `gateway-pipeline.txt`
+- `red-stt.txt`, `green-stt.txt`, `stt-cli.txt`
+- `red-background.txt`, `green-background.txt`, `background-smoke.txt`
+- `browser-qa.txt`, `design-desktop.png`, `design-mobile.png`

@@ -199,79 +199,79 @@ captured scenario.
 
 ## Todos
 
-- [ ] 17. Momus plan review: approve contracts before implementation
+- [x] 17. Momus plan review: approve contracts before implementation
   - Recommended task executor category: `unspecified-high`
   - Verify: reviewer returns no success-criterion blocker.
-- [ ] 18. `tests/test_openai_voice.py`: capture STT contract RED
+- [x] 18. `tests/test_openai_voice.py`: capture STT contract RED
   - Recommended task executor category: `unspecified-high`
   - Verify: failure identifies missing GPT STT and microphone contracts.
-- [ ] 19. OpenAI STT and microphone: implement collection GREEN
+- [x] 19. OpenAI STT and microphone: implement collection GREEN
   - Recommended task executor category: `deep`
   - Verify: recorded/in-memory STT and injected microphone tests pass.
-- [ ] 20. CLI STT surface: capture command collection evidence
+- [x] 20. CLI STT surface: capture command collection evidence
   - Recommended task executor category: `unspecified-high`
   - Verify: fake OpenAI API collects wake phrase and command from audio.
-- [ ] 1. `docs/` and `.omo/`: preserve source and capture baseline design
+- [x] 1. `docs/` and `.omo/`: preserve source and capture baseline design
   - Recommended task executor category: `quick`
   - Verify: source main-worktree bytes remain unchanged; baseline screenshot exists.
-- [ ] 2. `tests/test_voice_wake.py`: add wake contract and capture RED
+- [x] 2. `tests/test_voice_wake.py`: add wake contract and capture RED
   - Recommended task executor category: `unspecified-high`
   - Verify: failure names missing wake behavior, not a malformed test.
-- [ ] 3. `pyproject.toml`, config, `birkin/voice/`, CLI: implement wake slice
+- [x] 3. `pyproject.toml`, config, `birkin/voice/`, CLI: implement wake slice
   - Recommended task executor category: `deep`
   - Verify: S1 test GREEN and no module exceeds 250 pure LOC.
-- [ ] 4. CLI fixture scenarios: capture happy and rejection evidence
+- [x] 4. CLI fixture scenarios: capture happy and rejection evidence
   - Recommended task executor category: `unspecified-low`
   - Verify: exact exit codes/sentinel lines and fixture cleanup receipt.
-- [ ] 5. Git: commit verified wake increment
+- [x] 5. Git: commit verified wake increment
   - Recommended task executor category: `quick`
   - Verify: commit tests green and message/history convention matches.
-- [ ] 6. `tests/test_gateway_voice.py`: add pipeline contract and capture RED
+- [x] 6. `tests/test_gateway_voice.py`: add pipeline contract and capture RED
   - Recommended task executor category: `unspecified-high`
   - Verify: failure identifies absent channel/provider behavior.
-- [ ] 7. HTTP and OpenAI adapters: implement Gateway/TTS pipeline
+- [x] 7. HTTP and OpenAI adapters: implement Gateway/TTS pipeline
   - Recommended task executor category: `deep`
   - Verify: S2 tests GREEN; spoofed trust channels remain rejected.
-- [ ] 8. Live HTTP/CLI driver: capture pipeline evidence and cleanup
+- [x] 8. Live HTTP/CLI driver: capture pipeline evidence and cleanup
   - Recommended task executor category: `unspecified-high`
   - Verify: literal request/reply/audio artifact plus server teardown.
-- [ ] 9. Git: commit verified Gateway/TTS increment
+- [x] 9. Git: commit verified Gateway/TTS increment
   - Recommended task executor category: `quick`
   - Verify: commit is atomic and green.
-- [ ] 10. Broker/security tests: capture background and safety RED
+- [x] 10. Broker/security tests: capture background and safety RED
   - Recommended task executor category: `ultrabrain`
   - Verify: failures identify missing broker/security contracts.
-- [ ] 11. `birkin/background.py` and controller: implement mission slice
+- [x] 11. `birkin/background.py` and controller: implement mission slice
   - Recommended task executor category: `ultrabrain`
   - Verify: S3 tests GREEN with event-driven concurrency.
-- [ ] 12. Background smoke driver: capture PASS and cleanup evidence
+- [x] 12. Background smoke driver: capture PASS and cleanup evidence
   - Recommended task executor category: `unspecified-high`
   - Verify: all three PASS sentinels and no live resources remain.
-- [ ] 13. Git: commit verified background/safety increment
+- [x] 13. Git: commit verified background/safety increment
   - Recommended task executor category: `quick`
   - Verify: commit is atomic and green.
-- [ ] 14. HTML, DESIGN, README files: publish researched implementation
+- [x] 14. HTML, DESIGN, README files: publish researched implementation
   - Recommended task executor category: `writing`
   - Verify: code/config/commands/source URLs cross-check in both languages.
-- [ ] 15. Browser visual QA: capture desktop/mobile and reviewer verdicts
+- [x] 15. Browser visual QA: capture desktop/mobile and reviewer verdicts
   - Recommended task executor category: `visual-engineering`
   - Verify: fresh complete screenshots, zero errors, CJK/layout PASS, cleanup.
-- [ ] 16. Git: commit verified design and documentation increment
+- [x] 16. Git: commit verified design and documentation increment
   - Recommended task executor category: `quick`
   - Verify: shipped docs match current code exactly.
 
 ## Final verification wave
 
-- [ ] F1. Diagnostics and targeted tests: prove changed-code correctness
+- [x] F1. Diagnostics and targeted tests: prove changed-code correctness
   - Recommended task executor category: `unspecified-high`
   - Verify: LSP errors 0 and every targeted command GREEN.
-- [ ] F2. Full suite and static checks: prove regression safety
+- [x] F2. Full suite and static checks: prove regression safety
   - Recommended task executor category: `unspecified-high`
   - Verify: pytest, ruff, basedpyright, Bandit, dependency audit results captured.
-- [ ] F3. CLI and browser surfaces: replay every success scenario
+- [x] F3. CLI and browser surfaces: replay every success scenario
   - Recommended task executor category: `unspecified-high`
   - Verify: exact commands/screenshots all PASS and cleanup receipts exist.
-- [ ] F4. Momus and self-review: approve criteria and code quality
+- [x] F4. Momus and self-review: approve criteria and code quality
   - Recommended task executor category: `unspecified-high`
   - Verify: no criterion blocker; spaghetti/docs/security checks recorded.
 - [ ] F5. Final commit and push: publish verified clean branch

@@ -3,15 +3,20 @@ from __future__ import annotations
 import importlib
 import importlib.util
 import json
+import socket
 import threading
+from http.client import HTTPConnection
 from pathlib import Path
-from types import ModuleType
+from types import ModuleType, SimpleNamespace
 from urllib.error import HTTPError
 from urllib.request import Request, urlopen
 
 import pytest
+from openai import OpenAIError
 
+from birkin.cli import build_parser
 from birkin.gateway.channels.local_http import LocalHTTPChannel
+from birkin.voice.audio import AudioData
 
 
 class _Gateway:
@@ -24,7 +29,7 @@ class _Gateway:
         return f"reply:{text}"
 
 
-def _post(port: int, body: dict[str, str]) -> tuple[int, dict[str, str]]:
+def _post(port: int, body: dict[str, object]) -> tuple[int, dict[str, str]]:
     request = Request(
         f"http://127.0.0.1:{port}/message",
         data=json.dumps(body).encode("utf-8"),
@@ -116,6 +121,109 @@ def test_local_http_rejects_trusted_channel_spoof() -> None:
     assert gateway.calls == []
 
 
+@pytest.mark.parametrize("channel_value", [[], {}])
+def test_local_http_rejects_non_string_channel(
+    channel_value: object,
+) -> None:
+    gateway = _Gateway()
+    channel, thread = _start_channel(gateway)
+    try:
+        with pytest.raises(HTTPError) as caught:
+            _post(
+                _bound_port(channel),
+                {
+                    "channel": channel_value,
+                    "session": "invalid",
+                    "text": "status",
+                },
+            )
+    finally:
+        _stop_channel(channel, thread)
+
+    assert caught.value.code == 400
+    assert gateway.calls == []
+
+
+@pytest.mark.parametrize("text_value", [[], {}, 1])
+def test_local_http_rejects_non_string_text(text_value: object) -> None:
+    gateway = _Gateway()
+    channel, thread = _start_channel(gateway)
+    try:
+        with pytest.raises(HTTPError) as caught:
+            _post(
+                _bound_port(channel),
+                {
+                    "channel": "voice",
+                    "session": "invalid",
+                    "text": text_value,
+                },
+            )
+    finally:
+        _stop_channel(channel, thread)
+
+    assert caught.value.code == 400
+    assert gateway.calls == []
+
+
+def test_local_http_rejects_oversized_body() -> None:
+    gateway = _Gateway()
+    channel, thread = _start_channel(gateway)
+    connection = HTTPConnection("127.0.0.1", _bound_port(channel), timeout=2.0)
+    try:
+        connection.putrequest("POST", "/message")
+        connection.putheader("Content-Type", "application/json")
+        connection.putheader("Content-Length", "1000001")
+        connection.endheaders()
+        response = connection.getresponse()
+        assert response.status == 413
+    finally:
+        connection.close()
+        _stop_channel(channel, thread)
+
+    assert gateway.calls == []
+
+
+def test_local_http_times_out_incomplete_body() -> None:
+    gateway = _Gateway()
+    channel, thread = _start_channel(gateway)
+    try:
+        with socket.create_connection(
+            ("127.0.0.1", _bound_port(channel)),
+            timeout=2.0,
+        ) as client:
+            client.settimeout(4.0)
+            client.sendall(
+                b"POST /message HTTP/1.1\r\n"
+                b"Host: 127.0.0.1\r\n"
+                b"Content-Type: application/json\r\n"
+                b"Content-Length: 10\r\n"
+                b"Connection: close\r\n"
+                b"\r\n"
+                b"{"
+            )
+            response = client.recv(4096)
+    finally:
+        _stop_channel(channel, thread)
+
+    assert response.startswith(b"HTTP/1.0 408")
+    assert gateway.calls == []
+
+
+@pytest.mark.parametrize(
+    "url",
+    [
+        "file:///tmp/birkin.sock",
+        "https://127.0.0.1:8765/message",
+        "http://example.com/message",
+    ],
+)
+def test_gateway_client_rejects_non_loopback_http_endpoints(url: str) -> None:
+    gateway_module = _voice_module("birkin.voice.gateway")
+
+    with pytest.raises(ValueError, match="loopback HTTP"):
+        gateway_module.GatewayClient(url, session_id="voice-fixed")
+
+
 class _SpeechResponse:
     def iter_bytes(self) -> list[bytes]:
         return [b"\x01\x02", b"\x03\x04"]
@@ -197,3 +305,61 @@ def test_gateway_reply_streams_to_configured_pcm_sink(
         "instructions": "Speak concisely and clearly.",
         "response_format": "pcm",
     }
+
+
+def test_voice_controller_normalizes_tts_api_errors(
+    tmp_path: Path,
+    monkeypatch,
+    capsys,
+) -> None:
+    controller = importlib.import_module("birkin.voice.controller")
+
+    class _WakeGate:
+        def __init__(self, _config: object) -> None:
+            pass
+
+        def evaluate(self, *_args: object, **_kwargs: object) -> object:
+            return SimpleNamespace(accepted=True, reason="accepted")
+
+    class _GatewayClient:
+        def __init__(self, *_args: object, **_kwargs: object) -> None:
+            pass
+
+        def send(self, _command: str) -> str:
+            return "reply:status"
+
+    class _OpenAITTS:
+        def __init__(self, *_args: object, **_kwargs: object) -> None:
+            pass
+
+        def synthesize(self, _reply: str) -> bytes:
+            raise OpenAIError("quota")
+
+    monkeypatch.setattr(
+        controller,
+        "read_wav_mono",
+        lambda _path: AudioData((1.0,), 24_000),
+    )
+    monkeypatch.setattr(controller, "WakeGate", _WakeGate)
+    monkeypatch.setattr(controller, "GatewayClient", _GatewayClient)
+    monkeypatch.setattr(controller, "OpenAITTS", _OpenAITTS)
+    args = build_parser().parse_args(
+        [
+            "voice",
+            "--once",
+            "--audio",
+            "wake.wav",
+            "--transcript",
+            "Daddy is home",
+            "--command",
+            "status",
+            "--gateway-url",
+            "http://127.0.0.1:8788/message",
+            "--tts-output",
+            str(tmp_path / "reply.pcm"),
+            "--no-playback",
+        ]
+    )
+
+    assert controller.run_once(args) == 1
+    assert "VOICE_ERROR quota" in capsys.readouterr().err

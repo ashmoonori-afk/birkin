@@ -3,11 +3,11 @@ COMMAND: uv --directory "C:/Users/lg/Documents/Claude/Projects/Birkin/active-voi
 EXIT: 0
 
 TRANSCRIPT:
-  · http channel on http://127.0.0.1:50976 (POST /message, GET /health)
+  · http channel on http://127.0.0.1:55361 (POST /message, GET /health)
 WAKE_ACCEPTED
 COMMAND=status
 FOREGROUND_ACK=queued
-BACKGROUND_RECEIPT=C:\Users\lg\AppData\Local\Temp\birkin-background-qa-vvjlh1tm\receipts\41101231566842e49ad4d9a06387fb1f.json
+BACKGROUND_RECEIPT=C:\Users\lg\AppData\Local\Temp\birkin-background-qa-5cgdt2mp\receipts\1f665ee721e9476297e021bf4f796ce3.json
 FOREGROUND_ACK=PASS
 BACKGROUND_RECEIPT=PASS
 BACKGROUND_STATUS=succeeded
@@ -27,6 +27,11 @@ OBSERVATIONS:
 - GPT TTS request completed and the configured PCM sink contained exact bytes.
 - A destructive command driven through real Gateway.handle("voice", ...)
   observed both approval flags false.
+- The final broker uses a bounded daemon worker queue. A subprocess regression
+  proves `close(wait=False)` does not keep interpreter exit alive after a
+  timed-out worker.
+- Admission is bounded by a max_workers-sized semaphore and rejects overflow;
+  full-queue shutdown delivers sentinels outside the lock without deadlock.
 
 CLEANUP RECEIPT:
 - CLI process exited.

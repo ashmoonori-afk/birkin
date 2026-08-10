@@ -176,11 +176,10 @@ DEFAULT_CONFIG: dict[str, Any] = {
     "gateway_prewarm": True,
     "voice": {
         "wake_phrase": "Daddy is home",
-        "gateway_url": "http://127.0.0.1:8788/message",
+        "gateway_url": "",
         "session_id": "voice-local",
         "sample_rate": 24000,
-        "stt_model": "gpt-live-transcribe",
-        "file_stt_model": "gpt-transcribe",
+        "stt_model": "gpt-transcribe",
         "tts_model": "gpt-4o-mini-tts",
         "tts_voice": "coral",
         "tts_instructions": "Speak concisely and clearly.",

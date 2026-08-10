@@ -35,10 +35,10 @@ class _SpeechAPI:
         owner = self
 
         class Handler(BaseHTTPRequestHandler):
-            def log_message(self, *args: Any) -> None:
+            def log_message(self, format: str, *args: Any) -> None:
                 return None
 
-            def do_POST(self) -> None:  # noqa: N802
+            def do_POST(self) -> None:
                 length = int(self.headers.get("Content-Length", "0"))
                 print(
                     f"SPEECH_API_REQUEST={self.path} bytes={length}",

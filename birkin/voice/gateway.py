@@ -4,8 +4,8 @@ from __future__ import annotations
 
 import json
 from dataclasses import dataclass
-from urllib.error import HTTPError, URLError
-from urllib.request import Request, urlopen
+from http.client import HTTPConnection, HTTPException
+from urllib.parse import urlsplit
 
 
 class GatewayVoiceError(RuntimeError):
@@ -20,6 +20,25 @@ class GatewayClient:
     session_id: str
     token: str = ""
     timeout_seconds: float = 30.0
+
+    def __post_init__(self) -> None:
+        endpoint = urlsplit(self.url)
+        if (
+            endpoint.scheme != "http"
+            or endpoint.hostname not in {"127.0.0.1", "::1", "localhost"}
+            or endpoint.path != "/message"
+            or endpoint.username is not None
+            or endpoint.password is not None
+            or endpoint.query
+            or endpoint.fragment
+        ):
+            raise ValueError(
+                "voice Gateway URL must be a loopback HTTP /message endpoint"
+            )
+        try:
+            _ = endpoint.port
+        except ValueError as exc:
+            raise ValueError("voice Gateway URL has an invalid port") from exc
 
     def send(self, text: str) -> str:
         command = text.strip()
@@ -37,17 +56,29 @@ class GatewayClient:
         headers = {"Content-Type": "application/json"}
         if self.token:
             headers["X-Birkin-Token"] = self.token
-        request = Request(
-            self.url,
-            data=body,
-            headers=headers,
-            method="POST",
+        endpoint = urlsplit(self.url)
+        host = endpoint.hostname
+        if host is None:
+            raise GatewayVoiceError("Gateway URL is missing a host")
+        connection = HTTPConnection(
+            host,
+            endpoint.port or 80,
+            timeout=self.timeout_seconds,
         )
         try:
-            with urlopen(request, timeout=self.timeout_seconds) as response:
-                payload = json.loads(response.read().decode("utf-8"))
-        except (HTTPError, URLError, TimeoutError, json.JSONDecodeError) as exc:
+            connection.request("POST", endpoint.path, body=body, headers=headers)
+            response = connection.getresponse()
+            if response.status >= 400:
+                raise GatewayVoiceError(
+                    f"Gateway returned HTTP {response.status}"
+                )
+            payload = json.loads(response.read().decode("utf-8"))
+        except GatewayVoiceError:
+            raise
+        except (HTTPException, OSError, TimeoutError, json.JSONDecodeError) as exc:
             raise GatewayVoiceError(str(exc)) from exc
+        finally:
+            connection.close()
 
         if not isinstance(payload, dict):
             raise GatewayVoiceError("Gateway response must be a JSON object")

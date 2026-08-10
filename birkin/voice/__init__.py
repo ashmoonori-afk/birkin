@@ -8,6 +8,7 @@ from .audio import (
     encode_wav,
     read_wav_mono,
 )
+from .config import VoiceConfig
 from .gateway import GatewayClient, GatewayVoiceError
 from .mission import VoiceMissionService
 from .openai_voice import OpenAISTT, OpenAITTS
@@ -17,15 +18,16 @@ __all__ = [
     "AudioData",
     "GatewayClient",
     "GatewayVoiceError",
-    "OpenAITTS",
     "OpenAISTT",
+    "OpenAITTS",
     "PcmFileSink",
     "PcmSpeaker",
+    "VoiceConfig",
     "VoiceMissionService",
-    "capture_microphone",
-    "encode_wav",
     "WakeConfig",
     "WakeDecision",
     "WakeGate",
+    "capture_microphone",
+    "encode_wav",
     "read_wav_mono",
 ]

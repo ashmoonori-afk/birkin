@@ -93,6 +93,15 @@ from the default microphone. Add `--background` to receive a durable job
 receipt under `~/.birkin/voice/jobs`. For deterministic CI or troubleshooting,
 provide `--transcript "Daddy is home" --command "status"` instead.
 
+The nested `voice` config block supplies defaults for the matching CLI flags;
+an explicit flag wins. Its empty `gateway_url` keeps wake-only fixture runs
+offline. For Gateway delivery, set it or pass `--gateway-url` with an exact
+loopback HTTP `/message` endpoint such as
+`http://127.0.0.1:8788/message`. Non-loopback hosts, HTTPS, credentials,
+queries, and fragments are rejected. If the local HTTP channel is protected,
+set `BIRKIN_HTTP_TOKEN`; the voice client forwards it only to that validated
+loopback endpoint.
+
 The wake phrase is a routing trigger, not authorization. Voice requests still
 cross `Gateway.handle("voice", ...)` and cannot gain Telegram's approved-work
 flags. `gpt-transcribe` performs bounded STT and `gpt-4o-mini-tts` produces the
@@ -697,6 +706,18 @@ Keys you'll actually touch:
   "api_keys": [],
   "lsp_servers": {},
   "a2a_enabled": false,
+
+  "voice": {
+    "wake_phrase": "Daddy is home",
+    "gateway_url": "",
+    "session_id": "voice-local",
+    "sample_rate": 24000,
+    "stt_model": "gpt-transcribe",
+    "tts_model": "gpt-4o-mini-tts",
+    "tts_voice": "coral",
+    "tts_instructions": "Speak concisely and clearly.",
+    "background_workers": 2
+  },
 
   "channels": {
     "http": {"enabled": true},

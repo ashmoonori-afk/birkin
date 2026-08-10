@@ -5,12 +5,13 @@ COMMAND: uv --directory "C:/Users/lg/Documents/Claude/Projects/Birkin/active-voi
 EXIT: 0
 
 TRANSCRIPT:
-  · http channel on http://127.0.0.1:52421 (POST /message, GET /health)
+  · http channel on http://127.0.0.1:55357 (POST /message, GET /health)
+SPEECH_API_REQUEST=/v1/audio/speech bytes=142
 CLI_EXIT=0
 WAKE_ACCEPTED
 COMMAND=status
 REPLY=voice-reply:status
-TTS_SAVED=C:\Users\lg\AppData\Local\Temp\birkin-voice-qa-gjxd3gjt\reply.pcm
+TTS_SAVED=C:\Users\lg\AppData\Local\Temp\birkin-voice-qa-4qu9a697\reply.pcm
 GATEWAY_CALL=PASS
 TTS_REQUEST=PASS
 PCM_SINK=PASS
@@ -18,6 +19,8 @@ CLEANUP=PASS
 
 PROVEN REQUEST:
 Gateway received ("voice", "voice-fixed", "status").
+The CLI reached it through the final direct `HTTPConnection` client after
+loopback `/message` validation.
 
 OpenAI SDK sent:
 {

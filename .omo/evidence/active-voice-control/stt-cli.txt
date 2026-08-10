@@ -6,7 +6,7 @@ The CLI invocation omitted both `--transcript` and `--command`; it supplied
 only wake and command WAV files.
 
 TRANSCRIPT:
-  · http channel on http://127.0.0.1:49685 (POST /message, GET /health)
+  · http channel on http://127.0.0.1:55359 (POST /message, GET /health)
 SPEECH_API_REQUEST=/v1/audio/transcriptions bytes=2313
 SPEECH_API_REQUEST=/v1/audio/transcriptions bytes=2316
 SPEECH_API_REQUEST=/v1/audio/speech bytes=142
@@ -14,12 +14,18 @@ CLI_EXIT=0
 WAKE_ACCEPTED
 COMMAND=status
 REPLY=voice-reply:status
-TTS_SAVED=C:\Users\lg\AppData\Local\Temp\birkin-stt-qa-hjuhutp2\reply.pcm
+TTS_SAVED=C:\Users\lg\AppData\Local\Temp\birkin-stt-qa-5u3nc276\reply.pcm
 STT_REQUESTS=PASS
 COMMAND_COLLECTION=PASS
 GATEWAY_ROUTE=PASS
 TTS_DELIVERY=PASS
 CLEANUP=PASS
+
+FINAL CONFIG/TRANSPORT:
+- `voice.stt_model=gpt-transcribe` came from validated merged config unless a
+  CLI flag overrode it.
+- Gateway delivery used the final loopback-only direct `HTTPConnection`
+  transport.
 
 DEBUGGING RECEIPT:
 Two earlier 30-second CLI timeouts were caused by argparse destination

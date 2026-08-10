@@ -226,10 +226,10 @@
       </p>
       <div class="badges">
         <span class="badge pass">IMPLEMENTED</span>
-        <span class="badge pass">15 VOICE TESTS PASS</span>
+        <span class="badge pass">TARGETED TESTS PASS</span>
         <span class="badge">OPENAI SDK OSS</span>
         <span class="badge">PCM16 · 24 kHz</span>
-        <span class="badge warn">FINAL RELEASE GATES PENDING</span>
+        <span class="badge pass">RELEASE VALIDATED</span>
       </div>
     </header>
 
@@ -299,13 +299,21 @@
             <h3><code>birkin/voice/openai_voice.py</code></h3>
             <p><code>OpenAISTT</code>와 <code>OpenAITTS</code>. SDK client seam으로 실제 request shape를 fake endpoint에서 검증한다.</p>
           </div>
+          <div class="card">
+            <h3><code>birkin/voice/config.py</code></h3>
+            <p>병합된 <code>voice</code> 설정을 typed defaults로 파싱한다. 명시한 CLI flag가 설정값보다 우선한다.</p>
+          </div>
+          <div class="card violet">
+            <h3><code>birkin/voice/controller.py</code></h3>
+            <p>한 번의 wake·명령 수집·Gateway route·foreground/background delivery를 CLI에서 분리해 조정한다.</p>
+          </div>
           <div class="card amber">
             <h3><code>birkin/gateway/channels/local_http.py</code></h3>
-            <p><code>http|voice</code>만 허용한다. <code>telegram</code> spoof는 400이며 voice는 기존 <code>Gateway.handle()</code>로 간다.</p>
+            <p>1 MB JSON cap, 2초 body-read timeout, complete/string field를 강제하고 <code>http|voice</code>만 허용한다. <code>telegram</code> spoof는 400이다.</p>
           </div>
           <div class="card green">
             <h3><code>birkin/background.py</code></h3>
-            <p>bounded workers, ordered events, queued cancellation, transition마다 atomic JSON receipt, explicit shutdown.</p>
+            <p>bounded daemon queue/backpressure와 deadlock-safe shutdown을 소유한다. ordered/atomic receipt 모델은 <code>birkin/background_receipts.py</code>로 분리했다.</p>
           </div>
         </div>
       </section>
@@ -320,7 +328,7 @@
           </div>
           <div class="card">
             <h3>Gateway preserved</h3>
-            <p>Voice request는 <code>channel=voice</code>로 기존 session/tool 경계를 통과한다. 임의 channel은 거부된다.</p>
+            <p><code>GatewayClient</code>는 credential/query가 없는 loopback HTTP <code>/message</code>만 허용하고 기존 <code>Gateway.handle()</code>로 전달한다. <code>BIRKIN_HTTP_TOKEN</code>도 그 경계로만 전달된다.</p>
           </div>
           <div class="card green">
             <h3>Approval preserved</h3>
@@ -370,8 +378,8 @@
           <li><span class="mark">✓</span><span>Voice HTTP allowlist, Gateway client, GPT TTS, PCM sink</span><span class="state">ae3e97a</span></li>
           <li><span class="mark">✓</span><span>Bounded broker, cancellation, receipt, approval safety</span><span class="state">a917e91</span></li>
           <li><span class="mark">✓</span><span>GPT STT file/in-memory, microphone seam, command collection</span><span class="state">IMPLEMENTED</span></li>
-          <li><span class="mark">✓</span><span>Targeted voice stack: 15 tests green without global coverage gate</span><span class="state">PASS</span></li>
-          <li><span class="mark">•</span><span>Full-suite/static/security/browser/release validation</span><span class="state risk">IN PROGRESS</span></li>
+          <li><span class="mark">✓</span><span>Targeted voice regression suite green without global coverage gate</span><span class="state">PASS</span></li>
+          <li><span class="mark">✓</span><span>Full-suite/static/security/browser/release validation</span><span class="state">PASS</span></li>
         </ul>
       </section>
 

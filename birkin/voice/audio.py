@@ -8,7 +8,7 @@ from array import array
 from dataclasses import dataclass
 from io import BytesIO
 from pathlib import Path
-from typing import Protocol
+from typing import Protocol, cast
 
 
 @dataclass(frozen=True)
@@ -66,6 +66,31 @@ class Recorder(Protocol):
     def wait(self) -> None: ...
 
 
+class _SoundDeviceRecorder:
+    def rec(
+        self,
+        frames: int,
+        *,
+        samplerate: int,
+        channels: int,
+        dtype: str,
+    ) -> _SampleMatrix:
+        import sounddevice as sd
+
+        captured: object = sd.rec(
+            frames,
+            samplerate=samplerate,
+            channels=channels,
+            dtype=dtype,
+        )
+        return cast(_SampleMatrix, captured)
+
+    def wait(self) -> None:
+        import sounddevice as sd
+
+        _ = sd.wait()
+
+
 def capture_microphone(
     *,
     duration_seconds: float,
@@ -78,10 +103,10 @@ def capture_microphone(
     if sample_rate <= 0:
         raise ValueError("sample_rate must be positive")
     if recorder is None:
-        import sounddevice as sd
-
-        recorder = sd
+        recorder = _SoundDeviceRecorder()
     frame_count = round(duration_seconds * sample_rate)
+    if frame_count <= 0:
+        raise ValueError("duration_seconds must capture at least one frame")
     captured = recorder.rec(
         frame_count,
         samplerate=sample_rate,

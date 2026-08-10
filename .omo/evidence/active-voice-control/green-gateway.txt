@@ -4,7 +4,7 @@ EXACT COMMAND:
 uv --directory "C:/Users/lg/Documents/Claude/Projects/Birkin/active-voice-control" run pytest tests/test_gateway_voice.py -q
 
 ASSERTION RESULT:
-3 passed
+14 passed
 
 PROCESS RESULT:
 exit 1 only because the repository's pre-existing pytest defaults require 75%
@@ -15,7 +15,7 @@ uv --directory "C:/Users/lg/Documents/Claude/Projects/Birkin/active-voice-contro
 
 CLEAN TARGETED RESULT:
 exit 0
-8 passed
+19 passed
 
 PROVEN CONTRACTS:
 - LocalHTTPChannel preserves explicit `channel=voice`.
@@ -32,4 +32,11 @@ group now makes the literal command use the worktree venv and source tree.
 
 DIAGNOSTICS:
 All new/changed voice adapter and test files have zero diagnostics.
-`local_http.py` retains pre-existing E702 semicolon warnings on untouched lines.
+`local_http.py` has zero diagnostics.
+
+FINAL HARDENING:
+- `GatewayClient` accepts only exact loopback HTTP `/message` endpoints and
+  uses direct `HTTPConnection` transport.
+- HTTP status >= 400 becomes `GatewayVoiceError`.
+- Local HTTP enforces a 1 MB cap, a 2-second body-read timeout, complete bodies,
+  string text/channel fields, and the `http|voice` allowlist.

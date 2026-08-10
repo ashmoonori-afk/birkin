@@ -86,7 +86,7 @@ class OpenAISTT:
         if client is None:
             from openai import OpenAI
 
-            client = cast(TranscriptionClient, OpenAI())
+            client = cast(TranscriptionClient, cast(object, OpenAI()))
         self._client = client
         self._model = model
 
@@ -100,11 +100,11 @@ class OpenAISTT:
         return self._text(response)
 
     def transcribe_audio(self, audio: AudioData) -> str:
-        stream = _NamedBytesIO(encode_wav(audio))
-        response = self._client.audio.transcriptions.create(
-            model=self._model,
-            file=stream,
-        )
+        with _NamedBytesIO(encode_wav(audio)) as stream:
+            response = self._client.audio.transcriptions.create(
+                model=self._model,
+                file=stream,
+            )
         return self._text(response)
 
     @staticmethod
@@ -129,7 +129,7 @@ class OpenAITTS:
         if client is None:
             from openai import OpenAI
 
-            client = cast(SpeechClient, OpenAI())
+            client = cast(SpeechClient, cast(object, OpenAI()))
         self._client = client
         self._model = model
         self._voice = voice

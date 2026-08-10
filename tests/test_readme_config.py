@@ -31,7 +31,7 @@ def _documented_keys(name: str) -> set[str]:
     """Top-level keys quoted in the README's JSON config example."""
     text = (_ROOT / name).read_text(encoding="utf-8")
     keys: set[str] = set()
-    for block in re.findall(r"```json\n(.*?)```", text, re.S):
+    for block in re.findall(r"```json\n(.*?)```", text, re.DOTALL):
         depth = 0
         for line in block.splitlines():
             stripped = line.strip()

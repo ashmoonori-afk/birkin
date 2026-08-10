@@ -2,52 +2,28 @@
 
 from __future__ import annotations
 
-import json
 import threading
-import time
 import uuid
 from collections.abc import Callable
-from concurrent.futures import CancelledError, Future, ThreadPoolExecutor
-from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Literal
+from queue import Queue
+from types import TracebackType
+from typing import TYPE_CHECKING
 
-JobStatus = Literal["queued", "running", "succeeded", "failed", "cancelled"]
-EventKind = Literal[
-    "queued", "running", "progress", "succeeded", "failed", "cancelled"
-]
+from .background_receipts import (
+    EventKind,
+    JobEvent,
+    JobRecord,
+    JobSnapshot,
+    append_event,
+    persist,
+    snapshot,
+)
 
+if TYPE_CHECKING:
+    from typing_extensions import Self
 
-@dataclass(frozen=True)
-class JobEvent:
-    """One ordered transition in a background job receipt."""
-
-    sequence: int
-    kind: EventKind
-    message: str
-    at: float
-
-
-@dataclass(frozen=True)
-class JobSnapshot:
-    """Immutable public view of one background job."""
-
-    id: str
-    name: str
-    status: JobStatus
-    result: str | None
-    error: str | None
-    events: tuple[JobEvent, ...]
-
-
-@dataclass
-class _JobRecord:
-    id: str
-    name: str
-    status: JobStatus = "queued"
-    result: str | None = None
-    error: str | None = None
-    events: list[JobEvent] = field(default_factory=list)
+__all__ = ["BackgroundBroker", "JobContext", "JobEvent", "JobSnapshot"]
 
 
 class JobContext:
@@ -64,6 +40,27 @@ class JobContext:
 JobTask = Callable[[JobContext], str]
 
 
+class _TaskErrorCapture:
+    """Capture ordinary task failures without swallowing process interrupts."""
+
+    def __init__(self) -> None:
+        self.error: Exception | None = None
+
+    def __enter__(self) -> Self:
+        return self
+
+    def __exit__(
+        self,
+        exc_type: type[BaseException] | None,
+        exc_value: BaseException | None,
+        traceback: TracebackType | None,
+    ) -> bool:
+        if isinstance(exc_value, Exception):
+            self.error = exc_value
+            return True
+        return False
+
+
 class BackgroundBroker:
     """Run bounded work and persist each transition atomically."""
 
@@ -77,16 +74,26 @@ class BackgroundBroker:
             raise ValueError("max_workers must be positive")
         self._receipt_dir = Path(receipt_dir)
         self._receipt_dir.mkdir(parents=True, exist_ok=True)
-        self._executor = ThreadPoolExecutor(
-            max_workers=max_workers,
-            thread_name_prefix="birkin-background",
-        )
         self._lock = threading.RLock()
-        self._records: dict[str, _JobRecord] = {}
-        self._futures: dict[str, Future[None]] = {}
+        self._records: dict[str, JobRecord] = {}
+        self._tasks: dict[str, JobTask] = {}
+        self._completed: dict[str, threading.Event] = {}
+        self._queue: Queue[str | None] = Queue()
+        self._queue_slots = threading.BoundedSemaphore(max_workers)
+        self._workers = tuple(
+            threading.Thread(
+                target=self._worker,
+                name=f"birkin-background-{index + 1}",
+                daemon=True,
+            )
+            for index in range(max_workers)
+        )
         self._closed = False
+        self._stop_sent = False
+        for worker in self._workers:
+            worker.start()
 
-    def __enter__(self) -> BackgroundBroker:
+    def __enter__(self) -> Self:
         return self
 
     def __exit__(
@@ -104,13 +111,16 @@ class BackgroundBroker:
         with self._lock:
             if self._closed:
                 raise RuntimeError("background broker is closed")
+            if not self._queue_slots.acquire(blocking=False):
+                raise RuntimeError("background queue is full")
             job_id = uuid.uuid4().hex
-            record = _JobRecord(id=job_id, name=job_name)
+            record = JobRecord(id=job_id, name=job_name)
             self._records[job_id] = record
+            self._tasks[job_id] = task
+            self._completed[job_id] = threading.Event()
             self._append(record, "queued", job_name)
             self._persist(record)
-            future = self._executor.submit(self._run, job_id, task)
-            self._futures[job_id] = future
+            self._queue.put_nowait(job_id)
             return self._snapshot(record)
 
     def get(self, job_id: str) -> JobSnapshot:
@@ -119,63 +129,107 @@ class BackgroundBroker:
 
     def wait(self, job_id: str, *, timeout: float | None = None) -> JobSnapshot:
         with self._lock:
-            future = self._futures.get(job_id)
-            if future is None:
+            completed = self._completed.get(job_id)
+            if completed is None:
                 raise KeyError(job_id)
-        try:
-            future.result(timeout=timeout)
-        except CancelledError:
-            pass
+        if not completed.wait(timeout=timeout):
+            raise TimeoutError(f"background job {job_id} timed out")
         return self.get(job_id)
 
     def cancel(self, job_id: str) -> bool:
         with self._lock:
             record = self._record(job_id)
-            future = self._futures.get(job_id)
-            if record.status != "queued" or future is None:
-                return False
-            if not future.cancel():
+            if record.status != "queued":
                 return False
             record.status = "cancelled"
             self._append(record, "cancelled", "cancelled before start")
             self._persist(record)
+            self._completed[job_id].set()
             return True
 
-    def close(self) -> None:
+    def close(self, *, wait: bool = True) -> None:
+        send_stop = False
         with self._lock:
-            if self._closed:
-                return
-            self._closed = True
-        self._executor.shutdown(wait=True, cancel_futures=False)
+            if not self._closed:
+                self._closed = True
+                if not wait:
+                    for record in self._records.values():
+                        if record.status == "queued":
+                            record.status = "cancelled"
+                            self._append(
+                                record,
+                                "cancelled",
+                                "cancelled during shutdown",
+                            )
+                            self._persist(record)
+                            self._completed[record.id].set()
+            if not self._stop_sent:
+                self._stop_sent = True
+                send_stop = True
+        if send_stop:
+            for _worker in self._workers:
+                self._queue.put_nowait(None)
+        if wait:
+            for worker in self._workers:
+                worker.join()
+
+    def _worker(self) -> None:
+        while True:
+            job_id = self._queue.get()
+            try:
+                if job_id is None:
+                    return
+                self._queue_slots.release()
+                with self._lock:
+                    record = self._record(job_id)
+                    if record.status == "cancelled":
+                        continue
+                    task = self._tasks[job_id]
+                self._run(job_id, task)
+            finally:
+                self._queue.task_done()
 
     def _run(self, job_id: str, task: JobTask) -> None:
-        with self._lock:
-            record = self._record(job_id)
-            if record.status == "cancelled":
-                return
-            record.status = "running"
-            self._append(record, "running", "started")
-            self._persist(record)
-
         try:
-            result = task(JobContext(self, job_id))
-            if not isinstance(result, str):
-                raise TypeError("background task result must be text")
-        except Exception as exc:
+            with self._lock:
+                record = self._record(job_id)
+                if record.status == "cancelled":
+                    return
+                record.status = "running"
+                self._append(record, "running", "started")
+                self._persist(record)
+
+            capture = _TaskErrorCapture()
+            result: str | None = None
+            with capture:
+                value = task(JobContext(self, job_id))
+                if not isinstance(value, str):
+                    raise TypeError("background task result must be text")
+                result = value
+            if capture.error is not None:
+                with self._lock:
+                    record = self._record(job_id)
+                    record.status = "failed"
+                    record.error = (
+                        f"{type(capture.error).__name__}: {capture.error}"
+                    )
+                    self._append(record, "failed", record.error)
+                    self._persist(record)
+            elif result is not None:
+                with self._lock:
+                    record = self._record(job_id)
+                    record.status = "succeeded"
+                    record.result = result
+                    self._append(record, "succeeded", result)
+                    self._persist(record)
+        except OSError as exc:
             with self._lock:
                 record = self._record(job_id)
                 record.status = "failed"
-                record.error = f"{type(exc).__name__}: {exc}"
+                record.error = f"OSError: {exc}"
                 self._append(record, "failed", record.error)
-                self._persist(record)
-            return
-
-        with self._lock:
-            record = self._record(job_id)
-            record.status = "succeeded"
-            record.result = result
-            self._append(record, "succeeded", result)
-            self._persist(record)
+        finally:
+            self._completed[job_id].set()
 
     def _progress(self, job_id: str, message: str) -> None:
         text = message.strip()
@@ -188,59 +242,23 @@ class BackgroundBroker:
             self._append(record, "progress", text)
             self._persist(record)
 
-    def _record(self, job_id: str) -> _JobRecord:
+    def _record(self, job_id: str) -> JobRecord:
         try:
             return self._records[job_id]
         except KeyError as exc:
             raise KeyError(f"unknown background job: {job_id}") from exc
 
     @staticmethod
-    def _snapshot(record: _JobRecord) -> JobSnapshot:
-        return JobSnapshot(
-            id=record.id,
-            name=record.name,
-            status=record.status,
-            result=record.result,
-            error=record.error,
-            events=tuple(record.events),
-        )
+    def _snapshot(record: JobRecord) -> JobSnapshot:
+        return snapshot(record)
 
     @staticmethod
     def _append(
-        record: _JobRecord,
+        record: JobRecord,
         kind: EventKind,
         message: str,
     ) -> None:
-        record.events.append(
-            JobEvent(
-                sequence=len(record.events),
-                kind=kind,
-                message=message,
-                at=time.time(),
-            )
-        )
+        append_event(record, kind, message)
 
-    def _persist(self, record: _JobRecord) -> None:
-        value = {
-            "id": record.id,
-            "name": record.name,
-            "status": record.status,
-            "result": record.result,
-            "error": record.error,
-            "events": [
-                {
-                    "sequence": event.sequence,
-                    "kind": event.kind,
-                    "message": event.message,
-                    "at": event.at,
-                }
-                for event in record.events
-            ],
-        }
-        destination = self._receipt_dir / f"{record.id}.json"
-        temporary = self._receipt_dir / f".{record.id}.tmp"
-        temporary.write_text(
-            json.dumps(value, ensure_ascii=False, indent=2),
-            encoding="utf-8",
-        )
-        temporary.replace(destination)
+    def _persist(self, record: JobRecord) -> None:
+        persist(record, self._receipt_dir)

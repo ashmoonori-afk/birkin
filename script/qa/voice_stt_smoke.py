@@ -10,8 +10,7 @@ import threading
 from pathlib import Path
 
 from birkin.gateway.channels.local_http import LocalHTTPChannel
-
-from voice_pipeline_smoke import _Gateway, _SpeechAPI, _write_clap
+from script.qa.voice_pipeline_smoke import _Gateway, _SpeechAPI, _write_clap
 
 
 def main() -> int:

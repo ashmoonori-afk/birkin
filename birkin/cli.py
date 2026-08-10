@@ -15,7 +15,7 @@ from __future__ import annotations
 import argparse
 import json
 import sys
-from typing import Any, Optional
+from typing import Any
 
 
 def _cmd_chat(args: argparse.Namespace) -> int:
@@ -281,164 +281,9 @@ def _cmd_gateway(args: argparse.Namespace) -> int:
 
 
 def _cmd_voice(args: argparse.Namespace) -> int:
-    import os
-    from pathlib import Path
-    from wave import Error as WaveError
+    from .voice.controller import run_once
 
-    from openai import OpenAIError
-
-    from .voice import (
-        GatewayClient,
-        GatewayVoiceError,
-        OpenAISTT,
-        OpenAITTS,
-        PcmFileSink,
-        PcmSpeaker,
-        WakeConfig,
-        WakeGate,
-        capture_microphone,
-        read_wav_mono,
-    )
-
-    if not args.once:
-        print("VOICE_ERROR --once is required", file=sys.stderr)
-        return 2
-
-    try:
-        stt = (
-            OpenAISTT(model=args.stt_model)
-            if not args.transcript or not args.voice_command
-            else None
-        )
-        audio = (
-            read_wav_mono(args.audio)
-            if args.audio
-            else capture_microphone(
-                duration_seconds=args.wake_seconds,
-                sample_rate=args.sample_rate,
-            )
-        )
-        transcript = args.transcript
-        if not transcript:
-            if stt is None:
-                raise RuntimeError("STT client is unavailable")
-            transcript = (
-                stt.transcribe_path(args.audio)
-                if args.audio
-                else stt.transcribe_audio(audio)
-            )
-        decision = WakeGate(
-            WakeConfig(wake_phrase=args.wake_phrase)
-        ).evaluate(
-            audio.samples,
-            sample_rate=audio.sample_rate,
-            transcript=transcript,
-        )
-    except (OSError, OpenAIError, RuntimeError, ValueError, WaveError) as exc:
-        print(f"VOICE_ERROR {exc}", file=sys.stderr)
-        return 2
-
-    if not decision.accepted:
-        print(f"WAKE_REJECTED reason={decision.reason}")
-        return 2
-
-    try:
-        command = args.voice_command
-        if not command:
-            if stt is None:
-                raise RuntimeError("STT client is unavailable")
-            if args.command_audio:
-                command = stt.transcribe_path(args.command_audio)
-            else:
-                command_audio = capture_microphone(
-                    duration_seconds=args.command_seconds,
-                    sample_rate=args.sample_rate,
-                )
-                command = stt.transcribe_audio(command_audio)
-    except (OSError, OpenAIError, RuntimeError, ValueError, WaveError) as exc:
-        print(f"VOICE_ERROR {exc}", file=sys.stderr)
-        return 2
-
-    print("WAKE_ACCEPTED")
-    print(f"COMMAND={command}")
-    if not args.gateway_url:
-        return 0
-
-    if args.background:
-        from . import config
-        from .background import BackgroundBroker
-        from .voice import VoiceMissionService
-
-        receipt_dir = (
-            Path(args.receipt_dir)
-            if args.receipt_dir
-            else config.birkin_home() / "voice" / "jobs"
-        )
-        sinks = []
-        if args.tts_output:
-            sinks.append(PcmFileSink(Path(args.tts_output)))
-        if not args.no_playback:
-            sinks.append(PcmSpeaker())
-        tts = (
-            OpenAITTS(
-                model=args.tts_model,
-                voice=args.tts_voice,
-                instructions=args.tts_instructions,
-            )
-            if sinks
-            else None
-        )
-        try:
-            with BackgroundBroker(
-                receipt_dir,
-                max_workers=args.background_workers,
-            ) as broker:
-                mission = VoiceMissionService(
-                    broker,
-                    GatewayClient(
-                        args.gateway_url,
-                        session_id=args.session_id,
-                        token=os.environ.get("BIRKIN_HTTP_TOKEN", ""),
-                    ),
-                    tts=tts,
-                    sinks=sinks,
-                )
-                job = mission.submit(command)
-                receipt = receipt_dir / f"{job.id}.json"
-                print("FOREGROUND_ACK=queued", flush=True)
-                print(f"BACKGROUND_RECEIPT={receipt}", flush=True)
-                done = broker.wait(job.id, timeout=args.background_timeout)
-            print(f"BACKGROUND_STATUS={done.status}")
-            if done.result:
-                print(f"BACKGROUND_RESULT={done.result}")
-            return 0 if done.status == "succeeded" else 1
-        except (OSError, RuntimeError, TimeoutError, ValueError) as exc:
-            print(f"VOICE_ERROR {exc}", file=sys.stderr)
-            return 1
-
-    try:
-        reply = GatewayClient(
-            args.gateway_url,
-            session_id=args.session_id,
-            token=os.environ.get("BIRKIN_HTTP_TOKEN", ""),
-        ).send(command)
-        print(f"REPLY={reply}")
-
-        if args.tts_output or not args.no_playback:
-            pcm = OpenAITTS(
-                model=args.tts_model,
-                voice=args.tts_voice,
-                instructions=args.tts_instructions,
-            ).synthesize(reply)
-            if args.tts_output:
-                PcmFileSink(Path(args.tts_output)).write(pcm)
-                print(f"TTS_SAVED={args.tts_output}")
-            if not args.no_playback:
-                PcmSpeaker().write(pcm)
-    except (GatewayVoiceError, OSError, ValueError) as exc:
-        print(f"VOICE_ERROR {exc}", file=sys.stderr)
-        return 1
-    return 0
+    return run_once(args)
 
 
 # Tools grouped by "toolset" for the Available Tools panel.
@@ -472,7 +317,9 @@ def _cmd_reindex(args: argparse.Namespace) -> int:
 def _cmd_tools(args: argparse.Namespace) -> int:
     """Show the Available Tools panel and enable/disable tools (like hermes)."""
     from pathlib import Path
+
     from . import config
+    from .llm import LLMClient
     from .memory import VaultMemory
     from .skills import build_manager
     from .tools import ToolContext, build_registry
@@ -491,7 +338,13 @@ def _cmd_tools(args: argparse.Namespace) -> int:
     base = dict(cfg)
     base["disabled_tools"] = []
     skills, memory = build_manager(cfg), VaultMemory(cfg)
-    ctx = ToolContext(cfg=base, client=None, cwd=Path.cwd(),
+    client = LLMClient(
+        provider="tools-panel",
+        model="",
+        api_key="",
+        base_url="",
+    )
+    ctx = ToolContext(cfg=base, client=client, cwd=Path.cwd(),
                       skills=skills, memory=memory)
 
     # group -> [tool names], skipping empty groups
@@ -527,9 +380,14 @@ def _cmd_tools(args: argparse.Namespace) -> int:
 
 _CLI_ACCESS_LEVELS = [
     ("workspace", "Writable & sandboxed to the workspace (recommended)"),
-    ("full", "DANGEROUS: bypass ALL approvals + sandbox "
-             "(codex --dangerously-bypass-approvals-and-sandbox, "
-             "claude --dangerously-skip-permissions)"),
+    (
+        "full",
+        (
+            "DANGEROUS: bypass ALL approvals + sandbox "
+            "(codex --dangerously-bypass-approvals-and-sandbox, "
+            "claude --dangerously-skip-permissions)"
+        ),
+    ),
 ]
 
 
@@ -955,6 +813,7 @@ def _cmd_budget(args: argparse.Namespace) -> int:
 def _cmd_trace(args: argparse.Namespace) -> int:
     """`birkin trace <run-id>` — print a single run record (audit trail replay)."""
     import json as _json
+
     from . import config as _config
     from .ui import BOLD, CYAN, DIM, RESET
     needle = (args.run_id or "").strip()
@@ -1059,28 +918,28 @@ def build_parser() -> argparse.ArgumentParser:
     p_voice.add_argument(
         "--sample-rate",
         type=int,
-        default=24_000,
-        help="live microphone sample rate",
+        default=None,
+        help="live microphone sample rate (default: voice.sample_rate)",
     )
     p_voice.add_argument(
         "--stt-model",
-        default="gpt-transcribe",
-        help="OpenAI file/in-memory speech-to-text model",
+        default=None,
+        help="OpenAI speech-to-text model (default: voice.stt_model)",
     )
     p_voice.add_argument(
         "--wake-phrase",
-        default="Daddy is home",
-        help="normalized phrase required with the clap",
+        default=None,
+        help="normalized phrase required with the clap (default: voice.wake_phrase)",
     )
     p_voice.add_argument(
         "--gateway-url",
-        default="",
-        help="local Birkin POST /message URL",
+        default=None,
+        help="local Birkin POST /message URL (default: voice.gateway_url)",
     )
     p_voice.add_argument(
         "--session-id",
-        default="voice-local",
-        help="stable local Gateway session id",
+        default=None,
+        help="stable local Gateway session id (default: voice.session_id)",
     )
     p_voice.add_argument(
         "--tts-output",
@@ -1089,18 +948,18 @@ def build_parser() -> argparse.ArgumentParser:
     )
     p_voice.add_argument(
         "--tts-model",
-        default="gpt-4o-mini-tts",
-        help="OpenAI text-to-speech model",
+        default=None,
+        help="OpenAI text-to-speech model (default: voice.tts_model)",
     )
     p_voice.add_argument(
         "--tts-voice",
-        default="coral",
-        help="OpenAI text-to-speech voice",
+        default=None,
+        help="OpenAI text-to-speech voice (default: voice.tts_voice)",
     )
     p_voice.add_argument(
         "--tts-instructions",
-        default="Speak concisely and clearly.",
-        help="OpenAI speech style instructions",
+        default=None,
+        help="OpenAI speech style instructions (default: voice.tts_instructions)",
     )
     p_voice.add_argument(
         "--no-playback",
@@ -1120,8 +979,8 @@ def build_parser() -> argparse.ArgumentParser:
     p_voice.add_argument(
         "--background-workers",
         type=int,
-        default=2,
-        help="maximum concurrent background voice jobs",
+        default=None,
+        help="maximum workers (default: voice.background_workers)",
     )
     p_voice.add_argument(
         "--background-timeout",
@@ -1318,7 +1177,7 @@ def build_parser() -> argparse.ArgumentParser:
     return p
 
 
-def main(argv: Optional[list[str]] = None) -> int:
+def main(argv: list[str] | None = None) -> int:
     parser = build_parser()
     args = parser.parse_args(argv if argv is not None else sys.argv[1:])
     if not getattr(args, "command", None):
