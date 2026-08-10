@@ -178,6 +178,11 @@ environment variables, or `~/.birkin/config.json`. Subscription-backed Claude
 and Codex CLI providers are also supported when their CLIs are installed and
 authenticated.
 
+When birkin starts a `codex app-server` child, it disables Codex plugin hooks
+for that child while preserving plugins and MCP servers. This keeps a global
+`UserPromptSubmit` hook from treating birkin's internal `<system-context>` as
+user input.
+
 ### Active voice control
 
 Voice support is installed with birkin. OpenAI STT/TTS calls require a Platform

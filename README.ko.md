@@ -168,6 +168,11 @@ birkin web
 `~/.birkin/config.json`으로 전달할 수 있습니다. 설치와 인증이 끝난 Claude 및
 Codex CLI의 subscription-backed provider도 지원합니다.
 
+birkin이 `codex app-server` 자식을 시작할 때는 plugin과 MCP server는 유지하되
+해당 자식의 Codex plugin hook을 비활성화합니다. 따라서 전역
+`UserPromptSubmit` hook이 birkin 내부 `<system-context>`를 사용자 입력으로
+오인하지 않습니다.
+
 ### 능동 음성 제어
 
 음성 기능은 birkin과 함께 설치됩니다. OpenAI STT/TTS에는 Platform API
