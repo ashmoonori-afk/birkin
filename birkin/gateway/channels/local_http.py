@@ -106,9 +106,7 @@ class LocalHTTPChannel(Channel):
                 ).split(";", 1)[0].strip().lower()
                 if ctype != "application/json":
                     self._json(
-                        {"error": "Content-Type must be application/json"},
-                        415,
-                    )
+                        {"error": "Content-Type must be application/json"}, 415)
                     return
                 # Optional shared-secret lockdown (off unless BIRKIN_HTTP_TOKEN set).
                 if _HTTP_TOKEN and self.headers.get("X-Birkin-Token", "") != _HTTP_TOKEN:

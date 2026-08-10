@@ -26,7 +26,8 @@ def test_gateway_error_reply_marks_approved_workflow_as_error(
 
     channel = TelegramChannel("token", allowed_chat_ids=["42"], stream=False)
     channel._workflow_ids["42"] = aid
-    monkeypatch.setattr(channel, "_keep_typing", lambda _chat, _stop: None)
+    monkeypatch.setattr(channel, "_keep_typing",
+                        lambda _chat, _stop, _progress=None: None)
     monkeypatch.setattr(
         channel, "_call",
         lambda *_args, **_kwargs: {"ok": True, "result": {"message_id": 1}},
@@ -55,7 +56,8 @@ def test_approved_workflow_cannot_queue_another_proposal(
 
     channel = TelegramChannel("token", allowed_chat_ids=["42"], stream=False)
     channel._workflow_ids["42"] = aid
-    monkeypatch.setattr(channel, "_keep_typing", lambda _chat, _stop: None)
+    monkeypatch.setattr(channel, "_keep_typing",
+                        lambda _chat, _stop, _progress=None: None)
     monkeypatch.setattr(
         channel, "_call",
         lambda *_args, **_kwargs: {"ok": True, "result": {"message_id": 1}},

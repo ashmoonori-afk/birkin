@@ -32,7 +32,7 @@ from typing import Any, Callable, Optional
 from .. import config, ledger, store
 from . import bindings as _bindings
 from . import journal
-from .bindings import Binding, BindingError
+from .bindings import Binding
 
 DEFAULT_WORKERS = 4
 DEFAULT_MAX_AGENTS = 100
