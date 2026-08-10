@@ -168,6 +168,78 @@ birkin web
 `~/.birkin/config.json`으로 전달할 수 있습니다. 설치와 인증이 끝난 Claude 및
 Codex CLI의 subscription-backed provider도 지원합니다.
 
+### 능동 음성 제어
+
+음성 기능은 birkin과 함께 설치됩니다. OpenAI STT/TTS에는 Platform API
+키가 필요합니다.
+
+```bash
+export OPENAI_API_KEY="..."
+uv run birkin gateway
+```
+
+다른 터미널에서 기본 마이크를 계속 사용하는 음성 모드를 시작합니다.
+
+```bash
+uv run birkin voice start \
+  --gateway-url http://127.0.0.1:8788/message
+uv run birkin voice status
+```
+
+`start`는 인증된 worker 준비 완료를 기다리고 중복 daemon을 거부하며,
+인증된 제어 상태와 로그를 `~/.birkin/voice` 아래에 기록합니다. 상태
+디렉터리는 현재 OS 계정으로 제한되므로, 사용자 지정 `BIRKIN_HOME`은
+사용자 ACL을 지원하는 파일 시스템에 두십시오. 실행 중인 daemon PID가
+일시적으로 응답하지 않으면 `start`는 상태를 삭제하고 고아 중복 daemon을
+실행하는 대신 `UNREACHABLE`을 보고합니다. `status`는 현재 PID를 보여
+주며 `RUNNING`일 때만 종료 코드 `0`을 반환합니다. `STOPPING`,
+`UNREACHABLE`, `INACTIVE`는 종료 코드 `1`을 반환합니다. 현재의 제한된
+음성 턴이 끝난 뒤 daemon을
+종료하려면 다음을 실행합니다.
+
+```bash
+uv run birkin voice stop
+```
+
+해당 턴이 제어 대기 시간보다 오래 걸리면 `stop`은 `STOPPING`을 출력하고
+종료 코드 `1`을 반환하지만, 수락된 종료는 계속 진행됩니다. `voice
+status`로 상태를 확인하십시오.
+
+녹음 파일과 결정적 입력은 계속 one-shot 모드에서만 사용합니다.
+
+```bash
+uv run birkin voice --once \
+  --audio wake.wav \
+  --command-audio command.wav \
+  --gateway-url http://127.0.0.1:8788/message \
+  --tts-output reply.pcm \
+  --no-playback
+```
+
+one-shot에서 `--audio`와 `--command-audio`를 생략하면 기본 마이크에서
+깨우기/명령 구간을 제한 시간만큼 수집합니다. `--background`를 추가하면
+`~/.birkin/voice/jobs` 아래 영속 작업 영수증을 받습니다. CI나 문제 분석에는
+`--transcript "Daddy is home" --command "status"`로 결정적 입력을 줄 수
+있습니다. Daemon `start`는 live microphone 옵션만 받습니다. 파일,
+transcript, command, background, `--once` 입력은 worker를 실행하기 전에
+실패합니다.
+
+중첩된 `voice` 설정 블록은 대응하는 CLI 플래그의 기본값이며, 명시한
+플래그가 우선합니다. 빈 `gateway_url`은 깨우기 fixture 실행을 오프라인으로
+유지합니다. Gateway 전달에는 값을 설정하거나
+`http://127.0.0.1:8788/message` 같은 정확한 loopback HTTP `/message`
+주소를 `--gateway-url`로 넘깁니다. loopback이 아닌 host, HTTPS, 자격증명,
+query, fragment는 거부됩니다. 로컬 HTTP 채널에 공유 비밀을 설정했다면
+`BIRKIN_HTTP_TOKEN`을 지정하십시오. 음성 client는 검증된 loopback
+endpoint에만 이 token을 전달합니다.
+
+깨우기 문구는 명령 경로를 여는 신호일 뿐 인증이 아닙니다. 음성 요청도
+`Gateway.handle("voice", ...)`를 통과하며 Telegram의 승인 작업 표식을
+얻지 못합니다. 제한된 STT는 `gpt-transcribe`, 응답 음성은
+`gpt-4o-mini-tts`를 사용하며 생성 음성은 AI 음성입니다. Codex/ChatGPT
+로그인은 Audio API용 `OPENAI_API_KEY`를 대신하지 않습니다.
+
+
 ## 네이티브 도구
 
 Registry가 노출할 수 있는 기능:
@@ -231,6 +303,18 @@ Registry가 노출할 수 있는 기능:
   "gateway_port": 8788,
   "budget_tokens_daily": 0,
   "budget_tokens_monthly": 0,
+  "voice": {
+    "wake_phrase": "Daddy is home",
+    "gateway_url": "",
+    "session_id": "voice-local",
+    "sample_rate": 24000,
+    "stt_model": "gpt-transcribe",
+    "tts_model": "gpt-4o-mini-tts",
+    "tts_voice": "coral",
+    "tts_instructions": "Speak concisely and clearly.",
+    "background_workers": 2
+  },
+
   "channels": {
     "http": {"enabled": true},
     "telegram": {

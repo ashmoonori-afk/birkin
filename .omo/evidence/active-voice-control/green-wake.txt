@@ -1,0 +1,28 @@
+SCENARIO: S1 wake contract GREEN
+
+EXACT CONTRACT COMMAND:
+uv --directory "C:/Users/lg/Documents/Claude/Projects/Birkin/active-voice-control" run pytest tests/test_voice_wake.py -q
+
+ASSERTION RESULT:
+5 passed
+
+PROCESS RESULT:
+exit 1 only because the repository's pre-existing global pytest configuration
+requires 75% coverage from every targeted invocation. This same configuration
+reported 0.20% in the clean baseline full run and is not caused by the wake
+implementation.
+
+CLEAN TARGETED COMMAND:
+uv --directory "C:/Users/lg/Documents/Claude/Projects/Birkin/active-voice-control" run pytest tests/test_voice_wake.py -q --no-cov
+
+CLEAN TARGETED RESULT:
+exit 0
+5 passed, 3 warnings in 0.22s
+
+DIAGNOSTICS:
+birkin/voice/wake.py: no diagnostics
+birkin/voice/__init__.py: no diagnostics
+tests/test_voice_wake.py: no diagnostics
+
+SIZE:
+birkin/voice/wake.py: 130 lines

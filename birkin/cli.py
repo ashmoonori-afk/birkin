@@ -15,7 +15,7 @@ from __future__ import annotations
 import argparse
 import json
 import sys
-from typing import Any, Optional
+from typing import Any
 
 
 def _cmd_chat(args: argparse.Namespace) -> int:
@@ -283,6 +283,7 @@ def _cmd_gateway(args: argparse.Namespace) -> int:
 def _cmd_harness(args: argparse.Namespace) -> int:
     """Read/undo/export the self-improvement ledger (harness)."""
     from pathlib import Path
+
     from . import harness
     scope = "global" if getattr(args, "global_scope", False) else args.scope
     target = args.target[0] if args.target else ""
@@ -338,6 +339,28 @@ def _cmd_harness(args: argparse.Namespace) -> int:
     return 0
 
 
+def _cmd_voice(args: argparse.Namespace) -> int:
+    from .voice.daemon import (
+        start_daemon,
+        status_daemon,
+        stop_daemon,
+    )
+    from .voice.daemon_worker import run_worker
+
+    if args.daemon_worker:
+        return run_worker(args)
+    if args.voice_action == "start":
+        return start_daemon(args)
+    if args.voice_action == "status":
+        return status_daemon()
+    if args.voice_action == "stop":
+        return stop_daemon()
+
+    from .voice.controller import run_once
+
+    return run_once(args)
+
+
 # Tools grouped by "toolset" for the Available Tools panel.
 _TOOL_GROUPS = [
     "files", "shell", "web", "vision", "desktop", "skills", "memory",
@@ -372,7 +395,9 @@ def _cmd_reindex(args: argparse.Namespace) -> int:
 def _cmd_tools(args: argparse.Namespace) -> int:
     """Show the Available Tools panel and enable/disable tools (like hermes)."""
     from pathlib import Path
+
     from . import config
+    from .llm import LLMClient
     from .memory import VaultMemory
     from .skills import build_manager
     from .tools import ToolContext, build_registry
@@ -391,7 +416,13 @@ def _cmd_tools(args: argparse.Namespace) -> int:
     base = dict(cfg)
     base["disabled_tools"] = []
     skills, memory = build_manager(cfg), VaultMemory(cfg)
-    ctx = ToolContext(cfg=base, client=None, cwd=Path.cwd(),
+    client = LLMClient(
+        provider="tools-panel",
+        model="",
+        api_key="",
+        base_url="",
+    )
+    ctx = ToolContext(cfg=base, client=client, cwd=Path.cwd(),
                       skills=skills, memory=memory)
 
     # group -> [tool names], skipping empty groups
@@ -427,9 +458,14 @@ def _cmd_tools(args: argparse.Namespace) -> int:
 
 _CLI_ACCESS_LEVELS = [
     ("workspace", "Writable & sandboxed to the workspace (recommended)"),
-    ("full", "DANGEROUS: bypass ALL approvals + sandbox "
-             "(codex --dangerously-bypass-approvals-and-sandbox, "
-             "claude --dangerously-skip-permissions)"),
+    (
+        "full",
+        (
+            "DANGEROUS: bypass ALL approvals + sandbox "
+            "(codex --dangerously-bypass-approvals-and-sandbox, "
+            "claude --dangerously-skip-permissions)"
+        ),
+    ),
 ]
 
 
@@ -856,6 +892,7 @@ def _cmd_budget(args: argparse.Namespace) -> int:
 def _cmd_trace(args: argparse.Namespace) -> int:
     """`birkin trace <run-id>` — print a single run record (audit trail replay)."""
     import json as _json
+
     from . import config as _config
     from .ui import BOLD, CYAN, DIM, RESET
     needle = (args.run_id or "").strip()
@@ -917,6 +954,131 @@ def build_parser() -> argparse.ArgumentParser:
     sub.add_parser("onboard", help="alias for setup (first-run wizard)").set_defaults(func=_cmd_setup)
 
     sub.add_parser("gateway", help="run birkin as a service (HTTP / Telegram channels)").set_defaults(func=_cmd_gateway)
+
+    p_voice = sub.add_parser(
+        "voice",
+        help="manage the voice daemon or run one deterministic turn",
+    )
+    p_voice.add_argument(
+        "voice_action",
+        nargs="?",
+        choices=("start", "status", "stop"),
+        help="daemon lifecycle action",
+    )
+    p_voice.add_argument(
+        "--daemon-worker",
+        action="store_true",
+        help=argparse.SUPPRESS,
+    )
+    p_voice.add_argument(
+        "--once",
+        action="store_true",
+        help="capture and process exactly one command",
+    )
+    p_voice.add_argument(
+        "--audio",
+        help="wake-window 16-bit PCM WAV path",
+    )
+    p_voice.add_argument(
+        "--transcript",
+        help="wake transcript (deterministic mode)",
+    )
+    p_voice.add_argument(
+        "--command",
+        dest="voice_command",
+        help="command text (deterministic mode)",
+    )
+    p_voice.add_argument(
+        "--command-audio",
+        default="",
+        help="recorded command WAV (transcribed when --command is omitted)",
+    )
+    p_voice.add_argument(
+        "--wake-seconds",
+        type=float,
+        default=3.0,
+        help="live microphone wake-window duration",
+    )
+    p_voice.add_argument(
+        "--command-seconds",
+        type=float,
+        default=8.0,
+        help="live microphone command-window duration",
+    )
+    p_voice.add_argument(
+        "--sample-rate",
+        type=int,
+        default=None,
+        help="live microphone sample rate (default: voice.sample_rate)",
+    )
+    p_voice.add_argument(
+        "--stt-model",
+        default=None,
+        help="OpenAI speech-to-text model (default: voice.stt_model)",
+    )
+    p_voice.add_argument(
+        "--wake-phrase",
+        default=None,
+        help="normalized phrase required with the clap (default: voice.wake_phrase)",
+    )
+    p_voice.add_argument(
+        "--gateway-url",
+        default=None,
+        help="local Birkin POST /message URL (default: voice.gateway_url)",
+    )
+    p_voice.add_argument(
+        "--session-id",
+        default=None,
+        help="stable local Gateway session id (default: voice.session_id)",
+    )
+    p_voice.add_argument(
+        "--tts-output",
+        default="",
+        help="write raw PCM16/24 kHz reply bytes to this path",
+    )
+    p_voice.add_argument(
+        "--tts-model",
+        default=None,
+        help="OpenAI text-to-speech model (default: voice.tts_model)",
+    )
+    p_voice.add_argument(
+        "--tts-voice",
+        default=None,
+        help="OpenAI text-to-speech voice (default: voice.tts_voice)",
+    )
+    p_voice.add_argument(
+        "--tts-instructions",
+        default=None,
+        help="OpenAI speech style instructions (default: voice.tts_instructions)",
+    )
+    p_voice.add_argument(
+        "--no-playback",
+        action="store_true",
+        help="do not play synthesized PCM through the speaker",
+    )
+    p_voice.add_argument(
+        "--background",
+        action="store_true",
+        help="enqueue the command and persist a durable receipt",
+    )
+    p_voice.add_argument(
+        "--receipt-dir",
+        default="",
+        help="background receipt directory (default: BIRKIN_HOME/voice/jobs)",
+    )
+    p_voice.add_argument(
+        "--background-workers",
+        type=int,
+        default=None,
+        help="maximum workers (default: voice.background_workers)",
+    )
+    p_voice.add_argument(
+        "--background-timeout",
+        type=float,
+        default=300.0,
+        help="seconds to wait for this one-shot background result",
+    )
+    p_voice.set_defaults(func=_cmd_voice)
 
     tp = sub.add_parser("tools", help="list/enable/disable the agent's tools")
     tp.add_argument("--enable", help="tool name to enable")
@@ -1121,7 +1283,7 @@ def build_parser() -> argparse.ArgumentParser:
     return p
 
 
-def main(argv: Optional[list[str]] = None) -> int:
+def main(argv: list[str] | None = None) -> int:
     parser = build_parser()
     args = parser.parse_args(argv if argv is not None else sys.argv[1:])
     if not getattr(args, "command", None):

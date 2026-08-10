@@ -63,8 +63,9 @@ Carried over from the previous birkin and reaffirmed here:
 
 Added for this rebuild:
 
-- **Zero runtime dependencies** — Python standard library only. (`sqlite3`,
-  `http.server`, `urllib`, `argparse`, `html.parser` cover our needs.)
+- **Explicit, bounded dependencies** — the core remains mostly standard
+  library, while active voice declares the official OpenAI SDK plus realtime
+  and audio helpers in `pyproject.toml`.
 - **Cross-platform** — no shell-specific or OS-specific assumptions in the
   core; the scheduler is a portable Python loop, not a hard dependency on
   `cron`/Task Scheduler.
@@ -121,7 +122,50 @@ Added for this rebuild:
 | `birkin/cron.py` | register/list/run cron jobs |
 | `birkin/approvals.py` | review/approve/reject + execute approved actions |
 | `birkin/web/` | dashboard HTTP server + single-page UI |
+| `birkin/voice/` | validated config, one-turn controller, clap/phrase wake, microphone/WAV capture, GPT STT/TTS, Gateway client, background mission wiring |
+| `birkin/background.py` | bounded daemon queue, admission backpressure, cancellation, shutdown |
+| `birkin/background_receipts.py` | immutable snapshots, ordered events, atomic JSON receipts |
 | `skills/` | bundled `SKILL.md` skills |
+
+### Active voice control
+
+The shipped voice path is deliberately chained rather than a second agent loop:
+
+```text
+PCM16/24 kHz microphone or WAV
+  -> clap + normalized phrase gate
+  -> gpt-transcribe (recorded/in-memory audio)
+  -> GatewayClient POST {"channel":"voice", "session":..., "text":...}
+  -> existing Gateway.handle() session, tool, and approval boundary
+  -> foreground reply or bounded BackgroundBroker receipt
+  -> gpt-4o-mini-tts PCM
+  -> speaker and/or configured file sink
+```
+
+`voice.stt_model` defaults to `gpt-transcribe`; the executable minimum uses
+bounded recorded/in-memory windows so the same path can be driven by microphone
+hardware, recorded fixtures, and deterministic tests. A future
+`gpt-realtime-2.1` conversational mode must remain opt-in because direct
+speech-to-speech cannot silently replace the existing text/approval boundary.
+
+Wake is never authorization. `GatewayClient` accepts only an exact loopback
+HTTP `/message` endpoint, without credentials, query, or fragment; HTTPS and
+non-loopback hosts are rejected. `BIRKIN_HTTP_TOKEN`, when configured, is sent
+only across that validated boundary. Local HTTP caps JSON bodies at 1 MB,
+bounds body reads at two seconds, requires complete payloads, accepts only
+string text plus `http` or `voice` channels, and rejects `telegram` spoofing.
+Gateway's approved-work state still requires a trusted Telegram workflow, so a
+destructive voice command stays unapproved. Raw audio remains in memory unless
+the caller explicitly supplies a file sink, and API credentials are read from
+`OPENAI_API_KEY`.
+
+The background lane uses a bounded daemon worker queue with non-blocking
+backpressure, immutable job snapshots, monotonically sequenced events,
+cancellation before start, and an atomically replaced JSON receipt at every
+transition. One-shot CLI mode prints the ACK and receipt before awaiting
+delivery; timeout cleanup does not block on a still-running worker or retain
+interpreter exit. A persistent controller can keep the same broker alive
+across turns.
 
 ---
 
@@ -423,8 +467,8 @@ explicit retry action.
 **Personas and accepted debt.** The primary persona is an operator scanning
 runtime state by keyboard or pointer; the secondary persona is a reviewer who
 must make deliberate approval decisions without losing list context. The page
-uses native browser APIs and inline SVG only to preserve the zero-dependency
-runtime. Advanced filtering, sortable columns, charts, theming, chat, files,
+uses native browser APIs and inline SVG only so the WebUI adds no frontend
+runtime dependency. Advanced filtering, sortable columns, charts, theming, chat, files,
 terminal, sessions, and configuration are intentionally out of scope until
 real monitoring volume demonstrates a need.
 
@@ -447,7 +491,9 @@ real monitoring volume demonstrates a need.
 ## 10. Tech stack
 
 - **Language**: Python ≥ 3.10 (developed on 3.13).
-- **Dependencies**: none at runtime (standard library only). `pytest` for dev.
+- **Dependencies**: `openai[realtime,voice_helpers]` for GPT STT/TTS and
+  microphone/speaker I/O; standard library elsewhere. `pytest`/`pytest-cov`
+  live in the default uv dev group.
 - **Build**: `hatchling`. **Run/install**: `uv` / `pipx` / `pip`.
 - **LLM**: Anthropic Messages API (streaming via `urllib`); OpenAI-compatible
   adapter. Prompt caching enabled for the system prompt and tool list.

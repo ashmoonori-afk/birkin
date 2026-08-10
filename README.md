@@ -178,6 +178,75 @@ environment variables, or `~/.birkin/config.json`. Subscription-backed Claude
 and Codex CLI providers are also supported when their CLIs are installed and
 authenticated.
 
+### Active voice control
+
+Voice support is installed with birkin. OpenAI STT/TTS calls require a Platform
+API key:
+
+```bash
+export OPENAI_API_KEY="..."
+uv run birkin gateway
+```
+
+In another terminal, start continuous live-microphone voice mode:
+
+```bash
+uv run birkin voice start \
+  --gateway-url http://127.0.0.1:8788/message
+uv run birkin voice status
+```
+
+`start` waits for authenticated worker readiness, rejects duplicate daemons,
+and writes its authenticated control state and log under `~/.birkin/voice`.
+The state directory is restricted to the current OS account; keep any custom
+`BIRKIN_HOME` on a filesystem that supports user ACLs. If a live daemon PID
+temporarily stops answering, `start` reports it as `UNREACHABLE` instead of
+deleting its state and launching an orphaned duplicate.
+`status` reports the current PID and exits `0` only for `RUNNING`;
+`STOPPING`, `UNREACHABLE`, and `INACTIVE` exit `1`. Stop the daemon after its
+current bounded voice turn with:
+
+```bash
+uv run birkin voice stop
+```
+
+If that turn outlives the control wait, `stop` prints `STOPPING`, exits `1`,
+and the accepted shutdown continues; poll with `voice status`.
+
+Recorded and deterministic inputs remain one-shot only:
+
+```bash
+uv run birkin voice --once \
+  --audio wake.wav \
+  --command-audio command.wav \
+  --gateway-url http://127.0.0.1:8788/message \
+  --tts-output reply.pcm \
+  --no-playback
+```
+
+For a one-shot live capture, omit `--audio` and `--command-audio`. Add
+`--background` to receive a durable job receipt under
+`~/.birkin/voice/jobs`. For deterministic CI or troubleshooting, provide
+`--transcript "Daddy is home" --command "status"` instead. Daemon `start`
+accepts live-microphone options only; file, transcript, command, background,
+and `--once` inputs fail before a worker is launched.
+
+The nested `voice` config block supplies defaults for the matching CLI flags;
+an explicit flag wins. Its empty `gateway_url` keeps wake-only fixture runs
+offline. For Gateway delivery, set it or pass `--gateway-url` with an exact
+loopback HTTP `/message` endpoint such as
+`http://127.0.0.1:8788/message`. Non-loopback hosts, HTTPS, credentials,
+queries, and fragments are rejected. If the local HTTP channel is protected,
+set `BIRKIN_HTTP_TOKEN`; the voice client forwards it only to that validated
+loopback endpoint.
+
+The wake phrase is a routing trigger, not authorization. Voice requests still
+cross `Gateway.handle("voice", ...)` and cannot gain Telegram's approved-work
+flags. `gpt-transcribe` performs bounded STT and `gpt-4o-mini-tts` produces the
+reply audio; generated speech is AI-generated. Codex/ChatGPT sign-in does not
+replace `OPENAI_API_KEY` for Audio API calls.
+
+
 ## Native tools
 
 The registry can expose:
@@ -241,6 +310,18 @@ a representative configuration using real defaults from `birkin/config.py`:
   "gateway_port": 8788,
   "budget_tokens_daily": 0,
   "budget_tokens_monthly": 0,
+  "voice": {
+    "wake_phrase": "Daddy is home",
+    "gateway_url": "",
+    "session_id": "voice-local",
+    "sample_rate": 24000,
+    "stt_model": "gpt-transcribe",
+    "tts_model": "gpt-4o-mini-tts",
+    "tts_voice": "coral",
+    "tts_instructions": "Speak concisely and clearly.",
+    "background_workers": 2
+  },
+
   "channels": {
     "http": {"enabled": true},
     "telegram": {
