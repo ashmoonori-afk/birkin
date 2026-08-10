@@ -34,7 +34,7 @@ HIDE, SHOW = "\033[?25l", "\033[?25h"
 SYNC_ON, SYNC_OFF = "\033[?2026h", "\033[?2026l"
 HOME, EL, RST = "\033[H", "\033[0K", "\033[0m"
 
-SECTIONS = ("세션", "크론", "승인", "기억")
+SECTIONS = ("세션", "에이전트", "크론", "승인", "기억")
 _RAIL_W = 14
 _REFRESH_S = 2.0
 _CHROME_H = 5        # 헤더 2줄 + 구분선 + 빈 줄 + 힌트 줄
@@ -60,6 +60,18 @@ def _human_age(iso: Any) -> str:
     return f"{int(secs / 86400)}일전"
 
 
+def _agent_age(seconds: Any) -> str:
+    try:
+        age = max(0, int(seconds))
+    except (TypeError, ValueError):
+        return ""
+    if age < 60:
+        return f"{age}s"
+    if age < 3600:
+        return f"{age // 60}m"
+    return f"{age // 3600}h"
+
+
 def _mtime_age(path) -> str:
     try:
         from datetime import datetime, timezone
@@ -73,8 +85,8 @@ def snapshot(session: Any) -> dict[str, Any]:
     """Gather every pane's data from the live backend. No escapes, testable."""
     cfg = getattr(session, "cfg", {}) or {}
     snap: dict[str, Any] = {"cfg": cfg, "header": {}, "sessions": [],
-                            "cron": [], "approvals": [], "zones": [],
-                            "errors": {}}
+                            "agents": [], "cron": [], "approvals": [],
+                            "zones": [], "errors": {}}
 
     # header: identity + budget + daemon
     h = snap["header"]
@@ -108,6 +120,26 @@ def snapshot(session: Any) -> dict[str, Any]:
                              "path": str(f)} for f in files]
     except Exception as exc:
         snap["errors"]["세션"] = str(exc) or type(exc).__name__
+
+    # durable subagent run tree
+    try:
+        from . import agentruns
+
+        def add_agents(runs: list[dict[str, Any]], depth: int = 0) -> None:
+            for run in runs:
+                snap["agents"].append({
+                    "id": str(run.get("id", ""))[:8],
+                    "task": run.get("task", ""),
+                    "status": run.get("status", ""),
+                    "age": _agent_age(run.get("heartbeat_age")),
+                    "stalled": bool(run.get("stalled")),
+                    "depth": depth,
+                })
+                add_agents(run.get("children") or [], depth + 1)
+
+        add_agents(agentruns.list_runs())
+    except Exception as exc:
+        snap["errors"]["에이전트"] = str(exc) or type(exc).__name__
 
     # cron jobs
     try:
@@ -151,8 +183,9 @@ def snapshot(session: Any) -> dict[str, Any]:
 
 
 def _rows(snap: dict[str, Any], section: str) -> list[dict[str, Any]]:
-    return {"세션": snap["sessions"], "크론": snap["cron"],
-            "승인": snap["approvals"], "기억": snap["zones"]}[section]
+    return {"세션": snap["sessions"], "에이전트": snap["agents"],
+            "크론": snap["cron"], "승인": snap["approvals"],
+            "기억": snap["zones"]}[section]
 
 
 def _counts(snap: dict[str, Any]) -> dict[str, int]:
@@ -229,6 +262,10 @@ def _table_lines(snap: dict[str, Any], section: str, cursor: int,
     # column spec per section (label, key, width, align)
     if section == "세션":
         cols = [("대화", "title", tw - 12, "left"), ("수정", "age", 10, "left")]
+    elif section == "에이전트":
+        cols = [("ID", "id", 12, "left"), ("상태", "status", 8, "left"),
+                ("심박", "age", 6, "left"), ("정지", "stalled", 5, "left"),
+                ("작업", "task", max(4, tw - 43), "left")]
     elif section == "크론":
         cols = [("이름", "name", 14, "left"), ("스케줄", "schedule", tw - 34, "left"),
                 ("다음", "next", 16, "left")]
@@ -257,8 +294,12 @@ def _table_lines(snap: dict[str, Any], section: str, cursor: int,
     cap = _row_capacity(height, len(rows), extra=1 if err else 0)
     visible = rows[top:top + cap]
     for i, row in enumerate(visible, start=top):
+        shown = dict(row)
+        if section == "에이전트":
+            shown["id"] = "  " * int(row.get("depth") or 0) + str(row.get("id", ""))
+            shown["stalled"] = "!" if row.get("stalled") else ""
         cells = "  ".join(
-            ui.pad(str(row.get(key, "")), w, align=al)
+            ui.pad(str(shown.get(key, "")), w, align=al)
             for _lbl, key, w, al in cols)
         # ASCII marker (guaranteed width-1) so the cursor row is distinguishable
         # even with color off — inverse is added on top when color is on.
@@ -289,9 +330,9 @@ def _rail_lines(snap: dict[str, Any], active: str, height: int) -> list[str]:
 def _hint_line(section: str, width: int = 200, note: str = "") -> str:
     if note:
         return f"{ui.BOLD}  {ui.fit(note, width - 2)}{ui.RESET}"
-    base = "1-4 페인 · j/k 이동 · g/G 처음끝 · r 새로 · q 종료"
-    extra = {"세션": " · Enter 열기", "크론": "", "승인": " · a 승인 · d 거부",
-             "기억": ""}[section]
+    base = "1-5 페인 · j/k 이동 · g/G 처음끝 · r 새로 · q 종료"
+    extra = {"세션": " · Enter 열기", "에이전트": "", "크론": "",
+             "승인": " · a 승인 · d 거부", "기억": ""}[section]
     return f"{ui.DIM}  {ui.fit(base + extra, width - 2)}{ui.RESET}"
 
 
@@ -472,7 +513,7 @@ def _loop(session, w, keys, state):
         state["note"] = ""                  # any keypress clears the last one
         if key in ("q", "esc"):
             return
-        elif key in ("1", "2", "3", "4"):
+        elif key in tuple(str(i) for i in range(1, len(SECTIONS) + 1)):
             state.update(section=SECTIONS[int(key) - 1], cursor=0, top=0)
         elif key == "\t":
             i = (SECTIONS.index(state["section"]) + 1) % len(SECTIONS)

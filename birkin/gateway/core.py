@@ -557,6 +557,17 @@ class Gateway:
             return str(n.get("chat_id"))
         return None
 
+    def resolve_delivery_target(self, channel: str, *, fallback=None) -> Any:
+        """Resolve a send-only adapter before consulting a legacy target.
+
+        Telegram and local HTTP remain owned by their existing channel paths;
+        callers can pass that existing resolution as ``fallback``. Keeping the
+        registry lookup here gives outbound gateway integrations one stable
+        Birkin-native seam without changing either legacy implementation.
+        """
+        from .channels.registry import resolve_delivery_target
+        return resolve_delivery_target(channel, self.cfg, fallback=fallback)
+
     def interrupt(self, channel: str, chat_id: str) -> bool:
         """Cancel the turn currently in flight for this chat, if any. Called by
         a channel when a NEW message arrives mid-turn. Returns True if a turn

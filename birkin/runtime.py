@@ -14,7 +14,7 @@ from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import Any, Callable, Optional
 
-from . import budget, checkpoints, config, hooks, promptgate, prompts, store
+from . import budget, checkpoints, config, goals, hooks, promptgate, prompts, store
 from .agent import Agent
 from .llm import LLMClient, LLMError, build_client
 from .memory import Memory
@@ -239,6 +239,8 @@ class Session:
     def _record_turn(self, text: str, reply: str, *,
                      review_skills: bool = True) -> None:
         """Write an auditable run record (+ ledger line + usage) per chat turn."""
+        input_usage = store.estimate_usage(self.agent.system, text)["estTokens"]
+        output_usage = store.estimate_usage(reply or "")["estTokens"]
         try:
             usage = store.estimate_usage(self.agent.system, text, reply or "")
             body = (reply or "").strip()
@@ -251,6 +253,11 @@ class Session:
             }, usage=usage)
         except Exception as exc:
             print(f"[birkin] warning: could not save run record: {exc}",
+                  file=sys.stderr, flush=True)
+        try:
+            goals.add_usage(input_usage, output_usage)
+        except Exception as exc:
+            print(f"[birkin] warning: could not update goal usage: {exc}",
                   file=sys.stderr, flush=True)
         if review_skills:
             self._schedule_skill_review(text, reply)

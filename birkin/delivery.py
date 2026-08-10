@@ -200,21 +200,35 @@ def release(row_id: int | None) -> None:
         pass
 
 
+def _registered_sender(channel: str, fallback: Any) -> Any:
+    """Prefer a configured send-only adapter, preserving legacy senders."""
+    try:
+        from .gateway.channels.registry import resolve_delivery_target
+        adapter = resolve_delivery_target(channel, config.load_config())
+    except Exception:
+        return fallback
+    adapter_send = getattr(adapter, "send", None)
+    return adapter_send if callable(adapter_send) else fallback
+
+
 def redeliver(channel: str, send: Any, *, prefix: str = "[재전송] ",
               owner: str | None = None) -> int:
     """Send every outstanding reply for ``channel``; returns how many went out.
 
     Rows are claimed first, so a second gateway running the same recovery sends
-    nothing rather than duplicating the backlog.
+    nothing rather than duplicating the backlog. Registered send-only adapters
+    are consulted first; unregistered or disabled channels use the exact legacy
+    sender supplied by the caller.
 
     ``send(chat_id, text)`` may return ``False`` when it definitely did not
     deliver. Other falsey values preserve compatibility with senders that do
     not return a status.
     """
+    sender = _registered_sender(channel, send)
     sent = 0
     for row in claim(channel, owner=owner):
         try:
-            delivered = send(row["chat_id"], prefix + row["text"])
+            delivered = sender(row["chat_id"], prefix + row["text"])
         except Exception:
             release(row["id"])       # leave it recorded; try again next boot
             continue

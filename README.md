@@ -248,7 +248,9 @@ a representative configuration using real defaults from `birkin/config.py`:
       "token": "",
       "allowed_chat_ids": [],
       "stream": true
-    }
+    },
+    "slack": {"enabled": false, "webhook_url": ""},
+    "discord": {"enabled": false, "webhook_url": ""}
   }
 }
 ```
@@ -261,6 +263,8 @@ Important boundaries:
 - `disabled_tools` removes named native tools from the registry.
 - Gateway exposure should be paired with HTTP authentication or Telegram
   `allowed_chat_ids`.
+- Slack and Discord are send-only adapters. They require HTTPS incoming-webhook
+  URLs and truncate messages at 3,500 and 2,000 characters respectively.
 - Daily/monthly token budgets are disabled when set to `0`.
 
 Run `birkin setup` for guided configuration and `birkin tools` to inspect or
@@ -300,6 +304,31 @@ birkin curate-memory
 - **MCP** exposes birkin tools to compatible clients.
 - **A2A** exposes an opt-in Agent2Agent v1.0 JSON-RPC endpoint and agent card.
 - **Gateway** keeps sessions warm across local HTTP and Telegram turns.
+
+## Integration workflows
+
+Durable subagent runs are visible in `/dash` and the REPL:
+
+```text
+/agents
+/attach <run-id>
+/send <run-id> <message>
+```
+
+Use `/goal set <objective> [--budget N] [--gate "command"]` to persist one
+active goal. `/goal show`, `/goal pause`, and `/goal done` manage it. A gate
+command is never executed directly by the goal store; finishing the goal routes
+the verifier through the existing shell approval queue.
+
+`/sessions <query>` searches saved transcripts and returns date, channel,
+model, snippet, and score metadata. Filters compose with AND:
+`--since 30d`, `--from telegram` (also `--channel`), and `--model <name>`.
+Bare `/sessions` keeps the original saved-session listing.
+
+Cron jobs may use `"type": "monitor"` with exactly one of `monitor_url` or
+`monitor_script`. They alert only when the bounded result changes; URL monitors
+apply the web SSRF guard, a 30-second timeout, and a 256 KiB maximum response.
+Fetch failures are recorded as failures, not changes.
 
 ## Verification
 

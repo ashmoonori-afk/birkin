@@ -302,6 +302,29 @@ def main(m):
     assert out["agents"] == 1 and out["result"][1:] == [None, None, None]
 
 
+def test_verify_routes_the_active_goal_gate_to_shell_approval(tmp_path):
+    from birkin import goals, store
+
+    goals.set_goal("Verify workflow")
+    marker = tmp_path / "must-not-exist"
+    command = f"echo bad > {marker}"
+    p = _write(tmp_path, f'''
+meta = {{"name": "verified"}}
+
+def main(m):
+    return m.verify({command!r})
+''')
+
+    out = moirai.run_script(moirai.load_script(p), cfg={"auto_approve": []})
+
+    assert out["result"] is None
+    assert not marker.exists()
+    pending = store.list_pending()
+    assert len(pending) == 1
+    assert pending[0]["category"] == "shell"
+    assert pending[0]["payload"]["command"] == command
+
+
 def test_tool_bearing_agents_are_refused_until_m3(tmp_path):
     p = _write(tmp_path, '''
 meta = {"name": "tools", "roles": {"w": {"default": "codex:x", "tools": "read-only"}}}
