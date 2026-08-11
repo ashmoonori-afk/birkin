@@ -433,6 +433,9 @@ agent actually writes into — and anything outside those roots is still refused
 After a gateway restart, the first message of each conversation is seeded with
 that conversation's saved transcript tail, so birkin remembers what you were
 talking about before the restart (`/new` opts out and starts truly clean).
+Short context-dependent follow-ups such as `쉽게 설명해` are explicitly tied
+to that chat's latest substantive user request, while self-contained new topics
+stay untouched — including after a restart.
 The in-chat heartbeat names the work stage ("조사 중", "할 일 3/7: …") for
 ordinary and approved long-running turns alike, not just a minute counter.
 
