@@ -1303,7 +1303,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     ody = sub.add_parser(
         "odyssey",
-        help="seed a goal-completion cycle (plan → critique → execute → "
+        help="seed a goal-completion cycle (plan -> critique -> execute -> "
              "verify); then run /odyssey in chat to drive it")
     ody.add_argument("goal", nargs=argparse.REMAINDER, help="the goal")
     ody.set_defaults(func=_cmd_odyssey)
