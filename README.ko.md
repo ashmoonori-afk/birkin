@@ -11,9 +11,19 @@ birkin은 CLI 에이전트, HTTP/Telegram gateway, MCP server, 멀티에이전�
 
 [English](./README.md)
 
-![어휘 기억망 위를 가로지르는 결정적 실행 그래프](./docs/assets/birkin-graph-engineering.png)
+![짐 보따리를 멘 날개 달린 헤르메스 전령을 위쪽 트랙에서 앞지르는, 브랜드 없는 사다리꼴 구조에 손잡이 두 개가 달린 핸드백. 내부의 노드 그래프는 흐트러지지 않고, 단단한 게이트가 붉은 엣지를 튕겨낸다](./docs/assets/birkin-hero-courier.png)
 
 > **기억은 파일로. 제어 흐름은 코드로. 권한은 경계 안에서.**
+
+이름이 곧 농담이고, 그 농담이 곧 설계입니다. 헤르메스는 유명한 전령입니다.
+빠르고, 신화적이고, 가볍게 다닙니다. birkin은 더 적은 기계 장치를 지고, 짐이
+쏟아질 수 없는 형태로 담고, 통과해서는 안 되는 것 앞에 단단한 게이트를 세우는
+방식으로 그 기준선보다 앞서 달립니다. 게이트는 장식이 아닙니다. 모델이 무엇을
+원하든 거부하고, 큐에 넣고, checkpoint를 남기는 결정적 코드입니다. 속도 역시
+실제이며 birkin의 이전 경로와 비교해 측정한 값입니다. warm gateway 턴이
+Claude에서 13-16초 → 2.3초, Codex에서 37.5초 → 3초로 줄었습니다
+([`docs/STATUS.md`](./docs/STATUS.md), ADR-045·ADR-046. 이 저장소에는
+hermes-agent와의 지연 시간 비교 벤치마크가 없고, 그런 주장도 하지 않습니다).
 
 ## 60초 안에 보는 근거
 
@@ -26,6 +36,7 @@ birkin은 CLI 에이전트, HTTP/Telegram gateway, MCP server, 멀티에이전�
 | **프로덕션 R@1 0.891** | 현재 lexical stack은 LongMemEval-S 470문항에서 R@1 0.891 / R@5 0.974 / MRR 0.926입니다. 연구용 tuned 구성은 0.900으로, 같은 harness에서 측정한 최고 embedding hybrid(0.894)보다 앞섭니다. encoder도 vector store도 없습니다. [`docs/ranking-v2-plan.md`](./docs/ranking-v2-plan.md) |
 | **동시 실행 슬롯 4개, agent 상한 100** | Moirai의 기본 thread pool 폭과 실행당 spawn 상한입니다. 아래의 이름 붙은 worker와는 다른 스케줄링 한도이며, 새 agent마다 abort·budget·상한을 먼저 검사합니다. [`moirai/engine.py`](./birkin/moirai/engine.py) |
 | **오프라인 테스트 2,300개 이상, coverage 82.89%** | 기본 `pytest` 실행에 API key도 네트워크도 필요하지 않습니다. [`docs/STATUS.md`](./docs/STATUS.md) |
+| **warm 턴 2.3초와 3초** | Claude와 Codex의 warm gateway 턴이며, birkin의 이전 경로에서는 각각 13-16초와 37.5초였습니다. 다른 프로젝트와의 비교가 아니라 자기 자신과의 비교입니다. [`docs/STATUS.md`](./docs/STATUS.md) |
 | **번들 스킬 56개, 파이썬 약 37K줄** | 평평한 패키지 하나입니다. 대부분의 동작은 입력이 명시적이고 상태가 파일에 남는 모듈입니다. |
 
 <details>
@@ -74,6 +85,11 @@ https://raw.githubusercontent.com/ashmoonori-afk/birkin/main/README.ko.md
 재시도할지, 언제 멈출지를 모델이 정합니다. 그건 spawn 버튼이 달린 제안 루프입니다.
 Moirai는 그 결정들을 파이썬이 소유하는 실행 그래프로 옮깁니다.
 
+![열쇠 모양 진입구 하나, 어떤 spawn보다 앞에 선 3단 텀블러 guard, 직선 레인 하나, 단단한 barrier에서 만나는 병렬 스레드 4개, 세 스테이션을 각자 통과하는 토큰 6개, 격리된 붉은 실패 조각, 그 아래를 지나는 공용 ledger rail, 그리고 키가 하나만 맞는 resume 아크 2개](./docs/assets/birkin-moirai-engine.png)
+
+*진입은 하나, guard는 모든 spawn보다 먼저, 동시성은 세 가지 형태, 실패는 한
+곳에 갇히고, 전부 journal에 남으며, resume은 키가 맞는 자리에서만 재사용됩니다.*
+
 ```mermaid
 flowchart LR
     E["명시적 진입<br/>CLI 전용"] --> S["Python workflow load"]
@@ -108,10 +124,12 @@ flowchart LR
 
 ## 권한에 경계가 있는 worker
 
-![하나의 journal을 공유하는, 경계가 있는 실행 레인](./docs/assets/birkin-bounded-workers.png)
+![하나의 공용 기반 레일 위에 선 여덟 스테이션. 단단한 기계 블록 4개, 상태 토큰을 품은 반투명 프레임 3개, 무게 없는 점선 게이트 1개가 닫힌 amber 순환으로 이어진다](./docs/assets/birkin-worker-system.png)
 
-worker의 이름은 그리스 신화에서 왔지만, 그 경계는 의도적으로 낭만적이지
-않습니다.
+worker의 이름은 그리스·이집트 신화에서 왔지만, 그 경계는 의도적으로 낭만적이지
+않습니다. 그리고 전부 같은 종류의 물건도 아닙니다. 넷은 결정적 모듈이고, 셋은
+상태를 남기지만 실행은 거의 하지 않는 얇은 launcher이며, 하나는 모듈이 아예 없는
+프로토콜 산문입니다.
 
 | Worker | 언제 도는가 | 권한 상한 |
 |---|---|---|
@@ -121,9 +139,29 @@ worker의 이름은 그리스 신화에서 왔지만, 그 경계는 의도적으
 | **Morpheus** | 최근 작업을 예정된 주기로 검토할 때 | proposal을 낼 뿐, 에이전트를 직접 고쳐 쓰지 않습니다. |
 | **Boulder** | 장기 goal이 설정됐을 때 | 재개 가능한 plan을 저장합니다. goal의 gate command는 goal store가 직접 실행하지 않고 shell approval queue를 거칩니다. |
 | **Harness** | Morpheus나 턴 경계 검토에서 proposal이 올라올 때 | target, type, budget을 검증하고 한도 안에서 적용한 뒤, rollback을 지원하는 ledger에 남깁니다. |
+| **Odyssey** | 당신이 goal-completion cycle을 시작할 때 | 엔진이 아니라 얇고 재개 가능한 glue입니다. slug를 만들고 Boulder plan을 가리키고 kickoff prompt를 구성할 뿐, cycle 자체는 여러 턴에 걸친 skill protocol로 돕니다. Moirai를 쓰지 않으며 자체 실행 기계도 없습니다. |
+| **Osiris** | Odyssey의 한 step이 끝났다고 주장할 때 | Odyssey 스킬 안의 inline 프로토콜 산문이며, 패키지 어디에도 모듈이 없습니다. 관례로 step의 체크를 막을 뿐 독립적으로 무엇도 강제하지 못합니다. 결과를 실제로 영속화하는 것은 Boulder의 파일입니다. |
 
-이 표 전체를 만드는 규칙은 하나입니다. **worker는 증거와 제안을 만들고, 상한과
-영속화와 승인은 결정적 코드가 소유합니다.**
+**이미지 읽는 법.** 단단한 기계 블록은 결정적 모듈, 반투명 프레임은 재개 가능한
+상태를 들고 있지만 실행은 거의 하지 않는 launcher, 점선은 뒤에 코드가 없는
+프로토콜입니다.
+
+- 게이트가 달린 방직기, **Moirai**, 모듈
+- 흐려지는 선반의 격자 서고, **Mnemosyne**, 모듈
+- 계획 돌을 쌓은 케언, **Boulder**, 모듈
+- 역방향 레버가 달린 제본 ledger, **Harness**, 모듈
+- 봉인된 두루마리로 좁아지는 등불, **Neurosis**, launcher
+- 나침반과 길, **Odyssey**, launcher
+- 봉인된 봉투를 올려보내는 달, **Morpheus**, launcher
+- 열린 문 안의 점선 저울, **Osiris**, 프로토콜 전용
+
+amber 순환은 Odyssey의 cycle입니다. Neurosis, 비평가 3명, Boulder, step 실행,
+Osiris 검증, 그리고 다시 다음 미체크 step으로 돌아갑니다.
+
+이 표의 대부분을 만드는 규칙은 하나입니다. **worker는 증거와 제안을 만들고,
+상한과 영속화와 승인은 결정적 코드가 소유합니다.** Osiris는 그 규칙을 증명하는
+정직한 예외입니다. 뒤에 코드가 없는 유일한 역할이고, 바로 그래서 체크 하나는
+막을 수 있어도 경계는 강제하지 못합니다.
 
 ## 코드 기준 비교
 
@@ -525,7 +563,11 @@ birkin curate-memory
 - **Subagent**는 새 대화, 제한된 tool, 선택적 skill을 받습니다. 부모 transcript를
   상속하거나 부모 memory에 쓰지 않습니다.
 - **Moirai**는 Claude, Codex, API worker를 사용해 결정론적 workflow를 실행합니다.
-- **Boulder/Odyssey**는 장기 goal step을 저장하고 검증합니다.
+- **Boulder**는 독립적으로 검증 가능한 goal step의 재개 가능한 plan을 저장합니다.
+- **Odyssey**는 그 plan 위에서 skill cycle을 여러 턴에 걸쳐 조율합니다. 자체 실행
+  엔진이 없고 Moirai를 쓰지 않습니다.
+- **Osiris**는 그 cycle 안의 inline 프로토콜 검증입니다. 모듈이 없고 독립적인
+  강제력도 없으며, 무엇이 남았는지는 Boulder의 파일이 기록합니다.
 - **MCP**는 호환 client에 birkin tool을 노출합니다.
 - **A2A**는 opt-in Agent2Agent v1.0 JSON-RPC endpoint와 agent card를 제공합니다.
 - **Gateway**는 로컬 HTTP와 Telegram turn 사이에서 session을 warm 상태로 유지합니다.
