@@ -153,6 +153,14 @@ the Gateway turn is pending, rather than delaying request dispatch; an empty
 value disables it. The voice client remains provider-neutral, so the configured
 Gateway session continues to own Claude or Codex OAuth authentication.
 
+`birkin voice setup` provides a short, preference-first onboarding for the wake
+phrase, voice-only conversation style, and TTS voice. `birkin voice start`
+runs it automatically until `voice.onboarding_complete` is saved; setup can be
+replayed without changing unrelated chat or Telegram persona settings. The
+selected style is appended to the Gateway command as a typed
+`voice-response-style` instruction while the displayed and wake-gated command
+remains unchanged. An empty style preserves the pre-onboarding request shape.
+
 Wake is never authorization. `GatewayClient` accepts only an exact loopback
 HTTP `/message` endpoint, without credentials, query, or fragment; HTTPS and
 non-loopback hosts are rejected. `BIRKIN_HTTP_TOKEN`, when configured, is sent

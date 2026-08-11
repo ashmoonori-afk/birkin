@@ -24,6 +24,7 @@ from .config import VoiceConfig
 from .gateway import GatewayClient, GatewayVoiceError
 from .mission import AudioSink, VoiceMissionService
 from .openai_voice import OpenAISTT, OpenAITTS
+from .styles import format_voice_command
 from .wake import WakeConfig, WakeGate
 
 
@@ -248,10 +249,14 @@ def run_once(args: argparse.Namespace) -> int:
     if not options.gateway_url:
         return 0
 
+    gateway_command = format_voice_command(
+        command,
+        options.conversation_style,
+    )
     try:
         if args.background:
-            return _run_background(args, options, command)
-        return _run_foreground(args, options, command)
+            return _run_background(args, options, gateway_command)
+        return _run_foreground(args, options, gateway_command)
     except (
         GatewayVoiceError,
         OpenAIError,

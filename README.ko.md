@@ -322,10 +322,17 @@ uv run birkin gateway
 다른 터미널에서 기본 마이크를 계속 사용하는 음성 모드를 시작합니다.
 
 ```bash
+uv run birkin voice setup
 uv run birkin voice start \
   --gateway-url http://127.0.0.1:8788/message
 uv run birkin voice status
 ```
+
+`voice setup`은 깨우기 문구, 음성 전용 대화 스타일, TTS 음성을 세 가지 짧은
+질문으로 설정합니다. 첫 `voice start`는 설정이 완료될 때까지 이 과정을
+자동으로 실행합니다. 선택을 바꾸려면 `voice setup` 또는 `voice onboard`를
+다시 실행하십시오. 대화 스타일 지시는 음성 Gateway 턴에만 적용되며 chat이나
+Telegram persona를 바꾸지 않습니다.
 
 `start`는 인증된 worker 준비 완료를 기다리고 중복 daemon을 거부하며,
 인증된 제어 상태와 로그를 `~/.birkin/voice` 아래에 기록합니다. 상태
@@ -476,6 +483,8 @@ input, 작업 디렉터리, gate, digest에 묶이며, 승인은 권한 상승 �
     "tts_model": "gpt-4o-mini-tts",
     "tts_voice": "coral",
     "tts_instructions": "Speak concisely and clearly.",
+    "conversation_style": "",
+    "onboarding_complete": false,
     "background_workers": 2
   },
 

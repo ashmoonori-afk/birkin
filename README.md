@@ -334,10 +334,17 @@ uv run birkin gateway
 In another terminal, start continuous live-microphone voice mode:
 
 ```bash
+uv run birkin voice setup
 uv run birkin voice start \
   --gateway-url http://127.0.0.1:8788/message
 uv run birkin voice status
 ```
+
+`voice setup` asks three short questions for the wake phrase, a voice-only
+conversation style, and the TTS voice. The first `voice start` runs this setup
+automatically until it is completed; run `voice setup` or `voice onboard`
+again to change the choices. Conversation style instructions are scoped to
+voice Gateway turns and do not change the chat or Telegram persona.
 
 `start` waits for authenticated worker readiness, rejects duplicate daemons,
 and writes its authenticated control state and log under `~/.birkin/voice`.
@@ -485,6 +492,8 @@ a representative configuration using real defaults from `birkin/config.py`:
     "tts_model": "gpt-4o-mini-tts",
     "tts_voice": "coral",
     "tts_instructions": "Speak concisely and clearly.",
+    "conversation_style": "",
+    "onboarding_complete": false,
     "background_workers": 2
   },
 
