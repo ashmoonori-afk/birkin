@@ -49,7 +49,6 @@ def test_installed_console_script_help():
 
 def test_help_survives_a_legacy_windows_pipe_encoding():
     """A piped --help on Windows encodes with cp1252; it must not crash."""
-    import os
     import sys
 
     result = subprocess.run(
@@ -61,7 +60,40 @@ def test_help_survives_a_legacy_windows_pipe_encoding():
     )
 
     assert result.returncode == 0, result.stderr.decode("utf-8", "replace")
-    assert "→" in result.stdout.decode("utf-8", "replace")
+    assert "plan -> critique" in result.stdout.decode("utf-8", "replace")
+
+
+def test_force_utf8_output_pins_both_streams(monkeypatch):
+    """cp1252 cannot encode this UI's Korean text; the entry point pins UTF-8."""
+    from birkin import cli
+
+    class _Stream:
+        def __init__(self) -> None:
+            self.calls: list[dict[str, str]] = []
+
+        def reconfigure(self, **kwargs: str) -> None:
+            self.calls.append(kwargs)
+
+    out, err = _Stream(), _Stream()
+    monkeypatch.setattr(cli.sys, "stdout", out)
+    monkeypatch.setattr(cli.sys, "stderr", err)
+
+    cli._force_utf8_output()
+
+    assert out.calls == [{"encoding": "utf-8", "errors": "replace"}]
+    assert err.calls == out.calls
+
+
+def test_force_utf8_output_tolerates_a_stream_without_reconfigure(monkeypatch):
+    from birkin import cli
+
+    class _Bare:
+        pass
+
+    monkeypatch.setattr(cli.sys, "stdout", _Bare())
+    monkeypatch.setattr(cli.sys, "stderr", _Bare())
+
+    cli._force_utf8_output()      # a test double must not break the CLI
 
 
 def test_parser_accepts_every_subcommand():
