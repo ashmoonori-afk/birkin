@@ -312,14 +312,14 @@
       </p>
       <div class="metric-grid">
         <div class="metric"><strong>22</strong><span>확인·수정된 결함 묶음</span></div>
-        <div class="metric"><strong>83.01%</strong><span>최종 전체 테스트 커버리지</span></div>
+        <div class="metric"><strong>82.97%</strong><span>최종 전체 테스트 커버리지</span></div>
         <div class="metric"><strong>0 / 0 / 0</strong><span>attributable basedpyright 오류/경고/노트</span></div>
         <div class="metric"><strong>3 PASS</strong><span>goal · security · quality 최종 재검토</span></div>
       </div>
       <div class="callout pass">
         <strong>현재 판정: 코드·테스트·정적·브라우저·전달 게이트 PASS.</strong>
         <p>
-          근거: <code>uv run pytest -q</code> exit 0, coverage 83.01%;
+          근거: <code>uv run pytest -q</code> exit 0, coverage 82.97%;
           <code>uv run ruff check .</code> exit 0; <code>uv build</code> exit 0;
           변경 귀속 type scope <code>0 errors, 0 warnings, 0 notes</code>.
           출처: 본 보고서 validation table과 최종 command transcript.
@@ -578,7 +578,7 @@
         <table>
           <thead><tr><th>Gate</th><th>명령/표면</th><th>결과</th><th>판정 근거</th></tr></thead>
           <tbody>
-            <tr><td>Full test</td><td><code>uv run pytest -q</code></td><td><span class="badge green">EXIT 0</span></td><td>coverage 83.01%, minimum 75%</td></tr>
+            <tr><td>Full test</td><td><code>uv run pytest -q</code></td><td><span class="badge green">EXIT 0</span></td><td>coverage 82.97%, minimum 75%</td></tr>
             <tr><td>Affected matrix</td><td>egress/security/web/files/CLI/Claude tests</td><td><span class="badge green">173 PASS / 1 SKIP</span></td><td>13.65s, external I/O 없음</td></tr>
             <tr><td>Lint</td><td><code>uv run ruff check .</code></td><td><span class="badge green">EXIT 0</span></td><td><code>All checks passed!</code></td></tr>
             <tr><td>Type</td><td>attributable basedpyright source/test scope</td><td><span class="badge green">0 / 0 / 0</span></td><td>errors / warnings / notes</td></tr>
@@ -594,7 +594,7 @@
         </table>
       </div>
       <pre>최종 코드 게이트
-pytest      exit 0 · coverage 83.01%
+pytest      exit 0 · coverage 82.97%
 ruff        exit 0 · All checks passed!
 basedpyright 0 errors · 0 warnings · 0 notes
 uv build    exit 0 · wheel + sdist

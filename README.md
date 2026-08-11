@@ -1,20 +1,59 @@
 # birkin
 
-**A dependency-free Python agent that treats memory, execution, and
+**A local-first Python agent that treats memory, execution, and
 self-improvement as inspectable local state.**
 
-birkin is a local-first CLI agent, HTTP/Telegram gateway, MCP server, and
-multi-agent runtime. Its production package uses only the Python standard
-library. The repository is roughly 32,000 lines of Python and ships with more
-than 2,000 offline tests and 56 bundled skills.
-
-The interesting part is not another chat loop. It is the way the code joins
-the loop to operational machinery: resumable goals, isolated subagents,
-workspace checkpoints, secret redaction, model failover, transparent Markdown
-memory, deterministic multi-agent workflows, and a reversible
-self-improvement ledger.
+birkin is a CLI agent, HTTP/Telegram gateway, MCP server, and multi-agent
+runtime in one installable package. Memory is a folder of Markdown you can
+open, grep, and commit. Multi-agent work is a Python graph, not a model
+deciding to call itself. Consequential actions cross approval, checkpoint, and
+redaction gates that live in code rather than in a prompt.
 
 [한국어](./README.ko.md)
+
+![A deterministic execution graph crossing a lexical memory lattice](./docs/assets/birkin-graph-engineering.png)
+
+> **Memory is files. Control flow is code. Authority is bounded.**
+
+## The 60-second proof
+
+Every row is something the repository can be made to show you.
+
+| | Measured or enforced |
+|---|---|
+| **1 runtime dependency** | The OpenAI SDK, required by the voice subsystem alone. Agent loop, gateway, memory, workflows, HTTP, JSON-RPC, and cron parsing are standard library. [`pyproject.toml`](./pyproject.toml) |
+| **5 curation operations, none of them delete** | `OPS` is the entire vocabulary a memory curator gets. There is no delete for an adversarial model or a poisoned note to reach for. [`curation_contract.py`](./birkin/curation_contract.py) |
+| **R@1 0.891 in production** | The shipped lexical stack scores 0.891 R@1 / 0.974 R@5 / 0.926 MRR on 470 LongMemEval-S questions. The tuned research configuration reaches 0.900, ahead of the best embedding hybrid measured on the same harness at 0.894. No encoder, no vector store. [`docs/ranking-v2-plan.md`](./docs/ranking-v2-plan.md) |
+| **4 concurrent execution slots, 100-agent ceiling** | Moirai's default thread-pool width and per-run spawn cap. Scheduling limits, distinct from the named workers below. Abort, budget, and cap are checked before each new agent. [`moirai/engine.py`](./birkin/moirai/engine.py) |
+| **2,300+ offline tests, 82.89% coverage** | The default `pytest` run needs no API key and no network. [`docs/STATUS.md`](./docs/STATUS.md) |
+| **56 bundled skills, ~37K lines of Python** | One flat package. Most behavior is a module with explicit inputs and file-backed state. |
+
+<details>
+<summary><strong>Or skip this README and make your agent audit the claims</strong></summary>
+
+```text
+Read this README and the implementation files it links to. Tell me whether
+birkin is graph engineering or a prompt loop, which actions a model can never
+authorize for itself, and where the project publishes results that went
+against it:
+https://raw.githubusercontent.com/ashmoonori-afk/birkin/main/README.md
+```
+
+</details>
+
+## Highlights
+
+| | What is different |
+|---|---|
+| **Delete-free memory curation** | The model proposes a typed plan. Deterministic code owns the mutation and decides what survives. |
+| **Lexical retrieval, measured** | BM25 over Hangul-aware tokens, Ebbinghaus decay, Hebbian potentiation, zone-priority EMA. LLM-free, benchmarked in-repo. |
+| **A graph runtime, not a spawn tool** | `agent`, `parallel`, and `pipeline` are code primitives. One workflow crosses Claude, Codex, and API workers without naming them in the script. |
+| **Bounded workers** | Each named worker has one trigger and one authority ceiling, enforced in the executor. |
+| **One enforcement path for tool results** | Every native tool call passes `ToolRegistry.run`. Hooks observe there, output is redacted there, spill happens only after redaction. |
+| **Self-improvement is reversible data** | Typed proposals, validated limits, a versioned ledger, and rollback. Not an invisible mutation. |
+| **One prompt assembly gate** | `promptgate.py` composes persona, memory, skills, and notices for every surface. No surface invents its own system prompt. |
+| **Local-first surfaces** | CLI, WebUI, local HTTP, Telegram, voice, MCP, and opt-in A2A from the same package and storage conventions. |
+| **Auditable by construction** | Visible files, append-only records, and offline tests instead of opaque hosted state. |
 
 ## Why birkin exists
 
@@ -22,7 +61,7 @@ There are already excellent general-purpose agent projects. birkin makes a
 different trade:
 
 - one installable Python package instead of a multi-language runtime;
-- zero mandatory runtime dependencies instead of SDK-heavy provider stacks;
+- a single voice-only runtime dependency instead of SDK-heavy provider stacks;
 - visible files and append-only records instead of opaque hosted state;
 - a small native tool surface instead of browser/computer automation;
 - explicit approval, checkpoint, and redaction choke points around execution;
@@ -30,6 +69,64 @@ different trade:
 
 This makes birkin unusually easy to audit, embed, test offline, and repair with
 ordinary Python tools.
+
+## Graph engineering, not agent theater
+
+Most agent systems keep control flow inside the prompt. The model decides
+whether to call another model, whether to retry, when to stop. That is a
+suggestion loop with a spawn button. Moirai moves those decisions into an
+execution graph that Python owns.
+
+```mermaid
+flowchart LR
+    E["Explicit entry<br/>CLI only"] --> S["Load Python workflow"]
+    S --> B["Bind roles to providers<br/>before execution"]
+    B --> G{"Guard: abort / budget / spawn cap"}
+    G -->|within limits| X{"Graph primitive"}
+    G -->|limit reached| Z["Stop spawning"]
+    X --> A["agent()"]
+    X --> P["parallel()<br/>barrier"]
+    X --> L["pipeline()<br/>per-item stages"]
+    A --> J["Journal"]
+    P --> J
+    L --> J
+    J --> O["Result + failure forensics"]
+    J -. "matching sequence + call key" .-> R["Deterministic resume cache"]
+    R -.-> X
+```
+
+- **Python owns control flow.** A workflow is a file with `meta` and `main(m)`.
+  Roles bind to providers before anything spawns.
+- **Concurrency has semantics.** `parallel()` is a barrier. `pipeline()` lets
+  each item advance through stages independently. A failed branch does not take
+  down its siblings.
+- **Replay is selective.** Resume accepts a cached call only when the sequence
+  and a content-derived key both still match, so rebinding one role re-runs
+  that role and nothing else.
+- **Failure is data.** Provider errors, guard blocks, tokens, elapsed time, and
+  tracebacks go into the run record instead of collapsing into "agent failed".
+- **Stop conditions are constants.** The bundled `deep-research` pattern halts
+  after two consecutive waves that surface no new lead, because
+  `DRY_WAVES_TO_STOP` is a number in the source rather than a judgment call.
+
+## Workers with bounded authority
+
+![Bounded execution lanes sharing one journal](./docs/assets/birkin-bounded-workers.png)
+
+The workers are named after Greek figures. Their boundaries are deliberately
+unromantic.
+
+| Worker | Runs when | Authority ceiling |
+|---|---|---|
+| **Moirai** | You start a workflow explicitly from the CLI | Runs provider-portable graphs. Abort, token budget, and the 100-agent spawn cap are evaluated before each new agent. |
+| **Mnemosyne** | Memory is indexed, searched, or mechanically maintained | Owns zones, ranking, decay, and priority. No model call anywhere in it. Judgment is a separate layer with its own gate. |
+| **Neurosis** | A request is too ambiguous to act on | Interviews, writes a spec, waits for approval. It does not guess. |
+| **Morpheus** | Scheduled review of recent work | Emits proposals. It does not rewrite the agent directly. |
+| **Boulder** | A long-running goal is set | Persists a resumable plan. A goal's gate command is never executed by the goal store; it routes through the shell approval queue. |
+| **Harness** | A proposal arrives from Morpheus or a turn-boundary review | Validates target, type, and budget, applies within limits, and appends to a ledger that supports rollback. |
+
+One rule generates that table. **Workers produce evidence and proposals.
+Deterministic code owns ceilings, persistence, and approval.**
 
 ## Code-level comparison
 
@@ -42,12 +139,12 @@ trees of
 | | birkin | hermes-agent | prime-agent |
 |---|---|---|---|
 | Main shape | One Python package | Large Python application plus JS/TS surfaces | TypeScript monorepo plus Python kernel shim |
-| Approximate source scale | 32K Python LOC | 166K Python + 132K JS/TS LOC | 152K TypeScript LOC |
+| Approximate source scale | 37K Python LOC | 166K Python + 132K JS/TS LOC | 152K TypeScript LOC |
 | Mandatory runtime dependencies | OpenAI SDK, Pillow, and Windows-only pywin32 | Large exact-pinned Python set plus extras | Multiple npm package dependency graphs; Python runtime uses IPython |
 | Agent/tool organization | One native loop and one registry choke point | Broad provider, gateway, browser, media, and tool subsystems | Layered `ai`, `agent`, `coding-agent`, and `tui` packages |
 | Memory | Editable Markdown/YAML/wikilink vault | Multiple state and memory integrations | Session/context-tree centric |
 | Self-improvement | Versioned proposal ledger with validation and rollback | Broad skill and runtime ecosystem | Extension and package ecosystem |
-| UI/channel breadth | CLI, WebUI, local HTTP, Telegram, MCP, A2A | Much broader browser, gateway, and messaging surface | Rich terminal UI and coding-agent extensions |
+| UI/channel breadth | CLI, WebUI, local HTTP, Telegram, voice, MCP, A2A | Much broader browser, gateway, and messaging surface | Rich terminal UI and coding-agent extensions |
 | Best fit | Small, auditable, long-running local agent | Feature breadth and many integrations | TypeScript-native coding-agent platform and TUI |
 
 ### Where birkin is stronger
@@ -251,7 +348,6 @@ flags. `gpt-transcribe` performs bounded STT and `gpt-4o-mini-tts` produces the
 reply audio; generated speech is AI-generated. Codex/ChatGPT sign-in does not
 replace `OPENAI_API_KEY` for Audio API calls.
 
-
 ## Native tools
 
 The registry can expose:
@@ -406,6 +502,11 @@ gateway.
 birkin's memory is a directory of normal Markdown files. Notes remain usable
 without birkin and can be versioned with Git.
 
+Curation is where most memory systems quietly lose data. birkin's curator emits
+a typed plan restricted to `rezone`, `link`, `supersede`, `archive`, and
+`annotate`. Deletion is not an operation it can express, and a deterministic
+executor decides what actually lands.
+
 The improvement path is deliberately separate:
 
 1. recent work is reviewed;
@@ -469,9 +570,9 @@ The default test run is offline:
 pytest
 ```
 
-At the time of this rewrite the suite passes more than 2,300 tests with over
-82% package coverage. Live-provider tests are excluded by default and require
-`BIRKIN_LIVE=1`.
+At the time of this rewrite the suite passes more than 2,300 tests with 82.89%
+package coverage against a 75% gate. Live-provider tests are excluded by
+default and require `BIRKIN_LIVE=1`.
 
 Static checks used by the project:
 
