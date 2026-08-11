@@ -5,6 +5,8 @@ from __future__ import annotations
 from collections.abc import Mapping
 from dataclasses import dataclass
 
+from .styles import VoiceConversationStyle, parse_conversation_style
+
 
 def _text(
     values: Mapping[str, object],
@@ -43,6 +45,7 @@ class VoiceConfig:
     tts_voice: str = "coral"
     tts_instructions: str = "Speak concisely and clearly."
     filler_text: str = "On it."
+    conversation_style: VoiceConversationStyle = ""
     background_workers: int = 2
 
     @classmethod
@@ -78,6 +81,9 @@ class VoiceConfig:
                 "filler_text",
                 cls.filler_text,
                 allow_empty=True,
+            ),
+            conversation_style=parse_conversation_style(
+                values.get("conversation_style", cls.conversation_style)
             ),
             background_workers=_positive_int(
                 values,
@@ -118,6 +124,7 @@ class VoiceConfig:
                 if filler_text is None
                 else filler_text
             ),
+            conversation_style=self.conversation_style,
             background_workers=(
                 self.background_workers
                 if background_workers is None
