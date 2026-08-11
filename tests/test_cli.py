@@ -135,6 +135,8 @@ def test_cmd_tools_panel(capsys):
 
 def test_cmd_tools_panel_restores_bypass_tools_when_enforcement_off(capsys):
     cfg = config.load_config()
+    cfg["provider"] = "anthropic"
+    cfg["model"] = "claude-sonnet-4-6"
     cfg["egress"]["enforced"] = False
     config.save_config(cfg)
 

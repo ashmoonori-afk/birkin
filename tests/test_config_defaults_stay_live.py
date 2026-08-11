@@ -36,6 +36,13 @@ def _written(path) -> dict:
     return json.loads(path.read_text(encoding="utf-8"))
 
 
+def test_new_install_defaults_to_codex_cli_oauth():
+    assert config.DEFAULT_CONFIG["provider"] == "codex-cli"
+    assert config.DEFAULT_CONFIG["model"] == "default"
+    assert config.DEFAULT_CONFIG["subagent_model"] == "default"
+    assert config.get_api_key(config.DEFAULT_CONFIG) == "cli"
+
+
 def test_cli_network_access_default_and_override_validation(cfg_path):
     assert config.DEFAULT_CONFIG["cli_network_access"] is False
     assert config.DEFAULT_CONFIG["egress"]["enforced"] is True

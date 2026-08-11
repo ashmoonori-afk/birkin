@@ -144,8 +144,13 @@ def test_gather_changed_files_returns_placeholder_when_none(tmp_path):
 def test_run_once_skips_cleanly_without_a_backend(monkeypatch):
     """No API key + no CLI backend should yield a ``morpheus skipped`` run
     record and exit 1 — never crash."""
-    # config defaults to provider=anthropic and there is no key in the test
-    # environment (conftest scrubs them) → ConfigError → graceful skip.
+    cfg = config.load_config()
+    cfg["provider"] = "anthropic"
+    cfg["model"] = "claude-sonnet-4-6"
+    config.save_config(cfg)
+
+    # There is no key in the test environment (conftest scrubs it), so the
+    # native API backend raises ConfigError and the routine skips gracefully.
     rc = morpheus.run_once(dry_run=False)
     assert rc == 1
     runs = store.list_runs(limit=5)

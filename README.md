@@ -75,10 +75,10 @@ loop and external Claude/Codex CLI tool loops.
 
 | Backend | How | Cost |
 |---|---|---|
-| **Claude Code** (`claude`) — *default* | be logged into `claude`, pick it in `birkin model` | your Claude subscription |
+| **Claude Code** (`claude`) | be logged into `claude`, pick it in `birkin model` | your Claude subscription |
 | **Anthropic API** | `export ANTHROPIC_API_KEY=sk-ant-…` | per token — `birkin budget` shows the month in dollars |
 | **OpenAI-compatible** | provider `openai` + `base_url` (works with **Ollama**) | per token, or free locally |
-| **Codex** (`codex`) | `birkin auth codex login`, then pick it in `birkin model` | your ChatGPT subscription |
+| **Codex CLI** (`codex`) — *default* | be logged into `codex`; birkin uses the CLI's OAuth session | your ChatGPT subscription |
 
 `birkin auth codex login` signs birkin in to Codex with its own OAuth session —
 one in-process HTTPS call per request, no `codex` subprocess, and the `codex`

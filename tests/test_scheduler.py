@@ -5,7 +5,7 @@ from __future__ import annotations
 import subprocess
 from datetime import datetime
 
-from birkin import cron, scheduler, store
+from birkin import config, cron, scheduler, store
 
 
 def test_next_nightly_today_vs_tomorrow():
@@ -53,6 +53,11 @@ def test_run_job_shell_records_run(monkeypatch):
 def test_run_job_prompt_skips_without_key(monkeypatch):
     """Prompt-type cron job tries to build a session; without a key it must skip
     cleanly (and record a 'skipped' run) instead of crashing."""
+    cfg = config.load_config()
+    cfg["provider"] = "anthropic"
+    cfg["model"] = "claude-sonnet-4-6"
+    config.save_config(cfg)
+
     job = {"id": "j2", "name": "digest", "type": "prompt",
            "value": "summarise yesterday"}
     scheduler._run_job(job)

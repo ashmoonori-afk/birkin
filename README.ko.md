@@ -75,10 +75,10 @@ Birkin 네이티브 도구 루프와 외부 Claude/Codex CLI 도구 루프의 �
 
 | 백엔드 | 방법 | 비용 |
 |---|---|---|
-| **Claude Code** (`claude`) — *기본* | `claude`에 로그인 후 `birkin model`에서 선택 | Claude 구독 |
+| **Claude Code** (`claude`) | `claude`에 로그인 후 `birkin model`에서 선택 | Claude 구독 |
 | **Anthropic API** | `export ANTHROPIC_API_KEY=sk-ant-…` | 토큰당 — `birkin budget`이 이번 달을 달러로 알려줍니다 |
 | **OpenAI 호환** | provider `openai` + `base_url` (**Ollama** 가능) | 토큰당, 로컬이면 무료 |
-| **Codex** (`codex`) | `birkin auth codex login` 후 `birkin model`에서 선택 | ChatGPT 구독 |
+| **Codex CLI** (`codex`) — *기본* | `codex`에 로그인하면 birkin이 CLI의 OAuth 세션을 사용 | ChatGPT 구독 |
 
 `birkin auth codex login`은 birkin을 Codex에 **자체 OAuth 세션**으로 로그인시킵니다.
 요청마다 인프로세스 HTTPS 한 번이라 `codex` 서브프로세스가 없고, `codex` CLI가

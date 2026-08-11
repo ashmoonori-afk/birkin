@@ -12,7 +12,7 @@ from typing import TypeAlias
 
 import pytest
 
-from birkin import mcp_server
+from birkin import config, mcp_server
 from birkin.gateway import workflow
 
 JsonValue: TypeAlias = (
@@ -154,6 +154,10 @@ def test_quote_tool_is_available_to_native_and_mcp_agents(
     # Given
     market = _market_module()
     monkeypatch.setenv("BIRKIN_HOME", str(tmp_path))
+    cfg = config.load_config()
+    cfg["provider"] = "anthropic"
+    cfg["model"] = "claude-sonnet-4-6"
+    config.save_config(cfg)
 
     # When
     native_names = {tool.name for tool in market.tools()}
