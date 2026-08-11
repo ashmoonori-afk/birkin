@@ -26,6 +26,7 @@ different trade:
 - visible files and append-only records instead of opaque hosted state;
 - a small native tool surface instead of browser/computer automation;
 - explicit approval, checkpoint, and redaction choke points around execution;
+- bounded worker continuations that run only after explicit approval;
 - continual improvement as reviewable proposals that can be rolled back.
 
 This makes birkin unusually easy to audit, embed, test offline, and repair with
