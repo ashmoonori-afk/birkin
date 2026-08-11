@@ -30,11 +30,18 @@ def is_auto(category: str, cfg: dict[str, Any]) -> bool:
 def _is_shell_cron(category: str, payload: dict[str, Any]) -> bool:
     """A cron job whose payload runs a shell command — as dangerous as `shell`.
 
-    The ``type`` is normalised (case/whitespace) so a capitalised ``"Shell"``
-    can't slip a shell payload past this gate.
+    Two payload shapes qualify. The ``type`` is normalised (case/whitespace) so
+    a capitalised ``"Shell"`` can't slip a shell payload past this gate. A
+    ``monitor`` job carrying ``monitor_script`` also runs that command through
+    the shell — unattended, on every tick — so it is gated identically instead
+    of riding on a "schedule things for me" policy.
     """
-    return category == "cron" and str(
-        (payload or {}).get("type", "")).strip().lower() == "shell"
+    if category != "cron":
+        return False
+    payload = payload or {}
+    if str(payload.get("type", "")).strip().lower() == "shell":
+        return True
+    return bool(str(payload.get("monitor_script") or "").strip())
 
 
 def propose(*, category: str, title: str, description: str,
@@ -85,6 +92,12 @@ def execute_action(category: str, payload: dict[str, Any],
         schedule = payload.get("schedule")
         if schedule and cron.parse_schedule(str(schedule)) is None:
             schedule = None
+        def _opt_text(value: Any) -> str | None:
+            text = str(value).strip() if value is not None else ""
+            return text or None
+
+        # Monitor sources travel with the proposal: dropping them here produced
+        # an approved job whose every tick failed for want of a source.
         job = cron.add_job(
             name=payload.get("name", "job"),
             hour=_clk(payload.get("hour", 9), 9, 23),
@@ -92,7 +105,10 @@ def execute_action(category: str, payload: dict[str, Any],
             action_type=payload.get("type", "prompt"),
             value=payload.get("value", ""),
             deliver_chat_id=payload.get("deliver_chat_id"),
-            schedule=str(schedule) if schedule else None)
+            schedule=str(schedule) if schedule else None,
+            monitor_url=_opt_text(payload.get("monitor_url")),
+            monitor_script=_opt_text(payload.get("monitor_script")),
+            max_bytes=payload.get("max_bytes"))
         return f"Registered cron job '{job['name']}' at " \
                f"{cron.schedule_display(job)} (id {job['id']})."
     if category == "shell":

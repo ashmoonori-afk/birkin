@@ -16,6 +16,7 @@ from .daemon_storage import update_state
 _MAX_MESSAGE = 4096
 _MAX_CLIENTS = 32
 _CLIENT_TIMEOUT_SECONDS = 2.0
+_IDLE_POLL_SECONDS = 0.2
 _STOP_RESPONSE_TIMEOUT_SECONDS = 32.0
 
 
@@ -40,11 +41,10 @@ def control_loop(
     listener.setblocking(False)
     selector.register(listener, selectors.EVENT_READ)
     try:
-        while True:
+        while not stopped.is_set():
             _expire_clients(selector, clients)
-            timeout = _next_timeout(clients)
             try:
-                events = selector.select(timeout)
+                events = selector.select(_next_timeout(clients))
             except (OSError, ValueError):
                 break
             for key, _mask in sorted(
@@ -179,11 +179,16 @@ def _expire_clients(
             _close_client(selector, clients, client)
 
 
-def _next_timeout(clients: dict[socket.socket, _Client]) -> float | None:
+def _next_timeout(clients: dict[socket.socket, _Client]) -> float:
+    """Never wait indefinitely, so the loop can notice shutdown by itself.
+
+    Closing the listener does not reliably wake a blocked ``select`` on POSIX,
+    which left this thread alive after ``serve`` had already returned.
+    """
     if not clients:
-        return None
+        return _IDLE_POLL_SECONDS
     deadline = min(client.deadline for client in clients.values())
-    return max(0.0, deadline - time.monotonic())
+    return max(0.0, min(_IDLE_POLL_SECONDS, deadline - time.monotonic()))
 
 
 def _forget_client(

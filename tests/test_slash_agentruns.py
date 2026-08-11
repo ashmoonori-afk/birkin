@@ -30,12 +30,34 @@ def test_agents_with_no_runs_says_so():
     assert "No agent runs" in out
 
 
-def test_attach_shows_run_status_and_task():
+def test_attach_shows_a_finished_run_without_waiting():
     from birkin import agentruns
     rec = agentruns.register_run("summarize the vault")
+    agentruns.finish_run(rec["id"], "done", "vault summary")
+
     out = _dispatch(f"/attach {rec['id']}")
+
     assert "summarize the vault" in out
-    assert "running" in out
+    assert "vault summary" in out
+
+
+def test_attach_follows_a_live_run_until_it_finishes(monkeypatch):
+    import time
+
+    from birkin import agentruns
+    rec = agentruns.register_run("long research task")
+    agentruns.progress(rec["id"], "tool_start web_search")
+
+    def advance(_seconds):
+        agentruns.progress(rec["id"], "tool_end web_search")
+        agentruns.finish_run(rec["id"], "done", "the answer")
+
+    monkeypatch.setattr(time, "sleep", advance)
+    out = _dispatch(f"/attach {rec['id']}")
+
+    assert "tool_start web_search" in out    # trail replayed on attach
+    assert "tool_end web_search" in out      # and streamed while running
+    assert "the answer" in out               # then the final result
 
 
 def test_attach_unknown_id_errors():

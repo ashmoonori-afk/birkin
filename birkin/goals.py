@@ -14,6 +14,7 @@ from . import approvals, config, store
 _STATUSES = frozenset({"active", "paused", "done"})
 _SLUG_RE = re.compile(r"[\W_]+", re.UNICODE)
 _OBJECTIVE_DISPLAY = 48
+_OBJECTIVE_PROMPT = 500
 _GATE_OUTPUT_TAIL = 2000
 
 
@@ -21,7 +22,6 @@ _GATE_OUTPUT_TAIL = 2000
 class GoalState:
     slug: str
     objective: str
-    budget_tokens: int | None
     tokens_used: int
     status: str
     gate_cmd: str | None
@@ -59,7 +59,6 @@ def _decode(value: Any) -> GoalState | None:
         state = GoalState(
             slug=str(value["slug"]),
             objective=str(value["objective"]),
-            budget_tokens=value.get("budget_tokens"),
             tokens_used=int(value.get("tokens_used", 0)),
             status=str(value["status"]),
             gate_cmd=(str(value["gate_cmd"]) if value.get("gate_cmd") is not None
@@ -72,11 +71,7 @@ def _decode(value: Any) -> GoalState | None:
     except (KeyError, TypeError, ValueError):
         return None
     if (not state.slug or not state.objective.strip()
-            or state.status not in _STATUSES or state.tokens_used < 0
-            or (state.budget_tokens is not None
-                and (isinstance(state.budget_tokens, bool)
-                     or not isinstance(state.budget_tokens, int)
-                     or state.budget_tokens <= 0))):
+            or state.status not in _STATUSES or state.tokens_used < 0):
         return None
     return state
 
@@ -102,21 +97,16 @@ def _active_unlocked() -> GoalState | None:
                                           state.slug))
 
 
-def set_goal(objective: str, budget: int | None = None,
-             gate: str | None = None) -> GoalState:
+def set_goal(objective: str, gate: str | None = None) -> GoalState:
     """Create a new active goal, pausing any currently active goal."""
     objective = str(objective or "").strip()
     if not objective:
         raise ValueError("goal objective must not be empty")
-    if (budget is not None
-            and (isinstance(budget, bool) or not isinstance(budget, int)
-                 or budget <= 0)):
-        raise ValueError("goal budget must be a positive integer or None")
     gate_cmd = str(gate).strip() if gate is not None else None
     gate_cmd = gate_cmd or None
     now = _now()
     state = GoalState(
-        slug=_slug(objective), objective=objective, budget_tokens=budget,
+        slug=_slug(objective), objective=objective,
         tokens_used=0, status="active", gate_cmd=gate_cmd, gate_last=None,
         created_at=now, updated_at=now)
     with _domain_lock():
@@ -193,13 +183,8 @@ def render_status() -> str:
     state = get_active()
     if state is None:
         return ""
-    if state.budget_tokens is None:
-        usage = f"{state.tokens_used} tokens"
-    else:
-        usage = f"{state.tokens_used}/{state.budget_tokens} tokens"
-        if state.tokens_used > state.budget_tokens:
-            usage += " OVER"
-    parts = [f"goal: {_short_objective(state.objective)}", usage]
+    parts = [f"goal: {_short_objective(state.objective)}",
+             f"{state.tokens_used} tokens"]
     if state.gate_cmd:
         if state.gate_last is None:
             gate = "pending"
@@ -207,6 +192,46 @@ def render_status() -> str:
             gate = "pass" if state.gate_last.get("ok") else "fail"
         parts.append(f"gate: {gate}")
     return " | ".join(parts)
+
+
+def prompt_note() -> str:
+    """The active goal as one system-prompt block (empty when there is none).
+
+    Persisting a goal the model never sees is bookkeeping, not steering, so
+    every prompt assembled through :mod:`promptgate` carries the objective and
+    the verifier that will decide completion.
+    """
+    state = get_active()
+    if state is None:
+        return ""
+    lines = [f"- objective: {' '.join(state.objective.split())[:_OBJECTIVE_PROMPT]}"]
+    if state.gate_cmd:
+        lines.append(f"- completion verifier: {state.gate_cmd[:200]}")
+    body = "\n".join(lines)
+    return ("\n\n## Active goal\n"
+            "This session is working toward one persisted goal. Keep your work "
+            "pointed at it, and say so when a request pulls away from it.\n"
+            f"{body}\n")
+
+
+def request_completion(state: GoalState,
+                       cfg: dict[str, Any]) -> tuple[GoalState | None, str]:
+    """Complete ``state`` only when its verifier actually passed.
+
+    Returns ``(goal, outcome)`` where outcome is ``done``, ``queued`` (the
+    verifier is sitting in the approval queue and nothing has been verified yet)
+    or ``failed``. Both non-``done`` outcomes leave the goal open: a goal whose
+    gate never ran is not a goal that was met.
+    """
+    if not (state.gate_cmd or "").strip():
+        return done(), "done"
+    queued = not approvals.is_auto("shell", cfg)
+    updated = run_gate(state, cfg)
+    if queued:
+        return updated, "queued"
+    if not (updated.gate_last or {}).get("ok"):
+        return updated, "failed"
+    return done(), "done"
 
 
 def run_gate(state: GoalState, cfg: dict[str, Any]) -> GoalState:

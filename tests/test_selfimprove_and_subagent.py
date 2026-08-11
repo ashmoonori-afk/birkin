@@ -280,6 +280,50 @@ def test_run_subagent_registers_heartbeats_delivers_inbox_and_finishes(monkeypat
     assert agentruns.drain_messages(run["id"]) == []
 
 
+def test_detached_subagent_returns_at_once_and_finishes_in_the_background(
+        monkeypatch):
+    import threading
+
+    from birkin import agentruns
+    from birkin import subagent as subagent_mod
+
+    session = build_session({"provider": "codex-cli", "model": ""})
+    started = threading.Event()
+    release = threading.Event()
+    finished = threading.Event()
+    real_finish = agentruns.finish_run
+
+    def spy_finish(run_id, status, result=""):
+        record = real_finish(run_id, status, result)
+        finished.set()
+        return record
+
+    def fake_run(self, user_text, on_text=None):
+        started.set()
+        self.on_event("tool_start", {"name": "read_file"})
+        assert release.wait(timeout=10)
+        return "background work"
+
+    monkeypatch.setattr("birkin.agent.Agent.run", fake_run)
+    monkeypatch.setattr(agentruns, "finish_run", spy_finish)
+
+    message = subagent_mod.run_subagent("long job", session.ctx, detach=True)
+
+    assert started.wait(timeout=10)          # the caller never waited for it
+    run = agentruns.list_runs()[0]
+    assert run["status"] == "running"
+    assert run["id"][:8] in message and "/attach" in message
+
+    release.set()
+
+    assert finished.wait(timeout=10)
+    final = agentruns.get_run(run["id"])
+    assert final["status"] == "done"
+    assert final["result"] == "background work"
+    assert [event["text"] for event in final["events"]] == [
+        "tool_start read_file"]
+
+
 def test_run_subagent_records_error_and_reraises(monkeypatch):
     from birkin import agentruns
     from birkin import subagent as subagent_mod

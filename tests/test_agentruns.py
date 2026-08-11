@@ -30,6 +30,45 @@ def test_register_get_heartbeat_and_finish_run():
     assert done["result"] == result[-agentruns.RESULT_TAIL_CHARS:]
 
 
+def test_progress_trail_is_bounded_and_follow_streams_new_lines():
+    rec = agentruns.register_run("watch me")
+    for index in range(agentruns.EVENT_TRAIL_MAX + 5):
+        agentruns.progress(rec["id"], f"tool_start step{index}")
+
+    stored = agentruns.get_run(rec["id"])
+    assert len(stored["events"]) == agentruns.EVENT_TRAIL_MAX
+    assert stored["events"][0]["seq"] < stored["events"][-1]["seq"]
+    assert stored["events"][-1]["text"] == (
+        f"tool_start step{agentruns.EVENT_TRAIL_MAX + 4}")
+
+    lines: list[str] = []
+
+    def advance(_seconds):
+        # The follower's wait is where the watched run makes progress.
+        agentruns.progress(rec["id"], "tool_end final")
+        agentruns.finish_run(rec["id"], "done", "result text")
+
+    final = agentruns.follow(rec["id"], lines.append, sleep=advance)
+
+    assert final["status"] == "done"
+    assert len(lines) == agentruns.EVENT_TRAIL_MAX + 1   # no line replayed twice
+    assert lines[-1] == "tool_end final"
+
+
+def test_follow_never_waits_on_a_finished_run():
+    rec = agentruns.register_run("already done")
+    agentruns.finish_run(rec["id"], "done", "answer")
+
+    def never(_seconds):
+        raise AssertionError("a finished run must not be waited on")
+
+    final = agentruns.follow(rec["id"], lambda line: None, sleep=never)
+
+    assert final is not None and final["status"] == "done"
+    assert agentruns.follow("nosuchrunid1", lambda line: None,
+                            sleep=never) is None
+
+
 def test_stale_running_run_is_reported_as_stale():
     rec = agentruns.register_run("slow task")
     path = config.agent_runs_dir() / f"{rec['id']}.json"

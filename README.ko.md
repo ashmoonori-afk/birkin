@@ -31,7 +31,7 @@ hermes-agent와의 지연 시간 비교 벤치마크가 없고, 그런 주장도
 
 | | 실측 또는 코드로 강제되는 값 |
 |---|---|
-| **런타임 의존성 1개** | 음성 서브시스템만 요구하는 OpenAI SDK 하나입니다. 에이전트 루프, gateway, 메모리, workflow, HTTP, JSON-RPC, cron 파싱은 표준 라이브러리입니다. [`pyproject.toml`](./pyproject.toml) |
+| **런타임 의존성 3개** | 음성용 OpenAI SDK, 데스크톱 스크린샷용 Pillow, Windows 전용 pywin32입니다. 에이전트 루프, gateway, 메모리, workflow, HTTP, JSON-RPC, cron 파싱은 표준 라이브러리입니다. [`pyproject.toml`](./pyproject.toml) |
 | **큐레이션 연산 5개, 삭제는 없음** | `OPS`가 메모리 curator에게 주어지는 어휘 전부입니다. 적대적인 모델도 오염된 노트도 집어들 삭제 연산이 없습니다. [`curation_contract.py`](./birkin/curation_contract.py) |
 | **프로덕션 R@1 0.891** | 현재 lexical stack은 LongMemEval-S 470문항에서 R@1 0.891 / R@5 0.974 / MRR 0.926입니다. 연구용 tuned 구성은 0.900으로, 같은 harness에서 측정한 최고 embedding hybrid(0.894)보다 앞섭니다. encoder도 vector store도 없습니다. [`docs/ranking-v2-plan.md`](./docs/ranking-v2-plan.md) |
 | **동시 실행 슬롯 4개, agent 상한 100** | Moirai의 기본 thread pool 폭과 실행당 spawn 상한입니다. 아래의 이름 붙은 worker와는 다른 스케줄링 한도이며, 새 agent마다 abort·budget·상한을 먼저 검사합니다. [`moirai/engine.py`](./birkin/moirai/engine.py) |
@@ -70,7 +70,7 @@ https://raw.githubusercontent.com/ashmoonori-afk/birkin/main/README.ko.md
 이미 훌륭한 범용 에이전트 프로젝트들이 있습니다. birkin은 다른 선택을 합니다.
 
 - 다중 언어 런타임 대신 설치 가능한 파이썬 패키지 하나
-- SDK가 무거운 provider 스택 대신 음성 전용 런타임 의존성 하나
+- SDK가 무거운 provider 스택 대신 런타임 의존성 3개(음성·스크린샷·Windows 데스크톱)
 - 불투명한 호스팅 상태 대신 보이는 파일과 append-only 기록
 - browser/computer 자동화 대신 작은 네이티브 tool 표면
 - 실행 주위의 명시적인 승인·checkpoint·redaction 지점
@@ -598,10 +598,18 @@ birkin curate-memory
 /send <run-id> <message>
 ```
 
-`/goal set <objective> [--budget N] [--gate "command"]`로 active goal 하나를
-저장합니다. `/goal show`, `/goal pause`, `/goal done`으로 상태를 관리합니다.
-gate command는 goal store에서 직접 실행하지 않으며, goal을 완료할 때 기존 shell
-approval queue를 거칩니다.
+`spawn_subagent`은 `detach: true`를 받습니다. 이 경우 run을 백그라운드로 시작하고
+호출자를 막는 대신 run id를 즉시 돌려줍니다. `/attach`는 그 run에 실제로 붙습니다.
+기록된 progress trail을 재생하고, 진행 중인 tool 활동을 그대로 흘려보내며, run이
+끝나면 결과를 출력합니다. Ctrl-C는 run을 멈추지 않고 detach만 합니다. detach된 run은
+현재 프로세스 안에서 살기 때문에 프로세스가 끝나면 함께 끝납니다.
+
+`/goal set <objective> [--gate "command"]`로 active goal 하나를 저장합니다.
+`/goal show`, `/goal pause`, `/goal done`으로 상태를 관리하며, objective는 세션이
+구성하는 모든 system prompt에 주입됩니다. gate command는 goal store에서 직접
+실행하지 않습니다. `/goal done`은 기존 shell approval queue를 거쳐 verifier가 실제로
+통과했을 때만 goal을 완료하며, 승인 대기 중이거나 실패한 verifier는 goal을 열린
+상태로 남깁니다.
 
 `/sessions <query>`는 저장된 transcript를 검색하고 date, channel, model,
 snippet, score metadata를 반환합니다. `--since 30d`, `--from telegram`

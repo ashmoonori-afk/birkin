@@ -48,6 +48,27 @@ def test_voice_parser_preserves_deterministic_once() -> None:
     assert args.voice_command == "status"
 
 
+def test_control_thread_does_not_outlive_serve(tmp_path: Path) -> None:
+    """An unbounded select() left this thread alive after serve() returned."""
+    daemon_worker = _daemon_worker_module()
+
+    def control_threads() -> set[threading.Thread]:
+        return {thread for thread in threading.enumerate()
+                if thread.name == "birkin-voice-control"}
+
+    before = control_threads()
+
+    result = daemon_worker.serve(
+        args=argparse.Namespace(),
+        state_path=tmp_path / "daemon.json",
+        ready=lambda _state: None,
+        run_turn=lambda _args: 1,      # a failing turn ends serve immediately
+    )
+
+    assert result == 1
+    assert control_threads() == before
+
+
 def test_daemon_status_and_stop_use_authenticated_control(
     tmp_path: Path,
     capsys: pytest.CaptureFixture[str],

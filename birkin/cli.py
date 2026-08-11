@@ -1319,7 +1319,26 @@ def build_parser() -> argparse.ArgumentParser:
     return p
 
 
+def _force_utf8_output() -> None:
+    """Keep this CLI's non-ASCII text printable when stdout is not a UTF-8 tty.
+
+    Windows encodes redirected output with the locale codepage (cp1252), so a
+    piped ``birkin --help`` died on the single ``→`` in one help string, and any
+    Korean line would have died the same way. Reconfiguring at the entry point
+    fixes the whole class instead of policing individual strings.
+    """
+    for stream in (sys.stdout, sys.stderr):
+        reconfigure = getattr(stream, "reconfigure", None)
+        if reconfigure is None:            # a test double or a raw stream
+            continue
+        try:
+            reconfigure(encoding="utf-8", errors="replace")
+        except (OSError, ValueError):
+            continue
+
+
 def main(argv: list[str] | None = None) -> int:
+    _force_utf8_output()
     parser = build_parser()
     args = parser.parse_args(argv if argv is not None else sys.argv[1:])
     if not getattr(args, "command", None):

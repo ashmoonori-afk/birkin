@@ -24,6 +24,12 @@ def _fake_secrets() -> dict[str, str]:
     }
 
 
+def _messages(path) -> list[dict]:
+    """The turn messages on disk — the leading metadata envelope is not a turn."""
+    payload = json.loads(path.read_text(encoding="utf-8"))
+    return [m for m in payload if "metadata" not in m]
+
+
 def test_auto_stem_namespacing():
     stem = transcripts.auto_stem("telegram", "12345", day="20260601")
     assert stem.startswith("auto__telegram__12345-")  # chat + short hash
@@ -48,14 +54,15 @@ def test_append_turn_writes_morpheus_compatible_format(tmp_path, monkeypatch):
     p = transcripts.append_turn("http", "s1", "hello there", "hi back",
                                 cfg={"autosave_transcripts": True})
     assert p is not None and p.exists()
-    msgs = json.loads(p.read_text(encoding="utf-8"))
-    # canonical shape: list of {role, content:[{type:text,text}]}
-    assert msgs == [
+    payload = json.loads(p.read_text(encoding="utf-8"))
+    # canonical shape: metadata envelope, then {role, content:[{type:text,text}]}
+    assert payload == [
+        {"metadata": {"source": "http"}},
         {"role": "user", "content": [{"type": "text", "text": "hello there"}]},
         {"role": "assistant", "content": [{"type": "text", "text": "hi back"}]},
     ]
     # the nightly extractor must be able to flatten it
-    flat = selfimprove.transcript_from_messages(msgs)
+    flat = selfimprove.transcript_from_messages(payload)
     assert "[user] hello there" in flat and "[assistant] hi back" in flat
 
 
@@ -66,8 +73,73 @@ def test_append_turn_accumulates_pairs_one_file(tmp_path, monkeypatch):
     p = transcripts.append_turn("http", "s1", "q2", "a2", cfg=cfg)
     files = list((tmp_path / "sessions").glob("auto__*.json"))
     assert len(files) == 1                         # same (channel,chat,day) -> one file
-    msgs = json.loads(p.read_text(encoding="utf-8"))
-    assert [m["content"][0]["text"] for m in msgs] == ["q1", "a1", "q2", "a2"]
+    assert [m["content"][0]["text"] for m in _messages(p)] == [
+        "q1", "a1", "q2", "a2"]
+
+
+def test_append_turn_records_channel_and_model_metadata(tmp_path, monkeypatch):
+    """Regression: auto files carried no envelope, so the /sessions filters saw
+    every autosave as channel 'unknown' with no model."""
+    monkeypatch.setenv("BIRKIN_HOME", str(tmp_path))
+    from birkin.tools import sessions as sessions_tool
+    p = transcripts.append_turn("telegram", "42", "hello there", "hi back",
+                                cfg={"model": "gpt-5.6-sol"})
+    text, channel, model = sessions_tool._session_data(p)
+    assert channel == "telegram"
+    assert model == "gpt-5.6-sol"
+    assert "hello there" in text and "hi back" in text
+    assert "metadata" not in text          # the envelope is not a turn
+
+
+def test_append_turn_prefers_explicit_model_over_cfg(tmp_path, monkeypatch):
+    monkeypatch.setenv("BIRKIN_HOME", str(tmp_path))
+    from birkin.tools import sessions as sessions_tool
+    p = transcripts.append_turn("http", "s1", "q", "a",
+                                cfg={"model": "cfg-model"}, model="live-model")
+    assert sessions_tool._session_data(p)[2] == "live-model"
+
+
+def test_metadata_survives_turn_trimming(tmp_path, monkeypatch):
+    """The per-file trim must never evict the envelope."""
+    monkeypatch.setenv("BIRKIN_HOME", str(tmp_path))
+    from birkin.tools import sessions as sessions_tool
+    cfg = {"autosave_max_turns": 2, "model": "sonnet-x"}
+    p = None
+    for i in range(6):                             # 3x the cap
+        p = transcripts.append_turn("http", "s1", f"q{i}", f"a{i}", cfg=cfg)
+    payload = json.loads(p.read_text(encoding="utf-8"))
+    assert payload[0] == {"metadata": {"source": "http", "model": "sonnet-x"}}
+    assert len(payload) == 1 + 2 * 2               # envelope + 2 turns
+    assert sessions_tool._session_data(p)[1:] == ("http", "sonnet-x")
+
+
+def test_append_turn_upgrades_metadata_less_file(tmp_path, monkeypatch):
+    """Appending to a file written before this envelope existed upgrades it."""
+    monkeypatch.setenv("BIRKIN_HOME", str(tmp_path))
+    from birkin import config
+    old = [{"role": "user", "content": [{"type": "text", "text": "old q"}]},
+           {"role": "assistant", "content": [{"type": "text", "text": "old a"}]}]
+    path = config.sessions_dir() / f"{transcripts.auto_stem('http', 's1')}.json"
+    path.write_text(json.dumps(old), encoding="utf-8")
+    p = transcripts.append_turn("http", "s1", "new q", "new a",
+                                cfg={"model": "m1"})
+    payload = json.loads(p.read_text(encoding="utf-8"))
+    assert sum(1 for item in payload if "metadata" in item) == 1  # not duplicated
+    assert payload[0]["metadata"]["source"] == "http"
+    assert [m["content"][0]["text"] for m in payload[1:]] == [
+        "old q", "old a", "new q", "new a"]
+
+
+def test_metadata_item_is_not_a_turn_for_readers(tmp_path, monkeypatch):
+    """read_recent() and the Morpheus flattener must be blind to the envelope."""
+    monkeypatch.setenv("BIRKIN_HOME", str(tmp_path))
+    from birkin import selfimprove
+    p = transcripts.append_turn("repl", "r1", "질문", "대답", cfg={"model": "m"})
+    payload = json.loads(p.read_text(encoding="utf-8"))
+    assert selfimprove.transcript_from_messages(payload).splitlines() == [
+        "[user] 질문", "[assistant] 대답"]
+    assert transcripts.read_recent("repl", "r1").splitlines() == [
+        "사용자: 질문", "birkin: 대답"]
 
 
 def test_opt_out_writes_nothing(tmp_path, monkeypatch):
@@ -119,7 +191,7 @@ def test_trim_caps_turns(tmp_path, monkeypatch):
     p = None
     for i in range(5):
         p = transcripts.append_turn("http", "s1", f"q{i}", f"a{i}", cfg=cfg)
-    msgs = json.loads(p.read_text(encoding="utf-8"))
+    msgs = _messages(p)
     assert len(msgs) == 6                          # 3 turns * 2 messages
     assert msgs[0]["content"][0]["text"] == "q2"   # oldest turns dropped
 
@@ -168,8 +240,9 @@ def test_concurrent_appends_same_key_no_corruption(tmp_path, monkeypatch):
         t.join()
     files = list((tmp_path / "sessions").glob("auto__*.json"))
     assert len(files) == 1
-    msgs = json.loads(files[0].read_text(encoding="utf-8"))  # valid JSON, not torn
-    assert len(msgs) == 40                                   # 20 turns * 2, none lost
+    payload = json.loads(files[0].read_text(encoding="utf-8"))  # JSON, not torn
+    assert sum(1 for m in payload if "metadata" in m) == 1    # one envelope only
+    assert len(payload) - 1 == 40                             # 20 turns * 2, none lost
 
 
 def test_redaction_covers_common_secret_types(tmp_path, monkeypatch):
@@ -191,7 +264,7 @@ def test_max_chars_truncates_long_message(tmp_path, monkeypatch):
     monkeypatch.setenv("BIRKIN_HOME", str(tmp_path))
     p = transcripts.append_turn("repl", "r1", "x" * 9000, "y" * 9000,
                                 cfg={"autosave_max_chars": 100})
-    msgs = json.loads(p.read_text(encoding="utf-8"))
+    msgs = _messages(p)
     assert len(msgs[0]["content"][0]["text"]) < 200  # capped + marker
     assert "truncated" in msgs[0]["content"][0]["text"]
 
@@ -262,7 +335,7 @@ def test_gateway_handle_autosaves_turn(tmp_path, monkeypatch):
     assert out == "the reply"
     files = list((tmp_path / "sessions").glob("auto__http__c1-*.json"))
     assert len(files) == 1
-    msgs = json.loads(files[0].read_text(encoding="utf-8"))
+    msgs = _messages(files[0])
     assert msgs[0]["content"][0]["text"] == "remember X"
     assert msgs[1]["content"][0]["text"] == "the reply"
 

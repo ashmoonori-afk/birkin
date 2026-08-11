@@ -88,21 +88,26 @@ def test_windows_acl_hardening_resets_foreign_entries(
 
     daemon_storage._harden_windows_directory(tmp_path)
 
+    # Built the same way the module builds them: a literal backslash path would
+    # only match when the test itself runs on Windows.
+    system32 = Path(r"C:\Windows") / "System32"
+    whoami = str(system32 / "whoami.exe")
+    icacls = str(system32 / "icacls.exe")
     assert commands == [
         [
-            r"C:\Windows\System32\whoami.exe",
+            whoami,
             "/user",
             "/fo",
             "csv",
             "/nh",
         ],
         [
-            r"C:\Windows\System32\icacls.exe",
+            icacls,
             str(tmp_path),
             "/reset",
         ],
         [
-            r"C:\Windows\System32\icacls.exe",
+            icacls,
             str(tmp_path),
             "/inheritance:r",
             "/grant:r",

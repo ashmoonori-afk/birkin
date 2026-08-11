@@ -24,6 +24,22 @@ def test_compose_cli_appends_extra_before_note():
     assert out.index("EXTRA-BLOCK") < out.lower().index("when to run it automatically")
 
 
+def test_active_goal_reaches_every_composed_prompt():
+    from birkin import goals
+    goals.set_goal("Ship the release blockers", gate="python -m pytest")
+
+    for out in (promptgate.compose_main({"neurosis_auto": False},
+                                        persona_text=""),
+                promptgate.compose_cli({"neurosis_auto": False},
+                                       persona_text="")):
+        assert "Ship the release blockers" in out
+        assert "python -m pytest" in out
+
+    goals.pause()
+    assert "Ship the release blockers" not in promptgate.compose_main(
+        {"neurosis_auto": False}, persona_text="")
+
+
 def test_neurosis_note_off_when_disabled():
     out = promptgate.compose_main({"neurosis_auto": False}, persona_text="x")
     assert "when to run it automatically" not in out.lower()

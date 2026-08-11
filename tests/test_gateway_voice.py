@@ -318,6 +318,9 @@ def test_voice_controller_normalizes_tts_api_errors(
         def __init__(self, _config: object) -> None:
             pass
 
+        def has_clap(self, *_args: object, **_kwargs: object) -> bool:
+            return True
+
         def evaluate(self, *_args: object, **_kwargs: object) -> object:
             return SimpleNamespace(accepted=True, reason="accepted")
 
@@ -385,6 +388,9 @@ def test_voice_controller_starts_filler_while_oauth_gateway_is_pending(
     class _WakeGate:
         def __init__(self, _config: object) -> None:
             pass
+
+        def has_clap(self, *_args: object, **_kwargs: object) -> bool:
+            return True
 
         def evaluate(self, *_args: object, **_kwargs: object) -> object:
             return SimpleNamespace(accepted=True, reason="accepted")
@@ -489,6 +495,9 @@ def test_voice_controller_empty_filler_keeps_final_reply(
         def __init__(self, _config: object) -> None:
             pass
 
+        def has_clap(self, *_args: object, **_kwargs: object) -> bool:
+            return True
+
         def evaluate(self, *_args: object, **_kwargs: object) -> object:
             return SimpleNamespace(accepted=True, reason="accepted")
 
@@ -557,6 +566,9 @@ def test_voice_controller_scopes_selected_style_to_gateway_command(
     class _WakeGate:
         def __init__(self, _config: object) -> None:
             pass
+
+        def has_clap(self, *_args: object, **_kwargs: object) -> bool:
+            return True
 
         def evaluate(self, *_args: object, **_kwargs: object) -> object:
             return SimpleNamespace(accepted=True, reason="accepted")

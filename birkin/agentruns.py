@@ -8,7 +8,7 @@ import time
 import uuid
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Iterator
+from typing import Any, Callable, Iterator
 
 from . import config
 from .store import _read_json, _write_json, file_lock
@@ -16,6 +16,11 @@ from .store import _read_json, _write_json, file_lock
 TASK_MAX_CHARS = 500
 RESULT_TAIL_CHARS = 4000
 STALE_AFTER_SECONDS = 180
+# A bounded progress trail is what makes /attach an attach rather than a record
+# dump: sequence numbers (not list positions) survive the trail rotating.
+EVENT_TRAIL_MAX = 40
+EVENT_TEXT_MAX = 200
+FOLLOW_INTERVAL_SECONDS = 0.5
 _STATUSES = {"running", "done", "error", "stale"}
 _active_run_id: contextvars.ContextVar[str | None] = contextvars.ContextVar(
     "birkin_active_agent_run", default=None)
@@ -94,6 +99,74 @@ def _update(run_id: str, changes: dict[str, Any]) -> dict[str, Any] | None:
 def heartbeat(run_id: str) -> dict[str, Any] | None:
     """Refresh a run's heartbeat without changing its lifecycle status."""
     return _update(run_id, {"last_heartbeat": _now()})
+
+
+def _next_seq(events: list[Any]) -> int:
+    highest = 0
+    for event in events:
+        seq = event.get("seq") if isinstance(event, dict) else None
+        if isinstance(seq, int) and not isinstance(seq, bool):
+            highest = max(highest, seq)
+    return highest + 1
+
+
+def progress(run_id: str, text: str) -> dict[str, Any] | None:
+    """Append one bounded progress line and refresh the heartbeat in one write."""
+    if not _valid_id(run_id):
+        return None
+    line = " ".join(str(text or "").split())[:EVENT_TEXT_MAX]
+    path = _record_path(run_id)
+    with file_lock(path):
+        rec = _read_json(path, None)
+        if not _is_record(rec):
+            return None
+        raw = rec.get("events")
+        events = list(raw) if isinstance(raw, list) else []
+        if line:
+            events.append({"seq": _next_seq(events), "at": _now(), "text": line})
+            events = events[-EVENT_TRAIL_MAX:]
+        rec.update(last_heartbeat=_now(), events=events)
+        _write_json(path, rec)
+    return dict(rec)
+
+
+def events_after(rec: dict[str, Any], seq: int) -> list[dict[str, Any]]:
+    """Progress entries of ``rec`` newer than ``seq``, oldest first."""
+    raw = rec.get("events")
+    if not isinstance(raw, list):
+        return []
+    fresh = [event for event in raw
+             if isinstance(event, dict)
+             and isinstance(event.get("seq"), int)
+             and not isinstance(event.get("seq"), bool)
+             and event["seq"] > seq]
+    return sorted(fresh, key=lambda event: event["seq"])
+
+
+def follow(run_id: str, on_line: Callable[[str], None], *,
+           interval: float = FOLLOW_INTERVAL_SECONDS,
+           sleep: Callable[[float], None] | None = None,
+           ) -> dict[str, Any] | None:
+    """Stream a run's new progress lines until it stops running.
+
+    Returns the final record, ``None`` if the run is gone. A run whose heartbeat
+    has gone stale ends the follow rather than blocking on a dead worker, and a
+    finished run returns immediately after replaying its trail.
+    """
+    wait = sleep if sleep is not None else time.sleep
+    seen = 0
+    while True:
+        rec = get_run(run_id)
+        if rec is None:
+            return None
+        for event in events_after(rec, seen):
+            seen = event["seq"]
+            on_line(str(event.get("text") or ""))
+        if rec.get("status") != "running":
+            return rec
+        if _age_seconds(rec.get("last_heartbeat")) > STALE_AFTER_SECONDS:
+            return rec
+        wait(interval)
 
 
 def finish_run(run_id: str, status: str, result: str = "") -> dict[str, Any] | None:

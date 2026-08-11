@@ -46,12 +46,28 @@ def _options(args: argparse.Namespace) -> VoiceConfig:
     )
 
 
-def _capture_wake(
+_WAKE_GATES: dict[WakeConfig, WakeGate] = {}
+
+
+def _wake_gate(config: WakeConfig) -> WakeGate:
+    """One gate per configuration.
+
+    The daemon runs :func:`run_once` in a loop; rebuilding the gate every turn
+    would reset its cooldown, so the wake window would reopen immediately after
+    every accepted wake.
+    """
+    gate = _WAKE_GATES.get(config)
+    if gate is None:
+        gate = WakeGate(config)
+        _WAKE_GATES[config] = gate
+    return gate
+
+
+def _capture_wake_audio(
     args: argparse.Namespace,
     options: VoiceConfig,
-    stt: OpenAISTT | None,
-) -> tuple[AudioData, str]:
-    audio = (
+) -> AudioData:
+    return (
         read_wav_mono(args.audio)
         if args.audio
         else capture_microphone(
@@ -59,16 +75,22 @@ def _capture_wake(
             sample_rate=options.sample_rate,
         )
     )
-    transcript = args.transcript
-    if not transcript:
-        if stt is None:
-            raise RuntimeError("STT client is unavailable")
-        transcript = (
-            stt.transcribe_path(args.audio)
-            if args.audio
-            else stt.transcribe_audio(audio)
-        )
-    return audio, transcript
+
+
+def _wake_transcript(
+    args: argparse.Namespace,
+    audio: AudioData,
+    stt: OpenAISTT | None,
+) -> str:
+    if args.transcript:
+        return args.transcript
+    if stt is None:
+        raise RuntimeError("STT client is unavailable")
+    return (
+        stt.transcribe_path(args.audio)
+        if args.audio
+        else stt.transcribe_audio(audio)
+    )
 
 
 def _capture_command(
@@ -215,13 +237,16 @@ def run_once(args: argparse.Namespace) -> int:
             if not args.transcript or not args.voice_command
             else None
         )
-        audio, transcript = _capture_wake(args, options, stt)
-        decision = WakeGate(
-            WakeConfig(wake_phrase=options.wake_phrase)
-        ).evaluate(
+        audio = _capture_wake_audio(args, options)
+        gate = _wake_gate(WakeConfig(wake_phrase=options.wake_phrase))
+        if not gate.has_clap(audio.samples, audio.sample_rate):
+            # Local gate first: without a clap the audio is never transmitted.
+            print("WAKE_REJECTED reason=clap_missing")
+            return 2
+        decision = gate.evaluate(
             audio.samples,
             sample_rate=audio.sample_rate,
-            transcript=transcript,
+            transcript=_wake_transcript(args, audio, stt),
         )
     except (
         OSError,

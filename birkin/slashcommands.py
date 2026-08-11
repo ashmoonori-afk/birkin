@@ -484,16 +484,32 @@ def _agents(session: Any, arg: str) -> None:
               f"{DIM}hb {age}s ago{RESET}")
 
 
-@command("attach", "Show one durable agent run.", "/attach <run-id>")
+@command("attach", "Attach to a durable agent run and follow it live.",
+         "/attach <run-id>")
 def _attach(session: Any, arg: str) -> None:
+    from . import agentruns
     run = _find_agent_run(arg.strip()) if arg.strip() else None
     if run is None:
         print(f"{RED}No run {arg.strip()!r}. See /agents.{RESET}")
         return
     print(f"{BOLD}{run['id']}{RESET}  {run['status']}")
     print(run["task"])
-    if run.get("result"):
-        print(f"\n{run['result']}")
+    if run["status"] == "running":
+        print(f"{DIM}following — Ctrl-C detaches and leaves it running{RESET}")
+    try:
+        final = agentruns.follow(run["id"],
+                                 lambda line: print(f"{DIM}  {line}{RESET}"))
+    except KeyboardInterrupt:
+        print(f"\n{DIM}Detached. {run['id'][:8]} keeps running.{RESET}")
+        return
+    if final is None:
+        print(f"{RED}Run {run['id'][:8]} is gone.{RESET}")
+        return
+    if final["status"] not in ("running", run["status"]):
+        # A stale record still reads "running"; the header already said so.
+        print(f"{BOLD}{final['status']}{RESET}")
+    if final.get("result"):
+        print(f"\n{final['result']}")
 
 
 @command("send", "Queue a message for a running agent.",
@@ -537,9 +553,8 @@ def _review(session: Any, arg: str) -> None:
     review_cli()
 
 
-@command("goal", "Persist a session goal with an optional budget and verifier.",
-         "/goal set <objective> [--budget N] [--gate \"command\"] | "
-         "show | pause | done")
+@command("goal", "Persist a session goal with an optional verifier.",
+         "/goal set <objective> [--gate \"command\"] | show | pause | done")
 def _goal(session: Any, arg: str) -> None:
     from . import goals
     try:
@@ -548,8 +563,8 @@ def _goal(session: Any, arg: str) -> None:
         print(f"{RED}Invalid /goal arguments: {exc}{RESET}")
         return
     if not parts:
-        print(f"{DIM}Usage: /goal set <objective> [--budget N] "
-              f"[--gate \"command\"] | show | pause | done{RESET}")
+        print(f"{DIM}Usage: /goal set <objective> [--gate \"command\"] "
+              f"| show | pause | done{RESET}")
         return
 
     action = parts.pop(0).lower()
@@ -567,9 +582,18 @@ def _goal(session: Any, arg: str) -> None:
         if state is None:
             print(f"{DIM}No active goal.{RESET}")
             return
-        if state.gate_cmd:
-            goals.run_gate(state, session.cfg)
-        goals.done()
+        final, outcome = goals.request_completion(state, session.cfg)
+        if outcome == "queued":
+            print(f"{DIM}Verifier queued for approval: {state.gate_cmd}{RESET}")
+            print(f"{RED}Goal stays open until it passes — approve it with "
+                  f"/review, then run /goal done again.{RESET}")
+            return
+        if outcome == "failed":
+            print(f"{RED}Verifier failed; goal stays open.{RESET}")
+            tail = str((final.gate_last or {}).get("output_tail") or "").strip()
+            if tail:
+                print(f"{DIM}{tail[-500:]}{RESET}")
+            return
         print(f"{GREEN}Goal done: {state.objective}{RESET}")
         return
     if action != "set":
@@ -577,24 +601,15 @@ def _goal(session: Any, arg: str) -> None:
         return
 
     objective: list[str] = []
-    budget: int | None = None
     gate: str | None = None
     i = 0
     while i < len(parts):
         part = parts[i]
-        if part in ("--budget", "--gate"):
+        if part == "--gate":
             if i + 1 >= len(parts):
                 print(f"{RED}{part} needs a value.{RESET}")
                 return
-            value = parts[i + 1]
-            if part == "--budget":
-                try:
-                    budget = int(value)
-                except ValueError:
-                    print(f"{RED}--budget must be a positive integer.{RESET}")
-                    return
-            else:
-                gate = value
+            gate = parts[i + 1]
             i += 2
             continue
         if part.startswith("--"):
@@ -603,7 +618,7 @@ def _goal(session: Any, arg: str) -> None:
         objective.append(part)
         i += 1
     try:
-        state = goals.set_goal(" ".join(objective), budget=budget, gate=gate)
+        state = goals.set_goal(" ".join(objective), gate=gate)
     except ValueError as exc:
         print(f"{RED}{exc}{RESET}")
         return

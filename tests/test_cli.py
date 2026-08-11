@@ -44,6 +44,23 @@ def test_installed_console_script_help():
     assert "mcp-serve" in result.stdout
 
 
+def test_help_survives_a_legacy_windows_pipe_encoding():
+    """A piped --help on Windows encodes with cp1252; it must not crash."""
+    import os
+    import sys
+
+    result = subprocess.run(
+        [sys.executable, "-m", "birkin", "--help"],
+        cwd=Path(__file__).resolve().parents[1],
+        capture_output=True,
+        env=dict(os.environ, PYTHONIOENCODING="cp1252"),
+        check=False,
+    )
+
+    assert result.returncode == 0, result.stderr.decode("utf-8", "replace")
+    assert "→" in result.stdout.decode("utf-8", "replace")
+
+
 def test_parser_accepts_every_subcommand():
     p = build_parser()
     for cmd in SUBCOMMANDS:

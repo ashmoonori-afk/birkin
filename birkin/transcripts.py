@@ -14,6 +14,13 @@ conversation, so ``birkin`` only ever sees the new user text and the final reply
 per turn — there is no full history object to dump. Appending the pair we DO
 have is correct for every path (persistent gateway, non-persistent gateway, REPL).
 
+Each file leads with one envelope item — ``{"metadata": {"source": <channel>,
+"model": <model>}}`` — which is the list-shaped envelope
+``tools.sessions._session_data`` already reads, so ``/sessions --from`` /
+``--model`` and the FTS index can filter autosaves instead of calling them
+"unknown". It carries no ``role``/``content``, so every message reader
+(``read_recent``, ``selfimprove.transcript_from_messages``) skips it.
+
 Files use the reserved ``auto__`` prefix so they stay out of ``/sessions`` /
 manual ``/save`` names and can never collide. Append is read-modify-write under a
 global append lock with an atomic 0o600 rename
@@ -118,9 +125,25 @@ def _turn_messages(user_text: str, reply_text: str, *, redact: bool,
     ]
 
 
+def _metadata_item(channel: str, model: str | None) -> dict[str, Any]:
+    """The envelope item that makes an autosave filterable by channel/model."""
+    meta: dict[str, Any] = {"source": str(channel)}
+    if model:
+        meta["model"] = str(model)
+    return {"metadata": meta}
+
+
+def _is_metadata(item: Any) -> bool:
+    return isinstance(item, dict) and isinstance(item.get("metadata"), dict)
+
+
 def append_turn(channel: str, chat_id: str, user_text: str, reply_text: str,
-                *, cfg: dict[str, Any] | None = None) -> Path | None:
+                *, cfg: dict[str, Any] | None = None,
+                model: str | None = None) -> Path | None:
     """Append one (user, assistant) turn to the per-(channel,chat,day) auto file.
+
+    ``model`` records the model that actually served the turn when the caller
+    knows it; otherwise the effective ``cfg["model"]`` is used.
 
     Returns the file path, or ``None`` if auto-save is disabled, the user text is
     empty, or anything goes wrong (auditing must never break a chat turn).
@@ -133,17 +156,22 @@ def append_turn(channel: str, chat_id: str, user_text: str, reply_text: str,
     try:
         redact = bool(cfg.get("autosave_redact_secrets", True))
         max_chars = int(cfg.get("autosave_max_chars", 4000))
+        model = model or cfg.get("model") or None
         path = config.sessions_dir() / f"{auto_stem(channel, chat_id)}.json"
         with _append_lock:
             existing = store._read_json(path, [])
             if not isinstance(existing, list):
                 existing = []
-            existing.extend(_turn_messages(user_text, reply_text,
+            # Drop any envelope already on disk and re-emit it below: a file
+            # written before this existed gets upgraded, never duplicated.
+            messages = [m for m in existing if not _is_metadata(m)]
+            messages.extend(_turn_messages(user_text, reply_text,
                                            redact=redact, max_chars=max_chars))
             max_msgs = int(cfg.get("autosave_max_turns", 40)) * 2  # turns→messages
-            if max_msgs > 0 and len(existing) > max_msgs:
-                existing = existing[-max_msgs:]
-            store._write_json(path, existing)
+            if max_msgs > 0 and len(messages) > max_msgs:
+                messages = messages[-max_msgs:]
+            # Envelope leads the list, so trimming the tail can never evict it.
+            store._write_json(path, [_metadata_item(channel, model), *messages])
         _maybe_enforce_retention(cfg)
         return path
     except Exception:

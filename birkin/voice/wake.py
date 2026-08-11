@@ -84,12 +84,14 @@ class WakeGate:
         """Evaluate one audio window without retaining its samples."""
         normalized = normalize_phrase(transcript)
         expected = normalize_phrase(self._config.wake_phrase)
+        # The clap is judged first and locally: callers gate on has_clap() so a
+        # room with no clap never has its audio sent anywhere for transcription.
+        if not self.has_clap(samples, sample_rate):
+            return WakeDecision(False, "clap_missing", normalized)
         if not normalized:
             return WakeDecision(False, "phrase_missing", normalized)
         if normalized != expected:
             return WakeDecision(False, "phrase_mismatch", normalized)
-        if not self._has_clap(samples, sample_rate):
-            return WakeDecision(False, "clap_missing", normalized)
 
         accepted_at = self._clock() if now is None else now
         if (
@@ -102,11 +104,12 @@ class WakeGate:
         self._last_accepted_at = accepted_at
         return WakeDecision(True, "accepted", normalized)
 
-    def _has_clap(
+    def has_clap(
         self,
         samples: Sequence[float],
         sample_rate: int,
     ) -> bool:
+        """Whether one window holds an impulse-like clap. Local, no network."""
         if sample_rate <= 0:
             raise ValueError("sample_rate must be positive")
 

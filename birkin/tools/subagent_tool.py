@@ -28,7 +28,8 @@ def _spawn_subagent(inp: dict[str, Any], ctx: ToolContext) -> ToolResult:
     run_subagent = import_module("birkin.subagent").run_subagent
     skills = inp.get("skills") or None
     max_turns = int(inp.get("max_turns", 12))
-    result = run_subagent(task, ctx, skill_names=skills, max_turns=max_turns)
+    result = run_subagent(task, ctx, skill_names=skills, max_turns=max_turns,
+                          detach=bool(inp.get("detach", False)))
     return ToolResult(result)
 
 
@@ -41,7 +42,8 @@ def subagent_tools() -> list[Tool]:
                         "parallelizable or context-heavy work (research, a "
                         "refactor, an analysis) so the main conversation stays "
                         "clean. Give the subagent a complete brief — it cannot "
-                        "see this conversation.",
+                        "see this conversation. Set detach=true to keep working "
+                        "while it runs; the caller follows it with /attach.",
             input_schema={
                 "type": "object",
                 "properties": {
@@ -51,6 +53,10 @@ def subagent_tools() -> list[Tool]:
                                "description": "Optional skill names to preload"},
                     "max_turns": {"type": "integer",
                                   "description": "Tool-turn budget (default 12)"},
+                    "detach": {"type": "boolean",
+                               "description": "Run in the background and return "
+                                              "the run id immediately instead of "
+                                              "blocking until it finishes"},
                 },
                 "required": ["task"],
             },

@@ -32,7 +32,7 @@ Every row is something the repository can be made to show you.
 
 | | Measured or enforced |
 |---|---|
-| **1 runtime dependency** | The OpenAI SDK, required by the voice subsystem alone. Agent loop, gateway, memory, workflows, HTTP, JSON-RPC, and cron parsing are standard library. [`pyproject.toml`](./pyproject.toml) |
+| **3 runtime dependencies** | The OpenAI SDK for voice, Pillow for desktop screenshots, and pywin32 on Windows only. Agent loop, gateway, memory, workflows, HTTP, JSON-RPC, and cron parsing are standard library. [`pyproject.toml`](./pyproject.toml) |
 | **5 curation operations, none of them delete** | `OPS` is the entire vocabulary a memory curator gets. There is no delete for an adversarial model or a poisoned note to reach for. [`curation_contract.py`](./birkin/curation_contract.py) |
 | **R@1 0.891 in production** | The shipped lexical stack scores 0.891 R@1 / 0.974 R@5 / 0.926 MRR on 470 LongMemEval-S questions. The tuned research configuration reaches 0.900, ahead of the best embedding hybrid measured on the same harness at 0.894. No encoder, no vector store. [`docs/ranking-v2-plan.md`](./docs/ranking-v2-plan.md) |
 | **4 concurrent execution slots, 100-agent ceiling** | Moirai's default thread-pool width and per-run spawn cap. Scheduling limits, distinct from the named workers below. Abort, budget, and cap are checked before each new agent. [`moirai/engine.py`](./birkin/moirai/engine.py) |
@@ -73,7 +73,8 @@ There are already excellent general-purpose agent projects. birkin makes a
 different trade:
 
 - one installable Python package instead of a multi-language runtime;
-- a single voice-only runtime dependency instead of SDK-heavy provider stacks;
+- three runtime dependencies (voice, screenshots, Windows desktop) instead of
+  SDK-heavy provider stacks;
 - visible files and append-only records instead of opaque hosted state;
 - a small native tool surface instead of browser/computer automation;
 - explicit approval, checkpoint, and redaction choke points around execution;
@@ -609,10 +610,19 @@ Durable subagent runs are visible in `/dash` and the REPL:
 /send <run-id> <message>
 ```
 
-Use `/goal set <objective> [--budget N] [--gate "command"]` to persist one
-active goal. `/goal show`, `/goal pause`, and `/goal done` manage it. A gate
-command is never executed directly by the goal store; finishing the goal routes
-the verifier through the existing shell approval queue.
+`spawn_subagent` accepts `detach: true`, which starts the run in the background
+and returns its id immediately instead of blocking the caller. `/attach` then
+follows that run live: it replays the recorded progress trail, streams new tool
+activity as it happens, and prints the result when the run finishes. Ctrl-C
+detaches without stopping the run. Detached runs live inside the current
+process, so they end when the process does.
+
+Use `/goal set <objective> [--gate "command"]` to persist one active goal.
+`/goal show`, `/goal pause`, and `/goal done` manage it, and the objective is
+injected into every system prompt the session composes. A gate command is never
+executed directly by the goal store; `/goal done` routes the verifier through
+the existing shell approval queue and completes the goal only once that verifier
+has actually passed — a queued or failing verifier leaves the goal open.
 
 `/sessions <query>` searches saved transcripts and returns date, channel,
 model, snippet, and score metadata. Filters compose with AND:

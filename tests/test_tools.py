@@ -331,12 +331,21 @@ def test_web_fetch_network_error(monkeypatch, tmp_path):
 
 def test_subagent_tool_delegates(monkeypatch, tmp_path):
     from birkin import subagent as subagent_mod
-    monkeypatch.setattr(subagent_mod, "run_subagent",
-                        lambda task, ctx, skill_names=None, max_turns=12: f"sub-reply:{task[:20]}")
+    seen = {}
+
+    def fake_run(task, ctx, skill_names=None, max_turns=12, detach=False):
+        seen["detach"] = detach
+        return f"sub-reply:{task[:20]}"
+
+    monkeypatch.setattr(subagent_mod, "run_subagent", fake_run)
     ctx = _ctx(tmp_path)
     fn = next(t for t in st_mod.subagent_tools() if t.name == "spawn_subagent").fn
     res = fn({"task": "investigate xyz"}, ctx)
     assert not res.is_error and res.content.startswith("sub-reply:")
+    assert seen["detach"] is False
+
+    assert not fn({"task": "investigate xyz", "detach": True}, ctx).is_error
+    assert seen["detach"] is True
 
 
 def test_subagent_tool_missing_task(tmp_path):

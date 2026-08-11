@@ -74,6 +74,13 @@ def test_incomplete_or_wrong_wake_is_rejected(
     assert decision.reason == reason
 
 
+def test_has_clap_decides_locally_without_a_transcript() -> None:
+    gate = _gate()
+
+    assert gate.has_clap(_clap_pcm(), 1_000) is True
+    assert gate.has_clap(_speech_only_pcm(), 1_000) is False
+
+
 def test_cooldown_rejects_repeated_wake_until_boundary() -> None:
     gate = _gate()
 
