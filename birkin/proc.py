@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import os
 import subprocess
+from pathlib import Path
 from typing import Any
 
 # cmd.exe re-parses these inside each argument even when argv is discrete, so a
@@ -37,7 +38,13 @@ def cli_argv(parts: list[str]) -> list[str]:
                 raise ValueError(
                     "unsafe shell metacharacter (& | < > ^) in CLI argument "
                     f"on Windows: {arg!r}")
-        return ["cmd", "/c", *parts]
+        program = parts[0]
+        appdata = os.environ.get("APPDATA")
+        if appdata and os.path.basename(program) == program:
+            npm_shim = Path(appdata) / "npm" / f"{program}.cmd"
+            if npm_shim.is_file():
+                program = str(npm_shim)
+        return ["cmd", "/c", program, *parts[1:]]
     return list(parts)
 
 

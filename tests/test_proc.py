@@ -17,11 +17,26 @@ def test_shell_argv_wraps_command_string():
 
 def test_cli_argv_keeps_parts_discrete():
     argv = proc.cli_argv(["claude", "-p", "--model", "sonnet"])
-    assert "claude" in argv and "--model" in argv and "sonnet" in argv
+    assert "--model" in argv and "sonnet" in argv
     if os.name == "nt":
         assert argv[:2] == ["cmd", "/c"]
+        assert os.path.basename(argv[2]).lower() in ("claude", "claude.cmd")
     else:
         assert argv == ["claude", "-p", "--model", "sonnet"]
+
+
+def test_cli_argv_falls_back_to_user_npm_shim(monkeypatch, tmp_path):
+    appdata = tmp_path / "AppData" / "Roaming"
+    npm = appdata / "npm"
+    npm.mkdir(parents=True)
+    shim = npm / "claude.cmd"
+    shim.write_text("@echo off\r\n", encoding="utf-8")
+    monkeypatch.setattr(proc.os, "name", "nt")
+    monkeypatch.setenv("APPDATA", str(appdata))
+
+    argv = proc.cli_argv(["claude", "--version"])
+
+    assert argv == ["cmd", "/c", str(shim), "--version"]
 
 
 def test_cli_argv_rejects_windows_shell_metachars(monkeypatch):
