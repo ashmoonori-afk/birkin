@@ -5,6 +5,7 @@ interactive or long-running and are exercised by their own focused tests."""
 from __future__ import annotations
 
 import subprocess
+import sysconfig
 from pathlib import Path
 
 from birkin import config, cron, store
@@ -24,9 +25,14 @@ SUBCOMMANDS = [
 ]
 
 
-def test_uv_installed_console_script_help():
+def test_installed_console_script_help():
+    script = Path(sysconfig.get_path("scripts")) / (
+        "birkin.exe" if sysconfig.get_platform().startswith("win") else "birkin"
+    )
+    assert script.is_file()
+
     result = subprocess.run(
-        ["uv", "run", "--no-sync", "birkin", "--help"],
+        [str(script), "--help"],
         cwd=Path(__file__).resolve().parents[1],
         capture_output=True,
         text=True,

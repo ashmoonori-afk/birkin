@@ -6,7 +6,6 @@ import queue
 import threading
 from pathlib import Path
 from types import TracebackType
-from typing import Self
 
 import pytest
 
@@ -108,7 +107,7 @@ def test_daemon_stop_waits_for_the_current_bounded_turn(
             return b'{"status":"stopped"}\n'
 
     class Client:
-        def __enter__(self) -> Self:
+        def __enter__(self) -> Client:
             return self
 
         def __exit__(
