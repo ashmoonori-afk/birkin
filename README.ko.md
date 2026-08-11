@@ -40,7 +40,7 @@ birkin은 로컬 우선 CLI 에이전트이자 HTTP/Telegram 게이트웨이, MC
 |---|---|---|---|
 | 주 구조 | Python 패키지 하나 | 대형 Python 앱 + JS/TS 표면 | TypeScript 모노레포 + Python 커널 shim |
 | 대략적 소스 규모 | Python 32K LOC | Python 166K + JS/TS 132K LOC | TypeScript 152K LOC |
-| 필수 런타임 의존성 | 0 | 다수의 정확히 고정된 Python 패키지 + extras | 여러 npm 패키지 의존성 그래프, Python runtime은 IPython 사용 |
+| 필수 런타임 의존성 | OpenAI SDK, Pillow, Windows 전용 pywin32 | 다수의 정확히 고정된 Python 패키지 + extras | 여러 npm 패키지 의존성 그래프, Python runtime은 IPython 사용 |
 | 에이전트/도구 구성 | 네이티브 루프 하나와 registry 관문 하나 | 광범위한 provider, gateway, browser, media, tool 하위 시스템 | `ai`, `agent`, `coding-agent`, `tui` 계층 패키지 |
 | 메모리 | 편집 가능한 Markdown/YAML/wikilink vault | 여러 상태 및 메모리 통합 | 세션/context-tree 중심 |
 | 자기개선 | 검증과 롤백이 있는 버전 제안 원장 | 광범위한 스킬 및 런타임 생태계 | 확장 및 패키지 생태계 |
@@ -49,10 +49,11 @@ birkin은 로컬 우선 CLI 에이전트이자 HTTP/Telegram 게이트웨이, MC
 
 ### birkin이 더 강한 부분
 
-**작은 의존성과 공급망 표면.** `pyproject.toml`의 런타임 의존성은 0개입니다.
-HTTP, streaming, JSON-RPC, cron parsing, persistence, provider client,
-네이티브 agent loop가 패키지 안에 구현되어 있습니다. 선택적 데스크톱
-스크린샷만 명시적으로 켰을 때 Pillow와 pywin32를 사용합니다.
+**작은 의존성과 공급망 표면.** `pyproject.toml`은 런타임 의존성을 OpenAI
+SDK, Pillow, Windows 전용 pywin32로 제한합니다. HTTP, streaming,
+JSON-RPC, cron parsing, persistence, provider client, 네이티브 agent loop는
+패키지 안에 구현되어 있습니다. 데스크톱 helper는 desktop tool을 명시적으로
+켰을 때만 import됩니다.
 
 **도구 결과를 위한 단일 강제 경로.** 모든 네이티브 도구 호출은
 `ToolRegistry.run`을 통과합니다. 여기서 hook이 관찰하고, 텍스트 결과를

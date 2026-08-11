@@ -43,7 +43,7 @@ trees of
 |---|---|---|---|
 | Main shape | One Python package | Large Python application plus JS/TS surfaces | TypeScript monorepo plus Python kernel shim |
 | Approximate source scale | 32K Python LOC | 166K Python + 132K JS/TS LOC | 152K TypeScript LOC |
-| Mandatory runtime dependencies | 0 | Large exact-pinned Python set plus extras | Multiple npm package dependency graphs; Python runtime uses IPython |
+| Mandatory runtime dependencies | OpenAI SDK, Pillow, and Windows-only pywin32 | Large exact-pinned Python set plus extras | Multiple npm package dependency graphs; Python runtime uses IPython |
 | Agent/tool organization | One native loop and one registry choke point | Broad provider, gateway, browser, media, and tool subsystems | Layered `ai`, `agent`, `coding-agent`, and `tui` packages |
 | Memory | Editable Markdown/YAML/wikilink vault | Multiple state and memory integrations | Session/context-tree centric |
 | Self-improvement | Versioned proposal ledger with validation and rollback | Broad skill and runtime ecosystem | Extension and package ecosystem |
@@ -52,11 +52,11 @@ trees of
 
 ### Where birkin is stronger
 
-**Small dependency and supply-chain surface.** `pyproject.toml` declares no
-runtime dependencies. HTTP, streaming, JSON-RPC, cron parsing, persistence,
-provider clients, and the native agent loop are implemented in the package.
-Optional desktop screenshots use Pillow and pywin32 only when explicitly
-enabled.
+**Small dependency and supply-chain surface.** `pyproject.toml` keeps the
+runtime list to the OpenAI SDK, Pillow, and Windows-only pywin32. HTTP,
+streaming, JSON-RPC, cron parsing, persistence, provider clients, and the
+native agent loop are implemented in the package. The desktop helpers are
+imported only when desktop tools are explicitly enabled.
 
 **A single enforcement path for tool results.** Every native tool call passes
 through `ToolRegistry.run`. Hooks observe there; textual output is redacted
