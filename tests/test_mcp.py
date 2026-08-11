@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 import subprocess
 
 from birkin import mcp
@@ -65,7 +66,11 @@ def test_run_builds_claude_mcp_argv(monkeypatch):
     monkeypatch.setattr(mcp.subprocess, "run", fake_run)
     mcp.run(["list"])
     argv = captured["argv"]
-    assert "claude" in argv and "mcp" in argv and "list" in argv
+    if os.name == "nt":
+        assert os.path.basename(argv[2]).lower() in ("claude", "claude.cmd")
+    else:
+        assert argv[0] == "claude"
+    assert "mcp" in argv and "list" in argv
 
 
 def test_run_capture_returns_completed(monkeypatch):
