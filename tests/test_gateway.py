@@ -45,7 +45,10 @@ def test_gateway_routes_per_chat(gateway):
     assert g.handle("http", "u1", "hello") == "echo:hello"
     assert g.handle("http", "u1", "again") == "echo:again"
     # different chat keeps its own history
-    assert g.handle("telegram", "abc", "hi there") == "echo:hi there"
+    g.cfg["channels"] = {"telegram": {"allowed_chat_ids": ["abc"]}}
+    telegram_reply = g.handle("telegram", "abc", "hi there")
+    assert telegram_reply.startswith("echo:<gateway-execution-policy>")
+    assert telegram_reply.endswith("\n\nhi there")
     assert len(g._chats) == 2
 
 

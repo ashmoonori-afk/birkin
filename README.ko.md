@@ -516,6 +516,11 @@ input, 작업 디렉터리, gate, digest에 묶이며, 승인은 권한 상승 �
   `allowed_chat_ids`를 함께 설정해야 합니다.
 - Slack과 Discord는 송신 전용 adapter입니다. HTTPS incoming-webhook URL이
   필요하며 message를 각각 3,500자와 2,000자로 제한합니다.
+- 로컬이 아닌 inbound adapter는 `Gateway.handle`에 `sender_id`를 넘기고
+  `channels.<name>.allowed_sender_ids`에 명시적으로 등록해야 합니다. sender가
+  없거나 allowlist에 없으면 command, agent, transcript memory로 dispatch하기
+  전에 거부합니다. Telegram은 기존 `allowed_chat_ids` gate를 유지하며,
+  `allowed_sender_ids`를 추가해 허용된 group을 특정 사용자로 좁힐 수 있습니다.
 - 일/월 token budget은 `0`이면 비활성화됩니다.
 
 대화형 설정에는 `birkin setup`, 유효한 tool set 확인과 toggle에는

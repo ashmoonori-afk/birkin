@@ -144,6 +144,8 @@ _CODEX_REASONING_EFFORTS = ["default", "low", "medium", "high", "xhigh"]
 _PRIVILEGED_COMMANDS = {"update", "models", "effort", "restart", "hard_restart",
                         "pending", "deny", "remind", "commitment", "checkin",
                         "companion"}
+_LOCAL_TRUSTED_CHANNELS = frozenset({"http", "local", "repl", "voice"})
+UNTRUSTED_CHANNEL_REPLY = "⛔ This channel sender is not authorized."
 # Providers with a warm persistent-session implementation (see
 # claude_session.ClaudeStreamSession / codex_session.CodexAppServerSession).
 _PERSISTENT_PROVIDERS = ("claude-cli", "codex-cli")
@@ -628,7 +630,7 @@ class Gateway:
 
     def handle(self, channel: str, chat_id: str, text: str,
                on_text=None, workflow_id: str | None = None,
-               on_progress=None) -> str:
+               on_progress=None, sender_id: str | None = None) -> str:
         """Route one inbound message to the agent and return the reply.
 
         ``on_text`` (optional) receives append-style reply pieces as they
@@ -638,10 +640,17 @@ class Gateway:
 
         Each (channel, chat_id) keeps its own conversation history; memory and
         skills are shared, so knowledge carries across channels.
+
+        Local channels are trusted by construction. Public channel adapters
+        must pass ``sender_id`` and configure ``allowed_sender_ids``; otherwise
+        the message is rejected before command, agent, or memory dispatch.
         """
         text = (text or "").strip()
         if not text:
             return ""
+        if not self._channel_trusted(channel, chat_id, sender_id):
+            print(f"[gateway] denied untrusted {channel}:{chat_id}", flush=True)
+            return UNTRUSTED_CHANNEL_REPLY
         key = (channel, str(chat_id))
         # The global lock guards only the shared bookkeeping (the _claude_sessions
         # / _chats dicts and the single shared self.session). The actual LLM turn
@@ -1235,19 +1244,50 @@ class Gateway:
     def _autosave_trusted(self, channel: str) -> bool:
         """Whether turns from ``channel`` may be auto-saved + memorized.
 
-        Telegram is trusted only when ``allowed_chat_ids`` is set — otherwise the
-        bot is open and a stranger's messages would be persisted and could poison
-        the vault. REPL and the loopback HTTP channel are local → trusted.
+        Public channels fail closed. Telegram preserves its existing chat
+        allowlist; other public adapters require an explicit sender allowlist.
         """
-        if channel == "telegram":
-            tg = (self.cfg.get("channels", {}) or {}).get("telegram", {}) or {}
-            return bool(tg.get("allowed_chat_ids"))
-        return True
+        normalized = str(channel or "").strip().lower()
+        if normalized in _LOCAL_TRUSTED_CHANNELS:
+            return True
+        settings = (
+            (self.cfg.get("channels", {}) or {}).get(normalized, {}) or {}
+        )
+        if normalized == "telegram":
+            return bool(settings.get("allowed_chat_ids"))
+        return bool(settings.get("allowed_sender_ids"))
+
+    def _channel_trusted(
+            self, channel: str, chat_id: str,
+            sender_id: str | None = None) -> bool:
+        """Authorize one inbound channel principal before any dispatch."""
+        normalized = str(channel or "").strip().lower()
+        if normalized in _LOCAL_TRUSTED_CHANNELS:
+            return True
+        settings = (
+            (self.cfg.get("channels", {}) or {}).get(normalized, {}) or {}
+        )
+        sender = str(sender_id or "").strip()
+        allowed_senders = {
+            str(value).strip()
+            for value in (settings.get("allowed_sender_ids") or [])
+            if str(value).strip()
+        }
+        if normalized == "telegram":
+            allowed_chats = {
+                str(value).strip()
+                for value in (settings.get("allowed_chat_ids") or [])
+                if str(value).strip()
+            }
+            if not allowed_chats:
+                return True
+            if str(chat_id).strip() not in allowed_chats:
+                return False
+            return not allowed_senders or sender in allowed_senders
+        return bool(sender and sender in allowed_senders)
 
     def _command_trusted(self, channel: str) -> bool:
-        """Whether privileged commands (update/models/restart/hard_restart) may
-        run from ``channel``. Same trust rule as autosave: an open Telegram bot
-        (no allowed_chat_ids) is untrusted; loopback HTTP and REPL are local."""
+        """Whether a channel has an explicit trusted-principal policy."""
         return self._autosave_trusted(channel)
 
 
