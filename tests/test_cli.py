@@ -4,6 +4,7 @@ interactive or long-running and are exercised by their own focused tests."""
 
 from __future__ import annotations
 
+import os
 import subprocess
 import sysconfig
 from pathlib import Path
@@ -36,6 +37,8 @@ def test_installed_console_script_help():
         cwd=Path(__file__).resolve().parents[1],
         capture_output=True,
         text=True,
+        encoding="cp1252",
+        env={**os.environ, "PYTHONIOENCODING": "cp1252"},
         check=False,
     )
 
