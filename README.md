@@ -328,6 +328,13 @@ model never approves its own shell command.
   refused outright or queued for you when nobody is watching. Pattern-based — a
   seatbelt, not a sandbox — and a permanent allowlist never matches a compound
   command.
+- **Native-tool blocks become exact manual operations.** Disabled-tool policy,
+  workspace/egress file policy, control-plane writes, OS permission errors, Git
+  `safe.directory`, and PowerShell execution policy queue the exact tool, input,
+  working directory, gate, and digest. Approval permits one exact retry without
+  elevation flags or global policy changes. HARDLINE shell commands, malformed
+  input, authentication failures, and secret/SSRF egress blocks remain
+  non-approvable integrity boundaries.
 - **Denials teach.** `/deny <id> <why>` sends your reason back to the agent, so
   it corrects course instead of retrying a variant blind. Human-in-the-loop only
   wins if the loop converges.

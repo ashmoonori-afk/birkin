@@ -48,7 +48,7 @@ def propose(*, category: str, title: str, description: str,
     is only auto-applied when ``shell`` itself is auto-approved; otherwise it is
     queued for explicit human review regardless of the ``cron`` policy.
     """
-    auto = is_auto(category, cfg) and not (
+    auto = category != "operation" and is_auto(category, cfg) and not (
         _is_shell_cron(category, payload) and not is_auto("shell", cfg))
     rec = store.add_pending(category=category, title=title,
                             description=description, payload=payload,
@@ -112,6 +112,9 @@ def execute_action(category: str, payload: dict[str, Any],
             return "Command timed out."
         out = (proc.stdout or "") + (proc.stderr or "")
         return f"[exit {proc.returncode}] {out[:2000]}"
+    if category == "operation":
+        from .operation_approval import execute_approved
+        return execute_approved(payload, cfg)
     if category == "moirai":
         from .moirai.trigger import run_approved
         return run_approved(payload, on_event=on_event)

@@ -9,6 +9,7 @@ import tempfile
 from pathlib import Path
 from typing import Any
 
+from ..operation_policy import ApprovalRequiredError
 from ._types import Tool, ToolContext, ToolResult
 from .hashline import annotate, edit_text
 
@@ -48,14 +49,22 @@ def _network_path_blocked(ctx: ToolContext, raw: str) -> bool:
 def _resolve(ctx: ToolContext, raw: str) -> Path:
     p = Path(raw).expanduser()
     p = p if p.is_absolute() else (ctx.cwd / p)
-    if _network_path_blocked(ctx, str(p)):
-        raise ValueError(
-            "blocked: network file paths are disabled during enforced egress")
+    if (
+        not getattr(ctx, "approved_operation", False)
+        and _network_path_blocked(ctx, str(p))
+    ):
+        raise ApprovalRequiredError(
+            "network_file_policy",
+            "Network file paths are disabled during enforced egress",
+        )
     # Opt-in path jail (default off — see config "fs_jail"). When on, confine
     # file tools to the workspace and ~/.birkin so the native loop can't read or
     # overwrite arbitrary files via an absolute path or "..". Off by default to
     # preserve existing behavior (the project's choice is warn, not hard-deny).
-    if ctx.cfg.get("fs_jail"):
+    if (
+        ctx.cfg.get("fs_jail")
+        and not getattr(ctx, "approved_operation", False)
+    ):
         _enforce_jail(ctx, p)
     return p
 
@@ -78,8 +87,10 @@ def _enforce_jail(ctx: ToolContext, p: Path) -> None:
     for root in _jail_roots(ctx):
         if rp == root or root in rp.parents:
             return
-    raise ValueError(
-        f"fs_jail: refusing a path outside the workspace and ~/.birkin: {p}")
+    raise ApprovalRequiredError(
+        "fs_jail",
+        f"fs_jail refused a path outside the workspace and ~/.birkin: {p}",
+    )
 
 
 # birkin's own control plane. A write here is not a file edit, it is a
@@ -112,9 +123,13 @@ _CONTROL_DIRS = {
                  "propose changes with companion_propose instead of editing "
                  "its files.",
 }
+_INTEGRITY_DIRS = {
+    "pending": "~/.birkin/pending contains digest-bound approval records and cannot "
+               "be changed through native file tools.",
+}
 
 
-def _control_plane_error(p: Path) -> str:
+def _control_plane_error(p: Path, ctx: ToolContext) -> str:
     """Why this path must not be written, or "" if it is ordinary."""
     try:
         from .. import config
@@ -124,6 +139,12 @@ def _control_plane_error(p: Path) -> str:
     # realpath both sides so "sub/.." and a symlink land on the real target,
     # the same reasoning _enforce_jail already applies.
     rp = Path(os.path.realpath(p))
+    for directory, why in _INTEGRITY_DIRS.items():
+        root = home / directory
+        if rp == root or root in rp.parents:
+            return f"integrity-protected: {why}"
+    if getattr(ctx, "approved_operation", False):
+        return ""
     if rp.parent == home and rp.name in _CONTROL_FILES:
         return (f"protected: {rp.name} is birkin's own control plane — it "
                 f"schedules or authorises command execution, so the file "
@@ -201,8 +222,10 @@ def _edit_file(inp: dict[str, Any], ctx: ToolContext) -> ToolResult:
     """Apply hash-anchored line edits — only if each line still matches the hash
     the agent saw (read the file with annotate=true first). All-or-nothing."""
     path = _resolve(ctx, inp.get("path", ""))
-    blocked = _control_plane_error(path)
+    blocked = _control_plane_error(path, ctx)
     if blocked:
+        if not blocked.startswith("integrity-protected:"):
+            blocked = f"approval-required[control_plane]: {blocked}"
         return ToolResult(blocked, is_error=True)
     if not path.is_file():
         return ToolResult(f"No such file: {path}", is_error=True)
@@ -231,8 +254,10 @@ def _edit_file(inp: dict[str, Any], ctx: ToolContext) -> ToolResult:
 
 def _write_file(inp: dict[str, Any], ctx: ToolContext) -> ToolResult:
     path = _resolve(ctx, inp.get("path", ""))
-    blocked = _control_plane_error(path)
+    blocked = _control_plane_error(path, ctx)
     if blocked:
+        if not blocked.startswith("integrity-protected:"):
+            blocked = f"approval-required[control_plane]: {blocked}"
         return ToolResult(blocked, is_error=True)
     content = inp.get("content", "")
     path.parent.mkdir(parents=True, exist_ok=True)

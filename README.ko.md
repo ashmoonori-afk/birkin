@@ -309,6 +309,12 @@ birkin moirai run deep-research --args '{"question": "..."}'
 - **run_shell 승인 게이트.** `rm -rf`·`curl | sh`·force-push 같은 건 즉시 거부하거나,
   아무도 보고 있지 않을 땐 당신을 위해 큐잉합니다. 패턴 기반 — 샌드박스가 아니라
   안전벨트 — 이고, 영구 허용목록은 복합 명령엔 절대 매칭되지 않습니다.
+- **native tool 차단은 정확한 수동 작업이 됩니다.** disabled-tool 정책,
+  workspace/egress 파일 정책, control-plane 쓰기, OS 권한 오류, Git
+  `safe.directory`, PowerShell 실행 정책은 정확한 tool, input, 작업 디렉터리,
+  gate, digest를 큐에 넣습니다. 승인은 권한 상승 플래그나 전역 정책 변경 없이
+  정확히 한 번만 재시도합니다. HARDLINE shell 명령, 잘못된 입력, 인증 실패,
+  secret/SSRF egress 차단은 계속 승인할 수 없는 무결성 경계입니다.
 - **거부가 가르칩니다.** `/deny <id> <이유>`로 사유를 보내면 에이전트가 변형을
   맹목 재시도하는 대신 방향을 고칩니다. 사람이 루프에 있는 게 이기려면 루프가
   수렴해야 합니다.

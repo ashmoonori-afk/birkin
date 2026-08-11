@@ -38,13 +38,19 @@ def gateway_warnings(cfg: dict[str, Any]) -> list[str]:
     # someone notices proposals piling up. "skills" for "skill" is the one the
     # docs themselves taught for a while.
     from .risk import CATEGORY_RISK
-    unknown = [str(c) for c in (cfg.get("auto_approve") or [])
-               if str(c) not in CATEGORY_RISK]
+    auto_categories = [str(c) for c in (cfg.get("auto_approve") or [])]
+    unknown = [category for category in auto_categories
+               if category not in CATEGORY_RISK]
     if unknown:
         out.append(
             "auto_approve lists " + ", ".join(repr(u) for u in unknown) +
             " — no such approval category, so the entry does nothing. Known: "
             + ", ".join(sorted(CATEGORY_RISK)) + ".")
+    if "operation" in auto_categories:
+        out.append(
+            "auto_approve lists 'operation', but exact native operations are "
+            "always manual; remove the inert entry."
+        )
 
     if provider not in _EXTERNAL_CLI_PROVIDERS:
         # The non-persistent gateway path drives the native loop, where

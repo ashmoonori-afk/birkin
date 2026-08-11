@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+from pathlib import Path
 
 
 def _gateway(tmp_path, monkeypatch, tg_allowed=("42",)):
@@ -10,6 +11,7 @@ def _gateway(tmp_path, monkeypatch, tg_allowed=("42",)):
     from birkin import config
     cfg = {**config.DEFAULT_CONFIG, "provider": "claude-cli",
            "gateway_prewarm": False,
+           "checkpoints": False,
            "channels": {"telegram": {"allowed_chat_ids": list(tg_allowed)}}}
     config.save_config(cfg)
     from birkin.gateway.core import Gateway
@@ -45,6 +47,38 @@ def test_resolve_action_roundtrip(tmp_path, monkeypatch):
     assert store.list_pending() == []          # both resolved
     # double-resolve is safe
     assert "⚠" in gw.resolve_action(a["id"], approve=True)
+
+
+def test_gateway_approves_sealed_native_operation(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    from birkin import store
+    from birkin.tools import ToolContext, build_registry
+
+    # Given: a native file-policy block is visible to the gateway approval UI.
+    gateway = _gateway(tmp_path, monkeypatch)
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    target = tmp_path.parent / f"{tmp_path.name}-approved.txt"
+    queued = build_registry(ToolContext(
+        cfg={"fs_jail": True},
+        client=None,
+        cwd=workspace,
+    ), include={"files"}).execute(
+        "write_file",
+        {"path": str(target), "content": "gateway approved"},
+    )
+    approval_id = store.list_pending()[0]["id"]
+
+    # When: the authorized gateway principal approves the exact operation.
+    result = gateway.resolve_action(approval_id, approve=True)
+
+    # Then: the sealed action executes once through the same approval worker.
+    assert "queued for approval" in queued.content
+    assert result.startswith("✅")
+    assert target.read_text(encoding="utf-8") == "gateway approved"
+    assert store.get_pending(approval_id)["status"] == "approved"
 
 
 def test_callback_tap_approves_and_acks(tmp_path, monkeypatch):

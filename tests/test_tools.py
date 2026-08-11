@@ -66,20 +66,10 @@ def test_enforced_egress_rejects_network_file_write_before_filesystem(
     registry = build_registry(ctx)
     calls: list[tuple[str, str]] = []
 
-    def mkdir(path: Path, *_args, **_kwargs) -> None:
-        calls.append(("mkdir", str(path)))
+    def write_target(path: Path, content: str) -> None:
+        calls.append(("write", f"{path}:{content}"))
 
-    def write_text(
-        path: Path,
-        content: str,
-        *_args,
-        **_kwargs,
-    ) -> int:
-        calls.append(("write_text", str(path)))
-        return len(content)
-
-    monkeypatch.setattr(files_mod.Path, "mkdir", mkdir)
-    monkeypatch.setattr(files_mod.Path, "write_text", write_text)
+    monkeypatch.setattr(files_mod, "_atomic_write_text", write_target)
 
     result = registry.execute(
         "write_file",
@@ -119,16 +109,9 @@ def test_enforced_egress_rejects_mapped_drive_before_filesystem(
         raising=False,
     )
     monkeypatch.setattr(
-        files_mod.Path,
-        "mkdir",
-        lambda path, *_args, **_kwargs: calls.append(("mkdir", str(path))),
-    )
-    monkeypatch.setattr(
-        files_mod.Path,
-        "write_text",
-        lambda path, *_args, **_kwargs: calls.append(
-            ("write_text", str(path))
-        ) or 1,
+        files_mod,
+        "_atomic_write_text",
+        lambda path, content: calls.append(("write", f"{path}:{content}")),
     )
 
     result = registry.execute(
@@ -169,14 +152,9 @@ def test_enforced_egress_rejects_relative_write_from_mapped_workspace(
 
     monkeypatch.setattr(files_mod, "_windows_drive_type", drive_type)
     monkeypatch.setattr(
-        files_mod.Path,
-        "mkdir",
-        lambda *_args, **_kwargs: filesystem_calls.append("mkdir"),
-    )
-    monkeypatch.setattr(
-        files_mod.Path,
-        "write_text",
-        lambda *_args, **_kwargs: filesystem_calls.append("write_text") or 1,
+        files_mod,
+        "_atomic_write_text",
+        lambda *_args, **_kwargs: filesystem_calls.append("write"),
     )
 
     result = registry.execute(

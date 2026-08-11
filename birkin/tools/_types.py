@@ -6,6 +6,9 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Callable, Optional, Protocol
 
+Config = dict[str, Any]
+ToolInput = dict[str, Any]
+
 
 @dataclass
 class ToolResult:
@@ -29,7 +32,7 @@ class LLMClientLike(Protocol):
 @dataclass
 class ToolContext:
     """Everything a tool might need, passed explicitly (no globals)."""
-    cfg: dict[str, Any]
+    cfg: Config
     client: LLMClientLike | None
     cwd: Path
     skills: Any = None          # skills.manager.SkillManager
@@ -39,6 +42,7 @@ class ToolContext:
     emit: Optional[Callable[[str, dict[str, Any]], None]] = None
     subagent_approval_required: bool = False
     approved_work: bool = False
+    approved_operation: bool = False
     # Dangerous-command gate (see shellguard.py). ``shell_prompt_cb`` is
     # set only by interactive surfaces:
     #     (command, why) -> once|session|always|deny
@@ -57,4 +61,4 @@ class Tool:
     name: str
     description: str
     input_schema: dict[str, Any]
-    fn: Callable[[dict[str, Any], ToolContext], ToolResult]
+    fn: Callable[[ToolInput, ToolContext], ToolResult]
