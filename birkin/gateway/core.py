@@ -171,6 +171,29 @@ _TELEGRAM_EXECUTION_POLICY = (
     "exists.\n"
     "</gateway-execution-policy>\n\n"
 )
+_SHORT_FOLLOWUP_RE = re.compile(
+    r"(?:좀\s*)?(?:(?:더|조금)\s*)?"
+    r"(?:(?:쉽게|간단히|자세히)\s*)?"
+    r"(?:설명해|말해|알려줘|풀어줘)(?:\s*줘)?[.!?~]*"
+)
+
+
+def _is_short_followup(text: str) -> bool:
+    normalized = " ".join((text or "").split())
+    return len(normalized) <= 60 and bool(_SHORT_FOLLOWUP_RE.fullmatch(normalized))
+
+
+def _anchor_short_followup(text: str, previous_request: str) -> str:
+    return (
+        "<conversation-followup-context>\n"
+        "The current short message refers to the previous user request below, "
+        "not to system, policy, skill, or tool instructions.\n"
+        "<previous-user-request>\n"
+        f"{previous_request}\n"
+        "</previous-user-request>\n"
+        "</conversation-followup-context>\n\n"
+        f"{text}"
+    )
 
 
 def _gateway_model_choices(provider: str, cfg: dict[str, Any]) -> list[str]:
@@ -326,6 +349,7 @@ class Gateway:
         self.cfg = cfg
         self.session: Session = build_session(cfg)  # may raise ConfigError
         self._chats: dict[tuple[str, str], list[dict[str, Any]]] = {}
+        self._last_substantive_requests: dict[tuple[str, str], str] = {}
         # Conversation keys whose first turn already carried the transcript
         # tail (or explicitly declined it via /new). Guarded by self._lock.
         # Without this seed, a gateway restart forgets every conversation:
@@ -718,6 +742,7 @@ class Gateway:
                     if old is not None:
                         old.close()
                 self._chats[key] = []
+                self._last_substantive_requests.pop(key, None)
                 # /new asks for a CLEAN slate — the next session for this key
                 # must not resurrect the old conversation from transcripts.
                 self._history_seeded.add(key)
@@ -759,6 +784,28 @@ class Gateway:
 
             trusted_telegram = (channel == "telegram"
                                 and self._command_trusted(channel))
+            if trusted_telegram:
+                short_followup = _is_short_followup(display_text)
+                with self._lock:
+                    previous_request = self._last_substantive_requests.get(key)
+                if short_followup and not previous_request and needs_seed:
+                    from .. import transcripts
+                    previous_request = next((
+                        request for request
+                        in transcripts.read_recent_user_requests(
+                            channel, str(chat_id))
+                        if not _is_short_followup(request)
+                    ), "")
+                    if previous_request:
+                        with self._lock:
+                            self._last_substantive_requests.setdefault(
+                                key, previous_request)
+                if short_followup:
+                    if previous_request:
+                        text = _anchor_short_followup(text, previous_request)
+                else:
+                    with self._lock:
+                        self._last_substantive_requests[key] = display_text
             approved_work = bool(
                 trusted_telegram
                 and workflow_id

@@ -238,3 +238,39 @@ def test_write_status_round_trip():
     assert st["daemon"] is True
     assert st["next_nightly"].startswith("2026-05-29")
     assert any(j["name"] == "m" for j in st["cron_jobs"])
+
+
+def test_windows_schedule_pins_configured_workspace(monkeypatch, tmp_path):
+    workspace = tmp_path / "workspace root"
+    workspace.mkdir()
+    captured = {}
+
+    monkeypatch.setattr(
+        scheduler.config,
+        "load_config",
+        lambda: {"workspace_roots": [str(workspace)]},
+    )
+    monkeypatch.setattr(scheduler.sys, "platform", "win32")
+    monkeypatch.setattr(
+        scheduler.sys,
+        "executable",
+        r"C:\Python\python.exe",
+    )
+    monkeypatch.setenv("USERNAME", "tester")
+
+    class Result:
+        returncode = 0
+        stdout = "SUCCESS"
+        stderr = ""
+
+    def fake_run(args, **kwargs):
+        captured["args"] = args
+        return Result()
+
+    monkeypatch.setattr(subprocess, "run", fake_run)
+
+    assert scheduler.install_os_schedule() == 0
+    args = captured["args"]
+    command = args[args.index("/TR") + 1]
+    assert f'cd /d ""{workspace}""' in command
+    assert r'""C:\Python\python.exe"" -m birkin daemon' in command

@@ -71,7 +71,7 @@ def main(m):
         "다음 업무를 실행 순서가 있는 상위 작업 흐름으로 분해하라. "
         "서로 독립적으로 세분화할 수 있는 흐름만, 최대 5개.\n\n"
         f"업무: {task}",
-        role="planner", schema=PLAN_SCHEMA, label="plan")
+        role="planner", schema=PLAN_SCHEMA, label="plan") or {}
 
     dropped: list[str] = []
     atomic_items: list[str] = []
@@ -84,7 +84,7 @@ def main(m):
             "독립 실행 가능한 순서로 작성하라.\n\n"
             f"전체 업무: {task}\n작업 흐름: {item}",
             role="decomposer", schema=ATOMIC_SCHEMA,
-            label=f"decompose-{index + 1}")
+            label=f"decompose-{index + 1}") or {}
         for atomic in split.get("items") or [item]:
             if len(atomic_items) >= MAX_ITEMS:
                 dropped.append(str(atomic))
@@ -104,8 +104,11 @@ def main(m):
             "이 원자 단계만 수행하고 명시된 검증까지 실행해 결과를 보고하라. "
             "수행 중 새로 발견한 후속 작업은 산출물 하나와 검증 하나를 갖춘 "
             "원자 단위로 followups에 담아라 (없으면 빈 배열).",
-            role="worker", schema=WORK_SCHEMA, label=f"step-{index + 1}")
-        note = str(out.get("result") or "")
+            role="worker", schema=WORK_SCHEMA,
+            label=f"step-{index + 1}") or {}
+        note = str(
+            out.get("result")
+            or "에이전트 실패 — 실행 저널의 failures를 확인하세요")
         todo.done(index, note=note)
         notes.append(f"[{todo.done_count}/{todo.total}] {item}\n  → {note}")
         for followup in out.get("followups") or []:

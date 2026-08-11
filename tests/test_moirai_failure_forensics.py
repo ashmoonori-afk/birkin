@@ -26,6 +26,7 @@ from __future__ import annotations
 import io
 import json
 import types
+from pathlib import Path
 
 import pytest
 
@@ -128,6 +129,42 @@ class TestEngineFailureForensics:
         result = json.loads(run["result_json"] or "{}")
         assert "failures" not in result
         assert result["answer"] == "fine"
+
+    def test_hard_task_survives_a_planner_provider_failure(self, tmp_path):
+        script = moirai.load_script(
+            Path(engine.__file__).parent / "patterns" / "hard_task.py")
+        bindings = {
+            role: B.Binding(
+                role=role,
+                provider="codex",
+                model="gpt-5.6-sol",
+                source="test",
+                tools="none",
+            )
+            for role in script.roles
+        }
+        replies = iter([
+            "[provider-error] codex oauth: empty reply",
+            '{"items": ["one atomic step"]}',
+            '{"result": "done", "followups": []}',
+        ])
+
+        def spawn(_prompt, _binding, _opts, _cfg, *, timeout):
+            return next(replies)
+
+        out = engine.run_script(
+            script,
+            cfg={},
+            bindings_map=bindings,
+            args={"task": "finish safely"},
+            spawn=spawn,
+        )
+
+        assert out["status"] == "completed"
+        run = journal.get_run(out["run_id"])
+        result = json.loads(run["result_json"] or "{}")
+        assert result["failures"][0]["reason"] == "provider-error"
+        assert "done" in result["result"]
 
 
 # ---------------- C2: gateway timeout incident ----------------------------
