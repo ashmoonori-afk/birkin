@@ -16,6 +16,7 @@ from openai import OpenAIError
 
 from birkin.cli import build_parser
 from birkin.gateway.channels.local_http import LocalHTTPChannel
+from birkin.gateway.core import Gateway as BirkinGateway
 from birkin.voice.audio import AudioData
 
 
@@ -49,7 +50,7 @@ def _bound_port(channel: LocalHTTPChannel) -> int:
 
 
 def _start_channel(
-    gateway: _Gateway,
+    gateway: _Gateway | BirkinGateway,
 ) -> tuple[LocalHTTPChannel, threading.Thread]:
     channel = LocalHTTPChannel(0)
     thread = threading.Thread(
@@ -363,3 +364,185 @@ def test_voice_controller_normalizes_tts_api_errors(
 
     assert controller.run_once(args) == 1
     assert "VOICE_ERROR quota" in capsys.readouterr().err
+
+
+@pytest.mark.parametrize("provider", ["claude-cli", "codex-cli"])
+def test_voice_controller_starts_filler_while_oauth_gateway_is_pending(
+    provider: str,
+    tmp_path: Path,
+    monkeypatch,
+    capsys,
+) -> None:
+    from birkin.gateway import core as gateway_core
+
+    controller = importlib.import_module("birkin.voice.controller")
+    gateway_started = threading.Event()
+    release_reply = threading.Event()
+    filler_started = threading.Event()
+    providers: list[str] = []
+    synthesized: list[str] = []
+    result: list[int] = []
+
+    class _WakeGate:
+        def __init__(self, _config: object) -> None:
+            pass
+
+        def evaluate(self, *_args: object, **_kwargs: object) -> object:
+            return SimpleNamespace(accepted=True, reason="accepted")
+
+    def ask(text: str, **_kwargs: object) -> str:
+        gateway_started.set()
+        if not release_reply.wait(2.0):
+            raise TimeoutError("test did not release the OAuth Gateway reply")
+        return f"reply:{text}"
+
+    agent = SimpleNamespace(messages=[])
+    session = SimpleNamespace(
+        cfg={},
+        agent=agent,
+        ask=ask,
+        ctx=SimpleNamespace(
+            subagent_approval_required=False,
+            approved_work=False,
+        ),
+    )
+
+    def build_session(cfg: dict[str, object]) -> object:
+        providers.append(str(cfg["provider"]))
+        return session
+
+    class _OpenAITTS:
+        def __init__(self, *_args: object, **_kwargs: object) -> None:
+            pass
+
+        def synthesize(self, text: str) -> bytes:
+            synthesized.append(text)
+            if text == "On it.":
+                filler_started.set()
+            return b"\x01\x02"
+
+    monkeypatch.setattr(gateway_core, "build_session", build_session)
+    monkeypatch.setattr(
+        controller.config,
+        "load_config",
+        lambda: {"voice": {"filler_text": "On it."}},
+    )
+    monkeypatch.setattr(
+        controller,
+        "read_wav_mono",
+        lambda _path: AudioData((1.0,), 24_000),
+    )
+    monkeypatch.setattr(controller, "WakeGate", _WakeGate)
+    monkeypatch.setattr(controller, "OpenAITTS", _OpenAITTS)
+
+    gateway = gateway_core.Gateway(
+        {"provider": provider, "gateway_persistent": False}
+    )
+    channel, channel_thread = _start_channel(gateway)
+    args = build_parser().parse_args(
+        [
+            "voice",
+            "--once",
+            "--audio",
+            "wake.wav",
+            "--transcript",
+            "Daddy is home",
+            "--command",
+            "status",
+            "--gateway-url",
+            f"http://127.0.0.1:{_bound_port(channel)}/message",
+            "--tts-output",
+            str(tmp_path / "reply.pcm"),
+            "--no-playback",
+        ]
+    )
+    voice_thread = threading.Thread(
+        target=lambda: result.append(controller.run_once(args)),
+        daemon=True,
+    )
+    voice_thread.start()
+    try:
+        assert gateway_started.wait(2.0)
+        assert filler_started.wait(2.0)
+        assert voice_thread.is_alive()
+    finally:
+        release_reply.set()
+        voice_thread.join(timeout=2.0)
+        _stop_channel(channel, channel_thread)
+
+    assert not voice_thread.is_alive()
+    assert result == [0]
+    assert providers == [provider]
+    assert synthesized == ["On it.", "reply:status"]
+    output = capsys.readouterr().out
+    assert output.index("FILLER=On it.") < output.index("REPLY=reply:status")
+
+
+def test_voice_controller_empty_filler_keeps_final_reply(
+    tmp_path: Path,
+    monkeypatch,
+    capsys,
+) -> None:
+    controller = importlib.import_module("birkin.voice.controller")
+    synthesized: list[str] = []
+
+    class _WakeGate:
+        def __init__(self, _config: object) -> None:
+            pass
+
+        def evaluate(self, *_args: object, **_kwargs: object) -> object:
+            return SimpleNamespace(accepted=True, reason="accepted")
+
+    class _GatewayClient:
+        def __init__(self, *_args: object, **_kwargs: object) -> None:
+            pass
+
+        def send(self, command: str) -> str:
+            return f"reply:{command}"
+
+    class _OpenAITTS:
+        def __init__(self, *_args: object, **_kwargs: object) -> None:
+            pass
+
+        def synthesize(self, text: str) -> bytes:
+            synthesized.append(text)
+            return b"\x01\x02"
+
+    monkeypatch.setattr(
+        controller.config,
+        "load_config",
+        lambda: {"voice": {"filler_text": "On it."}},
+    )
+    monkeypatch.setattr(
+        controller,
+        "read_wav_mono",
+        lambda _path: AudioData((1.0,), 24_000),
+    )
+    monkeypatch.setattr(controller, "WakeGate", _WakeGate)
+    monkeypatch.setattr(controller, "GatewayClient", _GatewayClient)
+    monkeypatch.setattr(controller, "OpenAITTS", _OpenAITTS)
+    args = build_parser().parse_args(
+        [
+            "voice",
+            "--once",
+            "--audio",
+            "wake.wav",
+            "--transcript",
+            "Daddy is home",
+            "--command",
+            "status",
+            "--gateway-url",
+            "http://127.0.0.1:8788/message",
+            "--tts-output",
+            str(tmp_path / "reply.pcm"),
+            "--no-playback",
+            "--filler-text",
+            "",
+        ]
+    )
+
+    assert controller.run_once(args) == 0
+    assert synthesized == ["reply:status"]
+    output = capsys.readouterr().out
+    assert "FILLER=" not in output
+    assert "REPLY=reply:status" in output

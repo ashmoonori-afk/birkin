@@ -1073,6 +1073,14 @@ def build_parser() -> argparse.ArgumentParser:
         help="OpenAI speech style instructions (default: voice.tts_instructions)",
     )
     p_voice.add_argument(
+        "--filler-text",
+        default=None,
+        help=(
+            "short acknowledgement spoken while waiting for the Gateway "
+            "(empty disables; default: voice.filler_text)"
+        ),
+    )
+    p_voice.add_argument(
         "--no-playback",
         action="store_true",
         help="do not play synthesized PCM through the speaker",

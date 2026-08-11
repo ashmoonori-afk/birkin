@@ -42,6 +42,7 @@ class VoiceConfig:
     tts_model: str = "gpt-4o-mini-tts"
     tts_voice: str = "coral"
     tts_instructions: str = "Speak concisely and clearly."
+    filler_text: str = "On it."
     background_workers: int = 2
 
     @classmethod
@@ -72,6 +73,12 @@ class VoiceConfig:
                 cls.tts_instructions,
                 allow_empty=True,
             ),
+            filler_text=_text(
+                values,
+                "filler_text",
+                cls.filler_text,
+                allow_empty=True,
+            ),
             background_workers=_positive_int(
                 values,
                 "background_workers",
@@ -90,6 +97,7 @@ class VoiceConfig:
         tts_model: str | None,
         tts_voice: str | None,
         tts_instructions: str | None,
+        filler_text: str | None,
         background_workers: int | None,
     ) -> VoiceConfig:
         return VoiceConfig(
@@ -104,6 +112,11 @@ class VoiceConfig:
                 self.tts_instructions
                 if tts_instructions is None
                 else tts_instructions
+            ),
+            filler_text=(
+                self.filler_text
+                if filler_text is None
+                else filler_text
             ),
             background_workers=(
                 self.background_workers
