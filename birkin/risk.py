@@ -35,6 +35,7 @@ CATEGORY_RISK: dict[str, str] = {
     # the agent chooses to do, so it is reviewed with shell-level attention.
     "harness": "high",
     "shell":  "high",
+    "operation": "high",
 }
 
 

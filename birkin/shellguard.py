@@ -189,11 +189,23 @@ def check(command: str, ctx: Any) -> Optional[Any]:
     from .tools import ToolResult
 
     cfg = getattr(ctx, "cfg", {}) or {}
+    if _targets_pending_store(command):
+        return ToolResult(
+            "Refused: birkin approval records are integrity-protected. "
+            "This command is never run by birkin, on any surface.",
+            is_error=True,
+        )
     tier, why = detect(command)
     if tier == "hardline":
         return ToolResult(
             f"Refused: {why}. This command is never run by birkin, on any "
             f"surface. Run it yourself if you truly intend it.", is_error=True)
+    if tier is not None and getattr(ctx, "approved_operation", False):
+        return ToolResult(
+            f"Approved operation reached an additional shell policy gate: "
+            f"{why}. Submit a new action for review.",
+            is_error=True,
+        )
 
     mode = str(cfg.get("shell_approval", "manual")).lower()
     if mode == "off" or tier is None:
@@ -228,6 +240,14 @@ def check(command: str, ctx: Any) -> Optional[Any]:
         _remember_forever(command, cfg)
         return None
     return ToolResult(f"Denied by the user: {why}.", is_error=True)
+
+
+def _targets_pending_store(command: str) -> bool:
+    from . import config
+
+    normalized = command.casefold().replace("\\", "/")
+    pending = str(config.birkin_home() / "pending").casefold().replace("\\", "/")
+    return pending in normalized or ".birkin/pending" in normalized
 
 
 def _queue_for_approval(command: str, why: str, cfg: dict[str, Any]) -> Any:

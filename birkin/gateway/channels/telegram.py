@@ -81,6 +81,39 @@ def _payload_summary(category: str, payload: dict) -> str:
     if category == "workflow":
         steps = payload.get("steps") or []
         return "↳ " + " → ".join(str(step)[:60] for step in steps[:4])
+    if category == "operation":
+        operation = payload.get("operation")
+        if not isinstance(operation, dict):
+            return "↳ operation: invalid payload"
+        tool = str(operation.get("tool", "?"))
+        gate = str(operation.get("gate", "?"))
+        cwd = str(operation.get("cwd", "?"))
+        raw_input = json.dumps(
+            operation.get("input", {}),
+            ensure_ascii=False,
+            sort_keys=True,
+        )
+        preview = raw_input[:1200]
+        if len(raw_input) > len(preview):
+            preview += f"… ({len(raw_input)} chars)"
+        environment = operation.get("environment")
+        env_summary = ""
+        if isinstance(environment, dict):
+            env_summary = ", ".join(
+                f"{key}={value}"
+                for key, value in sorted(environment.items())
+            )
+        digest = str(payload.get("digest", ""))[:16]
+        lines = [
+            f"↳ tool: {tool}",
+            f"gate: {gate}",
+            f"cwd: {cwd}",
+            f"input: {preview}",
+        ]
+        if env_summary:
+            lines.append(f"environment: {env_summary}")
+        lines.append(f"digest: {digest}")
+        return "\n".join(lines)
     return f"↳ {str(payload)[:200]}" if payload else ""
 
 

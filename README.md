@@ -407,6 +407,14 @@ Remote images use the same private/reserved-address and redirect checks as web
 fetching. Desktop tools are absent from the registry unless
 `desktop_tools` is exactly `true`.
 
+Retriable native-tool blocks become manual `operation` approvals, including
+disabled-tool policy, workspace and egress file policy, control-plane writes,
+OS permission errors, Git `safe.directory`, and PowerShell execution policy.
+Each record binds the exact tool, input, working directory, gate, and digest;
+approval permits one exact retry without elevation flags or global policy
+changes. HARDLINE shell commands, malformed input, authentication failures,
+and secret/SSRF egress blocks remain non-approvable integrity boundaries.
+
 ## Configuration
 
 Configuration lives at `~/.birkin/config.json` or under `BIRKIN_HOME`. This is

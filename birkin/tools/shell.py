@@ -30,12 +30,38 @@ def _run_shell(inp: dict[str, Any], ctx: ToolContext) -> ToolResult:
         return blocked
     cwd = Path(inp["cwd"]).expanduser() if inp.get("cwd") else ctx.cwd
     timeout = int(inp.get("timeout", DEFAULT_TIMEOUT))
+    environment = shell_env()
+    approved_environment = inp.get("_approved_env")
+    if ctx.approved_operation and isinstance(approved_environment, dict):
+        allowed = {
+            "GIT_CONFIG_COUNT",
+            "GIT_CONFIG_KEY_0",
+            "GIT_CONFIG_VALUE_0",
+            "PSExecutionPolicyPreference",
+            "TEMP",
+            "TMP",
+            "UV_CACHE_DIR",
+        }
+        if (
+            any(key not in allowed for key in approved_environment)
+            or any(not isinstance(value, str)
+                   for value in approved_environment.values())
+        ):
+            return ToolResult(
+                "Invalid approved operation environment",
+                is_error=True,
+            )
+        environment.update(approved_environment)
+        for key in ("TEMP", "TMP", "UV_CACHE_DIR"):
+            value = approved_environment.get(key)
+            if value:
+                Path(value).mkdir(parents=True, exist_ok=True)
     try:
         # Intentional shell semantics (this tool runs free-form commands), but
         # via an explicit platform shell argv — never shell=True. See proc.py.
         proc = subprocess.run(
             shell_argv(command), cwd=str(cwd), capture_output=True,
-            text=True, errors="replace", timeout=timeout, env=shell_env(),
+            text=True, errors="replace", timeout=timeout, env=environment,
             check=False,
         )
     except subprocess.TimeoutExpired:

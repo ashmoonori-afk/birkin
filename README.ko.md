@@ -399,6 +399,13 @@ Registry가 노출할 수 있는 기능:
 거칩니다. `desktop_tools`가 정확히 `true`가 아니면 desktop tool은 registry에
 등록되지 않습니다.
 
+재시도 가능한 native tool 차단은 수동 `operation` 승인이 됩니다. disabled-tool
+정책, workspace·egress 파일 정책, control-plane 쓰기, OS 권한 오류, Git
+`safe.directory`, PowerShell 실행 정책이 해당됩니다. 각 기록은 정확한 tool,
+input, 작업 디렉터리, gate, digest에 묶이며, 승인은 권한 상승 플래그나 전역 정책
+변경 없이 정확히 한 번만 재시도합니다. HARDLINE shell 명령, 잘못된 입력, 인증
+실패, secret/SSRF egress 차단은 계속 승인할 수 없는 무결성 경계입니다.
+
 ## 설정
 
 설정은 `~/.birkin/config.json` 또는 `BIRKIN_HOME` 아래에 있습니다. 다음은

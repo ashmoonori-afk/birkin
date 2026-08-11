@@ -5,8 +5,7 @@ from types import SimpleNamespace
 
 import pytest
 
-from birkin import promptgate, runtime, subagent
-from birkin import presets
+from birkin import presets, promptgate, runtime, store, subagent
 from birkin.tools import ToolContext, ToolRegistry, build_registry
 
 
@@ -145,9 +144,18 @@ def test_denied_native_tools_are_not_executable(tmp_path: Path) -> None:
 
     assert denied_names
     for name in denied_names:
+        before = {record["id"] for record in store.list_pending()}
         result = restricted.execute(name, {})
         assert result.is_error is True
-        assert result.content.startswith("Unknown tool:")
+        if "queued for approval" in result.content:
+            queued = [
+                record for record in store.list_pending()
+                if record["id"] not in before
+            ]
+            assert len(queued) == 1
+            assert queued[0]["payload"]["operation"]["tool"] == name
+        else:
+            assert "dedicated approval flow" in result.content
 
 
 @pytest.mark.parametrize(
