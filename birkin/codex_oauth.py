@@ -378,6 +378,38 @@ def import_cli_tokens() -> dict[str, str]:
 
 # --- runtime --------------------------------------------------------------
 
+def _refresh_locked(tokens: dict[str, Any]) -> str:
+    """Exchange the refresh token while holding a cross-process lock.
+
+    ``_token_lock`` is per-interpreter, but birkin's CLI, gateway daemon and
+    WebUI are separate processes sharing this store. OpenAI rotates the refresh
+    token on every grant, so without a cross-process lock the loser of a race
+    spends a token the winner already invalidated: it 400s and looks logged
+    out. Re-reading after winning the lock is what makes the loser adopt the
+    winner's fresh token instead.
+    """
+    from . import store
+    try:
+        with store.file_lock(store_path()):
+            current = _read_store()
+            fresh = dict(current["tokens"]) if current else dict(tokens)
+            access = str(fresh.get("access_token") or "")
+            if access and not _is_expiring(access, _REFRESH_SKEW_SECONDS):
+                return access                      # another process refreshed
+            fresh.update(refresh(str(fresh.get("refresh_token") or "")))
+            if not fresh.get("account_id"):
+                fresh["account_id"] = account_id(fresh["access_token"])
+            _write_store(fresh)
+            return str(fresh["access_token"])
+    except store.FileLockTimeout:
+        current = _read_store()
+        access = str(((current or {}).get("tokens") or {}).get("access_token") or "")
+        if access and not _is_expiring(access, _REFRESH_SKEW_SECONDS):
+            return access
+        raise CodexAuthError(
+            "another birkin process is refreshing the Codex token — retry")
+
+
 def resolve_token(*, refresh_if_expiring: bool = True) -> Optional[str]:
     """Return a usable access token, refreshing and persisting when stale.
 
@@ -392,12 +424,7 @@ def resolve_token(*, refresh_if_expiring: bool = True) -> Optional[str]:
         tokens = dict(data["tokens"])
         access = str(tokens.get("access_token") or "")
         if refresh_if_expiring and _is_expiring(access, _REFRESH_SKEW_SECONDS):
-            refreshed = refresh(str(tokens.get("refresh_token") or ""))
-            tokens.update(refreshed)
-            if not tokens.get("account_id"):
-                tokens["account_id"] = account_id(tokens["access_token"])
-            _write_store(tokens)
-            access = tokens["access_token"]
+            access = _refresh_locked(tokens)
         return access or None
 
 
