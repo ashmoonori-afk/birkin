@@ -135,8 +135,9 @@ The shipped voice path is deliberately chained rather than a second agent loop:
 PCM16/24 kHz microphone or WAV
   -> clap + normalized phrase gate
   -> gpt-transcribe (recorded/in-memory audio)
-  -> GatewayClient POST {"channel":"voice", "session":..., "text":...}
-  -> existing Gateway.handle() session, tool, and approval boundary
+  -> foreground filler TTS starts
+     concurrently with GatewayClient POST {"channel":"voice", "session":..., "text":...}
+  -> existing Gateway.handle() provider session, tool, and approval boundary
   -> foreground reply or bounded BackgroundBroker receipt
   -> gpt-4o-mini-tts PCM
   -> speaker and/or configured file sink
@@ -147,6 +148,10 @@ bounded recorded/in-memory windows so the same path can be driven by microphone
 hardware, recorded fixtures, and deterministic tests. A future
 `gpt-realtime-2.1` conversational mode must remain opt-in because direct
 speech-to-speech cannot silently replace the existing text/approval boundary.
+Foreground mode speaks the concise `voice.filler_text` acknowledgement while
+the Gateway turn is pending, rather than delaying request dispatch; an empty
+value disables it. The voice client remains provider-neutral, so the configured
+Gateway session continues to own Claude or Codex OAuth authentication.
 
 Wake is never authorization. `GatewayClient` accepts only an exact loopback
 HTTP `/message` endpoint, without credentials, query, or fragment; HTTPS and

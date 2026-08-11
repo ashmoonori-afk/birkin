@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 import os
 import sys
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from wave import Error as WaveError
 
@@ -39,6 +40,7 @@ def _options(args: argparse.Namespace) -> VoiceConfig:
         tts_model=args.tts_model,
         tts_voice=args.tts_voice,
         tts_instructions=args.tts_instructions,
+        filler_text=args.filler_text,
         background_workers=args.background_workers,
     )
 
@@ -158,22 +160,45 @@ def _run_foreground(
     options: VoiceConfig,
     command: str,
 ) -> int:
-    reply = GatewayClient(
+    gateway = GatewayClient(
         options.gateway_url,
         session_id=options.session_id,
         token=os.environ.get("BIRKIN_HTTP_TOKEN", ""),
-    ).send(command)
-    print(f"REPLY={reply}")
-
+    )
     tts, sinks = _audio_delivery(args, options)
+    filler = options.filler_text.strip()
+    if tts is not None and filler:
+        print(f"FILLER={filler}", flush=True)
+        with ThreadPoolExecutor(max_workers=1) as executor:
+            filler_delivery = executor.submit(
+                _deliver_speech,
+                tts,
+                sinks,
+                filler,
+            )
+            reply = gateway.send(command)
+            print(f"REPLY={reply}")
+            filler_delivery.result()
+    else:
+        reply = gateway.send(command)
+        print(f"REPLY={reply}")
+
     if tts is None:
         return 0
-    pcm = tts.synthesize(reply)
-    for sink in sinks:
-        sink.write(pcm)
+    _deliver_speech(tts, sinks, reply)
     if args.tts_output:
         print(f"TTS_SAVED={args.tts_output}")
     return 0
+
+
+def _deliver_speech(
+    tts: OpenAITTS,
+    sinks: list[AudioSink],
+    text: str,
+) -> None:
+    pcm = tts.synthesize(text)
+    for sink in sinks:
+        sink.write(pcm)
 
 
 def run_once(args: argparse.Namespace) -> int:
