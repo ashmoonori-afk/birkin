@@ -11,9 +11,20 @@ redaction gates that live in code rather than in a prompt.
 
 [한국어](./README.ko.md)
 
-![A deterministic execution graph crossing a lexical memory lattice](./docs/assets/birkin-graph-engineering.png)
+![A winged Hermes courier with a loose bundle, overtaken on a higher track by an unbranded structured trapezoidal handbag with twin top handles, whose internal node graph stays intact while hard gates deflect red edges](./docs/assets/birkin-hero-courier.png)
 
 > **Memory is files. Control flow is code. Authority is bounded.**
+
+The name is the joke and the joke is the design. Hermes is the famous courier:
+fast, mythic, travelling light. birkin runs ahead of that baseline by carrying
+less machinery, holding its cargo in a shape that cannot spill, and putting
+hard gates in front of what should never pass. The gates are not decoration.
+They are deterministic code that refuses, queues, and checkpoints no matter
+what a model would prefer. The speed is real and measured against birkin's own
+earlier path: warm gateway turns went from 13-16 s to 2.3 s on Claude and from
+37.5 s to 3 s on Codex ([`docs/STATUS.md`](./docs/STATUS.md), ADR-045 and
+ADR-046; no comparative hermes-agent latency benchmark exists here, and none is
+claimed).
 
 ## The 60-second proof
 
@@ -26,6 +37,7 @@ Every row is something the repository can be made to show you.
 | **R@1 0.891 in production** | The shipped lexical stack scores 0.891 R@1 / 0.974 R@5 / 0.926 MRR on 470 LongMemEval-S questions. The tuned research configuration reaches 0.900, ahead of the best embedding hybrid measured on the same harness at 0.894. No encoder, no vector store. [`docs/ranking-v2-plan.md`](./docs/ranking-v2-plan.md) |
 | **4 concurrent execution slots, 100-agent ceiling** | Moirai's default thread-pool width and per-run spawn cap. Scheduling limits, distinct from the named workers below. Abort, budget, and cap are checked before each new agent. [`moirai/engine.py`](./birkin/moirai/engine.py) |
 | **2,300+ offline tests, 82.89% coverage** | The default `pytest` run needs no API key and no network. [`docs/STATUS.md`](./docs/STATUS.md) |
+| **Warm turns at 2.3 s and 3 s** | Claude and Codex warm gateway turns, down from 13-16 s and 37.5 s on birkin's own earlier path. This is a self-comparison, not a claim about any other project. [`docs/STATUS.md`](./docs/STATUS.md) |
 | **56 bundled skills, ~37K lines of Python** | One flat package. Most behavior is a module with explicit inputs and file-backed state. |
 
 <details>
@@ -77,6 +89,12 @@ whether to call another model, whether to retry, when to stop. That is a
 suggestion loop with a spawn button. Moirai moves those decisions into an
 execution graph that Python owns.
 
+![One keyed entry, a three-tumbler guard standing before any spawn, a single straight lane, four parallel threads meeting a hard barrier, six tokens advancing independently through three stations, one contained red stub, a shared ledger rail beneath everything, and two resume arcs of which only one key matches](./docs/assets/birkin-moirai-engine.png)
+
+*One entry, one guard before any spawn, three concurrency shapes, one failure
+contained, everything journaled, and resume reused only where the key still
+matches.*
+
 ```mermaid
 flowchart LR
     E["Explicit entry<br/>CLI only"] --> S["Load Python workflow"]
@@ -111,10 +129,12 @@ flowchart LR
 
 ## Workers with bounded authority
 
-![Bounded execution lanes sharing one journal](./docs/assets/birkin-bounded-workers.png)
+![Eight stations on one shared foundation rail: four solid machined blocks, three half-tone frames holding state tokens, and one dashed weightless gate, joined by a closed amber cycle](./docs/assets/birkin-worker-system.png)
 
-The workers are named after Greek figures. Their boundaries are deliberately
-unromantic.
+The workers are named after Greek and Egyptian figures. Their boundaries are
+deliberately unromantic, and they are not all the same kind of thing. Four are
+deterministic modules. Three are thin launchers that persist state but execute
+little. One is protocol prose with no module at all.
 
 | Worker | Runs when | Authority ceiling |
 |---|---|---|
@@ -124,9 +144,30 @@ unromantic.
 | **Morpheus** | Scheduled review of recent work | Emits proposals. It does not rewrite the agent directly. |
 | **Boulder** | A long-running goal is set | Persists a resumable plan. A goal's gate command is never executed by the goal store; it routes through the shell approval queue. |
 | **Harness** | A proposal arrives from Morpheus or a turn-boundary review | Validates target, type, and budget, applies within limits, and appends to a ledger that supports rollback. |
+| **Odyssey** | You start a goal-completion cycle | Thin resumable glue, not an engine. It derives a slug, points at a Boulder plan, and builds the kickoff prompt; the cycle itself runs as skill protocol across turns. It does not use Moirai and owns no execution machinery of its own. |
+| **Osiris** | An Odyssey step claims to be finished | Inline protocol prose inside the Odyssey skill, with no module anywhere in the package. It gates a step's checkmark by convention only and cannot independently enforce anything. Boulder's file is what actually persists the outcome. |
 
-One rule generates that table. **Workers produce evidence and proposals.
-Deterministic code owns ceilings, persistence, and approval.**
+**Reading the image.** Solid machined blocks are deterministic modules,
+half-tone frames are launchers that hold resumable state but execute little,
+and the dashed outline is protocol with no module behind it.
+
+- Loom at a gated aperture, **Moirai**, module
+- Lattice archive with fading shelves, **Mnemosyne**, module
+- Cairn of plan-stones, **Boulder**, module
+- Bound ledger with a reverse lever, **Harness**, module
+- Lantern narrowing to a sealed scroll, **Neurosis**, launcher
+- Compass and road, **Odyssey**, launcher
+- Moon emitting sealed envelopes, **Morpheus**, launcher
+- Dashed scales in an open gateway, **Osiris**, protocol only
+
+The amber loop is Odyssey's cycle: Neurosis, three critics, Boulder, step
+execution, an Osiris check, then back to the next unchecked step.
+
+One rule generates most of that table. **Workers produce evidence and
+proposals. Deterministic code owns ceilings, persistence, and approval.**
+Osiris is the honest exception that proves the rule: it is the one role with no
+code behind it, which is precisely why it can gate a checkmark but cannot
+enforce a boundary.
 
 ## Code-level comparison
 
@@ -532,7 +573,11 @@ birkin curate-memory
   skills. They do not inherit the parent's transcript or write to its memory.
 - **Moirai** executes deterministic workflows across Claude, Codex, and API
   workers.
-- **Boulder/Odyssey** persist and verify long-running goal steps.
+- **Boulder** persists a resumable plan of independently verifiable goal steps.
+- **Odyssey** coordinates the skill cycle over that plan across turns. It owns
+  no execution engine and does not use Moirai.
+- **Osiris** is the inline protocol check inside that cycle. It has no module
+  and no independent enforcement; Boulder's file records what survived.
 - **MCP** exposes birkin tools to compatible clients.
 - **A2A** exposes an opt-in Agent2Agent v1.0 JSON-RPC endpoint and agent card.
 - **Gateway** keeps sessions warm across local HTTP and Telegram turns.
