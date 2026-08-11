@@ -526,6 +526,11 @@ Important boundaries:
   `allowed_chat_ids`.
 - Slack and Discord are send-only adapters. They require HTTPS incoming-webhook
   URLs and truncate messages at 3,500 and 2,000 characters respectively.
+- Any non-local inbound adapter must pass a `sender_id` to `Gateway.handle` and
+  explicitly list it under `channels.<name>.allowed_sender_ids`. Missing or
+  unknown senders are rejected before command, agent, or transcript-memory
+  dispatch. Telegram keeps its existing `allowed_chat_ids` gate and may add
+  `allowed_sender_ids` to narrow an allowed group to specific users.
 - Daily/monthly token budgets are disabled when set to `0`.
 
 Run `birkin setup` for guided configuration and `birkin tools` to inspect or
