@@ -12,12 +12,11 @@ from urllib.error import HTTPError
 from urllib.request import Request, urlopen
 
 import pytest
-from openai import OpenAIError
-
 from birkin.cli import build_parser
 from birkin.gateway.channels.local_http import LocalHTTPChannel
 from birkin.gateway.core import Gateway as BirkinGateway
 from birkin.voice.audio import AudioData
+from openai import OpenAIError
 
 
 class _Gateway:
@@ -546,3 +545,67 @@ def test_voice_controller_empty_filler_keeps_final_reply(
     output = capsys.readouterr().out
     assert "FILLER=" not in output
     assert "REPLY=reply:status" in output
+
+
+def test_voice_controller_scopes_selected_style_to_gateway_command(
+    monkeypatch,
+    capsys,
+) -> None:
+    controller = importlib.import_module("birkin.voice.controller")
+    sent: list[str] = []
+
+    class _WakeGate:
+        def __init__(self, _config: object) -> None:
+            pass
+
+        def evaluate(self, *_args: object, **_kwargs: object) -> object:
+            return SimpleNamespace(accepted=True, reason="accepted")
+
+    class _GatewayClient:
+        def __init__(self, *_args: object, **_kwargs: object) -> None:
+            pass
+
+        def send(self, command: str) -> str:
+            sent.append(command)
+            return "styled reply"
+
+    monkeypatch.setattr(
+        controller.config,
+        "load_config",
+        lambda: {
+            "voice": {
+                "conversation_style": "concise",
+                "filler_text": "",
+            }
+        },
+    )
+    monkeypatch.setattr(
+        controller,
+        "read_wav_mono",
+        lambda _path: AudioData((1.0,), 24_000),
+    )
+    monkeypatch.setattr(controller, "WakeGate", _WakeGate)
+    monkeypatch.setattr(controller, "GatewayClient", _GatewayClient)
+    args = build_parser().parse_args(
+        [
+            "voice",
+            "--once",
+            "--audio",
+            "wake.wav",
+            "--transcript",
+            "Daddy is home",
+            "--command",
+            "status",
+            "--gateway-url",
+            "http://127.0.0.1:8788/message",
+            "--no-playback",
+        ]
+    )
+
+    assert controller.run_once(args) == 0
+    assert len(sent) == 1
+    assert sent[0].startswith("status\n\n")
+    assert '<voice-response-style id="concise">' in sent[0]
+    output = capsys.readouterr().out
+    assert "COMMAND=status" in output
+    assert "REPLY=styled reply" in output

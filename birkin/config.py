@@ -184,6 +184,8 @@ DEFAULT_CONFIG: dict[str, Any] = {
         "tts_model": "gpt-4o-mini-tts",
         "tts_voice": "coral",
         "tts_instructions": "Speak concisely and clearly.",
+        "conversation_style": "",
+        "onboarding_complete": False,
         "background_workers": 2,
     },
     # Auto-save every conversation turn (gateway + REPL) to sessions_dir as

@@ -351,6 +351,7 @@ def _cmd_harness(args: argparse.Namespace) -> int:
 
 
 def _cmd_voice(args: argparse.Namespace) -> int:
+    from .voice import onboarding
     from .voice.daemon import (
         start_daemon,
         status_daemon,
@@ -360,7 +361,13 @@ def _cmd_voice(args: argparse.Namespace) -> int:
 
     if args.daemon_worker:
         return run_worker(args)
+    if args.voice_action in {"setup", "onboard"}:
+        return onboarding.run()
     if args.voice_action == "start":
+        if not onboarding.is_complete():
+            setup_result = onboarding.run()
+            if setup_result != 0:
+                return setup_result
         return start_daemon(args)
     if args.voice_action == "status":
         return status_daemon()
@@ -983,8 +990,8 @@ def build_parser() -> argparse.ArgumentParser:
     p_voice.add_argument(
         "voice_action",
         nargs="?",
-        choices=("start", "status", "stop"),
-        help="daemon lifecycle action",
+        choices=("setup", "onboard", "start", "status", "stop"),
+        help="guided setup or daemon lifecycle action",
     )
     p_voice.add_argument(
         "--daemon-worker",
