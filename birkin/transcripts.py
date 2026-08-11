@@ -214,6 +214,34 @@ def read_recent(channel: str, chat_id: str, *, max_turns: int = 12,
         return ""
 
 
+def read_recent_user_requests(channel: str, chat_id: str) -> list[str]:
+    """Saved user messages for one conversation, newest first."""
+    try:
+        requests: list[str] = []
+        now = datetime.now(timezone.utc)
+        for day in (now.strftime("%Y%m%d"),
+                    (now - timedelta(days=1)).strftime("%Y%m%d")):
+            path = (config.sessions_dir()
+                    / f"{auto_stem(channel, chat_id, day=day)}.json")
+            data = store._read_json(path, [])
+            if not isinstance(data, list):
+                continue
+            for message in reversed(data):
+                if not isinstance(message, dict) or message.get("role") != "user":
+                    continue
+                parts = message.get("content") or []
+                text = "\n".join(
+                    str((part or {}).get("text") or "").strip()
+                    for part in parts
+                    if str((part or {}).get("text") or "").strip()
+                )
+                if text:
+                    requests.append(text)
+        return requests
+    except Exception:
+        return []
+
+
 def _maybe_enforce_retention(cfg: dict[str, Any]) -> None:
     """Delete old / excess ``auto__*`` files. Throttled to ~once a minute (it runs
     after every turn) and never touches manual saves.

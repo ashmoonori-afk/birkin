@@ -587,6 +587,8 @@ birkin curate-memory
 - **MCP**는 호환 client에 birkin tool을 노출합니다.
 - **A2A**는 opt-in Agent2Agent v1.0 JSON-RPC endpoint와 agent card를 제공합니다.
 - **Gateway**는 로컬 HTTP와 Telegram turn 사이에서 session을 warm 상태로 유지합니다.
+  짧은 문맥 의존 Telegram 후속말은 재시작 뒤에도 그 채팅의 최근 실질 요청에
+  연결하며, 주제가 완결된 새 질문은 바꾸지 않습니다.
 
 ## Integration workflow
 
