@@ -11,8 +11,10 @@ import time
 import uuid
 from collections import deque
 from dataclasses import dataclass
-from pathlib import Path
+from pathlib import Path, PureWindowsPath
 from typing import Sequence, TypeAlias
+
+from .proc import kill_tree, popen_tree_kwargs
 
 
 JsonValue: TypeAlias = (
@@ -60,7 +62,11 @@ def command_for_session(command: Sequence[str], session_path: Path) -> tuple[str
             skip_next = True
         elif argument != "--no-session":
             result.append(argument)
-    return *result, "--session", str(session_path)
+    session = str(session_path)
+    windows_path = PureWindowsPath(session)
+    if windows_path.drive:
+        session = str(windows_path)
+    return *result, "--session", session
 
 
 class OmoRpcClient:
@@ -81,7 +87,17 @@ class OmoRpcClient:
     def _start(self) -> subprocess.Popen[str]:
         if self._process is not None:
             return self._process
-        process = subprocess.Popen(self._command or default_omo_command(), stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, encoding="utf-8", errors="replace", bufsize=1)
+        process = subprocess.Popen(
+            self._command or default_omo_command(),
+            stdin=subprocess.PIPE,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            bufsize=1,
+            **popen_tree_kwargs(),
+        )
         self._process = process
         readers = (threading.Thread(target=self._read_stdout, daemon=True), threading.Thread(target=self._read_stderr, daemon=True))
         self._reader_threads = readers
@@ -201,12 +217,8 @@ class OmoRpcClient:
             try:
                 process.wait(timeout=3)
             except subprocess.TimeoutExpired:
-                process.terminate()
-                try:
-                    process.wait(timeout=3)
-                except subprocess.TimeoutExpired:
-                    process.kill()
-                    process.wait(timeout=3)
+                kill_tree(process)
+                process.wait(timeout=3)
         if self._reader_threads is not None:
             for thread in self._reader_threads:
                 thread.join(timeout=1)

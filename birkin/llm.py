@@ -255,10 +255,11 @@ class LLMClient:
         ``(stdout, stderr, timed_out, aborted)``."""
         import threading
 
-        from .proc import kill_tree
+        from .proc import kill_tree, popen_tree_kwargs
         proc = subprocess.Popen(argv, stdin=subprocess.PIPE, stdout=subprocess.PIPE,
                                 stderr=subprocess.PIPE, text=True, encoding="utf-8",
-                                errors="replace", env=env)
+                                errors="replace", env=env,
+                                **popen_tree_kwargs())
         chunks: dict[str, list[str]] = {"out": [], "err": []}
 
         def _drain(stream, key: str) -> None:
