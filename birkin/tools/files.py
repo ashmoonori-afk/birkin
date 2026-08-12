@@ -51,7 +51,13 @@ def _resolve(ctx: ToolContext, raw: str) -> Path:
     p = p if p.is_absolute() else (ctx.cwd / p)
     if (
         not getattr(ctx, "approved_operation", False)
-        and _network_path_blocked(ctx, raw)
+        and (
+            _network_path_blocked(ctx, raw)
+            or (
+                not ntpath.splitdrive(raw.replace("/", "\\"))[0]
+                and _network_path_blocked(ctx, str(ctx.cwd))
+            )
+        )
     ):
         raise ApprovalRequiredError(
             "network_file_policy",
