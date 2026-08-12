@@ -7,31 +7,12 @@ import json
 import warnings
 from collections.abc import Mapping
 from importlib import resources
-from typing import Any, TypedDict, cast
+from typing import Any, TypeAlias, cast
 
 CONFIG_SCHEMA_VERSION = 1
 
 
-class TelegramConfig(TypedDict, total=False):
-    enabled: bool
-    token: str
-    allowed_chat_ids: list[str]
-    stream: bool
-
-
-class VoiceConfig(TypedDict, total=False):
-    wake_phrase: str
-    sample_rate: int
-    background_workers: int
-
-
-class Config(TypedDict, total=False):
-    provider: str
-    model: str
-    max_tokens: int
-    max_turns: int
-    voice: VoiceConfig
-    channels: dict[str, object]
+Config: TypeAlias = dict[str, Any]
 
 
 def _json_type(value: object) -> str | list[str]:
@@ -146,6 +127,10 @@ def _valid(value: object, schema: Mapping[str, Any]) -> bool:
             return False
         if "maximum" in schema and value > schema["maximum"]:
             return False
+    if isinstance(value, list):
+        item_schema = schema.get("items")
+        if isinstance(item_schema, Mapping):
+            return all(_valid(item, item_schema) for item in value)
     return True
 
 
@@ -198,4 +183,4 @@ def merge_config(
             out[key] = merge_config(current, value)
         else:
             out[key] = copy.deepcopy(value)
-    return cast(Config, cast(object, out))
+    return out

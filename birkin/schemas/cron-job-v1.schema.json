@@ -31,18 +31,49 @@
     "created": {"type": "string", "format": "date-time"},
     "last_run": {"type": ["string", "null"], "format": "date-time"},
     "schedule": {
-      "type": "object",
-      "required": ["kind", "display"],
-      "properties": {
-        "kind": {"type": "string", "enum": ["daily", "interval", "once", "cron"]},
-        "display": {"type": "string"},
-        "hour": {"type": "integer", "minimum": 0, "maximum": 23},
-        "minute": {"type": "integer", "minimum": 0, "maximum": 59},
-        "minutes": {"type": "integer", "minimum": 1},
-        "run_at": {"type": "string", "format": "date-time"},
-        "expr": {"type": "string"}
-      },
-      "additionalProperties": false
+      "oneOf": [
+        {
+          "type": "object",
+          "required": ["kind", "display", "hour", "minute"],
+          "properties": {
+            "kind": {"const": "daily"},
+            "display": {"type": "string"},
+            "hour": {"type": "integer", "minimum": 0, "maximum": 23},
+            "minute": {"type": "integer", "minimum": 0, "maximum": 59}
+          },
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "required": ["kind", "display", "minutes"],
+          "properties": {
+            "kind": {"const": "interval"},
+            "display": {"type": "string"},
+            "minutes": {"type": "integer", "minimum": 1}
+          },
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "required": ["kind", "display", "run_at"],
+          "properties": {
+            "kind": {"const": "once"},
+            "display": {"type": "string"},
+            "run_at": {"type": "string", "format": "date-time"}
+          },
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "required": ["kind", "display", "expr"],
+          "properties": {
+            "kind": {"const": "cron"},
+            "display": {"type": "string"},
+            "expr": {"type": "string"}
+          },
+          "additionalProperties": false
+        }
+      ]
     },
     "next_run": {"type": ["string", "null"], "format": "date-time"},
     "monitor_url": {"type": ["string", "null"]},

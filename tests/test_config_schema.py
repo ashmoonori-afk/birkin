@@ -3,6 +3,8 @@ from __future__ import annotations
 import json
 import warnings
 
+import pytest
+
 from birkin import config
 from birkin.config_model import (
     CONFIG_SCHEMA_VERSION,
@@ -70,3 +72,47 @@ def test_unknown_extension_keys_survive_normalization(
     )
 
     assert config.load_config()["future_feature"] == {"enabled": True}
+
+
+@pytest.mark.parametrize(
+    ("key", "value"),
+    [
+        ("shell_approval", "manual"),
+        ("shell_approval", "smart"),
+        ("shell_approval", "off"),
+        ("repl_typed_line", "steer"),
+        ("repl_typed_line", "kill"),
+    ],
+)
+def test_supported_config_modes_survive_normalization(
+    tmp_path, monkeypatch, key, value,
+) -> None:
+    monkeypatch.setenv("BIRKIN_HOME", str(tmp_path))
+    config.config_path().write_text(
+        json.dumps({key: value}),
+        encoding="utf-8",
+    )
+
+    assert config.load_config()[key] == value
+
+
+@pytest.mark.parametrize(
+    ("key", "value"),
+    [
+        ("auto_approve", [1]),
+        ("api_keys", ["valid", 2]),
+    ],
+)
+def test_invalid_array_elements_fall_back_atomically(
+    tmp_path, monkeypatch, key, value,
+) -> None:
+    monkeypatch.setenv("BIRKIN_HOME", str(tmp_path))
+    config.config_path().write_text(
+        json.dumps({key: value}),
+        encoding="utf-8",
+    )
+
+    with pytest.warns(RuntimeWarning, match=key):
+        loaded = config.load_config()
+
+    assert loaded[key] == config.DEFAULT_CONFIG[key]

@@ -66,6 +66,76 @@ def test_load_jobs_rejects_unknown_action_type():
         cron.load_jobs()
 
 
+def test_legacy_migration_rereads_after_acquiring_lock(
+    monkeypatch,
+) -> None:
+    path = config.cron_path()
+    legacy = {
+        "id": "legacy",
+        "name": "old",
+        "hour": 9,
+        "minute": 0,
+        "type": "prompt",
+        "value": "go",
+        "enabled": True,
+        "created": "2026-05-28T08:00:00",
+        "last_run": None,
+        "deliver_chat_id": None,
+    }
+    concurrent = {
+        **legacy,
+        "id": "concurrent",
+        "name": "new",
+    }
+    path.write_text(json.dumps([legacy]), encoding="utf-8")
+    real_lock = store.file_lock
+
+    class ConcurrentWriterLock:
+        def __init__(self):
+            self._lock = real_lock(path)
+
+        def __enter__(self):
+            path.write_text(
+                json.dumps([legacy, concurrent]),
+                encoding="utf-8",
+            )
+            return self._lock.__enter__()
+
+        def __exit__(self, *args):
+            return self._lock.__exit__(*args)
+
+    monkeypatch.setattr(
+        store, "file_lock", lambda _path: ConcurrentWriterLock()
+    )
+
+    jobs = cron.load_jobs()
+
+    assert [job["id"] for job in jobs] == ["legacy", "concurrent"]
+
+
+def test_cron_schema_declares_exact_schedule_variants() -> None:
+    import importlib.resources
+
+    schema = json.loads(
+        importlib.resources.files("birkin").joinpath(
+            "schemas/cron-job-v1.schema.json"
+        ).read_text(encoding="utf-8")
+    )
+    variants = schema["properties"]["schedule"]["oneOf"]
+
+    assert {
+        variant["properties"]["kind"]["const"] for variant in variants
+    } == {"daily", "interval", "once", "cron"}
+    assert {
+        tuple(variant["required"]) for variant in variants
+    } == {
+        ("kind", "display", "hour", "minute"),
+        ("kind", "display", "minutes"),
+        ("kind", "display", "run_at"),
+        ("kind", "display", "expr"),
+    }
+
+
 def test_add_monitor_job_schema_clamps_max_bytes():
     job = cron.add_job(
         name="watch", action_type="monitor", value="summarize the change",

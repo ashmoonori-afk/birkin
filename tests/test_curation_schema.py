@@ -26,6 +26,8 @@ def test_provider_schema_is_strict_without_mutating_canonical_schema() -> None:
     assert set(operation["required"]) == set(operation["properties"])
     assert operation["properties"]["aliases"]["type"] == ["array", "null"]
     assert provider["properties"]["plan_version"]["const"] == 2
+    assert provider["properties"]["summary"]["type"] == "string"
+    assert "summary" in provider["required"]
 
 
 def test_v2_parser_rejects_unknown_operations_and_extra_fields() -> None:

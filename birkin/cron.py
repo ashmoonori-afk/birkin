@@ -353,8 +353,9 @@ def _migrate_job(job: dict[str, Any], index: int) -> tuple[dict[str, Any], bool]
     return _validate_job(migrated, index), True
 
 
-def load_jobs() -> list[dict[str, Any]]:
-    jobs = _read_jobs()
+def _parse_jobs(
+    jobs: list[dict[str, Any]],
+) -> tuple[list[dict[str, Any]], bool]:
     migrated = False
     validated: list[dict[str, Any]] = []
     ids: set[str] = set()
@@ -367,9 +368,22 @@ def load_jobs() -> list[dict[str, Any]]:
         ids.add(parsed["id"])
         validated.append(parsed)
         migrated = migrated or changed
-    if migrated:
+    return validated, migrated
+
+
+def _load_jobs_unlocked(*, persist_migration: bool) -> list[dict[str, Any]]:
+    validated, migrated = _parse_jobs(_read_jobs())
+    if migrated and persist_migration:
         store._write_json(config.cron_path(), validated)
     return validated
+
+
+def load_jobs() -> list[dict[str, Any]]:
+    jobs, migrated = _parse_jobs(_read_jobs())
+    if migrated:
+        with store.file_lock(config.cron_path()):
+            return _load_jobs_unlocked(persist_migration=True)
+    return jobs
 
 
 def save_jobs(jobs: list[dict[str, Any]]) -> None:
@@ -410,7 +424,7 @@ def add_job(*, name: str, hour: int = 9, minute: int = 0,
             "display": f"{int(hour):02d}:{int(minute):02d}",
         }
 
-    job = {
+    job: dict[str, Any] = {
         "schema_version": CRON_SCHEMA_VERSION,
         "id": uuid.uuid4().hex[:12],
         "name": name,
@@ -438,7 +452,7 @@ def add_job(*, name: str, hour: int = 9, minute: int = 0,
     # daemon mark_ran) — lock the whole read-modify-write so neither clobbers
     # the other's change (e.g. a mark_ran landing on a pre-delete snapshot).
     with store.file_lock(config.cron_path()):
-        jobs = load_jobs()
+        jobs = _load_jobs_unlocked(persist_migration=True)
         jobs.append(job)
         save_jobs(jobs)
     return job
@@ -446,7 +460,7 @@ def add_job(*, name: str, hour: int = 9, minute: int = 0,
 
 def remove_job(job_id: str) -> bool:
     with store.file_lock(config.cron_path()):
-        jobs = load_jobs()
+        jobs = _load_jobs_unlocked(persist_migration=True)
         new = [j for j in jobs if j.get("id") != job_id]
         if len(new) == len(jobs):
             return False
@@ -459,7 +473,7 @@ def mark_ran(job_id: str) -> None:
     with store.file_lock(config.cron_path()):
         jobs = [
             {**j, "last_run": now} if j.get("id") == job_id else j
-            for j in load_jobs()
+            for j in _load_jobs_unlocked(persist_migration=True)
         ]
         save_jobs(jobs)
 
@@ -481,7 +495,7 @@ def claim_if_due(job_id: str, now: datetime | None = None) -> bool:
     today = date.today().isoformat()
     try:
         with store.file_lock(config.cron_path()):
-            jobs = load_jobs()
+            jobs = _load_jobs_unlocked(persist_migration=True)
             job = next((j for j in jobs if j.get("id") == job_id), None)
             if job is None:
                 return False

@@ -23,4 +23,6 @@ def load_curation_plan_schema() -> dict[str, Any]:
 
 def curation_plan_provider_schema() -> dict[str, Any]:
     """Return the canonical contract in OpenAI's strict schema dialect."""
-    return copy.deepcopy(to_strict(load_curation_plan_schema()))
+    schema = copy.deepcopy(to_strict(load_curation_plan_schema()))
+    schema["properties"]["summary"]["type"] = "string"
+    return schema

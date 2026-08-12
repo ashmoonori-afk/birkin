@@ -6,6 +6,15 @@
   "type": "object",
   "additionalProperties": true,
   "properties": {
+    "api_keys": {"type": "array", "items": {"type": "string"}},
+    "cli_command": {"type": "array", "items": {"type": "string"}},
+    "command_allowlist": {"type": "array", "items": {"type": "string"}},
+    "extra_skill_dirs": {"type": "array", "items": {"type": "string"}},
+    "disabled_tools": {"type": "array", "items": {"type": "string"}},
+    "gateway_allowed_tools": {"type": "array", "items": {"type": "string"}},
+    "workspace_roots": {"type": "array", "items": {"type": "string"}},
+    "auto_approve": {"type": "array", "items": {"type": "string"}},
+    "harness_auto_approve": {"type": "array", "items": {"type": "string"}},
     "max_tokens": {"type": "integer", "minimum": 1},
     "max_turns": {"type": "integer", "minimum": 1},
     "context_window": {"type": "integer", "minimum": 1},
@@ -33,11 +42,11 @@
     },
     "shell_approval": {
       "type": "string",
-      "enum": ["manual", "allowlist", "full"]
+      "enum": ["manual", "smart", "off"]
     },
     "repl_typed_line": {
       "type": "string",
-      "enum": ["steer", "queue"]
+      "enum": ["steer", "kill"]
     },
     "voice": {
       "type": "object",
