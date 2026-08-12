@@ -5,9 +5,9 @@ from __future__ import annotations
 import copy
 import json
 import warnings
+from collections.abc import Mapping
 from importlib import resources
-from typing import Any, Mapping, TypedDict, cast
-
+from typing import Any, TypedDict, cast
 
 CONFIG_SCHEMA_VERSION = 1
 
@@ -89,7 +89,7 @@ def load_config_schema(
     path = resources.files("birkin").joinpath("schemas/config-v1.schema.json")
     loaded = json.loads(path.read_text(encoding="utf-8"))
     if not isinstance(loaded, dict):
-        raise ValueError("config schema must be an object")
+        raise TypeError("config schema must be an object")
     schema = cast(dict[str, Any], loaded)
     if defaults is None:
         return schema
@@ -198,4 +198,4 @@ def merge_config(
             out[key] = merge_config(current, value)
         else:
             out[key] = copy.deepcopy(value)
-    return cast(Config, out)
+    return cast(Config, cast(object, out))

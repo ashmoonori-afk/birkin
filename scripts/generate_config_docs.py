@@ -5,15 +5,15 @@ from __future__ import annotations
 import argparse
 import json
 import sys
+from collections.abc import Mapping
 from pathlib import Path
-from typing import Any, Mapping
+from typing import Any
 
 if __package__ in (None, ""):
     sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from birkin import config
 from birkin.config_model import load_config_schema
-
 
 START = "<!-- config-schema:start -->"
 END = "<!-- config-schema:end -->"
@@ -70,10 +70,11 @@ def render_reference(schema: Mapping[str, Any], locale: str) -> str:
         description = item.get(
             "x-description-ko" if korean else "description", ""
         )
+        escaped_description = str(description).replace("|", "\\|")
         default = json.dumps(item.get("default"), ensure_ascii=False)
         lines.append(
             f"| `{path}` | `{_type_label(item)}` | `{default}` | "
-            f"{str(description).replace('|', '\\|')} |"
+            f"{escaped_description} |"
         )
     return "\n".join(lines) + "\n"
 

@@ -1,6 +1,6 @@
 """Provider registry for model-agnostic curation.
 
-Each provider is reduced to the single contract CurationPlan/1 needs:
+Each provider is reduced to the single contract CurationPlan/2 needs:
 
     complete(prompt: str) -> str
 

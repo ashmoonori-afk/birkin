@@ -19,7 +19,6 @@ from birkin.cli import (
     build_parser,
 )
 
-
 SUBCOMMANDS = [
     "chat", "skills", "web", "setup", "onboard", "gateway", "tools",
     "model", "nightly", "daemon", "review", "permission", "cron", "runs",
@@ -289,7 +288,13 @@ def test_cmd_cron_lists_and_removes(capsys):
 
 def test_cmd_cron_remove_reports_busy_lock(capsys, monkeypatch):
     path = config.cron_path()
-    path.write_bytes(b'[{"id":"keep","last_run":null}]')
+    job = cron.add_job(
+        name="keep",
+        hour=9,
+        minute=0,
+        action_type="prompt",
+        value="x",
+    )
     before = (path.exists(), path.read_bytes())
 
     class BusyLock:
@@ -301,7 +306,7 @@ def test_cmd_cron_remove_reports_busy_lock(capsys, monkeypatch):
 
     monkeypatch.setattr(store, "file_lock", lambda _path: BusyLock())
 
-    rc = _cmd_cron(_ns(remove="keep"))
+    rc = _cmd_cron(_ns(remove=job["id"]))
     captured = capsys.readouterr()
 
     assert rc == 1

@@ -17,7 +17,7 @@ def load_curation_plan_schema() -> dict[str, Any]:
     )
     value = json.loads(path.read_text(encoding="utf-8"))
     if not isinstance(value, dict):
-        raise ValueError("CurationPlan schema must be an object")
+        raise TypeError("CurationPlan schema must be an object")
     return cast(dict[str, Any], value)
 
 
