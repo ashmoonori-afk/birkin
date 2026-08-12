@@ -61,7 +61,7 @@ def test_claude_refresh_runs_under_the_cross_process_lock(tmp_path, monkeypatch)
     assert seen["spent"] == "R1"
     assert seen["held"] is True, \
         "token exchange ran without holding the cross-process lock"
-    assert not _lock_path(cred).exists(), "lock file leaked after refresh"
+    assert _lock_path(cred).exists(), "native lock file must remain stable"
 
 
 def test_claude_refresh_reuses_what_another_process_just_wrote(tmp_path,
@@ -122,7 +122,7 @@ def test_codex_refresh_runs_under_the_cross_process_lock(tmp_path, monkeypatch):
     assert seen["spent"] == "R1"
     assert seen["held"] is True, \
         "token exchange ran without holding the cross-process lock"
-    assert not _lock_path(store_file).exists(), "lock file leaked after refresh"
+    assert _lock_path(store_file).exists(), "native lock file must remain stable"
 
 
 # -- consent gate (regression pin) -------------------------------------------

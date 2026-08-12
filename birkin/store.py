@@ -61,65 +61,82 @@ class FileLockTimeout(TimeoutError):
 
 
 class file_lock:
-    """A cross-process advisory lock for a read-modify-write on a shared JSON
-    file (stdlib only: O_CREAT|O_EXCL spin, no fcntl/msvcrt so it works the
-    same on Windows and POSIX).
+    """A cross-process advisory lock for shared JSON read-modify-write cycles.
 
     Guards files that TWO long-running processes mutate — cron.json is written
     by both `birkin gateway` (/remind) and the scheduler daemon (mark_ran) —
     where ``_write_json``'s atomic single write does not prevent a stale
     read-then-write from clobbering the other's change.
 
-    A crashed holder's lock is reclaimed after ``stale`` seconds so a dead
-    process can't wedge the file forever.
+    The operating system owns the lock and releases it when a process exits.
+    No pathname deletion or stale-time heuristic is involved, so a live holder
+    cannot overlap a replacement through a stale-lock ABA race.
     """
 
     def __init__(self, path: Path, *, timeout: float = 5.0,
                  stale: float = 30.0):
         self._lock = Path(str(path) + ".lock")
         self._timeout = timeout
-        self._stale = stale
+        _ = stale  # retained for call compatibility; OS locks do not go stale
         self._held = False
+        self._handle: Any = None
 
     def __enter__(self) -> "file_lock":
         import time
         deadline = time.monotonic() + self._timeout
+        self._lock.parent.mkdir(parents=True, exist_ok=True)
+        handle = self._lock.open("a+b")
         while True:
             try:
-                fd = os.open(str(self._lock),
-                             os.O_CREAT | os.O_EXCL | os.O_WRONLY)
-                os.close(fd)
+                _try_native_lock(handle)
+                self._handle = handle
                 self._held = True
                 return self
-            except (FileExistsError, PermissionError):
-                # PermissionError is Windows losing the race, not a
-                # permissions problem: os.open(O_CREAT|O_EXCL) raises it
-                # while another process is mid-unlink on the same lock
-                # file. Treating it as fatal made the LOSER of a healthy
-                # race crash -- the intermittent PermissionError the
-                # 2026-07-29 audit recorded in the skills suite.
-                try:
-                    age = time.time() - self._lock.stat().st_mtime
-                    if age > self._stale:
-                        self._lock.unlink()      # reclaim a crashed holder
-                        continue
-                except OSError:
-                    pass
+            except BlockingIOError:
                 if time.monotonic() >= deadline:
+                    handle.close()
                     raise FileLockTimeout(f"timed out acquiring {self._lock}")
                 time.sleep(0.05)
 
     def __exit__(self, *exc: Any) -> None:
-        if self._held:
+        handle = self._handle
+        if self._held and handle is not None:
             try:
-                self._lock.unlink()
-            except OSError:
-                pass
-            self._held = False
+                _unlock_native(handle)
+            finally:
+                handle.close()
+                self._held = False
+                self._handle = None
 
     @property
     def acquired(self) -> bool:
         return self._held
+
+
+def _try_native_lock(handle: Any) -> None:
+    if os.name == "nt":
+        import msvcrt
+        handle.seek(0)
+        try:
+            msvcrt.locking(handle.fileno(), msvcrt.LK_NBLCK, 1)
+        except OSError as exc:
+            raise BlockingIOError from exc
+        return
+    import fcntl
+    try:
+        fcntl.flock(handle.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except OSError as exc:
+        raise BlockingIOError from exc
+
+
+def _unlock_native(handle: Any) -> None:
+    if os.name == "nt":
+        import msvcrt
+        handle.seek(0)
+        msvcrt.locking(handle.fileno(), msvcrt.LK_UNLCK, 1)
+        return
+    import fcntl
+    fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
 
 
 # -- usage estimation ------------------------------------------------------
@@ -189,11 +206,17 @@ def append_ledger(entry: dict[str, Any]) -> None:
 # -- pending approvals -----------------------------------------------------
 
 def add_pending(*, category: str, title: str, description: str,
-                payload: dict[str, Any], origin: str = "morpheus") -> dict[str, Any]:
+                payload: dict[str, Any], origin: str = "morpheus",
+                details: dict[str, Any] | None = None) -> dict[str, Any]:
     aid = uuid.uuid4().hex[:12]
     rec = {"id": aid, "created": _now(), "category": category, "title": title,
            "description": description, "payload": payload, "origin": origin,
            "status": "pending"}
+    if details:
+        reserved = set(rec) & set(details)
+        if reserved:
+            raise ValueError(f"pending details overwrite {sorted(reserved)[0]}")
+        rec.update(details)
     _write_json(config.pending_dir() / f"{aid}.json", rec)
     return rec
 
@@ -229,7 +252,8 @@ def get_pending(aid: str) -> dict[str, Any] | None:
 
 
 def resolve_pending(aid: str, status: str,
-                    reason: str = "") -> dict[str, Any] | None:
+                    reason: str = "",
+                    details: dict[str, Any] | None = None) -> dict[str, Any] | None:
     if not valid_pending_id(aid):
         return None
     path = config.pending_dir() / f"{aid}.json"
@@ -240,6 +264,14 @@ def resolve_pending(aid: str, status: str,
     rec["resolved_at"] = _now()
     if reason:
         rec["deny_reason"] = reason[:300]
+    if details:
+        reserved = {"id", "created", "category", "title", "description",
+                    "payload", "origin", "status", "resolved_at"}
+        overwritten = reserved & set(details)
+        if overwritten:
+            raise ValueError(
+                f"pending details overwrite {sorted(overwritten)[0]}")
+        rec.update(details)
     _write_json(path, rec)
     return rec
 
