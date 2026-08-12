@@ -6,13 +6,12 @@ from datetime import datetime, timezone
 from typing import Any
 
 from . import mnemosyne
-from .curation_schema import load_curation_plan_schema
 from .curation_contract import PLAN_VERSION, SUPPORTED_PLAN_VERSIONS
+from .curation_schema import load_curation_plan_schema
 from .mnemosyne import Mnemosyne
 from .moirai.schema import SchemaError, validate
 
-
-_FENCED_JSON = re.compile(r"```(?:json)?\s*(\{.*?\})\s*```", re.S)
+_FENCED_JSON = re.compile(r"```(?:json)?\s*(\{.*?\})\s*```", re.DOTALL)
 
 
 def _balanced_objects(text: str) -> list[str]:
@@ -56,7 +55,11 @@ def extract_plan(text: str) -> dict[str, Any]:
             version = obj.get("plan_version")
             if version == PLAN_VERSION:
                 try:
-                    validate(obj, load_curation_plan_schema())
+                    validate(
+                        obj,
+                        load_curation_plan_schema(),
+                        strict_contract=True,
+                    )
                 except SchemaError:
                     continue
                 return obj
