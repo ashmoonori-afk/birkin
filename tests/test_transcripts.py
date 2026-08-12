@@ -7,7 +7,7 @@ import threading
 
 import pytest
 
-from birkin import transcripts
+from birkin import config, transcripts
 
 
 def _fake_secrets() -> dict[str, str]:
@@ -83,7 +83,8 @@ def test_append_turn_records_channel_and_model_metadata(tmp_path, monkeypatch):
     monkeypatch.setenv("BIRKIN_HOME", str(tmp_path))
     from birkin.tools import sessions as sessions_tool
     p = transcripts.append_turn("telegram", "42", "hello there", "hi back",
-                                cfg={"model": "gpt-5.6-sol"})
+                                cfg={"autosave_transcripts": True,
+                                     "model": "gpt-5.6-sol"})
     text, channel, model = sessions_tool._session_data(p)
     assert channel == "telegram"
     assert model == "gpt-5.6-sol"
@@ -95,7 +96,8 @@ def test_append_turn_prefers_explicit_model_over_cfg(tmp_path, monkeypatch):
     monkeypatch.setenv("BIRKIN_HOME", str(tmp_path))
     from birkin.tools import sessions as sessions_tool
     p = transcripts.append_turn("http", "s1", "q", "a",
-                                cfg={"model": "cfg-model"}, model="live-model")
+                                cfg={"autosave_transcripts": True,
+                                     "model": "cfg-model"}, model="live-model")
     assert sessions_tool._session_data(p)[2] == "live-model"
 
 
@@ -103,7 +105,8 @@ def test_metadata_survives_turn_trimming(tmp_path, monkeypatch):
     """The per-file trim must never evict the envelope."""
     monkeypatch.setenv("BIRKIN_HOME", str(tmp_path))
     from birkin.tools import sessions as sessions_tool
-    cfg = {"autosave_max_turns": 2, "model": "sonnet-x"}
+    cfg = {"autosave_transcripts": True,
+           "autosave_max_turns": 2, "model": "sonnet-x"}
     p = None
     for i in range(6):                             # 3x the cap
         p = transcripts.append_turn("http", "s1", f"q{i}", f"a{i}", cfg=cfg)
@@ -122,7 +125,8 @@ def test_append_turn_upgrades_metadata_less_file(tmp_path, monkeypatch):
     path = config.sessions_dir() / f"{transcripts.auto_stem('http', 's1')}.json"
     path.write_text(json.dumps(old), encoding="utf-8")
     p = transcripts.append_turn("http", "s1", "new q", "new a",
-                                cfg={"model": "m1"})
+                                cfg={"autosave_transcripts": True,
+                                     "model": "m1"})
     payload = json.loads(p.read_text(encoding="utf-8"))
     assert sum(1 for item in payload if "metadata" in item) == 1  # not duplicated
     assert payload[0]["metadata"]["source"] == "http"
@@ -134,7 +138,9 @@ def test_metadata_item_is_not_a_turn_for_readers(tmp_path, monkeypatch):
     """read_recent() and the Morpheus flattener must be blind to the envelope."""
     monkeypatch.setenv("BIRKIN_HOME", str(tmp_path))
     from birkin import selfimprove
-    p = transcripts.append_turn("repl", "r1", "질문", "대답", cfg={"model": "m"})
+    p = transcripts.append_turn(
+        "repl", "r1", "질문", "대답",
+        cfg={"autosave_transcripts": True, "model": "m"})
     payload = json.loads(p.read_text(encoding="utf-8"))
     assert selfimprove.transcript_from_messages(payload).splitlines() == [
         "[user] 질문", "[assistant] 대답"]
@@ -147,6 +153,15 @@ def test_opt_out_writes_nothing(tmp_path, monkeypatch):
     assert transcripts.append_turn("http", "s1", "hi", "yo",
                                    cfg={"autosave_transcripts": False}) is None
     assert not list((tmp_path / "sessions").glob("*.json"))
+
+
+def test_autosave_requires_explicit_opt_in(tmp_path, monkeypatch):
+    monkeypatch.setenv("BIRKIN_HOME", str(tmp_path))
+
+    assert config.DEFAULT_CONFIG["autosave_transcripts"] is False
+    assert transcripts.append_turn(
+        "repl", "r1", "hello", "world", cfg={}) is None
+    assert not list(config.sessions_dir().glob("auto__*.json"))
 
 
 def test_empty_user_text_skipped(tmp_path, monkeypatch):
@@ -181,13 +196,14 @@ def test_redaction_can_be_disabled(tmp_path, monkeypatch):
     monkeypatch.setenv("BIRKIN_HOME", str(tmp_path))
     aws = _fake_secrets()["aws"]
     p = transcripts.append_turn("http", "s1", aws, "ok",
-                                cfg={"autosave_redact_secrets": False})
+                                cfg={"autosave_transcripts": True,
+                                     "autosave_redact_secrets": False})
     assert aws in p.read_text(encoding="utf-8")
 
 
 def test_trim_caps_turns(tmp_path, monkeypatch):
     monkeypatch.setenv("BIRKIN_HOME", str(tmp_path))
-    cfg = {"autosave_max_turns": 3}
+    cfg = {"autosave_transcripts": True, "autosave_max_turns": 3}
     p = None
     for i in range(5):
         p = transcripts.append_turn("http", "s1", f"q{i}", f"a{i}", cfg=cfg)
@@ -252,7 +268,8 @@ def test_redaction_covers_common_secret_types(tmp_path, monkeypatch):
              "password: my long secret phrase here",            # labeled -> EOL
              "Authorization: Bearer " + s["bearer"]]
     p = transcripts.append_turn("repl", "r1", " ".join(parts), "ok",
-                                cfg={"autosave_redact_secrets": True})
+                                cfg={"autosave_transcripts": True,
+                                     "autosave_redact_secrets": True})
     text = p.read_text(encoding="utf-8")
     for leak in (s["google"], s["github"], s["slack"], s["bearer"],
                  "my long secret phrase"):
@@ -263,7 +280,8 @@ def test_redaction_covers_common_secret_types(tmp_path, monkeypatch):
 def test_max_chars_truncates_long_message(tmp_path, monkeypatch):
     monkeypatch.setenv("BIRKIN_HOME", str(tmp_path))
     p = transcripts.append_turn("repl", "r1", "x" * 9000, "y" * 9000,
-                                cfg={"autosave_max_chars": 100})
+                                cfg={"autosave_transcripts": True,
+                                     "autosave_max_chars": 100})
     msgs = _messages(p)
     assert len(msgs[0]["content"][0]["text"]) < 200  # capped + marker
     assert "truncated" in msgs[0]["content"][0]["text"]
@@ -294,6 +312,7 @@ def test_telegram_autosave_gated_on_allowlist(tmp_path, monkeypatch):
     from birkin.gateway.core import Gateway
     # Open bot: telegram enabled, NO allowlist
     config.save_config({**config.DEFAULT_CONFIG, "provider": "claude-cli",
+                        "autosave_transcripts": True,
                         "gateway_persistent": False,
                         "channels": {"http": {"enabled": True},
                                      "telegram": {"enabled": True, "token": "x",
@@ -312,6 +331,7 @@ def test_telegram_autosave_allowed_when_allowlisted(tmp_path, monkeypatch):
     from birkin import config
     from birkin.gateway.core import Gateway
     config.save_config({**config.DEFAULT_CONFIG, "provider": "claude-cli",
+                        "autosave_transcripts": True,
                         "gateway_persistent": False,
                         "channels": {"http": {"enabled": True},
                                      "telegram": {"enabled": True, "token": "x",
@@ -327,6 +347,7 @@ def test_gateway_handle_autosaves_turn(tmp_path, monkeypatch):
     monkeypatch.setenv("BIRKIN_HOME", str(tmp_path))
     from birkin import config
     config.save_config({**config.DEFAULT_CONFIG, "provider": "claude-cli",
+                        "autosave_transcripts": True,
                         "gateway_persistent": False})
     from birkin.gateway.core import Gateway
     gw = Gateway(config.load_config())

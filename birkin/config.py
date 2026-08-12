@@ -188,11 +188,13 @@ DEFAULT_CONFIG: dict[str, Any] = {
         "onboarding_complete": False,
         "background_workers": 2,
     },
-    # Auto-save every conversation turn (gateway + REPL) to sessions_dir as
+    # Opt in to saving every trusted conversation turn (gateway + REPL) to
+    # sessions_dir as
     # reserved ``auto__*.json`` in the canonical format the nightly Morpheus
     # routine already consumes — so memory is extracted from real conversations
-    # automatically. See transcripts.py. Disable with autosave_transcripts=false.
-    "autosave_transcripts": True,
+    # automatically. See transcripts.py. Disabled by default because transcripts
+    # can contain private conversation data.
+    "autosave_transcripts": False,
     "autosave_redact_secrets": True,   # mask obvious secrets before writing
     "autosave_max_chars": 4000,        # per-message text cap before storing
     "autosave_max_turns": 40,          # per-file cap (turns); keeps files small
