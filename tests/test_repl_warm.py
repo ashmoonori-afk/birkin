@@ -8,7 +8,7 @@ def _session(tmp_path, monkeypatch, **over):
     from birkin import config
     from birkin.runtime import build_session
     cfg = {**config.DEFAULT_CONFIG, "provider": "claude-cli",
-           "model": "haiku", **over}
+           "model": "haiku", "checkpoints": False, **over}
     config.save_config(cfg)
     return build_session(cfg)
 

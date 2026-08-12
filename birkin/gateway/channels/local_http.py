@@ -23,6 +23,7 @@ if TYPE_CHECKING:
 
 _ALLOWED_HOSTS = {"127.0.0.1", "localhost"}
 _MAX_BODY = 1_000_000  # 1 MB cap on a request body — this endpoint takes a chat line
+_BODY_TIMEOUT_SECONDS = 2.0
 # Optional shared secret. When BIRKIN_HTTP_TOKEN is set, /message requires a
 # matching X-Birkin-Token header (defense-in-depth lockdown; off by default so
 # existing local clients keep working).
@@ -51,17 +52,19 @@ class LocalHTTPChannel(Channel):
         if httpd is not None:
             try:
                 with socket.create_connection(
-                        httpd.server_address, timeout=1.0):
+                    ("127.0.0.1", httpd.server_port),
+                    timeout=1.0,
+                ):
                     pass
             except OSError:
                 pass
 
-    def start(self, gateway: "Gateway") -> None:
+    def start(self, gateway: Gateway) -> None:
         self._stop_requested.clear()
         gw = gateway
 
         class Handler(BaseHTTPRequestHandler):
-            def log_message(self, *a: Any) -> None:
+            def log_message(self, format: str, *args: Any) -> None:
                 pass
 
             def _host_ok(self) -> bool:
@@ -98,9 +101,12 @@ class LocalHTTPChannel(Channel):
                 # application/json POST forces a preflight, which we never answer.
                 # This blocks a visited website from driving the agent. Legit
                 # local clients already send JSON.
-                ctype = (self.headers.get("Content-Type", "") or "").split(";", 1)[0].strip().lower()
+                ctype = (
+                    self.headers.get("Content-Type", "") or ""
+                ).split(";", 1)[0].strip().lower()
                 if ctype != "application/json":
-                    self._json({"error": "Content-Type must be application/json"}, 415)
+                    self._json(
+                        {"error": "Content-Type must be application/json"}, 415)
                     return
                 # Optional shared-secret lockdown (off unless BIRKIN_HTTP_TOKEN set).
                 if _HTTP_TOKEN and self.headers.get("X-Birkin-Token", "") != _HTTP_TOKEN:
@@ -111,19 +117,49 @@ class LocalHTTPChannel(Channel):
                 # return 400 — never crash the request handler.
                 try:
                     length = int(self.headers.get("Content-Length", 0) or 0)
-                    payload = json.loads(self.rfile.read(length) or b"{}")
+                    if length < 0:
+                        raise ValueError("negative Content-Length")
+                    if length > _MAX_BODY:
+                        self._json({"error": "request body too large"}, 413)
+                        return
+                    previous_timeout = self.connection.gettimeout()
+                    try:
+                        self.connection.settimeout(_BODY_TIMEOUT_SECONDS)
+                        body = self.rfile.read(length)
+                    except TimeoutError:
+                        self.close_connection = True
+                        self._json({"error": "request body timed out"}, 408)
+                        return
+                    finally:
+                        self.connection.settimeout(previous_timeout)
+                    if len(body) != length:
+                        self.close_connection = True
+                        self._json({"error": "incomplete request body"}, 400)
+                        return
+                    payload = json.loads(body or b"{}")
                 except (ValueError, UnicodeDecodeError):
                     self._json({"error": "bad request"}, 400)
                     return
                 if not isinstance(payload, dict):
                     self._json({"error": "expected a JSON object"}, 400)
                     return
-                text = (payload.get("text") or "").strip()
+                raw_text = payload.get("text")
+                if not isinstance(raw_text, str):
+                    self._json({"error": "text must be a string"}, 400)
+                    return
+                text = raw_text.strip()
                 session_id = str(payload.get("session", "default"))
+                channel = payload.get("channel", "http")
+                if (
+                    not isinstance(channel, str)
+                    or channel not in {"http", "voice"}
+                ):
+                    self._json({"error": "invalid channel"}, 400)
+                    return
                 if not text:
                     self._json({"error": "empty text"}, 400)
                     return
-                reply = gw.handle("http", session_id, text)
+                reply = gw.handle(channel, session_id, text)
                 self._json({"reply": reply})
                 if gw.pending_hard_restart:
                     try:

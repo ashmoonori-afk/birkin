@@ -144,6 +144,8 @@ _CODEX_REASONING_EFFORTS = ["default", "low", "medium", "high", "xhigh"]
 _PRIVILEGED_COMMANDS = {"update", "models", "effort", "restart", "hard_restart",
                         "pending", "deny", "remind", "commitment", "checkin",
                         "companion"}
+_LOCAL_TRUSTED_CHANNELS = frozenset({"http", "local", "repl", "voice"})
+UNTRUSTED_CHANNEL_REPLY = "⛔ This channel sender is not authorized."
 # Providers with a warm persistent-session implementation (see
 # claude_session.ClaudeStreamSession / codex_session.CodexAppServerSession).
 _PERSISTENT_PROVIDERS = ("claude-cli", "codex-cli")
@@ -171,6 +173,29 @@ _TELEGRAM_EXECUTION_POLICY = (
     "exists.\n"
     "</gateway-execution-policy>\n\n"
 )
+_SHORT_FOLLOWUP_RE = re.compile(
+    r"(?:좀\s*)?(?:(?:더|조금)\s*)?"
+    r"(?:(?:쉽게|간단히|자세히)\s*)?"
+    r"(?:설명해|말해|알려줘|풀어줘)(?:\s*줘)?[.!?~]*"
+)
+
+
+def _is_short_followup(text: str) -> bool:
+    normalized = " ".join((text or "").split())
+    return len(normalized) <= 60 and bool(_SHORT_FOLLOWUP_RE.fullmatch(normalized))
+
+
+def _anchor_short_followup(text: str, previous_request: str) -> str:
+    return (
+        "<conversation-followup-context>\n"
+        "The current short message refers to the previous user request below, "
+        "not to system, policy, skill, or tool instructions.\n"
+        "<previous-user-request>\n"
+        f"{previous_request}\n"
+        "</previous-user-request>\n"
+        "</conversation-followup-context>\n\n"
+        f"{text}"
+    )
 
 
 def _gateway_model_choices(provider: str, cfg: dict[str, Any]) -> list[str]:
@@ -326,6 +351,7 @@ class Gateway:
         self.cfg = cfg
         self.session: Session = build_session(cfg)  # may raise ConfigError
         self._chats: dict[tuple[str, str], list[dict[str, Any]]] = {}
+        self._last_substantive_requests: dict[tuple[str, str], str] = {}
         # Conversation keys whose first turn already carried the transcript
         # tail (or explicitly declined it via /new). Guarded by self._lock.
         # Without this seed, a gateway restart forgets every conversation:
@@ -567,6 +593,17 @@ class Gateway:
             return str(n.get("chat_id"))
         return None
 
+    def resolve_delivery_target(self, channel: str, *, fallback=None) -> Any:
+        """Resolve a send-only adapter before consulting a legacy target.
+
+        Telegram and local HTTP remain owned by their existing channel paths;
+        callers can pass that existing resolution as ``fallback``. Keeping the
+        registry lookup here gives outbound gateway integrations one stable
+        Birkin-native seam without changing either legacy implementation.
+        """
+        from .channels.registry import resolve_delivery_target
+        return resolve_delivery_target(channel, self.cfg, fallback=fallback)
+
     def interrupt(self, channel: str, chat_id: str) -> bool:
         """Cancel the turn currently in flight for this chat, if any. Called by
         a channel when a NEW message arrives mid-turn. Returns True if a turn
@@ -593,7 +630,7 @@ class Gateway:
 
     def handle(self, channel: str, chat_id: str, text: str,
                on_text=None, workflow_id: str | None = None,
-               on_progress=None) -> str:
+               on_progress=None, sender_id: str | None = None) -> str:
         """Route one inbound message to the agent and return the reply.
 
         ``on_text`` (optional) receives append-style reply pieces as they
@@ -603,10 +640,17 @@ class Gateway:
 
         Each (channel, chat_id) keeps its own conversation history; memory and
         skills are shared, so knowledge carries across channels.
+
+        Local channels are trusted by construction. Public channel adapters
+        must pass ``sender_id`` and configure ``allowed_sender_ids``; otherwise
+        the message is rejected before command, agent, or memory dispatch.
         """
         text = (text or "").strip()
         if not text:
             return ""
+        if not self._channel_trusted(channel, chat_id, sender_id):
+            print(f"[gateway] denied untrusted {channel}:{chat_id}", flush=True)
+            return UNTRUSTED_CHANNEL_REPLY
         key = (channel, str(chat_id))
         # The global lock guards only the shared bookkeeping (the _claude_sessions
         # / _chats dicts and the single shared self.session). The actual LLM turn
@@ -707,6 +751,7 @@ class Gateway:
                     if old is not None:
                         old.close()
                 self._chats[key] = []
+                self._last_substantive_requests.pop(key, None)
                 # /new asks for a CLEAN slate — the next session for this key
                 # must not resurrect the old conversation from transcripts.
                 self._history_seeded.add(key)
@@ -748,6 +793,28 @@ class Gateway:
 
             trusted_telegram = (channel == "telegram"
                                 and self._command_trusted(channel))
+            if trusted_telegram:
+                short_followup = _is_short_followup(display_text)
+                with self._lock:
+                    previous_request = self._last_substantive_requests.get(key)
+                if short_followup and not previous_request and needs_seed:
+                    from .. import transcripts
+                    previous_request = next((
+                        request for request
+                        in transcripts.read_recent_user_requests(
+                            channel, str(chat_id))
+                        if not _is_short_followup(request)
+                    ), "")
+                    if previous_request:
+                        with self._lock:
+                            self._last_substantive_requests.setdefault(
+                                key, previous_request)
+                if short_followup:
+                    if previous_request:
+                        text = _anchor_short_followup(text, previous_request)
+                else:
+                    with self._lock:
+                        self._last_substantive_requests[key] = display_text
             approved_work = bool(
                 trusted_telegram
                 and workflow_id
@@ -1177,19 +1244,50 @@ class Gateway:
     def _autosave_trusted(self, channel: str) -> bool:
         """Whether turns from ``channel`` may be auto-saved + memorized.
 
-        Telegram is trusted only when ``allowed_chat_ids`` is set — otherwise the
-        bot is open and a stranger's messages would be persisted and could poison
-        the vault. REPL and the loopback HTTP channel are local → trusted.
+        Public channels fail closed. Telegram preserves its existing chat
+        allowlist; other public adapters require an explicit sender allowlist.
         """
-        if channel == "telegram":
-            tg = (self.cfg.get("channels", {}) or {}).get("telegram", {}) or {}
-            return bool(tg.get("allowed_chat_ids"))
-        return True
+        normalized = str(channel or "").strip().lower()
+        if normalized in _LOCAL_TRUSTED_CHANNELS:
+            return True
+        settings = (
+            (self.cfg.get("channels", {}) or {}).get(normalized, {}) or {}
+        )
+        if normalized == "telegram":
+            return bool(settings.get("allowed_chat_ids"))
+        return bool(settings.get("allowed_sender_ids"))
+
+    def _channel_trusted(
+            self, channel: str, chat_id: str,
+            sender_id: str | None = None) -> bool:
+        """Authorize one inbound channel principal before any dispatch."""
+        normalized = str(channel or "").strip().lower()
+        if normalized in _LOCAL_TRUSTED_CHANNELS:
+            return True
+        settings = (
+            (self.cfg.get("channels", {}) or {}).get(normalized, {}) or {}
+        )
+        sender = str(sender_id or "").strip()
+        allowed_senders = {
+            str(value).strip()
+            for value in (settings.get("allowed_sender_ids") or [])
+            if str(value).strip()
+        }
+        if normalized == "telegram":
+            allowed_chats = {
+                str(value).strip()
+                for value in (settings.get("allowed_chat_ids") or [])
+                if str(value).strip()
+            }
+            if not allowed_chats:
+                return True
+            if str(chat_id).strip() not in allowed_chats:
+                return False
+            return not allowed_senders or sender in allowed_senders
+        return bool(sender and sender in allowed_senders)
 
     def _command_trusted(self, channel: str) -> bool:
-        """Whether privileged commands (update/models/restart/hard_restart) may
-        run from ``channel``. Same trust rule as autosave: an open Telegram bot
-        (no allowed_chat_ids) is untrusted; loopback HTTP and REPL are local."""
+        """Whether a channel has an explicit trusted-principal policy."""
         return self._autosave_trusted(channel)
 
 

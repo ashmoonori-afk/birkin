@@ -27,7 +27,7 @@ import uuid
 from datetime import date, datetime, timedelta
 from typing import Any, Optional
 
-from . import config, cronexpr, store
+from . import config, cronexpr, monitor, store
 
 # The scheduler polls every 30s, so anything under a minute cannot be honored.
 _MIN_INTERVAL_MINUTES = 1
@@ -258,13 +258,19 @@ def save_jobs(jobs: list[dict[str, Any]]) -> None:
 def add_job(*, name: str, hour: int = 9, minute: int = 0,
             action_type: str = "prompt", value: str = "",
             enabled: bool = True, deliver_chat_id: str | None = None,
-            schedule: str | dict[str, Any] | None = None) -> dict[str, Any]:
+            schedule: str | dict[str, Any] | None = None,
+            monitor_url: str | None = None,
+            monitor_script: str | None = None,
+            max_bytes: int | None = None) -> dict[str, Any]:
     """Register a job.
 
     ``schedule`` accepts an expression (``"every 30m"``, ``"0 9 * * 1"``, …) or
     an already-parsed dict. Callers that pass only ``hour``/``minute`` keep
     producing the original record shape.
     """
+    if monitor_url and monitor_script:
+        raise ValueError("monitor jobs accept at most one of monitor_url or monitor_script")
+
     parsed: Optional[dict[str, Any]] = None
     if isinstance(schedule, dict):
         parsed = schedule
@@ -280,7 +286,7 @@ def add_job(*, name: str, hour: int = 9, minute: int = 0,
         "name": name,
         "hour": int(hour),
         "minute": int(minute),
-        "type": action_type,  # "prompt" | "shell"
+        "type": action_type,  # "prompt" | "shell" | "monitor"
         "value": value,
         "enabled": enabled,
         # Telegram chat to notify with the job's output (optional). The
@@ -289,6 +295,10 @@ def add_job(*, name: str, hour: int = 9, minute: int = 0,
         "created": datetime.now().isoformat(timespec="seconds"),
         "last_run": None,
     }
+    if action_type == "monitor" or monitor_url is not None or monitor_script is not None:
+        job["monitor_url"] = monitor_url
+        job["monitor_script"] = monitor_script
+        job["max_bytes"] = monitor.clamp_max_bytes(max_bytes)
     if parsed is not None:
         job["schedule"] = parsed
         job["next_run"] = compute_next_run(parsed)

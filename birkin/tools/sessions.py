@@ -15,7 +15,8 @@ scan over the newest files, so recall degrades rather than disappearing.
 from __future__ import annotations
 
 import json
-from datetime import datetime
+import re
+from datetime import datetime, timedelta, timezone
 from importlib import import_module
 from pathlib import Path
 from typing import Any
@@ -28,18 +29,44 @@ _SNIPPET = 160
 _GET_CAP = 4000
 
 
-def _transcript(path: Path) -> str:
+def _session_data(path: Path) -> tuple[str, str, str | None]:
+    """Return transcript text plus optional envelope metadata."""
     try:
-        messages = json.loads(path.read_text(encoding="utf-8"))
+        payload = json.loads(path.read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError):
-        return ""
+        return "", "unknown", None
+
+    metadata: dict[str, Any] = {}
+    if isinstance(payload, dict):
+        raw_metadata = payload.get("metadata")
+        if isinstance(raw_metadata, dict):
+            metadata = raw_metadata
+        messages = payload.get("messages", [])
+    elif isinstance(payload, list):
+        messages = payload
+        for item in payload:
+            if isinstance(item, dict) and isinstance(item.get("metadata"), dict):
+                metadata = item["metadata"]
+                break
+    else:
+        messages = []
+
+    source = str(metadata.get("source") or metadata.get("channel")
+                 or "unknown").strip().lower() or "unknown"
+    raw_model = metadata.get("model")
+    model = str(raw_model).strip() if raw_model is not None else None
+    model = model or None
     transcript_from_messages = import_module(
         "birkin.selfimprove"
     ).transcript_from_messages
     try:
-        return transcript_from_messages(messages)
+        return transcript_from_messages(messages), source, model
     except Exception:   # malformed message shapes must not break recall
-        return ""
+        return "", source, model
+
+
+def _transcript(path: Path) -> str:
+    return _session_data(path)[0]
 
 
 def _sessions(newest_first: bool = True) -> list[Path]:
@@ -49,11 +76,29 @@ def _sessions(newest_first: bool = True) -> list[Path]:
     return files[:_MAX_FILES]
 
 
-def _day(path: Path) -> str:
+def _date(path: Path) -> str:
     try:
-        return datetime.fromtimestamp(path.stat().st_mtime).date().isoformat()
+        return datetime.fromtimestamp(
+            path.stat().st_mtime, timezone.utc).isoformat()
     except OSError:
         return ""
+
+
+def _since_cutoff(since: str | None) -> str | None:
+    if not since:
+        return None
+    value = since.strip()
+    relative = re.fullmatch(r"(\d+)d", value, re.IGNORECASE)
+    if relative:
+        return (datetime.now(timezone.utc)
+                - timedelta(days=int(relative.group(1)))).isoformat()
+    try:
+        parsed = datetime.fromisoformat(value)
+    except ValueError as exc:
+        raise ValueError("since must be Nd or an ISO date") from exc
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=timezone.utc)
+    return parsed.astimezone(timezone.utc).isoformat()
 
 
 def _snippet(text: str, terms: list[str]) -> str:
@@ -68,41 +113,50 @@ def _snippet(text: str, terms: list[str]) -> str:
     return text[start:start + _SNIPPET].replace("\n", " ").strip()
 
 
-def _hit(stem: str, terms: list[str]) -> dict[str, Any] | None:
-    path = config.sessions_dir() / f"{stem}.json"
-    text = _transcript(path)
-    if not text:
-        return None
-    return {"session": stem, "date": _day(path),
-            "snippet": _snippet(text, terms)}
-
-
-def _scan(terms: list[str], limit: int) -> list[dict[str, Any]]:
+def _scan(terms: list[str], limit: int, *, since: str | None = None,
+          channel: str | None = None,
+          model: str | None = None) -> list[dict[str, Any]]:
     """Original substring scan — the no-index fallback path."""
     hits: list[tuple[int, dict[str, Any]]] = []
     for f in _sessions():
-        text = _transcript(f)
+        date = _date(f)
+        if since and date < since:
+            continue
+        text, hit_channel, hit_model = _session_data(f)
         if not text:
+            continue
+        if channel and hit_channel.casefold() != channel.casefold():
+            continue
+        if model and (hit_model is None
+                      or hit_model.casefold() != model.casefold()):
             continue
         low = text.lower()
         score = sum(low.count(t) for t in terms)
         if not score:
             continue
-        hits.append((score, {"session": f.stem, "date": _day(f),
-                             "snippet": _snippet(text, terms)}))
+        hits.append((score, {"session": f.stem, "date": date,
+                             "channel": hit_channel, "model": hit_model,
+                             "snippet": _snippet(text, terms),
+                             "score": float(score)}))
     hits.sort(key=lambda x: x[0], reverse=True)
     return [h[1] for h in hits[:limit]]
 
 
-def search_sessions(query: str, limit: int = 5) -> list[dict[str, Any]]:
+def search_sessions(query: str, limit: int = 5, since: str | None = None,
+                    channel: str | None = None,
+                    model: str | None = None) -> list[dict[str, Any]]:
     terms = [t for t in query.lower().split() if t]
     if not terms:
         return []
+    cutoff = _since_cutoff(since)
+    channel = channel.strip() if channel else None
+    model = model.strip() if model else None
     from .. import sessions_index
-    ranked = sessions_index.search(query, limit=limit)
+    ranked = sessions_index.search(query, limit=limit, since=cutoff,
+                                   channel=channel, model=model)
     if ranked is None:                    # index unusable — scan instead
-        return _scan(terms, limit)
-    return [h for h in (_hit(r["session"], terms) for r in ranked) if h]
+        return _scan(terms, limit, since=cutoff, channel=channel, model=model)
+    return ranked
 
 
 def get_session(name: str) -> str | None:
@@ -125,11 +179,18 @@ def tools() -> list[Tool]:
         query = (inp.get("query") or "").strip()
         if not query:
             return ToolResult("session_search needs a query.", is_error=True)
-        results = search_sessions(query, limit=int(inp.get("limit", 5) or 5))
+        try:
+            results = search_sessions(
+                query, limit=int(inp.get("limit", 5) or 5),
+                since=inp.get("since"), channel=inp.get("channel"),
+                model=inp.get("model"))
+        except ValueError as exc:
+            return ToolResult(str(exc), is_error=True)
         if not results:
             return ToolResult("No past sessions match.")
         return ToolResult("\n".join(
-            f"- {r['session']} ({r['date']}): {r['snippet']}"
+            f"- {r['session']} ({r['date'][:10]} | {r['channel']} | "
+            f"score={r['score']:.3f}): {r['snippet']}"
             for r in results))
 
     def session_get(inp: dict[str, Any], ctx: ToolContext) -> ToolResult:
@@ -144,7 +205,11 @@ def tools() -> list[Tool]:
                          "asking the user to repeat themselves.",
              input_schema={"type": "object", "properties": {
                  "query": {"type": "string"},
-                 "limit": {"type": "integer"}}, "required": ["query"]},
+                 "limit": {"type": "integer"},
+                 "since": {"type": "string", "description":
+                           "Relative age (for example 30d) or ISO date."},
+                 "channel": {"type": "string"},
+                 "model": {"type": "string"}}, "required": ["query"]},
              fn=session_search),
         Tool(name="session_get",
              description="Read one past session transcript by id (from "

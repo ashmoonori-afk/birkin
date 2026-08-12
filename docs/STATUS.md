@@ -1,7 +1,13 @@
 # birkin — Build Status
 
-> Snapshot: 2026-07-25 · **1,400+ tests, green** (measured 2026-07-25;
-> coverage gate ≥75 %) · Newest:
+> Snapshot: 2026-08-10 · **2,300+ tests, green** (measured 2026-08-10;
+> coverage 82.89 %, gate ≥75 %) · Newest:
+> **inspected outbound egress** (ADR-053) — allowlisted `submit_payload`
+> broker; bounded encoded-secret scanning before DNS; pre-socket endpoint and
+> generated-header validation; strict Claude/Codex child capabilities;
+> HTTPS-only pinned web/market transports; metadata-only prepared/outcome
+> receipts; UNC/device/mapped-drive file blocking; bounded MCP frame reads;
+> CLI help and positional dry-run regression-pinned. Before that:
 > **Telegram long-work workflow approval** — proactive plan buttons before
 > 3-minute/multi-phase/subagent work, chat-bound single-claim execution,
 > 180-second edit-in-place heartbeat, interruption/recovery states, and a hard
@@ -388,7 +394,7 @@ OAuth, no paid API key).
 | **Obsidian-vault semantic memory** | `memory.py` | ✅ |
 | **Mnemosyne palace engine** (zones, BM25 index, decay, zone priority) | `mnemosyne.py` | ✅ (ADR-040) |
 | Self-improvement (in-session `/learn`) | `selfimprove.py` | ✅ |
-| **Morpheus 04:00 routine** | `morpheus.py` (CLI alias: `birkin nightly`) | ✅ (dry-run + no-key handled) |
+| **Morpheus 07:00 routine** | `morpheus.py` (CLI alias: `birkin nightly`) | ✅ (dry-run + no-key handled) |
 | Scheduler daemon + OS-register option | `scheduler.py` | ✅ (heartbeat verified) |
 | Daily cron jobs | `cron.py` | ✅ |
 | **Approval gate (human-in-the-loop)** | `approvals.py`, `store.py` | ✅ |
@@ -441,7 +447,7 @@ tool_use), `/permission add shell|cron` warns, `cron.mark_ran` is immutable.
 # from this repo
 uv run birkin                 # chat   (or: python -m birkin)
 uv run birkin web             # dashboard at http://127.0.0.1:8787
-uv run birkin daemon          # Morpheus 04:00 + cron scheduler
+uv run birkin daemon          # Morpheus 07:00 + cron scheduler
 uv run birkin morpheus        # run the Morpheus routine now (alias: birkin nightly)
 uv run birkin review          # approve/reject proposed actions
 uv run birkin permission      # see/adjust auto-approved categories

@@ -5,7 +5,17 @@ from __future__ import annotations
 import subprocess
 from datetime import datetime
 
-from birkin import config, cron, scheduler, store
+from birkin import config, cron, monitor, scheduler, store
+
+
+def test_default_morpheus_proposal_runs_at_seven():
+    assert config.DEFAULT_CONFIG["morpheus_hour"] == 7
+
+    before = datetime(2026, 5, 28, 6, 30)
+    assert scheduler._next_morpheus({}, before) == datetime(2026, 5, 28, 7, 0)
+
+    after = datetime(2026, 5, 28, 7, 0)
+    assert scheduler._next_morpheus({}, after) == datetime(2026, 5, 29, 7, 0)
 
 
 def test_next_nightly_today_vs_tomorrow():
@@ -48,6 +58,68 @@ def test_run_job_shell_records_run(monkeypatch):
     assert any(r["kind"] == "cron" for r in runs)
     # argv form (no shell=True) and the command was wrapped via shell_argv
     assert "echo hi" in captured["argv"]
+
+
+def test_run_job_monitor_unchanged_is_silent_without_prompt(monkeypatch):
+    asked = []
+    saved = []
+    monkeypatch.setattr(
+        monitor, "check",
+        lambda job: monitor.MonitorResult(False, None, "", "same"),
+    )
+    monkeypatch.setattr(
+        scheduler.store, "save_run",
+        lambda *args, **kwargs: saved.append((args, kwargs)),
+    )
+
+    class Session:
+        def ask(self, *args, **kwargs):
+            asked.append((args, kwargs))
+
+    import birkin.runtime as runtime
+    monkeypatch.setattr(runtime, "build_session", lambda: Session())
+
+    scheduler._run_job({
+        "id": "m1", "name": "watch", "type": "monitor",
+        "value": "report changes", "monitor_url": "https://example.test",
+    })
+
+    assert asked == []
+    assert saved and "[SILENT]" in saved[0][0][1]
+    assert saved[0][1]["usage"] == {"tokens": 0}
+
+
+def test_run_job_monitor_changed_invokes_prompt_with_context(monkeypatch):
+    asked = []
+    monkeypatch.setattr(
+        monitor, "check",
+        lambda job: monitor.MonitorResult(
+            True, None, "Previous SHA-256: old\nCurrent SHA-256: new",
+            "changed body",
+        ),
+    )
+
+    class Session:
+        def ask(self, prompt, **kwargs):
+            asked.append((prompt, kwargs))
+            return "change reported"
+
+    import birkin.runtime as runtime
+    monkeypatch.setattr(runtime, "build_session", lambda: Session())
+    monkeypatch.setattr(scheduler, "_deliver", lambda job, text: "none")
+
+    scheduler._run_job({
+        "id": "m2", "name": "watch", "type": "monitor",
+        "value": "report changes", "monitor_script": "echo changed",
+    })
+
+    assert len(asked) == 1
+    prompt, kwargs = asked[0]
+    assert prompt.startswith("report changes")
+    assert "Monitor change context" in prompt
+    assert "Previous SHA-256: old" in prompt
+    assert "changed body" in prompt
+    assert kwargs == {"record_turn": False}
 
 
 def test_run_job_prompt_skips_without_key(monkeypatch):

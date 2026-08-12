@@ -4,9 +4,37 @@ Lightweight architecture decision records. Each entry: context, decision,
 rationale, alternatives considered, status. Newest decisions may supersede
 older ones (noted inline).
 
-> Last updated: 2026-07-25
+> Last updated: 2026-08-10
 
 ---
+
+## ADR-053 — Inspected outbound egress is the default trust boundary
+
+- **Context.** Birkin tools and CLI-backed agents could reach external services
+  through independent HTTP, shell, subagent, MCP, and filesystem paths. That
+  made destination policy, credential scanning, pre-network validation, and
+  audit receipts inconsistent.
+- **Decision.**
+  1. Keep `egress.enabled=true` and `egress.enforced=true` as the defaults.
+     Model-controlled outbound payloads use the allowlisted
+     `submit_payload` broker, which scans plaintext and bounded canonical
+     encodings before DNS or socket access.
+  2. In enforced mode, remove native shell/subagent egress and restrict
+     Claude/Codex child capabilities so inherited network tools cannot bypass
+     the broker.
+  3. Web and market transports are HTTPS-only, connect to a validated pinned
+     public address, reject unsafe redirects, and write metadata-only
+     prepared/outcome receipts. Receipt-write failure blocks the request.
+  4. File tools reject UNC/device paths and effective paths on Windows mapped
+     network drives before filesystem access.
+- **Rationale.** One fail-closed boundary is easier to audit than independent
+  best-effort checks. Prepared/outcome receipts preserve accountability
+  without storing payloads, credentials, queries, or response bodies.
+- **Consequences.** Existing users who intentionally need raw CLI network
+  access must opt in with `cli_network_access=true` or disable enforced egress.
+  POSIX mounted-network-filesystem classification remains outside this
+  Windows-specific filesystem guard.
+- **Status.** Accepted and regression-pinned on 2026-08-10.
 
 ## ADR-050 — Usage-policy posture: interactive is the sanctioned path
 

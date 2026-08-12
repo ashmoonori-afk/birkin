@@ -47,6 +47,41 @@ def test_openai_message_mapping_handles_string_content():
     assert out[-1] == {"role": "user", "content": "plain"}
 
 
+def test_openai_message_mapping_keeps_image_blocks():
+    """Regression: image blocks were dropped, so vision died on the OpenAI path."""
+    messages = [{"role": "user", "content": [
+        {"type": "text", "text": "what is this?"},
+        {"type": "image", "source": {"type": "base64",
+                                     "media_type": "image/png",
+                                     "data": "AAAB"}},
+    ]}]
+    out = llm_mod._to_openai_messages("", messages)
+    assert out == [{"role": "user", "content": [
+        {"type": "text", "text": "what is this?"},
+        {"type": "image_url",
+         "image_url": {"url": "data:image/png;base64,AAAB"}},
+    ]}]
+
+
+def test_openai_message_mapping_carries_url_image_sources():
+    out = llm_mod._to_openai_messages("", [{"role": "user", "content": [
+        {"type": "image", "source": {"type": "url",
+                                     "url": "https://x.test/a.png"}}]}])
+    assert out[-1]["content"] == [
+        {"type": "image_url", "image_url": {"url": "https://x.test/a.png"}}]
+
+
+def test_openai_message_mapping_drops_malformed_images():
+    out = llm_mod._to_openai_messages("", [{"role": "user", "content": [
+        {"type": "text", "text": "hi"},
+        {"type": "image"},                                  # no source
+        {"type": "image", "source": "nope"},                # source not a dict
+        {"type": "image", "source": {"type": "base64", "media_type": "image/png"}},
+        {"type": "image", "source": {"type": "weird", "data": "x"}},
+    ]}])
+    assert out[-1] == {"role": "user", "content": "hi"}     # text-only stays a str
+
+
 # ---------------- _post retry/backoff ----------------
 
 def test_post_retries_then_succeeds(monkeypatch):

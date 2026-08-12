@@ -46,6 +46,16 @@ def _filter_tool_guidance(system: str, cfg: dict[str, Any]) -> str:
     return system
 
 
+def _goal_note() -> str:
+    """The persisted session goal, so the model is steered by it, not just billed.
+
+    Imported lazily: ``goals`` pulls in the approval/cron graph, which prompt
+    assembly itself has no need for.
+    """
+    from . import goals
+    return goals.prompt_note()
+
+
 def _persona(persona_text: Optional[str]) -> str:
     # None -> read SOUL.md fresh (REPL/per-turn); "" -> explicitly no persona.
     return persona.read_soul() if persona_text is None else persona_text
@@ -66,7 +76,8 @@ def compose_main(cfg: dict[str, Any], *, skills_index: str = "",
             cfg.get("model"), cfg, surface="native"
         ) \
         + neurosis.auto_trigger_note(cfg) \
-        + moirai_trigger.auto_trigger_note(cfg)
+        + moirai_trigger.auto_trigger_note(cfg) \
+        + _goal_note()
     return prompts.seal_research_policy(system)
 
 
@@ -85,7 +96,8 @@ def compose_cli(cfg: dict[str, Any], *, memory_block: str = "",
             cfg.get("model"), cfg, surface="cli"
         ) \
         + neurosis.auto_trigger_note(cfg) \
-        + moirai_trigger.auto_trigger_note(cfg)
+        + moirai_trigger.auto_trigger_note(cfg) \
+        + _goal_note()
     return prompts.seal_research_policy(system)
 
 

@@ -13,6 +13,25 @@ def test_add_and_load_job():
     assert jobs[0]["name"] == "digest"
 
 
+def test_add_monitor_job_schema_clamps_max_bytes():
+    job = cron.add_job(
+        name="watch", action_type="monitor", value="summarize the change",
+        monitor_url="https://example.test/feed", max_bytes=999_999,
+    )
+
+    assert job["monitor_url"] == "https://example.test/feed"
+    assert job["monitor_script"] is None
+    assert job["max_bytes"] == 256 * 1024
+
+
+def test_monitor_job_rejects_multiple_sources():
+    with pytest.raises(ValueError, match="at most one"):
+        cron.add_job(
+            name="watch", action_type="monitor", value="report",
+            monitor_url="https://example.test", monitor_script="echo hi",
+        )
+
+
 def test_due_jobs_respects_time():
     cron.add_job(name="morning", hour=9, minute=0, action_type="prompt", value="x")
     before = datetime(2026, 5, 28, 8, 0)   # earlier than 09:00

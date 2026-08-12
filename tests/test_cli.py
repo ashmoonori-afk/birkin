@@ -4,7 +4,9 @@ interactive or long-running and are exercised by their own focused tests."""
 
 from __future__ import annotations
 
+import os
 import subprocess
+import sysconfig
 from pathlib import Path
 
 from birkin import config, cron, store
@@ -24,18 +26,74 @@ SUBCOMMANDS = [
 ]
 
 
-def test_uv_installed_console_script_help():
+def test_installed_console_script_help():
+    script = Path(sysconfig.get_path("scripts")) / (
+        "birkin.exe" if sysconfig.get_platform().startswith("win") else "birkin"
+    )
+    assert script.is_file()
+
     result = subprocess.run(
-        ["uv", "run", "--no-sync", "birkin", "--help"],
+        [str(script), "--help"],
         cwd=Path(__file__).resolve().parents[1],
         capture_output=True,
         text=True,
+        encoding="cp1252",
+        env={**os.environ, "PYTHONIOENCODING": "cp1252"},
         check=False,
     )
 
     assert result.returncode == 0, result.stderr
     assert "chat" in result.stdout
     assert "mcp-serve" in result.stdout
+
+
+def test_help_survives_a_legacy_windows_pipe_encoding():
+    """A piped --help on Windows encodes with cp1252; it must not crash."""
+    import sys
+
+    result = subprocess.run(
+        [sys.executable, "-m", "birkin", "--help"],
+        cwd=Path(__file__).resolve().parents[1],
+        capture_output=True,
+        env=dict(os.environ, PYTHONIOENCODING="cp1252"),
+        check=False,
+    )
+
+    assert result.returncode == 0, result.stderr.decode("utf-8", "replace")
+    assert "plan -> critique" in result.stdout.decode("utf-8", "replace")
+
+
+def test_force_utf8_output_pins_both_streams(monkeypatch):
+    """cp1252 cannot encode this UI's Korean text; the entry point pins UTF-8."""
+    from birkin import cli
+
+    class _Stream:
+        def __init__(self) -> None:
+            self.calls: list[dict[str, str]] = []
+
+        def reconfigure(self, **kwargs: str) -> None:
+            self.calls.append(kwargs)
+
+    out, err = _Stream(), _Stream()
+    monkeypatch.setattr(cli.sys, "stdout", out)
+    monkeypatch.setattr(cli.sys, "stderr", err)
+
+    cli._force_utf8_output()
+
+    assert out.calls == [{"encoding": "utf-8", "errors": "replace"}]
+    assert err.calls == out.calls
+
+
+def test_force_utf8_output_tolerates_a_stream_without_reconfigure(monkeypatch):
+    from birkin import cli
+
+    class _Bare:
+        pass
+
+    monkeypatch.setattr(cli.sys, "stdout", _Bare())
+    monkeypatch.setattr(cli.sys, "stderr", _Bare())
+
+    cli._force_utf8_output()      # a test double must not break the CLI
 
 
 def test_parser_accepts_every_subcommand():
@@ -129,8 +187,25 @@ def test_cmd_tools_panel(capsys):
         group in out
         for group in ("files", "sessions", "skills", "egress")
     )
+    assert "vision_analyze" in out
     assert "shell" not in out
     assert "subagent" not in out
+
+
+def test_cmd_tools_panel_includes_opted_in_desktop_tools(capsys):
+    # Given
+    cfg = config.load_config()
+    cfg["desktop_tools"] = True
+    config.save_config(cfg)
+
+    # When
+    rc = _cmd_tools(_ns(enable=None, disable=None))
+    out = capsys.readouterr().out
+
+    # Then
+    assert rc == 0
+    assert "desktop_windows" in out
+    assert "window_screenshot" in out
 
 
 def test_cmd_tools_panel_restores_bypass_tools_when_enforcement_off(capsys):

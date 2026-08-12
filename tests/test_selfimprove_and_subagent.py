@@ -252,3 +252,117 @@ def test_run_subagent_routes_through_a_real_agent(monkeypatch):
     # the subagent system prompt names the agent as a subagent
     assert "SUBAGENT" in captured["system"]
     assert "arxiv" in captured["user"] or "transformers" in captured["user"]
+
+
+def test_run_subagent_registers_heartbeats_delivers_inbox_and_finishes(monkeypatch):
+    from birkin import agentruns
+    from birkin import subagent as subagent_mod
+
+    session = build_session({"provider": "codex-cli", "model": ""})
+    seen = {}
+
+    def fake_run(self, user_text, on_text=None):
+        run = agentruns.list_runs()[0]
+        seen["running"] = run
+        assert agentruns.append_message(run["id"], "change course")
+        self.on_event("tool_end", {"name": "read_file"})
+        seen["steer"] = self._drain_steer()
+        return "finished work"
+
+    monkeypatch.setattr("birkin.agent.Agent.run", fake_run)
+    assert subagent_mod.run_subagent("inspect files", session.ctx) == "finished work"
+
+    run = agentruns.list_runs()[0]
+    assert seen["running"]["status"] == "running"
+    assert seen["steer"] == "change course"
+    assert run["status"] == "done"
+    assert run["result"] == "finished work"
+    assert agentruns.drain_messages(run["id"]) == []
+
+
+def test_detached_subagent_returns_at_once_and_finishes_in_the_background(
+        monkeypatch):
+    import threading
+
+    from birkin import agentruns
+    from birkin import subagent as subagent_mod
+
+    session = build_session({"provider": "codex-cli", "model": ""})
+    started = threading.Event()
+    release = threading.Event()
+    finished = threading.Event()
+    real_finish = agentruns.finish_run
+
+    def spy_finish(run_id, status, result=""):
+        record = real_finish(run_id, status, result)
+        finished.set()
+        return record
+
+    def fake_run(self, user_text, on_text=None):
+        started.set()
+        self.on_event("tool_start", {"name": "read_file"})
+        assert release.wait(timeout=10)
+        return "background work"
+
+    monkeypatch.setattr("birkin.agent.Agent.run", fake_run)
+    monkeypatch.setattr(agentruns, "finish_run", spy_finish)
+
+    message = subagent_mod.run_subagent("long job", session.ctx, detach=True)
+
+    assert started.wait(timeout=10)          # the caller never waited for it
+    run = agentruns.list_runs()[0]
+    assert run["status"] == "running"
+    assert run["id"][:8] in message and "/attach" in message
+
+    release.set()
+
+    assert finished.wait(timeout=10)
+    final = agentruns.get_run(run["id"])
+    assert final["status"] == "done"
+    assert final["result"] == "background work"
+    assert [event["text"] for event in final["events"]] == [
+        "tool_start read_file"]
+
+
+def test_run_subagent_records_error_and_reraises(monkeypatch):
+    from birkin import agentruns
+    from birkin import subagent as subagent_mod
+
+    session = build_session({"provider": "codex-cli", "model": ""})
+
+    def fail(self, user_text, on_text=None):
+        raise RuntimeError("model exploded")
+
+    monkeypatch.setattr("birkin.agent.Agent.run", fail)
+    try:
+        subagent_mod.run_subagent("fail task", session.ctx)
+    except RuntimeError as exc:
+        assert str(exc) == "model exploded"
+    else:
+        raise AssertionError("subagent exception swallowed")
+
+    run = agentruns.list_runs()[0]
+    assert run["status"] == "error"
+    assert "model exploded" in run["result"]
+
+
+def test_nested_subagent_records_parent_relationship(monkeypatch):
+    from birkin import agentruns
+    from birkin import subagent as subagent_mod
+
+    session = build_session({"provider": "codex-cli", "model": ""})
+    calls = {"count": 0}
+
+    def fake_run(self, user_text, on_text=None):
+        calls["count"] += 1
+        if calls["count"] == 1:
+            subagent_mod.run_subagent("nested", session.ctx)
+        return user_text + " done"
+
+    monkeypatch.setattr("birkin.agent.Agent.run", fake_run)
+    subagent_mod.run_subagent("root", session.ctx)
+
+    roots = agentruns.list_runs()
+    assert len(roots) == 1
+    assert roots[0]["task"] == "root"
+    assert roots[0]["children"][0]["task"] == "nested"

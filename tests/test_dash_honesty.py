@@ -26,8 +26,8 @@ def _session():
 
 def _snap_with_error(section: str = "승인", message: str = "디스크 터짐"):
     snap = {"header": {"model": "m", "provider": "p"},
-            "sessions": [], "cron": [], "approvals": [], "zones": [],
-            "errors": {section: message}}
+            "sessions": [], "agents": [], "cron": [], "approvals": [],
+            "zones": [], "errors": {section: message}}
     return snap
 
 
@@ -78,7 +78,7 @@ def test_error_line_does_not_silently_eat_a_row():
     snap = {"header": {"model": "m", "provider": "p"},
             "sessions": [{"title": f"SESSION-{i:04d}", "age": "1h"}
                          for i in range(40)],
-            "cron": [], "approvals": [], "zones": [],
+            "agents": [], "cron": [], "approvals": [], "zones": [],
             "errors": {"세션": "일부만 읽음"}}
     height = dash._body_h(24)
     lines = dash._table_lines(snap, "세션", 0, 0, height, 60)
@@ -138,7 +138,8 @@ def test_hint_line_shows_the_outcome_note():
 
 def test_render_paints_the_note():
     snap = {"header": {"model": "m", "provider": "p"}, "sessions": [],
-            "cron": [], "approvals": [], "zones": [], "errors": {}}
+            "agents": [], "cron": [], "approvals": [], "zones": [],
+            "errors": {}}
     state = {"section": "승인", "cursor": 0, "top": 0,
              "note": "⚠ action failed: 권한 없음"}
     frame = dash.render(snap, state, (100, 24))

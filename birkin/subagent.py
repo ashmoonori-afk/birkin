@@ -8,17 +8,18 @@ isolated and side-effect-light. Results are returned to the caller as text.
 
 from __future__ import annotations
 
+import threading
 from dataclasses import replace
 from typing import Any, Optional
 
-from . import promptgate
+from . import agentruns, promptgate
 from .agent import Agent
 from .tools import ToolContext, build_registry
 
 
 def run_subagent(task: str, parent_ctx: ToolContext, *,
                  skill_names: Optional[list[str]] = None,
-                 max_turns: int = 12) -> str:
+                 max_turns: int = 12, detach: bool = False) -> str:
     cfg = parent_ctx.cfg
     sub_model = cfg.get("subagent_model") or cfg.get("model")
     child_cfg = {**cfg, "model": sub_model}
@@ -48,17 +49,60 @@ def run_subagent(task: str, parent_ctx: ToolContext, *,
     )
 
     registry = build_registry(child_ctx)
+    run = agentruns.register_run(task)
+    run_id = run["id"]
+    # A detached run outlives the tool call that started it, so its trace belongs
+    # on the durable record (/attach), not interleaved into the parent's output.
+    emit = None if detach else parent_ctx.emit
+
+    def deliver_messages() -> None:
+        for message in agentruns.drain_messages(run_id):
+            agent.steer(message)
 
     def on_event(event: str, payload: dict[str, Any]) -> None:
-        if parent_ctx.emit:
-            parent_ctx.emit("subagent." + event, payload)
+        # The progress trail is what /attach follows, so it is written for every
+        # run — a heartbeat alone tells a watcher nothing about the work.
+        agentruns.progress(run_id, f"{event} {payload.get('name') or ''}")
+        deliver_messages()
+        if emit:
+            emit("subagent." + event, payload)
 
     agent = Agent(client=parent_ctx.client, system=system, registry=registry,
                   max_turns=max_turns, model=sub_model, on_event=on_event)
 
-    if parent_ctx.emit:
-        parent_ctx.emit("subagent.start", {"task": task[:200]})
-    result = agent.run(task)
-    if parent_ctx.emit:
-        parent_ctx.emit("subagent.done", {"chars": len(result)})
-    return result or "(subagent returned no text)"
+    if emit:
+        emit("subagent.start", {"task": task[:200], "id": run_id})
+
+    def execute() -> str:
+        try:
+            # Pick up messages queued in the short window between registration
+            # and the first model call. Later messages are drained by the event
+            # hook, between the agent's tool-calling turns.
+            deliver_messages()
+            with agentruns._run_scope(run_id):
+                raw_result = agent.run(task)
+            result = raw_result or "(subagent returned no text)"
+            agentruns.finish_run(run_id, "done", result)
+        except Exception as exc:
+            agentruns.finish_run(run_id, "error", f"{type(exc).__name__}: {exc}")
+            raise
+        if emit:
+            emit("subagent.done", {"chars": len(result), "id": run_id})
+        return result
+
+    if not detach:
+        return execute()
+
+    def background() -> None:
+        try:
+            execute()
+        except Exception:
+            # finish_run already recorded the failure on the durable record, so
+            # /agents and /attach show it; re-raising here would only dump a
+            # traceback into whatever unrelated turn is on screen.
+            return
+
+    threading.Thread(target=background, name=f"birkin-subagent-{run_id}",
+                     daemon=True).start()
+    return (f"Detached subagent {run_id} started. Follow it with "
+            f"/attach {run_id[:8]} and steer it with /send {run_id[:8]} <text>.")

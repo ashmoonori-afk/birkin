@@ -1,4 +1,4 @@
-"""Morpheus — the nightly 04:00 self-improvement routine.
+"""Morpheus — the daily 07:00 self-improvement routine.
 
 Named after the Greek god of dreams: while you sleep, birkin reviews the last
 24 hours of conversation and changed files, then:
@@ -493,26 +493,75 @@ def _run_birkin_morpheus(cfg: dict[str, Any], task: str, dry_run: bool,
     return 0
 
 
+def _delivery_chat(cfg: dict[str, Any]) -> str:
+    explicit = str(cfg.get("morpheus_deliver_chat_id") or "").strip()
+    if explicit:
+        return explicit
+    telegram = (cfg.get("channels") or {}).get("telegram") or {}
+    allowed = [str(chat_id) for chat_id
+               in (telegram.get("allowed_chat_ids") or [])]
+    return allowed[0] if len(allowed) == 1 else ""
+
+
+def _card_text(value: Any, limit: int) -> str:
+    text = " ".join(str(value or "").split())
+    if len(text) <= limit:
+        return text
+    return text[:limit - 1].rstrip() + "…"
+
+
+def _proposal_card(summary: str) -> str:
+    proposal = _harness_proposal(summary)
+    if proposal is None:
+        return summary.strip()
+
+    title = _card_text(proposal.get("summary"), 160) or "새 개선안"
+    rationale = _card_text(proposal.get("rationale"), 240)
+    outcome = _card_text(proposal.get("expectedOutcome"), 240)
+    edits = proposal.get("edits")
+    safe_edits = [edit for edit in edits if isinstance(edit, dict)] \
+        if isinstance(edits, list) else []
+
+    lines = ["🧠 Morpheus 제안", "", f"📌 {title}"]
+    if rationale:
+        lines.extend(["", "왜 필요한가", rationale])
+    if outcome:
+        lines.extend(["", "기대 결과", outcome])
+    lines.extend(["", "변경 제안"])
+    if not safe_edits:
+        lines.append("• 없음")
+    for index, edit in enumerate(safe_edits[:8], 1):
+        kind = _card_text(edit.get("kind"), 20) or "unknown"
+        action = _card_text(edit.get("action"), 20) or "update"
+        edit_title = _card_text(edit.get("title"), 100) or "(제목 없음)"
+        lines.append(f"{index}. [{kind} · {action}] {edit_title}")
+        content = _card_text(edit.get("content"), 140)
+        if content:
+            lines.append(f"   {content}")
+    return "\n".join(lines)
+
+
 def _deliver_digest(cfg: dict[str, Any], summary: str) -> None:
     """P0-3: the nightly pass introduces itself in the morning.
 
-    Sends the run summary to ``morpheus_deliver_chat_id`` (empty = off)
-    through the scheduler's delivery path, which enforces the outbound
-    allowlist and the [SILENT] convention — a summary that starts with
-    [SILENT] is recorded but not sent, so an uneventful night stays quiet.
-    A pending-approvals count is appended so /pending is one tap away.
+    Sends the run summary to ``morpheus_deliver_chat_id`` or the sole
+    allowlisted Telegram chat through the scheduler's delivery path, which
+    enforces the outbound allowlist and the [SILENT] convention. Structured
+    proposals render as a compact plain-text card instead of raw JSON. A
+    pending-approvals count is appended so /pending is one tap away.
     """
-    chat = str(cfg.get("morpheus_deliver_chat_id") or "").strip()
+    chat = _delivery_chat(cfg)
     if not chat:
         return
     text = (summary or "").strip()
+    if not text.startswith("[SILENT]"):
+        text = _proposal_card(text)
     try:
         pending = approvals.reviewable_pending()
     except Exception:
         pending = []
     if pending and not text.startswith("[SILENT]"):
-        text += (f"\n\n📋 {len(pending)} pending approval(s) — "
-                 f"reply /pending to review.")
+        text += f"\n\n📋 검토 대기: {len(pending)}건 · /pending"
     from . import scheduler   # lazy: scheduler imports morpheus lazily too
     status = scheduler.deliver("morpheus", chat, text)
     print(f"birkin morpheus: digest delivery: {status}")

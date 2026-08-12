@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "birkin"
-version = "0.4.122"
+version = "0.4.149"
 description = "Lightweight, self-improving CLI agent workspace with skill management, subagents, and a WebUI. Inspired by hermes-agent and openclaw."
 readme = "README.md"
 requires-python = ">=3.10"
@@ -13,10 +13,17 @@ license-files = ["LICENSE", "NOTICE"]
 authors = [{ name = "birkin" }]
 keywords = ["agent", "cli", "skills", "subagents", "self-improving", "llm"]
 
-# Zero runtime dependencies ??standard library only.
-dependencies = []
+# Voice control uses the official open-source OpenAI SDK and audio helpers.
+dependencies = [
+    "openai[realtime,voice_helpers]>=2.53,<3",
+    "Pillow>=11",
+    "pywin32>=308; sys_platform == 'win32'",
+]
 
 [project.optional-dependencies]
+dev = ["pytest>=8", "pytest-cov>=5"]
+
+[dependency-groups]
 dev = ["pytest>=8", "pytest-cov>=5"]
 
 [project.scripts]

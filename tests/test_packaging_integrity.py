@@ -9,6 +9,7 @@ imports the package rather than reading its metadata.
 from __future__ import annotations
 
 import ast
+import re
 from pathlib import Path
 
 import pytest
@@ -40,6 +41,20 @@ def test_pyproject_parses_and_agrees_with_the_package_version():
     data = tomllib.loads((ROOT / "pyproject.toml").read_text(encoding="utf-8"))
     import birkin
     assert data["project"]["version"] == birkin.__version__
+
+
+def test_desktop_runtime_dependencies_are_declared():
+    try:
+        import tomllib
+    except ModuleNotFoundError:                      # py3.10
+        pytest.skip("tomllib needs Python 3.11+")
+    data = tomllib.loads((ROOT / "pyproject.toml").read_text(encoding="utf-8"))
+    dependencies = data["project"]["dependencies"]
+    names = {
+        re.split(r"[<>=!~;\s\[]", requirement, maxsplit=1)[0].lower()
+        for requirement in dependencies
+    }
+    assert {"pillow", "pywin32"} <= names
 
 
 def test_no_typing_name_newer_than_the_python_floor():

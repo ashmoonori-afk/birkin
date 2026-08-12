@@ -2,8 +2,12 @@
 
 from __future__ import annotations
 
+import os
+import subprocess
+import tempfile
 import urllib.request
 from pathlib import Path
+from typing import cast
 
 import pytest
 
@@ -233,6 +237,34 @@ def test_shell_empty_command_errors(tmp_path: Path):
     assert res.is_error and "Empty" in res.content
 
 
+@pytest.mark.skipif(os.name != "nt", reason="Windows TEMP normalization")
+def test_shell_replaces_unwritable_windows_temp_env(
+        tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    expected_temp = tempfile.gettempdir()
+    protected_temp = str(
+        Path(os.environ.get("SystemRoot", "C:\\Windows")) / "System32"
+    )
+    monkeypatch.setenv("TEMP", protected_temp)
+    monkeypatch.setenv("TMP", protected_temp)
+    captured: dict[str, object] = {}
+
+    def fake_run(
+            argv: list[str], **kwargs: object
+    ) -> subprocess.CompletedProcess[str]:
+        captured.update(kwargs)
+        return subprocess.CompletedProcess(argv, 0, "ok", "")
+
+    monkeypatch.setattr(shell_mod.subprocess, "run", fake_run)
+    fn = next(t for t in shell_mod.tools() if t.name == "run_shell").fn
+
+    result = fn({"command": "echo ok"}, _ctx(tmp_path))
+    child_env = cast(dict[str, str], captured["env"])
+
+    assert result.is_error is False
+    assert child_env["TEMP"] == expected_temp
+    assert child_env["TMP"] == expected_temp
+
+
 # ---------------- web (monkeypatch the opener — no network) ----------------
 # web_fetch opens via build_opener(_GuardedRedirectHandler) (SSRF guard), so
 # tests patch build_opener + DNS resolution, not the plain urlopen.
@@ -299,12 +331,21 @@ def test_web_fetch_network_error(monkeypatch, tmp_path):
 
 def test_subagent_tool_delegates(monkeypatch, tmp_path):
     from birkin import subagent as subagent_mod
-    monkeypatch.setattr(subagent_mod, "run_subagent",
-                        lambda task, ctx, skill_names=None, max_turns=12: f"sub-reply:{task[:20]}")
+    seen = {}
+
+    def fake_run(task, ctx, skill_names=None, max_turns=12, detach=False):
+        seen["detach"] = detach
+        return f"sub-reply:{task[:20]}"
+
+    monkeypatch.setattr(subagent_mod, "run_subagent", fake_run)
     ctx = _ctx(tmp_path)
     fn = next(t for t in st_mod.subagent_tools() if t.name == "spawn_subagent").fn
     res = fn({"task": "investigate xyz"}, ctx)
     assert not res.is_error and res.content.startswith("sub-reply:")
+    assert seen["detach"] is False
+
+    assert not fn({"task": "investigate xyz", "detach": True}, ctx).is_error
+    assert seen["detach"] is True
 
 
 def test_subagent_tool_missing_task(tmp_path):

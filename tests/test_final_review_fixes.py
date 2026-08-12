@@ -138,6 +138,7 @@ def test_memory_count_line_based():
 def test_gateway_codex_is_sandboxed(tmp_path, monkeypatch):
     monkeypatch.setenv("BIRKIN_HOME", str(tmp_path))
     from birkin import config
+    from birkin.codex_session import CodexAppServerSession
     from birkin.gateway.core import Gateway
     # even if the user set cli_access=full globally, the gateway forces workspace
     config.save_config({**config.DEFAULT_CONFIG, "provider": "codex-cli",
@@ -146,6 +147,7 @@ def test_gateway_codex_is_sandboxed(tmp_path, monkeypatch):
     g = Gateway(config.load_config())
     s = g._build_claude_session()
     try:
+        assert isinstance(s, CodexAppServerSession)
         assert s.sandbox_mode == "workspace-write"   # NOT danger-full-access
         assert s.approval_policy == "never"
         assert s.network_access is False

@@ -12,7 +12,7 @@ from birkin import dash, ui
 @pytest.fixture
 def snap(monkeypatch):
     """A snapshot built from controllable backend stubs."""
-    from birkin import approvals, budget, config, cron, store, transcripts
+    from birkin import agentruns, approvals, budget, config, cron, store, transcripts
 
     monkeypatch.setattr(store, "read_status",
                         lambda: {"daemon": True,
@@ -30,6 +30,15 @@ def snap(monkeypatch):
         {"name": "morning-briefing", "next_run": "2026-07-25T09:00:00",
          "enabled": True, "id": "c1"}])
     monkeypatch.setattr(cron, "schedule_display", lambda j: "09:00")
+    monkeypatch.setattr(agentruns, "list_runs", lambda: [{
+        "id": "123456789abc", "parent_id": None, "task": "research",
+        "status": "running", "heartbeat_age": 7, "stalled": False,
+        "children": [{
+            "id": "abcdef123456", "parent_id": "123456789abc",
+            "task": "child task", "status": "stale",
+            "heartbeat_age": 181, "stalled": True, "children": [],
+        }],
+    }])
 
     class _Dex:
         def entries(self):
@@ -64,6 +73,12 @@ def test_snapshot_gathers_every_pane(snap):
     assert len(snap["sessions"]) == 1
     assert len(snap["cron"]) == 1 and snap["cron"][0]["schedule"] == "09:00"
     assert len(snap["approvals"]) == 2
+    assert snap["agents"] == [
+        {"id": "12345678", "task": "research", "status": "running",
+         "age": "7s", "stalled": False, "depth": 0},
+        {"id": "abcdef12", "task": "child task", "status": "stale",
+         "age": "3m", "stalled": True, "depth": 1},
+    ]
     zones = {z["zone"]: z["count"] for z in snap["zones"]}
     assert zones == {"kubernetes": 2, "inbox": 1}
 
@@ -72,9 +87,18 @@ def test_zones_sorted_by_count_desc(snap):
     assert snap["zones"][0]["zone"] == "kubernetes"
 
 
+def test_agents_pane_reports_registry_errors(monkeypatch):
+    monkeypatch.setattr("birkin.agentruns.list_runs",
+                        lambda: (_ for _ in ()).throw(OSError("offline")))
+    sess = types.SimpleNamespace(cfg={"model": "m", "provider": "p"})
+    snap = dash.snapshot(sess)
+    assert snap["agents"] == []
+    assert snap["errors"]["에이전트"] == "offline"
+
+
 # -- render is width-safe for CJK -----------------------------------------
 
-@pytest.mark.parametrize("section", ["세션", "크론", "승인", "기억"])
+@pytest.mark.parametrize("section", ["세션", "에이전트", "크론", "승인", "기억"])
 @pytest.mark.parametrize("cols", [70, 92, 120])
 def test_render_never_overflows_terminal_width(snap, section, cols):
     state = {"section": section, "cursor": 0, "top": 0}
@@ -91,7 +115,7 @@ def test_render_fits_within_row_height(snap):
 def test_active_section_marked_and_cursor_highlighted(snap):
     frame = dash.render(snap, {"section": "승인", "cursor": 0, "top": 0}, (92, 24))
     plain = ui._ANSI_RE.sub("", "\n".join(frame))
-    assert "▸3 승인" in plain                       # active rail marker
+    assert "▸4 승인" in plain                       # active rail marker
     # The cursor row carries an ASCII "> " marker (after the rail divider) so it
     # reads even with color off (pytest is non-tty); inverse layers on when on.
     assert "│ > " in plain, "cursor row has no color-independent marker"
@@ -107,7 +131,7 @@ def test_empty_section_shows_placeholder(monkeypatch, snap):
 
 def test_dump_plain_labels_every_section(snap):
     out = dash.dump_plain(snap)
-    for s in ("세션", "크론", "승인", "기억"):
+    for s in ("세션", "에이전트", "크론", "승인", "기억"):
         assert f"[{s}]" in out
     assert "morning-briefing" in out
 

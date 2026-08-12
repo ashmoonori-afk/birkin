@@ -6,6 +6,15 @@ import os
 from typing import Any
 
 from .base import Channel
+from .registry import (
+    ChannelEntry,
+    Registry,
+    default_registry,
+    get,
+    names,
+    register,
+    resolve_delivery_target,
+)
 
 
 def telegram_token(tg: dict[str, Any]) -> str:
@@ -50,4 +59,14 @@ def build_channels(cfg: dict[str, Any]) -> list[Channel]:
     return channels
 
 
-__all__ = ["Channel", "build_channels"]
+__all__ = [
+    "Channel",
+    "ChannelEntry",
+    "Registry",
+    "build_channels",
+    "default_registry",
+    "get",
+    "names",
+    "register",
+    "resolve_delivery_target",
+]

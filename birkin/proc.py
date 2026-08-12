@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import os
 import subprocess
+import tempfile
 from pathlib import Path
 from typing import Any
 
@@ -57,6 +58,16 @@ def shell_argv(command: str) -> list[str]:
     if os.name == "nt":
         return ["cmd", "/c", command]
     return ["bash", "-lc", command]
+
+
+def shell_env() -> dict[str, str]:
+    """Environment for a free-form shell command."""
+    env = dict(os.environ)
+    if os.name == "nt":
+        temp_dir = tempfile.gettempdir()
+        env["TEMP"] = temp_dir
+        env["TMP"] = temp_dir
+    return env
 
 
 def kill_tree(proc: "Any") -> None:

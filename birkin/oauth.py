@@ -307,6 +307,45 @@ def _write_credentials(access: str, refresh_token: str, expires_at_ms: int,
             pass
 
 
+def _refresh_locked(creds: dict[str, Any]) -> Optional[str]:
+    """Exchange the refresh token while holding a cross-process lock.
+
+    ``_token_lock`` only serializes threads inside one interpreter, but the CLI,
+    the gateway daemon and the WebUI are separate processes sharing
+    ``~/.claude/.credentials.json``. The re-read after winning the lock is the
+    point of this function: whoever waited consumes the winner's fresh token
+    instead of spending a refresh token the winner has already rotated away —
+    which would 400, read as "logged out", and land the credential in a
+    ``credpool`` auth cooldown.
+
+    Returns the usable access token, or ``None`` so the caller can fall back to
+    the env var / still-valid file token exactly as before.
+    """
+    from . import store
+    try:
+        with store.file_lock(_credentials_path()):
+            current = read_credentials() or creds
+            if _token_valid(current):
+                return current["accessToken"]
+            token = current.get("refreshToken") or creds.get("refreshToken")
+            refreshed = refresh(token) if token else None
+            if not refreshed:
+                return None
+            _write_credentials(refreshed["access_token"],
+                               refreshed["refresh_token"],
+                               refreshed["expires_at_ms"],
+                               current.get("scopes"))
+            return refreshed["access_token"]
+    except store.FileLockTimeout:
+        # Another process held the lock for the whole timeout. Attempting an
+        # unlocked refresh here is exactly the race this guards, so take its
+        # result if it landed and otherwise let the caller fall back.
+        current = read_credentials()
+        if current and _token_valid(current):
+            return current["accessToken"]
+        return None
+
+
 def resolve_token() -> Optional[str]:
     """Resolve a usable OAuth access token, refreshing + persisting if expired.
 
@@ -323,12 +362,9 @@ def resolve_token() -> Optional[str]:
         if creds and creds.get("refreshToken"):
             if _token_valid(creds):
                 return creds["accessToken"]
-            refreshed = refresh(creds["refreshToken"])
-            if refreshed:
-                _write_credentials(refreshed["access_token"],
-                                   refreshed["refresh_token"],
-                                   refreshed["expires_at_ms"], creds.get("scopes"))
-                return refreshed["access_token"]
+            access = _refresh_locked(creds)
+            if access:
+                return access
             # refresh failed — fall through to env / valid file token
         env = (os.environ.get("ANTHROPIC_TOKEN", "").strip()
                or os.environ.get("CLAUDE_CODE_OAUTH_TOKEN", "").strip())

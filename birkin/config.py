@@ -129,6 +129,7 @@ DEFAULT_CONFIG: dict[str, Any] = {
     "max_depth": 2,  # subagent recursion bound
     "extra_skill_dirs": [],  # additional directories to scan for SKILL.md
     "disabled_tools": [],  # tool names the agent may NOT use (see `birkin tools`)
+    "desktop_tools": False,  # opt in to visible-window listing/screenshots
     "self_improve": True,  # allow the agent to write/refine skills after tasks
     # Automatic self-improvement nudges (native: no extra call; Claude: skill
     # review; Codex: trusted memory review; local CLI: no review):
@@ -174,6 +175,19 @@ DEFAULT_CONFIG: dict[str, Any] = {
     # Keep one pre-warmed spare claude process so the FIRST message of a new
     # conversation skips the ~28 s CLI cold start.
     "gateway_prewarm": True,
+    "voice": {
+        "wake_phrase": "Daddy is home",
+        "gateway_url": "",
+        "session_id": "voice-local",
+        "sample_rate": 24000,
+        "stt_model": "gpt-transcribe",
+        "tts_model": "gpt-4o-mini-tts",
+        "tts_voice": "coral",
+        "tts_instructions": "Speak concisely and clearly.",
+        "conversation_style": "",
+        "onboarding_complete": False,
+        "background_workers": 2,
+    },
     # Auto-save every conversation turn (gateway + REPL) to sessions_dir as
     # reserved ``auto__*.json`` in the canonical format the nightly Morpheus
     # routine already consumes — so memory is extracted from real conversations
@@ -202,13 +216,19 @@ DEFAULT_CONFIG: dict[str, Any] = {
         # (hermes-style perceived latency) instead of one final message.
         "telegram": {"enabled": False, "token": "", "allowed_chat_ids": [],
                      "stream": True},
+        # Send-only incoming-webhook targets. They do not start listeners and
+        # remain inert unless explicitly enabled with an HTTPS URL.
+        "slack": {"enabled": False, "webhook_url": ""},
+        "discord": {"enabled": False, "webhook_url": ""},
     },
     # --- Obsidian-vault semantic memory ---
     "vault_path": "",  # empty -> <birkin_home>/vault
-    # --- Morpheus (nightly 04:00 self-improvement routine) ---
+    # --- Morpheus (daily 07:00 self-improvement routine) ---
     # Telegram chat to receive the nightly summary as a morning digest
-    # (P0-3). Empty = no delivery. Honors the outbound allowlist and the
-    # [SILENT] convention; appends a pending-approvals count when relevant.
+    # (P0-3). Empty selects the sole allowlisted Telegram chat when exactly one
+    # exists; zero or multiple chats require an explicit destination. Honors
+    # the outbound allowlist and the [SILENT] convention; appends a
+    # pending-approvals count when relevant.
     "morpheus_deliver_chat_id": "",
     "workspace_roots": [],
     # Hourly reaper: kill orphaned claude/codex->node subprocesses left behind
@@ -231,7 +251,7 @@ DEFAULT_CONFIG: dict[str, Any] = {
     # morpheus_provider differs from provider: the chat model belongs to the
     # chat backend, and handing claude an OpenAI model name fails the run.
     "morpheus_model": "",
-    "morpheus_hour": 4,
+    "morpheus_hour": 7,
     "morpheus_minute": 0,
     # Governs the UNATTENDED path (nightly routine's propose_action): these
     # categories are applied automatically; everything else (e.g. "cron",
@@ -387,9 +407,23 @@ def runs_dir() -> Path:
     return d
 
 
+def agent_runs_dir() -> Path:
+    """Durable subagent run records and message inboxes."""
+    d = birkin_home() / "agent_runs"
+    d.mkdir(parents=True, exist_ok=True)
+    return d
+
+
 def pending_dir() -> Path:
     """Proposed actions awaiting user approval."""
     d = birkin_home() / "pending"
+    d.mkdir(parents=True, exist_ok=True)
+    return d
+
+
+def goals_dir() -> Path:
+    """Persisted session goals."""
+    d = birkin_home() / "goals"
     d.mkdir(parents=True, exist_ok=True)
     return d
 

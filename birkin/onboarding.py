@@ -78,7 +78,7 @@ def run() -> int:
     # 5. Morpheus (nightly self-improvement)
     print(f"\n{BOLD}Morpheus — nightly self-improvement{RESET}")
     hour = _ask("Run hour (0-23)",
-                str(cfg.get("morpheus_hour", cfg.get("nightly_hour", 4))))
+                str(cfg.get("morpheus_hour", cfg.get("nightly_hour", 7))))
     try:
         cfg["morpheus_hour"] = int(hour)
     except ValueError:
@@ -129,7 +129,7 @@ def run() -> int:
     print(f"  {CYAN}birkin{RESET}          start chatting")
     print(f"  {CYAN}birkin gateway{RESET}  run as a service (HTTP / Telegram channels)")
     print(f"  {CYAN}birkin web{RESET}      open the monitoring dashboard")
-    print(f"  {CYAN}birkin daemon{RESET}   run the 04:00 self-improvement scheduler")
+    print(f"  {CYAN}birkin daemon{RESET}   run the 07:00 self-improvement scheduler")
     print(f"  {CYAN}birkin model{RESET}    change model · {CYAN}birkin tools{RESET}  toggle tools")
     if cfg.get("provider") not in config.CLI_PROVIDERS:
         env_name = config.PROVIDER_API_KEY_ENV.get(cfg.get("provider", "anthropic"),

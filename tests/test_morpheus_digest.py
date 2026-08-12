@@ -23,7 +23,7 @@ def test_digest_delivers_summary_with_pending_count(tmp_path, monkeypatch):
     morpheus._deliver_digest(cfg, "Learned two things tonight.")
     assert sent and sent[0][0] == "morpheus" and sent[0][1] == "42"
     assert "Learned two things" in sent[0][2]
-    assert "1 pending approval" in sent[0][2]      # /pending one tap away
+    assert "검토 대기: 1건" in sent[0][2]          # /pending one tap away
     assert "/pending" in sent[0][2]
 
 
@@ -56,6 +56,63 @@ def test_digest_off_when_no_chat_configured(tmp_path, monkeypatch):
                         lambda *a: called.append(a) or "sent")
     morpheus._deliver_digest(cfg, "summary")
     assert called == []                            # off by default
+
+
+def test_digest_routes_proposal_to_only_allowlisted_telegram_chat(
+        tmp_path, monkeypatch):
+    from birkin import config, morpheus, scheduler
+    cfg = _cfg(tmp_path, monkeypatch, chat="")
+    cfg["channels"] = {
+        "telegram": {"allowed_chat_ids": ["42"], "token": "tok"}}
+    config.save_config(cfg)
+    sent: list[tuple[str, str, str]] = []
+    monkeypatch.setattr(
+        scheduler,
+        "deliver",
+        lambda name, chat, text: sent.append((name, chat, text)) or "sent",
+    )
+    proposal = """```json
+{"summary": "Morning proposal",
+ "rationale": "Repeated workflow detected",
+ "expectedOutcome": "Less manual setup tomorrow",
+ "edits": [{"action": "create", "kind": "memory",
+            "title": "Remember deploy ritual",
+            "content": "Run make deploy before release"}]}
+```"""
+
+    morpheus._deliver_digest(config.load_config(), proposal)
+
+    assert sent[0][:2] == ("morpheus", "42")
+    card = sent[0][2]
+    assert card.startswith("🧠 Morpheus 제안")
+    assert "📌 Morning proposal" in card
+    assert "왜 필요한가\nRepeated workflow detected" in card
+    assert "기대 결과\nLess manual setup tomorrow" in card
+    assert "변경 제안\n1. [memory · create] Remember deploy ritual" in card
+    assert "Run make deploy before release" in card
+    assert "```" not in card
+    assert '{"summary"' not in card
+
+
+def test_proposal_card_fits_telegram_delivery_budget():
+    import json
+    from birkin import morpheus
+    proposal = {
+        "summary": "s" * 1000,
+        "rationale": "r" * 1000,
+        "expectedOutcome": "o" * 1000,
+        "edits": [
+            {"action": "update", "kind": "memory", "title": "t" * 500,
+             "content": "c" * 1000}
+            for _ in range(12)
+        ],
+    }
+
+    card = morpheus._proposal_card(
+        f"```json\n{json.dumps(proposal)}\n```")
+
+    assert len(card) <= 3400
+    assert "```" not in card
 
 
 def test_silent_summary_stays_silent(tmp_path, monkeypatch):

@@ -25,7 +25,13 @@ def test_cli_argv_keeps_parts_discrete():
         assert argv == ["claude", "-p", "--model", "sonnet"]
 
 
+@pytest.mark.skipif(os.name != "nt", reason="Windows npm shim lookup")
 def test_cli_argv_falls_back_to_user_npm_shim(monkeypatch, tmp_path):
+    # Simulating "nt" on POSIX is not enough here: pathlib.Path picks its
+    # flavour from os.name at construction time, so cli_argv's Path(APPDATA)
+    # would raise NotImplementedError, and pytest's own failure reporting
+    # (which also builds a Path) would then abort the whole session with an
+    # INTERNALERROR instead of reporting one failed test.
     appdata = tmp_path / "AppData" / "Roaming"
     npm = appdata / "npm"
     npm.mkdir(parents=True)
@@ -43,6 +49,9 @@ def test_cli_argv_rejects_windows_shell_metachars(monkeypatch):
     # On Windows, cmd /c re-parses metacharacters inside each arg, so a smuggled
     # `& calc` would chain a second command — cli_argv must reject it.
     monkeypatch.setattr(proc.os, "name", "nt")
+    # Keep the simulated branch off pathlib: with APPDATA set, cli_argv builds a
+    # Path, which cannot be a WindowsPath on POSIX.
+    monkeypatch.delenv("APPDATA", raising=False)
     for bad in ("foo & calc", "a|b", "x>out", "y<in", "z^a"):
         with pytest.raises(ValueError):
             proc.cli_argv(["claude", "mcp", "add", "srv", bad])

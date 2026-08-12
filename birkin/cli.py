@@ -15,7 +15,7 @@ from __future__ import annotations
 import argparse
 import json
 import sys
-from typing import Any, Optional
+from typing import Any
 
 
 def _cmd_chat(args: argparse.Namespace) -> int:
@@ -294,6 +294,7 @@ def _cmd_gateway(args: argparse.Namespace) -> int:
 def _cmd_harness(args: argparse.Namespace) -> int:
     """Read/undo/export the self-improvement ledger (harness)."""
     from pathlib import Path
+
     from . import harness
     scope = "global" if getattr(args, "global_scope", False) else args.scope
     target = args.target[0] if args.target else ""
@@ -349,11 +350,42 @@ def _cmd_harness(args: argparse.Namespace) -> int:
     return 0
 
 
+def _cmd_voice(args: argparse.Namespace) -> int:
+    from .voice import onboarding
+    from .voice.daemon import (
+        start_daemon,
+        status_daemon,
+        stop_daemon,
+    )
+    from .voice.daemon_worker import run_worker
+
+    if args.daemon_worker:
+        return run_worker(args)
+    if args.voice_action in {"setup", "onboard"}:
+        return onboarding.run()
+    if args.voice_action == "start":
+        if not onboarding.is_complete():
+            setup_result = onboarding.run()
+            if setup_result != 0:
+                return setup_result
+        return start_daemon(args)
+    if args.voice_action == "status":
+        return status_daemon()
+    if args.voice_action == "stop":
+        return stop_daemon()
+
+    from .voice.controller import run_once
+
+    return run_once(args)
+
+
 # Tools grouped by "toolset" for the Available Tools panel.
 _TOOL_GROUPS = [
     "files",
     "shell",
     "web",
+    "vision",
+    "desktop",
     "sessions",
     "skills",
     "memory",
@@ -390,7 +422,9 @@ def _cmd_reindex(args: argparse.Namespace) -> int:
 def _cmd_tools(args: argparse.Namespace) -> int:
     """Show the Available Tools panel and enable/disable tools (like hermes)."""
     from pathlib import Path
+
     from . import config
+    from .llm import LLMClient
     from .memory import VaultMemory
     from .skills import build_manager
     from .tools import ToolContext, build_registry
@@ -409,7 +443,6 @@ def _cmd_tools(args: argparse.Namespace) -> int:
     base = dict(cfg)
     base["disabled_tools"] = []
     skills, memory = build_manager(cfg), VaultMemory(cfg)
-    from .llm import LLMClient
     # Inspection-only context: no network calls needed, use local-cli stub
     client = LLMClient(provider="local-cli", model="", api_key="", base_url="")
     ctx = ToolContext(cfg=base, client=client, cwd=Path.cwd(),
@@ -448,9 +481,14 @@ def _cmd_tools(args: argparse.Namespace) -> int:
 
 _CLI_ACCESS_LEVELS = [
     ("workspace", "Writable & sandboxed to the workspace (recommended)"),
-    ("full", "DANGEROUS: bypass ALL approvals + sandbox "
-             "(codex --dangerously-bypass-approvals-and-sandbox, "
-             "claude --dangerously-skip-permissions)"),
+    (
+        "full",
+        (
+            "DANGEROUS: bypass ALL approvals + sandbox "
+            "(codex --dangerously-bypass-approvals-and-sandbox, "
+            "claude --dangerously-skip-permissions)"
+        ),
+    ),
 ]
 
 
@@ -462,7 +500,8 @@ def _cmd_permission(args: argparse.Namespace) -> int:
         if args.add in ("shell", "cron"):
             print("⚠  Warning: auto-approving '" + args.add + "' lets the agent "
                   "and the unattended nightly routine run it WITHOUT asking — "
-                  "including arbitrary shell commands at 04:00. Only do this if "
+                  "including arbitrary shell commands at the configured Morpheus "
+                  "time. Only do this if "
                   "you fully trust the setup.")
         if args.add not in auto:
             auto.append(args.add)
@@ -876,6 +915,7 @@ def _cmd_budget(args: argparse.Namespace) -> int:
 def _cmd_trace(args: argparse.Namespace) -> int:
     """`birkin trace <run-id>` — print a single run record (audit trail replay)."""
     import json as _json
+
     from . import config as _config
     from .ui import BOLD, CYAN, DIM, RESET
     needle = (args.run_id or "").strip()
@@ -943,6 +983,139 @@ def build_parser() -> argparse.ArgumentParser:
 
     sub.add_parser("gateway", help="run birkin as a service (HTTP / Telegram channels)").set_defaults(func=_cmd_gateway)
 
+    p_voice = sub.add_parser(
+        "voice",
+        help="manage the voice daemon or run one deterministic turn",
+    )
+    p_voice.add_argument(
+        "voice_action",
+        nargs="?",
+        choices=("setup", "onboard", "start", "status", "stop"),
+        help="guided setup or daemon lifecycle action",
+    )
+    p_voice.add_argument(
+        "--daemon-worker",
+        action="store_true",
+        help=argparse.SUPPRESS,
+    )
+    p_voice.add_argument(
+        "--once",
+        action="store_true",
+        help="capture and process exactly one command",
+    )
+    p_voice.add_argument(
+        "--audio",
+        help="wake-window 16-bit PCM WAV path",
+    )
+    p_voice.add_argument(
+        "--transcript",
+        help="wake transcript (deterministic mode)",
+    )
+    p_voice.add_argument(
+        "--command",
+        dest="voice_command",
+        help="command text (deterministic mode)",
+    )
+    p_voice.add_argument(
+        "--command-audio",
+        default="",
+        help="recorded command WAV (transcribed when --command is omitted)",
+    )
+    p_voice.add_argument(
+        "--wake-seconds",
+        type=float,
+        default=3.0,
+        help="live microphone wake-window duration",
+    )
+    p_voice.add_argument(
+        "--command-seconds",
+        type=float,
+        default=8.0,
+        help="live microphone command-window duration",
+    )
+    p_voice.add_argument(
+        "--sample-rate",
+        type=int,
+        default=None,
+        help="live microphone sample rate (default: voice.sample_rate)",
+    )
+    p_voice.add_argument(
+        "--stt-model",
+        default=None,
+        help="OpenAI speech-to-text model (default: voice.stt_model)",
+    )
+    p_voice.add_argument(
+        "--wake-phrase",
+        default=None,
+        help="normalized phrase required with the clap (default: voice.wake_phrase)",
+    )
+    p_voice.add_argument(
+        "--gateway-url",
+        default=None,
+        help="local Birkin POST /message URL (default: voice.gateway_url)",
+    )
+    p_voice.add_argument(
+        "--session-id",
+        default=None,
+        help="stable local Gateway session id (default: voice.session_id)",
+    )
+    p_voice.add_argument(
+        "--tts-output",
+        default="",
+        help="write raw PCM16/24 kHz reply bytes to this path",
+    )
+    p_voice.add_argument(
+        "--tts-model",
+        default=None,
+        help="OpenAI text-to-speech model (default: voice.tts_model)",
+    )
+    p_voice.add_argument(
+        "--tts-voice",
+        default=None,
+        help="OpenAI text-to-speech voice (default: voice.tts_voice)",
+    )
+    p_voice.add_argument(
+        "--tts-instructions",
+        default=None,
+        help="OpenAI speech style instructions (default: voice.tts_instructions)",
+    )
+    p_voice.add_argument(
+        "--filler-text",
+        default=None,
+        help=(
+            "short acknowledgement spoken while waiting for the Gateway "
+            "(empty disables; default: voice.filler_text)"
+        ),
+    )
+    p_voice.add_argument(
+        "--no-playback",
+        action="store_true",
+        help="do not play synthesized PCM through the speaker",
+    )
+    p_voice.add_argument(
+        "--background",
+        action="store_true",
+        help="enqueue the command and persist a durable receipt",
+    )
+    p_voice.add_argument(
+        "--receipt-dir",
+        default="",
+        help="background receipt directory (default: BIRKIN_HOME/voice/jobs)",
+    )
+    p_voice.add_argument(
+        "--background-workers",
+        type=int,
+        default=None,
+        help="maximum workers (default: voice.background_workers)",
+    )
+    p_voice.add_argument(
+        "--background-timeout",
+        type=float,
+        default=300.0,
+        help="seconds to wait for this one-shot background result",
+    )
+    p_voice.set_defaults(func=_cmd_voice)
+
     tp = sub.add_parser("tools", help="list/enable/disable the agent's tools")
     tp.add_argument("--enable", help="tool name to enable")
     tp.add_argument("--disable", help="tool name to disable")
@@ -954,7 +1127,7 @@ def build_parser() -> argparse.ArgumentParser:
     mp.set_defaults(func=_cmd_model)
 
     # `morpheus` is the canonical name (the routine is named Morpheus —
-    # Greek god of dreams — because it runs at 04:00 while you sleep).
+    # Greek god of dreams — because it runs daily while you sleep).
     # `nightly` stays as a hidden alias so muscle memory still works.
     for canonical_name, alias_help in (
             ("morpheus", "run the self-improvement routine now (Morpheus)"),
@@ -1130,7 +1303,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     ody = sub.add_parser(
         "odyssey",
-        help="seed a goal-completion cycle (plan → critique → execute → "
+        help="seed a goal-completion cycle (plan -> critique -> execute -> "
              "verify); then run /odyssey in chat to drive it")
     ody.add_argument("goal", nargs=argparse.REMAINDER, help="the goal")
     ody.set_defaults(func=_cmd_odyssey)
@@ -1146,7 +1319,26 @@ def build_parser() -> argparse.ArgumentParser:
     return p
 
 
-def main(argv: Optional[list[str]] = None) -> int:
+def _force_utf8_output() -> None:
+    """Keep this CLI's non-ASCII text printable when stdout is not a UTF-8 tty.
+
+    Windows encodes redirected output with the locale codepage (cp1252), so a
+    piped ``birkin --help`` died on the single ``→`` in one help string, and any
+    Korean line would have died the same way. Reconfiguring at the entry point
+    fixes the whole class instead of policing individual strings.
+    """
+    for stream in (sys.stdout, sys.stderr):
+        reconfigure = getattr(stream, "reconfigure", None)
+        if reconfigure is None:            # a test double or a raw stream
+            continue
+        try:
+            reconfigure(encoding="utf-8", errors="replace")
+        except (OSError, ValueError):
+            continue
+
+
+def main(argv: list[str] | None = None) -> int:
+    _force_utf8_output()
     parser = build_parser()
     args = parser.parse_args(argv if argv is not None else sys.argv[1:])
     if not getattr(args, "command", None):

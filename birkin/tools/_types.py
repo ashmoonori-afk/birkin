@@ -4,7 +4,44 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Callable, Optional, Protocol
+from typing import (
+    Any,
+    Callable,
+    Literal,
+    Optional,
+    Protocol,
+    TypeAlias,
+    TypedDict,
+)
+
+
+class TextContentBlock(TypedDict):
+    type: Literal["text"]
+    text: str
+
+
+class ImageSource(TypedDict):
+    type: Literal["base64"]
+    media_type: str
+    data: str
+
+
+class ImageContentBlock(TypedDict):
+    type: Literal["image"]
+    source: ImageSource
+
+
+ToolContent: TypeAlias = str | list[TextContentBlock | ImageContentBlock]
+
+
+def content_text(content: ToolContent) -> str:
+    """Return visible text from a tool result without copying image data."""
+    if isinstance(content, str):
+        return content
+    text = "\n".join(
+        block["text"] for block in content if block["type"] == "text"
+    )
+    return text or "[image attached]"
 
 Config = dict[str, Any]
 ToolInput = dict[str, Any]
@@ -12,7 +49,7 @@ ToolInput = dict[str, Any]
 
 @dataclass
 class ToolResult:
-    content: str
+    content: ToolContent
     is_error: bool = False
 
 

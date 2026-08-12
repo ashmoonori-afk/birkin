@@ -213,7 +213,7 @@ class LLMClient:
                     parts.append(f"{role}: {b.get('text', '')}")
                 elif b.get("type") == "tool_result":
                     c = b.get("content", "")
-                    parts.append(f"TOOL_RESULT: {c if isinstance(c, str) else c}")
+                    parts.append(f"TOOL_RESULT: {_stringify(c)}")
         return "\n\n".join(parts).strip()
 
     def _cli_complete(self, system, messages, model, on_text,
@@ -873,10 +873,48 @@ def _to_openai_messages(system: str, messages: list[dict[str, Any]]) -> list[dic
                 for tr in tool_results:
                     out.append({"role": "tool", "tool_call_id": tr["tool_use_id"],
                                 "content": _stringify(tr.get("content", ""))})
-            text_parts = [b["text"] for b in blocks if b["type"] == "text"]
-            if text_parts:
-                out.append({"role": "user", "content": "\n".join(text_parts)})
+            parts: list[dict[str, Any]] = []
+            has_image = False
+            for b in blocks:
+                if b["type"] == "text":
+                    parts.append({"type": "text", "text": b["text"]})
+                elif b["type"] == "image":
+                    part = _openai_image_part(b)
+                    if part is not None:
+                        parts.append(part)
+                        has_image = True
+            if parts:
+                # Text-only stays a plain string — the shape every non-vision
+                # OpenAI-compatible endpoint accepts.
+                content: Any = parts if has_image else "\n".join(
+                    p["text"] for p in parts)
+                out.append({"role": "user", "content": content})
     return out
+
+
+def _openai_image_part(block: dict[str, Any]) -> dict[str, Any] | None:
+    """Anthropic image block → OpenAI ``image_url`` part, ``None`` if unusable.
+
+    A malformed attachment is skipped rather than raised on: dropping one image
+    is recoverable, killing the turn is not.
+    """
+    source = block.get("source")
+    if not isinstance(source, dict):
+        return None
+    kind = source.get("type")
+    if kind == "base64":
+        media_type = str(source.get("media_type") or "").strip()
+        data = source.get("data")
+        if not media_type or not isinstance(data, str) or not data:
+            return None
+        url = f"data:{media_type};base64,{data}"
+    elif kind == "url":
+        url = str(source.get("url") or "").strip()
+        if not url:
+            return None
+    else:
+        return None
+    return {"type": "image_url", "image_url": {"url": url}}
 
 
 def _stringify(content: Any) -> str:

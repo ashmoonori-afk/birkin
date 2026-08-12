@@ -23,6 +23,7 @@ from __future__ import annotations
 
 import re
 import sqlite3
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Optional
 
@@ -32,6 +33,7 @@ _ASCII_RE = re.compile(r"[a-z0-9]+")
 # Hangul syllables/jamo, plus CJK ideographs and kana — everything that has no
 # spaces between words and therefore defeats a whitespace tokenizer.
 _CJK_RE = re.compile(r"[가-힣ᄀ-ᇿ぀-ヿ一-鿿]+")
+_SCHEMA_VERSION = 2
 
 
 def _path() -> Path:
@@ -44,11 +46,21 @@ def _connect() -> sqlite3.Connection:
     try:
         con.execute("PRAGMA journal_mode=WAL")
         con.execute("PRAGMA synchronous=NORMAL")
+        version = con.execute("PRAGMA user_version").fetchone()[0]
+        if version != _SCHEMA_VERSION:
+            # This database is only a cache. Rebuilding is safer and simpler
+            # than migrating FTS virtual tables in place.
+            con.executescript(
+                "DROP TABLE IF EXISTS session_fts;"
+                "DROP TABLE IF EXISTS files;")
         con.executescript(
             "CREATE TABLE IF NOT EXISTS files ("
-            "  stem TEXT PRIMARY KEY, mtime REAL, size INTEGER);"
+            "  stem TEXT PRIMARY KEY, mtime REAL, size INTEGER, date TEXT,"
+            "  channel TEXT, model TEXT);"
             "CREATE VIRTUAL TABLE IF NOT EXISTS session_fts USING fts5("
-            "  stem UNINDEXED, body);")
+            "  stem UNINDEXED, date UNINDEXED, channel UNINDEXED,"
+            "  model UNINDEXED, raw UNINDEXED, body);"
+            f"PRAGMA user_version = {_SCHEMA_VERSION};")
     except sqlite3.Error:
         # Close before propagating: Windows refuses to unlink a file whose
         # handle is still open, so leaving it open would make _reset() a no-op
@@ -101,12 +113,12 @@ def build_query(query: str) -> str:
 
 # -- index maintenance -----------------------------------------------------
 
-def _read_transcript(path: Path) -> str:
-    from .tools.sessions import _transcript
-    return _transcript(path)
+def _read_session(path: Path) -> tuple[str, str, Optional[str]]:
+    from .tools.sessions import _session_data
+    return _session_data(path)
 
 
-def refresh(con: sqlite3.Connection) -> int:
+def refresh(con: sqlite3.Connection, progress_cb=None) -> int:
     """Sync the index with the transcript directory. Returns files reindexed.
 
     Change detection is a (mtime, size) fingerprint per file, the same
@@ -118,25 +130,39 @@ def refresh(con: sqlite3.Connection) -> int:
     seen: set[str] = set()
     touched = 0
 
-    for path in config.sessions_dir().glob("*.json"):
+    paths = list(config.sessions_dir().glob("*.json"))
+    total = len(paths)
+    for done, path in enumerate(paths, 1):
         try:
-            st = path.stat()
-        except OSError:
-            continue
-        stem = path.stem
-        seen.add(stem)
-        if known.get(stem) == (st.st_mtime, st.st_size):
-            continue
-        text = _read_transcript(path)
-        con.execute("DELETE FROM session_fts WHERE stem = ?", (stem,))
-        if text:
-            con.execute("INSERT INTO session_fts (stem, body) VALUES (?, ?)",
-                        (stem, _index_body(text)))
-        con.execute(
-            "INSERT INTO files (stem, mtime, size) VALUES (?, ?, ?) "
-            "ON CONFLICT(stem) DO UPDATE SET mtime = excluded.mtime, "
-            "size = excluded.size", (stem, st.st_mtime, st.st_size))
-        touched += 1
+            try:
+                st = path.stat()
+            except OSError:
+                continue
+            stem = path.stem
+            seen.add(stem)
+            if known.get(stem) == (st.st_mtime, st.st_size):
+                continue
+            text, channel, model = _read_session(path)
+            date = datetime.fromtimestamp(st.st_mtime, timezone.utc).isoformat()
+            con.execute("DELETE FROM session_fts WHERE stem = ?", (stem,))
+            if text:
+                con.execute(
+                    "INSERT INTO session_fts "
+                    "(stem, date, channel, model, raw, body) "
+                    "VALUES (?, ?, ?, ?, ?, ?)",
+                    (stem, date, channel, model, text, _index_body(text)))
+            con.execute(
+                "INSERT INTO files "
+                "(stem, mtime, size, date, channel, model) "
+                "VALUES (?, ?, ?, ?, ?, ?) ON CONFLICT(stem) DO UPDATE SET "
+                "mtime = excluded.mtime, size = excluded.size, "
+                "date = excluded.date, channel = excluded.channel, "
+                "model = excluded.model",
+                (stem, st.st_mtime, st.st_size, date, channel, model))
+            touched += 1
+        finally:
+            if progress_cb is not None:
+                progress_cb(done, total)
 
     for stem in set(known) - seen:                  # transcript deleted/rotated
         con.execute("DELETE FROM session_fts WHERE stem = ?", (stem,))
@@ -158,7 +184,9 @@ def _reset() -> None:
 
 # -- query -----------------------------------------------------------------
 
-def search(query: str, limit: int = 5) -> Optional[list[dict[str, Any]]]:
+def search(query: str, limit: int = 5, *, since: Optional[str] = None,
+           channel: Optional[str] = None,
+           model: Optional[str] = None) -> Optional[list[dict[str, Any]]]:
     """BM25-ranked transcript search.
 
     Returns ``None`` when the index cannot serve the query, which is the
@@ -177,10 +205,23 @@ def search(query: str, limit: int = 5) -> Optional[list[dict[str, Any]]]:
     rows: Optional[list[Any]] = None
     try:
         refresh(con)
+        clauses = ["session_fts MATCH ?"]
+        params: list[Any] = [fts_query]
+        if since:
+            clauses.append("date >= ?")
+            params.append(since)
+        if channel:
+            clauses.append("lower(channel) = lower(?)")
+            params.append(channel)
+        if model:
+            clauses.append("lower(model) = lower(?)")
+            params.append(model)
+        params.append(int(limit))
         rows = con.execute(
-            "SELECT stem, bm25(session_fts) AS rank FROM session_fts "
-            "WHERE session_fts MATCH ? ORDER BY rank LIMIT ?",
-            (fts_query, int(limit))).fetchall()
+            "SELECT stem, date, channel, model, raw, "
+            "bm25(session_fts) AS rank FROM session_fts WHERE "
+            + " AND ".join(clauses) + " ORDER BY rank LIMIT ?", params
+        ).fetchall()
     except sqlite3.Error:
         rows = None
     finally:
@@ -189,4 +230,9 @@ def search(query: str, limit: int = 5) -> Optional[list[dict[str, Any]]]:
     if rows is None:
         _reset()          # only now that the handle is closed (see _connect)
         return None
-    return [{"session": stem} for stem, _rank in rows]
+    from .tools.sessions import _snippet
+    terms = [term for term in query.lower().split() if term]
+    return [{"session": stem, "date": date, "channel": channel,
+             "model": model, "snippet": _snippet(raw, terms),
+             "score": float(rank)}
+            for stem, date, channel, model, raw, rank in rows]

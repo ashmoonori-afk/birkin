@@ -22,7 +22,16 @@ from ..operation_policy import (
     diagnostic_block,
     permission_block,
 )
-from ._types import Tool, ToolContext, ToolResult
+from ._types import (
+    ImageContentBlock as ImageContentBlock,
+    ImageSource as ImageSource,
+    TextContentBlock as TextContentBlock,
+    Tool,
+    ToolContent,
+    ToolContext,
+    ToolResult,
+    content_text,
+)
 
 
 class ToolRegistry:
@@ -96,8 +105,9 @@ class ToolRegistry:
                 return queue_operation(name, tool_input, self.ctx, block)
         if self.ctx.hooks is not None:
             try:
-                self.ctx.hooks.post_tool(name, tool_input or {},
-                                         result.content, result.is_error)
+                self.ctx.hooks.post_tool(
+                    name, tool_input or {}, content_text(result.content),
+                    result.is_error)
             except Exception:
                 pass          # observers must not break the loop
         # The single choke point every native tool call passes through, so
@@ -106,8 +116,16 @@ class ToolRegistry:
         from .spill import maybe_spill
         # Mask BEFORE spilling: a secret must be absent from the file written
         # to disk too, not merely from the text the model is shown.
-        content = redact_tool_output(result.content, self.ctx.cfg)
-        content = maybe_spill(content, name, self.ctx.cfg)
+        if isinstance(result.content, str):
+            content: ToolContent = redact_tool_output(
+                result.content, self.ctx.cfg)
+            content = maybe_spill(content, name, self.ctx.cfg)
+        else:
+            content = [
+                {**block, "text": redact_tool_output(block["text"], self.ctx.cfg)}
+                if block["type"] == "text" else block
+                for block in result.content
+            ]
         return result if content is result.content \
             else ToolResult(content, result.is_error)
 
@@ -123,10 +141,10 @@ def build_registry(
     ``include`` optionally restricts which tool *groups* are registered
     (used to give subagents a scoped toolset). Groups:
     ``files``, ``shell``, ``web``, ``sessions``, ``skills``, ``memory``,
-    ``egress``, ``companion``, ``subagent``.
+    ``vision``, ``desktop``, ``egress``, ``companion``, ``subagent``.
     """
-    from . import (citations, egress, files, market, sessions,  # local: avoid cycles
-                   shell, web)
+    from . import (citations, desktop, egress, files, market,  # local: avoid cycles
+                   sessions, shell, vision, web)
     from .subagent_tool import subagent_tools
 
     groups: dict[str, list[Tool]] = {
@@ -134,8 +152,11 @@ def build_registry(
         "shell": shell.tools(),
         "web": web.tools() + market.tools() + citations.tools(),
         "sessions": sessions.tools(),
+        "vision": vision.tools(),
         "egress": egress.tools(),
     }
+    if ctx.cfg.get("desktop_tools") is True:
+        groups["desktop"] = desktop.tools()
     if ctx.skills is not None:
         groups["skills"] = ctx.skills.tools()
     if ctx.memory is not None:

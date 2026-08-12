@@ -23,13 +23,12 @@ import sys
 import time
 import urllib.parse
 import urllib.request
-from pathlib import Path
-
-from .proc import shell_argv
 from datetime import datetime, timedelta
+from pathlib import Path
 from typing import Any
 
-from . import config, cron, store
+from . import config, cron, monitor, store
+from .proc import shell_argv, shell_env
 
 _POLL_SECONDS = 30
 _TG_SEND = "https://api.telegram.org/bot{token}/sendMessage"
@@ -152,7 +151,7 @@ def run_checkins(now: datetime | None = None, *, send=_send_checkin) -> int:
 def _morpheus_hour(cfg: dict[str, Any]) -> int:
     """Read the configured Morpheus hour, honoring the legacy ``nightly_hour``
     key so existing config.json files keep working unchanged."""
-    return int(cfg.get("morpheus_hour", cfg.get("nightly_hour", 4)))
+    return int(cfg.get("morpheus_hour", cfg.get("nightly_hour", 7)))
 
 
 def _morpheus_minute(cfg: dict[str, Any]) -> int:
@@ -272,9 +271,32 @@ def _run_job(job: dict[str, Any]) -> None:
     jtype = job.get("type", "prompt")
     value = job.get("value", "")
     try:
+        if jtype == "monitor":
+            result = monitor.check(job)
+            if not result.changed:
+                status = (f"monitor error: {result.error}"
+                          if result.error else "unchanged")
+                silent = f"[SILENT] {status}"
+                delivery = _deliver(job, silent)
+                store.save_run(
+                    "cron", f"[{job.get('name')}] {silent}",
+                    {"job": job["id"], "error": result.error,
+                     "delivery": delivery},
+                    usage={"tokens": 0},
+                )
+                return
+            context = ["[Monitor change context]"]
+            if result.diff_context:
+                context.extend(["", result.diff_context])
+            if result.content_tail:
+                context.extend(["", "Content tail:", result.content_tail])
+            value = f"{value}\n\n" + "\n".join(context)
+            jtype = "prompt"
+
         if jtype == "shell":
             proc = subprocess.run(shell_argv(value), capture_output=True,
-                                  text=True, errors="replace", timeout=600)
+                                  text=True, errors="replace", timeout=600,
+                                  env=shell_env(), check=False)
             out = (proc.stdout or "") + (proc.stderr or "")
             delivery = _deliver(job, out.strip() or f"exit {proc.returncode}")
             store.save_run("cron", f"[{job.get('name')}] exit {proc.returncode}",

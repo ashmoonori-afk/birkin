@@ -121,13 +121,10 @@ def _agent(client, registry, **kw):
 
 def test_safe_calls_actually_run_at_the_same_time():
     calls = [_tu("web_fetch", "a"), _tu("web_fetch", "b"), _tu("web_fetch", "c")]
-    reg = SlowRegistry(delay=0.2, expect_parallel=3)   # barrier of 3
+    reg = SlowRegistry(delay=0, expect_parallel=3)   # barrier proves overlap
     agent = _agent(Batch(calls), reg)
 
-    start = time.monotonic()
     agent.run("go")
-    elapsed = time.monotonic() - start
-    assert elapsed < 0.5, f"took {elapsed:.2f}s — did not overlap"
 
 
 def test_serial_execution_is_the_baseline():
