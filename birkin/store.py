@@ -207,6 +207,7 @@ def append_ledger(entry: dict[str, Any]) -> None:
 
 def add_pending(*, category: str, title: str, description: str,
                 payload: dict[str, Any], origin: str = "morpheus",
+                continuation: dict[str, Any] | None = None,
                 details: dict[str, Any] | None = None) -> dict[str, Any]:
     aid = uuid.uuid4().hex[:12]
     rec = {"id": aid, "created": _now(), "category": category, "title": title,
@@ -217,6 +218,8 @@ def add_pending(*, category: str, title: str, description: str,
         if reserved:
             raise ValueError(f"pending details overwrite {sorted(reserved)[0]}")
         rec.update(details)
+    if continuation is not None:
+        rec["continuation"] = continuation
     _write_json(config.pending_dir() / f"{aid}.json", rec)
     return rec
 
@@ -253,6 +256,7 @@ def get_pending(aid: str) -> dict[str, Any] | None:
 
 def resolve_pending(aid: str, status: str,
                     reason: str = "",
+                    updates: dict[str, Any] | None = None,
                     details: dict[str, Any] | None = None) -> dict[str, Any] | None:
     if not valid_pending_id(aid):
         return None
@@ -264,14 +268,15 @@ def resolve_pending(aid: str, status: str,
     rec["resolved_at"] = _now()
     if reason:
         rec["deny_reason"] = reason[:300]
-    if details:
+    merged_updates = {**(updates or {}), **(details or {})}
+    if merged_updates:
         reserved = {"id", "created", "category", "title", "description",
                     "payload", "origin", "status", "resolved_at"}
-        overwritten = reserved & set(details)
+        overwritten = reserved & set(merged_updates)
         if overwritten:
             raise ValueError(
                 f"pending details overwrite {sorted(overwritten)[0]}")
-        rec.update(details)
+        rec.update(merged_updates)
     _write_json(path, rec)
     return rec
 

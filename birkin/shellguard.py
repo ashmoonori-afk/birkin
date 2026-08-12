@@ -28,13 +28,16 @@ from __future__ import annotations
 import fnmatch
 import re
 import unicodedata
+from pathlib import Path
 from typing import Any, Optional
 
-# Flags that may sit between `rm -rf` and its target. The double-dash form is
-# load-bearing: GNU rm REFUSES to delete `/` without --no-preserve-root, so the
-# most likely spelling of the worst command carries a flag the old pattern could
-# not match.
-_FLAGS = r"(--?[a-z][a-z-]*\s+)*"
+# Flags that may sit between `rm` and its target. The lookahead is bounded to
+# this flag prefix so `rm report-force` cannot look destructive because of its
+# filename.
+_RM_FLAG = r"--?[a-z][a-z-]*"
+_FLAGS = rf"({_RM_FLAG}\s+)*"
+# Require recursive/force semantics in that prefix, including GNU long aliases.
+_RM_DESTRUCTIVE = rf"(?=(?:{_RM_FLAG}\s+)*(?:(?:-[a-z]*[rf][a-z]*)|--(?:recursive|force))(\s|$))"
 # Block devices, not just physical ones. vda is every KVM/QEMU guest, xvda is
 # EC2, mmcblk is the SD card a Raspberry Pi boots from -- the deployment targets
 # birkin actually runs on.
@@ -52,9 +55,9 @@ HARDLINE: list[tuple[str, str]] = [
     # redirect), never continue into a path -- `rm -rf /home/me/proj` stays a
     # project-level delete. Anchoring to end-of-STRING instead is what let
     # `rm -rf / --no-preserve-root` fall through to the approvable tier.
-    (rf"\brm\s+(-[a-z]*\s+)*-[a-z]*[rf][a-z]*\s+{_FLAGS}(/|/\*|~|~/\*|\$HOME)(\s|$)",
+    (rf"\brm\s+{_RM_DESTRUCTIVE}{_FLAGS}(/|/\*|~|~/\*|\$HOME)(\s|$)",
      "rm -rf of the filesystem or home root"),
-    (rf"\brm\s+(-[a-z]*\s+)*-[a-z]*[rf][a-z]*\s+{_FLAGS}{_SYSDIRS}(/\*)?(\s|$)",
+    (rf"\brm\s+{_RM_DESTRUCTIVE}{_FLAGS}{_SYSDIRS}(/\*)?(\s|$)",
      "rm -rf of a system directory"),
     (r"\bmkfs(\.\w+)?\b", "formats a filesystem"),
     (rf"\bdd\b[^|;]*\bof=/dev/{_DISKS}", "writes directly to a raw disk"),
@@ -71,7 +74,7 @@ HARDLINE: list[tuple[str, str]] = [
 
 # Need confirmation. Destructive, but legitimately useful.
 DANGEROUS: list[tuple[str, str]] = [
-    (r"\brm\s+(-[a-z]*\s+)*-[a-z]*[rf]", "recursive/forced delete"),
+    (rf"\brm\s+{_RM_DESTRUCTIVE}", "recursive/forced delete"),
     (r"\b(rd|rmdir)\s+/s\b", "recursive directory delete"),
     (r"\bdel\s+/[sq]\b", "recursive/quiet delete"),
     (r"\bRemove-Item\b[^|;]*-Recurse", "recursive PowerShell delete"),
@@ -103,6 +106,10 @@ DANGEROUS: list[tuple[str, str]] = [
     (r"\bnc\b[^|;]*\s-e\b", "netcat reverse shell"),
     (r"\bshred\b", "irrecoverable overwrite"),
     (r"\btruncate\s+-s\s*0\b", "empties a file"),
+    (
+        r"\bbunx(?:\.cmd)?\s+tokscale(?:@[^\s]+)?\s+submit(?:\s|$)",
+        "submits data to the external Tokscale service",
+    ),
 ]
 
 _HARDLINE_RE = [(re.compile(p, re.I), why) for p, why in HARDLINE]
@@ -224,7 +231,7 @@ def check(command: str, ctx: Any) -> Optional[Any]:
 
     prompt = getattr(ctx, "shell_prompt_cb", None)
     if prompt is None:
-        return _queue_for_approval(command, why, cfg)
+        return _queue_for_approval(command, why, cfg, ctx.cwd)
 
     try:
         choice = str(prompt(command, why)).strip().lower()
@@ -250,7 +257,12 @@ def _targets_pending_store(command: str) -> bool:
     return pending in normalized or ".birkin/pending" in normalized
 
 
-def _queue_for_approval(command: str, why: str, cfg: dict[str, Any]) -> Any:
+def _queue_for_approval(
+    command: str,
+    why: str,
+    cfg: dict[str, Any],
+    cwd: Path | None = None,
+) -> Any:
     """Unattended surface: route into the existing approvals inbox."""
     from . import approvals
     from .tools import ToolResult
@@ -265,12 +277,18 @@ def _queue_for_approval(command: str, why: str, cfg: dict[str, Any]) -> Any:
     if approvals.is_auto("shell", cfg):
         return None
 
+    payload = {"command": command}
+    if cwd is not None:
+        payload["cwd"] = str(cwd)
     try:
         status = approvals.propose(
             category="shell", title=f"shell: {command[:60]}",
             description=f"Flagged by shellguard ({why}). Requested by an "
                         f"unattended birkin turn.",
-            payload={"command": command}, cfg=cfg, origin="shellguard")
+            payload=payload,
+            cfg=cfg,
+            origin="shellguard",
+        )
     except Exception as exc:
         return ToolResult(f"Refused ({why}) and could not queue it: {exc}",
                           is_error=True)

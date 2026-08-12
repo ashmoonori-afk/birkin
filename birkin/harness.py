@@ -165,12 +165,14 @@ def validate_edit(edit: Any, *, max_content: int = MAX_CONTENT) -> str | None:
         return "create needs content"
     if content is not None and len(str(content)) > max_content:
         return f"content too long ({len(str(content))} > {max_content})"
-    # SECURITY: a prompt note is injected verbatim into the system prompt, so it
-    # must not be able to forge, close, or reopen a sealed policy block.
-    if kind == "prompt" and content:
-        text = str(content)
-        if any(marker in text for marker in _policy_markers()):
-            return "prompt content may not contain a policy tag"
+    # Every entry title and body is rendered into the system prompt, regardless
+    # of kind, so none may forge, close, or reopen a sealed policy block.
+    for field in ("title", "content"):
+        text = edit.get(field)
+        if text and any(marker in str(text) for marker in _policy_markers()):
+            if kind == "prompt" and field == "content":
+                return "prompt content may not contain a policy tag"
+            return f"{field} may not contain a policy tag"
     return None
 
 

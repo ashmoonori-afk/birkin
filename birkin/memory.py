@@ -128,20 +128,19 @@ class VaultMemory:
         return notes
 
     def purge_expired(self) -> int:
-        """Delete notes whose ``expires_at`` is in the past; return the count.
+        """Archive notes whose ``expires_at`` is in the past; return the count.
 
-        TTL notes are otherwise only *hidden* from search/render, so the vault
-        grows without bound. Call this from the nightly maintenance routine — not
-        on every read, since a read should not silently delete a user's files."""
-        removed = 0
-        for entry in self.dex.entries().values():
-            if _is_expired(entry):
+        Expired notes stay recoverable and remain hidden from search/render.
+        Call this from the nightly maintenance routine, not from a read."""
+        archived = 0
+        for note_slug, entry in self.dex.entries().items():
+            if entry["zone"] != ARCHIVE_ZONE and _is_expired(entry):
                 try:
-                    (self.vault / entry["rel"]).unlink()
-                    removed += 1
-                except OSError:
+                    self.dex.rezone(note_slug, ARCHIVE_ZONE)
+                    archived += 1
+                except (OSError, ValueError):
                     pass
-        return removed
+        return archived
 
     def write_note(self, title: str, body: str, *, note_type: str | None = None,
                    tags: list[str] | None = None, links: list[str] | None = None,

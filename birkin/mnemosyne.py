@@ -742,7 +742,8 @@ class Mnemosyne:
             new = new_dir / f"{s}.md"
             if old != new:
                 new_dir.mkdir(parents=True, exist_ok=True)
-                os.replace(old, new)
+                os.link(old, new)
+                old.unlink()
             rel = f"{z}/{s}.md" if z else f"{s}.md"
             try:
                 st = new.stat()

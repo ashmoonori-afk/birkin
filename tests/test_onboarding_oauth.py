@@ -3,6 +3,39 @@
 from __future__ import annotations
 
 
+def test_onboarding_defaults_provider_menu_to_codex_cli(
+        tmp_path, monkeypatch):
+    from birkin import config, models, onboarding
+
+    cfg = dict(config.DEFAULT_CONFIG)
+    saved = {}
+
+    monkeypatch.setattr(onboarding.config, "load_config", lambda: dict(cfg))
+    monkeypatch.setattr(
+        onboarding.config, "config_path", lambda: tmp_path / "config.json")
+    monkeypatch.setattr(
+        onboarding.config, "save_config", lambda value: saved.update(value))
+    monkeypatch.setattr(onboarding.persona, "seed_default", lambda: False)
+    monkeypatch.setattr(onboarding, "_ask", lambda _label, default="": default)
+    monkeypatch.setattr(
+        onboarding, "_ask_yesno", lambda _label, default=False: False)
+
+    def select(_prompt, options, default=0):
+        assert options[default] == "codex-cli"
+        return default
+
+    monkeypatch.setattr(onboarding.menu, "select", select)
+
+    def pick_interactive(value):
+        assert value["provider"] == "codex-cli"
+        return None
+
+    monkeypatch.setattr(models, "pick_interactive", pick_interactive)
+
+    assert onboarding.run() == 0
+    assert saved["provider"] == "codex-cli"
+
+
 # -- gateway welcome / help --------------------------------------------------
 
 def test_gateway_welcome_is_friendly_and_grouped():

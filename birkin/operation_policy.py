@@ -9,6 +9,7 @@ from pathlib import Path
 
 _PERMISSION_MARKERS = (
     "access is denied",
+    "accessdenied",
     "permission denied",
     "operation not permitted",
     "winerror 5",
@@ -30,7 +31,15 @@ _POWERSHELL_MARKERS = (
     "pssecurityexception",
     "cannot be loaded because it is not digitally signed",
 )
-_TEMP_COMMANDS = frozenset({"py", "python", "pytest", "pip", "uv"})
+_TEMP_COMMANDS = frozenset({
+    "bun",
+    "bunx",
+    "pip",
+    "py",
+    "pytest",
+    "python",
+    "uv",
+})
 
 
 @dataclass(frozen=True, slots=True)
@@ -125,4 +134,4 @@ def retry_environment(gate: str, cwd: Path) -> dict[str, str]:
 def _command_name(command: str) -> str:
     first = command.strip().split(maxsplit=1)[0] if command.strip() else ""
     return first.strip("\"'").replace("\\", "/").rsplit("/", 1)[-1] \
-        .casefold().removesuffix(".exe")
+        .casefold().removesuffix(".exe").removesuffix(".cmd")

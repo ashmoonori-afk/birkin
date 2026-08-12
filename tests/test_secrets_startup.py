@@ -44,7 +44,8 @@ def home(tmp_path, monkeypatch):
 
 
 def _write_config(payload: dict) -> None:
-    config.config_path().write_text(json.dumps(payload), encoding="utf-8")
+    config.config_path().write_text(
+        json.dumps({"provider": "anthropic", **payload}), encoding="utf-8")
 
 
 class TestLoadConfigResolvesSecrets:

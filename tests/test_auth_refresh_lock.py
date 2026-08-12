@@ -132,12 +132,12 @@ def test_subscription_credentials_need_an_explicit_provider_opt_in(monkeypatch):
 
     hermes gates external-credential auto-discovery behind an explicit user
     choice. birkin gets the same property structurally -- the default provider
-    is the paid API key and only ``claude-oauth`` reaches ``oauth`` -- so this
-    pins that property rather than reimplementing the gate.
+    is Codex CLI and only ``claude-oauth`` reaches ``oauth`` -- so this pins
+    that property rather than reimplementing the gate.
     """
     from birkin import config, oauth
 
-    assert config.DEFAULT_CONFIG["provider"] == "anthropic"
+    assert config.DEFAULT_CONFIG["provider"] == "codex-cli"
     assert config.OAUTH_PROVIDERS == {"claude-oauth"}
 
     discovered: list[int] = []

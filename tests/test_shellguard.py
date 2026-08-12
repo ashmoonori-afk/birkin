@@ -6,8 +6,9 @@ from pathlib import Path
 
 import pytest
 
-from birkin import shellguard
+from birkin import shellguard, store
 from birkin.tools import ToolContext, build_registry
+from birkin.tools import shell as shell_mod
 
 
 @pytest.fixture(autouse=True)
@@ -49,6 +50,23 @@ def test_hardline_commands(command):
 ])
 def test_dangerous_commands(command):
     assert shellguard.detect(command)[0] == "dangerous"
+
+
+@pytest.mark.parametrize(
+    ("command", "tier"),
+    [
+        ("rm --recursive --force /etc", "hardline"),
+        ("rm --force --recursive /", "hardline"),
+        ("rm -r --force /var", "hardline"),
+        ("rm --recursive build/", "dangerous"),
+        ("rm --force build/", "dangerous"),
+        ("rm --verbose build/", None),
+        ("rm file-r", None),
+        ("rm report-force", None),
+    ],
+)
+def test_gnu_long_rm_options_are_flagged(command, tier):
+    assert shellguard.detect(command)[0] == tier
 
 
 @pytest.mark.parametrize("command", [
@@ -303,3 +321,37 @@ def test_run_shell_still_runs_benign_commands(tmp_path):
     reg = build_registry(ctx, include={"shell"})
     res = reg.execute("run_shell", {"command": "echo hello", "timeout": 20})
     assert not res.is_error and "hello" in res.content
+
+
+def test_tokscale_submit_is_approval_gated(
+        tmp_path, monkeypatch) -> None:
+    # Given
+    ctx = _ctx()
+    ctx.cwd = tmp_path
+    calls = 0
+
+    def run(*_args, **_kwargs):
+        nonlocal calls
+        calls += 1
+        return _Completed()
+
+    monkeypatch.setattr(shell_mod.subprocess, "run", run)
+    registry = build_registry(ctx, include={"shell"})
+
+    # When
+    result = registry.execute(
+        "run_shell",
+        {"command": "bunx tokscale@latest submit"},
+    )
+
+    # Then
+    pending = store.list_pending()
+    assert result.is_error is True
+    assert "queued for approval" in result.content
+    assert calls == 0
+    assert len(pending) == 1
+    assert pending[0]["category"] == "shell"
+    assert pending[0]["payload"] == {
+        "command": "bunx tokscale@latest submit",
+        "cwd": str(tmp_path),
+    }
