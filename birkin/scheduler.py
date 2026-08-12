@@ -17,6 +17,7 @@ import atexit
 import getpass
 import json
 import os
+import plistlib
 import signal
 import subprocess
 import sys
@@ -346,6 +347,9 @@ def _write_status(cfg: dict[str, Any], next_morpheus: datetime, running: bool) -
 
 # -- optional OS-native registration --------------------------------------
 
+_MACOS_LAUNCH_AGENT_LABEL = "dev.birkin.daemon"
+
+
 def install_os_schedule() -> int:
     """Register the OS task that keeps `birkin daemon` running.
 
@@ -358,17 +362,18 @@ def install_os_schedule() -> int:
 
     The daemon reads ``morpheus_hour``/``morpheus_minute`` from config itself,
     so the OS task carries no time — it only has to start the process and let
-    it survive. Uses Task Scheduler on Windows and crontab elsewhere. Opt-in.
+    it survive. Uses Task Scheduler on Windows, launchd on macOS, and crontab
+    on Linux. Opt-in.
     The task / crontab entry name stays ``birkin-nightly`` so re-running this
     REPLACES an existing (including the old morpheus-only) installation
     instead of leaving both.
     """
     cfg = config.load_config()
     py = sys.executable
+    roots = cfg.get("workspace_roots") or []
+    working_dir = str(Path(roots[0]).expanduser() if roots else Path.cwd())
 
     if sys.platform.startswith("win"):
-        roots = cfg.get("workspace_roots") or []
-        working_dir = str(Path(roots[0]).expanduser() if roots else Path.cwd())
         cmd = f'cmd.exe /d /c "cd /d ""{working_dir}"" && ""{py}"" -m birkin daemon"'
         # ONLOGON, not DAILY: a 30s poll loop cannot live in a one-shot. /ST is
         # rejected in combination with ONLOGON, hence no start time here.
@@ -402,7 +407,52 @@ def install_os_schedule() -> int:
         print((proc.stdout or proc.stderr).strip())
         return _install_windows_startup(py, working_dir)
 
+    if sys.platform == "darwin":
+        return _install_macos_launch_agent(py, working_dir)
     return _install_posix_crontab(py)
+
+
+def _install_macos_launch_agent(py: str, working_dir: str) -> int:
+    agent = (
+        Path.home()
+        / "Library"
+        / "LaunchAgents"
+        / f"{_MACOS_LAUNCH_AGENT_LABEL}.plist"
+    )
+    agent.parent.mkdir(parents=True, exist_ok=True)
+    log_dir = Path.home() / "Library" / "Logs" / "birkin"
+    log_dir.mkdir(parents=True, exist_ok=True)
+    payload = {
+        "Label": _MACOS_LAUNCH_AGENT_LABEL,
+        "ProgramArguments": [py, "-m", "birkin", "daemon"],
+        "WorkingDirectory": working_dir,
+        "RunAtLoad": True,
+        "KeepAlive": True,
+        "StandardOutPath": str(log_dir / "daemon.stdout.log"),
+        "StandardErrorPath": str(log_dir / "daemon.stderr.log"),
+    }
+    tmp = agent.with_suffix(".plist.tmp")
+    tmp.write_bytes(plistlib.dumps(payload))
+    os.replace(tmp, agent)
+
+    domain = f"gui/{os.getuid()}"
+    subprocess.run(
+        ["launchctl", "bootout", f"{domain}/{_MACOS_LAUNCH_AGENT_LABEL}"],
+        capture_output=True,
+        text=True,
+        errors="replace",
+    )
+    proc = subprocess.run(
+        ["launchctl", "bootstrap", domain, str(agent)],
+        capture_output=True,
+        text=True,
+        errors="replace",
+    )
+    if proc.returncode == 0:
+        print(f"Installed macOS LaunchAgent: {agent}")
+    else:
+        print(proc.stderr)
+    return proc.returncode
 
 
 def _install_windows_startup(py: str, working_dir: str) -> int:

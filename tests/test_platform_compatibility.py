@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import plistlib
+import subprocess
 import sys
 from pathlib import Path
 from types import SimpleNamespace
@@ -24,6 +25,7 @@ class _PortableWindow:
 def test_desktop_windows_use_cross_platform_backend(monkeypatch) -> None:
     backend = SimpleNamespace(getAllWindows=lambda: [_PortableWindow()])
     monkeypatch.setitem(sys.modules, "pywinctl", backend)
+    monkeypatch.setattr(desktop.sys, "platform", "linux")
 
     assert desktop._visible_windows() == [
         desktop.DesktopWindow(
@@ -36,6 +38,44 @@ def test_desktop_windows_use_cross_platform_backend(monkeypatch) -> None:
             minimized=False,
         )
     ]
+
+
+def test_macos_window_capture_uses_native_window_handle(
+    monkeypatch,
+) -> None:
+    calls: list[list[str]] = []
+    quartz = SimpleNamespace(CGPreflightScreenCaptureAccess=lambda: True)
+
+    def run(argv, **_kwargs):
+        calls.append([str(part) for part in argv])
+        Path(argv[-1]).write_bytes(b"png-data")
+        return subprocess.CompletedProcess(argv, 0, "", "")
+
+    monkeypatch.setitem(sys.modules, "Quartz", quartz)
+    monkeypatch.setattr(desktop.subprocess, "run", run)
+
+    data = desktop._macos_window_png(
+        desktop.DesktopWindow(73, "Editor", 0, 0, 400, 300, False)
+    )
+
+    assert data == b"png-data"
+    assert calls[0][1:4] == ["-x", "-l", "73"]
+
+
+def test_macos_window_capture_reports_missing_permission(
+    monkeypatch,
+) -> None:
+    quartz = SimpleNamespace(CGPreflightScreenCaptureAccess=lambda: False)
+    monkeypatch.setitem(sys.modules, "Quartz", quartz)
+
+    try:
+        desktop._macos_window_png(
+            desktop.DesktopWindow(73, "Editor", 0, 0, 400, 300, False)
+        )
+    except desktop.DesktopUnavailableError as exc:
+        assert "Screen Recording" in str(exc)
+    else:
+        raise AssertionError("capture should require Screen Recording permission")
 
 
 def test_macos_schedule_uses_user_launch_agent(

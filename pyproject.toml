@@ -17,6 +17,8 @@ keywords = ["agent", "cli", "skills", "subagents", "self-improving", "llm"]
 dependencies = [
     "openai[realtime,voice_helpers]>=2.53,<3",
     "Pillow>=11",
+    "pyobjc-framework-Quartz>=12.0; sys_platform == 'darwin'",
+    "pywinctl>=0.4.1; sys_platform == 'linux'",
     "pywin32>=308; sys_platform == 'win32'",
 ]
 
