@@ -350,6 +350,10 @@ def _write_status(cfg: dict[str, Any], next_morpheus: datetime, running: bool) -
 _MACOS_LAUNCH_AGENT_LABEL = "dev.birkin.daemon"
 
 
+def _macos_gui_domain() -> str:
+    return f"gui/{os.getuid()}"
+
+
 def install_os_schedule() -> int:
     """Register the OS task that keeps `birkin daemon` running.
 
@@ -435,7 +439,7 @@ def _install_macos_launch_agent(py: str, working_dir: str) -> int:
     tmp.write_bytes(plistlib.dumps(payload))
     os.replace(tmp, agent)
 
-    domain = f"gui/{os.getuid()}"
+    domain = _macos_gui_domain()
     subprocess.run(
         ["launchctl", "bootout", f"{domain}/{_MACOS_LAUNCH_AGENT_LABEL}"],
         capture_output=True,

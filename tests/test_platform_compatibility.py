@@ -126,6 +126,7 @@ def test_macos_schedule_uses_user_launch_agent(
 
     monkeypatch.setattr(scheduler.sys, "platform", "darwin")
     monkeypatch.setattr(scheduler.Path, "home", classmethod(lambda _cls: tmp_path))
+    monkeypatch.setattr(scheduler, "_macos_gui_domain", lambda: "gui/501")
     monkeypatch.setattr(scheduler.subprocess, "run", run)
 
     assert scheduler.install_os_schedule() == 0
