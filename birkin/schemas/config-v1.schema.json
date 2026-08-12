@@ -1,0 +1,70 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://birkin.dev/schemas/config-v1.schema.json",
+  "title": "Birkin configuration",
+  "x-birkin-version": 1,
+  "type": "object",
+  "additionalProperties": true,
+  "properties": {
+    "max_tokens": {"type": "integer", "minimum": 1},
+    "max_turns": {"type": "integer", "minimum": 1},
+    "context_window": {"type": "integer", "minimum": 1},
+    "web_port": {"type": "integer", "minimum": 1, "maximum": 65535},
+    "gateway_port": {"type": "integer", "minimum": 1, "maximum": 65535},
+    "morpheus_hour": {"type": "integer", "minimum": 0, "maximum": 23},
+    "morpheus_minute": {"type": "integer", "minimum": 0, "maximum": 59},
+    "nightly_hour": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 23,
+      "deprecated": true,
+      "x-replaced-by": "morpheus_hour"
+    },
+    "nightly_minute": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 59,
+      "deprecated": true,
+      "x-replaced-by": "morpheus_minute"
+    },
+    "cli_access": {
+      "type": "string",
+      "enum": ["none", "workspace", "full"]
+    },
+    "shell_approval": {
+      "type": "string",
+      "enum": ["manual", "allowlist", "full"]
+    },
+    "repl_typed_line": {
+      "type": "string",
+      "enum": ["steer", "queue"]
+    },
+    "voice": {
+      "type": "object",
+      "additionalProperties": true,
+      "properties": {
+        "sample_rate": {"type": "integer", "minimum": 8000},
+        "background_workers": {"type": "integer", "minimum": 1}
+      }
+    },
+    "channels": {
+      "type": "object",
+      "additionalProperties": true,
+      "properties": {
+        "telegram": {
+          "type": "object",
+          "additionalProperties": true,
+          "properties": {
+            "enabled": {"type": "boolean"},
+            "token": {"type": "string", "x-secret": true},
+            "allowed_chat_ids": {
+              "type": "array",
+              "items": {"type": "string"}
+            },
+            "stream": {"type": "boolean"}
+          }
+        }
+      }
+    }
+  }
+}
