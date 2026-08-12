@@ -77,7 +77,7 @@ https://raw.githubusercontent.com/ashmoonori-afk/birkin/main/README.ko.md
 | **삭제할 수 없는 기억** | 모델은 타입이 정해진 plan만 제안합니다. mutation은 결정적 코드가 소유하고, archive 양에 상한을 두고, 보호 노트는 건드리지 않으며, 볼트를 먼저 checkpoint합니다. |
 | **실측한 lexical 검색** | 한글 인식 토큰 위의 BM25, 에빙하우스 감쇠, Hebbian 강화, zone priority EMA, 가우시안 최근성 사전확률. encoder도 vector store도 없고 benchmark harness는 저장소에 있습니다. |
 | **spawn 도구가 아니라 graph runtime** | `agent`, `parallel`, `pipeline`은 코드 primitive입니다. 스크립트에 모델 이름을 적지 않고도 하나의 workflow가 Claude, Codex, OpenAI 호환 모델을 가로지릅니다. |
-| **경계가 있는 worker** | 이름 붙은 worker 6개, 각각 하나의 실행 조건과 하나의 권한 상한. 상한은 프롬프트가 아니라 executor에 있습니다. |
+| **경계가 있는 worker** | 이름 붙은 worker 6개, 각각 하나의 실행 조건과 하나의 권한 상한. 상한은 프롬프트가 아니라 executor에 있고 continuation은 명시적 승인 뒤에만 실행됩니다. |
 | **결과가 생기기 전에 승인** | 파괴적 shell 작업은 거부되거나 queue에 들어갑니다. 거부 사유가 에이전트에게 돌아가 맹목적 재시도 대신 방향을 고칩니다. 모델은 자기 shell 명령을 승인하지 않습니다. |
 | **Fail-closed mutation** | 변경 도구는 먼저 checkpoint하거나 실행을 거부합니다. resume은 sequence와 prompt·call option 해시가 모두 일치하는 call만 재사용합니다. |
 | **한국어가 제1언어** | 한글 bigram 검색, 한국어 날짜 단서와 일정, CJK 정확한 터미널 폭. 나중에 현지화한 것이 아니라 한국어로 검증합니다. |

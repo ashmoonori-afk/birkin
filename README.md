@@ -80,7 +80,7 @@ https://raw.githubusercontent.com/ashmoonori-afk/birkin/main/README.md
 | **Delete-free memory** | The model proposes a typed plan. Deterministic code owns the mutation, caps how much may be archived, refuses to touch protected notes, and checkpoints the vault first. |
 | **Lexical retrieval, measured** | BM25 over Hangul-aware tokens, Ebbinghaus decay, Hebbian potentiation, zone-priority EMA, and a Gaussian recency prior. No encoder, no vector store, benchmark harness in the repo. |
 | **A graph runtime, not a spawn tool** | `agent`, `parallel`, and `pipeline` are code primitives. One workflow can cross Claude, Codex, and OpenAI-compatible models without naming any of them in the script. |
-| **Bounded workers** | Six named workers, each with one trigger and one authority ceiling. Ceilings live in the executor, not the prompt. |
+| **Bounded workers** | Six named workers, each with one trigger and one authority ceiling. Ceilings live in the executor, not the prompt, and continuations run only after explicit approval. |
 | **Approval before consequence** | Destructive shell work is refused or queued, and a denial carries your reason back so the agent corrects instead of retrying blind. A model never approves its own shell command. |
 | **Fail-closed mutation** | Mutating tools checkpoint first or refuse to run. Resume reuses a cached call only when its sequence and a hash of prompt plus call options both still match. |
 | **Korean as a first language** | Hangul bigram retrieval, Korean date cues and schedules, CJK-correct terminal widths. Tested in Korean rather than localized afterward. |
