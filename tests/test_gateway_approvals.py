@@ -20,7 +20,7 @@ def _gateway(tmp_path, monkeypatch, tg_allowed=("42",)):
 
 def _queue_pending(title="test action"):
     from birkin import store
-    return store.add_pending(category="note", title=title,
+    return store.add_pending(category="memory", title=title,
                              description="a harmless queued action",
                              payload={}, origin="test")
 

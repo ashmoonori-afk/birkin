@@ -17,9 +17,11 @@ consequential actions directly.
 from __future__ import annotations
 
 import subprocess
+from pathlib import Path
 from typing import Any
 
 from . import config, cron, risk, store
+from .operation_policy import retry_environment
 from .proc import shell_argv, shell_env
 
 
@@ -112,9 +114,21 @@ def execute_action(category: str, payload: dict[str, Any],
         return f"Registered cron job '{job['name']}' at " \
                f"{cron.schedule_display(job)} (id {job['id']})."
     if category == "shell":
-        command = payload.get("command", "")
+        command = str(payload.get("command") or "")
         if not command:
             return "No command to run."
+        cwd = Path(str(payload.get("cwd") or Path.cwd())).expanduser().resolve()
+        if not cwd.is_dir():
+            return f"Working directory does not exist: {cwd}"
+        environment = shell_env()
+        command_name = command.strip().split(maxsplit=1)[0] \
+            .strip("\"'").replace("\\", "/").rsplit("/", 1)[-1] \
+            .casefold().removesuffix(".exe").removesuffix(".cmd")
+        if command_name in {"bun", "bunx"}:
+            local_temp = retry_environment("local_temp_policy", cwd)
+            for key in ("TEMP", "TMP", "UV_CACHE_DIR"):
+                Path(local_temp[key]).mkdir(parents=True, exist_ok=True)
+            environment.update(local_temp)
         try:
             to = payload.get("timeout", 300)
             try:                           # model/user payload may be non-int
@@ -124,7 +138,7 @@ def execute_action(category: str, payload: dict[str, Any],
             proc = subprocess.run(shell_argv(command), capture_output=True,
                                   text=True, errors="replace",
                                   timeout=max(1, min(3600, to)),
-                                  env=shell_env(), check=False)
+                                  cwd=str(cwd), env=environment, check=False)
         except subprocess.TimeoutExpired:
             return "Command timed out."
         out = (proc.stdout or "") + (proc.stderr or "")
@@ -144,8 +158,9 @@ def execute_action(category: str, payload: dict[str, Any],
     if category == "harness":
         from .harness import apply_approved_edit
         return apply_approved_edit(payload)
-    # memory is applied by the agent directly; nothing else has an executor.
-    return f"(no executor for category '{category}')"
+    if category == "memory":
+        return "(memory is applied directly by the agent)"
+    raise ValueError(f"unknown approval category {category!r}")
 
 
 # -- CLI review ------------------------------------------------------------

@@ -156,6 +156,55 @@ def test_run_turn_renders_proposal_as_one_button_message(
     assert len(pending) == 1 and pending[0]["category"] == "workflow"
 
 
+def test_ultrawork_preface_renders_once_with_workflow_card(
+        tmp_path, monkeypatch) -> None:
+    # Given
+    monkeypatch.setenv("BIRKIN_HOME", str(tmp_path))
+    body = json.dumps({
+        "title": "Tokscale 제출 실행",
+        "summary": "승인 후 정확한 명령만 실행합니다.",
+        "steps": ["제출 명령 확인", "승인 후 실행"],
+    }, ensure_ascii=False)
+    reply = (
+        "ULTRAWORK MODE ENABLED!\n\n"
+        f"{workflow.PROPOSAL_OPEN}{body}{workflow.PROPOSAL_CLOSE}"
+    )
+
+    class _Gateway:
+        pending_hard_restart = False
+
+        @staticmethod
+        def handle(_channel, _chat_id, _text, on_text=None):
+            if on_text:
+                on_text(reply)
+            return reply
+
+    channel = TelegramChannel("token", allowed_chat_ids=["42"])
+    calls: list[tuple[str, dict]] = []
+    monkeypatch.setattr(
+        channel, "_keep_typing",
+        lambda _chat_id, _stop, _progress=None: None,
+    )
+    monkeypatch.setattr(
+        channel,
+        "_call",
+        lambda method, params, timeout=60: (
+            calls.append((method, params))
+            or {"ok": True, "result": {"message_id": 7}}
+        ),
+    )
+
+    # When
+    channel._run_turn(_Gateway(), "42", "Tokscale 제출해줘", 1)
+
+    # Then
+    sent = [params for method, params in calls if method == "sendMessage"]
+    assert len(sent) == 1
+    assert sent[0]["text"].count("ULTRAWORK MODE ENABLED!") == 1
+    assert workflow.PROPOSAL_OPEN not in sent[0]["text"]
+    assert "reply_markup" in sent[0]
+
+
 def test_workflow_proposal_is_an_html_safe_approval_card(
         tmp_path, monkeypatch) -> None:
     monkeypatch.setenv("BIRKIN_HOME", str(tmp_path))
