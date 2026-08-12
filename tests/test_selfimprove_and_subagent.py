@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import pytest
 
 from birkin import selfimprove
 from birkin.runtime import build_session
@@ -366,3 +367,88 @@ def test_nested_subagent_records_parent_relationship(monkeypatch):
     assert len(roots) == 1
     assert roots[0]["task"] == "root"
     assert roots[0]["children"][0]["task"] == "nested"
+
+
+def test_subagents_share_concurrent_and_total_node_budget(monkeypatch):
+    import threading
+
+    from birkin import subagent as subagent_mod
+
+    session = build_session({
+        "provider": "codex-cli",
+        "model": "",
+        "subagent_tree_max_concurrent": 1,
+        "subagent_tree_max_nodes": 1,
+    })
+    started = threading.Event()
+    release = threading.Event()
+    finished = threading.Event()
+
+    def fake_run(self, user_text, on_text=None):
+        started.set()
+        assert release.wait(timeout=10)
+        finished.set()
+        return "done"
+
+    monkeypatch.setattr("birkin.agent.Agent.run", fake_run)
+    subagent_mod.run_subagent("first", session.ctx, detach=True)
+    assert started.wait(timeout=10)
+
+    with pytest.raises(RuntimeError, match="concurrent child limit"):
+        subagent_mod.run_subagent("second", session.ctx)
+
+    release.set()
+    assert finished.wait(timeout=10)
+
+    node_session = build_session({
+        "provider": "codex-cli",
+        "model": "",
+        "subagent_tree_max_nodes": 1,
+    })
+    monkeypatch.setattr(
+        "birkin.agent.Agent.run",
+        lambda self, user_text, on_text=None: "done",
+    )
+    assert subagent_mod.run_subagent("first node", node_session.ctx) == "done"
+    with pytest.raises(RuntimeError, match="total node limit"):
+        subagent_mod.run_subagent("second node", node_session.ctx)
+
+
+def test_subagent_tree_budget_reserves_tokens_usd_and_deadline(monkeypatch):
+    from birkin import subagent as subagent_mod
+
+    session = build_session({
+        "provider": "codex-cli",
+        "model": "",
+        "subagent_tree_max_tokens": 100,
+        "subagent_tree_max_usd": 1.0,
+        "subagent_tree_deadline_seconds": 60,
+    })
+    monkeypatch.setattr(
+        "birkin.agent.Agent.run",
+        lambda self, user_text, on_text=None: "done",
+    )
+
+    assert subagent_mod.run_subagent(
+        "within budget",
+        session.ctx,
+        reserve_tokens=60,
+        reserve_usd=0.5,
+    ) == "done"
+
+    with pytest.raises(RuntimeError, match="token budget"):
+        subagent_mod.run_subagent(
+            "too many tokens",
+            session.ctx,
+            reserve_tokens=99,
+        )
+    with pytest.raises(RuntimeError, match="USD budget"):
+        subagent_mod.run_subagent(
+            "too much money",
+            session.ctx,
+            reserve_usd=0.75,
+        )
+
+    session.ctx.tree_budget.deadline = 0.0
+    with pytest.raises(RuntimeError, match="deadline"):
+        subagent_mod.run_subagent("too late", session.ctx)

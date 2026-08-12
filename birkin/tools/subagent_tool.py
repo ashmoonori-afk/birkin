@@ -29,7 +29,9 @@ def _spawn_subagent(inp: dict[str, Any], ctx: ToolContext) -> ToolResult:
     skills = inp.get("skills") or None
     max_turns = int(inp.get("max_turns", 12))
     result = run_subagent(task, ctx, skill_names=skills, max_turns=max_turns,
-                          detach=bool(inp.get("detach", False)))
+                          detach=bool(inp.get("detach", False)),
+                          reserve_tokens=int(inp.get("reserve_tokens", 0)),
+                          reserve_usd=float(inp.get("reserve_usd", 0.0)))
     return ToolResult(result)
 
 
@@ -57,6 +59,16 @@ def subagent_tools() -> list[Tool]:
                                "description": "Run in the background and return "
                                               "the run id immediately instead of "
                                               "blocking until it finishes"},
+                    "reserve_tokens": {
+                        "type": "integer",
+                        "minimum": 0,
+                        "description": "Tree token lease reserved before spawn",
+                    },
+                    "reserve_usd": {
+                        "type": "number",
+                        "minimum": 0,
+                        "description": "Tree USD lease reserved before spawn",
+                    },
                 },
                 "required": ["task"],
             },

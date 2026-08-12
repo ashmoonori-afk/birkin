@@ -308,6 +308,11 @@ DEFAULT_CONFIG: dict[str, Any] = {
     # --- Budget governor (P3 reliability). 0 = unlimited. ---
     "budget_tokens_daily": 0,
     "budget_tokens_monthly": 0,
+    "subagent_tree_max_tokens": 0,
+    "subagent_tree_max_usd": 0.0,
+    "subagent_tree_deadline_seconds": 0,
+    "subagent_tree_max_concurrent": 4,
+    "subagent_tree_max_nodes": 16,
     # Seconds to wait for a CLI-agent subprocess (claude/codex/local-cli) before
     # giving up; surfaced so users can tune long-running agents. See llm.py.
     "cli_timeout": 300,
