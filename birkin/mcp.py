@@ -1,14 +1,12 @@
-"""MCP (Model Context Protocol) server management — company tool connections.
+"""Manage external Claude MCP servers without promising Birkin inheritance.
 
-birkin's gateway runs on Claude Code (a warm persistent process; see
-``claude_session.py``), so it **inherits Claude Code's MCP servers natively** —
-whatever MCP connections Claude Code has (Notion, Google Drive/Gmail/Calendar,
-internal HTTP/stdio servers, …) are available to the agent with no extra wiring.
+``birkin mcp`` remains a pass-through to ``claude mcp`` so users can inspect
+and manage Claude Code's global connections. In the default enforced-egress
+mode, however, Birkin starts Claude with a strict MCP config and allows only
+Birkin's own MCP tools. External Claude MCP servers are not inherited.
 
-This module is the thin, friendly surface birkin puts on top of that: a
-pass-through to ``claude mcp`` (so ``birkin mcp add|remove|list|get`` work with
-the full Claude Code feature set) plus a tolerant parser of ``claude mcp list``
-for birkin's own ``/mcp`` command and dashboard.
+The module also provides a tolerant parser of ``claude mcp list`` for Birkin's
+``/mcp`` command and dashboard.
 
 Pure standard library — shells out to the ``claude`` CLI via ``proc.cli_argv``.
 """
@@ -17,9 +15,17 @@ from __future__ import annotations
 
 import subprocess
 from dataclasses import dataclass
-from typing import Optional
 
 from .proc import cli_argv
+
+
+def scope_note() -> str:
+    """Describe how global Claude MCP configuration relates to Birkin."""
+    return (
+        "External Claude MCP servers are managed here. With "
+        "egress.enforced=true, Birkin sessions allow only Birkin MCP tools "
+        "and do not inherit these servers."
+    )
 
 
 @dataclass(frozen=True)
@@ -31,7 +37,7 @@ class McpServer:
 
 
 def run(args: list[str], *, capture: bool = False,
-        timeout: int = 60) -> subprocess.CompletedProcess:
+        timeout: int = 60) -> subprocess.CompletedProcess[str]:
     """Run ``claude mcp <args>``. By default inherits stdio (user sees output).
 
     With ``capture=True`` the output is captured (used by :func:`list_servers`).
@@ -39,8 +45,14 @@ def run(args: list[str], *, capture: bool = False,
     argv = cli_argv(["claude", "mcp", *args])
     if capture:
         return subprocess.run(argv, capture_output=True, text=True,
-                              errors="replace", timeout=timeout)
-    return subprocess.run(argv, timeout=timeout)
+                              errors="replace", timeout=timeout, check=False)
+    return subprocess.run(
+        argv,
+        text=True,
+        errors="replace",
+        timeout=timeout,
+        check=False,
+    )
 
 
 def _parse_list(output: str) -> list[McpServer]:
@@ -68,7 +80,7 @@ def _parse_list(output: str) -> list[McpServer]:
     return servers
 
 
-def list_servers(*, timeout: int = 60) -> tuple[list[McpServer], Optional[str]]:
+def list_servers(*, timeout: int = 60) -> tuple[list[McpServer], str | None]:
     """Return (servers, error). ``error`` is non-None when ``claude mcp`` failed."""
     try:
         proc = run(["list"], capture=True, timeout=timeout)

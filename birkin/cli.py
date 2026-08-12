@@ -769,9 +769,10 @@ def _cmd_mcp_serve(args: argparse.Namespace) -> int:
 
 
 def _cmd_mcp(args: argparse.Namespace) -> int:
-    """Manage MCP servers via the `claude` CLI (the gateway inherits them)."""
+    """Manage external MCP servers via the `claude` CLI."""
     from . import mcp
     sub = [a for a in (args.args or []) if a != "--"]
+    print(mcp.scope_note())
     if not sub:
         servers, err = mcp.list_servers()
         if err:
@@ -781,7 +782,7 @@ def _cmd_mcp(args: argparse.Namespace) -> int:
             print("No MCP servers configured. Add one with: "
                   "birkin mcp add <name> <command-or-url>")
             return 0
-        print("MCP servers (the birkin gateway inherits these automatically):")
+        print("External Claude MCP servers:")
         for s in servers:
             mark = "✓" if s.connected else "•"
             print(f"  {mark} {s.name} — {s.status}")
@@ -1051,7 +1052,13 @@ def build_parser() -> argparse.ArgumentParser:
     sub.add_parser("setup", help="guided onboarding wizard").set_defaults(func=_cmd_setup)
     sub.add_parser("onboard", help="alias for setup (first-run wizard)").set_defaults(func=_cmd_setup)
 
-    sub.add_parser("gateway", help="run birkin as a service (HTTP / Telegram channels)").set_defaults(func=_cmd_gateway)
+    sub.add_parser(
+        "gateway",
+        help=(
+            "run birkin as a service (HTTP / Telegram inbound; "
+            "Slack / Discord send-only)"
+        ),
+    ).set_defaults(func=_cmd_gateway)
 
     p_voice = sub.add_parser(
         "voice",
@@ -1333,8 +1340,12 @@ def build_parser() -> argparse.ArgumentParser:
     tp_.set_defaults(func=_cmd_trace)
 
     mcpp = sub.add_parser(
-        "mcp", help="manage MCP servers (company tool connections; wraps `claude mcp`). "
-                    "The gateway inherits these automatically.")
+        "mcp",
+        help=(
+            "manage external Claude MCP servers (not inherited when "
+            "egress enforcement is enabled)"
+        ),
+    )
     mcpp.add_argument("args", nargs=argparse.REMAINDER,
                       help="passed straight to `claude mcp` (e.g. list, add, remove, get)")
     mcpp.set_defaults(func=_cmd_mcp)

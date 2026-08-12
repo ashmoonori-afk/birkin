@@ -48,6 +48,15 @@ def test_default_webhook_channels_are_disabled():
     assert default_registry.resolve("discord", cfg) is None
 
 
+def test_default_webhook_channels_are_labeled_send_only():
+    from birkin.gateway.channels.registry import default_registry
+
+    assert default_registry.labels() == (
+        "slack (send-only)",
+        "discord (send-only)",
+    )
+
+
 def test_registry_contract_and_legacy_fallthrough():
     from birkin.gateway.channels.registry import ChannelEntry, Registry
 

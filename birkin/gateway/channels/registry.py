@@ -7,8 +7,9 @@ are lightweight outbound targets created only when a delivery names them.
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import dataclass
-from typing import Any, Callable
+from typing import Any
 
 
 @dataclass(frozen=True)
@@ -21,6 +22,7 @@ class ChannelEntry:
     health: Callable[[], str]
     max_message_len: int
     allowed: Callable[[str], bool]
+    direction: str = "send-only"
 
 
 class Registry:
@@ -48,6 +50,13 @@ class Registry:
 
     def names(self) -> tuple[str, ...]:
         return tuple(self._entries)
+
+    def labels(self) -> tuple[str, ...]:
+        """Human-facing names that make channel direction explicit."""
+        return tuple(
+            f"{entry.name} ({entry.direction})"
+            for entry in self._entries.values()
+        )
 
     def resolve(self, name: str, cfg: dict[str, Any], *,
                 fallback: Callable[[str], Any] | None = None) -> Any | None:
@@ -97,6 +106,10 @@ def names() -> tuple[str, ...]:
     return default_registry.names()
 
 
+def labels() -> tuple[str, ...]:
+    return default_registry.labels()
+
+
 def resolve_delivery_target(
         name: str, cfg: dict[str, Any], *,
         fallback: Callable[[str], Any] | None = None,
@@ -110,6 +123,7 @@ __all__ = [
     "Registry",
     "default_registry",
     "get",
+    "labels",
     "names",
     "register",
     "resolve_delivery_target",

@@ -5,6 +5,8 @@ from __future__ import annotations
 import os
 import subprocess
 
+import pytest
+
 from birkin import mcp
 
 _SAMPLE = """Checking MCP server health…
@@ -108,7 +110,10 @@ def test_cmd_mcp_list(monkeypatch, capsys):
     monkeypatch.setattr(mcp, "list_servers",
                         lambda **k: ([mcp.McpServer("n", "d", "✓ Connected", True)], None))
     assert cli._cmd_mcp(_ns([])) == 0
-    assert "MCP servers" in capsys.readouterr().out
+    output = capsys.readouterr().out
+    assert "External Claude MCP servers" in output
+    assert "egress.enforced=true" in output
+    assert "only Birkin MCP tools" in output
 
 
 def test_cmd_mcp_list_empty(monkeypatch):
@@ -123,8 +128,21 @@ def test_cmd_mcp_list_error(monkeypatch):
     assert cli._cmd_mcp(_ns([])) == 1
 
 
-def test_cmd_mcp_passthrough(monkeypatch):
+def test_cmd_mcp_passthrough(monkeypatch, capsys):
     from birkin import cli
     monkeypatch.setattr(mcp, "run",
                         lambda sub: subprocess.CompletedProcess(sub, 0))
     assert cli._cmd_mcp(_ns(["list"])) == 0
+    assert "External Claude MCP servers" in capsys.readouterr().out
+
+
+def test_top_level_help_does_not_promise_mcp_inheritance(capsys):
+    from birkin import cli
+
+    with pytest.raises(SystemExit) as stopped:
+        cli.main(["--help"])
+    assert stopped.value.code == 0
+    output = capsys.readouterr().out
+    assert "not inherited when" in output
+    assert "egress enforcement is enabled" in output
+    assert "inherits these automatically" not in output
