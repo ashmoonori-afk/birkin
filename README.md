@@ -1,3 +1,5 @@
+
+
 # birkin
 
 **A local-first Python agent that treats memory, execution, and
@@ -32,7 +34,7 @@ Every row is something the repository can be made to show you.
 
 | | Measured or enforced |
 |---|---|
-| **3 runtime dependencies** | The OpenAI SDK for voice, Pillow for desktop screenshots, and pywin32 on Windows only. Agent loop, gateway, memory, workflows, HTTP, JSON-RPC, and cron parsing are standard library. [`pyproject.toml`](./pyproject.toml) |
+| **3 base dependencies (+ platform-specific)** | The OpenAI SDK for voice, Pillow for desktop screenshots, plus `pyobjc-framework-Quartz` (macOS), `pywinctl` (Linux), and `pywin32` (Windows). Agent loop, gateway, memory, workflows, HTTP, JSON-RPC, and cron parsing are standard library. [`pyproject.toml`](./pyproject.toml) |
 | **5 curation operations, none of them delete** | `OPS` is the entire vocabulary a memory curator gets. There is no delete for an adversarial model or a poisoned note to reach for. [`curation_contract.py`](./birkin/curation_contract.py) |
 | **R@1 0.891 in production** | The shipped lexical stack scores 0.891 R@1 / 0.974 R@5 / 0.926 MRR on 470 LongMemEval-S questions. The tuned research configuration reaches 0.900, ahead of the best embedding hybrid measured on the same harness at 0.894. No encoder, no vector store. [`docs/ranking-v2-plan.md`](./docs/ranking-v2-plan.md) |
 | **4 concurrent execution slots, 100-agent ceiling** | Moirai's default thread-pool width and per-run spawn cap. Scheduling limits, distinct from the named workers below. Abort, budget, and cap are checked before each new agent. [`moirai/engine.py`](./birkin/moirai/engine.py) |
