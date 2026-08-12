@@ -1,3 +1,4 @@
+import json
 from datetime import datetime
 
 import pytest
@@ -11,6 +12,58 @@ def test_add_and_load_job():
     assert len(jobs) == 1
     assert jobs[0]["id"] == job["id"]
     assert jobs[0]["name"] == "digest"
+    assert jobs[0]["schema_version"] == cron.CRON_SCHEMA_VERSION == 1
+    assert jobs[0]["schedule"]["kind"] == "daily"
+
+
+def test_load_jobs_migrates_legacy_daily_record():
+    path = config.cron_path()
+    path.write_text(
+        '[{"id":"legacy","name":"old","hour":9,"minute":0,'
+        '"type":"prompt","value":"go","enabled":true,'
+        '"created":"2026-05-28T08:00:00","last_run":null,'
+        '"deliver_chat_id":null}]',
+        encoding="utf-8",
+    )
+
+    [job] = cron.load_jobs()
+
+    assert job["schema_version"] == 1
+    assert job["schedule"] == {
+        "kind": "daily",
+        "hour": 9,
+        "minute": 0,
+        "display": "09:00",
+    }
+    assert json.loads(path.read_text(encoding="utf-8"))[0] == job
+
+
+def test_load_jobs_rejects_unknown_schedule_kind_without_rewriting():
+    path = config.cron_path()
+    raw = (
+        '[{"schema_version":1,"id":"bad","name":"bad","hour":9,'
+        '"minute":0,"type":"prompt","value":"go","enabled":true,'
+        '"created":"2026-05-28T08:00:00","last_run":null,'
+        '"deliver_chat_id":null,"schedule":{"kind":"weekly",'
+        '"display":"weekly"},"next_run":"2026-05-29T09:00:00"}]'
+    )
+    path.write_text(raw, encoding="utf-8")
+
+    with pytest.raises(cron.CronFormatError, match="schedule.kind"):
+        cron.load_jobs()
+
+    assert path.read_text(encoding="utf-8") == raw
+
+
+def test_load_jobs_rejects_unknown_action_type():
+    job = cron.add_job(
+        name="ok", hour=9, minute=0, action_type="prompt", value="go"
+    )
+    job["type"] = "magic"
+    config.cron_path().write_text(json.dumps([job]), encoding="utf-8")
+
+    with pytest.raises(cron.CronFormatError, match=r"\.type"):
+        cron.load_jobs()
 
 
 def test_add_monitor_job_schema_clamps_max_bytes():

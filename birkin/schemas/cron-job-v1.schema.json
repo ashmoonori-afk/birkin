@@ -1,0 +1,53 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://birkin.dev/schemas/cron-job-v1.schema.json",
+  "title": "Birkin cron job",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "id",
+    "name",
+    "hour",
+    "minute",
+    "type",
+    "value",
+    "enabled",
+    "deliver_chat_id",
+    "created",
+    "last_run",
+    "schedule",
+    "next_run"
+  ],
+  "properties": {
+    "schema_version": {"type": "integer", "const": 1},
+    "id": {"type": "string", "minLength": 1},
+    "name": {"type": "string", "minLength": 1},
+    "hour": {"type": "integer", "minimum": 0, "maximum": 23},
+    "minute": {"type": "integer", "minimum": 0, "maximum": 59},
+    "type": {"type": "string", "enum": ["prompt", "shell", "monitor"]},
+    "value": {"type": "string"},
+    "enabled": {"type": "boolean"},
+    "deliver_chat_id": {"type": ["string", "null"]},
+    "created": {"type": "string", "format": "date-time"},
+    "last_run": {"type": ["string", "null"], "format": "date-time"},
+    "schedule": {
+      "type": "object",
+      "required": ["kind", "display"],
+      "properties": {
+        "kind": {"type": "string", "enum": ["daily", "interval", "once", "cron"]},
+        "display": {"type": "string"},
+        "hour": {"type": "integer", "minimum": 0, "maximum": 23},
+        "minute": {"type": "integer", "minimum": 0, "maximum": 59},
+        "minutes": {"type": "integer", "minimum": 1},
+        "run_at": {"type": "string", "format": "date-time"},
+        "expr": {"type": "string"}
+      },
+      "additionalProperties": false
+    },
+    "next_run": {"type": ["string", "null"], "format": "date-time"},
+    "monitor_url": {"type": ["string", "null"]},
+    "monitor_script": {"type": ["string", "null"]},
+    "max_bytes": {"type": "integer", "minimum": 1, "maximum": 262144}
+  },
+  "additionalProperties": false
+}

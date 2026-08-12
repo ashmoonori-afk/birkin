@@ -187,7 +187,8 @@ def test_daily_schedule_expression_also_fills_hour_minute():
 def test_legacy_daily_record_still_fires_exactly_once_a_day():
     job = cron.add_job(name="old", hour=9, minute=0, action_type="prompt",
                        value="legacy")
-    assert "schedule" not in job and "next_run" not in job
+    assert job["schema_version"] == 1
+    assert job["schedule"]["kind"] == "daily"
 
     now = datetime.now().replace(hour=10, minute=0, second=0, microsecond=0)
     assert [j["id"] for j in cron.due_jobs(now)] == [job["id"]]
