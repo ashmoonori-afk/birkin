@@ -78,6 +78,17 @@ def popen_tree_kwargs() -> dict[str, Any]:
     return {"start_new_session": True}
 
 
+def _kill_posix_tree(proc: Any, pid: int) -> bool:
+    try:
+        group = os.getpgid(pid)
+        if group == os.getpgrp():
+            return False
+        os.killpg(group, signal.SIGKILL)
+        return True
+    except (OSError, ProcessLookupError):
+        return False
+
+
 def kill_tree(proc: "Any") -> None:
     """Kill ``proc`` and its descendants.
 
@@ -98,13 +109,8 @@ def kill_tree(proc: "Any") -> None:
         except Exception:
             pass  # fall through to proc.kill()
     if os.name != "nt" and pid is not None:
-        try:
-            group = os.getpgid(pid)
-            if group != os.getpgrp():
-                os.killpg(group, signal.SIGKILL)
-                return
-        except (OSError, ProcessLookupError):
-            pass
+        if _kill_posix_tree(proc, pid):
+            return
     try:
         proc.kill()
     except Exception:

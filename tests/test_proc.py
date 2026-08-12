@@ -25,7 +25,6 @@ def test_popen_tree_kwargs_is_native() -> None:
     assert proc.popen_tree_kwargs() == expected
 
 
-@pytest.mark.skipif(os.name == "nt", reason="POSIX process groups")
 def test_kill_tree_terminates_posix_process_group(monkeypatch) -> None:
     process = _FakeProcess()
     calls: list[tuple[int, signal.Signals]] = []
@@ -37,7 +36,7 @@ def test_kill_tree_terminates_posix_process_group(monkeypatch) -> None:
         lambda group, signum: calls.append((group, signum)),
     )
 
-    proc.kill_tree(process)
+    assert proc._kill_posix_tree(process, process.pid) is True
 
     assert calls == [(4312, signal.SIGKILL)]
     assert process.killed is False
