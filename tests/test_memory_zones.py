@@ -159,7 +159,7 @@ def test_memory_write_note_tool_accepts_zone():
 
 # ---------------- maintenance --------------------------------------------------
 
-def test_purge_expired_reaches_zone_subdirectories():
+def test_purge_expired_archives_without_unlinking():
     import re
     m = _mem()
     m.write_note("Ephemeral", "gone soon", note_type="fact", ttl_days=1)
@@ -168,7 +168,10 @@ def test_purge_expired_reaches_zone_subdirectories():
                   p.read_text(encoding="utf-8"))
     p.write_text(text, encoding="utf-8")
     assert m.purge_expired() == 1
+    archived = _vault() / mnemosyne.ARCHIVE_ZONE / "ephemeral.md"
     assert not p.exists()
+    assert archived.read_text(encoding="utf-8") == text
+    assert m.purge_expired() == 0
 
 
 def test_reindex_returns_stats():
