@@ -11,7 +11,7 @@ from http.server import HTTPServer
 import pytest
 
 import birkin
-from birkin import store
+from birkin import approvals, store
 from birkin.web import server as web_server
 
 
@@ -40,14 +40,51 @@ def srv():
         httpd.server_close()
 
 
-def test_index_serves_html_with_token_injected(srv):
+def test_root_does_not_issue_capability(srv):
     port, token = srv
-    code, _, body = _request("127.0.0.1", port, "GET", "/")
+    code, headers, body = _request("127.0.0.1", port, "GET", "/")
     assert code == 200
     text = body.decode("utf-8", "replace")
     assert "<!DOCTYPE html>" in text
-    assert "__BIRKIN_TOKEN__" not in text          # placeholder replaced
-    assert f'BIRKIN_TOKEN = "{token}"' in text     # actual token present
+    assert token not in text
+    assert "Set-Cookie" not in headers
+
+
+def test_secret_bootstrap_issues_httponly_capability(srv):
+    port, token = srv
+    code, headers, _ = _request(
+        "127.0.0.1", port, "GET", f"/_bootstrap/{token}")
+    assert code == 303
+    assert headers["Location"] == "/"
+    cookie = headers["Set-Cookie"]
+    assert cookie.startswith("birkin_capability=")
+    assert "HttpOnly" in cookie
+    assert "SameSite=Strict" in cookie
+
+
+def test_approval_reads_require_capability_cookie(srv):
+    port, token = srv
+    store.add_pending(
+        category="cron",
+        title="sensitive action",
+        description="secret payload",
+        payload={"value": "do not disclose"},
+    )
+
+    code, _, body = _request(
+        "127.0.0.1", port, "GET", "/api/approvals")
+    assert code == 403
+    assert b"sensitive action" not in body
+
+    code, _, body = _request(
+        "127.0.0.1",
+        port,
+        "GET",
+        "/api/approvals",
+        headers={"Cookie": f"birkin_capability={token}"},
+    )
+    assert code == 200
+    assert b"sensitive action" in body
 
 
 def test_api_status_payload_shape(srv):
@@ -70,6 +107,25 @@ def test_api_status_reports_runtime_version(srv):
 
 def test_handler_server_version_uses_runtime_version():
     assert web_server.Handler.server_version == f"birkin-dashboard/{birkin.__version__}"
+
+
+def test_run_prints_secret_bootstrap_url_for_no_browser(monkeypatch, capsys):
+    class StoppingServer:
+        def __init__(self, address, handler):
+            self.server_address = address
+
+        def serve_forever(self):
+            raise KeyboardInterrupt
+
+        def server_close(self):
+            pass
+
+    monkeypatch.setattr(web_server, "HTTPServer", StoppingServer)
+
+    assert web_server.run(port=8765, open_browser=False) == 0
+
+    output = capsys.readouterr().out
+    assert f"http://127.0.0.1:8765/_bootstrap/{web_server._TOKEN}" in output
 
 
 def test_api_status_marks_skill_discovery_unavailable(srv, monkeypatch):
@@ -138,6 +194,61 @@ def test_post_approvals_token_and_host_gates(srv):
     assert code == 200
     assert json.loads(payload).get("ok") is True
     assert store.list_pending() == []  # resolved
+
+
+def test_structured_action_web_contract(srv):
+    port, token = srv
+    action = approvals.request_answers(
+        title="Deploy release",
+        description="Choose the deployment target.",
+        questions=[{
+            "id": "target",
+            "text": "Where should Birkin deploy?",
+            "options": [
+                {"value": "staging", "label": "Staging"},
+                {"value": "production", "label": "Production"},
+            ],
+            "recommended": "staging",
+        }],
+        origin="test",
+    )
+
+    code, _, payload = _request(
+        "127.0.0.1",
+        port,
+        "GET",
+        "/api/approvals",
+        headers={"Cookie": f"birkin_capability={token}"},
+    )
+    assert code == 200
+    records = json.loads(payload)
+    record = next(item for item in records if item["id"] == action["id"])
+    assert record["action_state"] == "action_needed"
+    assert record["questions"][0]["recommended"] == "staging"
+
+    headers = {
+        "X-Birkin-Token": token,
+        "Content-Type": "application/json",
+    }
+    answer_body = json.dumps({
+        "id": action["id"],
+        "action": "answer",
+        "answers": {"target": "staging"},
+        "source": "web:test-user",
+    }).encode()
+    code, _, payload = _request(
+        "127.0.0.1", port, "POST", "/api/approvals",
+        headers=headers, body=answer_body)
+    assert code == 200
+    resolved = json.loads(payload)
+    assert resolved["event"] == "action_resolved"
+    assert resolved["resolved_by"] == "web:dashboard"
+
+    code, _, payload = _request(
+        "127.0.0.1", port, "POST", "/api/approvals",
+        headers=headers, body=answer_body)
+    assert code == 409
+    assert json.loads(payload)["event"] == "reply_rejected"
 
 
 def test_post_approvals_bad_path_and_json(srv):
