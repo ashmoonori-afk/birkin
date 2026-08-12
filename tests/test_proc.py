@@ -28,12 +28,13 @@ def test_popen_tree_kwargs_is_native() -> None:
 def test_kill_tree_terminates_posix_process_group(monkeypatch) -> None:
     process = _FakeProcess()
     calls: list[tuple[int, signal.Signals]] = []
-    monkeypatch.setattr(proc.os, "getpgid", lambda _pid: 4312)
-    monkeypatch.setattr(proc.os, "getpgrp", lambda: 9000)
+    monkeypatch.setattr(proc.os, "getpgid", lambda _pid: 4312, raising=False)
+    monkeypatch.setattr(proc.os, "getpgrp", lambda: 9000, raising=False)
     monkeypatch.setattr(
         proc.os,
         "killpg",
         lambda group, signum: calls.append((group, signum)),
+        raising=False,
     )
 
     assert proc._kill_posix_tree(process, process.pid) is True
