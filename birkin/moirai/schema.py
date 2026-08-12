@@ -44,6 +44,9 @@ def validate(value: Any, schema: dict, *, path: str = "$") -> None:
         raise SchemaError(
             f"{path}: {value!r} 는 허용된 값이 아닙니다 "
             f"({', '.join(map(str, schema['enum']))})")
+    if "const" in schema and value != schema["const"]:
+        raise SchemaError(
+            f"{path}: {schema['const']!r} 이어야 합니다")
 
     if isinstance(value, str):
         limit = schema.get("maxLength")
@@ -62,6 +65,11 @@ def validate(value: Any, schema: dict, *, path: str = "$") -> None:
             if key not in value:
                 raise SchemaError(f"{path}: 필수 필드 {key!r} 가 없습니다")
         props = schema.get("properties") or {}
+        if schema.get("additionalProperties") is False:
+            extras = set(value) - set(props)
+            if extras:
+                key = sorted(extras)[0]
+                raise SchemaError(f"{path}: 알 수 없는 필드 {key!r}")
         for key, sub in props.items():
             if key in value:
                 validate(value[key], sub, path=f"{path}.{key}")
