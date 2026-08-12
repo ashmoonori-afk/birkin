@@ -606,6 +606,19 @@ birkin curate-memory
 끝나면 결과를 출력합니다. Ctrl-C는 run을 멈추지 않고 detach만 합니다. detach된 run은
 현재 프로세스 안에서 살기 때문에 프로세스가 끝나면 함께 끝납니다.
 
+session-local harness 상태는 `sessions/<session-id>/harness`에 저장되며
+global edit는 항상 명시적인 사람 승인을 기다립니다. native, CLI, warm CLI는
+동일한 revisioned global + 현재 session local snapshot을 받습니다.
+`skill_note` entry는 metadata이며 실행 가능한 `SKILL.md`가 아닙니다.
+`birkin harness show --scope local --session-id <session-id>`로 한 session을
+확인할 수 있습니다.
+
+각 root session은 공유 child-tree budget을 소유합니다. token/USD reservation,
+wall-clock deadline, 동시 child 수, 전체 node 수는
+`subagent_tree_max_tokens`, `subagent_tree_max_usd`,
+`subagent_tree_deadline_seconds`, `subagent_tree_max_concurrent`,
+`subagent_tree_max_nodes`로 설정하며 child 실행 전에 admission을 예약합니다.
+
 `/goal set <objective> [--gate "command"]`로 active goal 하나를 저장합니다.
 `/goal show`, `/goal pause`, `/goal done`으로 상태를 관리하며, objective는 세션이
 구성하는 모든 system prompt에 주입됩니다. gate command는 goal store에서 직접

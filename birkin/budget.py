@@ -68,6 +68,14 @@ class TreeBudget:
         tokens = max(0, int(tokens))
         usd = max(0.0, float(usd))
         with self._lock:
+            if self.max_tokens and tokens == 0:
+                raise TreeBudgetExceeded(
+                    "subagent tree token reservation required"
+                )
+            if self.max_usd and usd == 0.0:
+                raise TreeBudgetExceeded(
+                    "subagent tree USD reservation required"
+                )
             if self.deadline is not None and time.monotonic() >= self.deadline:
                 raise TreeBudgetExceeded("subagent tree deadline exceeded")
             if self.max_concurrent and self.active >= self.max_concurrent:
@@ -86,6 +94,9 @@ class TreeBudget:
             self.reserved_tokens += tokens
             self.reserved_usd += usd
         return TreeBudgetLease(self, tokens, usd)
+
+    def expired(self) -> bool:
+        return self.deadline is not None and time.monotonic() >= self.deadline
 
 
 def _parse(ts: str) -> datetime | None:
