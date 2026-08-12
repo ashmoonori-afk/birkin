@@ -285,7 +285,7 @@ DEFAULT_CONFIG: dict[str, Any] = {
     # Harness kinds applied without asking. memory/skill are reversible local
     # files (same policy as auto_approve). prompt/subagent change how the agent
     # behaves on every later turn, so they are queued for `birkin review`.
-    "harness_auto_approve": ["memory", "skill"],
+    "harness_auto_approve": ["memory", "skill_note"],
     # CLI-agent (Claude Code / Codex) access level:
     #   "workspace" — writable & sandboxed to the workspace (default)
     #   "full"      — DANGEROUS: bypass all approvals + sandbox
