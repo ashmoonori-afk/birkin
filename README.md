@@ -32,7 +32,7 @@ Every row is something the repository can be made to show you.
 
 | | Measured or enforced |
 |---|---|
-| **3 runtime dependencies** | The OpenAI SDK for voice, Pillow for desktop screenshots, and pywin32 on Windows only. Agent loop, gateway, memory, workflows, HTTP, JSON-RPC, and cron parsing are standard library. [`pyproject.toml`](./pyproject.toml) |
+| **Small platform-scoped runtime surface** | The OpenAI SDK handles voice, Pillow encodes screenshots, and exactly one desktop backend is selected per OS: Quartz on macOS, PyWinCtl/X11 on Linux, or pywin32 on Windows. Agent loop, gateway, memory, workflows, HTTP, JSON-RPC, and cron parsing are standard library. [`pyproject.toml`](./pyproject.toml) |
 | **5 curation operations, none of them delete** | `OPS` is the entire vocabulary a memory curator gets. There is no delete for an adversarial model or a poisoned note to reach for. [`curation_contract.py`](./birkin/curation_contract.py) |
 | **R@1 0.891 in production** | The shipped lexical stack scores 0.891 R@1 / 0.974 R@5 / 0.926 MRR on 470 LongMemEval-S questions. The tuned research configuration reaches 0.900, ahead of the best embedding hybrid measured on the same harness at 0.894. No encoder, no vector store. [`docs/ranking-v2-plan.md`](./docs/ranking-v2-plan.md) |
 | **4 concurrent execution slots, 100-agent ceiling** | Moirai's default thread-pool width and per-run spawn cap. Scheduling limits, distinct from the named workers below. Abort, budget, and cap are checked before each new agent. [`moirai/engine.py`](./birkin/moirai/engine.py) |
@@ -73,7 +73,7 @@ There are already excellent general-purpose agent projects. birkin makes a
 different trade:
 
 - one installable Python package instead of a multi-language runtime;
-- three runtime dependencies (voice, screenshots, Windows desktop) instead of
+- a small platform-scoped runtime surface (voice, screenshots, one native desktop backend) instead of
   SDK-heavy provider stacks;
 - visible files and append-only records instead of opaque hosted state;
 - a small native tool surface instead of browser/computer automation;
@@ -182,7 +182,7 @@ trees of
 |---|---|---|---|
 | Main shape | One Python package | Large Python application plus JS/TS surfaces | TypeScript monorepo plus Python kernel shim |
 | Approximate source scale | 37K Python LOC | 166K Python + 132K JS/TS LOC | 152K TypeScript LOC |
-| Mandatory runtime dependencies | OpenAI SDK, Pillow, and Windows-only pywin32 | Large exact-pinned Python set plus extras | Multiple npm package dependency graphs; Python runtime uses IPython |
+| Mandatory runtime dependencies | OpenAI SDK, Pillow, and one OS-selected desktop backend | Large exact-pinned Python set plus extras | Multiple npm package dependency graphs; Python runtime uses IPython |
 | Agent/tool organization | One native loop and one registry choke point | Broad provider, gateway, browser, media, and tool subsystems | Layered `ai`, `agent`, `coding-agent`, and `tui` packages |
 | Memory | Editable Markdown/YAML/wikilink vault | Multiple state and memory integrations | Session/context-tree centric |
 | Self-improvement | Versioned proposal ledger with validation and rollback | Broad skill and runtime ecosystem | Extension and package ecosystem |
@@ -192,7 +192,7 @@ trees of
 ### Where birkin is stronger
 
 **Small dependency and supply-chain surface.** `pyproject.toml` keeps the
-runtime list to the OpenAI SDK, Pillow, and Windows-only pywin32. HTTP,
+runtime list to the OpenAI SDK, Pillow, and one OS-selected desktop backend. HTTP,
 streaming, JSON-RPC, cron parsing, persistence, provider clients, and the
 native agent loop are implemented in the package. The desktop helpers are
 imported only when desktop tools are explicitly enabled.
@@ -408,7 +408,7 @@ The registry can expose:
 - isolated subagents with scoped tool groups;
 - skill loading, creation, and refinement;
 - `vision_analyze` for local or HTTP(S) PNG, JPEG, GIF, and WebP images;
-- opt-in Windows window listing and screenshot capture.
+- opt-in macOS, Linux, and Windows window listing and screenshot capture.
 
 Remote images use the same private/reserved-address and redirect checks as web
 fetching. Desktop tools are absent from the registry unless

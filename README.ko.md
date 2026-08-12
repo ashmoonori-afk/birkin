@@ -31,7 +31,7 @@ hermes-agent와의 지연 시간 비교 벤치마크가 없고, 그런 주장도
 
 | | 실측 또는 코드로 강제되는 값 |
 |---|---|
-| **런타임 의존성 3개** | 음성용 OpenAI SDK, 데스크톱 스크린샷용 Pillow, Windows 전용 pywin32입니다. 에이전트 루프, gateway, 메모리, workflow, HTTP, JSON-RPC, cron 파싱은 표준 라이브러리입니다. [`pyproject.toml`](./pyproject.toml) |
+| **작고 OS별로 한정된 런타임 표면** | 음성용 OpenAI SDK, 스크린샷 인코딩용 Pillow, 그리고 OS마다 정확히 하나의 데스크톱 backend를 선택합니다: macOS Quartz, Linux PyWinCtl/X11, Windows pywin32. 에이전트 루프, gateway, 메모리, workflow, HTTP, JSON-RPC, cron 파싱은 표준 라이브러리입니다. [`pyproject.toml`](./pyproject.toml) |
 | **큐레이션 연산 5개, 삭제는 없음** | `OPS`가 메모리 curator에게 주어지는 어휘 전부입니다. 적대적인 모델도 오염된 노트도 집어들 삭제 연산이 없습니다. [`curation_contract.py`](./birkin/curation_contract.py) |
 | **프로덕션 R@1 0.891** | 현재 lexical stack은 LongMemEval-S 470문항에서 R@1 0.891 / R@5 0.974 / MRR 0.926입니다. 연구용 tuned 구성은 0.900으로, 같은 harness에서 측정한 최고 embedding hybrid(0.894)보다 앞섭니다. encoder도 vector store도 없습니다. [`docs/ranking-v2-plan.md`](./docs/ranking-v2-plan.md) |
 | **동시 실행 슬롯 4개, agent 상한 100** | Moirai의 기본 thread pool 폭과 실행당 spawn 상한입니다. 아래의 이름 붙은 worker와는 다른 스케줄링 한도이며, 새 agent마다 abort·budget·상한을 먼저 검사합니다. [`moirai/engine.py`](./birkin/moirai/engine.py) |
@@ -70,7 +70,7 @@ https://raw.githubusercontent.com/ashmoonori-afk/birkin/main/README.ko.md
 이미 훌륭한 범용 에이전트 프로젝트들이 있습니다. birkin은 다른 선택을 합니다.
 
 - 다중 언어 런타임 대신 설치 가능한 파이썬 패키지 하나
-- SDK가 무거운 provider 스택 대신 런타임 의존성 3개(음성·스크린샷·Windows 데스크톱)
+- SDK가 무거운 provider 스택 대신 작은 OS별 런타임 표면(음성·스크린샷·네이티브 데스크톱 backend 하나)
 - 불투명한 호스팅 상태 대신 보이는 파일과 append-only 기록
 - browser/computer 자동화 대신 작은 네이티브 tool 표면
 - 실행 주위의 명시적인 승인·checkpoint·redaction 지점
@@ -175,7 +175,7 @@ Osiris 검증, 그리고 다시 다음 미체크 step으로 돌아갑니다.
 |---|---|---|---|
 | 주요 형태 | 파이썬 패키지 하나 | 대형 파이썬 애플리케이션 + JS/TS 표면 | TypeScript monorepo + 파이썬 kernel shim |
 | 대략적 소스 규모 | 파이썬 37K LOC | 파이썬 166K + JS/TS 132K LOC | TypeScript 152K LOC |
-| 필수 런타임 의존성 | OpenAI SDK, Pillow, Windows 전용 pywin32 | 정확히 고정된 대형 파이썬 세트 + extras | 다수의 npm 의존성 그래프, 파이썬 런타임은 IPython 사용 |
+| 필수 런타임 의존성 | OpenAI SDK, Pillow, OS가 선택하는 데스크톱 backend 하나 | 정확히 고정된 대형 파이썬 세트 + extras | 다수의 npm 의존성 그래프, 파이썬 런타임은 IPython 사용 |
 | 에이전트/도구 구성 | 네이티브 루프 하나와 registry 통제 지점 하나 | 넓은 provider, gateway, browser, media, tool 서브시스템 | `ai`, `agent`, `coding-agent`, `tui` 계층 패키지 |
 | 메모리 | 편집 가능한 Markdown/YAML/wikilink 볼트 | 여러 state·memory 연동 | session/context tree 중심 |
 | 자기개선 | 검증과 rollback이 있는 버전화된 proposal ledger | 넓은 skill·runtime 생태계 | extension·package 생태계 |
@@ -185,7 +185,7 @@ Osiris 검증, 그리고 다시 다음 미체크 step으로 돌아갑니다.
 ### birkin이 더 강한 부분
 
 **작은 의존성과 공급망 표면.** 필수 런타임 의존성은 OpenAI SDK, Pillow,
-Windows 전용 pywin32입니다. HTTP, streaming, JSON-RPC, cron 파싱, 영속화,
+그리고 macOS Quartz, Linux PyWinCtl/X11, Windows pywin32 중 OS가 선택하는 하나입니다. HTTP, streaming, JSON-RPC, cron 파싱, 영속화,
 provider client, 네이티브 에이전트 루프는 패키지 안에 구현돼 있습니다.
 데스크톱 helper는 desktop tool을 명시적으로 켤 때만 import됩니다.
 
@@ -400,7 +400,7 @@ Registry가 노출할 수 있는 기능:
 - 범위가 제한된 tool group을 쓰는 격리 subagent
 - skill load, create, refine
 - 로컬 또는 HTTP(S) PNG/JPEG/GIF/WebP용 `vision_analyze`
-- opt-in Windows window listing과 screenshot
+- opt-in macOS, Linux, Windows window listing과 screenshot
 
 원격 이미지는 web fetch와 동일한 private/reserved address 및 redirect 검사를
 거칩니다. `desktop_tools`가 정확히 `true`가 아니면 desktop tool은 registry에
