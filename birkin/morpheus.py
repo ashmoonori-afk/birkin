@@ -245,8 +245,14 @@ def _apply_harness_proposal(cfg: dict[str, Any], summary: str, *,
     if proposal is None:
         return None
     try:
-        result = harness.submit(proposal, cfg=cfg, source="morpheus",
-                                origin="morpheus")
+        result = harness.submit(
+            proposal,
+            cfg=cfg,
+            scope="local",
+            session_id=str(cfg.get("session_id") or "morpheus"),
+            source="morpheus",
+            origin="morpheus",
+        )
     except Exception as exc:      # one bad refinement must not fail the night
         print(f"birkin morpheus: harness proposal skipped — {exc}")
         return None

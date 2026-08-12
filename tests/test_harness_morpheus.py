@@ -44,10 +44,12 @@ def test_valid_fenced_proposal_lands_in_the_harness_ledger():
     assert details is not None
     assert details["changes"] == ["create memory:nightly_deploy_ritual"]
     assert details["refinement"]
-    state = harness.load("global")
+    state = harness.load("local", session_id="morpheus")
     assert "nightly_deploy_ritual" in state["entries"]["memory"]
-    assert harness.state_path("global").is_file()
-    assert harness.history_path("global").is_file()   # refinements.jsonl
+    assert harness.state_path("local", session_id="morpheus").is_file()
+    assert harness.history_path(
+        "local", session_id="morpheus",
+    ).is_file()   # refinements.jsonl
 
 
 def test_non_auto_kinds_are_queued_for_review_not_written():
@@ -64,7 +66,7 @@ def test_non_auto_kinds_are_queued_for_review_not_written():
     assert details is not None
     assert details["changes"] == []
     assert len(details["queued"]) == 1
-    assert harness.load("global")["entries"]["prompt"] == {}
+    assert harness.load("local", session_id="morpheus")["entries"]["prompt"] == {}
     assert any(p["category"] == "harness" for p in store.list_pending())
 
 
@@ -118,7 +120,7 @@ def test_edits_are_capped_at_harness_max_edits():
 
     assert details is not None
     assert len(details["changes"]) == 3
-    assert len(harness.load("global")["entries"]["memory"]) == 3
+    assert len(harness.load("local", session_id="morpheus")["entries"]["memory"]) == 3
 
 
 def test_invalid_edits_are_rejected_without_killing_the_valid_ones():
@@ -195,7 +197,9 @@ def test_generic_run_record_details_carry_the_applied_changes(monkeypatch):
     record = next(r for r in store.list_runs(limit=5) if r["kind"] == "morpheus")
     entry = record["details"]["harness"]
     assert entry["changes"] == ["create memory:nightly_deploy_ritual"]
-    assert entry["refinement"] == harness.load("global")["refinements"][-1]["id"]
+    assert entry["refinement"] == harness.load(
+        "local", session_id="morpheus",
+    )["refinements"][-1]["id"]
 
 
 def test_claude_path_applies_and_records_the_proposal(monkeypatch):
@@ -217,7 +221,9 @@ def test_claude_path_applies_and_records_the_proposal(monkeypatch):
     rc = morpheus._run_claude_morpheus(cfg, "task", False, 0)
 
     assert rc == 0
-    assert "nightly_deploy_ritual" in harness.load("global")["entries"]["memory"]
+    assert "nightly_deploy_ritual" in harness.load(
+        "local", session_id="morpheus",
+    )["entries"]["memory"]
     record = next(r for r in store.list_runs(limit=5) if r["kind"] == "morpheus")
     assert record["details"]["harness"]["changes"] == [
         "create memory:nightly_deploy_ritual"]
