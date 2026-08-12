@@ -11,7 +11,6 @@ from __future__ import annotations
 
 import json
 import os
-import socket
 import threading
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from typing import TYPE_CHECKING, Any
@@ -50,14 +49,7 @@ class LocalHTTPChannel(Channel):
         with self._lifecycle_lock:
             httpd = self._httpd
         if httpd is not None:
-            try:
-                with socket.create_connection(
-                    ("127.0.0.1", httpd.server_port),
-                    timeout=1.0,
-                ):
-                    pass
-            except OSError:
-                pass
+            httpd.server_close()
 
     def start(self, gateway: Gateway) -> None:
         self._stop_requested.clear()
