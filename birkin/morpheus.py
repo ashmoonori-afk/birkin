@@ -22,7 +22,7 @@ import re
 import time
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Sequence
+from typing import Any, Sequence, cast
 
 from . import approvals, config, harness, selfimprove, store
 from .gateway.polish import polish_telegram_reply
@@ -167,12 +167,28 @@ def _gather_sessions(hours: float = 24.0) -> str:
         try:
             if f.stat().st_mtime < cutoff:
                 continue
-            messages = json.loads(f.read_text(encoding="utf-8"))
+            raw_messages = cast(
+                object, json.loads(f.read_text(encoding="utf-8")))
+            if not isinstance(raw_messages, list) or not all(
+                    _is_canonical_message(message)
+                    for message in raw_messages):
+                continue
+            messages = cast(list[dict[str, object]], raw_messages)
         except (OSError, json.JSONDecodeError):
             continue
         chunks.append(f"### session {f.stem}\n"
                       + selfimprove.transcript_from_messages(messages))
     return "\n\n".join(chunks)[:20000] or "(no saved conversations in the last 24h)"
+
+
+def _is_canonical_message(value: object) -> bool:
+    if not isinstance(value, dict):
+        return False
+    content = value.get("content", [])
+    return isinstance(content, str) or (
+        isinstance(content, list)
+        and all(isinstance(block, dict) for block in content)
+    )
 
 
 def _gather_changed_files(roots: Sequence[Path], hours: float = 24.0,

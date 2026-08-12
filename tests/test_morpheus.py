@@ -47,6 +47,34 @@ def test_gather_sessions_excludes_old_files(tmp_path):
     assert "ancient" not in text
 
 
+def test_gather_sessions_skips_valid_json_with_wrong_shape() -> None:
+    sdir = config.sessions_dir()
+    object_size = (sdir / "object.json").write_text(
+        json.dumps({"role": "user", "content": "not a message list"}),
+        encoding="utf-8",
+    )
+    mixed_size = (sdir / "mixed.json").write_text(
+        json.dumps(["not a message", {"role": "user", "content": []}]),
+        encoding="utf-8",
+    )
+    scalar_content_size = (sdir / "scalar-content.json").write_text(
+        json.dumps([{"role": "user", "content": 1}]),
+        encoding="utf-8",
+    )
+    malformed_block_size = (sdir / "malformed-block.json").write_text(
+        json.dumps([{"role": "user", "content": [1]}]),
+        encoding="utf-8",
+    )
+    assert object_size > 0
+    assert mixed_size > 0
+    assert scalar_content_size > 0
+    assert malformed_block_size > 0
+
+    text = morpheus._gather_sessions()
+
+    assert text == "(no saved conversations in the last 24h)"
+
+
 # ---------------- _gather_changed_files -----------------------------------
 
 def test_gather_changed_files_lists_recent_files(tmp_path):
