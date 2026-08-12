@@ -14,6 +14,7 @@ from __future__ import annotations
 import copy
 import json
 import os
+import uuid
 from pathlib import Path
 from typing import Any
 
@@ -612,7 +613,9 @@ def save_config(cfg: dict[str, Any]) -> Path:
     # then cannot truncate the live config.
     cfg = _overrides_only(cfg)
     path = config_path()
-    tmp = path.with_suffix(path.suffix + ".tmp")
+    tmp = path.with_suffix(
+        path.suffix + f".{os.getpid()}.{uuid.uuid4().hex[:8]}.tmp"
+    )
     try:
         fd = os.open(tmp, os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o600)
         with os.fdopen(fd, "w", encoding="utf-8") as handle:

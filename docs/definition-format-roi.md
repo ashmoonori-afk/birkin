@@ -128,6 +128,9 @@ persisted/untrusted JSON 경계 때문에 계속 유지해야 한다
 
 ## 전체 전환 후보 순위
 
+아래 표와 세부 분석은 구현 전 baseline을 기록한 것이다. 현재 구현 상태는
+문서 상단의 **구현 상태**와 각 항목의 **구현 결과**를 기준으로 판단한다.
+
 | 순위 | 후보 | 목표 포맷 | ROI | 권고 |
 |---|---|---|---:|---|
 | 1 | CurationPlan 중복 계약 | versioned JSON Schema | 5/5 | 즉시 통합 |
@@ -140,6 +143,10 @@ persisted/untrusted JSON 경계 때문에 계속 유지해야 한다
 
 ### 1. CurationPlan: 단일 versioned JSON Schema
 
+**구현 결과:** `birkin/schemas/curation-plan-v2.schema.json`이 provider,
+prompt, parser가 공유하는 canonical contract가 됐고 CurationPlan/1 입력
+호환성은 유지된다.
+
 `CURATION_PLAN_SCHEMA`는 `plan_version.const = 1`이고 op object에 annotate
 필드가 없다 (`birkin/providers.py:55-81`). 계약은 v2와 `annotate`를
 지원하고 prompt도 v2 출력을 요구한다
@@ -151,6 +158,10 @@ deterministic validation, prompt rendering, compatibility test에서 함께
 
 ### 2. Config: schema-backed normalized model
 
+**구현 결과:** versioned config schema가 known-value normalization을
+담당하며, sparse override와 unknown extension key는 유지된다. 영문·한글
+설정 reference와 README 예제는 schema에서 생성된다.
+
 설정은 큰 `dict[str, Any]`에 있고 saved JSON을 raw `cfg.update(saved)`로
 병합한 뒤 중앙에서는 `cli_access`와 `cli_network_access`만 명시적으로
 보정한다 (`birkin/config.py:22-329`, `birkin/config.py:524-572`).
@@ -159,6 +170,10 @@ startup에서 typed normalized config로 파싱하면 malformed value의 늦은
 실패와 consumer별 cast를 줄일 수 있다.
 
 ### 3. Cron: versioned discriminated records
+
+**구현 결과:** persisted record는 v1 discriminator와 schedule/action
+variant를 검증하며, unversioned legacy records는 cron lock 안에서
+idempotent하게 migration된다.
 
 legacy daily record와 새 schedule dict가 함께 유지되고, `load_jobs()`는
 저장 JSON을 record validation 없이 반환한다

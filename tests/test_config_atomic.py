@@ -51,3 +51,21 @@ def test_save_config_creates_temp_owner_only(monkeypatch):
     config.save_config({**config.DEFAULT_CONFIG, "model": "safe"})
 
     assert modes == [0o600]
+
+
+def test_save_config_uses_unique_temp_siblings(monkeypatch):
+    seen = []
+    real_replace = config.os.replace
+
+    def recording_replace(source, destination):
+        seen.append(str(source))
+        return real_replace(source, destination)
+
+    monkeypatch.setattr(config.os, "replace", recording_replace)
+
+    config.save_config({**config.DEFAULT_CONFIG, "model": "first"})
+    config.save_config({**config.DEFAULT_CONFIG, "model": "second"})
+
+    assert len(set(seen)) == 2
+    assert all(str(config.os.getpid()) in path for path in seen)
+    assert not list(config.config_path().parent.glob("config.json*.tmp"))
