@@ -129,8 +129,28 @@ def answer(
     source: str,
     clarification: str = "",
     navigation: list[str] | None = None,
+    capability: str = "",
+    resume_token: str = "",
+    question_digest: str = "",
+    input_schema_version: int | None = None,
+    previous_state_digest: str = "",
 ) -> dict[str, Any]:
     """Resolve one structured action with a validated answer set."""
+    from .moirai import continuation, journal
+
+    if journal.get_input_wait(aid) is not None:
+        return continuation.accept(
+            aid,
+            answers=answers,
+            actor=source,
+            capability=capability,
+            resume_token=resume_token,
+            question_digest=question_digest,
+            input_schema_version=input_schema_version,
+            previous_state_digest=previous_state_digest,
+            clarification=clarification,
+            navigation=navigation,
+        )
     try:
         with store.file_lock(_pending_path(aid)):
             record = store.get_pending(aid)

@@ -326,6 +326,15 @@ class Handler(BaseHTTPRequestHandler):
                 clarification=str(payload.get("clarification") or ""),
                 navigation=payload.get("navigation")
                 if isinstance(payload.get("navigation"), list) else None,
+                capability="dashboard.approvals.answer.v1",
+                resume_token=str(payload.get("resume_token") or ""),
+                question_digest=str(payload.get("question_digest") or ""),
+                input_schema_version=payload.get("input_schema_version")
+                if isinstance(payload.get("input_schema_version"), int)
+                else None,
+                previous_state_digest=str(
+                    payload.get("previous_state_digest") or ""
+                ),
             )
             self._json(result, code=200 if result.get("ok") else 409)
             return
@@ -349,6 +358,9 @@ def _a2a_run(text: str) -> str:
 
 
 def run(port: Optional[int] = None, *, open_browser: bool = True) -> int:
+    from ..moirai import continuation
+
+    continuation.recover()
     cfg = config.load_config()
     port = port or int(cfg.get("web_port", 8787))
     httpd = HTTPServer(("127.0.0.1", port), Handler)

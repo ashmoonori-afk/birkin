@@ -119,6 +119,12 @@ def cmd_resume(args: Any) -> int:
     if not prior:
         print(f"{ui.RED}그런 실행이 없습니다: {run_id}{ui.RESET}")
         return 1
+    if run_id in journal.protected_run_ids():
+        print(
+            f"{ui.RED}이 실행은 구조화 입력을 기다리고 있습니다. "
+            f"해당 액션에 답변해 재개하세요.{ui.RESET}"
+        )
+        return 1
     cfg = config.load_config()
     try:
         script = load_script(prior["script_path"])

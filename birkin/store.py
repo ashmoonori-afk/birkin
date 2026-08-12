@@ -208,8 +208,11 @@ def append_ledger(entry: dict[str, Any]) -> None:
 def add_pending(*, category: str, title: str, description: str,
                 payload: dict[str, Any], origin: str = "morpheus",
                 continuation: dict[str, Any] | None = None,
-                details: dict[str, Any] | None = None) -> dict[str, Any]:
-    aid = uuid.uuid4().hex[:12]
+                details: dict[str, Any] | None = None,
+                pending_id: str | None = None) -> dict[str, Any]:
+    aid = pending_id or uuid.uuid4().hex[:12]
+    if not valid_pending_id(aid):
+        raise ValueError("invalid pending id")
     rec = {"id": aid, "created": _now(), "category": category, "title": title,
            "description": description, "payload": payload, "origin": origin,
            "status": "pending"}

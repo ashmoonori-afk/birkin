@@ -36,11 +36,14 @@ CREATE TABLE IF NOT EXISTS runs (
   script_sha256 TEXT NOT NULL,
   args_json     TEXT NOT NULL DEFAULT '{}',
   bindings_json TEXT NOT NULL DEFAULT '{}',
+  cfg_json      TEXT NOT NULL DEFAULT '{}',
   status        TEXT NOT NULL,
   started       TEXT NOT NULL,
   finished      TEXT,
   tokens        INTEGER NOT NULL DEFAULT 0,
-  result_json   TEXT
+  result_json   TEXT,
+  parent_run_id TEXT,
+  resume_action_id TEXT
 );
 CREATE TABLE IF NOT EXISTS calls (
   run_id   TEXT NOT NULL,
@@ -57,6 +60,8 @@ CREATE TABLE IF NOT EXISTS calls (
   tokens   INTEGER NOT NULL DEFAULT 0,
   started  TEXT NOT NULL,
   finished TEXT,
+  replayed_from_run_id TEXT,
+  replayed_from_seq INTEGER,
   PRIMARY KEY (run_id, seq)
 );
 CREATE INDEX IF NOT EXISTS calls_by_model ON calls (provider, model, status);
@@ -71,6 +76,44 @@ CREATE TABLE IF NOT EXISTS incidents (
   event_count     INTEGER NOT NULL DEFAULT 0,
   detail          TEXT NOT NULL DEFAULT '',
   created         TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS input_waits (
+  action_id             TEXT PRIMARY KEY,
+  run_id                TEXT NOT NULL,
+  worker_id             TEXT NOT NULL,
+  step_id               TEXT NOT NULL,
+  request_json          TEXT NOT NULL,
+  question_digest       TEXT NOT NULL,
+  expected_actor        TEXT NOT NULL,
+  expected_capability   TEXT NOT NULL,
+  expires_at            TEXT NOT NULL,
+  resume_token          TEXT NOT NULL,
+  input_schema_version  INTEGER NOT NULL,
+  previous_state_digest TEXT NOT NULL,
+  state                 TEXT NOT NULL,
+  accepted_event_id     INTEGER,
+  resume_run_id         TEXT,
+  last_error            TEXT,
+  created               TEXT NOT NULL,
+  updated               TEXT NOT NULL,
+  UNIQUE(run_id, worker_id, step_id)
+);
+CREATE TABLE IF NOT EXISTS accepted_answers (
+  event_id               INTEGER PRIMARY KEY AUTOINCREMENT,
+  action_id              TEXT NOT NULL UNIQUE,
+  run_id                 TEXT NOT NULL,
+  worker_id              TEXT NOT NULL,
+  step_id                TEXT NOT NULL,
+  question_digest        TEXT NOT NULL,
+  actual_actor           TEXT NOT NULL,
+  actual_capability      TEXT NOT NULL,
+  expires_at             TEXT NOT NULL,
+  resume_token_digest    TEXT NOT NULL,
+  input_schema_version   INTEGER NOT NULL,
+  previous_state_digest  TEXT NOT NULL,
+  input_json             TEXT NOT NULL,
+  accepted_at            TEXT NOT NULL,
+  UNIQUE(run_id, worker_id, step_id)
 );
 """
 
@@ -90,13 +133,28 @@ def _connect() -> sqlite3.Connection:
     con.execute("PRAGMA journal_mode=WAL")
     con.execute("PRAGMA synchronous=NORMAL")
     con.executescript(_SCHEMA)
-    # A pre-existing moirai.db has no calls.traceback; CREATE TABLE IF NOT
-    # EXISTS never adds a column, so every already-installed journal would
-    # keep dropping the one field that makes a failure diagnosable.
-    if "traceback" not in {row[1] for row in
-                           con.execute("PRAGMA table_info(calls)")}:
-        con.execute("ALTER TABLE calls ADD COLUMN traceback TEXT")
+    _add_columns(con, "runs", {
+        "parent_run_id": "TEXT",
+        "resume_action_id": "TEXT",
+        "cfg_json": "TEXT NOT NULL DEFAULT '{}'",
+    })
+    _add_columns(con, "calls", {
+        "traceback": "TEXT",
+        "replayed_from_run_id": "TEXT",
+        "replayed_from_seq": "INTEGER",
+    })
     return con
+
+
+def _add_columns(
+    con: sqlite3.Connection,
+    table: str,
+    columns: dict[str, str],
+) -> None:
+    present = {row[1] for row in con.execute(f"PRAGMA table_info({table})")}
+    for name, kind in columns.items():
+        if name not in present:
+            con.execute(f"ALTER TABLE {table} ADD COLUMN {name} {kind}")
 
 
 def _now() -> str:
@@ -114,25 +172,45 @@ def call_key(prompt: str, opts: dict[str, Any]) -> str:
     return hashlib.sha256(blob.encode("utf-8")).hexdigest()
 
 
+class ContinuationJournalError(RuntimeError):
+    """A durable continuation transition could not be committed."""
+
+
 # -- run lifecycle ---------------------------------------------------------
 
 def start_run(run_id: str, *, name: str, script_path: str,
-              script_sha256: str, args: dict, bindings: dict) -> None:
+              script_sha256: str, args: dict, bindings: dict,
+              cfg: dict[str, Any] | None = None,
+              parent_run_id: str | None = None,
+              resume_action_id: str | None = None,
+              critical: bool = False) -> None:
     try:
         with closing(_connect()) as con, con:
             con.execute(
                 "INSERT OR REPLACE INTO runs (run_id, name, script_path, "
-                "script_sha256, args_json, bindings_json, status, started) "
-                "VALUES (?, ?, ?, ?, ?, ?, 'running', ?)",
+                "script_sha256, args_json, bindings_json, cfg_json, "
+                "status, started, "
+                "parent_run_id, resume_action_id) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?, 'running', ?, ?, ?)",
                 (run_id, name, str(script_path), script_sha256,
                  json.dumps(args, ensure_ascii=False),
-                 json.dumps(bindings, ensure_ascii=False), _now()))
-    except Exception:
-        pass
+                 json.dumps(bindings, ensure_ascii=False),
+                 json.dumps(cfg or {}, ensure_ascii=False), _now(),
+                 parent_run_id, resume_action_id))
+    except Exception as exc:
+        if critical:
+            raise ContinuationJournalError(
+                "could not start durable continuation child"
+            ) from exc
+        return
+    if critical and get_run(run_id) is None:
+        raise ContinuationJournalError(
+            "continuation child start was not durable"
+        )
 
 
 def finish_run(run_id: str, status: str, *, result: Any = None,
-               tokens: int = 0) -> None:
+               tokens: int = 0, critical: bool = False) -> None:
     try:
         with closing(_connect()) as con, con:
             con.execute(
@@ -142,8 +220,18 @@ def finish_run(run_id: str, status: str, *, result: Any = None,
                  json.dumps(result, ensure_ascii=False, default=str)
                  if result is not None else None,
                  int(tokens), run_id))
-    except Exception:
-        pass
+    except Exception as exc:
+        if critical:
+            raise ContinuationJournalError(
+                "could not finish durable continuation child"
+            ) from exc
+        return
+    if critical:
+        stored = get_run(run_id)
+        if stored is None or stored.get("status") != status:
+            raise ContinuationJournalError(
+                "continuation child finish was not durable"
+            )
 
 
 def get_run(run_id: str) -> Optional[dict]:
@@ -218,6 +306,38 @@ def finish_call(run_id: str, seq: int, *, status: str, result: str = "",
         pass
 
 
+def record_cached_call(
+    run_id: str,
+    source: dict[str, Any],
+) -> None:
+    """Persist one replayed successful call in the child run."""
+    with closing(_connect()) as con, con:
+        con.execute(
+            "INSERT INTO calls (run_id, seq, call_key, role, provider, model, "
+            "label, phase, status, result, error, tokens, started, finished, "
+            "traceback, replayed_from_run_id, replayed_from_seq) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'ok', ?, ?, ?, ?, ?, ?, ?, ?)",
+            (
+                run_id,
+                int(source["seq"]),
+                source["call_key"],
+                source.get("role"),
+                source.get("provider"),
+                source.get("model"),
+                source.get("label"),
+                source.get("phase"),
+                source.get("result") or "",
+                source.get("error") or "",
+                int(source.get("tokens") or 0),
+                _now(),
+                _now(),
+                source.get("traceback") or "",
+                source["run_id"],
+                int(source["seq"]),
+            ),
+        )
+
+
 def cached_calls(run_id: str) -> dict[int, dict]:
     """Successful calls from a prior run, by sequence — the resume source."""
     try:
@@ -240,6 +360,293 @@ def run_calls(run_id: str) -> list[dict]:
             return [dict(r) for r in rows]
     except Exception:
         return []
+
+
+# -- durable human input continuation --------------------------------------
+
+def state_digest(run_id: str, worker_id: str, step_id: str) -> str:
+    run = get_run(run_id)
+    if run is None:
+        raise ContinuationJournalError("continuation source run is missing")
+    calls = run_calls(run_id)
+    sequences = [int(call["seq"]) for call in calls]
+    if sequences != list(range(1, len(sequences) + 1)):
+        raise ContinuationJournalError("continuation call prefix is incomplete")
+    if any(call["status"] != "ok" for call in calls):
+        raise ContinuationJournalError("continuation call prefix is not durable")
+    material = {
+        "version": 1,
+        "continuation_run_id": run_id,
+        "worker_id": worker_id,
+        "step_id": step_id,
+        "script_sha256": run["script_sha256"],
+        "args": json.loads(run.get("args_json") or "{}"),
+        "bindings": json.loads(run.get("bindings_json") or "{}"),
+        "calls": [
+            {
+                key: call.get(key)
+                for key in (
+                    "seq",
+                    "call_key",
+                    "role",
+                    "provider",
+                    "model",
+                    "status",
+                    "result",
+                    "error",
+                )
+            }
+            for call in calls
+        ],
+    }
+    encoded = json.dumps(
+        material,
+        ensure_ascii=False,
+        sort_keys=True,
+        separators=(",", ":"),
+        allow_nan=False,
+    )
+    return hashlib.sha256(encoded.encode("utf-8")).hexdigest()
+
+
+def create_input_wait(wait: dict[str, Any]) -> dict[str, Any]:
+    stamp = _now()
+    try:
+        with closing(_connect()) as con, con:
+            con.execute(
+                "INSERT INTO input_waits (action_id, run_id, worker_id, "
+                "step_id, request_json, question_digest, expected_actor, "
+                "expected_capability, expires_at, resume_token, "
+                "input_schema_version, previous_state_digest, state, created, "
+                "updated) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, "
+                "'waiting', ?, ?)",
+                (
+                    wait["action_id"],
+                    wait["run_id"],
+                    wait["worker_id"],
+                    wait["step_id"],
+                    json.dumps(
+                        wait["request"],
+                        ensure_ascii=False,
+                        sort_keys=True,
+                        separators=(",", ":"),
+                    ),
+                    wait["question_digest"],
+                    wait["expected_actor"],
+                    wait["expected_capability"],
+                    wait["expires_at"],
+                    wait["resume_token"],
+                    int(wait["input_schema_version"]),
+                    wait["previous_state_digest"],
+                    stamp,
+                    stamp,
+                ),
+            )
+    except (KeyError, TypeError, ValueError, sqlite3.Error) as exc:
+        raise ContinuationJournalError(
+            "could not persist continuation input wait"
+        ) from exc
+    stored = get_input_wait(str(wait["action_id"]))
+    if stored is None:
+        raise ContinuationJournalError("continuation input wait was not durable")
+    return stored
+
+
+def get_input_wait(action_id: str) -> dict[str, Any] | None:
+    try:
+        with closing(_connect()) as con, con:
+            con.row_factory = sqlite3.Row
+            row = con.execute(
+                "SELECT * FROM input_waits WHERE action_id = ?",
+                (action_id,),
+            ).fetchone()
+            if row is None:
+                return None
+            result = dict(row)
+            result["request"] = json.loads(result.pop("request_json"))
+            return result
+    except (json.JSONDecodeError, sqlite3.Error):
+        return None
+
+
+def get_accepted_answer(action_id: str) -> dict[str, Any] | None:
+    try:
+        with closing(_connect()) as con, con:
+            con.row_factory = sqlite3.Row
+            row = con.execute(
+                "SELECT * FROM accepted_answers WHERE action_id = ?",
+                (action_id,),
+            ).fetchone()
+            if row is None:
+                return None
+            result = dict(row)
+            result["input"] = json.loads(result.pop("input_json"))
+            return result
+    except (json.JSONDecodeError, sqlite3.Error):
+        return None
+
+
+def accept_input(
+    action_id: str,
+    *,
+    actual_actor: str,
+    actual_capability: str,
+    resume_token: str,
+    input_value: dict[str, Any],
+) -> dict[str, Any]:
+    """Atomically append one immutable answer and claim the waiting request."""
+    stamp = _now()
+    try:
+        with closing(_connect()) as con:
+            con.row_factory = sqlite3.Row
+            con.execute("BEGIN IMMEDIATE")
+            wait_row = con.execute(
+                "SELECT * FROM input_waits WHERE action_id = ?",
+                (action_id,),
+            ).fetchone()
+            if wait_row is None or wait_row["state"] != "waiting":
+                raise ContinuationJournalError(
+                    "continuation input is not waiting"
+                )
+            token_digest = hashlib.sha256(
+                resume_token.encode("utf-8")
+            ).hexdigest()
+            cursor = con.execute(
+                "INSERT INTO accepted_answers (action_id, run_id, worker_id, "
+                "step_id, question_digest, actual_actor, actual_capability, "
+                "expires_at, resume_token_digest, input_schema_version, "
+                "previous_state_digest, input_json, accepted_at) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                (
+                    action_id,
+                    wait_row["run_id"],
+                    wait_row["worker_id"],
+                    wait_row["step_id"],
+                    wait_row["question_digest"],
+                    actual_actor,
+                    actual_capability,
+                    wait_row["expires_at"],
+                    token_digest,
+                    int(wait_row["input_schema_version"]),
+                    wait_row["previous_state_digest"],
+                    json.dumps(
+                        input_value,
+                        ensure_ascii=False,
+                        sort_keys=True,
+                        separators=(",", ":"),
+                    ),
+                    stamp,
+                ),
+            )
+            con.execute(
+                "UPDATE input_waits SET state = 'accepted', "
+                "accepted_event_id = ?, updated = ? WHERE action_id = ?",
+                (int(cursor.lastrowid), stamp, action_id),
+            )
+            con.commit()
+    except sqlite3.IntegrityError as exc:
+        raise ContinuationJournalError(
+            "continuation input was already accepted"
+        ) from exc
+    except sqlite3.Error as exc:
+        raise ContinuationJournalError(
+            "could not accept continuation input"
+        ) from exc
+    event = get_accepted_answer(action_id)
+    if event is None:
+        raise ContinuationJournalError("accepted input event was not durable")
+    return event
+
+
+def claim_resume(action_id: str, resume_run_id: str) -> dict[str, Any]:
+    stamp = _now()
+    try:
+        with closing(_connect()) as con, con:
+            changed = con.execute(
+                "UPDATE input_waits SET state = 'dispatching', "
+                "resume_run_id = COALESCE(resume_run_id, ?), updated = ? "
+                "WHERE action_id = ? AND state IN ('accepted', 'dispatching')",
+                (resume_run_id, stamp, action_id),
+            ).rowcount
+    except sqlite3.Error as exc:
+        raise ContinuationJournalError(
+            "could not claim continuation resume"
+        ) from exc
+    wait = get_input_wait(action_id)
+    if changed != 1 or wait is None:
+        raise ContinuationJournalError("continuation resume is not claimable")
+    return wait
+
+
+def finish_resume(
+    action_id: str,
+    *,
+    state: str,
+    error: str = "",
+) -> None:
+    if state not in {"resumed", "error"}:
+        raise ValueError("invalid continuation terminal state")
+    try:
+        with closing(_connect()) as con, con:
+            changed = con.execute(
+                "UPDATE input_waits SET state = ?, last_error = ?, "
+                "updated = ? WHERE action_id = ? AND state = 'dispatching'",
+                (state, error[:2000], _now(), action_id),
+            ).rowcount
+    except sqlite3.Error as exc:
+        raise ContinuationJournalError(
+            "could not finish continuation resume"
+        ) from exc
+    if changed != 1:
+        raise ContinuationJournalError("continuation resume was not active")
+
+
+def recoverable_inputs() -> list[dict[str, Any]]:
+    try:
+        with closing(_connect()) as con, con:
+            con.row_factory = sqlite3.Row
+            rows = con.execute(
+                "SELECT * FROM input_waits WHERE state IN "
+                "('accepted', 'dispatching') ORDER BY created"
+            )
+            return [dict(row) for row in rows]
+    except sqlite3.Error:
+        return []
+
+
+def waiting_inputs() -> list[dict[str, Any]]:
+    try:
+        with closing(_connect()) as con, con:
+            con.row_factory = sqlite3.Row
+            rows = con.execute(
+                "SELECT * FROM input_waits WHERE state = 'waiting' "
+                "ORDER BY created"
+            )
+            result: list[dict[str, Any]] = []
+            for row in rows:
+                item = dict(row)
+                item["request"] = json.loads(item.pop("request_json"))
+                result.append(item)
+            return result
+    except (json.JSONDecodeError, sqlite3.Error):
+        return []
+
+
+def protected_run_ids() -> set[str]:
+    try:
+        with closing(_connect()) as con, con:
+            rows = con.execute(
+                "SELECT run_id, resume_run_id FROM input_waits "
+                "WHERE state IN ('waiting', 'accepted', 'dispatching')"
+            )
+            return {
+                value
+                for row in rows
+                for value in row
+                if isinstance(value, str) and value
+            }
+    except sqlite3.Error:
+        return set()
 
 
 def recent_failed_calls(limit: int = 10) -> list[dict]:
