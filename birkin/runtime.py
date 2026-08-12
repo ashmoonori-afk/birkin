@@ -10,6 +10,7 @@ import copy
 import sys
 import threading
 import time
+import uuid
 from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import Any, Callable, Optional
@@ -447,7 +448,8 @@ def failure_context(limit: int = 5) -> str:
 def build_session(cfg: Optional[dict[str, Any]] = None,
                   on_event: Optional[Callable[[str, dict[str, Any]], None]] = None
                   ) -> Session:
-    cfg = cfg or config.load_config()
+    cfg = dict(cfg or config.load_config())
+    cfg.setdefault("session_id", uuid.uuid4().hex)
     api_key = config.get_api_key(cfg)
     if not api_key:
         provider = cfg.get("provider", "anthropic")

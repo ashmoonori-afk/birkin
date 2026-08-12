@@ -29,6 +29,20 @@ def test_build_session_with_cli_provider_no_key_succeeds():
     assert s.memory is not None
 
 
+def test_build_session_assigns_a_stable_unique_harness_session_id():
+    first = build_session({"provider": "codex-cli", "model": ""})
+    second = build_session({"provider": "codex-cli", "model": ""})
+    named = build_session({
+        "provider": "codex-cli",
+        "model": "",
+        "session_id": "saved-session",
+    })
+
+    assert first.cfg["session_id"] == first.ctx.cfg["session_id"]
+    assert first.cfg["session_id"] != second.cfg["session_id"]
+    assert named.cfg["session_id"] == "saved-session"
+
+
 def test_record_turn_writes_run_and_ledger():
     s = build_session({"provider": "codex-cli", "model": ""})
     s._record_turn("hello there", "hi back\nsecond line")

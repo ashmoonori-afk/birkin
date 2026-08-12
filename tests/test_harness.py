@@ -14,7 +14,7 @@ from contextlib import contextmanager
 
 import pytest
 
-from birkin import harness, prompts
+from birkin import config, harness, prompts
 
 
 def _proposal(*edits, summary="s", rationale="r", outcome="o"):
@@ -239,6 +239,40 @@ def test_local_and_global_scopes_use_separate_files():
 
     assert list(harness.load("global")["entries"]["memory"]) == ["global_fact"]
     assert list(harness.load("local")["entries"]["memory"]) == ["local_fact"]
+
+
+def test_local_scope_is_isolated_per_session():
+    alpha = harness.load("local", session_id="session-alpha")
+    harness.apply(
+        alpha,
+        _proposal(_create(title="Alpha only")),
+        baseline=harness.load("local", session_id="session-alpha"),
+        scope="local",
+        session_id="session-alpha",
+        rid="rf_alpha",
+    )
+    beta = harness.load("local", session_id="session-beta")
+    harness.apply(
+        beta,
+        _proposal(_create(title="Beta only")),
+        baseline=harness.load("local", session_id="session-beta"),
+        scope="local",
+        session_id="session-beta",
+        rid="rf_beta",
+    )
+
+    assert harness.state_path(
+        "local", session_id="session-alpha",
+    ).parent == config.sessions_dir() / "session-alpha" / "harness"
+    assert harness.state_path(
+        "local", session_id="session-beta",
+    ).parent == config.sessions_dir() / "session-beta" / "harness"
+    assert list(
+        harness.load("local", session_id="session-alpha")["entries"]["memory"],
+    ) == ["alpha_only"]
+    assert list(
+        harness.load("local", session_id="session-beta")["entries"]["memory"],
+    ) == ["beta_only"]
 
 
 def test_render_block_is_empty_when_nothing_is_stored():
