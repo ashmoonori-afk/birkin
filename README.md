@@ -322,6 +322,18 @@ for that child while preserving plugins and MCP servers. This keeps a global
 `UserPromptSubmit` hook from treating birkin's internal `<system-context>` as
 user input.
 
+### OMO control from Telegram
+
+Trusted Telegram chats configured in `channels.telegram.allowed_chat_ids` can
+select and control a local OMO session with `/omo list`, `/omo use`, `/omo
+send`, `/omo steer`, `/omo abort`, `/omo status`, and `/omo last`.
+
+`/omo send <prompt>` starts the OMO turn in the background and returns
+immediately. While that turn is running, `/omo steer <message>` and `/omo
+abort` remain available; use `/omo status` to inspect the turn and `/omo last`
+to read its latest assistant reply. A second send or session switch is rejected
+until the active turn finishes.
+
 ### Active voice control
 
 Voice support is installed with birkin. OpenAI STT/TTS calls require a Platform

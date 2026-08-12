@@ -309,6 +309,17 @@ birkin이 `codex app-server` 자식을 시작할 때는 plugin과 MCP server는 
 `UserPromptSubmit` hook이 birkin 내부 `<system-context>`를 사용자 입력으로
 오인하지 않습니다.
 
+### Telegram에서 OMO 제어
+
+`channels.telegram.allowed_chat_ids`에 등록된 신뢰할 수 있는 Telegram chat은
+`/omo list`, `/omo use`, `/omo send`, `/omo steer`, `/omo abort`, `/omo
+status`, `/omo last`로 로컬 OMO session을 선택하고 제어할 수 있습니다.
+
+`/omo send <prompt>`는 OMO 턴을 background에서 시작하고 즉시 반환합니다.
+턴이 실행 중이어도 `/omo steer <message>`와 `/omo abort`를 사용할 수 있으며,
+`/omo status`로 상태를 확인하고 `/omo last`로 최신 assistant 응답을 읽을 수
+있습니다. 활성 턴이 끝날 때까지 두 번째 send와 session 전환은 거부됩니다.
+
 ### 능동 음성 제어
 
 음성 기능은 birkin과 함께 설치됩니다. OpenAI STT/TTS에는 Platform API

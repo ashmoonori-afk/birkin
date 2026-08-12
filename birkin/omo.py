@@ -89,7 +89,7 @@ class OmoController:
     HELP = ("OMO session control\n"
             "/omo list [count] - recent sessions\n"
             "/omo use <id-prefix> - select a session\n"
-            "/omo send <prompt> - run a turn and return its reply\n"
+            "/omo send <prompt> - start a turn in the background\n"
             "/omo steer <message> - steer a running turn\n"
             "/omo abort - interrupt the running turn\n"
             "/omo status - inspect the selected session\n"
@@ -100,6 +100,8 @@ class OmoController:
         self._roots = tuple(session_roots) if session_roots is not None else default_session_roots()
         self._selected: SessionInfo | None = None
         self._operation_lock = threading.Lock()
+        self._prompt_thread: threading.Thread | None = None
+        self._prompt_error: str | None = None
 
     def handle(self, text: str) -> str:
         """Execute a fixed OMO command; free-form text never becomes shell input."""
@@ -157,6 +159,11 @@ class OmoController:
             return f"{prefix!r} matches multiple OMO sessions; use a longer prefix."
         session = matches[0]
         with self._operation_lock:
+            if self._prompt_thread is not None and self._prompt_thread.is_alive():
+                return (
+                    "Wait for the running OMO prompt to finish before "
+                    "switching sessions."
+                )
             self._rpc.switch_session(session.path)
             self._selected = session
         return f"Selected {session.session_id} ({session.cwd})."
@@ -165,16 +172,40 @@ class OmoController:
         if not message:
             return "Usage: /omo send <prompt>"
         with self._operation_lock:
-            return self._rpc.prompt(message)
+            if self._prompt_thread is not None and self._prompt_thread.is_alive():
+                return "An OMO prompt is already running."
+            self._prompt_error = None
+            worker = threading.Thread(
+                target=self._run_prompt,
+                args=(message,),
+                name="birkin-omo-prompt",
+                daemon=True,
+            )
+            self._prompt_thread = worker
+            worker.start()
+        return (
+            "OMO prompt started in the background. "
+            "Use /omo status, /omo steer, /omo abort, or /omo last."
+        )
+
+    def _run_prompt(self, message: str) -> None:
+        try:
+            self._rpc.prompt(message)
+        except (OSError, RpcError, ValueError) as exc:
+            with self._operation_lock:
+                self._prompt_error = str(exc)
 
     def _status(self) -> str:
         selected = self._selected
         if selected is None:
             return "Select a session first with /omo use <id-prefix>."
         state = self._rpc.get_state()
-        return (f"Session: {state.session_id or selected.session_id}\n"
-                f"CWD: {selected.cwd}\n"
-                f"Streaming: {state.is_streaming}")
+        with self._operation_lock:
+            prompt_error = self._prompt_error
+        status = (f"Session: {state.session_id or selected.session_id}\n"
+                  f"CWD: {selected.cwd}\n"
+                  f"Streaming: {state.is_streaming}")
+        return f"{status}\nLast prompt error: {prompt_error}" if prompt_error else status
 
     def close(self) -> None:
         """Close the RPC process during gateway shutdown."""
