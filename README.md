@@ -599,8 +599,6 @@ birkin curate-memory
 - **MCP** exposes birkin tools to compatible clients.
 - **A2A** exposes an opt-in Agent2Agent v1.0 JSON-RPC endpoint and agent card.
 - **Gateway** keeps sessions warm across local HTTP and Telegram turns.
-  Short context-dependent Telegram follow-ups resolve against that chat's latest
-  substantive request, including after a restart, without rewriting new topics.
 - **Structured actions** reuse the approval queue for channel-neutral questions.
   Every question has an action id, explicit expiry, typed radio or checkbox
   options, optional clarification, and recommendation metadata. The first valid
@@ -610,6 +608,8 @@ birkin curate-memory
 The WebUI approval inbox renders structured actions as accessible controls. A
 successful submission changes the card in place to a resolved, disabled
 outcome. Non-browser channels can render the same contract as numbered text.
+  Short context-dependent Telegram follow-ups resolve against that chat's latest
+  substantive request, including after a restart, without rewriting new topics.
 
 ## Integration workflows
 

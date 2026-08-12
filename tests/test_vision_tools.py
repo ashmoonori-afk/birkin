@@ -174,8 +174,6 @@ def test_window_screenshot_reports_disappeared_window(
 def test_window_screenshot_attaches_pixels_from_matching_window(
         tmp_path: Path, monkeypatch) -> None:
     # Given
-    from PIL import Image, ImageGrab
-
     from birkin.tools import desktop
 
     monkeypatch.setattr(
@@ -194,7 +192,10 @@ def test_window_screenshot_attaches_pixels_from_matching_window(
         ],
     )
     monkeypatch.setattr(
-        ImageGrab, "grab", lambda **_kwargs: Image.new("RGB", (2, 2), "white")
+        desktop, "_bounding_box_png", lambda _window: _ONE_PIXEL_PNG
+    )
+    monkeypatch.setattr(
+        desktop, "_macos_window_png", lambda _window: _ONE_PIXEL_PNG
     )
     registry = build_registry(
         _context(tmp_path, desktop_tools=True), include={"desktop"}

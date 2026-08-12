@@ -19,6 +19,7 @@ import time
 from pathlib import Path
 from typing import Any, Optional
 
+from ..proc import kill_tree, popen_tree_kwargs
 from .protocol import LspError, encode, read_message
 
 DEFAULT_TIMEOUT = 10.0
@@ -39,7 +40,7 @@ class LspClient:
             self._proc = subprocess.Popen(
                 list(argv), cwd=str(cwd) if cwd else None,
                 stdin=subprocess.PIPE, stdout=subprocess.PIPE,
-                stderr=subprocess.DEVNULL)
+                stderr=subprocess.DEVNULL, **popen_tree_kwargs())
         except OSError as exc:
             # A missing language server is the common case on a fresh machine.
             # Failing here, by name, beats failing later inside an edit.
@@ -166,7 +167,7 @@ class LspClient:
         try:
             self._proc.wait(timeout=3)
         except subprocess.TimeoutExpired:
-            self._proc.kill()
+            kill_tree(self._proc)
             try:
                 self._proc.wait(timeout=2)
             except subprocess.TimeoutExpired:

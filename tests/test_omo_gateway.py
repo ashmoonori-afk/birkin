@@ -1,9 +1,12 @@
 from __future__ import annotations
 
 import json
+import subprocess
 import sys
 from pathlib import Path
+from typing import cast
 
+import birkin.omo_rpc as omo_rpc
 from birkin.gateway import core
 from birkin.omo import OmoController, parse_omo_command
 from birkin.omo_rpc import OmoRpcClient, OmoState, command_for_session
@@ -99,3 +102,32 @@ def test_rpc_client_uses_jsonl_protocol() -> None:
         client.abort()
     finally:
         client.close()
+
+
+def test_rpc_client_kills_process_tree_after_close_timeout(monkeypatch) -> None:
+    class HungProcess:
+        stdin = None
+        waits = 0
+
+        def poll(self) -> None:
+            return None
+
+        def wait(self, timeout: float) -> None:
+            self.waits += 1
+            if self.waits == 1:
+                raise subprocess.TimeoutExpired("omo", timeout)
+
+    process = HungProcess()
+    killed: list[HungProcess] = []
+    client = OmoRpcClient(command=("omo",))
+    client._process = cast(subprocess.Popen[str], cast(object, process))
+    monkeypatch.setattr(
+        omo_rpc,
+        "kill_tree",
+        lambda selected: killed.append(selected),
+        raising=False,
+    )
+
+    client.close()
+
+    assert killed == [process]

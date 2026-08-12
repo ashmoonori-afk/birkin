@@ -14,6 +14,7 @@ and a cross-platform quoting hazard. Instead:
 from __future__ import annotations
 
 import os
+import signal
 import subprocess
 import tempfile
 from pathlib import Path
@@ -25,6 +26,7 @@ from typing import Any
 # intend shell semantics for the args, so reject them on Windows. Free-form shell
 # strings have their own intentional path (``shell_argv``), which this never gates.
 _WIN_SHELL_METACHARS = frozenset("&|<>^")
+_POSIX_KILL_SIGNAL = getattr(signal, "SIGKILL", signal.SIGTERM)
 
 
 def cli_argv(parts: list[str]) -> list[str]:
@@ -70,14 +72,33 @@ def shell_env() -> dict[str, str]:
     return env
 
 
+def popen_tree_kwargs() -> dict[str, Any]:
+    """Return platform-native flags for a separately killable process tree."""
+    if os.name == "nt":
+        return {"creationflags": subprocess.CREATE_NEW_PROCESS_GROUP}
+    return {"start_new_session": True}
+
+
+def _kill_posix_tree(proc: Any, pid: int) -> bool:
+    try:
+        group = os.getpgid(pid)
+        if group == os.getpgrp():
+            return False
+        os.killpg(group, _POSIX_KILL_SIGNAL)
+        return True
+    except (OSError, ProcessLookupError):
+        return False
+
+
 def kill_tree(proc: "Any") -> None:
     """Kill ``proc`` and its descendants.
 
     On Windows a CLI shim is launched through ``cmd /c`` (see ``cli_argv``), so
     ``proc.kill()`` only terminates ``cmd.exe`` and leaves the real child
     (``claude``/``codex`` → ``node``) running as an orphan. ``taskkill /T``
-    walks the tree. On POSIX ``proc.kill()`` already reaps the direct child.
-    Best-effort: never raises."""
+    walks the tree. POSIX children are started in their own session by
+    :func:`popen_tree_kwargs`, so killing the process group reaps descendants
+    without touching Birkin's own group. Best-effort: never raises."""
     if proc is None:
         return
     pid = getattr(proc, "pid", None)
@@ -88,6 +109,9 @@ def kill_tree(proc: "Any") -> None:
             return
         except Exception:
             pass  # fall through to proc.kill()
+    if os.name != "nt" and pid is not None:
+        if _kill_posix_tree(proc, pid):
+            return
     try:
         proc.kill()
     except Exception:
