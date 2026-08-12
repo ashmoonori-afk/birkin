@@ -49,7 +49,7 @@ import threading
 import time
 from typing import Any, Callable, Optional
 
-from .proc import cli_argv, kill_tree
+from .proc import cli_argv, kill_tree, popen_tree_kwargs
 
 StreamCallback = Optional[Callable[[str], None]]
 
@@ -238,7 +238,7 @@ class CodexAppServerSession:
                 self._build_argv(), stdin=subprocess.PIPE,
                 stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
                 text=True, bufsize=1, encoding="utf-8", errors="replace",
-                cwd=self.cwd, env=dict(os.environ))
+                cwd=self.cwd, env=dict(os.environ), **popen_tree_kwargs())
         except OSError as exc:
             raise CodexSessionError(f"failed to spawn codex app-server: {exc}")
         # Fresh queue per process, passed BY VALUE to the reader thread: a

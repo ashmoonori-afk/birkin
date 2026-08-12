@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import ast
 import plistlib
 import subprocess
 import sys
@@ -8,6 +9,41 @@ from types import SimpleNamespace
 
 from birkin import scheduler
 from birkin.tools import desktop
+
+
+_PROVIDER_PROCESS_FILES = (
+    "birkin/claude_session.py",
+    "birkin/codex_session.py",
+    "birkin/llm.py",
+    "birkin/lsp/client.py",
+)
+
+
+def test_provider_processes_use_portable_tree_lifecycle() -> None:
+    root = Path(__file__).parents[1]
+    missing: list[str] = []
+    for relative in _PROVIDER_PROCESS_FILES:
+        source = (root / relative).read_text(encoding="utf-8")
+        tree = ast.parse(source)
+        for node in ast.walk(tree):
+            if not (
+                isinstance(node, ast.Call)
+                and isinstance(node.func, ast.Attribute)
+                and node.func.attr == "Popen"
+            ):
+                continue
+            has_tree_kwargs = any(
+                keyword.arg is None
+                and isinstance(keyword.value, ast.Call)
+                and (
+                    isinstance(keyword.value.func, ast.Name)
+                    and keyword.value.func.id == "popen_tree_kwargs"
+                )
+                for keyword in node.keywords
+            )
+            if not has_tree_kwargs:
+                missing.append(f"{relative}:{node.lineno}")
+    assert missing == []
 
 
 class _PortableWindow:
