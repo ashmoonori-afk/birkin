@@ -9,7 +9,7 @@ import time
 
 import pytest
 
-from birkin import config, curator, selfimprove, store
+from birkin import config, curator, harness, selfimprove, store
 from birkin.runtime import ConfigError, build_session
 
 
@@ -109,6 +109,66 @@ def test_build_cli_system_injects_identity_memory_and_routed_skills():
     assert "Skill: arxiv" in sysp                      # router picked arxiv
     # The CLI prompt must NOT include the agent's tool-loop guidance.
     assert "load_skill" not in sysp
+
+
+def test_cli_and_warm_systems_inject_the_same_merged_harness_snapshot(
+        monkeypatch):
+    cfg = {
+        "provider": "codex-cli",
+        "model": "",
+        "session_id": "prompt-session",
+    }
+    proposal = {
+        "summary": "s",
+        "rationale": "r",
+        "expectedOutcome": "o",
+        "edits": [{
+            "action": "create",
+            "kind": "memory",
+            "title": "Global sentinel",
+            "content": "GLOBAL_HARNESS_SENTINEL",
+        }],
+    }
+    harness.apply(
+        harness.load("global"),
+        proposal,
+        baseline=harness.load("global"),
+        scope="global",
+    )
+    local_proposal = {
+        **proposal,
+        "edits": [{
+            **proposal["edits"][0],
+            "title": "Local sentinel",
+            "content": "LOCAL_HARNESS_SENTINEL",
+        }],
+    }
+    harness.apply(
+        harness.load("local", session_id="prompt-session"),
+        local_proposal,
+        baseline=harness.load("local", session_id="prompt-session"),
+        scope="local",
+        session_id="prompt-session",
+    )
+    captured = {}
+
+    class _Warm:
+        def __init__(self, **kwargs):
+            captured.update(kwargs)
+
+    monkeypatch.setattr("birkin.codex_session.CodexAppServerSession", _Warm)
+    session = build_session(cfg)
+    session._build_cli_system("inspect state")
+    cli_system = session.agent.system
+    session._build_warm()
+    warm_system = captured["preamble"]
+
+    for sentinel in ("GLOBAL_HARNESS_SENTINEL", "LOCAL_HARNESS_SENTINEL"):
+        assert sentinel in cli_system
+        assert sentinel in warm_system
+    revision = harness.snapshot("prompt-session")["revision"]
+    assert revision in cli_system
+    assert revision in warm_system
 
 
 def test_build_cli_system_records_routed_skill_usage():

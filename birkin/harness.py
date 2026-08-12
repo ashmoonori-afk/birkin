@@ -1,10 +1,11 @@
 """Continual harness — the versioned ledger of birkin's self-improvement.
 
-Morpheus and the in-session review pass no longer write memory/skills blindly:
+Morpheus and the in-session review pass no longer write harness notes blindly:
 they emit a *proposal* (summary, rationale, expectedOutcome, edits) and this
 module validates, applies, records, and — when an edit turns out wrong —
 reverses it. Four entry kinds are tracked: ``prompt`` (supplemental behaviour
-notes), ``memory``, ``skill``, and ``subagent`` (reusable delegation specs).
+notes), ``memory``, ``skill_note`` (non-executable metadata), and ``subagent``
+(reusable delegation specs).
 
 Design: docs/prime-agent-analysis.html sections 4.2-4.5.
 """
@@ -12,6 +13,7 @@ Design: docs/prime-agent-analysis.html sections 4.2-4.5.
 from __future__ import annotations
 
 import copy
+import hashlib
 import json
 import re
 import uuid
@@ -21,7 +23,7 @@ from typing import Any, Iterable
 
 from . import config, store
 
-KINDS = ("prompt", "memory", "skill", "subagent")
+KINDS = ("prompt", "memory", "skill_note", "subagent")
 ACTIONS = ("create", "update", "delete")
 SCOPES = ("local", "global")
 
@@ -37,7 +39,7 @@ HISTORY_FILE = "refinements.jsonl"
 _KIND_HEADINGS = {
     "prompt": "행동 노트 (prompt)",
     "memory": "알고 있는 사실 (memory)",
-    "skill": "보유 스킬 (skill)",
+    "skill_note": "스킬 노트 (skill_note, 실행 불가)",
     "subagent": "위임 역할 (subagent)",
 }
 
@@ -62,7 +64,7 @@ def history_path(scope: str = "global", *, session_id: str | None = None) -> Pat
 
 
 def empty_state() -> dict[str, Any]:
-    return {"schema": 1, "entries": {kind: {} for kind in KINDS},
+    return {"schema": 2, "entries": {kind: {} for kind in KINDS},
             "refinements": []}
 
 
@@ -101,6 +103,15 @@ def load(scope: str = "global", *, session_id: str | None = None) -> dict[str, A
             for eid, entry in records.items():
                 if isinstance(entry, dict):
                     state["entries"][kind][str(eid)] = entry
+        legacy = entries.get("skill")
+        if isinstance(legacy, dict):
+            for eid, entry in legacy.items():
+                if isinstance(entry, dict):
+                    state["entries"]["skill_note"][str(eid)] = {
+                        **entry,
+                        "kind": "skill_note",
+                    }
+    state["schema"] = 2
     refinements = raw.get("refinements")
     if isinstance(refinements, list):
         state["refinements"] = [r for r in refinements if isinstance(r, dict)]
@@ -161,6 +172,11 @@ def validate_edit(edit: Any, *, max_content: int = MAX_CONTENT) -> str | None:
     if action not in ACTIONS:
         return f"unknown action {action!r}"
     kind = str(edit.get("kind", "")).strip().lower()
+    if kind == "skill":
+        return (
+            "kind 'skill' is not executable; use 'skill_note' "
+            "for harness metadata"
+        )
     if kind not in KINDS:
         return f"unknown kind {kind!r}"
     if action == "delete":
@@ -346,7 +362,7 @@ def rollback(rid: str, scope: str = "global", *,
 def auto_kinds(cfg: dict[str, Any] | None) -> set[str]:
     raw = (cfg or {}).get("harness_auto_approve")
     if raw is None:
-        raw = ["memory", "skill"]
+        raw = ["memory", "skill_note"]
     return {str(kind).strip().lower() for kind in raw}
 
 
@@ -368,7 +384,7 @@ def submit(proposal: dict[str, Any], *, cfg: dict[str, Any] | None = None,
     max_edits = int(cfg.get("harness_max_edits") or MAX_EDITS)
     raw_edits = proposal.get("edits")
     edits = list(raw_edits)[:max_edits] if isinstance(raw_edits, list) else []
-    auto = auto_kinds(cfg)
+    auto = auto_kinds(cfg) if scope == "local" else set()
 
     auto_edits: list[dict[str, Any]] = []
     queued: list[dict[str, Any]] = []
@@ -453,18 +469,39 @@ def merge_states(*states: dict[str, Any]) -> dict[str, Any]:
     return merged
 
 
+def snapshot(session_id: str | None) -> dict[str, Any]:
+    """Return one revisioned global + current-session local prompt snapshot."""
+    state = merge_states(
+        load("global"),
+        load("local", session_id=session_id),
+    )
+    encoded = json.dumps(
+        state,
+        ensure_ascii=False,
+        sort_keys=True,
+        separators=(",", ":"),
+    ).encode()
+    return {
+        "revision": hashlib.sha256(encoded).hexdigest()[:16],
+        "state": state,
+    }
+
+
 def render_block(state: dict[str, Any], *, per_kind: int = RENDER_PER_KIND,
-                 history_limit: int = RENDER_HISTORY,
-                 width: int = RENDER_WIDTH,
-                 budget: int | None = None) -> str:
+                  history_limit: int = RENDER_HISTORY,
+                  width: int = RENDER_WIDTH,
+                  budget: int | None = None,
+                  revision: str | None = None) -> str:
     """Compact the harness into the system-prompt block (empty when unused)."""
     entries = state.get("entries") or {}
     refinements = state.get("refinements") or []
     if not any(entries.get(kind) for kind in KINDS) and not refinements:
         return ""
 
-    lines = ["## Harness (자가개선 상태)",
-             "아래는 요약이다. 라우팅 힌트로 쓰고 상세가 필요하면 조회하라."]
+    lines = ["## Harness (자가개선 상태)"]
+    if revision:
+        lines.append(f"revision: {revision}")
+    lines.append("아래는 요약이다. 라우팅 힌트로 쓰고 상세가 필요하면 조회하라.")
 
     for kind in KINDS:
         records = entries.get(kind) or {}
