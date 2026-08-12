@@ -26,6 +26,7 @@ from typing import Any
 # intend shell semantics for the args, so reject them on Windows. Free-form shell
 # strings have their own intentional path (``shell_argv``), which this never gates.
 _WIN_SHELL_METACHARS = frozenset("&|<>^")
+_POSIX_KILL_SIGNAL = getattr(signal, "SIGKILL", signal.SIGTERM)
 
 
 def cli_argv(parts: list[str]) -> list[str]:
@@ -83,7 +84,7 @@ def _kill_posix_tree(proc: Any, pid: int) -> bool:
         group = os.getpgid(pid)
         if group == os.getpgrp():
             return False
-        os.killpg(group, signal.SIGKILL)
+        os.killpg(group, _POSIX_KILL_SIGNAL)
         return True
     except (OSError, ProcessLookupError):
         return False
