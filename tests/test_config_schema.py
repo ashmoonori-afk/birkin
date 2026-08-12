@@ -116,3 +116,18 @@ def test_invalid_array_elements_fall_back_atomically(
         loaded = config.load_config()
 
     assert loaded[key] == config.DEFAULT_CONFIG[key]
+
+
+def test_cli_access_none_falls_back_to_safe_workspace(
+    tmp_path, monkeypatch,
+) -> None:
+    monkeypatch.setenv("BIRKIN_HOME", str(tmp_path))
+    config.config_path().write_text(
+        json.dumps({"cli_access": "none"}),
+        encoding="utf-8",
+    )
+
+    with pytest.warns(RuntimeWarning, match="cli_access"):
+        loaded = config.load_config()
+
+    assert loaded["cli_access"] == "workspace"

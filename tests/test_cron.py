@@ -184,6 +184,38 @@ def test_versioned_cron_records_enforce_complete_contract(mutate) -> None:
         cron.save_jobs([job])
 
 
+def test_schedule_rejects_missing_display_and_extra_fields() -> None:
+    job = cron.add_job(
+        name="strict schedule",
+        hour=9,
+        minute=0,
+        action_type="prompt",
+        value="go",
+    )
+    del job["schedule"]["display"]
+    with pytest.raises(cron.CronFormatError):
+        cron.save_jobs([job])
+
+    job["schedule"]["display"] = "09:00"
+    job["schedule"]["surprise"] = True
+    with pytest.raises(cron.CronFormatError):
+        cron.save_jobs([job])
+
+
+def test_non_monitor_rejects_monitor_only_fields() -> None:
+    job = cron.add_job(
+        name="strict action",
+        hour=9,
+        minute=0,
+        action_type="prompt",
+        value="go",
+    )
+    job["monitor_url"] = "https://example.com"
+
+    with pytest.raises(cron.CronFormatError):
+        cron.save_jobs([job])
+
+
 def test_add_monitor_job_schema_clamps_max_bytes():
     job = cron.add_job(
         name="watch", action_type="monitor", value="summarize the change",

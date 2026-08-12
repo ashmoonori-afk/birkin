@@ -38,7 +38,7 @@
     },
     "cli_access": {
       "type": "string",
-      "enum": ["none", "workspace", "full"]
+      "enum": ["workspace", "full"]
     },
     "shell_approval": {
       "type": "string",

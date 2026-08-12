@@ -80,5 +80,39 @@
     "monitor_script": {"type": ["string", "null"]},
     "max_bytes": {"type": "integer", "minimum": 1, "maximum": 262144}
   },
+  "allOf": [
+    {
+      "if": {
+        "properties": {"type": {"const": "monitor"}},
+        "required": ["type"]
+      },
+      "then": {
+        "required": ["monitor_url", "monitor_script", "max_bytes"],
+        "oneOf": [
+          {
+            "properties": {
+              "monitor_url": {"type": "string", "minLength": 1},
+              "monitor_script": {"type": "null"}
+            }
+          },
+          {
+            "properties": {
+              "monitor_url": {"type": "null"},
+              "monitor_script": {"type": "string", "minLength": 1}
+            }
+          }
+        ]
+      },
+      "else": {
+        "not": {
+          "anyOf": [
+            {"required": ["monitor_url"]},
+            {"required": ["monitor_script"]},
+            {"required": ["max_bytes"]}
+          ]
+        }
+      }
+    }
+  ],
   "additionalProperties": false
 }

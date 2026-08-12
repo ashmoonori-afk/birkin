@@ -285,6 +285,17 @@ def _validate_schedule(schedule: Any, path: str) -> dict[str, Any]:
     kind = schedule.get("kind")
     if kind not in _SCHEDULE_KINDS:
         raise CronFormatError(f"{path}.kind: unsupported value {kind!r}")
+    allowed = {
+        "daily": {"kind", "display", "hour", "minute"},
+        "interval": {"kind", "display", "minutes"},
+        "once": {"kind", "display", "run_at"},
+        "cron": {"kind", "display", "expr"},
+    }[kind]
+    extras = set(schedule) - allowed
+    if extras:
+        raise CronFormatError(f"{path}: unknown field {min(extras)!r}")
+    if not isinstance(schedule.get("display"), str):
+        raise CronFormatError(f"{path}.display: expected a string")
     if kind == "daily":
         hour, minute = schedule.get("hour"), schedule.get("minute")
         if (not isinstance(hour, int) or isinstance(hour, bool)
