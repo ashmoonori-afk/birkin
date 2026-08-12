@@ -13,6 +13,7 @@ from typing import Any
 from .. import config, models, pools, promptgate, security, store
 from ..claude_session import ClaudeStreamSession
 from ..codex_session import CodexTurnTimeout
+from ..omo import OmoController
 from ..runtime import ConfigError, Session, build_session
 from .workflow import WORKFLOW_POLICY, is_running as workflow_is_running
 
@@ -134,6 +135,7 @@ _GATEWAY_COMMANDS: list[tuple[str, str, set[str]]] = [
      {"checkin", "check_in", "checkins"}),
     ("companion", "Turn proactive follow-through off — /companion off",
      {"companion"}),
+    ("omo", "Control local OMO sessions", {"omo"}),
 ]
 
 # Friendly short model names accepted by `claude --model` (full claude-… IDs also OK).
@@ -143,7 +145,7 @@ _CODEX_REASONING_EFFORTS = ["default", "low", "medium", "high", "xhigh"]
 # trusted channels only (see Gateway._command_trusted).
 _PRIVILEGED_COMMANDS = {"update", "models", "effort", "restart", "hard_restart",
                         "pending", "deny", "remind", "commitment", "checkin",
-                        "companion"}
+                        "companion", "omo"}
 _LOCAL_TRUSTED_CHANNELS = frozenset({"http", "local", "repl", "voice"})
 UNTRUSTED_CHANNEL_REPLY = "⛔ This channel sender is not authorized."
 # Providers with a warm persistent-session implementation (see
@@ -392,6 +394,7 @@ class Gateway:
         self._restart_origin: tuple[str, str] | None = None
         # Loaded by run() from the restart marker after a re-exec (one-shot).
         self._restart_notice: dict[str, Any] | None = None
+        self._omo_controller = OmoController()
 
     def _system_prompt(self) -> str:
         """birkin persona + memory + skill index, snapshot for a warm session.
@@ -503,6 +506,7 @@ class Gateway:
         threading.Thread(target=self._make_spare, daemon=True).start()
 
     def shutdown(self) -> None:
+        self._omo_controller.close()
         self._claude_sessions.clear()   # the pool closes every session
         with self._spare_lock:
             self._spare_gen += 1        # in-flight builders must not publish
@@ -650,6 +654,8 @@ class Gateway:
             return ""
         if not self._channel_trusted(channel, chat_id, sender_id):
             print(f"[gateway] denied untrusted {channel}:{chat_id}", flush=True)
+            if text == "/omo" or text.startswith("/omo "):
+                return "OMO control is restricted to configured Telegram chat IDs."
             return UNTRUSTED_CHANNEL_REPLY
         key = (channel, str(chat_id))
         # The global lock guards only the shared bookkeeping (the _claude_sessions
@@ -732,6 +738,10 @@ class Gateway:
                 return f"{'✅' if result.get('ok') else '⚠️'} {result['message']}"
             if cmd == "pending":
                 return self.pending_text()
+            if cmd == "omo":
+                if not self._omo_command_trusted(channel, chat_id):
+                    return "OMO control is restricted to configured Telegram chat IDs."
+                return self._omo_controller.handle(text)
             if cmd == "deny":
                 return self.deny_command(cmd_arg)
             if cmd == "remind":
@@ -1289,6 +1299,14 @@ class Gateway:
     def _command_trusted(self, channel: str) -> bool:
         """Whether a channel has an explicit trusted-principal policy."""
         return self._autosave_trusted(channel)
+    def _omo_command_trusted(self, channel: str, chat_id: str) -> bool:
+        """Require an explicit Telegram allow-list for local OMO control."""
+        if channel != "telegram":
+            return True
+        telegram = (self.cfg.get("channels", {}) or {}).get("telegram", {}) or {}
+        allowed = telegram.get("allowed_chat_ids")
+        return isinstance(allowed, list) and str(chat_id) in {str(value) for value in allowed}
+
 
 
 def run() -> int:
