@@ -17,6 +17,8 @@ import json
 import sys
 from typing import Any
 
+from . import __version__
+
 
 def _cmd_chat(args: argparse.Namespace) -> int:
     from . import config
@@ -946,6 +948,11 @@ def _cmd_trace(args: argparse.Namespace) -> int:
 
 def build_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(prog="birkin", description="Lightweight self-improving CLI agent workspace")
+    p.add_argument(
+        "--version",
+        action="version",
+        version=f"%(prog)s {__version__}",
+    )
     sub = p.add_subparsers(dest="command")
 
     chatp = sub.add_parser("chat", help="interactive chat (default)")

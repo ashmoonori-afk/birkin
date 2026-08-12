@@ -47,6 +47,26 @@ def test_installed_console_script_help():
     assert "mcp-serve" in result.stdout
 
 
+def test_installed_console_script_version():
+    from birkin import __version__
+
+    script = Path(sysconfig.get_path("scripts")) / (
+        "birkin.exe" if sysconfig.get_platform().startswith("win") else "birkin"
+    )
+    result = subprocess.run(
+        [str(script), "--version"],
+        cwd=Path(__file__).resolve().parents[1],
+        capture_output=True,
+        text=True,
+        encoding="cp1252",
+        env={**os.environ, "PYTHONIOENCODING": "cp1252"},
+        check=False,
+    )
+
+    assert result.returncode == 0, result.stderr
+    assert result.stdout.strip() == f"birkin {__version__}"
+
+
 def test_help_survives_a_legacy_windows_pipe_encoding():
     """A piped --help on Windows encodes with cp1252; it must not crash."""
     import sys
