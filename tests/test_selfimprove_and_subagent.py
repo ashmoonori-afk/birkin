@@ -319,7 +319,7 @@ def test_detached_subagent_returns_at_once_and_finishes_in_the_background(
 
     assert finished.wait(timeout=10)
     final = agentruns.get_run(run["id"])
-    assert final["status"] == "done"
+    assert final["status"] == "done", final["result"]
     assert final["result"] == "background work"
     assert [event["text"] for event in final["events"]] == [
         "tool_start read_file"]
