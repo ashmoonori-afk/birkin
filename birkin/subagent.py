@@ -12,15 +12,24 @@ import threading
 from dataclasses import replace
 from typing import Any, Optional
 
-from . import agentruns, promptgate
+from . import agentruns, promptgate, store
 from .agent import Agent
 from .tools import ToolContext, build_registry
 
 
 def run_subagent(task: str, parent_ctx: ToolContext, *,
                  skill_names: Optional[list[str]] = None,
-                 max_turns: int = 12, detach: bool = False) -> str:
+                 max_turns: int = 12, detach: bool = False,
+                 reserve_tokens: int = 0, reserve_usd: float = 0.0) -> str:
     cfg = parent_ctx.cfg
+    lease = (
+        parent_ctx.tree_budget.reserve(
+            tokens=reserve_tokens,
+            usd=reserve_usd,
+        )
+        if parent_ctx.tree_budget is not None
+        else None
+    )
     sub_model = cfg.get("subagent_model") or cfg.get("model")
     child_cfg = {**cfg, "model": sub_model}
 
@@ -74,6 +83,7 @@ def run_subagent(task: str, parent_ctx: ToolContext, *,
         emit("subagent.start", {"task": task[:200], "id": run_id})
 
     def execute() -> str:
+        result = ""
         try:
             # Pick up messages queued in the short window between registration
             # and the first model call. Later messages are drained by the event
@@ -86,6 +96,10 @@ def run_subagent(task: str, parent_ctx: ToolContext, *,
         except Exception as exc:
             agentruns.finish_run(run_id, "error", f"{type(exc).__name__}: {exc}")
             raise
+        finally:
+            if lease is not None:
+                actual = store.estimate_usage(task, result)["estTokens"]
+                lease.settle(tokens=actual)
         if emit:
             emit("subagent.done", {"chars": len(result), "id": run_id})
         return result

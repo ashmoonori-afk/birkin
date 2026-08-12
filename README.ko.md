@@ -555,7 +555,7 @@ input, 작업 디렉터리, gate, digest에 묶이며, 승인은 권한 상승 �
   "harness_prompt_budget": 20000,
   "harness_auto_approve": [
     "memory",
-    "skill"
+    "skill_note"
   ],
   "cli_access": "workspace",
   "cli_network_access": false,
@@ -568,6 +568,11 @@ input, 작업 디렉터리, gate, digest에 묶이며, 승인은 권한 상승 �
   "allow_unattended_full": false,
   "budget_tokens_daily": 0,
   "budget_tokens_monthly": 0,
+  "subagent_tree_max_tokens": 0,
+  "subagent_tree_max_usd": 0.0,
+  "subagent_tree_deadline_seconds": 0,
+  "subagent_tree_max_concurrent": 4,
+  "subagent_tree_max_nodes": 16,
   "cli_timeout": 300,
   "evidence_required": false,
   "critique_agents": 3,

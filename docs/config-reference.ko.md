@@ -111,7 +111,7 @@ Schema version: 1
 | `harness_compact_review` | `boolean` | `true` | Birkin 설정 `harness_compact_review`. |
 | `harness_max_edits` | `integer` | `12` | Birkin 설정 `harness_max_edits`. |
 | `harness_prompt_budget` | `integer` | `20000` | Birkin 설정 `harness_prompt_budget`. |
-| `harness_auto_approve` | `array` | `["memory", "skill"]` | Birkin 설정 `harness_auto_approve`. |
+| `harness_auto_approve` | `array` | `["memory", "skill_note"]` | Birkin 설정 `harness_auto_approve`. |
 | `cli_access` | `string` | `"workspace"` | Birkin 설정 `cli_access`. |
 | `cli_network_access` | `boolean` | `false` | Birkin 설정 `cli_network_access`. |
 | `egress` | `object` | `{"enabled": true, "enforced": true, "max_bytes": 1048576, "destinations": {}}` | Birkin 설정 `egress`. |
@@ -122,6 +122,11 @@ Schema version: 1
 | `allow_unattended_full` | `boolean` | `false` | Birkin 설정 `allow_unattended_full`. |
 | `budget_tokens_daily` | `integer` | `0` | Birkin 설정 `budget_tokens_daily`. |
 | `budget_tokens_monthly` | `integer` | `0` | Birkin 설정 `budget_tokens_monthly`. |
+| `subagent_tree_max_tokens` | `integer` | `0` | Birkin 설정 `subagent_tree_max_tokens`. |
+| `subagent_tree_max_usd` | `number` | `0.0` | Birkin 설정 `subagent_tree_max_usd`. |
+| `subagent_tree_deadline_seconds` | `integer` | `0` | Birkin 설정 `subagent_tree_deadline_seconds`. |
+| `subagent_tree_max_concurrent` | `integer` | `4` | Birkin 설정 `subagent_tree_max_concurrent`. |
+| `subagent_tree_max_nodes` | `integer` | `16` | Birkin 설정 `subagent_tree_max_nodes`. |
 | `cli_timeout` | `integer` | `300` | Birkin 설정 `cli_timeout`. |
 | `evidence_required` | `boolean` | `false` | Birkin 설정 `evidence_required`. |
 | `critique_agents` | `integer` | `3` | Birkin 설정 `critique_agents`. |

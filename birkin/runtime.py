@@ -480,6 +480,7 @@ def build_session(cfg: Optional[dict[str, Any]] = None,
         cfg=cfg, client=client, cwd=Path.cwd(),
         skills=skills, memory=memory,
         max_depth=int(cfg.get("max_depth", 2)), emit=on_event,
+        tree_budget=budget.TreeBudget(cfg),
         checkpoints=checkpoint_mgr, hooks=hook_bus)
     registry = build_registry(ctx)
     system = promptgate.compose_main(
