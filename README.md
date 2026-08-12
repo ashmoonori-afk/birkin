@@ -1,20 +1,71 @@
 # birkin
 
-**A dependency-free Python agent that treats memory, execution, and
+**A local-first Python agent that treats memory, execution, and
 self-improvement as inspectable local state.**
 
-birkin is a local-first CLI agent, HTTP/Telegram gateway, MCP server, and
-multi-agent runtime. Its production package uses only the Python standard
-library. The repository is roughly 32,000 lines of Python and ships with more
-than 2,000 offline tests and 56 bundled skills.
-
-The interesting part is not another chat loop. It is the way the code joins
-the loop to operational machinery: resumable goals, isolated subagents,
-workspace checkpoints, secret redaction, model failover, transparent Markdown
-memory, deterministic multi-agent workflows, and a reversible
-self-improvement ledger.
+birkin is a CLI agent, HTTP/Telegram gateway, MCP server, and multi-agent
+runtime in one installable package. Memory is a folder of Markdown you can
+open, grep, and commit. Multi-agent work is a Python graph, not a model
+deciding to call itself. Consequential actions cross approval, checkpoint, and
+redaction gates that live in code rather than in a prompt.
 
 [한국어](./README.ko.md)
+
+![A winged Hermes courier with a loose bundle, overtaken on a higher track by an unbranded structured trapezoidal handbag with twin top handles, whose internal node graph stays intact while hard gates deflect red edges](./docs/assets/birkin-hero-courier.png)
+
+> **Memory is files. Control flow is code. Authority is bounded.**
+
+The name is the joke and the joke is the design. Hermes is the famous courier:
+fast, mythic, travelling light. birkin runs ahead of that baseline by carrying
+less machinery, holding its cargo in a shape that cannot spill, and putting
+hard gates in front of what should never pass. The gates are not decoration.
+They are deterministic code that refuses, queues, and checkpoints no matter
+what a model would prefer. The speed is real and measured against birkin's own
+earlier path: warm gateway turns went from 13-16 s to 2.3 s on Claude and from
+37.5 s to 3 s on Codex ([`docs/STATUS.md`](./docs/STATUS.md), ADR-045 and
+ADR-046; no comparative hermes-agent latency benchmark exists here, and none is
+claimed).
+
+## The 60-second proof
+
+Every row is something the repository can be made to show you.
+
+| | Measured or enforced |
+|---|---|
+| **3 runtime dependencies** | The OpenAI SDK for voice, Pillow for desktop screenshots, and pywin32 on Windows only. Agent loop, gateway, memory, workflows, HTTP, JSON-RPC, and cron parsing are standard library. [`pyproject.toml`](./pyproject.toml) |
+| **5 curation operations, none of them delete** | `OPS` is the entire vocabulary a memory curator gets. There is no delete for an adversarial model or a poisoned note to reach for. [`curation_contract.py`](./birkin/curation_contract.py) |
+| **R@1 0.891 in production** | The shipped lexical stack scores 0.891 R@1 / 0.974 R@5 / 0.926 MRR on 470 LongMemEval-S questions. The tuned research configuration reaches 0.900, ahead of the best embedding hybrid measured on the same harness at 0.894. No encoder, no vector store. [`docs/ranking-v2-plan.md`](./docs/ranking-v2-plan.md) |
+| **4 concurrent execution slots, 100-agent ceiling** | Moirai's default thread-pool width and per-run spawn cap. Scheduling limits, distinct from the named workers below. Abort, budget, and cap are checked before each new agent. [`moirai/engine.py`](./birkin/moirai/engine.py) |
+| **2,300+ offline tests, 82.89% coverage** | The default `pytest` run needs no API key and no network. [`docs/STATUS.md`](./docs/STATUS.md) |
+| **Warm turns at 2.3 s and 3 s** | Claude and Codex warm gateway turns, down from 13-16 s and 37.5 s on birkin's own earlier path. This is a self-comparison, not a claim about any other project. [`docs/STATUS.md`](./docs/STATUS.md) |
+| **56 bundled skills, ~37K lines of Python** | One flat package. Most behavior is a module with explicit inputs and file-backed state. |
+
+<details>
+<summary><strong>Or skip this README and make your agent audit the claims</strong></summary>
+
+```text
+Read this README and the implementation files it links to. Tell me whether
+birkin is graph engineering or a prompt loop, which actions a model can never
+authorize for itself, and where the project publishes results that went
+against it:
+https://raw.githubusercontent.com/ashmoonori-afk/birkin/main/README.md
+```
+
+</details>
+
+## Highlights
+
+| | What is different |
+|---|---|
+| **Delete-free memory curation** | The model proposes a typed plan. Deterministic code owns the mutation and decides what survives. |
+| **Lexical retrieval, measured** | BM25 over Hangul-aware tokens, Ebbinghaus decay, Hebbian potentiation, zone-priority EMA. LLM-free, benchmarked in-repo. |
+| **A graph runtime, not a spawn tool** | `agent`, `parallel`, and `pipeline` are code primitives. One workflow crosses Claude, Codex, and API workers without naming them in the script. |
+| **Bounded workers** | Each named worker has one trigger and one authority ceiling, enforced in the executor. |
+| **One enforcement path for tool results** | Every native tool call passes `ToolRegistry.run`. Hooks observe there, output is redacted there, spill happens only after redaction. |
+| **Self-improvement is reversible data** | Typed proposals, validated limits, a versioned ledger, and rollback. Not an invisible mutation. |
+| **One prompt assembly gate** | `promptgate.py` composes persona, memory, skills, and notices for every surface. No surface invents its own system prompt. |
+| **Local-first surfaces** | CLI, WebUI, local HTTP, Telegram, voice, MCP, and opt-in A2A from the same package and storage conventions. |
+| **Auditable by construction** | Visible files, append-only records, and offline tests instead of opaque hosted state. |
 
 ## Why birkin exists
 
@@ -22,15 +73,102 @@ There are already excellent general-purpose agent projects. birkin makes a
 different trade:
 
 - one installable Python package instead of a multi-language runtime;
-- zero mandatory runtime dependencies instead of SDK-heavy provider stacks;
+- three runtime dependencies (voice, screenshots, Windows desktop) instead of
+  SDK-heavy provider stacks;
 - visible files and append-only records instead of opaque hosted state;
 - a small native tool surface instead of browser/computer automation;
 - explicit approval, checkpoint, and redaction choke points around execution;
-- bounded worker continuations that run only after explicit approval;
 - continual improvement as reviewable proposals that can be rolled back.
 
 This makes birkin unusually easy to audit, embed, test offline, and repair with
 ordinary Python tools.
+
+## Graph engineering, not agent theater
+
+Most agent systems keep control flow inside the prompt. The model decides
+whether to call another model, whether to retry, when to stop. That is a
+suggestion loop with a spawn button. Moirai moves those decisions into an
+execution graph that Python owns.
+
+![One keyed entry, a three-tumbler guard standing before any spawn, a single straight lane, four parallel threads meeting a hard barrier, six tokens advancing independently through three stations, one contained red stub, a shared ledger rail beneath everything, and two resume arcs of which only one key matches](./docs/assets/birkin-moirai-engine.png)
+
+*One entry, one guard before any spawn, three concurrency shapes, one failure
+contained, everything journaled, and resume reused only where the key still
+matches.*
+
+```mermaid
+flowchart LR
+    E["Explicit entry<br/>CLI only"] --> S["Load Python workflow"]
+    S --> B["Bind roles to providers<br/>before execution"]
+    B --> G{"Guard: abort / budget / spawn cap"}
+    G -->|within limits| X{"Graph primitive"}
+    G -->|limit reached| Z["Stop spawning"]
+    X --> A["agent()"]
+    X --> P["parallel()<br/>barrier"]
+    X --> L["pipeline()<br/>per-item stages"]
+    A --> J["Journal"]
+    P --> J
+    L --> J
+    J --> O["Result + failure forensics"]
+    J -. "matching sequence + call key" .-> R["Deterministic resume cache"]
+    R -.-> X
+```
+
+- **Python owns control flow.** A workflow is a file with `meta` and `main(m)`.
+  Roles bind to providers before anything spawns.
+- **Concurrency has semantics.** `parallel()` is a barrier. `pipeline()` lets
+  each item advance through stages independently. A failed branch does not take
+  down its siblings.
+- **Replay is selective.** Resume accepts a cached call only when the sequence
+  and a content-derived key both still match, so rebinding one role re-runs
+  that role and nothing else.
+- **Failure is data.** Provider errors, guard blocks, tokens, elapsed time, and
+  tracebacks go into the run record instead of collapsing into "agent failed".
+- **Stop conditions are constants.** The bundled `deep-research` pattern halts
+  after two consecutive waves that surface no new lead, because
+  `DRY_WAVES_TO_STOP` is a number in the source rather than a judgment call.
+
+## Workers with bounded authority
+
+![Eight stations on one shared foundation rail: four solid machined blocks, three half-tone frames holding state tokens, and one dashed weightless gate, joined by a closed amber cycle](./docs/assets/birkin-worker-system.png)
+
+The workers are named after Greek and Egyptian figures. Their boundaries are
+deliberately unromantic, and they are not all the same kind of thing. Four are
+deterministic modules. Three are thin launchers that persist state but execute
+little. One is protocol prose with no module at all.
+
+| Worker | Runs when | Authority ceiling |
+|---|---|---|
+| **Moirai** | You start a workflow explicitly from the CLI | Runs provider-portable graphs. Abort, token budget, and the 100-agent spawn cap are evaluated before each new agent. |
+| **Mnemosyne** | Memory is indexed, searched, or mechanically maintained | Owns zones, ranking, decay, and priority. No model call anywhere in it. Judgment is a separate layer with its own gate. |
+| **Neurosis** | A request is too ambiguous to act on | Interviews, writes a spec, waits for approval. It does not guess. |
+| **Morpheus** | Scheduled review of recent work | Emits proposals. It does not rewrite the agent directly. |
+| **Boulder** | A long-running goal is set | Persists a resumable plan. A goal's gate command is never executed by the goal store; it routes through the shell approval queue. |
+| **Harness** | A proposal arrives from Morpheus or a turn-boundary review | Validates target, type, and budget, applies within limits, and appends to a ledger that supports rollback. |
+| **Odyssey** | You start a goal-completion cycle | Thin resumable glue, not an engine. It derives a slug, points at a Boulder plan, and builds the kickoff prompt; the cycle itself runs as skill protocol across turns. It does not use Moirai and owns no execution machinery of its own. |
+| **Osiris** | An Odyssey step claims to be finished | Inline protocol prose inside the Odyssey skill, with no module anywhere in the package. It gates a step's checkmark by convention only and cannot independently enforce anything. Boulder's file is what actually persists the outcome. |
+
+**Reading the image.** Solid machined blocks are deterministic modules,
+half-tone frames are launchers that hold resumable state but execute little,
+and the dashed outline is protocol with no module behind it.
+
+- Loom at a gated aperture, **Moirai**, module
+- Lattice archive with fading shelves, **Mnemosyne**, module
+- Cairn of plan-stones, **Boulder**, module
+- Bound ledger with a reverse lever, **Harness**, module
+- Lantern narrowing to a sealed scroll, **Neurosis**, launcher
+- Compass and road, **Odyssey**, launcher
+- Moon emitting sealed envelopes, **Morpheus**, launcher
+- Dashed scales in an open gateway, **Osiris**, protocol only
+
+The amber loop is Odyssey's cycle: Neurosis, three critics, Boulder, step
+execution, an Osiris check, then back to the next unchecked step.
+
+One rule generates most of that table. **Workers produce evidence and
+proposals. Deterministic code owns ceilings, persistence, and approval.**
+Osiris is the honest exception that proves the rule: it is the one role with no
+code behind it, which is precisely why it can gate a checkmark but cannot
+enforce a boundary.
 
 ## Code-level comparison
 
@@ -43,21 +181,21 @@ trees of
 | | birkin | hermes-agent | prime-agent |
 |---|---|---|---|
 | Main shape | One Python package | Large Python application plus JS/TS surfaces | TypeScript monorepo plus Python kernel shim |
-| Approximate source scale | 32K Python LOC | 166K Python + 132K JS/TS LOC | 152K TypeScript LOC |
-| Mandatory runtime dependencies | 0 | Large exact-pinned Python set plus extras | Multiple npm package dependency graphs; Python runtime uses IPython |
+| Approximate source scale | 37K Python LOC | 166K Python + 132K JS/TS LOC | 152K TypeScript LOC |
+| Mandatory runtime dependencies | OpenAI SDK, Pillow, and Windows-only pywin32 | Large exact-pinned Python set plus extras | Multiple npm package dependency graphs; Python runtime uses IPython |
 | Agent/tool organization | One native loop and one registry choke point | Broad provider, gateway, browser, media, and tool subsystems | Layered `ai`, `agent`, `coding-agent`, and `tui` packages |
 | Memory | Editable Markdown/YAML/wikilink vault | Multiple state and memory integrations | Session/context-tree centric |
 | Self-improvement | Versioned proposal ledger with validation and rollback | Broad skill and runtime ecosystem | Extension and package ecosystem |
-| UI/channel breadth | CLI, WebUI, local HTTP, Telegram, MCP, A2A | Much broader browser, gateway, and messaging surface | Rich terminal UI and coding-agent extensions |
+| UI/channel breadth | CLI, WebUI, local HTTP, Telegram, voice, MCP, A2A | Much broader browser, gateway, and messaging surface | Rich terminal UI and coding-agent extensions |
 | Best fit | Small, auditable, long-running local agent | Feature breadth and many integrations | TypeScript-native coding-agent platform and TUI |
 
 ### Where birkin is stronger
 
-**Small dependency and supply-chain surface.** `pyproject.toml` declares no
-runtime dependencies. HTTP, streaming, JSON-RPC, cron parsing, persistence,
-provider clients, and the native agent loop are implemented in the package.
-Optional desktop screenshots use Pillow and pywin32 only when explicitly
-enabled.
+**Small dependency and supply-chain surface.** `pyproject.toml` keeps the
+runtime list to the OpenAI SDK, Pillow, and Windows-only pywin32. HTTP,
+streaming, JSON-RPC, cron parsing, persistence, provider clients, and the
+native agent loop are implemented in the package. The desktop helpers are
+imported only when desktop tools are explicitly enabled.
 
 **A single enforcement path for tool results.** Every native tool call passes
 through `ToolRegistry.run`. Hooks observe there; textual output is redacted
@@ -197,10 +335,17 @@ uv run birkin gateway
 In another terminal, start continuous live-microphone voice mode:
 
 ```bash
+uv run birkin voice setup
 uv run birkin voice start \
   --gateway-url http://127.0.0.1:8788/message
 uv run birkin voice status
 ```
+
+`voice setup` asks three short questions for the wake phrase, a voice-only
+conversation style, and the TTS voice. The first `voice start` runs this setup
+automatically until it is completed; run `voice setup` or `voice onboard`
+again to change the choices. Conversation style instructions are scoped to
+voice Gateway turns and do not change the chat or Telegram persona.
 
 `start` waits for authenticated worker readiness, rejects duplicate daemons,
 and writes its authenticated control state and log under `~/.birkin/voice`.
@@ -252,7 +397,6 @@ flags. `gpt-transcribe` performs bounded STT and `gpt-4o-mini-tts` produces the
 reply audio; generated speech is AI-generated. Codex/ChatGPT sign-in does not
 replace `OPENAI_API_KEY` for Audio API calls.
 
-
 ## Native tools
 
 The registry can expose:
@@ -270,6 +414,14 @@ The registry can expose:
 Remote images use the same private/reserved-address and redirect checks as web
 fetching. Desktop tools are absent from the registry unless
 `desktop_tools` is exactly `true`.
+
+Retriable native-tool blocks become manual `operation` approvals, including
+disabled-tool policy, workspace and egress file policy, control-plane writes,
+OS permission errors, Git `safe.directory`, and PowerShell execution policy.
+Each record binds the exact tool, input, working directory, gate, and digest;
+approval permits one exact retry without elevation flags or global policy
+changes. HARDLINE shell commands, malformed input, authentication failures,
+and secret/SSRF egress blocks remain non-approvable integrity boundaries.
 
 ## Configuration
 
@@ -341,6 +493,8 @@ a representative configuration using real defaults from `birkin/config.py`:
     "tts_model": "gpt-4o-mini-tts",
     "tts_voice": "coral",
     "tts_instructions": "Speak concisely and clearly.",
+    "conversation_style": "",
+    "onboarding_complete": false,
     "background_workers": 2
   },
 
@@ -407,6 +561,11 @@ gateway.
 birkin's memory is a directory of normal Markdown files. Notes remain usable
 without birkin and can be versioned with Git.
 
+Curation is where most memory systems quietly lose data. birkin's curator emits
+a typed plan restricted to `rezone`, `link`, `supersede`, `archive`, and
+`annotate`. Deletion is not an operation it can express, and a deterministic
+executor decides what actually lands.
+
 The improvement path is deliberately separate:
 
 1. recent work is reviewed;
@@ -432,10 +591,16 @@ birkin curate-memory
   skills. They do not inherit the parent's transcript or write to its memory.
 - **Moirai** executes deterministic workflows across Claude, Codex, and API
   workers.
-- **Boulder/Odyssey** persist and verify long-running goal steps.
+- **Boulder** persists a resumable plan of independently verifiable goal steps.
+- **Odyssey** coordinates the skill cycle over that plan across turns. It owns
+  no execution engine and does not use Moirai.
+- **Osiris** is the inline protocol check inside that cycle. It has no module
+  and no independent enforcement; Boulder's file records what survived.
 - **MCP** exposes birkin tools to compatible clients.
 - **A2A** exposes an opt-in Agent2Agent v1.0 JSON-RPC endpoint and agent card.
 - **Gateway** keeps sessions warm across local HTTP and Telegram turns.
+  Short context-dependent Telegram follow-ups resolve against that chat's latest
+  substantive request, including after a restart, without rewriting new topics.
 
 ## Integration workflows
 
@@ -447,10 +612,19 @@ Durable subagent runs are visible in `/dash` and the REPL:
 /send <run-id> <message>
 ```
 
-Use `/goal set <objective> [--budget N] [--gate "command"]` to persist one
-active goal. `/goal show`, `/goal pause`, and `/goal done` manage it. A gate
-command is never executed directly by the goal store; finishing the goal routes
-the verifier through the existing shell approval queue.
+`spawn_subagent` accepts `detach: true`, which starts the run in the background
+and returns its id immediately instead of blocking the caller. `/attach` then
+follows that run live: it replays the recorded progress trail, streams new tool
+activity as it happens, and prints the result when the run finishes. Ctrl-C
+detaches without stopping the run. Detached runs live inside the current
+process, so they end when the process does.
+
+Use `/goal set <objective> [--gate "command"]` to persist one active goal.
+`/goal show`, `/goal pause`, and `/goal done` manage it, and the objective is
+injected into every system prompt the session composes. A gate command is never
+executed directly by the goal store; `/goal done` routes the verifier through
+the existing shell approval queue and completes the goal only once that verifier
+has actually passed — a queued or failing verifier leaves the goal open.
 
 `/sessions <query>` searches saved transcripts and returns date, channel,
 model, snippet, and score metadata. Filters compose with AND:
@@ -470,9 +644,9 @@ The default test run is offline:
 pytest
 ```
 
-At the time of this rewrite the suite passes more than 2,300 tests with over
-82% package coverage. Live-provider tests are excluded by default and require
-`BIRKIN_LIVE=1`.
+At the time of this rewrite the suite passes more than 2,300 tests with 82.89%
+package coverage against a 75% gate. Live-provider tests are excluded by
+default and require `BIRKIN_LIVE=1`.
 
 Static checks used by the project:
 
