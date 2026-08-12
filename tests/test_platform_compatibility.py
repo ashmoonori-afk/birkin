@@ -16,6 +16,7 @@ _PROVIDER_PROCESS_FILES = (
     "birkin/codex_session.py",
     "birkin/llm.py",
     "birkin/lsp/client.py",
+    "birkin/omo_rpc.py",
 )
 
 

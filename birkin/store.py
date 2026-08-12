@@ -189,11 +189,14 @@ def append_ledger(entry: dict[str, Any]) -> None:
 # -- pending approvals -----------------------------------------------------
 
 def add_pending(*, category: str, title: str, description: str,
-                payload: dict[str, Any], origin: str = "morpheus") -> dict[str, Any]:
+                payload: dict[str, Any], origin: str = "morpheus",
+                continuation: dict[str, Any] | None = None) -> dict[str, Any]:
     aid = uuid.uuid4().hex[:12]
     rec = {"id": aid, "created": _now(), "category": category, "title": title,
            "description": description, "payload": payload, "origin": origin,
            "status": "pending"}
+    if continuation is not None:
+        rec["continuation"] = continuation
     _write_json(config.pending_dir() / f"{aid}.json", rec)
     return rec
 
@@ -228,8 +231,8 @@ def get_pending(aid: str) -> dict[str, Any] | None:
     return _read_json(config.pending_dir() / f"{aid}.json", None)
 
 
-def resolve_pending(aid: str, status: str,
-                    reason: str = "") -> dict[str, Any] | None:
+def resolve_pending(aid: str, status: str, reason: str = "",
+                    updates: dict[str, Any] | None = None) -> dict[str, Any] | None:
     if not valid_pending_id(aid):
         return None
     path = config.pending_dir() / f"{aid}.json"
@@ -240,6 +243,8 @@ def resolve_pending(aid: str, status: str,
     rec["resolved_at"] = _now()
     if reason:
         rec["deny_reason"] = reason[:300]
+    if updates:
+        rec.update(updates)
     _write_json(path, rec)
     return rec
 

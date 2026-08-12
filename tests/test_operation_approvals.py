@@ -158,6 +158,50 @@ def test_execution_policy_diagnostics_queue_exact_operation(
         assert environment == {"PSExecutionPolicyPreference": "Bypass"}
 
 
+def test_bun_temp_diagnostic_queues_workspace_local_retry(
+        tmp_path: Path,
+        monkeypatch,
+) -> None:
+    # Given
+    class FailedProcess:
+        returncode = 1
+        stdout = ""
+        stderr = (
+            "error: bun is unable to write files to tempdir: AccessDenied "
+            "C:\\Users\\me\\AppData\\Local\\Temp\\bun"
+        )
+
+    monkeypatch.setattr(
+        shell_mod.subprocess,
+        "run",
+        lambda _argv, **_kwargs: FailedProcess(),
+    )
+    registry = build_registry(ToolContext(
+        cfg={},
+        client=None,
+        cwd=tmp_path,
+    ), include={"shell"})
+
+    # When
+    result = registry.execute(
+        "run_shell",
+        {"command": "bunx tokscale@latest --help"},
+    )
+
+    # Then
+    pending = store.list_pending()
+    assert result.is_error is True
+    assert "retry queued for approval" in result.content
+    assert len(pending) == 1
+    operation = pending[0]["payload"]["operation"]
+    assert operation["gate"] == "local_temp_policy"
+    assert operation["environment"] == {
+        "TEMP": str(tmp_path.resolve() / ".birkin-tmp"),
+        "TMP": str(tmp_path.resolve() / ".birkin-tmp"),
+        "UV_CACHE_DIR": str(tmp_path.resolve() / ".uv-cache"),
+    }
+
+
 def test_approval_replays_exact_sealed_file_operation(tmp_path: Path) -> None:
     # Given: a jailed file write has been queued with its exact target/content.
     workspace = tmp_path / "workspace"
@@ -183,3 +227,52 @@ def test_approval_replays_exact_sealed_file_operation(tmp_path: Path) -> None:
     assert resolution["ok"] is True, resolution
     assert target.read_text(encoding="utf-8") == "sealed content"
     assert store.get_pending(approval_id)["status"] == "approved"
+
+
+@pytest.mark.skipif(
+    __import__("os").name != "nt",
+    reason="Windows cmd.exe and TEMP replay contract",
+)
+def test_approved_tokscale_submit_uses_cmd_and_workspace_temp(
+        tmp_path: Path,
+        monkeypatch,
+) -> None:
+    # Given
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    command = "bunx tokscale@latest submit"
+    calls: list[tuple[list[str], dict[str, object]]] = []
+
+    class Process:
+        returncode = 0
+        stdout = "submitted"
+        stderr = ""
+
+    def run(argv: list[str], **kwargs: object) -> Process:
+        calls.append((argv, kwargs))
+        return Process()
+
+    monkeypatch.setattr(approvals.subprocess, "run", run)
+    status = approvals.propose(
+        category="shell",
+        title="Tokscale 제출",
+        description="승인 후 제출",
+        payload={"command": command, "cwd": str(workspace)},
+        cfg={"auto_approve": []},
+        origin="shellguard",
+    )
+
+    # When
+    resolution = approvals.approve(status["id"])
+
+    # Then
+    assert resolution["ok"] is True, resolution
+    assert len(calls) == 1
+    argv, kwargs = calls[0]
+    assert argv == ["cmd", "/c", command]
+    assert kwargs["cwd"] == str(workspace)
+    environment = kwargs["env"]
+    assert isinstance(environment, dict)
+    assert environment["TEMP"] == str(workspace / ".birkin-tmp")
+    assert environment["TMP"] == str(workspace / ".birkin-tmp")
+    assert Path(environment["TEMP"]).is_dir()

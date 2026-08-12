@@ -8,6 +8,7 @@ from .. import config, store
 
 PROPOSAL_OPEN = "<birkin-work-proposal>"
 PROPOSAL_CLOSE = "</birkin-work-proposal>"
+ULTRAWORK_PREFACE = "ULTRAWORK MODE ENABLED!"
 APPROVED_OPEN = "<birkin-approved-work>"
 APPROVED_CLOSE = "</birkin-approved-work>"
 DELIVERY_OPEN = "<telegram-delivery-contract>"
@@ -60,11 +61,14 @@ class WorkflowProposal:
     title: str
     summary: str
     steps: tuple[str, ...]
+    preface: str = ""
 
     def render(self) -> str:
         lines = [f"🧭 {self.title}", self.summary, "", "승인할 실행 계획:"]
         lines.extend(f"{index}. {step}" for index, step in enumerate(self.steps, 1))
         lines.extend(["", "승인하면 이 대화에서 바로 실행합니다."])
+        if self.preface:
+            lines[:0] = [self.preface, ""]
         return "\n".join(lines)
 
     def render_html(self) -> str:
@@ -72,13 +76,16 @@ class WorkflowProposal:
             f"{index:02d}  {escape(step)}"
             for index, step in enumerate(self.steps, 1)
         )
-        return (
+        card = (
             f"<b>{escape(self.title)}</b>\n"
             f"{escape(self.summary)}\n\n"
             f"<b>실행 계획 · {len(self.steps)}단계</b>\n"
             f"<blockquote>{steps}</blockquote>\n"
             "아래에서 실행 여부를 선택해 주세요."
         )
+        if self.preface:
+            return f"<i>{escape(self.preface)}</i>\n\n{card}"
+        return card
 
 
 @dataclass(frozen=True, slots=True)
@@ -89,8 +96,17 @@ class WorkflowResolution:
 
 def is_proposal_prefix(text: str) -> bool:
     stripped = text.lstrip()
-    return bool(stripped) and (
-        PROPOSAL_OPEN.startswith(stripped) or stripped.startswith(PROPOSAL_OPEN)
+    if not stripped:
+        return False
+    if ULTRAWORK_PREFACE.startswith(stripped):
+        return True
+    if stripped.startswith(ULTRAWORK_PREFACE):
+        stripped = stripped[len(ULTRAWORK_PREFACE):].lstrip()
+        if not stripped:
+            return True
+    return (
+        PROPOSAL_OPEN.startswith(stripped)
+        or stripped.startswith(PROPOSAL_OPEN)
     )
 
 
@@ -102,6 +118,10 @@ def has_reserved_marker(text: str) -> bool:
 
 def parse_proposal(text: str) -> WorkflowProposal | None:
     stripped = text.strip()
+    preface = ""
+    if stripped.startswith(ULTRAWORK_PREFACE):
+        preface = ULTRAWORK_PREFACE
+        stripped = stripped[len(ULTRAWORK_PREFACE):].lstrip()
     if not (stripped.startswith(PROPOSAL_OPEN)
             and stripped.endswith(PROPOSAL_CLOSE)):
         return None
@@ -127,6 +147,7 @@ def parse_proposal(text: str) -> WorkflowProposal | None:
         title=title.strip()[:100],
         summary=summary.strip()[:500],
         steps=tuple(step.strip()[:200] for step in steps),
+        preface=preface,
     )
 
 
