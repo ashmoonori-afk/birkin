@@ -14,6 +14,7 @@ and a cross-platform quoting hazard. Instead:
 from __future__ import annotations
 
 import os
+import signal
 import subprocess
 import tempfile
 from pathlib import Path
@@ -70,14 +71,22 @@ def shell_env() -> dict[str, str]:
     return env
 
 
+def popen_tree_kwargs() -> dict[str, Any]:
+    """Return platform-native flags for a separately killable process tree."""
+    if os.name == "nt":
+        return {"creationflags": subprocess.CREATE_NEW_PROCESS_GROUP}
+    return {"start_new_session": True}
+
+
 def kill_tree(proc: "Any") -> None:
     """Kill ``proc`` and its descendants.
 
     On Windows a CLI shim is launched through ``cmd /c`` (see ``cli_argv``), so
     ``proc.kill()`` only terminates ``cmd.exe`` and leaves the real child
     (``claude``/``codex`` → ``node``) running as an orphan. ``taskkill /T``
-    walks the tree. On POSIX ``proc.kill()`` already reaps the direct child.
-    Best-effort: never raises."""
+    walks the tree. POSIX children are started in their own session by
+    :func:`popen_tree_kwargs`, so killing the process group reaps descendants
+    without touching Birkin's own group. Best-effort: never raises."""
     if proc is None:
         return
     pid = getattr(proc, "pid", None)
@@ -88,6 +97,14 @@ def kill_tree(proc: "Any") -> None:
             return
         except Exception:
             pass  # fall through to proc.kill()
+    if os.name != "nt" and pid is not None:
+        try:
+            group = os.getpgid(pid)
+            if group != os.getpgrp():
+                os.killpg(group, signal.SIGKILL)
+                return
+        except (OSError, ProcessLookupError):
+            pass
     try:
         proc.kill()
     except Exception:

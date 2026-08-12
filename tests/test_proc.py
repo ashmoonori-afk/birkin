@@ -1,8 +1,46 @@
 import os
+import signal
 
 import pytest
 
 from birkin import proc
+
+
+class _FakeProcess:
+    pid = 4312
+
+    def __init__(self) -> None:
+        self.killed = False
+
+    def kill(self) -> None:
+        self.killed = True
+
+
+def test_popen_tree_kwargs_is_native() -> None:
+    expected = (
+        {"creationflags": proc.subprocess.CREATE_NEW_PROCESS_GROUP}
+        if os.name == "nt"
+        else {"start_new_session": True}
+    )
+    assert proc.popen_tree_kwargs() == expected
+
+
+@pytest.mark.skipif(os.name == "nt", reason="POSIX process groups")
+def test_kill_tree_terminates_posix_process_group(monkeypatch) -> None:
+    process = _FakeProcess()
+    calls: list[tuple[int, signal.Signals]] = []
+    monkeypatch.setattr(proc.os, "getpgid", lambda _pid: 4312)
+    monkeypatch.setattr(proc.os, "getpgrp", lambda: 9000)
+    monkeypatch.setattr(
+        proc.os,
+        "killpg",
+        lambda group, signum: calls.append((group, signum)),
+    )
+
+    proc.kill_tree(process)
+
+    assert calls == [(4312, signal.SIGKILL)]
+    assert process.killed is False
 
 
 def test_shell_argv_wraps_command_string():
@@ -72,7 +110,7 @@ def test_cli_argv_allows_metachars_on_posix(monkeypatch):
 # summary" which the model then surfaces on the first turn — leaking a session
 # dump into gateway/Telegram replies. claude_child_env disables it per-subprocess.
 
-def _disabled_ids(env: dict) -> list[str]:
+def _disabled_ids(env: dict[str, str]) -> list[str]:
     return [h.strip() for h in env.get("ECC_DISABLED_HOOKS", "").split(",")
             if h.strip()]
 
