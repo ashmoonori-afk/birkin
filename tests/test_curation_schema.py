@@ -57,4 +57,3 @@ def test_prompt_embeds_the_canonical_schema() -> None:
     encoded = prompt.split(marker, 1)[1].split("\n\nEach op", 1)[0]
 
     assert json.loads(encoded) == curation_schema.load_curation_plan_schema()
-

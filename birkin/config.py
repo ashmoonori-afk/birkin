@@ -614,11 +614,9 @@ def save_config(cfg: dict[str, Any]) -> Path:
     path = config_path()
     tmp = path.with_suffix(path.suffix + ".tmp")
     try:
-        tmp.write_text(json.dumps(cfg, indent=2, ensure_ascii=False), encoding="utf-8")
-        try:  # restrict the temp file too, before it is briefly visible
-            os.chmod(tmp, 0o600)
-        except OSError:
-            pass
+        fd = os.open(tmp, os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o600)
+        with os.fdopen(fd, "w", encoding="utf-8") as handle:
+            handle.write(json.dumps(cfg, indent=2, ensure_ascii=False))
         os.replace(tmp, path)
     except OSError:
         try:  # don't leave a partial .tmp behind on a failed write

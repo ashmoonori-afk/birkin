@@ -200,8 +200,8 @@ def test_cron_claim_if_due_is_once(tmp_path, monkeypatch):
     j = cron.add_job(name="x", hour=0, minute=0, action_type="prompt",
                      value="v")
     now = datetime.now().replace(hour=9, minute=0)
-    assert cron.claim_if_due(j["id"], now) is True    # first claim wins
-    assert cron.claim_if_due(j["id"], now) is False   # already stamped today
+    assert cron.claim_if_due(j["id"], now) is not None  # first claim wins
+    assert cron.claim_if_due(j["id"], now) is None      # already stamped
 
 
 def test_ledger_records_estimated_tokens(tmp_path, monkeypatch):

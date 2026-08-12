@@ -33,6 +33,12 @@ from . import config, cronexpr, monitor, store
 CRON_SCHEMA_VERSION = 1
 _ACTION_TYPES = {"prompt", "shell", "monitor"}
 _SCHEDULE_KINDS = {"daily", "interval", "once", "cron"}
+_COMMON_JOB_FIELDS = {
+    "schema_version", "id", "name", "hour", "minute", "type", "value",
+    "enabled", "deliver_chat_id", "created", "last_run", "schedule",
+    "next_run",
+}
+_MONITOR_FIELDS = {"monitor_url", "monitor_script", "max_bytes"}
 
 
 class CronFormatError(ValueError):
@@ -311,6 +317,35 @@ def _validate_job(job: dict[str, Any], index: int) -> dict[str, Any]:
         raise CronFormatError(f"{path}.type: unsupported action {job['type']!r}")
     if not isinstance(job.get("enabled"), bool):
         raise CronFormatError(f"{path}.enabled: expected a boolean")
+    for key in ("hour", "minute"):
+        value = job.get(key)
+        upper = 23 if key == "hour" else 59
+        if (not isinstance(value, int) or isinstance(value, bool)
+                or not 0 <= value <= upper):
+            raise CronFormatError(f"{path}.{key}: expected 0..{upper}")
+    if (job.get("deliver_chat_id") is not None
+            and not isinstance(job["deliver_chat_id"], str)):
+        raise CronFormatError(
+            f"{path}.deliver_chat_id: expected a string or null"
+        )
+    allowed_fields = set(_COMMON_JOB_FIELDS)
+    if job["type"] == "monitor":
+        allowed_fields |= _MONITOR_FIELDS
+        url = job.get("monitor_url")
+        script = job.get("monitor_script")
+        if bool(url) == bool(script):
+            raise CronFormatError(
+                f"{path}: monitor requires exactly one source"
+            )
+        max_bytes = job.get("max_bytes")
+        if (not isinstance(max_bytes, int) or isinstance(max_bytes, bool)
+                or not 1 <= max_bytes <= monitor.MAX_BYTES):
+            raise CronFormatError(
+                f"{path}.max_bytes: expected 1..{monitor.MAX_BYTES}"
+            )
+    extras = set(job) - allowed_fields
+    if extras:
+        raise CronFormatError(f"{path}: unknown field {min(extras)!r}")
     schedule = _validate_schedule(job.get("schedule"), f"{path}.schedule")
     if _parse_dt(job.get("created")) is None:
         raise CronFormatError(f"{path}.created: expected an ISO datetime")
@@ -478,12 +513,13 @@ def mark_ran(job_id: str) -> None:
         save_jobs(jobs)
 
 
-def claim_if_due(job_id: str, now: datetime | None = None) -> bool:
+def claim_if_due(
+    job_id: str,
+    now: datetime | None = None,
+) -> dict[str, Any] | None:
     """Atomically claim ``job_id`` for this caller, under the cron lock.
 
-    Returns True only for the caller that won the claim — so two daemons
-    reading the same due job can't both run it. The caller runs the job only
-    when this returns True.
+    Return the exact persisted snapshot claimed by this caller, or ``None``.
 
     Scheduled jobs advance ``next_run`` *before* the job executes and one-shots
     are deleted at claim time, which is what makes the claim at-most-once. A
@@ -498,27 +534,28 @@ def claim_if_due(job_id: str, now: datetime | None = None) -> bool:
             jobs = _load_jobs_unlocked(persist_migration=True)
             job = next((j for j in jobs if j.get("id") == job_id), None)
             if job is None:
-                return False
+                return None
+            claimed = dict(job)
             schedule = job.get("schedule")
 
             if not isinstance(schedule, dict):      # legacy daily record
                 if (job.get("last_run") or "")[:10] == today:
-                    return False
+                    return None
                 job["last_run"] = stamp
                 save_jobs(jobs)
-                return True
+                return claimed
 
             if not _schedule_due(job, now):
-                return False
+                return None
             if schedule.get("kind") == "once":
                 save_jobs([j for j in jobs if j.get("id") != job_id])
-                return True
+                return claimed
             job["last_run"] = stamp
             job["next_run"] = compute_next_run(schedule, last=now, now=now)
             save_jobs(jobs)
-            return True
+            return claimed
     except store.FileLockTimeout:
-        return False
+        return None
 
 
 def _parse_dt(value: Any) -> Optional[datetime]:

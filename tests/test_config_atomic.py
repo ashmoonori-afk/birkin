@@ -36,3 +36,18 @@ def test_save_config_failure_keeps_original_intact(monkeypatch):
 
     assert p.read_text(encoding="utf-8") == good          # original intact
     assert not list(p.parent.glob("config.json*.tmp"))    # no partial tmp left
+
+
+def test_save_config_creates_temp_owner_only(monkeypatch):
+    real_open = config.os.open
+    modes = []
+
+    def recording_open(path, flags, mode=0o777):
+        modes.append(mode)
+        return real_open(path, flags, mode)
+
+    monkeypatch.setattr(config.os, "open", recording_open)
+
+    config.save_config({**config.DEFAULT_CONFIG, "model": "safe"})
+
+    assert modes == [0o600]

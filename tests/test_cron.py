@@ -136,6 +136,54 @@ def test_cron_schema_declares_exact_schedule_variants() -> None:
     }
 
 
+def test_claim_returns_current_persisted_snapshot() -> None:
+    job = cron.add_job(
+        name="before",
+        hour=0,
+        minute=0,
+        action_type="shell",
+        value="old",
+    )
+    jobs = cron.load_jobs()
+    jobs[0]["name"] = "after"
+    jobs[0]["value"] = "new"
+    cron.save_jobs(jobs)
+
+    claimed = cron.claim_if_due(job["id"], datetime.now())
+
+    assert claimed is not None
+    assert claimed["name"] == "after"
+    assert claimed["value"] == "new"
+
+
+@pytest.mark.parametrize(
+    "mutate",
+    [
+        lambda job: job.update(deliver_chat_id=7),
+        lambda job: job.update(hour=24),
+        lambda job: job.update(surprise=True),
+        lambda job: job.update(
+            type="monitor",
+            monitor_url=None,
+            monitor_script=None,
+            max_bytes=1024,
+        ),
+    ],
+)
+def test_versioned_cron_records_enforce_complete_contract(mutate) -> None:
+    job = cron.add_job(
+        name="strict",
+        hour=9,
+        minute=0,
+        action_type="prompt",
+        value="go",
+    )
+    mutate(job)
+
+    with pytest.raises(cron.CronFormatError):
+        cron.save_jobs([job])
+
+
 def test_add_monitor_job_schema_clamps_max_bytes():
     job = cron.add_job(
         name="watch", action_type="monitor", value="summarize the change",
@@ -232,5 +280,5 @@ def test_cron_claim_returns_false_on_lock_timeout(monkeypatch):
 
     monkeypatch.setattr(store, "file_lock", lambda _path: BusyLock())
 
-    assert cron.claim_if_due("keep") is False
+    assert cron.claim_if_due("keep") is None
     assert (path.exists(), path.read_bytes()) == before

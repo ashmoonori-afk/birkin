@@ -1,6 +1,6 @@
 # Definition format conversion ROI
 
-분석 기준 브랜치: `analysis/definition-format-roi`  
+분석 기준 브랜치: `analysis/definition-format-roi`
 분석 기준 커밋: `32f8555`
 
 ## 구현 상태
