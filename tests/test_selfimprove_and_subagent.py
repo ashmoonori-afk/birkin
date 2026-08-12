@@ -239,7 +239,7 @@ def test_run_subagent_routes_through_a_real_agent(monkeypatch):
     session = build_session({"provider": "codex-cli", "model": ""})
     captured = {}
 
-    def fake_run(self, user_text, on_text=None):
+    def fake_run(self, user_text, on_text=None, abort=None):
         captured["user"] = user_text
         captured["system"] = self.system
         return "subagent-final"
@@ -262,7 +262,7 @@ def test_run_subagent_registers_heartbeats_delivers_inbox_and_finishes(monkeypat
     session = build_session({"provider": "codex-cli", "model": ""})
     seen = {}
 
-    def fake_run(self, user_text, on_text=None):
+    def fake_run(self, user_text, on_text=None, abort=None):
         run = agentruns.list_runs()[0]
         seen["running"] = run
         assert agentruns.append_message(run["id"], "change course")
@@ -299,7 +299,7 @@ def test_detached_subagent_returns_at_once_and_finishes_in_the_background(
         finished.set()
         return record
 
-    def fake_run(self, user_text, on_text=None):
+    def fake_run(self, user_text, on_text=None, abort=None):
         started.set()
         self.on_event("tool_start", {"name": "read_file"})
         assert release.wait(timeout=10)
@@ -331,7 +331,7 @@ def test_run_subagent_records_error_and_reraises(monkeypatch):
 
     session = build_session({"provider": "codex-cli", "model": ""})
 
-    def fail(self, user_text, on_text=None):
+    def fail(self, user_text, on_text=None, abort=None):
         raise RuntimeError("model exploded")
 
     monkeypatch.setattr("birkin.agent.Agent.run", fail)
@@ -354,7 +354,7 @@ def test_nested_subagent_records_parent_relationship(monkeypatch):
     session = build_session({"provider": "codex-cli", "model": ""})
     calls = {"count": 0}
 
-    def fake_run(self, user_text, on_text=None):
+    def fake_run(self, user_text, on_text=None, abort=None):
         calls["count"] += 1
         if calls["count"] == 1:
             subagent_mod.run_subagent("nested", session.ctx)
@@ -372,6 +372,7 @@ def test_nested_subagent_records_parent_relationship(monkeypatch):
 def test_subagents_share_concurrent_and_total_node_budget(monkeypatch):
     import threading
 
+    from birkin import agentruns
     from birkin import subagent as subagent_mod
 
     session = build_session({
@@ -383,14 +384,20 @@ def test_subagents_share_concurrent_and_total_node_budget(monkeypatch):
     started = threading.Event()
     release = threading.Event()
     finished = threading.Event()
+    real_finish = agentruns.finish_run
 
-    def fake_run(self, user_text, on_text=None):
+    def spy_finish(run_id, status, result=""):
+        record = real_finish(run_id, status, result)
+        finished.set()
+        return record
+
+    def fake_run(self, user_text, on_text=None, abort=None):
         started.set()
         assert release.wait(timeout=10)
-        finished.set()
         return "done"
 
     monkeypatch.setattr("birkin.agent.Agent.run", fake_run)
+    monkeypatch.setattr(agentruns, "finish_run", spy_finish)
     subagent_mod.run_subagent("first", session.ctx, detach=True)
     assert started.wait(timeout=10)
 
@@ -407,7 +414,7 @@ def test_subagents_share_concurrent_and_total_node_budget(monkeypatch):
     })
     monkeypatch.setattr(
         "birkin.agent.Agent.run",
-        lambda self, user_text, on_text=None: "done",
+        lambda self, user_text, on_text=None, abort=None: "done",
     )
     assert subagent_mod.run_subagent("first node", node_session.ctx) == "done"
     with pytest.raises(RuntimeError, match="total node limit"):
@@ -426,7 +433,7 @@ def test_subagent_tree_budget_reserves_tokens_usd_and_deadline(monkeypatch):
     })
     monkeypatch.setattr(
         "birkin.agent.Agent.run",
-        lambda self, user_text, on_text=None: "done",
+        lambda self, user_text, on_text=None, abort=None: "done",
     )
 
     assert subagent_mod.run_subagent(
@@ -441,14 +448,75 @@ def test_subagent_tree_budget_reserves_tokens_usd_and_deadline(monkeypatch):
             "too many tokens",
             session.ctx,
             reserve_tokens=99,
+            reserve_usd=0.1,
         )
     with pytest.raises(RuntimeError, match="USD budget"):
         subagent_mod.run_subagent(
             "too much money",
             session.ctx,
+            reserve_tokens=10,
             reserve_usd=0.75,
         )
 
     session.ctx.tree_budget.deadline = 0.0
     with pytest.raises(RuntimeError, match="deadline"):
-        subagent_mod.run_subagent("too late", session.ctx)
+        subagent_mod.run_subagent(
+            "too late",
+            session.ctx,
+            reserve_tokens=10,
+            reserve_usd=0.1,
+        )
+
+
+def test_subagent_tree_budget_rejects_zero_reservations_when_capped():
+    session = build_session({
+        "provider": "codex-cli",
+        "model": "",
+        "subagent_tree_max_tokens": 100,
+        "subagent_tree_max_usd": 1.0,
+    })
+
+    with pytest.raises(RuntimeError, match="token reservation required"):
+        session.ctx.tree_budget.reserve(usd=0.5)
+    with pytest.raises(RuntimeError, match="USD reservation required"):
+        session.ctx.tree_budget.reserve(tokens=50)
+
+
+def test_subagent_deadline_aborts_execution_and_settles_lease(monkeypatch):
+    from birkin import subagent as subagent_mod
+
+    session = build_session({
+        "provider": "codex-cli",
+        "model": "",
+        "subagent_tree_deadline_seconds": 60,
+    })
+
+    def expire(self, user_text, on_text=None, abort=None):
+        assert abort is not None
+        session.ctx.tree_budget.deadline = 0.0
+        return "late"
+
+    monkeypatch.setattr("birkin.agent.Agent.run", expire)
+
+    with pytest.raises(RuntimeError, match="deadline"):
+        subagent_mod.run_subagent("expires", session.ctx)
+    assert session.ctx.tree_budget.active == 0
+
+
+def test_subagent_setup_failure_releases_tree_lease(monkeypatch):
+    from birkin import subagent as subagent_mod
+
+    session = build_session({
+        "provider": "codex-cli",
+        "model": "",
+        "subagent_tree_max_concurrent": 1,
+    })
+    monkeypatch.setattr(
+        subagent_mod,
+        "build_registry",
+        lambda _ctx: (_ for _ in ()).throw(RuntimeError("registry failed")),
+    )
+
+    with pytest.raises(RuntimeError, match="registry failed"):
+        subagent_mod.run_subagent("cannot start", session.ctx)
+    assert session.ctx.tree_budget.active == 0

@@ -713,6 +713,19 @@ activity as it happens, and prints the result when the run finishes. Ctrl-C
 detaches without stopping the run. Detached runs live inside the current
 process, so they end when the process does.
 
+Session-local harness state lives under `sessions/<session-id>/harness`;
+global edits always wait for explicit human approval. Native, CLI, and warm
+CLI sessions receive the same revisioned global plus current-session local
+snapshot. `skill_note` entries are metadata, not executable `SKILL.md` files.
+Inspect one session with
+`birkin harness show --scope local --session-id <session-id>`.
+
+Each root session also owns a shared child-tree budget. Configure token/USD
+reservations, wall-clock deadline, concurrent children, and total nodes with
+`subagent_tree_max_tokens`, `subagent_tree_max_usd`,
+`subagent_tree_deadline_seconds`, `subagent_tree_max_concurrent`, and
+`subagent_tree_max_nodes`; admission is reserved before child execution.
+
 Use `/goal set <objective> [--gate "command"]` to persist one active goal.
 `/goal show`, `/goal pause`, and `/goal done` manage it, and the objective is
 injected into every system prompt the session composes. A gate command is never
