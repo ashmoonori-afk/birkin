@@ -224,6 +224,7 @@ class Run:
         self._seq_lock = threading.Lock()
         self._phase = ""
         self._spawned = 0
+        self._admission_lock = threading.Lock()
         self._cache = journal.cached_calls(resume_from) if resume_from else {}
         self.cache_hits = 0
         # A failed agent returns None and the run keeps going, so the death
@@ -298,14 +299,16 @@ class Run:
 
         label = opts.get("label") or role or binding.model or binding.provider
         phase = opts.get("phase") or self._phase
-        blocked = self._guard()
+        with self._admission_lock:
+            blocked = self._guard()
+            if not blocked:
+                self._spawned += 1
         if blocked:
             self.emit_log(f"에이전트 건너뜀 ({blocked})")
             self._fail(seq=seq, role=role, label=label, phase=phase,
                        reason="blocked", error=blocked)
             return None
 
-        self._spawned += 1
         journal.record_call(self.run_id, seq, key, role=role or "",
                             provider=binding.provider, model=binding.model,
                             label=label, phase=phase)
