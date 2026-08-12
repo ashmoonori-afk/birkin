@@ -9,7 +9,8 @@ open, grep, and commit. Multi-agent work is a Python graph, not a model
 deciding to call itself. Consequential actions cross approval, checkpoint, and
 redaction gates that live in code rather than in a prompt.
 
-[한국어](./README.ko.md)
+[한국어](./README.ko.md) ·
+[![Ask DeepWiki](https://deepwiki.com/badge.svg)](https://deepwiki.com/ashmoonori-afk/birkin/1-overview)
 
 ![A winged Hermes courier with a loose bundle, overtaken on a higher track by an unbranded structured trapezoidal handbag with twin top handles, whose internal node graph stays intact while hard gates deflect red edges](./docs/assets/birkin-hero-courier.png)
 
@@ -32,7 +33,7 @@ Every row is something the repository can be made to show you.
 
 | | Measured or enforced |
 |---|---|
-| **3 runtime dependencies** | The OpenAI SDK for voice, Pillow for desktop screenshots, and pywin32 on Windows only. Agent loop, gateway, memory, workflows, HTTP, JSON-RPC, and cron parsing are standard library. [`pyproject.toml`](./pyproject.toml) |
+| **0 core dependencies; at most 3 for voice + desktop per platform** | The OpenAI SDK is in the `voice` extra; Pillow plus one platform adapter are in `desktop`. `office` is separate, and `full` installs every feature extra. Agent loop, gateway, memory, workflows, HTTP, JSON-RPC, and cron parsing are standard library. [`pyproject.toml`](./pyproject.toml) |
 | **5 curation operations, none of them delete** | `OPS` is the entire vocabulary a memory curator gets. There is no delete for an adversarial model or a poisoned note to reach for. [`curation_contract.py`](./birkin/curation_contract.py) |
 | **R@1 0.891 in production** | The shipped lexical stack scores 0.891 R@1 / 0.974 R@5 / 0.926 MRR on 470 LongMemEval-S questions. The tuned research configuration reaches 0.900, ahead of the best embedding hybrid measured on the same harness at 0.894. No encoder, no vector store. [`docs/ranking-v2-plan.md`](./docs/ranking-v2-plan.md) |
 | **4 concurrent execution slots, 100-agent ceiling** | Moirai's default thread-pool width and per-run spawn cap. Scheduling limits, distinct from the named workers below. Abort, budget, and cap are checked before each new agent. [`moirai/engine.py`](./birkin/moirai/engine.py) |
@@ -73,7 +74,7 @@ There are already excellent general-purpose agent projects. birkin makes a
 different trade:
 
 - one installable Python package instead of a multi-language runtime;
-- three runtime dependencies (voice, screenshots, Windows desktop) instead of
+- no core dependencies and at most three voice + desktop packages per platform instead of
   SDK-heavy provider stacks;
 - visible files and append-only records instead of opaque hosted state;
 - a small native tool surface instead of browser/computer automation;
@@ -182,7 +183,7 @@ trees of
 |---|---|---|---|
 | Main shape | One Python package | Large Python application plus JS/TS surfaces | TypeScript monorepo plus Python kernel shim |
 | Approximate source scale | 37K Python LOC | 166K Python + 132K JS/TS LOC | 152K TypeScript LOC |
-| Mandatory runtime dependencies | OpenAI SDK, Pillow, and Windows-only pywin32 | Large exact-pinned Python set plus extras | Multiple npm package dependency graphs; Python runtime uses IPython |
+| Mandatory runtime dependencies | None; feature extras are `voice`, `desktop`, `office`, and `full` | Large exact-pinned Python set plus extras | Multiple npm package dependency graphs; Python runtime uses IPython |
 | Agent/tool organization | One native loop and one registry choke point | Broad provider, gateway, browser, media, and tool subsystems | Layered `ai`, `agent`, `coding-agent`, and `tui` packages |
 | Memory | Editable Markdown/YAML/wikilink vault | Multiple state and memory integrations | Session/context-tree centric |
 | Self-improvement | Versioned proposal ledger with validation and rollback | Broad skill and runtime ecosystem | Extension and package ecosystem |
@@ -191,11 +192,11 @@ trees of
 
 ### Where birkin is stronger
 
-**Small dependency and supply-chain surface.** `pyproject.toml` keeps the
-runtime list to the OpenAI SDK, Pillow, and Windows-only pywin32. HTTP,
-streaming, JSON-RPC, cron parsing, persistence, provider clients, and the
-native agent loop are implemented in the package. The desktop helpers are
-imported only when desktop tools are explicitly enabled.
+**Small dependency and supply-chain surface.** `pyproject.toml` keeps the core
+dependency-free. Voice, desktop, and office support are explicit extras; voice
+plus desktop installs at most three packages on one platform. HTTP, streaming,
+JSON-RPC, cron parsing, persistence, provider clients, and the native agent loop
+are implemented in the package.
 
 **A single enforcement path for tool results.** Every native tool call passes
 through `ToolRegistry.run`. Hooks observe there; textual output is redacted
@@ -284,6 +285,12 @@ Python 3.10 or newer is required.
 git clone https://github.com/ashmoonori-afk/birkin.git
 cd birkin
 python -m pip install -e .
+
+# Add only the feature surface you need
+python -m pip install -e ".[voice]"
+python -m pip install -e ".[desktop]"
+python -m pip install -e ".[office]"
+python -m pip install -e ".[full]"
 birkin setup
 ```
 
@@ -312,10 +319,10 @@ birkin gateway
 birkin web
 ```
 
-The default provider is Anthropic. API keys may be supplied through setup,
-environment variables, or `~/.birkin/config.json`. Subscription-backed Claude
-and Codex CLI providers are also supported when their CLIs are installed and
-authenticated.
+The default provider is Codex CLI, using the locally authenticated Codex
+subscription with no API key. API-backed Anthropic and OpenAI providers and the
+Claude CLI provider remain available through setup, environment variables, or
+`~/.birkin/config.json`.
 
 When birkin starts a `codex app-server` child, it disables Codex plugin hooks
 for that child while preserving plugins and MCP servers. This keeps a global
@@ -336,8 +343,8 @@ until the active turn finishes.
 
 ### Active voice control
 
-Voice support is installed with birkin. OpenAI STT/TTS calls require a Platform
-API key:
+Voice support is installed with `birkin[voice]`. OpenAI STT/TTS calls require a
+Platform API key:
 
 ```bash
 export OPENAI_API_KEY="..."
@@ -442,9 +449,9 @@ a representative configuration using real defaults from `birkin/config.py`:
 
 ```json
 {
-  "provider": "anthropic",
-  "model": "claude-sonnet-4-6",
-  "subagent_model": "claude-haiku-4-5-20251001",
+  "provider": "codex-cli",
+  "model": "default",
+  "subagent_model": "default",
   "api_key": null,
   "api_keys": [],
   "max_tokens": 4096,
@@ -608,7 +615,10 @@ birkin curate-memory
   no execution engine and does not use Moirai.
 - **Osiris** is the inline protocol check inside that cycle. It has no module
   and no independent enforcement; Boulder's file records what survived.
-- **MCP** exposes birkin tools to compatible clients.
+- **MCP** exposes Birkin tools to compatible clients. With
+  `egress.enforced: true`, Birkin sessions use only the Birkin MCP server;
+  `birkin mcp` can still manage external Claude MCP servers, but does not imply
+  that those servers are inherited.
 - **A2A** exposes an opt-in Agent2Agent v1.0 JSON-RPC endpoint and agent card.
 - **Gateway** keeps sessions warm across local HTTP and Telegram turns.
 - **Structured actions** reuse the approval queue for channel-neutral questions.

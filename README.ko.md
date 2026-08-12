@@ -9,7 +9,8 @@ birkin은 CLI 에이전트, HTTP/Telegram gateway, MCP server, 멀티에이전�
 아니라 파이썬 그래프입니다. 결과가 생기는 행동은 프롬프트가 아니라 코드에 있는
 승인·checkpoint·redaction 게이트를 통과합니다.
 
-[English](./README.md)
+[English](./README.md) ·
+[![Ask DeepWiki](https://deepwiki.com/badge.svg)](https://deepwiki.com/ashmoonori-afk/birkin/1-overview)
 
 ![짐 보따리를 멘 날개 달린 헤르메스 전령을 위쪽 트랙에서 앞지르는, 브랜드 없는 사다리꼴 구조에 손잡이 두 개가 달린 핸드백. 내부의 노드 그래프는 흐트러지지 않고, 단단한 게이트가 붉은 엣지를 튕겨낸다](./docs/assets/birkin-hero-courier.png)
 
@@ -31,7 +32,7 @@ hermes-agent와의 지연 시간 비교 벤치마크가 없고, 그런 주장도
 
 | | 실측 또는 코드로 강제되는 값 |
 |---|---|
-| **런타임 의존성 3개** | 음성용 OpenAI SDK, 데스크톱 스크린샷용 Pillow, Windows 전용 pywin32입니다. 에이전트 루프, gateway, 메모리, workflow, HTTP, JSON-RPC, cron 파싱은 표준 라이브러리입니다. [`pyproject.toml`](./pyproject.toml) |
+| **핵심 의존성 0개, 플랫폼당 voice + desktop 최대 3개** | OpenAI SDK는 `voice`, Pillow와 플랫폼 adapter 하나는 `desktop` extra입니다. `office`는 별도이며 `full`은 모든 기능 extra를 설치합니다. 에이전트 루프, gateway, 메모리, workflow, HTTP, JSON-RPC, cron 파싱은 표준 라이브러리입니다. [`pyproject.toml`](./pyproject.toml) |
 | **큐레이션 연산 5개, 삭제는 없음** | `OPS`가 메모리 curator에게 주어지는 어휘 전부입니다. 적대적인 모델도 오염된 노트도 집어들 삭제 연산이 없습니다. [`curation_contract.py`](./birkin/curation_contract.py) |
 | **프로덕션 R@1 0.891** | 현재 lexical stack은 LongMemEval-S 470문항에서 R@1 0.891 / R@5 0.974 / MRR 0.926입니다. 연구용 tuned 구성은 0.900으로, 같은 harness에서 측정한 최고 embedding hybrid(0.894)보다 앞섭니다. encoder도 vector store도 없습니다. [`docs/ranking-v2-plan.md`](./docs/ranking-v2-plan.md) |
 | **동시 실행 슬롯 4개, agent 상한 100** | Moirai의 기본 thread pool 폭과 실행당 spawn 상한입니다. 아래의 이름 붙은 worker와는 다른 스케줄링 한도이며, 새 agent마다 abort·budget·상한을 먼저 검사합니다. [`moirai/engine.py`](./birkin/moirai/engine.py) |
@@ -70,7 +71,7 @@ https://raw.githubusercontent.com/ashmoonori-afk/birkin/main/README.ko.md
 이미 훌륭한 범용 에이전트 프로젝트들이 있습니다. birkin은 다른 선택을 합니다.
 
 - 다중 언어 런타임 대신 설치 가능한 파이썬 패키지 하나
-- SDK가 무거운 provider 스택 대신 런타임 의존성 3개(음성·스크린샷·Windows 데스크톱)
+- SDK가 무거운 provider 스택 대신 핵심 의존성 0개와 플랫폼당 voice + desktop 최대 3개
 - 불투명한 호스팅 상태 대신 보이는 파일과 append-only 기록
 - browser/computer 자동화 대신 작은 네이티브 tool 표면
 - 실행 주위의 명시적인 승인·checkpoint·redaction 지점
@@ -175,7 +176,7 @@ Osiris 검증, 그리고 다시 다음 미체크 step으로 돌아갑니다.
 |---|---|---|---|
 | 주요 형태 | 파이썬 패키지 하나 | 대형 파이썬 애플리케이션 + JS/TS 표면 | TypeScript monorepo + 파이썬 kernel shim |
 | 대략적 소스 규모 | 파이썬 37K LOC | 파이썬 166K + JS/TS 132K LOC | TypeScript 152K LOC |
-| 필수 런타임 의존성 | OpenAI SDK, Pillow, Windows 전용 pywin32 | 정확히 고정된 대형 파이썬 세트 + extras | 다수의 npm 의존성 그래프, 파이썬 런타임은 IPython 사용 |
+| 필수 런타임 의존성 | 없음. 기능별 `voice`, `desktop`, `office`, `full` extras 제공 | 정확히 고정된 대형 파이썬 세트 + extras | 다수의 npm 의존성 그래프, 파이썬 런타임은 IPython 사용 |
 | 에이전트/도구 구성 | 네이티브 루프 하나와 registry 통제 지점 하나 | 넓은 provider, gateway, browser, media, tool 서브시스템 | `ai`, `agent`, `coding-agent`, `tui` 계층 패키지 |
 | 메모리 | 편집 가능한 Markdown/YAML/wikilink 볼트 | 여러 state·memory 연동 | session/context tree 중심 |
 | 자기개선 | 검증과 rollback이 있는 버전화된 proposal ledger | 넓은 skill·runtime 생태계 | extension·package 생태계 |
@@ -184,10 +185,10 @@ Osiris 검증, 그리고 다시 다음 미체크 step으로 돌아갑니다.
 
 ### birkin이 더 강한 부분
 
-**작은 의존성과 공급망 표면.** 필수 런타임 의존성은 OpenAI SDK, Pillow,
-Windows 전용 pywin32입니다. HTTP, streaming, JSON-RPC, cron 파싱, 영속화,
+**작은 의존성과 공급망 표면.** 핵심 런타임 의존성은 0개입니다. 음성,
+데스크톱, office 지원은 명시적 extra이며 voice + desktop은 한 플랫폼에서
+최대 3개 패키지만 설치합니다. HTTP, streaming, JSON-RPC, cron 파싱, 영속화,
 provider client, 네이티브 에이전트 루프는 패키지 안에 구현돼 있습니다.
-데스크톱 helper는 desktop tool을 명시적으로 켤 때만 import됩니다.
 
 **tool 결과의 단일 통제 경로.** 모든 네이티브 tool 호출은 `ToolRegistry.run`을
 지납니다. hook은 거기서 관찰하고, 텍스트 출력은 거기서 redaction되며, 큰 텍스트는
@@ -272,6 +273,12 @@ Python 3.10 이상이 필요합니다.
 git clone https://github.com/ashmoonori-afk/birkin.git
 cd birkin
 python -m pip install -e .
+
+# 필요한 기능만 추가
+python -m pip install -e ".[voice]"
+python -m pip install -e ".[desktop]"
+python -m pip install -e ".[office]"
+python -m pip install -e ".[full]"
 birkin setup
 ```
 
@@ -300,9 +307,9 @@ birkin gateway
 birkin web
 ```
 
-기본 provider는 Anthropic입니다. API key는 setup, 환경 변수,
-`~/.birkin/config.json`으로 전달할 수 있습니다. 설치와 인증이 끝난 Claude 및
-Codex CLI의 subscription-backed provider도 지원합니다.
+기본 provider는 Codex CLI이며, 로컬에서 인증된 Codex subscription을 API key
+없이 사용합니다. API 기반 Anthropic·OpenAI provider와 Claude CLI provider도
+setup, 환경 변수, `~/.birkin/config.json`을 통해 계속 사용할 수 있습니다.
 
 birkin이 `codex app-server` 자식을 시작할 때는 plugin과 MCP server는 유지하되
 해당 자식의 Codex plugin hook을 비활성화합니다. 따라서 전역
@@ -322,7 +329,7 @@ status`, `/omo last`로 로컬 OMO session을 선택하고 제어할 수 있습�
 
 ### 능동 음성 제어
 
-음성 기능은 birkin과 함께 설치됩니다. OpenAI STT/TTS에는 Platform API
+음성 기능은 `birkin[voice]`로 설치합니다. OpenAI STT/TTS에는 Platform API
 키가 필요합니다.
 
 ```bash
@@ -431,9 +438,9 @@ input, 작업 디렉터리, gate, digest에 묶이며, 승인은 권한 상승 �
 
 ```json
 {
-  "provider": "anthropic",
-  "model": "claude-sonnet-4-6",
-  "subagent_model": "claude-haiku-4-5-20251001",
+  "provider": "codex-cli",
+  "model": "default",
+  "subagent_model": "default",
   "api_key": null,
   "api_keys": [],
   "max_tokens": 4096,
@@ -595,7 +602,9 @@ birkin curate-memory
   엔진이 없고 Moirai를 쓰지 않습니다.
 - **Osiris**는 그 cycle 안의 inline 프로토콜 검증입니다. 모듈이 없고 독립적인
   강제력도 없으며, 무엇이 남았는지는 Boulder의 파일이 기록합니다.
-- **MCP**는 호환 client에 birkin tool을 노출합니다.
+- **MCP**는 호환 client에 Birkin tool을 노출합니다. `egress.enforced: true`인
+  Birkin session은 Birkin MCP server만 사용합니다. `birkin mcp`로 외부 Claude
+  MCP server를 관리할 수 있지만, 그 server가 Birkin에 상속된다는 뜻은 아닙니다.
 - **A2A**는 opt-in Agent2Agent v1.0 JSON-RPC endpoint와 agent card를 제공합니다.
 - **Gateway**는 로컬 HTTP와 Telegram turn 사이에서 session을 warm 상태로 유지합니다.
 - **구조화 action**은 기존 승인 queue를 channel-neutral 질문에도 재사용합니다.
