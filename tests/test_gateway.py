@@ -10,11 +10,9 @@ import types
 import pytest
 
 from birkin.gateway import core as gw_core
-from birkin.gateway.channels import build_channels
-from birkin.gateway.channels import local_http
+from birkin.gateway.channels import build_channels, local_http
 from birkin.gateway.channels.local_http import LocalHTTPChannel
 from birkin.gateway.channels.telegram import verify_token
-
 
 # ---------------- Gateway.handle ----------------
 
@@ -190,6 +188,17 @@ def test_local_http_health(http_channel):
     code, body = _req(http_channel, "GET", "/health")
     assert code == 200
     assert json.loads(body)["ok"] is True
+
+
+def test_local_http_stop_unblocks_a_waiting_listener():
+    fake_gw = types.SimpleNamespace(
+        handle=lambda *_args: "",
+        pending_hard_restart=False,
+    )
+    channel, thread = _start_http_channel(fake_gw)
+    channel.stop()
+    thread.join(timeout=2.0)
+    assert not thread.is_alive()
 
 
 def test_local_http_message_routes_to_gateway(http_channel):
