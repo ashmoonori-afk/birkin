@@ -23,6 +23,7 @@ import re
 import secrets
 import webbrowser
 from http.server import BaseHTTPRequestHandler, HTTPServer
+from http.cookies import CookieError, SimpleCookie
 from pathlib import Path
 from typing import Any, Optional
 
@@ -34,10 +35,10 @@ MAX_POST_BODY_BYTES = 65_536
 POST_BODY_TIMEOUT_SECONDS = 2.0
 _APPROVAL_ID_RE = re.compile(r"[0-9a-f]{12}")
 
-# A per-process token embedded in the page and required on mutating POSTs.
-# Combined with a Host-header check this blocks DNS-rebinding and other local
-# processes from approving queued actions.
+# A per-process capability set as an HttpOnly cookie on the root page and
+# required for sensitive reads and mutations. JavaScript never receives it.
 _TOKEN = secrets.token_urlsafe(18)
+_CAPABILITY_COOKIE = "birkin_capability"
 _ALLOWED_HOSTS = {"127.0.0.1", "localhost"}
 
 
@@ -83,10 +84,18 @@ class Handler(BaseHTTPRequestHandler):
     def log_message(self, *args: Any) -> None:
         pass
 
-    def _send(self, code: int, body: bytes, ctype: str) -> None:
+    def _send(
+        self,
+        code: int,
+        body: bytes,
+        ctype: str,
+        headers: dict[str, str] | None = None,
+    ) -> None:
         self.send_response(code)
         self.send_header("Content-Type", ctype)
         self.send_header("Content-Length", str(len(body)))
+        for name, value in (headers or {}).items():
+            self.send_header(name, value)
         self.end_headers()
         self.wfile.write(body)
 
@@ -97,6 +106,21 @@ class Handler(BaseHTTPRequestHandler):
     def _host_ok(self) -> bool:
         host = (self.headers.get("Host", "") or "").rsplit(":", 1)[0]
         return host in _ALLOWED_HOSTS or host == ""
+
+    def _capability_ok(self) -> bool:
+        token = self.headers.get("X-Birkin-Token", "")
+        if token and secrets.compare_digest(token, _TOKEN):
+            return True
+        cookies = SimpleCookie()
+        try:
+            cookies.load(self.headers.get("Cookie", ""))
+        except CookieError:
+            return False
+        capability = cookies.get(_CAPABILITY_COOKIE)
+        return bool(
+            capability
+            and secrets.compare_digest(capability.value, _TOKEN)
+        )
 
     def _read_body(self) -> tuple[bytes | None, int]:
         raw_length = self.headers.get("Content-Length")
@@ -128,9 +152,21 @@ class Handler(BaseHTTPRequestHandler):
         if not self._host_ok():
             self._send(403, b"forbidden host", "text/plain")
             return
-        if self.path in ("/", "/index.html"):
+        if self.path == f"/_bootstrap/{_TOKEN}":
+            self._send(
+                303,
+                b"",
+                "text/plain",
+                headers={
+                    "Location": "/",
+                    "Set-Cookie": (
+                        f"{_CAPABILITY_COOKIE}={_TOKEN}; HttpOnly; "
+                        "SameSite=Strict; Path=/"
+                    ),
+                },
+            )
+        elif self.path in ("/", "/index.html"):
             html = (_STATIC / "index.html").read_text(encoding="utf-8")
-            html = html.replace("__BIRKIN_TOKEN__", _TOKEN)
             self._send(200, html.encode("utf-8"), "text/html; charset=utf-8")
         elif self.path == "/api/status":
             self._json(_status_payload())
@@ -139,6 +175,9 @@ class Handler(BaseHTTPRequestHandler):
         elif self.path == "/api/runs":
             self._json(store.list_runs(limit=20))
         elif self.path == "/api/approvals":
+            if not self._capability_ok():
+                self._json({"error": "missing or invalid capability"}, code=403)
+                return
             from .. import risk as risk_mod
             items = risk_mod.sort_by_risk(approvals.reviewable_pending())
             for it in items:
@@ -238,7 +277,7 @@ class Handler(BaseHTTPRequestHandler):
             self._drain_body()
             self._send(403, b"forbidden host", "text/plain")
             return
-        if not secrets.compare_digest(self.headers.get("X-Birkin-Token", ""), _TOKEN):
+        if not self._capability_ok():
             self._drain_body()
             self._json({"error": "missing or invalid token"}, code=403)
             return
@@ -266,13 +305,35 @@ class Handler(BaseHTTPRequestHandler):
             return
         aid = payload.get("id")
         action = payload.get("action")
-        if not aid or action not in ("approve", "reject"):
-            self._json({"error": "need id and action approve|reject"}, code=400)
+        if not aid or action not in ("answer", "approve", "reject"):
+            self._json(
+                {"error": "need id and action answer|approve|reject"},
+                code=400,
+            )
             return
         if not isinstance(aid, str) or _APPROVAL_ID_RE.fullmatch(aid) is None:
             self._json({"error": "invalid approval id"}, code=400)
             return
-        result = approvals.approve(aid) if action == "approve" else approvals.reject(aid)
+        if action == "answer":
+            answers = payload.get("answers")
+            if not isinstance(answers, dict):
+                self._json({"error": "answers must be an object"}, code=400)
+                return
+            result = approvals.answer(
+                aid,
+                answers=answers,
+                source="web:dashboard",
+                clarification=str(payload.get("clarification") or ""),
+                navigation=payload.get("navigation")
+                if isinstance(payload.get("navigation"), list) else None,
+            )
+            self._json(result, code=200 if result.get("ok") else 409)
+            return
+        result = (
+            approvals.approve(aid)
+            if action == "approve"
+            else approvals.reject(aid)
+        )
         self._json(result)
 
 
@@ -292,10 +353,11 @@ def run(port: Optional[int] = None, *, open_browser: bool = True) -> int:
     port = port or int(cfg.get("web_port", 8787))
     httpd = HTTPServer(("127.0.0.1", port), Handler)
     url = f"http://127.0.0.1:{port}"
-    print(f"birkin dashboard running at {url}  (Ctrl-C to stop)")
+    bootstrap_url = f"{url}/_bootstrap/{_TOKEN}"
+    print(f"birkin dashboard running at {bootstrap_url}  (Ctrl-C to stop)")
     if open_browser:
         try:
-            webbrowser.open(url)
+            webbrowser.open(bootstrap_url)
         except Exception:
             pass
     try:

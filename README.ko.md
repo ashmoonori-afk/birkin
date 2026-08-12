@@ -594,6 +594,16 @@ birkin curate-memory
 - **Gateway**는 로컬 HTTP와 Telegram turn 사이에서 session을 warm 상태로 유지합니다.
   짧은 문맥 의존 Telegram 후속말은 재시작 뒤에도 그 채팅의 최근 실질 요청에
   연결하며, 주제가 완결된 새 질문은 바꾸지 않습니다.
+- **구조화 action**은 기존 승인 queue를 channel-neutral 질문에도 재사용합니다.
+  모든 질문에는 action id, 명시적 만료 시각, radio/checkbox 선택지, 선택적 보충
+  설명, 추천 metadata가 있습니다. 로컬·원격의 첫 유효 응답 하나만 원자적으로
+  확정되며, 늦거나 잘못되었거나 만료된 답은 이후 질문에 적용되지 않고
+  `reply_rejected`를 반환합니다.
+
+WebUI 승인 inbox는 구조화 action을 접근 가능한 radio와 checkbox control로
+표시합니다. 제출에 성공하면 card가 그 자리에서 해결 완료·비활성 상태로 바뀝니다.
+브라우저가 아닌 channel도 같은 저장 JSON 계약을 번호형 text로 표시할 수 있으며
+답변 검증 규칙은 달라지지 않습니다.
 
 ## Integration workflow
 

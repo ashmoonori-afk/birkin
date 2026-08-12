@@ -606,6 +606,16 @@ birkin curate-memory
 - **Gateway** keeps sessions warm across local HTTP and Telegram turns.
   Short context-dependent Telegram follow-ups resolve against that chat's latest
   substantive request, including after a restart, without rewriting new topics.
+- **Structured actions** reuse the approval queue for channel-neutral questions.
+  Every question has an action id, explicit expiry, typed radio or checkbox
+  options, optional clarification, and recommendation metadata. The first valid
+  local or remote answer wins atomically; stale, malformed, or expired replies
+  return `reply_rejected` instead of being applied to a later question.
+
+The WebUI approval inbox renders structured actions as accessible radio and
+checkbox controls. A successful submission changes the card in place to a
+resolved, disabled outcome. The same persisted JSON contract can be rendered as
+numbered text by non-browser channels without changing answer validation.
 
 ## Integration workflows
 
