@@ -81,7 +81,7 @@ def _status_payload() -> dict[str, Any]:
 class Handler(BaseHTTPRequestHandler):
     server_version = f"birkin-dashboard/{__version__}"
 
-    def log_message(self, *args: Any) -> None:
+    def log_message(self, format: str, *args: Any) -> None:
         pass
 
     def _send(
