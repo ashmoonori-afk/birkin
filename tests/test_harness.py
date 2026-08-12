@@ -14,7 +14,7 @@ from contextlib import contextmanager
 
 import pytest
 
-from birkin import harness
+from birkin import harness, prompts
 
 
 def _proposal(*edits, summary="s", rationale="r", outcome="o"):
@@ -153,6 +153,15 @@ def test_prompt_kind_content_carrying_a_policy_tag_is_rejected(policy_marker):
     assert event["applied"][0]["applied"] is False
     assert "policy" in event["applied"][0]["error"]
     assert harness.load()["entries"]["prompt"] == {}
+
+
+@pytest.mark.parametrize("kind", harness.KINDS)
+@pytest.mark.parametrize("field", ["title", "content"])
+def test_all_rendered_fields_reject_policy_markers(kind, field):
+    edit = _create(kind=kind, title="Safe", content="Safe")
+    edit[field] = f"value {prompts.UI_COMPONENT_POLICY_OPEN}"
+
+    assert harness.validate_edit(edit) is not None
 
 
 def test_rollback_restores_the_exact_prior_state():

@@ -27,6 +27,42 @@ def test_digest_delivers_summary_with_pending_count(tmp_path, monkeypatch):
     assert "/pending" in sent[0][2]
 
 
+def test_digest_polishes_for_korean_phone_screen(
+        tmp_path, monkeypatch) -> None:
+    # Given
+    from birkin import morpheus, scheduler
+    cfg = _cfg(tmp_path, monkeypatch)
+    cfg["morpheus_provider"] = "claude-cli"
+    drafts: list[str] = []
+    sent: list[str] = []
+    monkeypatch.setattr(
+        morpheus,
+        "polish_telegram_reply",
+        lambda draft, polish_cfg: (
+            drafts.append(draft)
+            or "밤새 확인한 내용\n\n• 배포 전 수정 1건"
+        ),
+        raising=False,
+    )
+    monkeypatch.setattr(
+        scheduler,
+        "deliver",
+        lambda _name, _chat, text: sent.append(text) or "sent",
+    )
+
+    # When
+    morpheus._deliver_digest(
+        cfg,
+        "Done. Here is a long nightly report with one pending fix.",
+    )
+
+    # Then
+    assert drafts == [
+        "Done. Here is a long nightly report with one pending fix.",
+    ]
+    assert sent == ["밤새 확인한 내용\n\n• 배포 전 수정 1건"]
+
+
 def test_digest_hides_chat_bound_workflow_count(tmp_path, monkeypatch):
     from birkin import morpheus, scheduler
     from birkin.gateway import workflow
@@ -113,6 +149,39 @@ def test_proposal_card_fits_telegram_delivery_budget():
 
     assert len(card) <= 3400
     assert "```" not in card
+
+
+def test_unstructured_digest_fits_telegram_delivery_budget() -> None:
+    from birkin import morpheus
+
+    card = morpheus._proposal_card("Done. " + ("nightly detail " * 500))
+
+    assert len(card) <= 3400
+    assert card.endswith("…")
+
+
+def test_pending_suffix_stays_inside_telegram_delivery_budget(
+        tmp_path, monkeypatch) -> None:
+    from birkin import morpheus, scheduler, store
+    cfg = _cfg(tmp_path, monkeypatch)
+    store.add_pending(
+        category="note",
+        title="queued overnight",
+        description="",
+        payload={},
+        origin="morpheus",
+    )
+    sent: list[str] = []
+    monkeypatch.setattr(
+        scheduler,
+        "deliver",
+        lambda _name, _chat, text: sent.append(text) or "sent",
+    )
+
+    morpheus._deliver_digest(cfg, "가" * 3400)
+
+    assert len(sent[0]) <= 3400
+    assert sent[0].endswith("📋 검토 대기: 1건 · /pending")
 
 
 def test_silent_summary_stays_silent(tmp_path, monkeypatch):

@@ -302,6 +302,50 @@ def test_rezone_moves_file_and_updates_index():
     assert not (_vault() / "knowledge" / "mover.md").exists()
 
 
+def test_rezone_refuses_existing_destination_collision(monkeypatch):
+    m = _mem()
+    m.write_note("Collision", "source body", note_type="fact")
+    source = _vault() / "knowledge" / "collision.md"
+    eng = _engine()
+    monkeypatch.setattr(eng, "refresh", lambda: None)
+    target = _vault() / "finance" / "collision.md"
+    target.parent.mkdir(parents=True)
+    target.write_text("destination body", encoding="utf-8")
+
+    with pytest.raises(FileExistsError):
+        eng.rezone("collision", "finance")
+
+    assert "source body" in source.read_text(encoding="utf-8")
+    assert target.read_text(encoding="utf-8") == "destination body"
+
+
+def test_rezone_refuses_destination_created_after_precheck(monkeypatch):
+    m = _mem()
+    m.write_note("Racing", "source body", note_type="fact")
+    source = _vault() / "knowledge" / "racing.md"
+    eng = _engine()
+    target = _vault() / "finance" / "racing.md"
+    real_link = mnemosyne.os.link
+    real_replace = mnemosyne.os.replace
+
+    def create_then_link(old, new):
+        target.write_text("racing destination", encoding="utf-8")
+        return real_link(old, new)
+
+    def create_then_replace(old, new):
+        target.write_text("racing destination", encoding="utf-8")
+        return real_replace(old, new)
+
+    monkeypatch.setattr(mnemosyne.os, "link", create_then_link)
+    monkeypatch.setattr(mnemosyne.os, "replace", create_then_replace)
+
+    with pytest.raises(FileExistsError):
+        eng.rezone("racing", "finance")
+
+    assert "source body" in source.read_text(encoding="utf-8")
+    assert target.read_text(encoding="utf-8") == "racing destination"
+
+
 def test_rezone_rejects_bad_zone_names():
     m = _mem()
     m.write_note("Fixed", "immovable")

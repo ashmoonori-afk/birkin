@@ -25,6 +25,7 @@ from pathlib import Path
 from typing import Any, Sequence
 
 from . import approvals, config, harness, selfimprove, store
+from .gateway.polish import polish_telegram_reply
 from .runtime import ConfigError, build_session
 
 _EXCLUDE_DIRS = {".git", ".birkin", "node_modules", "__pycache__", ".venv",
@@ -37,6 +38,9 @@ _MORPHEUS_TASK = """## Morpheus self-improvement pass ({date})
 
 You are running unattended. Using the last 24 hours of activity below, improve \
 the user's tomorrow. Be concrete and conservative.
+Write every user-facing title, summary, rationale, and final explanation in \
+concise natural Korean for a Telegram phone screen. Use short paragraphs and \
+bullets, never Markdown tables. Keep JSON keys and tool arguments unchanged.
 
 Do all that apply:
 1. **Memory** — capture durable entities, facts, decisions, and relationships in \
@@ -270,7 +274,8 @@ _MORPHEUS_SYSTEM = (
     "do anything destructive. Persist what you learn and propose helpful actions "
     "using the birkin tools provided over MCP (mcp__birkin__memory_write_note, "
     "mcp__birkin__create_skill, mcp__birkin__propose_action, …); analyze the "
-    "workspace with Read/Glob/Grep only. You have no shell access.")
+    "workspace with Read/Glob/Grep only. You have no shell access. Write all "
+    "user-facing output in concise natural Korean for a Telegram phone screen.")
 
 
 def run_once(dry_run: bool = False) -> int:
@@ -285,14 +290,14 @@ def run_once(dry_run: bool = False) -> int:
     configured_roots = cfg.get("workspace_roots") or []
     workspace_roots = ([Path(root).expanduser() for root in configured_roots]
                        or [Path.cwd()])
-    # Nightly maintenance: drop TTL-expired notes so the vault stays bounded
-    # (they are only hidden from search/render otherwise). Best-effort.
+    # Nightly maintenance: archive TTL-expired notes so they stay recoverable
+    # while remaining hidden from search/render. Best-effort.
     if not dry_run:
         try:
             from .memory import VaultMemory
             n_purged = VaultMemory(cfg).purge_expired()
             if n_purged:
-                print(f"birkin morpheus: purged {n_purged} expired memory note(s).")
+                print(f"birkin morpheus: archived {n_purged} expired memory note(s).")
         except Exception:
             pass
     sessions_text = _gather_sessions()
@@ -510,10 +515,17 @@ def _card_text(value: Any, limit: int) -> str:
     return text[:limit - 1].rstrip() + "…"
 
 
+def _bounded_digest(text: str, limit: int = 3400) -> str:
+    stripped = text.strip()
+    if len(stripped) <= limit:
+        return stripped
+    return stripped[:limit - 1].rstrip() + "…"
+
+
 def _proposal_card(summary: str) -> str:
     proposal = _harness_proposal(summary)
     if proposal is None:
-        return summary.strip()
+        return _bounded_digest(summary)
 
     title = _card_text(proposal.get("summary"), 160) or "새 개선안"
     rationale = _card_text(proposal.get("rationale"), 240)
@@ -555,13 +567,16 @@ def _deliver_digest(cfg: dict[str, Any], summary: str) -> None:
         return
     text = (summary or "").strip()
     if not text.startswith("[SILENT]"):
-        text = _proposal_card(text)
+        text = _bounded_digest(
+            polish_telegram_reply(_proposal_card(text), cfg),
+        )
     try:
         pending = approvals.reviewable_pending()
     except Exception:
         pending = []
     if pending and not text.startswith("[SILENT]"):
-        text += f"\n\n📋 검토 대기: {len(pending)}건 · /pending"
+        suffix = f"\n\n📋 검토 대기: {len(pending)}건 · /pending"
+        text = _bounded_digest(text, 3400 - len(suffix)) + suffix
     from . import scheduler   # lazy: scheduler imports morpheus lazily too
     status = scheduler.deliver("morpheus", chat, text)
     print(f"birkin morpheus: digest delivery: {status}")

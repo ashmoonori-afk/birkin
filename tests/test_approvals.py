@@ -1,3 +1,5 @@
+import pytest
+
 from birkin import approvals, cron, store
 
 
@@ -73,3 +75,25 @@ def test_execute_cron_clamps_and_defaults_clock(monkeypatch):
     assert captured[-1]["hour"] == 9 and captured[-1]["minute"] == 59
     approvals.execute_action("cron", {"name": "j", "hour": 25, "minute": -5})
     assert captured[-1]["hour"] == 23 and captured[-1]["minute"] == 0
+
+
+def test_execute_action_unknown_category_raises():
+    with pytest.raises(ValueError, match="unknown approval category"):
+        approvals.execute_action("bogus", {})
+
+
+def test_execute_claimed_unknown_category_marks_error():
+    rec = store.add_pending(
+        category="bogus",
+        title="Unknown",
+        description="",
+        payload={},
+    )
+    aid = rec["id"]
+    assert approvals.claim(aid)["ok"] is True
+
+    result = approvals.execute_claimed(aid)
+
+    assert result["ok"] is False
+    assert "unknown approval category" in result["error"]
+    assert store.get_pending(aid)["status"] == "error"

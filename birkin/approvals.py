@@ -17,14 +17,20 @@ consequential actions directly.
 from __future__ import annotations
 
 import subprocess
+from pathlib import Path
 from typing import Any
 
-from . import config, cron, risk, store
+from . import config, cron, risk, store, worker_hooks
+from .operation_policy import retry_environment
 from .proc import shell_argv, shell_env
 
 
 def is_auto(category: str, cfg: dict[str, Any]) -> bool:
     return category in (cfg.get("auto_approve") or [])
+
+
+def worker_hook_contract() -> dict[str, Any]:
+    return worker_hooks.contract()
 
 
 def _is_shell_cron(category: str, payload: dict[str, Any]) -> bool:
@@ -46,7 +52,8 @@ def _is_shell_cron(category: str, payload: dict[str, Any]) -> bool:
 
 def propose(*, category: str, title: str, description: str,
             payload: dict[str, Any], cfg: dict[str, Any],
-            origin: str = "morpheus") -> dict[str, Any]:
+            origin: str = "morpheus",
+            continuation: dict[str, Any] | None = None) -> dict[str, Any]:
     """Apply (if auto-approved) or queue an action. Returns a status dict.
 
     SECURITY: an auto-approved ``cron`` must not launder a *shell* payload past
@@ -55,11 +62,20 @@ def propose(*, category: str, title: str, description: str,
     is only auto-applied when ``shell`` itself is auto-approved; otherwise it is
     queued for explicit human review regardless of the ``cron`` policy.
     """
-    auto = category != "operation" and is_auto(category, cfg) and not (
+    parsed_continuation = (
+        worker_hooks.validate(continuation) if continuation is not None else None
+    )
+    auto = (
+        category != "operation"
+        and continuation is None
+        and is_auto(category, cfg)
+        and not (
         _is_shell_cron(category, payload) and not is_auto("shell", cfg))
+    )
     rec = store.add_pending(category=category, title=title,
                             description=description, payload=payload,
-                            origin=origin)
+                            origin=origin,
+                            continuation=parsed_continuation)
     if auto:
         resolved = approve(rec["id"])
         return {"auto": True, "ok": bool(resolved.get("ok")),
@@ -112,9 +128,21 @@ def execute_action(category: str, payload: dict[str, Any],
         return f"Registered cron job '{job['name']}' at " \
                f"{cron.schedule_display(job)} (id {job['id']})."
     if category == "shell":
-        command = payload.get("command", "")
+        command = str(payload.get("command") or "")
         if not command:
             return "No command to run."
+        cwd = Path(str(payload.get("cwd") or Path.cwd())).expanduser().resolve()
+        if not cwd.is_dir():
+            return f"Working directory does not exist: {cwd}"
+        environment = shell_env()
+        command_name = command.strip().split(maxsplit=1)[0] \
+            .strip("\"'").replace("\\", "/").rsplit("/", 1)[-1] \
+            .casefold().removesuffix(".exe").removesuffix(".cmd")
+        if command_name in {"bun", "bunx"}:
+            local_temp = retry_environment("local_temp_policy", cwd)
+            for key in ("TEMP", "TMP", "UV_CACHE_DIR"):
+                Path(local_temp[key]).mkdir(parents=True, exist_ok=True)
+            environment.update(local_temp)
         try:
             to = payload.get("timeout", 300)
             try:                           # model/user payload may be non-int
@@ -124,7 +152,7 @@ def execute_action(category: str, payload: dict[str, Any],
             proc = subprocess.run(shell_argv(command), capture_output=True,
                                   text=True, errors="replace",
                                   timeout=max(1, min(3600, to)),
-                                  env=shell_env(), check=False)
+                                  cwd=str(cwd), env=environment, check=False)
         except subprocess.TimeoutExpired:
             return "Command timed out."
         out = (proc.stdout or "") + (proc.stderr or "")
@@ -144,8 +172,9 @@ def execute_action(category: str, payload: dict[str, Any],
     if category == "harness":
         from .harness import apply_approved_edit
         return apply_approved_edit(payload)
-    # memory is applied by the agent directly; nothing else has an executor.
-    return f"(no executor for category '{category}')"
+    if category == "memory":
+        return "(memory is applied directly by the agent)"
+    raise ValueError(f"unknown approval category {category!r}")
 
 
 # -- CLI review ------------------------------------------------------------
@@ -190,6 +219,16 @@ def execute_claimed(aid: str, on_event: Any = None) -> dict[str, Any]:
             rec = store.get_pending(aid)
             if not rec or rec.get("status") != "approving":
                 return {"ok": False, "error": "approval is not claimed"}
+            continuation = rec.get("continuation")
+            if continuation is not None:
+                try:
+                    worker_hooks.validate(continuation)
+                except worker_hooks.WorkerHookError as exc:
+                    store.resolve_pending(
+                        aid, "error",
+                        updates={"failure_stage": "validation"},
+                    )
+                    return {"ok": False, "error": str(exc)}
             store.resolve_pending(aid, "executing")
     except store.FileLockTimeout:
         return {"ok": False, "error": "approval store is busy"}
@@ -214,10 +253,45 @@ def execute_claimed(aid: str, on_event: Any = None) -> dict[str, Any]:
             return {"ok": False, "error": "approval store is busy"}
         return {"ok": False, "error": "cron store is busy; retry."}
     except Exception as exc:
-        store.resolve_pending(aid, "error")
+        store.resolve_pending(
+            aid, "error", updates={"failure_stage": "action"},
+        )
         return {"ok": False, "error": f"action failed: {exc}"}
-    store.resolve_pending(aid, "approved")
+    if continuation is not None:
+        store.resolve_pending(
+            aid, "resume_pending", updates={"action_receipt": result},
+        )
+        resumed = execute_continuation(aid, on_event=on_event)
+        if resumed.get("ok"):
+            resumed["result"] = result
+        return resumed
+    store.resolve_pending(aid, "approved", updates={"action_receipt": result})
     return {"ok": True, "result": result}
+
+
+def execute_continuation(aid: str, on_event: Any = None) -> dict[str, Any]:
+    if not store.valid_pending_id(aid):
+        return {"ok": False, "error": "invalid approval id"}
+    try:
+        with store.file_lock(_pending_path(aid)):
+            rec = store.get_pending(aid)
+            if not rec or rec.get("status") != "resume_pending":
+                return {"ok": False, "error": "continuation is not pending"}
+            continuation = worker_hooks.validate(rec.get("continuation"))
+            store.resolve_pending(aid, "resuming")
+    except (store.FileLockTimeout, worker_hooks.WorkerHookError) as exc:
+        return {"ok": False, "error": str(exc)}
+    try:
+        result = worker_hooks.dispatch(continuation, on_event=on_event)
+    except (OSError, RuntimeError, TypeError, ValueError) as exc:
+        store.resolve_pending(
+            aid, "error", updates={"failure_stage": "continuation"},
+        )
+        return {"ok": False, "error": f"continuation failed: {exc}"}
+    store.resolve_pending(
+        aid, "approved", updates={"continuation_result": result},
+    )
+    return {"ok": True, "continuation_result": result}
 
 
 def restore_claim(aid: str) -> bool:
@@ -234,11 +308,11 @@ def restore_claim(aid: str) -> bool:
     return True
 
 
-def approve(aid: str) -> dict[str, Any]:
+def approve(aid: str, on_event: Any = None) -> dict[str, Any]:
     claimed = claim(aid)
     if not claimed.get("ok"):
         return claimed
-    return execute_claimed(aid)
+    return execute_claimed(aid, on_event=on_event)
 
 
 def reject(aid: str, reason: str = "") -> dict[str, Any]:
@@ -289,6 +363,8 @@ def review_cli() -> int:
         print(f"── {risk.label(tier)} [{tier}/{rec['category']}] {rec['title']}")
         print(f"   {rec['description']}")
         print(f"   payload: {rec.get('payload')}")
+        if rec.get("continuation") is not None:
+            print(f"   then: {worker_hooks.describe(rec['continuation'])}")
         try:
             choice = input("   approve? [y]es / [n]o / [s]kip: ").strip().lower()
         except (EOFError, KeyboardInterrupt):
