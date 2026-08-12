@@ -312,10 +312,9 @@ birkin gateway
 birkin web
 ```
 
-The default provider is Anthropic. API keys may be supplied through setup,
-environment variables, or `~/.birkin/config.json`. Subscription-backed Claude
-and Codex CLI providers are also supported when their CLIs are installed and
-authenticated.
+The default provider is Codex CLI and uses the authenticated CLI's OAuth
+session. Claude CLI, Anthropic API, and OpenAI-compatible providers remain
+available through setup, environment variables, or `~/.birkin/config.json`.
 
 When birkin starts a `codex app-server` child, it disables Codex plugin hooks
 for that child while preserving plugins and MCP servers. This keeps a global

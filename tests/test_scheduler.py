@@ -125,6 +125,11 @@ def test_run_job_monitor_changed_invokes_prompt_with_context(monkeypatch):
 def test_run_job_prompt_skips_without_key(monkeypatch):
     """Prompt-type cron job tries to build a session; without a key it must skip
     cleanly (and record a 'skipped' run) instead of crashing."""
+    cfg = config.load_config()
+    cfg["provider"] = "anthropic"
+    cfg["model"] = "claude-sonnet-4-6"
+    config.save_config(cfg)
+
     job = {"id": "j2", "name": "digest", "type": "prompt",
            "value": "summarise yesterday"}
     scheduler._run_job(job)

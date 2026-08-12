@@ -69,6 +69,30 @@ def test_codex_model_ids_include_known():
     assert "gpt-5.5" in ids and "gpt-5.4" in ids
 
 
+def test_picker_keeps_codex_cli_default_when_no_binary_is_discovered(monkeypatch):
+    cfg = {"provider": "codex-cli", "model": "default"}
+
+    monkeypatch.setattr(
+        models,
+        "discover",
+        lambda _cfg: [models.Model("claude-sonnet-5", "anthropic")],
+    )
+
+    from birkin import menu
+
+    def select(_prompt, _labels, default=0):
+        return default
+
+    monkeypatch.setattr(menu, "select", select)
+
+    picked = models.pick_interactive(cfg)
+
+    assert picked is not None
+    assert picked.source == "codex-cli"
+    assert picked.model_value() == "default"
+    assert cfg == {"provider": "codex-cli", "model": "default", "base_url": ""}
+
+
 def test_apply_selection_local_cli():
     cfg = {"provider": "anthropic", "model": "x", "base_url": "y"}
     m = models.Model("local-cli", "local-cli", "configured: my-llm")

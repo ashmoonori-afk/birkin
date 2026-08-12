@@ -194,10 +194,20 @@ def pick_interactive(cfg: dict[str, Any], prompt: str = "Choose a model") -> Opt
     """Discover models, show the interactive picker, and apply the choice to cfg.
     Returns the chosen Model, or None if the user cancelled."""
     from . import menu
-    found = display_order(discover(cfg))
+    found = discover(cfg)
+    cur = cfg.get("model")
+    provider = cfg.get("provider")
+    if (provider in ("claude-cli", "codex-cli")
+            and cur in (None, "", "default")
+            and not any(m.source == provider
+                        and m.model_value() == "default" for m in found)):
+        name = ("codex · CLI default" if provider == "codex-cli"
+                else "claude-code (CLI default)")
+        found.append(Model(name, provider, "uses the CLI's configured default",
+                           param="default"))
+    found = display_order(found)
     labels = [f"{m.id}  [{m.source}]" + (f" · {m.note}" if m.note else "")
               for m in found]
-    cur = cfg.get("model")
     default_i = next((i for i, m in enumerate(found) if m.model_value() == cur), 0)
     mi = menu.select(prompt, labels, default=default_i)
     if mi is None:

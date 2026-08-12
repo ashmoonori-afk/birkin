@@ -20,9 +20,9 @@ from typing import Any
 # --- Defaults -------------------------------------------------------------
 
 DEFAULT_CONFIG: dict[str, Any] = {
-    "provider": "anthropic",  # "anthropic" | "openai" (OpenAI-compatible)
-    "model": "claude-sonnet-4-6",
-    "subagent_model": "claude-haiku-4-5-20251001",
+    "provider": "codex-cli",
+    "model": "default",
+    "subagent_model": "default",
     "base_url": "",  # empty -> provider default
     # Generic local-CLI runner: provider "local-cli" runs this argv with the
     # flattened prompt on stdin (configure any CLI agent without code changes).

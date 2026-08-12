@@ -52,9 +52,9 @@ def test_followup_anchor_is_isolated_per_chat(monkeypatch, tmp_path):
     monkeypatch.setenv("BIRKIN_HOME", str(tmp_path))
     fake = _fake_session()
     monkeypatch.setattr(gw_core, "build_session", lambda cfg: fake)
-    gateway = gw_core.Gateway(
-        _trusted_telegram_config(chat_id="42"),
-    )
+    cfg = _trusted_telegram_config(chat_id="42")
+    cfg["channels"]["telegram"]["allowed_chat_ids"].append("99")
+    gateway = gw_core.Gateway(cfg)
 
     gateway.handle("telegram", "42", "npm 설치가 EBUSY로 실패했어")
     gateway.handle("telegram", "99", "파이썬 데코레이터가 뭐야?")

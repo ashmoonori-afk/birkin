@@ -300,9 +300,9 @@ birkin gateway
 birkin web
 ```
 
-기본 provider는 Anthropic입니다. API key는 setup, 환경 변수,
-`~/.birkin/config.json`으로 전달할 수 있습니다. 설치와 인증이 끝난 Claude 및
-Codex CLI의 subscription-backed provider도 지원합니다.
+기본 provider는 Codex CLI이며 인증된 CLI의 OAuth 세션을 사용합니다. Claude CLI,
+Anthropic API, OpenAI 호환 provider도 setup, 환경 변수,
+`~/.birkin/config.json`을 통해 계속 사용할 수 있습니다.
 
 birkin이 `codex app-server` 자식을 시작할 때는 plugin과 MCP server는 유지하되
 해당 자식의 Codex plugin hook을 비활성화합니다. 따라서 전역

@@ -39,13 +39,11 @@ def run() -> int:
         print(f"{BOLD}birkin setup{RESET} — Enter keeps the current value.\n")
 
     # 1. Provider — arrow-select
-    print(f"{DIM}Tip: to run birkin FREE on a Claude/Codex subscription (no "
-          f"API key), just press Enter here and pick a local CLI agent "
-          f"(claude-code / codex) in the next step.{RESET}")
-    providers = ["anthropic", "openai"]
-    cur_prov = cfg.get("provider", "anthropic")
-    pi = menu.select(f"{BOLD}Provider{RESET} (paid API backend; FREE local CLI "
-                     f"agents are chosen in the next step)", providers,
+    print(f"{DIM}Tip: Codex CLI is the default and uses its existing OAuth "
+          f"login. Claude CLI and paid API providers remain selectable.{RESET}")
+    providers = ["codex-cli", "claude-cli", "anthropic", "openai"]
+    cur_prov = cfg.get("provider", "codex-cli")
+    pi = menu.select(f"{BOLD}Provider{RESET}", providers,
                      default=providers.index(cur_prov) if cur_prov in providers else 0)
     provider = providers[pi] if pi is not None else cur_prov
     cfg["provider"] = provider
