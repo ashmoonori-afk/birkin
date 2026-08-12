@@ -9,7 +9,7 @@ def test_file_lock_is_exclusive_and_reentrant_after_release(tmp_path):
     with store.file_lock(p) as lk:
         assert lk._held is True
         assert (tmp_path / "x.json.lock").exists()
-    assert not (tmp_path / "x.json.lock").exists()   # released
+    assert (tmp_path / "x.json.lock").exists()       # stable native lock file
     with store.file_lock(p):                          # reacquire cleanly
         pass
 
@@ -18,11 +18,11 @@ def test_file_lock_timeout_raises(tmp_path):
     import pytest
     from birkin import store
     p = tmp_path / "y.json"
-    (tmp_path / "y.json.lock").write_text("")         # a fresh held lock
     body_ran = False
-    with pytest.raises(TimeoutError) as caught:
-        with store.file_lock(p, timeout=0.01, stale=999):
-            body_ran = True
+    with store.file_lock(p):
+        with pytest.raises(TimeoutError) as caught:
+            with store.file_lock(p, timeout=0.01, stale=999):
+                body_ran = True
     assert type(caught.value) is store.FileLockTimeout
     assert body_ran is False
 

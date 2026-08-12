@@ -1,4 +1,8 @@
 import json
+import multiprocessing
+from pathlib import Path
+
+import pytest
 
 from birkin import config, store
 
@@ -14,11 +18,15 @@ def test_save_and_list_runs():
 def test_pending_lifecycle():
     rec = store.add_pending(category="cron", title="t", description="d",
                             payload={"a": 1})
-    assert store.get_pending(rec["id"])["status"] == "pending"
+    pending = store.get_pending(rec["id"])
+    assert pending is not None
+    assert pending["status"] == "pending"
     assert len(store.list_pending()) == 1
     store.resolve_pending(rec["id"], "approved")
     assert store.list_pending() == []
-    assert store.get_pending(rec["id"])["status"] == "approved"
+    resolved = store.get_pending(rec["id"])
+    assert resolved is not None
+    assert resolved["status"] == "approved"
 
 
 def test_status_roundtrip():
@@ -120,3 +128,32 @@ def test_write_json_uses_unique_tmp_name(tmp_path, monkeypatch):
     assert not list(tmp_path.glob("*.tmp"))            # tmp consumed, none left
     assert seen and seen[0].endswith(".tmp")
     assert str(os.getpid()) in seen[0]                 # unique per process
+def test_live_lock_is_not_reclaimed(tmp_path):
+    target = tmp_path / "state.json"
+    first = store.file_lock(target)
+    first.__enter__()
+    try:
+        contender = store.file_lock(target, timeout=0.05)
+        with pytest.raises(store.FileLockTimeout):
+            contender.__enter__()
+    finally:
+        first.__exit__(None, None, None)
+
+
+def _exit_while_holding_lock(path: str) -> None:
+    lock = store.file_lock(Path(path))
+    lock.__enter__()
+
+
+def test_process_exit_releases_lock(tmp_path):
+    target = tmp_path / "state.json"
+    process = multiprocessing.Process(
+        target=_exit_while_holding_lock,
+        args=(str(target),),
+    )
+    process.start()
+    process.join(timeout=5)
+    assert process.exitcode == 0
+
+    with store.file_lock(target, timeout=0.5):
+        assert True

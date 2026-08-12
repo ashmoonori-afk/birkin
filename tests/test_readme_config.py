@@ -12,7 +12,10 @@ in the checker, not in the README.
 
 from __future__ import annotations
 
+import json
 import re
+import subprocess
+import sys
 from pathlib import Path
 
 import pytest
@@ -45,6 +48,16 @@ def _documented_keys(name: str) -> set[str]:
     return keys
 
 
+def _documented_config(name: str) -> dict[str, object]:
+    """Return the README JSON block that documents provider defaults."""
+    text = (_ROOT / name).read_text(encoding="utf-8")
+    for block in re.findall(r"```json\n(.*?)```", text, re.DOTALL):
+        parsed = json.loads(block)
+        if "provider" in parsed:
+            return parsed
+    raise AssertionError(f"{name} has no provider config block")
+
+
 @pytest.mark.parametrize("readme", ["README.md", "README.ko.md"])
 def test_every_documented_key_is_a_real_default(readme: str) -> None:
     documented = _documented_keys(readme)
@@ -62,6 +75,25 @@ def test_the_two_readmes_document_the_same_keys() -> None:
     assert english == korean, (
         f"only in README.md: {sorted(english - korean)}; "
         f"only in README.ko.md: {sorted(korean - english)}")
+
+
+@pytest.mark.parametrize("readme", ["README.md", "README.ko.md"])
+def test_readme_provider_defaults_match_default_config(readme: str) -> None:
+    documented = _documented_config(readme)
+    for key in ("provider", "model", "subagent_model"):
+        assert documented[key] == config.DEFAULT_CONFIG[key]
+
+
+def test_generated_readme_config_blocks_are_current() -> None:
+    proc = subprocess.run(
+        [sys.executable, "scripts/sync_readme_config.py", "--check"],
+        cwd=_ROOT,
+        capture_output=True,
+        text=True,
+        timeout=30,
+        check=False,
+    )
+    assert proc.returncode == 0, proc.stdout + proc.stderr
 
 
 def test_the_keys_this_branch_added_are_documented_in_both() -> None:

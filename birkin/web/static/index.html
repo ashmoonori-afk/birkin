@@ -100,6 +100,15 @@ button:focus-visible,[role=tab]:focus-visible,a:focus-visible{outline:2px solid 
 .row-meta{display:flex;flex-wrap:wrap;gap:var(--s2);margin-top:var(--s2);color:var(--faint);font:11px/1.3 var(--mono)}
 .row-side{display:flex;align-items:center;gap:var(--s2);color:var(--muted);white-space:nowrap}
 .actions{display:flex;align-items:center;gap:var(--s2)}
+.action-form{display:grid;gap:var(--s3);min-width:min(520px,100%)}
+.question{display:grid;gap:var(--s2);padding:var(--s3);border:1px solid var(--line);border-radius:var(--panel-radius);background:var(--surface)}
+.question-title{color:var(--strong);font-size:12px;font-weight:600}
+.option-list{display:grid;gap:var(--s2)}
+.option{display:flex;align-items:flex-start;gap:var(--s2);color:var(--text);font-size:12px}
+.option input{margin-top:2px;accent-color:var(--accent)}
+.recommended{color:var(--good);font:10px/1.4 var(--mono)}
+.clarification{width:100%;min-height:64px;padding:var(--s2);resize:vertical;border:1px solid var(--line-strong);border-radius:var(--control-radius);background:var(--workspace);color:var(--text);font:12px/1.5 var(--ui)}
+.action-outcome{padding:var(--s2);border:1px solid #286c61;border-radius:var(--control-radius);color:var(--good);font:11px/1.4 var(--mono)}
 .action-button{min-height:28px;padding:0 var(--s2);border:1px solid var(--line-strong);border-radius:var(--control-radius);background:var(--raised);color:var(--text);cursor:pointer}
 .action-button:hover{border-color:var(--muted);background:#313131}
 .action-button.primary{border-color:#2672a5;background:#0e639c;color:#fff}
@@ -212,7 +221,6 @@ button:focus-visible,[role=tab]:focus-visible,a:focus-visible{outline:2px solid 
   </main>
 </div>
 <script>
-const BIRKIN_TOKEN = "__BIRKIN_TOKEN__";
 const views = ["overview","proposals","jobs","runs","skills"];
 const state = {status:null,approvals:null,jobs:null,runs:null,skills:null,errors:new Map(),updated:null,refreshing:false};
 const $ = function(selector,root){return (root||document).querySelector(selector)};
@@ -272,7 +280,18 @@ function proposalRows(items,preview){
   if(!items.length)return empty("Nothing awaiting approval","Consequential actions will appear here for review.");
   return items.map(function(item){
     const risk=String(item.risk||item.category||"proposal");const tone=/high|shell|command/i.test(risk)?"danger":/medium|cron/i.test(risk)?"warn":"";
-    const actions=preview?"":'<div class="row-side actions"><button class="action-button danger" type="button" data-proposal-id="'+esc(item.id)+'" data-action="reject">Reject</button><button class="action-button primary" type="button" data-proposal-id="'+esc(item.id)+'" data-action="approve">Approve</button></div>';
+    const structured=item.action_state==="action_needed"&&Array.isArray(item.questions);
+    const fields=structured?item.questions.map(function(question){
+      const type=question.multiple?"checkbox":"radio";
+      const options=(question.options||[]).map(function(option){
+        const recommended=question.recommended===option.value?'<span class="recommended">Recommended</span>':"";
+        return '<label class="option"><input type="'+type+'" name="'+esc(item.id+"-"+question.id)+'" value="'+esc(option.value)+'"><span>'+esc(option.label)+" "+recommended+'</span></label>'
+      }).join("");
+      return '<fieldset class="question" data-question-id="'+esc(question.id)+'" data-multiple="'+(question.multiple?"true":"false")+'" data-required="'+(question.required?"true":"false")+'"><legend class="question-title">'+esc(question.text)+'</legend><div class="option-list">'+options+'</div></fieldset>'
+    }).join(""):"";
+    const questionActions=preview?"":'<form class="action-form" data-action-form="'+esc(item.id)+'">'+fields+(item.allow_clarification?'<label class="question-title">Clarification (optional)<textarea class="clarification" name="clarification" maxlength="2000"></textarea></label>':"")+'<div class="actions"><button class="action-button primary" type="submit">Submit answer</button></div></form>';
+    const approvalActions=preview?"":'<div class="row-side actions"><button class="action-button danger" type="button" data-proposal-id="'+esc(item.id)+'" data-action="reject">Reject</button><button class="action-button primary" type="button" data-proposal-id="'+esc(item.id)+'" data-action="approve">Approve</button></div>';
+    const actions=structured?questionActions:approvalActions;
     return '<article class="dense-row"><div class="row-main"><div class="row-title"><span class="status-dot '+tone+'"></span><span class="row-title-text">'+esc(item.title||"Untitled proposal")+'</span>'+badge(risk,tone)+'</div>'+(item.description?'<div class="row-description">'+esc(item.description)+'</div>':"")+'<div class="row-meta"><span>'+esc(item.category||"action")+'</span><time datetime="'+esc(itemTime(item)||"")+'">'+esc(relative(itemTime(item)))+'</time></div></div>'+actions+'</article>'
   }).join("")
 }
@@ -295,17 +314,38 @@ function renderLists(){
   $("#proposalPageMeta").textContent=a.length+" PENDING";$("#jobPageMeta").textContent=j.length+" TOTAL";$("#runPageMeta").textContent=r.length+" RECENT";$("#skillPageMeta").textContent=s.length+" INSTALLED";
   $("#proposalPreview").innerHTML=proposalRows(a.slice(0,3),true);$("#jobPreview").innerHTML=jobRows(j.slice(0,4));$("#runPreview").innerHTML=runRows(r.slice(0,4));
   $("#proposalList").innerHTML=proposalRows(a,false);$("#jobList").innerHTML=jobRows(j);$("#runList").innerHTML=runRows(r);$("#skillList").innerHTML=skillRows(s);
-  $$("[data-proposal-id]").forEach(function(button){button.addEventListener("click",function(){act(button)})})
+  $$("[data-proposal-id]").forEach(function(button){button.addEventListener("click",function(){act(button)})});
+  $$("[data-action-form]").forEach(function(form){form.addEventListener("submit",function(event){event.preventDefault();answer(form)})})
 }
 async function act(button){
   const matching=$$("[data-proposal-id]").filter(function(item){return item.dataset.proposalId===button.dataset.proposalId});matching.forEach(function(item){item.disabled=true});
   try{
-    const response=await fetch("/api/approvals",{method:"POST",headers:{"Content-Type":"application/json","X-Birkin-Token":BIRKIN_TOKEN},body:JSON.stringify({id:button.dataset.proposalId,action:button.dataset.action})});
+    const response=await fetch("/api/approvals",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({id:button.dataset.proposalId,action:button.dataset.action})});
     const payload=await response.json().catch(function(){return {}});
     if(!response.ok||payload.ok!==true)throw new Error(payload.error||String(response.status));
     $("#liveRegion").textContent="Proposal "+(button.dataset.action==="reject"?"rejected":"approved")+".";
     const loaded=await Promise.all([load("status","/api/status"),load("approvals","/api/approvals"),load("jobs","/api/jobs"),load("runs","/api/runs")]);if(loaded.some(Boolean))state.updated=new Date();render()
   }catch(error){state.errors.set("proposal action",error instanceof Error?error.message:"Request failed");matching.forEach(function(item){item.disabled=false});renderConnection();$("#liveRegion").textContent="The proposal action failed. No list data was discarded."}
+}
+async function answer(form){
+  const answers={};let invalid=false;
+  form.querySelectorAll("[data-question-id]").forEach(function(field){
+    const selected=Array.from(field.querySelectorAll("input:checked")).map(function(input){return input.value});
+    if(!selected.length&&field.dataset.required==="true"){invalid=true;return}
+    if(!selected.length)return;
+    answers[field.dataset.questionId]=field.dataset.multiple==="true"?selected:selected[0]
+  });
+  if(invalid){$("#liveRegion").textContent="Answer every required question.";return}
+  const controls=Array.from(form.querySelectorAll("button,input,textarea"));controls.forEach(function(control){control.disabled=true});
+  try{
+    const clarification=form.querySelector("[name=clarification]");
+    const response=await fetch("/api/approvals",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({id:form.dataset.actionForm,action:"answer",answers:answers,clarification:clarification?clarification.value:""})});
+    const payload=await response.json().catch(function(){return {}});
+    if(!response.ok||payload.event!=="action_resolved")throw new Error(payload.error||String(response.status));
+    form.outerHTML='<div class="action-outcome" data-action-outcome="'+esc(payload.id)+'">Resolved by '+esc(payload.resolved_by||"web:dashboard")+'</div>';
+    $("#liveRegion").textContent="Answer resolved.";
+    await load("status","/api/status")
+  }catch(error){controls.forEach(function(control){control.disabled=false});$("#liveRegion").textContent="Action failed: "+(error instanceof Error?error.message:"Unknown error")}
 }
 function render(){renderConnection();renderStatus();renderLists()}
 $$(".nav-tab").forEach(function(tab){

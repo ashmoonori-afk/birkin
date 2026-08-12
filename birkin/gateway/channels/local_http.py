@@ -54,8 +54,8 @@ class LocalHTTPChannel(Channel):
                 with socket.create_connection(
                     ("127.0.0.1", httpd.server_port),
                     timeout=1.0,
-                ):
-                    pass
+                ) as wake:
+                    wake.sendall(b"\r\n")
             except OSError:
                 pass
 
