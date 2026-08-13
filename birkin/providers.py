@@ -1,6 +1,6 @@
 """Provider registry for model-agnostic curation.
 
-Each provider is reduced to the single contract CurationPlan/1 needs:
+Each provider is reduced to the single contract CurationPlan/2 needs:
 
     complete(prompt: str) -> str
 
@@ -46,39 +46,6 @@ def _run(argv: list[str], stdin: str | None = None,
         return "", f"timed out after {timeout}s", -1
     except FileNotFoundError:
         return "", "command not found", 127
-
-
-# The CurationPlan/1 wire shape. Lives here because codex can enforce a
-# JSON schema natively; it is passed IN by the curation caller rather
-# than baked into the completer — a generic provider layer must not
-# impose one application's output format on every other caller.
-CURATION_PLAN_SCHEMA = {
-    "type": "object",
-    "required": ["plan_version", "ops", "summary"],
-    "properties": {
-        "plan_version": {"type": "integer", "const": 1},
-        "summary": {"type": "string"},
-        "ops": {"type": "array", "items": {
-            "type": "object",
-            "required": [
-                "op", "slug", "zone", "a", "b", "stale", "by",
-                "reason",
-            ],
-            "properties": {
-                "op": {"type": "string"},
-                "slug": {"type": ["string", "null"]},
-                "zone": {"type": ["string", "null"]},
-                "a": {"type": ["string", "null"]},
-                "b": {"type": ["string", "null"]},
-                "stale": {"type": ["string", "null"]},
-                "by": {"type": ["string", "null"]},
-                "reason": {"type": ["string", "null"]},
-            },
-            "additionalProperties": False,
-        }},
-    },
-    "additionalProperties": False,
-}
 
 
 def claude_completer(model: Optional[str] = None,

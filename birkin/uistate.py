@@ -118,6 +118,21 @@ def from_job(status: str) -> StateView:
     return _view(_JOB, str(status), "job")
 
 
+def from_cron(*, enabled: bool) -> StateView:
+    """Map a scheduled cron definition into the shared UI state."""
+    raw = "enabled" if enabled else "disabled"
+    state = "idle" if enabled else "paused"
+    return StateView(state, raw, "cron")
+
+
+def from_recent_run(record: dict[str, Any]) -> StateView:
+    """Map a persisted run, surfacing its only authoritative error signal."""
+    details = record.get("details")
+    error = details.get("error") if isinstance(details, dict) else None
+    state = "failed" if error else "completed"
+    return StateView(state, "error" if error else "completed", "recent_run")
+
+
 # -- durable subagent runs (agentruns._STATUSES) ----------------------------
 
 _AGENT_RUN: dict[str, str] = {

@@ -31,7 +31,7 @@ def _moved_files(before, after):
 
 
 def cmd_curate_memory(args) -> int:
-    from . import config, curation, providers, store
+    from . import config, curation, curation_schema, providers, store
     cfg = config.load_config()
     vault = config.vault_dir(cfg)
     provider = args.provider or (cfg.get("provider", "claude-cli")
@@ -40,7 +40,7 @@ def cmd_curate_memory(args) -> int:
     # codex enforces it natively, everyone else gets it via the prompt.
     completer = providers.get_completer(provider, model=args.model, cfg=cfg,
                                         cwd=str(vault),
-                                        schema=providers.CURATION_PLAN_SCHEMA)
+                                        schema=curation_schema.curation_plan_provider_schema())
     print(f"curate-memory: provider={provider} "
           f"model={args.model or '(default)'} vault={vault}")
     dry_run = bool(getattr(args, "dry_run", False))

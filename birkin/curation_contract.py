@@ -4,15 +4,17 @@ import re
 from dataclasses import dataclass, field
 from typing import Any
 
+from .curation_schema import load_curation_plan_schema
 
-PLAN_VERSION = 2
+_SCHEMA = load_curation_plan_schema()
+PLAN_VERSION = int(_SCHEMA["properties"]["plan_version"]["const"])
 # A v1 plan is still valid: the op set only grew, so an older prompt or a
 # stored plan keeps working rather than silently evaluating to no ops.
 SUPPORTED_PLAN_VERSIONS = {1, 2}
 ARCHIVE_CAP_FRACTION = 0.20
 ARCHIVE_CAP_MIN = 2
 PROTECT_TYPES = {"identity", "preference"}
-OPS = {"rezone", "link", "supersede", "archive", "annotate"}
+OPS = set(_SCHEMA["properties"]["ops"]["items"]["properties"]["op"]["enum"])
 
 # `annotate` (CurationPlan/2) lets the curator write retrieval anchors —
 # synonyms, likely phrasings, cross-language keywords — for a note it just

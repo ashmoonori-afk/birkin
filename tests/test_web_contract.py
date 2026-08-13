@@ -74,3 +74,49 @@ def test_page_ships_accessibility_affordances(srv):
     assert "prefers-reduced-motion" in html
     assert "focus-visible" in html
     assert "aria-live" in html          # authority responses are announced
+
+
+def test_jobs_and_runs_export_python_owned_ui_states(srv, monkeypatch):
+    monkeypatch.setattr(
+        web_server.cron,
+        "load_jobs",
+        lambda: [
+            {"id": "enabled", "name": "Morning brief", "enabled": True},
+            {"id": "disabled", "name": "Old brief", "enabled": False},
+        ],
+    )
+    monkeypatch.setattr(
+        web_server.store,
+        "list_runs",
+        lambda limit: [
+            {"id": "ok", "kind": "cron", "details": {}},
+            {"id": "bad", "kind": "cron",
+             "details": {"error": "provider failed"}},
+        ],
+    )
+
+    jobs_code, jobs_body = _request(srv, "GET", "/api/jobs")
+    runs_code, runs_body = _request(srv, "GET", "/api/runs")
+
+    assert jobs_code == 200
+    assert runs_code == 200
+    assert [item["ui_state"] for item in json.loads(jobs_body)["jobs"]] == [
+        "idle", "paused",
+    ]
+    assert [item["ui_state"] for item in json.loads(runs_body)] == [
+        "completed", "failed",
+    ]
+
+
+def test_page_ships_reviewed_interaction_contract(srv):
+    _, body = _request(srv, "GET", "/")
+    html = body.decode("utf-8")
+
+    assert 'id="queue-notice"' in html
+    assert 'id="lens-toggle"' in html
+    assert "requestConfirmation" in html
+    assert "expected-impact" in html
+    assert "rejection-result" in html
+    assert "related-evidence" in html
+    assert "buildQueue(approvals, jobs, runs)" in html
+    assert "selectedId = items[0].id" in html

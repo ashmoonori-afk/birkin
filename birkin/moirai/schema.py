@@ -30,7 +30,13 @@ class SchemaError(ValueError):
 
 # -- validation ------------------------------------------------------------
 
-def validate(value: Any, schema: dict, *, path: str = "$") -> None:
+def validate(
+    value: Any,
+    schema: dict,
+    *,
+    path: str = "$",
+    strict_contract: bool = False,
+) -> None:
     """Raise :class:`SchemaError` describing the first thing that does not fit."""
     if not isinstance(schema, dict):
         return
@@ -44,6 +50,9 @@ def validate(value: Any, schema: dict, *, path: str = "$") -> None:
         raise SchemaError(
             f"{path}: {value!r} 는 허용된 값이 아닙니다 "
             f"({', '.join(map(str, schema['enum']))})")
+    if strict_contract and "const" in schema and value != schema["const"]:
+        raise SchemaError(
+            f"{path}: {schema['const']!r} 이어야 합니다")
 
     if isinstance(value, str):
         limit = schema.get("maxLength")
@@ -62,15 +71,30 @@ def validate(value: Any, schema: dict, *, path: str = "$") -> None:
             if key not in value:
                 raise SchemaError(f"{path}: 필수 필드 {key!r} 가 없습니다")
         props = schema.get("properties") or {}
+        if strict_contract and schema.get("additionalProperties") is False:
+            extras = set(value) - set(props)
+            if extras:
+                key = min(extras)
+                raise SchemaError(f"{path}: 알 수 없는 필드 {key!r}")
         for key, sub in props.items():
             if key in value:
-                validate(value[key], sub, path=f"{path}.{key}")
+                validate(
+                    value[key],
+                    sub,
+                    path=f"{path}.{key}",
+                    strict_contract=strict_contract,
+                )
 
     if isinstance(value, list):
         item_schema = schema.get("items")
         if isinstance(item_schema, dict):
             for i, item in enumerate(value):
-                validate(item, item_schema, path=f"{path}[{i}]")
+                validate(
+                    item,
+                    item_schema,
+                    path=f"{path}[{i}]",
+                    strict_contract=strict_contract,
+                )
 
 
 def _type_ok(value: Any, expected: Any) -> bool:

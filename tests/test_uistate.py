@@ -121,6 +121,18 @@ def test_job_states():
     assert uistate.from_job("cancelled").raw == "cancelled"
 
 
+def test_scheduled_cron_state_uses_python_contract():
+    assert uistate.from_cron(enabled=True).state == "idle"
+    assert uistate.from_cron(enabled=False).state == "paused"
+
+
+def test_recent_run_state_surfaces_recorded_errors():
+    assert uistate.from_recent_run({"details": {}}).state == "completed"
+    assert uistate.from_recent_run(
+        {"details": {"error": "provider failed"}},
+    ).state == "failed"
+
+
 # -- mapping: agent runs (agentruns._STATUSES) ------------------------------
 
 def test_agent_run_states():

@@ -29,10 +29,10 @@ button { font: inherit; }
 .app {
   display: grid; min-height: 100vh;
   grid-template-rows: auto 1fr;
-  grid-template-areas: "pulse" "main";
+  min-width: 0; max-width: 100vw;
 }
 .pulse {
-  grid-area: pulse; display: flex; flex-wrap: wrap; gap: .35rem 1rem;
+  display: flex; flex-wrap: wrap; gap: .35rem 1rem;
   align-items: center; padding: .55rem .9rem;
   background: var(--surface-elevated);
   border-bottom: 1px solid var(--selection);
@@ -42,16 +42,30 @@ button { font: inherit; }
 .pulse .seg.alert { color: var(--waiting-human); font-weight: 600; }
 .pulse .seg.down { color: var(--failure); font-weight: 600; }
 
-.main { grid-area: main; display: grid; gap: 0; grid-template-areas: "ledger" "bench"; }
-.ledger { border-bottom: 1px solid var(--selection); }
+.main { display: grid; gap: 0; min-width: 0; max-width: 100vw; }
+.ledger { border-bottom: 1px solid var(--selection); min-width: 0; }
 .bench { padding: 1rem; min-width: 0; }
 .lens { display: none; padding: 1rem; border-left: 1px solid var(--selection); }
+.lens-toggle {
+  display: none; position: fixed; right: 1rem; bottom: 1rem; z-index: 3;
+  padding: .5rem .8rem; border: 1px solid var(--focus); border-radius: 8px;
+  background: var(--surface-elevated); color: var(--text-primary);
+}
 
 @media (min-width: 768px) {
   .main { grid-template-columns: 300px minmax(0,1fr); grid-template-areas: "ledger bench"; }
   .ledger { border-right: 1px solid var(--selection); border-bottom: none; }
   .ledger details { display: contents; }
   .ledger summary { display: none; }
+}
+@media (min-width: 1024px) and (max-width: 1439px) {
+  .lens-toggle { display: block; }
+  .lens.open {
+    display: block; position: fixed; inset: 3.2rem 0 0 auto; z-index: 2;
+    width: min(320px, 88vw); overflow: auto;
+    background: var(--surface-elevated);
+    box-shadow: -12px 0 28px rgb(0 0 0 / .32);
+  }
 }
 @media (min-width: 1440px) {
   .main { grid-template-columns: 320px minmax(0,1fr) 320px; grid-template-areas: "ledger bench lens"; }
@@ -66,6 +80,7 @@ button { font: inherit; }
 .queue li { margin: 0; }
 .queue button {
   display: flex; gap: .5rem; align-items: baseline; width: 100%;
+  min-width: 0;
   text-align: left; padding: .45rem .55rem; border: 0; border-radius: 6px;
   background: transparent; color: var(--text-primary); cursor: pointer;
 }
@@ -115,6 +130,7 @@ details.payload pre {
 .lens li, .activity li { padding: .18rem 0; color: var(--text-primary); }
 .lens .k { color: var(--text-muted); }
 .empty { color: var(--text-muted); padding: 1rem 0; }
+.queue-notice { padding: .7rem .9rem; color: var(--warning); }
 
 @media (prefers-reduced-motion: no-preference) {
   .queue button, .actions button { transition: background .15s ease, border-color .15s ease; }
@@ -126,7 +142,7 @@ details.payload pre {
 </head>
 <body>
 <div class="app">
-  <header class="pulse" aria-label="상태 맥박">
+  <header class="pulse">
     <span class="brand">birkin</span>
     <span class="seg" id="p-daemon">데몬 확인 중</span>
     <span class="seg alert" id="p-waiting" hidden></span>
@@ -141,13 +157,16 @@ details.payload pre {
     <nav class="ledger" aria-label="주의 대기열">
       <details open>
         <summary id="ledger-summary">주의 필요</summary>
-        <ul class="queue" id="queue" role="list"></ul>
+        <p class="queue-notice" id="queue-notice" role="status" hidden></p>
+        <ul class="queue" id="queue"></ul>
       </details>
     </nav>
     <main class="bench" id="bench" aria-label="작업면" tabindex="-1">
       <p class="empty">항목을 선택하면 상세가 표시됩니다.</p>
     </main>
-    <aside class="lens" aria-label="맥락 렌즈">
+    <button class="lens-toggle" id="lens-toggle" type="button"
+            aria-controls="lens" aria-expanded="false">맥락 보기</button>
+    <aside class="lens" id="lens" aria-label="맥락 렌즈">
       <h3>실행 환경</h3>
       <ul id="lens-env"></ul>
       <h3>예약된 잡</h3>
@@ -166,6 +185,7 @@ let enc = null;                 // state encoding from /api/contract
 let items = [];                 // attention queue
 let selectedId = null;
 let busy = false;
+let queueNotice = "";
 
 const $ = (id) => document.getElementById(id);
 
@@ -186,6 +206,15 @@ function esc(s) {
     (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 }
 
+function contextValue(rec, names, fallback) {
+  const payload = rec.payload || {};
+  for (const name of names) {
+    if (rec[name] != null && rec[name] !== "") return rec[name];
+    if (payload[name] != null && payload[name] !== "") return payload[name];
+  }
+  return fallback;
+}
+
 async function loadContract() {
   const c = await getJSON("/api/contract");
   enc = c.uistate["x-birkin-encoding"];
@@ -195,14 +224,41 @@ async function loadContract() {
   }
 }
 
-function buildQueue(approvals) {
+function buildQueue(approvals, jobsData, runs) {
   const out = [];
   for (const rec of approvals) {
     out.push({ kind: "approval", id: rec.id, title: rec.title || rec.category,
                state: rec.ui_state || stateByAttention(3), rec });
   }
+  const jobs = (jobsData && jobsData.jobs) || [];
+  for (const job of jobs) {
+    out.push({ kind: "cron", id: "job:" + (job.id || job.name),
+               title: job.name || "예약 작업", state: job.ui_state,
+               rec: { title: job.name || "예약 작업", origin: "scheduler",
+                      category: "cron", description: job.schedule?.display || job.next_run || "",
+                      target: job.name, expected_impact: "예약된 시각에 작업을 시작합니다.",
+                      rejection_result: "이 화면에서는 예약을 변경하지 않습니다.",
+                      evidence: job.last_run || "실행 기록 없음", risk: 0,
+                      created: job.created || "", payload: job } });
+  }
+  for (const run of runs || []) {
+    const runId = run.id || run.created || String(out.length);
+    const error = (run.details || {}).error || "";
+    out.push({ kind: "run", id: "run:" + runId,
+               title: run.title || run.kind || "최근 활동", state: run.ui_state,
+               rec: { title: run.title || run.kind || "최근 활동",
+                      origin: run.kind || "runtime", category: "recent_run",
+                      description: error || run.status || "완료된 실행",
+                      target: runId, expected_impact: "이미 기록된 실행 결과입니다.",
+                      rejection_result: "읽기 전용 기록에는 적용되지 않습니다.",
+                      evidence: error || "실행 기록", risk: error ? 2 : 0,
+                      created: run.created || "", payload: run } });
+  }
   out.sort((a, b) => encOf(a.state).attention - encOf(b.state).attention);
-  return out;
+  const urgent = out.filter((item) => encOf(item.state).attention < 7);
+  const scheduled = out.filter((item) => encOf(item.state).attention === 7).slice(0, 4);
+  const recent = out.filter((item) => encOf(item.state).attention === 8).slice(0, 4);
+  return urgent.concat(scheduled, recent);
 }
 
 function renderQueue() {
@@ -210,6 +266,9 @@ function renderQueue() {
   list.innerHTML = "";
   const waiting = items.filter((it) => encOf(it.state).attention === 0).length;
   $("ledger-summary").textContent = "주의 필요 — 대기 " + waiting;
+  const notice = $("queue-notice");
+  notice.hidden = !queueNotice;
+  notice.textContent = queueNotice;
   const w = $("p-waiting");
   w.hidden = waiting === 0;
   w.textContent = encOf(stateByAttention(0)).glyph + " 대기 " + waiting;
@@ -247,6 +306,14 @@ function renderBench() {
   const e = encOf(it.state);
   const canAct = e.attention === 0;
   const riskClass = rec.risk >= 3 ? "risk-high" : rec.risk >= 2 ? "risk-mid" : "";
+  const target = contextValue(
+    rec, ["target", "path", "command", "name"], rec.category || "요청 대상");
+  const expectedImpact = contextValue(
+    rec, ["expected_impact", "impact"], rec.description || "변경 내용은 payload를 확인하세요.");
+  const rejectionResult = contextValue(
+    rec, ["rejection_result"], "동작은 실행되지 않고 거부 기록만 남습니다.");
+  const relatedEvidence = contextValue(
+    rec, ["evidence", "evidence_path", "source"], "연결된 근거 없음");
   const payload = rec.payload && Object.keys(rec.payload).length
     ? "<details class=\"payload\"><summary>요청 payload 보기 (" +
       Object.keys(rec.payload).length + "개 항목)</summary><pre>" +
@@ -259,8 +326,15 @@ function renderBench() {
     esc(e.label) + "</span> " + esc(rec.title || "") + "</h2>" +
     '<dl class="meta">' +
     "<dt>요청 주체</dt><dd>" + esc(rec.origin || "?") + "</dd>" +
-    "<dt>유형</dt><dd>" + esc(rec.category || "?") + "</dd>" +
-    "<dt>동작</dt><dd>" + esc(rec.description || "") + "</dd>" +
+     "<dt>유형</dt><dd>" + esc(rec.category || "?") + "</dd>" +
+     '<dt id="target">대상</dt><dd aria-labelledby="target">' + esc(target) + "</dd>" +
+     "<dt>동작</dt><dd>" + esc(rec.description || "") + "</dd>" +
+     '<dt id="expected-impact">예상 영향</dt><dd aria-labelledby="expected-impact">' +
+       esc(expectedImpact) + "</dd>" +
+     '<dt id="rejection-result">거부 결과</dt><dd aria-labelledby="rejection-result">' +
+       esc(rejectionResult) + "</dd>" +
+     '<dt id="related-evidence">관련 근거</dt><dd aria-labelledby="related-evidence">' +
+       esc(relatedEvidence) + "</dd>" +
     '<dt>위험도</dt><dd class="' + riskClass + '">' + esc(rec.risk ?? "?") + "</dd>" +
     "<dt>만료</dt><dd>" + esc(rec.expires_at || "없음") + "</dd>" +
     "<dt>생성</dt><dd>" + esc(rec.created || "") + "</dd>" +
@@ -275,8 +349,15 @@ function renderBench() {
       : "") +
     '<div id="announce" role="status" aria-live="polite"></div>';
   if (canAct) {
-    $("btn-approve").addEventListener("click", () => resolve(rec.id, "approve"));
-    $("btn-reject").addEventListener("click", () => resolve(rec.id, "reject"));
+    $("btn-approve").addEventListener("click", () => requestConfirmation(rec.id, "approve"));
+    $("btn-reject").addEventListener("click", () => requestConfirmation(rec.id, "reject"));
+  }
+}
+
+function requestConfirmation(id, action) {
+  const label = action === "approve" ? "승인" : "거부";
+  if (window.confirm(label + " 요청을 Python authority에 보내시겠습니까?")) {
+    resolve(id, action);
   }
 }
 
@@ -347,13 +428,12 @@ async function refresh() {
     const [status, jobs, runs] = await Promise.all([
       getJSON("/api/status"), getJSON("/api/jobs"), getJSON("/api/runs")]);
     let approvals = [];
+    queueNotice = "";
     try {
       approvals = await getJSON("/api/approvals");
     } catch (err) {
       if (err.status === 403) {
-        $("bench").innerHTML =
-          '<p class="empty">승인 목록은 보안 토큰이 필요합니다 — ' +
-          "<code>birkin web</code>이 출력한 주소로 접속하세요.</p>";
+        queueNotice = "승인 목록은 보안 토큰이 필요합니다 — birkin web이 출력한 주소로 접속하세요.";
       } else { throw err; }
     }
     setDisconnected(false);
@@ -361,7 +441,12 @@ async function refresh() {
     $("p-daemon").className = status.daemon ? "seg" : "seg down";
     $("p-model").textContent = status.model || "";
     $("p-version").textContent = status.version ? "v" + status.version : "";
-    items = buildQueue(approvals);
+    items = buildQueue(approvals, jobs, runs);
+    if (items.length && !items.some((item) => item.id === selectedId)) {
+      selectedId = items[0].id;
+    } else if (!items.length) {
+      selectedId = null;
+    }
     renderQueue();
     renderBench();
     renderLens(status, jobs, runs);
@@ -384,6 +469,13 @@ document.addEventListener("keydown", (ev) => {
     if (btn) btn.focus();
     ev.preventDefault();
   }
+});
+
+$("lens-toggle").addEventListener("click", () => {
+  const lens = $("lens");
+  const open = lens.classList.toggle("open");
+  $("lens-toggle").setAttribute("aria-expanded", String(open));
+  $("lens-toggle").textContent = open ? "맥락 닫기" : "맥락 보기";
 });
 
 (async function boot() {

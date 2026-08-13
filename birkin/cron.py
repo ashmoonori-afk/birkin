@@ -22,12 +22,27 @@ untouched, so an existing ``cron.json`` neither double-fires nor goes silent.
 
 from __future__ import annotations
 
+import json
 import re
 import uuid
 from datetime import date, datetime, timedelta
 from typing import Any, Optional
 
 from . import config, cronexpr, monitor, store
+
+CRON_SCHEMA_VERSION = 1
+_ACTION_TYPES = {"prompt", "shell", "monitor"}
+_SCHEDULE_KINDS = {"daily", "interval", "once", "cron"}
+_COMMON_JOB_FIELDS = {
+    "schema_version", "id", "name", "hour", "minute", "type", "value",
+    "enabled", "deliver_chat_id", "created", "last_run", "schedule",
+    "next_run",
+}
+_MONITOR_FIELDS = {"monitor_url", "monitor_script", "max_bytes"}
+
+
+class CronFormatError(ValueError):
+    """Persisted cron data does not match the supported record contract."""
 
 # The scheduler polls every 30s, so anything under a minute cannot be honored.
 _MIN_INTERVAL_MINUTES = 1
@@ -227,6 +242,8 @@ def compute_next_run(schedule: dict[str, Any],
         nxt = _cron_next(str(schedule.get("expr", "")), last or now)
         return nxt.isoformat(timespec="seconds") if nxt else None
 
+    if kind != "daily":
+        raise CronFormatError(f"$.schedule.kind: unsupported value {kind!r}")
     # daily
     hour = int(schedule.get("hour", 9))
     minute = int(schedule.get("minute", 0))
@@ -247,12 +264,214 @@ def schedule_display(job: dict[str, Any]) -> str:
 
 # -- storage ---------------------------------------------------------------
 
+def _read_jobs() -> list[dict[str, Any]]:
+    path = config.cron_path()
+    if not path.is_file():
+        return []
+    try:
+        raw = json.loads(path.read_text(encoding="utf-8"))
+    except (json.JSONDecodeError, OSError) as exc:
+        # Fail loud but non-fatal: reading cron.json must never brick the CLI
+        # or kill the scheduler daemon (its poll loop has no handler).
+        print(f"[birkin] warning: {path.name}: invalid JSON ({exc}); ignoring")
+        return []
+    if not isinstance(raw, list):
+        print(f"[birkin] warning: {path.name}:$ expected an array; ignoring")
+        return []
+    kept = [item for item in raw if isinstance(item, dict)]
+    if len(kept) != len(raw):
+        print(f"[birkin] warning: {path.name}:$ skipped non-object entries")
+    return kept
+
+
+def _validate_schedule(schedule: Any, path: str) -> dict[str, Any]:
+    if not isinstance(schedule, dict):
+        raise CronFormatError(f"{path}: expected an object")
+    kind = schedule.get("kind")
+    if kind not in _SCHEDULE_KINDS:
+        raise CronFormatError(f"{path}.kind: unsupported value {kind!r}")
+    allowed = {
+        "daily": {"kind", "display", "hour", "minute"},
+        "interval": {"kind", "display", "minutes"},
+        "once": {"kind", "display", "run_at"},
+        "cron": {"kind", "display", "expr"},
+    }[kind]
+    extras = set(schedule) - allowed
+    if extras:
+        raise CronFormatError(f"{path}: unknown field {min(extras)!r}")
+    if not isinstance(schedule.get("display"), str):
+        raise CronFormatError(f"{path}.display: expected a string")
+    if kind == "daily":
+        hour, minute = schedule.get("hour"), schedule.get("minute")
+        if (not isinstance(hour, int) or isinstance(hour, bool)
+                or not 0 <= hour <= 23):
+            raise CronFormatError(f"{path}.hour: expected 0..23")
+        if (not isinstance(minute, int) or isinstance(minute, bool)
+                or not 0 <= minute <= 59):
+            raise CronFormatError(f"{path}.minute: expected 0..59")
+    elif kind == "interval":
+        minutes = schedule.get("minutes")
+        if (not isinstance(minutes, int) or isinstance(minutes, bool)
+                or minutes < _MIN_INTERVAL_MINUTES):
+            raise CronFormatError(f"{path}.minutes: expected a positive integer")
+    elif kind == "once" and _parse_dt(schedule.get("run_at")) is None:
+        raise CronFormatError(f"{path}.run_at: expected an ISO datetime")
+    elif kind == "cron":
+        if cronexpr.normalize(str(schedule.get("expr", ""))) is None:
+            raise CronFormatError(f"{path}.expr: invalid cron expression")
+    return dict(schedule)
+
+
+def _validate_job(
+    job: dict[str, Any],
+    index: int,
+    *,
+    strict: bool = True,
+) -> dict[str, Any]:
+    """Validate one record. ``strict`` writers reject unknown fields; the
+    reader drops them so a hand-edited file still loads."""
+    path = f"cron.json:$[{index}]"
+    if job.get("schema_version") != CRON_SCHEMA_VERSION:
+        raise CronFormatError(f"{path}.schema_version: unsupported value")
+    for key in ("id", "name", "type", "created"):
+        if not isinstance(job.get(key), str) or not job[key]:
+            raise CronFormatError(f"{path}.{key}: expected a non-empty string")
+    # `value` carries the prompt/shell payload, but a monitor job keeps its
+    # payload in monitor_url/monitor_script and add_job() defaults value to "".
+    if not isinstance(job.get("value"), str):
+        raise CronFormatError(f"{path}.value: expected a string")
+    if job["type"] not in _ACTION_TYPES:
+        raise CronFormatError(f"{path}.type: unsupported action {job['type']!r}")
+    if not isinstance(job.get("enabled"), bool):
+        raise CronFormatError(f"{path}.enabled: expected a boolean")
+    for key in ("hour", "minute"):
+        value = job.get(key)
+        upper = 23 if key == "hour" else 59
+        if (not isinstance(value, int) or isinstance(value, bool)
+                or not 0 <= value <= upper):
+            raise CronFormatError(f"{path}.{key}: expected 0..{upper}")
+    if (job.get("deliver_chat_id") is not None
+            and not isinstance(job["deliver_chat_id"], str)):
+        raise CronFormatError(
+            f"{path}.deliver_chat_id: expected a string or null"
+        )
+    allowed_fields = set(_COMMON_JOB_FIELDS)
+    if job["type"] == "monitor":
+        allowed_fields |= _MONITOR_FIELDS
+        for key in ("monitor_url", "monitor_script"):
+            if job.get(key) is not None and not isinstance(job[key], str):
+                raise CronFormatError(
+                    f"{path}.{key}: expected a string or null"
+                )
+        url = job.get("monitor_url")
+        script = job.get("monitor_script")
+        if bool(url) == bool(script):
+            raise CronFormatError(
+                f"{path}: monitor requires exactly one source"
+            )
+        max_bytes = job.get("max_bytes")
+        if (not isinstance(max_bytes, int) or isinstance(max_bytes, bool)
+                or not 1 <= max_bytes <= monitor.MAX_BYTES):
+            raise CronFormatError(
+                f"{path}.max_bytes: expected 1..{monitor.MAX_BYTES}"
+            )
+    extras = set(job) - allowed_fields
+    if extras:
+        if strict:
+            raise CronFormatError(f"{path}: unknown field {min(extras)!r}")
+        print(f"[birkin] warning: {path}: dropping unknown field "
+              f"{min(extras)!r}")
+        job = {k: v for k, v in job.items() if k not in extras}
+    schedule = _validate_schedule(job.get("schedule"), f"{path}.schedule")
+    if _parse_dt(job.get("created")) is None:
+        raise CronFormatError(f"{path}.created: expected an ISO datetime")
+    if job.get("last_run") is not None and _parse_dt(job["last_run"]) is None:
+        raise CronFormatError(f"{path}.last_run: expected an ISO datetime or null")
+    if job.get("next_run") is not None and _parse_dt(job["next_run"]) is None:
+        raise CronFormatError(f"{path}.next_run: expected an ISO datetime or null")
+    if schedule["kind"] == "daily":
+        if (job.get("hour"), job.get("minute")) != (
+            schedule["hour"], schedule["minute"],
+        ):
+            raise CronFormatError(f"{path}.schedule: daily clock mismatch")
+    return dict(job)
+
+
+def _migrate_job(job: dict[str, Any], index: int) -> tuple[dict[str, Any], bool]:
+    """Read path only: never strict, so hand-added keys do not fail the load."""
+    if "schema_version" in job:
+        return _validate_job(job, index, strict=False), False
+    migrated = dict(job)
+    migrated["schema_version"] = CRON_SCHEMA_VERSION
+    migrated.setdefault("enabled", True)
+    migrated.setdefault("deliver_chat_id", None)
+    migrated.setdefault("last_run", None)
+    if not isinstance(migrated.get("schedule"), dict):
+        hour, minute = int(migrated.get("hour", 0)), int(migrated.get("minute", 0))
+        migrated["schedule"] = {
+            "kind": "daily",
+            "hour": hour,
+            "minute": minute,
+            "display": f"{hour:02d}:{minute:02d}",
+        }
+    schedule = _validate_schedule(migrated["schedule"], f"cron.json:$[{index}].schedule")
+    migrated["schedule"] = schedule
+    if "next_run" not in migrated:
+        migrated["next_run"] = compute_next_run(
+            schedule,
+            last=_parse_dt(migrated.get("last_run"))
+            or _parse_dt(migrated.get("created")),
+        )
+    return _validate_job(migrated, index, strict=False), True
+
+
+def _parse_jobs(
+    jobs: list[dict[str, Any]],
+) -> tuple[list[dict[str, Any]], bool]:
+    migrated = False
+    skipped = False
+    validated: list[dict[str, Any]] = []
+    ids: set[str] = set()
+    for index, job in enumerate(jobs):
+        try:
+            parsed, changed = _migrate_job(job, index)
+        except CronFormatError as exc:
+            # Quarantine the record instead of failing the whole file: one bad
+            # entry must not take down the CLI, the daemon, or the WebUI.
+            print(f"[birkin] warning: skipping cron record ({exc})")
+            skipped = True
+            continue
+        if parsed["id"] in ids:
+            print(f"[birkin] warning: skipping cron record "
+                  f"(cron.json:$[{index}].id: duplicate id {parsed['id']!r})")
+            skipped = True
+            continue
+        ids.add(parsed["id"])
+        validated.append(parsed)
+        migrated = migrated or changed
+    # Never rewrite a file we could not fully read: persisting the migration
+    # would drop the quarantined records for good.
+    return validated, migrated and not skipped
+
+
+def _load_jobs_unlocked(*, persist_migration: bool) -> list[dict[str, Any]]:
+    validated, migrated = _parse_jobs(_read_jobs())
+    if migrated and persist_migration:
+        store._write_json(config.cron_path(), validated)
+    return validated
+
+
 def load_jobs() -> list[dict[str, Any]]:
-    return store._read_json(config.cron_path(), [])
+    jobs, migrated = _parse_jobs(_read_jobs())
+    if migrated:
+        with store.file_lock(config.cron_path()):
+            return _load_jobs_unlocked(persist_migration=True)
+    return jobs
 
 
 def save_jobs(jobs: list[dict[str, Any]]) -> None:
-    store._write_json(config.cron_path(), jobs)
+    validated = [_validate_job(job, index) for index, job in enumerate(jobs)]
+    store._write_json(config.cron_path(), validated)
 
 
 def add_job(*, name: str, hour: int = 9, minute: int = 0,
@@ -280,8 +499,16 @@ def add_job(*, name: str, hour: int = 9, minute: int = 0,
             raise ValueError(f"unrecognized schedule: {schedule!r}")
     if parsed is not None and parsed.get("kind") == "daily":
         hour, minute = parsed["hour"], parsed["minute"]
+    if parsed is None:
+        parsed = {
+            "kind": "daily",
+            "hour": int(hour),
+            "minute": int(minute),
+            "display": f"{int(hour):02d}:{int(minute):02d}",
+        }
 
-    job = {
+    job: dict[str, Any] = {
+        "schema_version": CRON_SCHEMA_VERSION,
         "id": uuid.uuid4().hex[:12],
         "name": name,
         "hour": int(hour),
@@ -299,16 +526,16 @@ def add_job(*, name: str, hour: int = 9, minute: int = 0,
         job["monitor_url"] = monitor_url
         job["monitor_script"] = monitor_script
         job["max_bytes"] = monitor.clamp_max_bytes(max_bytes)
-    if parsed is not None:
-        job["schedule"] = parsed
-        job["next_run"] = compute_next_run(parsed)
-        if job["next_run"] is None:
-            raise ValueError(f"schedule never fires: {parsed.get('display')}")
+    job["schedule"] = parsed
+    job["next_run"] = compute_next_run(parsed)
+    if job["next_run"] is None:
+        raise ValueError(f"schedule never fires: {parsed.get('display')}")
+    _validate_job(job, 0)
     # cron.json is mutated by two processes (gateway /remind + scheduler
     # daemon mark_ran) — lock the whole read-modify-write so neither clobbers
     # the other's change (e.g. a mark_ran landing on a pre-delete snapshot).
     with store.file_lock(config.cron_path()):
-        jobs = load_jobs()
+        jobs = _load_jobs_unlocked(persist_migration=True)
         jobs.append(job)
         save_jobs(jobs)
     return job
@@ -316,7 +543,7 @@ def add_job(*, name: str, hour: int = 9, minute: int = 0,
 
 def remove_job(job_id: str) -> bool:
     with store.file_lock(config.cron_path()):
-        jobs = load_jobs()
+        jobs = _load_jobs_unlocked(persist_migration=True)
         new = [j for j in jobs if j.get("id") != job_id]
         if len(new) == len(jobs):
             return False
@@ -329,17 +556,18 @@ def mark_ran(job_id: str) -> None:
     with store.file_lock(config.cron_path()):
         jobs = [
             {**j, "last_run": now} if j.get("id") == job_id else j
-            for j in load_jobs()
+            for j in _load_jobs_unlocked(persist_migration=True)
         ]
         save_jobs(jobs)
 
 
-def claim_if_due(job_id: str, now: datetime | None = None) -> bool:
+def claim_if_due(
+    job_id: str,
+    now: datetime | None = None,
+) -> dict[str, Any] | None:
     """Atomically claim ``job_id`` for this caller, under the cron lock.
 
-    Returns True only for the caller that won the claim — so two daemons
-    reading the same due job can't both run it. The caller runs the job only
-    when this returns True.
+    Return the exact persisted snapshot claimed by this caller, or ``None``.
 
     Scheduled jobs advance ``next_run`` *before* the job executes and one-shots
     are deleted at claim time, which is what makes the claim at-most-once. A
@@ -351,30 +579,31 @@ def claim_if_due(job_id: str, now: datetime | None = None) -> bool:
     today = date.today().isoformat()
     try:
         with store.file_lock(config.cron_path()):
-            jobs = load_jobs()
+            jobs = _load_jobs_unlocked(persist_migration=True)
             job = next((j for j in jobs if j.get("id") == job_id), None)
             if job is None:
-                return False
+                return None
+            claimed = dict(job)
             schedule = job.get("schedule")
 
             if not isinstance(schedule, dict):      # legacy daily record
                 if (job.get("last_run") or "")[:10] == today:
-                    return False
+                    return None
                 job["last_run"] = stamp
                 save_jobs(jobs)
-                return True
+                return claimed
 
             if not _schedule_due(job, now):
-                return False
+                return None
             if schedule.get("kind") == "once":
                 save_jobs([j for j in jobs if j.get("id") != job_id])
-                return True
+                return claimed
             job["last_run"] = stamp
             job["next_run"] = compute_next_run(schedule, last=now, now=now)
             save_jobs(jobs)
-            return True
+            return claimed
     except store.FileLockTimeout:
-        return False
+        return None
 
 
 def _parse_dt(value: Any) -> Optional[datetime]:
@@ -388,6 +617,12 @@ def _schedule_due(job: dict[str, Any], now: datetime) -> bool:
     schedule = job.get("schedule")
     if not isinstance(schedule, dict):
         return False
+    if schedule.get("kind") == "daily":
+        # One run per calendar day, then fall through to the armed next_run:
+        # comparing only (hour, minute) ignores the date, so a job created
+        # after today's clock time fired immediately instead of tomorrow.
+        if (job.get("last_run") or "")[:10] == date.today().isoformat():
+            return False
     next_run = job.get("next_run")
     if not next_run:      # hand-edited, or written by an older birkin
         # Recover from the job's own history, NOT from now: anchoring on now
@@ -406,22 +641,10 @@ def _schedule_due(job: dict[str, Any], now: datetime) -> bool:
 def due_jobs(now: datetime | None = None) -> list[dict[str, Any]]:
     """Jobs that are enabled and whose schedule has come round."""
     now = now or datetime.now()
-    # `date.today()` (local real today) intentionally matches mark_ran(), which
-    # stamps last_run with datetime.now(); the scheduler always passes a local
-    # `now`, so now.date() == today in production.
-    today = date.today().isoformat()
     out = []
     for j in load_jobs():
         if not j.get("enabled", True):
             continue
-        if isinstance(j.get("schedule"), dict):
-            if _schedule_due(j, now):
-                out.append(j)
-            continue
-        # Legacy daily record — original behavior, deliberately untouched.
-        last = (j.get("last_run") or "")[:10]
-        if last == today:
-            continue
-        if (now.hour, now.minute) >= (int(j.get("hour", 0)), int(j.get("minute", 0))):
+        if _schedule_due(j, now):
             out.append(j)
     return out
