@@ -616,7 +616,9 @@ Moirai workflow는 최상위 `m.request_answers(step_id=...)` checkpoint에서
 중단할 수 있습니다. 이 대기는 action을 원본 run, `main` worker, 명시적 step,
 정확한 question digest, 인증된 actor/capability 종류, 만료 시각, 무작위 resume
 token, input schema version, 이전 상태 digest에 묶습니다. Birkin은 재개를
-시작하기 전에 immutable accepted-answer event 하나를 먼저 commit합니다.
+시작하기 전에 accepted-answer event 하나를 먼저 commit하고 다시 고쳐 쓰지
+않습니다. 이 기록은 구조상 삽입 전용일 뿐 암호학적 위변조 증거는 아닙니다.
+journal 파일에 쓸 수 있는 주체는 이미 신뢰 경계 안입니다.
 
 재개는 child run에서 수행되는 정확한 **논리적 checkpoint replay**입니다.
 Birkin은 script와 이전 상태 digest를 검증하고 저장된 args와 binding을 복원하며,

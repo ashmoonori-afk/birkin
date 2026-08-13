@@ -631,7 +631,9 @@ Moirai workflows can stop at a top-level `m.request_answers(step_id=...)`
 checkpoint. The wait binds the action to the source run, `main` worker, explicit
 step, exact question digest, authenticated actor/capability class, expiry,
 random resume token, input schema version, and prior-state digest. Birkin
-commits one immutable accepted-answer event before it starts a resume.
+commits one accepted-answer event, which it never rewrites, before it starts a
+resume. That record is insert-only by construction, not cryptographically
+tamper-evident: write access to the journal file is inside the trust boundary.
 
 Resume is an exact **logical checkpoint replay** in a child run: Birkin verifies
 the script and prior-state digests, restores the stored args and bindings,
