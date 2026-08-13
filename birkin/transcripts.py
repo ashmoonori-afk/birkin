@@ -149,7 +149,7 @@ def append_turn(channel: str, chat_id: str, user_text: str, reply_text: str,
     empty, or anything goes wrong (auditing must never break a chat turn).
     """
     cfg = cfg or config.load_config()
-    if not cfg.get("autosave_transcripts", True):
+    if not cfg.get("autosave_transcripts", False):
         return None
     if not (user_text or "").strip():
         return None

@@ -41,7 +41,7 @@ class SkillManager:
         self._sig = self._signature()
         self._revision += 1
 
-    def _signature(self) -> tuple:
+    def _signature(self) -> tuple[tuple[str, float], ...]:
         """Cheap fingerprint (paths + mtimes, no file reads) for hot-reload."""
         items: list[tuple[str, float]] = []
         for base, _src in self._dirs:
@@ -306,6 +306,12 @@ def apply_skill_proposal(payload: dict[str, Any]) -> str:
     """Carry out an approved skill change (create / improve). Returns a human
     summary. Used by ``approvals.execute_action(category="skill")``."""
     action = (payload or {}).get("action")
+    from ..persistence_safety import unsafe_persistence_reason
+    unsafe = unsafe_persistence_reason(
+        payload.get("name"), payload.get("description"),
+        payload.get("body"), payload.get("addition"))
+    if unsafe:
+        raise SkillProposalError(unsafe)
     if action == "create":
         name = payload.get("name", "").strip()
         desc = payload.get("description", "").strip()

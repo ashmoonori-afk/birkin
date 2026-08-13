@@ -28,7 +28,7 @@ from datetime import date, datetime, timezone
 from pathlib import Path
 from typing import Any
 
-from . import config, transcripts
+from . import config, store, transcripts
 from .mnemosyne import (ARCHIVE_ZONE, IDENTITY_ZONE, TYPE_ZONE, Mnemosyne,
                         _entry_expired, tokenize)
 from .mnemosyne import atomic_write as _atomic_write
@@ -168,7 +168,9 @@ class VaultMemory:
         # and so the file is never half-written under a reader. Path resolution
         # happens INSIDE the lock: rezone() takes the same lock, so a move can't
         # slip between resolve and write (stale path -> duplicate note).
-        with _note_lock(_slug(title)):
+        note_slug = _slug(title)
+        process_lock = self.vault / f".birkin-note-{note_slug}"
+        with _note_lock(note_slug), store.file_lock(process_lock):
             p = self._resolve_path(title, requested_type or "topic", zone)
             created = date.today().isoformat()
             sources: list[str] = []
@@ -665,7 +667,7 @@ def _snippet(text: str, terms: list[str] | str, width: int = 240) -> str:
         return text.strip()[:width]
     hits.sort()
     from collections import Counter
-    inwin: Counter = Counter()
+    inwin: Counter[str] = Counter()
     best_start, best_end, best_distinct = hits[0][0], hits[0][0] + len(hits[0][1]), 1
     j = 0
     for i, (pos, term) in enumerate(hits):
