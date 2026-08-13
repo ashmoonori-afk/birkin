@@ -333,16 +333,23 @@ def test_subagent_tool_delegates(monkeypatch, tmp_path):
     from birkin import subagent as subagent_mod
     seen = {}
 
-    def fake_run(task, ctx, skill_names=None, max_turns=12, detach=False):
+    def fake_run(task, ctx, skill_names=None, max_turns=12, detach=False,
+                 reserve_tokens=0, reserve_usd=0.0):
         seen["detach"] = detach
+        seen["reserve"] = (reserve_tokens, reserve_usd)
         return f"sub-reply:{task[:20]}"
 
     monkeypatch.setattr(subagent_mod, "run_subagent", fake_run)
     ctx = _ctx(tmp_path)
     fn = next(t for t in st_mod.subagent_tools() if t.name == "spawn_subagent").fn
-    res = fn({"task": "investigate xyz"}, ctx)
+    res = fn({
+        "task": "investigate xyz",
+        "reserve_tokens": 200,
+        "reserve_usd": 0.25,
+    }, ctx)
     assert not res.is_error and res.content.startswith("sub-reply:")
     assert seen["detach"] is False
+    assert seen["reserve"] == (200, 0.25)
 
     assert not fn({"task": "investigate xyz", "detach": True}, ctx).is_error
     assert seen["detach"] is True
