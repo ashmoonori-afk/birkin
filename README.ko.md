@@ -436,65 +436,62 @@ input, 작업 디렉터리, gate, digest에 묶이며, 승인은 권한 상승 �
 설정은 `~/.birkin/config.json` 또는 `BIRKIN_HOME` 아래에 있습니다. 다음은
 `birkin/config.py`의 실제 기본값을 사용한 대표 설정입니다.
 
-<!-- config-schema:start -->
 ```json
 {
   "provider": "codex-cli",
   "model": "default",
   "subagent_model": "default",
-  "base_url": "",
-  "cli_command": [],
   "api_key": null,
+  "api_keys": [],
   "max_tokens": 4096,
   "temperature": 1.0,
   "max_turns": 24,
-  "auto_compact": true,
+  "cli_network_access": false,
+  "egress": {
+    "enabled": true,
+    "enforced": true,
+    "max_bytes": 1048576,
+    "destinations": {
+      "trusted-api": {
+        "url": "https://api.example.com/submissions",
+        "method": "POST",
+        "automatic": true,
+        "content_types": ["application/json"],
+        "max_bytes": 1048576,
+        "auth_env": "EXAMPLE_SUBMIT_TOKEN"
+      }
+    }
+  },
   "context_window": 200000,
+  "auto_compact": true,
   "fallback_provider": "",
   "fallback_model": "",
-  "fallback_base_url": "",
   "fallback_cooldown": 300,
-  "api_keys": [],
-  "a2a_enabled": false,
-  "lsp_servers": {},
-  "spill_threshold": 30000,
-  "spill_dir": "",
-  "spill_retention_days": 7,
-  "redact_secrets": true,
-  "repl_typed_line": "steer",
-  "moirai_auto": false,
-  "moirai_workers": 4,
-  "moirai_max_agents": 100,
-  "moirai_roles": {},
-  "moirai_token_budget": 0,
-  "marginalia_api_key": "",
   "parallel_tools": true,
-  "parallel_tool_workers": 8,
-  "shell_approval": "manual",
-  "checkpoints": true,
-  "hooks": {},
-  "hooks_auto_accept": false,
-  "skills_guard_agent_created": false,
-  "checkpoint_keep": 20,
-  "command_allowlist": [],
-  "approval_model": "",
   "max_depth": 2,
-  "extra_skill_dirs": [],
+  "shell_approval": "manual",
+  "command_allowlist": [],
+  "fs_jail": false,
+  "checkpoints": true,
+  "checkpoint_keep": 20,
+  "redact_secrets": true,
+  "spill_threshold": 30000,
   "disabled_tools": [],
   "desktop_tools": false,
   "self_improve": true,
-  "skill_nudge_interval": 3,
-  "memory_nudge_interval": 6,
+  "a2a_enabled": false,
+  "lsp_servers": {},
+  "harness_enabled": true,
+  "harness_turn_interval": 12,
+  "harness_cooldown_min": 15,
+  "harness_compact_review": true,
+  "harness_max_edits": 12,
+  "harness_prompt_budget": 20000,
+  "harness_auto_approve": ["memory", "skill"],
   "web_port": 8787,
   "gateway_port": 8788,
-  "gateway_model": "",
-  "gateway_reasoning_effort": "",
-  "gateway_persistent": true,
-  "gateway_allowed_tools": [],
-  "repl_warm_session": false,
-  "gateway_clean_hooks": true,
-  "gateway_thinking_tokens": 0,
-  "gateway_prewarm": true,
+  "budget_tokens_daily": 0,
+  "budget_tokens_monthly": 0,
   "voice": {
     "wake_phrase": "Daddy is home",
     "gateway_url": "",
@@ -508,75 +505,20 @@ input, 작업 디렉터리, gate, digest에 묶이며, 승인은 권한 상승 �
     "onboarding_complete": false,
     "background_workers": 2
   },
-  "autosave_transcripts": true,
-  "autosave_redact_secrets": true,
-  "autosave_max_chars": 4000,
-  "autosave_max_turns": 40,
-  "autosave_retention_days": 30,
-  "autosave_max_files": 500,
-  "neurosis_threshold": null,
-  "neurosis_auto": true,
+
   "channels": {
-    "http": {
-      "enabled": true
-    },
+    "http": {"enabled": true},
     "telegram": {
       "enabled": false,
       "token": "",
       "allowed_chat_ids": [],
       "stream": true
     },
-    "slack": {
-      "enabled": false,
-      "webhook_url": ""
-    },
-    "discord": {
-      "enabled": false,
-      "webhook_url": ""
-    }
-  },
-  "vault_path": "",
-  "morpheus_deliver_chat_id": "",
-  "workspace_roots": [],
-  "reaper_enabled": true,
-  "morpheus_provider": "",
-  "morpheus_model": "",
-  "morpheus_hour": 7,
-  "morpheus_minute": 0,
-  "auto_approve": [
-    "memory",
-    "skill"
-  ],
-  "harness_enabled": true,
-  "harness_turn_interval": 12,
-  "harness_cooldown_min": 15,
-  "harness_compact_review": true,
-  "harness_max_edits": 12,
-  "harness_prompt_budget": 20000,
-  "harness_auto_approve": [
-    "memory",
-    "skill"
-  ],
-  "cli_access": "workspace",
-  "cli_network_access": false,
-  "egress": {
-    "enabled": true,
-    "enforced": true,
-    "max_bytes": 1048576,
-    "destinations": {}
-  },
-  "allow_unattended_full": false,
-  "budget_tokens_daily": 0,
-  "budget_tokens_monthly": 0,
-  "cli_timeout": 300,
-  "evidence_required": false,
-  "critique_agents": 3,
-  "boulder_max_iters": 100,
-  "fs_jail": false,
-  "update_verify_signature": false
+    "slack": {"enabled": false, "webhook_url": ""},
+    "discord": {"enabled": false, "webhook_url": ""}
+  }
 }
 ```
-<!-- config-schema:end -->
 
 중요한 경계:
 
@@ -679,6 +621,11 @@ channel도 같은 계약을 번호형 text로 표시할 수 있습니다.
   연결하며, 주제가 완결된 새 질문은 바꾸지 않습니다.
 
 ## Integration workflow
+
+`/work`는 attention-first workbench를 엽니다: 승인·실패가 최상단에 오는
+단일 대기열, 도구 출력을 점진 공개하는 detail bench, `?` 키맵 overlay를
+제공합니다. TTY가 아니면 `/work --plain`·`/work --json`을 사용합니다.
+WebUI dashboard는 같은 Python 소유 상태 계약을 `/api/contract`에서 읽습니다.
 
 지속되는 subagent run은 `/dash`와 REPL에서 확인할 수 있습니다.
 

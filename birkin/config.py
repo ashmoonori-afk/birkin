@@ -191,11 +191,13 @@ DEFAULT_CONFIG: dict[str, Any] = {
         "onboarding_complete": False,
         "background_workers": 2,
     },
-    # Auto-save every conversation turn (gateway + REPL) to sessions_dir as
+    # Opt in to saving every trusted conversation turn (gateway + REPL) to
+    # sessions_dir as
     # reserved ``auto__*.json`` in the canonical format the nightly Morpheus
     # routine already consumes — so memory is extracted from real conversations
-    # automatically. See transcripts.py. Disable with autosave_transcripts=false.
-    "autosave_transcripts": True,
+    # automatically. See transcripts.py. Disabled by default because transcripts
+    # can contain private conversation data.
+    "autosave_transcripts": False,
     "autosave_redact_secrets": True,   # mask obvious secrets before writing
     "autosave_max_chars": 4000,        # per-message text cap before storing
     "autosave_max_turns": 40,          # per-file cap (turns); keeps files small
@@ -288,7 +290,7 @@ DEFAULT_CONFIG: dict[str, Any] = {
     # Harness kinds applied without asking. memory/skill are reversible local
     # files (same policy as auto_approve). prompt/subagent change how the agent
     # behaves on every later turn, so they are queued for `birkin review`.
-    "harness_auto_approve": ["memory", "skill"],
+    "harness_auto_approve": ["memory", "skill_note"],
     # CLI-agent (Claude Code / Codex) access level:
     #   "workspace" — writable & sandboxed to the workspace (default)
     #   "full"      — DANGEROUS: bypass all approvals + sandbox
@@ -311,6 +313,11 @@ DEFAULT_CONFIG: dict[str, Any] = {
     # --- Budget governor (P3 reliability). 0 = unlimited. ---
     "budget_tokens_daily": 0,
     "budget_tokens_monthly": 0,
+    "subagent_tree_max_tokens": 0,
+    "subagent_tree_max_usd": 0.0,
+    "subagent_tree_deadline_seconds": 0,
+    "subagent_tree_max_concurrent": 4,
+    "subagent_tree_max_nodes": 16,
     # Seconds to wait for a CLI-agent subprocess (claude/codex/local-cli) before
     # giving up; surfaced so users can tune long-running agents. See llm.py.
     "cli_timeout": 300,

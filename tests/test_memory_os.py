@@ -3,9 +3,11 @@ version (optimistic lock), and opt-in evidence-gated writes."""
 
 from __future__ import annotations
 
+from contextlib import contextmanager
+
 import pytest
 
-from birkin import config
+from birkin import config, store
 from birkin.memory import VaultMemory, VersionMismatchError
 
 
@@ -70,6 +72,23 @@ def test_write_note_preserves_omitted_metadata_on_update():
     assert "tags: [keep]" in text
     assert "confidence: 0.9" in text
     assert "expires_at:" in text
+
+
+def test_write_note_uses_cross_process_lock(monkeypatch):
+    seen = []
+
+    @contextmanager
+    def recording_lock(path, **_kwargs):
+        seen.append(path)
+        yield
+
+    monkeypatch.setattr(store, "file_lock", recording_lock)
+    m = VaultMemory(config.load_config())
+
+    m.write_note("Process Locked", "shared update", note_type="fact",
+                 source="concurrency-test")
+
+    assert [path.name for path in seen] == [".birkin-note-process-locked"]
 
 
 def test_write_note_replaces_explicit_metadata_on_update():

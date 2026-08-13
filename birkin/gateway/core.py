@@ -1314,10 +1314,14 @@ def run() -> int:
     # Anything still `running` when this process boots belongs to a process
     # that is gone — leaving it makes a crashed run indistinguishable from a
     # live one.
+    from ..moirai import continuation as moirai_continuation
     from ..moirai import journal as moirai_journal
-    stale = moirai_journal.reclaim_stale_runs()
+    stale = moirai_journal.reclaim_stale_runs(
+        exclude=moirai_continuation.protected_run_ids()
+    )
     if stale:
         print(f"[gateway] moirai: {stale} stale run(s) reclaimed", flush=True)
+    moirai_continuation.recover()
     cfg = config.load_config()
     # Advisory (never blocking): make native-loop tool exposure visible
     # before the gateway becomes reachable over a channel.

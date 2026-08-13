@@ -76,6 +76,7 @@ class ToolContext:
     memory: Any = None          # memory.Memory
     depth: int = 0              # subagent recursion depth
     max_depth: int = 2
+    tree_budget: Any = None
     emit: Optional[Callable[[str, dict[str, Any]], None]] = None
     subagent_approval_required: bool = False
     approved_work: bool = False

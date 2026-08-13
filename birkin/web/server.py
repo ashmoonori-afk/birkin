@@ -170,18 +170,42 @@ class Handler(BaseHTTPRequestHandler):
             self._send(200, html.encode("utf-8"), "text/html; charset=utf-8")
         elif self.path == "/api/status":
             self._json(_status_payload())
+        elif self.path == "/api/contract":
+            # Python-owned UI contract: state schema + design tokens. The
+            # page generates its state table from this; it never copies it.
+            # A broken export is a 500, never a dead server: presentation
+            # failures must not take the daemon down.
+            from .. import ui_tokens, uistate
+            try:
+                payload = {"uistate": uistate.schema(),
+                           "tokens": ui_tokens.to_json()}
+            except Exception as exc:
+                self._json({"error": str(exc)[:200]}, code=500)
+                return
+            self._json(payload)
         elif self.path == "/api/jobs":
-            self._json({"status": store.read_status(), "jobs": cron.load_jobs()})
+            from .. import uistate
+            jobs = cron.load_jobs()
+            for job in jobs:
+                job["ui_state"] = uistate.from_cron(
+                    enabled=bool(job.get("enabled", True)),
+                ).state
+            self._json({"status": store.read_status(), "jobs": jobs})
         elif self.path == "/api/runs":
-            self._json(store.list_runs(limit=20))
+            from .. import uistate
+            runs = store.list_runs(limit=20)
+            for run in runs:
+                run["ui_state"] = uistate.from_recent_run(run).state
+            self._json(runs)
         elif self.path == "/api/approvals":
             if not self._capability_ok():
                 self._json({"error": "missing or invalid capability"}, code=403)
                 return
-            from .. import risk as risk_mod
+            from .. import risk as risk_mod, uistate
             items = risk_mod.sort_by_risk(approvals.reviewable_pending())
             for it in items:
                 it["risk"] = risk_mod.risk_for(it.get("category", ""))
+                it["ui_state"] = uistate.from_approval(it).state
             self._json(items)
         elif self.path == "/api/skills":
             cfg = config.load_config()
@@ -326,6 +350,16 @@ class Handler(BaseHTTPRequestHandler):
                 clarification=str(payload.get("clarification") or ""),
                 navigation=payload.get("navigation")
                 if isinstance(payload.get("navigation"), list) else None,
+                capability="dashboard.approvals.answer.v1",
+                resume_token=str(payload.get("resume_token") or ""),
+                question_digest=str(payload.get("question_digest") or ""),
+                input_schema_version=payload.get("input_schema_version")
+                if isinstance(payload.get("input_schema_version"), int)
+                and not isinstance(payload.get("input_schema_version"), bool)
+                else None,
+                previous_state_digest=str(
+                    payload.get("previous_state_digest") or ""
+                ),
             )
             self._json(result, code=200 if result.get("ok") else 409)
             return
@@ -349,6 +383,9 @@ def _a2a_run(text: str) -> str:
 
 
 def run(port: Optional[int] = None, *, open_browser: bool = True) -> int:
+    from ..moirai import continuation
+
+    continuation.recover()
     cfg = config.load_config()
     port = port or int(cfg.get("web_port", 8787))
     httpd = HTTPServer(("127.0.0.1", port), Handler)

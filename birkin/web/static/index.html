@@ -1,362 +1,486 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="ko">
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
-<meta name="description" content="Local monitoring workbench for Birkin jobs, runs, proposals, and skills." />
-<meta name="theme-color" content="#181818" />
-<title>Birkin monitoring workbench</title>
+<title>birkin workbench</title>
 <style>
+/* Tokens arrive from /api/contract (Python-owned). The values below are
+   neutral boot fallbacks only, never a copy of the palette. */
 :root {
-  color-scheme: dark;
-  --canvas:#181818; --rail:#181818; --sidebar:#181818; --workspace:#1f1f1f;
-  --surface:#242424; --raised:#292929; --line:#303030; --line-strong:#3a3a3a;
-  --focus:#75beff; --text:#d4d4d4; --strong:#f0f0f0; --muted:#969696;
-  --faint:#969696; --accent:#3794ff; --accent-soft:#102f48;
-  --good:#4ec9b0; --warn:#cca700; --danger:#f14c4c;
-  --s1:4px; --s2:8px; --s3:12px; --s4:16px; --s5:20px; --s6:24px;
-  --control-radius:4px; --panel-radius:6px; --header:44px; --rail-width:48px;
-  --sidebar-width:224px; --ui:"Segoe UI",ui-sans-serif,system-ui,-apple-system,sans-serif;
-  --mono:"Cascadia Code","SFMono-Regular",Consolas,monospace;
+  --surface: #111214; --surface-elevated: #1a1b1e;
+  --text-primary: #e8e8e8; --text-muted: #9a9a9a;
+  --accent: #cccccc; --running: #bbbbbb; --waiting-human: #dddddd;
+  --waiting-dependency: #aaaaaa; --success: #bbbbbb; --warning: #cccccc;
+  --failure: #dddddd; --evidence: #bbbbbb; --memory: #bbbbbb;
+  --diff-add: #bbbbbb; --diff-remove: #cccccc; --focus: #ffffff;
+  --selection: #333333;
 }
-*{box-sizing:border-box}
-html{min-width:0;background:var(--canvas)}
-body{margin:0;min-width:0;min-height:100dvh;overflow-x:hidden;background:var(--workspace);color:var(--text);font:13px/1.45 var(--ui)}
-button{font:inherit}
-button:focus-visible,[role=tab]:focus-visible,a:focus-visible{outline:2px solid var(--focus);outline-offset:-2px}
-[hidden]{display:none!important}
-.sr-only{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;border:0}
-.skip-link{position:fixed;z-index:100;top:var(--s2);left:var(--s2);padding:var(--s2) var(--s3);transform:translateY(-160%);border-radius:var(--control-radius);background:var(--focus);color:var(--canvas);font-weight:600}
-.skip-link:focus{transform:translateY(0)}
-.icon{width:16px;height:16px;flex:0 0 auto;fill:none;stroke:currentColor;stroke-linecap:round;stroke-linejoin:round;stroke-width:1.7}
-.shell{display:grid;grid-template:"top top top" var(--header) "rail sidebar workspace" minmax(0,1fr)/var(--rail-width) var(--sidebar-width) minmax(0,1fr);min-height:100dvh}
-.topbar{grid-area:top;z-index:5;display:flex;align-items:center;gap:var(--s3);min-width:0;padding:0 var(--s3);border-bottom:1px solid var(--line);background:var(--canvas)}
-.brand{display:flex;align-items:center;gap:var(--s2);width:calc(var(--rail-width) + var(--sidebar-width) - var(--s3));color:var(--strong);font-weight:600}
-.brand-mark{display:grid;width:22px;height:22px;place-items:center;border:1px solid var(--line-strong);border-radius:var(--control-radius);background:var(--surface);color:var(--good);font:700 11px/1 var(--mono)}
-.crumb{min-width:0;flex:1;overflow:hidden;color:var(--muted);text-overflow:ellipsis;white-space:nowrap}
-.crumb strong{color:var(--text);font-weight:500}
-.top-actions,.connection{display:flex;align-items:center;gap:var(--s2)}
-.connection{color:var(--muted);white-space:nowrap}
-.connection-dot,.status-dot{width:7px;height:7px;flex:0 0 auto;border-radius:50%;background:var(--faint)}
-.connection-dot.online,.status-dot.good{background:var(--good)}
-.connection-dot.degraded,.status-dot.warn{background:var(--warn)}
-.status-dot.danger{background:var(--danger)}
-.icon-button{display:inline-grid;width:30px;height:30px;place-items:center;border:0;border-radius:var(--control-radius);background:transparent;color:var(--muted);cursor:pointer}
-.icon-button:hover{background:var(--surface);color:var(--text)}
-.icon-button:disabled{cursor:wait;opacity:.55}
-.rail{grid-area:rail;display:flex;flex-direction:column;align-items:center;min-height:0;padding:var(--s2) 0;border-right:1px solid var(--line);background:var(--rail)}
-.rail-button{position:relative;display:grid;width:var(--rail-width);height:var(--rail-width);place-items:center;border:0;background:transparent;color:var(--faint);cursor:pointer}
-.rail-button .icon{width:20px;height:20px}
-.rail-button:hover,.rail-button.active{color:var(--strong)}
-.rail-button.active:before{position:absolute;inset:8px auto 8px 0;width:2px;background:var(--accent);content:""}
-.rail-spacer{flex:1}
-.sidebar{grid-area:sidebar;min-width:0;min-height:0;overflow:auto;border-right:1px solid var(--line);background:var(--sidebar)}
-.sidebar-heading{display:flex;align-items:center;height:36px;padding:0 var(--s4);color:var(--muted);font-size:11px;font-weight:600;letter-spacing:.08em}
-.tablist{padding:0 var(--s2)}
-.nav-tab{display:flex;width:100%;min-width:0;align-items:center;gap:var(--s2);min-height:34px;padding:var(--s2);border:1px solid transparent;border-radius:var(--control-radius);background:transparent;color:var(--muted);text-align:left;cursor:pointer}
-.nav-tab:hover{background:var(--surface);color:var(--text)}
-.nav-tab[aria-selected=true]{border-color:#174a60;background:var(--accent-soft);color:var(--strong)}
-.nav-label{min-width:0;flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.count{min-width:20px;padding:0 var(--s1);border:1px solid var(--line-strong);border-radius:9px;color:var(--muted);font:11px/16px var(--mono);text-align:center}
-.sidebar-section{margin-top:var(--s5);border-top:1px solid var(--line)}
-.runtime{display:grid;gap:var(--s2);padding:0 var(--s4) var(--s4);color:var(--muted)}
-.runtime-row{display:flex;min-width:0;justify-content:space-between;gap:var(--s2)}
-.runtime-row strong{min-width:0;overflow:hidden;color:var(--text);font-weight:500;text-overflow:ellipsis;white-space:nowrap}
-.workspace{grid-area:workspace;min-width:0;min-height:0;overflow:auto;background:linear-gradient(180deg,rgba(255,255,255,.012),transparent 120px),var(--workspace)}
-.workspace-inner{width:min(1180px,100%);min-width:0;margin:0 auto;padding:var(--s5) var(--s6) var(--s6)}
-.view{min-width:0}
-.view-header{display:flex;min-width:0;align-items:flex-start;justify-content:space-between;gap:var(--s4);margin-bottom:var(--s4)}
-.view-title{margin:0;color:var(--strong);font-size:20px;font-weight:550;letter-spacing:-.01em}
-.view-description{margin:var(--s1) 0 0;color:var(--muted)}
-.stamp{flex:0 0 auto;padding-top:var(--s1);color:var(--faint);font:11px/1.4 var(--mono)}
-.notice{display:flex;align-items:center;gap:var(--s3);margin-bottom:var(--s4);padding:var(--s2) var(--s3);border:1px solid #6f5f11;border-radius:var(--control-radius);background:#29260f;color:#f1d572}
-.notice span{min-width:0;flex:1}
-.overview-grid{display:grid;grid-template-columns:minmax(0,1.12fr) minmax(300px,.88fr);gap:var(--s3)}
-.panel{min-width:0;overflow:hidden;border:1px solid var(--line);border-radius:var(--panel-radius);background:var(--surface)}
-.wide{grid-column:1/-1}
-.panel-header{display:flex;min-height:38px;align-items:center;gap:var(--s2);padding:0 var(--s3);border-bottom:1px solid var(--line)}
-.panel-title{min-width:0;flex:1;margin:0;color:var(--strong);font-size:12px;font-weight:600}
-.panel-meta{color:var(--faint);font:11px/1 var(--mono)}
-.panel-link{border:0;background:transparent;color:var(--muted);cursor:pointer}
-.panel-link:hover{color:var(--strong);text-decoration:underline}
-.metric-grid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr))}
-.metric{min-width:0;padding:var(--s3);border-right:1px solid var(--line)}
-.metric:last-child{border-right:0}
-.metric-label{color:var(--muted);font-size:11px}
-.metric-value{margin-top:var(--s1);overflow:hidden;color:var(--strong);font:600 18px/1.2 var(--ui);text-overflow:ellipsis;white-space:nowrap}
-.metric-detail{margin-top:var(--s1);overflow:hidden;color:var(--faint);font:11px/1.3 var(--mono);text-overflow:ellipsis;white-space:nowrap}
-.status-line{display:flex;min-width:0;align-items:center;gap:var(--s2)}
-.badge{display:inline-flex;align-items:center;min-height:20px;padding:0 6px;border:1px solid var(--line-strong);border-radius:9px;color:var(--muted);font:11px/18px var(--mono);white-space:nowrap}
-.badge.good{border-color:#286c61;color:var(--good)}
-.badge.warn{border-color:#756c22;color:#e6d46f}
-.badge.danger{border-color:#793536;color:#ff8a8a}
-.dense-row{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:var(--s3);min-width:0;padding:var(--s3);border-bottom:1px solid var(--line)}
-.dense-row:last-child{border-bottom:0}
-.dense-row:hover{background:rgba(255,255,255,.018)}
-.row-main{min-width:0}
-.row-title{display:flex;min-width:0;align-items:center;gap:var(--s2);color:var(--strong);font-weight:500}
-.row-title-text{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.row-description{margin-top:var(--s1);overflow-wrap:anywhere;color:var(--muted);font-size:12px}
-.row-meta{display:flex;flex-wrap:wrap;gap:var(--s2);margin-top:var(--s2);color:var(--faint);font:11px/1.3 var(--mono)}
-.row-side{display:flex;align-items:center;gap:var(--s2);color:var(--muted);white-space:nowrap}
-.actions{display:flex;align-items:center;gap:var(--s2)}
-.action-form{display:grid;gap:var(--s3);min-width:min(520px,100%)}
-.question{display:grid;gap:var(--s2);padding:var(--s3);border:1px solid var(--line);border-radius:var(--panel-radius);background:var(--surface)}
-.question-title{color:var(--strong);font-size:12px;font-weight:600}
-.option-list{display:grid;gap:var(--s2)}
-.option{display:flex;align-items:flex-start;gap:var(--s2);color:var(--text);font-size:12px}
-.option input{margin-top:2px;accent-color:var(--accent)}
-.recommended{color:var(--good);font:10px/1.4 var(--mono)}
-.clarification{width:100%;min-height:64px;padding:var(--s2);resize:vertical;border:1px solid var(--line-strong);border-radius:var(--control-radius);background:var(--workspace);color:var(--text);font:12px/1.5 var(--ui)}
-.action-outcome{padding:var(--s2);border:1px solid #286c61;border-radius:var(--control-radius);color:var(--good);font:11px/1.4 var(--mono)}
-.action-button{min-height:28px;padding:0 var(--s2);border:1px solid var(--line-strong);border-radius:var(--control-radius);background:var(--raised);color:var(--text);cursor:pointer}
-.action-button:hover{border-color:var(--muted);background:#313131}
-.action-button.primary{border-color:#2672a5;background:#0e639c;color:#fff}
-.action-button.primary:hover{background:#1177bb}
-.action-button.danger{color:#ff8a8a}
-.action-button:disabled{cursor:wait;opacity:.55}
-.empty,.loading{display:grid;min-height:132px;place-items:center;padding:var(--s5);color:var(--muted);text-align:center}
-.empty strong{display:block;margin-bottom:var(--s1);color:var(--text);font-weight:500}
-.loading:before{width:14px;height:14px;margin-right:var(--s2);border:2px solid var(--line-strong);border-top-color:var(--accent);border-radius:50%;animation:spin .8s linear infinite;content:""}
-.loading{grid-auto-flow:column}
-.mono{font-family:var(--mono)}
-@keyframes spin{to{transform:rotate(360deg)}}
-@media(max-width:1023px){
-  .shell{grid-template:"top top" var(--header) "sidebar workspace" minmax(0,1fr)/var(--sidebar-width) minmax(0,1fr)}
-  .rail{display:none}.brand{width:calc(var(--sidebar-width) - var(--s3))}
-  .workspace-inner{padding-inline:var(--s4)}.overview-grid{grid-template-columns:minmax(0,1fr)}.wide{grid-column:auto}
+* { box-sizing: border-box; }
+html, body { margin: 0; height: 100%; }
+body {
+  background: var(--surface); color: var(--text-primary);
+  font: 15px/1.5 system-ui, "Apple SD Gothic Neo", "Malgun Gothic", sans-serif;
 }
-@media(max-width:719px){
-  .shell{display:block;min-height:100dvh;padding-top:var(--header)}
-  .topbar{position:fixed;inset:0 0 auto;height:var(--header)}
-  .brand{width:auto;flex:0 0 auto}.brand-word,.connection-label{display:none}
-  .crumb{font-size:12px}.sidebar{position:sticky;z-index:4;top:var(--header);overflow:hidden;border-right:0;border-bottom:1px solid var(--line)}
-  .sidebar-heading,.sidebar-section{display:none}.tablist{display:flex;overflow-x:auto;padding:0 var(--s1);scrollbar-width:none}.tablist::-webkit-scrollbar{display:none}
-  .nav-tab{width:auto;flex:0 0 auto;min-height:42px;padding-inline:var(--s3);border-width:0 0 2px;border-radius:0}.nav-tab[aria-selected=true]{border-color:var(--accent);background:transparent}
-  .nav-tab .icon,.nav-tab .count{display:none}.workspace{overflow:visible}.workspace-inner{padding:var(--s4) var(--s3) var(--s6)}
-  .view-header{align-items:flex-end}.view-title{font-size:18px}.view-description{font-size:12px}.stamp{display:none}
-  .metric-grid{grid-template-columns:repeat(2,minmax(0,1fr))}.metric:nth-child(2){border-right:0}.metric:nth-child(-n+2){border-bottom:1px solid var(--line)}
-  .dense-row{grid-template-columns:minmax(0,1fr);gap:var(--s2)}.row-side{justify-content:space-between}.actions{width:100%}.actions .action-button{flex:1}
+button { font: inherit; }
+:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
+::selection { background: var(--selection); }
+
+.app {
+  display: grid; min-height: 100vh;
+  grid-template-rows: auto 1fr;
+  min-width: 0; max-width: 100vw;
 }
-@media(max-width:374px){.workspace-inner{padding-inline:var(--s2)}.panel-header,.dense-row,.metric{padding-inline:var(--s2)}}
-@media(pointer:coarse){.icon-button,.rail-button,.nav-tab,.action-button{min-height:44px}.icon-button{width:44px}}
-@media(prefers-reduced-motion:reduce){*,*:before,*:after{scroll-behavior:auto!important;animation-duration:.01ms!important;animation-iteration-count:1!important;transition-duration:.01ms!important}}
+.pulse {
+  display: flex; flex-wrap: wrap; gap: .35rem 1rem;
+  align-items: center; padding: .55rem .9rem;
+  background: var(--surface-elevated);
+  border-bottom: 1px solid var(--selection);
+}
+.pulse .brand { font-weight: 700; color: var(--accent); }
+.pulse .seg { color: var(--text-muted); font-size: .86rem; }
+.pulse .seg.alert { color: var(--waiting-human); font-weight: 600; }
+.pulse .seg.down { color: var(--failure); font-weight: 600; }
+
+.main { display: grid; gap: 0; min-width: 0; max-width: 100vw; }
+.ledger { border-bottom: 1px solid var(--selection); min-width: 0; }
+.bench { padding: 1rem; min-width: 0; }
+.lens { display: none; padding: 1rem; border-left: 1px solid var(--selection); }
+.lens-toggle {
+  display: none; position: fixed; right: 1rem; bottom: 1rem; z-index: 3;
+  padding: .5rem .8rem; border: 1px solid var(--focus); border-radius: 8px;
+  background: var(--surface-elevated); color: var(--text-primary);
+}
+
+@media (min-width: 768px) {
+  .main { grid-template-columns: 300px minmax(0,1fr); grid-template-areas: "ledger bench"; }
+  .ledger { border-right: 1px solid var(--selection); border-bottom: none; }
+  .ledger summary { cursor: pointer; }
+}
+@media (min-width: 1024px) and (max-width: 1439px) {
+  .lens-toggle { display: block; }
+  .lens.open {
+    display: block; position: fixed; inset: 3.2rem 0 0 auto; z-index: 2;
+    width: min(320px, 88vw); overflow: auto;
+    background: var(--surface-elevated);
+    box-shadow: -12px 0 28px rgb(0 0 0 / .32);
+  }
+}
+@media (min-width: 1440px) {
+  .main { grid-template-columns: 320px minmax(0,1fr) 320px; grid-template-areas: "ledger bench lens"; }
+  .lens { display: block; }
+}
+
+.ledger summary {
+  cursor: pointer; padding: .6rem .9rem; font-weight: 600;
+  color: var(--waiting-human);
+}
+.queue { list-style: none; margin: 0; padding: .4rem; }
+.queue li { margin: 0; }
+.queue button {
+  display: flex; gap: .5rem; align-items: baseline; width: 100%;
+  min-width: 0;
+  text-align: left; padding: .45rem .55rem; border: 0; border-radius: 6px;
+  background: transparent; color: var(--text-primary); cursor: pointer;
+}
+.queue button[aria-current="true"] { background: var(--selection); }
+.queue .glyph { flex: none; width: 1.1em; text-align: center; }
+.queue .t { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.queue .s { flex: none; font-size: .78rem; color: var(--text-muted); }
+
+.card {
+  background: var(--surface-elevated); border: 1px solid var(--selection);
+  border-radius: 10px; padding: 1rem; max-width: 52rem;
+}
+.card h2 { margin: 0 0 .6rem; font-size: 1.05rem; }
+.badge { font-weight: 600; }
+.meta { display: grid; grid-template-columns: auto 1fr; gap: .25rem .8rem; margin: .6rem 0; }
+.meta dt { color: var(--text-muted); }
+.meta dd { margin: 0; overflow-wrap: anywhere; }
+.risk-high { color: var(--failure); font-weight: 700; }
+.risk-mid  { color: var(--warning); font-weight: 600; }
+details.payload { margin: .6rem 0; }
+details.payload > summary { cursor: pointer; color: var(--evidence); }
+details.payload pre {
+  max-height: 16rem; overflow: auto; background: var(--surface);
+  padding: .6rem; border-radius: 6px; font-size: .82rem;
+}
+.actions { display: flex; gap: .6rem; margin-top: .8rem; flex-wrap: wrap; }
+.actions button {
+  padding: .5rem 1.1rem; border-radius: 8px; cursor: pointer;
+  border: 1px solid var(--selection); background: var(--surface);
+  color: var(--text-primary);
+}
+.actions button.ok { border-color: var(--success); }
+.actions button.no { border-color: var(--failure); }
+.actions button:disabled { opacity: .55; cursor: wait; }
+.authority-note { color: var(--text-muted); font-size: .82rem; margin-top: .5rem; }
+#announce { min-height: 1.4em; margin-top: .6rem; color: var(--accent); }
+
+.banner {
+  display: none; padding: .6rem .9rem; background: var(--surface-elevated);
+  color: var(--warning); border-bottom: 1px solid var(--warning);
+}
+.banner code { color: var(--text-primary); }
+.banner.show { display: block; }
+
+.lens h3, .activity h3 { font-size: .9rem; color: var(--text-muted); margin: 1rem 0 .35rem; }
+.lens ul, .activity ul { list-style: none; margin: 0; padding: 0; font-size: .86rem; }
+.lens li, .activity li { padding: .18rem 0; color: var(--text-primary); }
+.lens .k { color: var(--text-muted); }
+.empty { color: var(--text-muted); padding: 1rem 0; }
+.queue-notice { padding: .7rem .9rem; color: var(--warning); }
+
+@media (prefers-reduced-motion: no-preference) {
+  .queue button, .actions button { transition: background .15s ease, border-color .15s ease; }
+}
+@media (prefers-reduced-motion: reduce) {
+  * { transition: none !important; animation: none !important; }
+}
 </style>
 </head>
 <body>
-<a class="skip-link" href="#main">Skip to monitoring content</a>
-<svg class="sr-only" aria-hidden="true">
-  <symbol id="i-overview" viewBox="0 0 24 24"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/></symbol>
-  <symbol id="i-proposals" viewBox="0 0 24 24"><path d="M8 4h8M9 3v3m6-3v3M6 6h12v15H6z"/><path d="m9 13 2 2 4-5"/></symbol>
-  <symbol id="i-jobs" viewBox="0 0 24 24"><circle cx="12" cy="12" r="8"/><path d="M12 8v4l3 2"/></symbol>
-  <symbol id="i-runs" viewBox="0 0 24 24"><path d="M5 19V9m7 10V5m7 14v-7"/></symbol>
-  <symbol id="i-skills" viewBox="0 0 24 24"><path d="m12 3 2.3 4.7L19 10l-4.7 2.3L12 17l-2.3-4.7L5 10l4.7-2.3z"/></symbol>
-  <symbol id="i-refresh" viewBox="0 0 24 24"><path d="M20 11a8 8 0 1 0-2 5.3"/><path d="M20 5v6h-6"/></symbol>
-</svg>
-<div class="shell">
-  <header class="topbar">
-    <div class="brand"><span class="brand-mark" aria-hidden="true">B</span><span class="brand-word">Birkin</span></div>
-    <div class="crumb" aria-label="Current view">Monitoring&nbsp; / &nbsp;<strong id="breadcrumb">Overview</strong></div>
-    <div class="top-actions">
-      <div class="connection"><span class="connection-dot" id="connectionDot"></span><span class="connection-label" id="connectionLabel">Connecting</span></div>
-      <button class="icon-button" id="refreshButton" type="button" aria-label="Refresh monitoring data" title="Refresh"><svg class="icon" aria-hidden="true"><use href="#i-refresh"/></svg></button>
-    </div>
+<div class="app">
+  <header class="pulse">
+    <span class="brand">birkin</span>
+    <span class="seg" id="p-daemon">데몬 확인 중</span>
+    <span class="seg alert" id="p-waiting" hidden></span>
+    <span class="seg" id="p-model"></span>
+    <span class="seg" id="p-version"></span>
   </header>
-  <nav class="rail" aria-label="Monitoring views">
-    <button class="rail-button active" type="button" data-rail="overview" aria-label="Overview" title="Overview"><svg class="icon"><use href="#i-overview"/></svg></button>
-    <button class="rail-button" type="button" data-rail="proposals" aria-label="Proposals" title="Proposals"><svg class="icon"><use href="#i-proposals"/></svg></button>
-    <button class="rail-button" type="button" data-rail="jobs" aria-label="Jobs" title="Jobs"><svg class="icon"><use href="#i-jobs"/></svg></button>
-    <button class="rail-button" type="button" data-rail="runs" aria-label="Runs" title="Runs"><svg class="icon"><use href="#i-runs"/></svg></button>
-    <div class="rail-spacer"></div>
-    <button class="rail-button" type="button" data-rail="skills" aria-label="Skills" title="Skills"><svg class="icon"><use href="#i-skills"/></svg></button>
-  </nav>
-  <aside class="sidebar" aria-label="Monitoring explorer">
-    <div class="sidebar-heading">MONITORING</div>
-    <nav class="tablist" role="tablist" aria-label="Birkin monitoring views">
-      <button class="nav-tab" role="tab" id="tab-overview" aria-controls="view-overview" aria-selected="true" tabindex="0" data-view="overview"><svg class="icon"><use href="#i-overview"/></svg><span class="nav-label">Overview</span></button>
-      <button class="nav-tab" role="tab" id="tab-proposals" aria-controls="view-proposals" aria-selected="false" tabindex="-1" data-view="proposals"><svg class="icon"><use href="#i-proposals"/></svg><span class="nav-label">Proposals</span><span class="count" id="proposalCount">—</span></button>
-      <button class="nav-tab" role="tab" id="tab-jobs" aria-controls="view-jobs" aria-selected="false" tabindex="-1" data-view="jobs"><svg class="icon"><use href="#i-jobs"/></svg><span class="nav-label">Jobs</span><span class="count" id="jobCount">—</span></button>
-      <button class="nav-tab" role="tab" id="tab-runs" aria-controls="view-runs" aria-selected="false" tabindex="-1" data-view="runs"><svg class="icon"><use href="#i-runs"/></svg><span class="nav-label">Runs</span><span class="count" id="runCount">—</span></button>
-      <button class="nav-tab" role="tab" id="tab-skills" aria-controls="view-skills" aria-selected="false" tabindex="-1" data-view="skills"><svg class="icon"><use href="#i-skills"/></svg><span class="nav-label">Skills</span><span class="count" id="skillCount">—</span></button>
+  <div class="banner" id="banner" role="alert">
+    연결이 끊어졌습니다 — 복구: <code>birkin web</code> 재실행 또는 데몬 확인
+    (<code>birkin daemon start</code>). 재연결되면 승인 상태를 다시 불러옵니다.
+  </div>
+  <div class="main">
+    <nav class="ledger" aria-label="주의 대기열">
+      <details open>
+        <summary id="ledger-summary">주의 필요</summary>
+        <p class="queue-notice" id="queue-notice" role="status" hidden></p>
+        <ul class="queue" id="queue"></ul>
+      </details>
     </nav>
-    <div class="sidebar-section">
-      <div class="sidebar-heading">RUNTIME</div>
-      <div class="runtime">
-        <div class="runtime-row"><span>Daemon</span><strong id="sidebarDaemon">Loading</strong></div>
-        <div class="runtime-row"><span>Model</span><strong id="sidebarModel">—</strong></div>
-        <div class="runtime-row"><span>Next Morpheus</span><strong id="sidebarNext">—</strong></div>
+    <main class="bench" id="bench" aria-label="작업면" tabindex="-1">
+      <p class="empty">항목을 선택하면 상세가 표시됩니다.</p>
+    </main>
+    <button class="lens-toggle" id="lens-toggle" type="button"
+            aria-controls="lens" aria-expanded="false">맥락 보기</button>
+    <aside class="lens" id="lens" aria-label="맥락 렌즈">
+      <h3>실행 환경</h3>
+      <ul id="lens-env"></ul>
+      <h3>예약된 잡</h3>
+      <ul id="lens-jobs"></ul>
+      <div class="activity">
+        <h3>최근 활동</h3>
+        <ul id="lens-runs"></ul>
       </div>
-    </div>
-  </aside>
-  <main class="workspace" id="main" tabindex="-1">
-    <div class="workspace-inner">
-      <div class="notice" id="errorNotice" role="status" aria-live="polite" hidden><span id="errorText"></span><button class="action-button" id="retryButton" type="button">Retry</button></div>
-      <div class="sr-only" id="liveRegion" aria-live="polite"></div>
-      <section class="view" id="view-overview" role="tabpanel" aria-labelledby="tab-overview" data-panel="overview">
-        <div class="view-header"><div><h1 class="view-title">Overview</h1><p class="view-description">Runtime health and review queue at a glance.</p></div><time class="stamp" id="overviewStamp">Waiting for data</time></div>
-        <div class="overview-grid">
-          <section class="panel wide" aria-labelledby="healthTitle"><div class="panel-header"><h2 class="panel-title" id="healthTitle">Workspace health</h2><span class="panel-meta" id="healthMeta">LIVE</span></div><div class="metric-grid" id="metrics"><div class="loading">Loading status</div></div></section>
-          <section class="panel" aria-labelledby="proposalPreviewTitle"><div class="panel-header"><h2 class="panel-title" id="proposalPreviewTitle">Pending proposals</h2><span class="panel-meta" id="proposalMeta">—</span><button class="panel-link" type="button" data-open="proposals">View all</button></div><div id="proposalPreview"><div class="loading">Loading proposals</div></div></section>
-          <section class="panel" aria-labelledby="jobPreviewTitle"><div class="panel-header"><h2 class="panel-title" id="jobPreviewTitle">Scheduled jobs</h2><span class="panel-meta" id="jobMeta">—</span><button class="panel-link" type="button" data-open="jobs">View all</button></div><div id="jobPreview"><div class="loading">Loading jobs</div></div></section>
-          <section class="panel wide" aria-labelledby="runPreviewTitle"><div class="panel-header"><h2 class="panel-title" id="runPreviewTitle">Recent runs</h2><span class="panel-meta" id="runMeta">—</span><button class="panel-link" type="button" data-open="runs">View all</button></div><div id="runPreview"><div class="loading">Loading runs</div></div></section>
-        </div>
-      </section>
-      <section class="view" id="view-proposals" role="tabpanel" aria-labelledby="tab-proposals" data-panel="proposals" hidden>
-        <div class="view-header"><div><h1 class="view-title">Proposals</h1><p class="view-description">Review consequential actions before Birkin executes them.</p></div><time class="stamp" data-stamp>Waiting for data</time></div>
-        <section class="panel" aria-label="Pending proposals"><div class="panel-header"><h2 class="panel-title">Awaiting review</h2><span class="panel-meta" id="proposalPageMeta">—</span></div><div id="proposalList"><div class="loading">Loading proposals</div></div></section>
-      </section>
-      <section class="view" id="view-jobs" role="tabpanel" aria-labelledby="tab-jobs" data-panel="jobs" hidden>
-        <div class="view-header"><div><h1 class="view-title">Jobs</h1><p class="view-description">Scheduled automation and its latest execution state.</p></div><time class="stamp" data-stamp>Waiting for data</time></div>
-        <section class="panel" aria-label="Scheduled jobs"><div class="panel-header"><h2 class="panel-title">Schedule</h2><span class="panel-meta" id="jobPageMeta">—</span></div><div id="jobList"><div class="loading">Loading jobs</div></div></section>
-      </section>
-      <section class="view" id="view-runs" role="tabpanel" aria-labelledby="tab-runs" data-panel="runs" hidden>
-        <div class="view-header"><div><h1 class="view-title">Runs</h1><p class="view-description">Recent Morpheus and cron summaries, newest first.</p></div><time class="stamp" data-stamp>Waiting for data</time></div>
-        <section class="panel" aria-label="Recent runs"><div class="panel-header"><h2 class="panel-title">Execution history</h2><span class="panel-meta" id="runPageMeta">—</span></div><div id="runList"><div class="loading">Loading runs</div></div></section>
-      </section>
-      <section class="view" id="view-skills" role="tabpanel" aria-labelledby="tab-skills" data-panel="skills" hidden>
-        <div class="view-header"><div><h1 class="view-title">Skills</h1><p class="view-description">Installed capabilities available to the agent workspace.</p></div><time class="stamp" data-stamp>Waiting for data</time></div>
-        <section class="panel" aria-label="Installed skills"><div class="panel-header"><h2 class="panel-title">Catalog</h2><span class="panel-meta" id="skillPageMeta">—</span></div><div id="skillList"><div class="loading">Loading skills</div></div></section>
-      </section>
-    </div>
-  </main>
+    </aside>
+  </div>
 </div>
+
 <script>
-const views = ["overview","proposals","jobs","runs","skills"];
-const state = {status:null,approvals:null,jobs:null,runs:null,skills:null,errors:new Map(),updated:null,refreshing:false};
-const $ = function(selector,root){return (root||document).querySelector(selector)};
-const $$ = function(selector,root){return Array.from((root||document).querySelectorAll(selector))};
-function esc(value){return String(value==null?"":value).replace(/[&<>"']/g,function(c){return {"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]})}
-function list(value,keys){if(Array.isArray(value))return value;for(const key of keys){if(Array.isArray(value&&value[key]))return value[key]}return []}
-function dateOf(value){if(!value)return null;const date=new Date(value);return Number.isNaN(date.getTime())?null:date}
-function dateText(value){const date=dateOf(value);return date?new Intl.DateTimeFormat(undefined,{dateStyle:"medium",timeStyle:"short"}).format(date):"Not recorded"}
-function relative(value){const date=dateOf(value);if(!date)return "Not recorded";const delta=date.getTime()-Date.now();const abs=Math.abs(delta);const rtf=new Intl.RelativeTimeFormat(undefined,{numeric:"auto"});if(abs<60000)return rtf.format(Math.round(delta/1000),"second");if(abs<3600000)return rtf.format(Math.round(delta/60000),"minute");if(abs<86400000)return rtf.format(Math.round(delta/3600000),"hour");return rtf.format(Math.round(delta/86400000),"day")}
-function empty(title,detail){return '<div class="empty"><div><strong>'+esc(title)+'</strong>'+esc(detail)+'</div></div>'}
-function badge(label,tone){return '<span class="badge '+esc(tone||"")+'">'+esc(label)+'</span>'}
-function itemTime(item){return item.created_at||item.createdAt||item.created||item.updated_at||item.updatedAt||item.at||item.last_run}
-function approvals(){return list(state.approvals,["items","approvals"])}
-function jobs(){return list(state.jobs,["jobs","items"])}
-function runs(){return list(state.runs,["runs","items"])}
-function skills(){return list(state.skills,["skills","items"])}
-async function getJSON(url){const response=await fetch(url,{cache:"no-store"});if(!response.ok)throw new Error(String(response.status));return response.json()}
-async function load(key,url){try{state[key]=await getJSON(url);state.errors.delete(key);return true}catch(error){state.errors.set(key,error instanceof Error?error.message:"Request failed");return false}}
-async function refresh(announce){
-  if(state.refreshing)return;state.refreshing=true;$("#refreshButton").disabled=true;
-  const loaded=await Promise.all([load("status","/api/status"),load("approvals","/api/approvals"),load("jobs","/api/jobs"),load("runs","/api/runs"),load("skills","/api/skills")]);
-  state.refreshing=false;if(loaded.some(Boolean))state.updated=new Date();$("#refreshButton").disabled=false;render();
-  if(announce)$("#liveRegion").textContent=state.errors.size?"Refresh completed with errors. Last known data is still shown.":"Monitoring data refreshed."
+"use strict";
+let enc = null;                 // state encoding from /api/contract
+let items = [];                 // attention queue
+let selectedId = null;
+let busy = false;
+let queueNotice = "";
+
+const $ = (id) => document.getElementById(id);
+
+async function getJSON(url) {
+  const r = await fetch(url, { cache: "no-store" });
+  if (!r.ok) { const e = new Error(String(r.status)); e.status = r.status; throw e; }
+  return r.json();
 }
-function setView(name){
-  if(!views.includes(name))name="overview";
-  $$(".nav-tab").forEach(function(tab){const selected=tab.dataset.view===name;tab.setAttribute("aria-selected",String(selected));tab.tabIndex=selected?0:-1});
-  $$(".view").forEach(function(panel){panel.hidden=panel.dataset.panel!==name});
-  $$(".rail-button").forEach(function(button){button.classList.toggle("active",button.dataset.rail===name)});
-  $("#breadcrumb").textContent=name.charAt(0).toUpperCase()+name.slice(1);
-  if(location.hash!=="#"+name)history.replaceState(null,"","#"+name)
+
+function stateByAttention(n) {
+  return Object.keys(enc).find((s) => enc[s].attention === n);
 }
-function renderConnection(){
-  const hasData=[state.status,state.approvals,state.jobs,state.runs,state.skills].some(function(value){return value!==null});
-  $("#connectionDot").className="connection-dot "+(state.errors.size?"degraded":hasData?"online":"");
-  $("#connectionLabel").textContent=state.errors.size?"Data delayed":hasData?"Connected":"Connecting";
-  $("#errorNotice").hidden=!state.errors.size;
-  if(state.errors.size)$("#errorText").textContent="Could not refresh "+Array.from(state.errors.keys()).join(", ")+". Showing the last available data.";
-  const stamp=state.updated?"Updated "+relative(state.updated):"Waiting for data";
-  $("#overviewStamp").textContent=stamp;$$("[data-stamp]").forEach(function(node){node.textContent=stamp})
+function encOf(state) {
+  return enc[state] || enc[stateByAttention(3)];
 }
-function renderStatus(){
-  const s=state.status;if(!s)return;
-  const next=s.next_morpheus||s.next_nightly;
-  const tone=s.daemon?"good":s.stale?"danger":"warn";
-  const daemon=s.daemon?"Running":s.stale?"Stale":"Stopped";
-  const skillValue=s.skills_count===null?"Unavailable":s.skills_count===undefined?skills().length:s.skills_count;
-  const skillDetail=s.skills_count===null?"Catalog could not be read":"Available capabilities";
-  $("#metrics").innerHTML=
-    '<div class="metric"><div class="metric-label">Daemon</div><div class="metric-value status-line"><span class="status-dot '+tone+'"></span>'+esc(daemon)+'</div><div class="metric-detail">'+esc(s.heartbeat?"Heartbeat "+relative(s.heartbeat):"No heartbeat")+'</div></div>'+
-    '<div class="metric"><div class="metric-label">Pending review</div><div class="metric-value">'+esc(s.pending_count==null?approvals().length:s.pending_count)+'</div><div class="metric-detail">'+((s.pending_count||approvals().length)?"Requires a decision":"Queue is clear")+'</div></div>'+
-    '<div class="metric"><div class="metric-label">Skills</div><div class="metric-value">'+esc(skillValue)+'</div><div class="metric-detail">'+esc(skillDetail)+'</div></div>'+
-    '<div class="metric"><div class="metric-label">Next Morpheus</div><div class="metric-value">'+esc(next?relative(next):"Not scheduled")+'</div><div class="metric-detail">'+esc(next?dateText(next):"No schedule")+'</div></div>';
-  $("#healthMeta").textContent=s.daemon?"LIVE":"ATTENTION";$("#sidebarDaemon").textContent=daemon;$("#sidebarModel").textContent=s.model||s.provider||"Not configured";$("#sidebarNext").textContent=next?relative(next):"Not scheduled"
+function esc(s) {
+  return String(s ?? "").replace(/[&<>"']/g,
+    (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 }
-function proposalRows(items,preview){
-  if(!items.length)return empty("Nothing awaiting approval","Consequential actions will appear here for review.");
-  return items.map(function(item){
-    const risk=String(item.risk||item.category||"proposal");const tone=/high|shell|command/i.test(risk)?"danger":/medium|cron/i.test(risk)?"warn":"";
-    const structured=item.action_state==="action_needed"&&Array.isArray(item.questions);
-    const fields=structured?item.questions.map(function(question){
-      const type=question.multiple?"checkbox":"radio";
-      const options=(question.options||[]).map(function(option){
-        const recommended=question.recommended===option.value?'<span class="recommended">Recommended</span>':"";
-        return '<label class="option"><input type="'+type+'" name="'+esc(item.id+"-"+question.id)+'" value="'+esc(option.value)+'"><span>'+esc(option.label)+" "+recommended+'</span></label>'
-      }).join("");
-      return '<fieldset class="question" data-question-id="'+esc(question.id)+'" data-multiple="'+(question.multiple?"true":"false")+'" data-required="'+(question.required?"true":"false")+'"><legend class="question-title">'+esc(question.text)+'</legend><div class="option-list">'+options+'</div></fieldset>'
-    }).join(""):"";
-    const questionActions=preview?"":'<form class="action-form" data-action-form="'+esc(item.id)+'">'+fields+(item.allow_clarification?'<label class="question-title">Clarification (optional)<textarea class="clarification" name="clarification" maxlength="2000"></textarea></label>':"")+'<div class="actions"><button class="action-button primary" type="submit">Submit answer</button></div></form>';
-    const approvalActions=preview?"":'<div class="row-side actions"><button class="action-button danger" type="button" data-proposal-id="'+esc(item.id)+'" data-action="reject">Reject</button><button class="action-button primary" type="button" data-proposal-id="'+esc(item.id)+'" data-action="approve">Approve</button></div>';
-    const actions=structured?questionActions:approvalActions;
-    return '<article class="dense-row"><div class="row-main"><div class="row-title"><span class="status-dot '+tone+'"></span><span class="row-title-text">'+esc(item.title||"Untitled proposal")+'</span>'+badge(risk,tone)+'</div>'+(item.description?'<div class="row-description">'+esc(item.description)+'</div>':"")+'<div class="row-meta"><span>'+esc(item.category||"action")+'</span><time datetime="'+esc(itemTime(item)||"")+'">'+esc(relative(itemTime(item)))+'</time></div></div>'+actions+'</article>'
-  }).join("")
+
+function contextValue(rec, names, fallback) {
+  const payload = rec.payload || {};
+  for (const name of names) {
+    if (rec[name] != null && rec[name] !== "") return rec[name];
+    if (payload[name] != null && payload[name] !== "") return payload[name];
+  }
+  return fallback;
 }
-function jobRows(items){
-  if(!items.length)return empty("No scheduled jobs","Registered cron jobs will appear here.");
-  return items.map(function(item){const time=item.hour===undefined?"Schedule not recorded":String(item.hour).padStart(2,"0")+":"+String(item.minute||0).padStart(2,"0");return '<article class="dense-row"><div class="row-main"><div class="row-title"><span class="status-dot '+(item.enabled===false?"":"good")+'"></span><span class="row-title-text">'+esc(item.name||item.title||"Unnamed job")+'</span>'+badge(item.enabled===false?"Disabled":"Enabled",item.enabled===false?"":"good")+'</div><div class="row-meta"><span>'+esc(item.type||item.kind||"cron")+'</span><span>Last run '+esc(relative(item.last_run))+'</span></div></div><div class="row-side mono">'+esc(time)+'</div></article>'}).join("")
+
+async function loadContract() {
+  const c = await getJSON("/api/contract");
+  enc = c.uistate["x-birkin-encoding"];
+  const root = document.documentElement;
+  for (const [name, entry] of Object.entries(c.tokens.tokens)) {
+    root.style.setProperty("--" + name.replace(/_/g, "-"), entry.hex);
+  }
 }
-function runRows(items){
-  if(!items.length)return empty("No runs recorded","Morpheus and cron summaries will appear after their first run.");
-  return items.map(function(item){const usage=item.usage||{};const tokens=usage.estTokens==null?usage.total_tokens:usage.estTokens;const err=item.error||(item.details||{}).error;const label=item.status||(err?"Failed":"Recorded");const tone=/fail|error/i.test(label)?"danger":"";return '<article class="dense-row"><div class="row-main"><div class="row-title"><span class="status-dot '+tone+'"></span><span class="row-title-text">'+esc(item.kind||item.name||"Run")+'</span>'+badge(label,tone)+'</div>'+(item.summary?'<div class="row-description">'+esc(String(item.summary).slice(0,600))+'</div>':"")+'<div class="row-meta"><time datetime="'+esc(item.at||"")+'">'+esc(dateText(item.at))+'</time>'+(tokens==null?"":'<span>~'+esc(tokens)+' tokens</span>')+'</div></div></article>'}).join("")
+
+function buildQueue(approvals, jobsData, runs) {
+  const out = [];
+  for (const rec of approvals) {
+    out.push({ kind: "approval", id: rec.id, title: rec.title || rec.category,
+               state: rec.ui_state || stateByAttention(3), rec });
+  }
+  const jobs = (jobsData && jobsData.jobs) || [];
+  for (const job of jobs) {
+    out.push({ kind: "cron", id: "job:" + (job.id || job.name),
+               title: job.name || "예약 작업", state: job.ui_state,
+               rec: { title: job.name || "예약 작업", origin: "scheduler",
+                      category: "cron", description: job.schedule?.display || job.next_run || "",
+                      target: job.name, expected_impact: "예약된 시각에 작업을 시작합니다.",
+                      rejection_result: "이 화면에서는 예약을 변경하지 않습니다.",
+                      evidence: job.last_run || "실행 기록 없음", risk: 0,
+                      created: job.created || "", payload: job } });
+  }
+  for (const run of runs || []) {
+    const runId = run.id || run.created || String(out.length);
+    const error = (run.details || {}).error || "";
+    out.push({ kind: "run", id: "run:" + runId,
+               title: run.title || run.kind || "최근 활동", state: run.ui_state,
+               rec: { title: run.title || run.kind || "최근 활동",
+                      origin: run.kind || "runtime", category: "recent_run",
+                      description: error || run.status || "완료된 실행",
+                      target: runId, expected_impact: "이미 기록된 실행 결과입니다.",
+                      rejection_result: "읽기 전용 기록에는 적용되지 않습니다.",
+                      evidence: error || "실행 기록", risk: error ? 2 : 0,
+                      created: run.created || "", payload: run } });
+  }
+  out.sort((a, b) => encOf(a.state).attention - encOf(b.state).attention);
+  const urgent = out.filter((item) => encOf(item.state).attention < 7);
+  const scheduled = out.filter((item) => encOf(item.state).attention === 7).slice(0, 4);
+  const recent = out.filter((item) => encOf(item.state).attention === 8).slice(0, 4);
+  return urgent.concat(scheduled, recent);
 }
-function skillRows(items){
-  if(!items.length)return empty("No skills installed","Bundled and user skills will appear here.");
-  return items.map(function(item){return '<article class="dense-row"><div class="row-main"><div class="row-title"><svg class="icon" aria-hidden="true"><use href="#i-skills"/></svg><span class="row-title-text">'+esc(item.name||"Unnamed skill")+'</span>'+badge(item.source||"installed","")+'</div>'+(item.description?'<div class="row-description">'+esc(item.description)+'</div>':"")+'</div></article>'}).join("")
+
+function renderQueue() {
+  const list = $("queue");
+  list.innerHTML = "";
+  const waiting = items.filter((it) => encOf(it.state).attention === 0).length;
+  $("ledger-summary").textContent = "주의 필요 — 대기 " + waiting;
+  const notice = $("queue-notice");
+  notice.hidden = !queueNotice;
+  notice.textContent = queueNotice;
+  const w = $("p-waiting");
+  w.hidden = waiting === 0;
+  w.textContent = encOf(stateByAttention(0)).glyph + " 대기 " + waiting;
+  if (!items.length) {
+    list.innerHTML = '<li class="empty">승인 대기 항목 없음</li>';
+    return;
+  }
+  for (const it of items) {
+    const e = encOf(it.state);
+    const li = document.createElement("li");
+    const b = document.createElement("button");
+    b.dataset.id = it.id;
+    b.setAttribute("aria-current", String(it.id === selectedId));
+    b.setAttribute("aria-label", e.label + " — " + (it.title || ""));
+    b.innerHTML =
+      '<span class="glyph" style="color:var(--' +
+      e.color_role.replace(/_/g, "-") + ')">' + esc(e.glyph) + "</span>" +
+      '<span class="t">' + esc(it.title) + "</span>" +
+      '<span class="s">' + esc(e.label) + "</span>";
+    b.addEventListener("click", () => { selectedId = it.id; renderQueue(); renderBench(); });
+    li.appendChild(b);
+    list.appendChild(li);
+  }
 }
-function renderLists(){
-  const a=approvals(),j=jobs(),r=runs(),s=skills();
-  $("#proposalCount").textContent=a.length;$("#jobCount").textContent=j.length;$("#runCount").textContent=r.length;$("#skillCount").textContent=s.length;
-  $("#proposalMeta").textContent=a.length+" PENDING";$("#jobMeta").textContent=j.length+" TOTAL";$("#runMeta").textContent=r.length+" RECENT";
-  $("#proposalPageMeta").textContent=a.length+" PENDING";$("#jobPageMeta").textContent=j.length+" TOTAL";$("#runPageMeta").textContent=r.length+" RECENT";$("#skillPageMeta").textContent=s.length+" INSTALLED";
-  $("#proposalPreview").innerHTML=proposalRows(a.slice(0,3),true);$("#jobPreview").innerHTML=jobRows(j.slice(0,4));$("#runPreview").innerHTML=runRows(r.slice(0,4));
-  $("#proposalList").innerHTML=proposalRows(a,false);$("#jobList").innerHTML=jobRows(j);$("#runList").innerHTML=runRows(r);$("#skillList").innerHTML=skillRows(s);
-  $$("[data-proposal-id]").forEach(function(button){button.addEventListener("click",function(){act(button)})});
-  $$("[data-action-form]").forEach(function(form){form.addEventListener("submit",function(event){event.preventDefault();answer(form)})})
+
+function renderBench() {
+  const bench = $("bench");
+  const it = items.find((x) => x.id === selectedId) || items[0];
+  if (!it) {
+    bench.innerHTML = '<p class="empty">표시할 항목이 없습니다.</p>';
+    return;
+  }
+  selectedId = it.id;
+  const rec = it.rec;
+  const e = encOf(it.state);
+  const canAct = e.attention === 0;
+  const riskClass = rec.risk >= 3 ? "risk-high" : rec.risk >= 2 ? "risk-mid" : "";
+  const target = contextValue(
+    rec, ["target", "path", "command", "name"], rec.category || "요청 대상");
+  const expectedImpact = contextValue(
+    rec, ["expected_impact", "impact"], rec.description || "변경 내용은 payload를 확인하세요.");
+  const rejectionResult = contextValue(
+    rec, ["rejection_result"], "동작은 실행되지 않고 거부 기록만 남습니다.");
+  const relatedEvidence = contextValue(
+    rec, ["evidence", "evidence_path", "source"], "연결된 근거 없음");
+  const payload = rec.payload && Object.keys(rec.payload).length
+    ? "<details class=\"payload\"><summary>요청 payload 보기 (" +
+      Object.keys(rec.payload).length + "개 항목)</summary><pre>" +
+      esc(JSON.stringify(rec.payload, null, 2)) + "</pre></details>"
+    : "";
+  bench.innerHTML =
+    '<div class="card">' +
+    '<h2><span class="badge" style="color:var(--' +
+    e.color_role.replace(/_/g, "-") + ')">' + esc(e.glyph) + " " +
+    esc(e.label) + "</span> " + esc(rec.title || "") + "</h2>" +
+    '<dl class="meta">' +
+    "<dt>요청 주체</dt><dd>" + esc(rec.origin || "?") + "</dd>" +
+     "<dt>유형</dt><dd>" + esc(rec.category || "?") + "</dd>" +
+     '<dt id="target">대상</dt><dd aria-labelledby="target">' + esc(target) + "</dd>" +
+     "<dt>동작</dt><dd>" + esc(rec.description || "") + "</dd>" +
+     '<dt id="expected-impact">예상 영향</dt><dd aria-labelledby="expected-impact">' +
+       esc(expectedImpact) + "</dd>" +
+     '<dt id="rejection-result">거부 결과</dt><dd aria-labelledby="rejection-result">' +
+       esc(rejectionResult) + "</dd>" +
+     '<dt id="related-evidence">관련 근거</dt><dd aria-labelledby="related-evidence">' +
+       esc(relatedEvidence) + "</dd>" +
+    '<dt>위험도</dt><dd class="' + riskClass + '">' + esc(rec.risk ?? "?") + "</dd>" +
+    "<dt>만료</dt><dd>" + esc(rec.expires_at || "없음") + "</dd>" +
+    "<dt>생성</dt><dd>" + esc(rec.created || "") + "</dd>" +
+    "</dl>" + payload +
+    (canAct
+      ? '<div class="actions">' +
+        '<button class="ok" id="btn-approve">승인 요청</button>' +
+        '<button class="no" id="btn-reject">거부 요청</button></div>' +
+      '<p class="authority-note">승인 후 실제 실행 주체는 Python daemon입니다. ' +
+        "거부 시 동작은 실행되지 않고 기록만 남습니다. " +
+        "버튼은 요청만 보내며, 결과는 authority 응답 후 반영됩니다.</p>"
+      : "") +
+    '<div id="announce" role="status" aria-live="polite"></div>';
+  if (canAct) {
+    $("btn-approve").addEventListener("click", () => requestConfirmation(rec.id, "approve"));
+    $("btn-reject").addEventListener("click", () => requestConfirmation(rec.id, "reject"));
+  }
 }
-async function act(button){
-  const matching=$$("[data-proposal-id]").filter(function(item){return item.dataset.proposalId===button.dataset.proposalId});matching.forEach(function(item){item.disabled=true});
-  try{
-    const response=await fetch("/api/approvals",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({id:button.dataset.proposalId,action:button.dataset.action})});
-    const payload=await response.json().catch(function(){return {}});
-    if(!response.ok||payload.ok!==true)throw new Error(payload.error||String(response.status));
-    $("#liveRegion").textContent="Proposal "+(button.dataset.action==="reject"?"rejected":"approved")+".";
-    const loaded=await Promise.all([load("status","/api/status"),load("approvals","/api/approvals"),load("jobs","/api/jobs"),load("runs","/api/runs")]);if(loaded.some(Boolean))state.updated=new Date();render()
-  }catch(error){state.errors.set("proposal action",error instanceof Error?error.message:"Request failed");matching.forEach(function(item){item.disabled=false});renderConnection();$("#liveRegion").textContent="The proposal action failed. No list data was discarded."}
+
+function requestConfirmation(id, action) {
+  const label = action === "approve" ? "승인" : "거부";
+  if (window.confirm(label + " 요청을 Python authority에 보내시겠습니까?")) {
+    resolve(id, action);
+  }
 }
-async function answer(form){
-  const answers={};let invalid=false;
-  form.querySelectorAll("[data-question-id]").forEach(function(field){
-    const selected=Array.from(field.querySelectorAll("input:checked")).map(function(input){return input.value});
-    if(!selected.length&&field.dataset.required==="true"){invalid=true;return}
-    if(!selected.length)return;
-    answers[field.dataset.questionId]=field.dataset.multiple==="true"?selected:selected[0]
-  });
-  if(invalid){$("#liveRegion").textContent="Answer every required question.";return}
-  const controls=Array.from(form.querySelectorAll("button,input,textarea"));controls.forEach(function(control){control.disabled=true});
-  try{
-    const clarification=form.querySelector("[name=clarification]");
-    const response=await fetch("/api/approvals",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({id:form.dataset.actionForm,action:"answer",answers:answers,clarification:clarification?clarification.value:""})});
-    const payload=await response.json().catch(function(){return {}});
-    if(!response.ok||payload.event!=="action_resolved")throw new Error(payload.error||String(response.status));
-    form.outerHTML='<div class="action-outcome" data-action-outcome="'+esc(payload.id)+'">Resolved by '+esc(payload.resolved_by||"web:dashboard")+'</div>';
-    $("#liveRegion").textContent="Answer resolved.";
-    await load("status","/api/status")
-  }catch(error){controls.forEach(function(control){control.disabled=false});$("#liveRegion").textContent="Action failed: "+(error instanceof Error?error.message:"Unknown error")}
+
+async function resolve(id, action) {
+  if (busy) return;
+  busy = true;
+  const announce = $("announce");
+  for (const b of document.querySelectorAll(".actions button")) b.disabled = true;
+  announce.textContent = "요청 전송 중 — authority 응답 대기";
+  try {
+    const r = await fetch("/api/approvals", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ id, action }),
+    });
+    const out = await r.json().catch(() => ({}));
+    if (r.ok && out.ok !== false) {
+      announce.textContent = "완료: " + (out.result || action);
+      await refresh();               // state changes only after authority reply
+    } else {
+      announce.textContent = "실패: " + (out.error || r.status);
+      for (const b of document.querySelectorAll(".actions button")) b.disabled = false;
+    }
+  } catch (err) {
+    announce.textContent = "전송 실패 — 연결 상태를 확인하세요";
+    for (const b of document.querySelectorAll(".actions button")) b.disabled = false;
+    setDisconnected(true);
+  } finally {
+    busy = false;
+  }
 }
-function render(){renderConnection();renderStatus();renderLists()}
-$$(".nav-tab").forEach(function(tab){
-  tab.addEventListener("click",function(){setView(tab.dataset.view)});
-  tab.addEventListener("keydown",function(event){if(!["ArrowLeft","ArrowRight","ArrowUp","ArrowDown","Home","End"].includes(event.key))return;event.preventDefault();const tabs=$$(".nav-tab"),current=tabs.indexOf(tab);let next;if(event.key==="Home")next=0;else if(event.key==="End")next=tabs.length-1;else next=(current+(["ArrowRight","ArrowDown"].includes(event.key)?1:-1)+tabs.length)%tabs.length;tabs[next].focus();setView(tabs[next].dataset.view)})
+
+function setDisconnected(down) {
+  $("banner").classList.toggle("show", down);
+}
+
+function renderLens(status, jobsData, runs) {
+  const env = $("lens-env");
+  env.innerHTML = "";
+  const rows = [["모델", status.model], ["프로바이더", status.provider],
+                ["버전", status.version], ["볼트", status.vault],
+                ["스킬", status.skills_count],
+                ["다음 야간작업", status.next_nightly || "-"]];
+  for (const [k, v] of rows) {
+    env.innerHTML += "<li><span class=\"k\">" + esc(k) + "</span> " + esc(v ?? "-") + "</li>";
+  }
+  const jobs = (jobsData && jobsData.jobs) || [];
+  $("lens-jobs").innerHTML = jobs.length
+    ? jobs.slice(0, 8).map((j) =>
+        "<li>" + esc(j.name || "?") + " <span class=\"k\">" +
+        esc(j.next_run || "") + "</span></li>").join("")
+    : '<li class="empty">없음</li>';
+  $("lens-runs").innerHTML = (runs || []).length
+    ? runs.slice(0, 8).map((r) => {
+        const err = (r.details || {}).error || "";
+        const state = encOf(r.ui_state);
+        const badge = ' <span class="k" style="color:var(--' +
+          state.color_role.replace(/_/g, "-") + ')">' +
+          esc(err || state.label) + "</span>";
+        return "<li>" + esc(r.title || r.kind || r.id || "run") + badge + "</li>";
+      }).join("")
+    : '<li class="empty">없음</li>';
+}
+
+async function refresh() {
+  try {
+    const [status, jobs, runs] = await Promise.all([
+      getJSON("/api/status"), getJSON("/api/jobs"), getJSON("/api/runs")]);
+    let approvals = [];
+    queueNotice = "";
+    try {
+      approvals = await getJSON("/api/approvals");
+    } catch (err) {
+      if (err.status === 403) {
+        queueNotice = "승인 목록은 보안 토큰이 필요합니다 — birkin web이 출력한 주소로 접속하세요.";
+      } else { throw err; }
+    }
+    setDisconnected(false);
+    $("p-daemon").textContent = status.daemon ? "데몬 연결" : "데몬 오프라인";
+    $("p-daemon").className = status.daemon ? "seg" : "seg down";
+    $("p-model").textContent = status.model || "";
+    $("p-version").textContent = status.version ? "v" + status.version : "";
+    items = buildQueue(approvals, jobs, runs);
+    if (items.length && !items.some((item) => item.id === selectedId)) {
+      selectedId = items[0].id;
+    } else if (!items.length) {
+      selectedId = null;
+    }
+    renderQueue();
+    renderBench();
+    renderLens(status, jobs, runs);
+  } catch (err) {
+    setDisconnected(true);
+    $("p-daemon").textContent = "연결 끊김";
+    $("p-daemon").className = "seg down";
+  }
+}
+
+document.addEventListener("keydown", (ev) => {
+  if (ev.target.tagName === "INPUT" || ev.target.tagName === "TEXTAREA") return;
+  if (ev.key !== "ArrowDown" && ev.key !== "ArrowUp") return;
+  const idx = items.findIndex((x) => x.id === selectedId);
+  const next = ev.key === "ArrowDown" ? idx + 1 : idx - 1;
+  if (next >= 0 && next < items.length) {
+    selectedId = items[next].id;
+    renderQueue(); renderBench();
+    const btn = document.querySelector('.queue button[data-id="' + selectedId + '"]');
+    if (btn) btn.focus();
+    ev.preventDefault();
+  }
 });
-$$("[data-rail]").forEach(function(button){button.addEventListener("click",function(){setView(button.dataset.rail)})});
-$$("[data-open]").forEach(function(button){button.addEventListener("click",function(){setView(button.dataset.open)})});
-$("#refreshButton").addEventListener("click",function(){refresh(true)});$("#retryButton").addEventListener("click",function(){refresh(true)});
-window.addEventListener("hashchange",function(){setView(location.hash.slice(1))});
-setView(location.hash.slice(1)||"overview");refresh(false);setInterval(function(){refresh(false)},15000);
+
+$("lens-toggle").addEventListener("click", () => {
+  const lens = $("lens");
+  const open = lens.classList.toggle("open");
+  $("lens-toggle").setAttribute("aria-expanded", String(open));
+  $("lens-toggle").textContent = open ? "맥락 닫기" : "맥락 보기";
+});
+
+(async function boot() {
+  try { await loadContract(); } catch (err) { /* fallbacks stay */ }
+  await refresh();
+  setInterval(refresh, 15000);
+})();
 </script>
 </body>
 </html>

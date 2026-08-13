@@ -23,7 +23,7 @@ def test_subagent_uses_selected_model_for_prompt_and_registry(
         def __init__(self, **kwargs: object) -> None:
             captured.update(kwargs)
 
-        def run(self, task: str) -> str:
+        def run(self, task: str, *, abort: object = None) -> str:
             return task
 
     monkeypatch.setattr(subagent, "Agent", CapturingAgent)

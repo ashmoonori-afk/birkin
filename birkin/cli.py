@@ -362,16 +362,17 @@ def _cmd_harness(args: argparse.Namespace) -> int:
 
     from . import harness
     scope = "global" if getattr(args, "global_scope", False) else args.scope
+    session_id = getattr(args, "session_id", None)
     target = args.target[0] if args.target else ""
 
     if args.action == "show":
-        block = harness.render_block(harness.load(scope))
+        block = harness.render_block(harness.load(scope, session_id=session_id))
         print(block or f"The {scope} harness is empty — nothing recorded yet. "
                        "Run `birkin morpheus` to propose the first refinements.")
         return 0
 
     if args.action == "history":
-        events = harness.history(scope, limit=args.limit)
+        events = harness.history(scope, limit=args.limit, session_id=session_id)
         if not events:
             print(f"No refinements recorded yet in the {scope} harness.")
             return 0
@@ -385,7 +386,7 @@ def _cmd_harness(args: argparse.Namespace) -> int:
             print("rollback needs a refinement id — see `birkin harness history`.")
             return 1
         try:
-            event = harness.rollback(target, scope)
+            event = harness.rollback(target, scope, session_id=session_id)
         except KeyError as exc:
             print(f"error: {exc.args[0]}")
             return 1
@@ -400,8 +401,11 @@ def _cmd_harness(args: argparse.Namespace) -> int:
         path = Path(target).expanduser()
         try:
             path.parent.mkdir(parents=True, exist_ok=True)
-            path.write_text(json.dumps(harness.load(scope), indent=2,
-                                       ensure_ascii=False), encoding="utf-8")
+            state = harness.load(scope, session_id=session_id)
+            path.write_text(
+                json.dumps(state, indent=2, ensure_ascii=False),
+                encoding="utf-8",
+            )
         except OSError as exc:
             print(f"could not write {target}: {exc}")
             return 1
@@ -1245,6 +1249,8 @@ def build_parser() -> argparse.ArgumentParser:
                     help="refinement id (rollback), path (export), or instructions (refine)")
     hp.add_argument("--scope", choices=["local", "global"], default="global",
                     help="which harness to read (default: global)")
+    hp.add_argument("--session-id", default=None,
+                    help="session whose local harness to read")
     hp.add_argument("--global", dest="global_scope", action="store_true",
                     help="force the global harness")
     hp.add_argument("-n", "--limit", type=int, default=None,
@@ -1362,7 +1368,7 @@ def build_parser() -> argparse.ArgumentParser:
     moi.add_argument("action", nargs="?", default="list",
                      help="run | list | status | resume")
     moi.add_argument("script", nargs="?", default="",
-                     help="workflow file or name (run)")
+                     help="workflow file or name (run); run id (status / resume)")
     moi.add_argument("--run-id", dest="run_id", default="",
                      help="run id (status / resume)")
     moi.add_argument("--bind", action="append", default=[], metavar="ROLE=SPEC",

@@ -96,7 +96,7 @@ _HELP_GROUPS: list[tuple[str, list[str]]] = [
     ("기억", ["memory", "remember", "vault", "learn"]),
     ("스킬·도구", ["skills", "skill", "reload", "tools", "system", "mcp",
                  "details"]),
-    ("운영·승인", ["goal", "review", "cron", "permission", "config",
+    ("운영·승인", ["work", "goal", "review", "cron", "permission", "config",
                  "morpheus", "update"]),
     ("페르소나·인터뷰", ["soul", "personality", "neurosis", "odyssey"]),
     ("게이트웨이", ["restart-gateway", "hard-restart"]),
@@ -443,6 +443,14 @@ def _dash(session: Any, arg: str) -> None:
     from . import dash
     a = arg.strip().lower()
     dash.run(session, plain=(a == "--plain"), as_json=(a == "--json"))
+
+
+@command("work", "Attention-first workbench (승인·작업·근거 관제).",
+         "/work [--plain|--json]", aliases=["workbench"])
+def _work(session: Any, arg: str) -> None:
+    from . import workbench
+    a = arg.strip().lower()
+    workbench.run(session, plain=(a == "--plain"), as_json=(a == "--json"))
 
 
 def _agent_run_rows() -> list[tuple[dict[str, Any], int]]:
