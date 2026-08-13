@@ -330,9 +330,15 @@ function renderLens(status, jobsData, runs) {
         esc(j.next_run || "") + "</span></li>").join("")
     : '<li class="empty">없음</li>';
   $("lens-runs").innerHTML = (runs || []).length
-    ? runs.slice(0, 8).map((r) =>
-        "<li>" + esc(r.title || r.kind || r.id || "run") +
-        " <span class=\"k\">" + esc(r.status || "") + "</span></li>").join("")
+    ? runs.slice(0, 8).map((r) => {
+        // Honesty contract: a run that recorded an error must surface it —
+        // details.error is the one signal that exists (test_dash_honesty).
+        const err = (r.details || {}).error || "";
+        const badge = err
+          ? ' <span class="k" style="color:var(--failure)">' + esc(err) + "</span>"
+          : ' <span class="k">' + esc(r.status || "") + "</span>";
+        return "<li>" + esc(r.title || r.kind || r.id || "run") + badge + "</li>";
+      }).join("")
     : '<li class="empty">없음</li>';
 }
 
