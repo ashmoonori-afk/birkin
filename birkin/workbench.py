@@ -176,6 +176,11 @@ def render(snap: dict[str, Any], state: dict[str, Any],
     if state.get("screen") == "approval":
         lines += _approval_screen(snap, state, cols, body_h, color=color,
                                   ascii_only=ascii_only)
+    elif state.get("screen") == "session":
+        lines += render_session(state.get("messages") or [],
+                                state.get("expanded") or set(),
+                                cols, body_h, color=color,
+                                ascii_only=ascii_only)
     elif cols < _NARROW:
         waiting = _waiting_count(items)
         lines.append(ui.fit(f"주의 필요 — 대기 {waiting}", cols))
@@ -219,6 +224,96 @@ def render(snap: dict[str, Any], state: dict[str, Any],
         hint = str(state["note"])
     lines.append(ui.fit(hint, cols))
     return lines[:rows]
+
+
+# -- session work surface (pure) --------------------------------------------
+
+def _tool_target(tool_input: dict[str, Any]) -> str:
+    for key in ("command", "path", "url", "query", "name"):
+        if tool_input.get(key):
+            return str(tool_input[key])
+    return next((str(v) for v in tool_input.values()
+                 if isinstance(v, str) and v), "")
+
+
+def _result_text(content: Any) -> str:
+    if isinstance(content, str):
+        return content
+    if isinstance(content, list):
+        return "\n".join(str(b.get("text", "")) for b in content
+                         if isinstance(b, dict))
+    return str(content or "")
+
+
+def session_view(messages: list[dict[str, Any]]) -> dict[str, Any]:
+    """Split a saved transcript into conversation turns and tool executions."""
+    turns: list[dict[str, Any]] = []
+    tools: list[dict[str, Any]] = []
+    pending: dict[str, dict[str, Any]] = {}
+    for msg in messages:
+        role = msg.get("role")
+        content = msg.get("content")
+        if not role or not isinstance(content, list):
+            continue
+        for block in content:
+            if not isinstance(block, dict):
+                continue
+            kind = block.get("type")
+            if kind == "text" and block.get("text"):
+                turns.append({"role": role, "text": str(block["text"])})
+            elif kind == "tool_use":
+                entry = {"name": block.get("name", "?"),
+                         "target": _tool_target(block.get("input") or {}),
+                         "ok": None, "output": "", "error": ""}
+                pending[str(block.get("id", ""))] = entry
+                tools.append(entry)
+            elif kind == "tool_result":
+                entry = pending.pop(str(block.get("tool_use_id", "")), None)
+                if entry is None:
+                    continue
+                text = _result_text(block.get("content"))
+                if block.get("is_error"):
+                    entry["ok"] = False
+                    entry["error"] = text
+                else:
+                    entry["ok"] = True
+                    entry["output"] = text
+    return {"turns": turns, "tools": tools}
+
+
+def render_session(messages: list[dict[str, Any]], expanded: set[int],
+                   cols: int, rows: int, *, color: bool,
+                   ascii_only: bool = False) -> list[str]:
+    """Conversation tail + progressively disclosed tool executions. Pure."""
+    view = session_view(messages)
+    lines: list[str] = []
+    turn_budget = max(2, rows // 3)
+    for turn in view["turns"][-turn_budget:]:
+        marker = ">" if turn["role"] == "user" else " "
+        first = turn["text"].splitlines()[0] if turn["text"] else ""
+        lines.append(ui.fit(f"{marker} {first}", cols))
+    if view["tools"]:
+        lines.append(ui.fit("─" * cols if not ascii_only else "-" * cols,
+                            cols))
+    for idx, tool in enumerate(view["tools"]):
+        if idx in expanded:
+            lines.extend(uikit.tool_detail(tool, cols, max_lines=8,
+                                           color=color,
+                                           ascii_only=ascii_only))
+        else:
+            lines.append(uikit.tool_summary(tool, cols, color=color,
+                                            ascii_only=ascii_only))
+    return lines[:rows]
+
+
+def _load_transcript(path: str) -> list[dict[str, Any]]:
+    try:
+        import json
+        with open(path, encoding="utf-8") as fh:
+            data = json.load(fh)
+        return data if isinstance(data, list) else []
+    except Exception:
+        return []
 
 
 # -- authority boundary -----------------------------------------------------
@@ -327,8 +422,23 @@ def _loop(session: Any, snap: dict[str, Any], w, keys,
             snap = snapshot(session)
             last = now
         elif key == "\r" and items:
-            if items[state["cursor"]]["kind"] == "approval":
+            item = items[state["cursor"]]
+            if item["kind"] == "approval":
                 state["screen"] = "approval"
+            elif item["kind"] == "session":
+                state["messages"] = _load_transcript(str(item["id"]))
+                state["expanded"] = set()
+                state["screen"] = "session"
+        elif key == " " and state["screen"] == "session":
+            expanded = state.setdefault("expanded", set())
+            idx = state.get("tool_cursor", 0)
+            expanded.symmetric_difference_update({idx})
+        elif key in ("n", "p") and state["screen"] == "session":
+            tools = session_view(state.get("messages") or [])["tools"]
+            step = 1 if key == "n" else -1
+            state["tool_cursor"] = max(
+                0, min(state.get("tool_cursor", 0) + step,
+                       max(0, len(tools) - 1)))
         elif key in ("a", "d") and items:
             item = items[state["cursor"]]
             if item["kind"] != "approval":
