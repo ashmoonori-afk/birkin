@@ -150,14 +150,17 @@ def _build_tools() -> dict[str, dict[str, Any]]:
 
     # propose_action — consequential actions go through the approval queue.
     def _propose(args: dict[str, Any]) -> tuple[str, bool]:
-        if args.get("category", "cron") != "cron":
-            return "propose_action only accepts category 'cron'.", True
+        category = str(args.get("category", "cron")).strip().lower()
+        if category not in {"cron", "shell"}:
+            return "propose_action only accepts category 'cron' or 'shell'.", True
         payload = args.get("payload", {}) or {}
         if not isinstance(payload, dict):
-            return "cron payload must be an object.", True
+            return f"{category} payload must be an object.", True
+        if category == "shell" and not str(payload.get("command", "")).strip():
+            return "shell payload requires a command.", True
         with contextlib.redirect_stdout(sys.stderr):
             status = approvals.propose(
-                category="cron",
+                category=category,
                 title=args.get("title", "(untitled)"),
                 description=args.get("description", ""),
                 payload=payload,
@@ -169,11 +172,12 @@ def _build_tools() -> dict[str, dict[str, Any]]:
         return f"Queued for approval (id {status.get('id')}).", False
 
     tools["propose_action"] = {
-        "description": "Propose a convenience cron job for the user's approval "
-                       "(NOT executed now). category 'cron' with payload "
-                       "{name,hour,minute,type:'prompt',value}.",
+        "description": "Propose a cron job or shell command for the user's "
+                       "approval (NOT executed now). Use category 'shell' with "
+                       "payload {command,cwd} when a requested command cannot "
+                       "run inside the child sandbox.",
         "schema": {"type": "object", "properties": {
-            "category": {"type": "string", "enum": ["cron"]},
+            "category": {"type": "string", "enum": ["cron", "shell"]},
             "title": {"type": "string"}, "description": {"type": "string"},
             "payload": {"type": "object"}},
             "required": ["category", "title"]},

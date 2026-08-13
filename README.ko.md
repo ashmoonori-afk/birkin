@@ -583,7 +583,9 @@ input, 작업 디렉터리, gate, digest에 묶이며, 승인은 권한 상승 �
 - `shell_approval: "manual"`은 파괴적 shell command 전에 묻습니다.
 - Windows shell 작업은 `cmd.exe`로 실행되고 검증된 쓰기 가능한
   `TEMP`/`TMP`를 받으므로 장시간 실행되는 gateway, scheduler, daemon에서도
-  Bun·npm 같은 도구가 정상 동작합니다. PowerShell은 명시적으로 요청할 때만
+  Bun·npm 같은 도구가 정상 동작합니다. sandboxed gateway child는 shell
+  요청을 `propose_action`으로 제출할 수 있으며, Birkin은 child sandbox에서
+  실행하지 않고 승인 큐에 넣습니다. PowerShell은 명시적으로 요청할 때만
   사용합니다.
 - `fs_jail: true`는 네이티브 file tool을 설정된 workspace root로 제한합니다.
 - `redact_secrets: true`는 output 저장 전에 감지한 credential을 마스킹합니다.

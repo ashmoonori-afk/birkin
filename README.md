@@ -594,8 +594,10 @@ Important boundaries:
 - `shell_approval: "manual"` asks before destructive shell commands.
 - On Windows, shell jobs use `cmd.exe` and receive a verified writable
   `TEMP`/`TMP`, so tools such as Bun and npm keep working in long-lived
-  gateway, scheduler, and daemon processes. PowerShell is used only when
-  explicitly requested.
+  gateway, scheduler, and daemon processes. A sandboxed gateway child can
+  submit a shell request through `propose_action`; Birkin queues it instead of
+  running it inside the child sandbox. PowerShell is used only when explicitly
+  requested.
 - `fs_jail: true` restricts native file tools to configured workspace roots.
 - `redact_secrets: true` masks detected credentials before output is persisted.
 - `disabled_tools` removes named native tools from the registry.

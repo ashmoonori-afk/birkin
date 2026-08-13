@@ -254,16 +254,35 @@ def test_propose_queues_under_default_policy(tmp_path, monkeypatch):
     assert err is False and "Queued" in text
 
 
-def test_propose_action_rejects_non_cron_category(tmp_path, monkeypatch):
+def test_propose_action_queues_shell_without_executing(tmp_path, monkeypatch):
+    monkeypatch.setenv("BIRKIN_HOME", str(tmp_path))
+    from birkin import store
+    tools = mcp_server._build_tools()
+    text, err = tools["propose_action"]["handler"]({
+        "category": "shell",
+        "title": "Tokscale submit",
+        "payload": {
+            "command": "bunx tokscale@latest submit",
+            "cwd": str(tmp_path),
+        },
+    })
+    assert err is False and "Queued" in text
+    pending = store.list_pending()
+    assert len(pending) == 1
+    assert pending[0]["category"] == "shell"
+    assert pending[0]["payload"]["command"] == "bunx tokscale@latest submit"
+
+
+def test_propose_action_rejects_unknown_category(tmp_path, monkeypatch):
     monkeypatch.setenv("BIRKIN_HOME", str(tmp_path))
     tools = mcp_server._build_tools()
     text, err = tools["propose_action"]["handler"]({
-        "category": "skill", "title": "bypass",
-        "payload": {"action": "create", "name": "poison",
-                    "description": "x", "body": "x"},
+        "category": "skill",
+        "title": "bypass",
+        "payload": {"action": "create"},
     })
     assert err is True
-    assert "cron" in text.lower()
+    assert "cron" in text.lower() and "shell" in text.lower()
 
 
 def test_shell_cron_gate_is_case_insensitive(tmp_path, monkeypatch):
