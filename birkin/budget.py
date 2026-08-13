@@ -8,10 +8,95 @@ the gate is **transparent and dependency-free**. ``0`` caps mean *unlimited*.
 
 from __future__ import annotations
 
+import threading
+import time
+from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from typing import Any
 
 from . import store
+
+
+class TreeBudgetExceeded(RuntimeError):
+    """A child could not reserve shared tree resources before execution."""
+
+
+@dataclass
+class TreeBudgetLease:
+    budget: "TreeBudget"
+    tokens: int
+    usd: float
+    released: bool = False
+
+    def settle(self, *, tokens: int | None = None,
+               usd: float | None = None) -> None:
+        if self.released:
+            return
+        with self.budget._lock:
+            actual_tokens = self.tokens if tokens is None else max(0, tokens)
+            actual_usd = self.usd if usd is None else max(0.0, usd)
+            self.budget.reserved_tokens += actual_tokens - self.tokens
+            self.budget.reserved_usd += actual_usd - self.usd
+            self.budget.active -= 1
+        self.released = True
+
+    def release(self) -> None:
+        self.settle()
+
+
+class TreeBudget:
+    """One session-owned admission ledger shared by every descendant."""
+
+    def __init__(self, cfg: dict[str, Any]):
+        self.max_tokens = int(cfg.get("subagent_tree_max_tokens", 0) or 0)
+        self.max_usd = float(cfg.get("subagent_tree_max_usd", 0.0) or 0.0)
+        self.max_concurrent = int(
+            cfg.get("subagent_tree_max_concurrent", 0) or 0
+        )
+        self.max_nodes = int(cfg.get("subagent_tree_max_nodes", 0) or 0)
+        seconds = float(
+            cfg.get("subagent_tree_deadline_seconds", 0.0) or 0.0
+        )
+        self.deadline = time.monotonic() + seconds if seconds > 0 else None
+        self.reserved_tokens = 0
+        self.reserved_usd = 0.0
+        self.active = 0
+        self.nodes = 0
+        self._lock = threading.Lock()
+
+    def reserve(self, *, tokens: int = 0, usd: float = 0.0) -> TreeBudgetLease:
+        tokens = max(0, int(tokens))
+        usd = max(0.0, float(usd))
+        with self._lock:
+            if self.max_tokens and tokens == 0:
+                raise TreeBudgetExceeded(
+                    "subagent tree token reservation required"
+                )
+            if self.max_usd and usd == 0.0:
+                raise TreeBudgetExceeded(
+                    "subagent tree USD reservation required"
+                )
+            if self.deadline is not None and time.monotonic() >= self.deadline:
+                raise TreeBudgetExceeded("subagent tree deadline exceeded")
+            if self.max_concurrent and self.active >= self.max_concurrent:
+                raise TreeBudgetExceeded("subagent tree concurrent child limit")
+            if self.max_nodes and self.nodes >= self.max_nodes:
+                raise TreeBudgetExceeded("subagent tree total node limit")
+            if (
+                self.max_tokens
+                and self.reserved_tokens + tokens > self.max_tokens
+            ):
+                raise TreeBudgetExceeded("subagent tree token budget exceeded")
+            if self.max_usd and self.reserved_usd + usd > self.max_usd:
+                raise TreeBudgetExceeded("subagent tree USD budget exceeded")
+            self.active += 1
+            self.nodes += 1
+            self.reserved_tokens += tokens
+            self.reserved_usd += usd
+        return TreeBudgetLease(self, tokens, usd)
+
+    def expired(self) -> bool:
+        return self.deadline is not None and time.monotonic() >= self.deadline
 
 
 def _parse(ts: str) -> datetime | None:

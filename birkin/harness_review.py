@@ -135,8 +135,14 @@ def review(ctx: Any, transcript: str, *, reason: str) -> str:
     proposal = _proposal(ctx, transcript, verdict)
     if proposal is None:
         return f"Harness review ({reason}): no usable proposal returned."
-    result = harness.submit(proposal, cfg=cfg, source="in-session",
-                            origin="harness-review")
+    result = harness.submit(
+        proposal,
+        cfg=cfg,
+        scope="local",
+        session_id=str(cfg.get("session_id") or "default"),
+        source="in-session",
+        origin="harness-review",
+    )
     event = result.get("applied") or {}
     return (f"Harness review ({reason}): "
             f"{len(event.get('changes') or [])} applied, "

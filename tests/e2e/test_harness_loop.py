@@ -41,28 +41,33 @@ def _run_cli(*args: str) -> subprocess.CompletedProcess[str]:
 
 
 def test_the_whole_loop_from_proposal_to_rollback(capsys):
-    cfg = {"harness_enabled": True, "harness_auto_approve": ["memory", "skill"],
+    session_id = "e2e-loop"
+    cfg = {"harness_enabled": True, "session_id": session_id,
+           "harness_auto_approve": ["memory", "skill_note"],
            "harness_max_edits": 12, "harness_prompt_budget": 20000}
 
-    assert harness.state_path("global").exists() is False
+    assert harness.state_path("local", session_id=session_id).exists() is False
 
     seeded = harness.submit(_proposal(
         _create("memory", "Test layout", "Tests live in tests/, e2e in tests/e2e."),
-        _create("skill", "Release audit", "Check both READMEs before a push."),
-    ), cfg=cfg)
+        _create("skill_note", "Release audit", "Check both READMEs before a push."),
+    ), cfg=cfg, scope="local", session_id=session_id)
     assert seeded["queued"] == []
     assert seeded["rejected"] == []
-    baseline_entries = copy.deepcopy(harness.load()["entries"])
+    baseline_entries = copy.deepcopy(
+        harness.load("local", session_id=session_id)["entries"],
+    )
 
     applied = harness.submit(_proposal(
         _create("memory", "Deploy note", "The daemon must be restarted after update."),
         {"action": "update", "kind": "memory", "id": "test_layout",
          "content": "Tests live in tests/; the e2e loop lives in tests/e2e.",
          "reason": "layout clarified"},
-    ), cfg=cfg)
+    ), cfg=cfg, scope="local", session_id=session_id)
     rid = applied["applied"]["id"]
 
-    on_disk = json.loads(harness.state_path("global").read_text(encoding="utf-8"))
+    path = harness.state_path("local", session_id=session_id)
+    on_disk = json.loads(path.read_text(encoding="utf-8"))
     assert on_disk["entries"]["memory"]["deploy_note"]["version"] == 1
     assert on_disk["entries"]["memory"]["test_layout"]["version"] == 2
     assert any(event["id"] == rid for event in on_disk["refinements"])
@@ -75,25 +80,29 @@ def test_the_whole_loop_from_proposal_to_rollback(capsys):
     assert rid in prompt
     assert len(block) <= cfg["harness_prompt_budget"]
 
-    assert cli.main(["harness", "show"]) == 0
+    local_args = ["--scope", "local", "--session-id", session_id]
+    assert cli.main(["harness", "show", *local_args]) == 0
     shown = capsys.readouterr().out
     assert "Deploy note" in shown
 
-    assert cli.main(["harness", "history"]) == 0
+    assert cli.main(["harness", "history", *local_args]) == 0
     listed = capsys.readouterr().out
     assert rid in listed
 
-    assert cli.main(["harness", "rollback", rid]) == 0
+    assert cli.main(["harness", "rollback", rid, *local_args]) == 0
     rolled = capsys.readouterr().out
     assert rid in rolled
 
-    restored = harness.load()["entries"]
+    restored = harness.load("local", session_id=session_id)["entries"]
     assert set(restored["memory"]) == set(baseline_entries["memory"])
     for eid, before in baseline_entries["memory"].items():
         for field in ("title", "content", "path", "kind", "scope"):
             assert restored["memory"][eid][field] == before[field]
-    assert restored["skill"] == baseline_entries["skill"]
-    assert any(event.get("rollback_of") == rid for event in harness.history())
+    assert restored["skill_note"] == baseline_entries["skill_note"]
+    assert any(
+        event.get("rollback_of") == rid
+        for event in harness.history("local", session_id=session_id)
+    )
 
 
 def test_rollback_counts_as_a_refinement_rather_than_erasing_history():
@@ -103,17 +112,24 @@ def test_rollback_counts_as_a_refinement_rather_than_erasing_history():
     same version and different content, and no way to tell an original from a
     restored one. The restored *content* matches; the bookkeeping does not.
     """
+    session_id = "e2e-rollback"
     cfg = {"harness_enabled": True, "harness_auto_approve": ["memory"],
            "harness_max_edits": 12}
     harness.submit(_proposal(
-        _create("memory", "Layout", "original")), cfg=cfg)
+        _create("memory", "Layout", "original")), cfg=cfg,
+        scope="local", session_id=session_id)
 
     changed = harness.submit(_proposal(
         {"action": "update", "kind": "memory", "id": "layout",
-         "content": "edited", "reason": "drift"}), cfg=cfg)
-    harness.rollback(changed["applied"]["id"])
+         "content": "edited", "reason": "drift"}), cfg=cfg,
+        scope="local", session_id=session_id)
+    harness.rollback(
+        changed["applied"]["id"], "local", session_id=session_id,
+    )
 
-    entry = harness.load()["entries"]["memory"]["layout"]
+    entry = harness.load(
+        "local", session_id=session_id,
+    )["entries"]["memory"]["layout"]
     assert entry["content"] == "original"
     assert entry["version"] == 3
     assert entry["source"] == "rollback"
@@ -155,10 +171,15 @@ def test_the_real_cli_exports_the_state_it_was_given(tmp_path):
     cfg = {"harness_enabled": True, "harness_auto_approve": ["memory"],
            "harness_max_edits": 12}
     harness.submit(_proposal(
-        _create("memory", "Exported fact", "Worth keeping.")), cfg=cfg)
+        _create("memory", "Exported fact", "Worth keeping.")), cfg=cfg,
+        scope="local", session_id="e2e-export")
 
     target = tmp_path / "harness-export.json"
-    done = _run_cli("harness", "export", str(target))
+    done = _run_cli(
+        "harness", "export", str(target),
+        "--scope", "local",
+        "--session-id", "e2e-export",
+    )
     assert done.returncode == 0, done.stdout + done.stderr
 
     exported = json.loads(target.read_text(encoding="utf-8"))
