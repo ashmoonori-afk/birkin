@@ -165,6 +165,27 @@ def test_render_documents_terminal_approval_and_refresh_keys():
     assert "f 새로고침" in frame
 
 
+def test_bracketed_paste_is_consumed_as_one_inert_key():
+    from birkin import dash
+
+    stream = bytearray(
+        b"\x1b[200~a r "
+        + "한글 입력".encode()
+        + b"\x1b[201~"
+    )
+
+    def ready(*_args):
+        return ([1], [], []) if stream else ([], [], [])
+
+    def read_byte(_fd, _size):
+        return bytes([stream.pop(0)])
+
+    assert dash._read_posix_key(
+        1, 0.1, select_fn=ready, read_fn=read_byte,
+    ) == "paste"
+    assert not stream
+
+
 def test_workbench_never_imports_execution_machinery():
     import birkin.workbench as module
     src = open(module.__file__, encoding="utf-8").read()

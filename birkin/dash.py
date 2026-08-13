@@ -381,6 +381,44 @@ def dump_plain(snap: dict[str, Any], as_json: bool = False) -> str:
 
 # -- key input -------------------------------------------------------------
 
+def _read_posix_key(fd, timeout, *, select_fn=None, read_fn=None):
+    """Read one terminal action; consume bracketed paste without acting."""
+    import select
+    select_fn = select_fn or select.select
+    read_fn = read_fn or os.read
+
+    def read_exact(size):
+        data = bytearray()
+        while len(data) < size:
+            data.extend(read_fn(fd, size - len(data)))
+        return bytes(data)
+
+    ready, _, _ = select_fn([fd], [], [], timeout)
+    if not ready:
+        return None
+    ch = read_fn(fd, 1).decode("utf-8", "ignore")
+    if ch != "\x1b":
+        return ch
+    ready, _, _ = select_fn([fd], [], [], 0.02)
+    if not ready:
+        return "esc"
+    seq = read_exact(2).decode("utf-8", "ignore")
+    if seq == "[2":
+        suffix = read_exact(3).decode("utf-8", "ignore")
+        if suffix == "00~":
+            end = bytearray()
+            while True:
+                ready, _, _ = select_fn([fd], [], [], 0.02)
+                if not ready:
+                    break
+                end.extend(read_fn(fd, 1))
+                if end.endswith(b"\x1b[201~"):
+                    break
+            return "paste"
+    return {"[A": "up", "[B": "down", "[C": "right",
+            "[D": "left"}.get(seq, "esc")
+
+
 class _Keys:
     """Blocking single-key reader with a timeout, cross-platform."""
 
@@ -397,19 +435,7 @@ class _Keys:
 
     def read(self, timeout: float) -> str | None:
         if self._posix:
-            import select
-            r, _, _ = select.select([self._fd], [], [], timeout)
-            if not r:
-                return None
-            ch = os.read(self._fd, 1).decode("utf-8", "ignore")
-            if ch == "\x1b":                       # arrow / esc
-                r2, _, _ = select.select([self._fd], [], [], 0.02)
-                if not r2:
-                    return "esc"
-                seq = os.read(self._fd, 2).decode("utf-8", "ignore")
-                return {"[A": "up", "[B": "down", "[C": "right",
-                        "[D": "left"}.get(seq, "esc")
-            return ch
+            return _read_posix_key(self._fd, timeout)
         # Windows
         import msvcrt
         deadline = None
