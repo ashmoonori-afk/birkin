@@ -698,6 +698,11 @@ channel도 같은 계약을 번호형 text로 표시할 수 있습니다.
 
 ## Integration workflow
 
+`/work`는 attention-first workbench를 엽니다: 승인·실패가 최상단에 오는
+단일 대기열, 도구 출력을 점진 공개하는 detail bench, `?` 키맵 overlay를
+제공합니다. TTY가 아니면 `/work --plain`·`/work --json`을 사용합니다.
+WebUI dashboard는 같은 Python 소유 상태 계약을 `/api/contract`에서 읽습니다.
+
 지속되는 subagent run은 `/dash`와 REPL에서 확인할 수 있습니다.
 
 ```text

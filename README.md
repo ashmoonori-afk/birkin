@@ -714,6 +714,12 @@ outcome. Non-browser channels can render the same contract as numbered text.
 
 ## Integration workflows
 
+`/work` opens the attention-first workbench: one queue sorted by what needs
+you (approvals and failures first), a detail bench with progressive tool
+disclosure, and a `?` keymap overlay. `/work --plain` and `/work --json`
+serve non-TTY use. The WebUI dashboard reads the same Python-owned state
+contract from `/api/contract`.
+
 Durable subagent runs are visible in `/dash` and the REPL:
 
 ```text
