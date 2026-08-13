@@ -68,6 +68,7 @@ def request_input(
         event = journal.get_accepted_answer(run.resume_action_id)
         if wait is None or event is None:
             raise ContinuationError("assigned Moirai input is not durable")
+        _verify_accepted_event(wait, event)
         if (
             wait["run_id"] != run.parent_run_id
             or wait["worker_id"] != _WORKER_ID
@@ -225,6 +226,7 @@ def resume(
         event = journal.get_accepted_answer(action_id)
         if wait is None or event is None:
             raise ContinuationError("accepted Moirai input is missing")
+        _verify_accepted_event(wait, event)
         if wait["state"] == "resumed":
             return {
                 "ok": True,
@@ -360,7 +362,11 @@ def _validate_binding(
             str(expected),
         ):
             return error
-    if input_schema_version != wait["input_schema_version"]:
+    if (
+        not isinstance(input_schema_version, int)
+        or isinstance(input_schema_version, bool)
+        or input_schema_version != wait["input_schema_version"]
+    ):
         return "unsupported input schema version"
     try:
         current = journal.state_digest(
@@ -373,6 +379,41 @@ def _validate_binding(
     if not secrets.compare_digest(current, wait["previous_state_digest"]):
         return "stale continuation state"
     return ""
+
+
+def _verify_accepted_event(
+    wait: dict[str, Any],
+    event: dict[str, Any],
+) -> None:
+    """Re-derive the acceptance from its wait before the answer is consumed.
+
+    The journal is durable, not authenticated: a rewritten acceptance row must
+    not be able to inject answers the checkpoint never offered.
+    """
+    for key in (
+        "run_id",
+        "worker_id",
+        "step_id",
+        "question_digest",
+        "input_schema_version",
+        "previous_state_digest",
+    ):
+        if event.get(key) != wait[key]:
+            raise ContinuationError(
+                "accepted Moirai input is not bound to its checkpoint"
+            )
+    value = event.get("input")
+    if not isinstance(value, dict) or value.get("version") != _SCHEMA_VERSION:
+        raise ContinuationError("accepted Moirai input schema is unsupported")
+    try:
+        actions.normalize_answers(
+            wait["request"]["questions"],
+            value.get("answers") or {},
+        )
+    except (actions.InvalidAnswer, KeyError, TypeError) as exc:
+        raise ContinuationError(
+            f"accepted Moirai input is not answerable: {exc}"
+        ) from exc
 
 
 def _envelope(wait: dict[str, Any]) -> dict[str, Any]:

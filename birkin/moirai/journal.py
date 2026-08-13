@@ -380,6 +380,8 @@ def state_digest(run_id: str, worker_id: str, step_id: str) -> str:
         "worker_id": worker_id,
         "step_id": step_id,
         "script_sha256": run["script_sha256"],
+        "script_path": run.get("script_path"),
+        "cfg": json.loads(run.get("cfg_json") or "{}"),
         "args": json.loads(run.get("args_json") or "{}"),
         "bindings": json.loads(run.get("bindings_json") or "{}"),
         "calls": [
@@ -508,6 +510,16 @@ def accept_input(
                 raise ContinuationJournalError(
                     "continuation input is not waiting"
                 )
+            # Expiry is re-read under the write lock: validation happens before
+            # this transaction and the lock itself can block for seconds.
+            try:
+                expires = datetime.fromisoformat(str(wait_row["expires_at"]))
+            except ValueError as exc:
+                raise ContinuationJournalError(
+                    "continuation input expiry is invalid"
+                ) from exc
+            if expires.tzinfo is None or expires <= datetime.now(timezone.utc):
+                raise ContinuationJournalError("continuation input expired")
             token_digest = hashlib.sha256(
                 resume_token.encode("utf-8")
             ).hexdigest()

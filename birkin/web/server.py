@@ -331,6 +331,7 @@ class Handler(BaseHTTPRequestHandler):
                 question_digest=str(payload.get("question_digest") or ""),
                 input_schema_version=payload.get("input_schema_version")
                 if isinstance(payload.get("input_schema_version"), int)
+                and not isinstance(payload.get("input_schema_version"), bool)
                 else None,
                 previous_state_digest=str(
                     payload.get("previous_state_digest") or ""

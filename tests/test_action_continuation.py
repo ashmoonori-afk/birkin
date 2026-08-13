@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import json
 from concurrent.futures import ThreadPoolExecutor
+from contextlib import closing
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
 
@@ -595,3 +597,207 @@ def test_resume_fails_before_execution_when_child_run_is_not_durable(
     with pytest.raises(journal.ContinuationJournalError):
         continuation.resume(record["id"])
     assert not effect.exists()
+
+
+def _journal_execute(sql: str, params: tuple[Any, ...]) -> None:
+    with closing(journal._connect()) as con, con:
+        con.execute(sql, params)
+
+
+def _expire_wait(action_id: str) -> None:
+    past = (
+        datetime.now(timezone.utc) - timedelta(seconds=60)
+    ).isoformat(timespec="seconds")
+    _journal_execute(
+        "UPDATE input_waits SET expires_at = ? WHERE action_id = ?",
+        (past, action_id),
+    )
+
+
+def test_answer_rejects_expired_continuation(tmp_path: Path) -> None:
+    _, record, _ = _waiting_action(tmp_path)
+    _expire_wait(record["id"])
+
+    rejected = _answer(record)
+
+    assert rejected["ok"] is False
+    assert rejected["event"] == "reply_rejected"
+    assert rejected["error"] == "action expired"
+    pending = store.get_pending(record["id"])
+    assert pending is not None
+    assert pending["status"] == "pending"
+    assert journal.get_accepted_answer(record["id"]) is None
+
+
+@pytest.mark.parametrize(
+    ("sql", "params_of"),
+    [
+        (
+            "UPDATE input_waits SET request_json = 'not json' "
+            "WHERE action_id = ?",
+            lambda aid: (aid,),
+        ),
+        ("DELETE FROM input_waits WHERE action_id = ?", lambda aid: (aid,)),
+    ],
+    ids=["corrupt-wait", "deleted-wait"],
+)
+def test_answer_fails_closed_when_the_journal_wait_is_unreadable(
+    tmp_path: Path,
+    sql: str,
+    params_of: Any,
+) -> None:
+    _, record, _ = _waiting_action(tmp_path)
+    _journal_execute(sql, params_of(record["id"]))
+    assert journal.get_input_wait(record["id"]) is None
+
+    rejected = _answer(record)
+
+    assert rejected["ok"] is False
+    assert rejected["event"] == "reply_rejected"
+    pending = store.get_pending(record["id"])
+    assert pending is not None
+    assert pending["status"] == "pending"
+    assert pending["action_state"] == "action_needed"
+    assert journal.get_accepted_answer(record["id"]) is None
+
+
+def test_answer_rejects_boolean_input_schema_version(tmp_path: Path) -> None:
+    _, record, _ = _waiting_action(tmp_path)
+
+    rejected = _answer(record, input_schema_version=True)
+
+    assert rejected["ok"] is False
+    assert rejected["error"] == "unsupported input schema version"
+    pending = store.get_pending(record["id"])
+    assert pending is not None
+    assert pending["status"] == "pending"
+    assert journal.get_accepted_answer(record["id"]) is None
+
+
+def test_accept_input_rejects_a_wait_that_expired_before_the_commit(
+    tmp_path: Path,
+) -> None:
+    _, record, _ = _waiting_action(tmp_path)
+    _expire_wait(record["id"])
+
+    with pytest.raises(journal.ContinuationJournalError):
+        journal.accept_input(
+            record["id"],
+            actual_actor="web:dashboard",
+            actual_capability="dashboard.approvals.answer.v1",
+            resume_token=record["resume_token"],
+            input_value={
+                "version": 1,
+                "answers": {"choice": "yes"},
+                "clarification": "",
+                "navigation": [],
+            },
+        )
+
+    assert journal.get_accepted_answer(record["id"]) is None
+    wait = journal.get_input_wait(record["id"])
+    assert wait is not None
+    assert wait["state"] == "waiting"
+
+
+@pytest.mark.parametrize(
+    ("column", "value"),
+    [("cfg_json", '{"max_output_chars": 1}'), ("script_path", "elsewhere.py")],
+)
+def test_state_digest_covers_replayed_runtime_identity(
+    tmp_path: Path,
+    column: str,
+    value: str,
+) -> None:
+    _, _, wait = _waiting_action(tmp_path)
+    before = journal.state_digest(
+        wait["run_id"],
+        wait["worker_id"],
+        wait["step_id"],
+    )
+
+    _journal_execute(
+        f"UPDATE runs SET {column} = ? WHERE run_id = ?",
+        (value, wait["run_id"]),
+    )
+
+    assert (
+        journal.state_digest(
+            wait["run_id"],
+            wait["worker_id"],
+            wait["step_id"],
+        )
+        != before
+    )
+
+
+def test_resume_refuses_an_accepted_event_rewritten_in_the_journal(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from birkin.moirai import continuation
+
+    _, record, _ = _waiting_action(tmp_path, with_agent=True)
+    real_resume = continuation.resume
+    monkeypatch.setattr(
+        continuation,
+        "resume",
+        lambda action_id, **unused: {"ok": True, "resume_run_id": "deferred"},
+    )
+    assert _answer(record)["ok"] is True
+    monkeypatch.setattr(continuation, "resume", real_resume)
+
+    _journal_execute(
+        "UPDATE accepted_answers SET input_json = ? WHERE action_id = ?",
+        (
+            json.dumps(
+                {
+                    "version": 1,
+                    "answers": {"choice": "rm -rf /"},
+                    "clarification": "",
+                    "navigation": [],
+                },
+                sort_keys=True,
+                separators=(",", ":"),
+            ),
+            record["id"],
+        ),
+    )
+
+    def no_live_spawn(*args: Any, **kwargs: Any) -> str:
+        raise AssertionError("tampered input must never reach execution")
+
+    with pytest.raises(continuation.ContinuationError):
+        continuation.resume(record["id"], spawn=no_live_spawn)
+
+    wait = journal.get_input_wait(record["id"])
+    assert wait is not None
+    assert wait["state"] != "resumed"
+
+
+def test_resume_refuses_an_accepted_event_unbound_from_its_wait(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from birkin.moirai import continuation
+
+    _, record, _ = _waiting_action(tmp_path, with_agent=True)
+    real_resume = continuation.resume
+    monkeypatch.setattr(
+        continuation,
+        "resume",
+        lambda action_id, **unused: {"ok": True, "resume_run_id": "deferred"},
+    )
+    assert _answer(record)["ok"] is True
+    monkeypatch.setattr(continuation, "resume", real_resume)
+
+    _journal_execute(
+        "UPDATE accepted_answers SET question_digest = ? WHERE action_id = ?",
+        ("0" * 64, record["id"]),
+    )
+
+    def no_live_spawn(*args: Any, **kwargs: Any) -> str:
+        raise AssertionError("unbound acceptance must never reach execution")
+
+    with pytest.raises(continuation.ContinuationError):
+        continuation.resume(record["id"], spawn=no_live_spawn)

@@ -122,6 +122,21 @@ def request_answers(
     }
 
 
+def _is_moirai_continuation(aid: str) -> bool:
+    """Claim the action for the durable contract before the journal is read.
+
+    The pending projection is the only trust anchor left when the journal row
+    is missing or unreadable; without this the plain answer path would resolve
+    a Moirai checkpoint with none of its binding checks.
+    """
+    record = store.get_pending(aid)
+    envelope = (record or {}).get("continuation")
+    return (
+        isinstance(envelope, dict)
+        and envelope.get("handler") == "moirai.resume.v1"
+    )
+
+
 def answer(
     aid: str,
     *,
@@ -138,7 +153,7 @@ def answer(
     """Resolve one structured action with a validated answer set."""
     from .moirai import continuation, journal
 
-    if journal.get_input_wait(aid) is not None:
+    if _is_moirai_continuation(aid) or journal.get_input_wait(aid) is not None:
         return continuation.accept(
             aid,
             answers=answers,
