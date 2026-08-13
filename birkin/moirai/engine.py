@@ -92,6 +92,12 @@ def load_script(path: str | Path) -> Script:
     if not p.is_file():
         raise MoiraiError(f"워크플로우 파일이 없습니다: {p}")
     source = p.read_text(encoding="utf-8")
+    return load_script_source(p, source)
+
+
+def load_script_source(path: str | Path, source: str) -> Script:
+    """Compile exactly the supplied, already-read workflow bytes."""
+    p = Path(path).expanduser()
     namespace: dict[str, Any] = {"__file__": str(p), "__name__": "__moirai__"}
     try:
         exec(compile(source, str(p), "exec"), namespace)   # noqa: S102
@@ -155,6 +161,33 @@ class MoiraiAPI:
             phase=phase, schema=schema, tools=tools, cwd=cwd,
             max_turns=max_turns, timeout=timeout, effort=effort)
 
+    def request_answers(
+        self,
+        *,
+        step_id: str,
+        title: str,
+        description: str,
+        questions: list[dict[str, Any]],
+        expected_actor: str = "web:dashboard",
+        expected_capability: str = "dashboard.approvals.answer.v1",
+        timeout_seconds: int = 300,
+        allow_clarification: bool = True,
+    ) -> dict[str, Any]:
+        """Suspend at one durable, explicitly named human-input checkpoint."""
+        from . import continuation
+
+        return continuation.request_input(
+            self._run,
+            step_id=step_id,
+            title=title,
+            description=description,
+            questions=questions,
+            expected_actor=expected_actor,
+            expected_capability=expected_capability,
+            timeout_seconds=timeout_seconds,
+            allow_clarification=allow_clarification,
+        )
+
     def parallel(self, thunks: list[Callable[[], Any]]) -> list[Any]:
         """Run thunks concurrently and wait for all of them.
 
@@ -200,10 +233,12 @@ class Run:
 
     def __init__(self, script: Script, *, cfg: dict,
                  bindings_map: dict[str, Binding],
-                 args: Optional[dict] = None,
-                 run_id: Optional[str] = None,
-                 resume_from: Optional[str] = None,
-                 on_event: Optional[Callable[[str, dict], None]] = None,
+                  args: Optional[dict] = None,
+                  run_id: Optional[str] = None,
+                  resume_from: Optional[str] = None,
+                  parent_run_id: Optional[str] = None,
+                  resume_action_id: Optional[str] = None,
+                  on_event: Optional[Callable[[str, dict], None]] = None,
                  abort: Optional[Any] = None,
                  spawn: Optional[Callable] = None) -> None:
         self.script = script
@@ -211,6 +246,10 @@ class Run:
         self.bindings = bindings_map
         self.args = dict(args or {})
         self.run_id = run_id or f"{time.strftime('%Y%m%d-%H%M%S')}-{uuid.uuid4().hex[:4]}"
+        self.resume_from = resume_from
+        self.parent_run_id = parent_run_id
+        self.resume_action_id = resume_action_id
+        self.consumed_resume_action = False
         self.on_event = on_event
         self.abort = abort
         self._spawn = spawn or _default_spawn
@@ -226,6 +265,16 @@ class Run:
         self._spawned = 0
         self._admission_lock = threading.Lock()
         self._cache = journal.cached_calls(resume_from) if resume_from else {}
+        self._cache_by_key: dict[str, list[dict[str, Any]]] = {}
+        self._cache_lock = threading.Lock()
+        self._lane = threading.local()
+        for call in self._cache.values():
+            self._cache_by_key.setdefault(
+                str(call["call_key"]),
+                [],
+            ).append(call)
+        for calls in self._cache_by_key.values():
+            calls.sort(key=lambda call: int(call["seq"]))
         self.cache_hits = 0
         # A failed agent returns None and the run keeps going, so the death
         # that mattered surfaces later as a downstream symptom
@@ -285,13 +334,25 @@ class Run:
             "max_turns": opts.get("max_turns", 12),
         }
         key = journal.call_key(prompt, call_opts)
+        lane = getattr(self._lane, "path", ())
+        if lane:
+            lane_id = ".".join(str(index) for index in lane)
+            key = hashlib.sha256(
+                f"{key}:lane:{lane_id}".encode()
+            ).hexdigest()[:16]
 
         with self._seq_lock:
             self._seq += 1
             seq = self._seq
 
-        cached = self._cache.get(seq)
-        if cached and cached.get("call_key") == key:
+        cached = None
+        if self.resume_from:
+            with self._cache_lock:
+                candidates = self._cache_by_key.get(key, [])
+                if candidates:
+                    cached = candidates.pop(0)
+        if cached:
+            journal.record_cached_call(self.run_id, cached)
             self.cache_hits += 1
             self._emit("moirai.cached", {"seq": seq,
                                          "label": opts.get("label") or role or ""})
@@ -392,18 +453,38 @@ class Run:
     def run_parallel(self, thunks: list[Callable[[], Any]]) -> list[Any]:
         if not thunks:
             return []
+        parent_lane = getattr(self._lane, "path", ())
         if len(thunks) == 1:
-            return [_safe(thunks[0])]
+            return [self._run_in_lane(thunks[0], parent_lane + (0,))]
         results: list[Any] = [None] * len(thunks)
         with ThreadPoolExecutor(
                 max_workers=min(len(thunks), self.workers)) as pool:
-            futures = {pool.submit(_safe, t): i for i, t in enumerate(thunks)}
+            futures = {
+                pool.submit(
+                    self._run_in_lane,
+                    thunk,
+                    parent_lane + (index,),
+                ): index
+                for index, thunk in enumerate(thunks)
+            }
             for fut, idx in futures.items():
                 try:
                     results[idx] = fut.result()
                 except Exception:
                     results[idx] = None
         return results
+
+    def _run_in_lane(
+        self,
+        thunk: Callable[[], Any],
+        lane: tuple[int, ...],
+    ) -> Any:
+        previous = getattr(self._lane, "path", ())
+        self._lane.path = lane
+        try:
+            return _safe(thunk)
+        finally:
+            self._lane.path = previous
 
     def run_pipeline(self, items: list[Any],
                      stages: tuple[Callable, ...]) -> list[Any]:
@@ -513,7 +594,10 @@ def _default_spawn(prompt: str, binding: Binding, opts: dict, cfg: dict, *,
 def run_script(script: Script, *, cfg: Optional[dict] = None,
                bindings_map: Optional[dict[str, Binding]] = None,
                args: Optional[dict] = None,
+               run_id: Optional[str] = None,
                resume_from: Optional[str] = None,
+               parent_run_id: Optional[str] = None,
+               resume_action_id: Optional[str] = None,
                on_event: Optional[Callable[[str, dict], None]] = None,
                abort: Optional[Any] = None,
                spawn: Optional[Callable] = None) -> dict[str, Any]:
@@ -524,25 +608,65 @@ def run_script(script: Script, *, cfg: Optional[dict] = None,
     _bindings.check_roles_used(script.roles, script.roles_used())
     _bindings.validate(bindings_map, cfg)
 
-    run = Run(script, cfg=cfg, bindings_map=bindings_map, args=args,
-              resume_from=resume_from, on_event=on_event, abort=abort,
-              spawn=spawn)
+    run = Run(
+        script,
+        cfg=cfg,
+        bindings_map=bindings_map,
+        args=args,
+        run_id=run_id,
+        resume_from=resume_from,
+        parent_run_id=parent_run_id,
+        resume_action_id=resume_action_id,
+        on_event=on_event,
+        abort=abort,
+        spawn=spawn,
+    )
     journal.start_run(run.run_id, name=script.name,
                       script_path=str(script.path),
                       script_sha256=script.sha256, args=run.args,
-                      bindings=_bindings.as_specs(bindings_map))
+                      bindings=_bindings.as_specs(bindings_map),
+                      cfg=cfg,
+                      parent_run_id=parent_run_id,
+                      resume_action_id=resume_action_id,
+                      critical=resume_action_id is not None)
+    if resume_action_id and journal.get_run(run.run_id) is None:
+        raise journal.ContinuationJournalError(
+            "continuation child start was not durable"
+        )
     api = MoiraiAPI(run)
     started = time.monotonic()
     try:
         result = script.main(api)
+        if resume_action_id and not run.consumed_resume_action:
+            raise MoiraiError("assigned Moirai input was not consumed")
         status = "aborted" if run._aborted() else "completed"
     except Exception as exc:
+        from .continuation import MoiraiInputRequired
+
+        if isinstance(exc, MoiraiInputRequired):
+            journal.finish_run(
+                run.run_id,
+                "waiting_input",
+                result={"action_id": exc.action_id},
+                tokens=run.budget.spent(),
+                critical=resume_action_id is not None,
+            )
+            return {
+                "run_id": run.run_id,
+                "status": "waiting_input",
+                "result": {"action_id": exc.action_id},
+                "agents": run._spawned,
+                "cache_hits": run.cache_hits,
+                "tokens": run.budget.spent(),
+                "seconds": round(time.monotonic() - started, 1),
+            }
         journal.finish_run(
             run.run_id, "error",
             result=_with_failures({"error": str(exc),
                                    "traceback": _traceback.format_exc()[:4000]},
                                   run.failures),
-            tokens=run.budget.spent())
+            tokens=run.budget.spent(),
+            critical=resume_action_id is not None)
         store.save_run("moirai", f"{script.name}: 실패 — {exc}",
                        details={"run_id": run.run_id, "error": str(exc)})
         raise MoiraiError(f"워크플로우 실패 ({script.name}): {exc}") from exc
@@ -550,7 +674,8 @@ def run_script(script: Script, *, cfg: Optional[dict] = None,
     elapsed = time.monotonic() - started
     journal.finish_run(run.run_id, status,
                        result=_with_failures(result, run.failures),
-                       tokens=run.budget.spent())
+                       tokens=run.budget.spent(),
+                       critical=resume_action_id is not None)
     store.save_run(
         "moirai", f"{script.name}: {status} · 에이전트 {run._spawned}",
         details={"run_id": run.run_id, "script": str(script.path),

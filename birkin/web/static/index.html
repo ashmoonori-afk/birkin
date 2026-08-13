@@ -339,7 +339,8 @@ async function answer(form){
   const controls=Array.from(form.querySelectorAll("button,input,textarea"));controls.forEach(function(control){control.disabled=true});
   try{
     const clarification=form.querySelector("[name=clarification]");
-    const response=await fetch("/api/approvals",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({id:form.dataset.actionForm,action:"answer",answers:answers,clarification:clarification?clarification.value:""})});
+    const item=STATE.approvals.find(function(candidate){return candidate.id===form.dataset.actionForm})||{};
+    const response=await fetch("/api/approvals",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({id:form.dataset.actionForm,action:"answer",answers:answers,clarification:clarification?clarification.value:"",resume_token:item.resume_token||"",question_digest:item.question_digest||"",input_schema_version:item.input_schema_version||null,previous_state_digest:item.previous_state_digest||""})});
     const payload=await response.json().catch(function(){return {}});
     if(!response.ok||payload.event!=="action_resolved")throw new Error(payload.error||String(response.status));
     form.outerHTML='<div class="action-outcome" data-action-outcome="'+esc(payload.id)+'">Resolved by '+esc(payload.resolved_by||"web:dashboard")+'</div>';

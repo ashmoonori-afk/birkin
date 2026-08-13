@@ -675,6 +675,21 @@ birkin curate-memory
   설명, 추천 metadata가 있습니다. 첫 유효 응답 하나만 원자적으로 확정되며,
   늦거나 잘못되었거나 만료된 답은 `reply_rejected`를 반환합니다.
 
+Moirai workflow는 최상위 `m.request_answers(step_id=...)` checkpoint에서
+중단할 수 있습니다. 이 대기는 action을 원본 run, `main` worker, 명시적 step,
+정확한 question digest, 인증된 actor/capability 종류, 만료 시각, 무작위 resume
+token, input schema version, 이전 상태 digest에 묶습니다. Birkin은 재개를
+시작하기 전에 accepted-answer event 하나를 먼저 commit하고 다시 고쳐 쓰지
+않습니다. 이 기록은 구조상 삽입 전용일 뿐 암호학적 위변조 증거는 아닙니다.
+journal 파일에 쓸 수 있는 주체는 이미 신뢰 경계 안입니다.
+
+재개는 child run에서 수행되는 정확한 **논리적 checkpoint replay**입니다.
+Birkin은 script와 이전 상태 digest를 검증하고 저장된 args와 binding을 복원하며,
+내구적으로 기록된 agent-call prefix를 재생한 뒤 versioned answer를 해당 step에만
+주입합니다. 임의의 Python stack을 복원하거나 checkpoint 이전의 journal 밖 side
+effect를 exactly-once로 보장하지는 않습니다. 따라서 input checkpoint는 최상위
+`main` worker에서만 허용되며, 익명 parallel thunk에서 호출하면 fail closed합니다.
+
 WebUI 승인 inbox는 구조화 action을 접근 가능한 control로 표시합니다. 제출에
 성공하면 card가 그 자리에서 해결 완료·비활성 상태로 바뀝니다. 브라우저가 아닌
 channel도 같은 계약을 번호형 text로 표시할 수 있습니다.

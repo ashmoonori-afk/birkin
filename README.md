@@ -690,6 +690,22 @@ birkin curate-memory
   answer wins atomically; stale, malformed, or expired replies return
   `reply_rejected`.
 
+Moirai workflows can stop at a top-level `m.request_answers(step_id=...)`
+checkpoint. The wait binds the action to the source run, `main` worker, explicit
+step, exact question digest, authenticated actor/capability class, expiry,
+random resume token, input schema version, and prior-state digest. Birkin
+commits one accepted-answer event, which it never rewrites, before it starts a
+resume. That record is insert-only by construction, not cryptographically
+tamper-evident: write access to the journal file is inside the trust boundary.
+
+Resume is an exact **logical checkpoint replay** in a child run: Birkin verifies
+the script and prior-state digests, restores the stored args and bindings,
+replays the durable agent-call prefix, and injects the versioned answer only at
+the bound step. It does not restore an arbitrary Python stack or promise
+exactly-once execution for unjournaled side effects before the checkpoint.
+Input checkpoints are therefore limited to the top-level `main` worker; calls
+from anonymous parallel thunks fail closed.
+
 The WebUI approval inbox renders structured actions as accessible controls. A
 successful submission changes the card in place to a resolved, disabled
 outcome. Non-browser channels can render the same contract as numbered text.

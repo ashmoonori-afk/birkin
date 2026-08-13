@@ -2,11 +2,43 @@
 
 from __future__ import annotations
 
+import hashlib
+import json
 from typing import Any
 
 
 class InvalidAnswer(ValueError):
     """A reply does not match the action's question contract."""
+
+
+def canonical_digest(value: Any) -> str:
+    """SHA-256 of one deterministic, JSON-only contract value."""
+    encoded = json.dumps(
+        value,
+        ensure_ascii=False,
+        sort_keys=True,
+        separators=(",", ":"),
+        allow_nan=False,
+    ).encode("utf-8")
+    return hashlib.sha256(encoded).hexdigest()
+
+
+def question_digest(
+    *,
+    title: str,
+    description: str,
+    questions: list[dict[str, Any]],
+    allow_clarification: bool,
+    input_schema_version: int = 1,
+) -> str:
+    """Bind an answer to the exact question contract shown to a human."""
+    return canonical_digest({
+        "input_schema_version": input_schema_version,
+        "title": title,
+        "description": description,
+        "questions": questions,
+        "allow_clarification": allow_clarification,
+    })
 
 
 def normalize_questions(
