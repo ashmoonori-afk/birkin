@@ -170,6 +170,12 @@ class Handler(BaseHTTPRequestHandler):
             self._send(200, html.encode("utf-8"), "text/html; charset=utf-8")
         elif self.path == "/api/status":
             self._json(_status_payload())
+        elif self.path == "/api/contract":
+            # Python-owned UI contract: state schema + design tokens. The
+            # page generates its state table from this; it never copies it.
+            from .. import ui_tokens, uistate
+            self._json({"uistate": uistate.schema(),
+                        "tokens": ui_tokens.to_json()})
         elif self.path == "/api/jobs":
             self._json({"status": store.read_status(), "jobs": cron.load_jobs()})
         elif self.path == "/api/runs":
@@ -178,10 +184,11 @@ class Handler(BaseHTTPRequestHandler):
             if not self._capability_ok():
                 self._json({"error": "missing or invalid capability"}, code=403)
                 return
-            from .. import risk as risk_mod
+            from .. import risk as risk_mod, uistate
             items = risk_mod.sort_by_risk(approvals.reviewable_pending())
             for it in items:
                 it["risk"] = risk_mod.risk_for(it.get("category", ""))
+                it["ui_state"] = uistate.from_approval(it).state
             self._json(items)
         elif self.path == "/api/skills":
             cfg = config.load_config()
