@@ -321,9 +321,13 @@ def _validate_job(job: dict[str, Any], index: int) -> dict[str, Any]:
     path = f"cron.json:$[{index}]"
     if job.get("schema_version") != CRON_SCHEMA_VERSION:
         raise CronFormatError(f"{path}.schema_version: unsupported value")
-    for key in ("id", "name", "type", "value", "created"):
+    for key in ("id", "name", "type", "created"):
         if not isinstance(job.get(key), str) or not job[key]:
             raise CronFormatError(f"{path}.{key}: expected a non-empty string")
+    # `value` carries the prompt/shell payload, but a monitor job keeps its
+    # payload in monitor_url/monitor_script and add_job() defaults value to "".
+    if not isinstance(job.get("value"), str):
+        raise CronFormatError(f"{path}.value: expected a string")
     if job["type"] not in _ACTION_TYPES:
         raise CronFormatError(f"{path}.type: unsupported action {job['type']!r}")
     if not isinstance(job.get("enabled"), bool):
@@ -342,6 +346,11 @@ def _validate_job(job: dict[str, Any], index: int) -> dict[str, Any]:
     allowed_fields = set(_COMMON_JOB_FIELDS)
     if job["type"] == "monitor":
         allowed_fields |= _MONITOR_FIELDS
+        for key in ("monitor_url", "monitor_script"):
+            if job.get(key) is not None and not isinstance(job[key], str):
+                raise CronFormatError(
+                    f"{path}.{key}: expected a string or null"
+                )
         url = job.get("monitor_url")
         script = job.get("monitor_script")
         if bool(url) == bool(script):

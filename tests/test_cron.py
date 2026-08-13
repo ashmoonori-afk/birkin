@@ -216,6 +216,32 @@ def test_non_monitor_rejects_monitor_only_fields() -> None:
         cron.save_jobs([job])
 
 
+def test_empty_prompt_value_remains_valid() -> None:
+    job = cron.add_job(name="empty")
+
+    assert job["value"] == ""
+    assert cron.load_jobs()[0]["value"] == ""
+
+
+@pytest.mark.parametrize(
+    ("field", "value"),
+    [
+        ("monitor_url", 7),
+        ("monitor_script", ["echo", "bad"]),
+    ],
+)
+def test_monitor_sources_require_strings(field, value) -> None:
+    job = cron.add_job(
+        name="monitor",
+        action_type="monitor",
+        monitor_url="https://example.com",
+    )
+    job[field] = value
+
+    with pytest.raises(cron.CronFormatError):
+        cron.save_jobs([job])
+
+
 def test_add_monitor_job_schema_clamps_max_bytes():
     job = cron.add_job(
         name="watch", action_type="monitor", value="summarize the change",
