@@ -160,6 +160,31 @@ def _approval_screen(snap: dict[str, Any], state: dict[str, Any],
     return lines[:height]
 
 
+_KEYMAP: tuple[tuple[str, str, str], ...] = (
+    ("탐색", "j/k", "이동"), ("탐색", "Enter", "열기"),
+    ("탐색", "g/G", "처음/끝"),
+    ("승인", "a", "승인 요청"), ("승인", "r", "거부 요청"),
+    ("화면", "1..9", "화면 전환"), ("화면", "?", "도움"),
+    ("화면", "Esc", "뒤로"), ("화면", "q", "종료"),
+)
+
+
+def _help_screen(width: int, height: int, query: str) -> list[str]:
+    """Searchable keymap grouped by task, never a flat dump."""
+    q = (query or "").strip()
+    lines = [ui.fit("도움 — 키맵" + (f" (검색: {q})" if q else ""), width)]
+    for group in dict.fromkeys(g for g, _, _ in _KEYMAP):
+        entries = [(key, label) for g, key, label in _KEYMAP
+                   if g == group and (not q or q in g or q in key
+                                      or q in label)]
+        if not entries:
+            continue
+        lines.append(ui.fit(f"[{group}]", width))
+        for key, label in entries:
+            lines.append(ui.fit(f"  {key}  {label}", width))
+    return lines[:height]
+
+
 def render(snap: dict[str, Any], state: dict[str, Any],
            size: tuple[int, int], *, color: bool | None = None,
            ascii_only: bool = False) -> list[str]:
@@ -181,6 +206,8 @@ def render(snap: dict[str, Any], state: dict[str, Any],
                                 state.get("expanded") or set(),
                                 cols, body_h, color=color,
                                 ascii_only=ascii_only)
+    elif state.get("screen") == "help":
+        lines += _help_screen(cols, body_h, str(state.get("query", "")))
     elif cols < _NARROW:
         waiting = _waiting_count(items)
         lines.append(ui.fit(f"주의 필요 — 대기 {waiting}", cols))
@@ -193,17 +220,25 @@ def render(snap: dict[str, Any], state: dict[str, Any],
             marker = ">" if i == state.get("cursor", 0) else " "
             lines.append(ui.fit(f"{marker} {row}", cols))
     else:
-        rail_w = min(_RAIL_W, max(20, cols // 3))
+        # medium (<100 cols): glyph-only rail — density is modal, titles are
+        # never crushed to fit (Herdr principle, Birkin geometry).
+        compact = cols < 100
+        rail_w = 4 if compact else min(_RAIL_W, max(20, cols // 3))
         bench_w = cols - rail_w - 3
         cursor = min(state.get("cursor", 0), max(0, len(items) - 1))
         rail: list[str] = []
         top = state.get("top", 0)
         for i, item in enumerate(items[top:top + body_h], start=top):
-            row = uikit.session_row(
-                {"title": item["title"], "state": item["view"].state,
-                 "age": item["age"]}, rail_w - 2, color=color,
-                ascii_only=ascii_only)
             marker = ">" if i == cursor else " "
+            if compact:
+                mark = uistate.glyph(item["view"].state,
+                                     ascii_only=ascii_only)
+                row = mark
+            else:
+                row = uikit.session_row(
+                    {"title": item["title"], "state": item["view"].state,
+                     "age": item["age"]}, rail_w - 2, color=color,
+                    ascii_only=ascii_only)
             rail.append(ui.pad(ui.fit(f"{marker} {row}", rail_w), rail_w))
         bench = (_bench_preview(items[cursor], bench_w, body_h, color=color,
                                 ascii_only=ascii_only)
@@ -418,6 +453,8 @@ def _loop(session: Any, snap: dict[str, Any], w, keys,
             state["cursor"] = 0
         elif key == "G":
             state["cursor"] = max(0, len(items) - 1)
+        elif key == "?":
+            state["screen"] = "help"
         elif key == "r":
             snap = snapshot(session)
             last = now
