@@ -38,7 +38,7 @@ def test_load_jobs_migrates_legacy_daily_record():
     assert json.loads(path.read_text(encoding="utf-8"))[0] == job
 
 
-def test_load_jobs_rejects_unknown_schedule_kind_without_rewriting():
+def test_load_jobs_skips_unknown_schedule_kind_without_rewriting(capsys):
     path = config.cron_path()
     raw = (
         '[{"schema_version":1,"id":"bad","name":"bad","hour":9,'
@@ -49,21 +49,48 @@ def test_load_jobs_rejects_unknown_schedule_kind_without_rewriting():
     )
     path.write_text(raw, encoding="utf-8")
 
+    assert cron.load_jobs() == []                       # skipped, not fatal
+    assert path.read_text(encoding="utf-8") == raw      # and not rewritten
+    assert "schedule.kind" in capsys.readouterr().out
+
     with pytest.raises(cron.CronFormatError, match="schedule.kind"):
-        cron.load_jobs()
-
-    assert path.read_text(encoding="utf-8") == raw
+        cron.save_jobs(json.loads(raw))                 # writers stay strict
 
 
-def test_load_jobs_rejects_unknown_action_type():
-    job = cron.add_job(
+def test_load_jobs_skips_unknown_action_type(capsys):
+    good = cron.add_job(
         name="ok", hour=9, minute=0, action_type="prompt", value="go"
     )
-    job["type"] = "magic"
-    config.cron_path().write_text(json.dumps([job]), encoding="utf-8")
+    bad = {**good, "id": "magical", "type": "magic"}
+    config.cron_path().write_text(json.dumps([good, bad]), encoding="utf-8")
+
+    assert [job["id"] for job in cron.load_jobs()] == [good["id"]]
+    assert ".type" in capsys.readouterr().out
 
     with pytest.raises(cron.CronFormatError, match=r"\.type"):
-        cron.load_jobs()
+        cron.save_jobs([bad])
+
+
+def test_load_jobs_survives_a_file_that_is_not_a_list(capsys):
+    config.cron_path().write_text('{"oops": true}', encoding="utf-8")
+
+    assert cron.load_jobs() == []
+    assert "cron.json" in capsys.readouterr().out
+
+
+def test_load_jobs_drops_hand_added_unknown_fields(capsys):
+    good = cron.add_job(
+        name="ok", hour=9, minute=0, action_type="prompt", value="go"
+    )
+    config.cron_path().write_text(
+        json.dumps([{**good, "notes": "hand-added"}]), encoding="utf-8"
+    )
+
+    [loaded] = cron.load_jobs()
+
+    assert loaded["id"] == good["id"]
+    assert "notes" not in loaded
+    assert "notes" in capsys.readouterr().out
 
 
 def test_legacy_migration_rereads_after_acquiring_lock(

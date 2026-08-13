@@ -271,12 +271,17 @@ def _read_jobs() -> list[dict[str, Any]]:
     try:
         raw = json.loads(path.read_text(encoding="utf-8"))
     except (json.JSONDecodeError, OSError) as exc:
-        raise CronFormatError(f"{path.name}: invalid JSON") from exc
+        # Fail loud but non-fatal: reading cron.json must never brick the CLI
+        # or kill the scheduler daemon (its poll loop has no handler).
+        print(f"[birkin] warning: {path.name}: invalid JSON ({exc}); ignoring")
+        return []
     if not isinstance(raw, list):
-        raise CronFormatError(f"{path.name}:$ expected an array")
-    if not all(isinstance(item, dict) for item in raw):
-        raise CronFormatError(f"{path.name}:$ entries must be objects")
-    return raw
+        print(f"[birkin] warning: {path.name}:$ expected an array; ignoring")
+        return []
+    kept = [item for item in raw if isinstance(item, dict)]
+    if len(kept) != len(raw):
+        print(f"[birkin] warning: {path.name}:$ skipped non-object entries")
+    return kept
 
 
 def _validate_schedule(schedule: Any, path: str) -> dict[str, Any]:
@@ -317,7 +322,14 @@ def _validate_schedule(schedule: Any, path: str) -> dict[str, Any]:
     return dict(schedule)
 
 
-def _validate_job(job: dict[str, Any], index: int) -> dict[str, Any]:
+def _validate_job(
+    job: dict[str, Any],
+    index: int,
+    *,
+    strict: bool = True,
+) -> dict[str, Any]:
+    """Validate one record. ``strict`` writers reject unknown fields; the
+    reader drops them so a hand-edited file still loads."""
     path = f"cron.json:$[{index}]"
     if job.get("schema_version") != CRON_SCHEMA_VERSION:
         raise CronFormatError(f"{path}.schema_version: unsupported value")
@@ -365,7 +377,11 @@ def _validate_job(job: dict[str, Any], index: int) -> dict[str, Any]:
             )
     extras = set(job) - allowed_fields
     if extras:
-        raise CronFormatError(f"{path}: unknown field {min(extras)!r}")
+        if strict:
+            raise CronFormatError(f"{path}: unknown field {min(extras)!r}")
+        print(f"[birkin] warning: {path}: dropping unknown field "
+              f"{min(extras)!r}")
+        job = {k: v for k, v in job.items() if k not in extras}
     schedule = _validate_schedule(job.get("schedule"), f"{path}.schedule")
     if _parse_dt(job.get("created")) is None:
         raise CronFormatError(f"{path}.created: expected an ISO datetime")
@@ -382,8 +398,9 @@ def _validate_job(job: dict[str, Any], index: int) -> dict[str, Any]:
 
 
 def _migrate_job(job: dict[str, Any], index: int) -> tuple[dict[str, Any], bool]:
+    """Read path only: never strict, so hand-added keys do not fail the load."""
     if "schema_version" in job:
-        return _validate_job(job, index), False
+        return _validate_job(job, index, strict=False), False
     migrated = dict(job)
     migrated["schema_version"] = CRON_SCHEMA_VERSION
     migrated.setdefault("enabled", True)
@@ -405,25 +422,36 @@ def _migrate_job(job: dict[str, Any], index: int) -> tuple[dict[str, Any], bool]
             last=_parse_dt(migrated.get("last_run"))
             or _parse_dt(migrated.get("created")),
         )
-    return _validate_job(migrated, index), True
+    return _validate_job(migrated, index, strict=False), True
 
 
 def _parse_jobs(
     jobs: list[dict[str, Any]],
 ) -> tuple[list[dict[str, Any]], bool]:
     migrated = False
+    skipped = False
     validated: list[dict[str, Any]] = []
     ids: set[str] = set()
     for index, job in enumerate(jobs):
-        parsed, changed = _migrate_job(job, index)
+        try:
+            parsed, changed = _migrate_job(job, index)
+        except CronFormatError as exc:
+            # Quarantine the record instead of failing the whole file: one bad
+            # entry must not take down the CLI, the daemon, or the WebUI.
+            print(f"[birkin] warning: skipping cron record ({exc})")
+            skipped = True
+            continue
         if parsed["id"] in ids:
-            raise CronFormatError(
-                f"cron.json:$[{index}].id: duplicate id {parsed['id']!r}"
-            )
+            print(f"[birkin] warning: skipping cron record "
+                  f"(cron.json:$[{index}].id: duplicate id {parsed['id']!r})")
+            skipped = True
+            continue
         ids.add(parsed["id"])
         validated.append(parsed)
         migrated = migrated or changed
-    return validated, migrated
+    # Never rewrite a file we could not fully read: persisting the migration
+    # would drop the quarantined records for good.
+    return validated, migrated and not skipped
 
 
 def _load_jobs_unlocked(*, persist_migration: bool) -> list[dict[str, Any]]:
