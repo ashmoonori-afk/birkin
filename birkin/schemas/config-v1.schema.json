@@ -1,0 +1,79 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://birkin.dev/schemas/config-v1.schema.json",
+  "title": "Birkin configuration",
+  "x-birkin-version": 1,
+  "type": "object",
+  "additionalProperties": true,
+  "properties": {
+    "api_keys": {"type": "array", "items": {"type": "string"}},
+    "cli_command": {"type": "array", "items": {"type": "string"}},
+    "command_allowlist": {"type": "array", "items": {"type": "string"}},
+    "extra_skill_dirs": {"type": "array", "items": {"type": "string"}},
+    "disabled_tools": {"type": "array", "items": {"type": "string"}},
+    "gateway_allowed_tools": {"type": "array", "items": {"type": "string"}},
+    "workspace_roots": {"type": "array", "items": {"type": "string"}},
+    "auto_approve": {"type": "array", "items": {"type": "string"}},
+    "harness_auto_approve": {"type": "array", "items": {"type": "string"}},
+    "max_tokens": {"type": "integer", "minimum": 1},
+    "max_turns": {"type": "integer", "minimum": 1},
+    "context_window": {"type": "integer", "minimum": 1},
+    "web_port": {"type": "integer", "minimum": 1, "maximum": 65535},
+    "gateway_port": {"type": "integer", "minimum": 1, "maximum": 65535},
+    "morpheus_hour": {"type": "integer", "minimum": 0, "maximum": 23},
+    "morpheus_minute": {"type": "integer", "minimum": 0, "maximum": 59},
+    "nightly_hour": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 23,
+      "deprecated": true,
+      "x-replaced-by": "morpheus_hour"
+    },
+    "nightly_minute": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 59,
+      "deprecated": true,
+      "x-replaced-by": "morpheus_minute"
+    },
+    "cli_access": {
+      "type": "string",
+      "enum": ["workspace", "full"]
+    },
+    "shell_approval": {
+      "type": "string",
+      "enum": ["manual", "smart", "off"]
+    },
+    "repl_typed_line": {
+      "type": "string",
+      "enum": ["steer", "kill"]
+    },
+    "voice": {
+      "type": "object",
+      "additionalProperties": true,
+      "properties": {
+        "sample_rate": {"type": "integer", "minimum": 8000},
+        "background_workers": {"type": "integer", "minimum": 1}
+      }
+    },
+    "channels": {
+      "type": "object",
+      "additionalProperties": true,
+      "properties": {
+        "telegram": {
+          "type": "object",
+          "additionalProperties": true,
+          "properties": {
+            "enabled": {"type": "boolean"},
+            "token": {"type": "string", "x-secret": true},
+            "allowed_chat_ids": {
+              "type": "array",
+              "items": {"type": ["string", "integer"]}
+            },
+            "stream": {"type": "boolean"}
+          }
+        }
+      }
+    }
+  }
+}

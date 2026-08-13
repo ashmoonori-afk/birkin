@@ -447,62 +447,65 @@ and secret/SSRF egress blocks remain non-approvable integrity boundaries.
 Configuration lives at `~/.birkin/config.json` or under `BIRKIN_HOME`. This is
 a representative configuration using real defaults from `birkin/config.py`:
 
+<!-- config-schema:start -->
 ```json
 {
   "provider": "codex-cli",
   "model": "default",
   "subagent_model": "default",
+  "base_url": "",
+  "cli_command": [],
   "api_key": null,
-  "api_keys": [],
   "max_tokens": 4096,
   "temperature": 1.0,
   "max_turns": 24,
-  "cli_network_access": false,
-  "egress": {
-    "enabled": true,
-    "enforced": true,
-    "max_bytes": 1048576,
-    "destinations": {
-      "trusted-api": {
-        "url": "https://api.example.com/submissions",
-        "method": "POST",
-        "automatic": true,
-        "content_types": ["application/json"],
-        "max_bytes": 1048576,
-        "auth_env": "EXAMPLE_SUBMIT_TOKEN"
-      }
-    }
-  },
-  "context_window": 200000,
   "auto_compact": true,
+  "context_window": 200000,
   "fallback_provider": "",
   "fallback_model": "",
+  "fallback_base_url": "",
   "fallback_cooldown": 300,
-  "parallel_tools": true,
-  "max_depth": 2,
-  "shell_approval": "manual",
-  "command_allowlist": [],
-  "fs_jail": false,
-  "checkpoints": true,
-  "checkpoint_keep": 20,
-  "redact_secrets": true,
+  "api_keys": [],
+  "a2a_enabled": false,
+  "lsp_servers": {},
   "spill_threshold": 30000,
+  "spill_dir": "",
+  "spill_retention_days": 7,
+  "redact_secrets": true,
+  "repl_typed_line": "steer",
+  "moirai_auto": false,
+  "moirai_workers": 4,
+  "moirai_max_agents": 100,
+  "moirai_roles": {},
+  "moirai_token_budget": 0,
+  "marginalia_api_key": "",
+  "parallel_tools": true,
+  "parallel_tool_workers": 8,
+  "shell_approval": "manual",
+  "checkpoints": true,
+  "hooks": {},
+  "hooks_auto_accept": false,
+  "skills_guard_agent_created": false,
+  "checkpoint_keep": 20,
+  "command_allowlist": [],
+  "approval_model": "",
+  "max_depth": 2,
+  "extra_skill_dirs": [],
   "disabled_tools": [],
   "desktop_tools": false,
   "self_improve": true,
-  "a2a_enabled": false,
-  "lsp_servers": {},
-  "harness_enabled": true,
-  "harness_turn_interval": 12,
-  "harness_cooldown_min": 15,
-  "harness_compact_review": true,
-  "harness_max_edits": 12,
-  "harness_prompt_budget": 20000,
-  "harness_auto_approve": ["memory", "skill"],
+  "skill_nudge_interval": 3,
+  "memory_nudge_interval": 6,
   "web_port": 8787,
   "gateway_port": 8788,
-  "budget_tokens_daily": 0,
-  "budget_tokens_monthly": 0,
+  "gateway_model": "",
+  "gateway_reasoning_effort": "",
+  "gateway_persistent": true,
+  "gateway_allowed_tools": [],
+  "repl_warm_session": false,
+  "gateway_clean_hooks": true,
+  "gateway_thinking_tokens": 0,
+  "gateway_prewarm": true,
   "voice": {
     "wake_phrase": "Daddy is home",
     "gateway_url": "",
@@ -516,20 +519,75 @@ a representative configuration using real defaults from `birkin/config.py`:
     "onboarding_complete": false,
     "background_workers": 2
   },
-
+  "autosave_transcripts": true,
+  "autosave_redact_secrets": true,
+  "autosave_max_chars": 4000,
+  "autosave_max_turns": 40,
+  "autosave_retention_days": 30,
+  "autosave_max_files": 500,
+  "neurosis_threshold": null,
+  "neurosis_auto": true,
   "channels": {
-    "http": {"enabled": true},
+    "http": {
+      "enabled": true
+    },
     "telegram": {
       "enabled": false,
       "token": "",
       "allowed_chat_ids": [],
       "stream": true
     },
-    "slack": {"enabled": false, "webhook_url": ""},
-    "discord": {"enabled": false, "webhook_url": ""}
-  }
+    "slack": {
+      "enabled": false,
+      "webhook_url": ""
+    },
+    "discord": {
+      "enabled": false,
+      "webhook_url": ""
+    }
+  },
+  "vault_path": "",
+  "morpheus_deliver_chat_id": "",
+  "workspace_roots": [],
+  "reaper_enabled": true,
+  "morpheus_provider": "",
+  "morpheus_model": "",
+  "morpheus_hour": 7,
+  "morpheus_minute": 0,
+  "auto_approve": [
+    "memory",
+    "skill"
+  ],
+  "harness_enabled": true,
+  "harness_turn_interval": 12,
+  "harness_cooldown_min": 15,
+  "harness_compact_review": true,
+  "harness_max_edits": 12,
+  "harness_prompt_budget": 20000,
+  "harness_auto_approve": [
+    "memory",
+    "skill"
+  ],
+  "cli_access": "workspace",
+  "cli_network_access": false,
+  "egress": {
+    "enabled": true,
+    "enforced": true,
+    "max_bytes": 1048576,
+    "destinations": {}
+  },
+  "allow_unattended_full": false,
+  "budget_tokens_daily": 0,
+  "budget_tokens_monthly": 0,
+  "cli_timeout": 300,
+  "evidence_required": false,
+  "critique_agents": 3,
+  "boulder_max_iters": 100,
+  "fs_jail": false,
+  "update_verify_signature": false
 }
 ```
+<!-- config-schema:end -->
 
 Important boundaries:
 

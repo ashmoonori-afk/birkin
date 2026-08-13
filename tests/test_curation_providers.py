@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from birkin import providers
+from birkin import curation_schema, providers
 
 
 def test_codex_completer_is_readonly_and_never_copies_the_login(
@@ -37,7 +37,7 @@ def test_codex_completer_is_readonly_and_never_copies_the_login(
 
     monkeypatch.setattr(providers, "_run", fake_run)
     complete = providers.codex_completer("gpt-test", timeout=12,
-                                       schema=providers.CURATION_PLAN_SCHEMA,
+                                       schema=curation_schema.curation_plan_provider_schema(),
                                          cwd=str(vault))
 
     assert complete("prompt") == "```json\n{\"plan_version\":1,\"ops\":[]}\n```"
@@ -154,7 +154,7 @@ def test_the_provider_layer_does_not_impose_a_schema_by_default():
     src = inspect.getsource(providers.codex_completer)
     assert "if schema:" in src, "schema must be opt-in"
     assert "plan_version" not in src, "no application schema inside the completer"
-    assert "plan_version" in str(providers.CURATION_PLAN_SCHEMA)
+    assert not hasattr(providers, "CURATION_PLAN_SCHEMA")
 
 
 def test_curation_still_asks_for_its_schema_explicitly():
@@ -162,4 +162,4 @@ def test_curation_still_asks_for_its_schema_explicitly():
 
     from birkin import curation_cli
     src = inspect.getsource(curation_cli.cmd_curate_memory)
-    assert "CURATION_PLAN_SCHEMA" in src
+    assert "curation_plan_provider_schema" in src
