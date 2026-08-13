@@ -1,5 +1,5 @@
 import json
-from datetime import datetime
+from datetime import datetime, timedelta
 
 import pytest
 
@@ -149,7 +149,9 @@ def test_claim_returns_current_persisted_snapshot() -> None:
     jobs[0]["value"] = "new"
     cron.save_jobs(jobs)
 
-    claimed = cron.claim_if_due(job["id"], datetime.now())
+    claimed = cron.claim_if_due(
+        job["id"], datetime.fromisoformat(jobs[0]["next_run"])
+    )
 
     assert claimed is not None
     assert claimed["name"] == "after"
@@ -262,11 +264,26 @@ def test_monitor_job_rejects_multiple_sources():
 
 
 def test_due_jobs_respects_time():
-    cron.add_job(name="morning", hour=9, minute=0, action_type="prompt", value="x")
-    before = datetime(2026, 5, 28, 8, 0)   # earlier than 09:00
-    after = datetime(2026, 5, 28, 10, 0)   # later than 09:00
-    assert cron.due_jobs(before) == []
-    assert len(cron.due_jobs(after)) == 1
+    job = cron.add_job(name="morning", hour=9, minute=0,
+                       action_type="prompt", value="x")
+    armed = datetime.fromisoformat(job["next_run"])
+    assert cron.due_jobs(armed - timedelta(minutes=1)) == []
+    assert len(cron.due_jobs(armed)) == 1
+
+
+def test_daily_job_waits_for_its_armed_next_run():
+    """A daily job created after today's clock time fires tomorrow, not now."""
+    now = datetime.now()
+    past = now - timedelta(minutes=2)
+    job = cron.add_job(
+        name="daily late",
+        schedule={"kind": "daily", "hour": past.hour, "minute": past.minute,
+                  "display": f"{past.hour:02d}:{past.minute:02d}"},
+    )
+
+    assert datetime.fromisoformat(job["next_run"]) > now
+    assert cron.due_jobs(now) == []
+    assert cron.claim_if_due(job["id"], now) is None
 
 
 def test_mark_ran_excludes_same_day_and_is_immutable():

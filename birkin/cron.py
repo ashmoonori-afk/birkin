@@ -590,11 +590,11 @@ def _schedule_due(job: dict[str, Any], now: datetime) -> bool:
     if not isinstance(schedule, dict):
         return False
     if schedule.get("kind") == "daily":
+        # One run per calendar day, then fall through to the armed next_run:
+        # comparing only (hour, minute) ignores the date, so a job created
+        # after today's clock time fired immediately instead of tomorrow.
         if (job.get("last_run") or "")[:10] == date.today().isoformat():
             return False
-        return (now.hour, now.minute) >= (
-            int(schedule["hour"]), int(schedule["minute"])
-        )
     next_run = job.get("next_run")
     if not next_run:      # hand-edited, or written by an older birkin
         # Recover from the job's own history, NOT from now: anchoring on now

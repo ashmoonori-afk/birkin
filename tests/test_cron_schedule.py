@@ -190,7 +190,9 @@ def test_legacy_daily_record_still_fires_exactly_once_a_day():
     assert job["schema_version"] == 1
     assert job["schedule"]["kind"] == "daily"
 
-    now = datetime.now().replace(hour=10, minute=0, second=0, microsecond=0)
+    # Anchor on the job's own armed time: a daily job is due from its next
+    # occurrence onward, whatever the wall clock says when the test runs.
+    now = datetime.fromisoformat(job["next_run"]) + timedelta(hours=1)
     assert [j["id"] for j in cron.due_jobs(now)] == [job["id"]]
     assert cron.claim_if_due(job["id"], now) is not None
     assert cron.claim_if_due(job["id"], now) is None       # already ran today
@@ -202,7 +204,8 @@ def test_legacy_and_scheduled_jobs_coexist():
                           value="legacy")
     modern = cron.add_job(name="new", action_type="prompt", value="new",
                           schedule="every 15m")
-    later = datetime.fromisoformat(modern["next_run"]) + timedelta(seconds=1)
+    later = max(datetime.fromisoformat(legacy["next_run"]),
+                datetime.fromisoformat(modern["next_run"])) + timedelta(seconds=1)
     due = {j["id"] for j in cron.due_jobs(later)}
     assert due == {legacy["id"], modern["id"]}
 
