@@ -10,6 +10,7 @@ import copy
 import sys
 import threading
 import time
+import uuid
 from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import Any, Callable, Optional
@@ -31,8 +32,12 @@ def _harness_block(cfg: dict[str, Any]) -> str:
     if not cfg.get("harness_enabled", True):
         return ""
     from . import harness
-    return harness.render_block(harness.load(),
-                                budget=cfg.get("harness_prompt_budget"))
+    current = harness.snapshot(str(cfg.get("session_id") or "default"))
+    return harness.render_block(
+        current["state"],
+        budget=cfg.get("harness_prompt_budget"),
+        revision=current["revision"],
+    )
 
 
 @dataclass
@@ -101,7 +106,8 @@ class Session:
             extra += prompts.cli_mcp_block()
         self.agent.system = promptgate.compose_cli(
             self.cfg, memory_block=self.memory.render(),
-            preloaded=preloaded or None, extra=extra)
+            preloaded=preloaded or None, extra=extra,
+            harness_block=_harness_block(self.cfg))
 
     def _route_cli_skills(self, text: str,
                           loaded_skills: set[str] | None = None) -> list[str]:
@@ -211,7 +217,8 @@ class Session:
                  "Read the referenced SKILL.md with your own file tools to "
                  "follow one when it fits the task.\n" + idx) if idx else ""
         system = promptgate.compose_cli(
-            self.cfg, memory_block=self.memory.render(), extra=extra)
+            self.cfg, memory_block=self.memory.render(), extra=extra,
+            harness_block=_harness_block(self.cfg))
         if self.cfg.get("provider") == "codex-cli":
             from .codex_session import CodexAppServerSession
             sandbox = ("danger-full-access"
@@ -447,7 +454,8 @@ def failure_context(limit: int = 5) -> str:
 def build_session(cfg: Optional[dict[str, Any]] = None,
                   on_event: Optional[Callable[[str, dict[str, Any]], None]] = None
                   ) -> Session:
-    cfg = cfg or config.load_config()
+    cfg = dict(cfg or config.load_config())
+    cfg.setdefault("session_id", uuid.uuid4().hex)
     api_key = config.get_api_key(cfg)
     if not api_key:
         provider = cfg.get("provider", "anthropic")
@@ -472,6 +480,7 @@ def build_session(cfg: Optional[dict[str, Any]] = None,
         cfg=cfg, client=client, cwd=Path.cwd(),
         skills=skills, memory=memory,
         max_depth=int(cfg.get("max_depth", 2)), emit=on_event,
+        tree_budget=budget.TreeBudget(cfg),
         checkpoints=checkpoint_mgr, hooks=hook_bus)
     registry = build_registry(ctx)
     system = promptgate.compose_main(
@@ -506,7 +515,8 @@ def build_dry_run_packet(text: str, cfg: Optional[dict[str, Any]] = None
         routed = skills.route(text, limit=3)
         system = promptgate.compose_cli(
             cfg, memory_block=memory.render(),
-            preloaded=[skills.render_skill(s) for s in routed] or None)
+            preloaded=[skills.render_skill(s) for s in routed] or None,
+            harness_block=_harness_block(cfg))
         tool_names: list[str] = []
         routed_names = [s.name for s in routed]
     else:
@@ -514,7 +524,8 @@ def build_dry_run_packet(text: str, cfg: Optional[dict[str, Any]] = None
         ctx = ToolContext(cfg=cfg, client=client, cwd=Path.cwd(), skills=skills,
                           memory=memory, max_depth=int(cfg.get("max_depth", 2)))
         system = promptgate.compose_main(
-            cfg, skills_index=skills.index(), memory_block=memory.render())
+            cfg, skills_index=skills.index(), memory_block=memory.render(),
+            harness_block=_harness_block(cfg))
         tool_names = [t["name"] for t in build_registry(ctx).specs()]
         routed_names = []
 

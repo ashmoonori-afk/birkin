@@ -290,7 +290,7 @@ DEFAULT_CONFIG: dict[str, Any] = {
     # Harness kinds applied without asking. memory/skill are reversible local
     # files (same policy as auto_approve). prompt/subagent change how the agent
     # behaves on every later turn, so they are queued for `birkin review`.
-    "harness_auto_approve": ["memory", "skill"],
+    "harness_auto_approve": ["memory", "skill_note"],
     # CLI-agent (Claude Code / Codex) access level:
     #   "workspace" — writable & sandboxed to the workspace (default)
     #   "full"      — DANGEROUS: bypass all approvals + sandbox
@@ -313,6 +313,11 @@ DEFAULT_CONFIG: dict[str, Any] = {
     # --- Budget governor (P3 reliability). 0 = unlimited. ---
     "budget_tokens_daily": 0,
     "budget_tokens_monthly": 0,
+    "subagent_tree_max_tokens": 0,
+    "subagent_tree_max_usd": 0.0,
+    "subagent_tree_deadline_seconds": 0,
+    "subagent_tree_max_concurrent": 4,
+    "subagent_tree_max_nodes": 16,
     # Seconds to wait for a CLI-agent subprocess (claude/codex/local-cli) before
     # giving up; surfaced so users can tune long-running agents. See llm.py.
     "cli_timeout": 300,

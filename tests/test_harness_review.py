@@ -123,9 +123,46 @@ def test_gate_saying_yes_lands_the_entry_on_disk(monkeypatch):
     _turns(session, INTERVAL)
 
     assert len(fake.calls) == 2                       # gate, then proposal
-    entry = harness.load()["entries"]["memory"]["deploy_runbook"]
+    entry = harness.load(
+        "local", session_id=session.cfg["session_id"],
+    )["entries"]["memory"]["deploy_runbook"]
     assert entry["title"] == "Deploy runbook"
     assert entry["version"] == 1
+
+
+def test_review_submits_to_current_session_local_scope(monkeypatch):
+    submitted = {}
+    ctx = _ctx(cfg={**config.DEFAULT_CONFIG, "session_id": "review-session"})
+    monkeypatch.setattr(
+        harness_review,
+        "should_refine",
+        lambda *_args, **_kwargs: {
+            "should": True,
+            "rationale": "durable",
+            "instructions": "record it",
+        },
+    )
+    monkeypatch.setattr(
+        harness_review,
+        "_proposal",
+        lambda *_args, **_kwargs: {
+            "summary": "s",
+            "rationale": "r",
+            "expectedOutcome": "o",
+            "edits": [],
+        },
+    )
+
+    def capture_submit(_proposal, **kwargs):
+        submitted.update(kwargs)
+        return {"applied": None, "queued": [], "rejected": []}
+
+    monkeypatch.setattr(harness, "submit", capture_submit)
+
+    harness_review.review(ctx, "USER:\nremember this", reason="turn-interval")
+
+    assert submitted["scope"] == "local"
+    assert submitted["session_id"] == "review-session"
 
 
 def test_the_counter_resets_so_the_gate_is_not_re_run_every_turn(monkeypatch):

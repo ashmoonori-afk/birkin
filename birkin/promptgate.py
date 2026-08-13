@@ -83,12 +83,13 @@ def compose_main(cfg: dict[str, Any], *, skills_index: str = "",
 
 def compose_cli(cfg: dict[str, Any], *, memory_block: str = "",
                 preloaded: Optional[list[str]] = None, extra: str = "",
-                persona_text: Optional[str] = None) -> str:
+                persona_text: Optional[str] = None,
+                harness_block: str = "") -> str:
     """System prompt for CLI-agent backends (Claude Code / Codex). ``extra`` is
     appended before the neurosis note (e.g. the gateway's skills-index block)."""
     sysp = _filter_tool_guidance(prompts.build_cli_system(
         memory_block=memory_block, preloaded=preloaded,
-        persona=_persona(persona_text)), cfg)
+        persona=_persona(persona_text), harness_block=harness_block), cfg)
     if extra:
         sysp += extra
     system = sysp + presets.role_overlay(cfg.get("model"), cfg) \
