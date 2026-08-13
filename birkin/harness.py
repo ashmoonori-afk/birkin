@@ -190,6 +190,11 @@ def validate_edit(edit: Any, *, max_content: int = MAX_CONTENT) -> str | None:
         return "create needs content"
     if content is not None and len(str(content)) > max_content:
         return f"content too long ({len(str(content))} > {max_content})"
+    if action != "delete" and kind in {"memory", "skill"}:
+        from .persistence_safety import unsafe_persistence_reason
+        unsafe = unsafe_persistence_reason(edit.get("title"), content)
+        if unsafe:
+            return f"content {unsafe}"
     # Every entry title and body is rendered into the system prompt, regardless
     # of kind, so none may forge, close, or reopen a sealed policy block.
     for field in ("title", "content"):

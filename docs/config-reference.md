@@ -74,7 +74,7 @@ Schema version: 1
 | `voice.conversation_style` | `string` | `""` | Birkin setting `voice.conversation_style`. |
 | `voice.onboarding_complete` | `boolean` | `false` | Birkin setting `voice.onboarding_complete`. |
 | `voice.background_workers` | `integer` | `2` | Birkin setting `voice.background_workers`. |
-| `autosave_transcripts` | `boolean` | `true` | Birkin setting `autosave_transcripts`. |
+| `autosave_transcripts` | `boolean` | `false` | Birkin setting `autosave_transcripts`. |
 | `autosave_redact_secrets` | `boolean` | `true` | Birkin setting `autosave_redact_secrets`. |
 | `autosave_max_chars` | `integer` | `4000` | Birkin setting `autosave_max_chars`. |
 | `autosave_max_turns` | `integer` | `40` | Birkin setting `autosave_max_turns`. |

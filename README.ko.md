@@ -508,7 +508,7 @@ input, 작업 디렉터리, gate, digest에 묶이며, 승인은 권한 상승 �
     "onboarding_complete": false,
     "background_workers": 2
   },
-  "autosave_transcripts": true,
+  "autosave_transcripts": false,
   "autosave_redact_secrets": true,
   "autosave_max_chars": 4000,
   "autosave_max_turns": 40,
