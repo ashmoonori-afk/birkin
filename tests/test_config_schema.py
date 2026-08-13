@@ -118,6 +118,62 @@ def test_invalid_array_elements_fall_back_atomically(
     assert loaded[key] == config.DEFAULT_CONFIG[key]
 
 
+def test_null_default_does_not_constrain_the_saved_value(
+    tmp_path, monkeypatch,
+) -> None:
+    """A ``None`` default carries no type information, so it must not reject
+    the real value. ``neurosis_threshold`` is a documented float setting that
+    defaults to null: rejecting 0.1 made load_config hand back None and the
+    next save_config delete the user's key from config.json."""
+    monkeypatch.setenv("BIRKIN_HOME", str(tmp_path))
+    config.config_path().write_text(
+        json.dumps({"neurosis_threshold": 0.1}),
+        encoding="utf-8",
+    )
+
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter("always")
+        loaded = config.load_config()
+
+    assert loaded["neurosis_threshold"] == 0.1
+    assert not [item for item in caught
+                if "neurosis_threshold" in str(item.message)]
+
+    config.save_config(loaded)
+    on_disk = json.loads(config.config_path().read_text(encoding="utf-8"))
+    assert on_disk["neurosis_threshold"] == 0.1
+
+
+def test_integer_telegram_chat_ids_survive_a_save_round_trip(
+    tmp_path, monkeypatch,
+) -> None:
+    """Chat ids are integers in the Telegram API and every consumer coerces
+    them, so rejecting an integer allowlist silenced the bot (the whole array
+    normalized to [], which the gateway refuses to start on) and the next
+    save_config erased the allowlist -- a security boundary -- from disk."""
+    monkeypatch.setenv("BIRKIN_HOME", str(tmp_path))
+    chat_ids = [1170346056, "1170346057"]
+    config.config_path().write_text(json.dumps({
+        "channels": {"telegram": {
+            "enabled": True,
+            "token": "x",
+            "allowed_chat_ids": chat_ids,
+        }},
+    }), encoding="utf-8")
+
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter("always")
+        loaded = config.load_config()
+
+    assert loaded["channels"]["telegram"]["allowed_chat_ids"] == chat_ids
+    assert not [item for item in caught
+                if "allowed_chat_ids" in str(item.message)]
+
+    config.save_config(loaded)
+    on_disk = json.loads(config.config_path().read_text(encoding="utf-8"))
+    assert on_disk["channels"]["telegram"]["allowed_chat_ids"] == chat_ids
+
+
 def test_cli_access_none_falls_back_to_safe_workspace(
     tmp_path, monkeypatch,
 ) -> None:

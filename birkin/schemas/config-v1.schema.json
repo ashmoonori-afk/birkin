@@ -68,7 +68,7 @@
             "token": {"type": "string", "x-secret": true},
             "allowed_chat_ids": {
               "type": "array",
-              "items": {"type": "string"}
+              "items": {"type": ["string", "integer"]}
             },
             "stream": {"type": "boolean"}
           }

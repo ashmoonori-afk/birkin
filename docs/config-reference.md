@@ -11,7 +11,7 @@ Schema version: 1
 | `subagent_model` | `string` | `"default"` | Birkin setting `subagent_model`. |
 | `base_url` | `string` | `""` | Birkin setting `base_url`. |
 | `cli_command` | `array` | `[]` | Birkin setting `cli_command`. |
-| `api_key` | `string / null` | `null` | Birkin setting `api_key`. |
+| `api_key` | `any` | `null` | Birkin setting `api_key`. |
 | `max_tokens` | `integer` | `4096` | Birkin setting `max_tokens`. |
 | `temperature` | `number` | `1.0` | Birkin setting `temperature`. |
 | `max_turns` | `integer` | `24` | Birkin setting `max_turns`. |
@@ -80,7 +80,7 @@ Schema version: 1
 | `autosave_max_turns` | `integer` | `40` | Birkin setting `autosave_max_turns`. |
 | `autosave_retention_days` | `integer` | `30` | Birkin setting `autosave_retention_days`. |
 | `autosave_max_files` | `integer` | `500` | Birkin setting `autosave_max_files`. |
-| `neurosis_threshold` | `string / null` | `null` | Birkin setting `neurosis_threshold`. |
+| `neurosis_threshold` | `any` | `null` | Birkin setting `neurosis_threshold`. |
 | `neurosis_auto` | `boolean` | `true` | Birkin setting `neurosis_auto`. |
 | `channels` | `object` | `{"http": {"enabled": true}, "telegram": {"enabled": false, "token": "", "allowed_chat_ids": [], "stream": true}, "slack": {"enabled": false, "webhook_url": ""}, "discord": {"enabled": false, "webhook_url": ""}}` | Birkin setting `channels`. |
 | `channels.http` | `object` | `{"enabled": true}` | Birkin setting `channels.http`. |
