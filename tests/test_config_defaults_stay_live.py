@@ -54,7 +54,8 @@ def test_cli_network_access_default_and_override_validation(cfg_path):
 
     cfg_path.write_text(
         json.dumps({"cli_network_access": "false"}), encoding="utf-8")
-    assert config.load_config()["cli_network_access"] is False
+    with pytest.warns(RuntimeWarning, match="cli_network_access"):
+        assert config.load_config()["cli_network_access"] is False
 
 
 def test_untouched_defaults_are_not_written(cfg_path):

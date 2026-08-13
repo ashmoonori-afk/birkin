@@ -1,6 +1,6 @@
 ---
 name: memory-curation
-description: "Model-agnostic memory-vault curation (CurationPlan/1). Any model proposes a typed reorganization plan; a deterministic executor validates, clamps, and applies only the safe parts. Never deletes; never mass-archives; injection-immune by construction."
+description: "Model-agnostic memory-vault curation (CurationPlan/2). Any model proposes a typed reorganization plan; a deterministic executor validates, clamps, and applies only the safe parts. Never deletes; never mass-archives; injection-immune by construction."
 version: 1.0.0
 author: birkin
 license: MIT
@@ -39,7 +39,7 @@ this skill solves is that different model backends used to curate through
 file moves — so results were non-comparable and a weak model (Codex) archived
 the entire vault because *safety was trusted to the model's prompt-following*.
 
-CurationPlan/1 makes curation **model-agnostic** by applying the same
+CurationPlan/2 makes curation **model-agnostic** by applying the same
 mechanical/judgment split birkin uses for retrieval:
 
 - **Judgment (the model).** Every provider is reduced to one contract —

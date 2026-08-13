@@ -231,10 +231,14 @@ def run_daemon() -> int:
             for job in cron.due_jobs(now):
                 # Claim BEFORE running (atomic stamp under the cron lock) so a
                 # second daemon reading the same due job can't run it too.
-                if not cron.claim_if_due(job["id"], now):
+                claimed = cron.claim_if_due(job["id"], now)
+                if claimed is None:
                     continue
-                print(f"[{now:%H:%M}] running cron job '{job.get('name')}'…")
-                _run_job(job)
+                print(
+                    f"[{now:%H:%M}] running cron job "
+                    f"'{claimed.get('name')}'…"
+                )
+                _run_job(claimed)
 
             try:
                 delivered = run_checkins()

@@ -130,7 +130,7 @@ def test_interval_job_advances_next_run_on_claim():
 
     later = datetime.fromisoformat(job["next_run"]) + timedelta(seconds=1)
     assert [j["id"] for j in cron.due_jobs(later)] == [job["id"]]
-    assert cron.claim_if_due(job["id"], later) is True
+    assert cron.claim_if_due(job["id"], later) is not None
 
     stored = cron.load_jobs()[0]
     assert datetime.fromisoformat(stored["next_run"]) > later
@@ -141,8 +141,8 @@ def test_claim_is_at_most_once_for_intervals():
     job = cron.add_job(name="poll", action_type="prompt", value="x",
                        schedule="every 30m")
     later = datetime.fromisoformat(job["next_run"]) + timedelta(seconds=1)
-    assert cron.claim_if_due(job["id"], later) is True
-    assert cron.claim_if_due(job["id"], later) is False   # the loser
+    assert cron.claim_if_due(job["id"], later) is not None
+    assert cron.claim_if_due(job["id"], later) is None   # the loser
 
 
 def test_one_shot_fires_once_then_disappears():
@@ -150,9 +150,9 @@ def test_one_shot_fires_once_then_disappears():
                        schedule="1m")
     later = datetime.fromisoformat(job["next_run"]) + timedelta(seconds=1)
     assert [j["id"] for j in cron.due_jobs(later)] == [job["id"]]
-    assert cron.claim_if_due(job["id"], later) is True
+    assert cron.claim_if_due(job["id"], later) is not None
     assert cron.load_jobs() == []
-    assert cron.claim_if_due(job["id"], later) is False
+    assert cron.claim_if_due(job["id"], later) is None
 
 
 def test_not_due_before_its_time():
@@ -160,7 +160,7 @@ def test_not_due_before_its_time():
                        schedule="every 30m")
     early = datetime.fromisoformat(job["next_run"]) - timedelta(minutes=1)
     assert cron.due_jobs(early) == []
-    assert cron.claim_if_due(job["id"], early) is False
+    assert cron.claim_if_due(job["id"], early) is None
 
 
 def test_cron_job_roundtrip():
@@ -187,12 +187,15 @@ def test_daily_schedule_expression_also_fills_hour_minute():
 def test_legacy_daily_record_still_fires_exactly_once_a_day():
     job = cron.add_job(name="old", hour=9, minute=0, action_type="prompt",
                        value="legacy")
-    assert "schedule" not in job and "next_run" not in job
+    assert job["schema_version"] == 1
+    assert job["schedule"]["kind"] == "daily"
 
-    now = datetime.now().replace(hour=10, minute=0, second=0, microsecond=0)
+    # Anchor on the job's own armed time: a daily job is due from its next
+    # occurrence onward, whatever the wall clock says when the test runs.
+    now = datetime.fromisoformat(job["next_run"]) + timedelta(hours=1)
     assert [j["id"] for j in cron.due_jobs(now)] == [job["id"]]
-    assert cron.claim_if_due(job["id"], now) is True
-    assert cron.claim_if_due(job["id"], now) is False       # already ran today
+    assert cron.claim_if_due(job["id"], now) is not None
+    assert cron.claim_if_due(job["id"], now) is None       # already ran today
     assert cron.due_jobs(now) == []
 
 
@@ -201,7 +204,8 @@ def test_legacy_and_scheduled_jobs_coexist():
                           value="legacy")
     modern = cron.add_job(name="new", action_type="prompt", value="new",
                           schedule="every 15m")
-    later = datetime.fromisoformat(modern["next_run"]) + timedelta(seconds=1)
+    later = max(datetime.fromisoformat(legacy["next_run"]),
+                datetime.fromisoformat(modern["next_run"])) + timedelta(seconds=1)
     due = {j["id"] for j in cron.due_jobs(later)}
     assert due == {legacy["id"], modern["id"]}
 
@@ -226,7 +230,7 @@ def test_a_job_without_next_run_recovers_from_its_own_history():
     # Anchored on `created`, the interval already elapsed — so it fires.
     # (Anchoring on `now` instead would postpone it on every poll, forever.)
     assert [j["id"] for j in cron.due_jobs(datetime.now())] == [job["id"]]
-    assert cron.claim_if_due(job["id"], datetime.now()) is True
+    assert cron.claim_if_due(job["id"], datetime.now()) is not None
     assert cron.load_jobs()[0]["next_run"]      # re-armed properly
 
 
