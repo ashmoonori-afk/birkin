@@ -15,9 +15,11 @@ CONFIG_SCHEMA_VERSION = 1
 Config: TypeAlias = dict[str, Any]
 
 
-def _json_type(value: object) -> str | list[str]:
+def _json_type(value: object) -> str | list[str] | None:
     if value is None:
-        return ["string", "null"]
+        # A ``None`` default says nothing about the real type of the setting,
+        # so it infers no type at all rather than a wrong one.
+        return None
     if isinstance(value, bool):
         return "boolean"
     if isinstance(value, int):
@@ -34,12 +36,13 @@ def _json_type(value: object) -> str | list[str]:
 
 
 def _inferred_schema(value: object, path: str) -> dict[str, Any]:
-    schema: dict[str, Any] = {
-        "type": _json_type(value),
+    inferred = _json_type(value)
+    schema: dict[str, Any] = {} if inferred is None else {"type": inferred}
+    schema.update({
         "default": copy.deepcopy(value),
         "description": f"Birkin setting `{path}`.",
         "x-description-ko": f"Birkin 설정 `{path}`.",
-    }
+    })
     if isinstance(value, dict):
         schema["additionalProperties"] = True
         schema["properties"] = {
@@ -47,7 +50,9 @@ def _inferred_schema(value: object, path: str) -> dict[str, Any]:
             for key, child in value.items()
         }
     elif isinstance(value, list) and value:
-        schema["items"] = {"type": _json_type(value[0])}
+        item_type = _json_type(value[0])
+        if item_type is not None:
+            schema["items"] = {"type": item_type}
     return schema
 
 

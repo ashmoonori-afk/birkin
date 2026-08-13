@@ -11,7 +11,7 @@ Schema version: 1
 | `subagent_model` | `string` | `"default"` | Birkin 설정 `subagent_model`. |
 | `base_url` | `string` | `""` | Birkin 설정 `base_url`. |
 | `cli_command` | `array` | `[]` | Birkin 설정 `cli_command`. |
-| `api_key` | `string / null` | `null` | Birkin 설정 `api_key`. |
+| `api_key` | `any` | `null` | Birkin 설정 `api_key`. |
 | `max_tokens` | `integer` | `4096` | Birkin 설정 `max_tokens`. |
 | `temperature` | `number` | `1.0` | Birkin 설정 `temperature`. |
 | `max_turns` | `integer` | `24` | Birkin 설정 `max_turns`. |
@@ -80,7 +80,7 @@ Schema version: 1
 | `autosave_max_turns` | `integer` | `40` | Birkin 설정 `autosave_max_turns`. |
 | `autosave_retention_days` | `integer` | `30` | Birkin 설정 `autosave_retention_days`. |
 | `autosave_max_files` | `integer` | `500` | Birkin 설정 `autosave_max_files`. |
-| `neurosis_threshold` | `string / null` | `null` | Birkin 설정 `neurosis_threshold`. |
+| `neurosis_threshold` | `any` | `null` | Birkin 설정 `neurosis_threshold`. |
 | `neurosis_auto` | `boolean` | `true` | Birkin 설정 `neurosis_auto`. |
 | `channels` | `object` | `{"http": {"enabled": true}, "telegram": {"enabled": false, "token": "", "allowed_chat_ids": [], "stream": true}, "slack": {"enabled": false, "webhook_url": ""}, "discord": {"enabled": false, "webhook_url": ""}}` | Birkin 설정 `channels`. |
 | `channels.http` | `object` | `{"enabled": true}` | Birkin 설정 `channels.http`. |
