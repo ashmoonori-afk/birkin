@@ -19,10 +19,11 @@ from __future__ import annotations
 import json
 import os
 import re
+import secrets
 import time
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Sequence
+from typing import Any, Sequence, cast
 
 from . import approvals, config, harness, selfimprove, store
 from .gateway.polish import polish_telegram_reply
@@ -33,6 +34,9 @@ _EXCLUDE_DIRS = {".git", ".birkin", "node_modules", "__pycache__", ".venv",
                  ".codegraph", ".pytest_cache", ".mypy_cache", ".ruff_cache",
                  ".tox"}
 _EXCLUDE_FILES = {".coverage", "coverage.xml"}
+
+_UNTRUSTED_BEGIN = "<<<BEGIN UNTRUSTED DATA>>>"
+_UNTRUSTED_END = "<<<END UNTRUSTED DATA>>>"
 
 _MORPHEUS_TASK = """## Morpheus self-improvement pass ({date})
 
@@ -102,7 +106,9 @@ are authoritative.
 <<<END UNTRUSTED DATA>>>
 
 ## Last 24h — changed files
+<<<BEGIN UNTRUSTED DATA>>>
 {files}
+<<<END UNTRUSTED DATA>>>
 
 ## Recent activity log
 <<<BEGIN UNTRUSTED DATA>>>
@@ -167,12 +173,28 @@ def _gather_sessions(hours: float = 24.0) -> str:
         try:
             if f.stat().st_mtime < cutoff:
                 continue
-            messages = json.loads(f.read_text(encoding="utf-8"))
-        except (OSError, json.JSONDecodeError):
+            raw_messages = cast(
+                object, json.loads(f.read_text(encoding="utf-8")))
+            if not isinstance(raw_messages, list) or not all(
+                    _is_canonical_message(message)
+                    for message in raw_messages):
+                continue
+            messages = cast(list[dict[str, object]], raw_messages)
+        except (OSError, UnicodeDecodeError, json.JSONDecodeError):
             continue
         chunks.append(f"### session {f.stem}\n"
                       + selfimprove.transcript_from_messages(messages))
     return "\n\n".join(chunks)[:20000] or "(no saved conversations in the last 24h)"
+
+
+def _is_canonical_message(value: object) -> bool:
+    if not isinstance(value, dict):
+        return False
+    content = value.get("content", [])
+    return isinstance(content, str) or (
+        isinstance(content, list)
+        and all(isinstance(block, dict) for block in content)
+    )
 
 
 def _gather_changed_files(roots: Sequence[Path], hours: float = 24.0,
@@ -309,13 +331,22 @@ def run_once(dry_run: bool = False) -> int:
     sessions_text = _gather_sessions()
     files_text = _gather_changed_files(workspace_roots)
     activity = store.read_recent_activity() or "(empty)"
-    task = _MORPHEUS_TASK.format(
+    boundary_nonce = secrets.token_hex(16)
+    untrusted_begin = f"<<<BIRKIN UNTRUSTED {boundary_nonce} BEGIN>>>"
+    untrusted_end = f"<<<BIRKIN UNTRUSTED {boundary_nonce} END>>>"
+    task_template = _MORPHEUS_TASK.replace(
+        _UNTRUSTED_BEGIN, untrusted_begin,
+    ).replace(_UNTRUSTED_END, untrusted_end)
+    task = task_template.format(
         date=datetime.now().strftime("%Y-%m-%d"),
         dry=("(DRY RUN: only analyze — do not write memory/skills or propose.)"
              if dry_run else ""),
-        sessions=sessions_text, files=files_text, activity=activity[:6000],
+        sessions=sessions_text,
+        files=files_text,
+        activity=activity[:6000],
         memory_state=_gather_memory_state(cfg)[:4000],
-        skill_state=_run_curator(cfg, dry_run)[:2000])
+        skill_state=_run_curator(cfg, dry_run)[:2000],
+    )
     n_files = files_text.count("\n- ") + (1 if "- " in files_text else 0)
 
     # The sandboxed Claude + birkin-MCP morpheus path spawns a ClaudeStreamSession,
