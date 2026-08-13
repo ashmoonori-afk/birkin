@@ -192,7 +192,7 @@ def cli_mcp_block() -> str:
 
 def build_cli_system(*, memory_block: str = "",
                      preloaded: Optional[list[str]] = None,
-                     persona: str = "") -> str:
+                     persona: str = "", harness_block: str = "") -> str:
     """A concise prompt for CLI-agent backends (Claude Code / Codex).
 
     These backends run their own tool loop, so instead of birkin's tool-loop
@@ -213,6 +213,8 @@ def build_cli_system(*, memory_block: str = "",
     if memory_block:
         parts.append("## What you know about the user (birkin memory)\n"
                      + memory_block)
+    if harness_block:
+        parts.append(harness_block)
     if preloaded:
         parts.append("## Relevant skills — follow these if they apply\n\n"
                      + "\n\n---\n\n".join(preloaded))

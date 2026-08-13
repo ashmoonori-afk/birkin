@@ -13,15 +13,18 @@ import sys
 from birkin import cli, harness
 
 
-def _seed(title: str = "Test note", scope: str = "global") -> dict:
+def _seed(title: str = "Test note", scope: str = "global",
+          session_id: str | None = None) -> dict:
     return harness.apply(
-        harness.load(scope),
+        harness.load(scope, session_id=session_id),
         {"summary": f"learned about {title}",
          "rationale": "the user corrected me twice",
          "expectedOutcome": "fewer repeats",
          "edits": [{"action": "create", "kind": "memory", "title": title,
                     "content": "remember this"}]},
-        scope=scope)
+        scope=scope,
+        session_id=session_id,
+    )
 
 
 # ---------------- show ----------------
@@ -48,6 +51,18 @@ def test_show_scope_local_is_separate_from_global(capsys):
     assert "Local only" in capsys.readouterr().out
     assert cli.main(["harness", "show", "--scope", "global"]) == 0
     assert "Local only" not in capsys.readouterr().out
+
+
+def test_show_local_selects_an_explicit_session(capsys):
+    _seed("Alpha only", scope="local", session_id="alpha")
+    _seed("Beta only", scope="local", session_id="beta")
+
+    assert cli.main([
+        "harness", "show", "--scope", "local", "--session-id", "alpha",
+    ]) == 0
+    output = capsys.readouterr().out
+    assert "Alpha only" in output
+    assert "Beta only" not in output
 
 
 # ---------------- history ----------------

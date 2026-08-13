@@ -1,9 +1,8 @@
 """Harness edits obey birkin's existing approval gate (design §4.7).
 
-A ``memory``/``skill`` entry is a reversible local file, so it auto-applies like
-today's nightly writes. A ``prompt`` or ``subagent`` entry changes how the agent
-behaves on every later turn, so it is queued for ``birkin review`` instead —
-and the queued payload must still apply correctly once a human approves it.
+A local ``memory``/``skill_note`` entry is reversible metadata, so it may
+auto-apply. Global edits and behavior-changing ``prompt``/``subagent`` entries
+are queued for ``birkin review`` and only land after a human approves them.
 """
 
 from __future__ import annotations
@@ -39,19 +38,43 @@ def test_harness_is_a_known_approval_category():
     ("harness_compact_review", True),
     ("harness_max_edits", 12),
     ("harness_prompt_budget", 20000),
-    ("harness_auto_approve", ["memory", "skill"]),
+    ("harness_auto_approve", ["memory", "skill_note"]),
 ])
 def test_config_ships_the_harness_defaults(key, expected):
     assert config.DEFAULT_CONFIG[key] == expected
 
 
 def test_submit_auto_applies_a_memory_edit(cfg):
-    result = harness.submit(_proposal(_edit("memory", "Test layout")), cfg=cfg)
+    result = harness.submit(
+        _proposal(_edit("memory", "Test layout")),
+        cfg=cfg,
+        scope="local",
+        session_id="approval-session",
+    )
 
     assert result["applied"]["changes"] == ["create memory:test_layout"]
     assert result["queued"] == []
-    assert "test_layout" in harness.load()["entries"]["memory"]
+    assert "test_layout" in harness.load(
+        "local", session_id="approval-session",
+    )["entries"]["memory"]
     assert store.list_pending() == []
+
+
+def test_global_memory_edit_requires_human_approval(cfg):
+    result = harness.submit(
+        _proposal(_edit("memory", "Global fact")),
+        cfg=cfg,
+        scope="global",
+    )
+
+    assert result["applied"] is None
+    assert len(result["queued"]) == 1
+    assert harness.load("global")["entries"]["memory"] == {}
+
+    approved = approvals.approve(result["queued"][0]["id"])
+
+    assert approved["ok"] is True
+    assert "global_fact" in harness.load("global")["entries"]["memory"]
 
 
 def test_submit_queues_a_prompt_edit_instead_of_applying_it(cfg):
@@ -92,12 +115,13 @@ def test_a_mixed_proposal_splits_between_auto_and_queued(cfg):
         _edit("memory", "Fact"),
         _edit("prompt", "Policy"),
         _edit("subagent", "Doc auditor"),
-    ), cfg=cfg)
+    ), cfg=cfg, scope="local", session_id="mixed-session")
 
     assert result["applied"]["changes"] == ["create memory:fact"]
     assert len(result["queued"]) == 2
-    assert list(harness.load()["entries"]["memory"]) == ["fact"]
-    assert harness.load()["entries"]["prompt"] == {}
+    state = harness.load("local", session_id="mixed-session")
+    assert list(state["entries"]["memory"]) == ["fact"]
+    assert state["entries"]["prompt"] == {}
 
 
 def test_an_empty_auto_approve_list_queues_everything(cfg):
@@ -123,7 +147,13 @@ def test_submit_rejects_an_invalid_edit_without_queueing_it(cfg):
 def test_submit_honours_the_configured_edit_budget(cfg):
     cfg = {**cfg, "harness_max_edits": 2}
     result = harness.submit(
-        _proposal(*[_edit("memory", f"Fact {i}") for i in range(5)]), cfg=cfg)
+        _proposal(*[_edit("memory", f"Fact {i}") for i in range(5)]),
+        cfg=cfg,
+        scope="local",
+        session_id="budget-session",
+    )
 
     assert len(result["applied"]["changes"]) == 2
-    assert len(harness.load()["entries"]["memory"]) == 2
+    assert len(harness.load(
+        "local", session_id="budget-session",
+    )["entries"]["memory"]) == 2
