@@ -1,10 +1,9 @@
+import { rmSync } from "node:fs";
 import * as esbuild from "esbuild";
 
 const watch = process.argv.includes("--watch");
-const options = {
-  entryPoints: ["src/extension.ts"],
+const common = {
   bundle: true,
-  outfile: "dist/extension.js",
   external: ["vscode"],
   format: "cjs",
   platform: "node",
@@ -12,10 +11,17 @@ const options = {
   sourcemap: true,
   logLevel: "info",
 };
+const builds = [
+  { ...common, entryPoints: ["src/extension.ts"], outfile: "dist/extension.js" },
+  { ...common, entryPoints: ["test/suite/index.ts"], outfile: ".test-dist/index.js" },
+];
 
+rmSync("dist/test", { recursive: true, force: true });
 if (watch) {
-  const context = await esbuild.context(options);
-  await context.watch();
+  for (const options of builds) {
+    const context = await esbuild.context(options);
+    await context.watch();
+  }
 } else {
-  await esbuild.build(options);
+  await Promise.all(builds.map((options) => esbuild.build(options)));
 }

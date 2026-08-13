@@ -5,30 +5,85 @@
   "version": "0.1.0",
   "publisher": "birkin",
   "license": "MIT",
-  "engines": { "vscode": "^1.96.0" },
-  "categories": ["Machine Learning", "Other"],
-  "keywords": ["birkin", "agent", "local-first", "approval"],
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/ashmoonori-afk/birkin.git",
+    "directory": "vscode-extension"
+  },
+  "icon": "media/birkin.png",
+  "engines": {
+    "vscode": "^1.96.0"
+  },
+  "categories": [
+    "Machine Learning",
+    "Other"
+  ],
+  "keywords": [
+    "birkin",
+    "agent",
+    "local-first",
+    "approval"
+  ],
   "main": "./dist/extension.js",
-  "activationEvents": ["onStartupFinished"],
-  "extensionKind": ["workspace"],
+  "activationEvents": [
+    "onStartupFinished"
+  ],
+  "extensionKind": [
+    "workspace"
+  ],
   "contributes": {
     "commands": [
-      { "command": "birkin.ask", "title": "Birkin: Ask with Editor Context", "icon": "$(sparkle)" },
-      { "command": "birkin.reviewPlan", "title": "Birkin: Review Plan Before Execution", "icon": "$(checklist)" },
-      { "command": "birkin.reviewApprovals", "title": "Birkin: Review Proposed Changes", "icon": "$(diff)" },
-      { "command": "birkin.rollback", "title": "Birkin: Roll Back Applied Changes", "icon": "$(discard)" },
-      { "command": "birkin.refreshStatus", "title": "Birkin: Refresh Status" }
+      {
+        "command": "birkin.ask",
+        "title": "Birkin: Ask with Editor Context",
+        "icon": "$(sparkle)"
+      },
+      {
+        "command": "birkin.reviewPlan",
+        "title": "Birkin: Review Plan Before Execution",
+        "icon": "$(checklist)"
+      },
+      {
+        "command": "birkin.reviewApprovals",
+        "title": "Birkin: Review Proposed Changes",
+        "icon": "$(diff)"
+      },
+      {
+        "command": "birkin.rollback",
+        "title": "Birkin: Roll Back Applied Changes",
+        "icon": "$(discard)"
+      },
+      {
+        "command": "birkin.refreshStatus",
+        "title": "Birkin: Refresh Status"
+      }
     ],
     "menus": {
       "commandPalette": [
-        { "command": "birkin.ask" },
-        { "command": "birkin.reviewPlan" },
-        { "command": "birkin.reviewApprovals" },
-        { "command": "birkin.rollback" }
+        {
+          "command": "birkin.ask"
+        },
+        {
+          "command": "birkin.reviewPlan"
+        },
+        {
+          "command": "birkin.reviewApprovals"
+        },
+        {
+          "command": "birkin.rollback"
+        }
       ],
       "editor/context": [
-        { "command": "birkin.ask", "group": "birkin@1", "when": "editorTextFocus" },
-        { "command": "birkin.reviewPlan", "group": "birkin@2", "when": "editorTextFocus" }
+        {
+          "command": "birkin.ask",
+          "group": "birkin@1",
+          "when": "editorTextFocus"
+        },
+        {
+          "command": "birkin.reviewPlan",
+          "group": "birkin@2",
+          "when": "editorTextFocus"
+        }
       ]
     },
     "configuration": {
@@ -69,11 +124,13 @@
     "watch": "node esbuild.mjs --watch",
     "test": "vitest run",
     "test:watch": "vitest",
+    "test:e2e": "npm run compile && node test/runTest.cjs",
     "package": "npm run compile && vsce package --no-dependencies"
   },
   "devDependencies": {
     "@types/node": "^22.10.0",
     "@types/vscode": "^1.96.0",
+    "@vscode/test-electron": "^2.4.1",
     "@vscode/vsce": "^3.2.1",
     "esbuild": "^0.25.0",
     "typescript": "^5.7.2",
