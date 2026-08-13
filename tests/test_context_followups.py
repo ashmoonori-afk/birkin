@@ -20,6 +20,7 @@ def _fake_session():
 
 def _trusted_telegram_config(chat_id: str = "42") -> dict:
     return {
+        "autosave_transcripts": True,
         "channels": {
             "telegram": {
                 "allowed_chat_ids": [chat_id],
