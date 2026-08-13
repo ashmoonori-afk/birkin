@@ -77,8 +77,10 @@ def approval_card(record: dict[str, Any], width: int, *, color: bool,
 def tool_summary(tool: dict[str, Any], width: int, *, color: bool,
                  ascii_only: bool = False) -> str:
     """Collapsed one-liner that stays diagnosable: outcome + error head."""
-    ok = bool(tool.get("ok"))
-    state = "completed" if ok else "failed"
+    ok = tool.get("ok")
+    # ok=None means the result has not arrived: render as running, never
+    # as failed — streaming must not flicker through error states.
+    state = "running" if ok is None else ("completed" if ok else "failed")
     mark = uistate.glyph(state, ascii_only=ascii_only)
     parts = [str(tool.get("name", "?"))]
     target = str(tool.get("target", ""))

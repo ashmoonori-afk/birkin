@@ -173,9 +173,16 @@ class Handler(BaseHTTPRequestHandler):
         elif self.path == "/api/contract":
             # Python-owned UI contract: state schema + design tokens. The
             # page generates its state table from this; it never copies it.
+            # A broken export is a 500, never a dead server: presentation
+            # failures must not take the daemon down.
             from .. import ui_tokens, uistate
-            self._json({"uistate": uistate.schema(),
-                        "tokens": ui_tokens.to_json()})
+            try:
+                payload = {"uistate": uistate.schema(),
+                           "tokens": ui_tokens.to_json()}
+            except Exception as exc:
+                self._json({"error": str(exc)[:200]}, code=500)
+                return
+            self._json(payload)
         elif self.path == "/api/jobs":
             self._json({"status": store.read_status(), "jobs": cron.load_jobs()})
         elif self.path == "/api/runs":
