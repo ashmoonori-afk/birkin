@@ -74,7 +74,7 @@ Schema version: 1
 | `voice.conversation_style` | `string` | `""` | Birkin 설정 `voice.conversation_style`. |
 | `voice.onboarding_complete` | `boolean` | `false` | Birkin 설정 `voice.onboarding_complete`. |
 | `voice.background_workers` | `integer` | `2` | Birkin 설정 `voice.background_workers`. |
-| `autosave_transcripts` | `boolean` | `true` | Birkin 설정 `autosave_transcripts`. |
+| `autosave_transcripts` | `boolean` | `false` | Birkin 설정 `autosave_transcripts`. |
 | `autosave_redact_secrets` | `boolean` | `true` | Birkin 설정 `autosave_redact_secrets`. |
 | `autosave_max_chars` | `integer` | `4000` | Birkin 설정 `autosave_max_chars`. |
 | `autosave_max_turns` | `integer` | `40` | Birkin 설정 `autosave_max_turns`. |

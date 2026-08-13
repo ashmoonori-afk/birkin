@@ -519,7 +519,7 @@ a representative configuration using real defaults from `birkin/config.py`:
     "onboarding_complete": false,
     "background_workers": 2
   },
-  "autosave_transcripts": true,
+  "autosave_transcripts": false,
   "autosave_redact_secrets": true,
   "autosave_max_chars": 4000,
   "autosave_max_turns": 40,
