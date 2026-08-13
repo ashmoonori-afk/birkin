@@ -441,6 +441,8 @@ def _loop(session: Any, snap: dict[str, Any], w, keys,
                 last = now
             continue
         state["note"] = ""
+        if key == "paste":
+            continue
         if key not in ("a", "r"):
             state.pop("confirmation", None)
         if key == "q":
