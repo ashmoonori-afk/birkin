@@ -16,6 +16,7 @@ that call returns.
 from __future__ import annotations
 
 import atexit
+import os
 import sys
 import time
 from typing import Any
@@ -25,7 +26,7 @@ from . import ui, uikit, uistate
 ALT_ON, ALT_OFF = "\033[?1049h", "\033[?1049l"
 HIDE, SHOW = "\033[?25l", "\033[?25h"
 SYNC_ON, SYNC_OFF = "\033[?2026h", "\033[?2026l"
-HOME, EL = "\033[H", "\033[0K"
+HOME, EL, ERASE_DOWN = "\033[H", "\033[0K", "\033[0J"
 
 _NARROW = 80          # below this: single surface + switcher
 _RAIL_W = 34
@@ -35,6 +36,10 @@ _REFRESH_S = 2.0
 
 def initial_state() -> dict[str, Any]:
     return {"screen": "overview", "cursor": 0, "top": 0, "note": ""}
+
+
+def _env_enabled(name: str) -> bool:
+    return os.environ.get(name, "").lower() in ("1", "true", "yes", "on")
 
 
 # -- snapshot (impure gather, resilient per domain) -------------------------
@@ -165,17 +170,40 @@ _KEYMAP: tuple[tuple[str, str, str], ...] = (
     ("탐색", "g/G", "처음/끝"),
     ("상세", "Space", "tool detail 접기/펼치기"),
     ("상세", "n/p", "다음/이전 tool"),
+    ("상세", "[/]", "세션 위/아래 스크롤"),
     ("승인", "a", "승인 요청"), ("승인", "r", "거부 요청"),
     ("화면", "f", "authority snapshot 새로고침"),
-    ("화면", "?", "도움"),
+    ("화면", "?", "도움"), ("화면", "/", "도움 검색"),
     ("화면", "Esc", "뒤로"), ("화면", "q", "종료"),
 )
 
 
-def _help_screen(width: int, height: int, query: str) -> list[str]:
+def update_help_search(state: dict[str, Any], key: str) -> bool:
+    """Apply one help-search key, returning whether it was consumed."""
+    if key == "/":
+        state.update(screen="help", query="", searching=True)
+        return True
+    if state.get("screen") != "help" or not state.get("searching"):
+        return False
+    if key == "esc":
+        state["screen"] = "overview"
+        state.pop("query", None)
+        state.pop("searching", None)
+    elif key in ("\x7f", "\x08"):
+        state["query"] = str(state.get("query", ""))[:-1]
+    elif len(key) == 1 and key.isprintable():
+        state["query"] = str(state.get("query", "")) + key
+    return True
+
+
+def _help_screen(width: int, height: int, query: str,
+                 searching: bool = False) -> list[str]:
     """Render the keymap grouped by task, never a flat dump."""
     q = (query or "").strip()
-    lines = [ui.fit("도움 — 키맵" + (f" (검색: {q})" if q else ""), width)]
+    title = "도움 — 키맵"
+    if searching:
+        title += f" (검색: {q}_ · Esc 닫기)"
+    lines = [ui.fit(title, width)]
     for group in dict.fromkeys(g for g, _, _ in _KEYMAP):
         entries = [(key, label) for g, key, label in _KEYMAP
                    if g == group and (not q or q in g or q in key
@@ -190,13 +218,16 @@ def _help_screen(width: int, height: int, query: str) -> list[str]:
 
 def render(snap: dict[str, Any], state: dict[str, Any],
            size: tuple[int, int], *, color: bool | None = None,
-           ascii_only: bool = False) -> list[str]:
+           ascii_only: bool | None = None) -> list[str]:
     """Compose the frame as a list of lines. Pure; never touches a TTY."""
     cols, rows = size
     color = ui.should_color() if color is None else color
+    ascii_only = (_env_enabled("BIRKIN_ASCII") if ascii_only is None
+                  else ascii_only)
     items = build_ledger(snap)
     body_h = max(3, rows - _CHROME_H)
-    pulse = uikit.status_pulse(_pulse_info(snap, items), cols, color=color)
+    pulse = uikit.status_pulse(_pulse_info(snap, items), cols, color=color,
+                               ascii_only=ascii_only)
     sep = ui.fit("─" * cols if not ascii_only else "-" * cols, cols)
 
     lines = [ui.fit("birkin workbench", cols), pulse, sep]
@@ -205,12 +236,15 @@ def render(snap: dict[str, Any], state: dict[str, Any],
         lines += _approval_screen(snap, state, cols, body_h, color=color,
                                   ascii_only=ascii_only)
     elif state.get("screen") == "session":
-        lines += render_session(state.get("messages") or [],
-                                state.get("expanded") or set(),
-                                cols, body_h, color=color,
-                                ascii_only=ascii_only)
+        lines += render_session(
+            state.get("messages") or [], state.get("expanded") or set(),
+            cols, body_h, color=color, ascii_only=ascii_only,
+            tool_cursor=state.get("tool_cursor", 0),
+            scroll=state.get("session_scroll", 0),
+        )
     elif state.get("screen") == "help":
-        lines += _help_screen(cols, body_h, str(state.get("query", "")))
+        lines += _help_screen(cols, body_h, str(state.get("query", "")),
+                              bool(state.get("searching")))
     elif cols < _NARROW:
         waiting = _waiting_count(items)
         lines.append(ui.fit(f"주의 필요 — 대기 {waiting}", cols))
@@ -258,6 +292,8 @@ def render(snap: dict[str, Any], state: dict[str, Any],
         lines += uikit.disconnected_state("birkin daemon start", cols,
                                           color=color)[:2]
     hint = "j/k 이동 · Enter 열기 · a 승인 · r 거부 · f 새로고침 · q 종료"
+    if state.get("screen") == "session":
+        hint = "n/p tool · Space 상세 · [/] 스크롤 · Esc 뒤로 · q 종료"
     if state.get("note") and state.get("screen") != "approval":
         hint = str(state["note"])
     lines.append(ui.fit(hint, cols))
@@ -321,12 +357,12 @@ def session_view(messages: list[dict[str, Any]]) -> dict[str, Any]:
 
 def render_session(messages: list[dict[str, Any]], expanded: set[int],
                    cols: int, rows: int, *, color: bool,
-                   ascii_only: bool = False) -> list[str]:
-    """Conversation tail + progressively disclosed tool executions. Pure."""
+                   ascii_only: bool = False, tool_cursor: int = 0,
+                   scroll: int = 0) -> list[str]:
+    """Conversation and tool executions in a clamped scrollback viewport."""
     view = session_view(messages)
     lines: list[str] = []
-    turn_budget = max(2, rows // 3)
-    for turn in view["turns"][-turn_budget:]:
+    for turn in view["turns"]:
         marker = ">" if turn["role"] == "user" else " "
         first = turn["text"].splitlines()[0] if turn["text"] else ""
         lines.append(ui.fit(f"{marker} {first}", cols))
@@ -335,13 +371,21 @@ def render_session(messages: list[dict[str, Any]], expanded: set[int],
                             cols))
     for idx, tool in enumerate(view["tools"]):
         if idx in expanded:
-            lines.extend(uikit.tool_detail(tool, cols, max_lines=8,
-                                           color=color,
-                                           ascii_only=ascii_only))
+            tool_lines = uikit.tool_detail(tool, max(1, cols - 2),
+                                            max_lines=8, color=color,
+                                            ascii_only=ascii_only)
         else:
-            lines.append(uikit.tool_summary(tool, cols, color=color,
-                                            ascii_only=ascii_only))
-    return lines[:rows]
+            tool_lines = [uikit.tool_summary(
+                tool, max(1, cols - 2), color=color,
+                ascii_only=ascii_only,
+            )]
+        cursor = "> " if idx == tool_cursor else "  "
+        lines.append(ui.fit(cursor + tool_lines[0], cols))
+        lines.extend(ui.fit("  " + line, cols) for line in tool_lines[1:])
+    offset = max(0, min(int(scroll), max(0, len(lines) - rows)))
+    end = len(lines) - offset
+    start = max(0, end - rows)
+    return lines[start:end]
 
 
 def _load_transcript(path: str) -> list[dict[str, Any]]:
@@ -430,7 +474,7 @@ def _loop(session: Any, snap: dict[str, Any], w, keys,
         w(SYNC_ON + HOME)
         for line in render(snap, state, size):
             w(line + EL + "\r\n")
-        w(EL + SYNC_OFF)
+        w(EL + ERASE_DOWN + SYNC_OFF)
         sys.stdout.flush()
 
         key = keys.read(_REFRESH_S)
@@ -442,6 +486,8 @@ def _loop(session: Any, snap: dict[str, Any], w, keys,
             continue
         state["note"] = ""
         if key == "paste":
+            continue
+        if update_help_search(state, key):
             continue
         if key not in ("a", "r"):
             state.pop("confirmation", None)
@@ -472,11 +518,18 @@ def _loop(session: Any, snap: dict[str, Any], w, keys,
             elif item["kind"] == "session":
                 state["messages"] = _load_transcript(str(item["id"]))
                 state["expanded"] = set()
+                state["tool_cursor"] = 0
+                state["session_scroll"] = 0
                 state["screen"] = "session"
         elif key == " " and state["screen"] == "session":
             expanded = state.setdefault("expanded", set())
             idx = state.get("tool_cursor", 0)
             expanded.symmetric_difference_update({idx})
+        elif key in ("[", "]") and state["screen"] == "session":
+            step = max(1, body_h // 2)
+            current = int(state.get("session_scroll", 0))
+            state["session_scroll"] = max(
+                0, current + (step if key == "[" else -step))
         elif key in ("n", "p") and state["screen"] == "session":
             tools = session_view(state.get("messages") or [])["tools"]
             step = 1 if key == "n" else -1
