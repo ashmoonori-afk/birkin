@@ -7,10 +7,11 @@ from typing import Any
 
 from . import mnemosyne
 from .curation_contract import PLAN_VERSION, SUPPORTED_PLAN_VERSIONS
+from .curation_schema import load_curation_plan_schema
 from .mnemosyne import Mnemosyne
+from .moirai.schema import SchemaError, validate
 
-
-_FENCED_JSON = re.compile(r"```(?:json)?\s*(\{.*?\})\s*```", re.S)
+_FENCED_JSON = re.compile(r"```(?:json)?\s*(\{.*?\})\s*```", re.DOTALL)
 
 
 def _balanced_objects(text: str) -> list[str]:
@@ -50,9 +51,20 @@ def extract_plan(text: str) -> dict[str, Any]:
             obj = json.loads(cand)
         except (json.JSONDecodeError, ValueError):
             continue
-        if isinstance(obj, dict) and isinstance(obj.get("ops"), list) \
-                and obj.get("plan_version") in SUPPORTED_PLAN_VERSIONS:
-            return obj
+        if isinstance(obj, dict) and isinstance(obj.get("ops"), list):
+            version = obj.get("plan_version")
+            if version == PLAN_VERSION:
+                try:
+                    validate(
+                        obj,
+                        load_curation_plan_schema(),
+                        strict_contract=True,
+                    )
+                except SchemaError:
+                    continue
+                return obj
+            if version in SUPPORTED_PLAN_VERSIONS:
+                return obj
     for cand in candidates:
         try:
             obj = json.loads(cand)
@@ -95,13 +107,12 @@ clarifying questions and do not reply in prose: respond with the JSON plan
 only, using your best judgment. An empty ops list is valid if nothing should
 change.
 
-Return EXACTLY ONE fenced JSON object (```json ... ```) matching this schema:
+Return EXACTLY ONE fenced JSON object (```json ... ```) matching this canonical
+schema:
 
-{{"plan_version": 2, "ops": [ ... ], "summary": "<one short paragraph>"}}
+{schema_block}
 
-Each op references notes by their existing SLUG. Include every op key
-(`op`, `slug`, `zone`, `a`, `b`, `stale`, `by`, `reason`) and set unused keys
-to null:
+Each op references notes by its existing SLUG. Set unused optional keys to null:
 - {{"op": "rezone", "slug": "<slug>", "zone": "<lowercase-hyphen topic>", "a": null, "b": null, "stale": null, "by": null, "reason": "..."}}
     File an inbox/misplaced note into a topical zone folder. Cluster related
     notes into the same zone. Do not use "_archive" as a zone.
@@ -180,4 +191,9 @@ def build_plan_prompt(catalog: dict[str, Any], untrusted: str = "") -> str:
                       for s in catalog["stale_candidates"]) or "(none)"
     return _PROMPT.format(notes_block="\n".join(notes_lines) or "(empty)",
                           zones_block=zones, stale_block=stale,
+                          schema_block=json.dumps(
+                              load_curation_plan_schema(),
+                              ensure_ascii=False,
+                              separators=(",", ":"),
+                          ),
                           untrusted=untrusted or "(none)")

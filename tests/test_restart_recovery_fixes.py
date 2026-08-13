@@ -105,7 +105,8 @@ def test_attachment_outside_all_roots_is_still_rejected(monkeypatch, tmp_path):
 
 def test_read_recent_round_trips_append_turn():
     transcripts.append_turn("telegram", "42", "내 이름은 제인이야",
-                            "반가워요 제인님", cfg={})
+                            "반가워요 제인님",
+                            cfg={"autosave_transcripts": True})
     tail = transcripts.read_recent("telegram", "42")
     assert "내 이름은 제인이야" in tail
     assert "반가워요 제인님" in tail
@@ -128,7 +129,9 @@ def _fake_session(reply_prefix="echo:"):
 
 def test_gateway_seeds_first_turn_with_saved_history(monkeypatch):
     # A previous process saved this conversation.
-    transcripts.append_turn("http", "u1", "이전 질문", "이전 답변", cfg={})
+    transcripts.append_turn(
+        "http", "u1", "이전 질문", "이전 답변",
+        cfg={"autosave_transcripts": True})
     fake = _fake_session()
     monkeypatch.setattr(gw_core, "build_session", lambda cfg: fake)
     g = gw_core.Gateway({})
@@ -146,7 +149,9 @@ def test_gateway_seeds_first_turn_with_saved_history(monkeypatch):
 
 
 def test_slash_new_opts_out_of_seeding(monkeypatch):
-    transcripts.append_turn("http", "u1", "이전 질문", "이전 답변", cfg={})
+    transcripts.append_turn(
+        "http", "u1", "이전 질문", "이전 답변",
+        cfg={"autosave_transcripts": True})
     fake = _fake_session()
     monkeypatch.setattr(gw_core, "build_session", lambda cfg: fake)
     g = gw_core.Gateway({})

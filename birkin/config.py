@@ -14,8 +14,11 @@ from __future__ import annotations
 import copy
 import json
 import os
+import uuid
 from pathlib import Path
 from typing import Any
+
+from .config_model import Config, merge_config, normalize_overrides
 
 # --- Defaults -------------------------------------------------------------
 
@@ -188,11 +191,13 @@ DEFAULT_CONFIG: dict[str, Any] = {
         "onboarding_complete": False,
         "background_workers": 2,
     },
-    # Auto-save every conversation turn (gateway + REPL) to sessions_dir as
+    # Opt in to saving every trusted conversation turn (gateway + REPL) to
+    # sessions_dir as
     # reserved ``auto__*.json`` in the canonical format the nightly Morpheus
     # routine already consumes — so memory is extracted from real conversations
-    # automatically. See transcripts.py. Disable with autosave_transcripts=false.
-    "autosave_transcripts": True,
+    # automatically. See transcripts.py. Disabled by default because transcripts
+    # can contain private conversation data.
+    "autosave_transcripts": False,
     "autosave_redact_secrets": True,   # mask obvious secrets before writing
     "autosave_max_chars": 4000,        # per-message text cap before storing
     "autosave_max_turns": 40,          # per-file cap (turns); keeps files small
@@ -285,7 +290,7 @@ DEFAULT_CONFIG: dict[str, Any] = {
     # Harness kinds applied without asking. memory/skill are reversible local
     # files (same policy as auto_approve). prompt/subagent change how the agent
     # behaves on every later turn, so they are queued for `birkin review`.
-    "harness_auto_approve": ["memory", "skill"],
+    "harness_auto_approve": ["memory", "skill_note"],
     # CLI-agent (Claude Code / Codex) access level:
     #   "workspace" — writable & sandboxed to the workspace (default)
     #   "full"      — DANGEROUS: bypass all approvals + sandbox
@@ -308,6 +313,11 @@ DEFAULT_CONFIG: dict[str, Any] = {
     # --- Budget governor (P3 reliability). 0 = unlimited. ---
     "budget_tokens_daily": 0,
     "budget_tokens_monthly": 0,
+    "subagent_tree_max_tokens": 0,
+    "subagent_tree_max_usd": 0.0,
+    "subagent_tree_deadline_seconds": 0,
+    "subagent_tree_max_concurrent": 4,
+    "subagent_tree_max_nodes": 16,
     # Seconds to wait for a CLI-agent subprocess (claude/codex/local-cli) before
     # giving up; surfaced so users can tune long-running agents. See llm.py.
     "cli_timeout": 300,
@@ -518,7 +528,7 @@ def _resolve_secrets(cfg: dict[str, Any]) -> None:
     _secrets.apply_all(cfg)
 
 
-def load_config() -> dict[str, Any]:
+def load_config() -> Config:
     """Load config merged over defaults. Missing file -> defaults.
 
     Legacy ``nightly_hour`` / ``nightly_minute`` keys are silently migrated
@@ -532,31 +542,18 @@ def load_config() -> dict[str, Any]:
     # merge below only rebuilt "channels" when the saved file happened to
     # contain it, which used to be always — config.json was a full dump — so
     # the hazard was masked rather than absent.
-    cfg = copy.deepcopy(DEFAULT_CONFIG)
+    cfg: Config = copy.deepcopy(DEFAULT_CONFIG)
     saved: dict[str, Any] = {}
     path = config_path()
     if path.is_file():
         try:
             raw = json.loads(path.read_text(encoding="utf-8"))
             if isinstance(raw, dict):
-                saved = raw
-                cfg.update(saved)
+                saved = normalize_overrides(raw, DEFAULT_CONFIG)
+                cfg = merge_config(DEFAULT_CONFIG, saved)
         except (json.JSONDecodeError, OSError) as exc:
             # Fail loud but non-fatal: a corrupt config should not brick the CLI.
             print(f"[birkin] warning: could not read config ({exc}); using defaults")
-    # Deep-merge nested sub-sections so setting one entry doesn't drop the
-    # defaults for the others (e.g. saving only channels.telegram must keep the
-    # default channels.http). A plain dict.update() replaces the whole sub-tree.
-    for nk in ("channels", "egress"):
-        base, sv = DEFAULT_CONFIG.get(nk), saved.get(nk)
-        if isinstance(base, dict) and isinstance(sv, dict):
-            merged = {k: (dict(v) if isinstance(v, dict) else v)
-                      for k, v in base.items()}
-            for k, v in sv.items():
-                merged[k] = ({**merged[k], **v}
-                             if isinstance(v, dict) and isinstance(merged.get(k), dict)
-                             else v)
-            cfg[nk] = merged
     # Migrate legacy keys (in-memory only). We look at the *saved* data so we
     # don't overwrite a real ``morpheus_hour`` with the static default just
     # because the default is in the merged ``cfg``.
@@ -623,13 +620,13 @@ def save_config(cfg: dict[str, Any]) -> Path:
     # then cannot truncate the live config.
     cfg = _overrides_only(cfg)
     path = config_path()
-    tmp = path.with_suffix(path.suffix + ".tmp")
+    tmp = path.with_suffix(
+        path.suffix + f".{os.getpid()}.{uuid.uuid4().hex[:8]}.tmp"
+    )
     try:
-        tmp.write_text(json.dumps(cfg, indent=2, ensure_ascii=False), encoding="utf-8")
-        try:  # restrict the temp file too, before it is briefly visible
-            os.chmod(tmp, 0o600)
-        except OSError:
-            pass
+        fd = os.open(tmp, os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o600)
+        with os.fdopen(fd, "w", encoding="utf-8") as handle:
+            handle.write(json.dumps(cfg, indent=2, ensure_ascii=False))
         os.replace(tmp, path)
     except OSError:
         try:  # don't leave a partial .tmp behind on a failed write

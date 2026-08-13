@@ -14,7 +14,7 @@
 | 추출 시점 | **대화 5회마다 / 유휴 600s** (준실시간, LLM) + 워밍업 스케줄(1→2→4) | 야간 1회 (Morpheus) | TDAI가 당일성 우위 — 단 birkin은 session_search/session_get(ADR-041)로 당일 회상 가능 → 격차 부분 상쇄 |
 | 중복/충돌 | **쓰기 시점 2단계**: 기계적 후보 검색(벡터→FTS5 강등) → LLM 배치 판정 | 야간 Morpheus가 duplicate/contradiction/supersede 판정 | **차용 A**: 기계적 후보 검색을 쓰기 시점 *어드바이저리*로 — LLM 판정은 야간 배치 유지 (비용 0 추가) |
 | 망각 | 없음 (보존+추적성 중심; retention 0=영구) | Ebbinghaus decay + 아카이브 티어 (벤치마크 검증, H5) | **birkin 우위(증거)** |
-| 안전 | 앱이 직접 씀 (화이트박스 아티팩트로 보완) | **CurationPlan/1**: 모델은 계획만, executor가 불변식 강제 | **birkin 우위** |
+| 안전 | 앱이 직접 씀 (화이트박스 아티팩트로 보완) | **CurationPlan/2**: 모델은 계획만, executor가 불변식 강제 | **birkin 우위** |
 | 추적성 | 추상→원본 drill-down 체인, 모든 중간물 가독 아티팩트 | `source:` frontmatter + evidence gate + SHA 감사 | par |
 | 컨텍스트 관리 | Mermaid 심볼 그래프 오프로딩(50%/85% 임계) | 토큰 다이어트(스니펫 미리보기 + on-demand 전문, 실측 371×) | 접근 다름; birkin은 측정 기반 |
 

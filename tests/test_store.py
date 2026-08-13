@@ -128,6 +128,23 @@ def test_write_json_uses_unique_tmp_name(tmp_path, monkeypatch):
     assert not list(tmp_path.glob("*.tmp"))            # tmp consumed, none left
     assert seen and seen[0].endswith(".tmp")
     assert str(os.getpid()) in seen[0]                 # unique per process
+
+
+def test_write_json_creates_temp_owner_only(tmp_path, monkeypatch):
+    real_open = store.os.open
+    modes = []
+
+    def recording_open(path, flags, mode=0o777):
+        modes.append(mode)
+        return real_open(path, flags, mode)
+
+    monkeypatch.setattr(store.os, "open", recording_open)
+
+    store._write_json(tmp_path / "state.json", {"secret": "x"})
+
+    assert modes == [0o600]
+
+
 def test_live_lock_is_not_reclaimed(tmp_path):
     target = tmp_path / "state.json"
     first = store.file_lock(target)

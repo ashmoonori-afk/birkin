@@ -1,0 +1,70 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://birkin.dev/schemas/curation-plan-v2.schema.json",
+  "title": "CurationPlan/2",
+  "type": "object",
+  "required": ["plan_version", "ops"],
+  "properties": {
+    "plan_version": {
+      "type": "integer",
+      "const": 2
+    },
+    "ops": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["op"],
+        "properties": {
+          "op": {
+            "type": "string",
+            "enum": ["rezone", "link", "supersede", "archive", "annotate"]
+          },
+          "slug": {
+            "type": ["string", "null"]
+          },
+          "zone": {
+            "type": ["string", "null"]
+          },
+          "a": {
+            "type": ["string", "null"]
+          },
+          "b": {
+            "type": ["string", "null"]
+          },
+          "stale": {
+            "type": ["string", "null"]
+          },
+          "by": {
+            "type": ["string", "null"]
+          },
+          "aliases": {
+            "type": ["array", "null"],
+            "items": {
+              "type": "string"
+            }
+          },
+          "queries": {
+            "type": ["array", "null"],
+            "items": {
+              "type": "string"
+            }
+          },
+          "xlang": {
+            "type": ["array", "null"],
+            "items": {
+              "type": "string"
+            }
+          },
+          "reason": {
+            "type": ["string", "null"]
+          }
+        },
+        "additionalProperties": false
+      }
+    },
+    "summary": {
+      "type": "string"
+    }
+  },
+  "additionalProperties": false
+}

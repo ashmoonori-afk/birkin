@@ -1,4 +1,4 @@
-"""CurationPlan/1 — the model-agnostic curation executor.
+"""CurationPlan/1 and /2 — the model-agnostic curation executor.
 
 Safety is enforced in code, so these tests are the real guarantee: an
 adversarial plan (archive everything, obey the canary, invent slugs, escape

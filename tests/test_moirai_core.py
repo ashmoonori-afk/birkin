@@ -13,6 +13,7 @@ test_moirai_live.py.
 from __future__ import annotations
 
 import json
+import threading
 
 import pytest
 
@@ -192,6 +193,51 @@ def test_a_run_records_bindings_agents_and_a_result(tmp_path):
     run = journal.get_run(out["run_id"])
     assert run["status"] == "completed"
     assert json.loads(run["bindings_json"]) == {"worker": "codex:gpt-5.6-sol"}
+
+
+def test_concurrent_calls_never_spawn_above_the_agent_cap(tmp_path):
+    entered = 0
+    entered_lock = threading.Lock()
+    release = threading.Event()
+
+    def blocking_spawn(prompt, binding, opts, cfg, *, timeout=900.0):
+        nonlocal entered
+        with entered_lock:
+            entered += 1
+        assert release.wait(timeout=10)
+        return prompt
+
+    script = moirai.load_script(_write(tmp_path, '''
+meta = {"name": "parallel-cap", "roles": {"w": {"default": "codex:x"}}}
+
+def main(m):
+    return m.parallel(
+        [lambda i=i: m.agent(str(i), role="w") for i in range(8)],
+    )
+'''))
+    outcome = {}
+
+    def run():
+        outcome.update(moirai.run_script(
+            script,
+            cfg={"moirai_max_agents": 2},
+            spawn=blocking_spawn,
+        ))
+
+    thread = threading.Thread(target=run)
+    thread.start()
+    deadline = threading.Event()
+    for _ in range(1000):
+        with entered_lock:
+            if entered >= 2:
+                break
+        deadline.wait(0.001)
+    release.set()
+    thread.join(timeout=10)
+
+    assert not thread.is_alive()
+    assert entered == 2
+    assert outcome["agents"] == 2
 
 
 def test_an_explicit_provider_on_the_call_overrides_the_role(tmp_path):
