@@ -78,7 +78,8 @@ def compose_main(cfg: dict[str, Any], *, skills_index: str = "",
         + neurosis.auto_trigger_note(cfg) \
         + moirai_trigger.auto_trigger_note(cfg) \
         + _goal_note()
-    return prompts.seal_research_policy(system)
+    from . import ide
+    return prompts.seal_research_policy(system) + ide.consume_context_note()
 
 
 def compose_cli(cfg: dict[str, Any], *, memory_block: str = "",
@@ -99,7 +100,8 @@ def compose_cli(cfg: dict[str, Any], *, memory_block: str = "",
         + neurosis.auto_trigger_note(cfg) \
         + moirai_trigger.auto_trigger_note(cfg) \
         + _goal_note()
-    return prompts.seal_research_policy(system)
+    from . import ide
+    return prompts.seal_research_policy(system) + ide.consume_context_note()
 
 
 def compose_subagent(cfg: dict[str, Any], *, skills_index: str = "",
