@@ -1368,7 +1368,7 @@ def build_parser() -> argparse.ArgumentParser:
     moi.add_argument("action", nargs="?", default="list",
                      help="run | list | status | resume")
     moi.add_argument("script", nargs="?", default="",
-                     help="workflow file or name (run)")
+                     help="workflow file or name (run); run id (status / resume)")
     moi.add_argument("--run-id", dest="run_id", default="",
                      help="run id (status / resume)")
     moi.add_argument("--bind", action="append", default=[], metavar="ROLE=SPEC",

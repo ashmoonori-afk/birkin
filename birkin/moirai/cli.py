@@ -6,6 +6,7 @@ workflow, because that is the one spawn path with no natural ceiling.
 
 from __future__ import annotations
 
+import argparse
 import json
 from pathlib import Path
 from typing import Any, Optional
@@ -113,8 +114,9 @@ def cmd_run(args: Any) -> int:
     return 0 if out["status"] == "completed" else 1
 
 
-def cmd_resume(args: Any) -> int:
-    run_id = (getattr(args, "run_id", "") or "").strip()
+def cmd_resume(args: argparse.Namespace) -> int:
+    run_id = (getattr(args, "run_id", "")
+              or getattr(args, "script", "") or "").strip()
     prior = journal.get_run(run_id)
     if not prior:
         print(f"{ui.RED}그런 실행이 없습니다: {run_id}{ui.RESET}")
@@ -176,8 +178,9 @@ def cmd_list(args: Any) -> int:
     return 0
 
 
-def cmd_status(args: Any) -> int:
-    run_id = (getattr(args, "run_id", "") or "").strip()
+def cmd_status(args: argparse.Namespace) -> int:
+    run_id = (getattr(args, "run_id", "")
+              or getattr(args, "script", "") or "").strip()
     run = journal.get_run(run_id)
     if not run:
         print(f"{ui.RED}그런 실행이 없습니다: {run_id}{ui.RESET}")
