@@ -120,3 +120,4 @@ def test_page_ships_reviewed_interaction_contract(srv):
     assert "related-evidence" in html
     assert "buildQueue(approvals, jobs, runs)" in html
     assert "selectedId = items[0].id" in html
+    assert "run.ui_state" in html

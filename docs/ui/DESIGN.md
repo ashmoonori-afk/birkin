@@ -16,7 +16,7 @@ Birkin은 여러 에이전트를 띄우는 터미널이 아니라, **사용자�
 
 1. **Attention before information** — 첫 화면은 정보의 지도가 아니라 주의의 대기열이다. 정렬 기준은 항상 `uistate.attention_rank`.
 2. **Conversation is sacred** — 대화 로그는 append-only 라인 플로우(기존 정체성 계승). 운영 상세는 대화에 섞지 않고 점진 공개한다.
-3. **Quad-redundant state** — 상태는 글리프 모양 + 라벨 + 색 + 위치로 전달한다. 색은 네 번째 채널이지 유일한 채널이 아니다(NO_COLOR/ASCII에서 무손실).
+3. **Redundant state** — 상태는 글리프 모양 + 색 + 위치로 항상 전달하고 상세면에서 라벨을 추가한다. compact Ledger에서도 색 단독 전달은 금지한다(NO_COLOR/ASCII 대응).
 4. **UI proposes, Python disposes** — UI는 실행 권한이 없다. 모든 조작은 authority(Python)에 대한 요청이고, 화면 상태는 authority 응답 후에만 전이된다.
 5. **Zero new runtime deps** — 순수 ANSI + stdlib(기존 원칙 계승). 프레임워크(curses/rich/textual) 도입 금지.
 6. **Evidence is first-class** — 도구 실행·승인·메모리 변경은 "무엇을 근거로"가 항상 한 번의 상호작용 안에 있다.
@@ -73,9 +73,9 @@ Birkin은 여러 에이전트를 띄우는 터미널이 아니라, **사용자�
 
 | 레이아웃 | 조건 | 구성 |
 | --- | --- | --- |
-| Wide | ≥120 | Ledger(28) + Bench + Loupe(30, 토글) + Composer/Pulse |
-| Medium | 80–119 | Ledger(글리프 열 또는 접힘 토글) + Bench + Loupe는 오버레이 |
-| Narrow | <80 | 상단 1행 switcher(현재 세션+대기 수) + 단일 Bench + Composer. Ledger/Loupe는 전체 화면 전환 |
+| Wide | ≥120 | Ledger(34) + Bench + Pulse + 상시 키 힌트 |
+| Medium | 80–119 | 80–99는 glyph rail(4), 100–119는 제목 Ledger + Bench + Pulse |
+| Narrow | <80 | 상단 Pulse + 단일 전체 폭 Attention Queue; 승인·세션 선택은 별도 화면 |
 
 검증 크기: 60×20, 80×24, 120×30, 160×40. 3열의 단순 압축 금지 — narrow는 별도 구성.
 
@@ -105,8 +105,8 @@ badge · session_row · approval_card · tool_summary · tool_detail(접힘/펼�
 ## 8. Interaction model
 
 - 입력 등가성: 모든 조작은 키보드로 가능, 터미널 마우스 클릭(지원 시)과 WebUI 클릭은 같은 액션에 수렴.
-- 점진 공개: tool_summary(1행) → tool_detail(높이 상한+오버플로 마커) → 전체 보기(별도 화면). 실행 중 카드 높이 고정, 완료 시에만 갱신(스트리밍 안정성).
-- 승인 흐름: 카드에 요청 주체·동작·대상·예상 영향·위험도·만료·거부 결과·근거 표시. approve 입력 → "요청 전송" 표시 → authority 성공 응답 후에만 완료 전이. 파괴적 작업은 approve와 execute 단계 분리 표기. 재연결 시 전 승인 재조회.
+- 점진 공개: tool_summary(1행) → tool_detail(높이 상한+오버플로 마커). 실행 중 카드 높이 고정, 완료 시에만 갱신(스트리밍 안정성). 이 surface는 원본 전체 보기 동작을 제공하지 않는다.
+- 승인 흐름: 모든 카드에 요청 주체·동작·거부 결과를 표시하고, authority record가 제공하는 대상·예상 영향·위험도·만료·근거를 추가 표시한다. approve 입력 → "요청 전송" 표시 → authority 성공 응답 후에만 완료 전이. 파괴적 작업은 approve와 execute 단계 분리 표기. 재연결 시 전 승인 재조회.
 - 오류/재접속: disconnected_state는 항상 복구 명령을 화면에 인쇄(reattach 원칙).
 
 ## 9. Keyboard map (초안, Birkin 명령 수 기준 — prefix key 불채택)
@@ -115,19 +115,16 @@ Birkin slash 명령은 ~20개로 tmux급 충돌이 없다. 단일 키 + 수식�
 
 | 키 | 동작 |
 | --- | --- |
-| `Tab` / `Shift+Tab` | Ledger ↔ Bench 포커스 이동 |
 | `j/k` 또는 `↑/↓` | 리스트 탐색 |
 | `Enter` | 선택 항목 열기 |
-| `1..6` | Bench 모드 전환(Conversation/Trace/Plan/Approvals/Evidence/Memory) |
 | `Space` | tool detail 접기/펼치기 |
 | `a` / `r` | (승인 포커스) approve / reject — 항상 확인 단계 경유 |
-| `l` | Loupe 토글 |
-| `/` | 명령 팔레트 |
-| `?` | 도움 오버레이(검색 가능) |
+| `f` | authority snapshot 새로고침 |
+| `?` | 그룹형 도움 오버레이 |
 | `Esc` | 오버레이 닫기 / 스트리밍 취소(기존 계승) |
 | `q` | 대시보드 종료(기존 계승) |
 
-모든 키는 화면 하단 힌트와 `?` 오버레이에 상시 노출. 텍스트 입력 중에는 리스트 단축키 비활성(Composer 포커스 우선).
+핵심 키는 화면 하단에 상시 노출하고 전체 키맵은 `?` 오버레이에 노출한다. `/work`는 읽기/승인 workbench이며 대화 입력은 기존 `/chat` surface가 소유한다.
 
 ## 10. 원본성·라이선스
 
@@ -149,8 +146,14 @@ Birkin slash 명령은 ~20개로 tmux급 충돌이 없다. 단일 키 + 수식�
 
 ## 12. 테스트·QA 계약
 
-- 골든/스냅샷: uikit 컴포넌트와 화면 조립을 4개 터미널 크기에서 순수 함수로 스냅샷.
+- viewport regression: uikit 컴포넌트와 화면 조립을 4개 터미널 크기에서 순수 함수로 렌더하고 폭·핵심 내용을 검사.
 - CJK: 모든 폭 계산은 `ui.cell_width` 경유, 한글 혼합 케이스가 각 컴포넌트 테스트에 포함.
 - NO_COLOR/ASCII: escape 0개 보장 + ascii_only 글리프 세트.
-- 권한 경계: UI 모듈이 shell/tool/approval 실행 함수를 import하지 않음을 테스트로 고정, 승인 전이는 authority 응답 mock 후에만.
-- 시각 QA 증거: 전체 화면 스크린샷(부분 crop 금지), 60×20/80×24/120×30/160×40 + WebUI 375/768/1024/1440.
+- 권한 경계: UI 모듈은 shell/tool executor를 import하지 않는다. 승인/거부는 확인 후 `resolve_approval()` adapter가 Python authority를 호출하고, UI는 authority 응답 후 snapshot을 다시 읽는다.
+- 시각 QA 증거: 터미널 60×20/80×24/120×30/160×40 실 렌더의 전체 line set과 폭 측정, WebUI 375/768/1024/1440 전체 화면 스크린샷.
+
+### 이번 surface의 명시적 비범위
+
+- Loupe와 Composer **컴포넌트 계약**은 후속 채팅 surface 통합을 위해 남아 있지만, 이번 `/work` TUI 조합에는 포함하지 않는다. 실행 가능한 terminal 범위는 Ledger/Bench/Pulse, 세션 tool trace, 승인 상세, 도움말이다.
+- `birkin dash`는 기존 호환 surface이며 이 계약의 상태 통합 대상이 아니다. 단일 `UIState` 계약은 새 `/work`와 Web workbench에 적용된다.
+- 터미널 증거는 ANSI/CJK 폭을 계산한 전체 frame 출력이다. PTY 이미지 golden은 현재 저장하지 않으며 이를 snapshot coverage로 주장하지 않는다.

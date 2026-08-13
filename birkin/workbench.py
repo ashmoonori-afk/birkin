@@ -161,16 +161,19 @@ def _approval_screen(snap: dict[str, Any], state: dict[str, Any],
 
 
 _KEYMAP: tuple[tuple[str, str, str], ...] = (
-    ("탐색", "j/k", "이동"), ("탐색", "Enter", "열기"),
+    ("탐색", "j/k 또는 ↑/↓", "이동"), ("탐색", "Enter", "열기"),
     ("탐색", "g/G", "처음/끝"),
+    ("상세", "Space", "tool detail 접기/펼치기"),
+    ("상세", "n/p", "다음/이전 tool"),
     ("승인", "a", "승인 요청"), ("승인", "r", "거부 요청"),
-    ("화면", "1..9", "화면 전환"), ("화면", "?", "도움"),
+    ("화면", "f", "authority snapshot 새로고침"),
+    ("화면", "?", "도움"),
     ("화면", "Esc", "뒤로"), ("화면", "q", "종료"),
 )
 
 
 def _help_screen(width: int, height: int, query: str) -> list[str]:
-    """Searchable keymap grouped by task, never a flat dump."""
+    """Render the keymap grouped by task, never a flat dump."""
     q = (query or "").strip()
     lines = [ui.fit("도움 — 키맵" + (f" (검색: {q})" if q else ""), width)]
     for group in dict.fromkeys(g for g, _, _ in _KEYMAP):
@@ -254,7 +257,7 @@ def render(snap: dict[str, Any], state: dict[str, Any],
             "screen") != "approval":
         lines += uikit.disconnected_state("birkin daemon start", cols,
                                           color=color)[:2]
-    hint = "j/k 이동 · Enter 열기 · a 승인 · r 거부 · q 종료"
+    hint = "j/k 이동 · Enter 열기 · a 승인 · r 거부 · f 새로고침 · q 종료"
     if state.get("note") and state.get("screen") != "approval":
         hint = str(state["note"])
     lines.append(ui.fit(hint, cols))
@@ -438,6 +441,8 @@ def _loop(session: Any, snap: dict[str, Any], w, keys,
                 last = now
             continue
         state["note"] = ""
+        if key not in ("a", "r"):
+            state.pop("confirmation", None)
         if key == "q":
             return
         if key == "esc":
@@ -455,7 +460,7 @@ def _loop(session: Any, snap: dict[str, Any], w, keys,
             state["cursor"] = max(0, len(items) - 1)
         elif key == "?":
             state["screen"] = "help"
-        elif key == "r":
+        elif key == "f":
             snap = snapshot(session)
             last = now
         elif key == "\r" and items:
@@ -476,10 +481,17 @@ def _loop(session: Any, snap: dict[str, Any], w, keys,
             state["tool_cursor"] = max(
                 0, min(state.get("tool_cursor", 0) + step,
                        max(0, len(tools) - 1)))
-        elif key in ("a", "d") and items:
+        elif key in ("a", "r") and items:
             item = items[state["cursor"]]
             if item["kind"] != "approval":
                 continue
+            confirmation = (item["id"], key)
+            if state.get("confirmation") != confirmation:
+                state["confirmation"] = confirmation
+                label = "승인" if key == "a" else "거부"
+                state["note"] = f"{label} 요청 확인: 같은 키를 다시 누르세요"
+                continue
+            state.pop("confirmation", None)
             state["note"] = "요청 전송 중"
             out = resolve_approval(item["id"], approve=(key == "a"))
             state["note"] = (f"✓ {str(out.get('result') or '처리됨')[:100]}"

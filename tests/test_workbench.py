@@ -155,6 +155,16 @@ def test_resolve_approval_failure_is_reported_not_swallowed(monkeypatch):
     assert "daemon unreachable" in out["error"]
 
 
+def test_render_documents_terminal_approval_and_refresh_keys():
+    frame = "\n".join(
+        workbench.render(SNAP, _fresh_state(), (120, 30), color=False),
+    )
+
+    assert "a 승인" in frame
+    assert "r 거부" in frame
+    assert "f 새로고침" in frame
+
+
 def test_workbench_never_imports_execution_machinery():
     import birkin.workbench as module
     src = open(module.__file__, encoding="utf-8").read()

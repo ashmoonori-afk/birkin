@@ -131,6 +131,39 @@ def test_recent_run_state_surfaces_recorded_errors():
     assert uistate.from_recent_run(
         {"details": {"error": "provider failed"}},
     ).state == "failed"
+    assert uistate.from_recent_run(
+        {"summary": "[nightly] error: provider failed", "details": {}},
+    ).state == "failed"
+    assert uistate.from_recent_run(
+        {"summary": "daemon morpheus error: provider failed", "details": {}},
+    ).state == "failed"
+    assert uistate.from_recent_run(
+        {"summary": "morpheus failed: provider failed", "details": {}},
+    ).state == "failed"
+    assert uistate.from_recent_run(
+        {"summary": "[build] exit 1", "details": {}},
+    ).state == "failed"
+    assert uistate.from_recent_run(
+        {"summary": "[build] exit 0", "details": {}},
+    ).state == "completed"
+    assert uistate.from_recent_run(
+        {"summary": "error: provider failed", "details": {}},
+    ).state == "failed"
+    assert uistate.from_recent_run(
+        {"summary": "failed: provider failed", "details": {}},
+    ).state == "failed"
+    assert uistate.from_recent_run(
+        {"summary": "[build] exit 0 after retry", "details": {}},
+    ).state == "completed"
+    assert uistate.from_recent_run(
+        {"summary": "[build] exit 0.", "details": {}},
+    ).state == "completed"
+    assert uistate.from_recent_run(
+        {"summary": "[build] exit 12abc", "details": {}},
+    ).state == "completed"
+    assert uistate.from_recent_run(
+        {"summary": "[build] exit 1.5", "details": {}},
+    ).state == "completed"
 
 
 # -- mapping: agent runs (agentruns._STATUSES) ------------------------------

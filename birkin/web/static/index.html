@@ -55,8 +55,7 @@ button { font: inherit; }
 @media (min-width: 768px) {
   .main { grid-template-columns: 300px minmax(0,1fr); grid-template-areas: "ledger bench"; }
   .ledger { border-right: 1px solid var(--selection); border-bottom: none; }
-  .ledger details { display: contents; }
-  .ledger summary { display: none; }
+  .ledger summary { cursor: pointer; }
 }
 @media (min-width: 1024px) and (max-width: 1439px) {
   .lens-toggle { display: block; }
@@ -412,12 +411,11 @@ function renderLens(status, jobsData, runs) {
     : '<li class="empty">없음</li>';
   $("lens-runs").innerHTML = (runs || []).length
     ? runs.slice(0, 8).map((r) => {
-        // Honesty contract: a run that recorded an error must surface it —
-        // details.error is the one signal that exists (test_dash_honesty).
         const err = (r.details || {}).error || "";
-        const badge = err
-          ? ' <span class="k" style="color:var(--failure)">' + esc(err) + "</span>"
-          : ' <span class="k">' + esc(r.status || "") + "</span>";
+        const state = encOf(r.ui_state);
+        const badge = ' <span class="k" style="color:var(--' +
+          state.color_role.replace(/_/g, "-") + ')">' +
+          esc(err || state.label) + "</span>";
         return "<li>" + esc(r.title || r.kind || r.id || "run") + badge + "</li>";
       }).join("")
     : '<li class="empty">없음</li>';

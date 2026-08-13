@@ -62,9 +62,20 @@ def approval_card(record: dict[str, Any], width: int, *, color: bool,
         f"요청 주체: {record.get('origin', '?')}",
         f"동작: {action}",
     ]
+    target = (record.get("target") or payload.get("target")
+              or payload.get("path") or payload.get("name"))
+    if target:
+        lines.append(f"대상: {target}")
     desc = str(record.get("description", ""))
     if desc and desc != action:
-        lines.append(f"설명: {desc}")
+        lines.append(f"예상 영향: {desc}")
+    risk = record.get("risk")
+    if risk is not None:
+        lines.append(f"위험도: {risk}")
+    evidence = (record.get("evidence") or payload.get("evidence")
+                or payload.get("evidence_path"))
+    if evidence:
+        lines.append(f"근거: {evidence}")
     expires = record.get("expires_at")
     if expires:
         lines.append(f"만료: {expires}")

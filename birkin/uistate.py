@@ -13,6 +13,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import datetime, timezone
+import re
 from typing import Any
 
 UI_STATES: tuple[str, ...] = (
@@ -129,8 +130,17 @@ def from_recent_run(record: dict[str, Any]) -> StateView:
     """Map a persisted run, surfacing its only authoritative error signal."""
     details = record.get("details")
     error = details.get("error") if isinstance(details, dict) else None
-    state = "failed" if error else "completed"
-    return StateView(state, "error" if error else "completed", "recent_run")
+    summary = str(record.get("summary", "")).lower()
+    explicit_failure = bool(re.search(r"(?:^|\s)(?:error|failed):", summary))
+    exit_match = re.search(
+        r"(?:^|\s)exit\s+(-?\d+)(?=\s|[.,;:!?)]|$)(?!\.\d)",
+        summary,
+    )
+    failed = bool(error) or explicit_failure or (
+        exit_match is not None and int(exit_match.group(1)) != 0
+    )
+    state = "failed" if failed else "completed"
+    return StateView(state, "error" if failed else "completed", "recent_run")
 
 
 # -- durable subagent runs (agentruns._STATUSES) ----------------------------
