@@ -138,7 +138,8 @@ def composer(mode: str, state: str, width: int, *, color: bool,
             fit(_paint(hints, "muted", color), width)]
 
 
-def status_pulse(info: dict[str, Any], width: int, *, color: bool) -> str:
+def status_pulse(info: dict[str, Any], width: int, *, color: bool,
+                 ascii_only: bool = False) -> str:
     """One-line pulse: connection first — a dead daemon changes everything."""
     segments = []
     if info.get("daemon_up"):
@@ -149,7 +150,9 @@ def status_pulse(info: dict[str, Any], width: int, *, color: bool) -> str:
         segments.append(str(info["model"]))
     pending = int(info.get("pending") or 0)
     if pending:
-        segments.append(f"{uistate.glyph('waiting_human')} 대기 {pending}")
+        segments.append(
+            f"{uistate.glyph('waiting_human', ascii_only=ascii_only)} 대기 {pending}"
+        )
     if info.get("goal"):
         segments.append(f"목표 {info['goal']}")
     if info.get("cost"):
