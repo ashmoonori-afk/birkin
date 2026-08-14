@@ -367,6 +367,15 @@ Run `birkin --help` or `birkin <command> --help` for the complete interface.
   "gateway_clean_hooks": true,
   "gateway_thinking_tokens": 0,
   "gateway_prewarm": true,
+  "office": {
+    "handoc": {
+      "node_path": "",
+      "node_version": "22.14.0",
+      "module_root": "",
+      "package_manifest_sha256": "",
+      "timeout_seconds": 30
+    }
+  },
   "voice": {
     "wake_phrase": "Daddy is home",
     "gateway_url": "",

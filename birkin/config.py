@@ -178,6 +178,15 @@ DEFAULT_CONFIG: dict[str, Any] = {
     # Keep one pre-warmed spare claude process so the FIRST message of a new
     # conversation skips the ~28 s CLI cold start.
     "gateway_prewarm": True,
+    "office": {
+        "handoc": {
+            "node_path": "",
+            "node_version": "22.14.0",
+            "module_root": "",
+            "package_manifest_sha256": "",
+            "timeout_seconds": 30,
+        },
+    },
     "voice": {
         "wake_phrase": "Daddy is home",
         "gateway_url": "",
