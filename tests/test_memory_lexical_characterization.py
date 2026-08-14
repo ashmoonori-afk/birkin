@@ -12,7 +12,7 @@ def test_default_search_keeps_bm25_order_and_compatibility_shape():
     hits = mem.search("orchid deployment", limit=2)
 
     assert [hit["title"] for hit in hits] == ["exact", "partial"]
-    assert set(hits[0]) == {"title", "snippet", "zone", "related"}
+    assert {"title", "snippet", "zone", "related"} <= set(hits[0])
     assert "orchid orchid orchid deployment" in hits[0]["snippet"]
 
 

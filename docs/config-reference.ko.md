@@ -97,6 +97,11 @@ Schema version: 1
 | `channels.discord.enabled` | `boolean` | `false` | Birkin 설정 `channels.discord.enabled`. |
 | `channels.discord.webhook_url` | `string` | `""` | Birkin 설정 `channels.discord.webhook_url`. |
 | `vault_path` | `string` | `""` | Birkin 설정 `vault_path`. |
+| `memory_vector_enabled` | `boolean` | `false` | Birkin 설정 `memory_vector_enabled`. |
+| `memory_vector_backend` | `string` | `"sentence-transformers"` | Birkin 설정 `memory_vector_backend`. |
+| `memory_vector_model` | `string` | `"all-MiniLM-L6-v2"` | Birkin 설정 `memory_vector_model`. |
+| `memory_entity_enabled` | `boolean` | `false` | Birkin 설정 `memory_entity_enabled`. |
+| `memory_temporal_enabled` | `boolean` | `false` | Birkin 설정 `memory_temporal_enabled`. |
 | `morpheus_deliver_chat_id` | `string` | `""` | Birkin 설정 `morpheus_deliver_chat_id`. |
 | `workspace_roots` | `array` | `[]` | Birkin 설정 `workspace_roots`. |
 | `reaper_enabled` | `boolean` | `true` | Birkin 설정 `reaper_enabled`. |

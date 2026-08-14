@@ -408,6 +408,11 @@ Run `birkin --help` or `birkin <command> --help` for the complete interface.
     }
   },
   "vault_path": "",
+  "memory_vector_enabled": false,
+  "memory_vector_backend": "sentence-transformers",
+  "memory_vector_model": "all-MiniLM-L6-v2",
+  "memory_entity_enabled": false,
+  "memory_temporal_enabled": false,
   "morpheus_deliver_chat_id": "",
   "workspace_roots": [],
   "reaper_enabled": true,
