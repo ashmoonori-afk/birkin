@@ -92,6 +92,10 @@ class ToolContext:
     checkpoints: Any = None
     # hooks.HookBus — user shell scripts on tool lifecycle events.
     hooks: Any = None
+    # Browser QA state is injected for tests or initialized lazily by the
+    # optional Playwright adapter. Kept on the context so calls share one page.
+    browser_driver: Any = None
+    browser_session: Any = None
 
 
 @dataclass
