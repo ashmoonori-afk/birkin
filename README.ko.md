@@ -13,7 +13,7 @@
 [![VS Code](https://img.shields.io/badge/VS_Code-official_extension-007ACC?logo=visualstudiocode&logoColor=white)](./vscode-extension)
 [![License: MIT](https://img.shields.io/badge/license-MIT-green.svg)](./LICENSE)
 
-[존재 이유](#왜-birkin인가) · [빠른 시작](#빠른-시작) · [VS Code](#vs-code-extension) · [비교](#표면-비교) · [아키텍처](#아키텍처) · [명령어](#명령어) · [English](./README.md)
+[존재 이유](#왜-birkin인가) · [빠른 시작](#빠른-시작) · [GitHub Action](#github-action) · [VS Code](#vs-code-extension) · [비교](#표면-비교) · [아키텍처](#아키텍처) · [명령어](#명령어) · [English](./README.md)
 
 </div>
 
@@ -64,6 +64,46 @@ python -m pip install -e ".[full]"
 
 > [!IMPORTANT]
 > 네이티브 도구는 현재 OS 계정 권한으로 실행됩니다. gateway를 loopback 전용으로 유지하고, 배포 환경에 맞게 `shell_approval`, `fs_jail`, disabled tools, channel allowlist를 설정하며, 결과가 생기는 행동은 승인 전에 검토하십시오.
+
+## GitHub Action
+
+공식 composite Action은 신뢰된 issue 또는 pull request comment를 격리된 Birkin job으로 바꿉니다. 소비자 repository의 `.github/workflows/birkin.yml`에 아래 workflow를 넣고 Actions secret으로 `ANTHROPIC_API_KEY`를 추가하십시오. 사용할 버전을 정한 뒤 `@main`은 release tag나 commit SHA로 고정하십시오.
+
+```yaml
+name: Birkin
+on:
+  issue_comment:
+    types: [created]
+permissions:
+  contents: read
+jobs:
+  birkin:
+    if: >-
+      startsWith(github.event.comment.body, '/birkin') &&
+      contains(fromJSON('["OWNER","MEMBER","COLLABORATOR"]'),
+      github.event.comment.author_association)
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      issues: write
+      pull-requests: write
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          ref: ${{ github.event.repository.default_branch }}
+          persist-credentials: false
+      - uses: ashmoonori-afk/birkin@main
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          anthropic-api-key: ${{ secrets.ANTHROPIC_API_KEY }}
+          test-command: python -m pytest -q
+          max-retries: "1"
+```
+
+신뢰된 maintainer가 issue나 PR에 `/birkin <task>`를 comment하면 Birkin은 default branch에서 작업 branch를 만들고 설정된 test command를 실행합니다. 실패하면 정확한 출력으로 제한된 횟수만큼 수정한 뒤 push하고 원본 issue/PR을 참조하는 PR을 엽니다. PR에서 `/birkin review <focus>`를 사용하면 도구 없는 model call로 diff를 읽고 구조화된 review comment를 게시하며 PR 코드는 실행하지 않습니다.
+
+> [!CAUTION]
+> 이 workflow는 secret을 가진 fork checkout 대신 `issue_comment`를 사용합니다. 실행 주체를 `OWNER`, `MEMBER`, `COLLABORATOR`로 제한하고, 신뢰된 default branch만 checkout하며, workflow 전체는 read-only이고 job에는 필요한 세 write scope만 선언합니다. Credential은 문서화된 `github-token`, `anthropic-api-key`, `openai-api-key` input으로만 받습니다. Driver는 task나 diff를 처리하기 전에 agent tool과 test subprocess 환경에서 이 값을 제거합니다. Secret을 가진 채 신뢰되지 않은 코드를 checkout하는 형태로 바꾸지 마십시오.
 
 ## VS Code extension
 
