@@ -100,8 +100,15 @@ import unicodedata  # noqa: E402
 _ANSI_RE = re.compile(r"\033\[[0-9;?]*[ -/]*[@-~]")
 
 
-def cell_width(s: str, *, ambiguous_wide: bool = False) -> int:
-    """Display width of ``s`` in terminal cells, ignoring ANSI escapes."""
+def cell_width(s: str, *, ambiguous_wide: bool | None = None) -> int:
+    """Display width of ``s`` in terminal cells, ignoring ANSI escapes.
+
+    ``BIRKIN_AMBIGUOUS_WIDE=1`` selects the CJK-terminal convention when a
+    caller does not provide an explicit policy.
+    """
+    if ambiguous_wide is None:
+        ambiguous_wide = os.environ.get("BIRKIN_AMBIGUOUS_WIDE", "").lower() \
+            in ("1", "true", "yes", "on")
     s = _ANSI_RE.sub("", s)
     w = 0
     for ch in s:
@@ -119,7 +126,7 @@ def cell_width(s: str, *, ambiguous_wide: bool = False) -> int:
 
 
 def fit(s: str, width: int, *, marker: str = "…",
-        ambiguous_wide: bool = False) -> str:
+        ambiguous_wide: bool | None = None) -> str:
     """Truncate ``s`` to at most ``width`` display cells, adding ``marker``.
 
     Never splits inside a wide glyph. Returns ``s`` unchanged when it fits.
@@ -141,7 +148,7 @@ def fit(s: str, width: int, *, marker: str = "…",
 
 
 def pad(s: str, width: int, *, align: str = "left",
-        ambiguous_wide: bool = False) -> str:
+        ambiguous_wide: bool | None = None) -> str:
     """Pad ``s`` with spaces to exactly ``width`` display cells (or fit if over).
 
     ``align`` is ``left`` or ``right``. Uses display width so a column of
