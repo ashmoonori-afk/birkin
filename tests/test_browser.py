@@ -89,6 +89,7 @@ def test_actions_map_to_shared_sandbox_policy_requests(tmp_path: Path) -> None:
     browser.execute("document.title")
     browser.screenshot("artifacts/dashboard.png")
     browser.evidence()
+    browser.close()
 
     assert policy.requests == [
         PolicyRequest(network_hosts=("localhost",)),
@@ -97,6 +98,7 @@ def test_actions_map_to_shared_sandbox_policy_requests(tmp_path: Path) -> None:
         PolicyRequest(),
         PolicyRequest(),
         PolicyRequest(write_paths=("artifacts/dashboard.png",)),
+        PolicyRequest(),
         PolicyRequest(),
     ]
 

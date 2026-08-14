@@ -132,6 +132,7 @@ class BrowserSession:
 
     def close(self) -> None:
         if not self._closed:
+            self._require(PolicyRequest())
             self._driver.close()
             self._closed = True
 
