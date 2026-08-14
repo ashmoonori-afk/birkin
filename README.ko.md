@@ -289,6 +289,7 @@ checkpoint에서 일회용 policy-controlled sandbox worktree를 만들고 linea
 | `birkin tools` | 네이티브 tool 목록·활성화·비활성화. |
 | `birkin model` / `birkin models` | Model 확인 또는 선택. |
 | `birkin skills` | Skill 목록·조회·sync·validate·관리. |
+| `birkin plugins` | 권한 확인, 정확한 signed bundle version 설치, pin resolution. |
 | `birkin daemon` | Morpheus + cron scheduler 실행 또는 설치. |
 | `birkin morpheus [--dry-run]` | 예약 자기개선 routine 즉시 실행. |
 | `birkin harness` | 개선 ledger 조회·refine·export·rollback. |
@@ -300,6 +301,48 @@ checkpoint에서 일회용 policy-controlled sandbox worktree를 만들고 linea
 | `birkin voice` | 선택적 voice daemon 설정·제어. |
 
 전체 interface는 `birkin --help` 또는 `birkin <command> --help`로 확인하십시오.
+
+## Plugin registry
+
+Bundle은 `birkin-plugin.json`, entry-point file, detached `bundle.sig`를 담은
+directory입니다. 엄격한 manifest는 정확한 semantic version 하나,
+`skill`, `agent`, `hook`, `mcp_server` kind 하나 이상, 그리고
+`SandboxPolicy`와 동일한 `network`, `network_allowlist`, `env_allowlist`,
+`write_paths` vocabulary로 필요한 권한을 선언합니다.
+
+```json
+{
+  "name": "acme-review",
+  "version": "1.2.3",
+  "kinds": ["skill", "agent"],
+  "entry_points": {
+    "skill": ["skills/review"],
+    "agent": ["agent.py:tools"]
+  },
+  "required_permissions": {
+    "network": "off",
+    "network_allowlist": [],
+    "env_allowlist": ["ACME_TOKEN"],
+    "write_paths": ["reports"]
+  }
+}
+```
+
+설치 전에 `birkin plugins inspect BUNDLE [--json]`으로 정확한 권한 record를
+확인합니다. `birkin plugins install BUNDLE --version 1.2.3`은 항상 이 내용을
+먼저 표시하며, 네 권한 field가 모두 read-only/empty가 아니면 대화형 확인
+(또는 명시적 `--yes`)이 필요합니다. Signed bundle은
+`--key KEY_ID=HEX`로 trusted shared key도 제공해야 합니다. Signature가 없거나,
+신뢰되지 않거나, 일치하지 않으면 fail-closed합니다. Publisher가
+`"unsigned_allowed": true`를 명시한 경우에만 signature 부재를 허용합니다.
+
+Project pin은 `.birkin/registry/registry.lock`, team pin은
+`~/.birkin/registry/team/registry.lock`에 저장됩니다. Resolution은 결정적입니다.
+같은 bundle name의 project pin은 version이 달라도 team pin을 shadow합니다.
+정확한 version 요청이 project pin과 다르면 team scope로 fallback하지 않고
+conflict가 됩니다. 기존 pin은 `--upgrade`로만 변경됩니다. Skill entry point는
+기존 `SkillManager`에, agent entry point가 반환한 `Tool`은 기존 native tool
+registry에 연결됩니다.
 
 ## 설정
 

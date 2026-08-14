@@ -143,10 +143,24 @@ class PluginInstaller:
         self._write_lock(root, lock)
         return InstalledPlugin(manifest.name, version, scope, destination, inspection.digest)
 
+    def resolved(self) -> tuple[InstalledPlugin, ...]:
+        """Return effective pins; project records shadow team records by name."""
+        effective: dict[str, InstalledPlugin] = {}
+        for scope in (Scope.TEAM, Scope.PROJECT):
+            root = self._root(scope)
+            records = self._read_lock(root, scope)["bundles"]
+            assert isinstance(records, dict)
+            for name, record in records.items():
+                if isinstance(name, str) and isinstance(record, dict):
+                    effective[name] = self._installed(name, record, scope, root)
+        return tuple(effective[name] for name in sorted(effective))
+
     def resolve(self, name: str, version: str | None = None) -> InstalledPlugin:
         for scope in (Scope.PROJECT, Scope.TEAM):
             root = self._root(scope)
-            record = self._read_lock(root, scope)["bundles"].get(name)
+            records = self._read_lock(root, scope)["bundles"]
+            assert isinstance(records, dict)
+            record = records.get(name)
             if not isinstance(record, dict):
                 continue
             installed = self._installed(name, record, scope, root)

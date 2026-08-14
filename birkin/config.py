@@ -507,6 +507,10 @@ def skill_dirs(cfg: dict[str, Any]) -> list[tuple[Path, str]]:
     dirs: list[tuple[Path, str]] = [(d, "bundled") for d in bundled_skills_dirs()]
     for extra in cfg.get("extra_skill_dirs", []) or []:
         dirs.append((Path(extra).expanduser(), "extra"))
+    from .plugin_manifest import PluginKind
+    from .plugin_runtime import entry_paths, registry_roots
+    project_registry, team_registry = registry_roots()
+    dirs.extend(entry_paths(project_registry, team_registry, PluginKind.SKILL))
     dirs.append((user_skills_dir(), "user"))
     return dirs
 
