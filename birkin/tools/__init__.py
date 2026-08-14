@@ -153,7 +153,7 @@ def build_registry(
     ``vision``, ``desktop``, ``browser``, ``egress``, ``companion``, ``subagent``.
     """
     from .. import browser
-    from . import (citations, desktop, egress, files, market,  # local: avoid cycles
+    from . import (citations, desktop, documents, egress, files, market,  # local: avoid cycles
                    sessions, shell, vision, web)
     from .subagent_tool import subagent_tools
 
@@ -165,6 +165,7 @@ def build_registry(
         "vision": vision.tools(),
         "browser": browser.tools(),
         "egress": egress.tools(),
+        "documents": documents.tools(),
     }
     if ctx.cfg.get("desktop_tools") is True:
         groups["desktop"] = desktop.tools()
