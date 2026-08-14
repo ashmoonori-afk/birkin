@@ -52,6 +52,8 @@ python -m pip install -e ".[memory-semantic]"  # local sentence-transformers onl
 
 Markdown remains the source of truth. The entity graph is rebuilt from titles, tags, and `[[wikilinks]]`; no graph sidecar is required for lexical search. Temporal facts keep separate `valid_at` (became true), `invalid_at` (stopped being true), and `expired_at` (learned to be wrong) fields, plus optional `supersedes` links. Search accepts `as_of`, `since`, and `until` date filters.
 
+Memory can be owned by `user`, `organization`, `project`, `agent`, or `workflow`. User memory keeps the existing vault layout; the other roots live at `.birkin-scopes/<scope>` and retain the same zone layout inside them. Duplicate keys resolve from most specific to least specific: **workflow > agent > project > organization > user**. `memory_visible_scopes` fails closed for unreadable roots, while `memory_source_trust`, `memory_default_trust`, and the query's `min_trust` control source filtering. Search hits disclose `scope`, `record_source`, and `trust`. Owners may mark a note `shared_read_only`; visible agents can read the labeled block, but a non-owner write raises a typed policy error.
+
 The committed 14-question LongMemEval fixture reports retrieval and final-answer stages separately. All four configurations reached `1.000` retrieval recall but `0.857` answer accuracy (11.9-12.4 context tokens/query), exposing the context-assembly gap rather than hiding it behind retrieval. See [the category and cost tables](./benchmarks/RESULTS.md) and the exact public-dataset command there. These are fixture results, not public leaderboard numbers.
 
 ## Quick Start
