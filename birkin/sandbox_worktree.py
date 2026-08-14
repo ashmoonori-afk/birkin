@@ -45,17 +45,20 @@ class WorktreeRunner:
         return tuple(paths)
 
     def run(self, job: SandboxJob, policy: SandboxPolicy, *,
-            source_env: Mapping[str, str] | None = None) -> SandboxResult:
+            source_env: Mapping[str, str] | None = None,
+            seed: Callable[[Path], None] | None = None) -> SandboxResult:
         policy.require(job.request)
         self.sandbox_root.mkdir(parents=True, exist_ok=True)
         worktree = self.sandbox_root / f"job-{uuid.uuid4().hex}"
         self._git("worktree", "add", "--detach", str(worktree), "HEAD")
-        if self.on_created:
-            self.on_created(worktree)
-        env = policy.environment(source_env if source_env is not None else os.environ)
         stdout: list[str] = []
         stderr: list[str] = []
         try:
+            if self.on_created:
+                self.on_created(worktree)
+            if seed is not None:
+                seed(worktree)
+            env = policy.environment(source_env if source_env is not None else os.environ)
             for setup in job.setup:
                 proc = subprocess.run(
                     setup, cwd=worktree, env=env, shell=True, text=True,

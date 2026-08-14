@@ -17,13 +17,20 @@ is never told about it. ``/rollback`` is for the human.
 from __future__ import annotations
 
 import hashlib
+import io
 import json
 import os
+import shutil
 import subprocess
+import tarfile
+import uuid
+from dataclasses import dataclass
+from enum import Enum
 from pathlib import Path
-from typing import Any, Optional
+from typing import Any, Callable, Optional, Sequence
 
 from . import config
+from .checkpoints_timeline import TimelineError, TimelineStore, now
 
 # Never snapshot these — noise, build output, or secrets that have no business
 # being copied into ~/.birkin.
@@ -45,6 +52,30 @@ _DEFAULT_KEEP = 20
 
 class CheckpointError(RuntimeError):
     """A required pre-mutation snapshot could not be recorded."""
+
+
+class RestoreMode(str, Enum):
+    """Explicit surfaces affected by a checkpoint restore."""
+
+    FILES = "files"
+    TASK = "task"
+    BOTH = "both"
+
+
+@dataclass(frozen=True, slots=True)
+class RestoreOutcome:
+    ok: bool
+    message: str
+    files_restored: bool = False
+    task_restored: bool = False
+
+    def __iter__(self):
+        # Preserve the historic ``ok, message = restore(...)`` API.
+        yield self.ok
+        yield self.message
+
+    def __getitem__(self, index: int):
+        return (self.ok, self.message)[index]
 
 
 def _run(argv: list[str], env: dict[str, str],
@@ -79,6 +110,8 @@ class CheckpointManager:
         self.keep = max(1, int(keep))
         self._ready = False
         self._this_turn: set[str] = set()
+        self._timeline = TimelineStore(self.store.parent / "timeline")
+        self._active_tools: list[dict[str, Any]] = []
 
     # -- plumbing ----------------------------------------------------------
 
@@ -203,8 +236,8 @@ class CheckpointManager:
         if parent:
             code, out = _run(
                 ["git", "diff-index", "--cached", "--quiet", parent], env)
-            if code == 0:
-                return None            # nothing changed: snapshot is free
+            if code == 0 and not self._timeline.task_changed(workdir, parent):
+                return None            # neither files nor task state changed
             if code != 1:
                 raise CheckpointError(
                     f"git diff-index failed: {out.strip()}")
@@ -230,6 +263,7 @@ class CheckpointManager:
             raise CheckpointError(f"git update-ref failed: {out.strip()}")
         self._prune(workdir)
         self._record_project(workdir)
+        self._timeline.snapshot_task(workdir, commit)
         return commit
 
     def _too_big(self, workdir: Path) -> bool:
@@ -303,48 +337,237 @@ class CheckpointManager:
         entries = []
         for line in out.splitlines():
             parts = line.split("\x1f")
-            if len(parts) == 4:
+            if len(parts) == 4 and not parts[3].startswith("after "):
+                # After snapshots anchor timeline/fork lineage but are not
+                # duplicate human restore points in the checkpoint picker.
                 entries.append({"hash": parts[0], "short": parts[1],
                                 "date": parts[2], "reason": parts[3]})
         return entries
 
     def diff(self, workdir: Any, commit: str) -> str:
+        return str(self.diff_preview(workdir, commit)["patch"])
+
+    def diff_preview(self, workdir: Any, commit: str) -> dict[str, Any]:
+        """Return aggregate and per-file patches from ``commit`` to now."""
         path = Path(workdir).resolve()
+        empty: dict[str, Any] = {
+            "checkpoint": commit, "patch": "", "files": [],
+            "additions": 0, "deletions": 0,
+        }
         if not self._ensure_store() or not _valid_hash(commit):
-            return ""
+            return empty
         env = self._env(path)
         _run(["git", "read-tree", commit], env)
-        _run(["git", "add", "-A", "--", str(path)], env)
-        code, out = _run(["git", "diff", "--cached", commit], env)
-        return out if code == 0 else ""
+        code, _ = _run(["git", "add", "-A", "--", str(path)], env)
+        if code != 0:
+            return empty
+        code, patch = _run(["git", "diff", "--cached", "--no-ext-diff", commit], env)
+        if code != 0:
+            return empty
+        _, stats = _run(["git", "diff", "--cached", "--numstat", commit], env)
+        files: list[dict[str, Any]] = []
+        additions = deletions = 0
+        for line in stats.splitlines():
+            parts = line.split("\t", 2)
+            if len(parts) != 3:
+                continue
+            added = int(parts[0]) if parts[0].isdigit() else 0
+            removed = int(parts[1]) if parts[1].isdigit() else 0
+            name = parts[2]
+            _, file_patch = _run(
+                ["git", "diff", "--cached", "--no-ext-diff", commit, "--", name], env)
+            files.append({"path": name, "additions": added,
+                          "deletions": removed, "patch": file_patch})
+            additions += added
+            deletions += removed
+        return {"checkpoint": commit, "patch": patch, "files": files,
+                "additions": additions, "deletions": deletions}
+
+    def set_task_state(self, workdir: Any, state: dict[str, Any]) -> None:
+        """Set the durable task/conversation state associated with a workspace."""
+        self._timeline.set_task_state(Path(workdir).resolve(), state)
+
+    def task_state(self, workdir: Any) -> dict[str, Any]:
+        return self._timeline.task_state(Path(workdir).resolve())
 
     def restore(self, workdir: Any, commit: str,
-                file: Optional[str] = None) -> tuple[bool, str]:
-        """Put the workspace back to ``commit``. Returns (ok, message)."""
-        path = Path(workdir).resolve()
-        if not self.enabled:
-            return False, "checkpoints are disabled"
-        if not _valid_hash(commit):
-            return False, "not a valid checkpoint id"
-        if not self._ensure_store():
-            return False, "checkpoint store unavailable"
-        if file is not None and not _safe_relpath(file):
-            return False, "refusing that path"
+                file: Optional[str] = None, *,
+                mode: RestoreMode | str = RestoreMode.FILES) -> RestoreOutcome:
+        """Restore files, durable task state, or both from ``commit``.
 
-        # Snapshot first, so an unwanted rollback is itself undoable.
+        File restores mutate only the workspace. Task restores mutate only the
+        checkpoint sidecar consumed by session integrations. Both first records
+        an undo checkpoint, making the destructive operation reversible.
+        """
+        path = Path(workdir).resolve()
+        try:
+            selected = RestoreMode(mode)
+        except ValueError:
+            return RestoreOutcome(False, "invalid restore mode")
+        if not self.enabled:
+            return RestoreOutcome(False, "checkpoints are disabled")
+        if not _valid_hash(commit):
+            return RestoreOutcome(False, "not a valid checkpoint id")
+        if not self._ensure_store():
+            return RestoreOutcome(False, "checkpoint store unavailable")
+        if file is not None and not _safe_relpath(file):
+            return RestoreOutcome(False, "refusing that path")
+        if file is not None and selected is RestoreMode.TASK:
+            return RestoreOutcome(False, "a file cannot be combined with task-only restore")
+
+        # Protect both current surfaces before changing either one.
         self._this_turn.discard(str(path))
         try:
             self.ensure_checkpoint(path, "before rollback")
-        except CheckpointError as exc:
-            return False, f"could not protect current state: {exc}"
+        except (CheckpointError, TimelineError) as exc:
+            return RestoreOutcome(False, f"could not protect current state: {exc}")
 
-        env = self._env(path)
-        target = ["--", file] if file else ["--", "."]
-        code, out = _run(["git", "checkout", commit] + target, env, cwd=str(path))
+        files_restored = False
+        task_restored = False
+        if selected in (RestoreMode.FILES, RestoreMode.BOTH):
+            env = self._env(path)
+            target = ["--", file] if file else ["--", "."]
+            code, out = _run(["git", "checkout", commit] + target, env, cwd=str(path))
+            if code != 0:
+                return RestoreOutcome(False, out.strip()[:300])
+            files_restored = True
+        if selected in (RestoreMode.TASK, RestoreMode.BOTH):
+            try:
+                self._timeline.restore_task(path, commit)
+            except TimelineError as exc:
+                return RestoreOutcome(False, str(exc), files_restored, False)
+            task_restored = True
+        surfaces = " and ".join(
+            name for name, changed in (("files", files_restored), ("task state", task_restored))
+            if changed
+        )
+        return RestoreOutcome(True, f"restored {surfaces} from the checkpoint",
+                              files_restored, task_restored)
+
+    def _head(self, workdir: Path) -> str:
+        if not self._ensure_store():
+            return ""
+        code, out = _run(
+            ["git", "rev-parse", "--verify", "--quiet", _ref_for(workdir)],
+            self._env(workdir),
+        )
+        return out.strip() if code == 0 else ""
+
+    def begin_tool(self, workdir: Any, tool: str,
+                   tool_input: dict[str, Any]) -> None:
+        """Open one timeline event and capture its before file/task state."""
+        workspace = Path(workdir).resolve()
+        mutating = (
+            tool in {"write_file", "edit_file", "run_shell"}
+            and not bool(tool_input.get("_read_only"))
+        )
+        before = ""
+        if mutating:
+            before = self.ensure_checkpoint(workspace, f"before {tool}") or self._head(workspace)
+        else:
+            before = self._head(workspace)
+        touched: list[str] = []
+        raw_path = tool_input.get("path")
+        if tool in {"write_file", "edit_file"} and raw_path:
+            candidate = Path(str(raw_path))
+            if candidate.is_absolute():
+                try:
+                    candidate = candidate.resolve().relative_to(workspace)
+                except ValueError:
+                    candidate = Path(candidate.name)
+            touched = [candidate.as_posix()]
+        self._active_tools.append({
+            "id": uuid.uuid4().hex,
+            "workspace": workspace,
+            "tool": tool,
+            "before": before,
+            "touched_hint": touched,
+            "mutating": mutating,
+            "started_at": now(),
+        })
+
+    def complete_tool(self, tool: str, *, failed: bool) -> None:
+        """Close the latest matching tool event and persist its after state."""
+        index = next(
+            (i for i in range(len(self._active_tools) - 1, -1, -1)
+             if self._active_tools[i]["tool"] == tool),
+            None,
+        )
+        if index is None:
+            return
+        active = self._active_tools.pop(index)
+        workspace: Path = active["workspace"]
+        before = str(active["before"])
+        after = before
+        if active["mutating"]:
+            after = self._take(workspace, f"after {tool}") or self._head(workspace) or before
+        touched = list(active["touched_hint"])
+        if before and after and before != after:
+            code, out = _run(
+                ["git", "diff", "--name-only", before, after], self._env(workspace))
+            if code == 0:
+                touched = sorted(set(touched) | set(out.splitlines()))
+        self._timeline.append(workspace, "timeline", {
+            "id": active["id"], "tool": tool,
+            "started_at": active["started_at"], "finished_at": now(),
+            "status": "failed" if failed else "succeeded",
+            "touched": touched, "before": before, "after": after,
+        })
+
+    def timeline(self, workdir: Any) -> list[dict[str, Any]]:
+        return self._timeline.entries(Path(workdir).resolve(), "timeline")
+
+    def lineage(self, workdir: Any) -> list[dict[str, Any]]:
+        return self._timeline.entries(Path(workdir).resolve(), "lineage")
+
+    def _seed(self, workspace: Path, checkpoint: str, target: Path) -> None:
+        env = self._env(workspace)
+        code, _ = _run(
+            ["git", "merge-base", "--is-ancestor", checkpoint, _ref_for(workspace)], env)
         if code != 0:
-            return False, out.strip()[:300]
-        return True, (f"restored {file}" if file
-                      else "restored files from the checkpoint")
+            raise CheckpointError("checkpoint does not belong to this workspace")
+        for child in target.iterdir():
+            if child.name == ".git":
+                continue
+            if child.is_dir():
+                shutil.rmtree(child)
+            else:
+                child.unlink()
+        proc = subprocess.run(
+            ["git", f"--git-dir={self.store}", "archive", checkpoint],
+            capture_output=True, check=False,
+        )
+        if proc.returncode != 0:
+            raise CheckpointError("could not export checkpoint tree")
+        with tarfile.open(fileobj=io.BytesIO(proc.stdout), mode="r:") as archive:
+            archive.extractall(target, filter="data")
+
+    def fork(self, workdir: Any, checkpoint: str, command: Sequence[str], *,
+             runner: Any = None, policy: Any = None,
+             on_output: Callable[[str], None] | None = None) -> Any:
+        """Run an alternate attempt in an ephemeral worktree seeded at a checkpoint."""
+        from .sandbox import SandboxJob, SandboxPolicy
+        from .sandbox_worktree import WorktreeRunner
+
+        workspace = Path(workdir).resolve()
+        if not command or not _valid_hash(checkpoint):
+            raise CheckpointError("fork requires a checkpoint and command")
+        selected_runner = runner or WorktreeRunner(workspace)
+        selected_policy = policy or SandboxPolicy()
+        fork_id = uuid.uuid4().hex
+        result = selected_runner.run(
+            SandboxJob(command=tuple(command)), selected_policy,
+            seed=lambda target: self._seed(workspace, checkpoint, target),
+        )
+        if on_output is not None:
+            on_output(result.stdout)
+        self._timeline.append(workspace, "lineage", {
+            "id": fork_id, "kind": "alternate", "checkpoint": checkpoint,
+            "created_at": now(), "command": list(command),
+            "status": "succeeded" if result.returncode == 0 else "failed",
+            "returncode": result.returncode,
+        })
+        return result
 
 
 def _valid_hash(value: str) -> bool:
@@ -377,32 +600,50 @@ def project_root_for(path: Path) -> Path:
 
 
 def preflight(ctx: Any, tool_name: str, tool_input: dict[str, Any]) -> None:
-    """Snapshot before a mutating tool runs.
-
-    Emits a ``checkpoint`` event whenever a snapshot is actually recorded, so
-    the UI can teach ``/undo`` / ``/rollback`` at the moment there is something
-    to undo (the event was silent before — a dead capability).
-    """
+    """Open a per-tool timeline event, checkpointing mutating tools first."""
     manager = getattr(ctx, "checkpoints", None)
     if manager is None or not getattr(manager, "enabled", False):
         return
-    commit = None
+    workspace = Path(ctx.cwd).resolve()
+    if not hasattr(manager, "begin_tool"):
+        # Compatibility for lightweight integration adapters implementing the
+        # original manager protocol.
+        if tool_name in ("write_file", "edit_file"):
+            raw = (tool_input or {}).get("path", "")
+            if not raw:
+                return
+            target = Path(str(raw)).expanduser()
+            if not target.is_absolute():
+                target = workspace / target
+            commit = manager.ensure_checkpoint(project_root_for(target), f"before {tool_name}")
+            if commit and getattr(ctx, "emit", None):
+                ctx.emit("checkpoint", {"before": tool_name})
+        return
     if tool_name in ("write_file", "edit_file"):
         raw = (tool_input or {}).get("path", "")
         if not raw:
             return
         target = Path(str(raw)).expanduser()
         if not target.is_absolute():
-            target = Path(ctx.cwd) / target
-        commit = manager.ensure_checkpoint(project_root_for(target),
-                                           f"before {tool_name}")
+            target = workspace / target
+        workspace = project_root_for(target)
     elif tool_name == "run_shell":
         command = (tool_input or {}).get("command", "")
-        # Reuse shellguard's classifier rather than keeping a second list
-        # of destructive patterns in sync with it.
         from .shellguard import detect
-        if command and detect(str(command))[0] is not None:
-            cwd = (tool_input or {}).get("cwd") or ctx.cwd
-            commit = manager.ensure_checkpoint(cwd, "before run_shell")
-    if commit and getattr(ctx, "emit", None):
+        # Benign shell calls still appear in the timeline, but do not create
+        # snapshots merely by being observed.
+        if not command or detect(str(command))[0] is None:
+            manager.begin_tool(workspace, tool_name, {**tool_input, "_read_only": True})
+            return
+        workspace = Path((tool_input or {}).get("cwd") or ctx.cwd).resolve()
+    before = manager._head(workspace)
+    manager.begin_tool(workspace, tool_name, tool_input or {})
+    if manager._head(workspace) != before and getattr(ctx, "emit", None):
         ctx.emit("checkpoint", {"before": tool_name})
+
+
+def postflight(ctx: Any, tool_name: str, *, failed: bool) -> None:
+    manager = getattr(ctx, "checkpoints", None)
+    if (manager is not None and getattr(manager, "enabled", False)
+            and hasattr(manager, "complete_tool")):
+        manager.complete_tool(tool_name, failed=failed)

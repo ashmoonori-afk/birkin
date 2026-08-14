@@ -87,14 +87,23 @@ class ToolRegistry:
         try:
             result = tool.fn(tool_input or {}, self.ctx)
         except ApprovalRequiredError as block:
-            return queue_operation(name, tool_input, self.ctx, block)
+            result = queue_operation(name, tool_input, self.ctx, block)
         except OSError as exc:
             block = permission_block(exc)
-            if block is not None:
-                return queue_operation(name, tool_input, self.ctx, block)
-            return ToolResult(f"Tool {name!r} failed: {exc}", is_error=True)
+            result = (
+                queue_operation(name, tool_input, self.ctx, block)
+                if block is not None
+                else ToolResult(f"Tool {name!r} failed: {exc}", is_error=True)
+            )
         except Exception as exc:  # tools must never crash the agent loop
-            return ToolResult(f"Tool {name!r} failed: {exc}", is_error=True)
+            result = ToolResult(f"Tool {name!r} failed: {exc}", is_error=True)
+        if self.ctx.checkpoints is not None:
+            from .. import checkpoints
+            try:
+                checkpoints.postflight(self.ctx, name, failed=result.is_error)
+            except Exception as exc:
+                return ToolResult(
+                    f"Checkpoint failed after {name!r}: {exc}", is_error=True)
         if result.is_error:
             block = diagnostic_block(
                 result.content,
