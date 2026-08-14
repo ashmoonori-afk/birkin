@@ -196,24 +196,122 @@ tests/              offline unit, integration, end-to-end coverage
 
 ## 설정
 
-`birkin setup`은 `~/.birkin/config.json`을 씁니다. 아래 보안·runtime 관련 기본값은 `birkin.config.DEFAULT_CONFIG`에서 생성되며 테스트가 동기화를 검사합니다.
+`birkin setup`은 `~/.birkin/config.json`을 씁니다. 아래 블록은 `birkin.config.DEFAULT_CONFIG`에서 생성되고 테스트가 검증하므로, 발췌가 아니라 전체 기본값입니다.
 
+<details>
+<summary><strong>전체 기본 설정</strong></summary>
+
+<!-- config-schema:start -->
 ```json
 {
   "provider": "codex-cli",
   "model": "default",
   "subagent_model": "default",
-  "redact_secrets": true,
+  "base_url": "",
+  "cli_command": [],
+  "api_key": null,
+  "max_tokens": 4096,
+  "temperature": 1.0,
+  "max_turns": 24,
+  "auto_compact": true,
+  "context_window": 200000,
+  "fallback_provider": "",
+  "fallback_model": "",
+  "fallback_base_url": "",
+  "fallback_cooldown": 300,
   "api_keys": [],
-  "lsp_servers": {},
   "a2a_enabled": false,
-  "cli_network_access": false,
-  "egress": {
-    "enabled": true,
-    "enforced": true,
-    "max_bytes": 1048576,
-    "destinations": {}
+  "lsp_servers": {},
+  "spill_threshold": 30000,
+  "spill_dir": "",
+  "spill_retention_days": 7,
+  "redact_secrets": true,
+  "repl_typed_line": "steer",
+  "moirai_auto": false,
+  "moirai_workers": 4,
+  "moirai_max_agents": 100,
+  "moirai_roles": {},
+  "moirai_token_budget": 0,
+  "marginalia_api_key": "",
+  "parallel_tools": true,
+  "parallel_tool_workers": 8,
+  "shell_approval": "manual",
+  "checkpoints": true,
+  "hooks": {},
+  "hooks_auto_accept": false,
+  "skills_guard_agent_created": false,
+  "checkpoint_keep": 20,
+  "command_allowlist": [],
+  "approval_model": "",
+  "max_depth": 2,
+  "extra_skill_dirs": [],
+  "disabled_tools": [],
+  "desktop_tools": false,
+  "self_improve": true,
+  "skill_nudge_interval": 3,
+  "memory_nudge_interval": 6,
+  "web_port": 8787,
+  "gateway_port": 8788,
+  "gateway_model": "",
+  "gateway_reasoning_effort": "",
+  "gateway_persistent": true,
+  "gateway_allowed_tools": [],
+  "repl_warm_session": false,
+  "gateway_clean_hooks": true,
+  "gateway_thinking_tokens": 0,
+  "gateway_prewarm": true,
+  "voice": {
+    "wake_phrase": "Daddy is home",
+    "gateway_url": "",
+    "session_id": "voice-local",
+    "sample_rate": 24000,
+    "stt_model": "gpt-transcribe",
+    "tts_model": "gpt-4o-mini-tts",
+    "tts_voice": "coral",
+    "tts_instructions": "Speak concisely and clearly.",
+    "conversation_style": "",
+    "onboarding_complete": false,
+    "background_workers": 2
   },
+  "autosave_transcripts": false,
+  "autosave_redact_secrets": true,
+  "autosave_max_chars": 4000,
+  "autosave_max_turns": 40,
+  "autosave_retention_days": 30,
+  "autosave_max_files": 500,
+  "neurosis_threshold": null,
+  "neurosis_auto": true,
+  "channels": {
+    "http": {
+      "enabled": true
+    },
+    "telegram": {
+      "enabled": false,
+      "token": "",
+      "allowed_chat_ids": [],
+      "stream": true
+    },
+    "slack": {
+      "enabled": false,
+      "webhook_url": ""
+    },
+    "discord": {
+      "enabled": false,
+      "webhook_url": ""
+    }
+  },
+  "vault_path": "",
+  "morpheus_deliver_chat_id": "",
+  "workspace_roots": [],
+  "reaper_enabled": true,
+  "morpheus_provider": "",
+  "morpheus_model": "",
+  "morpheus_hour": 7,
+  "morpheus_minute": 0,
+  "auto_approve": [
+    "memory",
+    "skill"
+  ],
   "harness_enabled": true,
   "harness_turn_interval": 12,
   "harness_cooldown_min": 15,
@@ -223,9 +321,34 @@ tests/              offline unit, integration, end-to-end coverage
   "harness_auto_approve": [
     "memory",
     "skill_note"
-  ]
+  ],
+  "cli_access": "workspace",
+  "cli_network_access": false,
+  "egress": {
+    "enabled": true,
+    "enforced": true,
+    "max_bytes": 1048576,
+    "destinations": {}
+  },
+  "allow_unattended_full": false,
+  "budget_tokens_daily": 0,
+  "budget_tokens_monthly": 0,
+  "subagent_tree_max_tokens": 0,
+  "subagent_tree_max_usd": 0.0,
+  "subagent_tree_deadline_seconds": 0,
+  "subagent_tree_max_concurrent": 4,
+  "subagent_tree_max_nodes": 16,
+  "cli_timeout": 300,
+  "evidence_required": false,
+  "critique_agents": 3,
+  "boulder_max_iters": 100,
+  "fs_jail": false,
+  "update_verify_signature": false
 }
 ```
+<!-- config-schema:end -->
+
+</details>
 
 Provider secret은 환경 변수에 두는 것이 원칙입니다. `api_keys`는 환경 변수 pool의 이름이며 raw key를 붙여 넣는 곳이 아닙니다. `a2a_enabled`는 opt-in입니다. Enforced egress는 검사되지 않은 네이티브 network 경로를 비활성화하고 설정된 destination만 Birkin의 inspected tool을 통해 허용합니다.
 
