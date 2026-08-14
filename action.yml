@@ -1,0 +1,73 @@
+name: Birkin agent
+
+description: Run trusted mention-driven Birkin issue and pull-request workflows.
+
+author: birkin
+
+branding:
+  icon: git-pull-request
+  color: purple
+
+inputs:
+  github-token:
+    description: GitHub token used to comment, push a branch, and open a pull request.
+    required: true
+  anthropic-api-key:
+    description: Anthropic provider key. Pass only from a GitHub Actions secret.
+    required: false
+    default: ""
+  openai-api-key:
+    description: OpenAI provider key. Pass only from a GitHub Actions secret.
+    required: false
+    default: ""
+  provider:
+    description: Birkin model provider (anthropic or openai).
+    required: false
+    default: anthropic
+  model:
+    description: Provider model identifier.
+    required: false
+    default: claude-sonnet-4-20250514
+  test-command:
+    description: Trusted workflow-owned verification command; never read from the comment.
+    required: false
+    default: python -m pytest
+  max-retries:
+    description: Number of repair attempts after the first failed test run.
+    required: false
+    default: "1"
+
+outputs:
+  pr-url:
+    description: URL of the pull request opened by a run request.
+    value: ${{ steps.execute.outputs.pr-url }}
+  result:
+    description: pull-request-opened, review-posted, or empty on failure.
+    value: ${{ steps.execute.outputs.result }}
+
+runs:
+  using: composite
+  steps:
+    - name: Set up Python
+      uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
+      with:
+        python-version: "3.12"
+        cache: pip
+    - name: Install Birkin action driver
+      shell: bash
+      run: python -m pip install "$GITHUB_ACTION_PATH"
+    - name: Execute trusted request
+      id: execute
+      shell: bash
+      env:
+        GH_TOKEN: ${{ inputs.github-token }}
+        ANTHROPIC_API_KEY: ${{ inputs.anthropic-api-key }}
+        OPENAI_API_KEY: ${{ inputs.openai-api-key }}
+        PYTHONUTF8: "1"
+      run: >-
+        python -m birkin.github_action execute
+        --event "$GITHUB_EVENT_PATH"
+        --provider "${{ inputs.provider }}"
+        --model "${{ inputs.model }}"
+        --test-command "${{ inputs.test-command }}"
+        --max-retries "${{ inputs.max-retries }}"
