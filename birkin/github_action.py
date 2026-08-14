@@ -17,6 +17,8 @@ from contextlib import contextmanager
 from dataclasses import dataclass
 from typing import Any, Callable, Iterator, Sequence
 
+from .sandbox import PolicyDecision, PolicyRequest, SandboxPolicy
+
 TRUSTED_ASSOCIATIONS = frozenset({"OWNER", "MEMBER", "COLLABORATOR"})
 _COMMAND = re.compile(r"(?m)^\s*/birkin(?:\s+(.*?))?\s*$", re.IGNORECASE)
 
@@ -133,6 +135,13 @@ def _run_test_command(command: str) -> tuple[int, str]:
     output = proc.stdout or ""
     print(output, end="")
     return proc.returncode, output
+
+
+def sandbox_policy_decision(
+    policy: SandboxPolicy, request: PolicyRequest,
+) -> PolicyDecision:
+    """Evaluate an Action worker job through the shared sandbox policy."""
+    return policy.evaluate(request)
 
 
 def _runtime_config(provider: str, model: str) -> dict:

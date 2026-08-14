@@ -40,6 +40,20 @@
       "type": "string",
       "enum": ["workspace", "full"]
     },
+    "sandbox": {
+      "type": "object",
+      "description": "Defaults for isolated worktree or Docker jobs; repositories may override them in .birkin/sandbox.json.",
+      "x-description-ko": "격리된 worktree 또는 Docker 작업의 기본값이며 저장소의 .birkin/sandbox.json에서 재정의할 수 있습니다.",
+      "properties": {
+        "backend": {"type": "string", "enum": ["worktree", "docker"]},
+        "image": {"type": "string"},
+        "setup": {"type": "array", "items": {"type": "string"}},
+        "env_allowlist": {"type": "array", "items": {"type": "string"}},
+        "network": {"type": "string", "enum": ["off", "allowlist"]},
+        "network_allowlist": {"type": "array", "items": {"type": "string"}},
+        "write_paths": {"type": "array", "items": {"type": "string"}}
+      }
+    },
     "shell_approval": {
       "type": "string",
       "enum": ["manual", "smart", "off"]

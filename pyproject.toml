@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "birkin"
-version = "0.4.202"
+version = "0.4.203"
 description = "Lightweight, self-improving CLI agent workspace with skill management, subagents, and a WebUI. Inspired by hermes-agent and openclaw."
 readme = "README.md"
 requires-python = ">=3.10"
@@ -72,6 +72,7 @@ norecursedirs = [".git", ".venv", "tmp"]
 addopts = "-q --cov=birkin --cov-report=term-missing -m 'not live'"
 markers = [
     "live: real LLM backend required (BIRKIN_LIVE=1 + API key or claude/codex CLI)",
+    "docker_integration: opt-in test requiring BIRKIN_DOCKER_INTEGRATION=1 and a Docker daemon",
 ]
 
 [tool.coverage.run]

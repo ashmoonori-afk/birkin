@@ -1,9 +1,15 @@
 from birkin.github_action import sandbox_policy_decision
-from birkin.sandbox import PolicyRequest, SandboxPolicy, local_policy_decision
+from birkin.sandbox import (
+    NetworkPolicy,
+    PolicyRequest,
+    SandboxPolicy,
+    local_policy_decision,
+)
 
 
 def test_local_and_action_workers_use_identical_policy_decision() -> None:
     policy = SandboxPolicy(
+        network=NetworkPolicy.ALLOWLIST,
         network_allowlist=("github.com",), write_paths=("birkin", "tests")
     )
     request = PolicyRequest(
