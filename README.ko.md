@@ -310,7 +310,7 @@ directory입니다. 엄격한 manifest는 정확한 semantic version 하나,
 `SandboxPolicy`와 동일한 `network`, `network_allowlist`, `env_allowlist`,
 `write_paths` vocabulary로 필요한 권한을 선언합니다.
 
-```json
+```jsonc
 {
   "name": "acme-review",
   "version": "1.2.3",

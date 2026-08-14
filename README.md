@@ -310,7 +310,7 @@ version, one or more `skill`, `agent`, `hook`, or `mcp_server` kinds, and the
 permissions it needs using the same `network`, `network_allowlist`,
 `env_allowlist`, and `write_paths` vocabulary as `SandboxPolicy`:
 
-```json
+```jsonc
 {
   "name": "acme-review",
   "version": "1.2.3",
