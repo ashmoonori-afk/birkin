@@ -139,6 +139,10 @@ DEFAULT_CONFIG: dict[str, Any] = {
     "skill_nudge_interval": 3,   # tool iterations w/o saving a skill -> nudge (0 = off)
     "memory_nudge_interval": 6,  # user turns w/o updating memory -> nudge (0 = off)
     "web_port": 8787,
+    # Bind the approval console beyond loopback. Remote requests still require
+    # the per-process WebUI capability; false keeps the historical local-only
+    # surface and rejects forged/non-loopback Host headers.
+    "web_remote_access": False,
     # --- Gateway (run the agent as a service across channels) ---
     "gateway_port": 8788,
     # Model used only by `birkin gateway` (the always-on service). Empty -> use

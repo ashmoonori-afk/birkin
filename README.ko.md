@@ -358,6 +358,7 @@ checkpoint에서 일회용 policy-controlled sandbox worktree를 만들고 linea
   "skill_nudge_interval": 3,
   "memory_nudge_interval": 6,
   "web_port": 8787,
+  "web_remote_access": false,
   "gateway_port": 8788,
   "gateway_model": "",
   "gateway_reasoning_effort": "",
