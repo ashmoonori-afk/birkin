@@ -244,6 +244,26 @@ tests/              offline unit, integration, end-to-end coverage
 
 </details>
 
+## Checkpoint
+
+WebUI workbench는 Birkin의 외부 shadow-git snapshot을 tool 단위 timeline으로
+표시합니다. 각 항목은 tool, 시간, 변경 경로, 결과, 그리고 실행 전후 상태를
+담은 checkpoint hash를 기록합니다. 어떤 checkpoint든 열어 변경 전에 전체
+patch와 파일별 patch를 미리 볼 수 있습니다.
+
+| Restore mode | Workspace 파일 | Task/대화 상태 |
+|---|---:|---:|
+| `files` | 복원 | 유지 |
+| `task` | 유지 | 복원 |
+| `both` | 복원 | 복원 |
+
+모든 restore는 파괴적 작업이므로 WebUI는 기존 human approval authority에
+요청을 queue하고 현재 상태를 먼저 보호합니다. 대안 시도는 선택한
+checkpoint에서 일회용 policy-controlled sandbox worktree를 만들고 lineage를
+기록하므로 현재 workspace를 변경하지 않습니다. 인증 API도 checkpoint 목록,
+`/timeline`, `/lineage`, `/{id}/diff`, `/{id}/restore`, `/{id}/fork`로 같은
+흐름을 제공합니다.
+
 <details>
 <summary><strong>실행과 복구 경로</strong></summary>
 

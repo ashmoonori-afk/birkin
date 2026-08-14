@@ -197,9 +197,23 @@ class Handler(BaseHTTPRequestHandler):
             if not self._capability_ok():
                 self._json({"error": "missing or invalid capability"}, code=403)
                 return
+            from urllib.parse import urlsplit
             from .. import ide
             workspace = ide.workspace_from_path(self.path)
-            self._json(_checkpoint_manager().list_checkpoints(workspace))
+            route = urlsplit(self.path).path
+            manager = _checkpoint_manager()
+            diff_match = re.fullmatch(
+                r"/api/checkpoints/([0-9a-fA-F]{4,40})/diff", route)
+            if route == "/api/checkpoints":
+                self._json(manager.list_checkpoints(workspace))
+            elif route == "/api/checkpoints/timeline":
+                self._json(manager.timeline(workspace))
+            elif route == "/api/checkpoints/lineage":
+                self._json(manager.lineage(workspace))
+            elif diff_match:
+                self._json(manager.diff_preview(workspace, diff_match.group(1)))
+            else:
+                self._json({"error": "checkpoint route not found"}, code=404)
         elif self.path == "/api/events":
             if not self._capability_ok():
                 self._json({"error": "missing or invalid capability"}, code=403)
@@ -349,8 +363,10 @@ class Handler(BaseHTTPRequestHandler):
             return
         is_context = self.path == "/api/context"
         checkpoint_match = re.fullmatch(
-            r"/api/checkpoints/([0-9a-fA-F]{4,40})/restore", self.path)
-        if self.path.startswith("/api/checkpoints/") and self.path.endswith("/restore") and not checkpoint_match:
+            r"/api/checkpoints/([0-9a-fA-F]{4,40})/(restore|fork)", self.path)
+        if (self.path.startswith("/api/checkpoints/")
+                and self.path.rsplit("/", 1)[-1] in {"restore", "fork"}
+                and not checkpoint_match):
             self._drain_body()
             self._json({"error": "invalid checkpoint id"}, code=400)
             return
@@ -381,11 +397,46 @@ class Handler(BaseHTTPRequestHandler):
             self._json({"ok": True})
             return
         if checkpoint_match:
-            from .. import ide
             workspace = Path(str(payload.get("workspace") or Path.cwd())).expanduser().resolve()
-            ok, message = _checkpoint_manager().restore(
-                workspace, checkpoint_match.group(1))
-            self._json({"ok": ok, "message": message}, code=200 if ok else 409)
+            checkpoint = checkpoint_match.group(1)
+            action = checkpoint_match.group(2)
+            if action == "restore":
+                from ..checkpoints import RestoreMode
+                try:
+                    mode = RestoreMode(str(payload.get("mode") or ""))
+                except ValueError:
+                    self._json({"error": "mode must be files, task, or both"}, code=400)
+                    return
+                proposal = approvals.propose(
+                    category="checkpoint_restore",
+                    title=f"Restore checkpoint {checkpoint[:7]}",
+                    description=(
+                        f"Restore {mode.value} for {workspace}. "
+                        "This destructive action is undo-checkpointed before execution."
+                    ),
+                    payload={"workspace": str(workspace), "checkpoint": checkpoint,
+                             "mode": mode.value},
+                    cfg=config.load_config(), origin="web:checkpoints",
+                )
+                self._json({"ok": True, "approval_required": True,
+                            "approval_id": proposal["id"], "mode": mode.value}, code=202)
+                return
+            command = payload.get("command")
+            if (not isinstance(command, list) or not command
+                    or not all(isinstance(item, str) and item for item in command)):
+                self._json({"error": "command must be a non-empty string array"}, code=400)
+                return
+            from ..sandbox import load_repo_sandbox
+            spec = load_repo_sandbox(workspace)
+            try:
+                result = _checkpoint_manager().fork(
+                    workspace, checkpoint, command, policy=spec.policy)
+            except Exception as exc:
+                self._json({"error": str(exc)[:300]}, code=409)
+                return
+            self._json({"ok": True, "returncode": result.returncode,
+                        "stdout": result.stdout, "stderr": result.stderr},
+                       code=200 if result.returncode == 0 else 409)
             return
         aid = payload.get("id")
         action = payload.get("action")

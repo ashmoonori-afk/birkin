@@ -109,19 +109,32 @@ def test_config_is_safe_subset(srv, monkeypatch):
     assert b"SECRET" not in body and b"token" not in body.lower()
 
 
-def test_checkpoints_list_restore_and_malformed(srv, monkeypatch):
+def test_checkpoints_timeline_diff_and_gated_restore(srv, monkeypatch):
     class Manager:
         def list_checkpoints(self, workdir):
             return [{"hash": "a" * 40, "short": "a" * 7,
                      "date": "2026-01-01T00:00:00Z", "reason": "before edit"}]
-        def restore(self, workdir, checkpoint):
-            return (True, "restored files") if checkpoint == "a" * 40 else (False, "bad")
+        def timeline(self, workdir):
+            return [{"tool": "write_file", "before": "a" * 40, "after": "b" * 40}]
+        def lineage(self, workdir):
+            return [{"checkpoint": "a" * 40, "kind": "alternate"}]
+        def diff_preview(self, workdir, checkpoint):
+            return {"checkpoint": checkpoint, "patch": "+after", "files": [{"path": "x"}]}
     monkeypatch.setattr(web_server, "_checkpoint_manager", lambda: Manager())
     status, _, body = request(srv, "GET", "/api/checkpoints")
     assert status == 200 and json.loads(body)[0]["short"] == "aaaaaaa"
+    assert json.loads(request(srv, "GET", "/api/checkpoints/timeline")[2])[0]["tool"] == "write_file"
+    diff = json.loads(request(srv, "GET", f"/api/checkpoints/{'a' * 40}/diff")[2])
+    assert diff["files"][0]["path"] == "x"
+
     status, _, body = request(
-        srv, "POST", f"/api/checkpoints/{'a' * 40}/restore", {})
-    assert status == 200 and json.loads(body)["ok"] is True
+        srv, "POST", f"/api/checkpoints/{'a' * 40}/restore", {"mode": "files"})
+    queued = json.loads(body)
+    assert status == 202 and queued["approval_required"] is True
+    record = store.get_pending(queued["approval_id"])
+    assert record and record["category"] == "checkpoint_restore"
+    assert record["payload"]["mode"] == "files"
+    assert request(srv, "POST", f"/api/checkpoints/{'a' * 40}/restore", {})[0] == 400
     assert request(srv, "POST", "/api/checkpoints/nope/restore", {})[0] == 400
 
 

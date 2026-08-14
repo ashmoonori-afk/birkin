@@ -290,6 +290,19 @@ def execute_action(category: str, payload: dict[str, Any],
     if category == "operation":
         from .operation_approval import execute_approved
         return execute_approved(payload, cfg)
+    if category == "checkpoint_restore":
+        from .checkpoints import CheckpointManager, RestoreMode
+        workspace = Path(str(payload.get("workspace") or "")).expanduser().resolve()
+        checkpoint = str(payload.get("checkpoint") or "")
+        try:
+            mode = RestoreMode(str(payload.get("mode") or ""))
+        except ValueError as exc:
+            raise ValueError("invalid checkpoint restore mode") from exc
+        outcome = CheckpointManager(enabled=True).restore(
+            workspace, checkpoint, mode=mode)
+        if not outcome.ok:
+            raise ValueError(outcome.message)
+        return outcome.message
     if category == "moirai":
         from .moirai.trigger import run_approved
         return run_approved(payload, on_event=on_event)
