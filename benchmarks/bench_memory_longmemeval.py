@@ -105,7 +105,7 @@ def _from_public(item: dict[str, Any]) -> dict[str, Any]:
             "id": sid, "title": f"Session {sid}", "body": "\n".join(lines),
         }
         if index < len(dates) and dates[index]:
-            note["valid_at"] = str(dates[index])[:10]
+            note["valid_at"] = _public_day(dates[index])
         notes.append(note)
     category = _normalize_category(str(item.get("question_type")
                                        or item.get("category") or ""))
@@ -115,10 +115,16 @@ def _from_public(item: dict[str, Any]) -> dict[str, Any]:
         "id": qid, "category": category,
         "question": str(item.get("question") or ""),
         "answer": str(item.get("answer") or ""),
-        "question_date": str(item.get("question_date") or "")[:10],
+        "question_date": _public_day(item.get("question_date")),
         "abstention": qid.endswith("_abs") or not evidence,
         "evidence_ids": evidence, "notes": notes,
     }
+
+
+def _public_day(raw: Any) -> str:
+    """Normalize public LongMemEval's ``YYYY/MM/DD (...)`` timestamps."""
+    value = str(raw or "")[:10]
+    return value.replace("/", "-")
 
 
 def _normalize_category(raw: str) -> str:
@@ -145,7 +151,7 @@ def evaluate(instances: list[dict[str, Any]], *,
              configurations: Sequence[str] = CONFIGURATIONS,
              retrieval_k: int = 5, context_k: int = 1,
              vector_backend: str = "deterministic",
-             answer_command: str = "") -> dict[str, Any]:
+             answer_command: str | None = "") -> dict[str, Any]:
     output: dict[str, Any] = {
         "meta": {
             "dataset": "fixture" if all(str(item.get("id", "")).split("-")[0]
@@ -154,7 +160,8 @@ def evaluate(instances: list[dict[str, Any]], *,
             "questions": len(instances), "retrieval_k": retrieval_k,
             "context_k": context_k,
             "timestamp": datetime.now(timezone.utc).isoformat(timespec="seconds"),
-            "answerer": answer_command or "deterministic-answer-line-v1",
+            "answerer": (None if answer_command is None else
+                           answer_command or "deterministic-answer-line-v1"),
         },
         "configurations": {},
     }
@@ -200,10 +207,12 @@ def evaluate(instances: list[dict[str, Any]], *,
                              else bool(evidence & set(hit_ids)))
                 context = "\n".join(hit["snippet"] for hit in hits[:context_k])
                 context_tokens.append(max(1, math.ceil(len(context) / 4)))
-                answer = (_command_answer(answer_command, item, context)
+                answer = (None if answer_command is None else
+                          _command_answer(answer_command, item, context)
                           if answer_command else _fixture_answer(context))
-                correct = (_is_abstention(answer) if item.get("abstention")
-                           else _answer_matches(answer, str(item.get("answer") or "")))
+                correct = (None if answer is None else
+                           _is_abstention(answer) if item.get("abstention") else
+                           _answer_matches(answer, str(item.get("answer") or "")))
                 rows.append({"category": item["category"],
                              "retrieved": retrieved, "correct": correct})
                 storage_bytes += sum(path.stat().st_size for path in Path(temp).rglob("*")
@@ -259,8 +268,9 @@ def _metrics(rows: list[dict[str, Any]]) -> dict[str, Any]:
         "n": n,
         "retrieval_recall": round(sum(bool(row["retrieved"]) for row in rows) / n, 3)
         if n else None,
-        "answer_accuracy": round(sum(bool(row["correct"]) for row in rows) / n, 3)
-        if n else None,
+        "answer_accuracy": (round(sum(bool(row["correct"]) for row in rows) / n, 3)
+                            if n and all(row["correct"] is not None for row in rows)
+                            else None),
     }
 
 
@@ -276,16 +286,20 @@ def _print_report(report: dict[str, Any]) -> None:
     for name, result in report["configurations"].items():
         overall = result["overall"]
         cost = result["cost"]
+        answer = (f"{overall['answer_accuracy']:.3f}"
+                  if overall["answer_accuracy"] is not None else "not-run")
         print(f"{name}: retrieval={overall['retrieval_recall']:.3f} "
-              f"answer={overall['answer_accuracy']:.3f} "
+              f"answer={answer} "
               f"tokens/q={cost['tokens_per_query']:.1f} "
               f"p50/p95={cost['latency_ms_p50']:.3f}/{cost['latency_ms_p95']:.3f}ms "
               f"storage={cost['storage_bytes']}B")
         for category in CATEGORIES:
             metric = result["categories"][category]
             if metric["n"]:
+                answer = (f"{metric['answer_accuracy']:.3f}"
+                          if metric["answer_accuracy"] is not None else "not-run")
                 print(f"  {category:29} R={metric['retrieval_recall']:.3f} "
-                      f"A={metric['answer_accuracy']:.3f} n={metric['n']}")
+                      f"A={answer} n={metric['n']}")
 
 
 def main() -> int:
@@ -299,10 +313,14 @@ def main() -> int:
                         help="deterministic or a sentence-transformers model name")
     parser.add_argument("--answer-command", default="",
                         help="local command reading {question,context} JSON on stdin")
+    parser.add_argument("--retrieval-only", action="store_true",
+                        help="skip answer generation and report answer accuracy as null")
     args = parser.parse_args()
+    if args.retrieval_only and args.answer_command:
+        parser.error("--retrieval-only cannot be combined with --answer-command")
     report = evaluate(load_instances(args.data), retrieval_k=args.retrieval_k,
                       context_k=args.context_k, vector_backend=args.vector_backend,
-                      answer_command=args.answer_command)
+                      answer_command=None if args.retrieval_only else args.answer_command)
     args.out.parent.mkdir(parents=True, exist_ok=True)
     args.out.write_text(json.dumps(report, indent=2, ensure_ascii=False) + "\n",
                         encoding="utf-8")
