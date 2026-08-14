@@ -17,8 +17,9 @@ import os
 import signal
 import subprocess
 import tempfile
+from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
+from typing import Protocol, TypedDict
 
 # cmd.exe re-parses these inside each argument even when argv is discrete, so a
 # value like ``foo & calc`` smuggled into a CLI arg would chain a second command.
@@ -27,6 +28,27 @@ from typing import Any
 # strings have their own intentional path (``shell_argv``), which this never gates.
 _WIN_SHELL_METACHARS = frozenset("&|<>^")
 _POSIX_KILL_SIGNAL = getattr(signal, "SIGKILL", signal.SIGTERM)
+
+
+@dataclass(frozen=True, slots=True)
+class ShellCommand:
+    """One bounded free-form shell execution request."""
+
+    command: str
+    cwd: Path | None
+    timeout: int
+    environment: dict[str, str]
+
+
+class ProcessHandle(Protocol):
+    pid: int
+
+    def kill(self) -> None: ...
+
+
+class PopenTreeKwargs(TypedDict, total=False):
+    creationflags: int
+    start_new_session: bool
 
 
 def cli_argv(parts: list[str]) -> list[str]:
@@ -38,9 +60,11 @@ def cli_argv(parts: list[str]) -> list[str]:
     if os.name == "nt":
         for arg in parts[1:]:  # parts[0] is the program name (a trusted shim)
             if _WIN_SHELL_METACHARS.intersection(arg):
-                raise ValueError(
+                message = (
                     "unsafe shell metacharacter (& | < > ^) in CLI argument "
-                    f"on Windows: {arg!r}")
+                    f"on Windows: {arg!r}"
+                )
+                raise ValueError(message)
         program = parts[0]
         appdata = os.environ.get("APPDATA")
         if appdata and os.path.basename(program) == program:
@@ -72,14 +96,71 @@ def shell_env() -> dict[str, str]:
     return env
 
 
-def popen_tree_kwargs() -> dict[str, Any]:
+def run_shell_command(
+    request: ShellCommand,
+) -> subprocess.CompletedProcess[str]:
+    """Run a shell request in an independently killable process tree."""
+    argv = shell_argv(request.command)
+    process = _spawn_shell(argv, request)
+    try:
+        stdout, stderr = process.communicate(timeout=request.timeout)
+    except subprocess.TimeoutExpired:
+        kill_tree(process)
+        try:
+            stdout, stderr = process.communicate(timeout=10)
+        except subprocess.TimeoutExpired:
+            process.kill()
+            stdout, stderr = process.communicate()
+        raise subprocess.TimeoutExpired(
+            argv,
+            request.timeout,
+            output=stdout,
+            stderr=stderr,
+        ) from None
+    return subprocess.CompletedProcess(
+        argv,
+        process.wait(),
+        stdout,
+        stderr,
+    )
+
+
+def _spawn_shell(
+    argv: list[str],
+    request: ShellCommand,
+) -> subprocess.Popen[str]:
+    cwd = str(request.cwd) if request.cwd is not None else None
+    if os.name == "nt":
+        return subprocess.Popen(
+            argv,
+            cwd=cwd,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+            errors="replace",
+            env=request.environment,
+            creationflags=subprocess.CREATE_NEW_PROCESS_GROUP,
+        )
+    return subprocess.Popen(
+        argv,
+        cwd=cwd,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+        errors="replace",
+        env=request.environment,
+        start_new_session=True,
+    )
+
+
+def popen_tree_kwargs() -> PopenTreeKwargs:
     """Return platform-native flags for a separately killable process tree."""
     if os.name == "nt":
         return {"creationflags": subprocess.CREATE_NEW_PROCESS_GROUP}
     return {"start_new_session": True}
 
 
-def _kill_posix_tree(proc: Any, pid: int) -> bool:
+def _kill_posix_tree(pid: int) -> bool:
     try:
         group = os.getpgid(pid)
         if group == os.getpgrp():
@@ -90,7 +171,7 @@ def _kill_posix_tree(proc: Any, pid: int) -> bool:
         return False
 
 
-def kill_tree(proc: "Any") -> None:
+def kill_tree(proc: ProcessHandle | None) -> None:
     """Kill ``proc`` and its descendants.
 
     On Windows a CLI shim is launched through ``cmd /c`` (see ``cli_argv``), so
@@ -101,20 +182,24 @@ def kill_tree(proc: "Any") -> None:
     without touching Birkin's own group. Best-effort: never raises."""
     if proc is None:
         return
-    pid = getattr(proc, "pid", None)
-    if os.name == "nt" and pid is not None:
+    pid = proc.pid
+    if os.name == "nt":
         try:
-            subprocess.run(["taskkill", "/F", "/T", "/PID", str(pid)],
-                           capture_output=True, timeout=10)
-            return
-        except Exception:
-            pass  # fall through to proc.kill()
-    if os.name != "nt" and pid is not None:
-        if _kill_posix_tree(proc, pid):
-            return
+            result = subprocess.run(
+                ["taskkill", "/F", "/T", "/PID", str(pid)],
+                capture_output=True,
+                timeout=10,
+                check=False,
+            )
+            if result.returncode == 0:
+                return
+        except (OSError, subprocess.SubprocessError):
+            pass
+    if os.name != "nt" and _kill_posix_tree(pid):
+        return
     try:
         proc.kill()
-    except Exception:
+    except OSError:
         pass
 
 

@@ -301,6 +301,41 @@ checkpoint에서 일회용 policy-controlled sandbox worktree를 만들고 linea
 
 전체 interface는 `birkin --help` 또는 `birkin <command> --help`로 확인하십시오.
 
+### 실행 중인 OMO 세션 제어
+
+Birkin은 각 세션이 직접 소유한 extension을 통해 이미 열려 있는 OMO 세션을
+제어합니다. 대체 `omo --mode rpc` process를 열거나 OMO의
+`settings.json.lock`을 획득하거나 window title로 대상을 찾지 않습니다.
+
+신뢰된 Birkin chat 또는 gateway channel에서 extension을 한 번 설치합니다.
+
+```text
+/omo bridge install
+```
+
+이 명령은 `settings.json`을 수정하지 않고
+`birkin-omo-live-bridge.mjs`를 현재 OMO agent extension directory에
+복사합니다. 열려 있는 OMO 세션은 보통 새 extension을 자동으로 발견합니다.
+자동 reload되지 않으면 해당 세션에서 `/reload`를 실행하십시오. Extension을
+load하지 않은 세션은 안전을 위해 제어할 수 없습니다.
+
+이미 열려 있는 하나 이상의 세션에 전체 session ID로 prompt를 전달합니다.
+
+```text
+/omo send-to 019ffe4c-0ba9-7fa2-acab-176a22fc1fd3,019ffda0-c982-7ffe-badf-b952f457011e -- resume
+```
+
+Birkin은 대상별로 정확한 session ID와 request ID가 포함된 acknowledgement를
+한 줄씩 반환합니다. 어떤 prompt도 전달하기 전에 모든 대상을 먼저 resolve하고,
+한 요청 안의 중복 ID를 제거하며, 알 수 없거나 stale·unauthorized·ambiguous한
+live registration은 거부합니다. 과거 JSONL session은 live target으로 간주하지
+않습니다.
+
+각 live session은 loopback에서만 listen하며 random capability token이 들어 있는
+private registration을 게시합니다. Birkin은 token에 묶인 response, session ID,
+request ID, protocol version을 모두 검증합니다. Transport 실패는 자동 retry하지
+않고 그대로 보고하므로 요청별 at-most-once delivery를 유지합니다.
+
 ## 설정
 
 `birkin setup`은 `~/.birkin/config.json`을 씁니다. 아래 블록은 `birkin.config.DEFAULT_CONFIG`에서 생성되고 테스트가 검증하므로, 발췌가 아니라 전체 기본값입니다.
@@ -343,6 +378,7 @@ checkpoint에서 일회용 policy-controlled sandbox worktree를 만들고 linea
   "parallel_tools": true,
   "parallel_tool_workers": 8,
   "shell_approval": "manual",
+  "allow_powershell": false,
   "checkpoints": true,
   "hooks": {},
   "hooks_auto_accept": false,
@@ -470,6 +506,8 @@ checkpoint에서 일회용 policy-controlled sandbox worktree를 만들고 linea
 
 Provider secret은 환경 변수에 두는 것이 원칙입니다. `api_keys`는 환경 변수 pool의 이름이며 raw key를 붙여 넣는 곳이 아닙니다. `a2a_enabled`는 opt-in입니다. Enforced egress는 검사되지 않은 네이티브 network 경로를 비활성화하고 설정된 destination만 Birkin의 inspected tool을 통해 허용합니다. Sandbox 안의 gateway child는 `propose_action`으로 shell 요청을 제출할 수 있고, Birkin은 이를 child sandbox에서 실행하지 않고 승인 큐에 넣습니다.
 
+자유 형식 shell 요청은 별도로 종료할 수 있는 process tree 안에서 명시적 platform shell(Windows의 `cmd.exe /c`, POSIX의 `bash -lc`)을 사용합니다. 네이티브 shell tool, 승인된 shell continuation, scheduler shell job, script monitor가 같은 managed runner를 공유합니다. Timeout이 발생하면 descendant를 먼저 종료하고 부분 stdout과 stderr를 보존합니다. PowerShell은 기본적으로 비활성화됩니다. `allow_powershell`을 의도적으로 `true`로 설정하거나 큐에 들어간 정확한 단일 operation을 승인해야 합니다. Windows CI는 네이티브 Windows runner에서 일반 명령, pipeline, redirection, quoting, Unicode 및 공백이 있는 작업 디렉터리, 환경 변수 상속, 쓰기 가능한 `TEMP`/`TMP`, exit 전달, Python/npm/Bun/`.cmd` 해석을 검증합니다.
+
 ## 개발
 
 ```bash
@@ -484,7 +522,7 @@ npm run compile
 npm run test:e2e
 ```
 
-CI는 Ubuntu/Python 3.10, macOS/Python 3.13, Windows/Python 3.13에서 파이썬 suite를 실행합니다. Extension unit test는 Vitest, 실제 host QA는 `@vscode/test-electron`을 사용합니다.
+CI는 Ubuntu/Python 3.10, macOS/Python 3.13, Windows/Python 3.13에서 파이썬 suite를 실행합니다. Windows job은 네이티브 shell smoke test를 위해 고정된 Bun release를 설치합니다. Extension unit test는 Vitest, 실제 host QA는 `@vscode/test-electron`을 사용합니다.
 
 ## 라이선스
 

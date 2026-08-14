@@ -104,6 +104,9 @@ DEFAULT_CONFIG: dict[str, Any] = {
     #   "off"    — no gate (the pre-shellguard behavior)
     # A small set of catastrophic commands is refused in every mode.
     "shell_approval": "manual",
+    # PowerShell is never implicit. Set this deliberately, or approve one
+    # exact run_shell operation when Birkin queues it for review.
+    "allow_powershell": False,
     # Snapshot the workspace before a mutating tool runs, into a bare git
     # store under <birkin_home>/checkpoints (never inside your project,
     # and never touching your own git history). Undo with /rollback.

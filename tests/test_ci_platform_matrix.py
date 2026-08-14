@@ -21,5 +21,8 @@ def test_tests_workflow_covers_supported_operating_systems() -> None:
     assert "ubuntu-latest" in workflow
     assert "macos-latest" in workflow
     assert "windows-latest" in workflow
-    assert workflow.count("python -m pytest") == 1
+    assert workflow.count("python -m pytest") == 2
+    assert "Native Windows shell acceptance" in workflow
+    assert "Windows CLI invalid input" in workflow
+    assert "Windows security scan" in workflow
     assert 'python: "3.10"' in workflow

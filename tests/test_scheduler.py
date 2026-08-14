@@ -40,9 +40,8 @@ def test_next_nightly_custom_hour():
 def test_run_job_shell_records_run(monkeypatch):
     captured = {}
 
-    def fake_run(argv, **kw):
-        captured["argv"] = argv
-        captured["kw"] = kw
+    def fake_run(request):
+        captured["request"] = request
 
         class R:
             stdout = "hello"
@@ -50,14 +49,13 @@ def test_run_job_shell_records_run(monkeypatch):
             returncode = 0
         return R()
 
-    monkeypatch.setattr(subprocess, "run", fake_run)
+    monkeypatch.setattr(scheduler, "run_shell_command", fake_run)
     job = {"id": "j1", "name": "morning", "type": "shell",
            "value": "echo hi"}
     scheduler._run_job(job)
     runs = store.list_runs()
     assert any(r["kind"] == "cron" for r in runs)
-    # argv form (no shell=True) and the command was wrapped via shell_argv
-    assert "echo hi" in captured["argv"]
+    assert captured["request"].command == "echo hi"
 
 
 def test_run_job_monitor_unchanged_is_silent_without_prompt(monkeypatch):
@@ -218,14 +216,14 @@ def test_is_silent_marker_must_lead_the_output():
 
 
 def test_run_job_shell_records_delivery_status(monkeypatch):
-    def fake_run(argv, **kw):
+    def fake_run(_request):
         class R:
             stdout = "[SILENT] all quiet"
             stderr = ""
             returncode = 0
         return R()
 
-    monkeypatch.setattr(subprocess, "run", fake_run)
+    monkeypatch.setattr(scheduler, "run_shell_command", fake_run)
     scheduler._run_job({"id": "j9", "name": "quiet", "type": "shell",
                         "value": "check", "deliver_chat_id": "7"})
     runs = store.list_runs()

@@ -301,6 +301,41 @@ The authenticated API exposes the checkpoint list, `/timeline`, `/lineage`,
 
 Run `birkin --help` or `birkin <command> --help` for the complete interface.
 
+### Live OMO session control
+
+Birkin controls an already-open OMO session through an extension owned by that
+session. It does not open a replacement `omo --mode rpc` process, acquire
+OMO's `settings.json.lock`, or discover windows by title.
+
+From a trusted Birkin chat or gateway channel, install the extension once:
+
+```text
+/omo bridge install
+```
+
+This copies `birkin-omo-live-bridge.mjs` into the active OMO agent extension
+directory without editing `settings.json`. Open OMO sessions normally discover
+the new extension; run `/reload` in a session if it does not reload
+automatically. A session that has not loaded the extension is deliberately not
+controllable.
+
+Send one prompt to one or more already-open sessions by full, exact session ID:
+
+```text
+/omo send-to 019ffe4c-0ba9-7fa2-acab-176a22fc1fd3,019ffda0-c982-7ffe-badf-b952f457011e -- resume
+```
+
+Birkin returns one acknowledgement line per target with the exact session ID
+and request ID. It resolves every target before delivering any prompt, removes
+duplicate IDs within the request, and rejects unknown, stale, unauthorized, or
+ambiguous live registrations. Historical JSONL sessions are never treated as
+live targets.
+
+Each live session listens on loopback only and publishes a private registration
+containing a random capability token. Birkin validates the token-bound response,
+session ID, request ID, and protocol version. Transport failures are surfaced
+instead of retried blindly, preserving at-most-once delivery for each request.
+
 ## Configuration
 
 `birkin setup` writes `~/.birkin/config.json`. The block below is generated from `birkin.config.DEFAULT_CONFIG` and verified by tests, so it is the complete default surface rather than a curated excerpt:
@@ -343,6 +378,7 @@ Run `birkin --help` or `birkin <command> --help` for the complete interface.
   "parallel_tools": true,
   "parallel_tool_workers": 8,
   "shell_approval": "manual",
+  "allow_powershell": false,
   "checkpoints": true,
   "hooks": {},
   "hooks_auto_accept": false,
@@ -470,6 +506,8 @@ Run `birkin --help` or `birkin <command> --help` for the complete interface.
 
 Environment variables remain the right place for provider secrets. `api_keys` names environment-variable pools; it is not a place to paste raw keys. `a2a_enabled` is opt-in. Enforced egress disables uninspected native network paths and allows only configured destinations through Birkin's inspected tools. A sandboxed gateway child can submit a shell request through `propose_action`; Birkin queues it for approval instead of running it inside the child sandbox.
 
+Free-form shell requests use an explicit platform shell (`cmd.exe /c` on Windows and `bash -lc` on POSIX) inside a separately killable process tree. The same managed runner serves the native shell tool, approved shell continuations, scheduler shell jobs, and script monitors. A timeout terminates descendants before returning and preserves partial stdout and stderr. PowerShell is disabled by default: set `allow_powershell` to `true` deliberately, or approve one exact queued operation. Windows CI exercises ordinary commands, pipelines, redirection, quoting, Unicode and spaced working directories, inherited environment variables, writable `TEMP`/`TMP`, exit propagation, and Python/npm/Bun/`.cmd` resolution on a native Windows runner.
+
 ## Development
 
 ```bash
@@ -484,7 +522,7 @@ npm run compile
 npm run test:e2e
 ```
 
-CI executes the Python suite on Ubuntu/Python 3.10, macOS/Python 3.13, and Windows/Python 3.13. Extension unit tests use Vitest; the host QA target uses `@vscode/test-electron`.
+CI executes the Python suite on Ubuntu/Python 3.10, macOS/Python 3.13, and Windows/Python 3.13. The Windows job installs a pinned Bun release for the native shell smoke tests. Extension unit tests use Vitest; the host QA target uses `@vscode/test-electron`.
 
 ## License
 

@@ -37,7 +37,7 @@ def test_kill_tree_terminates_posix_process_group(monkeypatch) -> None:
         raising=False,
     )
 
-    assert proc._kill_posix_tree(process, process.pid) is True
+    assert proc._kill_posix_tree(process.pid) is True
 
     assert calls == [(4312, proc._POSIX_KILL_SIGNAL)]
     assert process.killed is False
