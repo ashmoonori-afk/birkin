@@ -132,6 +132,14 @@ Schema version: 1
 | `critique_agents` | `integer` | `3` | Birkin 설정 `critique_agents`. |
 | `boulder_max_iters` | `integer` | `100` | Birkin 설정 `boulder_max_iters`. |
 | `fs_jail` | `boolean` | `false` | Birkin 설정 `fs_jail`. |
+| `sandbox` | `object` | `{"backend": "worktree", "image": "", "setup": [], "env_allowlist": [], "network": "off", "network_allowlist": [], "write_paths": ["."]}` | 격리된 worktree 또는 Docker 작업의 기본값이며 저장소의 .birkin/sandbox.json에서 재정의할 수 있습니다. |
+| `sandbox.backend` | `string` | `"worktree"` | Birkin 설정 `sandbox.backend`. |
+| `sandbox.image` | `string` | `""` | Birkin 설정 `sandbox.image`. |
+| `sandbox.setup` | `array` | `[]` | Birkin 설정 `sandbox.setup`. |
+| `sandbox.env_allowlist` | `array` | `[]` | Birkin 설정 `sandbox.env_allowlist`. |
+| `sandbox.network` | `string` | `"off"` | Birkin 설정 `sandbox.network`. |
+| `sandbox.network_allowlist` | `array` | `[]` | Birkin 설정 `sandbox.network_allowlist`. |
+| `sandbox.write_paths` | `array` | `["."]` | Birkin 설정 `sandbox.write_paths`. |
 | `update_verify_signature` | `boolean` | `false` | Birkin 설정 `update_verify_signature`. |
 | `nightly_hour` | `integer` | `null` |  |
 | `nightly_minute` | `integer` | `null` |  |

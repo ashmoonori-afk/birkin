@@ -132,6 +132,14 @@ Schema version: 1
 | `critique_agents` | `integer` | `3` | Birkin setting `critique_agents`. |
 | `boulder_max_iters` | `integer` | `100` | Birkin setting `boulder_max_iters`. |
 | `fs_jail` | `boolean` | `false` | Birkin setting `fs_jail`. |
+| `sandbox` | `object` | `{"backend": "worktree", "image": "", "setup": [], "env_allowlist": [], "network": "off", "network_allowlist": [], "write_paths": ["."]}` | Defaults for isolated worktree or Docker jobs; repositories may override them in .birkin/sandbox.json. |
+| `sandbox.backend` | `string` | `"worktree"` | Birkin setting `sandbox.backend`. |
+| `sandbox.image` | `string` | `""` | Birkin setting `sandbox.image`. |
+| `sandbox.setup` | `array` | `[]` | Birkin setting `sandbox.setup`. |
+| `sandbox.env_allowlist` | `array` | `[]` | Birkin setting `sandbox.env_allowlist`. |
+| `sandbox.network` | `string` | `"off"` | Birkin setting `sandbox.network`. |
+| `sandbox.network_allowlist` | `array` | `[]` | Birkin setting `sandbox.network_allowlist`. |
+| `sandbox.write_paths` | `array` | `["."]` | Birkin setting `sandbox.write_paths`. |
 | `update_verify_signature` | `boolean` | `false` | Birkin setting `update_verify_signature`. |
 | `nightly_hour` | `integer` | `null` |  |
 | `nightly_minute` | `integer` | `null` |  |
