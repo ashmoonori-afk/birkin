@@ -1,0 +1,130 @@
+[
+  {
+    "id": "ss-user-1", "category": "single-session-user",
+    "question": "What instrument does the user play?", "answer": "cello",
+    "evidence_ids": ["user-music"],
+    "notes": [
+      {"id": "user-music", "title": "User music", "body": "The user described weekend rehearsals. Answer: cello"},
+      {"id": "music-news", "title": "Music news", "body": "A piano festival opens Friday."}
+    ]
+  },
+  {
+    "id": "ss-user-2", "category": "single-session-user",
+    "question": "Which city did the user visit?", "answer": "Lisbon",
+    "evidence_ids": ["user-trip"],
+    "notes": [
+      {"id": "user-trip", "title": "User city visit", "body": "The user shared photos from the city visit. Answer: Lisbon"},
+      {"id": "trip-plan", "title": "Future trip", "body": "A possible train trip to Madrid."}
+    ]
+  },
+  {
+    "id": "ss-assistant-1", "category": "single-session-assistant",
+    "question": "Which backup tool did the assistant recommend?", "answer": "restic",
+    "evidence_ids": ["assistant-backup"],
+    "notes": [
+      {"id": "assistant-backup", "title": "Assistant backup recommendation", "body": "The assistant compared local backup tools. Answer: restic"},
+      {"id": "backup-log", "title": "Backup log", "body": "Nightly backup completed."}
+    ]
+  },
+  {
+    "id": "ss-assistant-2", "category": "single-session-assistant",
+    "question": "What port did the assistant suggest?", "answer": "8443",
+    "evidence_ids": ["assistant-port"],
+    "notes": [
+      {"id": "assistant-port", "title": "Assistant port suggestion", "body": "The assistant suggested a development HTTPS port. Answer: 8443"},
+      {"id": "network", "title": "Network notes", "body": "The firewall policy is under review."}
+    ]
+  },
+  {
+    "id": "preference-1", "category": "single-session-preference",
+    "question": "How does the user prefer coffee?", "answer": "black",
+    "evidence_ids": ["coffee-pref"],
+    "notes": [
+      {"id": "coffee-pref", "title": "Coffee preference", "body": "The user's preferred coffee order. Answer: black"},
+      {"id": "tea-pref", "title": "Tea preference", "body": "Green tea is stocked."}
+    ]
+  },
+  {
+    "id": "preference-2", "category": "single-session-preference",
+    "question": "Which editor theme does the user prefer?", "answer": "Solarized Dark",
+    "evidence_ids": ["theme-pref"],
+    "notes": [
+      {"id": "theme-pref", "title": "Editor theme preference", "body": "The user selected a preferred editor theme. Answer: Solarized Dark"},
+      {"id": "editor", "title": "Editor setup", "body": "Autosave is enabled."}
+    ]
+  },
+  {
+    "id": "multi-1", "category": "multi-session",
+    "question": "What codename was chosen for the migration project?", "answer": "Orchid",
+    "evidence_ids": ["migration-decision"],
+    "notes": [
+      {"id": "migration-start", "title": "Migration project", "body": "The migration project needs a codename.", "links": ["Migration decision"]},
+      {"id": "migration-decision", "title": "Migration decision", "body": "The later migration meeting chose the codename. Answer: Orchid"},
+      {"id": "garden", "title": "Garden", "body": "Orchids need indirect light."}
+    ]
+  },
+  {
+    "id": "multi-2", "category": "multi-session",
+    "question": "Who owns the Atlas launch checklist?", "answer": "Alice",
+    "evidence_ids": ["atlas-owner"],
+    "notes": [
+      {"id": "atlas", "title": "Project Atlas", "body": "Project Atlas launch planning.", "links": ["Atlas owner"]},
+      {"id": "atlas-owner", "title": "Atlas owner", "body": "Ownership was confirmed in the follow-up. Answer: Alice"},
+      {"id": "bob", "title": "Bob", "body": "Bob owns the billing migration."}
+    ]
+  },
+  {
+    "id": "temporal-1", "category": "temporal-reasoning",
+    "question": "What is the current office address?", "answer": "Summit Avenue",
+    "question_date": "2026-01-01", "evidence_ids": ["office-current"],
+    "notes": [
+      {"id": "office-old", "title": "Old office", "body": "The office address. Answer: Harbor Road", "valid_at": "2024-01-01"},
+      {"id": "office-current", "title": "Current office", "body": "The current office address. Answer: Summit Avenue", "valid_at": "2025-01-01", "supersedes": ["Old office"]}
+    ]
+  },
+  {
+    "id": "temporal-2", "category": "temporal-reasoning",
+    "question": "Which release was valid in June 2024?", "answer": "version 2",
+    "question_date": "2024-06-15", "evidence_ids": ["release-v2"],
+    "notes": [
+      {"id": "release-v2", "title": "Release version", "body": "The valid release in June 2024. Answer: version 2", "valid_at": "2024-04-01", "invalid_at": "2024-09-01"},
+      {"id": "release-v3", "title": "Release version current", "body": "The later release. Answer: version 3", "valid_at": "2024-09-01", "supersedes": ["Release version"]}
+    ]
+  },
+  {
+    "id": "update-1", "category": "knowledge-update",
+    "question": "What is the current deployment region?", "answer": "eu-west-1",
+    "question_date": "2026-01-01", "evidence_ids": ["region-new"],
+    "notes": [
+      {"id": "region-old", "title": "Old deployment region", "body": "Deployment region. Answer: us-east-1", "valid_at": "2024-01-01", "expired_at": "2025-01-15"},
+      {"id": "region-new", "title": "Current deployment region", "body": "Current deployment region. Answer: eu-west-1", "valid_at": "2025-01-15", "supersedes": ["Old deployment region"]}
+    ]
+  },
+  {
+    "id": "update-2", "category": "knowledge-update",
+    "question": "Which vendor now handles payroll?", "answer": "Northstar",
+    "question_date": "2026-01-01", "evidence_ids": ["payroll-new"],
+    "notes": [
+      {"id": "payroll-old", "title": "Payroll vendor old", "body": "Payroll vendor. Answer: Acme", "valid_at": "2023-01-01"},
+      {"id": "payroll-new", "title": "Payroll vendor current", "body": "The vendor now handling payroll. Answer: Northstar", "valid_at": "2025-05-01", "supersedes": ["Payroll vendor old"]}
+    ]
+  },
+  {
+    "id": "abstention-1", "category": "abstention",
+    "question": "What is the user's passport number?", "answer": "I don't know",
+    "abstention": true, "evidence_ids": [],
+    "notes": [
+      {"id": "travel", "title": "Seat choice", "body": "Aisle seating."},
+      {"id": "identity", "title": "Timezone", "body": "UTC+9."}
+    ]
+  },
+  {
+    "id": "abstention-2", "category": "abstention",
+    "question": "Which blood type does the user have?", "answer": "I don't know",
+    "abstention": true, "evidence_ids": [],
+    "notes": [
+      {"id": "health", "title": "Walking", "body": "Morning walks."},
+      {"id": "schedule", "title": "Checkup schedule", "body": "Planned next month."}
+    ]
+  }
+]
