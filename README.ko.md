@@ -34,6 +34,26 @@
 
 Birkin 핵심 런타임에는 **필수 서드파티 파이썬 의존성이 없습니다**. 선택적 extra가 voice, desktop vision, office 파일 지원을 추가합니다. 현재 저장소에는 **56개 스킬**이 번들되며, 기본 테스트는 모두 오프라인 실행을 목표로 합니다.
 
+## 메모리
+
+Hangul/jamo 인식 tokenization을 사용하는 BM25가 추가 package 없는 기본 retrieval engine입니다. 모든 결과는 정규화된 `lexical`, `vector`, `entity`, `time` score와 결과를 만든 signal, 각 backend 이름을 공개합니다. Vector embedding, 1-hop entity traversal, temporal reranking은 서로 독립적인 opt-in입니다.
+
+```bash
+python -m pip install -e ".[memory-semantic]"  # 로컬 sentence-transformers 전용
+```
+
+```json
+{
+  "memory_vector_enabled": true,
+  "memory_entity_enabled": true,
+  "memory_temporal_enabled": true
+}
+```
+
+Markdown가 계속 source of truth입니다. Entity graph는 title, tag, `[[wikilink]]`에서 다시 만들 수 있으며 lexical search에 graph sidecar가 필요하지 않습니다. Temporal fact는 `valid_at`(사실이 된 시점), `invalid_at`(더 이상 사실이 아닌 시점), `expired_at`(잘못임을 알게 된 시점)을 분리하고 선택적으로 `supersedes` link를 둡니다. Search는 `as_of`, `since`, `until` date filter를 받습니다.
+
+Commit된 14-question LongMemEval fixture는 retrieval과 final-answer stage를 분리해 보고합니다. 네 configuration 모두 retrieval recall `1.000`, answer accuracy `0.857`(query당 context token 11.9-12.4)이었으므로 retrieval 뒤 context assembly gap이 숨지 않습니다. Category·cost table과 public dataset 정확한 실행 명령은 [benchmark 결과](./benchmarks/RESULTS.md)에 있습니다. 이 값은 fixture 결과이며 public leaderboard 결과가 아닙니다.
+
 ## 빠른 시작
 
 Python 3.10 이상이 필요합니다. 기본 provider는 로컬 인증된 Codex CLI이며, setup에서 Claude CLI나 API provider를 고를 수 있습니다.
@@ -56,6 +76,7 @@ birkin web --no-browser # 127.0.0.1:8787 dashboard/control API
 선택 기능은 명시적으로 설치합니다.
 
 ```bash
+python -m pip install -e ".[memory-semantic]"
 python -m pip install -e ".[voice]"
 python -m pip install -e ".[desktop]"
 python -m pip install -e ".[office]"

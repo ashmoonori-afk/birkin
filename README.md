@@ -34,6 +34,26 @@ Agent runtimes are easy to demo and hard to trust. Birkin keeps the model useful
 
 Birkin's core runtime has **no mandatory third-party Python dependencies**. Optional extras add voice, desktop vision, and office-file support. The repository currently bundles **56 skills**; all default tests are designed to run offline.
 
+## Memory
+
+BM25 with Hangul/jamo-aware tokenization remains the default retrieval engine and requires no extra package. Every result discloses normalized `lexical`, `vector`, `entity`, and `time` scores, the signals that sourced it, and each backend name. Vector embeddings, one-hop entity traversal, and temporal reranking are independent opt-ins:
+
+```bash
+python -m pip install -e ".[memory-semantic]"  # local sentence-transformers only
+```
+
+```json
+{
+  "memory_vector_enabled": true,
+  "memory_entity_enabled": true,
+  "memory_temporal_enabled": true
+}
+```
+
+Markdown remains the source of truth. The entity graph is rebuilt from titles, tags, and `[[wikilinks]]`; no graph sidecar is required for lexical search. Temporal facts keep separate `valid_at` (became true), `invalid_at` (stopped being true), and `expired_at` (learned to be wrong) fields, plus optional `supersedes` links. Search accepts `as_of`, `since`, and `until` date filters.
+
+The committed 14-question LongMemEval fixture reports retrieval and final-answer stages separately. All four configurations reached `1.000` retrieval recall but `0.857` answer accuracy (11.9-12.4 context tokens/query), exposing the context-assembly gap rather than hiding it behind retrieval. See [the category and cost tables](./benchmarks/RESULTS.md) and the exact public-dataset command there. These are fixture results, not public leaderboard numbers.
+
 ## Quick Start
 
 Python 3.10 or newer is required. The default provider is the locally authenticated Codex CLI; setup can select Claude CLI or API-backed providers instead.
@@ -56,6 +76,7 @@ birkin web --no-browser # dashboard/control API on 127.0.0.1:8787
 Optional features are explicit:
 
 ```bash
+python -m pip install -e ".[memory-semantic]"
 python -m pip install -e ".[voice]"
 python -m pip install -e ".[desktop]"
 python -m pip install -e ".[office]"
