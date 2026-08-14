@@ -141,8 +141,9 @@ def build_registry(
     ``include`` optionally restricts which tool *groups* are registered
     (used to give subagents a scoped toolset). Groups:
     ``files``, ``shell``, ``web``, ``sessions``, ``skills``, ``memory``,
-    ``vision``, ``desktop``, ``egress``, ``companion``, ``subagent``.
+    ``vision``, ``desktop``, ``browser``, ``egress``, ``companion``, ``subagent``.
     """
+    from .. import browser
     from . import (citations, desktop, egress, files, market,  # local: avoid cycles
                    sessions, shell, vision, web)
     from .subagent_tool import subagent_tools
@@ -153,6 +154,7 @@ def build_registry(
         "web": web.tools() + market.tools() + citations.tools(),
         "sessions": sessions.tools(),
         "vision": vision.tools(),
+        "browser": browser.tools(),
         "egress": egress.tools(),
     }
     if ctx.cfg.get("desktop_tools") is True:

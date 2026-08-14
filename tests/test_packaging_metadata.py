@@ -55,8 +55,12 @@ def test_feature_extras_are_split_and_full_is_their_union() -> None:
             "pywin32>=308; sys_platform == 'win32'",
         },
         "office": {"openpyxl>=3.1,<4"},
+        "browser": {"playwright>=1.54,<2"},
     }
     for name, packages in expected.items():
         assert set(extras[name]) == packages
     assert set(extras["full"]) == set().union(*expected.values())
-    assert set(extras["full"]) < set(extras["dev"])
+    # Browser automation is intentionally absent from CI/dev installs; the
+    # integration marker opts in only after Playwright Chromium is installed.
+    assert set(extras["full"]) - expected["browser"] < set(extras["dev"])
+    assert expected["browser"].isdisjoint(extras["dev"])

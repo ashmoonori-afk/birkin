@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "birkin"
-version = "0.4.204"
+version = "0.4.209"
 description = "Lightweight, self-improving CLI agent workspace with skill management, subagents, and a WebUI. Inspired by hermes-agent and openclaw."
 readme = "README.md"
 requires-python = ">=3.10"
@@ -28,6 +28,9 @@ desktop = [
 office = [
     "openpyxl>=3.1,<4",
 ]
+browser = [
+    "playwright>=1.54,<2",
+]
 full = [
     "openai[realtime,voice_helpers]>=2.53,<3",
     "Pillow>=11",
@@ -35,6 +38,7 @@ full = [
     "pywinctl>=0.4.1; sys_platform == 'linux'",
     "pywin32>=308; sys_platform == 'win32'",
     "openpyxl>=3.1,<4",
+    "playwright>=1.54,<2",
 ]
 dev = [
     "pytest>=8",
@@ -73,6 +77,7 @@ addopts = "-q --cov=birkin --cov-report=term-missing -m 'not live'"
 markers = [
     "live: real LLM backend required (BIRKIN_LIVE=1 + API key or claude/codex CLI)",
     "docker_integration: opt-in test requiring BIRKIN_DOCKER_INTEGRATION=1 and a Docker daemon",
+    "browser_integration: opt-in test requiring BIRKIN_BROWSER_INTEGRATION=1 and Playwright Chromium",
 ]
 
 [tool.coverage.run]
