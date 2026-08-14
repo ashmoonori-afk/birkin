@@ -244,6 +244,23 @@ tests/              offline unit, integration, end-to-end coverage
 
 </details>
 
+## Approval console
+
+`birkin web`은 background agent run과 위험 action을 위한 responsive control
+surface를 엽니다. 실시간 run 상태(`running`, `blocked`, `waiting-approval`,
+`done`), progress와 result, 관련 shell/cron proposal, action diff와 execution
+receipt를 표시합니다. 상세 card에서 run을 steer, abort, resume할 수 있으며
+approval과 rejection은 `birkin review`와 동일한 file-backed authority를
+계속 사용합니다.
+
+Server는 기본적으로 loopback에서만 동작합니다. Remote access가 의도된
+경우에만 `web_remote_access`를 `true`로 설정하십시오. 이 설정은 모든
+interface에 bind하지만 public route를 만들지는 않습니다. Remote device에서
+`birkin web`이 출력한 secret bootstrap URL을 여십시오. 이 URL은 process별
+capability를 HttpOnly, SameSite cookie로 교환하며, capability가 없는 모든
+remote request는 거부됩니다. Traffic이 host 밖으로 나가면 TLS 또는 신뢰할
+수 있는 private-network tunnel을 앞에 두십시오.
+
 ## Checkpoint
 
 WebUI workbench는 Birkin의 외부 shadow-git snapshot을 tool 단위 timeline으로

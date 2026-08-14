@@ -138,6 +138,20 @@ details.payload pre {
 .restore-mode, .fork-command { padding: .45rem; color: var(--text-primary);
   background: var(--surface); border: 1px solid var(--selection); border-radius: 6px; }
 .fork-command { width: min(100%, 32rem); }
+.run-events { list-style: none; padding: 0; margin: .7rem 0; }
+.run-events li { padding: .35rem 0; border-bottom: 1px solid var(--selection); }
+.steer-input { flex: 1 1 16rem; min-width: 0; padding: .55rem; color: var(--text-primary);
+  background: var(--surface); border: 1px solid var(--selection); border-radius: 6px; }
+@media (max-width: 480px) {
+  .pulse { padding: .5rem .65rem; }
+  .bench { padding: .65rem; }
+  .card { padding: .8rem; }
+  .meta { grid-template-columns: 1fr; gap: .05rem; }
+  .meta dd { margin-bottom: .45rem; }
+  .queue button, .actions button { min-height: 44px; }
+  .actions { display: grid; grid-template-columns: 1fr 1fr; }
+  .actions .steer-input { grid-column: 1 / -1; width: 100%; }
+}
 
 @media (prefers-reduced-motion: no-preference) {
   .queue button, .actions button { transition: background .15s ease, border-color .15s ease; }
@@ -168,6 +182,10 @@ details.payload pre {
         <ul class="queue" id="queue"></ul>
       </details>
       <details class="checkpoints" open>
+        <summary id="run-summary">Background runs</summary>
+        <ul class="queue" id="run-list"></ul>
+      </details>
+      <details class="checkpoints">
         <summary id="checkpoint-summary">Checkpoints</summary>
         <ul class="queue" id="checkpoint-list"></ul>
       </details>
@@ -201,6 +219,9 @@ let checkpointItems = [];
 let toolTimeline = [];
 let checkpointLineage = [];
 let selectedCheckpoint = null;
+let agentRunItems = [];
+let selectedRunId = null;
+const recentReceipts = new Map();
 
 const $ = (id) => document.getElementById(id);
 
@@ -303,10 +324,66 @@ function renderQueue() {
       e.color_role.replace(/_/g, "-") + ')">' + esc(e.glyph) + "</span>" +
       '<span class="t">' + esc(it.title) + "</span>" +
       '<span class="s">' + esc(e.label) + "</span>";
-    b.addEventListener("click", () => { selectedCheckpoint = null; selectedId = it.id; renderQueue(); renderCheckpoints(); renderBench(); });
+    b.addEventListener("click", () => { selectedCheckpoint = null; selectedRunId = null; selectedId = it.id; renderQueue(); renderAgentRuns(); renderCheckpoints(); renderBench(); });
     li.appendChild(b);
     list.appendChild(li);
   }
+}
+
+function renderAgentRuns() {
+  const list = $("run-list");
+  list.innerHTML = "";
+  $("run-summary").textContent = "Background runs — " + agentRunItems.length;
+  if (!agentRunItems.length) {
+    list.innerHTML = '<li class="empty">No background runs.</li>';
+    return;
+  }
+  const glyphs = {"running":"▸", "blocked":"∥", "waiting-approval":"◆", "done":"✓"};
+  for (const run of agentRunItems) {
+    const li = document.createElement("li");
+    const button = document.createElement("button");
+    button.dataset.runId = run.id;
+    button.setAttribute("aria-current", String(run.id === selectedRunId));
+    button.innerHTML = '<span class="glyph">' + esc(glyphs[run.status] || "?") +
+      '</span><span class="t">' + esc(run.task || run.id) + '</span><span class="s">' +
+      esc(run.status) + '</span>';
+    button.addEventListener("click", async () => {
+      selectedRunId = run.id; selectedId = null; selectedCheckpoint = null;
+      renderAgentRuns(); renderQueue(); renderCheckpoints(); await renderRunBench(run.id);
+    });
+    li.appendChild(button); list.appendChild(li);
+  }
+}
+
+async function renderRunBench(runId) {
+  const bench = $("bench");
+  let run;
+  try { run = await getJSON("/api/agent-runs/" + runId); }
+  catch (_) { bench.innerHTML = '<p class="empty">Run detail unavailable.</p>'; return; }
+  const events = (run.events || []).map((event) => '<li><span class="checkpoint-meta">' +
+    esc(event.at || "") + '</span><br>' + esc(event.text || "") + '</li>').join("");
+  const approvalsText = (run.approvals || []).map((item) => item.title || item.category).join(", ");
+  bench.innerHTML = '<div class="card"><h2>' + esc(run.task) + '</h2><dl class="meta">' +
+    '<dt>Status</dt><dd>' + esc(run.status) + '</dd><dt>Run ID</dt><dd>' + esc(run.id) +
+    '</dd><dt>Started</dt><dd>' + esc(run.started_at) + '</dd><dt>Pending approvals</dt><dd>' +
+    esc(approvalsText || "none") + '</dd></dl><h3>Progress</h3><ul class="run-events">' +
+    (events || '<li class="empty">No progress events yet.</li>') + '</ul>' +
+    (run.status !== "done" ? '<div class="actions"><input class="steer-input" id="steer-text" ' +
+      'aria-label="Steering instruction" placeholder="Steer this run…"><button id="run-steer">Steer</button>' +
+      (run.status === "blocked" ? '<button class="ok" id="run-resume">Resume</button>' :
+       '<button class="no" id="run-abort">Abort</button>') + '</div>' : '') +
+    '<div id="announce" role="status" aria-live="polite"></div></div>';
+  if ($("run-steer")) $("run-steer").addEventListener("click", () => controlRun(runId, "steer", $("steer-text").value));
+  if ($("run-abort")) $("run-abort").addEventListener("click", () => controlRun(runId, "abort"));
+  if ($("run-resume")) $("run-resume").addEventListener("click", () => controlRun(runId, "resume"));
+}
+
+async function controlRun(runId, action, text="") {
+  const response = await fetch("/api/agent-runs/" + runId + "/control", {
+    method: "POST", headers: {"Content-Type":"application/json"}, body: JSON.stringify({action, text})});
+  const out = await response.json();
+  if (!response.ok) { $("announce").textContent = out.error || "Control failed"; return; }
+  await refresh(); selectedRunId = runId; await renderRunBench(runId);
 }
 
 function renderCheckpoints() {
@@ -327,7 +404,7 @@ function renderCheckpoints() {
       esc(events[0]?.tool || cp.reason) + '<br><span class="checkpoint-meta">' +
       esc(cp.short) + " · " + esc(cp.date) + '</span></span>';
     button.addEventListener("click", () => {
-      selectedCheckpoint = cp.hash; selectedId = null; renderCheckpoints(); renderCheckpointBench(cp);
+      selectedCheckpoint = cp.hash; selectedRunId = null; selectedId = null; renderAgentRuns(); renderCheckpoints(); renderCheckpointBench(cp);
     });
     li.appendChild(button); list.appendChild(li);
   }
@@ -381,6 +458,9 @@ async function renderCheckpointBench(cp) {
 
 function renderBench() {
   const bench = $("bench");
+  if (selectedRunId) {
+    renderRunBench(selectedRunId); return;
+  }
   if (selectedCheckpoint) {
     const checkpoint = checkpointItems.find((cp) => cp.hash === selectedCheckpoint);
     if (checkpoint) { renderCheckpointBench(checkpoint); return; }
@@ -430,6 +510,7 @@ function renderBench() {
     "</dl>" + payload +
     (canAct
       ? '<div class="actions">' +
+        '<button id="btn-diff">View diff</button>' +
         '<button class="ok" id="btn-approve">승인 요청</button>' +
         '<button class="no" id="btn-reject">거부 요청</button></div>' +
       '<p class="authority-note">승인 후 실제 실행 주체는 Python daemon입니다. ' +
@@ -438,6 +519,10 @@ function renderBench() {
       : "") +
     '<div id="announce" role="status" aria-live="polite"></div>';
   if (canAct) {
+    $("btn-diff").addEventListener("click", async () => {
+      const response = await fetch("/api/approvals/" + rec.id + "/diff");
+      $("announce").textContent = response.ok ? await response.text() : "No diff available for this action.";
+    });
     $("btn-approve").addEventListener("click", () => requestConfirmation(rec.id, "approve"));
     $("btn-reject").addEventListener("click", () => requestConfirmation(rec.id, "reject"));
   }
@@ -465,6 +550,17 @@ async function resolve(id, action) {
     const out = await r.json().catch(() => ({}));
     if (r.ok && out.ok !== false) {
       announce.textContent = "완료: " + (out.result || action);
+      if (action === "approve") {
+        const receiptResponse = await fetch("/api/actions/" + id + "/receipt");
+        if (receiptResponse.ok) {
+          const receipt = await receiptResponse.json(); recentReceipts.set(id, receipt);
+          announce.innerHTML = 'Action executed. <button id="view-receipt">View receipt</button>';
+          $("view-receipt").addEventListener("click", () => {
+            announce.textContent = receipt.receipt;
+          });
+          return;
+        }
+      }
       await refresh();               // state changes only after authority reply
     } else {
       announce.textContent = "실패: " + (out.error || r.status);
@@ -525,8 +621,9 @@ async function refreshCheckpoints() {
 
 async function refresh() {
   try {
-    const [status, jobs, runs] = await Promise.all([
-      getJSON("/api/status"), getJSON("/api/jobs"), getJSON("/api/runs")]);
+    const [status, jobs, runs, agentRuns] = await Promise.all([
+      getJSON("/api/status"), getJSON("/api/jobs"), getJSON("/api/runs"),
+      getJSON("/api/agent-runs")]);
     let approvals = [];
     queueNotice = "";
     try {
@@ -547,7 +644,9 @@ async function refresh() {
     } else if (!items.length) {
       selectedId = null;
     }
+    agentRunItems = agentRuns.runs || [];
     renderQueue();
+    renderAgentRuns();
     renderBench();
     renderLens(status, jobs, runs);
     await refreshCheckpoints();
