@@ -55,7 +55,7 @@ STALE_EFF, STALE_DAYS = 0.1, 90       # hermes curator archive tier
 MAX_ZONES = 24
 RELATED_LIMIT = 5                     # A-MEM: keep top-k small
 RELATED_QUERY_TERMS = 12
-INDEX_VERSION = 2
+INDEX_VERSION = 3
 
 INDEX_FILE = ".birkin-index.json"
 DYNAMICS_FILE = ".birkin-dynamics.json"
@@ -312,9 +312,17 @@ def _note_entry(path: Path, rel: str) -> dict[str, Any] | None:
         if line and not line.startswith("#"):
             summary = line[:120]
             break
+    raw_sources = meta.get("sources")
+    sources = ([str(value) for value in raw_sources]
+               if isinstance(raw_sources, list) else [])
+    record_source = str(meta.get("record_source") or "") \
+        or (sources[-1] if sources else "legacy")
     return {
         "title": title, "rel": rel, "zone": zone,
         "type": str(meta.get("type", "topic")),
+        "sources": sources, "record_source": record_source,
+        "trust": str(meta.get("trust") or ""),
+        "shared_read_only": bool(meta.get("shared_read_only", False)),
         "tags": tags, "links": sorted(set(WIKILINK_RE.findall(text))),
         "created": str(meta.get("created", "")),
         "updated": str(meta.get("updated", "")),

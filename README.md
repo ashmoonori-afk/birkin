@@ -434,6 +434,16 @@ Run `birkin --help` or `birkin <command> --help` for the complete interface.
   "memory_vector_model": "all-MiniLM-L6-v2",
   "memory_entity_enabled": false,
   "memory_temporal_enabled": false,
+  "memory_scope": "user",
+  "memory_visible_scopes": [
+    "workflow",
+    "agent",
+    "project",
+    "organization",
+    "user"
+  ],
+  "memory_default_trust": "medium",
+  "memory_source_trust": {},
   "morpheus_deliver_chat_id": "",
   "workspace_roots": [],
   "reaper_enabled": true,
