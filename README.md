@@ -244,6 +244,26 @@ State is file-backed under `BIRKIN_HOME` (normally `~/.birkin`). The dashboard u
 
 </details>
 
+## Checkpoints
+
+The WebUI workbench turns Birkin's external shadow-git snapshots into a tool-level
+timeline. Each entry records the tool, time, touched paths, result, and the
+checkpoint hashes for its before and after state. Open any checkpoint to preview
+an aggregate patch or each file's patch before changing anything.
+
+| Restore mode | Workspace files | Task/conversation state |
+|---|---:|---:|
+| `files` | restored | unchanged |
+| `task` | unchanged | restored |
+| `both` | restored | restored |
+
+Every restore is destructive, so the WebUI queues it through the existing human
+approval authority and first protects the current state. An alternate attempt
+instead seeds a disposable, policy-controlled sandbox worktree from the selected
+checkpoint and records its lineage, without touching the current workspace.
+The authenticated API exposes the checkpoint list, `/timeline`, `/lineage`,
+`/{id}/diff`, `/{id}/restore`, and `/{id}/fork` for the same flow.
+
 <details>
 <summary><strong>Execution and recovery path</strong></summary>
 
