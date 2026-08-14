@@ -42,6 +42,12 @@ _CAPABILITY_COOKIE = "birkin_capability"
 _ALLOWED_HOSTS = {"127.0.0.1", "localhost"}
 
 
+def _checkpoint_manager():
+    from ..checkpoints import CheckpointManager
+    cfg = config.load_config()
+    return CheckpointManager(enabled=bool(cfg.get("checkpoints", True)))
+
+
 def _status_payload() -> dict[str, Any]:
     cfg = config.load_config()
     skills_error = None
@@ -170,6 +176,39 @@ class Handler(BaseHTTPRequestHandler):
             self._send(200, html.encode("utf-8"), "text/html; charset=utf-8")
         elif self.path == "/api/status":
             self._json(_status_payload())
+        elif self.path.startswith("/api/approvals/") and self.path.endswith("/diff"):
+            if not self._capability_ok():
+                self._json({"error": "missing or invalid capability"}, code=403)
+                return
+            from .. import ide
+            approval_id = self.path.split("/")[3]
+            code, text = ide.approval_diff(approval_id)
+            if code != 200:
+                self._json({"error": "diff unavailable"}, code=code)
+                return
+            self._send(200, text.encode("utf-8"), "text/x-diff; charset=utf-8")
+        elif self.path == "/api/config":
+            if not self._capability_ok():
+                self._json({"error": "missing or invalid capability"}, code=403)
+                return
+            from .. import ide
+            self._json(ide.safe_config())
+        elif self.path.startswith("/api/checkpoints"):
+            if not self._capability_ok():
+                self._json({"error": "missing or invalid capability"}, code=403)
+                return
+            from .. import ide
+            workspace = ide.workspace_from_path(self.path)
+            self._json(_checkpoint_manager().list_checkpoints(workspace))
+        elif self.path == "/api/events":
+            if not self._capability_ok():
+                self._json({"error": "missing or invalid capability"}, code=403)
+                return
+            from .. import ide
+            body = ("event: snapshot\n" + "data: "
+                    + json.dumps(ide.event_snapshot(), ensure_ascii=False)
+                    + "\n\n").encode("utf-8")
+            self._send(200, body, "text/event-stream")
         elif self.path == "/api/contract":
             # Python-owned UI contract: state schema + design tokens. The
             # page generates its state table from this; it never copies it.
@@ -308,7 +347,14 @@ class Handler(BaseHTTPRequestHandler):
         if self.path == "/a2a":
             self._handle_a2a()
             return
-        if self.path != "/api/approvals":
+        is_context = self.path == "/api/context"
+        checkpoint_match = re.fullmatch(
+            r"/api/checkpoints/([0-9a-fA-F]{4,40})/restore", self.path)
+        if self.path.startswith("/api/checkpoints/") and self.path.endswith("/restore") and not checkpoint_match:
+            self._drain_body()
+            self._json({"error": "invalid checkpoint id"}, code=400)
+            return
+        if self.path != "/api/approvals" and not is_context and not checkpoint_match:
             self._drain_body()
             self._send(404, b"not found", "text/plain")
             return
@@ -326,6 +372,20 @@ class Handler(BaseHTTPRequestHandler):
             return
         if not isinstance(payload, dict):
             self._json({"error": "expected JSON object"}, code=400)
+            return
+        if is_context:
+            from .. import ide
+            if not ide.save_context(payload):
+                self._json({"error": "invalid editor context"}, code=400)
+                return
+            self._json({"ok": True})
+            return
+        if checkpoint_match:
+            from .. import ide
+            workspace = Path(str(payload.get("workspace") or Path.cwd())).expanduser().resolve()
+            ok, message = _checkpoint_manager().restore(
+                workspace, checkpoint_match.group(1))
+            self._json({"ok": ok, "message": message}, code=200 if ok else 409)
             return
         aid = payload.get("id")
         action = payload.get("action")
@@ -389,7 +449,11 @@ def run(port: Optional[int] = None, *, open_browser: bool = True) -> int:
     cfg = config.load_config()
     port = port or int(cfg.get("web_port", 8787))
     httpd = HTTPServer(("127.0.0.1", port), Handler)
-    url = f"http://127.0.0.1:{port}"
+    actual_port = int(httpd.server_address[1])
+    session_path = config.birkin_home() / "web_session.json"
+    session_path.parent.mkdir(parents=True, exist_ok=True)
+    store._write_json(session_path, {"port": actual_port, "token": _TOKEN})
+    url = f"http://127.0.0.1:{actual_port}"
     bootstrap_url = f"{url}/_bootstrap/{_TOKEN}"
     print(f"birkin dashboard running at {bootstrap_url}  (Ctrl-C to stop)")
     if open_browser:

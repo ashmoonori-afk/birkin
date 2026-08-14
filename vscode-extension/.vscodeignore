@@ -1,0 +1,9 @@
+src/**
+test/**
+node_modules/**
+.test-dist/**
+.vscode-test/**
+tsconfig.json
+vitest.config.ts
+esbuild.mjs
+*.tsbuildinfo

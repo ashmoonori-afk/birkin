@@ -1,0 +1,139 @@
+{
+  "name": "birkin-vscode",
+  "displayName": "Birkin",
+  "description": "Official local-first Birkin agent integration for VS Code",
+  "version": "0.1.0",
+  "publisher": "birkin",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/ashmoonori-afk/birkin.git",
+    "directory": "vscode-extension"
+  },
+  "icon": "media/birkin.png",
+  "engines": {
+    "vscode": "^1.96.0"
+  },
+  "categories": [
+    "Machine Learning",
+    "Other"
+  ],
+  "keywords": [
+    "birkin",
+    "agent",
+    "local-first",
+    "approval"
+  ],
+  "main": "./dist/extension.js",
+  "activationEvents": [
+    "onStartupFinished"
+  ],
+  "extensionKind": [
+    "workspace"
+  ],
+  "contributes": {
+    "commands": [
+      {
+        "command": "birkin.ask",
+        "title": "Birkin: Ask with Editor Context",
+        "icon": "$(sparkle)"
+      },
+      {
+        "command": "birkin.reviewPlan",
+        "title": "Birkin: Review Plan Before Execution",
+        "icon": "$(checklist)"
+      },
+      {
+        "command": "birkin.reviewApprovals",
+        "title": "Birkin: Review Proposed Changes",
+        "icon": "$(diff)"
+      },
+      {
+        "command": "birkin.rollback",
+        "title": "Birkin: Roll Back Applied Changes",
+        "icon": "$(discard)"
+      },
+      {
+        "command": "birkin.refreshStatus",
+        "title": "Birkin: Refresh Status"
+      }
+    ],
+    "menus": {
+      "commandPalette": [
+        {
+          "command": "birkin.ask"
+        },
+        {
+          "command": "birkin.reviewPlan"
+        },
+        {
+          "command": "birkin.reviewApprovals"
+        },
+        {
+          "command": "birkin.rollback"
+        }
+      ],
+      "editor/context": [
+        {
+          "command": "birkin.ask",
+          "group": "birkin@1",
+          "when": "editorTextFocus"
+        },
+        {
+          "command": "birkin.reviewPlan",
+          "group": "birkin@2",
+          "when": "editorTextFocus"
+        }
+      ]
+    },
+    "configuration": {
+      "title": "Birkin",
+      "properties": {
+        "birkin.gatewayUrl": {
+          "type": "string",
+          "default": "http://127.0.0.1:8788/message",
+          "description": "Birkin gateway POST /message endpoint."
+        },
+        "birkin.gatewayToken": {
+          "type": "string",
+          "default": "",
+          "markdownDescription": "Optional `BIRKIN_HTTP_TOKEN` used by the gateway."
+        },
+        "birkin.dashboardUrl": {
+          "type": "string",
+          "default": "",
+          "description": "Dashboard URL override. Empty discovers ~/.birkin/web_session.json."
+        },
+        "birkin.dashboardToken": {
+          "type": "string",
+          "default": "",
+          "description": "Dashboard capability override. Empty discovers the local session file."
+        },
+        "birkin.statusRefreshSeconds": {
+          "type": "number",
+          "default": 5,
+          "minimum": 2,
+          "maximum": 60,
+          "description": "Live status refresh interval."
+        }
+      }
+    }
+  },
+  "scripts": {
+    "compile": "tsc -p tsconfig.json --noEmit && node esbuild.mjs",
+    "watch": "node esbuild.mjs --watch",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:e2e": "npm run compile && node test/runTest.cjs",
+    "package": "npm run compile && vsce package --no-dependencies"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.0",
+    "@types/vscode": "^1.96.0",
+    "@vscode/test-electron": "^2.4.1",
+    "@vscode/vsce": "^3.2.1",
+    "esbuild": "^0.25.0",
+    "typescript": "^5.7.2",
+    "vitest": "^3.0.5"
+  }
+}
