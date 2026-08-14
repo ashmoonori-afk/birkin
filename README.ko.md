@@ -436,62 +436,65 @@ input, 작업 디렉터리, gate, digest에 묶이며, 승인은 권한 상승 �
 설정은 `~/.birkin/config.json` 또는 `BIRKIN_HOME` 아래에 있습니다. 다음은
 `birkin/config.py`의 실제 기본값을 사용한 대표 설정입니다.
 
+<!-- config-schema:start -->
 ```json
 {
   "provider": "codex-cli",
   "model": "default",
   "subagent_model": "default",
+  "base_url": "",
+  "cli_command": [],
   "api_key": null,
-  "api_keys": [],
   "max_tokens": 4096,
   "temperature": 1.0,
   "max_turns": 24,
-  "cli_network_access": false,
-  "egress": {
-    "enabled": true,
-    "enforced": true,
-    "max_bytes": 1048576,
-    "destinations": {
-      "trusted-api": {
-        "url": "https://api.example.com/submissions",
-        "method": "POST",
-        "automatic": true,
-        "content_types": ["application/json"],
-        "max_bytes": 1048576,
-        "auth_env": "EXAMPLE_SUBMIT_TOKEN"
-      }
-    }
-  },
-  "context_window": 200000,
   "auto_compact": true,
+  "context_window": 200000,
   "fallback_provider": "",
   "fallback_model": "",
+  "fallback_base_url": "",
   "fallback_cooldown": 300,
-  "parallel_tools": true,
-  "max_depth": 2,
-  "shell_approval": "manual",
-  "command_allowlist": [],
-  "fs_jail": false,
-  "checkpoints": true,
-  "checkpoint_keep": 20,
-  "redact_secrets": true,
+  "api_keys": [],
+  "a2a_enabled": false,
+  "lsp_servers": {},
   "spill_threshold": 30000,
+  "spill_dir": "",
+  "spill_retention_days": 7,
+  "redact_secrets": true,
+  "repl_typed_line": "steer",
+  "moirai_auto": false,
+  "moirai_workers": 4,
+  "moirai_max_agents": 100,
+  "moirai_roles": {},
+  "moirai_token_budget": 0,
+  "marginalia_api_key": "",
+  "parallel_tools": true,
+  "parallel_tool_workers": 8,
+  "shell_approval": "manual",
+  "checkpoints": true,
+  "hooks": {},
+  "hooks_auto_accept": false,
+  "skills_guard_agent_created": false,
+  "checkpoint_keep": 20,
+  "command_allowlist": [],
+  "approval_model": "",
+  "max_depth": 2,
+  "extra_skill_dirs": [],
   "disabled_tools": [],
   "desktop_tools": false,
   "self_improve": true,
-  "a2a_enabled": false,
-  "lsp_servers": {},
-  "harness_enabled": true,
-  "harness_turn_interval": 12,
-  "harness_cooldown_min": 15,
-  "harness_compact_review": true,
-  "harness_max_edits": 12,
-  "harness_prompt_budget": 20000,
-  "harness_auto_approve": ["memory", "skill"],
+  "skill_nudge_interval": 3,
+  "memory_nudge_interval": 6,
   "web_port": 8787,
   "gateway_port": 8788,
-  "budget_tokens_daily": 0,
-  "budget_tokens_monthly": 0,
+  "gateway_model": "",
+  "gateway_reasoning_effort": "",
+  "gateway_persistent": true,
+  "gateway_allowed_tools": [],
+  "repl_warm_session": false,
+  "gateway_clean_hooks": true,
+  "gateway_thinking_tokens": 0,
+  "gateway_prewarm": true,
   "voice": {
     "wake_phrase": "Daddy is home",
     "gateway_url": "",
@@ -505,20 +508,80 @@ input, 작업 디렉터리, gate, digest에 묶이며, 승인은 권한 상승 �
     "onboarding_complete": false,
     "background_workers": 2
   },
-
+  "autosave_transcripts": false,
+  "autosave_redact_secrets": true,
+  "autosave_max_chars": 4000,
+  "autosave_max_turns": 40,
+  "autosave_retention_days": 30,
+  "autosave_max_files": 500,
+  "neurosis_threshold": null,
+  "neurosis_auto": true,
   "channels": {
-    "http": {"enabled": true},
+    "http": {
+      "enabled": true
+    },
     "telegram": {
       "enabled": false,
       "token": "",
       "allowed_chat_ids": [],
       "stream": true
     },
-    "slack": {"enabled": false, "webhook_url": ""},
-    "discord": {"enabled": false, "webhook_url": ""}
-  }
+    "slack": {
+      "enabled": false,
+      "webhook_url": ""
+    },
+    "discord": {
+      "enabled": false,
+      "webhook_url": ""
+    }
+  },
+  "vault_path": "",
+  "morpheus_deliver_chat_id": "",
+  "workspace_roots": [],
+  "reaper_enabled": true,
+  "morpheus_provider": "",
+  "morpheus_model": "",
+  "morpheus_hour": 7,
+  "morpheus_minute": 0,
+  "auto_approve": [
+    "memory",
+    "skill"
+  ],
+  "harness_enabled": true,
+  "harness_turn_interval": 12,
+  "harness_cooldown_min": 15,
+  "harness_compact_review": true,
+  "harness_max_edits": 12,
+  "harness_prompt_budget": 20000,
+  "harness_auto_approve": [
+    "memory",
+    "skill_note"
+  ],
+  "cli_access": "workspace",
+  "cli_network_access": false,
+  "egress": {
+    "enabled": true,
+    "enforced": true,
+    "max_bytes": 1048576,
+    "destinations": {}
+  },
+  "allow_unattended_full": false,
+  "budget_tokens_daily": 0,
+  "budget_tokens_monthly": 0,
+  "subagent_tree_max_tokens": 0,
+  "subagent_tree_max_usd": 0.0,
+  "subagent_tree_deadline_seconds": 0,
+  "subagent_tree_max_concurrent": 4,
+  "subagent_tree_max_nodes": 16,
+  "cli_timeout": 300,
+  "evidence_required": false,
+  "critique_agents": 3,
+  "boulder_max_iters": 100,
+  "fs_jail": false,
+  "update_verify_signature": false
 }
 ```
+<!-- config-schema:end -->
 
 중요한 경계:
 
@@ -614,6 +677,21 @@ birkin curate-memory
   설명, 추천 metadata가 있습니다. 첫 유효 응답 하나만 원자적으로 확정되며,
   늦거나 잘못되었거나 만료된 답은 `reply_rejected`를 반환합니다.
 
+Moirai workflow는 최상위 `m.request_answers(step_id=...)` checkpoint에서
+중단할 수 있습니다. 이 대기는 action을 원본 run, `main` worker, 명시적 step,
+정확한 question digest, 인증된 actor/capability 종류, 만료 시각, 무작위 resume
+token, input schema version, 이전 상태 digest에 묶습니다. Birkin은 재개를
+시작하기 전에 accepted-answer event 하나를 먼저 commit하고 다시 고쳐 쓰지
+않습니다. 이 기록은 구조상 삽입 전용일 뿐 암호학적 위변조 증거는 아닙니다.
+journal 파일에 쓸 수 있는 주체는 이미 신뢰 경계 안입니다.
+
+재개는 child run에서 수행되는 정확한 **논리적 checkpoint replay**입니다.
+Birkin은 script와 이전 상태 digest를 검증하고 저장된 args와 binding을 복원하며,
+내구적으로 기록된 agent-call prefix를 재생한 뒤 versioned answer를 해당 step에만
+주입합니다. 임의의 Python stack을 복원하거나 checkpoint 이전의 journal 밖 side
+effect를 exactly-once로 보장하지는 않습니다. 따라서 input checkpoint는 최상위
+`main` worker에서만 허용되며, 익명 parallel thunk에서 호출하면 fail closed합니다.
+
 WebUI 승인 inbox는 구조화 action을 접근 가능한 control로 표시합니다. 제출에
 성공하면 card가 그 자리에서 해결 완료·비활성 상태로 바뀝니다. 브라우저가 아닌
 channel도 같은 계약을 번호형 text로 표시할 수 있습니다.
@@ -640,6 +718,19 @@ WebUI dashboard는 같은 Python 소유 상태 계약을 `/api/contract`에서 �
 기록된 progress trail을 재생하고, 진행 중인 tool 활동을 그대로 흘려보내며, run이
 끝나면 결과를 출력합니다. Ctrl-C는 run을 멈추지 않고 detach만 합니다. detach된 run은
 현재 프로세스 안에서 살기 때문에 프로세스가 끝나면 함께 끝납니다.
+
+session-local harness 상태는 `sessions/<session-id>/harness`에 저장되며
+global edit는 항상 명시적인 사람 승인을 기다립니다. native, CLI, warm CLI는
+동일한 revisioned global + 현재 session local snapshot을 받습니다.
+`skill_note` entry는 metadata이며 실행 가능한 `SKILL.md`가 아닙니다.
+`birkin harness show --scope local --session-id <session-id>`로 한 session을
+확인할 수 있습니다.
+
+각 root session은 공유 child-tree budget을 소유합니다. token/USD reservation,
+wall-clock deadline, 동시 child 수, 전체 node 수는
+`subagent_tree_max_tokens`, `subagent_tree_max_usd`,
+`subagent_tree_deadline_seconds`, `subagent_tree_max_concurrent`,
+`subagent_tree_max_nodes`로 설정하며 child 실행 전에 admission을 예약합니다.
 
 `/goal set <objective> [--gate "command"]`로 active goal 하나를 저장합니다.
 `/goal show`, `/goal pause`, `/goal done`으로 상태를 관리하며, objective는 세션이
