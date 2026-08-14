@@ -49,18 +49,37 @@ def test_feature_extras_are_split_and_full_is_their_union() -> None:
     expected = {
         "voice": {"openai[realtime,voice_helpers]>=2.53,<3"},
         "desktop": {
-            "Pillow>=11",
+            "Pillow>=11,<13",
             "pyobjc-framework-Quartz>=12.0; sys_platform == 'darwin'",
             "pywinctl>=0.4.1; sys_platform == 'linux'",
             "pywin32>=308; sys_platform == 'win32'",
         },
-        "office": {"openpyxl>=3.1,<4"},
+        "office": {
+            "jsonschema>=4.23,<5", "rfc8785>=0.1.4,<1",
+            "defusedxml>=0.7,<1", "lxml>=5.3,<7",
+            "openpyxl>=3.1.5,<4", "python-docx>=1.2,<2",
+            "python-pptx>=1.0.2,<2",
+        },
+        "office-advanced": {
+            "Pillow>=11,<13", "pypdf>=5.9,<7", "pypdfium2>=4.30,<5",
+        },
         "browser": {"playwright>=1.54,<2"},
+        "research": {"jsonschema>=4.23,<5", "rfc8785>=0.1.4,<1"},
+        "work": {"jsonschema>=4.23,<5", "rfc8785>=0.1.4,<1"},
     }
     for name, packages in expected.items():
         assert set(extras[name]) == packages
     assert set(extras["full"]) == set().union(*expected.values())
-    # Browser automation is intentionally absent from CI/dev installs; the
-    # integration marker opts in only after Playwright Chromium is installed.
-    assert set(extras["full"]) - expected["browser"] < set(extras["dev"])
+    # New P3 distributions and browser automation stay absent from core CI.
+    pre_p3_dev = expected["voice"] | expected["desktop"] | {"openpyxl>=3.1.5,<4"}
+    assert set(extras["dev"]) >= pre_p3_dev
     assert expected["browser"].isdisjoint(extras["dev"])
+
+
+def test_p3_extras_are_optional_and_core_ci_installs_no_new_p3_distributions() -> None:
+    extras = _project()["optional_dependencies"]
+    assert _project()["dependencies"] == []
+    assert {"office", "office-advanced", "office-docling", "research", "work"} <= extras.keys()
+    forbidden = {"jsonschema", "rfc8785", "defusedxml", "lxml", "python-docx", "python-pptx", "pypdf", "pypdfium2", "docling"}
+    assert not any(req.split("[",1)[0].split(">",1)[0] in forbidden for req in extras["dev"])
+    assert not any(req.startswith("docling") for req in extras["full"])
