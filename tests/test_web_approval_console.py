@@ -58,10 +58,12 @@ def test_run_listing_shape_and_detail_marks_waiting_approval(srv):
     assert status == 200
     listed = payload["runs"][0]
     assert set(listed) >= {
-        "id", "task", "status", "started_at", "last_heartbeat",
-        "heartbeat_age", "parent_id", "pending_approvals",
+        "id", "task", "status", "ui_state", "terminal", "started_at",
+        "last_heartbeat", "heartbeat_age", "parent_id", "pending_approvals",
     }
     assert listed["status"] == "waiting-approval"
+    assert listed["ui_state"] == "waiting_human"
+    assert listed["terminal"] is False
     assert listed["pending_approvals"] == 1
 
     status, detail = request(srv, "GET", f"/api/agent-runs/{run['id']}")

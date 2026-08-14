@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from .. import agentruns, approvals, store
+from .. import agentruns, approvals, store, uistate
 
 
 _TERMINAL = {"done", "error", "stale"}
@@ -49,12 +49,25 @@ def _status(run: dict[str, Any], pending: int) -> str:
     return "running"
 
 
+def _ui_state(run: dict[str, Any], pending: int) -> str:
+    if run.get("status") in _TERMINAL:
+        return uistate.from_agent_run(str(run.get("status"))).state
+    if pending:
+        return uistate.from_approval({"status": "pending"}).state
+    if run.get("control_state") == "blocked" or run.get("stalled"):
+        return uistate.from_goal("paused").state
+    return uistate.from_agent_run(str(run.get("status"))).state
+
+
 def _summary(run: dict[str, Any], pending: int) -> dict[str, Any]:
+    status = _status(run, pending)
     return {
         "id": run["id"],
         "parent_id": run.get("parent_id"),
         "task": run.get("task", ""),
-        "status": _status(run, pending),
+        "status": status,
+        "ui_state": _ui_state(run, pending),
+        "terminal": status == "done",
         "runtime_status": run.get("status"),
         "started_at": run.get("started_at", ""),
         "last_heartbeat": run.get("last_heartbeat", ""),

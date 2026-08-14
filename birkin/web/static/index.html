@@ -338,15 +338,16 @@ function renderAgentRuns() {
     list.innerHTML = '<li class="empty">No background runs.</li>';
     return;
   }
-  const glyphs = {"running":"▸", "blocked":"∥", "waiting-approval":"◆", "done":"✓"};
   for (const run of agentRunItems) {
+    const state = encOf(run.ui_state);
     const li = document.createElement("li");
     const button = document.createElement("button");
     button.dataset.runId = run.id;
     button.setAttribute("aria-current", String(run.id === selectedRunId));
-    button.innerHTML = '<span class="glyph">' + esc(glyphs[run.status] || "?") +
+    button.innerHTML = '<span class="glyph" style="color:var(--' +
+      state.color_role.replace(/_/g, "-") + ')">' + esc(state.glyph) +
       '</span><span class="t">' + esc(run.task || run.id) + '</span><span class="s">' +
-      esc(run.status) + '</span>';
+      esc(state.label) + '</span>';
     button.addEventListener("click", async () => {
       selectedRunId = run.id; selectedId = null; selectedCheckpoint = null;
       renderAgentRuns(); renderQueue(); renderCheckpoints(); await renderRunBench(run.id);
@@ -363,14 +364,15 @@ async function renderRunBench(runId) {
   const events = (run.events || []).map((event) => '<li><span class="checkpoint-meta">' +
     esc(event.at || "") + '</span><br>' + esc(event.text || "") + '</li>').join("");
   const approvalsText = (run.approvals || []).map((item) => item.title || item.category).join(", ");
+  const state = encOf(run.ui_state);
   bench.innerHTML = '<div class="card"><h2>' + esc(run.task) + '</h2><dl class="meta">' +
-    '<dt>Status</dt><dd>' + esc(run.status) + '</dd><dt>Run ID</dt><dd>' + esc(run.id) +
+    '<dt>Status</dt><dd>' + esc(state.label) + '</dd><dt>Run ID</dt><dd>' + esc(run.id) +
     '</dd><dt>Started</dt><dd>' + esc(run.started_at) + '</dd><dt>Pending approvals</dt><dd>' +
     esc(approvalsText || "none") + '</dd></dl><h3>Progress</h3><ul class="run-events">' +
     (events || '<li class="empty">No progress events yet.</li>') + '</ul>' +
-    (run.status !== "done" ? '<div class="actions"><input class="steer-input" id="steer-text" ' +
+    (!run.terminal ? '<div class="actions"><input class="steer-input" id="steer-text" ' +
       'aria-label="Steering instruction" placeholder="Steer this run…"><button id="run-steer">Steer</button>' +
-      (run.status === "blocked" ? '<button class="ok" id="run-resume">Resume</button>' :
+      (state.attention === 6 ? '<button class="ok" id="run-resume">Resume</button>' :
        '<button class="no" id="run-abort">Abort</button>') + '</div>' : '') +
     '<div id="announce" role="status" aria-live="polite"></div></div>';
   if ($("run-steer")) $("run-steer").addEventListener("click", () => controlRun(runId, "steer", $("steer-text").value));
