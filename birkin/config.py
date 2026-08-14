@@ -333,6 +333,17 @@ DEFAULT_CONFIG: dict[str, Any] = {
     # when true, confine them to the workspace + ~/.birkin and reject absolute /
     # ".." escapes. Default False to preserve behavior. See tools/files.py.
     "fs_jail": False,
+    # Isolated job defaults. A repository may check in .birkin/sandbox.json
+    # with this same shape to pin its backend, image, setup, and policy.
+    "sandbox": {
+        "backend": "worktree",
+        "image": "",
+        "setup": [],
+        "env_allowlist": [],
+        "network": "off",
+        "network_allowlist": [],
+        "write_paths": ["."],
+    },
     # Opt-in supply-chain guard: verify the upstream commit signature before
     # `update` fast-forwards. Default False (requires a signed-commit upstream).
     "update_verify_signature": False,

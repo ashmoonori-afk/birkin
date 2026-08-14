@@ -13,7 +13,7 @@ A dependency-light Python agent whose memory, execution, and self-improvement st
 [![VS Code](https://img.shields.io/badge/VS_Code-official_extension-007ACC?logo=visualstudiocode&logoColor=white)](./vscode-extension)
 [![License: MIT](https://img.shields.io/badge/license-MIT-green.svg)](./LICENSE)
 
-[Why](#why-birkin) · [Quick Start](#quick-start) · [GitHub Action](#github-action) · [VS Code](#vs-code-extension) · [Compare](#surface-comparison) · [Architecture](#architecture) · [Commands](#commands) · [한국어](./README.ko.md)
+[Why](#why-birkin) · [Quick Start](#quick-start) · [GitHub Action](#github-action) · [Sandbox](#isolated-execution) · [VS Code](#vs-code-extension) · [Compare](#surface-comparison) · [Architecture](#architecture) · [Commands](#commands) · [한국어](./README.ko.md)
 
 </div>
 
@@ -104,6 +104,30 @@ A trusted maintainer comments `/birkin <task>` on an issue or PR. Birkin edits a
 
 > [!CAUTION]
 > The workflow intentionally uses `issue_comment`, not a secret-bearing fork checkout. It gates runs to `OWNER`, `MEMBER`, or `COLLABORATOR`, checks out only the trusted default branch, and declares read-only workflow permissions plus the three write scopes required by the job. Credentials are accepted only through the documented `github-token`, `anthropic-api-key`, and `openai-api-key` inputs. The driver removes them from agent tools and test subprocess environments before processing task or diff content. Never replace this with a secret-bearing untrusted-code checkout.
+
+## Isolated execution
+
+Birkin can run a declared repository job in either a disposable **git worktree** or a **Docker container**. Both backends consume the same immutable `SandboxPolicy`, and the GitHub Action worker calls the same evaluator as local execution rather than maintaining a second remote policy.
+
+Check in `.birkin/sandbox.json` to make setup reproducible:
+
+```jsonc
+{
+  "backend": "docker",
+  "image": "python:3.12.4-slim@sha256:<digest>",
+  "setup": ["python -m pip install -e ."],
+  "env_allowlist": ["PIP_INDEX_URL"],
+  "network": "allowlist",
+  "network_allowlist": ["pypi.org"],
+  "write_paths": ["birkin", "tests"]
+}
+```
+
+- **Network:** `off` rejects every declared destination and Docker adds `--network=none`; `allowlist` rejects destinations not named by the repository.
+- **Secrets:** the child receives only variables named by `env_allowlist`; inherited credentials and every other host variable are stripped.
+- **Writes:** Docker mounts the repository read-only and overlays only configured paths as writable. Worktree jobs run on a detached disposable checkout, validate actual changes against the same scopes, and remove the checkout even after failure.
+
+Policy or configuration violations raise typed errors and fail before delivery. Setup commands run in declaration order on every job. Keep Docker images digest-pinned and writable paths present in the repository. The worktree backend provides disposable repository/write isolation, not a network namespace; use Docker when kernel-enforced network isolation is required.
 
 ## VS Code extension
 
@@ -383,6 +407,17 @@ Run `birkin --help` or `birkin <command> --help` for the complete interface.
   "critique_agents": 3,
   "boulder_max_iters": 100,
   "fs_jail": false,
+  "sandbox": {
+    "backend": "worktree",
+    "image": "",
+    "setup": [],
+    "env_allowlist": [],
+    "network": "off",
+    "network_allowlist": [],
+    "write_paths": [
+      "."
+    ]
+  },
   "update_verify_signature": false
 }
 ```

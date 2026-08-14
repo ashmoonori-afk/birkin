@@ -13,7 +13,7 @@
 [![VS Code](https://img.shields.io/badge/VS_Code-official_extension-007ACC?logo=visualstudiocode&logoColor=white)](./vscode-extension)
 [![License: MIT](https://img.shields.io/badge/license-MIT-green.svg)](./LICENSE)
 
-[존재 이유](#왜-birkin인가) · [빠른 시작](#빠른-시작) · [GitHub Action](#github-action) · [VS Code](#vs-code-extension) · [비교](#표면-비교) · [아키텍처](#아키텍처) · [명령어](#명령어) · [English](./README.md)
+[존재 이유](#왜-birkin인가) · [빠른 시작](#빠른-시작) · [GitHub Action](#github-action) · [Sandbox](#격리-실행) · [VS Code](#vs-code-extension) · [비교](#표면-비교) · [아키텍처](#아키텍처) · [명령어](#명령어) · [English](./README.md)
 
 </div>
 
@@ -104,6 +104,30 @@ jobs:
 
 > [!CAUTION]
 > 이 workflow는 secret을 가진 fork checkout 대신 `issue_comment`를 사용합니다. 실행 주체를 `OWNER`, `MEMBER`, `COLLABORATOR`로 제한하고, 신뢰된 default branch만 checkout하며, workflow 전체는 read-only이고 job에는 필요한 세 write scope만 선언합니다. Credential은 문서화된 `github-token`, `anthropic-api-key`, `openai-api-key` input으로만 받습니다. Driver는 task나 diff를 처리하기 전에 agent tool과 test subprocess 환경에서 이 값을 제거합니다. Secret을 가진 채 신뢰되지 않은 코드를 checkout하는 형태로 바꾸지 마십시오.
+
+## 격리 실행
+
+Birkin은 선언된 repository job을 일회용 **git worktree** 또는 **Docker container**에서 실행할 수 있습니다. 두 backend 모두 동일한 불변 `SandboxPolicy`를 사용하며, GitHub Action worker도 별도의 remote policy 대신 local 실행과 같은 evaluator를 호출합니다.
+
+재현 가능한 setup을 위해 `.birkin/sandbox.json`을 commit합니다.
+
+```jsonc
+{
+  "backend": "docker",
+  "image": "python:3.12.4-slim@sha256:<digest>",
+  "setup": ["python -m pip install -e ."],
+  "env_allowlist": ["PIP_INDEX_URL"],
+  "network": "allowlist",
+  "network_allowlist": ["pypi.org"],
+  "write_paths": ["birkin", "tests"]
+}
+```
+
+- **Network:** `off`는 모든 선언 destination을 거부하고 Docker에 `--network=none`을 추가합니다. `allowlist`는 repository에 명시되지 않은 destination을 거부합니다.
+- **Secret:** child는 `env_allowlist`에 이름이 있는 변수만 받습니다. 상속 credential과 그 밖의 host 변수는 모두 제거됩니다.
+- **Write:** Docker는 repository를 read-only로 mount하고 설정된 path만 writable overlay로 추가합니다. Worktree job은 분리된 일회용 checkout에서 실행되고 실제 변경을 같은 scope로 검증하며 실패 후에도 checkout을 삭제합니다.
+
+Policy 또는 config 위반은 typed error로 delivery 전에 실패합니다. Setup command는 매 job마다 선언 순서대로 실행됩니다. Docker image는 digest로 고정하고 writable path는 repository에 미리 만들어 두십시오. Worktree backend는 일회용 repository/write 격리를 제공하지만 network namespace는 제공하지 않으므로 kernel 수준 network 격리가 필요하면 Docker를 사용하십시오.
 
 ## VS Code extension
 
@@ -383,6 +407,17 @@ tests/              offline unit, integration, end-to-end coverage
   "critique_agents": 3,
   "boulder_max_iters": 100,
   "fs_jail": false,
+  "sandbox": {
+    "backend": "worktree",
+    "image": "",
+    "setup": [],
+    "env_allowlist": [],
+    "network": "off",
+    "network_allowlist": [],
+    "write_paths": [
+      "."
+    ]
+  },
   "update_verify_signature": false
 }
 ```
