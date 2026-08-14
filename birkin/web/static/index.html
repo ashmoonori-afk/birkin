@@ -130,6 +130,14 @@ details.payload pre {
 .lens .k { color: var(--text-muted); }
 .empty { color: var(--text-muted); padding: 1rem 0; }
 .queue-notice { padding: .7rem .9rem; color: var(--warning); }
+.checkpoints { border-top: 1px solid var(--selection); }
+.checkpoints summary { color: var(--accent); }
+.checkpoint-meta { color: var(--text-muted); font-size: .78rem; }
+.diff-preview { max-height: 24rem; overflow: auto; white-space: pre-wrap;
+  background: var(--surface); padding: .7rem; border-radius: 6px; }
+.restore-mode, .fork-command { padding: .45rem; color: var(--text-primary);
+  background: var(--surface); border: 1px solid var(--selection); border-radius: 6px; }
+.fork-command { width: min(100%, 32rem); }
 
 @media (prefers-reduced-motion: no-preference) {
   .queue button, .actions button { transition: background .15s ease, border-color .15s ease; }
@@ -159,6 +167,10 @@ details.payload pre {
         <p class="queue-notice" id="queue-notice" role="status" hidden></p>
         <ul class="queue" id="queue"></ul>
       </details>
+      <details class="checkpoints" open>
+        <summary id="checkpoint-summary">Checkpoints</summary>
+        <ul class="queue" id="checkpoint-list"></ul>
+      </details>
     </nav>
     <main class="bench" id="bench" aria-label="작업면" tabindex="-1">
       <p class="empty">항목을 선택하면 상세가 표시됩니다.</p>
@@ -185,6 +197,10 @@ let items = [];                 // attention queue
 let selectedId = null;
 let busy = false;
 let queueNotice = "";
+let checkpointItems = [];
+let toolTimeline = [];
+let checkpointLineage = [];
+let selectedCheckpoint = null;
 
 const $ = (id) => document.getElementById(id);
 
@@ -287,14 +303,88 @@ function renderQueue() {
       e.color_role.replace(/_/g, "-") + ')">' + esc(e.glyph) + "</span>" +
       '<span class="t">' + esc(it.title) + "</span>" +
       '<span class="s">' + esc(e.label) + "</span>";
-    b.addEventListener("click", () => { selectedId = it.id; renderQueue(); renderBench(); });
+    b.addEventListener("click", () => { selectedCheckpoint = null; selectedId = it.id; renderQueue(); renderCheckpoints(); renderBench(); });
     li.appendChild(b);
     list.appendChild(li);
   }
 }
 
+function renderCheckpoints() {
+  const list = $("checkpoint-list");
+  list.innerHTML = "";
+  $("checkpoint-summary").textContent = "Checkpoints — " + checkpointItems.length;
+  if (!checkpointItems.length) {
+    list.innerHTML = '<li class="empty">아직 checkpoint가 없습니다.</li>';
+    return;
+  }
+  for (const cp of checkpointItems) {
+    const li = document.createElement("li");
+    const button = document.createElement("button");
+    button.dataset.checkpoint = cp.hash;
+    button.setAttribute("aria-current", String(cp.hash === selectedCheckpoint));
+    const events = toolTimeline.filter((event) => event.before === cp.hash || event.after === cp.hash);
+    button.innerHTML = '<span class="glyph">◆</span><span class="t">' +
+      esc(events[0]?.tool || cp.reason) + '<br><span class="checkpoint-meta">' +
+      esc(cp.short) + " · " + esc(cp.date) + '</span></span>';
+    button.addEventListener("click", () => {
+      selectedCheckpoint = cp.hash; selectedId = null; renderCheckpoints(); renderCheckpointBench(cp);
+    });
+    li.appendChild(button); list.appendChild(li);
+  }
+}
+
+async function renderCheckpointBench(cp) {
+  const bench = $("bench");
+  const events = toolTimeline.filter((event) => event.before === cp.hash || event.after === cp.hash);
+  const forks = checkpointLineage.filter((entry) => entry.checkpoint === cp.hash);
+  bench.innerHTML = '<div class="card"><h2>◆ Checkpoint ' + esc(cp.short) + '</h2>' +
+    '<dl class="meta"><dt>Reason</dt><dd>' + esc(cp.reason) + '</dd>' +
+    '<dt>Tool timeline</dt><dd>' + esc(events.map((e) => e.tool + " · " + e.status + " · " + (e.touched || []).join(", ")).join(" | ") || "snapshot") + '</dd>' +
+    '<dt>Alternate lineage</dt><dd>' + esc(forks.length ? forks.map((f) => f.status).join(", ") : "none") + '</dd></dl>' +
+    '<div class="actions"><button id="checkpoint-diff">Preview diff</button>' +
+    '<select class="restore-mode" id="restore-mode" aria-label="Restore mode">' +
+    '<option value="files">Files only</option><option value="task">Task state only</option>' +
+    '<option value="both">Files and task state</option></select>' +
+    '<button class="no" id="checkpoint-restore">Request restore</button></div>' +
+    '<div class="actions"><input class="fork-command" id="fork-command" aria-label="Alternate command" ' +
+    'value=\'["python","-c","print(42)"]\' />' +
+    '<button id="checkpoint-fork">Run alternate branch</button></div>' +
+    '<pre class="diff-preview" id="checkpoint-output" hidden></pre>' +
+    '<div id="announce" role="status" aria-live="polite"></div></div>';
+  $("checkpoint-diff").addEventListener("click", async () => {
+    const preview = await getJSON("/api/checkpoints/" + cp.hash + "/diff");
+    const output = $("checkpoint-output"); output.hidden = false;
+    output.textContent = preview.patch || "No differences from current files.";
+  });
+  $("checkpoint-restore").addEventListener("click", async () => {
+    const mode = $("restore-mode").value;
+    if (!window.confirm("Queue " + mode + " restore for explicit approval?")) return;
+    const response = await fetch("/api/checkpoints/" + cp.hash + "/restore", {
+      method: "POST", headers: {"Content-Type": "application/json"}, body: JSON.stringify({mode})});
+    const out = await response.json();
+    if (!response.ok) { $("announce").textContent = "Restore request failed: " + (out.error || response.status); return; }
+    $("announce").innerHTML = 'Restore queued for approval. <button id="approve-restore">Approve now</button>';
+    $("approve-restore").addEventListener("click", () => requestConfirmation(out.approval_id, "approve"));
+  });
+  $("checkpoint-fork").addEventListener("click", async () => {
+    let command;
+    try { command = JSON.parse($("fork-command").value); }
+    catch (_) { $("announce").textContent = "Command must be a JSON string array."; return; }
+    $("announce").textContent = "Running isolated alternate branch…";
+    const response = await fetch("/api/checkpoints/" + cp.hash + "/fork", {
+      method: "POST", headers: {"Content-Type": "application/json"}, body: JSON.stringify({command})});
+    const out = await response.json();
+    $("announce").textContent = response.ok ? "Alternate branch complete: " + (out.stdout || "exit 0") : "Fork failed: " + (out.error || out.stderr || response.status);
+    await refreshCheckpoints();
+  });
+}
+
 function renderBench() {
   const bench = $("bench");
+  if (selectedCheckpoint) {
+    const checkpoint = checkpointItems.find((cp) => cp.hash === selectedCheckpoint);
+    if (checkpoint) { renderCheckpointBench(checkpoint); return; }
+  }
   const it = items.find((x) => x.id === selectedId) || items[0];
   if (!it) {
     bench.innerHTML = '<p class="empty">표시할 항목이 없습니다.</p>';
@@ -421,6 +511,18 @@ function renderLens(status, jobsData, runs) {
     : '<li class="empty">없음</li>';
 }
 
+async function refreshCheckpoints() {
+  try {
+    [checkpointItems, toolTimeline, checkpointLineage] = await Promise.all([
+      getJSON("/api/checkpoints"), getJSON("/api/checkpoints/timeline"),
+      getJSON("/api/checkpoints/lineage")]);
+    if (selectedCheckpoint && !checkpointItems.some((cp) => cp.hash === selectedCheckpoint)) selectedCheckpoint = null;
+    renderCheckpoints();
+  } catch (_) {
+    checkpointItems = []; toolTimeline = []; checkpointLineage = []; renderCheckpoints();
+  }
+}
+
 async function refresh() {
   try {
     const [status, jobs, runs] = await Promise.all([
@@ -448,6 +550,7 @@ async function refresh() {
     renderQueue();
     renderBench();
     renderLens(status, jobs, runs);
+    await refreshCheckpoints();
   } catch (err) {
     setDisconnected(true);
     $("p-daemon").textContent = "연결 끊김";
