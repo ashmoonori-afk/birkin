@@ -8,6 +8,7 @@ the authenticated service call rather than client JSON.
 
 from __future__ import annotations
 
+import os
 import stat
 import threading
 from collections.abc import Callable
@@ -176,7 +177,29 @@ def test_session_identifier_cannot_escape_workspace_root(
     assert not (tmp_path / "events.jsonl").exists()
 
 
-def test_workspace_journal_paths_are_owner_only(tmp_path: Path) -> None:
+def test_workspace_journal_paths_are_owner_only(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    chmod_requests: list[tuple[Path, int]] = []
+    open_requests: list[tuple[Path, int]] = []
+    original_chmod = os.chmod
+    original_open = os.open
+
+    def tracked_chmod(path: str | os.PathLike[str], mode: int) -> None:
+        chmod_requests.append((Path(path), mode))
+        original_chmod(path, mode)
+
+    def tracked_open(
+        path: str | os.PathLike[str],
+        flags: int,
+        mode: int = 0o777,
+    ) -> int:
+        open_requests.append((Path(path), mode))
+        return original_open(path, flags, mode)
+
+    monkeypatch.setattr(os, "chmod", tracked_chmod)
+    monkeypatch.setattr(os, "open", tracked_open)
     service = WorkspaceService(
         root=tmp_path,
         session_id="private",
@@ -195,8 +218,21 @@ def test_workspace_journal_paths_are_owner_only(tmp_path: Path) -> None:
         (session_root / "events.jsonl", 0o600),
         (receipt_path, 0o600),
     )
-    for path, expected_mode in paths:
-        assert stat.S_IMODE(path.stat().st_mode) == expected_mode
+    assert (tmp_path, 0o700) in chmod_requests
+    assert (session_root, 0o700) in chmod_requests
+    assert (session_root / "receipts", 0o700) in chmod_requests
+    assert (session_root / "events.jsonl", 0o600) in chmod_requests
+    assert (session_root / "events.jsonl", 0o600) in open_requests
+    assert any(
+        path.parent == session_root / "receipts"
+        and path.name.endswith(".tmp")
+        and mode == 0o600
+        for path, mode in open_requests
+    )
+
+    if os.name == "posix":
+        for path, expected_mode in paths:
+            assert stat.S_IMODE(path.stat().st_mode) == expected_mode
 
 
 def test_on_accepted_side_effect_runs_once_for_duplicate_interrupt(
