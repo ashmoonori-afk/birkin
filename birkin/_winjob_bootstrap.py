@@ -5,6 +5,7 @@ from __future__ import annotations
 import base64
 import ctypes
 import json
+import ntpath
 import subprocess
 import sys
 from ctypes import wintypes
@@ -95,6 +96,25 @@ def _fail(message: str) -> int:
     return 125
 
 
+def _run_shell(argv: list[str]) -> int:
+    if not argv:
+        return _fail("empty command argv")
+    is_cmd_shell = (
+        len(argv) == 5
+        and ntpath.basename(argv[0]).casefold() == "cmd.exe"
+        and [part.casefold() for part in argv[1:4]]
+        == ["/d", "/s", "/c"]
+    )
+    if is_cmd_shell:
+        command_line = f"{subprocess.list2cmdline(argv[:4])} {argv[4]}"
+        return subprocess.run(
+            command_line,
+            executable=argv[0],
+            check=False,
+        ).returncode
+    return subprocess.run(argv, check=False).returncode
+
+
 def main() -> int:
     if len(sys.argv) != 4:
         return _fail("invalid argument count")
@@ -119,7 +139,7 @@ def main() -> int:
     argv = _decode_argv(sys.argv[3])
     if argv is None:
         return _fail("invalid command payload")
-    return subprocess.run(argv, check=False).returncode
+    return _run_shell(argv)
 
 
 if __name__ == "__main__":
