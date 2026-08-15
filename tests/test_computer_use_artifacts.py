@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import hashlib
+import os
 import stat
 from pathlib import Path
 
@@ -42,8 +43,9 @@ def test_raw_capture_is_content_addressed_and_metadata_is_bounded(
     assert artifact.annotations == ("button", "[REDACTED_EMAIL]")
     assert artifact.raw_bytes is None
     assert store.path_for(artifact).read_bytes() == payload
-    assert stat.S_IMODE(store.path_for(artifact).stat().st_mode) == 0o600
-    assert stat.S_IMODE(tmp_path.stat().st_mode) == 0o700
+    if os.name == "posix":
+        assert stat.S_IMODE(store.path_for(artifact).stat().st_mode) == 0o600
+        assert stat.S_IMODE(tmp_path.stat().st_mode) == 0o700
 
 
 def test_capture_rejects_unisolated_or_oversized_pixels(tmp_path: Path) -> None:
