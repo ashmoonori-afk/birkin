@@ -194,6 +194,8 @@ def test_workbench_never_imports_execution_machinery():
         assert forbidden not in src, forbidden
 
 
+
+
 # -- disconnected daemon is explicit ----------------------------------------
 
 def test_daemon_down_renders_disconnected_guidance():

@@ -177,6 +177,30 @@ def test_prompt_with_completion_returns_none_on_keyboardinterrupt_in_fallback(
     assert ic.prompt_with_completion("> ", cmds) is None
 
 
+def test_prompt_restores_raw_mode_when_stdout_write_fails(
+        monkeypatch, cmds):
+    restored: list[bool] = []
+
+    class BrokenStdout:
+        def write(self, _text):
+            raise BrokenPipeError("closed")
+
+        def flush(self):
+            return None
+
+    monkeypatch.setattr(ic, "_is_interactive", lambda: True)
+    monkeypatch.setattr(
+        ic,
+        "_enter_posix_raw_mode",
+        lambda: lambda: restored.append(True),
+    )
+    monkeypatch.setattr(ic.sys, "stdout", BrokenStdout())
+
+    with pytest.raises(BrokenPipeError, match="closed"):
+        _ = ic.prompt_with_completion("> ", cmds)
+    assert restored == [True]
+
+
 # ---------------- state machine: typing + cursor ----------------------------
 
 def _run(events, commands=None, history=None) -> ic.EditorState:
