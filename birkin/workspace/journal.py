@@ -10,7 +10,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import cast, final
 
-from .. import store
+from .. import procreg, store
 from .contracts import (
     PROTOCOL_VERSION,
     CommandIdConflict,
@@ -43,16 +43,6 @@ def _secure_append(path: Path, text: str) -> None:
         _ = handle.write(text)
         handle.flush()
         os.fsync(handle.fileno())
-
-
-def _pid_alive(pid: int) -> bool:
-    try:
-        os.kill(pid, 0)
-    except ProcessLookupError:
-        return False
-    except PermissionError:
-        return True
-    return True
 
 
 @final
@@ -123,7 +113,7 @@ class WorkspaceJournal:
                 if existing.state != "accepted":
                     return existing.as_duplicate(), False
                 owner_pid = self._receipts.owner_pid(command.command_id)
-                if owner_pid is not None and _pid_alive(owner_pid):
+                if procreg.pid_alive(owner_pid):
                     return existing.as_duplicate(), False
                 events = self._read_events()
                 started = any(

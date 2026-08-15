@@ -18,7 +18,7 @@ from typing import cast
 
 import pytest
 
-from birkin.workspace import journal as workspace_journal
+from birkin import procreg
 from birkin.workspace import (
     CommandIdConflict,
     CommandReceipt,
@@ -71,7 +71,7 @@ def test_restart_recovers_accepted_unfinished_command(
     def owner_is_dead(_pid: int) -> bool:
         return False
 
-    monkeypatch.setattr(workspace_journal, "_pid_alive", owner_is_dead)
+    monkeypatch.setattr(procreg, "pid_alive", owner_is_dead)
 
     restarted = WorkspaceService(
         root=tmp_path,
@@ -133,7 +133,7 @@ def test_restart_marks_started_unfinished_command_failed(
     def owner_is_dead(_pid: int) -> bool:
         return False
 
-    monkeypatch.setattr(workspace_journal, "_pid_alive", owner_is_dead)
+    monkeypatch.setattr(procreg, "pid_alive", owner_is_dead)
 
     restarted = WorkspaceJournal(tmp_path, "started")
     failed, execute = restarted.accept(
@@ -147,6 +147,7 @@ def test_restart_marks_started_unfinished_command_failed(
 
 def test_live_authority_does_not_recover_accepted_command(
     tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     command = _command("live-authority", expected_cursor=0, text="once")
     first = WorkspaceJournal(tmp_path, "shared")
@@ -154,6 +155,14 @@ def test_live_authority_does_not_recover_accepted_command(
     assert execute is True
     assert receipt.state == "accepted"
 
+    probed: list[int] = []
+
+    def owner_is_alive(pid: int | None) -> bool:
+        if pid is not None:
+            probed.append(pid)
+        return True
+
+    monkeypatch.setattr(procreg, "pid_alive", owner_is_alive)
     concurrent = WorkspaceJournal(tmp_path, "shared")
     duplicate, execute = concurrent.accept(
         command,
@@ -162,6 +171,7 @@ def test_live_authority_does_not_recover_accepted_command(
     assert execute is False
     assert duplicate.duplicate is True
     assert duplicate.state == "accepted"
+    assert probed == [os.getpid()]
 
 
 def test_session_identifier_cannot_escape_workspace_root(
