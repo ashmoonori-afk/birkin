@@ -75,9 +75,8 @@ def mutate(
         finally:
             mouse.release(button=button, coords=end)
         return True
-    mouse.click(
-        button=button,
-        coords=start,
-        double=command.action == "double_click",
-    )
+    if command.action == "double_click":
+        mouse.double_click(button=button, coords=start)
+    else:
+        mouse.click(button=button, coords=start)
     return True

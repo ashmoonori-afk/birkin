@@ -165,6 +165,32 @@ def test_windows_horizontal_scroll_refuses_without_dispatch() -> None:
     assert error.value.code == "foreground_delivery_unsupported"
 
 
+def test_windows_double_click_uses_native_double_click_api() -> None:
+    rectangle = SimpleNamespace(left=10, top=10, right=110, bottom=110)
+    wrapper = SimpleNamespace(
+        rectangle=lambda: rectangle,
+        top_level_parent=lambda: SimpleNamespace(handle=41),
+    )
+    win32gui = SimpleNamespace(
+        WindowFromPoint=lambda _point: 41,
+        GetAncestor=lambda hwnd, _kind: hwnd,
+    )
+    dispatched: list[dict[str, object]] = []
+    mouse = SimpleNamespace(
+        double_click=lambda **kwargs: dispatched.append(kwargs),
+        click=lambda **_kwargs: pytest.fail("single click dispatched"),
+    )
+
+    assert windows_foreground.mutate(
+        mouse,
+        win32gui,
+        {"element": wrapper},
+        wrapper,
+        _command("double_click"),
+    )
+    assert dispatched == [{"button": "left", "coords": (60, 60)}]
+
+
 class _Window:
     def __init__(
         self,
