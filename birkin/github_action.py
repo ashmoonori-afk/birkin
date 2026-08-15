@@ -17,6 +17,7 @@ from contextlib import contextmanager
 from dataclasses import dataclass
 from typing import Any, Callable, Iterator, Sequence
 
+from .proc import ShellCommand, run_shell_command, shell_env
 from .sandbox import PolicyDecision, PolicyRequest, SandboxPolicy
 
 TRUSTED_ASSOCIATIONS = frozenset({"OWNER", "MEMBER", "COLLABORATOR"})
@@ -47,7 +48,7 @@ class RunResult:
     agent_output: str
 
 
-def parse_event(payload: dict) -> Request:
+def parse_event(payload: dict[str, Any]) -> Request:
     """Validate and convert an ``issue_comment`` payload into a request."""
     comment = payload.get("comment") or {}
     association = str(comment.get("author_association") or "").upper()
@@ -126,13 +127,28 @@ def _run(argv: Sequence[str], *, check: bool = True) -> subprocess.CompletedProc
     )
 
 
-def _run_test_command(command: str) -> tuple[int, str]:
+def run_test_command(command: str) -> tuple[int, str]:
     # This is a workflow-owner input, never text from the triggering comment.
-    proc = subprocess.run(
-        command, shell=True, text=True, encoding="utf-8", errors="replace",
-        stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
-    )
-    output = proc.stdout or ""
+    try:
+        proc = run_shell_command(
+            ShellCommand(
+                command=command,
+                cwd=None,
+                timeout=3600,
+                environment=shell_env(),
+                hide_window=True,
+                merge_stderr=True,
+            )
+        )
+    except subprocess.TimeoutExpired as exc:
+        stdout = exc.stdout.decode("utf-8", "replace") \
+            if isinstance(exc.stdout, bytes) else (exc.stdout or "")
+        stderr = exc.stderr.decode("utf-8", "replace") \
+            if isinstance(exc.stderr, bytes) else (exc.stderr or "")
+        output = stdout + stderr
+        print(output, end="")
+        return 124, output
+    output = (proc.stdout or "") + (proc.stderr or "")
     print(output, end="")
     return proc.returncode, output
 
@@ -144,7 +160,7 @@ def sandbox_policy_decision(
     return policy.evaluate(request)
 
 
-def _runtime_config(provider: str, model: str) -> dict:
+def _runtime_config(provider: str, model: str) -> dict[str, Any]:
     from . import config
 
     cfg = dict(config.DEFAULT_CONFIG)
@@ -257,7 +273,7 @@ def execute(request: Request, *, provider: str, model: str,
         result = run_with_retries(
             _agent_prompt(request),
             run_agent=lambda prompt: session.ask(prompt, review_skills=False),
-            run_tests=lambda: _run_test_command(test_command),
+            run_tests=lambda: run_test_command(test_command),
             max_retries=max_retries,
         )
     if result.returncode:
@@ -299,7 +315,7 @@ def _load_request(path: str) -> Request:
         return parse_event(json.load(stream))
 
 
-def _plan(request: Request) -> dict:
+def _plan(request: Request) -> dict[str, Any]:
     if request.mode == "review":
         will = ["fetch pull request diff", "run Birkin review", "post structured comment"]
     else:

@@ -28,6 +28,7 @@ from pathlib import Path
 from typing import Any, Callable
 
 from . import config, store
+from .proc import kill_process_group
 
 _atexit_armed = False
 
@@ -87,7 +88,8 @@ def _kill_pid(pid: int) -> None:
                            capture_output=True, timeout=10)
         else:
             import signal as _sig
-            os.kill(int(pid), _sig.SIGTERM)
+            if not kill_process_group(int(pid)):
+                os.kill(int(pid), _sig.SIGTERM)
     except Exception:
         pass
 
@@ -101,10 +103,26 @@ def register(child_pid: int, owner: int | None = None) -> None:
     p = _reg_path(owner)
     try:
         with store.file_lock(p):
-            data = store._read_json(p, None) or {
-                "owner": owner or os.getpid(), "children": []}
-            if child_pid not in data["children"]:
-                data["children"].append(child_pid)
+            raw = store._read_json(p, None)
+            data: dict[str, object] = (
+                raw if isinstance(raw, dict) else {
+                    "owner": owner or os.getpid(),
+                    "children": [],
+                }
+            )
+            existing = data.get("children")
+            children = (
+                [
+                    value
+                    for value in existing
+                    if isinstance(value, int) and not isinstance(value, bool)
+                ]
+                if isinstance(existing, list)
+                else []
+            )
+            if child_pid not in children:
+                children.append(child_pid)
+            data["children"] = children
             data["updated"] = datetime.now().isoformat(timespec="seconds")
             store._write_json(p, data)
     except store.FileLockTimeout:
@@ -122,12 +140,24 @@ def unregister(child_pid: int, owner: int | None = None) -> None:
     p = _reg_path(owner)
     try:
         with store.file_lock(p):
-            data = store._read_json(p, None)
-            if not data:
+            raw = store._read_json(p, None)
+            if not isinstance(raw, dict):
                 return
-            data["children"] = [c for c in data.get("children", [])
-                                if c != child_pid]
-            if data["children"]:
+            data: dict[str, object] = raw
+            existing = data.get("children")
+            children = (
+                [
+                    value
+                    for value in existing
+                    if isinstance(value, int)
+                    and not isinstance(value, bool)
+                    and value != child_pid
+                ]
+                if isinstance(existing, list)
+                else []
+            )
+            data["children"] = children
+            if children:
                 store._write_json(p, data)
             else:
                 try:

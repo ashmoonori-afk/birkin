@@ -82,6 +82,26 @@ def test_pid_alive_current_process_true(tmp_path, monkeypatch):
     assert procreg.pid_alive(-5) is False
 
 
+def test_posix_reaper_kills_registered_process_group(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    procreg = _setup(tmp_path, monkeypatch)
+    groups = []
+    pids = []
+    monkeypatch.setattr(
+        procreg,
+        "kill_process_group",
+        lambda pid: groups.append(pid) or True,
+    )
+    monkeypatch.setattr(procreg.os, "kill", lambda pid, _sig: pids.append(pid))
+
+    procreg._kill_pid(4312)
+
+    assert groups == [4312]
+    assert pids == []
+
+
 def test_codex_sandbox_forced_in_argv():
     from birkin.codex_session import CodexAppServerSession, CodexSessionError
     s = CodexAppServerSession(model="gpt-5.6-sol")   # safe defaults

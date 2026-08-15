@@ -13,9 +13,11 @@ and a cross-platform quoting hazard. Instead:
 
 from __future__ import annotations
 
+import ntpath
 import os
 import signal
 import subprocess
+import sys
 import tempfile
 from dataclasses import dataclass
 from pathlib import Path
@@ -38,12 +40,21 @@ class ShellCommand:
     cwd: Path | None
     timeout: int
     environment: dict[str, str]
+    stdin: str | None = None
+    hide_window: bool = False
+    merge_stderr: bool = False
 
 
 class ProcessHandle(Protocol):
     pid: int
 
     def kill(self) -> None: ...
+
+
+class ManagedProcessTree(Protocol):
+    def terminate(self, exit_code: int = 1) -> None: ...
+
+    def close(self) -> None: ...
 
 
 class PopenTreeKwargs(TypedDict, total=False):
@@ -82,18 +93,83 @@ def shell_argv(command: str) -> list[str]:
     command is the whole point there, so shell semantics are intentional.
     """
     if os.name == "nt":
-        return ["cmd", "/c", command]
-    return ["bash", "-lc", command]
+        system_root = os.environ.get("SystemRoot") or r"C:\Windows"
+        return windows_shell_argv(command, system_root)
+    return ["/bin/bash", "-c", command]
+
+
+def windows_shell_argv(command: str, system_root: str) -> list[str]:
+    """Build an AutoRun-free, UTF-8 argv for the Windows interpreter."""
+    system32 = ntpath.join(system_root, "System32")
+    executable = ntpath.join(system32, "cmd.exe")
+    code_page = ntpath.join(system32, "chcp.com")
+    return [
+        executable,
+        "/d",
+        "/s",
+        "/c",
+        f'@"{code_page}" 65001>nul & {command}',
+    ]
+
+
+def windows_creation_flags(hide_window: bool) -> int:
+    flags = getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0x00000200)
+    if hide_window:
+        flags |= getattr(subprocess, "CREATE_NO_WINDOW", 0x08000000)
+    return flags
+
+
+def _runtime_bin_directories() -> tuple[Path, ...]:
+    home = Path.home()
+    return (
+        Path(sys.executable).parent,
+        Path("/opt/homebrew/bin"),
+        Path("/usr/local/bin"),
+        home / ".local" / "bin",
+        home / ".volta" / "bin",
+        home / ".bun" / "bin",
+    )
+
+
+def _normalized_shell_environment(
+    source: dict[str, str],
+) -> dict[str, str]:
+    """Add only execution mechanics, without sourcing shell profiles."""
+    env = dict(source)
+    path_entries = [
+        entry for entry in env.get("PATH", "").split(os.pathsep) if entry
+    ]
+    for directory in _runtime_bin_directories():
+        value = str(directory)
+        if directory.is_dir() and value not in path_entries:
+            path_entries.append(value)
+    env["PATH"] = os.pathsep.join(path_entries)
+
+    if os.name == "nt":
+        for name in ("SystemRoot", "ComSpec", "PATHEXT"):
+            value = os.environ.get(name)
+            if value:
+                _ = env.setdefault(name, value)
+        temp_dir = tempfile.gettempdir()
+        _ = env.setdefault("TEMP", temp_dir)
+        _ = env.setdefault("TMP", env["TEMP"])
+        env["PYTHONUTF8"] = "1"
+    else:
+        temp_dir = (
+            env.get("TMPDIR")
+            or env.get("TEMP")
+            or env.get("TMP")
+            or tempfile.gettempdir()
+        )
+        _ = env.setdefault("TMPDIR", temp_dir)
+        _ = env.setdefault("TEMP", temp_dir)
+        _ = env.setdefault("TMP", temp_dir)
+    return env
 
 
 def shell_env() -> dict[str, str]:
     """Environment for a free-form shell command."""
-    env = dict(os.environ)
-    if os.name == "nt":
-        temp_dir = tempfile.gettempdir()
-        env["TEMP"] = temp_dir
-        env["TMP"] = temp_dir
-    return env
+    return _normalized_shell_environment(dict(os.environ))
 
 
 def run_shell_command(
@@ -101,28 +177,91 @@ def run_shell_command(
 ) -> subprocess.CompletedProcess[str]:
     """Run a shell request in an independently killable process tree."""
     argv = shell_argv(request.command)
-    process = _spawn_shell(argv, request)
+    managed_tree: ManagedProcessTree | None = None
+    if os.name == "nt":
+        process, managed_tree = _spawn_managed_windows_shell(argv, request)
+    else:
+        process = _spawn_shell(argv, request)
     try:
-        stdout, stderr = process.communicate(timeout=request.timeout)
-    except subprocess.TimeoutExpired:
-        kill_tree(process)
         try:
-            stdout, stderr = process.communicate(timeout=10)
+            stdout, stderr = process.communicate(
+                input=request.stdin,
+                timeout=request.timeout,
+            )
         except subprocess.TimeoutExpired:
-            process.kill()
-            stdout, stderr = process.communicate()
-        raise subprocess.TimeoutExpired(
+            if managed_tree is not None:
+                managed_tree.terminate(124)
+            else:
+                kill_tree(process)
+            try:
+                stdout, stderr = process.communicate(timeout=10)
+            except subprocess.TimeoutExpired:
+                process.kill()
+                stdout, stderr = process.communicate(timeout=10)
+            raise subprocess.TimeoutExpired(
+                argv,
+                request.timeout,
+                output=stdout,
+                stderr=stderr,
+            ) from None
+        except (KeyboardInterrupt, SystemExit, OSError):
+            if managed_tree is not None:
+                managed_tree.terminate()
+            else:
+                kill_tree(process)
+            try:
+                _ = process.communicate(timeout=10)
+            except subprocess.TimeoutExpired:
+                process.kill()
+                _ = process.communicate(timeout=10)
+            raise
+        return subprocess.CompletedProcess(
             argv,
-            request.timeout,
-            output=stdout,
-            stderr=stderr,
-        ) from None
-    return subprocess.CompletedProcess(
-        argv,
-        process.wait(),
-        stdout,
-        stderr,
-    )
+            process.wait(),
+            stdout,
+            stderr,
+        )
+    finally:
+        if managed_tree is not None:
+            managed_tree.close()
+
+
+def _spawn_managed_windows_shell(
+    argv: list[str],
+    request: ShellCommand,
+) -> tuple[subprocess.Popen[str], ManagedProcessTree]:
+    from birkin._winjob import WindowsJob, WindowsStartGate
+
+    job = WindowsJob.create()
+    gate: WindowsStartGate | None = None
+    process: subprocess.Popen[str] | None = None
+    assigned = False
+    successful = False
+    try:
+        start_gate = WindowsStartGate.create()
+        gate = start_gate
+        process = _spawn_shell(start_gate.bootstrap_argv(argv), request)
+        job.assign(process.pid)
+        assigned = True
+        start_gate.release()
+        successful = True
+        return process, job
+    except (OSError, RuntimeError, ValueError, KeyboardInterrupt, SystemExit):
+        if assigned:
+            job.terminate()
+        elif process is not None:
+            process.kill()
+        if process is not None:
+            try:
+                _ = process.wait(timeout=10)
+            except subprocess.TimeoutExpired:
+                process.kill()
+        raise
+    finally:
+        if gate is not None:
+            gate.close()
+        if not successful:
+            job.close()
 
 
 def _spawn_shell(
@@ -134,19 +273,29 @@ def _spawn_shell(
         return subprocess.Popen(
             argv,
             cwd=cwd,
+            stdin=subprocess.PIPE if request.stdin is not None else None,
             stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
+            stderr=(
+                subprocess.STDOUT
+                if request.merge_stderr
+                else subprocess.PIPE
+            ),
             text=True,
+            encoding="utf-8",
             errors="replace",
             env=request.environment,
-            creationflags=subprocess.CREATE_NEW_PROCESS_GROUP,
+            creationflags=windows_creation_flags(request.hide_window),
         )
     return subprocess.Popen(
         argv,
         cwd=cwd,
+        stdin=subprocess.PIPE if request.stdin is not None else None,
         stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
+        stderr=(
+            subprocess.STDOUT if request.merge_stderr else subprocess.PIPE
+        ),
         text=True,
+        encoding="utf-8",
         errors="replace",
         env=request.environment,
         start_new_session=True,
@@ -160,9 +309,9 @@ def popen_tree_kwargs() -> PopenTreeKwargs:
     return {"start_new_session": True}
 
 
-def _kill_posix_tree(pid: int) -> bool:
+def kill_process_group(pid: int) -> bool:
     try:
-        group = os.getpgid(pid)
+        group = pid
         if group == os.getpgrp():
             return False
         os.killpg(group, _POSIX_KILL_SIGNAL)
@@ -195,7 +344,7 @@ def kill_tree(proc: ProcessHandle | None) -> None:
                 return
         except (OSError, subprocess.SubprocessError):
             pass
-    if os.name != "nt" and _kill_posix_tree(pid):
+    if os.name != "nt" and kill_process_group(pid):
         return
     try:
         proc.kill()

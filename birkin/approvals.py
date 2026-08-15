@@ -285,6 +285,7 @@ def execute_action(category: str, payload: dict[str, Any],
                     cwd=cwd,
                     timeout=max(1, min(3600, to)),
                     environment=environment,
+                    hide_window=True,
                 )
             )
         except subprocess.TimeoutExpired:

@@ -86,13 +86,14 @@ def _fetch_url(url: str, max_bytes: int) -> bytes:
         return response.read(max_bytes)
 
 
-def _run_script(command: str) -> bytes:
+def run_script(command: str) -> bytes:
     proc = run_shell_command(
         ShellCommand(
             command=command,
             cwd=None,
             timeout=600,
             environment=shell_env(),
+            hide_window=True,
         )
     )
     stdout = proc.stdout or b""
@@ -114,7 +115,7 @@ def _acquire(job: dict[str, Any]) -> bytes:
         raise ValueError("monitor requires exactly one of monitor_url or monitor_script")
     if url:
         return _fetch_url(url, clamp_max_bytes(job.get("max_bytes")))
-    return _run_script(script)
+    return run_script(script)
 
 
 def _tail(content: bytes) -> str:

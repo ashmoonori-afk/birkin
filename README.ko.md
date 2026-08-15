@@ -506,7 +506,9 @@ request ID, protocol version을 모두 검증합니다. Transport 실패는 자�
 
 Provider secret은 환경 변수에 두는 것이 원칙입니다. `api_keys`는 환경 변수 pool의 이름이며 raw key를 붙여 넣는 곳이 아닙니다. `a2a_enabled`는 opt-in입니다. Enforced egress는 검사되지 않은 네이티브 network 경로를 비활성화하고 설정된 destination만 Birkin의 inspected tool을 통해 허용합니다. Sandbox 안의 gateway child는 `propose_action`으로 shell 요청을 제출할 수 있고, Birkin은 이를 child sandbox에서 실행하지 않고 승인 큐에 넣습니다.
 
-자유 형식 shell 요청은 별도로 종료할 수 있는 process tree 안에서 명시적 platform shell(Windows의 `cmd.exe /c`, POSIX의 `bash -lc`)을 사용합니다. 네이티브 shell tool, 승인된 shell continuation, scheduler shell job, script monitor가 같은 managed runner를 공유합니다. Timeout이 발생하면 descendant를 먼저 종료하고 부분 stdout과 stderr를 보존합니다. PowerShell은 기본적으로 비활성화됩니다. `allow_powershell`을 의도적으로 `true`로 설정하거나 큐에 들어간 정확한 단일 operation을 승인해야 합니다. Windows CI는 네이티브 Windows runner에서 일반 명령, pipeline, redirection, quoting, Unicode 및 공백이 있는 작업 디렉터리, 환경 변수 상속, 쓰기 가능한 `TEMP`/`TMP`, exit 전달, Python/npm/Bun/`.cmd` 해석을 검증합니다.
+자유 형식 shell 요청은 소유권이 있는 process tree 안에서 고정된 non-login platform shell(Windows의 `%SystemRoot%\System32\cmd.exe /d /s /c`, POSIX의 `/bin/bash -c`)을 사용합니다. Windows는 AutoRun을 비활성화하고 사용자 명령을 평가하기 전에 code page 65001을 선택하므로 네이티브 `cmd.exe` built-in과 UTF-8 runtime이 같은 stream capture 계약을 따릅니다. Birkin은 상속된 `PATH`를 보존하고 사용자 profile을 읽지 않은 채 알려진 runtime 디렉터리를 추가하며, UTF-8 stream과 쓰기 가능한 임시 디렉터리를 제공합니다. 네이티브 shell tool, 승인된 shell continuation, scheduler shell job, script monitor, lifecycle hook, GitHub Action test command, worktree setup command가 같은 managed runner를 공유합니다. Worktree setup의 payload 환경은 정책이 허용한 변수만 받고, 별도로 비밀이 아닌 `PATH`, system interpreter 변수, 격리된 `TMPDIR`/`TEMP`/`TMP` 같은 process 실행 요소만 받습니다. Docker setup shell text는 정책으로 제한된 container 안에 남습니다. Timeout, interrupt, Job Object/process-group 종료는 반환 전에 descendant를 제거하고 부분 stdout과 stderr를 보존합니다.
+
+모델이 호출하는 네이티브 shell tool에서는 PowerShell이 기본적으로 비활성화됩니다. `allow_powershell`을 의도적으로 `true`로 설정하거나 큐에 들어간 정확한 단일 operation을 승인해야 합니다. 다른 owner-controlled shell surface는 기존의 명시적 권한 경계를 유지합니다. Managed-shell 계약 이전에 저장된 lifecycle-hook 동의는 예전 discrete-argv 동의가 shell operator 권한으로 조용히 확대되지 않도록 한 번 다시 승인해야 합니다. 네이티브 macOS 및 Windows CI는 일반 명령, pipeline, redirection, quoting, Unicode 및 공백이 있는 작업 디렉터리, 환경/임시 디렉터리, exit 전달, runtime/package-manager 해석, descendant cleanup을 검증합니다.
 
 ## 개발
 
@@ -514,6 +516,8 @@ Provider secret은 환경 변수에 두는 것이 원칙입니다. `api_keys`는
 python -m pip install -e ".[dev]"
 python -m compileall -q birkin
 python -m pytest
+uv run python scripts/qa/macos_shell_smoke.py
+uv run python scripts/qa/windows_shell_smoke.py
 
 cd vscode-extension
 npm ci
@@ -522,7 +526,7 @@ npm run compile
 npm run test:e2e
 ```
 
-CI는 Ubuntu/Python 3.10, macOS/Python 3.13, Windows/Python 3.13에서 파이썬 suite를 실행합니다. Windows job은 네이티브 shell smoke test를 위해 고정된 Bun release를 설치합니다. Extension unit test는 Vitest, 실제 host QA는 `@vscode/test-electron`을 사용합니다.
+CI는 Ubuntu/Python 3.10, macOS/Python 3.13, Windows/Python 3.13에서 파이썬 suite를 실행합니다. macOS와 Windows job은 고정된 Bun release를 설치하고 네이티브 managed-shell acceptance 및 각 platform의 tracked sibling-surface smoke driver를 실행합니다. Extension unit test는 Vitest, 실제 host QA는 `@vscode/test-electron`을 사용합니다.
 
 ## 라이선스
 

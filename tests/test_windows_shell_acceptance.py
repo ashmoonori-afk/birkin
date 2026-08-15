@@ -60,13 +60,16 @@ def test_ordinary_command_and_unicode_spaced_cwd(tmp_path: Path) -> None:
     script = workspace / "show cwd.py"
     _write_script(
         script,
-        "from pathlib import Path\nprint(f'ordinary-ok:{Path.cwd()}')\n",
+        "from pathlib import Path\n"
+        + "print(f'ordinary-ok:{Path.cwd()}')\n"
+        + "print('unicode-output:한글✓')\n",
     )
 
     result = _run(_command([sys.executable, str(script)]), workspace)
 
     assert result.is_error is False
     assert f"ordinary-ok:{workspace}" in result.content
+    assert "unicode-output:한글✓" in result.content
     assert "[exit 0]" in result.content
 
 
@@ -91,6 +94,29 @@ def test_pipe_redirect_and_quoted_paths(tmp_path: Path) -> None:
 
     assert result.is_error is False
     assert output.read_text(encoding="utf-8").strip() == "QUOTED PIPE OK"
+
+
+def test_and_or_and_append_redirection(tmp_path: Path) -> None:
+    output = tmp_path / "operator output.txt"
+    quoted = _command([str(output)])
+    if os.name == "nt":
+        command = (
+            f"(echo and-ok) > {quoted} && "
+            f"(cmd /d /c exit 7) || (echo or-ok) >> {quoted}"
+        )
+    else:
+        command = (
+            f"printf 'and-ok\\n' > {quoted} && "
+            f"(false || printf 'or-ok\\n' >> {quoted})"
+        )
+
+    result = _run(command, tmp_path)
+
+    assert result.is_error is False, result.content
+    assert output.read_text(encoding="utf-8").splitlines() == [
+        "and-ok",
+        "or-ok",
+    ]
 
 
 def test_environment_stdout_stderr_and_exit_propagate(
@@ -136,8 +162,11 @@ def test_windows_temp_and_runtime_smokes(tmp_path: Path) -> None:
     commands = [
         _command([sys.executable, str(temp_probe)]),
         "python --version",
+        "git --version",
+        "node --version",
         "npm --version",
         "bun --version",
+        "bunx --version",
     ]
     shim = tmp_path / "birkin-smoke.cmd"
     _ = shim.write_text("@echo cmd-shim-ok\r\n", encoding="utf-8")
@@ -176,4 +205,32 @@ def test_timeout_preserves_output_and_cleans_descendants(
     assert "before-timeout" in result.content
     assert "timed out" in result.content.lower()
     assert elapsed < 4
+    assert _process_running(child_pid) is False
+
+
+def test_timeout_cleans_descendant_after_shell_leader_exits(
+    tmp_path: Path,
+) -> None:
+    pid_file = tmp_path / "detached-child.pid"
+    script = tmp_path / "exit-parent.py"
+    _write_script(
+        script,
+        _source(
+            "import subprocess, sys",
+            "from pathlib import Path",
+            "child = subprocess.Popen([",
+            "    sys.executable, '-c', 'import time; time.sleep(30)'",
+            "])",
+            f"Path({str(pid_file)!r}).write_text(",
+            "    str(child.pid), encoding='utf-8'",
+            ")",
+        ),
+    )
+
+    result = _run(_command([sys.executable, str(script)]), tmp_path, timeout=1)
+    child_pid = int(pid_file.read_text(encoding="utf-8"))
+
+    assert result.is_error is True
+    assert isinstance(result.content, str)
+    assert "timed out" in result.content.lower()
     assert _process_running(child_pid) is False

@@ -18,6 +18,7 @@ import getpass
 import json
 import os
 import plistlib
+import shlex
 import signal
 import subprocess
 import sys
@@ -29,7 +30,12 @@ from pathlib import Path
 from typing import Any
 
 from . import config, cron, monitor, store
-from .proc import ShellCommand, run_shell_command, shell_env
+from .proc import (
+    ShellCommand,
+    run_shell_command,
+    shell_env,
+    windows_shell_argv,
+)
 
 _POLL_SECONDS = 30
 _TG_SEND = "https://api.telegram.org/bot{token}/sendMessage"
@@ -238,7 +244,7 @@ def run_daemon() -> int:
                     f"[{now:%H:%M}] running cron job "
                     f"'{claimed.get('name')}'…"
                 )
-                _run_job(claimed)
+                run_job(claimed)
 
             try:
                 delivered = run_checkins()
@@ -272,7 +278,7 @@ def run_daemon() -> int:
     return 0
 
 
-def _run_job(job: dict[str, Any]) -> None:
+def run_job(job: dict[str, Any]) -> None:
     jtype = job.get("type", "prompt")
     value = job.get("value", "")
     try:
@@ -305,6 +311,7 @@ def _run_job(job: dict[str, Any]) -> None:
                     cwd=None,
                     timeout=600,
                     environment=shell_env(),
+                    hide_window=True,
                 )
             )
             out = (proc.stdout or "") + (proc.stderr or "")
@@ -387,7 +394,12 @@ def install_os_schedule() -> int:
     working_dir = str(Path(roots[0]).expanduser() if roots else Path.cwd())
 
     if sys.platform.startswith("win"):
-        cmd = f'cmd.exe /d /c "cd /d ""{working_dir}"" && ""{py}"" -m birkin daemon"'
+        system_root = os.environ.get("SystemRoot") or r"C:\Windows"
+        interpreter = windows_shell_argv("", system_root)[0]
+        cmd = (
+            f'"{interpreter}" /d /s /c '
+            f'"cd /d ""{working_dir}"" && ""{py}"" -m birkin daemon"'
+        )
         # ONLOGON, not DAILY: a 30s poll loop cannot live in a one-shot. /ST is
         # rejected in combination with ONLOGON, hence no start time here.
         #
@@ -507,7 +519,9 @@ def _install_windows_startup(py: str, working_dir: str) -> int:
 def _install_posix_crontab(py: str) -> int:
     # Append a crontab line if not present. @reboot for the same reason the
     # daemon is used above — it has to stay up to poll the queue.
-    line = f"@reboot {py} -m birkin daemon  # birkin-nightly"
+    line = (
+        f"@reboot {shlex.quote(py)} -m birkin daemon  # birkin-nightly"
+    )
     try:
         existing = subprocess.run(["crontab", "-l"], capture_output=True,
                                   text=True, errors="replace").stdout
