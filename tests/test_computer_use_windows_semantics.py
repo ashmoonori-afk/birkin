@@ -35,6 +35,29 @@ class _MagicWindowSpecification:
         raise AttributeError("not a concrete UIA wrapper")
 
 
+class _InvokeWrapper:
+    def __init__(self, *, available: bool, name: str) -> None:
+        self.name = name
+        self.element_info = SimpleNamespace(
+            process_id=7,
+            runtime_id=(1 if available else 0,),
+            automation_id=name,
+            is_password=False,
+            control_type="Button" if available else "Window",
+            name=name,
+            element=SimpleNamespace(
+                CurrentIsPassword=False,
+                CurrentIsInvokePatternAvailable=available,
+            ),
+        )
+
+    def invoke(self) -> None:
+        return None
+
+    def window_text(self) -> str:
+        return self.name
+
+
 def _backend_with(wrapper: object) -> WindowsBackend:
     backend = object.__new__(WindowsBackend)
     backend._elements = {"element": wrapper}
@@ -67,6 +90,26 @@ def test_windows_magic_spec_never_impersonates_value_pattern() -> None:
         backend.mutate(_type_command())
 
     assert error.value.code == "background_delivery_unsupported"
+
+
+def test_windows_reports_press_only_for_available_uia_invoke_pattern() -> None:
+    backend = object.__new__(WindowsBackend)
+
+    window = backend._observed(
+        _InvokeWrapper(
+            available=False,
+            name="Birkin Computer Use QA Fixture",
+        )
+    )
+    button = backend._observed(
+        _InvokeWrapper(
+            available=True,
+            name="Increment synthetic counter",
+        )
+    )
+
+    assert window.supported_actions == frozenset()
+    assert button.supported_actions == frozenset({"press"})
 
 
 def test_windows_focus_restore_uses_pywinauto_pointer_api() -> None:

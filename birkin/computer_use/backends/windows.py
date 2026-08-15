@@ -249,7 +249,7 @@ class WindowsBackend:
         raw = repr((info.process_id, info.runtime_id, info.automation_id))
         identity = hashlib.sha256(raw.encode("utf-8")).hexdigest()
         actions: set[str] = set()
-        if callable(getattr(type(wrapper), "invoke", None)):
+        if bool(getattr(info.element, "CurrentIsInvokePatternAvailable", False)):
             actions.add("press")
         if callable(getattr(type(wrapper), "set_edit_text", None)):
             actions.add("set_value")
