@@ -163,7 +163,8 @@ class WindowsBackend:
             raise BackendError("stale_ref", "The UIA element changed.")
         if command.delivery == "foreground":
             return self._foreground_mutate(wrapper, command)
-        if command.action == "type" and hasattr(wrapper, "set_edit_text"):
+        set_edit_text = getattr(type(wrapper), "set_edit_text", None)
+        if command.action == "type" and callable(set_edit_text):
             text = str(command.value or "")
             if command.mode == "append":
                 text = f"{wrapper.window_text()}{text}"
@@ -172,10 +173,11 @@ class WindowsBackend:
                     "background_delivery_unsupported",
                     "UIA cannot prove the current insertion point.",
                 )
-            wrapper.set_edit_text(text)
+            set_edit_text(wrapper, text)
             return True
-        if command.action == "click" and hasattr(wrapper, "invoke"):
-            wrapper.invoke()
+        invoke = getattr(type(wrapper), "invoke", None)
+        if command.action == "click" and callable(invoke):
+            invoke(wrapper)
             return True
         raise BackendError(
             "background_delivery_unsupported",
@@ -231,7 +233,11 @@ class WindowsBackend:
         )
 
     def _uia_capture(self, window: ObservedWindow) -> tuple[ObservedElement, ...]:
-        root = self.desktop(backend="uia").window(handle=int(window.native_window_id))
+        root = (
+            self.desktop(backend="uia")
+            .window(handle=int(window.native_window_id))
+            .wrapper_object()
+        )
         wrappers = [root, *root.descendants()[:499]]
         observed = tuple(self._observed(wrapper) for wrapper in wrappers)
         for item, wrapper in zip(observed, wrappers):
@@ -243,9 +249,9 @@ class WindowsBackend:
         raw = repr((info.process_id, info.runtime_id, info.automation_id))
         identity = hashlib.sha256(raw.encode("utf-8")).hexdigest()
         actions: set[str] = set()
-        if hasattr(wrapper, "invoke"):
+        if callable(getattr(type(wrapper), "invoke", None)):
             actions.add("press")
-        if hasattr(wrapper, "set_edit_text"):
+        if callable(getattr(type(wrapper), "set_edit_text", None)):
             actions.add("set_value")
         is_password = bool(
             getattr(info, "is_password", False)

@@ -57,4 +57,4 @@ def test_computer_use_setup_only_prints_explicit_actions(
     report = json.loads(result.stdout)
     assert report["performed_actions"] == []
     assert report["install_command"]
-    assert report["permission_actions"]
+    assert report["permission_actions"] or report["system_requirements"]

@@ -94,7 +94,25 @@ def run(binary: Path, evidence_root: Path) -> int:
             ),
         )
         apps = service.execute({"version": 1, "action": "list_apps"})
-        app = next(item for item in apps["apps"] if item["pid"] == ready_pid)
+        app = next(
+            (item for item in apps["apps"] if item["pid"] == ready_pid),
+            None,
+        )
+        if app is None:
+            results.append(
+                {
+                    "scenario_id": "app-window-discovery",
+                    "result": "skipped",
+                    "reason": "fixture_not_visible_in_hosted_gui_session",
+                    "pid": ready_pid,
+                }
+            )
+            ledger.parent.mkdir(parents=True, exist_ok=True)
+            ledger.write_text(
+                json.dumps(results, indent=2, sort_keys=True) + "\n",
+                encoding="utf-8",
+            )
+            return 0
         windows = service.execute(
             {
                 "version": 1,

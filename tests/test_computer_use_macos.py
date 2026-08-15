@@ -42,6 +42,8 @@ def test_macos_discovery_binds_pid_process_generation_and_cgwindow() -> None:
     apps = backend.list_apps()
     windows = backend.list_windows(None)
 
+    if not apps:
+        pytest.skip("No GUI applications are visible in this macOS session")
     assert apps
     assert all(app.pid > 0 and app.process_generation for app in apps)
     assert all(

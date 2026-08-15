@@ -8,7 +8,9 @@ import os
 import selectors
 import subprocess
 import sys
+import threading
 from datetime import datetime, timedelta, timezone
+from importlib import import_module
 from pathlib import Path
 
 import psutil
@@ -34,6 +36,38 @@ def _ready_pid(process: subprocess.Popen[str]) -> int:
     return int(raw_pid)
 
 
+def _await_atspi_application(pid: int) -> None:
+    pyatspi = import_module("pyatspi")
+
+    ready = threading.Event()
+
+    def target_present() -> bool:
+        desktop = pyatspi.Registry.getDesktop(0)
+        return any(
+            int(desktop[index].get_process_id()) == pid
+            for index in range(desktop.childCount)
+        )
+
+    def application_added(_event: object) -> None:
+        if target_present():
+            ready.set()
+
+    pyatspi.Registry.registerEventListener(
+        application_added,
+        "object:children-changed:add",
+    )
+    try:
+        if target_present():
+            return
+        if not ready.wait(20):
+            raise TimeoutError("GTK fixture did not register with AT-SPI.")
+    finally:
+        pyatspi.Registry.deregisterEventListener(
+            application_added,
+            "object:children-changed:add",
+        )
+
+
 def run(fixture: Path, evidence_root: Path) -> int:
     os.environ["BIRKIN_HOME"] = str(evidence_root / "linux" / "home")
     process = subprocess.Popen(
@@ -52,6 +86,7 @@ def run(fixture: Path, evidence_root: Path) -> int:
     ledger = evidence_root / "linux" / "ledger.json"
     try:
         pid = _ready_pid(process)
+        _await_atspi_application(pid)
         backend = LinuxBackend()
         service = ComputerUseService(
             backend=backend,
@@ -111,6 +146,8 @@ def run(fixture: Path, evidence_root: Path) -> int:
                 "target": {"window_ref": window["window_ref"]},
             }
         )
+        if not ax.get("ok"):
+            raise RuntimeError(f"AT-SPI capture failed: {ax}")
         editable = next(
             item for item in ax["elements"] if "set_value" in item["supported_actions"]
         )
