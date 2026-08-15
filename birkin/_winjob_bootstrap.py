@@ -11,6 +11,7 @@ from ctypes import wintypes
 from typing import Protocol, cast
 
 _SYNCHRONIZE = 0x00100000
+_EVENT_MODIFY_STATE = 0x0002
 _WAIT_OBJECT_0 = 0
 _BOOTSTRAP_TIMEOUT_MS = 30_000
 
@@ -28,6 +29,13 @@ class _Wait(Protocol):
     restype: object
 
     def __call__(self, handle: int, timeout_ms: int) -> int: ...
+
+
+class _SetEvent(Protocol):
+    argtypes: list[object]
+    restype: object
+
+    def __call__(self, handle: int) -> int: ...
 
 
 class _CloseHandle(Protocol):
@@ -50,6 +58,13 @@ _wait = cast(
 )
 _wait.argtypes = [wintypes.HANDLE, wintypes.DWORD]
 _wait.restype = wintypes.DWORD
+
+_set_event = cast(
+    _SetEvent,
+    cast(object, _kernel32.SetEvent),
+)
+_set_event.argtypes = [wintypes.HANDLE]
+_set_event.restype = wintypes.BOOL
 
 _close_handle = cast(
     _CloseHandle,
@@ -75,20 +90,35 @@ def _decode_argv(encoded: str) -> list[str] | None:
     return [item for item in items if isinstance(item, str)]
 
 
+def _fail(message: str) -> int:
+    print(f"birkin job bootstrap: {message}", file=sys.stderr)
+    return 125
+
+
 def main() -> int:
-    if len(sys.argv) != 3:
-        return 125
-    event = _open_event(_SYNCHRONIZE, False, sys.argv[1])
-    if not event:
-        return 125
+    if len(sys.argv) != 4:
+        return _fail("invalid argument count")
+    release_event = _open_event(_SYNCHRONIZE, False, sys.argv[1])
+    if not release_event:
+        return _fail("release event unavailable")
+    ready_event = _open_event(_EVENT_MODIFY_STATE, False, sys.argv[2])
+    if not ready_event:
+        _ = _close_handle(release_event)
+        return _fail("ready event unavailable")
     try:
-        if _wait(event, _BOOTSTRAP_TIMEOUT_MS) != _WAIT_OBJECT_0:
-            return 125
+        if not _set_event(ready_event):
+            return _fail("readiness signal failed")
+        if _wait(
+            release_event,
+            _BOOTSTRAP_TIMEOUT_MS,
+        ) != _WAIT_OBJECT_0:
+            return _fail("release wait failed")
     finally:
-        _ = _close_handle(event)
-    argv = _decode_argv(sys.argv[2])
+        _ = _close_handle(ready_event)
+        _ = _close_handle(release_event)
+    argv = _decode_argv(sys.argv[3])
     if argv is None:
-        return 125
+        return _fail("invalid command payload")
     return subprocess.run(argv, check=False).returncode
 
 

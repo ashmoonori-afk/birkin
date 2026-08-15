@@ -17,6 +17,9 @@ _JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE = 0x00002000
 _JOB_OBJECT_EXTENDED_LIMIT_INFORMATION = 9
 _PROCESS_TERMINATE = 0x0001
 _PROCESS_SET_QUOTA = 0x0100
+_SYNCHRONIZE = 0x00100000
+_WAIT_OBJECT_0 = 0
+_START_GATE_TIMEOUT_MS = 30_000
 
 
 @final
@@ -125,6 +128,13 @@ class _SetEvent(Protocol):
     def __call__(self, event: int) -> int: ...
 
 
+class _Wait(Protocol):
+    argtypes: list[object]
+    restype: object
+
+    def __call__(self, handle: int, timeout_ms: int) -> int: ...
+
+
 class _CloseHandle(Protocol):
     argtypes: list[object]
     restype: object
@@ -195,6 +205,13 @@ _create_event.restype = wintypes.HANDLE
 _set_event = cast(_SetEvent, cast(object, _kernel32.SetEvent))
 _set_event.argtypes = [wintypes.HANDLE]
 _set_event.restype = wintypes.BOOL
+
+_wait = cast(
+    _Wait,
+    cast(object, _kernel32.WaitForSingleObject),
+)
+_wait.argtypes = [wintypes.HANDLE, wintypes.DWORD]
+_wait.restype = wintypes.DWORD
 
 _close_handle = cast(
     _CloseHandle,
@@ -285,18 +302,31 @@ class WindowsJob:
 
 @dataclass(slots=True)
 class WindowsStartGate:
-    """A named event that holds the bootstrap before shell creation."""
+    """Two-event handshake that gates the bootstrap before shell creation."""
 
-    name: str
-    _handle: int | None
+    release_name: str
+    ready_name: str
+    _release_handle: int | None
+    _ready_handle: int | None
 
     @classmethod
     def create(cls) -> WindowsStartGate:
-        name = f"Local\\BirkinJob-{uuid.uuid4().hex}"
-        handle = _create_event(None, True, False, name)
-        if not handle:
+        token = uuid.uuid4().hex
+        release_name = f"Local\\BirkinJob-{token}-release"
+        ready_name = f"Local\\BirkinJob-{token}-ready"
+        release_handle = _create_event(None, True, False, release_name)
+        if not release_handle:
             raise _windows_error("CreateEventW failed")
-        return cls(name, handle)
+        ready_handle = _create_event(None, True, False, ready_name)
+        if not ready_handle:
+            _ = _close_handle(release_handle)
+            raise _windows_error("CreateEventW failed")
+        return cls(
+            release_name,
+            ready_name,
+            release_handle,
+            ready_handle,
+        )
 
     def bootstrap_argv(self, argv: Sequence[str]) -> list[str]:
         payload = json.dumps(list(argv), ensure_ascii=False).encode("utf-8")
@@ -309,21 +339,36 @@ class WindowsStartGate:
             "-I",
             "-S",
             str(bootstrap),
-            self.name,
+            self.release_name,
+            self.ready_name,
             encoded,
         ]
 
+    def wait_ready(self) -> None:
+        handle = self._require_ready_handle()
+        result = _wait(handle, _START_GATE_TIMEOUT_MS)
+        if result != _WAIT_OBJECT_0:
+            raise _windows_error("bootstrap readiness wait failed")
+
     def release(self) -> None:
-        handle = self._require_handle()
+        handle = self._require_release_handle()
         if not _set_event(handle):
             raise _windows_error("SetEvent failed")
 
     def close(self) -> None:
-        handle, self._handle = self._handle, None
-        if handle:
-            _ = _close_handle(handle)
+        release, self._release_handle = self._release_handle, None
+        ready, self._ready_handle = self._ready_handle, None
+        if release:
+            _ = _close_handle(release)
+        if ready:
+            _ = _close_handle(ready)
 
-    def _require_handle(self) -> int:
-        if not self._handle:
+    def _require_release_handle(self) -> int:
+        if not self._release_handle:
             raise RuntimeError("Windows start gate is closed")
-        return self._handle
+        return self._release_handle
+
+    def _require_ready_handle(self) -> int:
+        if not self._ready_handle:
+            raise RuntimeError("Windows start gate is closed")
+        return self._ready_handle

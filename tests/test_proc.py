@@ -80,6 +80,7 @@ def test_kill_tree_terminates_posix_process_group(monkeypatch) -> None:
     assert process.killed is False
 
 
+@pytest.mark.skipif(os.name == "nt", reason="POSIX process groups")
 def test_kill_posix_tree_survives_exited_shell_leader(monkeypatch) -> None:
     calls: list[tuple[int, signal.Signals]] = []
     monkeypatch.setattr(

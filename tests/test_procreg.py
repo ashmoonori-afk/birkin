@@ -82,6 +82,7 @@ def test_pid_alive_current_process_true(tmp_path, monkeypatch):
     assert procreg.pid_alive(-5) is False
 
 
+@pytest.mark.skipif(os.name == "nt", reason="POSIX process groups")
 def test_posix_reaper_kills_registered_process_group(
     tmp_path,
     monkeypatch,

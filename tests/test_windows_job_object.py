@@ -175,6 +175,9 @@ def test_bootstrap_starts_isolated_before_gate_release() -> None:
     assert argv[1:3] == ["-I", "-S"]
     assert Path(argv[3]).name == "_winjob_bootstrap.py"
     assert argv[4].startswith("Local\\BirkinJob-")
+    assert argv[4].endswith("-release")
+    assert argv[5].startswith("Local\\BirkinJob-")
+    assert argv[5].endswith("-ready")
 
 
 def test_job_object_ctypes_layout_matches_winnt() -> None:

@@ -241,6 +241,7 @@ def _spawn_managed_windows_shell(
         start_gate = WindowsStartGate.create()
         gate = start_gate
         process = _spawn_shell(start_gate.bootstrap_argv(argv), request)
+        start_gate.wait_ready()
         job.assign(process.pid)
         assigned = True
         start_gate.release()
