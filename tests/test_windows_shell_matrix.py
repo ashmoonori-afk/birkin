@@ -111,7 +111,7 @@ def test_operators_redirection_stdin_and_quoting(tmp_path: Path) -> None:
     command = (
         f"type {quoted_source} | findstr stdin > {quoted_output} && "
         f"type {quoted_source} >> {quoted_output} && "
-        f"type < {quoted_source} >> {quoted_output} && "
+        f"findstr stdin < {quoted_source} >> {quoted_output} && "
         f"(cmd /d /c exit 0) && (echo and-ok) >> {quoted_output} && "
         f"(cmd /d /c exit 7) || (echo or-ok) >> {quoted_output}"
     )

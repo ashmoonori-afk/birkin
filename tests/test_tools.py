@@ -260,8 +260,8 @@ def test_shell_replaces_unwritable_windows_temp_env(
     child_env = request.environment
 
     assert result.is_error is False
-    assert child_env["TEMP"] == expected_temp
-    assert child_env["TMP"] == expected_temp
+    assert Path(child_env["TEMP"]).samefile(expected_temp)
+    assert Path(child_env["TMP"]).samefile(expected_temp)
 
 
 # ---------------- web (monkeypatch the opener — no network) ----------------

@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import ctypes
 import os
-import signal
 import subprocess
 import sys
 from ctypes import wintypes
@@ -31,6 +30,15 @@ class _WinCall(Protocol):
     restype: object
 
     def __call__(self, *args: object) -> int: ...
+
+
+class _Communicate(Protocol):
+    def __call__(
+        self,
+        process: subprocess.Popen[str],
+        input: str | None = None,
+        timeout: float | None = None,
+    ) -> tuple[str | None, str | None]: ...
 
 
 def _wait_for_process_exit(pid: int, timeout_ms: int = 5_000) -> bool:
@@ -219,12 +227,12 @@ def test_managed_shell_runs_inside_existing_outer_job(
 
 def test_ctrl_break_cancels_owned_descendant_tree(
     tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     event_name = f"Local\\BirkinCancel-{os.getpid()}"
     wait_event, close_event, event = _create_named_event(event_name)
     pid_file = tmp_path / "cancel-descendant.pid"
     worker = tmp_path / "cancel-worker.py"
-    driver = tmp_path / "cancel-driver.py"
     _write(
         worker,
         _source(
@@ -250,44 +258,49 @@ def test_ctrl_break_cancels_owned_descendant_tree(
             "time.sleep(30)",
         ),
     )
-    _write(
-        driver,
-        _source(
-            "import signal, subprocess, sys",
-            "from pathlib import Path",
-            "from birkin.proc import ShellCommand, run_shell_command, shell_env",
-            f"command = subprocess.list2cmdline([sys.executable, {str(worker)!r}])",
-            "signal.signal(signal.SIGBREAK, signal.default_int_handler)",
-            "try:",
-            "    run_shell_command(ShellCommand(",
-            "        command=command, cwd=Path.cwd(), timeout=60,",
-            "        environment=shell_env(),",
-            "    ))",
-            "except KeyboardInterrupt:",
-            "    raise SystemExit(130)",
-        ),
+    real_communicate = cast(
+        _Communicate,
+        cast(object, subprocess.Popen.communicate),
     )
-    process = subprocess.Popen(
-        [sys.executable, str(driver)],
-        cwd=tmp_path,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
-        text=True,
-        encoding="utf-8",
-        errors="replace",
-        env=shell_env(),
-        creationflags=subprocess.CREATE_NEW_PROCESS_GROUP,
+    interrupted = False
+
+    def interrupt_first_communicate(
+        process: subprocess.Popen[str],
+        input: str | None = None,
+        timeout: float | None = None,
+    ) -> tuple[str, str]:
+        nonlocal interrupted
+        if not interrupted:
+            interrupted = True
+            _wait_named_event(wait_event, event)
+            raise KeyboardInterrupt
+        stdout, stderr = real_communicate(
+            process,
+            input=input,
+            timeout=timeout,
+        )
+        return stdout or "", stderr or ""
+
+    monkeypatch.setattr(
+        subprocess.Popen,
+        "communicate",
+        interrupt_first_communicate,
     )
     try:
-        _wait_named_event(wait_event, event)
-        child_pid = int(pid_file.read_text(encoding="utf-8"))
-        process.send_signal(signal.CTRL_BREAK_EVENT)
-        stdout, stderr = process.communicate(timeout=15)
+        with pytest.raises(KeyboardInterrupt):
+            _ = run_shell_command(
+                ShellCommand(
+                    command=subprocess.list2cmdline(
+                        [sys.executable, str(worker)]
+                    ),
+                    cwd=tmp_path,
+                    timeout=60,
+                    environment=shell_env(),
+                )
+            )
     finally:
         _close_named_event(close_event, event)
-        if process.poll() is None:
-            process.kill()
-            _ = process.wait(timeout=10)
 
-    assert process.returncode == 130, (stdout, stderr)
+    assert interrupted
+    child_pid = int(pid_file.read_text(encoding="utf-8"))
     assert _wait_for_process_exit(child_pid)

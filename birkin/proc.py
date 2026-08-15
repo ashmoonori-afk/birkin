@@ -131,6 +131,38 @@ def _runtime_bin_directories() -> tuple[Path, ...]:
     )
 
 
+def _writable_temp_directory(value: str | None) -> bool:
+    if not value:
+        return False
+    directory = Path(value)
+    if os.name == "nt":
+        system_root = os.environ.get("SystemRoot")
+        if system_root:
+            system = Path(system_root)
+            if directory in (system, system / "System32"):
+                return False
+    if not directory.is_dir():
+        return False
+    try:
+        with tempfile.NamedTemporaryFile(dir=directory):
+            pass
+    except OSError:
+        return False
+    return True
+
+
+def _windows_temp_directory() -> str:
+    local_app_data = os.environ.get("LOCALAPPDATA")
+    candidates = (
+        str(Path(local_app_data) / "Temp") if local_app_data else None,
+        tempfile.gettempdir(),
+    )
+    for candidate in candidates:
+        if candidate is not None and _writable_temp_directory(candidate):
+            return candidate
+    raise OSError("No writable Windows temporary directory")
+
+
 def _normalized_shell_environment(
     source: dict[str, str],
 ) -> dict[str, str]:
@@ -150,9 +182,10 @@ def _normalized_shell_environment(
             value = os.environ.get(name)
             if value:
                 _ = env.setdefault(name, value)
-        temp_dir = tempfile.gettempdir()
-        _ = env.setdefault("TEMP", temp_dir)
-        _ = env.setdefault("TMP", env["TEMP"])
+        temp_dir = _windows_temp_directory()
+        for name in ("TEMP", "TMP"):
+            if not _writable_temp_directory(env.get(name)):
+                env[name] = temp_dir
         env["PYTHONUTF8"] = "1"
     else:
         temp_dir = (
