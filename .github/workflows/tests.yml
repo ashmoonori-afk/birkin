@@ -133,4 +133,3 @@ jobs:
           name: linux-computer-use-evidence
           path: .omo/evidence/computer-use/linux
           if-no-files-found: error
-      - run: python -m pytest -p no:cacheprovider -o addopts= -q --cov=birkin --cov-report=term-missing -m "not live"

@@ -29,6 +29,8 @@ def mutate(
     xtest = import_module("Xlib.ext.xtest")
     try:
         _require_topmost(display, atspi, command, start, xlib)
+    except BackendError:
+        raise
     except (AttributeError, RuntimeError, xerror.XError) as exc:
         raise BackendError(
             "foreground_delivery_unsupported",

@@ -22,18 +22,28 @@ _SHELL_CAPABLE_ROLES = {
     "textarea",
 }
 _SHELL_APPS = {
+    "alacritty",
     "bash",
     "cmd.exe",
+    "co.zeit.hyper",
     "com.apple.terminal",
     "com.googlecode.iterm2",
+    "com.mitchellh.ghostty",
     "conhost.exe",
+    "dev.warp.warp-stable",
     "fish",
+    "gnome-terminal-server",
     "kitty",
+    "konsole",
     "powershell.exe",
     "pwsh.exe",
+    "terminator",
+    "tilix",
     "wezterm",
     "wezterm-gui.exe",
     "wt.exe",
+    "xfce4-terminal",
+    "xterm",
     "zsh",
 }
 

@@ -3,6 +3,8 @@ from __future__ import annotations
 from dataclasses import replace
 from pathlib import Path
 
+import pytest
+
 from birkin.computer_use.artifacts import ArtifactStore
 from birkin.computer_use.service import ComputerUseService
 from tests.computer_use_fakes import FakeBackend, fake_session_capability
@@ -41,11 +43,22 @@ def test_sensitive_target_returns_action_needed_without_delivery(
     assert backend.mutation_count == 0
 
 
+@pytest.mark.parametrize(
+    "app_identity",
+    (
+        "/bin/bash",
+        "/usr/libexec/gnome-terminal-server",
+        "/usr/bin/konsole",
+        "com.mitchellh.Ghostty",
+        "dev.warp.Warp-Stable",
+    ),
+)
 def test_terminal_shell_pattern_requires_risky_action_approval(
     tmp_path: Path,
+    app_identity: str,
 ) -> None:
     backend = FakeBackend()
-    backend.app = replace(backend.app, native_identity="/bin/bash")
+    backend.app = replace(backend.app, native_identity=app_identity)
     backend.element = replace(backend.element, role="text")
     service = _service(tmp_path, backend)
     captured = _capture(service)
