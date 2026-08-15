@@ -176,7 +176,7 @@ def main() -> int:
         fake_claude = bin_dir / "claude.cmd"
         write_script(
             fake_claude,
-            "@echo off\r\necho mcp-discrete:mcp %*\r\n",
+            "@echo off\r\necho mcp-discrete:%*\r\n",
         )
         original_path = os.environ.get("PATH", "")
         os.environ["PATH"] = f"{bin_dir}{os.pathsep}{original_path}"
