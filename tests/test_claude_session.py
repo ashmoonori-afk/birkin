@@ -66,6 +66,7 @@ class _BlockingLines:
 class _FakePopen:
     def __init__(self, behavior, *, die_after=None):
         self.pid = 2_147_483_647
+        self.args: list[str] = []
         self._out_q: queue.Queue[object] = queue.Queue()
         self._err_q: queue.Queue[object] = queue.Queue()
         self._err_q.put(None)  # stderr closes immediately (no diagnostics)
@@ -78,6 +79,16 @@ class _FakePopen:
 
     def poll(self):
         return self.returncode
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, _exc_type, _exc, _traceback) -> None:
+        pass
+
+    def communicate(self, input=None, timeout=None):
+        self.returncode = 1
+        return b"", b""
 
     def terminate(self):
         self._terminated = True
