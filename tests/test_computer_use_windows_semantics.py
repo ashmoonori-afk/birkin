@@ -1,8 +1,10 @@
 from __future__ import annotations
 
+from types import SimpleNamespace
+
 import pytest
 
-from birkin.computer_use.backends.base import BackendError
+from birkin.computer_use.backends.base import BackendError, FocusSnapshot
 from birkin.computer_use.backends.windows import WindowsBackend
 from birkin.computer_use.models import MutationCommand
 
@@ -65,3 +67,28 @@ def test_windows_magic_spec_never_impersonates_value_pattern() -> None:
         backend.mutate(_type_command())
 
     assert error.value.code == "background_delivery_unsupported"
+
+
+def test_windows_focus_restore_uses_pywinauto_pointer_api() -> None:
+    backend = object.__new__(WindowsBackend)
+    foreground: list[int] = []
+    pointer: list[tuple[int, int]] = []
+    backend.win32gui = SimpleNamespace(
+        SetForegroundWindow=lambda hwnd: foreground.append(hwnd),
+    )
+    backend.mouse = SimpleNamespace(
+        move=lambda *, coords: pointer.append(coords),
+    )
+
+    restored = backend.restore_focus(
+        FocusSnapshot(
+            frontmost_pid=7,
+            focused_window_id="41",
+            pointer=(12, 34),
+            space_id=None,
+        )
+    )
+
+    assert restored is True
+    assert foreground == [41]
+    assert pointer == [(12, 34)]

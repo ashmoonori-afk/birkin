@@ -211,9 +211,9 @@ class WindowsBackend:
         try:
             self.win32gui.SetForegroundWindow(int(snapshot.focused_window_id))
             if snapshot.pointer is not None:
-                self.win32gui.SetCursorPos(snapshot.pointer)
+                self.mouse.move(coords=snapshot.pointer)
             return True
-        except (OSError, RuntimeError, ValueError):
+        except (AttributeError, OSError, RuntimeError, ValueError):
             return False
 
     def release_inputs(self) -> tuple[str, ...]:
