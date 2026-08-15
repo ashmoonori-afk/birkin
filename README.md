@@ -50,7 +50,7 @@ Run the local service surfaces in separate terminals:
 
 ```bash
 birkin gateway          # local HTTP on 127.0.0.1:8788; Telegram is optional
-birkin web --no-browser # dashboard/control API on 127.0.0.1:8787
+birkin web --no-browser # authenticated chat workspace on 127.0.0.1:8787
 ```
 
 Optional features are explicit:
@@ -64,6 +64,22 @@ python -m pip install -e ".[full]"
 
 > [!IMPORTANT]
 > Native tools run with your operating-system account. Keep the gateway loopback-only, configure `shell_approval`, `fs_jail`, disabled tools, and channel allowlists for your deployment, and review consequential actions before approval.
+
+## Unified chat workspace
+
+`birkin chat` now opens the terminal workspace by default and starts its authenticated loopback web authority. The private bootstrap URL printed at startup exchanges its one-time path capability for an `HttpOnly`, `SameSite=Strict` cookie, then removes the secret from the address bar. `birkin web [--no-browser]` runs the same responsive web workspace as a standalone local surface.
+
+Both surfaces consume the same ordered command/event protocol and durable journal. Conversation messages, tasks and runs, approvals, evidence, sessions, activity, cron, memory and skills, checkpoints, and status are canonical snapshot panels rather than separate dashboard state. When a surface reconnects with an existing session ID, the journal replays its conversation, panel data, and command cursor.
+
+- Terminal: type and press Enter to send, press Esc to interrupt, use `/work` to focus tasks/runs, and use the deprecated `/dash` compatibility alias to focus activity/logs.
+- Web: press Ctrl+Enter to send, press Esc to interrupt, use the context button for the nine canonical panels, and use the explicit approve/reject actions after reviewing requester, target, impact, rejection result, risk, expiry, and evidence.
+- Themes: Studio Dark, Paper Light, and High Contrast share semantic roles with terminal truecolor/ANSI-256 rendering. `NO_COLOR=1` keeps the terminal usable without color.
+- Responsive behavior: desktop keeps conversation and context side by side; mobile uses an opaque sheet above a composer that remains visible, with touch-sized controls and an explicit back action.
+
+The workspace remains loopback-only and preserves Host validation, capability checks, approval authority, filesystem jail, network egress, and audit records. Deprecated UI paths `/legacy-dashboard`, `/dashboard`, and `/workbench` return a permanent `308` redirect to `/` with deprecation metadata; existing backend APIs remain available.
+
+The embedded web authority does not overwrite the standalone WebUI discovery file. If the configured web port is already occupied, `birkin chat` binds its private embedded authority to an available loopback port and prints that bootstrap URL instead.
+The embedded authority is bootstrap-URL only; run standalone `birkin web` when the VS Code extension needs `~/.birkin/web_session.json` discovery.
 
 ## GitHub Action
 
@@ -192,13 +208,13 @@ All rows below describe surfaces shipped in this repository.
 
 | Capability | CLI / REPL | Gateway | WebUI | VS Code |
 |---|:---:|:---:|:---:|:---:|
-| Conversational agent | Yes | Yes | No (monitoring/control) | Yes, through gateway |
+| Conversational agent | Yes | Yes | Yes | Yes, through gateway |
 | Current editor selection and open files | Manual | Manual | No | Yes |
-| Plan review before execution | Slash-command/workflow dependent | Conversation dependent | No | Dedicated review surface |
+| Plan review before execution | Slash-command/workflow dependent | Conversation dependent | Conversation + explicit approval | Dedicated review surface |
 | Proposed-change diff | Terminal checkpoint diff | No | Approval details | Native VS Code diff editor |
 | Approval queue | `birkin review` | Trusted chat controls | Approve/reject API and UI | Approve/reject API |
-| File rollback | `/rollback` | No | Checkpoint control API | Checkpoint picker |
-| Live status | Status line | Progress callbacks | Dashboard | Status bar |
+| File rollback | `/rollback` | No | Checkpoint restore panel | Checkpoint picker |
+| Live status | Workspace status/panels | Progress callbacks | Chat workspace | Status bar |
 | Local transport | Process stdin/stdout | Loopback HTTP / channels | Loopback HTTP | Existing gateway + WebUI APIs |
 
 ## Architecture
@@ -207,7 +223,7 @@ The model proposes; deterministic code owns persistence, policy, and authority.
 
 ```mermaid
 flowchart LR
-    U[CLI · Gateway · VS Code] --> P[promptgate.py]
+    U[CLI · Web · Gateway · VS Code] --> P[promptgate.py]
     P --> A[Agent loop]
     A --> R[ToolRegistry]
     R --> G{Policy gates}
@@ -231,7 +247,9 @@ birkin/
   approvals.py      human gate and approved action execution
   checkpoints.py    external shadow-git snapshots and restore
   gateway/          local HTTP, Telegram, and outbound channel adapters
-  web/              local dashboard and authenticated control API
+  web/              local chat workspace and authenticated control API
+  workspace/        shared commands, events, journal, snapshots, and themes
+  workspace_terminal.py  default terminal workspace adapter
   harness.py        validated self-improvement ledger and rollback
   moirai/           deterministic multi-agent graph runtime
   mcp_server.py     stdio MCP server for memory, skills, and proposals
@@ -240,7 +258,7 @@ skills/             bundled Markdown skills
 tests/              offline unit, integration, and end-to-end coverage
 ```
 
-State is file-backed under `BIRKIN_HOME` (normally `~/.birkin`). The dashboard uses a per-process capability; the gateway binds to loopback and can additionally require `BIRKIN_HTTP_TOKEN`. MCP uses newline-delimited JSON-RPC over stdio. The VS Code extension uses these existing authorities: gateway `/message` for turns and WebUI endpoints for approvals, status, editor context, and checkpoints.
+State is file-backed under `BIRKIN_HOME` (normally `~/.birkin`). The workspace uses a per-process capability and honors `BIRKIN_HTTP_TOKEN` as an explicit bearer-capability override; the gateway also binds to loopback and can require that token. MCP uses newline-delimited JSON-RPC over stdio. The VS Code extension uses these existing authorities: gateway `/message` for turns and WebUI endpoints for approvals, status, editor context, and checkpoints.
 
 </details>
 
@@ -281,9 +299,9 @@ The authenticated API exposes the checkpoint list, `/timeline`, `/lineage`,
 | Command | Purpose |
 |---|---|
 | `birkin setup` | Guided provider and workspace onboarding. |
-| `birkin chat` | Interactive local agent (the default command). |
+| `birkin chat` | Default terminal chat workspace plus private loopback web authority. |
 | `birkin gateway` | Run loopback HTTP and configured message channels. |
-| `birkin web [--no-browser]` | Run the local dashboard and authenticated control API. |
+| `birkin web [--no-browser]` | Run the standalone authenticated chat workspace and control API. |
 | `birkin review` | Approve or reject pending consequential actions. |
 | `birkin permission` | Inspect or change approval categories and CLI access. |
 | `birkin tools` | List, enable, or disable native tools. |

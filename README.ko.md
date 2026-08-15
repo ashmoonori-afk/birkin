@@ -50,7 +50,7 @@ birkin chat
 
 ```bash
 birkin gateway          # 127.0.0.1:8788 로컬 HTTP, Telegram은 선택 사항
-birkin web --no-browser # 127.0.0.1:8787 dashboard/control API
+birkin web --no-browser # 127.0.0.1:8787 인증 chat workspace
 ```
 
 선택 기능은 명시적으로 설치합니다.
@@ -64,6 +64,22 @@ python -m pip install -e ".[full]"
 
 > [!IMPORTANT]
 > 네이티브 도구는 현재 OS 계정 권한으로 실행됩니다. gateway를 loopback 전용으로 유지하고, 배포 환경에 맞게 `shell_approval`, `fs_jail`, disabled tools, channel allowlist를 설정하며, 결과가 생기는 행동은 승인 전에 검토하십시오.
+
+## 통합 chat workspace
+
+`birkin chat`은 이제 terminal workspace를 기본으로 열고 인증된 loopback web authority를 함께 시작합니다. 시작 시 출력하는 private bootstrap URL은 일회용 path capability를 `HttpOnly`, `SameSite=Strict` cookie로 교환한 뒤 주소 표시줄에서 secret을 제거합니다. `birkin web [--no-browser]`는 같은 responsive web workspace를 독립 로컬 surface로 실행합니다.
+
+두 surface는 같은 순서 보장 command/event protocol과 durable journal을 사용합니다. Conversation message, task/run, approval, evidence, session, activity, cron, memory/skill, checkpoint, status는 별도 dashboard state가 아니라 canonical snapshot panel입니다. Surface가 기존 session ID로 다시 연결되면 journal이 conversation, panel data, command cursor를 replay합니다.
+
+- Terminal: 입력 후 Enter로 전송하고 Esc로 중단합니다. `/work`는 task/run에 focus하고 deprecated compatibility alias `/dash`는 activity/log에 focus합니다.
+- Web: Ctrl+Enter로 전송하고 Esc로 중단합니다. Context button으로 9개 canonical panel을 열며 requester, target, impact, rejection result, risk, expiry, evidence를 검토한 뒤 명시적인 승인/거부 action을 사용합니다.
+- Theme: Studio Dark, Paper Light, High Contrast는 terminal truecolor/ANSI-256 rendering과 semantic role을 공유합니다. `NO_COLOR=1`에서도 terminal 기능은 유지됩니다.
+- Responsive behavior: desktop은 conversation과 context를 나란히 유지합니다. Mobile은 composer를 계속 보이는 상태로 두고 그 위에 opaque sheet를 열며 touch-size control과 명시적인 back action을 제공합니다.
+
+Workspace는 loopback 전용이며 Host validation, capability check, approval authority, filesystem jail, network egress, audit record를 그대로 보존합니다. Deprecated UI path `/legacy-dashboard`, `/dashboard`, `/workbench`는 deprecation metadata와 함께 `/`로 permanent `308` redirect하고 기존 backend API는 계속 제공됩니다.
+
+Embedded web authority는 standalone WebUI discovery file을 덮어쓰지 않습니다. 설정된 web port가 이미 사용 중이면 `birkin chat`은 private embedded authority를 사용 가능한 loopback port에 bind하고 해당 bootstrap URL을 출력합니다.
+Embedded authority는 bootstrap URL로만 연결합니다. VS Code extension이 `~/.birkin/web_session.json` discovery를 사용해야 하면 standalone `birkin web`을 실행하십시오.
 
 ## GitHub Action
 
@@ -192,13 +208,13 @@ Command Palette에서 **Birkin: Review Plan Before Execution**을 실행하십�
 
 | 기능 | CLI / REPL | Gateway | WebUI | VS Code |
 |---|:---:|:---:|:---:|:---:|
-| 대화형 에이전트 | 지원 | 지원 | 미지원(모니터링/control) | Gateway를 통해 지원 |
+| 대화형 에이전트 | 지원 | 지원 | 지원 | Gateway를 통해 지원 |
 | 현재 editor selection과 열린 파일 | 수동 | 수동 | 미지원 | 지원 |
-| 실행 전 plan review | slash command/workflow에 따라 다름 | 대화에 따라 다름 | 미지원 | 전용 review surface |
+| 실행 전 plan review | slash command/workflow에 따라 다름 | 대화에 따라 다름 | 대화 + 명시적 approval | 전용 review surface |
 | 제안 변경 diff | 터미널 checkpoint diff | 미지원 | approval 상세 | VS Code 네이티브 diff editor |
 | Approval queue | `birkin review` | 신뢰 chat control | 승인/거절 API와 UI | 승인/거절 API |
-| 파일 rollback | `/rollback` | 미지원 | checkpoint control API | checkpoint picker |
-| 실시간 status | status line | progress callback | dashboard | status bar |
+| 파일 rollback | `/rollback` | 미지원 | checkpoint restore panel | checkpoint picker |
+| 실시간 status | workspace status/panel | progress callback | chat workspace | status bar |
 | 로컬 transport | process stdin/stdout | loopback HTTP / channel | loopback HTTP | 기존 gateway + WebUI API |
 
 ## 아키텍처
@@ -207,7 +223,7 @@ Command Palette에서 **Birkin: Review Plan Before Execution**을 실행하십�
 
 ```mermaid
 flowchart LR
-    U[CLI · Gateway · VS Code] --> P[promptgate.py]
+    U[CLI · Web · Gateway · VS Code] --> P[promptgate.py]
     P --> A[Agent loop]
     A --> R[ToolRegistry]
     R --> G{Policy gates}
@@ -231,7 +247,9 @@ birkin/
   approvals.py      사람의 gate와 승인된 action 실행
   checkpoints.py    외부 shadow-git snapshot과 restore
   gateway/          local HTTP, Telegram, outbound channel adapter
-  web/              local dashboard와 인증된 control API
+  web/              local chat workspace와 인증된 control API
+  workspace/        shared command, event, journal, snapshot, theme
+  workspace_terminal.py  기본 terminal workspace adapter
   harness.py        검증되는 자기개선 ledger와 rollback
   moirai/           결정적 멀티에이전트 graph runtime
   mcp_server.py     memory, skill, proposal용 stdio MCP server
@@ -240,7 +258,7 @@ skills/             번들 Markdown skill
 tests/              offline unit, integration, end-to-end coverage
 ```
 
-상태는 `BIRKIN_HOME`(보통 `~/.birkin`) 아래 파일에 저장됩니다. Dashboard는 process별 capability를 사용합니다. Gateway는 loopback에 bind하며 추가로 `BIRKIN_HTTP_TOKEN`을 요구할 수 있습니다. MCP는 stdio 위 newline-delimited JSON-RPC를 사용합니다. VS Code extension은 이 기존 권한에 연결됩니다. turn은 gateway `/message`, approval·status·editor context·checkpoint는 WebUI endpoint를 사용합니다.
+상태는 `BIRKIN_HOME`(보통 `~/.birkin`) 아래 파일에 저장됩니다. Workspace는 process별 capability를 사용하고 `BIRKIN_HTTP_TOKEN`을 명시적 bearer-capability override로 지원합니다. Gateway도 loopback에 bind하며 같은 token을 요구할 수 있습니다. MCP는 stdio 위 newline-delimited JSON-RPC를 사용합니다. VS Code extension은 이 기존 권한에 연결됩니다. turn은 gateway `/message`, approval·status·editor context·checkpoint는 WebUI endpoint를 사용합니다.
 
 </details>
 
@@ -281,9 +299,9 @@ checkpoint에서 일회용 policy-controlled sandbox worktree를 만들고 linea
 | 명령 | 용도 |
 |---|---|
 | `birkin setup` | Provider와 workspace 안내 설정. |
-| `birkin chat` | 대화형 로컬 에이전트(기본 명령). |
+| `birkin chat` | 기본 terminal chat workspace와 private loopback web authority 실행. |
 | `birkin gateway` | Loopback HTTP와 설정된 message channel 실행. |
-| `birkin web [--no-browser]` | 로컬 dashboard와 인증된 control API 실행. |
+| `birkin web [--no-browser]` | 독립 인증 chat workspace와 control API 실행. |
 | `birkin review` | 결과가 생기는 대기 action 승인 또는 거절. |
 | `birkin permission` | Approval category와 CLI access 확인·변경. |
 | `birkin tools` | 네이티브 tool 목록·활성화·비활성화. |
