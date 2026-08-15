@@ -56,6 +56,7 @@ class EscalationMixin:
     @staticmethod
     def intent_digest(request: dict[str, Any]) -> str:
         excluded = {
+            "action_id",
             "approval_id",
             "delivery",
             "idempotency_key",

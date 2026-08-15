@@ -10,9 +10,19 @@ from birkin.computer_use.models import MutationCommand
 class _EditWrapper:
     def __init__(self) -> None:
         self.value = ""
+        self.iface_value = _ValuePattern(self)
 
     def set_edit_text(self, value: str) -> None:
         self.value = value
+
+
+class _ValuePattern:
+    def __init__(self, wrapper: _EditWrapper) -> None:
+        self._wrapper = wrapper
+
+    @property
+    def CurrentValue(self) -> str:
+        return self._wrapper.value
 
 
 class _MagicWindowSpecification:
@@ -45,6 +55,7 @@ def test_windows_type_uses_concrete_edit_wrapper_method() -> None:
 
     assert backend.mutate(_type_command()) is True
     assert wrapper.value == "typed"
+    assert backend._wrapper_value(wrapper) == "typed"
 
 
 def test_windows_magic_spec_never_impersonates_value_pattern() -> None:

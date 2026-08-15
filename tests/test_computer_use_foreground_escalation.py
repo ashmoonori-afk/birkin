@@ -74,6 +74,7 @@ def test_foreground_requires_background_evidence_and_exact_approval(
         idempotency_key="attempt-approved",
         prior_receipt=background["receipt_ref"],
     )
+    request["action_id"] = "foreground-action-double-click"
     approval_id = service.approvals.propose(
         intent_digest=service.intent_digest(request),
         prior_receipt=background["receipt_ref"],

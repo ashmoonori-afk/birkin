@@ -167,7 +167,7 @@ class WindowsBackend:
         if command.action == "type" and callable(set_edit_text):
             text = str(command.value or "")
             if command.mode == "append":
-                text = f"{wrapper.window_text()}{text}"
+                text = f"{self._wrapper_value(wrapper)}{text}"
             elif command.mode == "insert":
                 raise BackendError(
                     "background_delivery_unsupported",
@@ -257,7 +257,15 @@ class WindowsBackend:
             getattr(info, "is_password", False)
             or getattr(getattr(info, "element", None), "CurrentIsPassword", False)
         )
-        value = None if is_password else wrapper.window_text()
+        value = (
+            None
+            if is_password
+            else (
+                self._wrapper_value(wrapper)
+                if "set_value" in actions
+                else wrapper.window_text()
+            )
+        )
         sensitive = "password" if is_password else None
         return ObservedElement(
             accessibility_identity=identity,
@@ -268,6 +276,10 @@ class WindowsBackend:
             supported_actions=frozenset(actions),
             sensitive_category=sensitive,
         )
+
+    @staticmethod
+    def _wrapper_value(wrapper: Any) -> str:
+        return str(wrapper.iface_value.CurrentValue)
 
     def _generation(self, pid: int) -> str:
         try:

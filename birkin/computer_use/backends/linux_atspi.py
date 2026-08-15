@@ -106,6 +106,15 @@ class LinuxATSPi:
         candidates = [
             matching_apps[0][index] for index in range(matching_apps[0].childCount)
         ]
+        title_matches = [
+            candidate
+            for candidate in candidates
+            if str(getattr(candidate, "name", "")) == window.title
+        ]
+        if len(title_matches) == 1:
+            return title_matches[0]
+        if len(candidates) == 1:
+            return candidates[0]
         matches = [
             candidate
             for candidate in candidates
