@@ -258,7 +258,7 @@ def main() -> int:
             and evidence["sandbox_removed"] is True
         )
         evidence["passed"] = passed
-        print(json.dumps(evidence, ensure_ascii=False, sort_keys=True))
+        print(json.dumps(evidence, ensure_ascii=True, sort_keys=True))
         return 0 if passed else 1
 
 
