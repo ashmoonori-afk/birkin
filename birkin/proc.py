@@ -108,7 +108,7 @@ def windows_shell_argv(command: str, system_root: str) -> list[str]:
         "/d",
         "/s",
         "/c",
-        f'@"{code_page}" 65001>nul & {command}',
+        f"@{code_page} 65001>nul & {command}",
     ]
 
 

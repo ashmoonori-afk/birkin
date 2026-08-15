@@ -173,10 +173,7 @@ def test_shell_argv_wraps_command_string():
             "/d",
             "/s",
             "/c",
-            (
-                '@"C:\\Windows\\System32\\chcp.com" '
-                "65001>nul & echo hi"
-            ),
+            "@C:\\Windows\\System32\\chcp.com 65001>nul & echo hi",
         ]
         assert argv[0].lower().endswith(r"\system32\cmd.exe")
     else:
@@ -191,7 +188,7 @@ def test_windows_shell_argv_uses_native_cmd_without_autorun() -> None:
         "/d",
         "/s",
         "/c",
-        '@"C:\\Windows\\System32\\chcp.com" 65001>nul & echo hi',
+        "@C:\\Windows\\System32\\chcp.com 65001>nul & echo hi",
     ]
 
 
