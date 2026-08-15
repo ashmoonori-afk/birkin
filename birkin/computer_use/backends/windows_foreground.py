@@ -9,18 +9,13 @@ from .base import BackendError
 
 
 def release_inputs(mouse: Any) -> tuple[str, ...]:
-    released: list[str] = []
-    for button in ("left", "right", "middle"):
-        try:
-            mouse.release(button=button)
-            released.append(f"mouse_{button}")
-        except (OSError, RuntimeError, ValueError):
-            continue
-    return tuple(released)
+    del mouse
+    return ()
 
 
 def mutate(
     mouse: Any,
+    win32gui: Any,
     elements: dict[str, Any],
     wrapper: Any,
     command: MutationCommand,
@@ -30,7 +25,25 @@ def mutate(
         int((rectangle.left + rectangle.right) / 2),
         int((rectangle.top + rectangle.bottom) / 2),
     )
+    try:
+        topmost = win32gui.GetAncestor(win32gui.WindowFromPoint(start), 2)
+        expected = int(wrapper.top_level_parent().handle)
+    except (AttributeError, OSError, RuntimeError, ValueError) as exc:
+        raise BackendError(
+            "foreground_delivery_unsupported",
+            "Win32 could not prove the topmost target window.",
+        ) from exc
+    if int(topmost) != expected:
+        raise BackendError(
+            "foreground_delivery_unsupported",
+            "The bound UIA window is occluded at the target point.",
+        )
     if command.action == "scroll":
+        if command.axis != "vertical":
+            raise BackendError(
+                "foreground_delivery_unsupported",
+                "Win32 foreground scrolling supports only the vertical axis.",
+            )
         distance = max(1, min(100, int(command.amount or 1)))
         if command.value == "negative":
             distance = -distance
@@ -57,8 +70,10 @@ def mutate(
         )
         mouse.move(coords=start)
         mouse.press(button=button, coords=start)
-        mouse.move(coords=end)
-        mouse.release(button=button, coords=end)
+        try:
+            mouse.move(coords=end)
+        finally:
+            mouse.release(button=button, coords=end)
         return True
     mouse.click(
         button=button,

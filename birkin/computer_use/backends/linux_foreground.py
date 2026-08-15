@@ -3,16 +3,21 @@
 from __future__ import annotations
 
 from importlib import import_module
-from typing import Any
+from typing import Any, Protocol
 
 from ..models import MutationCommand
 from .base import BackendError
-from .linux_atspi import LinuxATSPi
+
+
+class _WindowResolver(Protocol):
+    def bounds(self, identity: str) -> tuple[int, int, int, int] | None: ...
+
+    def window_id(self, identity: str) -> str | None: ...
 
 
 def mutate(
     display: Any,
-    atspi: LinuxATSPi,
+    atspi: _WindowResolver,
     command: MutationCommand,
 ) -> bool:
     start_bounds = atspi.bounds(command.accessibility_identity)
@@ -20,7 +25,15 @@ def mutate(
         raise BackendError("stale_ref", "The AT-SPI element bounds changed.")
     start = _center(start_bounds)
     xlib = import_module("Xlib.X")
+    xerror = import_module("Xlib.error")
     xtest = import_module("Xlib.ext.xtest")
+    try:
+        _require_topmost(display, atspi, command, start, xlib)
+    except (AttributeError, RuntimeError, xerror.XError) as exc:
+        raise BackendError(
+            "foreground_delivery_unsupported",
+            "X11 could not prove the topmost target window.",
+        ) from exc
     if command.action == "scroll":
         _scroll(display, xtest, xlib, command, start)
         return True
@@ -41,31 +54,23 @@ def mutate(
     repetitions = 2 if command.action == "double_click" else 1
     for _ in range(repetitions):
         xtest.fake_input(display, xlib.ButtonPress, button)
-        if command.action == "drag":
-            xtest.fake_input(
-                display,
-                xlib.MotionNotify,
-                x=end[0],
-                y=end[1],
-            )
-        xtest.fake_input(display, xlib.ButtonRelease, button)
+        try:
+            if command.action == "drag":
+                xtest.fake_input(
+                    display,
+                    xlib.MotionNotify,
+                    x=end[0],
+                    y=end[1],
+                )
+        finally:
+            xtest.fake_input(display, xlib.ButtonRelease, button)
     display.sync()
     return True
 
 
 def release_inputs(display: Any) -> tuple[str, ...]:
-    xlib = import_module("Xlib.X")
-    xtest = import_module("Xlib.ext.xtest")
-    released: list[str] = []
-    for name, button in (
-        ("mouse_left", 1),
-        ("mouse_middle", 2),
-        ("mouse_right", 3),
-    ):
-        xtest.fake_input(display, xlib.ButtonRelease, button)
-        released.append(name)
-    display.sync()
-    return tuple(released)
+    del display
+    return ()
 
 
 def _scroll(
@@ -98,7 +103,7 @@ def _scroll(
 
 
 def _drag_end(
-    atspi: LinuxATSPi,
+    atspi: _WindowResolver,
     command: MutationCommand,
     start: tuple[int, int],
 ) -> tuple[int, int]:
@@ -111,6 +116,53 @@ def _drag_end(
             "The AT-SPI drag destination changed.",
         )
     return _center(end_bounds)
+
+
+def _require_topmost(
+    display: Any,
+    atspi: _WindowResolver,
+    command: MutationCommand,
+    point: tuple[int, int],
+    xlib: Any,
+) -> None:
+    raw_expected = atspi.window_id(command.accessibility_identity)
+    if raw_expected is None:
+        raise BackendError("stale_ref", "The AT-SPI window binding changed.")
+    root = display.screen().root
+    expected = display.create_resource_object("window", int(raw_expected))
+    expected_root_child = _root_child(expected, root)
+    for child in reversed(root.query_tree().children):
+        try:
+            attributes = child.get_attributes()
+            if attributes.map_state != xlib.IsViewable:
+                continue
+            geometry = child.get_geometry()
+            translated = child.translate_coords(root, 0, 0)
+        except (AttributeError, RuntimeError):
+            continue
+        if (
+            translated.x <= point[0] < translated.x + geometry.width
+            and translated.y <= point[1] < translated.y + geometry.height
+        ):
+            if child.id != expected_root_child.id:
+                raise BackendError(
+                    "foreground_delivery_unsupported",
+                    "The bound X11 window is occluded at the target point.",
+                )
+            return
+    raise BackendError(
+        "foreground_delivery_unsupported",
+        "No authoritative topmost X11 window exists at the target point.",
+    )
+
+
+def _root_child(window: Any, root: Any) -> Any:
+    current = window
+    while True:
+        parent = current.query_tree().parent
+        if parent.id == root.id:
+            return current
+        current = parent
 
 
 def _center(bounds: tuple[int, int, int, int]) -> tuple[int, int]:

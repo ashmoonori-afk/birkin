@@ -6,7 +6,7 @@ from pathlib import Path
 from birkin.computer_use.artifacts import ArtifactStore
 from birkin.computer_use.cancellation import CancellationRegistry
 from birkin.computer_use.service import ComputerUseService
-from tests.computer_use_fakes import FakeBackend
+from tests.computer_use_fakes import FakeBackend, fake_session_capability
 from tests.test_computer_use_service import _capture, _mutation
 
 
@@ -18,6 +18,7 @@ def _service(
         backend=backend,
         artifact_store=ArtifactStore(tmp_path / "artifacts"),
         session_id="session-a",
+        session_capability=fake_session_capability(),
     )
 
 

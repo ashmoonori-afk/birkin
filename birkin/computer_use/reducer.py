@@ -17,6 +17,8 @@ class ComputerState:
     last_effect: str | None = None
     permission_code: str | None = None
     focus_preserved: bool | None = None
+    approval_id: str | None = None
+    approval_status: str | None = None
 
 
 def reduce_event(
@@ -27,6 +29,8 @@ def reduce_event(
         raise ValueError("unsupported Computer Use event version")
     if event.sequence != state.sequence + 1:
         raise ValueError("non-contiguous Computer Use event sequence")
+    if state.session_id is not None and event.session_id != state.session_id:
+        raise ValueError("cross-session Computer Use event")
     next_state = replace(
         state,
         sequence=event.sequence,
@@ -58,4 +62,19 @@ def reduce_event(
     focus = event.payload.get("focus")
     if isinstance(focus, dict) and isinstance(focus.get("preserved"), bool):
         next_state = replace(next_state, focus_preserved=focus["preserved"])
+    approval_id = event.payload.get("approval_id")
+    if isinstance(approval_id, str):
+        next_state = replace(
+            next_state,
+            approval_id=approval_id,
+            approval_status=(
+                "action_needed"
+                if refusal == "background_delivery_unsupported"
+                else "consuming"
+            ),
+        )
+    if effect == "confirmed" and next_state.approval_id is not None:
+        next_state = replace(next_state, approval_status="consumed")
+    if refusal == "foreground_approval_expired":
+        next_state = replace(next_state, approval_status="expired")
     return next_state

@@ -5,7 +5,7 @@ from typing import Any
 
 from birkin.computer_use.artifacts import ArtifactStore
 from birkin.computer_use.service import ComputerUseService
-from tests.computer_use_fakes import FakeBackend
+from tests.computer_use_fakes import FakeBackend, fake_session_capability
 
 
 def _service(
@@ -16,6 +16,7 @@ def _service(
         backend=backend,
         artifact_store=ArtifactStore(tmp_path / "artifacts"),
         session_id="session-a",
+        session_capability=fake_session_capability(),
     )
 
 
@@ -158,6 +159,7 @@ def test_oversized_capture_is_a_structured_refusal(tmp_path: Path) -> None:
             max_bytes=8,
         ),
         session_id="session-a",
+        session_capability=fake_session_capability(),
     )
     apps = service.execute({"version": 1, "action": "list_apps"})
     windows = service.execute(

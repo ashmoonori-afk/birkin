@@ -74,6 +74,10 @@ class MacOSAX:
             round(top + height),
         )
 
+    def window_id(self, identity: str) -> str | None:
+        locator = self._locators.get(identity)
+        return locator.window.native_window_id if locator is not None else None
+
     def mutate(self, command: MutationCommand) -> bool:
         locator = self._locators.get(command.accessibility_identity)
         if locator is None:
@@ -97,6 +101,11 @@ class MacOSAX:
                 text,
             )
         else:
+            if command.action == "scroll" and command.axis != "vertical":
+                raise BackendError(
+                    "background_delivery_unsupported",
+                    "AX semantic scrolling supports only the vertical axis.",
+                )
             action = {
                 "click": self.api.kAXPressAction,
                 "scroll": (

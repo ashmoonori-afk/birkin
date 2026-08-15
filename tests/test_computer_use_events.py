@@ -9,7 +9,7 @@ from birkin.computer_use.artifacts import ArtifactStore
 from birkin.computer_use.events import ComputerEvent, EventStream
 from birkin.computer_use.reducer import ComputerState, reduce_event
 from birkin.computer_use.service import ComputerUseService
-from tests.computer_use_fakes import FakeBackend
+from tests.computer_use_fakes import FakeBackend, fake_session_capability
 from tests.test_computer_use_service import _capture, _mutation
 
 
@@ -19,6 +19,7 @@ def test_typed_events_exclude_raw_typed_input(tmp_path: Path) -> None:
         backend=FakeBackend(),
         artifact_store=ArtifactStore(tmp_path / "artifacts"),
         session_id="session-a",
+        session_capability=fake_session_capability(),
         emit=emitted.append,
     )
     captured = _capture(service)
@@ -104,6 +105,7 @@ def test_invalid_request_emits_no_started_event(tmp_path: Path) -> None:
         backend=FakeBackend(),
         artifact_store=ArtifactStore(tmp_path / "artifacts"),
         session_id="session-a",
+        session_capability=fake_session_capability(),
         emit=emitted.append,
     )
 

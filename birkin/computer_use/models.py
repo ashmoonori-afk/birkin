@@ -75,7 +75,6 @@ class MutationCommand:
     value: object | None = None
     mode: str | None = None
     secondary_accessibility_identity: str | None = None
-    modifiers: tuple[str, ...] = ()
     axis: str | None = None
     amount: float | None = None
 

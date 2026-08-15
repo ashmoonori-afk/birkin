@@ -35,7 +35,6 @@ _MUTATIONS = {
     "middle_click",
     "scroll",
     "type",
-    "key",
 }
 
 
@@ -64,6 +63,7 @@ class ComputerUseService(
             actor="agent",
             source="tool",
             allowed_operations=frozenset({*_MUTATIONS, "drag"}),
+            allowed_apps=frozenset(),
         )
         self.bindings = BindingStore(
             session_id=session_id,

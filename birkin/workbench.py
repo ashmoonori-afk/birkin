@@ -19,6 +19,7 @@ import atexit
 import os
 import sys
 import time
+from pathlib import Path
 from typing import Any
 
 from . import ui, uikit, uistate
@@ -54,6 +55,9 @@ def snapshot(session: Any) -> dict[str, Any]:
         "agents": base.get("agents", []),
         "cron": base.get("cron", []),
         "approvals": [],
+        "activity": list(base.get("agents", [])),
+        "checkpoints": [],
+        "zones": [],
         "goal": {},
         "errors": dict(base.get("errors") or {}),
     }
@@ -72,6 +76,22 @@ def snapshot(session: Any) -> dict[str, Any]:
                             "objective": getattr(active, "objective", "")}
     except Exception:
         pass
+    try:
+        from .checkpoints import CheckpointManager
+        snap["checkpoints"] = CheckpointManager().list_checkpoints(Path.cwd())
+    except Exception as exc:
+        snap["errors"]["복원"] = str(exc) or type(exc).__name__
+    skill_manager = getattr(session, "skills", None)
+    skill_catalog = getattr(skill_manager, "skills", {})
+    skills = list(skill_catalog.values()) if isinstance(skill_catalog, dict) else []
+    snap["zones"] = [
+        {
+            "id": str(getattr(skill, "name", index)),
+            "name": str(getattr(skill, "name", skill)),
+            "status": "available",
+        }
+        for index, skill in enumerate(skills)
+    ]
     return snap
 
 

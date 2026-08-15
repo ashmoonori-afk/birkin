@@ -11,37 +11,12 @@ from .base import BackendError
 class _BoundsResolver(Protocol):
     def bounds(self, identity: str) -> tuple[int, int, int, int] | None: ...
 
+    def window_id(self, identity: str) -> str | None: ...
+
 
 def release_inputs(quartz: Any) -> tuple[str, ...]:
-    event = quartz.CGEventCreate(None)
-    point = quartz.CGEventGetLocation(event)
-    released: list[str] = []
-    for name, event_type, button in (
-        (
-            "mouse_left",
-            quartz.kCGEventLeftMouseUp,
-            quartz.kCGMouseButtonLeft,
-        ),
-        (
-            "mouse_right",
-            quartz.kCGEventRightMouseUp,
-            quartz.kCGMouseButtonRight,
-        ),
-        (
-            "mouse_middle",
-            quartz.kCGEventOtherMouseUp,
-            quartz.kCGMouseButtonCenter,
-        ),
-    ):
-        mouse_up = quartz.CGEventCreateMouseEvent(
-            None,
-            event_type,
-            point,
-            button,
-        )
-        quartz.CGEventPost(quartz.kCGHIDEventTap, mouse_up)
-        released.append(name)
-    return tuple(released)
+    del quartz
+    return ()
 
 
 def mutate(
@@ -53,10 +28,17 @@ def mutate(
     if bounds is None:
         raise BackendError("stale_ref", "The AX element bounds changed.")
     start = _center(bounds)
+    _require_topmost(quartz, resolver, command, start)
     end = _drag_end(resolver, command, start)
     if command.action == "scroll":
+        if command.axis != "vertical":
+            raise BackendError(
+                "foreground_delivery_unsupported",
+                "Quartz foreground scrolling supports only the vertical axis.",
+            )
         amount = max(1, min(100, int(command.amount or 1)))
         delta = amount if command.value == "positive" else -amount
+        quartz.CGWarpMouseCursorPosition(start)
         event = quartz.CGEventCreateScrollWheelEvent(
             None,
             quartz.kCGScrollEventUnitPixel,
@@ -118,16 +100,57 @@ def mutate(
                 click_count,
             )
         quartz.CGEventPost(quartz.kCGHIDEventTap, down_event)
-        if command.action == "drag":
-            drag_event = quartz.CGEventCreateMouseEvent(
-                None,
-                quartz.kCGEventLeftMouseDragged,
-                end,
-                button,
-            )
-            quartz.CGEventPost(quartz.kCGHIDEventTap, drag_event)
-        quartz.CGEventPost(quartz.kCGHIDEventTap, up_event)
+        try:
+            if command.action == "drag":
+                drag_event = quartz.CGEventCreateMouseEvent(
+                    None,
+                    quartz.kCGEventLeftMouseDragged,
+                    end,
+                    button,
+                )
+                quartz.CGEventPost(quartz.kCGHIDEventTap, drag_event)
+        finally:
+            quartz.CGEventPost(quartz.kCGHIDEventTap, up_event)
     return True
+
+
+def _require_topmost(
+    quartz: Any,
+    resolver: _BoundsResolver,
+    command: MutationCommand,
+    point: tuple[float, float],
+) -> None:
+    expected = resolver.window_id(command.accessibility_identity)
+    if expected is None:
+        raise BackendError("stale_ref", "The AX window binding changed.")
+    options = (
+        quartz.kCGWindowListOptionOnScreenOnly
+        | quartz.kCGWindowListExcludeDesktopElements
+    )
+    windows = (
+        quartz.CGWindowListCopyWindowInfo(
+            options,
+            quartz.kCGNullWindowID,
+        )
+        or ()
+    )
+    for raw in windows:
+        bounds = raw.get(quartz.kCGWindowBounds, {})
+        left = float(bounds.get("X", 0))
+        top = float(bounds.get("Y", 0))
+        right = left + float(bounds.get("Width", 0))
+        bottom = top + float(bounds.get("Height", 0))
+        if left <= point[0] < right and top <= point[1] < bottom:
+            if str(int(raw[quartz.kCGWindowNumber])) != expected:
+                raise BackendError(
+                    "foreground_delivery_unsupported",
+                    "The bound AX window is occluded at the target point.",
+                )
+            return
+    raise BackendError(
+        "foreground_delivery_unsupported",
+        "No authoritative topmost window exists at the target point.",
+    )
 
 
 def _drag_end(

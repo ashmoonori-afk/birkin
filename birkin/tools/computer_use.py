@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 
 from .. import config
+from ..computer_use.events import ComputerEvent
 from ..computer_use.runtime import create_service
 from ..computer_use.schema import ACTIONS, computer_use_schema
 from ..computer_use.service import ComputerUseService
@@ -15,8 +16,23 @@ def _service(ctx: ToolContext) -> ComputerUseService:
     current = ctx.computer_use_service
     if isinstance(current, ComputerUseService):
         return current
+    emit = None
+    if ctx.emit is not None:
+
+        def emit_event(event: ComputerEvent) -> None:
+            if ctx.emit is not None:
+                ctx.emit("computer_use", event.to_dict())
+
+        emit = emit_event
+    configured_session = ctx.cfg.get("session_id")
     service = create_service(
         artifact_root=config.birkin_home() / "computer-use" / "artifacts",
+        session_id=(
+            configured_session
+            if isinstance(configured_session, str) and configured_session
+            else None
+        ),
+        emit=emit,
         policy_config=(
             ctx.cfg.get("computer_use")
             if isinstance(ctx.cfg.get("computer_use"), dict)

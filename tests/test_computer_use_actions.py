@@ -8,7 +8,7 @@ import pytest
 
 from birkin.computer_use.artifacts import ArtifactStore
 from birkin.computer_use.service import ComputerUseService
-from tests.computer_use_fakes import FakeBackend
+from tests.computer_use_fakes import FakeBackend, fake_session_capability
 from tests.test_computer_use_service import _capture
 
 
@@ -20,6 +20,7 @@ def _service(
         backend=backend,
         artifact_store=ArtifactStore(tmp_path / "artifacts"),
         session_id="session-a",
+        session_capability=fake_session_capability(),
     )
 
 
@@ -81,14 +82,13 @@ def test_click_family_uses_explicit_semantic_actions(
     assert result["effect"] == "confirmed"
 
 
-def test_drag_scroll_type_and_key_are_typed_and_verified(
+def test_drag_scroll_and_type_are_typed_and_verified(
     tmp_path: Path,
 ) -> None:
     cases = [
         ("drag", "drag", "dragged"),
         ("scroll", "scroll", "scrolled"),
         ("type", "set_value", "typed"),
-        ("key", "key", "key:Return"),
     ]
     for action, semantic, expected in cases:
         backend = FakeBackend()
@@ -115,8 +115,6 @@ def test_drag_scroll_type_and_key_are_typed_and_verified(
             )
         elif action == "type":
             request.update(text="typed", mode="replace")
-        elif action == "key":
-            request["chord"] = {"key": "Return", "modifiers": []}
 
         result = service.execute(request)
 
@@ -131,5 +129,3 @@ def test_drag_scroll_type_and_key_are_typed_and_verified(
         elif action == "scroll":
             assert backend.last_command.axis == "vertical"
             assert backend.last_command.amount == 1
-        elif action == "key":
-            assert backend.last_command.modifiers == ()

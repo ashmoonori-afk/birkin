@@ -24,7 +24,6 @@ ACTIONS: Final[tuple[str, ...]] = (
     "drag",
     "scroll",
     "type",
-    "key",
     "doctor",
 )
 
@@ -101,30 +100,6 @@ def _branches() -> list[dict[str, Any]]:
         properties=type_properties,
         required=(*mutation_required(), "text"),
     )
-    key_properties = mutation_properties() | {
-        "chord": {
-            "type": "object",
-            "required": ["key"],
-            "properties": {
-                "key": dict(STRING_REF),
-                "modifiers": {
-                    "type": "array",
-                    "items": {
-                        "type": "string",
-                        "enum": ["alt", "command", "control", "shift", "super"],
-                    },
-                    "uniqueItems": True,
-                    "default": [],
-                },
-            },
-            "additionalProperties": False,
-        }
-    }
-    key = branch(
-        "key",
-        properties=key_properties,
-        required=(*mutation_required(), "chord"),
-    )
     doctor = branch("doctor")
     return [
         capture,
@@ -134,7 +109,6 @@ def _branches() -> list[dict[str, Any]]:
         drag,
         scroll,
         type_text,
-        key,
         doctor,
     ]
 

@@ -4,7 +4,7 @@ from pathlib import Path
 
 from birkin.computer_use.artifacts import ArtifactStore
 from birkin.computer_use.service import ComputerUseService
-from tests.computer_use_fakes import FakeBackend
+from tests.computer_use_fakes import FakeBackend, fake_session_capability
 from tests.test_computer_use_service import _capture, _mutation
 
 
@@ -15,6 +15,7 @@ def test_background_focus_change_fails_verification(tmp_path: Path) -> None:
         backend=backend,
         artifact_store=ArtifactStore(tmp_path / "artifacts"),
         session_id="session-a",
+        session_capability=fake_session_capability(),
     )
     captured = _capture(service)
 
@@ -33,6 +34,7 @@ def test_pointer_motion_does_not_impersonate_focus_change(tmp_path: Path) -> Non
         backend=backend,
         artifact_store=ArtifactStore(tmp_path / "artifacts"),
         session_id="session-a",
+        session_capability=fake_session_capability(),
     )
     captured = _capture(service)
 
@@ -50,6 +52,7 @@ def test_foreground_receipt_proves_release_and_focus_restore(
         backend=backend,
         artifact_store=ArtifactStore(tmp_path / "artifacts"),
         session_id="session-a",
+        session_capability=fake_session_capability(),
     )
     captured = _capture(service)
     from tests.test_computer_use_foreground_escalation import _double_click

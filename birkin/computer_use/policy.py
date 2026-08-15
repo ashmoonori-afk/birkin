@@ -10,24 +10,31 @@ from .models import ObservedElement
 
 _SENSITIVE = {
     "password",
-    "secret",
-    "two_factor",
-    "payment",
-    "permission_dialog",
-    "system_dialog",
-}
-_RISKY = {
-    "logout",
-    "lock",
-    "delete",
-    "security_settings",
-    "privilege_elevation",
 }
 _SHELL_PATTERN = re.compile(r"(?:[;&|`$<>]|\brm\s+-|\bsudo\b)", re.IGNORECASE)
 _SHELL_CAPABLE_ROLES = {
+    "custom",
     "document",
+    "editabletext",
     "terminal",
+    "text",
+    "textfield",
     "textarea",
+}
+_SHELL_APPS = {
+    "bash",
+    "cmd.exe",
+    "com.apple.terminal",
+    "com.googlecode.iterm2",
+    "conhost.exe",
+    "fish",
+    "kitty",
+    "powershell.exe",
+    "pwsh.exe",
+    "wezterm",
+    "wezterm-gui.exe",
+    "wt.exe",
+    "zsh",
 }
 
 
@@ -40,18 +47,16 @@ class PolicyDecision:
 def classify_mutation(
     element: ObservedElement,
     request: dict[str, Any],
+    *,
+    app_identity: str,
 ) -> PolicyDecision:
     """Classify only trusted request fields and native element metadata."""
     category = element.sensitive_category
     if category in _SENSITIVE:
         return PolicyDecision("action_needed", "sensitive_target_blocked")
-    if category in _RISKY:
-        return PolicyDecision(
-            "approval_required",
-            "risky_action_approval_required",
-        )
     if (
         request.get("action") == "type"
+        and _is_shell_app(app_identity)
         and element.role.casefold().removeprefix("ax").replace("_", "")
         in _SHELL_CAPABLE_ROLES
         and _SHELL_PATTERN.search(str(request.get("text", "")))
@@ -87,7 +92,10 @@ def command_value(request: dict[str, Any]) -> object | None:
     action = request.get("action")
     if action == "type":
         return request.get("text")
-    if action == "key":
-        chord = request.get("chord")
-        return chord.get("key") if isinstance(chord, dict) else None
     return request.get("direction") if action == "scroll" else None
+
+
+def _is_shell_app(identity: str) -> bool:
+    normalized = identity.casefold().replace("\\", "/").rstrip("/")
+    basename = normalized.rsplit("/", 1)[-1]
+    return normalized in _SHELL_APPS or basename in _SHELL_APPS

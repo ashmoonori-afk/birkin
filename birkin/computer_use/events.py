@@ -58,6 +58,7 @@ def request_summary(request: dict[str, Any]) -> dict[str, object]:
     keys = (
         "action",
         "action_id",
+        "approval_id",
         "delivery",
         "mode",
         "session_id",
@@ -88,4 +89,11 @@ def result_summary(result: dict[str, Any]) -> dict[str, object]:
         "focus",
         "restoration",
     )
-    return {key: result[key] for key in keys if key in result}
+    summary = {key: result[key] for key in keys if key in result}
+    approval = result.get("approval")
+    if isinstance(approval, dict):
+        for key in ("approval_id", "review_id"):
+            value = approval.get(key)
+            if isinstance(value, str):
+                summary[key] = value
+    return summary

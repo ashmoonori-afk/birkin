@@ -58,6 +58,10 @@ class LinuxATSPi:
             int(extents.y + extents.height),
         )
 
+    def window_id(self, identity: str) -> str | None:
+        locator = self._locators.get(identity)
+        return locator.window.native_window_id if locator is not None else None
+
     def mutate(self, command: MutationCommand) -> bool:
         locator = self._locators.get(command.accessibility_identity)
         if locator is None:

@@ -53,6 +53,18 @@ def test_empty_app_allowlist_denies_every_app(tmp_path: Path) -> None:
     assert apps["apps"] == []
 
 
+def test_direct_service_default_denies_every_app(tmp_path: Path) -> None:
+    service = ComputerUseService(
+        backend=FakeBackend(),
+        artifact_store=ArtifactStore(tmp_path / "artifacts"),
+        session_id="session-a",
+    )
+
+    apps = service.execute({"version": 1, "action": "list_apps"})
+
+    assert apps["apps"] == []
+
+
 def test_session_operation_scope_blocks_delivery(tmp_path: Path) -> None:
     capability = SessionCapability(
         session_id="session-a",

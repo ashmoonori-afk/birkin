@@ -224,6 +224,7 @@ class WindowsBackend:
     ) -> bool:
         return windows_foreground.mutate(
             self.mouse,
+            self.win32gui,
             self._elements,
             wrapper,
             command,

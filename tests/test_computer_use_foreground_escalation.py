@@ -5,7 +5,7 @@ from typing import Any
 
 from birkin.computer_use.artifacts import ArtifactStore
 from birkin.computer_use.service import ComputerUseService
-from tests.computer_use_fakes import FakeBackend
+from tests.computer_use_fakes import FakeBackend, fake_session_capability
 from tests.test_computer_use_service import _capture
 
 
@@ -49,6 +49,7 @@ def test_foreground_requires_background_evidence_and_exact_approval(
         backend=backend,
         artifact_store=ArtifactStore(tmp_path / "artifacts"),
         session_id="session-a",
+        session_capability=fake_session_capability(),
     )
     captured = _capture(service)
 
@@ -97,6 +98,7 @@ def test_foreground_approval_is_one_shot_and_digest_bound(
         backend=backend,
         artifact_store=ArtifactStore(tmp_path / "artifacts"),
         session_id="session-a",
+        session_capability=fake_session_capability(),
     )
     captured = _capture(service)
     background = service.execute(

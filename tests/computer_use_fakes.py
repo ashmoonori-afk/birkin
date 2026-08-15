@@ -16,6 +16,7 @@ from birkin.computer_use.models import (
     ObservedElement,
     ObservedWindow,
 )
+from birkin.computer_use.session_policy import SessionCapability
 
 
 class FakeBackend:
@@ -133,11 +134,6 @@ class FakeBackend:
             self.element = replace(self.element, value="dragged")
         elif command.action == "scroll":
             self.element = replace(self.element, value="scrolled")
-        elif command.action == "key":
-            self.element = replace(
-                self.element,
-                value=f"key:{command.value}",
-            )
         return True
 
     def focus_state(self) -> FocusSnapshot:
@@ -165,3 +161,27 @@ class FakeBackend:
             return None
         assert accessibility_identity == self.element.accessibility_identity
         return self.element
+
+
+def fake_session_capability(
+    session_id: str = "session-a",
+    *,
+    allowed_app_identity: str = "org.birkin.QAFixture",
+) -> SessionCapability:
+    return SessionCapability(
+        session_id=session_id,
+        actor="test-agent",
+        source="test",
+        allowed_operations=frozenset(
+            {
+                "click",
+                "double_click",
+                "right_click",
+                "middle_click",
+                "drag",
+                "scroll",
+                "type",
+            }
+        ),
+        allowed_apps=frozenset({allowed_app_identity}),
+    )

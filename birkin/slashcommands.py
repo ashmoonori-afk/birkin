@@ -14,7 +14,7 @@ import json
 import shlex
 from dataclasses import dataclass, field
 from datetime import datetime
-from typing import Any, Callable, Optional
+from typing import Any, Callable, Optional, cast
 
 from . import config, selfimprove, store, transcripts, ui
 from .ui import BOLD, CYAN, DIM, GREEN, RED, RESET, YELLOW
@@ -437,20 +437,38 @@ def _status(session: Any, arg: str) -> None:
     print(statusline.render(session.cfg))
 
 
-@command("dash", "Full-screen mission control (세션·크론·승인·기억).",
+@command("dash", "Deprecated focus alias for unified activity/logs.",
          "/dash [--plain|--json]", aliases=["dashboard"])
-def _dash(session: Any, arg: str) -> None:
-    from . import dash
+def dash_command(session: object, arg: str) -> None:
     a = arg.strip().lower()
-    dash.run(session, plain=(a == "--plain"), as_json=(a == "--json"))
+    if a not in {"", "--plain", "--json"}:
+        print("usage: /dash [--plain|--json]")
+        return
+    focus = getattr(session, "workspace_focus", None)
+    if callable(focus):
+        callback = cast(Callable[[str], object], focus)
+        _ = callback("activity_logs")
+        suffix = " Legacy format flag ignored." if a else ""
+        print(f"/dash is deprecated; focused unified activity/logs.{suffix}")
+        return
+    print("/dash is deprecated; open `birkin chat` for the unified workspace.")
 
 
-@command("work", "Attention-first workbench (승인·작업·근거 관제).",
+@command("work", "Focus the unified tasks/runs workbench.",
          "/work [--plain|--json]", aliases=["workbench"])
-def _work(session: Any, arg: str) -> None:
-    from . import workbench
+def work_command(session: object, arg: str) -> None:
     a = arg.strip().lower()
-    workbench.run(session, plain=(a == "--plain"), as_json=(a == "--json"))
+    if a not in {"", "--plain", "--json"}:
+        print("usage: /work [--plain|--json]")
+        return
+    focus = getattr(session, "workspace_focus", None)
+    if callable(focus):
+        callback = cast(Callable[[str], object], focus)
+        _ = callback("tasks_runs")
+        suffix = " Legacy format flag ignored." if a else ""
+        print(f"/work is the unified workbench; focused tasks/runs.{suffix}")
+        return
+    print("/work now opens inside `birkin chat`; start the unified workspace.")
 
 
 def _agent_run_rows() -> list[tuple[dict[str, Any], int]]:

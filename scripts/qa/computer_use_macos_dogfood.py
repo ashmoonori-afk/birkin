@@ -11,12 +11,15 @@ import sys
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
+import psutil
+
 from birkin import approvals, proc, procreg
 from birkin.computer_use.approval_bridge import ApprovalBridge
 from birkin.computer_use.artifacts import ArtifactStore
 from birkin.computer_use.backends.macos import MacOSBackend
 from birkin.computer_use.capability_types import PermissionState
 from birkin.computer_use.service import ComputerUseService
+from birkin.computer_use.session_policy import SessionCapability
 
 
 def _ready_pid(process: subprocess.Popen[str], timeout: float = 15.0) -> int:
@@ -71,6 +74,23 @@ def run(binary: Path, evidence_root: Path) -> int:
             session_id="macos-dogfood",
             approval_bridge=ApprovalBridge(
                 session_id="macos-dogfood",
+            ),
+            session_capability=SessionCapability(
+                session_id="macos-dogfood",
+                actor="qa-driver",
+                source="macos-dogfood",
+                allowed_operations=frozenset(
+                    {
+                        "click",
+                        "double_click",
+                        "right_click",
+                        "middle_click",
+                        "drag",
+                        "scroll",
+                        "type",
+                    }
+                ),
+                allowed_apps=frozenset({psutil.Process(ready_pid).exe()}),
             ),
         )
         apps = service.execute({"version": 1, "action": "list_apps"})

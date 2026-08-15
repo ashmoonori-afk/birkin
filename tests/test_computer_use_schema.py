@@ -16,7 +16,6 @@ EXPECTED_ACTIONS = {
     "drag",
     "scroll",
     "type",
-    "key",
     "doctor",
 }
 
@@ -69,7 +68,6 @@ def test_element_mutations_require_current_opaque_refs() -> None:
         "middle_click",
         "scroll",
         "type",
-        "key",
     ):
         branch = _branch(schema, action)
         assert "target" in branch["required"]

@@ -47,13 +47,17 @@ class MutationMixin:
                 **self._refused("verification_unavailable"),
                 "effect": "unverifiable",
             }
-        policy = classify_mutation(before, request)
+        app = self._apps[target.app_ref]
+        window = self._windows[target.window_ref]
+        policy = classify_mutation(
+            before,
+            request,
+            app_identity=app.native_identity,
+        )
         if policy.status != "allowed":
             response = self._refused(str(policy.refusal_code))
             response["status"] = policy.status
             return response
-        app = self._apps[target.app_ref]
-        window = self._windows[target.window_ref]
         authority = self.session_capability.authorize(
             session_id=self.session_id,
             operation=str(request["action"]),
@@ -96,14 +100,6 @@ class MutationMixin:
                 str(request["secondary_accessibility_identity"])
                 if request.get("secondary_accessibility_identity") is not None
                 else None
-            ),
-            modifiers=tuple(
-                str(modifier)
-                for modifier in (
-                    request.get("chord", {}).get("modifiers", [])
-                    if isinstance(request.get("chord"), dict)
-                    else []
-                )
             ),
             axis=(str(request["axis"]) if request.get("axis") is not None else None),
             amount=(

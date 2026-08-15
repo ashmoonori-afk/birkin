@@ -114,10 +114,12 @@ def test_page_ships_reviewed_interaction_contract(srv):
 
     assert 'id="queue-notice"' in html
     assert 'id="lens-toggle"' in html
-    assert "requestConfirmation" in html
+    assert "submitApproval" in html
+    assert "window.confirm" not in html
+    assert 'decision === "approve"' in html
     assert "expected-impact" in html
     assert "rejection-result" in html
     assert "related-evidence" in html
     assert "buildQueue(approvals, jobs, runs)" in html
-    assert "selectedId = items[0].id" in html
+    assert "state.selectedId = items[0].id" in html
     assert "run.ui_state" in html

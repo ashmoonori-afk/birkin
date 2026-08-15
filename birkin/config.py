@@ -149,7 +149,6 @@ DEFAULT_CONFIG: dict[str, Any] = {
             "drag",
             "scroll",
             "type",
-            "key",
         ],
         "max_actions": 200,
     },

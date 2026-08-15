@@ -11,11 +11,14 @@ import sys
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
+import psutil
+
 from birkin import approvals, proc, procreg
 from birkin.computer_use.approval_bridge import ApprovalBridge
 from birkin.computer_use.artifacts import ArtifactStore
 from birkin.computer_use.backends.linux import LinuxBackend
 from birkin.computer_use.service import ComputerUseService
+from birkin.computer_use.session_policy import SessionCapability
 
 
 def _ready_pid(process: subprocess.Popen[str]) -> int:
@@ -56,6 +59,23 @@ def run(fixture: Path, evidence_root: Path) -> int:
             session_id="linux-acceptance",
             approval_bridge=ApprovalBridge(
                 session_id="linux-acceptance",
+            ),
+            session_capability=SessionCapability(
+                session_id="linux-acceptance",
+                actor="qa-driver",
+                source="linux-acceptance",
+                allowed_operations=frozenset(
+                    {
+                        "click",
+                        "double_click",
+                        "right_click",
+                        "middle_click",
+                        "drag",
+                        "scroll",
+                        "type",
+                    }
+                ),
+                allowed_apps=frozenset({psutil.Process(pid).exe()}),
             ),
         )
         apps = service.execute({"version": 1, "action": "list_apps"})
