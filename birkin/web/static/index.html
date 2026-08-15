@@ -2,588 +2,1085 @@
 <html lang="ko">
 <head>
 <meta charset="utf-8" />
-<meta name="viewport" content="width=device-width, initial-scale=1" />
-<title>birkin workbench</title>
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+<meta name="color-scheme" content="dark light" />
+<title>Birkin · Workspace</title>
 <style>
-/* Tokens arrive from /api/contract (Python-owned). The values below are
-   neutral boot fallbacks only, never a copy of the palette. */
-:root {
-  --surface: #111214; --surface-elevated: #1a1b1e;
-  --text-primary: #e8e8e8; --text-muted: #9a9a9a;
-  --accent: #cccccc; --running: #bbbbbb; --waiting-human: #dddddd;
-  --waiting-dependency: #aaaaaa; --success: #bbbbbb; --warning: #cccccc;
-  --failure: #dddddd; --evidence: #bbbbbb; --memory: #bbbbbb;
-  --diff-add: #bbbbbb; --diff-remove: #cccccc; --focus: #ffffff;
-  --selection: #333333;
-}
-* { box-sizing: border-box; }
-html, body { margin: 0; height: 100%; }
-body {
-  background: var(--surface); color: var(--text-primary);
-  font: 15px/1.5 system-ui, "Apple SD Gothic Neo", "Malgun Gothic", sans-serif;
-}
-button { font: inherit; }
-:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
-::selection { background: var(--selection); }
-
-.app {
-  display: grid; min-height: 100vh;
-  grid-template-rows: auto 1fr;
-  min-width: 0; max-width: 100vw;
-}
-.pulse {
-  display: flex; flex-wrap: wrap; gap: .35rem 1rem;
-  align-items: center; padding: .55rem .9rem;
-  background: var(--surface-elevated);
-  border-bottom: 1px solid var(--selection);
-}
-.pulse .brand { font-weight: 700; color: var(--accent); }
-.pulse .seg { color: var(--text-muted); font-size: .86rem; }
-.pulse .seg.alert { color: var(--waiting-human); font-weight: 600; }
-.pulse .seg.down { color: var(--failure); font-weight: 600; }
-
-.main { display: grid; gap: 0; min-width: 0; max-width: 100vw; }
-.ledger { border-bottom: 1px solid var(--selection); min-width: 0; }
-.bench { padding: 1rem; min-width: 0; }
-.lens { display: none; padding: 1rem; border-left: 1px solid var(--selection); }
-.lens-toggle {
-  display: none; position: fixed; right: 1rem; bottom: 1rem; z-index: 3;
-  padding: .5rem .8rem; border: 1px solid var(--focus); border-radius: 8px;
-  background: var(--surface-elevated); color: var(--text-primary);
-}
-
-@media (min-width: 768px) {
-  .main { grid-template-columns: 300px minmax(0,1fr); grid-template-areas: "ledger bench"; }
-  .ledger { border-right: 1px solid var(--selection); border-bottom: none; }
-  .ledger summary { cursor: pointer; }
-}
-@media (min-width: 1024px) and (max-width: 1439px) {
-  .lens-toggle { display: block; }
-  .lens.open {
-    display: block; position: fixed; inset: 3.2rem 0 0 auto; z-index: 2;
-    width: min(320px, 88vw); overflow: auto;
-    background: var(--surface-elevated);
-    box-shadow: -12px 0 28px rgb(0 0 0 / .32);
+  :root {
+    --birkin-accent: Highlight;
+    --birkin-border: GrayText;
+    --birkin-border-accent: Highlight;
+    --birkin-border-muted: GrayText;
+    --birkin-text: CanvasText;
+    --birkin-muted: GrayText;
+    --birkin-dim: GrayText;
+    --birkin-background: Canvas;
+    --birkin-surface: Field;
+    --birkin-surface-raised: ButtonFace;
+    --birkin-focus-ring: Highlight;
+    --birkin-success: LinkText;
+    --birkin-warning: Highlight;
+    --birkin-error: ActiveText;
+    --birkin-info: LinkText;
+    --birkin-pending: Highlight;
+    --birkin-blocked: ActiveText;
+    --birkin-action-needed: Highlight;
+    --birkin-selected-bg: ButtonFace;
+    --birkin-user-message-bg: Canvas;
+    --birkin-assistant-message-bg: Canvas;
+    --birkin-thinking-bg: Canvas;
+    --birkin-tool-pending-bg: Canvas;
+    --birkin-tool-success-bg: Canvas;
+    --birkin-tool-error-bg: Canvas;
+    --birkin-action-needed-bg: Canvas;
+    --birkin-evidence-bg: Canvas;
+    --birkin-composer-bg: Canvas;
+    --background: var(--birkin-background);
+    --surface: var(--birkin-surface);
+    --surface-raised: var(--birkin-surface-raised);
+    --border: var(--birkin-border);
+    --border-muted: var(--birkin-border-muted);
+    --accent: var(--birkin-accent);
+    --text: var(--birkin-text);
+    --muted: var(--birkin-muted);
+    --dim: var(--birkin-dim);
+    --success: var(--birkin-success);
+    --warning: var(--birkin-warning);
+    --error: var(--birkin-error);
+    --info: var(--birkin-info);
+    --pending: var(--birkin-pending);
+    --focus-ring: var(--birkin-focus-ring);
+    --composer-bg: var(--birkin-composer-bg);
+    --radius: 14px;
+    --space: clamp(12px, 2vw, 22px);
+    --composer-reserved: 164px;
+    font-family: "Apple SD Gothic Neo", "Noto Sans KR", "Malgun Gothic",
+      ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI",
+      sans-serif;
   }
-}
-@media (min-width: 1440px) {
-  .main { grid-template-columns: 320px minmax(0,1fr) 320px; grid-template-areas: "ledger bench lens"; }
-  .lens { display: block; }
-}
 
-.ledger summary {
-  cursor: pointer; padding: .6rem .9rem; font-weight: 600;
-  color: var(--waiting-human);
-}
-.queue { list-style: none; margin: 0; padding: .4rem; }
-.queue li { margin: 0; }
-.queue button {
-  display: flex; gap: .5rem; align-items: baseline; width: 100%;
-  min-width: 0;
-  text-align: left; padding: .45rem .55rem; border: 0; border-radius: 6px;
-  background: transparent; color: var(--text-primary); cursor: pointer;
-}
-.queue button[aria-current="true"] { background: var(--selection); }
-.queue .glyph { flex: none; width: 1.1em; text-align: center; }
-.queue .t { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.queue .s { flex: none; font-size: .78rem; color: var(--text-muted); }
+  * { box-sizing: border-box; }
+  html, body { min-height: 100%; margin: 0; }
+  body {
+    background:
+      radial-gradient(circle at 12% -10%, color-mix(in srgb, var(--accent) 10%, transparent), transparent 34rem),
+      var(--background);
+    color: var(--text);
+  }
+  button, textarea { font: inherit; }
+  button { color: inherit; }
+  button:focus-visible, textarea:focus-visible {
+    outline: 2px solid var(--focus-ring);
+    outline-offset: 2px;
+  }
 
-.card {
-  background: var(--surface-elevated); border: 1px solid var(--selection);
-  border-radius: 10px; padding: 1rem; max-width: 52rem;
-}
-.card h2 { margin: 0 0 .6rem; font-size: 1.05rem; }
-.badge { font-weight: 600; }
-.meta { display: grid; grid-template-columns: auto 1fr; gap: .25rem .8rem; margin: .6rem 0; }
-.meta dt { color: var(--text-muted); }
-.meta dd { margin: 0; overflow-wrap: anywhere; }
-.risk-high { color: var(--failure); font-weight: 700; }
-.risk-mid  { color: var(--warning); font-weight: 600; }
-details.payload { margin: .6rem 0; }
-details.payload > summary { cursor: pointer; color: var(--evidence); }
-details.payload pre {
-  max-height: 16rem; overflow: auto; background: var(--surface);
-  padding: .6rem; border-radius: 6px; font-size: .82rem;
-}
-.actions { display: flex; gap: .6rem; margin-top: .8rem; flex-wrap: wrap; }
-.actions button {
-  padding: .5rem 1.1rem; border-radius: 8px; cursor: pointer;
-  border: 1px solid var(--selection); background: var(--surface);
-  color: var(--text-primary);
-}
-.actions button.ok { border-color: var(--success); }
-.actions button.no { border-color: var(--failure); }
-.actions button:disabled { opacity: .55; cursor: wait; }
-.authority-note { color: var(--text-muted); font-size: .82rem; margin-top: .5rem; }
-#announce { min-height: 1.4em; margin-top: .6rem; color: var(--accent); }
+  .workspace {
+    height: 100dvh;
+    display: grid;
+    grid-template-rows: auto minmax(0, 1fr);
+    overflow: hidden;
+  }
+  .topbar {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    min-width: 0;
+    padding: 11px var(--space);
+    border-bottom: 1px solid var(--border-muted);
+    background: color-mix(in srgb, var(--background) 90%, transparent);
+    backdrop-filter: blur(18px);
+  }
+  .brand { display: flex; align-items: baseline; gap: 9px; min-width: 0; }
+  .brand strong { letter-spacing: .035em; }
+  .brand span { color: var(--dim); font-size: .78rem; white-space: nowrap; }
+  .topbar-spacer { flex: 1; }
+  .connection {
+    display: inline-flex;
+    align-items: center;
+    gap: 7px;
+    color: var(--muted);
+    font-size: .8rem;
+  }
+  .connection::before {
+    content: "";
+    width: 8px;
+    height: 8px;
+    border-radius: 999px;
+    background: var(--warning);
+  }
+  .connection[data-state="connected"]::before { background: var(--success); }
+  .connection[data-state="disconnected"]::before { background: var(--error); }
+  .icon-button {
+    border: 1px solid var(--border-muted);
+    border-radius: 9px;
+    background: var(--surface);
+    min-width: 38px;
+    min-height: 36px;
+    cursor: pointer;
+  }
+  .theme-select {
+    min-height: 36px;
+    border: 1px solid var(--border-muted);
+    border-radius: 9px;
+    color: var(--text);
+    background: var(--surface);
+  }
 
-.banner {
-  display: none; padding: .6rem .9rem; background: var(--surface-elevated);
-  color: var(--warning); border-bottom: 1px solid var(--warning);
-}
-.banner code { color: var(--text-primary); }
-.banner.show { display: block; }
+  .layout {
+    min-height: 0;
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) minmax(290px, 34vw);
+    gap: var(--space);
+    padding: var(--space);
+  }
+  .conversation, .context-panel {
+    min-height: 0;
+    border: 1px solid var(--border-muted);
+    border-radius: var(--radius);
+    background: color-mix(in srgb, var(--surface) 94%, transparent);
+    box-shadow: 0 18px 60px color-mix(in srgb, var(--background) 76%, transparent);
+  }
+  .conversation {
+    display: grid;
+    grid-template-rows: minmax(0, 1fr) auto;
+    overflow: hidden;
+  }
+  .transcript {
+    min-height: 0;
+    overflow: auto;
+    padding: clamp(18px, 3vw, 42px);
+  }
+  .empty {
+    max-width: 44rem;
+    margin: 12vh auto 0;
+    color: var(--muted);
+    text-align: center;
+    line-height: 1.65;
+  }
+  .message {
+    width: min(48rem, 92%);
+    margin: 0 auto 18px;
+    padding: 13px 16px;
+    border-left: 2px solid var(--border);
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+    word-break: keep-all;
+    line-height: 1.58;
+  }
+  .message[data-kind="user"] {
+    border-left-color: var(--accent);
+    background: color-mix(in srgb, var(--accent) 7%, transparent);
+  }
+  .message[data-kind="assistant"] { border-left-color: var(--info); }
+  .message[data-kind="tool"] {
+    border-left-color: var(--pending);
+    color: var(--muted);
+    font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+    font-size: .84rem;
+  }
+  .message-meta {
+    display: block;
+    margin-bottom: 6px;
+    color: var(--dim);
+    font-size: .7rem;
+    letter-spacing: .08em;
+    text-transform: uppercase;
+  }
+  .composer {
+    margin: 0 clamp(12px, 3vw, 34px) clamp(12px, 3vw, 28px);
+    padding: 10px;
+    border: 1px solid var(--border);
+    border-radius: 13px;
+    background: var(--composer-bg);
+    box-shadow: 0 12px 32px color-mix(in srgb, var(--background) 70%, transparent);
+  }
+  .composer textarea {
+    width: 100%;
+    min-height: 68px;
+    max-height: 32vh;
+    resize: vertical;
+    border: 0;
+    outline: 0;
+    padding: 8px;
+    color: var(--text);
+    background: transparent;
+    line-height: 1.5;
+  }
+  .composer-actions { display: flex; align-items: center; gap: 8px; }
+  .composer-hint { flex: 1; color: var(--dim); font-size: .74rem; }
+  .action {
+    min-height: 36px;
+    padding: 0 13px;
+    border: 1px solid var(--border);
+    border-radius: 9px;
+    background: var(--surface-raised);
+    cursor: pointer;
+  }
+  .action.primary { border-color: var(--accent); color: var(--accent); }
+  .action:disabled { cursor: not-allowed; opacity: .45; }
 
-.lens h3, .activity h3 { font-size: .9rem; color: var(--text-muted); margin: 1rem 0 .35rem; }
-.lens ul, .activity ul { list-style: none; margin: 0; padding: 0; font-size: .86rem; }
-.lens li, .activity li { padding: .18rem 0; color: var(--text-primary); }
-.lens .k { color: var(--text-muted); }
-.empty { color: var(--text-muted); padding: 1rem 0; }
-.queue-notice { padding: .7rem .9rem; color: var(--warning); }
-.checkpoints { border-top: 1px solid var(--selection); }
-.checkpoints summary { color: var(--accent); }
-.checkpoint-meta { color: var(--text-muted); font-size: .78rem; }
-.diff-preview { max-height: 24rem; overflow: auto; white-space: pre-wrap;
-  background: var(--surface); padding: .7rem; border-radius: 6px; }
-.restore-mode, .fork-command { padding: .45rem; color: var(--text-primary);
-  background: var(--surface); border: 1px solid var(--selection); border-radius: 6px; }
-.fork-command { width: min(100%, 32rem); }
+  .context-panel {
+    position: relative;
+    display: grid;
+    grid-template-rows: auto minmax(0, 1fr);
+    overflow: hidden;
+  }
+  .panel-navigation {
+    display: flex;
+    min-width: 0;
+    border-bottom: 1px solid var(--border-muted);
+  }
+  .panel-tabs {
+    display: flex;
+    flex: 1;
+    min-width: 0;
+    gap: 4px;
+    overflow-x: auto;
+    padding: 9px;
+    scrollbar-width: thin;
+  }
+  .panel-more {
+    display: none;
+    flex: 0 0 44px;
+    min-height: 44px;
+    border: 0;
+    border-left: 1px solid var(--border-muted);
+    color: var(--muted);
+    background: var(--surface);
+    cursor: pointer;
+  }
+  .panel-navigation > .mobile-back { display: none; }
+  .panel-tab {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    flex: 0 0 auto;
+    min-height: 34px;
+    padding: 0 10px;
+    border: 1px solid transparent;
+    border-radius: 8px;
+    background: transparent;
+    color: var(--muted);
+    cursor: pointer;
+    font-size: .76rem;
+  }
+  .panel-tab[aria-selected="true"] {
+    border-color: var(--accent);
+    color: var(--text);
+    background: color-mix(in srgb, var(--accent) 9%, transparent);
+  }
+  .panel-body { min-height: 0; overflow: auto; padding: 14px; }
+  .panel-body .empty { margin: 48px auto 0; }
+  .panel-heading { margin: 0 0 12px; font-size: .88rem; }
+  .panel-item {
+    width: 100%;
+    margin: 0 0 8px;
+    padding: 11px;
+    border: 1px solid var(--border-muted);
+    border-radius: 10px;
+    background: var(--surface-raised);
+    text-align: left;
+  }
+  .panel-item-title { color: var(--text); font-size: .83rem; }
+  .panel-item-detail { margin-top: 5px; color: var(--dim); font-size: .74rem; }
+  .panel-item[aria-current="true"] { border-color: var(--accent); }
+  .approval-detail {
+    display: grid;
+    gap: 12px;
+    padding: 14px;
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    background: var(--surface-raised);
+  }
+  .approval-fields { display: grid; grid-template-columns: auto 1fr; gap: 7px 12px; }
+  .approval-fields dt { color: var(--dim); font-size: .72rem; }
+  .approval-fields dd { margin: 0; color: var(--text); font-size: .78rem; }
+  .approval-actions { display: flex; justify-content: flex-end; gap: 8px; }
+  .notice {
+    position: fixed;
+    left: 50%;
+    bottom: 18px;
+    z-index: 10;
+    transform: translateX(-50%);
+    max-width: min(90vw, 620px);
+    padding: 9px 13px;
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    background: var(--surface-raised);
+    color: var(--muted);
+    font-size: .78rem;
+    pointer-events: none;
+  }
+  .notice:empty { display: none; }
 
-@media (prefers-reduced-motion: no-preference) {
-  .queue button, .actions button { transition: background .15s ease, border-color .15s ease; }
-}
-@media (prefers-reduced-motion: reduce) {
-  * { transition: none !important; animation: none !important; }
-}
+  @media (max-width: 820px) {
+    .icon-button,
+    .action,
+    .panel-tab,
+    .theme-select {
+      min-width: 44px;
+      min-height: 44px;
+    }
+    .layout { grid-template-columns: minmax(0, 1fr); padding: 10px; }
+    .context-panel {
+      position: fixed;
+      inset: auto 10px var(--composer-reserved);
+      z-index: 5;
+      height: min(48dvh, 440px);
+      background: var(--surface);
+      transform: translateY(
+        calc(100% + var(--composer-reserved) + 24px)
+      );
+      transition: transform 170ms ease;
+    }
+    .workspace[data-panel-open="true"] .context-panel { transform: translateY(0); }
+    .panel-navigation > .mobile-back { display: inline-flex; align-items: center; }
+    .transcript { padding: 18px 12px 120px; }
+    .composer { margin: 0 8px 8px; }
+    .composer textarea { resize: none; }
+    .brand span { display: none; }
+  }
+  @media (max-width: 1200px) {
+    .panel-more {
+      display: grid;
+      place-items: center;
+    }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    *, *::before, *::after { scroll-behavior: auto; transition-duration: 0.001ms; }
+  }
 </style>
 </head>
 <body>
-<div class="app">
-  <header class="pulse">
-    <span class="brand">birkin</span>
-    <span class="seg" id="p-daemon">데몬 확인 중</span>
-    <span class="seg alert" id="p-waiting" hidden></span>
-    <span class="seg" id="p-model"></span>
-    <span class="seg" id="p-version"></span>
+<div class="workspace" data-testid="workspace-shell" data-panel-open="false">
+  <header class="topbar">
+    <div class="brand"><strong>Birkin</strong><span>unified agent workspace</span></div>
+    <div class="topbar-spacer"></div>
+    <select id="workspace-theme" class="theme-select" data-testid="workspace-theme"
+            aria-label="워크스페이스 테마">
+      <option value="studio_dark">Dark</option>
+      <option value="paper_light">Light</option>
+      <option value="high_contrast">High contrast</option>
+    </select>
+    <div id="workspace-connection" class="connection" data-testid="workspace-connection"
+         data-state="connecting" aria-live="polite">연결 중</div>
+    <button id="lens-toggle" class="icon-button" type="button"
+            aria-label="컨텍스트 패널 열기" aria-controls="workspace-panel">⌘</button>
   </header>
-  <div class="banner" id="banner" role="alert">
-    연결이 끊어졌습니다 — 복구: <code>birkin web</code> 재실행 또는 데몬 확인
-    (<code>birkin daemon start</code>). 재연결되면 승인 상태를 다시 불러옵니다.
-  </div>
-  <div class="main">
-    <nav class="ledger" aria-label="주의 대기열">
-      <details open>
-        <summary id="ledger-summary">주의 필요</summary>
-        <p class="queue-notice" id="queue-notice" role="status" hidden></p>
-        <ul class="queue" id="queue"></ul>
-      </details>
-      <details class="checkpoints" open>
-        <summary id="checkpoint-summary">Checkpoints</summary>
-        <ul class="queue" id="checkpoint-list"></ul>
-      </details>
-    </nav>
-    <main class="bench" id="bench" aria-label="작업면" tabindex="-1">
-      <p class="empty">항목을 선택하면 상세가 표시됩니다.</p>
-    </main>
-    <button class="lens-toggle" id="lens-toggle" type="button"
-            aria-controls="lens" aria-expanded="false">맥락 보기</button>
-    <aside class="lens" id="lens" aria-label="맥락 렌즈">
-      <h3>실행 환경</h3>
-      <ul id="lens-env"></ul>
-      <h3>예약된 잡</h3>
-      <ul id="lens-jobs"></ul>
-      <div class="activity">
-        <h3>최근 활동</h3>
-        <ul id="lens-runs"></ul>
+
+  <main class="layout">
+    <section class="conversation" aria-label="대화">
+      <div id="workspace-transcript" class="transcript" role="log"
+           aria-live="polite" aria-relevant="additions text"
+           data-testid="workspace-transcript">
+        <p id="workspace-empty" class="empty">세션을 연결하고 있습니다.</p>
       </div>
+
+      <form id="workspace-composer" class="composer" data-testid="workspace-composer">
+        <textarea id="workspace-input" aria-label="Birkin에게 메시지 보내기"
+                  placeholder="메시지 또는 /command" autocomplete="off"></textarea>
+        <div class="composer-actions">
+          <span class="composer-hint">Ctrl+Enter 전송 · Esc 중단</span>
+          <button class="action" type="button" data-testid="workspace-resume"
+                  id="workspace-resume">재개</button>
+          <button class="action" type="button" data-testid="workspace-interrupt"
+                  id="workspace-interrupt">중단</button>
+          <button class="action primary" type="submit" data-testid="workspace-send"
+                  id="workspace-send">보내기</button>
+        </div>
+      </form>
+    </section>
+
+    <aside id="workspace-panel" class="context-panel" data-testid="workspace-panel"
+           aria-label="워크스페이스 컨텍스트">
+      <div class="panel-navigation">
+        <button type="button" class="panel-tab mobile-back"
+                data-testid="workspace-mobile-back"
+                aria-label="컨텍스트 패널 닫기"
+                aria-controls="workspace-panel">뒤로</button>
+        <div class="panel-tabs" role="tablist" aria-label="워크스페이스 패널"
+             data-testid="workspace-panel-tabs">
+          <button type="button" class="panel-tab" role="tab" data-panel="tasks_runs"
+                  aria-controls="workspace-panel-body" aria-selected="true">작업</button>
+          <button type="button" class="panel-tab" role="tab" data-panel="approvals"
+                  aria-controls="workspace-panel-body" aria-selected="false">승인</button>
+          <button type="button" class="panel-tab" role="tab" data-panel="files_evidence"
+                  aria-controls="workspace-panel-body" aria-selected="false">근거</button>
+          <button type="button" class="panel-tab" role="tab" data-panel="sessions_history"
+                  aria-controls="workspace-panel-body" aria-selected="false">세션</button>
+          <button type="button" class="panel-tab" role="tab" data-panel="activity_logs"
+                  aria-controls="workspace-panel-body" aria-selected="false">활동</button>
+          <button type="button" class="panel-tab" role="tab" data-panel="cron"
+                  aria-controls="workspace-panel-body" aria-selected="false">예약</button>
+          <button type="button" class="panel-tab" role="tab" data-panel="memory_skills"
+                  aria-controls="workspace-panel-body" aria-selected="false">기억</button>
+          <button type="button" class="panel-tab" role="tab" data-panel="checkpoints_restore"
+                  aria-controls="workspace-panel-body" aria-selected="false">복원</button>
+          <button type="button" class="panel-tab" role="tab" data-panel="settings_status"
+                  aria-controls="workspace-panel-body" aria-selected="false">상태</button>
+        </div>
+        <button id="panel-more" class="panel-more" type="button"
+                aria-label="더 많은 패널 보기">›</button>
+      </div>
+      <div id="workspace-panel-body" class="panel-body" role="tabpanel"></div>
     </aside>
-  </div>
+  </main>
+
+  <div id="queue-notice" class="notice" aria-live="polite"></div>
 </div>
 
 <script>
 "use strict";
-let enc = null;                 // state encoding from /api/contract
-let items = [];                 // attention queue
-let selectedId = null;
-let busy = false;
-let queueNotice = "";
-let checkpointItems = [];
-let toolTimeline = [];
-let checkpointLineage = [];
-let selectedCheckpoint = null;
 
-const $ = (id) => document.getElementById(id);
+const byId = (id) => document.getElementById(id);
+const shell = document.querySelector('[data-testid="workspace-shell"]');
+const transcript = byId("workspace-transcript");
+const input = byId("workspace-input");
+const sendButton = byId("workspace-send");
+const interruptButton = byId("workspace-interrupt");
+const resumeButton = byId("workspace-resume");
+const connection = byId("workspace-connection");
+const panelBody = byId("workspace-panel-body");
+const panelTabs = document.querySelector('[data-testid="workspace-panel-tabs"]');
+const panelMore = byId("panel-more");
+const composer = byId("workspace-composer");
+const queueNoticeElement = byId("queue-notice");
+const themeSelect = byId("workspace-theme");
+const mobileBack = document.querySelector('[data-testid="workspace-mobile-back"]');
 
-async function getJSON(url) {
-  const r = await fetch(url, { cache: "no-store" });
-  if (!r.ok) { const e = new Error(String(r.status)); e.status = r.status; throw e; }
-  return r.json();
+const state = {
+  sessionId: null,
+  cursor: 0,
+  source: null,
+  snapshot: null,
+  activePanel: "tasks_runs",
+  selectedId: null,
+  pendingAssistant: new Map(),
+  reconnectAttempts: 0,
+  reconnectTimer: null,
+};
+
+let items = [];
+const detailFields = ["expected-impact", "rejection-result", "related-evidence"];
+const panelLabels = {
+  tasks_runs: "작업 및 실행",
+  approvals: "승인",
+  files_evidence: "파일 및 근거",
+  sessions_history: "세션 기록",
+  activity_logs: "활동 로그",
+  cron: "예약",
+  memory_skills: "기억 및 스킬",
+  checkpoints_restore: "체크포인트 및 복원",
+  settings_status: "설정 및 상태",
+};
+const statePresentations = {
+  not_started: ["·", "시작 전"],
+  running: ["▸", "실행 중"],
+  pending: ["◇", "대기"],
+  paused: ["∥", "일시정지"],
+  succeeded: ["✓", "완료"],
+  failed: ["✗", "실패"],
+  blocked: ["⊘", "차단"],
+  action_needed: ["◆", "조치 필요"],
+  cancelled: ["⊘", "취소"],
+  unknown: ["?", "불명"],
+};
+const attentionRanks = {
+  action_needed: 0,
+  failed: 1,
+  blocked: 2,
+  running: 3,
+  pending: 4,
+  paused: 5,
+  not_started: 6,
+  succeeded: 7,
+  cancelled: 8,
+  unknown: 9,
+};
+input.value = localStorage.getItem("birkin.workspace.draft") || "";
+
+function updateComposerReserve() {
+  const reserved = Math.ceil(composer.getBoundingClientRect().height + 24);
+  shell.style.setProperty("--composer-reserved", `${reserved}px`);
+}
+const composerObserver = new ResizeObserver(updateComposerReserve);
+composerObserver.observe(composer);
+updateComposerReserve();
+
+function announce(message) {
+  queueNoticeElement.textContent = message;
 }
 
-function stateByAttention(n) {
-  return Object.keys(enc).find((s) => enc[s].attention === n);
-}
-function encOf(state) {
-  return enc[state] || enc[stateByAttention(3)];
-}
-function esc(s) {
-  return String(s ?? "").replace(/[&<>"']/g,
-    (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+function setConnection(value, label) {
+  connection.dataset.state = value;
+  connection.textContent = label;
 }
 
-function contextValue(rec, names, fallback) {
-  const payload = rec.payload || {};
-  for (const name of names) {
-    if (rec[name] != null && rec[name] !== "") return rec[name];
-    if (payload[name] != null && payload[name] !== "") return payload[name];
+async function api(path, options = {}) {
+  const response = await fetch(path, {
+    cache: "no-store",
+    credentials: "same-origin",
+    ...options,
+  });
+  const payload = await response.json().catch(() => ({}));
+  if (!response.ok) {
+    const error = new Error(String(payload.error || response.status));
+    error.status = response.status;
+    throw error;
   }
-  return fallback;
+  return payload;
+}
+
+function applyWorkspaceTheme(contract, name) {
+  const selected = contract.workspace_theme.palettes[name]
+    ? name
+    : contract.workspace_theme.default;
+  const palette = contract.workspace_theme.palettes[selected];
+  for (const [role, value] of Object.entries(palette)) {
+    const variable = role.replace(/_/g, "-");
+    document.documentElement.style.setProperty(
+      `--birkin-${variable}`,
+      value
+    );
+    document.documentElement.style.setProperty(`--${variable}`, value);
+  }
+  document.documentElement.dataset.theme = selected;
+  document.documentElement.style.colorScheme =
+    selected === "paper_light" ? "light" : "dark";
+  themeSelect.value = selected;
+  localStorage.setItem("birkin.workspace.theme", selected);
 }
 
 async function loadContract() {
-  const c = await getJSON("/api/contract");
-  enc = c.uistate["x-birkin-encoding"];
-  const root = document.documentElement;
-  for (const [name, entry] of Object.entries(c.tokens.tokens)) {
-    root.style.setProperty("--" + name.replace(/_/g, "-"), entry.hex);
+  const contract = await api("/api/contract");
+  for (const [name, token] of Object.entries(contract.tokens.tokens)) {
+    document.documentElement.style.setProperty(
+      `--${name.replace(/_/g, "-")}`,
+      token.hex
+    );
   }
+  const storedTheme = localStorage.getItem("birkin.workspace.theme");
+  const preferredTheme = storedTheme || (
+    window.matchMedia("(prefers-color-scheme: light)").matches
+      ? "paper_light"
+      : contract.workspace_theme.default
+  );
+  applyWorkspaceTheme(contract, preferredTheme);
+  return contract;
 }
 
-function buildQueue(approvals, jobsData, runs) {
-  const out = [];
-  for (const rec of approvals) {
-    out.push({ kind: "approval", id: rec.id, title: rec.title || rec.category,
-               state: rec.ui_state || stateByAttention(3), rec });
+function buildQueue(approvals, jobs, runs) {
+  const queue = [];
+  for (const approval of approvals || []) {
+    queue.push({
+      id: approval.id,
+      kind: "approval",
+      title: approval.title || approval.category,
+      ui_state: approval.ui_state,
+      detail: approval.description || "",
+      requester: approval.requester || approval.requested_by || "Birkin",
+      target: approval.target || approval.category || approval.command || "",
+      expected_impact: approval.expected_impact || approval.why
+        || approval.description || "",
+      rejection_result: approval.rejection_result
+        || "The requested action will not run.",
+      risk: approval.risk || approval.category || "",
+      expires_at: approval.expires_at || approval.expires || "",
+      related_evidence: approval.related_evidence || approval.evidence || "",
+      record: approval,
+    });
   }
-  const jobs = (jobsData && jobsData.jobs) || [];
-  for (const job of jobs) {
-    out.push({ kind: "cron", id: "job:" + (job.id || job.name),
-               title: job.name || "예약 작업", state: job.ui_state,
-               rec: { title: job.name || "예약 작업", origin: "scheduler",
-                      category: "cron", description: job.schedule?.display || job.next_run || "",
-                      target: job.name, expected_impact: "예약된 시각에 작업을 시작합니다.",
-                      rejection_result: "이 화면에서는 예약을 변경하지 않습니다.",
-                      evidence: job.last_run || "실행 기록 없음", risk: 0,
-                      created: job.created || "", payload: job } });
+  for (const job of jobs?.jobs || []) {
+    queue.push({
+      id: `job:${job.id || job.name}`,
+      kind: "cron",
+      title: job.name || "cron",
+      ui_state: job.ui_state,
+      detail: job.schedule?.display || job.next_run || "",
+      record: job,
+    });
   }
   for (const run of runs || []) {
-    const runId = run.id || run.created || String(out.length);
-    const error = (run.details || {}).error || "";
-    out.push({ kind: "run", id: "run:" + runId,
-               title: run.title || run.kind || "최근 활동", state: run.ui_state,
-               rec: { title: run.title || run.kind || "최근 활동",
-                      origin: run.kind || "runtime", category: "recent_run",
-                      description: error || run.status || "완료된 실행",
-                      target: runId, expected_impact: "이미 기록된 실행 결과입니다.",
-                      rejection_result: "읽기 전용 기록에는 적용되지 않습니다.",
-                      evidence: error || "실행 기록", risk: error ? 2 : 0,
-                      created: run.created || "", payload: run } });
+    const error = run.details?.error || "";
+    queue.push({
+      id: `run:${run.id || run.created || queue.length}`,
+      kind: "run",
+      title: run.title || run.kind || "run",
+      ui_state: run.ui_state,
+      detail: error || run.status || "",
+      record: run,
+    });
   }
-  out.sort((a, b) => encOf(a.state).attention - encOf(b.state).attention);
-  const urgent = out.filter((item) => encOf(item.state).attention < 7);
-  const scheduled = out.filter((item) => encOf(item.state).attention === 7).slice(0, 4);
-  const recent = out.filter((item) => encOf(item.state).attention === 8).slice(0, 4);
-  return urgent.concat(scheduled, recent);
+  return queue;
 }
 
-function renderQueue() {
-  const list = $("queue");
-  list.innerHTML = "";
-  const waiting = items.filter((it) => encOf(it.state).attention === 0).length;
-  $("ledger-summary").textContent = "주의 필요 — 대기 " + waiting;
-  const notice = $("queue-notice");
-  notice.hidden = !queueNotice;
-  notice.textContent = queueNotice;
-  const w = $("p-waiting");
-  w.hidden = waiting === 0;
-  w.textContent = encOf(stateByAttention(0)).glyph + " 대기 " + waiting;
-  if (!items.length) {
-    list.innerHTML = '<li class="empty">승인 대기 항목 없음</li>';
-    return;
-  }
-  for (const it of items) {
-    const e = encOf(it.state);
-    const li = document.createElement("li");
-    const b = document.createElement("button");
-    b.dataset.id = it.id;
-    b.setAttribute("aria-current", String(it.id === selectedId));
-    b.setAttribute("aria-label", e.label + " — " + (it.title || ""));
-    b.innerHTML =
-      '<span class="glyph" style="color:var(--' +
-      e.color_role.replace(/_/g, "-") + ')">' + esc(e.glyph) + "</span>" +
-      '<span class="t">' + esc(it.title) + "</span>" +
-      '<span class="s">' + esc(e.label) + "</span>";
-    b.addEventListener("click", () => { selectedCheckpoint = null; selectedId = it.id; renderQueue(); renderCheckpoints(); renderBench(); });
-    li.appendChild(b);
-    list.appendChild(li);
-  }
+function clearNode(node) {
+  while (node.firstChild) node.removeChild(node.firstChild);
 }
 
-function renderCheckpoints() {
-  const list = $("checkpoint-list");
-  list.innerHTML = "";
-  $("checkpoint-summary").textContent = "Checkpoints — " + checkpointItems.length;
-  if (!checkpointItems.length) {
-    list.innerHTML = '<li class="empty">아직 checkpoint가 없습니다.</li>';
+function messageNode(kind, text, id) {
+  const article = document.createElement("article");
+  article.className = "message";
+  article.dataset.kind = kind;
+  if (id) article.dataset.messageId = id;
+  const meta = document.createElement("span");
+  meta.className = "message-meta";
+  meta.textContent = kind;
+  const content = document.createElement("span");
+  content.className = "message-content";
+  content.textContent = text;
+  article.append(meta, content);
+  return article;
+}
+
+function appendMessage(kind, text, id) {
+  const empty = byId("workspace-empty");
+  if (empty) empty.remove();
+  const followsOutput = isFollowingOutput();
+  transcript.appendChild(messageNode(kind, text, id));
+  if (followsOutput) transcript.scrollTop = transcript.scrollHeight;
+}
+
+function isFollowingOutput() {
+  return (
+    transcript.scrollHeight - transcript.clientHeight - transcript.scrollTop
+  ) <= 24;
+}
+
+function renderSnapshot(snapshot) {
+  state.snapshot = snapshot;
+  state.cursor = Number(snapshot.cursor || state.cursor || 0);
+  clearNode(transcript);
+  const conversation = snapshot.conversation || [];
+  if (!conversation.length) {
+    const empty = document.createElement("p");
+    empty.id = "workspace-empty";
+    empty.className = "empty";
+    empty.textContent = "메시지를 보내 대화를 시작하세요.";
+    transcript.appendChild(empty);
+  }
+  for (const message of conversation) {
+    const kind = message.kind === "user_message" ? "user" : "assistant";
+    appendMessage(kind, String(message.text || ""), String(message.id || ""));
+  }
+  renderPanel();
+}
+
+async function refreshWorkspaceSnapshot() {
+  const snapshot = await api(
+    `/api/workspace/sessions/${encodeURIComponent(state.sessionId)}/snapshot`
+  );
+  state.snapshot = snapshot;
+  renderPanel();
+}
+
+function renderPanel() {
+  clearNode(panelBody);
+  const heading = document.createElement("h2");
+  heading.className = "panel-heading";
+  heading.textContent = panelLabels[state.activePanel] || state.activePanel;
+  panelBody.appendChild(heading);
+
+  const panel = (state.snapshot?.panels || [])
+    .find((entry) => entry.key === state.activePanel);
+  let legacyItems = [];
+  if (state.activePanel === "tasks_runs") {
+    legacyItems = items.filter((item) => item.kind === "run" || item.kind === "cron");
+  } else if (state.activePanel === "approvals") {
+    legacyItems = items.filter((item) => item.kind === "approval");
+  } else if (state.activePanel === "activity_logs") {
+    legacyItems = items;
+  }
+  const canonicalItems = panel?.items || [];
+  const merged = new Map(
+    legacyItems.map((item) => [String(item.id || ""), item])
+  );
+  for (const item of canonicalItems) {
+    const id = String(item.id || "");
+    merged.set(id, {...(merged.get(id) || {}), ...item});
+  }
+  let panelItems = [...merged.values()];
+  panelItems = [...panelItems].sort((left, right) => {
+    const leftRank = attentionRanks[left.ui_state] ?? 99;
+    const rightRank = attentionRanks[right.ui_state] ?? 99;
+    return leftRank - rightRank;
+  });
+
+  if (!panelItems.length) {
+    const empty = document.createElement("p");
+    empty.className = "empty";
+    empty.textContent = "현재 표시할 항목이 없습니다.";
+    panelBody.appendChild(empty);
     return;
   }
-  for (const cp of checkpointItems) {
-    const li = document.createElement("li");
+
+  for (const item of panelItems) {
     const button = document.createElement("button");
-    button.dataset.checkpoint = cp.hash;
-    button.setAttribute("aria-current", String(cp.hash === selectedCheckpoint));
-    const events = toolTimeline.filter((event) => event.before === cp.hash || event.after === cp.hash);
-    button.innerHTML = '<span class="glyph">◆</span><span class="t">' +
-      esc(events[0]?.tool || cp.reason) + '<br><span class="checkpoint-meta">' +
-      esc(cp.short) + " · " + esc(cp.date) + '</span></span>';
-    button.addEventListener("click", () => {
-      selectedCheckpoint = cp.hash; selectedId = null; renderCheckpoints(); renderCheckpointBench(cp);
-    });
-    li.appendChild(button); list.appendChild(li);
+    button.type = "button";
+    button.className = "panel-item";
+    button.dataset.itemId = String(item.id || "");
+    button.setAttribute("aria-current", String(item.id === state.selectedId));
+    const title = document.createElement("div");
+    title.className = "panel-item-title";
+    const presentation = statePresentations[item.ui_state]
+      || statePresentations.unknown;
+    title.textContent = `${presentation[0]} ${presentation[1]} · ${
+      String(item.title || item.key || item.id || "")
+    }`;
+    const detail = document.createElement("div");
+    detail.className = "panel-item-detail";
+    detail.textContent = String(item.detail || item.summary || "");
+    button.append(title, detail);
+    button.addEventListener("click", () => selectPanelItem(item));
+    panelBody.appendChild(button);
   }
+  const selected = panelItems.find((item) => item.id === state.selectedId);
+  if (selected?.kind === "approval") appendApprovalDetail(selected);
+  if (selected?.kind === "question") appendQuestionDetail(selected);
+  if (selected?.kind === "checkpoint") appendCheckpointDetail(selected);
 }
 
-async function renderCheckpointBench(cp) {
-  const bench = $("bench");
-  const events = toolTimeline.filter((event) => event.before === cp.hash || event.after === cp.hash);
-  const forks = checkpointLineage.filter((entry) => entry.checkpoint === cp.hash);
-  bench.innerHTML = '<div class="card"><h2>◆ Checkpoint ' + esc(cp.short) + '</h2>' +
-    '<dl class="meta"><dt>Reason</dt><dd>' + esc(cp.reason) + '</dd>' +
-    '<dt>Tool timeline</dt><dd>' + esc(events.map((e) => e.tool + " · " + e.status + " · " + (e.touched || []).join(", ")).join(" | ") || "snapshot") + '</dd>' +
-    '<dt>Alternate lineage</dt><dd>' + esc(forks.length ? forks.map((f) => f.status).join(", ") : "none") + '</dd></dl>' +
-    '<div class="actions"><button id="checkpoint-diff">Preview diff</button>' +
-    '<select class="restore-mode" id="restore-mode" aria-label="Restore mode">' +
-    '<option value="files">Files only</option><option value="task">Task state only</option>' +
-    '<option value="both">Files and task state</option></select>' +
-    '<button class="no" id="checkpoint-restore">Request restore</button></div>' +
-    '<div class="actions"><input class="fork-command" id="fork-command" aria-label="Alternate command" ' +
-    'value=\'["python","-c","print(42)"]\' />' +
-    '<button id="checkpoint-fork">Run alternate branch</button></div>' +
-    '<pre class="diff-preview" id="checkpoint-output" hidden></pre>' +
-    '<div id="announce" role="status" aria-live="polite"></div></div>';
-  $("checkpoint-diff").addEventListener("click", async () => {
-    const preview = await getJSON("/api/checkpoints/" + cp.hash + "/diff");
-    const output = $("checkpoint-output"); output.hidden = false;
-    output.textContent = preview.patch || "No differences from current files.";
+function selectPanelItem(item) {
+  state.selectedId = item.id || null;
+  renderPanel();
+}
+
+function submitApproval(item, decision) {
+  sendCommand("approval.answer", {
+    approval_id: item.id,
+    decision,
+    detail_fields: detailFields,
+  }).catch((error) => announce(`승인 실패: ${error.message}`));
+}
+
+function appendApprovalDetail(item) {
+  const section = document.createElement("section");
+  section.className = "approval-detail";
+  section.setAttribute("aria-label", "승인 세부 정보");
+  const fields = document.createElement("dl");
+  fields.className = "approval-fields";
+  const definitions = [
+    ["요청자", item.requester],
+    ["대상", item.target],
+    ["예상 영향", item.expected_impact],
+    ["거부 결과", item.rejection_result],
+    ["위험", item.risk],
+    ["만료", item.expires_at],
+    ["관련 근거", item.related_evidence],
+  ];
+  for (const [label, value] of definitions) {
+    if (!value) continue;
+    const term = document.createElement("dt");
+    term.textContent = label;
+    const detail = document.createElement("dd");
+    detail.textContent = String(value);
+    fields.append(term, detail);
+  }
+  const actions = document.createElement("div");
+  actions.className = "approval-actions";
+  for (const [decision, label] of [["reject", "거부"], ["approve", "승인 실행"]]) {
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = `action ${decision === "approve" ? "primary" : ""}`;
+    button.textContent = label;
+    button.addEventListener("click", () => submitApproval(item, decision));
+    actions.appendChild(button);
+  }
+  section.append(fields, actions);
+  panelBody.appendChild(section);
+}
+
+function appendQuestionDetail(item) {
+  const section = document.createElement("section");
+  section.className = "approval-detail";
+  section.setAttribute("aria-label", "질문 응답");
+  const prompt = document.createElement("p");
+  prompt.textContent = String(item.summary || item.detail || item.id);
+  const label = document.createElement("label");
+  label.textContent = "답변";
+  const answer = document.createElement("textarea");
+  answer.rows = 3;
+  answer.dataset.testid = "workspace-question-answer";
+  answer.placeholder = "이 질문에 대한 답변";
+  label.appendChild(answer);
+  const submit = document.createElement("button");
+  submit.type = "button";
+  submit.className = "action primary";
+  submit.textContent = "답변 보내기";
+  submit.addEventListener("click", () => {
+    sendCommand("question.answer", {
+      question_id: item.id,
+      answer: answer.value,
+    }).catch((error) => announce(`답변 실패: ${error.message}`));
   });
-  $("checkpoint-restore").addEventListener("click", async () => {
-    const mode = $("restore-mode").value;
-    if (!window.confirm("Queue " + mode + " restore for explicit approval?")) return;
-    const response = await fetch("/api/checkpoints/" + cp.hash + "/restore", {
-      method: "POST", headers: {"Content-Type": "application/json"}, body: JSON.stringify({mode})});
-    const out = await response.json();
-    if (!response.ok) { $("announce").textContent = "Restore request failed: " + (out.error || response.status); return; }
-    $("announce").innerHTML = 'Restore queued for approval. <button id="approve-restore">Approve now</button>';
-    $("approve-restore").addEventListener("click", () => requestConfirmation(out.approval_id, "approve"));
-  });
-  $("checkpoint-fork").addEventListener("click", async () => {
-    let command;
-    try { command = JSON.parse($("fork-command").value); }
-    catch (_) { $("announce").textContent = "Command must be a JSON string array."; return; }
-    $("announce").textContent = "Running isolated alternate branch…";
-    const response = await fetch("/api/checkpoints/" + cp.hash + "/fork", {
-      method: "POST", headers: {"Content-Type": "application/json"}, body: JSON.stringify({command})});
-    const out = await response.json();
-    $("announce").textContent = response.ok ? "Alternate branch complete: " + (out.stdout || "exit 0") : "Fork failed: " + (out.error || out.stderr || response.status);
-    await refreshCheckpoints();
-  });
+  section.append(prompt, label, submit);
+  panelBody.appendChild(section);
 }
 
-function renderBench() {
-  const bench = $("bench");
-  if (selectedCheckpoint) {
-    const checkpoint = checkpointItems.find((cp) => cp.hash === selectedCheckpoint);
-    if (checkpoint) { renderCheckpointBench(checkpoint); return; }
+function appendCheckpointDetail(item) {
+  const section = document.createElement("section");
+  section.className = "approval-detail";
+  section.setAttribute("aria-label", "체크포인트 복원");
+  const summary = document.createElement("p");
+  summary.textContent = String(
+    item.detail || item.summary || "선택한 체크포인트를 복원합니다."
+  );
+  const modeLabel = document.createElement("label");
+  modeLabel.textContent = "복원 범위";
+  const mode = document.createElement("select");
+  for (const [value, label] of [
+    ["files", "파일"],
+    ["task", "작업 상태"],
+    ["both", "파일 + 작업 상태"],
+  ]) {
+    const option = document.createElement("option");
+    option.value = value;
+    option.textContent = label;
+    mode.appendChild(option);
   }
-  const it = items.find((x) => x.id === selectedId) || items[0];
-  if (!it) {
-    bench.innerHTML = '<p class="empty">표시할 항목이 없습니다.</p>';
-    return;
-  }
-  selectedId = it.id;
-  const rec = it.rec;
-  const e = encOf(it.state);
-  const canAct = e.attention === 0;
-  const riskClass = rec.risk >= 3 ? "risk-high" : rec.risk >= 2 ? "risk-mid" : "";
-  const target = contextValue(
-    rec, ["target", "path", "command", "name"], rec.category || "요청 대상");
-  const expectedImpact = contextValue(
-    rec, ["expected_impact", "impact"], rec.description || "변경 내용은 payload를 확인하세요.");
-  const rejectionResult = contextValue(
-    rec, ["rejection_result"], "동작은 실행되지 않고 거부 기록만 남습니다.");
-  const relatedEvidence = contextValue(
-    rec, ["evidence", "evidence_path", "source"], "연결된 근거 없음");
-  const payload = rec.payload && Object.keys(rec.payload).length
-    ? "<details class=\"payload\"><summary>요청 payload 보기 (" +
-      Object.keys(rec.payload).length + "개 항목)</summary><pre>" +
-      esc(JSON.stringify(rec.payload, null, 2)) + "</pre></details>"
-    : "";
-  bench.innerHTML =
-    '<div class="card">' +
-    '<h2><span class="badge" style="color:var(--' +
-    e.color_role.replace(/_/g, "-") + ')">' + esc(e.glyph) + " " +
-    esc(e.label) + "</span> " + esc(rec.title || "") + "</h2>" +
-    '<dl class="meta">' +
-    "<dt>요청 주체</dt><dd>" + esc(rec.origin || "?") + "</dd>" +
-     "<dt>유형</dt><dd>" + esc(rec.category || "?") + "</dd>" +
-     '<dt id="target">대상</dt><dd aria-labelledby="target">' + esc(target) + "</dd>" +
-     "<dt>동작</dt><dd>" + esc(rec.description || "") + "</dd>" +
-     '<dt id="expected-impact">예상 영향</dt><dd aria-labelledby="expected-impact">' +
-       esc(expectedImpact) + "</dd>" +
-     '<dt id="rejection-result">거부 결과</dt><dd aria-labelledby="rejection-result">' +
-       esc(rejectionResult) + "</dd>" +
-     '<dt id="related-evidence">관련 근거</dt><dd aria-labelledby="related-evidence">' +
-       esc(relatedEvidence) + "</dd>" +
-    '<dt>위험도</dt><dd class="' + riskClass + '">' + esc(rec.risk ?? "?") + "</dd>" +
-    "<dt>만료</dt><dd>" + esc(rec.expires_at || "없음") + "</dd>" +
-    "<dt>생성</dt><dd>" + esc(rec.created || "") + "</dd>" +
-    "</dl>" + payload +
-    (canAct
-      ? '<div class="actions">' +
-        '<button class="ok" id="btn-approve">승인 요청</button>' +
-        '<button class="no" id="btn-reject">거부 요청</button></div>' +
-      '<p class="authority-note">승인 후 실제 실행 주체는 Python daemon입니다. ' +
-        "거부 시 동작은 실행되지 않고 기록만 남습니다. " +
-        "버튼은 요청만 보내며, 결과는 authority 응답 후 반영됩니다.</p>"
-      : "") +
-    '<div id="announce" role="status" aria-live="polite"></div>';
-  if (canAct) {
-    $("btn-approve").addEventListener("click", () => requestConfirmation(rec.id, "approve"));
-    $("btn-reject").addEventListener("click", () => requestConfirmation(rec.id, "reject"));
-  }
-}
-
-function requestConfirmation(id, action) {
-  const label = action === "approve" ? "승인" : "거부";
-  if (window.confirm(label + " 요청을 Python authority에 보내시겠습니까?")) {
-    resolve(id, action);
-  }
-}
-
-async function resolve(id, action) {
-  if (busy) return;
-  busy = true;
-  const announce = $("announce");
-  for (const b of document.querySelectorAll(".actions button")) b.disabled = true;
-  announce.textContent = "요청 전송 중 — authority 응답 대기";
-  try {
-    const r = await fetch("/api/approvals", {
+  modeLabel.appendChild(mode);
+  const consequence = document.createElement("p");
+  consequence.textContent = (
+    "복원은 즉시 실행되지 않으며 별도 승인이 필요합니다. "
+    + "거부하면 현재 파일과 작업 상태가 유지됩니다."
+  );
+  const restore = document.createElement("button");
+  restore.type = "button";
+  restore.className = "action";
+  restore.textContent = "복원 승인 요청";
+  restore.addEventListener("click", () => {
+    api(`/api/checkpoints/${encodeURIComponent(item.id)}/restore`, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ id, action }),
-    });
-    const out = await r.json().catch(() => ({}));
-    if (r.ok && out.ok !== false) {
-      announce.textContent = "완료: " + (out.result || action);
-      await refresh();               // state changes only after authority reply
+      headers: {"Content-Type": "application/json"},
+      body: JSON.stringify({mode: mode.value}),
+    }).then((result) => {
+      announce(`복원 승인 대기: ${result.approval_id}`);
+      return refreshLegacyPanels();
+    }).catch((error) => announce(`복원 실패: ${error.message}`));
+  });
+  section.append(summary, modeLabel, consequence, restore);
+  panelBody.appendChild(section);
+}
+
+function handleWorkspaceEvent(raw) {
+  const event = JSON.parse(raw.data);
+  const cursor = Number(event.cursor || 0);
+  if (cursor <= state.cursor) return;
+  state.cursor = cursor;
+  shell.dataset.lastEvent = event.type;
+  const payload = event.payload || {};
+  const commandId = event.command_id || "";
+  if (event.type === "message.user") {
+    appendMessage("user", String(payload.text || ""), `${commandId}:user`);
+  } else if (event.type === "message.assistant.delta") {
+    const followsOutput = isFollowingOutput();
+    let content = state.pendingAssistant.get(commandId);
+    if (!content) {
+      const node = messageNode("assistant", "", `${commandId}:assistant`);
+      transcript.appendChild(node);
+      content = node.querySelector(".message-content");
+      state.pendingAssistant.set(commandId, content);
+    }
+    content.textContent += String(payload.text || "");
+    if (followsOutput) transcript.scrollTop = transcript.scrollHeight;
+  } else if (event.type === "message.assistant.completed") {
+    const content = state.pendingAssistant.get(commandId);
+    if (!content) {
+      appendMessage("assistant", String(payload.text || ""), `${commandId}:assistant`);
     } else {
-      announce.textContent = "실패: " + (out.error || r.status);
-      for (const b of document.querySelectorAll(".actions button")) b.disabled = false;
+      content.textContent = String(payload.text || content.textContent || "");
     }
-  } catch (err) {
-    announce.textContent = "전송 실패 — 연결 상태를 확인하세요";
-    for (const b of document.querySelectorAll(".actions button")) b.disabled = false;
-    setDisconnected(true);
+    state.pendingAssistant.delete(commandId);
+  } else if (event.type.startsWith("tool.") || event.type === "progress.updated") {
+    appendMessage("tool", String(payload.summary || event.type), event.event_id);
+  } else if (event.type === "command.failed" || event.type === "error.raised") {
+    announce(`오류: ${String(payload.error || event.type)}`);
+  } else if ([
+    "approval.requested", "approval.answered", "question.requested",
+    "question.answered", "evidence.added", "checkpoint.restored",
+    "task.updated",
+  ].includes(event.type)) {
+    refreshWorkspaceSnapshot().catch((error) => announce(error.message));
+  }
+}
+
+function connectEvents() {
+  if (!state.sessionId) return;
+  if (state.reconnectTimer) {
+    clearTimeout(state.reconnectTimer);
+    state.reconnectTimer = null;
+  }
+  if (state.source) state.source.close();
+  const path = `/api/workspace/sessions/${encodeURIComponent(state.sessionId)}`
+    + `/events?after=${state.cursor}`;
+  const source = new EventSource(path);
+  state.source = source;
+  const eventTypes = [
+    "command.accepted", "command.started", "command.completed", "command.failed",
+    "message.user", "message.assistant.delta", "message.assistant.completed",
+    "tool.started", "tool.completed", "tool.failed", "progress.updated",
+    "approval.requested", "approval.answered", "question.requested",
+    "question.answered", "evidence.added", "checkpoint.restored",
+    "turn.interrupted", "turn.resumed", "error.raised"
+  ];
+  for (const eventType of eventTypes) {
+    source.addEventListener(eventType, handleWorkspaceEvent);
+  }
+  source.onopen = () => {
+    state.reconnectAttempts = 0;
+    setConnection("connected", "연결됨");
+  };
+  source.onerror = () => {
+    source.close();
+    if (state.source === source) {
+      setConnection("connecting", "재연결");
+      const delay = Math.min(
+        1000 * (2 ** state.reconnectAttempts),
+        10000,
+      );
+      state.reconnectAttempts += 1;
+      state.reconnectTimer = setTimeout(connectEvents, delay);
+    }
+  };
+}
+
+function commandId() {
+  return `web-${crypto.randomUUID()}`;
+}
+
+async function sendCommand(type, payload) {
+  const response = await api(
+    `/api/workspace/sessions/${encodeURIComponent(state.sessionId)}/commands`,
+    {
+      method: "POST",
+      headers: {"Content-Type": "application/json"},
+      body: JSON.stringify({
+        protocol_version: 1,
+        command_id: commandId(),
+        expected_cursor: state.cursor,
+        type,
+        payload,
+        client_context: {surface: "web", view_id: "browser-1"},
+      }),
+    }
+  );
+  return response;
+}
+
+async function refreshLegacyPanels() {
+  const [approvals, jobs, runs] = await Promise.all([
+    api("/api/approvals"),
+    api("/api/jobs"),
+    api("/api/runs"),
+  ]);
+  items = buildQueue(approvals, jobs, runs);
+  if (items.length) {
+    state.selectedId = items[0].id;
+  }
+  renderPanel();
+}
+
+async function bootstrap() {
+  setConnection("connecting", "연결 중");
+  await loadContract();
+  const sessions = await api("/api/workspace/sessions");
+  const stored = localStorage.getItem("birkin.workspace.session");
+  const preferred = stored || sessions[0]?.session_id
+    || `web-${crypto.randomUUID()}`;
+  const created = await api("/api/workspace/sessions", {
+    method: "POST",
+    headers: {"Content-Type": "application/json"},
+    body: JSON.stringify({session_id: preferred}),
+  });
+  state.sessionId = created.session_id;
+  localStorage.setItem("birkin.workspace.session", state.sessionId);
+  const snapshot = await api(
+    `/api/workspace/sessions/${encodeURIComponent(state.sessionId)}/snapshot`
+  );
+  renderSnapshot(snapshot);
+  await refreshLegacyPanels();
+  connectEvents();
+  announce("");
+}
+
+document.querySelectorAll("[data-panel]").forEach((tab) => {
+  tab.addEventListener("click", () => {
+    state.activePanel = tab.dataset.panel;
+    document.querySelectorAll("[data-panel]").forEach((entry) => {
+      entry.setAttribute("aria-selected", String(entry === tab));
+    });
+    shell.dataset.panelOpen = "true";
+    renderPanel();
+  });
+});
+
+byId("lens-toggle").addEventListener("click", () => {
+  shell.dataset.panelOpen = String(shell.dataset.panelOpen !== "true");
+});
+mobileBack.addEventListener("click", () => {
+  shell.dataset.panelOpen = "false";
+  byId("lens-toggle").focus();
+});
+panelMore.addEventListener("click", () => {
+  const atEnd = panelTabs.scrollLeft + panelTabs.clientWidth
+    >= panelTabs.scrollWidth - 1;
+  panelTabs.scrollTo({
+    left: atEnd ? 0 : panelTabs.scrollLeft + panelTabs.clientWidth * 0.7,
+    behavior: "auto",
+  });
+});
+themeSelect.addEventListener("change", async () => {
+  const contract = await api("/api/contract");
+  applyWorkspaceTheme(contract, themeSelect.value);
+});
+
+byId("workspace-composer").addEventListener("submit", async (event) => {
+  event.preventDefault();
+  const text = input.value.trim();
+  if (!text) return;
+  sendButton.disabled = true;
+  try {
+    await sendCommand("chat.send", {text});
+    input.value = "";
+    localStorage.setItem("birkin.workspace.draft", "");
+  } catch (error) {
+    if (error.status === 409) await bootstrap();
+    else announce(`전송 실패: ${error.message}`);
   } finally {
-    busy = false;
-  }
-}
-
-function setDisconnected(down) {
-  $("banner").classList.toggle("show", down);
-}
-
-function renderLens(status, jobsData, runs) {
-  const env = $("lens-env");
-  env.innerHTML = "";
-  const rows = [["모델", status.model], ["프로바이더", status.provider],
-                ["버전", status.version], ["볼트", status.vault],
-                ["스킬", status.skills_count],
-                ["다음 야간작업", status.next_nightly || "-"]];
-  for (const [k, v] of rows) {
-    env.innerHTML += "<li><span class=\"k\">" + esc(k) + "</span> " + esc(v ?? "-") + "</li>";
-  }
-  const jobs = (jobsData && jobsData.jobs) || [];
-  $("lens-jobs").innerHTML = jobs.length
-    ? jobs.slice(0, 8).map((j) =>
-        "<li>" + esc(j.name || "?") + " <span class=\"k\">" +
-        esc(j.next_run || "") + "</span></li>").join("")
-    : '<li class="empty">없음</li>';
-  $("lens-runs").innerHTML = (runs || []).length
-    ? runs.slice(0, 8).map((r) => {
-        const err = (r.details || {}).error || "";
-        const state = encOf(r.ui_state);
-        const badge = ' <span class="k" style="color:var(--' +
-          state.color_role.replace(/_/g, "-") + ')">' +
-          esc(err || state.label) + "</span>";
-        return "<li>" + esc(r.title || r.kind || r.id || "run") + badge + "</li>";
-      }).join("")
-    : '<li class="empty">없음</li>';
-}
-
-async function refreshCheckpoints() {
-  try {
-    [checkpointItems, toolTimeline, checkpointLineage] = await Promise.all([
-      getJSON("/api/checkpoints"), getJSON("/api/checkpoints/timeline"),
-      getJSON("/api/checkpoints/lineage")]);
-    if (selectedCheckpoint && !checkpointItems.some((cp) => cp.hash === selectedCheckpoint)) selectedCheckpoint = null;
-    renderCheckpoints();
-  } catch (_) {
-    checkpointItems = []; toolTimeline = []; checkpointLineage = []; renderCheckpoints();
-  }
-}
-
-async function refresh() {
-  try {
-    const [status, jobs, runs] = await Promise.all([
-      getJSON("/api/status"), getJSON("/api/jobs"), getJSON("/api/runs")]);
-    let approvals = [];
-    queueNotice = "";
-    try {
-      approvals = await getJSON("/api/approvals");
-    } catch (err) {
-      if (err.status === 403) {
-        queueNotice = "승인 목록은 보안 토큰이 필요합니다 — birkin web이 출력한 주소로 접속하세요.";
-      } else { throw err; }
-    }
-    setDisconnected(false);
-    $("p-daemon").textContent = status.daemon ? "데몬 연결" : "데몬 오프라인";
-    $("p-daemon").className = status.daemon ? "seg" : "seg down";
-    $("p-model").textContent = status.model || "";
-    $("p-version").textContent = status.version ? "v" + status.version : "";
-    items = buildQueue(approvals, jobs, runs);
-    if (items.length && !items.some((item) => item.id === selectedId)) {
-      selectedId = items[0].id;
-    } else if (!items.length) {
-      selectedId = null;
-    }
-    renderQueue();
-    renderBench();
-    renderLens(status, jobs, runs);
-    await refreshCheckpoints();
-  } catch (err) {
-    setDisconnected(true);
-    $("p-daemon").textContent = "연결 끊김";
-    $("p-daemon").className = "seg down";
-  }
-}
-
-document.addEventListener("keydown", (ev) => {
-  if (ev.target.tagName === "INPUT" || ev.target.tagName === "TEXTAREA") return;
-  if (ev.key !== "ArrowDown" && ev.key !== "ArrowUp") return;
-  const idx = items.findIndex((x) => x.id === selectedId);
-  const next = ev.key === "ArrowDown" ? idx + 1 : idx - 1;
-  if (next >= 0 && next < items.length) {
-    selectedId = items[next].id;
-    renderQueue(); renderBench();
-    const btn = document.querySelector('.queue button[data-id="' + selectedId + '"]');
-    if (btn) btn.focus();
-    ev.preventDefault();
+    sendButton.disabled = false;
+    input.focus();
   }
 });
 
-$("lens-toggle").addEventListener("click", () => {
-  const lens = $("lens");
-  const open = lens.classList.toggle("open");
-  $("lens-toggle").setAttribute("aria-expanded", String(open));
-  $("lens-toggle").textContent = open ? "맥락 닫기" : "맥락 보기";
+input.addEventListener("keydown", (event) => {
+  if (event.key === "Enter" && event.ctrlKey) {
+    event.preventDefault();
+    byId("workspace-composer").requestSubmit();
+  } else if (event.key === "Escape") {
+    event.preventDefault();
+    if (shell.dataset.panelOpen === "true") {
+      shell.dataset.panelOpen = "false";
+      byId("lens-toggle").focus();
+    } else {
+      sendCommand("chat.interrupt", {}).catch((error) => announce(error.message));
+    }
+  }
+});
+input.addEventListener("input", () => {
+  localStorage.setItem("birkin.workspace.draft", input.value);
 });
 
-(async function boot() {
-  try { await loadContract(); } catch (err) { /* fallbacks stay */ }
-  await refresh();
-  setInterval(refresh, 15000);
-})();
+interruptButton.addEventListener("click", () => {
+  sendCommand("chat.interrupt", {}).catch((error) => announce(error.message));
+});
+resumeButton.addEventListener("click", () => {
+  sendCommand("chat.resume", {}).catch((error) => announce(error.message));
+});
+
+bootstrap().catch((error) => {
+  setConnection("disconnected", "연결 실패");
+  announce(`로컬 bootstrap URL로 다시 열어 주세요: ${error.message}`);
+});
 </script>
 </body>
 </html>

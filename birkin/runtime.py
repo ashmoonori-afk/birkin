@@ -13,7 +13,7 @@ import time
 import uuid
 from dataclasses import dataclass, field, replace
 from pathlib import Path
-from typing import Any, Callable, Optional
+from typing import TYPE_CHECKING, Any, Callable, Optional
 
 from . import budget, checkpoints, config, goals, hooks, promptgate, prompts, store
 from .agent import Agent
@@ -21,6 +21,9 @@ from .llm import LLMClient, LLMError, build_client
 from .memory import Memory
 from .skills import SkillManager, build_manager
 from .tools import ToolContext, build_registry
+
+if TYPE_CHECKING:
+    from .workspace.records import WorkspaceSnapshot
 
 
 class ConfigError(RuntimeError):
@@ -51,6 +54,10 @@ class Session:
     # Set to interrupt the in-flight turn (Esc in the REPL); cleared before each
     # ask(). Threaded into agent.run -> the LLM stream / CLI subprocess.
     abort: threading.Event = field(default_factory=threading.Event)
+    # Presentation-only focus hook installed by the unified terminal workspace.
+    # Slash aliases use it to change panels without starting nested UI loops.
+    workspace_focus: Callable[[str], None] | None = None
+    workspace_snapshot: Callable[[], WorkspaceSnapshot] | None = None
     # Opt-in warm CLI session (repl_warm_session): one long-lived claude/codex
     # process reused across turns, so the REPL stops paying the ~10 s CLI cold
     # start every message (matching the gateway). Lazy; None until first use.
