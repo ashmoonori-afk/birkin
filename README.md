@@ -32,7 +32,7 @@ Agent runtimes are easy to demo and hard to trust. Birkin keeps the model useful
 | A coding agent changes files before the user understands the plan | The official VS Code extension sends editor context, reviews a plan first, renders proposed diffs, resolves Birkin approvals, and restores checkpoints. |
 | A local tool becomes an opaque service | Runs, approvals, checkpoints, status, and configuration remain local and inspectable. |
 
-Birkin's core runtime has **no mandatory third-party Python dependencies**. Optional extras add voice, desktop vision, and office-file support. The repository currently bundles **56 skills**; all default tests are designed to run offline.
+Birkin's core runtime has one mandatory process-identity dependency (`psutil`). Optional extras add voice, native desktop Computer Use, browser, and office-file support. The repository currently bundles **56 skills**; all default tests are designed to run offline.
 
 ## Quick Start
 
@@ -61,6 +61,56 @@ python -m pip install -e ".[desktop]"
 python -m pip install -e ".[office]"
 python -m pip install -e ".[full]"
 ```
+
+## Computer Use
+
+Computer Use is an opt-in native desktop capability exposed as one typed tool, `computer_use`. Install the desktop extra, enable both the legacy desktop observation group and the separate Computer Use mutation gate, then inspect permissions without prompting:
+
+```bash
+python -m pip install -e ".[desktop]"
+birkin computer-use setup --json
+birkin computer-use doctor --json
+```
+
+The commands above emit setup or capability reports. Configuration is written separately:
+
+```json
+{
+  "desktop_tools": true,
+  "computer_use": {
+    "enabled": true,
+    "allowed_apps": ["org.example.QAFixture"],
+    "denied_apps": [],
+    "allowed_windows": null,
+    "denied_windows": [],
+    "allowed_operations": ["click", "scroll", "type", "key"],
+    "max_actions": 200
+  }
+}
+```
+
+Rules use exact native identities and window IDs. Titles, OCR, accessibility labels, screenshots, and other screen content are evidence only and never mutation authority.
+
+The public action union is:
+
+```text
+capture, list_apps, list_windows,
+click, double_click, right_click, middle_click,
+drag, scroll, type, key, doctor
+```
+
+Mutations require the latest opaque app/window/snapshot/element refs. An empty `allowed_apps` list denies every app; `allowed_windows: null` permits the windows of explicitly allowed apps. Birkin attempts semantic background delivery first, verifies the predicted effect from fresh native state, and reports `confirmed`, `unverifiable`, or `suspected_noop`. Pointer foreground fallback is available only for native backends that advertise it, and requires a recorded background failure, an exact one-shot approval, and focus/input restoration evidence. Native password fields are hard-blocked; additional sensitive/risky classes are enforced only when the backend supplies trusted native metadata.
+
+| Platform | Discovery and structure | Exact capture | Background mutation | Foreground input |
+|---|---|---|---|---|
+| macOS | AX, conditional on Accessibility | Quartz exact `CGWindowID`, conditional on Screen Recording | AX semantic actions only | Approved Quartz pointer fallback bound to current AX bounds |
+| Windows | UIA in an interactive desktop with compatible integrity | `PrintWindow` exact `HWND` | UIA patterns only | Approved pointer fallback bound to the current UIA rectangle |
+| Linux X11 | AT-SPI with exact PID/XID correlation | Exact X11 window image | AT-SPI semantic actions only | Approved XTest fallback bound to current AT-SPI bounds |
+| Linux XWayland | Conditional on unique AT-SPI/XID correlation | Conditional on authoritative XID | Conditional | Only when the X11 fallback conditions hold |
+| Linux native Wayland | App observation may be available | Generic exact-window capture unsupported | Generic authoritative mutation unsupported | Unsupported |
+| Optional browser adapter | Contract seam with no production route | Contract seam only | Contract seam only | Never controls browser chrome or OS surfaces |
+
+Raw screenshots are content-addressed under `BIRKIN_HOME/computer-use/artifacts`; events and journals retain bounded redacted metadata, digests, scopes, effects, and receipts instead of raw pixels or typed secrets. Runtime code never installs dependencies, opens privacy settings, or clicks permission dialogs.
 
 > [!IMPORTANT]
 > Native tools run with your operating-system account. Keep the gateway loopback-only, configure `shell_approval`, `fs_jail`, disabled tools, and channel allowlists for your deployment, and review consequential actions before approval.
@@ -354,6 +404,24 @@ Run `birkin --help` or `birkin <command> --help` for the complete interface.
   "extra_skill_dirs": [],
   "disabled_tools": [],
   "desktop_tools": false,
+  "computer_use": {
+    "enabled": false,
+    "allowed_apps": [],
+    "denied_apps": [],
+    "allowed_windows": null,
+    "denied_windows": [],
+    "allowed_operations": [
+      "click",
+      "double_click",
+      "right_click",
+      "middle_click",
+      "drag",
+      "scroll",
+      "type",
+      "key"
+    ],
+    "max_actions": 200
+  },
   "self_improve": true,
   "skill_nudge_interval": 3,
   "memory_nudge_interval": 6,

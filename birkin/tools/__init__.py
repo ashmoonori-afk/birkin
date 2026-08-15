@@ -153,8 +153,8 @@ def build_registry(
     ``vision``, ``desktop``, ``browser``, ``egress``, ``companion``, ``subagent``.
     """
     from .. import browser
-    from . import (citations, desktop, egress, files, market,  # local: avoid cycles
-                   sessions, shell, vision, web)
+    from . import (citations, computer_use, desktop, egress, files, market,
+                   sessions, shell, vision, web)  # local: avoid cycles
     from .subagent_tool import subagent_tools
 
     groups: dict[str, list[Tool]] = {
@@ -168,6 +168,12 @@ def build_registry(
     }
     if ctx.cfg.get("desktop_tools") is True:
         groups["desktop"] = desktop.tools()
+        computer_use_config = ctx.cfg.get("computer_use")
+        if (
+            isinstance(computer_use_config, dict)
+            and computer_use_config.get("enabled") is True
+        ):
+            groups["desktop"] += computer_use.tools()
     if ctx.skills is not None:
         groups["skills"] = ctx.skills.tools()
     if ctx.memory is not None:

@@ -13,7 +13,7 @@ license-files = ["LICENSE", "NOTICE"]
 authors = [{ name = "birkin" }]
 keywords = ["agent", "cli", "skills", "subagents", "self-improving", "llm"]
 
-dependencies = []
+dependencies = ["psutil>=6"]
 
 [project.optional-dependencies]
 voice = [
@@ -21,8 +21,11 @@ voice = [
 ]
 desktop = [
     "Pillow>=11",
+    "pyobjc-framework-ApplicationServices>=12.0; sys_platform == 'darwin'",
     "pyobjc-framework-Quartz>=12.0; sys_platform == 'darwin'",
+    "python-xlib>=0.33; sys_platform == 'linux'",
     "pywinctl>=0.4.1; sys_platform == 'linux'",
+    "pywinauto>=0.6.9; sys_platform == 'win32'",
     "pywin32>=308; sys_platform == 'win32'",
 ]
 office = [
@@ -34,8 +37,11 @@ browser = [
 full = [
     "openai[realtime,voice_helpers]>=2.53,<3",
     "Pillow>=11",
+    "pyobjc-framework-ApplicationServices>=12.0; sys_platform == 'darwin'",
     "pyobjc-framework-Quartz>=12.0; sys_platform == 'darwin'",
+    "python-xlib>=0.33; sys_platform == 'linux'",
     "pywinctl>=0.4.1; sys_platform == 'linux'",
+    "pywinauto>=0.6.9; sys_platform == 'win32'",
     "pywin32>=308; sys_platform == 'win32'",
     "openpyxl>=3.1,<4",
     "playwright>=1.54,<2",
@@ -46,8 +52,11 @@ dev = [
     "tomli>=2",
     "openai[realtime,voice_helpers]>=2.53,<3",
     "Pillow>=11",
+    "pyobjc-framework-ApplicationServices>=12.0; sys_platform == 'darwin'",
     "pyobjc-framework-Quartz>=12.0; sys_platform == 'darwin'",
+    "python-xlib>=0.33; sys_platform == 'linux'",
     "pywinctl>=0.4.1; sys_platform == 'linux'",
+    "pywinauto>=0.6.9; sys_platform == 'win32'",
     "pywin32>=308; sys_platform == 'win32'",
     "openpyxl>=3.1,<4",
 ]

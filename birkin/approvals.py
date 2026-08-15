@@ -290,6 +290,9 @@ def execute_action(category: str, payload: dict[str, Any],
     if category == "operation":
         from .operation_approval import execute_approved
         return execute_approved(payload, cfg)
+    if category == "computer_use":
+        from .computer_use.approval_bridge import approve_payload
+        return approve_payload(payload)
     if category == "checkpoint_restore":
         from .checkpoints import CheckpointManager, RestoreMode
         workspace = Path(str(payload.get("workspace") or "")).expanduser().resolve()

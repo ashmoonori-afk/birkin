@@ -49,6 +49,14 @@ Schema version: 1
 | `extra_skill_dirs` | `array` | `[]` | Birkin setting `extra_skill_dirs`. |
 | `disabled_tools` | `array` | `[]` | Birkin setting `disabled_tools`. |
 | `desktop_tools` | `boolean` | `false` | Birkin setting `desktop_tools`. |
+| `computer_use` | `object` | `{"enabled": false, "allowed_apps": [], "denied_apps": [], "allowed_windows": null, "denied_windows": [], "allowed_operations": ["click", "double_click", "right_click", "middle_click", "drag", "scroll", "type", "key"], "max_actions": 200}` | Birkin setting `computer_use`. |
+| `computer_use.enabled` | `boolean` | `false` | Birkin setting `computer_use.enabled`. |
+| `computer_use.allowed_apps` | `array` | `[]` | Birkin setting `computer_use.allowed_apps`. |
+| `computer_use.denied_apps` | `array` | `[]` | Birkin setting `computer_use.denied_apps`. |
+| `computer_use.allowed_windows` | `any` | `null` | Birkin setting `computer_use.allowed_windows`. |
+| `computer_use.denied_windows` | `array` | `[]` | Birkin setting `computer_use.denied_windows`. |
+| `computer_use.allowed_operations` | `array` | `["click", "double_click", "right_click", "middle_click", "drag", "scroll", "type", "key"]` | Birkin setting `computer_use.allowed_operations`. |
+| `computer_use.max_actions` | `integer` | `200` | Birkin setting `computer_use.max_actions`. |
 | `self_improve` | `boolean` | `true` | Birkin setting `self_improve`. |
 | `skill_nudge_interval` | `integer` | `3` | Birkin setting `skill_nudge_interval`. |
 | `memory_nudge_interval` | `integer` | `6` | Birkin setting `memory_nudge_interval`. |
