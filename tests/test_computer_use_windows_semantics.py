@@ -35,8 +35,13 @@ class _MagicWindowSpecification:
         raise AttributeError("not a concrete UIA wrapper")
 
 
+class _NoPatternInterfaceError(Exception):
+    pass
+
+
 class _InvokeWrapper:
     def __init__(self, *, available: bool, name: str) -> None:
+        self.available = available
         self.name = name
         self.element_info = SimpleNamespace(
             process_id=7,
@@ -47,9 +52,14 @@ class _InvokeWrapper:
             name=name,
             element=SimpleNamespace(
                 CurrentIsPassword=False,
-                CurrentIsInvokePatternAvailable=available,
             ),
         )
+
+    @property
+    def iface_invoke(self) -> object:
+        if not self.available:
+            raise _NoPatternInterfaceError
+        return object()
 
     def invoke(self) -> None:
         return None
@@ -94,6 +104,7 @@ def test_windows_magic_spec_never_impersonates_value_pattern() -> None:
 
 def test_windows_reports_press_only_for_available_uia_invoke_pattern() -> None:
     backend = object.__new__(WindowsBackend)
+    setattr(backend, "_no_pattern_interface_error", _NoPatternInterfaceError)
 
     window = backend._observed(
         _InvokeWrapper(

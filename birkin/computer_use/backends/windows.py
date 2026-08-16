@@ -44,6 +44,7 @@ class WindowsBackend:
             win32ui = import_module("win32ui")
             pywinauto = import_module("pywinauto")
             pywinauto_mouse = import_module("pywinauto.mouse")
+            pywinauto_uia_defs = import_module("pywinauto.uia_defines")
         except ImportError as exc:
             raise BackendError(
                 "backend_unavailable",
@@ -55,6 +56,9 @@ class WindowsBackend:
         self.win32ui: Any = win32ui
         self.desktop: Any = pywinauto.Desktop
         self.mouse: Any = pywinauto_mouse
+        self._no_pattern_interface_error: type[Exception] = (
+            pywinauto_uia_defs.NoPatternInterfaceError
+        )
         self._elements: dict[str, Any] = {}
 
     def probe(self) -> PlatformProbe:
@@ -249,7 +253,11 @@ class WindowsBackend:
         raw = repr((info.process_id, info.runtime_id, info.automation_id))
         identity = hashlib.sha256(raw.encode("utf-8")).hexdigest()
         actions: set[str] = set()
-        if bool(getattr(info.element, "CurrentIsInvokePatternAvailable", False)):
+        try:
+            _ = wrapper.iface_invoke
+        except self._no_pattern_interface_error:
+            pass
+        else:
             actions.add("press")
         if callable(getattr(type(wrapper), "set_edit_text", None)):
             actions.add("set_value")
