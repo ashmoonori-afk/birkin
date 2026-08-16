@@ -5,13 +5,13 @@ from __future__ import annotations
 import codecs
 import csv
 import hashlib
-import io
 import json
 import unicodedata
 from dataclasses import dataclass, replace
 from enum import Enum
 from typing import Literal
 
+from .csv_runtime import parse_csv_rows
 from .errors import DocumentError, DocumentErrorCode
 
 
@@ -180,17 +180,13 @@ def _validate_text(text: str, newline: CsvNewline, digest: str) -> None:
 
 
 def _reader(text: str, dialect: CsvDialect) -> tuple[tuple[str, ...], ...]:
-    return tuple(
-        tuple(row)
-        for row in csv.reader(
-            io.StringIO(text, newline=""),
-            delimiter=dialect.delimiter,
-            quotechar=dialect.quotechar,
-            escapechar=dialect.escapechar,
-            doublequote=dialect.doublequote,
-            quoting=_QUOTING[dialect.quote_policy],
-            strict=True,
-        )
+    return parse_csv_rows(
+        text,
+        delimiter=dialect.delimiter,
+        quotechar=dialect.quotechar,
+        escapechar=dialect.escapechar,
+        doublequote=dialect.doublequote,
+        quoting=_QUOTING[dialect.quote_policy],
     )
 
 

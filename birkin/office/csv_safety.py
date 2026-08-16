@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import csv
 import hashlib
-import io
 import unicodedata
 from collections.abc import Iterable, Sequence
 from dataclasses import dataclass
@@ -24,6 +23,7 @@ from .csv_contract import (
     quoting_value,
     receipt_hash,
 )
+from .csv_runtime import parse_standard_rows, render_csv_rows
 from .errors import DocumentError, DocumentErrorCode
 
 __all__ = ("CsvCellChange", "CsvCellRisk", "CsvCellRiskCode", "CsvDialect", "CsvEncoding", "CsvExportPlan", "CsvImportPlan", "CsvImportResult", "CsvNewline", "CsvQuotePolicy", "CsvSniffPolicy", "SafeSpreadsheetExport", "classify_csv_cell", "export_delimited", "import_delimited", "inspect_delimited", "safe_spreadsheet_export")
@@ -128,7 +128,7 @@ def inspect_delimited(data: bytes, *, delimiter: str = ",") -> tuple[CsvCellRisk
     separator = _delimiter(delimiter)
     try:
         text = data.decode("utf-8-sig")
-        rows = csv.reader(io.StringIO(text, newline=""), delimiter=separator, strict=True)
+        rows = parse_standard_rows(text, separator)
         return _risks(rows)
     except (UnicodeDecodeError, csv.Error) as exc:
         raise DocumentError(
@@ -208,22 +208,20 @@ def export_delimited(
         replacement = "'" + risk.cell
         materialized[risk.row - 1][risk.column - 1] = replacement
         changes.append(CsvCellChange(risk.row, risk.column, risk.code, risk.cell, replacement))
-    stream = io.StringIO(newline="")
     dialect = plan.dialect
-    writer = csv.writer(
-        stream,
-        delimiter=dialect.delimiter,
-        quotechar=dialect.quotechar,
-        escapechar=dialect.escapechar,
-        doublequote=dialect.doublequote,
-        quoting=quoting_value(dialect.quote_policy),
-        lineterminator=newline_text(plan.newline),
-    )
     try:
-        writer.writerows(materialized)
+        text = render_csv_rows(
+            materialized,
+            delimiter=dialect.delimiter,
+            quotechar=dialect.quotechar,
+            escapechar=dialect.escapechar,
+            doublequote=dialect.doublequote,
+            quoting=quoting_value(dialect.quote_policy),
+            lineterminator=newline_text(plan.newline),
+        )
     except csv.Error as exc:
         raise DocumentError(DocumentErrorCode.INVALID_INPUT, "export", "cells violate the export dialect plan") from exc
-    data = encode_delimited(stream.getvalue(), plan.encoding)
+    data = encode_delimited(text, plan.encoding)
     output_sha256 = hashlib.sha256(data).hexdigest()
     receipt: dict[str, object] = {
         "operation": "delimited_export",
