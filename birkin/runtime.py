@@ -259,10 +259,12 @@ class Session:
             route_query: str | None = None,
             record_turn: bool = True,
             session_id: str | None = None,
-            trusted: bool = True) -> str:
+        trusted: bool = True) -> str:
         if self._checkpoint_session:
             self._checkpoint_session[0] = str(
-                session_id or self.cfg["session_id"]
+                session_id
+                or self.cfg.get("session_id")
+                or self._checkpoint_session[0]
             )
         # Budget gate — refuse with a clear message instead of silently spending.
         over, why = budget.is_over(self.cfg)
