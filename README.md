@@ -329,6 +329,7 @@ The authenticated API exposes the checkpoint list, `/timeline`, `/lineage`,
 | `birkin tools` | List, enable, or disable native tools. |
 | `birkin model` / `birkin models` | Inspect or select the model. |
 | `birkin skills` | List, inspect, sync, validate, or manage skills. |
+| `birkin plugins` | Inspect permissions, install exact signed bundle versions, or resolve pins. |
 | `birkin daemon` | Run or install the Morpheus + cron scheduler. |
 | `birkin morpheus [--dry-run]` | Run the scheduled self-improvement routine now. |
 | `birkin harness` | Show, refine, export, or roll back the improvement ledger. |
@@ -340,6 +341,48 @@ The authenticated API exposes the checkpoint list, `/timeline`, `/lineage`,
 | `birkin voice` | Configure or control the optional voice daemon. |
 
 Run `birkin --help` or `birkin <command> --help` for the complete interface.
+
+## Plugin registry
+
+A bundle is a directory containing `birkin-plugin.json`, its entry-point files,
+and a detached `bundle.sig`. The strict manifest declares one exact semantic
+version, one or more `skill`, `agent`, `hook`, or `mcp_server` kinds, and the
+permissions it needs using the same `network`, `network_allowlist`,
+`env_allowlist`, and `write_paths` vocabulary as `SandboxPolicy`:
+
+```jsonc
+{
+  "name": "acme-review",
+  "version": "1.2.3",
+  "kinds": ["skill", "agent"],
+  "entry_points": {
+    "skill": ["skills/review"],
+    "agent": ["agent.py:tools"]
+  },
+  "required_permissions": {
+    "network": "off",
+    "network_allowlist": [],
+    "env_allowlist": ["ACME_TOKEN"],
+    "write_paths": ["reports"]
+  }
+}
+```
+
+Run `birkin plugins inspect BUNDLE [--json]` to see the exact permission record
+before installation. `birkin plugins install BUNDLE --version 1.2.3` always
+prints that disclosure and requires interactive confirmation (or explicit
+`--yes`) unless all four permission fields are read-only/empty. Signed bundles
+also need a trusted shared key supplied as `--key KEY_ID=HEX`; missing,
+untrusted, or mismatched signatures fail closed. A publisher may deliberately
+set `"unsigned_allowed": true`, which makes only a missing signature acceptable.
+
+Project pins live under `.birkin/registry/registry.lock`; team pins live under
+`~/.birkin/registry/team/registry.lock`. Resolution is deterministic: a project
+pin shadows a team pin with the same bundle name, including when their versions
+differ. An exact version request that disagrees with the project pin is a
+conflict rather than a fallback to team scope. Existing pins change only with
+`--upgrade`. Skill entry points feed the existing `SkillManager`; agent entry
+points return `Tool` objects consumed by the existing native tool registry.
 
 ## Configuration
 
