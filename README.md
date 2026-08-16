@@ -59,8 +59,36 @@ Optional features are explicit:
 python -m pip install -e ".[voice]"
 python -m pip install -e ".[desktop]"
 python -m pip install -e ".[office]"
+python -m pip install -e ".[browser]"
+python -m playwright install chromium
 python -m pip install -e ".[full]"
 ```
+
+### Native Browser Aside
+
+With the optional browser dependency installed, `birkin web` exposes a
+collapsible **Browser** plane beside the existing workspace. It is a real
+isolated persistent Playwright Chromium context: there is no iframe, HTML
+projection, or mock browser. Open the plane, enter an `http://` or `https://`
+URL, and press Enter. Collapsing the plane preserves its session and storage;
+the authenticated `DELETE /api/browser-aside/session` endpoint or WebUI
+shutdown closes it.
+
+The plane reuses the unified workspace's shared semantic theme, including its
+dark, light, and high-contrast palettes. Its compact status rail exposes
+ready, loading, blocked, stale, and error states without relying on color, and
+revision-aware frame polling keeps the canvas synchronized without embedding
+image data in the page.
+
+Live JPEG frames use bounded, workspace-scoped content-addressed memory
+storage. UI state and event/context records carry only frame digest/ref
+metadata, never inline image bytes or base64. Private-network navigation is
+denied by default. An exact test-only destination may be admitted with a
+host/CIDR/port rule such as
+`BIRKIN_BROWSER_PRIVATE_NETWORK_RULES='[{"host":"127.0.0.1","cidr":"127.0.0.1/32","port":8080}]'`;
+there is no global private-network switch. Repository sandbox network policy
+still applies. If Playwright Chromium is unavailable, the browser endpoint
+returns an actionable `503` without affecting core startup.
 
 > [!IMPORTANT]
 > Native tools run with your operating-system account. Keep the gateway loopback-only, configure `shell_approval`, `fs_jail`, disabled tools, and channel allowlists for your deployment, and review consequential actions before approval.

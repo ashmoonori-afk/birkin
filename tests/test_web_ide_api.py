@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import http.client
 import json
-import os
 import threading
 from http.server import HTTPServer
 
@@ -18,7 +17,7 @@ def srv():
     thread = threading.Thread(target=httpd.serve_forever, daemon=True)
     thread.start()
     try:
-        yield httpd.server_address[1], web_server._TOKEN
+        yield httpd.server_address[1], web_server._CAPABILITY_TOKEN
     finally:
         httpd.shutdown()
         httpd.server_close()
@@ -164,7 +163,7 @@ def test_events_streams_agent_and_approval_state(srv):
     assert pending["id"] in joined
 
 
-def test_run_persists_private_web_session(monkeypatch):
+def test_run_removes_private_web_session_on_shutdown(monkeypatch):
     class StoppingServer:
         def __init__(self, address, handler):
             self.server_address = (address[0], 54321)
@@ -175,6 +174,5 @@ def test_run_persists_private_web_session(monkeypatch):
     monkeypatch.setattr(web_server, "HTTPServer", StoppingServer)
     web_server.run(port=0, open_browser=False)
     path = config.birkin_home() / "web_session.json"
-    assert store._read_json(path, {}) == {"port": 54321, "token": web_server._TOKEN}
-    if os.name != "nt":
-        assert path.stat().st_mode & 0o777 == 0o600
+    assert store._read_json(path, {}) == {}
+    assert not path.exists()

@@ -5,16 +5,52 @@
 <meta name="viewport" content="width=device-width, initial-scale=1" />
 <title>birkin workbench</title>
 <style>
-/* Tokens arrive from /api/contract (Python-owned). The values below are
-   neutral boot fallbacks only, never a copy of the palette. */
 :root {
-  --surface: #111214; --surface-elevated: #1a1b1e;
-  --text-primary: #e8e8e8; --text-muted: #9a9a9a;
-  --accent: #cccccc; --running: #bbbbbb; --waiting-human: #dddddd;
-  --waiting-dependency: #aaaaaa; --success: #bbbbbb; --warning: #cccccc;
-  --failure: #dddddd; --evidence: #bbbbbb; --memory: #bbbbbb;
-  --diff-add: #bbbbbb; --diff-remove: #cccccc; --focus: #ffffff;
-  --selection: #333333;
+  --birkin-accent: Highlight;
+  --birkin-border: GrayText;
+  --birkin-border-accent: Highlight;
+  --birkin-border-muted: GrayText;
+  --birkin-text: CanvasText;
+  --birkin-muted: GrayText;
+  --birkin-dim: GrayText;
+  --birkin-background: Canvas;
+  --birkin-surface: Field;
+  --birkin-surface-raised: ButtonFace;
+  --birkin-focus-ring: Highlight;
+  --birkin-success: LinkText;
+  --birkin-warning: Highlight;
+  --birkin-error: ActiveText;
+  --birkin-info: LinkText;
+  --birkin-pending: Highlight;
+  --birkin-blocked: ActiveText;
+  --birkin-action-needed: Highlight;
+  --birkin-selected-bg: ButtonFace;
+  --birkin-user-message-bg: Canvas;
+  --birkin-assistant-message-bg: Canvas;
+  --birkin-thinking-bg: Canvas;
+  --birkin-tool-pending-bg: Canvas;
+  --birkin-tool-success-bg: Canvas;
+  --birkin-tool-error-bg: Canvas;
+  --birkin-action-needed-bg: Canvas;
+  --birkin-evidence-bg: Canvas;
+  --birkin-composer-bg: Canvas;
+  --surface: var(--birkin-background);
+  --surface-elevated: var(--birkin-surface);
+  --text-primary: var(--birkin-text);
+  --text-muted: var(--birkin-muted);
+  --accent: var(--birkin-accent);
+  --running: var(--birkin-info);
+  --waiting-human: var(--birkin-action-needed);
+  --waiting-dependency: var(--birkin-pending);
+  --success: var(--birkin-success);
+  --warning: var(--birkin-warning);
+  --failure: var(--birkin-error);
+  --evidence: var(--birkin-info);
+  --memory: var(--birkin-pending);
+  --diff-add: var(--birkin-success);
+  --diff-remove: var(--birkin-error);
+  --focus: var(--birkin-focus-ring);
+  --selection: var(--birkin-selected-bg);
 }
 * { box-sizing: border-box; }
 html, body { margin: 0; height: 100%; }
@@ -27,7 +63,7 @@ button { font: inherit; }
 ::selection { background: var(--selection); }
 
 .app {
-  display: grid; min-height: 100vh;
+  display: grid; height: 100dvh; min-height: 0; overflow: hidden;
   grid-template-rows: auto 1fr;
   min-width: 0; max-width: 100vw;
 }
@@ -41,10 +77,83 @@ button { font: inherit; }
 .pulse .seg { color: var(--text-muted); font-size: .86rem; }
 .pulse .seg.alert { color: var(--waiting-human); font-weight: 600; }
 .pulse .seg.down { color: var(--failure); font-weight: 600; }
+.browser-toggle {
+  margin-left: auto; padding: .35rem .7rem; border-radius: 7px;
+  border: 1px solid var(--birkin-border-muted);
+  background: var(--birkin-surface);
+  color: var(--birkin-text); cursor: pointer;
+}
+.browser-toggle:focus-visible,
+.browser-url:focus-visible,
+.browser-go:focus-visible {
+  outline-color: var(--birkin-focus-ring);
+}
 
-.main { display: grid; gap: 0; min-width: 0; max-width: 100vw; }
-.ledger { border-bottom: 1px solid var(--selection); min-width: 0; }
-.bench { padding: 1rem; min-width: 0; }
+.workspace-shell {
+  display: grid; min-width: 0; min-height: 0;
+  grid-template-columns: minmax(0, 1fr);
+}
+.main {
+  display: grid; gap: 0; min-width: 0; min-height: 0;
+  max-width: 100vw; overflow: hidden;
+}
+.browser-aside {
+  display: none; min-width: 0; min-height: 0; overflow: hidden;
+  grid-template-rows: auto auto minmax(0, 1fr);
+  border-left: 1px solid var(--birkin-border-muted);
+  background: var(--birkin-surface);
+}
+.workspace-shell.browser-open {
+  grid-template-columns: minmax(0, 1fr) minmax(360px, 40vw);
+}
+.workspace-shell.browser-open .browser-aside { display: grid; }
+.browser-toolbar {
+  display: grid; grid-template-columns: minmax(0, 1fr) auto;
+  gap: .45rem; padding: .55rem;
+  border-bottom: 1px solid var(--birkin-border-muted);
+  background: var(--birkin-surface-raised);
+}
+.browser-url {
+  min-width: 0; width: 100%; padding: .5rem .65rem;
+  border: 1px solid var(--birkin-border-muted); border-radius: 7px;
+  background: var(--birkin-background); color: var(--birkin-text);
+}
+.browser-go {
+  padding: .45rem .75rem; border: 1px solid var(--birkin-accent);
+  border-radius: 7px; background: var(--birkin-background);
+  color: var(--birkin-text);
+  cursor: pointer;
+}
+.browser-status {
+  min-height: 2rem; margin: 0; padding: .35rem .65rem;
+  color: var(--birkin-muted); font-size: .82rem;
+  border-bottom: 1px solid var(--birkin-border-muted);
+}
+.browser-status[data-state="loading"] { color: var(--birkin-pending); }
+.browser-status[data-state="ready"] { color: var(--birkin-success); }
+.browser-status[data-state="warning"] { color: var(--birkin-warning); }
+.browser-status[data-state="blocked"] { color: var(--birkin-blocked); }
+.browser-status[data-state="error"] { color: var(--birkin-error); }
+.browser-state-glyph {
+  display: inline-block; width: 1.25em; font-weight: 700;
+}
+.browser-status[data-state="error"] + .browser-viewport { display: none; }
+.browser-viewport {
+  position: relative; min-height: 0; overflow: hidden;
+  background: var(--birkin-background); padding: .5rem;
+}
+.browser-canvas {
+  position: absolute; inset: .5rem; display: block;
+  width: calc(100% - 1rem); height: calc(100% - 1rem);
+  min-width: 0; min-height: 0; object-fit: contain;
+  background: var(--birkin-background);
+  border: 1px solid var(--birkin-border-muted);
+}
+.ledger {
+  border-bottom: 1px solid var(--selection);
+  min-width: 0; min-height: 0; overflow: auto;
+}
+.bench { padding: 1rem; min-width: 0; min-height: 0; overflow: auto; }
 .lens { display: none; padding: 1rem; border-left: 1px solid var(--selection); }
 .lens-toggle {
   display: none; position: fixed; right: 1rem; bottom: 1rem; z-index: 3;
@@ -69,6 +178,21 @@ button { font: inherit; }
 @media (min-width: 1440px) {
   .main { grid-template-columns: 320px minmax(0,1fr) 320px; grid-template-areas: "ledger bench lens"; }
   .lens { display: block; }
+  .browser-open .main {
+    grid-template-columns: 300px minmax(0,1fr);
+    grid-template-areas: "ledger bench";
+  }
+  .browser-open .lens { display: none; }
+  .browser-open .lens-toggle { display: block; }
+}
+@media (max-width: 1023px) {
+  .workspace-shell.browser-open {
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: minmax(0, 1fr) minmax(300px, 44vh);
+  }
+  .browser-aside {
+    border-left: 0; border-top: 1px solid var(--birkin-border-muted);
+  }
 }
 
 .ledger summary {
@@ -145,6 +269,12 @@ details.payload pre {
 @media (prefers-reduced-motion: reduce) {
   * { transition: none !important; animation: none !important; }
 }
+@media (min-width: 1024px) {
+  .browser-open .lens-toggle {
+    display: block;
+    right: calc(40vw + 1rem);
+  }
+}
 </style>
 </head>
 <body>
@@ -155,13 +285,18 @@ details.payload pre {
     <span class="seg alert" id="p-waiting" hidden></span>
     <span class="seg" id="p-model"></span>
     <span class="seg" id="p-version"></span>
+    <button class="browser-toggle" id="browser-aside-toggle" type="button"
+            aria-controls="browser-aside" aria-expanded="false">
+      브라우저 열기
+    </button>
   </header>
   <div class="banner" id="banner" role="alert">
     연결이 끊어졌습니다 — 복구: <code>birkin web</code> 재실행 또는 데몬 확인
     (<code>birkin daemon start</code>). 재연결되면 승인 상태를 다시 불러옵니다.
   </div>
-  <div class="main">
-    <nav class="ledger" aria-label="주의 대기열">
+  <div class="workspace-shell" id="workspace-shell">
+    <div class="main">
+      <nav class="ledger" aria-label="주의 대기열">
       <details open>
         <summary id="ledger-summary">주의 필요</summary>
         <p class="queue-notice" id="queue-notice" role="status" hidden></p>
@@ -171,20 +306,40 @@ details.payload pre {
         <summary id="checkpoint-summary">Checkpoints</summary>
         <ul class="queue" id="checkpoint-list"></ul>
       </details>
-    </nav>
-    <main class="bench" id="bench" aria-label="작업면" tabindex="-1">
-      <p class="empty">항목을 선택하면 상세가 표시됩니다.</p>
-    </main>
-    <button class="lens-toggle" id="lens-toggle" type="button"
-            aria-controls="lens" aria-expanded="false">맥락 보기</button>
-    <aside class="lens" id="lens" aria-label="맥락 렌즈">
-      <h3>실행 환경</h3>
-      <ul id="lens-env"></ul>
-      <h3>예약된 잡</h3>
-      <ul id="lens-jobs"></ul>
-      <div class="activity">
-        <h3>최근 활동</h3>
-        <ul id="lens-runs"></ul>
+      </nav>
+      <main class="bench" id="bench" aria-label="작업면" tabindex="-1">
+        <p class="empty">항목을 선택하면 상세가 표시됩니다.</p>
+      </main>
+      <button class="lens-toggle" id="lens-toggle" type="button"
+              aria-controls="lens" aria-expanded="false">맥락 보기</button>
+      <aside class="lens" id="lens" aria-label="맥락 렌즈">
+        <h3>실행 환경</h3>
+        <ul id="lens-env"></ul>
+        <h3>예약된 잡</h3>
+        <ul id="lens-jobs"></ul>
+        <div class="activity">
+          <h3>최근 활동</h3>
+          <ul id="lens-runs"></ul>
+        </div>
+      </aside>
+    </div>
+    <aside class="browser-aside" id="browser-aside"
+           aria-label="네이티브 브라우저" aria-hidden="true">
+      <form class="browser-toolbar" id="browser-aside-form">
+        <input class="browser-url" id="browser-aside-url" type="url"
+               inputmode="url" autocomplete="off" spellcheck="false"
+               aria-label="브라우저 주소" placeholder="https://example.com" />
+        <button class="browser-go" type="submit">이동</button>
+      </form>
+      <p class="browser-status" id="browser-aside-status" role="status"
+         aria-live="polite" data-state="closed">
+        <span class="browser-state-glyph" aria-hidden="true">○</span>
+        <span class="browser-state-label">Chromium 대기</span>
+      </p>
+      <div class="browser-viewport">
+        <canvas class="browser-canvas" id="browser-aside-canvas"
+                width="1024" height="700" aria-label="브라우저 화면"
+                data-frame-ready="false"></canvas>
       </div>
     </aside>
   </div>
@@ -201,13 +356,221 @@ let checkpointItems = [];
 let toolTimeline = [];
 let checkpointLineage = [];
 let selectedCheckpoint = null;
+let browserFrameTimer = null;
 
 const $ = (id) => document.getElementById(id);
+const browserClientId = sessionStorage.getItem(
+  "birkin-browser-client"
+) || crypto.randomUUID();
+sessionStorage.setItem("birkin-browser-client", browserClientId);
+let browserControlSequence = Number(
+  sessionStorage.getItem("birkin-browser-control-sequence") || 0
+);
 
 async function getJSON(url) {
   const r = await fetch(url, { cache: "no-store" });
   if (!r.ok) { const e = new Error(String(r.status)); e.status = r.status; throw e; }
   return r.json();
+}
+
+async function browserJSON(url, method, payload) {
+  const options = {
+    method,
+    cache: "no-store",
+    headers: {
+      "Content-Type": "application/json",
+      "X-Birkin-Browser-Client": browserClientId,
+    },
+  };
+  if (payload !== undefined) options.body = JSON.stringify(payload);
+  const response = await fetch(url, options);
+  const body = await response.json();
+  if (!response.ok) {
+    const error = new Error(body.error?.code || String(response.status));
+    error.status = response.status;
+    throw error;
+  }
+  return body;
+}
+
+function setBrowserStatus(text, state = "closed") {
+  const node = $("browser-aside-status");
+  const glyphs = {
+    closed: "○",
+    loading: "◐",
+    ready: "✓",
+    warning: "!",
+    blocked: "⊘",
+    error: "×",
+  };
+  const glyph = document.createElement("span");
+  glyph.className = "browser-state-glyph";
+  glyph.setAttribute("aria-hidden", "true");
+  glyph.textContent = glyphs[state] || glyphs.closed;
+  const label = document.createElement("span");
+  label.className = "browser-state-label";
+  label.textContent = text;
+  node.replaceChildren(glyph, label);
+  node.dataset.state = state;
+  node.setAttribute(
+    "aria-live",
+    state === "error" ? "assertive" : "polite",
+  );
+}
+
+function browserStatusLabel(status) {
+  const engine = status.engine === "chromium" ? "Chromium" : "Browser";
+  const owners = {
+    human: "사람 제어",
+    agent: "에이전트 제어",
+    tool: "도구 제어",
+  };
+  const owner = owners[status.control_owner_kind] || "제어권 대기";
+  const readiness = status.frame_revision ? "준비" : "주소 대기";
+  return `${engine} · ${readiness} · ${owner}`;
+}
+
+function resetBrowserFrame() {
+  const canvas = $("browser-aside-canvas");
+  canvas.getContext("2d").clearRect(0, 0, canvas.width, canvas.height);
+  canvas.dataset.frameReady = "false";
+  canvas.dataset.frameRevision = "0";
+  canvas.dataset.frameDigest = "";
+  canvas.dataset.frameRef = "";
+  canvas.dataset.browserGeneration = "";
+}
+
+async function refreshBrowserFrame(status) {
+  const canvas = $("browser-aside-canvas");
+  const generation = String(status.browser_generation);
+  if (canvas.dataset.browserGeneration !== generation) {
+    resetBrowserFrame();
+    canvas.dataset.browserGeneration = generation;
+  }
+  if (!status.live || !status.frame_revision) return;
+  const query = new URLSearchParams({
+    generation,
+    after: canvas.dataset.frameRevision || "0",
+  });
+  const response = await fetch("/api/browser-aside/frame?" + query, {
+    cache: "no-store",
+    headers: {"X-Birkin-Browser-Client": browserClientId},
+  });
+  if (response.status === 204) return;
+  if (!response.ok) throw new Error("frame_" + response.status);
+  const image = await createImageBitmap(await response.blob());
+  canvas.width = image.width;
+  canvas.height = image.height;
+  canvas.getContext("2d").drawImage(image, 0, 0);
+  image.close();
+  canvas.dataset.frameReady = "true";
+  canvas.dataset.frameRevision =
+    response.headers.get("X-Birkin-Frame-Revision") || "0";
+  canvas.dataset.frameDigest =
+    response.headers.get("X-Birkin-Frame-Digest") || "";
+  canvas.dataset.frameRef =
+    response.headers.get("X-Birkin-Frame-Ref") || "";
+  canvas.dataset.browserGeneration = generation;
+  dispatchEvent(new CustomEvent("browser-aside-frame", {
+    detail: {
+      generation: status.browser_generation,
+      revision: canvas.dataset.frameRevision,
+    },
+  }));
+}
+
+function stopBrowserFramePoll() {
+  if (browserFrameTimer !== null) {
+    clearTimeout(browserFrameTimer);
+    browserFrameTimer = null;
+  }
+}
+
+function scheduleBrowserFramePoll() {
+  stopBrowserFramePoll();
+  if (!$("workspace-shell").classList.contains("browser-open")) return;
+  browserFrameTimer = setTimeout(async () => {
+    try {
+      const status = await browserJSON(
+        "/api/browser-aside/status", "GET");
+      if (!status.live) {
+        setBrowserStatus("Chromium 연결 끊김", "warning");
+        return;
+      }
+      await refreshBrowserFrame(status);
+      setBrowserStatus(browserStatusLabel(status), "ready");
+    } catch (error) {
+      setBrowserStatus("화면 새로고침 필요", "warning");
+    } finally {
+      scheduleBrowserFramePoll();
+    }
+  }, 750);
+}
+
+async function openBrowserAside() {
+  const shell = $("workspace-shell");
+  const aside = $("browser-aside");
+  const toggle = $("browser-aside-toggle");
+  shell.classList.add("browser-open");
+  aside.setAttribute("aria-hidden", "false");
+  toggle.setAttribute("aria-expanded", "true");
+  toggle.textContent = "브라우저 접기";
+  setBrowserStatus("Chromium 시작 중", "loading");
+  try {
+    const status = await browserJSON(
+      "/api/browser-aside/session", "POST", {});
+    setBrowserStatus(browserStatusLabel(status), "ready");
+    await refreshBrowserFrame(status);
+    scheduleBrowserFramePoll();
+  } catch (error) {
+    setBrowserStatus(
+      error.status === 503
+        ? "Chromium 설치: uv sync --extra browser && uv run playwright install chromium"
+        : "브라우저를 시작하지 못했습니다",
+      "error",
+    );
+  }
+}
+
+function collapseBrowserAside() {
+  stopBrowserFramePoll();
+  resetBrowserFrame();
+  $("workspace-shell").classList.remove("browser-open");
+  $("browser-aside").setAttribute("aria-hidden", "true");
+  $("browser-aside-toggle").setAttribute("aria-expanded", "false");
+  $("browser-aside-toggle").textContent = "브라우저 열기";
+}
+
+async function navigateBrowserAside() {
+  const url = $("browser-aside-url").value.trim();
+  if (!url) return;
+  setBrowserStatus("페이지 이동 중", "loading");
+  try {
+    const current = await browserJSON(
+      "/api/browser-aside/session", "POST", {});
+    browserControlSequence += 1;
+    sessionStorage.setItem(
+      "birkin-browser-control-sequence",
+      String(browserControlSequence),
+    );
+    const status = await browserJSON(
+      "/api/browser-aside/navigate", "POST", {
+        url,
+        browser_generation: current.browser_generation,
+        browser_revision: current.browser_revision,
+        control_epoch: current.control_epoch,
+        control_sequence: browserControlSequence,
+      });
+    setBrowserStatus(browserStatusLabel(status), "ready");
+    await refreshBrowserFrame(status);
+  } catch (error) {
+    setBrowserStatus(
+      error.status === 400
+        ? "http 또는 https 주소만 사용할 수 있습니다"
+        : "페이지를 열지 못했습니다",
+      error.status === 400 ? "blocked" : "error",
+    );
+  }
 }
 
 function stateByAttention(n) {
@@ -234,9 +597,25 @@ async function loadContract() {
   const c = await getJSON("/api/contract");
   enc = c.uistate["x-birkin-encoding"];
   const root = document.documentElement;
-  for (const [name, entry] of Object.entries(c.tokens.tokens)) {
-    root.style.setProperty("--" + name.replace(/_/g, "-"), entry.hex);
+  const storedTheme = localStorage.getItem("birkin.workspace.theme");
+  const preferredTheme = storedTheme || (
+    window.matchMedia("(prefers-color-scheme: light)").matches
+      ? "paper_light"
+      : c.workspace_theme.default
+  );
+  const selected = c.workspace_theme.palettes[preferredTheme]
+    ? preferredTheme
+    : c.workspace_theme.default;
+  for (const [role, value] of Object.entries(
+    c.workspace_theme.palettes[selected]
+  )) {
+    root.style.setProperty(
+      `--birkin-${role.replace(/_/g, "-")}`,
+      value,
+    );
   }
+  root.dataset.theme = selected;
+  root.style.colorScheme = selected === "paper_light" ? "light" : "dark";
 }
 
 function buildQueue(approvals, jobsData, runs) {
@@ -577,6 +956,19 @@ $("lens-toggle").addEventListener("click", () => {
   const open = lens.classList.toggle("open");
   $("lens-toggle").setAttribute("aria-expanded", String(open));
   $("lens-toggle").textContent = open ? "맥락 닫기" : "맥락 보기";
+});
+
+$("browser-aside-toggle").addEventListener("click", () => {
+  if ($("workspace-shell").classList.contains("browser-open")) {
+    collapseBrowserAside();
+  } else {
+    void openBrowserAside();
+  }
+});
+
+$("browser-aside-form").addEventListener("submit", (event) => {
+  event.preventDefault();
+  void navigateBrowserAside();
 });
 
 (async function boot() {

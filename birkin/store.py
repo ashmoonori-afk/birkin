@@ -13,9 +13,13 @@ import os
 import uuid
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any
+from types import TracebackType
+from typing import TYPE_CHECKING, Any
 
 from . import config
+
+if TYPE_CHECKING:
+    from typing_extensions import Self
 
 
 def _now() -> str:
@@ -79,7 +83,7 @@ class file_lock:
         self._held = False
         self._handle: Any = None
 
-    def __enter__(self) -> "file_lock":
+    def __enter__(self) -> Self:
         import time
         deadline = time.monotonic() + self._timeout
         self._lock.parent.mkdir(parents=True, exist_ok=True)
@@ -96,7 +100,13 @@ class file_lock:
                     raise FileLockTimeout(f"timed out acquiring {self._lock}")
                 time.sleep(0.05)
 
-    def __exit__(self, *exc: Any) -> None:
+    def __exit__(
+        self,
+        exc_type: type[BaseException] | None,
+        exc_value: BaseException | None,
+        traceback: TracebackType | None,
+    ) -> None:
+        del exc_type, exc_value, traceback
         handle = self._handle
         if self._held and handle is not None:
             try:
@@ -194,11 +204,8 @@ def list_runs(limit: int = 20) -> list[dict[str, Any]]:
 
 def append_ledger(entry: dict[str, Any]) -> None:
     """Append one compact JSON line per run to ledger.jsonl (audit trail)."""
-    try:
-        with config.ledger_path().open("a", encoding="utf-8") as fh:
-            fh.write(json.dumps(entry, ensure_ascii=False) + "\n")
-    except OSError:
-        pass
+    with config.ledger_path().open("a", encoding="utf-8") as fh:
+        _ = fh.write(json.dumps(entry, ensure_ascii=False) + "\n")
 
 
 # -- pending approvals -----------------------------------------------------
@@ -217,7 +224,7 @@ def add_pending(*, category: str, title: str, description: str,
     if details:
         reserved = set(rec) & set(details)
         if reserved:
-            raise ValueError(f"pending details overwrite {sorted(reserved)[0]}")
+            raise ValueError(f"pending details overwrite {min(reserved)}")
         rec.update(details)
     if continuation is not None:
         rec["continuation"] = continuation
@@ -276,7 +283,7 @@ def resolve_pending(aid: str, status: str,
         overwritten = reserved & set(merged_updates)
         if overwritten:
             raise ValueError(
-                f"pending details overwrite {sorted(overwritten)[0]}")
+                f"pending details overwrite {min(overwritten)}")
         rec.update(merged_updates)
     _write_json(path, rec)
     return rec
