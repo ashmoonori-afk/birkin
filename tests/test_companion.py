@@ -459,6 +459,35 @@ def test_fixed_offset_is_the_documented_fallback_without_a_tz_database():
     assert datetime(2026, 8, 1, tzinfo=resolved).utcoffset() == timedelta(hours=9)
 
 
+@pytest.mark.parametrize("offset_minutes", [-1440, 1440])
+def test_invalid_fixed_offset_is_rejected_without_mutating_policy(
+        offset_minutes):
+    before = companion.get_policy()
+
+    with pytest.raises(
+        companion.CompanionError,
+        match="utc_offset_minutes",
+    ):
+        companion.set_policy(utc_offset_minutes=offset_minutes)
+
+    assert companion.get_policy() == before
+
+
+def test_invalid_persisted_fixed_offset_recovers_to_utc():
+    state = companion._blank_state()
+    state["policy"]["timezone"] = "Missing/Zone"
+    state["policy"]["utc_offset_minutes"] = 1440
+    companion._save_state(state)
+
+    policy = companion.get_policy()
+    assert policy["utc_offset_minutes"] == 0
+    resolved = companion.resolve_tz(
+        policy["timezone"],
+        policy["utc_offset_minutes"],
+    )
+    assert datetime(2026, 8, 1, tzinfo=resolved).utcoffset() == timedelta(0)
+
+
 # -- storage and events ---------------------------------------------------
 
 def test_events_are_append_only_and_source_linked():

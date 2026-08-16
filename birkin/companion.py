@@ -76,6 +76,18 @@ def _iso(moment: datetime) -> str:
     return moment.isoformat(timespec="seconds")
 
 
+def _parse_fixed_offset(value: Any) -> int:
+    try:
+        offset = int(value)
+    except (TypeError, ValueError):
+        raise CompanionError("utc_offset_minutes must be an integer") from None
+    if not -1440 < offset < 1440:
+        raise CompanionError(
+            "utc_offset_minutes must be strictly between -1440 and 1440"
+        )
+    return offset
+
+
 def parse_iso(value: Any) -> datetime | None:
     """Parse a stored timestamp. A naive value is read as UTC, never as local:
     the daemon and the gateway can run under different TZ environments."""
@@ -97,7 +109,9 @@ def resolve_tz(name: str, offset_minutes: int | None = None) -> tzinfo:
         from zoneinfo import ZoneInfo
         return ZoneInfo(str(name))
     except Exception:
-        return timezone(timedelta(minutes=int(offset_minutes or 0)))
+        return timezone(
+            timedelta(minutes=_parse_fixed_offset(offset_minutes or 0))
+        )
 
 
 def tz_available() -> bool:
@@ -157,6 +171,12 @@ def load_state() -> dict[str, Any]:
             state[key] = fallback
     policy = default_policy()
     policy.update({k: v for k, v in state["policy"].items() if k in policy})
+    try:
+        policy["utc_offset_minutes"] = _parse_fixed_offset(
+            policy["utc_offset_minutes"]
+        )
+    except CompanionError:
+        policy["utc_offset_minutes"] = 0
     state["policy"] = policy
     return state
 
@@ -285,6 +305,10 @@ def set_policy(**changes: Any) -> dict[str, Any]:
                 changes[key] = max(0, int(changes[key]))
             except (TypeError, ValueError):
                 raise CompanionError(f"{key} must be an integer") from None
+    if "utc_offset_minutes" in changes:
+        changes["utc_offset_minutes"] = _parse_fixed_offset(
+            changes["utc_offset_minutes"]
+        )
     with _lock():
         state = load_state()
         policy = state["policy"]
