@@ -31,6 +31,19 @@ def _private_mode(path: Path) -> int:
     return stat.S_IMODE(path.stat().st_mode)
 
 
+def _assert_private_directory(path: Path, root: Path) -> None:
+    if os.name == "nt":
+        metadata = path.stat()
+        assert path.is_dir()
+        assert not (
+            metadata.st_file_attributes
+            & stat.FILE_ATTRIBUTE_REPARSE_POINT
+        )
+        assert path.resolve().is_relative_to(root.resolve())
+        return
+    assert _private_mode(path) == 0o700
+
+
 def _runtime(
     *,
     session_id: str,
@@ -75,9 +88,10 @@ def test_workspace_profiles_and_artifacts_are_isolated(
         )
         assert len(profiles) == 2
         assert all(path.parent == profiles_root for path in profiles)
-        assert _private_mode(tmp_path / "browser-aside") == 0o700
-        assert _private_mode(profiles_root) == 0o700
-        assert all(_private_mode(path) == 0o700 for path in profiles)
+        _assert_private_directory(tmp_path / "browser-aside", tmp_path)
+        _assert_private_directory(profiles_root, tmp_path)
+        for profile in profiles:
+            _assert_private_directory(profile, tmp_path)
 
         serialized = repr((first_status, second_status))
         assert str(tmp_path) not in serialized
