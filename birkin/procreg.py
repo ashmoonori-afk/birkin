@@ -15,20 +15,22 @@ Design (safe by construction):
     birkin's sessions are never touched.
 
 The worst case is therefore leaving an orphan one extra hour — never killing
-a process a live birkin is still using. ``psutil`` supplies process generations
-and cross-platform descendant enumeration.
+a process a live birkin is still using. ``psutil`` supplies process generations;
+platform-native termination reaps descendant trees.
 """
 
 from __future__ import annotations
 
 import atexit
 import os
+import subprocess
 from collections.abc import Callable
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
 from . import config, store
+from .proc import kill_process_group
 
 _atexit_armed = False
 
@@ -95,29 +97,20 @@ def process_generation(pid: int) -> str | None:
 def _kill_pid(pid: int) -> None:
     """Kill a PID and its descendants (the claude/codex -> node tree).
     Best-effort: never raises."""
-    import psutil
-
     try:
-        process = psutil.Process(pid)
-        descendants = process.children(recursive=True)
-    except psutil.NoSuchProcess:
-        return
-    except (psutil.AccessDenied, psutil.Error):
-        return
-    for target in [*reversed(descendants), process]:
-        try:
-            target.terminate()
-        except (psutil.AccessDenied, psutil.NoSuchProcess, psutil.Error):
-            continue
-    _, survivors = psutil.wait_procs(
-        [*descendants, process],
-        timeout=2,
-    )
-    for survivor in survivors:
-        try:
-            survivor.kill()
-        except (psutil.AccessDenied, psutil.NoSuchProcess, psutil.Error):
-            continue
+        if os.name == "nt":
+            _ = subprocess.run(
+                ["taskkill", "/F", "/T", "/PID", str(pid)],
+                capture_output=True,
+                timeout=10,
+            )
+        else:
+            import signal as _sig
+
+            if not kill_process_group(int(pid)):
+                os.kill(int(pid), _sig.SIGTERM)
+    except Exception:
+        pass
 
 
 def register(
@@ -154,27 +147,30 @@ def register(
                 "owner_generation",
                 process_generation(owner_pid),
             )
+            existing = data.get("children")
+            children = (
+                [
+                    value
+                    for value in existing
+                    if isinstance(value, int) and not isinstance(value, bool)
+                ]
+                if isinstance(existing, list)
+                else []
+            )
+            if child_pid not in children:
+                children.append(child_pid)
+            data["children"] = children
             raw_records = data.get("records")
             records = (
                 [
                     record
                     for record in raw_records
                     if isinstance(record, dict)
+                    and record.get("pid") != child_pid
                 ]
                 if isinstance(raw_records, list)
                 else []
             )
-            children = data.get("children")
-            if not isinstance(children, list):
-                children = []
-                data["children"] = children
-            if child_pid not in children:
-                children.append(child_pid)
-            records = [
-                record
-                for record in records
-                if record.get("pid") != child_pid
-            ]
             records.append(
                 {
                     "pid": child_pid,
@@ -204,17 +200,31 @@ def unregister(child_pid: int, owner: int | None = None) -> None:
     p = _reg_path(owner)
     try:
         with store.file_lock(p):
-            data = store._read_json(p, None)
-            if not data:
+            raw = store._read_json(p, None)
+            if not isinstance(raw, dict):
                 return
-            data["children"] = [c for c in data.get("children", [])
-                                if c != child_pid]
+            data: dict[str, Any] = raw
+            existing = data.get("children")
+            children = (
+                [
+                    value
+                    for value in existing
+                    if isinstance(value, int)
+                    and not isinstance(value, bool)
+                    and value != child_pid
+                ]
+                if isinstance(existing, list)
+                else []
+            )
+            data["children"] = children
+            raw_records = data.get("records")
             data["records"] = [
                 record
-                for record in data.get("records", [])
+                for record in raw_records
+                if isinstance(record, dict)
                 if record.get("pid") != child_pid
-            ]
-            if data["children"]:
+            ] if isinstance(raw_records, list) else []
+            if children:
                 store._write_json(p, data)
             else:
                 try:

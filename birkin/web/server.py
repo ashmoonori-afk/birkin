@@ -533,7 +533,14 @@ class Handler(BaseHTTPRequestHandler):
 
     def _host_ok(self) -> bool:
         host = (self.headers.get("Host", "") or "").rsplit(":", 1)[0]
-        return host in _ALLOWED_HOSTS or host == ""
+        if host in _ALLOWED_HOSTS or host == "":
+            return True
+        if not bool(config.load_config().get("web_remote_access", False)):
+            return False
+        # Remote access is never a public dashboard. The secret bootstrap URL
+        # may mint the HttpOnly cookie; every other remote request must already
+        # carry that cookie or the existing X-Birkin-Token capability.
+        return self.path == f"/_bootstrap/{_TOKEN}" or self._capability_ok()
 
     def _header_capability_ok(self) -> bool:
         token = self.headers.get("X-Birkin-Token", "")
@@ -673,6 +680,27 @@ class Handler(BaseHTTPRequestHandler):
                 return
             from .. import ide
             self._json(ide.safe_config())
+        elif self.path == "/api/agent-runs":
+            if not self._capability_ok():
+                self._json({"error": "missing or invalid capability"}, code=403)
+                return
+            from . import approval_console
+            self._json(approval_console.list_runs())
+        elif re.fullmatch(r"/api/agent-runs/[0-9a-f]{12}", self.path):
+            if not self._capability_ok():
+                self._json({"error": "missing or invalid capability"}, code=403)
+                return
+            from . import approval_console
+            code, payload = approval_console.run_detail(self.path.rsplit("/", 1)[-1])
+            self._json(payload, code=code)
+        elif re.fullmatch(r"/api/actions/[0-9a-f]{12}/receipt", self.path):
+            if not self._capability_ok():
+                self._json({"error": "missing or invalid capability"}, code=403)
+                return
+            from . import approval_console
+            action_id = self.path.split("/")[3]
+            code, payload = approval_console.action_receipt(action_id)
+            self._json(payload, code=code)
         elif self.path.startswith("/api/checkpoints"):
             if not self._capability_ok():
                 self._json({"error": "missing or invalid capability"}, code=403)
@@ -854,6 +882,8 @@ class Handler(BaseHTTPRequestHandler):
             self._handle_a2a()
             return
         is_context = self.path == "/api/context"
+        control_match = re.fullmatch(
+            r"/api/agent-runs/([0-9a-f]{12})/control", self.path)
         checkpoint_match = re.fullmatch(
             r"/api/checkpoints/([0-9a-fA-F]{4,40})/(restore|fork)", self.path)
         if (self.path.startswith("/api/checkpoints/")
@@ -862,7 +892,8 @@ class Handler(BaseHTTPRequestHandler):
             self._drain_body()
             self._json({"error": "invalid checkpoint id"}, code=400)
             return
-        if self.path != "/api/approvals" and not is_context and not checkpoint_match:
+        if (self.path != "/api/approvals" and not is_context
+                and not control_match and not checkpoint_match):
             self._drain_body()
             self._send(404, b"not found", "text/plain")
             return
@@ -887,6 +918,12 @@ class Handler(BaseHTTPRequestHandler):
                 self._json({"error": "invalid editor context"}, code=400)
                 return
             self._json({"ok": True})
+            return
+        if control_match:
+            from . import approval_console
+            code, result = approval_console.control_run(
+                control_match.group(1), payload.get("action"), payload.get("text"))
+            self._json(result, code=code)
             return
         if checkpoint_match:
             workspace = Path(str(payload.get("workspace") or Path.cwd())).expanduser().resolve()
@@ -991,7 +1028,9 @@ def run(port: int | None = None, *, open_browser: bool = True) -> int:
     continuation.recover()
     cfg = config.load_config()
     port = port or int(cfg.get("web_port", 8787))
-    httpd = HTTPServer(("127.0.0.1", port), Handler)
+    remote = bool(cfg.get("web_remote_access", False))
+    bind_host = "0.0.0.0" if remote else "127.0.0.1"
+    httpd = HTTPServer((bind_host, port), Handler)
     actual_port = int(httpd.server_address[1])
     session_path = config.birkin_home() / "web_session.json"
     session_path.parent.mkdir(parents=True, exist_ok=True)

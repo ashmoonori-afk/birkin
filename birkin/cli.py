@@ -15,6 +15,7 @@ from __future__ import annotations
 import argparse
 import json
 import sys
+from pathlib import Path
 from typing import Any
 
 from . import __version__
@@ -154,6 +155,80 @@ def _cmd_compare(args: argparse.Namespace) -> int:
             print()
     print(f"\n{CYAN}A = {res['A']['model']}    B = {res['B']['model']}{RESET}")
     return 0
+
+
+def _cmd_plugins(args: argparse.Namespace) -> int:
+    """Inspect, install, and resolve exact plugin bundle pins."""
+    from .plugin_install import PluginInstallError, PluginInstaller, Scope
+    from .plugin_manifest import ManifestError
+    from .plugin_runtime import registry_roots
+    from .plugin_signature import SignatureError
+
+    keys: dict[str, bytes] = {}
+    try:
+        for item in args.key or []:
+            key_id, separator, encoded = item.partition("=")
+            if not separator or not key_id:
+                raise ValueError("trusted keys use KEY_ID=HEX")
+            keys[key_id] = bytes.fromhex(encoded)
+        project_root, team_root = registry_roots()
+        installer = PluginInstaller(project_root, team_root, keys)
+        if args.action == "resolve":
+            found = installer.resolve(args.name, args.version)
+            record = {"name": found.name, "version": found.version,
+                      "scope": found.scope.value, "path": str(found.path),
+                      "digest": found.digest}
+            print(json.dumps(record, sort_keys=True) if args.json else
+                  f"{found.name}@{found.version} [{found.scope.value}] {found.path}")
+            return 0
+        source = Path(args.source).expanduser().resolve()
+        inspection = installer.inspect(source)
+        record = inspection.machine_record()
+        if args.json:
+            print(json.dumps(record, sort_keys=True))
+        else:
+            permissions = record["permissions"]
+            assert isinstance(permissions, dict)
+            print(f"Bundle: {inspection.manifest.name}@{inspection.manifest.version}")
+            print(f"Signature: {inspection.signature}")
+            print("Required permissions:")
+            print(f"  network: {permissions['network']}")
+            for field in ("network_allowlist", "env_allowlist", "write_paths"):
+                values = permissions[field]
+                assert isinstance(values, list)
+                print(f"  {field}: {', '.join(values) if values else '(none)'}")
+            print("Confirmation required: " +
+                  ("yes" if inspection.manifest.requires_confirmation else "no"))
+        if args.action == "inspect":
+            return 0
+        confirmed = bool(args.yes)
+        if inspection.manifest.requires_confirmation and not confirmed:
+            if args.json:
+                print(json.dumps({"error": "confirmation required"}, sort_keys=True))
+                return 1
+            try:
+                confirmed = input("Install with these permissions? [y/N] ").strip().lower() in ("y", "yes")
+            except (EOFError, KeyboardInterrupt):
+                confirmed = False
+            if not confirmed:
+                print("Installation refused; no files were changed.")
+                return 1
+        installed = installer.install(
+            source, Scope(args.scope), args.version,
+            confirmed=confirmed, upgrade=args.upgrade,
+        )
+        result = {"name": installed.name, "version": installed.version,
+                  "scope": installed.scope.value, "path": str(installed.path),
+                  "digest": installed.digest}
+        print(json.dumps(result, sort_keys=True) if args.json else
+              f"Installed {installed.name}@{installed.version} [{installed.scope.value}]")
+        return 0
+    except (ManifestError, SignatureError, PluginInstallError, OSError, ValueError) as exc:
+        if getattr(args, "json", False):
+            print(json.dumps({"error": str(exc)}, sort_keys=True))
+        else:
+            print(f"Plugin error: {exc}")
+        return 1
 
 
 def _cmd_skills(args: argparse.Namespace) -> int:
@@ -1064,6 +1139,27 @@ def build_parser() -> argparse.ArgumentParser:
         help="message to inspect with --dry-run",
     )
     chatp.set_defaults(func=_cmd_chat)
+
+    pp = sub.add_parser("plugins", help="inspect and install signed plugin bundles")
+    pps = pp.add_subparsers(dest="action", required=True)
+    inspectp = pps.add_parser("inspect", help="show permissions before installation")
+    inspectp.add_argument("source")
+    installp = pps.add_parser("install", help="install an exact bundle version")
+    installp.add_argument("source")
+    installp.add_argument("--version", required=True, help="exact semantic version")
+    installp.add_argument("--scope", choices=("project", "team"), default="project")
+    installp.add_argument("--yes", action="store_true", help="confirm disclosed permissions")
+    installp.add_argument("--upgrade", action="store_true", help="replace an existing scope pin")
+    resolvep = pps.add_parser("resolve", help="show the effective project/team pin")
+    resolvep.add_argument("name")
+    resolvep.add_argument("--version", help="require this exact installed version")
+    for plugin_parser in (inspectp, installp, resolvep):
+        plugin_parser.add_argument("--json", action="store_true", help="machine-readable JSON")
+        plugin_parser.add_argument(
+            "--key", action="append", default=[], metavar="KEY_ID=HEX",
+            help="trusted HMAC key (repeatable)",
+        )
+        plugin_parser.set_defaults(func=_cmd_plugins)
 
     sp = sub.add_parser("skills",
                         help="list skills, show one, `skills sync`, or `skills validate`")

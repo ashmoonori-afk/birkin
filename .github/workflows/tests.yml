@@ -35,8 +35,107 @@ jobs:
         with:
           python-version: ${{ matrix.python }}
           cache: pip
+      - if: runner.os != 'Linux'
+        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+        with:
+          bun-version: "1.2.22"
       - run: python -m pip install --upgrade pip && python -m pip install -e ".[dev]" PyYAML
+      - name: Install Windows verification tools
+        if: runner.os == 'Windows'
+        shell: cmd
+        run: python -m pip install ruff==0.16.3 basedpyright==1.39.9 bandit==1.9.4
       - run: python -m compileall -q birkin
+      - name: Native macOS shell acceptance
+        if: runner.os == 'macOS'
+        shell: bash
+        run: |
+          python -m pytest -p no:cacheprovider -o addopts= -q tests/test_macos_shell_acceptance.py
+          python scripts/qa/macos_shell_smoke.py
+      - name: Native Windows shell acceptance
+        if: runner.os == 'Windows'
+        shell: cmd
+        run: |
+          python -m pytest -p no:cacheprovider -o addopts= -q tests/test_windows_shell_acceptance.py tests/test_windows_shell_matrix.py tests/test_windows_job_object.py tests/test_proc.py tests/test_tools.py tests/test_operation_approvals.py tests/test_scheduler.py tests/test_monitor.py tests/test_shellguard.py tests/test_powershell_opt_in.py tests/test_generic_shell_paths.py tests/test_hooks.py tests/test_sandbox_worktree.py tests/test_sandbox_docker.py tests/test_github_action_policy.py tests/test_approvals.py tests/test_procreg.py
+          python scripts/qa/windows_shell_smoke.py
+      - name: Windows CLI help
+        if: runner.os == 'Windows'
+        shell: cmd
+        run: python -m birkin --help
+      - name: Windows CLI success
+        if: runner.os == 'Windows'
+        shell: cmd
+        run: python -m birkin --version
+      - name: Windows CLI invalid input
+        if: runner.os == 'Windows'
+        shell: cmd
+        run: |
+          python -m birkin definitely-not-a-command > cli-invalid.txt 2>&1 && exit /b 1
+          findstr /C:"invalid choice" cli-invalid.txt
+      - name: Windows lint
+        if: runner.os == 'Windows'
+        shell: cmd
+        run: >-
+          python -m ruff check
+          birkin/proc.py
+          birkin/_winjob.py
+          birkin/_winjob_bootstrap.py
+          birkin/tools/shell.py
+          birkin/omo_bridge.py
+          birkin/omo_live.py
+          scripts/qa/omo_live_bridge_smoke.py
+          scripts/qa/omo_live_harness.py
+          tests/test_omo_live_bridge.py
+          tests/test_windows_shell_acceptance.py
+          tests/test_windows_shell_matrix.py
+          tests/test_windows_job_object.py
+          tests/test_powershell_opt_in.py
+          tests/test_generic_shell_paths.py
+          tests/test_macos_shell_acceptance.py
+          scripts/qa/macos_shell_smoke.py
+          scripts/qa/windows_shell_smoke.py
+      - name: Windows type check
+        if: runner.os == 'Windows'
+        shell: cmd
+        run: >-
+          python -m basedpyright
+          birkin/proc.py
+          birkin/_winjob.py
+          birkin/_winjob_bootstrap.py
+          birkin/tools/shell.py
+          birkin/omo_bridge.py
+          birkin/omo_live.py
+          scripts/qa/omo_live_bridge_smoke.py
+          scripts/qa/omo_live_harness.py
+          tests/test_omo_live_bridge.py
+          tests/test_windows_shell_acceptance.py
+          tests/test_windows_shell_matrix.py
+          tests/test_windows_job_object.py
+          tests/test_powershell_opt_in.py
+          tests/test_generic_shell_paths.py
+          tests/test_macos_shell_acceptance.py
+          scripts/qa/macos_shell_smoke.py
+          scripts/qa/windows_shell_smoke.py
+      - name: Windows security scan
+        if: runner.os == 'Windows'
+        shell: cmd
+        run: >-
+          python -m bandit -q -ll -r
+          birkin/proc.py
+          birkin/_winjob.py
+          birkin/_winjob_bootstrap.py
+          birkin/tools/shell.py
+          birkin/approvals.py
+          birkin/omo_bridge.py
+          birkin/omo_live.py
+          birkin/operation_approval.py
+          birkin/operation_policy.py
+          birkin/egress.py
+          birkin/egress_policy.py
+          birkin/tools/files.py
+          birkin/secrets
+          birkin/github_action.py
+          birkin/hooks.py
+          birkin/sandbox_worktree.py
       - run: python -m pytest -p no:cacheprovider -o addopts= -q
 
   windows-computer-use-native:

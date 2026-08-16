@@ -54,6 +54,30 @@
         "write_paths": {"type": "array", "items": {"type": "string"}}
       }
     },
+    "memory_scope": {
+      "type": "string",
+      "enum": ["user", "project", "organization", "agent", "workflow"],
+      "description": "Owning scope used for memory writes.",
+      "x-description-ko": "메모리 쓰기에 사용하는 소유 범위입니다."
+    },
+    "memory_visible_scopes": {
+      "type": "array",
+      "items": {"type": "string", "enum": ["user", "project", "organization", "agent", "workflow"]},
+      "description": "Memory scopes this agent may read; omitted scopes fail closed.",
+      "x-description-ko": "이 에이전트가 읽을 수 있는 메모리 범위이며 생략된 범위는 닫힌 상태로 거부됩니다."
+    },
+    "memory_default_trust": {
+      "type": "string",
+      "enum": ["untrusted", "low", "medium", "high"],
+      "description": "Trust assigned to memory sources without an explicit mapping.",
+      "x-description-ko": "명시적 매핑이 없는 메모리 출처에 적용하는 신뢰 수준입니다."
+    },
+    "memory_source_trust": {
+      "type": "object",
+      "additionalProperties": {"type": "string", "enum": ["untrusted", "low", "medium", "high"]},
+      "description": "Per-source memory trust levels used by minimum-trust queries.",
+      "x-description-ko": "최소 신뢰 쿼리에 사용하는 출처별 메모리 신뢰 수준입니다."
+    },
     "shell_approval": {
       "type": "string",
       "enum": ["manual", "smart", "off"]

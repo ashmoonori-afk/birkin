@@ -296,6 +296,27 @@
   .approval-fields dt { color: var(--dim); font-size: .72rem; }
   .approval-fields dd { margin: 0; color: var(--text); font-size: .78rem; }
   .approval-actions { display: flex; justify-content: flex-end; gap: 8px; }
+  .detail-actions { display: flex; flex-wrap: wrap; gap: 8px; }
+  .detail-output {
+    max-height: 24rem;
+    overflow: auto;
+    white-space: pre-wrap;
+    padding: 10px;
+    border: 1px solid var(--border-muted);
+    border-radius: 8px;
+    background: var(--surface);
+  }
+  .run-events { list-style: none; margin: 0; padding: 0; }
+  .run-events li { padding: 8px 0; border-bottom: 1px solid var(--border-muted); }
+  .steer-input {
+    flex: 1 1 16rem;
+    min-width: 0;
+    padding: 8px;
+    color: var(--text);
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+  }
   .notice {
     position: fixed;
     left: 50%;
@@ -313,6 +334,12 @@
   }
   .notice:empty { display: none; }
 
+  @media (max-width: 480px) {
+    .approval-fields { grid-template-columns: 1fr; }
+    .approval-actions, .detail-actions { display: grid; grid-template-columns: 1fr 1fr; }
+    .approval-actions .steer-input,
+    .detail-actions .steer-input { grid-column: 1 / -1; width: 100%; }
+  }
   @media (max-width: 820px) {
     .icon-button,
     .action,
@@ -402,8 +429,9 @@
              data-testid="workspace-panel-tabs">
           <button type="button" class="panel-tab" role="tab" data-panel="tasks_runs"
                   aria-controls="workspace-panel-body" aria-selected="true">작업</button>
-          <button type="button" class="panel-tab" role="tab" data-panel="approvals"
-                  aria-controls="workspace-panel-body" aria-selected="false">승인</button>
+          <button id="approval-tab" type="button" class="panel-tab" role="tab"
+                  data-panel="approvals" aria-controls="workspace-panel-body"
+                  aria-selected="false">승인</button>
           <button type="button" class="panel-tab" role="tab" data-panel="files_evidence"
                   aria-controls="workspace-panel-body" aria-selected="false">근거</button>
           <button type="button" class="panel-tab" role="tab" data-panel="sessions_history"
@@ -463,6 +491,9 @@ const state = {
 };
 
 let items = [];
+let uiEncoding = {};
+const recentReceipts = new Map();
+const busyApprovalIds = new Set();
 const detailFields = ["expected-impact", "rejection-result", "related-evidence"];
 const panelLabels = {
   tasks_runs: "작업 및 실행",
@@ -519,6 +550,18 @@ function setConnection(value, label) {
   connection.textContent = label;
 }
 
+function presentationFor(uiState) {
+  const encoded = uiEncoding[uiState];
+  if (encoded) return [encoded.glyph, encoded.label];
+  return statePresentations[uiState] || statePresentations.unknown;
+}
+
+function attentionFor(uiState) {
+  const encoded = uiEncoding[uiState];
+  if (encoded) return Number(encoded.attention);
+  return attentionRanks[uiState] ?? 99;
+}
+
 async function api(path, options = {}) {
   const response = await fetch(path, {
     cache: "no-store",
@@ -528,6 +571,21 @@ async function api(path, options = {}) {
   const payload = await response.json().catch(() => ({}));
   if (!response.ok) {
     const error = new Error(String(payload.error || response.status));
+    error.status = response.status;
+    throw error;
+  }
+  return payload;
+}
+
+async function textApi(path, options = {}) {
+  const response = await fetch(path, {
+    cache: "no-store",
+    credentials: "same-origin",
+    ...options,
+  });
+  const payload = await response.text();
+  if (!response.ok) {
+    const error = new Error(payload || String(response.status));
     error.status = response.status;
     throw error;
   }
@@ -556,6 +614,7 @@ function applyWorkspaceTheme(contract, name) {
 
 async function loadContract() {
   const contract = await api("/api/contract");
+  uiEncoding = contract.uistate["x-birkin-encoding"];
   for (const [name, token] of Object.entries(contract.tokens.tokens)) {
     document.documentElement.style.setProperty(
       `--${name.replace(/_/g, "-")}`,
@@ -677,7 +736,20 @@ async function refreshWorkspaceSnapshot() {
   renderPanel();
 }
 
+function approvalIsActionable(item) {
+  const status = String(item.status || item.record?.status || "pending");
+  return status === "pending" || attentionFor(item.ui_state) === 0;
+}
+
+function updateApprovalTab() {
+  const waiting = items.filter(
+    (item) => item.kind === "approval" && approvalIsActionable(item)
+  ).length;
+  byId("approval-tab").textContent = waiting ? `승인 · 대기 ${waiting}` : "승인";
+}
+
 function renderPanel() {
+  updateApprovalTab();
   clearNode(panelBody);
   const heading = document.createElement("h2");
   heading.className = "panel-heading";
@@ -688,11 +760,15 @@ function renderPanel() {
     .find((entry) => entry.key === state.activePanel);
   let legacyItems = [];
   if (state.activePanel === "tasks_runs") {
-    legacyItems = items.filter((item) => item.kind === "run" || item.kind === "cron");
+    legacyItems = items.filter(
+      (item) => ["run", "cron", "agent_run"].includes(item.kind)
+    );
   } else if (state.activePanel === "approvals") {
     legacyItems = items.filter((item) => item.kind === "approval");
   } else if (state.activePanel === "activity_logs") {
     legacyItems = items;
+  } else if (state.activePanel === "settings_status") {
+    legacyItems = items.filter((item) => item.kind === "status");
   }
   const canonicalItems = panel?.items || [];
   const merged = new Map(
@@ -700,12 +776,24 @@ function renderPanel() {
   );
   for (const item of canonicalItems) {
     const id = String(item.id || "");
-    merged.set(id, {...(merged.get(id) || {}), ...item});
+    const previous = merged.get(id) || {};
+    const combined = {...(merged.get(id) || {}), ...item};
+    if (previous.kind === "agent_run" && item.kind === "tasks_runs") {
+      combined.kind = "agent_run";
+    }
+    if (
+      previous.kind === "approval"
+      && item.ui_state === "pending"
+      && uiEncoding[previous.ui_state]
+    ) {
+      combined.ui_state = previous.ui_state;
+    }
+    merged.set(id, combined);
   }
   let panelItems = [...merged.values()];
   panelItems = [...panelItems].sort((left, right) => {
-    const leftRank = attentionRanks[left.ui_state] ?? 99;
-    const rightRank = attentionRanks[right.ui_state] ?? 99;
+    const leftRank = attentionFor(left.ui_state);
+    const rightRank = attentionFor(right.ui_state);
     return leftRank - rightRank;
   });
 
@@ -725,8 +813,7 @@ function renderPanel() {
     button.setAttribute("aria-current", String(item.id === state.selectedId));
     const title = document.createElement("div");
     title.className = "panel-item-title";
-    const presentation = statePresentations[item.ui_state]
-      || statePresentations.unknown;
+    const presentation = presentationFor(item.ui_state);
     title.textContent = `${presentation[0]} ${presentation[1]} · ${
       String(item.title || item.key || item.id || "")
     }`;
@@ -741,6 +828,11 @@ function renderPanel() {
   if (selected?.kind === "approval") appendApprovalDetail(selected);
   if (selected?.kind === "question") appendQuestionDetail(selected);
   if (selected?.kind === "checkpoint") appendCheckpointDetail(selected);
+  if (selected?.kind === "agent" || selected?.kind === "agent_run") {
+    appendAgentRunDetail(selected);
+  }
+  if (selected?.kind === "computer_use") appendComputerUseDetail(selected);
+  if (selected?.kind === "status") appendStatusDetail(selected);
 }
 
 function selectPanelItem(item) {
@@ -748,48 +840,115 @@ function selectPanelItem(item) {
   renderPanel();
 }
 
-function submitApproval(item, decision) {
-  sendCommand("approval.answer", {
-    approval_id: item.id,
-    decision,
-    detail_fields: detailFields,
-  }).catch((error) => announce(`승인 실패: ${error.message}`));
+function appendDefinitions(target, definitions) {
+  for (const [label, value] of definitions) {
+    if (value == null || value === "") continue;
+    const term = document.createElement("dt");
+    term.textContent = label;
+    const detail = document.createElement("dd");
+    detail.textContent = String(value);
+    target.append(term, detail);
+  }
+}
+
+async function submitApproval(item, decision) {
+  const approvalId = String(item.id || "");
+  if (!approvalId || busyApprovalIds.has(approvalId)) return;
+  busyApprovalIds.add(approvalId);
+  renderPanel();
+  try {
+    await sendCommand("approval.answer", {
+      approval_id: approvalId,
+      decision,
+      detail_fields: detailFields,
+    });
+    announce("요청 전송 완료 · Python authority 응답 대기");
+  } catch (error) {
+    busyApprovalIds.delete(approvalId);
+    announce(`승인 실패: ${error.message}`);
+    renderPanel();
+  }
 }
 
 function appendApprovalDetail(item) {
   const section = document.createElement("section");
   section.className = "approval-detail";
   section.setAttribute("aria-label", "승인 세부 정보");
+  const record = item.record || {};
   const fields = document.createElement("dl");
   fields.className = "approval-fields";
-  const definitions = [
-    ["요청자", item.requester],
-    ["대상", item.target],
-    ["예상 영향", item.expected_impact],
-    ["거부 결과", item.rejection_result],
-    ["위험", item.risk],
-    ["만료", item.expires_at],
-    ["관련 근거", item.related_evidence],
-  ];
-  for (const [label, value] of definitions) {
-    if (!value) continue;
-    const term = document.createElement("dt");
-    term.textContent = label;
-    const detail = document.createElement("dd");
-    detail.textContent = String(value);
-    fields.append(term, detail);
+  appendDefinitions(fields, [
+    ["요청자", item.requester || record.origin],
+    ["유형", record.category],
+    ["대상", item.target || record.target || record.payload?.path || record.payload?.command],
+    ["예상 영향", item.expected_impact || record.expected_impact || record.description],
+    ["거부 결과", item.rejection_result || record.rejection_result],
+    ["위험", item.risk || record.risk],
+    ["만료", item.expires_at || record.expires_at],
+    ["관련 근거", item.related_evidence || record.evidence || record.payload?.evidence],
+  ]);
+  section.appendChild(fields);
+
+  if (record.payload && Object.keys(record.payload).length) {
+    const payload = document.createElement("details");
+    const payloadSummary = document.createElement("summary");
+    payloadSummary.textContent = `요청 payload 보기 (${Object.keys(record.payload).length}개 항목)`;
+    const payloadText = document.createElement("pre");
+    payloadText.textContent = JSON.stringify(record.payload, null, 2);
+    payload.append(payloadSummary, payloadText);
+    section.appendChild(payload);
   }
+
+  const output = document.createElement("pre");
+  output.className = "detail-output";
+  output.hidden = true;
   const actions = document.createElement("div");
   actions.className = "approval-actions";
-  for (const [decision, label] of [["reject", "거부"], ["approve", "승인 실행"]]) {
-    const button = document.createElement("button");
-    button.type = "button";
-    button.className = `action ${decision === "approve" ? "primary" : ""}`;
-    button.textContent = label;
-    button.addEventListener("click", () => submitApproval(item, decision));
-    actions.appendChild(button);
+  const diff = document.createElement("button");
+  diff.type = "button";
+  diff.className = "action";
+  diff.textContent = "View diff";
+  diff.addEventListener("click", async () => {
+    diff.disabled = true;
+    try {
+      output.textContent = await textApi(
+        `/api/approvals/${encodeURIComponent(item.id)}/diff`
+      );
+    } catch (error) {
+      output.textContent = `No diff available: ${error.message}`;
+    } finally {
+      output.hidden = false;
+      diff.disabled = false;
+    }
+  });
+  actions.appendChild(diff);
+
+  if (approvalIsActionable(item)) {
+    for (const [decision, label] of [["reject", "거부"], ["approve", "승인 실행"]]) {
+      const button = document.createElement("button");
+      button.type = "button";
+      button.className = `action ${decision === "approve" ? "primary" : ""}`;
+      button.textContent = label;
+      button.disabled = busyApprovalIds.has(String(item.id));
+      button.addEventListener("click", () => submitApproval(item, decision));
+      actions.appendChild(button);
+    }
+    const authority = document.createElement("p");
+    authority.className = "panel-item-detail";
+    authority.textContent = (
+      "버튼은 요청만 보내며 실제 실행과 상태 변경은 Python authority 응답 후 반영됩니다."
+    );
+    section.appendChild(authority);
   }
-  section.append(fields, actions);
+  section.append(actions, output);
+
+  const receipt = recentReceipts.get(String(item.id));
+  if (receipt) {
+    const receiptText = document.createElement("p");
+    receiptText.setAttribute("role", "status");
+    receiptText.textContent = `Action executed: ${receipt.receipt}`;
+    section.appendChild(receiptText);
+  }
   panelBody.appendChild(section);
 }
 
@@ -847,22 +1006,253 @@ function appendCheckpointDetail(item) {
     "복원은 즉시 실행되지 않으며 별도 승인이 필요합니다. "
     + "거부하면 현재 파일과 작업 상태가 유지됩니다."
   );
+  const actions = document.createElement("div");
+  actions.className = "detail-actions";
+  const preview = document.createElement("button");
+  preview.type = "button";
+  preview.className = "action";
+  preview.textContent = "Preview diff";
   const restore = document.createElement("button");
   restore.type = "button";
   restore.className = "action";
   restore.textContent = "복원 승인 요청";
-  restore.addEventListener("click", () => {
-    api(`/api/checkpoints/${encodeURIComponent(item.id)}/restore`, {
-      method: "POST",
-      headers: {"Content-Type": "application/json"},
-      body: JSON.stringify({mode: mode.value}),
-    }).then((result) => {
-      announce(`복원 승인 대기: ${result.approval_id}`);
-      return refreshLegacyPanels();
-    }).catch((error) => announce(`복원 실패: ${error.message}`));
+  actions.append(preview, restore);
+
+  const commandLabel = document.createElement("label");
+  commandLabel.textContent = "Alternate command (JSON string array)";
+  const command = document.createElement("input");
+  command.className = "steer-input";
+  command.value = '["python","-c","print(42)"]';
+  commandLabel.appendChild(command);
+  const fork = document.createElement("button");
+  fork.type = "button";
+  fork.className = "action";
+  fork.textContent = "Run alternate branch";
+  const forkActions = document.createElement("div");
+  forkActions.className = "detail-actions";
+  forkActions.append(commandLabel, fork);
+
+  const output = document.createElement("pre");
+  output.className = "detail-output";
+  output.hidden = true;
+  const status = document.createElement("p");
+  status.setAttribute("role", "status");
+  status.setAttribute("aria-live", "polite");
+
+  preview.addEventListener("click", async () => {
+    preview.disabled = true;
+    try {
+      const result = await api(
+        `/api/checkpoints/${encodeURIComponent(item.id)}/diff`
+      );
+      output.textContent = result.patch || "No differences from current files.";
+      output.hidden = false;
+    } catch (error) {
+      status.textContent = `Diff preview failed: ${error.message}`;
+    } finally {
+      preview.disabled = false;
+    }
   });
-  section.append(summary, modeLabel, consequence, restore);
+  restore.addEventListener("click", async () => {
+    restore.disabled = true;
+    try {
+      const result = await api(
+        `/api/checkpoints/${encodeURIComponent(item.id)}/restore`,
+        {
+          method: "POST",
+          headers: {"Content-Type": "application/json"},
+          body: JSON.stringify({mode: mode.value}),
+        }
+      );
+      status.textContent = `복원 승인 대기: ${result.approval_id}`;
+      announce(status.textContent);
+      await refreshLegacyPanels();
+    } catch (error) {
+      status.textContent = `복원 실패: ${error.message}`;
+    } finally {
+      restore.disabled = false;
+    }
+  });
+  fork.addEventListener("click", async () => {
+    let parsed;
+    try {
+      parsed = JSON.parse(command.value);
+      if (!Array.isArray(parsed) || !parsed.every((part) => typeof part === "string")) {
+        throw new Error("Command must be a JSON string array.");
+      }
+    } catch (error) {
+      status.textContent = error.message;
+      return;
+    }
+    fork.disabled = true;
+    status.textContent = "Running isolated alternate branch…";
+    try {
+      const result = await api(
+        `/api/checkpoints/${encodeURIComponent(item.id)}/fork`,
+        {
+          method: "POST",
+          headers: {"Content-Type": "application/json"},
+          body: JSON.stringify({command: parsed}),
+        }
+      );
+      status.textContent = `Alternate branch complete: ${result.stdout || "exit 0"}`;
+      await refreshWorkspaceSnapshot();
+    } catch (error) {
+      status.textContent = `Fork failed: ${error.message}`;
+    } finally {
+      fork.disabled = false;
+    }
+  });
+
+  section.append(
+    summary, modeLabel, consequence, actions, forkActions, output, status
+  );
   panelBody.appendChild(section);
+}
+
+function appendAgentRunDetail(item) {
+  const section = document.createElement("section");
+  section.className = "approval-detail";
+  section.setAttribute("aria-label", "Background run detail");
+  const loading = document.createElement("p");
+  loading.textContent = "Run detail loading…";
+  section.appendChild(loading);
+  panelBody.appendChild(section);
+
+  api(`/api/agent-runs/${encodeURIComponent(item.id)}`).then((run) => {
+    if (!section.isConnected) return;
+    clearNode(section);
+    const heading = document.createElement("h3");
+    heading.textContent = String(run.task || run.id);
+    const fields = document.createElement("dl");
+    fields.className = "approval-fields";
+    const presentation = presentationFor(run.ui_state);
+    appendDefinitions(fields, [
+      ["Status", presentation[1]],
+      ["Run ID", run.id],
+      ["Started", run.started_at],
+      ["Pending approvals", (run.approvals || []).map(
+        (approval) => approval.title || approval.category
+      ).join(", ") || "none"],
+    ]);
+    const progressHeading = document.createElement("h4");
+    progressHeading.textContent = "Progress";
+    const events = document.createElement("ul");
+    events.className = "run-events";
+    for (const event of run.events || []) {
+      const row = document.createElement("li");
+      row.textContent = `${event.at || ""} ${event.text || ""}`.trim();
+      events.appendChild(row);
+    }
+    if (!events.children.length) {
+      const empty = document.createElement("li");
+      empty.textContent = "No progress events yet.";
+      events.appendChild(empty);
+    }
+    section.append(heading, fields, progressHeading, events);
+
+    if (!run.terminal) {
+      const controls = document.createElement("div");
+      controls.className = "detail-actions";
+      const steering = document.createElement("input");
+      steering.className = "steer-input";
+      steering.setAttribute("aria-label", "Steering instruction");
+      steering.placeholder = "Steer this run…";
+      const steer = document.createElement("button");
+      steer.type = "button";
+      steer.className = "action";
+      steer.textContent = "Steer";
+      steer.addEventListener("click", () => {
+        controlAgentRun(run.id, "steer", steering.value).catch(
+          (error) => announce(error.message)
+        );
+      });
+      const transition = document.createElement("button");
+      transition.type = "button";
+      transition.className = "action primary";
+      const blocked = run.status === "blocked";
+      transition.textContent = blocked ? "Resume" : "Abort";
+      transition.addEventListener("click", () => {
+        controlAgentRun(run.id, blocked ? "resume" : "abort").catch(
+          (error) => announce(error.message)
+        );
+      });
+      controls.append(steering, steer, transition);
+      section.appendChild(controls);
+    }
+  }).catch((error) => {
+    if (section.isConnected) loading.textContent = `Run detail unavailable: ${error.message}`;
+  });
+}
+
+async function controlAgentRun(runId, action, text = "") {
+  await api(`/api/agent-runs/${encodeURIComponent(runId)}/control`, {
+    method: "POST",
+    headers: {"Content-Type": "application/json"},
+    body: JSON.stringify({action, text}),
+  });
+  state.selectedId = runId;
+  await refreshLegacyPanels();
+}
+
+function appendStatusDetail(item) {
+  const section = document.createElement("section");
+  section.className = "approval-detail";
+  section.setAttribute("aria-label", "실행 환경");
+  const status = item.record || {};
+  const fields = document.createElement("dl");
+  fields.className = "approval-fields";
+  appendDefinitions(fields, [
+    ["모델", status.model],
+    ["프로바이더", status.provider],
+    ["버전", status.version],
+    ["볼트", status.vault],
+    ["스킬", status.skills_count],
+    ["다음 야간작업", status.next_nightly || "-"],
+    ["데몬", status.daemon ? "연결" : "오프라인"],
+  ]);
+  section.appendChild(fields);
+  panelBody.appendChild(section);
+}
+
+function appendComputerUseDetail(item) {
+  const section = document.createElement("section");
+  section.className = "approval-detail";
+  section.setAttribute("aria-label", "Computer Use detail");
+  const fields = document.createElement("dl");
+  fields.className = "approval-fields";
+  appendDefinitions(fields, [
+    ["상태", item.status || item.effect || item.refusal_code],
+    ["Effect", item.effect],
+    ["Refusal", item.refusal_code],
+    ["Sequence", item.computer_sequence],
+    ["Focus preserved", item.focus_preserved],
+    ["Approval", item.approval_id || item.review_id],
+    ["Receipt", item.receipt_ref],
+    ["Snapshot", item.snapshot_ref],
+  ]);
+  section.appendChild(fields);
+  panelBody.appendChild(section);
+}
+
+async function handleApprovalAnswered(payload) {
+  const approvalId = String(payload.approval_id || "");
+  busyApprovalIds.delete(approvalId);
+  if (payload.decision === "approve") {
+    try {
+      const receipt = await api(
+        `/api/actions/${encodeURIComponent(approvalId)}/receipt`
+      );
+      recentReceipts.set(approvalId, receipt);
+      announce(`Action executed: ${receipt.receipt}`);
+    } catch (error) {
+      announce(`승인 처리 완료: ${error.message}`);
+    }
+  } else {
+    announce("거부 처리 완료 · 동작은 실행되지 않았습니다.");
+  }
+  await refreshWorkspaceSnapshot();
+  await refreshLegacyPanels();
 }
 
 function handleWorkspaceEvent(raw) {
@@ -898,10 +1288,11 @@ function handleWorkspaceEvent(raw) {
     appendMessage("tool", String(payload.summary || event.type), event.event_id);
   } else if (event.type === "command.failed" || event.type === "error.raised") {
     announce(`오류: ${String(payload.error || event.type)}`);
+  } else if (event.type === "approval.answered") {
+    handleApprovalAnswered(payload).catch((error) => announce(error.message));
   } else if ([
-    "approval.requested", "approval.answered", "question.requested",
-    "question.answered", "evidence.added", "checkpoint.restored",
-    "task.updated", "computer.updated",
+    "approval.requested", "question.requested", "question.answered",
+    "evidence.added", "checkpoint.restored", "task.updated", "computer.updated",
   ].includes(event.type)) {
     refreshWorkspaceSnapshot().catch((error) => announce(error.message));
   }
@@ -971,13 +1362,41 @@ async function sendCommand(type, payload) {
 }
 
 async function refreshLegacyPanels() {
-  const [approvals, jobs, runs] = await Promise.all([
-    api("/api/approvals"),
+  const [status, jobs, runs, agentRuns] = await Promise.all([
+    api("/api/status"),
     api("/api/jobs"),
     api("/api/runs"),
+    api("/api/agent-runs"),
   ]);
+  let approvals = [];
+  try {
+    approvals = await api("/api/approvals");
+  } catch (error) {
+    if (error.status !== 403) throw error;
+    announce(
+      "승인 목록은 보안 토큰이 필요합니다 · birkin web의 bootstrap URL로 접속하세요."
+    );
+  }
   items = buildQueue(approvals, jobs, runs);
-  if (items.length) {
+  for (const run of agentRuns.runs || []) {
+    items.push({
+      id: String(run.id),
+      kind: "agent_run",
+      title: run.task || run.id,
+      ui_state: run.ui_state,
+      detail: run.status || "",
+      record: run,
+    });
+  }
+  items.push({
+    id: "runtime-status",
+    kind: "status",
+    title: status.daemon ? "데몬 연결" : "데몬 오프라인",
+    ui_state: status.ui_state,
+    detail: `${status.provider || ""} ${status.model || ""}`.trim(),
+    record: status,
+  });
+  if (items.length && !items.some((item) => item.id === state.selectedId)) {
     state.selectedId = items[0].id;
   }
   renderPanel();
@@ -1059,7 +1478,10 @@ input.addEventListener("keydown", (event) => {
   if (event.key === "Enter" && event.ctrlKey) {
     event.preventDefault();
     byId("workspace-composer").requestSubmit();
-  } else if (event.key === "Escape") {
+  }
+});
+document.addEventListener("keydown", (event) => {
+  if (event.key === "Escape") {
     event.preventDefault();
     if (shell.dataset.panelOpen === "true") {
       shell.dataset.panelOpen = "false";

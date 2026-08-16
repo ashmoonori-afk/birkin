@@ -1,5 +1,6 @@
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timedelta, timezone
+from pathlib import Path
 
 import pytest
 
@@ -154,6 +155,43 @@ def test_first_valid_answer_wins():
     winning_target = (
         "staging" if record["resolved_by"] == "web:first" else "production")
     assert record["answers"] == {"target": winning_target}
+
+
+def test_concurrent_shell_approval_executes_exactly_once(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    calls = []
+
+    class Result:
+        returncode = 0
+        stdout = "approved"
+        stderr = ""
+
+    def run(request):
+        calls.append(request)
+        return Result()
+
+    monkeypatch.setattr(approvals, "run_shell_command", run)
+    proposal = approvals.propose(
+        category="shell",
+        title="Run once",
+        description="",
+        payload={"command": "printf approved", "cwd": str(tmp_path)},
+        cfg={"auto_approve": []},
+    )
+
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        results = list(
+            pool.map(
+                approvals.approve,
+                [proposal["id"], proposal["id"]],
+            )
+        )
+
+    assert sum(bool(result.get("ok")) for result in results) == 1
+    assert len(calls) == 1
+    assert store.get_pending(proposal["id"])["status"] == "approved"
 
 
 def test_rejects_invalid_or_expired_answer():

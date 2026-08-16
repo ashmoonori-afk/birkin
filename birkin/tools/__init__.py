@@ -28,8 +28,8 @@ from ._types import (
     TextContentBlock as TextContentBlock,
     Tool,
     ToolContent,
-    ToolContext,
-    ToolResult,
+    ToolContext as ToolContext,
+    ToolResult as ToolResult,
     content_text,
 )
 
@@ -106,7 +106,7 @@ class ToolRegistry:
                     f"Checkpoint failed after {name!r}: {exc}", is_error=True)
         if result.is_error:
             block = diagnostic_block(
-                result.content,
+                content_text(result.content),
                 tool=name,
                 command=str(tool_input.get("command", "")),
             )
@@ -166,6 +166,9 @@ def build_registry(
         "browser": browser.tools(),
         "egress": egress.tools(),
     }
+    from ..plugin_runtime import load_agent_tools, registry_roots
+    plugin_project, plugin_team = registry_roots(ctx.cwd)
+    groups["plugins"] = load_agent_tools(plugin_project, plugin_team)
     if ctx.cfg.get("desktop_tools") is True:
         groups["desktop"] = desktop.tools()
         computer_use_config = ctx.cfg.get("computer_use")

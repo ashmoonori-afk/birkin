@@ -125,7 +125,7 @@ def test_a_prompt_cron_job_files_exactly_one_run_record(monkeypatch):
     monkeypatch.setattr("birkin.runtime.build_session", lambda *a, **k: _Session())
     monkeypatch.setattr(scheduler, "_deliver", lambda job, text: "none")
 
-    scheduler._run_job({"id": "j1", "name": "nightly-thing", "type": "prompt",
+    scheduler.run_job({"id": "j1", "name": "nightly-thing", "type": "prompt",
                         "value": "what changed?"})
 
     assert asked.get("record_turn") is False, (

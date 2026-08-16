@@ -38,6 +38,7 @@ Schema version: 1
 | `parallel_tools` | `boolean` | `true` | Birkin 설정 `parallel_tools`. |
 | `parallel_tool_workers` | `integer` | `8` | Birkin 설정 `parallel_tool_workers`. |
 | `shell_approval` | `string` | `"manual"` | Birkin 설정 `shell_approval`. |
+| `allow_powershell` | `boolean` | `false` | Birkin 설정 `allow_powershell`. |
 | `checkpoints` | `boolean` | `true` | Birkin 설정 `checkpoints`. |
 | `hooks` | `object` | `{}` | Birkin 설정 `hooks`. |
 | `hooks_auto_accept` | `boolean` | `false` | Birkin 설정 `hooks_auto_accept`. |
@@ -61,6 +62,7 @@ Schema version: 1
 | `skill_nudge_interval` | `integer` | `3` | Birkin 설정 `skill_nudge_interval`. |
 | `memory_nudge_interval` | `integer` | `6` | Birkin 설정 `memory_nudge_interval`. |
 | `web_port` | `integer` | `8787` | Birkin 설정 `web_port`. |
+| `web_remote_access` | `boolean` | `false` | Birkin 설정 `web_remote_access`. |
 | `gateway_port` | `integer` | `8788` | Birkin 설정 `gateway_port`. |
 | `gateway_model` | `string` | `""` | Birkin 설정 `gateway_model`. |
 | `gateway_reasoning_effort` | `string` | `""` | Birkin 설정 `gateway_reasoning_effort`. |
@@ -105,6 +107,15 @@ Schema version: 1
 | `channels.discord.enabled` | `boolean` | `false` | Birkin 설정 `channels.discord.enabled`. |
 | `channels.discord.webhook_url` | `string` | `""` | Birkin 설정 `channels.discord.webhook_url`. |
 | `vault_path` | `string` | `""` | Birkin 설정 `vault_path`. |
+| `memory_vector_enabled` | `boolean` | `false` | Birkin 설정 `memory_vector_enabled`. |
+| `memory_vector_backend` | `string` | `"sentence-transformers"` | Birkin 설정 `memory_vector_backend`. |
+| `memory_vector_model` | `string` | `"all-MiniLM-L6-v2"` | Birkin 설정 `memory_vector_model`. |
+| `memory_entity_enabled` | `boolean` | `false` | Birkin 설정 `memory_entity_enabled`. |
+| `memory_temporal_enabled` | `boolean` | `false` | Birkin 설정 `memory_temporal_enabled`. |
+| `memory_scope` | `string` | `"user"` | 메모리 쓰기에 사용하는 소유 범위입니다. |
+| `memory_visible_scopes` | `array` | `["workflow", "agent", "project", "organization", "user"]` | 이 에이전트가 읽을 수 있는 메모리 범위이며 생략된 범위는 닫힌 상태로 거부됩니다. |
+| `memory_default_trust` | `string` | `"medium"` | 명시적 매핑이 없는 메모리 출처에 적용하는 신뢰 수준입니다. |
+| `memory_source_trust` | `object` | `{}` | 최소 신뢰 쿼리에 사용하는 출처별 메모리 신뢰 수준입니다. |
 | `morpheus_deliver_chat_id` | `string` | `""` | Birkin 설정 `morpheus_deliver_chat_id`. |
 | `workspace_roots` | `array` | `[]` | Birkin 설정 `workspace_roots`. |
 | `reaper_enabled` | `boolean` | `true` | Birkin 설정 `reaper_enabled`. |

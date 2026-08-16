@@ -38,6 +38,7 @@ Schema version: 1
 | `parallel_tools` | `boolean` | `true` | Birkin setting `parallel_tools`. |
 | `parallel_tool_workers` | `integer` | `8` | Birkin setting `parallel_tool_workers`. |
 | `shell_approval` | `string` | `"manual"` | Birkin setting `shell_approval`. |
+| `allow_powershell` | `boolean` | `false` | Birkin setting `allow_powershell`. |
 | `checkpoints` | `boolean` | `true` | Birkin setting `checkpoints`. |
 | `hooks` | `object` | `{}` | Birkin setting `hooks`. |
 | `hooks_auto_accept` | `boolean` | `false` | Birkin setting `hooks_auto_accept`. |
@@ -61,6 +62,7 @@ Schema version: 1
 | `skill_nudge_interval` | `integer` | `3` | Birkin setting `skill_nudge_interval`. |
 | `memory_nudge_interval` | `integer` | `6` | Birkin setting `memory_nudge_interval`. |
 | `web_port` | `integer` | `8787` | Birkin setting `web_port`. |
+| `web_remote_access` | `boolean` | `false` | Birkin setting `web_remote_access`. |
 | `gateway_port` | `integer` | `8788` | Birkin setting `gateway_port`. |
 | `gateway_model` | `string` | `""` | Birkin setting `gateway_model`. |
 | `gateway_reasoning_effort` | `string` | `""` | Birkin setting `gateway_reasoning_effort`. |
@@ -105,6 +107,15 @@ Schema version: 1
 | `channels.discord.enabled` | `boolean` | `false` | Birkin setting `channels.discord.enabled`. |
 | `channels.discord.webhook_url` | `string` | `""` | Birkin setting `channels.discord.webhook_url`. |
 | `vault_path` | `string` | `""` | Birkin setting `vault_path`. |
+| `memory_vector_enabled` | `boolean` | `false` | Birkin setting `memory_vector_enabled`. |
+| `memory_vector_backend` | `string` | `"sentence-transformers"` | Birkin setting `memory_vector_backend`. |
+| `memory_vector_model` | `string` | `"all-MiniLM-L6-v2"` | Birkin setting `memory_vector_model`. |
+| `memory_entity_enabled` | `boolean` | `false` | Birkin setting `memory_entity_enabled`. |
+| `memory_temporal_enabled` | `boolean` | `false` | Birkin setting `memory_temporal_enabled`. |
+| `memory_scope` | `string` | `"user"` | Owning scope used for memory writes. |
+| `memory_visible_scopes` | `array` | `["workflow", "agent", "project", "organization", "user"]` | Memory scopes this agent may read; omitted scopes fail closed. |
+| `memory_default_trust` | `string` | `"medium"` | Trust assigned to memory sources without an explicit mapping. |
+| `memory_source_trust` | `object` | `{}` | Per-source memory trust levels used by minimum-trust queries. |
 | `morpheus_deliver_chat_id` | `string` | `""` | Birkin setting `morpheus_deliver_chat_id`. |
 | `workspace_roots` | `array` | `[]` | Birkin setting `workspace_roots`. |
 | `reaper_enabled` | `boolean` | `true` | Birkin setting `reaper_enabled`. |

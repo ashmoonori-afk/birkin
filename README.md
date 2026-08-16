@@ -34,6 +34,28 @@ Agent runtimes are easy to demo and hard to trust. Birkin keeps the model useful
 
 Birkin's core runtime has one mandatory process-identity dependency (`psutil`). Optional extras add voice, native desktop Computer Use, browser, and office-file support. The repository currently bundles **56 skills**; all default tests are designed to run offline.
 
+## Memory
+
+BM25 with Hangul/jamo-aware tokenization remains the default retrieval engine and requires no extra package. Every result discloses normalized `lexical`, `vector`, `entity`, and `time` scores, the signals that sourced it, and each backend name. Vector embeddings, one-hop entity traversal, and temporal reranking are independent opt-ins:
+
+```bash
+python -m pip install -e ".[memory-semantic]"  # local sentence-transformers only
+```
+
+```json
+{
+  "memory_vector_enabled": true,
+  "memory_entity_enabled": true,
+  "memory_temporal_enabled": true
+}
+```
+
+Markdown remains the source of truth. The entity graph is rebuilt from titles, tags, and `[[wikilinks]]`; no graph sidecar is required for lexical search. Temporal facts keep separate `valid_at` (became true), `invalid_at` (stopped being true), and `expired_at` (learned to be wrong) fields, plus optional `supersedes` links. Search accepts `as_of`, `since`, and `until` date filters.
+
+Memory can be owned by `user`, `organization`, `project`, `agent`, or `workflow`. User memory keeps the existing vault layout; the other roots live at `.birkin-scopes/<scope>` and retain the same zone layout inside them. Duplicate keys resolve from most specific to least specific: **workflow > agent > project > organization > user**. `memory_visible_scopes` fails closed for unreadable roots, while `memory_source_trust`, `memory_default_trust`, and the query's `min_trust` control source filtering. Search hits disclose `scope`, `record_source`, and `trust`. Owners may mark a note `shared_read_only`; visible agents can read the labeled block, but a non-owner write raises a typed policy error.
+
+The committed 14-question LongMemEval fixture reports retrieval and final-answer stages separately. All four configurations reached `1.000` retrieval recall but `0.857` answer accuracy (11.9-12.4 context tokens/query), exposing the context-assembly gap rather than hiding it behind retrieval. See [the category and cost tables](./benchmarks/RESULTS.md) and the exact public-dataset command there. These are fixture results, not public leaderboard numbers.
+
 ## Quick Start
 
 Python 3.10 or newer is required. The default provider is the locally authenticated Codex CLI; setup can select Claude CLI or API-backed providers instead.
@@ -56,6 +78,7 @@ birkin web --no-browser # authenticated chat workspace on 127.0.0.1:8787
 Optional features are explicit:
 
 ```bash
+python -m pip install -e ".[memory-semantic]"
 python -m pip install -e ".[voice]"
 python -m pip install -e ".[desktop]"
 python -m pip install -e ".[office]"
@@ -314,6 +337,23 @@ State is file-backed under `BIRKIN_HOME` (normally `~/.birkin`). The workspace u
 
 </details>
 
+## Approval console
+
+`birkin web` opens a responsive control surface for background agent runs and
+risky actions. It shows live run states (`running`, `blocked`,
+`waiting-approval`, and `done`), progress and results, related shell/cron
+proposals, action diffs, and execution receipts. A run can be steered, aborted,
+or resumed from its detail card; approval and rejection continue to use the
+same file-backed authority as `birkin review`.
+
+The server remains loopback-only by default. Set `web_remote_access` to `true`
+only when remote access is intentional; this binds on all interfaces but does
+**not** create a public route. Open the secret bootstrap URL printed by
+`birkin web` on the remote device. It exchanges the per-process capability for
+an HttpOnly, SameSite cookie, and every remote request without that capability
+is rejected. Put TLS or a trusted private-network tunnel in front when traffic
+leaves the host.
+
 ## Checkpoints
 
 The WebUI workbench turns Birkin's external shadow-git snapshots into a tool-level
@@ -359,6 +399,7 @@ The authenticated API exposes the checkpoint list, `/timeline`, `/lineage`,
 | `birkin tools` | List, enable, or disable native tools. |
 | `birkin model` / `birkin models` | Inspect or select the model. |
 | `birkin skills` | List, inspect, sync, validate, or manage skills. |
+| `birkin plugins` | Inspect permissions, install exact signed bundle versions, or resolve pins. |
 | `birkin daemon` | Run or install the Morpheus + cron scheduler. |
 | `birkin morpheus [--dry-run]` | Run the scheduled self-improvement routine now. |
 | `birkin harness` | Show, refine, export, or roll back the improvement ledger. |
@@ -370,6 +411,82 @@ The authenticated API exposes the checkpoint list, `/timeline`, `/lineage`,
 | `birkin voice` | Configure or control the optional voice daemon. |
 
 Run `birkin --help` or `birkin <command> --help` for the complete interface.
+
+### Live OMO session control
+
+Birkin controls an already-open OMO session through an extension owned by that
+session. It does not open a replacement `omo --mode rpc` process, acquire
+OMO's `settings.json.lock`, or discover windows by title.
+
+From a trusted Birkin chat or gateway channel, install the extension once:
+
+```text
+/omo bridge install
+```
+
+This copies `birkin-omo-live-bridge.mjs` into the active OMO agent extension
+directory without editing `settings.json`. Open OMO sessions normally discover
+the new extension; run `/reload` in a session if it does not reload
+automatically. A session that has not loaded the extension is deliberately not
+controllable.
+
+Send one prompt to one or more already-open sessions by full, exact session ID:
+
+```text
+/omo send-to 019ffe4c-0ba9-7fa2-acab-176a22fc1fd3,019ffda0-c982-7ffe-badf-b952f457011e -- resume
+```
+
+Birkin returns one acknowledgement line per target with the exact session ID
+and request ID. It resolves every target before delivering any prompt, removes
+duplicate IDs within the request, and rejects unknown, stale, unauthorized, or
+ambiguous live registrations. Historical JSONL sessions are never treated as
+live targets.
+
+Each live session listens on loopback only and publishes a private registration
+containing a random capability token. Birkin validates the token-bound response,
+session ID, request ID, and protocol version. Transport failures are surfaced
+instead of retried blindly, preserving at-most-once delivery for each request.
+## Plugin registry
+
+A bundle is a directory containing `birkin-plugin.json`, its entry-point files,
+and a detached `bundle.sig`. The strict manifest declares one exact semantic
+version, one or more `skill`, `agent`, `hook`, or `mcp_server` kinds, and the
+permissions it needs using the same `network`, `network_allowlist`,
+`env_allowlist`, and `write_paths` vocabulary as `SandboxPolicy`:
+
+```jsonc
+{
+  "name": "acme-review",
+  "version": "1.2.3",
+  "kinds": ["skill", "agent"],
+  "entry_points": {
+    "skill": ["skills/review"],
+    "agent": ["agent.py:tools"]
+  },
+  "required_permissions": {
+    "network": "off",
+    "network_allowlist": [],
+    "env_allowlist": ["ACME_TOKEN"],
+    "write_paths": ["reports"]
+  }
+}
+```
+
+Run `birkin plugins inspect BUNDLE [--json]` to see the exact permission record
+before installation. `birkin plugins install BUNDLE --version 1.2.3` always
+prints that disclosure and requires interactive confirmation (or explicit
+`--yes`) unless all four permission fields are read-only/empty. Signed bundles
+also need a trusted shared key supplied as `--key KEY_ID=HEX`; missing,
+untrusted, or mismatched signatures fail closed. A publisher may deliberately
+set `"unsigned_allowed": true`, which makes only a missing signature acceptable.
+
+Project pins live under `.birkin/registry/registry.lock`; team pins live under
+`~/.birkin/registry/team/registry.lock`. Resolution is deterministic: a project
+pin shadows a team pin with the same bundle name, including when their versions
+differ. An exact version request that disagrees with the project pin is a
+conflict rather than a fallback to team scope. Existing pins change only with
+`--upgrade`. Skill entry points feed the existing `SkillManager`; agent entry
+points return `Tool` objects consumed by the existing native tool registry.
 
 ## Configuration
 
@@ -413,6 +530,7 @@ Run `birkin --help` or `birkin <command> --help` for the complete interface.
   "parallel_tools": true,
   "parallel_tool_workers": 8,
   "shell_approval": "manual",
+  "allow_powershell": false,
   "checkpoints": true,
   "hooks": {},
   "hooks_auto_accept": false,
@@ -445,6 +563,7 @@ Run `birkin --help` or `birkin <command> --help` for the complete interface.
   "skill_nudge_interval": 3,
   "memory_nudge_interval": 6,
   "web_port": 8787,
+  "web_remote_access": false,
   "gateway_port": 8788,
   "gateway_model": "",
   "gateway_reasoning_effort": "",
@@ -495,6 +614,21 @@ Run `birkin --help` or `birkin <command> --help` for the complete interface.
     }
   },
   "vault_path": "",
+  "memory_vector_enabled": false,
+  "memory_vector_backend": "sentence-transformers",
+  "memory_vector_model": "all-MiniLM-L6-v2",
+  "memory_entity_enabled": false,
+  "memory_temporal_enabled": false,
+  "memory_scope": "user",
+  "memory_visible_scopes": [
+    "workflow",
+    "agent",
+    "project",
+    "organization",
+    "user"
+  ],
+  "memory_default_trust": "medium",
+  "memory_source_trust": {},
   "morpheus_deliver_chat_id": "",
   "workspace_roots": [],
   "reaper_enabled": true,
@@ -557,12 +691,18 @@ Run `birkin --help` or `birkin <command> --help` for the complete interface.
 
 Environment variables remain the right place for provider secrets. `api_keys` names environment-variable pools; it is not a place to paste raw keys. `a2a_enabled` is opt-in. Enforced egress disables uninspected native network paths and allows only configured destinations through Birkin's inspected tools. A sandboxed gateway child can submit a shell request through `propose_action`; Birkin queues it for approval instead of running it inside the child sandbox.
 
+Free-form shell requests use a fixed non-login platform shell (`%SystemRoot%\System32\cmd.exe /d /s /c` on Windows and `/bin/bash -c` on POSIX) inside an owned process tree. Windows disables AutoRun and selects code page 65001 before user command evaluation, so native `cmd.exe` built-ins and UTF-8 runtimes share the captured stream contract. Birkin preserves the inherited `PATH`, adds known runtime directories without sourcing user profiles, captures UTF-8 streams, and provides writable temporary directories. The same managed runner serves the native shell tool, approved shell continuations, scheduler shell jobs, script monitors, lifecycle hooks, GitHub Action test commands, and worktree setup commands. Worktree setup still exposes only policy-approved payload variables plus non-secret process mechanics such as `PATH`, system interpreter variables, and an isolated `TMPDIR`/`TEMP`/`TMP`; Docker setup shell text remains inside the policy-constrained container. Timeout, interrupt, and Job Object/process-group closure terminate descendants before returning and preserve partial stdout and stderr.
+
+PowerShell is disabled by default on the model-facing native shell tool: set `allow_powershell` to `true` deliberately, or approve one exact queued operation. Other owner-controlled shell surfaces retain their existing explicit authority boundaries. Lifecycle-hook consents recorded before the managed-shell contract require one-time reapproval so old discrete-argv consent cannot silently authorize shell operators. Native macOS and Windows CI exercise commands, pipelines, redirection, quoting, Unicode and spaced working directories, environment and temporary-directory behavior, exit propagation, runtime/package-manager resolution, and descendant cleanup.
+
 ## Development
 
 ```bash
 python -m pip install -e ".[dev]"
 python -m compileall -q birkin
 python -m pytest
+uv run python scripts/qa/macos_shell_smoke.py
+uv run python scripts/qa/windows_shell_smoke.py
 
 cd vscode-extension
 npm ci
@@ -571,7 +711,7 @@ npm run compile
 npm run test:e2e
 ```
 
-CI executes the Python suite on Ubuntu/Python 3.10, macOS/Python 3.13, and Windows/Python 3.13. Extension unit tests use Vitest; the host QA target uses `@vscode/test-electron`.
+CI executes the Python suite on Ubuntu/Python 3.10, macOS/Python 3.13, and Windows/Python 3.13. The macOS and Windows jobs install a pinned Bun release, run native managed-shell acceptance, and execute their tracked sibling-surface smoke drivers. Extension unit tests use Vitest; the host QA target uses `@vscode/test-electron`.
 
 ## License
 
