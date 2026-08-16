@@ -73,7 +73,7 @@ testpaths = ["tests"]
 norecursedirs = [".git", ".venv", "tmp"]
 # Offline runs skip the live suite by default; opt in with `BIRKIN_LIVE=1
 # pytest -m live` (and a real backend ??API key, or installed claude/codex CLI).
-addopts = "-q --cov=birkin --cov-report=term-missing -m 'not live'"
+addopts = "-p tests.focused_coverage -q --cov=birkin --cov-report=term-missing -m 'not live'"
 markers = [
     "live: real LLM backend required (BIRKIN_LIVE=1 + API key or claude/codex CLI)",
     "docker_integration: opt-in test requiring BIRKIN_DOCKER_INTEGRATION=1 and a Docker daemon",
