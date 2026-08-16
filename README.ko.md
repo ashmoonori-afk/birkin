@@ -13,7 +13,7 @@
 [![VS Code](https://img.shields.io/badge/VS_Code-official_extension-007ACC?logo=visualstudiocode&logoColor=white)](./vscode-extension)
 [![License: MIT](https://img.shields.io/badge/license-MIT-green.svg)](./LICENSE)
 
-[존재 이유](#왜-birkin인가) · [빠른 시작](#빠른-시작) · [GitHub Action](#github-action) · [Sandbox](#격리-실행) · [VS Code](#vs-code-extension) · [비교](#표면-비교) · [아키텍처](#아키텍처) · [명령어](#명령어) · [English](./README.md)
+[존재 이유](#왜-birkin인가) · [빠른 시작](#빠른-시작) · [Office Work OS](#office-work-os-v2) · [GitHub Action](#github-action) · [Sandbox](#격리-실행) · [VS Code](#vs-code-extension) · [비교](#표면-비교) · [아키텍처](#아키텍처) · [명령어](#명령어) · [English](./README.md)
 
 </div>
 
@@ -32,7 +32,7 @@
 | 코딩 에이전트가 사용자가 plan을 이해하기 전에 파일을 변경함 | 공식 VS Code extension이 editor context를 보내고, plan을 먼저 검토하며, 제안 diff를 표시하고, Birkin 승인을 처리하고, checkpoint를 복원합니다. |
 | 로컬 도구가 불투명한 서비스가 됨 | run, approval, checkpoint, status, config가 모두 로컬에서 확인 가능합니다. |
 
-Birkin 핵심 런타임에는 **필수 서드파티 파이썬 의존성이 없습니다**. 선택적 extra가 voice, desktop vision, office 파일 지원을 추가합니다. 현재 저장소에는 **56개 스킬**이 번들되며, 기본 테스트는 모두 오프라인 실행을 목표로 합니다.
+Birkin 핵심 런타임에는 **필수 서드파티 파이썬 의존성이 없습니다**. 선택적 extra가 voice, desktop vision, office 파일 지원을 추가합니다. 현재 저장소에는 **63개 스킬**이 번들되며, 기본 테스트는 모두 오프라인 실행을 목표로 합니다.
 
 ## 빠른 시작
 
@@ -64,6 +64,40 @@ python -m pip install -e ".[full]"
 
 > [!IMPORTANT]
 > 네이티브 도구는 현재 OS 계정 권한으로 실행됩니다. gateway를 loopback 전용으로 유지하고, 배포 환경에 맞게 `shell_approval`, `fs_jail`, disabled tools, channel allowlist를 설정하며, 결과가 생기는 행동은 승인 전에 검토하십시오.
+
+## Office Work OS v2
+
+Birkin은 DOCX, XLSX, PPTX, PDF, HWPX에 대해 범위가 제한된 workflow를 등록합니다. 텍스트 추출, 텍스트 중심 생성, 계층형 검증/비교, 명시적 손실 예산을 사용하는 TXT 변환, semantic structured preview, copy-on-write package 수정 한 건을 지원합니다. PDF 변경은 거부하고 HWPX 생성에는 신뢰된 template이 필요합니다.
+
+<!-- office-support-matrix:start -->
+| Format ID | Read/inspect | Create | Extract | Validate | Compare | Text convert | Surgical mutation | Render/recalc/forms |
+|---|---|---|---|---|---|---|---|---|
+| `docx` | bounded | conditional | bounded | structural | layered | bounded | bounded | structured-preview |
+| `xlsx` | bounded | conditional | bounded | structural | layered | bounded | bounded | structured-preview |
+| `pptx` | bounded | conditional | bounded | structural | layered | bounded | bounded | structured-preview |
+| `pdf` | bounded | bounded | conditional | structural | layered | conditional | refused | structured-preview |
+| `hwpx` | bounded | template-only | bounded | structural | layered | bounded | bounded | structured-preview |
+<!-- office-support-matrix:end -->
+
+`layered` 비교는 byte hash뿐 아니라 범위가 제한된 정규화 semantic text와 가능한 경우 ZIP package entry 변경도 각각 보고합니다. PDF에는 ZIP package 계층이 없습니다. `structured-preview`는 `output_format: "structured_preview"`일 때만 `render_artifact`가 성공한다는 뜻입니다. Visual `pdf`, `png`, `thumbnail` 요청은 `RENDER_UNAVAILABLE`을 반환합니다. Spreadsheet 재계산과 일반 form 처리는 지원하지 않습니다.
+
+등록된 호출은 `list_document_adapters`, `inspect_document`, `extract_document`, `create_document`, `compare_documents`, `fill_template`, `apply_document_patch`, `render_artifact`, `validate_artifact`, `convert_document`입니다. 동기화된 skill은 `office-work-os`, `office-documents`, `word-documents`, `spreadsheets`, `presentations`, `pdf-documents`, `korean-hwp-documents`입니다.
+
+문서 입력은 `BIRKIN_HOME` jail 안에 있어야 합니다. 예를 들어 `BIRKIN_HOME=/workspace/.birkin`이면 source를 `/workspace/.birkin/artifacts/incoming` 아래로 복사하거나 import한 뒤 호출해야 하며, 이 tree 밖의 absolute path는 거부됩니다. 출력은 `/workspace/.birkin/artifacts/drafts` 아래 basename-only 새 파일입니다.
+
+```json
+{"source":{"content_hash":"<source-sha256>","uri":"/workspace/.birkin/artifacts/incoming/source.docx"},"projection":"text","max_text_bytes":100000}
+```
+
+TXT 변환에는 `loss_budget` 인자가 필수이며 native 또는 lossless 변환이라고 주장하지 않습니다.
+
+```json
+{"source":{"content_hash":"<source-sha256>","uri":"/workspace/.birkin/artifacts/incoming/source.docx"},"target_format":"txt","output_name":"source.txt","loss_budget":{"structure":10,"style_layout":10,"macro_active_content":0,"signature_encryption":0}}
+```
+
+선택 Office backend는 `python -m pip install -e ".[office]"`로, PDF 검사/추출/심층 reopen은 `python -m pip install -e ".[office-advanced]"`로 설치합니다. 내장 PDF 생성은 ASCII 전용이며 non-Latin 요청은 ReportLab을 실행하거나 설치하라고 안내하지 않고 타입화된 capability refusal을 반환합니다. 승인된 선택 backend가 없으면 타입화된 오류를 반환하며 다른 후보를 조용히 선택하지 않습니다.
+
+[상세 지원 계약](./docs/office-support.md#office-work-os-v2), machine [`provenance_manifest.json`](./birkin/office/adapters/provenance_manifest.json), [`THIRD_PARTY_NOTICES.md`](./birkin/office/adapters/THIRD_PARTY_NOTICES.md)를 참고하십시오. 이 문서는 Birkin `0.4.227`, `catalog_revision: 4`, `inventory_sha256: 66ac4638ee7a8b4f6b68325b036ca7d9b312fdf37eef9b90f3c163a756356d53`를 대상으로 합니다.
 
 ## GitHub Action
 
