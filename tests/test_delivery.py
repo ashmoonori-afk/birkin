@@ -102,7 +102,11 @@ def test_failed_telegram_document_keeps_turn_obligation(
     artifact = tmp_path / "report.html"
     artifact.write_text("<!doctype html>", encoding="utf-8")
     monkeypatch.chdir(tmp_path)
-    ch = tg.TelegramChannel("tok", stream=False)
+    ch = tg.TelegramChannel(
+        "tok",
+        allowed_chat_ids=["42"],
+        stream=False,
+    )
     monkeypatch.setattr(
         ch, "_keep_typing",
         lambda _chat_id, stop, _progress=None: stop.wait())
@@ -134,7 +138,11 @@ def test_failed_telegram_text_keeps_turn_obligation(monkeypatch):
     import birkin.gateway.channels.telegram as tg
     from birkin.gateway.core import Gateway
 
-    ch = tg.TelegramChannel("tok", stream=False)
+    ch = tg.TelegramChannel(
+        "tok",
+        allowed_chat_ids=["42"],
+        stream=False,
+    )
     monkeypatch.setattr(
         ch, "_keep_typing",
         lambda _chat_id, stop, _progress=None: stop.wait())
@@ -185,3 +193,51 @@ def test_telegram_redelivery_uses_marker_safe_prefix(monkeypatch):
         ch.start(_Gateway.__new__(_Gateway))
 
     assert captured["prefix"] == "[재전송]\n"
+
+
+def test_open_telegram_redelivery_keeps_attachments_disabled(monkeypatch):
+    import birkin.gateway.channels.telegram as tg
+
+    delivered: list[bool] = []
+
+    def redeliver(_channel, send, *, prefix):
+        assert prefix == "[재전송]\n"
+        assert send(
+            "attacker",
+            '<telegram-attachment path=".env" />',
+        )
+        return 1
+
+    monkeypatch.setattr(delivery, "redeliver", redeliver)
+    channel = tg.TelegramChannel("tok", allowed_chat_ids=[])
+    monkeypatch.setattr(
+        channel,
+        "_deliver_reply",
+        lambda _chat, _text, *, allow_attachments=True: (
+            delivered.append(allow_attachments) or True
+        ),
+    )
+
+    assert channel._redeliver_pending() == 1
+    assert delivered == [False]
+
+
+def test_revoked_telegram_chat_is_not_redelivered(monkeypatch):
+    import birkin.gateway.channels.telegram as tg
+
+    sent: list[str] = []
+
+    def redeliver(_channel, send, *, prefix):
+        assert prefix == "[재전송]\n"
+        return int(send("42", "private reply"))
+
+    monkeypatch.setattr(delivery, "redeliver", redeliver)
+    channel = tg.TelegramChannel("tok", allowed_chat_ids=["99"])
+    monkeypatch.setattr(
+        channel,
+        "_deliver_reply",
+        lambda chat_id, _text, **_kwargs: sent.append(chat_id) or True,
+    )
+
+    assert channel._redeliver_pending() == 0
+    assert sent == []

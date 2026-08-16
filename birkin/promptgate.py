@@ -13,10 +13,18 @@ Pure standard library. (docs/v2.md #7)
 
 from __future__ import annotations
 
+from html import escape
 from typing import Any, Optional
 
 from . import neurosis, persona, presets, prompts
 from .moirai import trigger as moirai_trigger
+
+_PUBLIC_SYSTEM = (
+    "You are birkin, a helpful and concise assistant. This turn comes from an "
+    "untrusted public channel. Answer the current request without using or "
+    "revealing private workspace, persona, session, memory, skill, or account "
+    "context. Do not claim access to capabilities that are not available."
+)
 
 
 def _filter_tool_guidance(system: str, cfg: dict[str, Any]) -> str:
@@ -46,14 +54,70 @@ def _filter_tool_guidance(system: str, cfg: dict[str, Any]) -> str:
     return system
 
 
-def _goal_note() -> str:
+def _goal_note(
+    cfg: dict[str, Any],
+    *,
+    include_empty: bool = False,
+) -> str:
     """The persisted session goal, so the model is steered by it, not just billed.
 
     Imported lazily: ``goals`` pulls in the approval/cron graph, which prompt
     assembly itself has no need for.
     """
     from . import goals
-    return goals.prompt_note()
+    session_id = cfg.get("session_id")
+    note = goals.prompt_note(
+        session_id=str(session_id) if session_id is not None else None
+    )
+    if (not note and session_id is not None
+            and cfg.get("session_goal_fallback", True) is not False):
+        note = goals.prompt_note()
+    if note or not include_empty or session_id is None:
+        return note
+    session = escape(str(session_id), quote=True)
+    return (
+        f'\n\n<active-goal-reset session="{session}" '
+        'state="empty"/>'
+    )
+
+
+def _working_note(
+    cfg: dict[str, Any],
+    *,
+    include_empty: bool = False,
+) -> str:
+    from . import harness
+
+    session_id = cfg.get("session_id")
+    if session_id is None:
+        return ""
+    block = harness.render_working(str(session_id))
+    if not block and include_empty:
+        block = harness.render_working_reset(str(session_id))
+    return f"\n\n{block}" if block else ""
+
+
+def _session_notes(
+    cfg: dict[str, Any],
+    *,
+    include_empty: bool = False,
+) -> str:
+    session_id = cfg.get("session_id")
+    if session_id is None:
+        return _goal_note(cfg, include_empty=include_empty)
+    from . import harness
+    with harness.working_transaction(str(session_id)):
+        return (
+            _goal_note(cfg, include_empty=include_empty)
+            + _working_note(cfg, include_empty=include_empty)
+        )
+
+
+def compose_turn_context(cfg: dict[str, Any]) -> str:
+    """Fresh mutable session state for warm CLI turns."""
+    return (
+        _session_notes(cfg, include_empty=True)
+    )
 
 
 def _persona(persona_text: Optional[str]) -> str:
@@ -61,12 +125,23 @@ def _persona(persona_text: Optional[str]) -> str:
     return persona.read_soul() if persona_text is None else persona_text
 
 
+def compose_public() -> str:
+    """Minimal prompt for untrusted channels, with no local context reads."""
+    return prompts.seal_research_policy(_PUBLIC_SYSTEM)
+
+
 def compose_main(cfg: dict[str, Any], *, skills_index: str = "",
                  memory_block: str = "", role: str = "main", extra: str = "",
                  persona_text: Optional[str] = None,
-                 harness_block: str = "") -> str:
+                 harness_block: str = "",
+                 include_turn_state: bool = True) -> str:
     """System prompt for the native agent loop (API providers). Persona + tool
     guidance + skills + memory, then the neurosis auto-trigger note."""
+    turn_state = (
+        _session_notes(cfg)
+        if include_turn_state
+        else ""
+    )
     system = _filter_tool_guidance(prompts.build_system_prompt(
         skills_index=skills_index, memory_block=memory_block, role=role,
         extra=extra, persona=_persona(persona_text),
@@ -77,7 +152,7 @@ def compose_main(cfg: dict[str, Any], *, skills_index: str = "",
         ) \
         + neurosis.auto_trigger_note(cfg) \
         + moirai_trigger.auto_trigger_note(cfg) \
-        + _goal_note()
+        + turn_state
     from . import ide
     return prompts.seal_research_policy(system) + ide.consume_context_note()
 
@@ -85,7 +160,8 @@ def compose_main(cfg: dict[str, Any], *, skills_index: str = "",
 def compose_cli(cfg: dict[str, Any], *, memory_block: str = "",
                 preloaded: Optional[list[str]] = None, extra: str = "",
                 persona_text: Optional[str] = None,
-                harness_block: str = "") -> str:
+                harness_block: str = "",
+                include_turn_state: bool = True) -> str:
     """System prompt for CLI-agent backends (Claude Code / Codex). ``extra`` is
     appended before the neurosis note (e.g. the gateway's skills-index block)."""
     sysp = _filter_tool_guidance(prompts.build_cli_system(
@@ -93,13 +169,18 @@ def compose_cli(cfg: dict[str, Any], *, memory_block: str = "",
         persona=_persona(persona_text), harness_block=harness_block), cfg)
     if extra:
         sysp += extra
+    turn_state = (
+        _session_notes(cfg)
+        if include_turn_state
+        else ""
+    )
     system = sysp + presets.role_overlay(cfg.get("model"), cfg) \
         + presets.tool_policy_overlay(
             cfg.get("model"), cfg, surface="cli"
         ) \
         + neurosis.auto_trigger_note(cfg) \
         + moirai_trigger.auto_trigger_note(cfg) \
-        + _goal_note()
+        + turn_state
     from . import ide
     return prompts.seal_research_policy(system) + ide.consume_context_note()
 

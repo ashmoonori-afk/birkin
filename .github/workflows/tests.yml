@@ -136,7 +136,7 @@ jobs:
           birkin/github_action.py
           birkin/hooks.py
           birkin/sandbox_worktree.py
-      - run: python -m pytest -p no:cacheprovider -o addopts= -q
+      - run: python -m pytest -p no:cacheprovider -o addopts= -q -m "not live" --cov=birkin --cov-report=term-missing --cov-fail-under=75
 
   windows-computer-use-native:
     name: Windows native Computer Use acceptance

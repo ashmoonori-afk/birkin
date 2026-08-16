@@ -413,6 +413,45 @@ checkpoint에서 일회용 policy-controlled sandbox worktree를 만들고 linea
 
 </details>
 
+## Working Memory
+
+Birkin은 현재 작업 계약을 first-class **Working Memory**로 유지합니다. 이는
+대화 transcript나 장기 semantic memory가 아닙니다. 한 세션의 목표, 사용자
+교정, 제약, 결정, 미완료 항목, 증거, 다음 행동을 담는 작고 구조화된
+상태입니다.
+
+각 agent turn은 기존 session-local harness journal인
+`$BIRKIN_HOME/sessions/<normalized-label>--<sha256-prefix>/harness/harness_state.json`을
+Prompt-Gate를 통해 다시 읽습니다. Hash가 유효한 session ID 사이의
+cross-platform 충돌을 방지하며, 모호하지 않은 기존 literal session
+directory는 최초 접근 때 이 형식으로 이동합니다. 따라서 context compaction이 이 상태를
+요약해 없앨 수 없고, 동일한 안정적 session ID로 process를 재개하면 같은
+상태를 복구합니다. Objective와 completion verifier는 계속 `goals.py`가
+canonical하게 소유하고, harness journal은 교정·제약·결정·미완료 항목·
+증거·다음 행동을 소유합니다. Update는 lock 안에서 atomic replace로
+저장됩니다. 반복된 목록 값은 deduplicate되고 새 `--goal`은 해당 session의
+이전 목표를 교체합니다.
+
+```bash
+birkin working-memory update \
+  --session issue-123 \
+  --goal "수정 사항 배포" \
+  --correction "공개 JSON 형상을 유지" \
+  --constraint "오프라인 유지" \
+  --decision "기존 atomic store 사용" \
+  --incomplete "보안 regression 실행" \
+  --evidence "집중 테스트 통과" \
+  --next-action "전체 suite 실행"
+
+birkin working-memory show --session issue-123 --json
+birkin working-memory clear --session issue-123
+```
+
+목록 값 flag는 반복해서 지정할 수 있습니다. Session ID는 path-safe하게
+제한됩니다. 첫 글자는 영문자나 숫자여야 하며 전체 길이는 1-128자, 허용
+문자는 ASCII 영문자, 숫자, `.`, `_`, `-`입니다. 전체 표면은
+`birkin working-memory --help`로 확인하십시오.
+
 ## 명령어
 
 | 명령 | 용도 |
@@ -434,6 +473,7 @@ checkpoint에서 일회용 policy-controlled sandbox worktree를 만들고 linea
 | `birkin runs` / `birkin trace ID` | Run summary와 상세 audit record 조회. |
 | `birkin cron` | 예약 job 목록 또는 삭제. |
 | `birkin sessions` | 저장된 대화 목록 또는 export. |
+| `birkin working-memory` | 구조화된 현재 작업 상태 조회·갱신·삭제. |
 | `birkin mcp-serve` | Birkin memory, skill, proposal을 MCP stdio로 제공. |
 | `birkin voice` | 선택적 voice daemon 설정·제어. |
 
@@ -716,7 +756,9 @@ registry에 연결됩니다.
 
 </details>
 
-Provider secret은 환경 변수에 두는 것이 원칙입니다. `api_keys`는 환경 변수 pool의 이름이며 raw key를 붙여 넣는 곳이 아닙니다. `a2a_enabled`는 opt-in입니다. Enforced egress는 검사되지 않은 네이티브 network 경로를 비활성화하고 설정된 destination만 Birkin의 inspected tool을 통해 허용합니다. Sandbox 안의 gateway child는 `propose_action`으로 shell 요청을 제출할 수 있고, Birkin은 이를 child sandbox에서 실행하지 않고 승인 큐에 넣습니다.
+Provider secret은 환경 변수에 두는 것이 원칙입니다. `api_keys`는 환경 변수 pool의 이름이며 raw key를 붙여 넣는 곳이 아닙니다. `a2a_enabled`는 opt-in입니다. Enforced egress는 검사되지 않은 네이티브 network 경로를 비활성화하고 설정된 destination만 Birkin의 inspected tool을 통해 허용합니다. Sandbox 안의 gateway child는 `propose_action`으로 shell 요청을 제출할 수 있고, Birkin은 이를 child sandbox에서 실행하지 않고 승인 큐에 넣습니다. Telegram의 `allowed_chat_ids`가 비어 있으면 Claude/native provider에서는 public text-only turn만 허용하고 semantic memory, harness state/review, transcript persistence, Birkin/company MCP, native tool을 모두 제거합니다. 동등한 tool-free child를 제공할 수 없는 Codex CLI의 Telegram gateway는 명시적인 chat allowlist가 필요합니다.
+Public reply는 attachment 전달이나 workflow persistence를 trigger할 수 없고,
+`/neurosis` 같은 shared-state command는 allowlist에 포함된 chat에서만 허용됩니다.
 
 자유 형식 shell 요청은 소유권이 있는 process tree 안에서 고정된 non-login platform shell(Windows의 `%SystemRoot%\System32\cmd.exe /d /s /c`, POSIX의 `/bin/bash -c`)을 사용합니다. Windows는 AutoRun을 비활성화하고 사용자 명령을 평가하기 전에 code page 65001을 선택하므로 네이티브 `cmd.exe` built-in과 UTF-8 runtime이 같은 stream capture 계약을 따릅니다. Birkin은 상속된 `PATH`를 보존하고 사용자 profile을 읽지 않은 채 알려진 runtime 디렉터리를 추가하며, UTF-8 stream과 쓰기 가능한 임시 디렉터리를 제공합니다. 네이티브 shell tool, 승인된 shell continuation, scheduler shell job, script monitor, lifecycle hook, GitHub Action test command, worktree setup command가 같은 managed runner를 공유합니다. Worktree setup의 payload 환경은 정책이 허용한 변수만 받고, 별도로 비밀이 아닌 `PATH`, system interpreter 변수, 격리된 `TMPDIR`/`TEMP`/`TMP` 같은 process 실행 요소만 받습니다. Docker setup shell text는 정책으로 제한된 container 안에 남습니다. Timeout, interrupt, Job Object/process-group 종료는 반환 전에 descendant를 제거하고 부분 stdout과 stderr를 보존합니다.
 

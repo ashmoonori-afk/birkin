@@ -414,6 +414,43 @@ The authenticated API exposes the checkpoint list, `/timeline`, `/lineage`,
 
 </details>
 
+## Working Memory
+
+Birkin keeps the current task contract in first-class **Working Memory**. This
+is not transcript history or long-term semantic memory: it is a compact,
+structured state for one session containing the goal, user corrections,
+constraints, decisions, incomplete items, evidence, and next actions.
+
+Each agent turn reloads the existing session-local harness journal at
+`$BIRKIN_HOME/sessions/<normalized-label>--<sha256-prefix>/harness/harness_state.json`
+through the Prompt-Gate. The hash makes valid session IDs collision-safe across
+platforms; an unambiguous older literal session directory is moved to this form
+on first access. Context compaction therefore cannot summarize it away, and a process
+that resumes the same stable session ID reloads the same state. The objective
+and completion verifier remain canonical in `goals.py`; the harness journal
+owns corrections, constraints, decisions, incomplete items, evidence, and next
+actions. Updates are locked and atomically replaced, repeated list values are
+deduplicated, and a new `--goal` replaces that session's previous goal.
+
+```bash
+birkin working-memory update \
+  --session issue-123 \
+  --goal "Ship the fix" \
+  --correction "Preserve the public JSON shape" \
+  --constraint "Stay offline" \
+  --decision "Use the existing atomic store" \
+  --incomplete "Run the security regression" \
+  --evidence "Focused tests passed" \
+  --next-action "Run the full suite"
+
+birkin working-memory show --session issue-123 --json
+birkin working-memory clear --session issue-123
+```
+
+The list-valued flags are repeatable. Session IDs are deliberately
+path-safe: 1-128 ASCII letters, digits, `.`, `_`, or `-`, beginning with a
+letter or digit. Use `birkin working-memory --help` for the complete surface.
+
 ## Commands
 
 | Command | Purpose |
@@ -435,6 +472,7 @@ The authenticated API exposes the checkpoint list, `/timeline`, `/lineage`,
 | `birkin runs` / `birkin trace ID` | Inspect run summaries and detailed audit records. |
 | `birkin cron` | List or remove scheduled jobs. |
 | `birkin sessions` | List or export saved conversations. |
+| `birkin working-memory` | Inspect, update, or clear structured current-task state. |
 | `birkin mcp-serve` | Serve Birkin memory, skills, and proposals over MCP stdio. |
 | `birkin voice` | Configure or control the optional voice daemon. |
 
@@ -717,7 +755,7 @@ points return `Tool` objects consumed by the existing native tool registry.
 
 </details>
 
-Environment variables remain the right place for provider secrets. `api_keys` names environment-variable pools; it is not a place to paste raw keys. `a2a_enabled` is opt-in. Enforced egress disables uninspected native network paths and allows only configured destinations through Birkin's inspected tools. A sandboxed gateway child can submit a shell request through `propose_action`; Birkin queues it for approval instead of running it inside the child sandbox.
+Environment variables remain the right place for provider secrets. `api_keys` names environment-variable pools; it is not a place to paste raw keys. `a2a_enabled` is opt-in. Enforced egress disables uninspected native network paths and allows only configured destinations through Birkin's inspected tools. A sandboxed gateway child can submit a shell request through `propose_action`; Birkin queues it for approval instead of running it inside the child sandbox. An empty Telegram `allowed_chat_ids` list permits public text-only turns for Claude/native providers, but strips semantic memory, harness state/review, transcript persistence, Birkin/company MCP, and native tools. Codex CLI cannot provide an equivalent tool-free child, so its Telegram gateway requires an explicit chat allowlist. Public replies cannot trigger attachment delivery or workflow persistence, and shared-state commands such as `/neurosis` require an allowlisted chat.
 
 Free-form shell requests use a fixed non-login platform shell (`%SystemRoot%\System32\cmd.exe /d /s /c` on Windows and `/bin/bash -c` on POSIX) inside an owned process tree. Windows disables AutoRun and selects code page 65001 before user command evaluation, so native `cmd.exe` built-ins and UTF-8 runtimes share the captured stream contract. Birkin preserves the inherited `PATH`, adds known runtime directories without sourcing user profiles, captures UTF-8 streams, and provides writable temporary directories. The same managed runner serves the native shell tool, approved shell continuations, scheduler shell jobs, script monitors, lifecycle hooks, GitHub Action test commands, and worktree setup commands. Worktree setup still exposes only policy-approved payload variables plus non-secret process mechanics such as `PATH`, system interpreter variables, and an isolated `TMPDIR`/`TEMP`/`TMP`; Docker setup shell text remains inside the policy-constrained container. Timeout, interrupt, and Job Object/process-group closure terminate descendants before returning and preserve partial stdout and stderr.
 

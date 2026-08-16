@@ -300,6 +300,7 @@ def test_nonpersistent_trusted_telegram_gets_workflow_policy(tmp_path, monkeypat
     fake.agent = SimpleNamespace(messages=[])
     gw._persistent = False
     gw.session = fake
+    gw.cfg["provider"] = "anthropic"
 
     gw.handle("telegram", "c1", "plan the release")
 
@@ -324,6 +325,7 @@ def test_gateway_neurosis_preserves_skill_intent_in_route_query(
 
 def test_nonpersistent_open_telegram_disables_skill_review(tmp_path, monkeypatch):
     gw = _gateway(tmp_path, monkeypatch)
+    gw.cfg["provider"] = "anthropic"
     fake = _FakeAskSession()
     fake.agent = SimpleNamespace(messages=[])
     gw._persistent = False

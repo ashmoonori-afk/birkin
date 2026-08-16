@@ -123,6 +123,27 @@ def test_parser_accepts_every_subcommand():
         assert callable(ns.func)
 
 
+def test_parser_accepts_working_memory_actions():
+    parser = build_parser()
+
+    update = parser.parse_args([
+        "working-memory", "update", "--session", "session-1",
+        "--goal", "Ship it", "--next-action", "Test it",
+    ])
+    show = parser.parse_args([
+        "working-memory", "show", "--session", "session-1", "--json",
+    ])
+    clear = parser.parse_args([
+        "working-memory", "clear", "--session", "session-1",
+    ])
+
+    assert update.working_memory_action == "update"
+    assert update.next_actions == ["Test it"]
+    assert show.working_memory_action == "show"
+    assert show.json is True
+    assert clear.working_memory_action == "clear"
+
+
 def test_parser_dry_run_flag_on_chat():
     p = build_parser()
     ns = p.parse_args(["chat", "--dry-run", "-m", "hi"])

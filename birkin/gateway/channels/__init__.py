@@ -48,13 +48,12 @@ def build_channels(cfg: dict[str, Any]) -> list[Channel]:
             allowed = [str(c).strip() for c in (tg.get("allowed_chat_ids") or [])
                        if str(c).strip()]
             if not allowed:
-                print("[gateway] refusing Telegram: "
-                      "channels.telegram.allowed_chat_ids is required.")
-            else:
-                from .polished_telegram import PolishedTelegramChannel
-                channels.append(PolishedTelegramChannel(
-                    token, cfg=cfg, allowed_chat_ids=allowed,
-                    stream=bool(tg.get("stream", True))))
+                print("[gateway] Telegram is public and capability-stripped: "
+                      "configure allowed_chat_ids for trusted turns.")
+            from .polished_telegram import PolishedTelegramChannel
+            channels.append(PolishedTelegramChannel(
+                token, cfg=cfg, allowed_chat_ids=allowed,
+                stream=bool(tg.get("stream", True))))
 
     return channels
 

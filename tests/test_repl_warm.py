@@ -128,6 +128,42 @@ def test_warm_disabled_for_non_cli_provider(tmp_path, monkeypatch):
     assert s._use_warm() is False                       # API path never warms
 
 
+def test_untrusted_turn_bypasses_warm_and_harness_review(
+        tmp_path, monkeypatch):
+    import pytest
+
+    s = _session(
+        tmp_path,
+        monkeypatch,
+        repl_warm_session=True,
+        self_improve=False,
+    )
+    monkeypatch.setattr(
+        s,
+        "_warm_ask",
+        lambda *_args, **_kwargs: pytest.fail(
+            "untrusted turn reached the trusted warm child"
+        ),
+    )
+    run_kwargs: dict[str, object] = {}
+    record_kwargs: dict[str, object] = {}
+
+    def run(_text: str, **kwargs: object) -> str:
+        run_kwargs.update(kwargs)
+        return "safe"
+
+    monkeypatch.setattr(s.agent, "run", run)
+    monkeypatch.setattr(
+        s,
+        "_record_turn",
+        lambda *_args, **kwargs: record_kwargs.update(kwargs),
+    )
+
+    assert s.ask("public message", trusted=False) == "safe"
+    assert run_kwargs["blocked_tools"]
+    assert record_kwargs["review_harness"] is False
+
+
 def test_build_warm_picks_codex_for_codex_provider(tmp_path, monkeypatch):
     from birkin.codex_session import CodexAppServerSession
     s = _session(tmp_path, monkeypatch, provider="codex-cli",
@@ -137,3 +173,28 @@ def test_build_warm_picks_codex_for_codex_provider(tmp_path, monkeypatch):
     assert w.preamble                                   # persona/memory rides it
     assert w.network_access is False
     w.close()
+
+
+def test_warm_fixed_prompt_excludes_mutable_working_state(
+        tmp_path, monkeypatch):
+    from birkin import harness
+
+    session_id = "warm-fixed"
+    s = _session(
+        tmp_path,
+        monkeypatch,
+        session_id=session_id,
+        repl_warm_session=True,
+    )
+    harness.update_working(
+        session_id,
+        decisions=["MUTABLE-WORKING-SENTINEL"],
+    )
+
+    warm = s._build_warm()
+    fixed = getattr(warm, "append_system_prompt", None)
+    if fixed is None:
+        fixed = getattr(warm, "preamble", "")
+
+    assert "MUTABLE-WORKING-SENTINEL" not in fixed
+    warm.close()
