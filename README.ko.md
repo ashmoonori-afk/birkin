@@ -492,7 +492,7 @@ birkin working-memory clear --session issue-123
 |---|---|
 | `birkin setup` | Provider와 workspace 안내 설정. |
 | `birkin chat` | 기본 terminal chat workspace와 private loopback web authority 실행. |
-| `birkin gateway` | Loopback HTTP와 설정된 message channel 실행. |
+| `birkin gateway` | Loopback HTTP와 설정된 message channel을 실행하고, 중단 후 답변 재전송을 단일 owner가 배타적으로 claim하도록 보장. |
 | `birkin web [--no-browser]` | 독립 인증 chat workspace와 control API 실행. |
 | `birkin review` | 결과가 생기는 대기 action 승인 또는 거절. |
 | `birkin permission` | Approval category와 CLI access 확인·변경. |
@@ -506,6 +506,7 @@ birkin working-memory clear --session issue-123
 | `birkin moirai` | 결정적 workflow 목록·실행·조회·resume. |
 | `birkin runs` / `birkin trace ID` | Run summary와 상세 audit record 조회. |
 | `birkin cron` | 예약 job 목록 또는 삭제. |
+| `birkin companion` | Opt-in 약속, 체크인, 알림 정책 관리. 고정 UTC fallback offset은 -1440분 초과 1440분 미만이어야 함. |
 | `birkin sessions` | 저장된 대화 목록 또는 export. |
 | `birkin working-memory` | 구조화된 현재 작업 상태 조회·갱신·삭제. |
 | `birkin mcp-serve` | Birkin memory, skill, proposal을 MCP stdio로 제공. |

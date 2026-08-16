@@ -491,7 +491,7 @@ letter or digit. Use `birkin working-memory --help` for the complete surface.
 |---|---|
 | `birkin setup` | Guided provider and workspace onboarding. |
 | `birkin chat` | Default terminal chat workspace plus private loopback web authority. |
-| `birkin gateway` | Run loopback HTTP and configured message channels. |
+| `birkin gateway` | Run loopback HTTP and configured message channels with crash-durable, exclusively claimed reply redelivery. |
 | `birkin web [--no-browser]` | Run the standalone authenticated chat workspace and control API. |
 | `birkin review` | Approve or reject pending consequential actions. |
 | `birkin permission` | Inspect or change approval categories and CLI access. |
@@ -505,6 +505,7 @@ letter or digit. Use `birkin working-memory --help` for the complete surface.
 | `birkin moirai` | List, run, inspect, or resume deterministic workflows. |
 | `birkin runs` / `birkin trace ID` | Inspect run summaries and detailed audit records. |
 | `birkin cron` | List or remove scheduled jobs. |
+| `birkin companion` | Manage opt-in commitments, check-ins, and notification policy. Fixed UTC fallback offsets must be strictly between -1440 and 1440 minutes. |
 | `birkin sessions` | List or export saved conversations. |
 | `birkin working-memory` | Inspect, update, or clear structured current-task state. |
 | `birkin mcp-serve` | Serve Birkin memory, skills, and proposals over MCP stdio. |
