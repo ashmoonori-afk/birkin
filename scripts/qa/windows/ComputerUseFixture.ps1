@@ -46,6 +46,7 @@ $button.Add_Click({
     $next = $current + 1
     $counter.Text = "count=$next"
     $button.Text = "Increment synthetic counter ($next)"
+    $button.AccessibleName = "Increment synthetic counter ($next)"
 })
 $form.Controls.Add($button)
 
