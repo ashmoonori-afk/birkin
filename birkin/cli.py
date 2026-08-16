@@ -426,7 +426,7 @@ def _cmd_working_memory(args: argparse.Namespace) -> int:
     try:
         session_id = harness.validate_working_session_id(args.session)
 
-        def snapshot() -> dict[str, object]:
+        def snapshot_locked() -> dict[str, object]:
             working = harness.working_state(session_id)
             goal = goals.get_active(session_id=session_id)
             return {
@@ -444,13 +444,19 @@ def _cmd_working_memory(args: argparse.Namespace) -> int:
                 ),
             }
 
+        def snapshot() -> dict[str, object]:
+            with harness.working_transaction(session_id):
+                return snapshot_locked()
+
         if args.working_memory_action == "show":
-            state = snapshot()
             if args.json:
+                state = snapshot()
                 print(json.dumps(state, ensure_ascii=False))
             else:
-                goal = str(state["goal"])
-                block = harness.render_working(session_id)
+                with harness.working_transaction(session_id):
+                    state = snapshot_locked()
+                    goal = str(state["goal"])
+                    block = harness.render_working(session_id)
                 rendered = "\n\n".join(
                     part for part in (
                         f"Goal: {goal}" if goal else "",
@@ -461,8 +467,16 @@ def _cmd_working_memory(args: argparse.Namespace) -> int:
                 print(rendered or "Working memory is empty.")
             return 0
         if args.working_memory_action == "clear":
-            removed = harness.clear_working(session_id)
-            goal_removed = goals.pause(session_id=session_id) is not None
+            goal_removed = False
+
+            def pause_goal() -> None:
+                nonlocal goal_removed
+                goal_removed = goals.pause(session_id=session_id) is not None
+
+            removed = harness.clear_working(
+                session_id,
+                commit=pause_goal,
+            )
             print(
                 f"Cleared working memory for {session_id}."
                 if removed or goal_removed
@@ -483,16 +497,24 @@ def _cmd_working_memory(args: argparse.Namespace) -> int:
         ):
             print("error: update needs at least one state value", file=sys.stderr)
             return 2
-        harness.preview_working_update(session_id, **updates)
-        if args.goal is not None:
-            goals.set_goal(args.goal, session_id=session_id)
-        state = harness.update_working(session_id, **updates)
+        if args.goal is not None and not str(args.goal).strip():
+            raise ValueError("goal objective must not be empty")
+        commit = (
+            lambda: goals.set_goal(args.goal, session_id=session_id)
+            if args.goal is not None
+            else None
+        )
+        state = harness.update_working(
+            session_id,
+            **updates,
+            commit=commit if args.goal is not None else None,
+        )
         print(
             f"Updated working memory for {session_id} "
             f"(revision {state['revision']})."
         )
         return 0
-    except ValueError as exc:
+    except (OSError, RuntimeError, ValueError) as exc:
         print(f"error: {exc}", file=sys.stderr)
         return 2
 

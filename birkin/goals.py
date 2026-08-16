@@ -131,25 +131,38 @@ def set_goal(
         tokens_used=0, status="active", gate_cmd=gate_cmd, gate_last=None,
         created_at=now, updated_at=now, session_id=session_id)
     with _domain_lock():
-        target_written = False
+        snapshot: dict[Path, GoalState] = {}
         for path in config.goals_dir().glob("*.json"):
             with store.file_lock(path):
                 current = _load(path)
-                if path == _path(state.slug, session_id):
-                    _save(state)
-                    target_written = True
-                elif (current is not None and current.status == "active"
-                      and current.session_id == session_id):
+                if current is not None and current.session_id == session_id:
+                    snapshot[path] = current
+        target = _path(state.slug, session_id)
+        try:
+            for current in snapshot.values():
+                if (current.status == "active"
+                        and current.slug != state.slug):
                     _save(replace(current, status="paused", updated_at=now))
-        if not target_written:
-            with store.file_lock(_path(state.slug, session_id)):
-                _save(state)
+            _save(state)
+        except BaseException:
+            try:
+                if target not in snapshot:
+                    with store.file_lock(target):
+                        target.unlink(missing_ok=True)
+                for previous in snapshot.values():
+                    _save(previous)
+            except BaseException as rollback_exc:
+                raise RuntimeError(
+                    "goal update failed and rollback failed"
+                ) from rollback_exc
+            raise
     return state
 
 
 def get_active(*, session_id: str | None = None) -> GoalState | None:
     """Return the active goal, if one exists."""
-    return _active_unlocked(session_id)
+    with _domain_lock():
+        return _active_unlocked(session_id)
 
 
 def add_usage(
@@ -161,18 +174,21 @@ def add_usage(
     """Accumulate one turn's token usage onto the active goal."""
     input_count = max(0, int(input_tokens))
     output_count = max(0, int(output_tokens))
-    active = get_active(session_id=session_id)
-    if active is None:
-        return None
-    path = _path(active.slug, active.session_id)
-    with store.file_lock(path):
-        current = _load(path)
-        if current is None or current.status != "active":
+    with _domain_lock():
+        active = _active_unlocked(session_id)
+        if active is None:
             return None
-        updated = replace(current,
-                          tokens_used=current.tokens_used + input_count + output_count,
-                          updated_at=_now())
-        return _save(updated)
+        path = _path(active.slug, active.session_id)
+        with store.file_lock(path):
+            current = _load(path)
+            if current is None or current.status != "active":
+                return None
+            updated = replace(
+                current,
+                tokens_used=current.tokens_used + input_count + output_count,
+                updated_at=_now(),
+            )
+            return _save(updated)
 
 
 def _transition(
@@ -187,7 +203,18 @@ def _transition(
             latest = _load(path)
             if latest is None or latest.status != "active":
                 return None
-            return _save(replace(latest, status=status, updated_at=_now()))
+            try:
+                return _save(
+                    replace(latest, status=status, updated_at=_now())
+                )
+            except BaseException:
+                try:
+                    _save(latest)
+                except BaseException as rollback_exc:
+                    raise RuntimeError(
+                        f"goal {status} failed and rollback failed"
+                    ) from rollback_exc
+                raise
 
 
 def pause(*, session_id: str | None = None) -> GoalState | None:
@@ -278,12 +305,19 @@ def run_gate(state: GoalState, cfg: dict[str, Any]) -> GoalState:
             category="shell", title=f"goal verifier: {command[:60]}",
             description=f"Verify session goal '{state.objective[:120]}'.",
             payload={"command": command}, cfg=cfg, origin="goal")
-        with store.file_lock(_path(state.slug, state.session_id)):
-            current = _load(_path(state.slug, state.session_id)) or state
-            if current.gate_cmd != command:
-                current = _save(replace(current, gate_cmd=command,
-                                        updated_at=_now()))
-            return current
+        with _domain_lock():
+            path = _path(state.slug, state.session_id)
+            with store.file_lock(path):
+                current = _load(path)
+                if current is None:
+                    return state
+                if current.gate_cmd != command:
+                    current = _save(replace(
+                        current,
+                        gate_cmd=command,
+                        updated_at=_now(),
+                    ))
+                return current
 
     try:
         output = approvals.execute_action(
@@ -294,7 +328,15 @@ def run_gate(state: GoalState, cfg: dict[str, Any]) -> GoalState:
         ok = False
     gate_last = {"ok": ok, "output_tail": str(output)[-_GATE_OUTPUT_TAIL:],
                  "at": _now()}
-    with store.file_lock(_path(state.slug, state.session_id)):
-        current = _load(_path(state.slug, state.session_id)) or state
-        return _save(replace(current, gate_cmd=command, gate_last=gate_last,
-                             updated_at=_now()))
+    with _domain_lock():
+        path = _path(state.slug, state.session_id)
+        with store.file_lock(path):
+            current = _load(path)
+            if current is None:
+                return state
+            return _save(replace(
+                current,
+                gate_cmd=command,
+                gate_last=gate_last,
+                updated_at=_now(),
+            ))

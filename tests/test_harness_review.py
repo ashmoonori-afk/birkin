@@ -179,7 +179,7 @@ def test_the_counter_resets_so_the_gate_is_not_re_run_every_turn(monkeypatch):
 
 def test_cooldown_blocks_the_gate_even_after_the_interval(monkeypatch):
     session, fake = _session(monkeypatch, replies=[_GATE_YES, _PROPOSAL])
-    session._harness_last = time.monotonic()          # a review just ran
+    session._harness_last[str(session.cfg["session_id"])] = time.monotonic()
     _turns(session, INTERVAL)
 
     assert fake.calls == [], "cooldown must be checked BEFORE spending the gate"
@@ -189,7 +189,9 @@ def test_cooldown_blocks_the_gate_even_after_the_interval(monkeypatch):
 def test_an_elapsed_cooldown_lets_the_gate_run(monkeypatch):
     session, fake = _session(monkeypatch, replies=[_GATE_NO],
                              harness_cooldown_min=15)
-    session._harness_last = time.monotonic() - 16 * 60
+    session._harness_last[str(session.cfg["session_id"])] = (
+        time.monotonic() - 16 * 60
+    )
     _turns(session, INTERVAL)
 
     assert len(fake.calls) == 1
