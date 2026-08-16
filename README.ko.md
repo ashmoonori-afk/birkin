@@ -52,6 +52,8 @@ python -m pip install -e ".[memory-semantic]"  # 로컬 sentence-transformers �
 
 Markdown가 계속 source of truth입니다. Entity graph는 title, tag, `[[wikilink]]`에서 다시 만들 수 있으며 lexical search에 graph sidecar가 필요하지 않습니다. Temporal fact는 `valid_at`(사실이 된 시점), `invalid_at`(더 이상 사실이 아닌 시점), `expired_at`(잘못임을 알게 된 시점)을 분리하고 선택적으로 `supersedes` link를 둡니다. Search는 `as_of`, `since`, `until` date filter를 받습니다.
 
+메모리 소유 범위는 `user`, `organization`, `project`, `agent`, `workflow`입니다. User 메모리는 기존 vault layout을 그대로 사용하고, 나머지 root는 `.birkin-scopes/<scope>`에 있으며 내부에서는 같은 zone layout을 유지합니다. 같은 key는 가장 구체적인 순서인 **workflow > agent > project > organization > user**로 resolve됩니다. `memory_visible_scopes`는 읽을 수 없는 root를 fail closed로 차단하고, `memory_source_trust`, `memory_default_trust`, query의 `min_trust`가 source filtering을 제어합니다. Search hit는 `scope`, `record_source`, `trust`를 공개합니다. Owner가 note를 `shared_read_only`로 표시하면 볼 수 있는 agent는 owner label과 함께 읽을 수 있지만 non-owner write는 typed policy error로 거부됩니다.
+
 Commit된 14-question LongMemEval fixture는 retrieval과 final-answer stage를 분리해 보고합니다. 네 configuration 모두 retrieval recall `1.000`, answer accuracy `0.857`(query당 context token 11.9-12.4)이었으므로 retrieval 뒤 context assembly gap이 숨지 않습니다. Category·cost table과 public dataset 정확한 실행 명령은 [benchmark 결과](./benchmarks/RESULTS.md)에 있습니다. 이 값은 fixture 결과이며 public leaderboard 결과가 아닙니다.
 
 ## 빠른 시작
@@ -434,6 +436,16 @@ checkpoint에서 일회용 policy-controlled sandbox worktree를 만들고 linea
   "memory_vector_model": "all-MiniLM-L6-v2",
   "memory_entity_enabled": false,
   "memory_temporal_enabled": false,
+  "memory_scope": "user",
+  "memory_visible_scopes": [
+    "workflow",
+    "agent",
+    "project",
+    "organization",
+    "user"
+  ],
+  "memory_default_trust": "medium",
+  "memory_source_trust": {},
   "morpheus_deliver_chat_id": "",
   "workspace_roots": [],
   "reaper_enabled": true,

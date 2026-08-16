@@ -102,6 +102,10 @@ Schema version: 1
 | `memory_vector_model` | `string` | `"all-MiniLM-L6-v2"` | Birkin 설정 `memory_vector_model`. |
 | `memory_entity_enabled` | `boolean` | `false` | Birkin 설정 `memory_entity_enabled`. |
 | `memory_temporal_enabled` | `boolean` | `false` | Birkin 설정 `memory_temporal_enabled`. |
+| `memory_scope` | `string` | `"user"` | 메모리 쓰기에 사용하는 소유 범위입니다. |
+| `memory_visible_scopes` | `array` | `["workflow", "agent", "project", "organization", "user"]` | 이 에이전트가 읽을 수 있는 메모리 범위이며 생략된 범위는 닫힌 상태로 거부됩니다. |
+| `memory_default_trust` | `string` | `"medium"` | 명시적 매핑이 없는 메모리 출처에 적용하는 신뢰 수준입니다. |
+| `memory_source_trust` | `object` | `{}` | 최소 신뢰 쿼리에 사용하는 출처별 메모리 신뢰 수준입니다. |
 | `morpheus_deliver_chat_id` | `string` | `""` | Birkin 설정 `morpheus_deliver_chat_id`. |
 | `workspace_roots` | `array` | `[]` | Birkin 설정 `workspace_roots`. |
 | `reaper_enabled` | `boolean` | `true` | Birkin 설정 `reaper_enabled`. |
