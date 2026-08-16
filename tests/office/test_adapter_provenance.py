@@ -17,9 +17,24 @@ from birkin.office.adapters.adapter_provenance import (
 from birkin.office.adapters.catalog import adapter_inventory
 
 REQUIRED_LOCKED_PACKAGES = {
-    "pillow": ("12.3.0", "MIT-CMU"),
-    "rfc8785": ("0.1.4", "Apache-2.0"),
-    "xlsxwriter": ("3.2.9", "BSD-2-Clause"),
+    "pillow": (
+        "12.3.0",
+        "MIT-CMU",
+        "https://files.pythonhosted.org/packages/1c/3d/bb7fca845737cf9d7dbde16ed1843984665ff2e0a518f5db43e77ec540b9/pillow-12.3.0.tar.gz",
+        "3b8182a766685eaa002637e28b4ec8d6b18819a0c71f579bf0dbaa5830297cce",
+    ),
+    "rfc8785": (
+        "0.1.4",
+        "Apache-2.0",
+        "https://files.pythonhosted.org/packages/ef/2f/fa1d2e740c490191b572d33dbca5daa180cb423c24396b856f5886371d8b/rfc8785-0.1.4.tar.gz",
+        "e545841329fe0eee4f6a3b44e7034343100c12b4ec566dc06ca9735681deb4da",
+    ),
+    "xlsxwriter": (
+        "3.2.9",
+        "BSD-2-Clause",
+        "https://files.pythonhosted.org/packages/46/2c/c06ef49dc36e7954e55b802a8b231770d286a9758b3d936bd1e04ce5ba88/xlsxwriter-3.2.9.tar.gz",
+        "254b1c37a368c444eac6e2f867405cc9e461b0ed97a3233b2ac1e574efb4140c",
+    ),
 }
 
 OPERATION_STATES = {
@@ -98,15 +113,13 @@ def test_required_office_packages_match_environment_manifest_and_notice() -> Non
         for package in adapter["packages"]
     }
     notice = render_third_party_notices()
-    for name, (version, license_name) in REQUIRED_LOCKED_PACKAGES.items():
+    for name, (version, license_name, artifact_url, artifact_sha256) in (
+        REQUIRED_LOCKED_PACKAGES.items()
+    ):
         package = manifest_packages[name]
         assert package["version"] == version == installed_version(package["name"])
-        artifact_url = package["artifact_url"]
-        artifact_sha256 = package["artifact_sha256"]
-        assert artifact_url is not None
-        assert artifact_sha256 is not None
-        assert artifact_url.startswith("https://files.pythonhosted.org/")
-        assert len(artifact_sha256) == 64
+        assert package["artifact_url"] == artifact_url
+        assert package["artifact_sha256"] == artifact_sha256
         assert package["license"] == license_name
         assert package["license_sha256"]
         assert package["selection"] == "conditional"
