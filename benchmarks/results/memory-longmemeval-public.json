@@ -1,0 +1,229 @@
+{
+  "meta": {
+    "dataset": "public",
+    "questions": 500,
+    "retrieval_k": 5,
+    "context_k": 1,
+    "timestamp": "2026-08-14T04:55:37+00:00",
+    "answerer": null
+  },
+  "configurations": {
+    "lexical-only": {
+      "signals": [
+        "lexical"
+      ],
+      "overall": {
+        "n": 500,
+        "retrieval_recall": 0.976,
+        "answer_accuracy": null
+      },
+      "categories": {
+        "single-session-user": {
+          "n": 70,
+          "retrieval_recall": 1.0,
+          "answer_accuracy": null
+        },
+        "single-session-assistant": {
+          "n": 56,
+          "retrieval_recall": 1.0,
+          "answer_accuracy": null
+        },
+        "single-session-preference": {
+          "n": 30,
+          "retrieval_recall": 0.867,
+          "answer_accuracy": null
+        },
+        "multi-session": {
+          "n": 133,
+          "retrieval_recall": 0.97,
+          "answer_accuracy": null
+        },
+        "temporal-reasoning": {
+          "n": 133,
+          "retrieval_recall": 0.977,
+          "answer_accuracy": null
+        },
+        "knowledge-update": {
+          "n": 78,
+          "retrieval_recall": 0.987,
+          "answer_accuracy": null
+        },
+        "abstention": {
+          "n": 0,
+          "retrieval_recall": null,
+          "answer_accuracy": null
+        }
+      },
+      "cost": {
+        "tokens_per_query": 67.1,
+        "latency_ms_p50": 32.705,
+        "latency_ms_p95": 52.463,
+        "storage_bytes": 393965902
+      }
+    },
+    "+vector": {
+      "signals": [
+        "lexical",
+        "vector"
+      ],
+      "overall": {
+        "n": 500,
+        "retrieval_recall": 0.972,
+        "answer_accuracy": null
+      },
+      "categories": {
+        "single-session-user": {
+          "n": 70,
+          "retrieval_recall": 0.986,
+          "answer_accuracy": null
+        },
+        "single-session-assistant": {
+          "n": 56,
+          "retrieval_recall": 1.0,
+          "answer_accuracy": null
+        },
+        "single-session-preference": {
+          "n": 30,
+          "retrieval_recall": 0.867,
+          "answer_accuracy": null
+        },
+        "multi-session": {
+          "n": 133,
+          "retrieval_recall": 0.97,
+          "answer_accuracy": null
+        },
+        "temporal-reasoning": {
+          "n": 133,
+          "retrieval_recall": 0.97,
+          "answer_accuracy": null
+        },
+        "knowledge-update": {
+          "n": 78,
+          "retrieval_recall": 0.987,
+          "answer_accuracy": null
+        },
+        "abstention": {
+          "n": 0,
+          "retrieval_recall": null,
+          "answer_accuracy": null
+        }
+      },
+      "cost": {
+        "tokens_per_query": 67.1,
+        "latency_ms_p50": 35.018,
+        "latency_ms_p95": 53.82,
+        "storage_bytes": 393965877
+      }
+    },
+    "+entity": {
+      "signals": [
+        "lexical",
+        "entity"
+      ],
+      "overall": {
+        "n": 500,
+        "retrieval_recall": 0.976,
+        "answer_accuracy": null
+      },
+      "categories": {
+        "single-session-user": {
+          "n": 70,
+          "retrieval_recall": 1.0,
+          "answer_accuracy": null
+        },
+        "single-session-assistant": {
+          "n": 56,
+          "retrieval_recall": 1.0,
+          "answer_accuracy": null
+        },
+        "single-session-preference": {
+          "n": 30,
+          "retrieval_recall": 0.867,
+          "answer_accuracy": null
+        },
+        "multi-session": {
+          "n": 133,
+          "retrieval_recall": 0.97,
+          "answer_accuracy": null
+        },
+        "temporal-reasoning": {
+          "n": 133,
+          "retrieval_recall": 0.977,
+          "answer_accuracy": null
+        },
+        "knowledge-update": {
+          "n": 78,
+          "retrieval_recall": 0.987,
+          "answer_accuracy": null
+        },
+        "abstention": {
+          "n": 0,
+          "retrieval_recall": null,
+          "answer_accuracy": null
+        }
+      },
+      "cost": {
+        "tokens_per_query": 67.1,
+        "latency_ms_p50": 29.99,
+        "latency_ms_p95": 46.639,
+        "storage_bytes": 393965971
+      }
+    },
+    "full": {
+      "signals": [
+        "lexical",
+        "vector",
+        "entity",
+        "time"
+      ],
+      "overall": {
+        "n": 500,
+        "retrieval_recall": 0.972,
+        "answer_accuracy": null
+      },
+      "categories": {
+        "single-session-user": {
+          "n": 70,
+          "retrieval_recall": 0.986,
+          "answer_accuracy": null
+        },
+        "single-session-assistant": {
+          "n": 56,
+          "retrieval_recall": 1.0,
+          "answer_accuracy": null
+        },
+        "single-session-preference": {
+          "n": 30,
+          "retrieval_recall": 0.867,
+          "answer_accuracy": null
+        },
+        "multi-session": {
+          "n": 133,
+          "retrieval_recall": 0.97,
+          "answer_accuracy": null
+        },
+        "temporal-reasoning": {
+          "n": 133,
+          "retrieval_recall": 0.97,
+          "answer_accuracy": null
+        },
+        "knowledge-update": {
+          "n": 78,
+          "retrieval_recall": 0.987,
+          "answer_accuracy": null
+        },
+        "abstention": {
+          "n": 0,
+          "retrieval_recall": null,
+          "answer_accuracy": null
+        }
+      },
+      "cost": {
+        "tokens_per_query": 67.1,
+        "latency_ms_p50": 34.077,
+        "latency_ms_p95": 50.231,
+        "storage_bytes": 393966031
+      }
+    }
+  }
+}

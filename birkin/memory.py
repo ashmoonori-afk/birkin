@@ -26,17 +26,52 @@ import re
 import threading
 from datetime import date, datetime, timezone
 from pathlib import Path
-from typing import Any
+from typing import Any, TypedDict
 
 from . import config, store, transcripts
 from .mnemosyne import (ARCHIVE_ZONE, IDENTITY_ZONE, TYPE_ZONE, Mnemosyne,
                         _entry_expired, tokenize)
 from .mnemosyne import atomic_write as _atomic_write
 from .mnemosyne import slug as _slug
+from .memory_scopes import (
+    MemoryAccessPolicy,
+    MemoryOperation,
+    MemoryPolicyError,
+    MemoryScope,
+    PolicyRequest,
+    TrustLevel,
+    parse_scope,
+    parse_trust,
+    scope_root,
+)
 from .skills import frontmatter
 
 VALID_TYPES = {"person", "project", "preference", "fact", "topic", "session"}
 VALID_POLARITIES = {"positive", "negative"}
+
+
+class SignalScores(TypedDict):
+    lexical: float
+    vector: float
+    entity: float
+    time: float
+
+
+class MemorySearchResult(TypedDict):
+    """Stable public search contract, including every configured signal."""
+
+    title: str
+    snippet: str
+    zone: str
+    related: list[str]
+    score: float
+    signal_scores: SignalScores
+    source: list[str]
+    backend: dict[str, str]
+    scope: str
+    record_source: str
+    trust: str
+    shared_read_only: bool
 
 # Per-slug write locks: two channel threads can write the same note concurrently
 # (the gateway runs LLM turns outside its global lock), so serialize a note's
@@ -63,51 +98,89 @@ def _now_iso() -> str:
 
 
 class VaultMemory:
-    def __init__(self, cfg: dict[str, Any] | None = None):
+    def __init__(self, cfg: dict[str, Any] | None = None, *,
+                 embedding_backend: Any | None = None):
         self.cfg = cfg or {}
         self.vault = config.vault_dir(self.cfg)
-        self._dex: Mnemosyne | None = None
+        self.policy = MemoryAccessPolicy.from_config(self.cfg)
+        self._dexes: dict[MemoryScope, Mnemosyne] = {}
+        self._embedding_backend = embedding_backend
+
+    def _dex_for(self, scope: MemoryScope) -> Mnemosyne:
+        dex = self._dexes.get(scope)
+        if dex is None:
+            dex = self._dexes[scope] = Mnemosyne(scope_root(self.vault, scope))
+        return dex
 
     @property
     def dex(self) -> Mnemosyne:
-        """The mechanical index/dynamics engine (lazy; see mnemosyne.py)."""
-        if self._dex is None:
-            self._dex = Mnemosyne(self.vault)
-        return self._dex
+        """Mechanical engine for the actor's owning scope (legacy: user)."""
+        return self._dex_for(self.policy.actor_scope)
 
     # -- low-level note IO -------------------------------------------------
 
     def _resolve_path(self, title: str, note_type: str = "topic",
-                      zone: str | None = None) -> Path:
+                      zone: str | None = None,
+                      scope: MemoryScope | None = None) -> Path:
         """Existing notes stay where they live; new notes are placed by the
         explicit ``zone`` or the mechanical type→zone map (Morpheus refines
         placement nightly via memory_rezone)."""
+        owner = scope or self.policy.actor_scope
+        root = scope_root(self.vault, owner)
         s = _slug(title)
-        rel = self.dex.resolve_rel(s)
+        rel = self._dex_for(owner).resolve_rel(s)
         if rel:
-            return self.vault / rel
+            return root / rel
         if zone is not None:
             z = "" if zone in ("", "inbox") else _slug(zone)[:32]
         else:
             z = TYPE_ZONE.get(note_type, "knowledge")
-        return (self.vault / z / f"{s}.md") if z else self.vault / f"{s}.md"
+        return (root / z / f"{s}.md") if z else root / f"{s}.md"
 
-    def _find_note(self, title: str) -> Path | None:
-        rel = self.dex.resolve_rel(_slug(title))
-        if rel and (self.vault / rel).is_file():
-            return self.vault / rel
+    def _find_note(self, title: str,
+                   scope: MemoryScope) -> Path | None:
+        rel = self._dex_for(scope).resolve_rel(_slug(title))
+        root = scope_root(self.vault, scope)
+        if rel and (root / rel).is_file():
+            return root / rel
+        return None
+
+    @staticmethod
+    def _record_source(meta: dict[str, Any]) -> str:
+        explicit = str(meta.get("record_source") or "")
+        raw_sources = meta.get("sources")
+        if explicit:
+            return explicit
+        if isinstance(raw_sources, list) and raw_sources:
+            return str(raw_sources[-1])
+        return "legacy"
+
+    def get_note_record(self, title: str, *, scope: str | MemoryScope | None = None
+                        ) -> dict[str, Any] | None:
+        scopes = (parse_scope(scope),) if scope is not None \
+            else self.policy.readable_scopes()
+        for owner in scopes:
+            self.policy.require(PolicyRequest(MemoryOperation.READ, owner))
+            p = self._find_note(title, owner)
+            if p is None:
+                continue
+            try:
+                text = p.read_text(encoding="utf-8", errors="replace")
+            except OSError:
+                continue
+            meta, _ = frontmatter.parse(text)
+            source = self._record_source(meta)
+            self._dex_for(owner).record_access(p.stem)
+            return {"content": text, "scope": owner.value,
+                    "record_source": source,
+                    "trust": self.policy.trust_for(source).value,
+                    "shared_read_only": bool(meta.get("shared_read_only", False)),
+                    "path": p}
         return None
 
     def get_note(self, title: str) -> str | None:
-        p = self._find_note(title)
-        if p is None:
-            return None
-        try:
-            text = p.read_text(encoding="utf-8", errors="replace")
-        except OSError:
-            return None
-        self.dex.record_access(p.stem)   # reading a note = using it
-        return text
+        record = self.get_note_record(title)
+        return str(record["content"]) if record is not None else None
 
     def list_notes(self) -> list[dict[str, Any]]:
         notes: list[dict[str, Any]] = []
@@ -123,7 +196,7 @@ class VaultMemory:
                 "confidence": entry["confidence"],
                 "polarity": entry["polarity"],
                 "zone": entry["zone"] or "inbox",
-                "path": self.vault / entry["rel"],
+                "path": scope_root(self.vault, self.policy.actor_scope) / entry["rel"],
             })
         return notes
 
@@ -147,7 +220,13 @@ class VaultMemory:
                    confidence: float | None = None, source: str | None = None,
                    append: bool = False, ttl_days: int | None = None,
                    polarity: str | None = None, zone: str | None = None,
-                   expected_version: int | None = None) -> Path:
+                   expected_version: int | None = None,
+                   valid_at: str | None = None,
+                   invalid_at: str | None = None,
+                   expired_at: str | None = None,
+                   supersedes: list[str] | None = None,
+                   scope: str | MemoryScope | None = None,
+                   shared_read_only: bool | None = None) -> Path:
         """Create or update a note.
 
         ``zone`` places a **new** note in a specific palace zone directory
@@ -169,9 +248,11 @@ class VaultMemory:
         # happens INSIDE the lock: rezone() takes the same lock, so a move can't
         # slip between resolve and write (stale path -> duplicate note).
         note_slug = _slug(title)
-        process_lock = self.vault / f".birkin-note-{note_slug}"
+        owner = parse_scope(scope) if scope is not None else self.policy.actor_scope
+        root = scope_root(self.vault, owner)
+        process_lock = root / f".birkin-note-{note_slug}"
         with _note_lock(note_slug), store.file_lock(process_lock):
-            p = self._resolve_path(title, requested_type or "topic", zone)
+            p = self._resolve_path(title, requested_type or "topic", zone, owner)
             created = date.today().isoformat()
             sources: list[str] = []
             existing_body = ""
@@ -181,6 +262,11 @@ class VaultMemory:
             existing_expires_at: str | None = None
             existing_polarity: str | None = None
             existing_version = 0
+            existing_valid_at: str | None = None
+            existing_invalid_at: str | None = None
+            existing_supersedes: list[str] = []
+            existing_source = "legacy"
+            existing_shared = False
             if p.is_file():
                 old = p.read_text(encoding="utf-8", errors="replace")
                 meta, old_body = frontmatter.parse(old)
@@ -205,13 +291,25 @@ class VaultMemory:
                     existing_version = int(meta.get("version") or 0)
                 except (TypeError, ValueError):
                     existing_version = 0
+                existing_valid_at = str(meta.get("valid_at") or "") or None
+                existing_invalid_at = str(meta.get("invalid_at") or "") or None
+                raw_supersedes = meta.get("supersedes")
+                if isinstance(raw_supersedes, list):
+                    existing_supersedes = [str(value) for value in raw_supersedes]
+                existing_source = self._record_source(meta)
+                existing_shared = bool(meta.get("shared_read_only", False))
 
+            resolved_shared = (shared_read_only if shared_read_only is not None
+                               else existing_shared)
+            self.policy.require(PolicyRequest(
+                MemoryOperation.WRITE, owner, resolved_shared))
             if expected_version is not None and int(expected_version) != existing_version:
                 raise VersionMismatchError(
                     f"expected version {expected_version}, on-disk {existing_version}")
 
             if source and source not in sources:
                 sources.append(source)
+            record_source = source or existing_source
 
             # Evidence-gated writes (opt-in via `evidence_required: true` in config):
             # a new note with no prior sources and none provided is refused.
@@ -247,48 +345,162 @@ class VaultMemory:
             resolved_tags = tags if tags is not None else existing_tags
             resolved_confidence = (confidence if confidence is not None
                                    else existing_confidence)
-            expires_at = existing_expires_at
+            resolved_expired_at = expired_at or existing_expires_at
             if ttl_days is not None:
-                expires_at = None
+                resolved_expired_at = None
                 if int(ttl_days) > 0:
                     from datetime import timedelta
-                    expires_at = (date.today()
-                                  + timedelta(days=int(ttl_days))).isoformat()
+                    resolved_expired_at = (date.today()
+                                           + timedelta(days=int(ttl_days))).isoformat()
 
             fm = _compose_frontmatter(
                 title=title, note_type=resolved_type, created=created,
                 updated=_now_iso()[:10], confidence=resolved_confidence,
-                sources=sources, tags=resolved_tags, expires_at=expires_at,
-                polarity=pol, version=existing_version + 1)
+                sources=sources, tags=resolved_tags,
+                expires_at=resolved_expired_at,
+                polarity=pol, version=existing_version + 1,
+                valid_at=valid_at or existing_valid_at,
+                invalid_at=invalid_at or existing_invalid_at,
+                supersedes=(supersedes if supersedes is not None
+                            else existing_supersedes),
+                record_source=record_source,
+                trust=self.policy.trust_for(record_source).value,
+                shared_read_only=resolved_shared)
             _atomic_write(p, fm + body + "\n")
-            self.dex.note_written(p)
-            self.dex.record_access(_slug(title))   # writing = using
+            owner_dex = self._dex_for(owner)
+            owner_dex.note_written(p)
+            owner_dex.record_access(_slug(title))   # writing = using
             return p
 
-    def search(self, query: str, limit: int = 8) -> list[dict[str, Any]]:
-        """Index-backed search (BM25 × dynamics × zone priority). Reads only
-        the top ``limit`` note files for snippets — never the whole vault."""
-        # tokenize() (not whitespace split) so the snippet finder sees the
-        # SAME tokens BM25 matched on — for Korean that means Hangul bigrams,
-        # which DO occur literally in the body ("안녕" in "안녕하십니까"),
-        # while the whole query word often does not.
+    def search(self, query: str, limit: int = 8, *,
+               since: str | None = None, until: str | None = None,
+               as_of: str | None = None,
+               now: datetime | None = None,
+               min_trust: str | TrustLevel | None = None) -> list[MemorySearchResult]:
+        """Search with lexical defaults and explicitly enabled local signals.
+
+        BM25/Hangul ranking is unchanged when all optional signals are off.
+        Every result exposes normalized per-signal scores, signal sources, and
+        backend names so callers never have to infer why a note was returned.
+        """
+        from .memory_semantic import (cosine_scores, embedding_backend,
+                                      entity_scores, overlaps, parse_day,
+                                      validity_score)
+
         terms = tokenize(query)
-        out: list[dict[str, Any]] = []
-        for h in self.dex.search(query, limit=limit):
-            body = h["summary"]
+        if not terms:
+            return []
+        minimum = parse_trust(min_trust or TrustLevel.UNTRUSTED)
+        effective_day = (parse_day(as_of) or
+                         (now or datetime.now(timezone.utc)).date())
+        temporal = bool(self.cfg.get("memory_temporal_enabled"))
+        readable = self.policy.readable_scopes()
+        entries: dict[str, dict[str, Any]] = {}
+        owners: dict[str, MemoryScope] = {}
+        for owner in readable:
+            for item, entry in self._dex_for(owner).entries().items():
+                if item not in entries:  # precedence order resolves duplicates
+                    entries[item] = entry
+                    owners[item] = owner
+        entries = {
+            item: entry for item, entry in entries.items()
+            if self.policy.meets_trust(self._record_source(entry), minimum)
+        }
+        owners = {item: owner for item, owner in owners.items() if item in entries}
+        lexical_raw: dict[str, float] = {}
+        for owner in readable:
+            lexical_hits = self._dex_for(owner).search(
+                query, limit=max(limit, 32), now=now,
+                valid_on=(effective_day if temporal or as_of else None))
+            for hit in lexical_hits:
+                item = str(hit["slug"])
+                if owners.get(item) is owner:
+                    lexical_raw[item] = float(hit["score"])
+        lexical_max = max(lexical_raw.values(), default=0.0) or 1.0
+        lexical = {item: value / lexical_max for item, value in lexical_raw.items()}
+
+        vector: dict[str, float] = {}
+        vector_backend = None
+        if self.cfg.get("memory_vector_enabled"):
+            vector_backend = self._embedding_backend
+            if vector_backend is None:
+                vector_backend = embedding_backend(
+                    str(self.cfg.get("memory_vector_backend")
+                        or "sentence-transformers"),
+                    str(self.cfg.get("memory_vector_model")
+                        or "all-MiniLM-L6-v2"))
+                self._embedding_backend = vector_backend
+            vector = cosine_scores(query, entries, vector_backend)
+
+        entity: dict[str, float] = {}
+        if self.cfg.get("memory_entity_enabled"):
+            entity = entity_scores(query, entries)
+
+        since_day, until_day = parse_day(since), parse_day(until)
+        candidates = set(lexical) | {item for item, value in vector.items() if value} \
+            | {item for item, value in entity.items() if value}
+        ranked: list[tuple[float, str, SignalScores]] = []
+        for item in candidates:
+            entry = entries.get(item)
+            if entry is None or not overlaps(entry, since_day, until_day):
+                continue
+            time_score = validity_score(item, entry, entries, effective_day) \
+                if temporal or as_of or since or until else 1.0
+            if time_score <= 0:
+                continue
+            scores: SignalScores = {
+                "lexical": round(lexical.get(item, 0.0), 6),
+                "vector": round(vector.get(item, 0.0), 6),
+                "entity": round(entity.get(item, 0.0), 6),
+                "time": round(time_score, 6),
+            }
+            # Optional weights are additive; validity is a gate/multiplier so
+            # a superseded fact cannot outrank its current replacement.
+            score = scores["lexical"]
+            if self.cfg.get("memory_vector_enabled"):
+                score += 0.35 * scores["vector"]
+            if self.cfg.get("memory_entity_enabled"):
+                score += 0.15 * scores["entity"]
+            score *= time_score
+            ranked.append((score, item, scores))
+        ranked.sort(key=lambda row: (row[0], entries[row[1]].get("updated", "")),
+                    reverse=True)
+
+        out: list[MemorySearchResult] = []
+        for score, item, scores in ranked[:limit]:
+            entry = entries[item]
+            body = entry["summary"]
             try:
                 _, parsed = frontmatter.parse(
-                    (self.vault / h["rel"]).read_text(encoding="utf-8",
-                                                      errors="replace"))
+                    (scope_root(self.vault, owners[item]) / entry["rel"]).read_text(
+                        encoding="utf-8", errors="replace"))
                 body = parsed or body
             except OSError:
                 pass
-            # related capped at 3 — the §5.5 top-k link policy: beyond a
-            # note's closest neighbors, extra links are injection dead weight.
-            out.append({"title": h["slug"],
+            sources = [name for name in ("lexical", "vector", "entity")
+                       if scores[name] > 0]
+            backends = {"lexical": "mnemosyne-bm25"}
+            if scores["vector"] > 0 and vector_backend is not None:
+                backends["vector"] = str(vector_backend.name)
+            if scores["entity"] > 0:
+                backends["entity"] = "wikilink-entity-graph"
+            if temporal or as_of or since or until:
+                sources.append("time")
+                backends["time"] = "validity-v1"
+            out.append({"title": item,
                         "snippet": _snippet(body, terms),
-                        "zone": h["zone"] or "inbox",
-                        "related": [_slug(t) for t in h["links"][:3]]})
+                        "zone": entry["zone"] or "inbox",
+                        "related": [_slug(t) for t in entry["links"][:3]],
+                        "score": round(score, 6),
+                        "signal_scores": scores,
+                        "source": sources,
+                        "backend": backends,
+                        "scope": owners[item].value,
+                        "record_source": self._record_source(entry),
+                        "trust": self.policy.trust_for(
+                            self._record_source(entry)).value,
+                        "shared_read_only": bool(
+                            entry.get("shared_read_only", False))})
         return out
 
     def near_duplicates(self, title: str, body: str,
@@ -328,9 +540,10 @@ class VaultMemory:
 
     def add_link(self, from_title: str, to_title: str) -> bool:
         with _note_lock(_slug(from_title)):
-            text = self.get_note(from_title)
-            if text is None:
+            record = self.get_note_record(from_title)
+            if record is None:
                 return False
+            text = str(record["content"])
             if f"[[{to_title}]]" in text:
                 return True
             meta, body = frontmatter.parse(text)
@@ -340,7 +553,8 @@ class VaultMemory:
             else:
                 body += f"\n\n## Related\n[[{to_title}]]"
             # rewrite preserving frontmatter
-            self.write_note(meta.get("title", from_title), body)
+            self.write_note(meta.get("title", from_title), body,
+                            scope=str(record["scope"]))
             return True
 
     # -- palace maintenance --------------------------------------------------
@@ -445,9 +659,19 @@ class VaultMemory:
                     zone=inp.get("zone"),
                     expected_version=(int(inp["expected_version"])
                                       if inp.get("expected_version") is not None
-                                      else None))
+                                      else None),
+                    valid_at=inp.get("valid_at"),
+                    invalid_at=inp.get("invalid_at"),
+                    expired_at=inp.get("expired_at"),
+                    supersedes=inp.get("supersedes"),
+                    scope=inp.get("scope"),
+                    shared_read_only=(bool(inp["shared_read_only"])
+                                      if "shared_read_only" in inp else None))
             except VersionMismatchError as exc:
                 return ToolResult(f"write rejected (stale version): {exc}",
+                                  is_error=True)
+            except MemoryPolicyError as exc:
+                return ToolResult(f"write rejected ({type(exc).__name__}): {exc}",
                                   is_error=True)
             msg = f"Wrote note [[{title}]] -> {p}"
             # Write-time near-duplicate advisory (TDAI-adopted, mechanical,
@@ -468,11 +692,26 @@ class VaultMemory:
 
         def memory_search(inp: dict[str, Any], ctx: ToolContext) -> ToolResult:
             results = self.search(inp.get("query", ""),
-                                  limit=int(inp.get("limit", 8)))
+                                  limit=int(inp.get("limit", 8)),
+                                  since=inp.get("since"), until=inp.get("until"),
+                                  as_of=inp.get("as_of"),
+                                  min_trust=inp.get("min_trust"))
             if not results:
                 return ToolResult("No matching notes.")
-            return ToolResult("\n".join(
-                f"- [[{r['title']}]]: {r['snippet']}" for r in results))
+            lines = []
+            for result in results:
+                scores = result["signal_scores"]
+                score_text = " ".join(
+                    f"{name}={scores[name]:.3f}"
+                    for name in ("lexical", "vector", "entity", "time"))
+                backend_text = ",".join(
+                    f"{name}:{backend}"
+                    for name, backend in result["backend"].items())
+                lines.append(f"- [[{result['title']}]]: {result['snippet']} "
+                             f"[scope={result['scope']}; trust={result['trust']}; "
+                             f"record_source={result['record_source']}; "
+                             f"{score_text}; backend={backend_text}]")
+            return ToolResult("\n".join(lines))
 
         def memory_get_note(inp: dict[str, Any], ctx: ToolContext) -> ToolResult:
             text = self.get_note(inp.get("title", ""))
@@ -481,7 +720,11 @@ class VaultMemory:
                                     is_error=True))
 
         def memory_link(inp: dict[str, Any], ctx: ToolContext) -> ToolResult:
-            ok = self.add_link(inp.get("from", ""), inp.get("to", ""))
+            try:
+                ok = self.add_link(inp.get("from", ""), inp.get("to", ""))
+            except MemoryPolicyError as exc:
+                return ToolResult(f"link rejected ({type(exc).__name__}): {exc}",
+                                  is_error=True)
             return (ToolResult("Linked.") if ok
                     else ToolResult("Source note not found.", is_error=True))
 
@@ -544,7 +787,15 @@ class VaultMemory:
                                              "(e.g. projects, people; "
                                              "'inbox' = vault root)"},
                      "expected_version": {"type": "integer",
-                                          "description": "optimistic-lock check"}},
+                                          "description": "optimistic-lock check"},
+                     "valid_at": {"type": "string", "format": "date"},
+                     "invalid_at": {"type": "string", "format": "date"},
+                     "expired_at": {"type": "string", "format": "date"},
+                     "supersedes": {"type": "array",
+                                    "items": {"type": "string"}},
+                     "scope": {"type": "string",
+                               "enum": [s.value for s in MemoryScope]},
+                     "shared_read_only": {"type": "boolean"}},
                      "required": ["title", "body"]},
                  fn=memory_write_note),
             Tool(name="memory_search",
@@ -552,7 +803,13 @@ class VaultMemory:
                              "back matching notes with snippets.",
                  input_schema={"type": "object", "properties": {
                      "query": {"type": "string"},
-                     "limit": {"type": "integer"}}, "required": ["query"]},
+                     "limit": {"type": "integer"},
+                     "since": {"type": "string", "format": "date"},
+                     "until": {"type": "string", "format": "date"},
+                     "as_of": {"type": "string", "format": "date"},
+                     "min_trust": {"type": "string",
+                                   "enum": [level.value for level in TrustLevel]}},
+                     "required": ["query"]},
                  fn=memory_search),
             Tool(name="memory_get_note",
                  description="Read a memory note in full by title.",
@@ -593,10 +850,24 @@ def _compose_frontmatter(*, title: str, note_type: str, created: str,
                          sources: list[str], tags: list[str],
                          expires_at: str | None = None,
                          polarity: str = "positive",
-                         version: int = 1) -> str:
+                         version: int = 1,
+                         valid_at: str | None = None,
+                         invalid_at: str | None = None,
+                         supersedes: list[str] | None = None,
+                         record_source: str = "legacy",
+                         trust: str = "medium",
+                         shared_read_only: bool = False) -> str:
     src = ", ".join(f'"{s}"' for s in sources)
     tg = ", ".join(str(t) for t in tags)
     ttl_line = f"expires_at: {expires_at}\n" if expires_at else ""
+    temporal_lines = ""
+    if valid_at:
+        temporal_lines += f"valid_at: {valid_at}\n"
+    if invalid_at:
+        temporal_lines += f"invalid_at: {invalid_at}\n"
+    if supersedes:
+        temporal_lines += "supersedes: [" + ", ".join(
+            f'"{value}"' for value in supersedes) + "]\n"
     return (
         "---\n"
         f"title: {title}\n"
@@ -607,8 +878,12 @@ def _compose_frontmatter(*, title: str, note_type: str, created: str,
         f"polarity: {polarity}\n"
         f"version: {int(version)}\n"
         f"sources: [{src}]\n"
+        f"record_source: {record_source}\n"
+        f"trust: {trust}\n"
+        f"shared_read_only: {'true' if shared_read_only else 'false'}\n"
         f"tags: [{tg}]\n"
         + ttl_line
+        + temporal_lines
         + "---\n\n"
     )
 

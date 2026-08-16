@@ -166,6 +166,9 @@ def build_registry(
         "browser": browser.tools(),
         "egress": egress.tools(),
     }
+    from ..plugin_runtime import load_agent_tools, registry_roots
+    plugin_project, plugin_team = registry_roots(ctx.cwd)
+    groups["plugins"] = load_agent_tools(plugin_project, plugin_team)
     if ctx.cfg.get("desktop_tools") is True:
         groups["desktop"] = desktop.tools()
     if ctx.skills is not None:

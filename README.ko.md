@@ -34,6 +34,28 @@
 
 Birkin 핵심 런타임에는 **필수 서드파티 파이썬 의존성이 없습니다**. 선택적 extra가 voice, desktop vision, office 파일 지원을 추가합니다. 현재 저장소에는 **56개 스킬**이 번들되며, 기본 테스트는 모두 오프라인 실행을 목표로 합니다.
 
+## 메모리
+
+Hangul/jamo 인식 tokenization을 사용하는 BM25가 추가 package 없는 기본 retrieval engine입니다. 모든 결과는 정규화된 `lexical`, `vector`, `entity`, `time` score와 결과를 만든 signal, 각 backend 이름을 공개합니다. Vector embedding, 1-hop entity traversal, temporal reranking은 서로 독립적인 opt-in입니다.
+
+```bash
+python -m pip install -e ".[memory-semantic]"  # 로컬 sentence-transformers 전용
+```
+
+```json
+{
+  "memory_vector_enabled": true,
+  "memory_entity_enabled": true,
+  "memory_temporal_enabled": true
+}
+```
+
+Markdown가 계속 source of truth입니다. Entity graph는 title, tag, `[[wikilink]]`에서 다시 만들 수 있으며 lexical search에 graph sidecar가 필요하지 않습니다. Temporal fact는 `valid_at`(사실이 된 시점), `invalid_at`(더 이상 사실이 아닌 시점), `expired_at`(잘못임을 알게 된 시점)을 분리하고 선택적으로 `supersedes` link를 둡니다. Search는 `as_of`, `since`, `until` date filter를 받습니다.
+
+메모리 소유 범위는 `user`, `organization`, `project`, `agent`, `workflow`입니다. User 메모리는 기존 vault layout을 그대로 사용하고, 나머지 root는 `.birkin-scopes/<scope>`에 있으며 내부에서는 같은 zone layout을 유지합니다. 같은 key는 가장 구체적인 순서인 **workflow > agent > project > organization > user**로 resolve됩니다. `memory_visible_scopes`는 읽을 수 없는 root를 fail closed로 차단하고, `memory_source_trust`, `memory_default_trust`, query의 `min_trust`가 source filtering을 제어합니다. Search hit는 `scope`, `record_source`, `trust`를 공개합니다. Owner가 note를 `shared_read_only`로 표시하면 볼 수 있는 agent는 owner label과 함께 읽을 수 있지만 non-owner write는 typed policy error로 거부됩니다.
+
+Commit된 14-question LongMemEval fixture는 retrieval과 final-answer stage를 분리해 보고합니다. 네 configuration 모두 retrieval recall `1.000`, answer accuracy `0.857`(query당 context token 11.9-12.4)이었으므로 retrieval 뒤 context assembly gap이 숨지 않습니다. Category·cost table과 public dataset 정확한 실행 명령은 [benchmark 결과](./benchmarks/RESULTS.md)에 있습니다. 이 값은 fixture 결과이며 public leaderboard 결과가 아닙니다.
+
 ## 빠른 시작
 
 Python 3.10 이상이 필요합니다. 기본 provider는 로컬 인증된 Codex CLI이며, setup에서 Claude CLI나 API provider를 고를 수 있습니다.
@@ -56,6 +78,7 @@ birkin web --no-browser # 127.0.0.1:8787 dashboard/control API
 선택 기능은 명시적으로 설치합니다.
 
 ```bash
+python -m pip install -e ".[memory-semantic]"
 python -m pip install -e ".[voice]"
 python -m pip install -e ".[desktop]"
 python -m pip install -e ".[office]"
@@ -244,6 +267,23 @@ tests/              offline unit, integration, end-to-end coverage
 
 </details>
 
+## Approval console
+
+`birkin web`은 background agent run과 위험 action을 위한 responsive control
+surface를 엽니다. 실시간 run 상태(`running`, `blocked`, `waiting-approval`,
+`done`), progress와 result, 관련 shell/cron proposal, action diff와 execution
+receipt를 표시합니다. 상세 card에서 run을 steer, abort, resume할 수 있으며
+approval과 rejection은 `birkin review`와 동일한 file-backed authority를
+계속 사용합니다.
+
+Server는 기본적으로 loopback에서만 동작합니다. Remote access가 의도된
+경우에만 `web_remote_access`를 `true`로 설정하십시오. 이 설정은 모든
+interface에 bind하지만 public route를 만들지는 않습니다. Remote device에서
+`birkin web`이 출력한 secret bootstrap URL을 여십시오. 이 URL은 process별
+capability를 HttpOnly, SameSite cookie로 교환하며, capability가 없는 모든
+remote request는 거부됩니다. Traffic이 host 밖으로 나가면 TLS 또는 신뢰할
+수 있는 private-network tunnel을 앞에 두십시오.
+
 ## Checkpoint
 
 WebUI workbench는 Birkin의 외부 shadow-git snapshot을 tool 단위 timeline으로
@@ -289,6 +329,7 @@ checkpoint에서 일회용 policy-controlled sandbox worktree를 만들고 linea
 | `birkin tools` | 네이티브 tool 목록·활성화·비활성화. |
 | `birkin model` / `birkin models` | Model 확인 또는 선택. |
 | `birkin skills` | Skill 목록·조회·sync·validate·관리. |
+| `birkin plugins` | 권한 확인, 정확한 signed bundle version 설치, pin resolution. |
 | `birkin daemon` | Morpheus + cron scheduler 실행 또는 설치. |
 | `birkin morpheus [--dry-run]` | 예약 자기개선 routine 즉시 실행. |
 | `birkin harness` | 개선 ledger 조회·refine·export·rollback. |
@@ -335,6 +376,47 @@ live registration은 거부합니다. 과거 JSONL session은 live target으로 
 private registration을 게시합니다. Birkin은 token에 묶인 response, session ID,
 request ID, protocol version을 모두 검증합니다. Transport 실패는 자동 retry하지
 않고 그대로 보고하므로 요청별 at-most-once delivery를 유지합니다.
+## Plugin registry
+
+Bundle은 `birkin-plugin.json`, entry-point file, detached `bundle.sig`를 담은
+directory입니다. 엄격한 manifest는 정확한 semantic version 하나,
+`skill`, `agent`, `hook`, `mcp_server` kind 하나 이상, 그리고
+`SandboxPolicy`와 동일한 `network`, `network_allowlist`, `env_allowlist`,
+`write_paths` vocabulary로 필요한 권한을 선언합니다.
+
+```jsonc
+{
+  "name": "acme-review",
+  "version": "1.2.3",
+  "kinds": ["skill", "agent"],
+  "entry_points": {
+    "skill": ["skills/review"],
+    "agent": ["agent.py:tools"]
+  },
+  "required_permissions": {
+    "network": "off",
+    "network_allowlist": [],
+    "env_allowlist": ["ACME_TOKEN"],
+    "write_paths": ["reports"]
+  }
+}
+```
+
+설치 전에 `birkin plugins inspect BUNDLE [--json]`으로 정확한 권한 record를
+확인합니다. `birkin plugins install BUNDLE --version 1.2.3`은 항상 이 내용을
+먼저 표시하며, 네 권한 field가 모두 read-only/empty가 아니면 대화형 확인
+(또는 명시적 `--yes`)이 필요합니다. Signed bundle은
+`--key KEY_ID=HEX`로 trusted shared key도 제공해야 합니다. Signature가 없거나,
+신뢰되지 않거나, 일치하지 않으면 fail-closed합니다. Publisher가
+`"unsigned_allowed": true`를 명시한 경우에만 signature 부재를 허용합니다.
+
+Project pin은 `.birkin/registry/registry.lock`, team pin은
+`~/.birkin/registry/team/registry.lock`에 저장됩니다. Resolution은 결정적입니다.
+같은 bundle name의 project pin은 version이 달라도 team pin을 shadow합니다.
+정확한 version 요청이 project pin과 다르면 team scope로 fallback하지 않고
+conflict가 됩니다. 기존 pin은 `--upgrade`로만 변경됩니다. Skill entry point는
+기존 `SkillManager`에, agent entry point가 반환한 `Tool`은 기존 native tool
+registry에 연결됩니다.
 
 ## 설정
 
@@ -394,6 +476,7 @@ request ID, protocol version을 모두 검증합니다. Transport 실패는 자�
   "skill_nudge_interval": 3,
   "memory_nudge_interval": 6,
   "web_port": 8787,
+  "web_remote_access": false,
   "gateway_port": 8788,
   "gateway_model": "",
   "gateway_reasoning_effort": "",
@@ -444,6 +527,21 @@ request ID, protocol version을 모두 검증합니다. Transport 실패는 자�
     }
   },
   "vault_path": "",
+  "memory_vector_enabled": false,
+  "memory_vector_backend": "sentence-transformers",
+  "memory_vector_model": "all-MiniLM-L6-v2",
+  "memory_entity_enabled": false,
+  "memory_temporal_enabled": false,
+  "memory_scope": "user",
+  "memory_visible_scopes": [
+    "workflow",
+    "agent",
+    "project",
+    "organization",
+    "user"
+  ],
+  "memory_default_trust": "medium",
+  "memory_source_trust": {},
   "morpheus_deliver_chat_id": "",
   "workspace_roots": [],
   "reaper_enabled": true,
