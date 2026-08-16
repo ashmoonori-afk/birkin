@@ -34,6 +34,28 @@ Agent runtimes are easy to demo and hard to trust. Birkin keeps the model useful
 
 Birkin's core runtime has **no mandatory third-party Python dependencies**. Optional extras add voice, desktop vision, and office-file support. The repository currently bundles **56 skills**; all default tests are designed to run offline.
 
+## Memory
+
+BM25 with Hangul/jamo-aware tokenization remains the default retrieval engine and requires no extra package. Every result discloses normalized `lexical`, `vector`, `entity`, and `time` scores, the signals that sourced it, and each backend name. Vector embeddings, one-hop entity traversal, and temporal reranking are independent opt-ins:
+
+```bash
+python -m pip install -e ".[memory-semantic]"  # local sentence-transformers only
+```
+
+```json
+{
+  "memory_vector_enabled": true,
+  "memory_entity_enabled": true,
+  "memory_temporal_enabled": true
+}
+```
+
+Markdown remains the source of truth. The entity graph is rebuilt from titles, tags, and `[[wikilinks]]`; no graph sidecar is required for lexical search. Temporal facts keep separate `valid_at` (became true), `invalid_at` (stopped being true), and `expired_at` (learned to be wrong) fields, plus optional `supersedes` links. Search accepts `as_of`, `since`, and `until` date filters.
+
+Memory can be owned by `user`, `organization`, `project`, `agent`, or `workflow`. User memory keeps the existing vault layout; the other roots live at `.birkin-scopes/<scope>` and retain the same zone layout inside them. Duplicate keys resolve from most specific to least specific: **workflow > agent > project > organization > user**. `memory_visible_scopes` fails closed for unreadable roots, while `memory_source_trust`, `memory_default_trust`, and the query's `min_trust` control source filtering. Search hits disclose `scope`, `record_source`, and `trust`. Owners may mark a note `shared_read_only`; visible agents can read the labeled block, but a non-owner write raises a typed policy error.
+
+The committed 14-question LongMemEval fixture reports retrieval and final-answer stages separately. All four configurations reached `1.000` retrieval recall but `0.857` answer accuracy (11.9-12.4 context tokens/query), exposing the context-assembly gap rather than hiding it behind retrieval. See [the category and cost tables](./benchmarks/RESULTS.md) and the exact public-dataset command there. These are fixture results, not public leaderboard numbers.
+
 ## Quick Start
 
 Python 3.10 or newer is required. The default provider is the locally authenticated Codex CLI; setup can select Claude CLI or API-backed providers instead.
@@ -56,6 +78,7 @@ birkin web --no-browser # dashboard/control API on 127.0.0.1:8787
 Optional features are explicit:
 
 ```bash
+python -m pip install -e ".[memory-semantic]"
 python -m pip install -e ".[voice]"
 python -m pip install -e ".[desktop]"
 python -m pip install -e ".[office]"
@@ -244,6 +267,23 @@ State is file-backed under `BIRKIN_HOME` (normally `~/.birkin`). The dashboard u
 
 </details>
 
+## Approval console
+
+`birkin web` opens a responsive control surface for background agent runs and
+risky actions. It shows live run states (`running`, `blocked`,
+`waiting-approval`, and `done`), progress and results, related shell/cron
+proposals, action diffs, and execution receipts. A run can be steered, aborted,
+or resumed from its detail card; approval and rejection continue to use the
+same file-backed authority as `birkin review`.
+
+The server remains loopback-only by default. Set `web_remote_access` to `true`
+only when remote access is intentional; this binds on all interfaces but does
+**not** create a public route. Open the secret bootstrap URL printed by
+`birkin web` on the remote device. It exchanges the per-process capability for
+an HttpOnly, SameSite cookie, and every remote request without that capability
+is rejected. Put TLS or a trusted private-network tunnel in front when traffic
+leaves the host.
+
 ## Checkpoints
 
 The WebUI workbench turns Birkin's external shadow-git snapshots into a tool-level
@@ -401,6 +441,7 @@ points return `Tool` objects consumed by the existing native tool registry.
   "skill_nudge_interval": 3,
   "memory_nudge_interval": 6,
   "web_port": 8787,
+  "web_remote_access": false,
   "gateway_port": 8788,
   "gateway_model": "",
   "gateway_reasoning_effort": "",
@@ -451,6 +492,21 @@ points return `Tool` objects consumed by the existing native tool registry.
     }
   },
   "vault_path": "",
+  "memory_vector_enabled": false,
+  "memory_vector_backend": "sentence-transformers",
+  "memory_vector_model": "all-MiniLM-L6-v2",
+  "memory_entity_enabled": false,
+  "memory_temporal_enabled": false,
+  "memory_scope": "user",
+  "memory_visible_scopes": [
+    "workflow",
+    "agent",
+    "project",
+    "organization",
+    "user"
+  ],
+  "memory_default_trust": "medium",
+  "memory_source_trust": {},
   "morpheus_deliver_chat_id": "",
   "workspace_roots": [],
   "reaper_enabled": true,
