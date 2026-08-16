@@ -201,7 +201,7 @@ def run(output_dir: Path) -> dict[str, object]:
         visual_error = cast(dict[str, object], visual["error"])
         expected_refusals.append({"format": fmt, "operation": "visual_render", **visual_error})
         budget = {category: 100 for category in LOSS_CATEGORIES}
-        converted = cast(dict[str, str], call("convert_document", {"source": source, "target_format": "txt", "output_name": f"complex-{fmt}.txt", "loss_budget": budget})["draft_artifact"]) 
+        converted = cast(dict[str, str], call("convert_document", {"source": source, "target_format": "txt", "output_name": f"complex-{fmt}.txt", "loss_budget": budget})["draft_artifact"])
         primary = source
         mutation: dict[str, object]
         if fmt == "pdf":

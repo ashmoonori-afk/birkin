@@ -145,5 +145,3 @@ def splice_fragmented_text(
         payload = replacement if index == 0 else b""
         changed = changed[: token.start] + payload + changed[token.end :]
     return xml[:start] + changed + xml[end:], current
-
-

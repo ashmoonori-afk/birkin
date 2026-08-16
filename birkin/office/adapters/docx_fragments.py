@@ -246,5 +246,3 @@ def _simple_and_controls(part: str, xml: bytes, result: Inventory) -> None:
                     "start_offset": start, "end_offset": end},
             }
             (result["content_controls"] if kind == "content_control" else result["fields"]).append(record)
-
-

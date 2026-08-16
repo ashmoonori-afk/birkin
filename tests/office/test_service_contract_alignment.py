@@ -226,5 +226,3 @@ def test_truncated_semantic_prefix_never_claims_equality(
     assert result["semantic_equal"] is None
     semantic = cast("dict[str, object]", result["semantic"])
     assert semantic["status"] == "inconclusive"
-
-
