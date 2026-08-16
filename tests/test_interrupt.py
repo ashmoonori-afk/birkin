@@ -78,13 +78,21 @@ def test_gateway_interrupt_cancels_inflight_turn(tmp_path, monkeypatch):
     gw = _gateway(tmp_path, monkeypatch)
     sess = _SlowSession()
     gw._claude_sessions.put(("telegram", "42"), sess)
-    result = {}
-    t = threading.Thread(
-        target=lambda: result.__setitem__("r", gw.handle("telegram", "42", "hi")))
+    result: dict[str, str] = {}
+    finished = threading.Event()
+
+    def run_turn() -> None:
+        try:
+            result["r"] = gw.handle("telegram", "42", "hi")
+        finally:
+            finished.set()
+
+    t = threading.Thread(target=run_turn)
     t.start()
     assert sess.started.wait(timeout=2)
     assert gw.interrupt("telegram", "42") is True
-    t.join(timeout=3)
+    assert finished.wait(timeout=10)
+    t.join()
     assert sess.interrupt_calls == 1
     assert result["r"] == "[interrupted]"
     assert ("telegram", "42") not in gw._inflight   # cleared after the turn
