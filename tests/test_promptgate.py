@@ -5,7 +5,7 @@ from __future__ import annotations
 from pathlib import Path
 
 import birkin
-from birkin import promptgate
+from birkin import goals, harness, promptgate
 
 
 def test_compose_main_includes_persona_and_neurosis_note():
@@ -25,7 +25,6 @@ def test_compose_cli_appends_extra_before_note():
 
 
 def test_active_goal_reaches_every_composed_prompt():
-    from birkin import goals
     goals.set_goal("Ship the release blockers", gate="python -m pytest")
 
     for out in (promptgate.compose_main({"neurosis_auto": False},
@@ -38,6 +37,63 @@ def test_active_goal_reaches_every_composed_prompt():
     goals.pause()
     assert "Ship the release blockers" not in promptgate.compose_main(
         {"neurosis_auto": False}, persona_text="")
+
+
+def test_global_goal_fallback_can_be_disabled_for_isolated_sessions():
+    goals.set_goal("Private local goal")
+
+    local = promptgate.compose_main(
+        {"neurosis_auto": False, "session_id": "local-session"},
+        persona_text="",
+    )
+    isolated = promptgate.compose_main(
+        {
+            "neurosis_auto": False,
+            "session_id": "gateway-session",
+            "session_goal_fallback": False,
+        },
+        persona_text="",
+    )
+
+    assert "Private local goal" in local
+    assert "Private local goal" not in isolated
+
+
+def test_session_working_state_reaches_only_matching_prompts():
+    goals.set_goal("First session goal", session_id="session-one")
+    harness.update_working(
+        "session-one",
+        corrections=["Honor the latest correction"],
+        next_actions=["Run the matching scenario"],
+    )
+
+    matching = promptgate.compose_main(
+        {"neurosis_auto": False, "session_id": "session-one"},
+        persona_text="",
+    )
+    other = promptgate.compose_main(
+        {"neurosis_auto": False, "session_id": "session-two"},
+        persona_text="",
+    )
+
+    assert "First session goal" in matching
+    assert "Honor the latest correction" in matching
+    assert "Run the matching scenario" in matching
+    assert "First session goal" not in other
+    assert "Honor the latest correction" not in other
+
+
+def test_turn_context_refreshes_warm_session_working_state():
+    cfg = {"session_id": "warm-session"}
+    first = promptgate.compose_turn_context(cfg)
+    harness.update_working(
+        "warm-session",
+        decisions=["Use the canonical harness journal"],
+    )
+    second = promptgate.compose_turn_context(cfg)
+
+    assert "canonical harness journal" not in first
+    assert "canonical harness journal" in second
 
 
 def test_neurosis_note_off_when_disabled():

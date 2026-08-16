@@ -88,6 +88,7 @@ def test_gateway_persistent_codex_timeout_runs_moirai_recovery(monkeypatch):
     monkeypatch.setattr(gw_core, "build_session", lambda cfg: fake)
     gateway = gw_core.Gateway({})
     gateway._persistent = True
+    assert gateway.cfg["session_goal_fallback"] is False
 
     class TimedOutCodex:
         def ask(self, *_args, **_kwargs):
@@ -117,6 +118,64 @@ def test_gateway_persistent_codex_timeout_runs_moirai_recovery(monkeypatch):
                           "task": "continue the Kaggle work"}]
     assert progress["phase"] == "할 일 1/2: inspect"
     assert reply == "moirai: hard-task completed"
+
+
+def test_persistent_gateway_passes_stable_conversation_session_id(monkeypatch):
+    prepared: list[str] = []
+    fake = _fake_session()
+
+    def prepare(text, **kwargs):
+        prepared.append(kwargs["session_id"])
+        return text
+
+    fake._prepare_cli_turn = prepare
+    monkeypatch.setattr(gw_core, "build_session", lambda cfg: fake)
+    gateway = gw_core.Gateway({})
+    gateway._persistent = True
+
+    class WarmSession:
+        def ask(self, text, **_kwargs):
+            return f"warm:{text}"
+
+        def close(self):
+            return None
+
+    gateway._claude_sessions.put(("http", "user/one"), WarmSession())
+
+    assert gateway.handle("http", "user/one", "hello") == "warm:hello"
+    assert prepared == [
+        gw_core.conversation_session_id("http", "user/one")
+    ]
+    assert "/" not in prepared[0]
+    assert prepared[0] == gw_core.conversation_session_id(
+        "http", "user/one"
+    )
+    assert prepared[0] != gw_core.conversation_session_id(
+        "http", "user/two"
+    )
+
+
+def test_nonpersistent_gateway_passes_stable_conversation_session_id(
+        monkeypatch):
+    seen: list[str] = []
+    fake = _fake_session()
+
+    def ask(text, **kwargs):
+        seen.append(kwargs["session_id"])
+        return f"native:{text}"
+
+    fake.ask = ask
+    monkeypatch.setattr(gw_core, "build_session", lambda cfg: fake)
+    gateway = gw_core.Gateway({"gateway_persistent": False})
+
+    assert gateway.handle("http", "user/one", "one") == "native:one"
+    assert gateway.handle("http", "user/two", "two") == "native:two"
+    assert gateway.handle("http", "user/one", "again") == "native:again"
+    assert seen == [
+        gw_core.conversation_session_id("http", "user/one"),
+        gw_core.conversation_session_id("http", "user/two"),
+        gw_core.conversation_session_id("http", "user/one"),
+    ]
 
 
 def test_gateway_moirai_recovery_failure_reports_server_error(monkeypatch):
