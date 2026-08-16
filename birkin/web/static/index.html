@@ -334,11 +334,114 @@
   }
   .notice:empty { display: none; }
 
+  .browser-toggle {
+    padding: 7px 11px;
+    border: 1px solid var(--birkin-border-muted);
+    border-radius: 9px;
+    background: var(--birkin-surface);
+    color: var(--birkin-text);
+    cursor: pointer;
+  }
+  .browser-toggle:focus-visible,
+  .browser-url:focus-visible,
+  .browser-go:focus-visible {
+    outline-color: var(--birkin-focus-ring);
+  }
+  .browser-aside {
+    display: none;
+    min-width: 0;
+    min-height: 0;
+    overflow: hidden;
+    grid-template-rows: auto auto minmax(0, 1fr);
+    border-left: 1px solid var(--birkin-border-muted);
+    border-radius: var(--radius);
+    background: var(--birkin-surface);
+  }
+  .workspace.browser-open .layout {
+    grid-template-columns: minmax(0, 1fr) minmax(360px, 40vw);
+  }
+  .workspace.browser-open .context-panel { display: none; }
+  .workspace.browser-open .browser-aside { display: grid; }
+  .browser-toolbar {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    gap: 7px;
+    padding: 9px;
+    border-bottom: 1px solid var(--birkin-border-muted);
+    background: var(--birkin-surface-raised);
+  }
+  .browser-url {
+    min-width: 0;
+    width: 100%;
+    padding: 8px 10px;
+    border: 1px solid var(--birkin-border-muted);
+    border-radius: 8px;
+    background: var(--birkin-background);
+    color: var(--birkin-text);
+  }
+  .browser-go {
+    padding: 7px 12px;
+    border: 1px solid var(--birkin-accent);
+    border-radius: 8px;
+    background: var(--birkin-background);
+    color: var(--birkin-text);
+    cursor: pointer;
+  }
+  .browser-status {
+    min-height: 2rem;
+    margin: 0;
+    padding: 6px 10px;
+    color: var(--birkin-muted);
+    font-size: .82rem;
+    border-bottom: 1px solid var(--birkin-border-muted);
+  }
+  .browser-status[data-state="loading"] { color: var(--birkin-pending); }
+  .browser-status[data-state="ready"] { color: var(--birkin-success); }
+  .browser-status[data-state="warning"] { color: var(--birkin-warning); }
+  .browser-status[data-state="blocked"] { color: var(--birkin-blocked); }
+  .browser-status[data-state="error"] { color: var(--birkin-error); }
+  .browser-state-glyph {
+    display: inline-block;
+    width: 1.25em;
+    font-weight: 700;
+  }
+  .browser-status[data-state="error"] + .browser-viewport { display: none; }
+  .browser-viewport {
+    position: relative;
+    min-height: 0;
+    overflow: hidden;
+    padding: 8px;
+    background: var(--birkin-background);
+  }
+  .browser-canvas {
+    position: absolute;
+    inset: 8px;
+    display: block;
+    width: calc(100% - 16px);
+    height: calc(100% - 16px);
+    min-width: 0;
+    min-height: 0;
+    object-fit: contain;
+    border: 1px solid var(--birkin-border-muted);
+    background: var(--birkin-background);
+  }
+  .ledger { display: contents; }
+
   @media (max-width: 480px) {
     .approval-fields { grid-template-columns: 1fr; }
     .approval-actions, .detail-actions { display: grid; grid-template-columns: 1fr 1fr; }
     .approval-actions .steer-input,
     .detail-actions .steer-input { grid-column: 1 / -1; width: 100%; }
+  }
+  @media (max-width: 1023px) {
+    .workspace.browser-open .layout {
+      grid-template-columns: minmax(0, 1fr);
+      grid-template-rows: minmax(0, 1fr) minmax(300px, 44dvh);
+    }
+    .workspace.browser-open .browser-aside {
+      border-left: 0;
+      border-top: 1px solid var(--birkin-border-muted);
+    }
   }
   @media (max-width: 820px) {
     .icon-button,
@@ -379,7 +482,8 @@
 </style>
 </head>
 <body>
-<div class="workspace" data-testid="workspace-shell" data-panel-open="false">
+<div class="app">
+<div id="workspace-shell" class="workspace" data-testid="workspace-shell" data-panel-open="false">
   <header class="topbar">
     <div class="brand"><strong>Birkin</strong><span>unified agent workspace</span></div>
     <div class="topbar-spacer"></div>
@@ -391,11 +495,13 @@
     </select>
     <div id="workspace-connection" class="connection" data-testid="workspace-connection"
          data-state="connecting" aria-live="polite">연결 중</div>
+    <button class="browser-toggle" id="browser-aside-toggle" type="button"
+            aria-controls="browser-aside" aria-expanded="false">브라우저 열기</button>
     <button id="lens-toggle" class="icon-button" type="button"
             aria-label="컨텍스트 패널 열기" aria-controls="workspace-panel">⌘</button>
   </header>
 
-  <main class="layout">
+  <main id="lens" class="layout main">
     <section class="conversation" aria-label="대화">
       <div id="workspace-transcript" class="transcript" role="log"
            aria-live="polite" aria-relevant="additions text"
@@ -454,9 +560,30 @@
       </div>
       <div id="workspace-panel-body" class="panel-body" role="tabpanel"></div>
     </aside>
+
+    <aside class="browser-aside" id="browser-aside"
+           aria-label="네이티브 브라우저" aria-hidden="true">
+      <form class="browser-toolbar" id="browser-aside-form">
+        <input class="browser-url" id="browser-aside-url" type="url"
+               inputmode="url" autocomplete="off" spellcheck="false"
+               aria-label="브라우저 주소" placeholder="https://example.com" />
+        <button class="browser-go" type="submit">이동</button>
+      </form>
+      <p class="browser-status" id="browser-aside-status" role="status"
+         aria-live="polite" data-state="closed">
+        <span class="browser-state-glyph" aria-hidden="true">○</span>
+        <span class="browser-state-label">Chromium 대기</span>
+      </p>
+      <div class="browser-viewport">
+        <canvas class="browser-canvas" id="browser-aside-canvas"
+                width="1024" height="700" aria-label="브라우저 화면"
+                data-frame-ready="false"></canvas>
+      </div>
+    </aside>
   </main>
 
   <div id="queue-notice" class="notice" aria-live="polite"></div>
+</div>
 </div>
 
 <script>
@@ -477,6 +604,14 @@ const composer = byId("workspace-composer");
 const queueNoticeElement = byId("queue-notice");
 const themeSelect = byId("workspace-theme");
 const mobileBack = document.querySelector('[data-testid="workspace-mobile-back"]');
+let browserFrameTimer = null;
+const browserClientId = sessionStorage.getItem(
+  "birkin-browser-client"
+) || crypto.randomUUID();
+sessionStorage.setItem("birkin-browser-client", browserClientId);
+let browserControlSequence = Number(
+  sessionStorage.getItem("birkin-browser-control-sequence") || 0
+);
 
 const state = {
   sessionId: null,
@@ -543,6 +678,209 @@ updateComposerReserve();
 
 function announce(message) {
   queueNoticeElement.textContent = message;
+}
+
+async function browserJSON(url, method, payload) {
+  const options = {
+    method,
+    cache: "no-store",
+    credentials: "same-origin",
+    headers: {
+      "Content-Type": "application/json",
+      "X-Birkin-Browser-Client": browserClientId,
+    },
+  };
+  if (payload !== undefined) options.body = JSON.stringify(payload);
+  const response = await fetch(url, options);
+  const body = await response.json();
+  if (!response.ok) {
+    const error = new Error(body.error?.code || String(response.status));
+    error.status = response.status;
+    throw error;
+  }
+  return body;
+}
+
+function setBrowserStatus(text, statusState = "closed") {
+  const node = byId("browser-aside-status");
+  const glyphs = {
+    closed: "○",
+    loading: "◐",
+    ready: "✓",
+    warning: "!",
+    blocked: "⊘",
+    error: "×",
+  };
+  const glyph = document.createElement("span");
+  glyph.className = "browser-state-glyph";
+  glyph.setAttribute("aria-hidden", "true");
+  glyph.textContent = glyphs[statusState] || glyphs.closed;
+  const label = document.createElement("span");
+  label.className = "browser-state-label";
+  label.textContent = text;
+  node.replaceChildren(glyph, label);
+  node.dataset.state = statusState;
+  node.setAttribute(
+    "aria-live",
+    statusState === "error" ? "assertive" : "polite",
+  );
+}
+
+function browserStatusLabel(status) {
+  const engine = status.engine === "chromium" ? "Chromium" : "Browser";
+  const owners = {
+    human: "사람 제어",
+    agent: "에이전트 제어",
+    tool: "도구 제어",
+  };
+  const owner = owners[status.control_owner_kind] || "제어권 대기";
+  const readiness = status.frame_revision ? "준비" : "주소 대기";
+  return `${engine} · ${readiness} · ${owner}`;
+}
+
+function resetBrowserFrame() {
+  const canvas = byId("browser-aside-canvas");
+  canvas.getContext("2d").clearRect(0, 0, canvas.width, canvas.height);
+  canvas.dataset.frameReady = "false";
+  canvas.dataset.frameRevision = "0";
+  canvas.dataset.frameDigest = "";
+  canvas.dataset.frameRef = "";
+  canvas.dataset.browserGeneration = "";
+}
+
+async function refreshBrowserFrame(status) {
+  const canvas = byId("browser-aside-canvas");
+  const generation = String(status.browser_generation);
+  if (canvas.dataset.browserGeneration !== generation) {
+    resetBrowserFrame();
+    canvas.dataset.browserGeneration = generation;
+  }
+  if (!status.live || !status.frame_revision) return;
+  const query = new URLSearchParams({
+    generation,
+    after: canvas.dataset.frameRevision || "0",
+  });
+  const response = await fetch("/api/browser-aside/frame?" + query, {
+    cache: "no-store",
+    credentials: "same-origin",
+    headers: {"X-Birkin-Browser-Client": browserClientId},
+  });
+  if (response.status === 204) return;
+  if (!response.ok) throw new Error("frame_" + response.status);
+  const image = await createImageBitmap(await response.blob());
+  canvas.width = image.width;
+  canvas.height = image.height;
+  canvas.getContext("2d").drawImage(image, 0, 0);
+  image.close();
+  canvas.dataset.frameReady = "true";
+  canvas.dataset.frameRevision =
+    response.headers.get("X-Birkin-Frame-Revision") || "0";
+  canvas.dataset.frameDigest =
+    response.headers.get("X-Birkin-Frame-Digest") || "";
+  canvas.dataset.frameRef =
+    response.headers.get("X-Birkin-Frame-Ref") || "";
+  canvas.dataset.browserGeneration = generation;
+  dispatchEvent(new CustomEvent("browser-aside-frame", {
+    detail: {
+      generation: status.browser_generation,
+      revision: canvas.dataset.frameRevision,
+    },
+  }));
+}
+
+function stopBrowserFramePoll() {
+  if (browserFrameTimer !== null) {
+    clearTimeout(browserFrameTimer);
+    browserFrameTimer = null;
+  }
+}
+
+function scheduleBrowserFramePoll() {
+  stopBrowserFramePoll();
+  if (!shell.classList.contains("browser-open")) return;
+  browserFrameTimer = setTimeout(async () => {
+    try {
+      const status = await browserJSON(
+        "/api/browser-aside/status", "GET");
+      if (!status.live) {
+        setBrowserStatus("Chromium 연결 끊김", "warning");
+        return;
+      }
+      await refreshBrowserFrame(status);
+      setBrowserStatus(browserStatusLabel(status), "ready");
+    } catch (error) {
+      setBrowserStatus("화면 새로고침 필요", "warning");
+    } finally {
+      scheduleBrowserFramePoll();
+    }
+  }, 750);
+}
+
+async function openBrowserAside() {
+  const aside = byId("browser-aside");
+  const toggle = byId("browser-aside-toggle");
+  shell.classList.add("browser-open");
+  aside.setAttribute("aria-hidden", "false");
+  toggle.setAttribute("aria-expanded", "true");
+  toggle.textContent = "브라우저 접기";
+  setBrowserStatus("Chromium 시작 중", "loading");
+  try {
+    const status = await browserJSON(
+      "/api/browser-aside/session", "POST", {});
+    setBrowserStatus(browserStatusLabel(status), "ready");
+    await refreshBrowserFrame(status);
+    scheduleBrowserFramePoll();
+  } catch (error) {
+    setBrowserStatus(
+      error.status === 503
+        ? "Chromium 설치: uv sync --extra browser && uv run playwright install chromium"
+        : "브라우저를 시작하지 못했습니다",
+      "error",
+    );
+  }
+}
+
+function collapseBrowserAside() {
+  stopBrowserFramePoll();
+  resetBrowserFrame();
+  shell.classList.remove("browser-open");
+  byId("browser-aside").setAttribute("aria-hidden", "true");
+  byId("browser-aside-toggle").setAttribute("aria-expanded", "false");
+  byId("browser-aside-toggle").textContent = "브라우저 열기";
+}
+
+async function navigateBrowserAside() {
+  const url = byId("browser-aside-url").value.trim();
+  if (!url) return;
+  setBrowserStatus("페이지 이동 중", "loading");
+  try {
+    const current = await browserJSON(
+      "/api/browser-aside/session", "POST", {});
+    browserControlSequence += 1;
+    sessionStorage.setItem(
+      "birkin-browser-control-sequence",
+      String(browserControlSequence),
+    );
+    const status = await browserJSON(
+      "/api/browser-aside/navigate", "POST", {
+        url,
+        browser_generation: current.browser_generation,
+        browser_revision: current.browser_revision,
+        control_epoch: current.control_epoch,
+        control_sequence: browserControlSequence,
+      });
+    setBrowserStatus(browserStatusLabel(status), "ready");
+    await refreshBrowserFrame(status);
+    scheduleBrowserFramePoll();
+  } catch (error) {
+    stopBrowserFramePoll();
+    setBrowserStatus(
+      error.status === 400
+        ? "http 또는 https 주소만 사용할 수 있습니다"
+        : "페이지를 열지 못했습니다",
+      error.status === 400 ? "blocked" : "error",
+    );
+  }
 }
 
 function setConnection(value, label) {
@@ -1239,14 +1577,21 @@ async function handleApprovalAnswered(payload) {
   const approvalId = String(payload.approval_id || "");
   busyApprovalIds.delete(approvalId);
   if (payload.decision === "approve") {
-    try {
-      const receipt = await api(
-        `/api/actions/${encodeURIComponent(approvalId)}/receipt`
-      );
+    const workspaceReceipt = String(payload.receipt || "");
+    if (workspaceReceipt) {
+      const receipt = {receipt: workspaceReceipt};
       recentReceipts.set(approvalId, receipt);
       announce(`Action executed: ${receipt.receipt}`);
-    } catch (error) {
-      announce(`승인 처리 완료: ${error.message}`);
+    } else {
+      try {
+        const receipt = await api(
+          `/api/actions/${encodeURIComponent(approvalId)}/receipt`
+        );
+        recentReceipts.set(approvalId, receipt);
+        announce(`Action executed: ${receipt.receipt}`);
+      } catch (error) {
+        announce(`승인 처리 완료: ${error.message}`);
+      }
     }
   } else {
     announce("거부 처리 완료 · 동작은 실행되지 않았습니다.");
@@ -1493,6 +1838,18 @@ document.addEventListener("keydown", (event) => {
 });
 input.addEventListener("input", () => {
   localStorage.setItem("birkin.workspace.draft", input.value);
+});
+
+byId("browser-aside-toggle").addEventListener("click", () => {
+  if (shell.classList.contains("browser-open")) {
+    collapseBrowserAside();
+  } else {
+    void openBrowserAside();
+  }
+});
+byId("browser-aside-form").addEventListener("submit", (event) => {
+  event.preventDefault();
+  void navigateBrowserAside();
 });
 
 interruptButton.addEventListener("click", () => {

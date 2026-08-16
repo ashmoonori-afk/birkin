@@ -82,8 +82,35 @@ python -m pip install -e ".[memory-semantic]"
 python -m pip install -e ".[voice]"
 python -m pip install -e ".[desktop]"
 python -m pip install -e ".[office]"
+python -m pip install -e ".[browser]"
+python -m playwright install chromium
 python -m pip install -e ".[full]"
 ```
+
+### Native Browser Aside
+
+선택 browser dependency를 설치하면 `birkin web`의 unified workspace 옆에
+접을 수 있는 **Browser** plane이 나타납니다. iframe, HTML projection,
+모의 browser가 아니라 격리된 persistent Playwright Chromium context입니다.
+plane을 열고 `http://` 또는 `https://` URL을 입력한 뒤 Enter를 누르십시오.
+plane을 접어도 session과 storage는 유지되며, 인증된
+`DELETE /api/browser-aside/session` endpoint 또는 WebUI 종료 시 닫힙니다.
+
+plane은 unified workspace의 shared semantic theme를 재사용하며 dark,
+light, high-contrast palette를 함께 지원합니다. compact status rail은
+color에만 의존하지 않고 ready, loading, blocked, stale, error 상태를
+표시하며, revision-aware frame polling은 image data를 page에 embed하지
+않고 canvas를 최신 상태로 유지합니다.
+
+live JPEG frame은 workspace 범위의 bounded content-addressed memory
+storage에 저장됩니다. UI state와 event/context record에는 image binary나
+base64 대신 frame digest/ref만 남습니다. private network navigation은
+기본적으로 거부됩니다. local fixture test는
+`BIRKIN_BROWSER_PRIVATE_NETWORK_RULES='[{"host":"127.0.0.1","cidr":"127.0.0.1/32","port":8080}]'`
+같은 exact host/CIDR/port rule로만 허용할 수 있으며 global private-network
+switch는 없습니다. repository sandbox network policy도 계속 적용됩니다.
+Playwright Chromium이 없으면 core startup에는 영향을 주지 않고 browser
+endpoint가 설치 방법을 포함한 `503`을 반환합니다.
 
 ## Computer Use
 

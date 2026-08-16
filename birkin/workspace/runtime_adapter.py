@@ -293,10 +293,13 @@ class RuntimeWorkspaceAdapter:
             )
         else:
             raise ValueError("decision must be approve or reject")
-        _ = self._emit(
-            "approval.answered",
-            {"approval_id": approval_id, "decision": str(decision)},
-        )
+        event_payload: dict[str, object] = {
+            "approval_id": approval_id,
+            "decision": str(decision),
+        }
+        if decision == "approve":
+            event_payload["receipt"] = str(result)
+        _ = self._emit("approval.answered", event_payload)
         return {"result": str(result)}
 
     def _question_answer(

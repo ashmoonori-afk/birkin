@@ -15,8 +15,14 @@ from birkin import approvals, store
 from birkin.web import server as web_server
 
 
-def _request(host_header: str, port: int, method: str, path: str,
-             headers: dict | None = None, body: bytes | None = None):
+def _request(
+    host_header: str,
+    port: int,
+    method: str,
+    path: str,
+    headers: dict[str, str] | None = None,
+    body: bytes | None = None,
+) -> tuple[int, dict[str, str], bytes]:
     conn = http.client.HTTPConnection("127.0.0.1", port)
     hdrs = dict(headers or {})
     hdrs.setdefault("Host", host_header)
@@ -54,8 +60,9 @@ def srv():
     port = httpd.server_address[1]
     t = threading.Thread(target=httpd.serve_forever, daemon=True)
     t.start()
+    _ = web_server.listener_bootstrap_nonce(httpd)
     try:
-        yield port, web_server._TOKEN
+        yield port, web_server._CAPABILITY_TOKEN
     finally:
         httpd.shutdown()
         httpd.server_close()
@@ -72,15 +79,32 @@ def test_root_does_not_issue_capability(srv):
 
 
 def test_secret_bootstrap_issues_httponly_capability(srv):
-    port, token = srv
+    port, _ = srv
     code, headers, _ = _request(
-        "127.0.0.1", port, "GET", f"/_bootstrap/{token}")
+        f"127.0.0.1:{port}",
+        port,
+        "GET",
+        f"/_bootstrap/{web_server.bootstrap_nonce_for_port(port)}",
+    )
     assert code == 303
     assert headers["Location"] == "/"
     cookie = headers["Set-Cookie"]
     assert cookie.startswith("birkin_capability=")
     assert "HttpOnly" in cookie
     assert "SameSite=Strict" in cookie
+
+
+def test_bootstrap_nonce_is_unique_per_listener() -> None:
+    first = HTTPServer(("127.0.0.1", 0), web_server.Handler)
+    second = HTTPServer(("127.0.0.1", 0), web_server.Handler)
+    try:
+        assert (
+            web_server.listener_bootstrap_nonce(first)
+            != web_server.listener_bootstrap_nonce(second)
+        )
+    finally:
+        first.server_close()
+        second.server_close()
 
 
 def test_approval_reads_require_capability_cookie(srv):
@@ -146,7 +170,7 @@ def test_run_prints_secret_bootstrap_url_for_no_browser(monkeypatch, capsys):
     assert web_server.run(port=8765, open_browser=False) == 0
 
     output = capsys.readouterr().out
-    assert f"http://127.0.0.1:8765/_bootstrap/{web_server._TOKEN}" in output
+    assert "http://127.0.0.1:8765/_bootstrap/" in output
 
 
 def test_api_status_marks_skill_discovery_unavailable(srv, monkeypatch):

@@ -236,6 +236,7 @@ class FixtureRuntimeWorkspaceAdapter:
             {
                 "approval_id": str(payload.get("approval_id") or ""),
                 "decision": str(payload.get("decision") or ""),
+                "receipt": "fixture approval executed",
             },
         )
         if str(payload.get("approval_id") or "") != "qa-approval":

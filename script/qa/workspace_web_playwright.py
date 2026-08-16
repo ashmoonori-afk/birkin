@@ -123,7 +123,9 @@ def run(url: str, evidence: Path) -> int:
             path=evidence / "web-1440-checkpoint-detail.png"
         )
         _ = page.get_by_text("복원 승인 요청").click()
-        page.get_by_text(re.compile(r"복원 승인 대기:")).wait_for()
+        page.locator("#workspace-panel-body").get_by_text(
+            re.compile(r"복원 승인 대기:")
+        ).wait_for()
         _ = page.screenshot(path=evidence / "web-1440-checkpoint.png")
         _ = page.locator('[data-panel="approvals"]').click()
         _ = page.get_by_text(

@@ -20,6 +20,7 @@ import json
 import os
 import re
 import secrets
+import signal
 import threading
 import webbrowser
 from collections.abc import Mapping
@@ -28,6 +29,8 @@ from http.cookies import CookieError, SimpleCookie
 from http.server import BaseHTTPRequestHandler
 from http.server import ThreadingHTTPServer as HTTPServer
 from pathlib import Path
+from threading import RLock
+from types import FrameType
 from typing import Any, cast, final
 from urllib.parse import parse_qs, urlsplit
 from weakref import WeakKeyDictionary
@@ -47,6 +50,31 @@ from ..workspace import (
 from ..workspace.hub import EventSink
 from ..workspace.runtime_adapter import RuntimeWorkspaceAdapter
 from ..workspace.service import CommandHandler
+from .browser_aside_api import (
+    BrowserApiResponse,
+    is_browser_path,
+)
+from .browser_aside_api import (
+    close_service as close_browser_service,
+)
+from .browser_aside_api import (
+    delete as delete_browser,
+)
+from .browser_aside_api import (
+    get as get_browser,
+)
+from .browser_aside_api import (
+    post as post_browser,
+)
+from .browser_aside_workspace import (
+    BrowserApiWorkspace,
+    browser_api_workspace,
+)
+from .browser_security import (
+    BrowserRequestDenied,
+    BrowserRequestGuard,
+    browser_request_guard,
+)
 
 _STATIC = Path(__file__).resolve().parent / "static"
 MAX_POST_BODY_BYTES = 65_536
@@ -55,7 +83,12 @@ _APPROVAL_ID_RE = re.compile(r"[0-9a-f]{12}")
 
 # A per-process capability set as an HttpOnly cookie on the root page and
 # required for sensitive reads and mutations. JavaScript never receives it.
-_TOKEN = os.environ.get("BIRKIN_HTTP_TOKEN") or secrets.token_urlsafe(18)
+_CAPABILITY_TOKEN = (
+    os.environ.get("BIRKIN_HTTP_TOKEN") or secrets.token_urlsafe(24)
+)
+# Compatibility name for trusted local header clients. This is the process
+# capability, never a listener bootstrap nonce.
+_TOKEN = _CAPABILITY_TOKEN
 _CAPABILITY_COOKIE = "birkin_capability"
 _BOOTSTRAP_LOCK = threading.Lock()
 _BOOTSTRAPPED_SERVERS: WeakKeyDictionary[object, bool] = WeakKeyDictionary()
@@ -66,6 +99,15 @@ _workspace_handlers: Mapping[str, CommandHandler] | None = None
 _workspace_hub: WorkspaceHub | None = None
 _workspace_lock = threading.Lock()
 _workspace_adapters: dict[str, RuntimeWorkspaceAdapter] = {}
+_SECURITY_LOCK = RLock()
+_SECURITY_GUARDS: WeakKeyDictionary[object, BrowserRequestGuard] = (
+    WeakKeyDictionary()
+)
+_BOOTSTRAP_NONCES: WeakKeyDictionary[object, str] = WeakKeyDictionary()
+_BROWSER_WORKSPACES: WeakKeyDictionary[
+    object,
+    BrowserApiWorkspace,
+] = WeakKeyDictionary()
 
 
 def _consume_bootstrap(server: object) -> bool:
@@ -87,15 +129,73 @@ def capability_token() -> str:
 
 
 def workspace_contract() -> dict[str, object]:
-    """Return the Python-owned state, token, and workspace theme contract."""
-    from .. import ui_tokens, uistate
-    from ..workspace import theme
+    """Return the Python-owned state and shared workspace theme contracts."""
+    from .. import ui_tokens, uistate, workspace_theme
 
     return {
         "uistate": uistate.schema(),
         "tokens": ui_tokens.to_json(),
-        "workspace_theme": theme.contract(),
+        "workspace_theme": workspace_theme.contract(),
     }
+
+
+def _browser_guard(server: object, port: int) -> BrowserRequestGuard:
+    del port
+    with _SECURITY_LOCK:
+        guard = _SECURITY_GUARDS.get(server)
+        if guard is None:
+            _ = _bootstrap_nonce(server)
+            guard = _SECURITY_GUARDS.get(server)
+        if guard is None:
+            raise RuntimeError(
+                "listener browser security was not initialized"
+            )
+        return guard
+
+
+def _bootstrap_nonce(server: object) -> str:
+    with _SECURITY_LOCK:
+        nonce = _BOOTSTRAP_NONCES.get(server)
+        if nonce is None:
+            nonce = secrets.token_urlsafe(24)
+            _BOOTSTRAP_NONCES[server] = nonce
+            address = cast(
+                tuple[str, int],
+                cast(HTTPServer, server).server_address,
+            )
+            _SECURITY_GUARDS[server] = browser_request_guard(
+                port=address[1],
+                capability=_CAPABILITY_TOKEN,
+                bootstrap_nonce=nonce,
+            )
+        return nonce
+
+
+def listener_bootstrap_nonce(server: object) -> str:
+    return _bootstrap_nonce(server)
+
+
+def _browser_workspace(server: object) -> BrowserApiWorkspace:
+    with _SECURITY_LOCK:
+        workspace = _BROWSER_WORKSPACES.get(server)
+        if workspace is None:
+            workspace = browser_api_workspace(
+                f"web:{_bootstrap_nonce(server)}"
+            )
+            _BROWSER_WORKSPACES[server] = workspace
+        return workspace
+
+
+def bootstrap_nonce_for_port(port: int) -> str:
+    with _SECURITY_LOCK:
+        for server, nonce in _BOOTSTRAP_NONCES.items():
+            address = cast(
+                tuple[str, int],
+                cast(HTTPServer, server).server_address,
+            )
+            if address[1] == port:
+                return nonce
+    raise LookupError("listener bootstrap nonce is unavailable")
 
 
 def _get_workspace_hub() -> WorkspaceHub:
@@ -182,6 +282,9 @@ class BackgroundWebServer:
             return
         self._closed = True
         _close_workspace_runtime()
+        _ = close_browser_service(
+            workspace=_browser_workspace(self.httpd)
+        )
         self.httpd.shutdown()
         self.httpd.server_close()
         self.thread.join(timeout=2)
@@ -203,7 +306,13 @@ def start_background(port: int | None = None) -> BackgroundWebServer:
         httpd = HTTPServer(("127.0.0.1", 0), Handler)
     address = cast(tuple[str, int], httpd.server_address)
     actual_port = address[1]
-    bootstrap_url = f"http://127.0.0.1:{actual_port}/_bootstrap/{_TOKEN}"
+    bootstrap_nonce = _bootstrap_nonce(httpd)
+    os.environ["BIRKIN_BROWSER_CONTROL_ADDRESSES"] = (
+        f"127.0.0.1:{actual_port},localhost:{actual_port}"
+    )
+    bootstrap_url = (
+        f"http://127.0.0.1:{actual_port}/_bootstrap/{bootstrap_nonce}"
+    )
     thread = threading.Thread(
         target=httpd.serve_forever,
         name="birkin-workspace-web",
@@ -224,7 +333,7 @@ def _status_payload() -> dict[str, Any]:
     skills_error = None
     try:
         skills_count = len(build_manager(cfg).skills)
-    except Exception:
+    except (OSError, RuntimeError, TypeError, ValueError):
         skills_count = None
         skills_error = "unavailable"
     from .. import budget as budget_mod
@@ -278,6 +387,22 @@ class Handler(BaseHTTPRequestHandler):
         self.send_response(code)
         self.send_header("Content-Type", ctype)
         self.send_header("Content-Length", str(len(body)))
+        self.send_header("Cache-Control", "no-store")
+        self.send_header("Pragma", "no-cache")
+        self.send_header("Referrer-Policy", "no-referrer")
+        self.send_header("X-Content-Type-Options", "nosniff")
+        self.send_header("X-Frame-Options", "DENY")
+        self.send_header(
+            "Content-Security-Policy",
+            "default-src 'self'; "
+            "base-uri 'none'; "
+            "connect-src 'self'; "
+            "frame-ancestors 'none'; "
+            "img-src 'self' blob:; "
+            "object-src 'none'; "
+            "script-src 'self' 'unsafe-inline'; "
+            "style-src 'self' 'unsafe-inline'",
+        )
         for name, value in (headers or {}).items():
             self.send_header(name, value)
         self.end_headers()
@@ -286,6 +411,34 @@ class Handler(BaseHTTPRequestHandler):
     def _json(self, obj: Any, code: int = 200) -> None:
         self._send(code, json.dumps(obj, ensure_ascii=False).encode("utf-8"),
                    "application/json; charset=utf-8")
+
+    def _browser_response(
+        self,
+        response: BrowserApiResponse,
+    ) -> None:
+        payload = response.payload
+        if isinstance(payload, dict):
+            body = json.dumps(payload, ensure_ascii=False).encode("utf-8")
+            self._send(
+                response.status,
+                body,
+                "application/json; charset=utf-8",
+                response.headers,
+            )
+        elif isinstance(payload, bytes):
+            self._send(
+                response.status,
+                payload,
+                response.content_type,
+                response.headers,
+            )
+        else:
+            self._send(
+                response.status,
+                b"",
+                response.content_type,
+                response.headers,
+            )
 
     def _workspace_stream(
         self,
@@ -566,6 +719,67 @@ class Handler(BaseHTTPRequestHandler):
             and secrets.compare_digest(capability.value, _TOKEN)
         )
 
+    def _browser_denial(
+        self,
+        method: str,
+    ) -> BrowserRequestDenied | None:
+        client_id = self.headers.get("X-Birkin-Browser-Client", "")
+        if (
+            not 8 <= len(client_id) <= 80
+            or not all(
+                character.isalnum() or character in {"-", "_"}
+                for character in client_id
+            )
+        ):
+            return BrowserRequestDenied(
+                "client_identity_denied",
+                "Browser client identity is missing or invalid.",
+            )
+        cookies = SimpleCookie()
+        try:
+            cookies.load(self.headers.get("Cookie", ""))
+        except CookieError:
+            cookies = SimpleCookie()
+        morsel = cookies.get(_CAPABILITY_COOKIE)
+        server_port = cast(HTTPServer, self.server).server_port
+        content_type = self.headers.get("Content-Type")
+        if content_type is not None:
+            content_type = content_type.split(";", maxsplit=1)[0].strip()
+        try:
+            _browser_guard(self.server, server_port).authorize(
+                method=method,
+                path=self.path,
+                host=self.headers.get("Host", ""),
+                origin=self.headers.get("Origin"),
+                fetch_site=self.headers.get("Sec-Fetch-Site"),
+                content_type=content_type,
+                cookie_capability=morsel.value if morsel else None,
+                header_capability=self.headers.get("X-Birkin-Token"),
+            )
+        except BrowserRequestDenied as exc:
+            return exc
+        return None
+
+    def _browser_actor_id(self) -> str:
+        return (
+            "human:web:"
+            + self.headers["X-Birkin-Browser-Client"]
+        )
+
+    def _send_browser_denial(
+        self,
+        denial: BrowserRequestDenied,
+    ) -> None:
+        self._json(
+            {
+                "error": {
+                    "code": denial.code,
+                    "message": denial.safe_message,
+                }
+            },
+            code=denial.status,
+        )
+
     def _capability_ok(self) -> bool:
         return self._header_capability_ok() or self._cookie_capability_ok()
 
@@ -621,6 +835,17 @@ class Handler(BaseHTTPRequestHandler):
         if not self._host_ok():
             self._send(403, b"forbidden host", "text/plain")
             return
+        if is_browser_path(self.path):
+            denial = self._browser_denial("GET")
+            if denial is not None:
+                self._send_browser_denial(denial)
+                return
+            self._browser_response(get_browser(
+                self.path,
+                actor_id=self._browser_actor_id(),
+                workspace=_browser_workspace(self.server),
+            ))
+            return
         if urlsplit(self.path).path == "/favicon.ico":
             self._send(204, b"", "image/x-icon")
             return
@@ -638,14 +863,36 @@ class Handler(BaseHTTPRequestHandler):
             return
         if self._workspace_get():
             return
-        if self.path == f"/_bootstrap/{_TOKEN}":
-            if not _consume_bootstrap(self.server):
-                self._send(
-                    410,
-                    b"bootstrap capability already consumed",
-                    "text/plain; charset=utf-8",
-                )
-                return
+        if self.path.startswith("/_bootstrap/"):
+            nonce = self.path.removeprefix("/_bootstrap/")
+            if secrets.compare_digest(nonce, _TOKEN):
+                if not _consume_bootstrap(self.server):
+                    self._send(
+                        410,
+                        b"bootstrap capability already consumed",
+                        "text/plain; charset=utf-8",
+                    )
+                    return
+                capability = _CAPABILITY_TOKEN
+            else:
+                try:
+                    capability = _browser_guard(
+                        self.server,
+                        cast(HTTPServer, self.server).server_port,
+                    ).consume_bootstrap(
+                        nonce,
+                        host=self.headers.get("Host", ""),
+                    )
+                except BrowserRequestDenied as exc:
+                    self._send_browser_denial(exc)
+                    return
+                if not _consume_bootstrap(self.server):
+                    self._send(
+                        410,
+                        b"bootstrap capability already consumed",
+                        "text/plain; charset=utf-8",
+                    )
+                    return
             self._send(
                 303,
                 b"",
@@ -653,7 +900,7 @@ class Handler(BaseHTTPRequestHandler):
                 headers={
                     "Location": "/",
                     "Set-Cookie": (
-                        f"{_CAPABILITY_COOKIE}={_TOKEN}; HttpOnly; "
+                        f"{_CAPABILITY_COOKIE}={capability}; HttpOnly; "
                         "SameSite=Strict; Path=/"
                     ),
                 },
@@ -737,8 +984,8 @@ class Handler(BaseHTTPRequestHandler):
             # failures must not take the daemon down.
             try:
                 payload = workspace_contract()
-            except Exception as exc:
-                self._json({"error": str(exc)[:200]}, code=500)
+            except (OSError, RuntimeError, TypeError, ValueError):
+                self._json({"error": "contract unavailable"}, code=500)
                 return
             self._json(payload)
         elif self.path == "/api/jobs":
@@ -773,8 +1020,8 @@ class Handler(BaseHTTPRequestHandler):
                 self._json([{"name": s.name, "description": s.description,
                              "source": s.source}
                             for s in sorted(mgr.skills.values(), key=lambda x: x.name)])
-            except Exception as exc:
-                self._json({"error": str(exc)}, code=500)
+            except (OSError, RuntimeError, TypeError, ValueError):
+                self._json({"error": "skills unavailable"}, code=500)
         elif self.path == "/.well-known/agent-card.json":
             # Discovery only: the card names what birkin can do and where
             # to ask. It needs no token -- a peer must be able to read it
@@ -856,6 +1103,36 @@ class Handler(BaseHTTPRequestHandler):
         except (OSError, ValueError):
             pass
     def do_POST(self) -> None:
+        if is_browser_path(self.path):
+            if not self._host_ok():
+                self._send(403, b"forbidden host", "text/plain")
+                return
+            if not self._capability_ok():
+                self._json(
+                    {"error": "missing or invalid token"},
+                    code=403,
+                )
+                return
+            denial = self._browser_denial("POST")
+            if denial is not None:
+                self._send_browser_denial(denial)
+                return
+            body, body_status = self._read_body()
+            if body is None:
+                self._json(
+                    {"error": {"code": "invalid_request"}},
+                    code=body_status,
+                )
+                return
+            self._browser_response(
+                post_browser(
+                    self.path,
+                    body,
+                    actor_id=self._browser_actor_id(),
+                    workspace=_browser_workspace(self.server),
+                )
+            )
+            return
         if not self._host_ok():
             self._drain_body()
             self._send(403, b"forbidden host", "text/plain")
@@ -960,8 +1237,8 @@ class Handler(BaseHTTPRequestHandler):
             try:
                 result = _checkpoint_manager().fork(
                     workspace, checkpoint, command, policy=spec.policy)
-            except Exception as exc:
-                self._json({"error": str(exc)[:300]}, code=409)
+            except (OSError, RuntimeError, TypeError, ValueError):
+                self._json({"error": "checkpoint fork failed"}, code=409)
                 return
             self._json({"ok": True, "returncode": result.returncode,
                         "stdout": result.stdout, "stderr": result.stderr},
@@ -1010,6 +1287,33 @@ class Handler(BaseHTTPRequestHandler):
         )
         self._json(result)
 
+    def do_DELETE(self) -> None:
+        if not self._host_ok():
+            self._send(403, b"forbidden host", "text/plain")
+            return
+        if not is_browser_path(self.path):
+            self._json({"error": "not found"}, code=404)
+            return
+        denial = self._browser_denial("DELETE")
+        if denial is not None:
+            self._send_browser_denial(denial)
+            return
+        self._browser_response(delete_browser(
+            self.path,
+            actor_id=self._browser_actor_id(),
+            workspace=_browser_workspace(self.server),
+        ))
+
+    def do_OPTIONS(self) -> None:
+        if not is_browser_path(self.path):
+            self._json({"error": "not found"}, code=404)
+            return
+        denial = self._browser_denial("OPTIONS")
+        if denial is not None:
+            self._send_browser_denial(denial)
+            return
+        self._json({"error": "not found"}, code=404)
+
 
 def _a2a_run(text: str) -> str:
     """Answer a peer's task with a one-shot birkin turn.
@@ -1032,22 +1336,47 @@ def run(port: int | None = None, *, open_browser: bool = True) -> int:
     bind_host = "0.0.0.0" if remote else "127.0.0.1"
     httpd = HTTPServer((bind_host, port), Handler)
     actual_port = int(httpd.server_address[1])
+    bootstrap_nonce = _bootstrap_nonce(httpd)
+    os.environ["BIRKIN_BROWSER_CONTROL_ADDRESSES"] = (
+        f"127.0.0.1:{actual_port},localhost:{actual_port}"
+    )
     session_path = config.birkin_home() / "web_session.json"
     session_path.parent.mkdir(parents=True, exist_ok=True)
-    store._write_json(session_path, {"port": actual_port, "token": _TOKEN})
+    store._write_json(
+        session_path,
+        {"port": actual_port, "token": _CAPABILITY_TOKEN},
+    )
     url = f"http://127.0.0.1:{actual_port}"
-    bootstrap_url = f"{url}/_bootstrap/{_TOKEN}"
+    bootstrap_url = f"{url}/_bootstrap/{bootstrap_nonce}"
     print(f"birkin workspace running at {bootstrap_url}  (Ctrl-C to stop)")
     if open_browser:
         try:
-            webbrowser.open(bootstrap_url)
-        except Exception:
-            pass
+            _ = webbrowser.open(bootstrap_url)
+        except (OSError, webbrowser.Error):
+            print("could not open the dashboard URL automatically")
+    previous_sigterm = signal.getsignal(signal.SIGTERM)
+
+    def stop_on_sigterm(
+        _signum: int,
+        _frame: FrameType | None,
+    ) -> None:
+        raise KeyboardInterrupt
+
+    signal.signal(signal.SIGTERM, stop_on_sigterm)
     try:
         httpd.serve_forever()
     except KeyboardInterrupt:
         print("\nstopping…")
     finally:
+        signal.signal(signal.SIGTERM, previous_sigterm)
         _close_workspace_runtime()
-        httpd.server_close()
+        try:
+            _ = close_browser_service(
+                workspace=_browser_workspace(httpd)
+            )
+        finally:
+            try:
+                session_path.unlink(missing_ok=True)
+            finally:
+                httpd.server_close()
     return 0

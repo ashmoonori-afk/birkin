@@ -149,3 +149,10 @@ def test_web_workspace_renders_state_and_explicit_approval_actions() -> None:
     assert "승인 실행" in source
     assert "submitApproval" in source
     assert "window.confirm" not in source
+
+
+def test_web_workspace_prefers_workspace_approval_receipts() -> None:
+    source, _ = _document()
+
+    assert "payload.receipt" in source
+    assert "recentReceipts.set(approvalId" in source
