@@ -32,7 +32,7 @@ Agent runtimes are easy to demo and hard to trust. Birkin keeps the model useful
 | A coding agent changes files before the user understands the plan | The official VS Code extension sends editor context, reviews a plan first, renders proposed diffs, resolves Birkin approvals, and restores checkpoints. |
 | A local tool becomes an opaque service | Runs, approvals, checkpoints, status, and configuration remain local and inspectable. |
 
-Birkin's core runtime has **no mandatory third-party Python dependencies**. Optional extras add voice, desktop vision, and office-file support. The repository currently bundles **56 skills**; all default tests are designed to run offline.
+Birkin's core runtime has one mandatory process-identity dependency (`psutil`). Optional extras add voice, native desktop Computer Use, browser, and office-file support. The repository currently bundles **56 skills**; all default tests are designed to run offline.
 
 ## Memory
 
@@ -72,7 +72,7 @@ Run the local service surfaces in separate terminals:
 
 ```bash
 birkin gateway          # local HTTP on 127.0.0.1:8788; Telegram is optional
-birkin web --no-browser # dashboard/control API on 127.0.0.1:8787
+birkin web --no-browser # authenticated chat workspace on 127.0.0.1:8787
 ```
 
 Optional features are explicit:
@@ -85,8 +85,76 @@ python -m pip install -e ".[office]"
 python -m pip install -e ".[full]"
 ```
 
+## Computer Use
+
+Computer Use is an opt-in native desktop capability exposed as one typed tool, `computer_use`. Install the desktop extra, enable both the legacy desktop observation group and the separate Computer Use mutation gate, then inspect permissions without prompting:
+
+```bash
+python -m pip install -e ".[desktop]"
+birkin computer-use setup --json
+birkin computer-use doctor --json
+```
+
+The commands above emit setup or capability reports. Configuration is written separately:
+
+```json
+{
+  "desktop_tools": true,
+  "computer_use": {
+    "enabled": true,
+    "allowed_apps": ["org.example.QAFixture"],
+    "denied_apps": [],
+    "allowed_windows": null,
+    "denied_windows": [],
+    "allowed_operations": ["click", "scroll", "type"],
+    "max_actions": 200
+  }
+}
+```
+
+Rules use exact native identities and window IDs. Titles, OCR, accessibility labels, screenshots, and other screen content are evidence only and never mutation authority.
+
+The public action union is:
+
+```text
+capture, list_apps, list_windows,
+click, double_click, right_click, middle_click,
+drag, scroll, type, doctor
+```
+
+Mutations require the latest opaque app/window/snapshot/element refs. An empty `allowed_apps` list denies every app; `allowed_windows: null` permits the windows of explicitly allowed apps. Birkin attempts semantic background delivery first, verifies the predicted effect from fresh native state, and reports `confirmed`, `unverifiable`, or `suspected_noop`. Pointer foreground fallback is available only for native backends that advertise it, and requires a recorded background failure, an exact one-shot approval, a topmost-window hit test, and focus restoration evidence. Horizontal foreground scroll is Linux X11-only; macOS and Windows refuse it rather than silently substituting vertical scroll. Native password fields are hard-blocked; additional sensitive/risky classes are enforced only when the backend supplies trusted native metadata.
+
+| Platform | Discovery and structure | Exact capture | Background mutation | Foreground input |
+|---|---|---|---|---|
+| macOS | AX, conditional on Accessibility | Quartz exact `CGWindowID`, conditional on Screen Recording | AX semantic actions only | Approved Quartz pointer fallback bound to current AX bounds |
+| Windows | UIA in an interactive desktop with compatible integrity | `PrintWindow` exact `HWND` | UIA patterns only | Approved pointer fallback bound to the current UIA rectangle |
+| Linux X11 | AT-SPI with exact PID/XID correlation | Exact X11 window image | AT-SPI semantic actions only | Approved XTest fallback bound to current AT-SPI bounds |
+| Linux XWayland | Conditional on unique AT-SPI/XID correlation | Conditional on authoritative XID | Conditional | Only when the X11 fallback conditions hold |
+| Linux native Wayland | App observation may be available | Generic exact-window capture unsupported | Generic authoritative mutation unsupported | Unsupported |
+| Optional browser adapter | Contract seam with no production route | Contract seam only | Contract seam only | Never controls browser chrome or OS surfaces |
+
+The unified terminal and web workspace expose a dedicated Computer Use panel. Both surfaces replay the same versioned reducer state, reject stale or cross-session overlays, and hand foreground approval IDs to the existing approvals panel instead of inventing a second approval channel.
+
+Raw screenshots are content-addressed under `BIRKIN_HOME/computer-use/artifacts`; events and journals retain bounded redacted metadata, digests, scopes, effects, and receipts instead of raw pixels or typed secrets. Runtime code never installs dependencies, opens privacy settings, or clicks permission dialogs.
+
 > [!IMPORTANT]
 > Native tools run with your operating-system account. Keep the gateway loopback-only, configure `shell_approval`, `fs_jail`, disabled tools, and channel allowlists for your deployment, and review consequential actions before approval.
+
+## Unified chat workspace
+
+`birkin chat` now opens the terminal workspace by default and starts its authenticated loopback web authority. The private bootstrap URL printed at startup exchanges its one-time path capability for an `HttpOnly`, `SameSite=Strict` cookie, then removes the secret from the address bar. `birkin web [--no-browser]` runs the same responsive web workspace as a standalone local surface.
+
+Both surfaces consume the same ordered command/event protocol and durable journal. Conversation messages, tasks and runs, approvals, evidence, sessions, activity, cron, memory and skills, checkpoints, and status are canonical snapshot panels rather than separate dashboard state. When a surface reconnects with an existing session ID, the journal replays its conversation, panel data, and command cursor.
+
+- Terminal: type and press Enter to send, press Esc to interrupt, use `/work` to focus tasks/runs, and use the deprecated `/dash` compatibility alias to focus activity/logs.
+- Web: press Ctrl+Enter to send, press Esc to interrupt, use the context button for the nine canonical panels, and use the explicit approve/reject actions after reviewing requester, target, impact, rejection result, risk, expiry, and evidence.
+- Themes: Studio Dark, Paper Light, and High Contrast share semantic roles with terminal truecolor/ANSI-256 rendering. `NO_COLOR=1` keeps the terminal usable without color.
+- Responsive behavior: desktop keeps conversation and context side by side; mobile uses an opaque sheet above a composer that remains visible, with touch-sized controls and an explicit back action.
+
+The workspace remains loopback-only and preserves Host validation, capability checks, approval authority, filesystem jail, network egress, and audit records. Deprecated UI paths `/legacy-dashboard`, `/dashboard`, and `/workbench` return a permanent `308` redirect to `/` with deprecation metadata; existing backend APIs remain available.
+
+The embedded web authority does not overwrite the standalone WebUI discovery file. If the configured web port is already occupied, `birkin chat` binds its private embedded authority to an available loopback port and prints that bootstrap URL instead.
+The embedded authority is bootstrap-URL only; run standalone `birkin web` when the VS Code extension needs `~/.birkin/web_session.json` discovery.
 
 ## GitHub Action
 
@@ -215,13 +283,13 @@ All rows below describe surfaces shipped in this repository.
 
 | Capability | CLI / REPL | Gateway | WebUI | VS Code |
 |---|:---:|:---:|:---:|:---:|
-| Conversational agent | Yes | Yes | No (monitoring/control) | Yes, through gateway |
+| Conversational agent | Yes | Yes | Yes | Yes, through gateway |
 | Current editor selection and open files | Manual | Manual | No | Yes |
-| Plan review before execution | Slash-command/workflow dependent | Conversation dependent | No | Dedicated review surface |
+| Plan review before execution | Slash-command/workflow dependent | Conversation dependent | Conversation + explicit approval | Dedicated review surface |
 | Proposed-change diff | Terminal checkpoint diff | No | Approval details | Native VS Code diff editor |
 | Approval queue | `birkin review` | Trusted chat controls | Approve/reject API and UI | Approve/reject API |
-| File rollback | `/rollback` | No | Checkpoint control API | Checkpoint picker |
-| Live status | Status line | Progress callbacks | Dashboard | Status bar |
+| File rollback | `/rollback` | No | Checkpoint restore panel | Checkpoint picker |
+| Live status | Workspace status/panels | Progress callbacks | Chat workspace | Status bar |
 | Local transport | Process stdin/stdout | Loopback HTTP / channels | Loopback HTTP | Existing gateway + WebUI APIs |
 
 ## Architecture
@@ -230,7 +298,7 @@ The model proposes; deterministic code owns persistence, policy, and authority.
 
 ```mermaid
 flowchart LR
-    U[CLI · Gateway · VS Code] --> P[promptgate.py]
+    U[CLI · Web · Gateway · VS Code] --> P[promptgate.py]
     P --> A[Agent loop]
     A --> R[ToolRegistry]
     R --> G{Policy gates}
@@ -254,7 +322,9 @@ birkin/
   approvals.py      human gate and approved action execution
   checkpoints.py    external shadow-git snapshots and restore
   gateway/          local HTTP, Telegram, and outbound channel adapters
-  web/              local dashboard and authenticated control API
+  web/              local chat workspace and authenticated control API
+  workspace/        shared commands, events, journal, snapshots, and themes
+  workspace_terminal.py  default terminal workspace adapter
   harness.py        validated self-improvement ledger and rollback
   moirai/           deterministic multi-agent graph runtime
   mcp_server.py     stdio MCP server for memory, skills, and proposals
@@ -263,7 +333,7 @@ skills/             bundled Markdown skills
 tests/              offline unit, integration, and end-to-end coverage
 ```
 
-State is file-backed under `BIRKIN_HOME` (normally `~/.birkin`). The dashboard uses a per-process capability; the gateway binds to loopback and can additionally require `BIRKIN_HTTP_TOKEN`. MCP uses newline-delimited JSON-RPC over stdio. The VS Code extension uses these existing authorities: gateway `/message` for turns and WebUI endpoints for approvals, status, editor context, and checkpoints.
+State is file-backed under `BIRKIN_HOME` (normally `~/.birkin`). The workspace uses a per-process capability and honors `BIRKIN_HTTP_TOKEN` as an explicit bearer-capability override; the gateway also binds to loopback and can require that token. MCP uses newline-delimited JSON-RPC over stdio. The VS Code extension uses these existing authorities: gateway `/message` for turns and WebUI endpoints for approvals, status, editor context, and checkpoints.
 
 </details>
 
@@ -321,9 +391,9 @@ The authenticated API exposes the checkpoint list, `/timeline`, `/lineage`,
 | Command | Purpose |
 |---|---|
 | `birkin setup` | Guided provider and workspace onboarding. |
-| `birkin chat` | Interactive local agent (the default command). |
+| `birkin chat` | Default terminal chat workspace plus private loopback web authority. |
 | `birkin gateway` | Run loopback HTTP and configured message channels. |
-| `birkin web [--no-browser]` | Run the local dashboard and authenticated control API. |
+| `birkin web [--no-browser]` | Run the standalone authenticated chat workspace and control API. |
 | `birkin review` | Approve or reject pending consequential actions. |
 | `birkin permission` | Inspect or change approval categories and CLI access. |
 | `birkin tools` | List, enable, or disable native tools. |
@@ -472,6 +542,23 @@ points return `Tool` objects consumed by the existing native tool registry.
   "extra_skill_dirs": [],
   "disabled_tools": [],
   "desktop_tools": false,
+  "computer_use": {
+    "enabled": false,
+    "allowed_apps": [],
+    "denied_apps": [],
+    "allowed_windows": null,
+    "denied_windows": [],
+    "allowed_operations": [
+      "click",
+      "double_click",
+      "right_click",
+      "middle_click",
+      "drag",
+      "scroll",
+      "type"
+    ],
+    "max_actions": 200
+  },
   "self_improve": true,
   "skill_nudge_interval": 3,
   "memory_nudge_interval": 6,

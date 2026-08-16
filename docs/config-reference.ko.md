@@ -50,6 +50,14 @@ Schema version: 1
 | `extra_skill_dirs` | `array` | `[]` | Birkin 설정 `extra_skill_dirs`. |
 | `disabled_tools` | `array` | `[]` | Birkin 설정 `disabled_tools`. |
 | `desktop_tools` | `boolean` | `false` | Birkin 설정 `desktop_tools`. |
+| `computer_use` | `object` | `{"enabled": false, "allowed_apps": [], "denied_apps": [], "allowed_windows": null, "denied_windows": [], "allowed_operations": ["click", "double_click", "right_click", "middle_click", "drag", "scroll", "type"], "max_actions": 200}` | Birkin 설정 `computer_use`. |
+| `computer_use.enabled` | `boolean` | `false` | Birkin 설정 `computer_use.enabled`. |
+| `computer_use.allowed_apps` | `array` | `[]` | Birkin 설정 `computer_use.allowed_apps`. |
+| `computer_use.denied_apps` | `array` | `[]` | Birkin 설정 `computer_use.denied_apps`. |
+| `computer_use.allowed_windows` | `any` | `null` | Birkin 설정 `computer_use.allowed_windows`. |
+| `computer_use.denied_windows` | `array` | `[]` | Birkin 설정 `computer_use.denied_windows`. |
+| `computer_use.allowed_operations` | `array` | `["click", "double_click", "right_click", "middle_click", "drag", "scroll", "type"]` | Birkin 설정 `computer_use.allowed_operations`. |
+| `computer_use.max_actions` | `integer` | `200` | Birkin 설정 `computer_use.max_actions`. |
 | `self_improve` | `boolean` | `true` | Birkin 설정 `self_improve`. |
 | `skill_nudge_interval` | `integer` | `3` | Birkin 설정 `skill_nudge_interval`. |
 | `memory_nudge_interval` | `integer` | `6` | Birkin 설정 `memory_nudge_interval`. |

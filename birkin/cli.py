@@ -623,6 +623,37 @@ def _cmd_tools(args: argparse.Namespace) -> int:
     return 0
 
 
+def _cmd_computer_use(args: argparse.Namespace) -> int:
+    """Run explicit Computer Use diagnostics and setup guidance."""
+    import json
+
+    from . import config
+    from .computer_use.runtime import create_service
+    from .computer_use.setup_cli import setup_report
+
+    if args.computer_use_action == "setup":
+        result = setup_report()
+    elif args.computer_use_action == "doctor":
+        loaded_config = config.load_config()
+        computer_use_policy = loaded_config.get("computer_use")
+        service = create_service(
+            artifact_root=config.birkin_home() / "computer-use" / "artifacts",
+            policy_config=(
+                computer_use_policy
+                if isinstance(computer_use_policy, dict)
+                else None
+            ),
+        )
+        result = service.execute({"version": 1, "action": "doctor"})
+    else:
+        return 2
+    if args.json:
+        print(json.dumps(result, ensure_ascii=False, sort_keys=True))
+    else:
+        print(json.dumps(result, ensure_ascii=False, indent=2, sort_keys=True))
+    return 0 if result.get("ok") else 1
+
+
 _CLI_ACCESS_LEVELS = [
     ("workspace", "Writable & sandboxed to the workspace (recommended)"),
     (
@@ -1297,6 +1328,27 @@ def build_parser() -> argparse.ArgumentParser:
     tp.add_argument("--enable", help="tool name to enable")
     tp.add_argument("--disable", help="tool name to disable")
     tp.set_defaults(func=_cmd_tools)
+
+    cup = sub.add_parser(
+        "computer-use",
+        help="inspect native desktop capabilities and setup guidance",
+    )
+    cu_sub = cup.add_subparsers(
+        dest="computer_use_action",
+        required=True,
+    )
+    cu_doctor = cu_sub.add_parser(
+        "doctor",
+        help="report capabilities and permissions without prompting",
+    )
+    cu_doctor.add_argument("--json", action="store_true")
+    cu_doctor.set_defaults(func=_cmd_computer_use)
+    cu_setup = cu_sub.add_parser(
+        "setup",
+        help="print explicit install and least-privilege permission steps",
+    )
+    cu_setup.add_argument("--json", action="store_true")
+    cu_setup.set_defaults(func=_cmd_computer_use)
 
     mp = sub.add_parser("model", aliases=["models"],
                         help="choose the model (interactive, like `hermes model`)")

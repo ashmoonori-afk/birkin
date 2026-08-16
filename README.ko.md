@@ -32,7 +32,7 @@
 | 코딩 에이전트가 사용자가 plan을 이해하기 전에 파일을 변경함 | 공식 VS Code extension이 editor context를 보내고, plan을 먼저 검토하며, 제안 diff를 표시하고, Birkin 승인을 처리하고, checkpoint를 복원합니다. |
 | 로컬 도구가 불투명한 서비스가 됨 | run, approval, checkpoint, status, config가 모두 로컬에서 확인 가능합니다. |
 
-Birkin 핵심 런타임에는 **필수 서드파티 파이썬 의존성이 없습니다**. 선택적 extra가 voice, desktop vision, office 파일 지원을 추가합니다. 현재 저장소에는 **56개 스킬**이 번들되며, 기본 테스트는 모두 오프라인 실행을 목표로 합니다.
+Birkin 핵심 런타임에는 process identity를 위한 필수 의존성 하나(`psutil`)가 있습니다. 선택적 extra가 voice, native desktop Computer Use, browser, office 파일 지원을 추가합니다. 현재 저장소에는 **56개 스킬**이 번들되며, 기본 테스트는 모두 오프라인 실행을 목표로 합니다.
 
 ## 메모리
 
@@ -72,7 +72,7 @@ birkin chat
 
 ```bash
 birkin gateway          # 127.0.0.1:8788 로컬 HTTP, Telegram은 선택 사항
-birkin web --no-browser # 127.0.0.1:8787 dashboard/control API
+birkin web --no-browser # 127.0.0.1:8787 인증 chat workspace
 ```
 
 선택 기능은 명시적으로 설치합니다.
@@ -85,8 +85,76 @@ python -m pip install -e ".[office]"
 python -m pip install -e ".[full]"
 ```
 
+## Computer Use
+
+Computer Use는 하나의 typed tool인 `computer_use`로 노출되는 opt-in native desktop 기능입니다. desktop extra를 설치하고 기존 desktop observation group과 별도 Computer Use mutation gate를 모두 켠 뒤, permission prompt 없이 현재 상태를 확인합니다.
+
+```bash
+python -m pip install -e ".[desktop]"
+birkin computer-use setup --json
+birkin computer-use doctor --json
+```
+
+위 명령은 setup 또는 capability report를 출력합니다. 설정은 별도로 작성합니다.
+
+```json
+{
+  "desktop_tools": true,
+  "computer_use": {
+    "enabled": true,
+    "allowed_apps": ["org.example.QAFixture"],
+    "denied_apps": [],
+    "allowed_windows": null,
+    "denied_windows": [],
+    "allowed_operations": ["click", "scroll", "type"],
+    "max_actions": 200
+  }
+}
+```
+
+Policy rule에는 정확한 native identity와 window ID만 사용합니다. title, OCR, accessibility label, screenshot 등 화면에서 읽은 내용은 evidence일 뿐 mutation 권한이 아닙니다.
+
+공개 action union은 다음과 같습니다.
+
+```text
+capture, list_apps, list_windows,
+click, double_click, right_click, middle_click,
+drag, scroll, type, doctor
+```
+
+Mutation에는 최신 opaque app/window/snapshot/element ref가 필요합니다. 빈 `allowed_apps` list는 모든 app을 거부하고 `allowed_windows: null`은 명시적으로 허용한 app의 window를 허용합니다. Birkin은 semantic background delivery를 먼저 시도하고 fresh native state에서 predicted effect를 검증해 `confirmed`, `unverifiable`, `suspected_noop` 중 하나를 보고합니다. Pointer foreground fallback은 이를 명시적으로 지원하는 native backend에서만 사용할 수 있으며, 기록된 background failure, 정확한 one-shot approval, topmost-window hit test, focus 복구 evidence가 모두 필요합니다. Horizontal foreground scroll은 Linux X11에서만 지원하고 macOS와 Windows는 vertical scroll로 바꾸지 않고 거부합니다. Native password field는 hard block하며 추가 sensitive/risky class는 backend가 신뢰 가능한 native metadata를 제공할 때만 적용합니다.
+
+| Platform | Discovery와 구조 | Exact capture | Background mutation | Foreground input |
+|---|---|---|---|---|
+| macOS | Accessibility permission이 있을 때 AX | Screen Recording permission이 있을 때 정확한 Quartz `CGWindowID` | AX semantic action만 | Approval 뒤 current AX bounds에 bind한 Quartz pointer fallback |
+| Windows | Interactive desktop와 호환 integrity level에서 UIA | 정확한 `HWND`의 `PrintWindow` | UIA pattern만 | Approval 뒤 current UIA rectangle에 bind한 pointer fallback |
+| Linux X11 | 정확한 PID/XID correlation을 갖춘 AT-SPI | 정확한 X11 window image | AT-SPI semantic action만 | Approval 뒤 current AT-SPI bounds에 bind한 XTest pointer fallback |
+| Linux XWayland | 유일한 AT-SPI/XID correlation이 있을 때 조건부 | authoritative XID가 있을 때 조건부 | 조건부 | X11 fallback 조건을 충족할 때만 가능 |
+| Linux native Wayland | App observation은 가능할 수 있음 | Generic exact-window capture 미지원 | Generic authoritative mutation 미지원 | 미지원 |
+| Optional browser adapter | Production route가 연결되지 않은 contract seam | Contract seam only | Contract seam only | Browser chrome이나 OS surface를 제어하지 않음 |
+
+통합 terminal/web workspace는 전용 Computer Use panel을 제공합니다. 두 surface는 동일한 versioned reducer state를 replay하고 stale 또는 cross-session overlay를 거부하며, 별도 승인 채널을 만들지 않고 foreground approval ID를 기존 approvals panel로 handoff합니다.
+
+Raw screenshot은 `BIRKIN_HOME/computer-use/artifacts` 아래 content-addressed 형태로 저장합니다. Event와 journal에는 raw pixel이나 입력 text 대신 bounded·redacted metadata, digest, scope, effect, receipt만 남깁니다. Runtime은 dependency를 설치하거나 privacy settings를 열거나 permission dialog를 클릭하지 않습니다.
+
 > [!IMPORTANT]
 > 네이티브 도구는 현재 OS 계정 권한으로 실행됩니다. gateway를 loopback 전용으로 유지하고, 배포 환경에 맞게 `shell_approval`, `fs_jail`, disabled tools, channel allowlist를 설정하며, 결과가 생기는 행동은 승인 전에 검토하십시오.
+
+## 통합 chat workspace
+
+`birkin chat`은 이제 terminal workspace를 기본으로 열고 인증된 loopback web authority를 함께 시작합니다. 시작 시 출력하는 private bootstrap URL은 일회용 path capability를 `HttpOnly`, `SameSite=Strict` cookie로 교환한 뒤 주소 표시줄에서 secret을 제거합니다. `birkin web [--no-browser]`는 같은 responsive web workspace를 독립 로컬 surface로 실행합니다.
+
+두 surface는 같은 순서 보장 command/event protocol과 durable journal을 사용합니다. Conversation message, task/run, approval, evidence, session, activity, cron, memory/skill, checkpoint, status는 별도 dashboard state가 아니라 canonical snapshot panel입니다. Surface가 기존 session ID로 다시 연결되면 journal이 conversation, panel data, command cursor를 replay합니다.
+
+- Terminal: 입력 후 Enter로 전송하고 Esc로 중단합니다. `/work`는 task/run에 focus하고 deprecated compatibility alias `/dash`는 activity/log에 focus합니다.
+- Web: Ctrl+Enter로 전송하고 Esc로 중단합니다. Context button으로 9개 canonical panel을 열며 requester, target, impact, rejection result, risk, expiry, evidence를 검토한 뒤 명시적인 승인/거부 action을 사용합니다.
+- Theme: Studio Dark, Paper Light, High Contrast는 terminal truecolor/ANSI-256 rendering과 semantic role을 공유합니다. `NO_COLOR=1`에서도 terminal 기능은 유지됩니다.
+- Responsive behavior: desktop은 conversation과 context를 나란히 유지합니다. Mobile은 composer를 계속 보이는 상태로 두고 그 위에 opaque sheet를 열며 touch-size control과 명시적인 back action을 제공합니다.
+
+Workspace는 loopback 전용이며 Host validation, capability check, approval authority, filesystem jail, network egress, audit record를 그대로 보존합니다. Deprecated UI path `/legacy-dashboard`, `/dashboard`, `/workbench`는 deprecation metadata와 함께 `/`로 permanent `308` redirect하고 기존 backend API는 계속 제공됩니다.
+
+Embedded web authority는 standalone WebUI discovery file을 덮어쓰지 않습니다. 설정된 web port가 이미 사용 중이면 `birkin chat`은 private embedded authority를 사용 가능한 loopback port에 bind하고 해당 bootstrap URL을 출력합니다.
+Embedded authority는 bootstrap URL로만 연결합니다. VS Code extension이 `~/.birkin/web_session.json` discovery를 사용해야 하면 standalone `birkin web`을 실행하십시오.
 
 ## GitHub Action
 
@@ -215,13 +283,13 @@ Command Palette에서 **Birkin: Review Plan Before Execution**을 실행하십�
 
 | 기능 | CLI / REPL | Gateway | WebUI | VS Code |
 |---|:---:|:---:|:---:|:---:|
-| 대화형 에이전트 | 지원 | 지원 | 미지원(모니터링/control) | Gateway를 통해 지원 |
+| 대화형 에이전트 | 지원 | 지원 | 지원 | Gateway를 통해 지원 |
 | 현재 editor selection과 열린 파일 | 수동 | 수동 | 미지원 | 지원 |
-| 실행 전 plan review | slash command/workflow에 따라 다름 | 대화에 따라 다름 | 미지원 | 전용 review surface |
+| 실행 전 plan review | slash command/workflow에 따라 다름 | 대화에 따라 다름 | 대화 + 명시적 approval | 전용 review surface |
 | 제안 변경 diff | 터미널 checkpoint diff | 미지원 | approval 상세 | VS Code 네이티브 diff editor |
 | Approval queue | `birkin review` | 신뢰 chat control | 승인/거절 API와 UI | 승인/거절 API |
-| 파일 rollback | `/rollback` | 미지원 | checkpoint control API | checkpoint picker |
-| 실시간 status | status line | progress callback | dashboard | status bar |
+| 파일 rollback | `/rollback` | 미지원 | checkpoint restore panel | checkpoint picker |
+| 실시간 status | workspace status/panel | progress callback | chat workspace | status bar |
 | 로컬 transport | process stdin/stdout | loopback HTTP / channel | loopback HTTP | 기존 gateway + WebUI API |
 
 ## 아키텍처
@@ -230,7 +298,7 @@ Command Palette에서 **Birkin: Review Plan Before Execution**을 실행하십�
 
 ```mermaid
 flowchart LR
-    U[CLI · Gateway · VS Code] --> P[promptgate.py]
+    U[CLI · Web · Gateway · VS Code] --> P[promptgate.py]
     P --> A[Agent loop]
     A --> R[ToolRegistry]
     R --> G{Policy gates}
@@ -254,7 +322,9 @@ birkin/
   approvals.py      사람의 gate와 승인된 action 실행
   checkpoints.py    외부 shadow-git snapshot과 restore
   gateway/          local HTTP, Telegram, outbound channel adapter
-  web/              local dashboard와 인증된 control API
+  web/              local chat workspace와 인증된 control API
+  workspace/        shared command, event, journal, snapshot, theme
+  workspace_terminal.py  기본 terminal workspace adapter
   harness.py        검증되는 자기개선 ledger와 rollback
   moirai/           결정적 멀티에이전트 graph runtime
   mcp_server.py     memory, skill, proposal용 stdio MCP server
@@ -263,7 +333,7 @@ skills/             번들 Markdown skill
 tests/              offline unit, integration, end-to-end coverage
 ```
 
-상태는 `BIRKIN_HOME`(보통 `~/.birkin`) 아래 파일에 저장됩니다. Dashboard는 process별 capability를 사용합니다. Gateway는 loopback에 bind하며 추가로 `BIRKIN_HTTP_TOKEN`을 요구할 수 있습니다. MCP는 stdio 위 newline-delimited JSON-RPC를 사용합니다. VS Code extension은 이 기존 권한에 연결됩니다. turn은 gateway `/message`, approval·status·editor context·checkpoint는 WebUI endpoint를 사용합니다.
+상태는 `BIRKIN_HOME`(보통 `~/.birkin`) 아래 파일에 저장됩니다. Workspace는 process별 capability를 사용하고 `BIRKIN_HTTP_TOKEN`을 명시적 bearer-capability override로 지원합니다. Gateway도 loopback에 bind하며 같은 token을 요구할 수 있습니다. MCP는 stdio 위 newline-delimited JSON-RPC를 사용합니다. VS Code extension은 이 기존 권한에 연결됩니다. turn은 gateway `/message`, approval·status·editor context·checkpoint는 WebUI endpoint를 사용합니다.
 
 </details>
 
@@ -321,9 +391,9 @@ checkpoint에서 일회용 policy-controlled sandbox worktree를 만들고 linea
 | 명령 | 용도 |
 |---|---|
 | `birkin setup` | Provider와 workspace 안내 설정. |
-| `birkin chat` | 대화형 로컬 에이전트(기본 명령). |
+| `birkin chat` | 기본 terminal chat workspace와 private loopback web authority 실행. |
 | `birkin gateway` | Loopback HTTP와 설정된 message channel 실행. |
-| `birkin web [--no-browser]` | 로컬 dashboard와 인증된 control API 실행. |
+| `birkin web [--no-browser]` | 독립 인증 chat workspace와 control API 실행. |
 | `birkin review` | 결과가 생기는 대기 action 승인 또는 거절. |
 | `birkin permission` | Approval category와 CLI access 확인·변경. |
 | `birkin tools` | 네이티브 tool 목록·활성화·비활성화. |
@@ -472,6 +542,23 @@ registry에 연결됩니다.
   "extra_skill_dirs": [],
   "disabled_tools": [],
   "desktop_tools": false,
+  "computer_use": {
+    "enabled": false,
+    "allowed_apps": [],
+    "denied_apps": [],
+    "allowed_windows": null,
+    "denied_windows": [],
+    "allowed_operations": [
+      "click",
+      "double_click",
+      "right_click",
+      "middle_click",
+      "drag",
+      "scroll",
+      "type"
+    ],
+    "max_actions": 200
+  },
   "self_improve": true,
   "skill_nudge_interval": 3,
   "memory_nudge_interval": 6,

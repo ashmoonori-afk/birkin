@@ -135,7 +135,26 @@ DEFAULT_CONFIG: dict[str, Any] = {
     "max_depth": 2,  # subagent recursion bound
     "extra_skill_dirs": [],  # additional directories to scan for SKILL.md
     "disabled_tools": [],  # tool names the agent may NOT use (see `birkin tools`)
-    "desktop_tools": False,  # opt in to visible-window listing/screenshots
+    "desktop_tools": False,  # opt in to native desktop observation tools
+    "computer_use": {
+        "enabled": False,
+        # Exact native identities only; titles and screen text are never rules.
+        "allowed_apps": [],
+        "denied_apps": [],
+        # Null means every window of an explicitly allowed app.
+        "allowed_windows": None,
+        "denied_windows": [],
+        "allowed_operations": [
+            "click",
+            "double_click",
+            "right_click",
+            "middle_click",
+            "drag",
+            "scroll",
+            "type",
+        ],
+        "max_actions": 200,
+    },
     "self_improve": True,  # allow the agent to write/refine skills after tasks
     # Automatic self-improvement nudges (native: no extra call; Claude: skill
     # review; Codex: trusted memory review; local CLI: no review):

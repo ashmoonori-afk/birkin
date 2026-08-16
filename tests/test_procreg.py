@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+from datetime import datetime, timezone
 
 import pytest
 
@@ -101,6 +102,114 @@ def test_posix_reaper_kills_registered_process_group(
 
     assert groups == [4312]
     assert pids == []
+
+
+def test_windows_reaper_uses_taskkill_for_registered_tree(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    procreg = _setup(tmp_path, monkeypatch)
+    calls = []
+    monkeypatch.setattr(procreg.os, "name", "nt")
+    monkeypatch.setattr(
+        procreg.subprocess,
+        "run",
+        lambda argv, **kwargs: calls.append((argv, kwargs)),
+    )
+
+    procreg._kill_pid(4312)
+
+    assert calls == [
+        (
+            ["taskkill", "/F", "/T", "/PID", "4312"],
+            {"capture_output": True, "timeout": 10},
+        )
+    ]
+
+
+def test_register_sanitizes_and_replaces_generation_record(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    procreg = _setup(tmp_path, monkeypatch)
+    from birkin import store
+
+    owner = 424242
+    path = procreg._reg_path(owner)
+    store._write_json(
+        path,
+        {
+            "version": 2,
+            "owner": owner,
+            "owner_generation": "owner-generation",
+            "children": [True, "invalid", 55],
+            "records": [
+                {"pid": 55, "process_generation": "stale"},
+                "invalid",
+                {"pid": 66, "process_generation": "generation-66"},
+            ],
+        },
+    )
+    monkeypatch.setattr(
+        procreg,
+        "process_generation",
+        lambda pid: f"generation-{pid}",
+    )
+    deadline = datetime(2026, 8, 16, 7, 0, tzinfo=timezone.utc)
+
+    procreg.register(
+        55,
+        owner=owner,
+        session_id="computer-use",
+        purpose="desktop-action",
+        deadline=deadline,
+    )
+
+    data = store._read_json(path, None)
+    assert data["children"] == [55]
+    assert data["records"] == [
+        {"pid": 66, "process_generation": "generation-66"},
+        {
+            "pid": 55,
+            "process_generation": "generation-55",
+            "session_id": "computer-use",
+            "purpose": "desktop-action",
+            "deadline": deadline.isoformat(),
+        },
+    ]
+    updated = datetime.fromisoformat(data["updated"])
+    assert updated.tzinfo is not None
+    assert updated.utcoffset() == timezone.utc.utcoffset(updated)
+
+
+def test_unregister_sanitizes_records_and_removes_empty_registry(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    procreg = _setup(tmp_path, monkeypatch)
+    from birkin import store
+
+    owner = 424242
+    path = procreg._reg_path(owner)
+    store._write_json(
+        path,
+        {
+            "version": 2,
+            "owner": owner,
+            "children": [True, "invalid", 55, 66],
+            "records": [{"pid": 55}, "invalid", {"pid": 66}],
+        },
+    )
+
+    procreg.unregister(55, owner=owner)
+
+    data = store._read_json(path, None)
+    assert data["children"] == [66]
+    assert data["records"] == [{"pid": 66}]
+
+    procreg.unregister(66, owner=owner)
+
+    assert not path.exists()
 
 
 def test_codex_sandbox_forced_in_argv():

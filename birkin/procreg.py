@@ -15,7 +15,8 @@ Design (safe by construction):
     birkin's sessions are never touched.
 
 The worst case is therefore leaving an orphan one extra hour — never killing
-a process a live birkin is still using. Pure stdlib; no psutil.
+a process a live birkin is still using. ``psutil`` supplies process generations;
+platform-native termination reaps descendant trees.
 """
 
 from __future__ import annotations
@@ -23,9 +24,10 @@ from __future__ import annotations
 import atexit
 import os
 import subprocess
-from datetime import datetime
+from collections.abc import Callable
+from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Callable
+from typing import Any
 
 from . import config, store
 from .proc import kill_process_group
@@ -79,22 +81,46 @@ def pid_alive(pid: int | None) -> bool:
     return True
 
 
+def process_generation(pid: int) -> str | None:
+    """Return a PID-reuse-safe process generation when observable."""
+    try:
+        import psutil
+    except ImportError:
+        return None
+    try:
+        created = int(psutil.Process(pid).create_time() * 1_000_000)
+    except (psutil.Error, ValueError):
+        return None
+    return f"{pid}:{created}"
+
+
 def _kill_pid(pid: int) -> None:
     """Kill a PID and its descendants (the claude/codex -> node tree).
     Best-effort: never raises."""
     try:
         if os.name == "nt":
-            subprocess.run(["taskkill", "/F", "/T", "/PID", str(pid)],
-                           capture_output=True, timeout=10)
+            _ = subprocess.run(
+                ["taskkill", "/F", "/T", "/PID", str(pid)],
+                capture_output=True,
+                timeout=10,
+            )
         else:
             import signal as _sig
+
             if not kill_process_group(int(pid)):
                 os.kill(int(pid), _sig.SIGTERM)
     except Exception:
         pass
 
 
-def register(child_pid: int, owner: int | None = None) -> None:
+def register(
+    child_pid: int,
+    owner: int | None = None,
+    *,
+    session_id: str | None = None,
+    purpose: str = "birkin-child",
+    deadline: datetime | None = None,
+) -> None:
     """Record ``child_pid`` under this process so a later reaper can find it
     if we die ungracefully. Also arms an atexit cleanup on first use."""
     global _atexit_armed
@@ -103,12 +129,23 @@ def register(child_pid: int, owner: int | None = None) -> None:
     p = _reg_path(owner)
     try:
         with store.file_lock(p):
+            owner_pid = owner or os.getpid()
             raw = store._read_json(p, None)
-            data: dict[str, object] = (
-                raw if isinstance(raw, dict) else {
-                    "owner": owner or os.getpid(),
+            data: dict[str, Any] = (
+                raw
+                if isinstance(raw, dict)
+                else {
+                    "version": 2,
+                    "owner": owner_pid,
+                    "owner_generation": process_generation(owner_pid),
                     "children": [],
+                    "records": [],
                 }
+            )
+            data["version"] = 2
+            data.setdefault(
+                "owner_generation",
+                process_generation(owner_pid),
             )
             existing = data.get("children")
             children = (
@@ -123,7 +160,30 @@ def register(child_pid: int, owner: int | None = None) -> None:
             if child_pid not in children:
                 children.append(child_pid)
             data["children"] = children
-            data["updated"] = datetime.now().isoformat(timespec="seconds")
+            raw_records = data.get("records")
+            records = (
+                [
+                    record
+                    for record in raw_records
+                    if isinstance(record, dict)
+                    and record.get("pid") != child_pid
+                ]
+                if isinstance(raw_records, list)
+                else []
+            )
+            records.append(
+                {
+                    "pid": child_pid,
+                    "process_generation": process_generation(child_pid),
+                    "session_id": session_id,
+                    "purpose": purpose,
+                    "deadline": deadline.isoformat() if deadline else None,
+                }
+            )
+            data["records"] = records
+            data["updated"] = datetime.now(timezone.utc).isoformat(
+                timespec="seconds"
+            )
             store._write_json(p, data)
     except store.FileLockTimeout:
         return
@@ -143,7 +203,7 @@ def unregister(child_pid: int, owner: int | None = None) -> None:
             raw = store._read_json(p, None)
             if not isinstance(raw, dict):
                 return
-            data: dict[str, object] = raw
+            data: dict[str, Any] = raw
             existing = data.get("children")
             children = (
                 [
@@ -157,6 +217,13 @@ def unregister(child_pid: int, owner: int | None = None) -> None:
                 else []
             )
             data["children"] = children
+            raw_records = data.get("records")
+            data["records"] = [
+                record
+                for record in raw_records
+                if isinstance(record, dict)
+                if record.get("pid") != child_pid
+            ] if isinstance(raw_records, list) else []
             if children:
                 store._write_json(p, data)
             else:
@@ -190,11 +257,40 @@ def reap_orphans(*, alive: Callable[[int | None], bool] = pid_alive,
             except OSError:
                 pass
             continue
-        if alive(data.get("owner")):
+        owner = data.get("owner")
+        owner_alive = alive(owner)
+        owner_generation = data.get("owner_generation")
+        if owner_alive and owner_generation and isinstance(owner, int):
+            owner_alive = (
+                process_generation(owner) == owner_generation
+            )
+        if owner_alive:
             continue                # a live birkin owns these — hands off
         dead_owners += 1
-        for child in data.get("children", []):
-            if alive(child):
+        raw_records = data.get("records")
+        records = {
+            record.get("pid"): record
+            for record in (
+                raw_records if isinstance(raw_records, list) else []
+            )
+            if isinstance(record, dict)
+        }
+        raw_children = data.get("children")
+        children = raw_children if isinstance(raw_children, list) else []
+        for child in children:
+            if not isinstance(child, int):
+                continue
+            record = records.get(child)
+            expected = (
+                record.get("process_generation")
+                if isinstance(record, dict)
+                else None
+            )
+            same_generation = (
+                expected is None
+                or process_generation(child) == expected
+            )
+            if alive(child) and same_generation:
                 kill(child)
                 killed += 1
         try:

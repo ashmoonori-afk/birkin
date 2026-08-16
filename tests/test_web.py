@@ -27,6 +27,27 @@ def _request(host_header: str, port: int, method: str, path: str,
     return resp.status, dict(resp.getheaders()), data
 
 
+def test_embedded_server_falls_back_without_clobbering_discovery() -> None:
+    blocker = socket.socket()
+    blocker.bind(("127.0.0.1", 0))
+    blocker.listen()
+    occupied_port = int(blocker.getsockname()[1])
+    discovery = web_server.config.birkin_home() / "web_session.json"
+    discovery.parent.mkdir(parents=True, exist_ok=True)
+    sentinel = {"port": 43210, "token": "standalone"}
+    store._write_json(discovery, sentinel)
+
+    background = web_server.start_background(occupied_port)
+    try:
+        assert int(background.httpd.server_address[1]) != occupied_port
+        assert store._read_json(discovery, {}) == sentinel
+    finally:
+        background.close()
+        blocker.close()
+
+    assert store._read_json(discovery, {}) == sentinel
+
+
 @pytest.fixture
 def srv():
     httpd = HTTPServer(("127.0.0.1", 0), web_server.Handler)
