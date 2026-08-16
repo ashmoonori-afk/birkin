@@ -7,6 +7,7 @@ import json
 import os
 import threading
 import unicodedata
+import zipfile
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from typing import cast
@@ -33,6 +34,27 @@ def _ref(path: Path) -> dict[str, str]:
     }
 
 
+def _write_minimal_docx(path: Path) -> bytes:
+    with zipfile.ZipFile(path, "w") as archive:
+        archive.writestr(
+            "[Content_Types].xml",
+            (
+                '<Types xmlns="http://schemas.openxmlformats.org/package/2006/'
+                'content-types"><Override PartName="/word/document.xml" '
+                'ContentType="application/vnd.openxmlformats-officedocument.'
+                'wordprocessingml.document.main+xml"/></Types>'
+            ),
+        )
+        archive.writestr(
+            "word/document.xml",
+            (
+                '<w:document xmlns:w="http://schemas.openxmlformats.org/'
+                'wordprocessingml/2006/main"><w:body/></w:document>'
+            ),
+        )
+    return path.read_bytes()
+
+
 def test_cjk_emoji_roundtrip_and_normalization_collision_is_explicit(tmp_path: Path) -> None:
     workspace = DocumentWorkspace(tmp_path)
     name = "회의록-📎-résumé.txt"
@@ -42,7 +64,7 @@ def test_cjk_emoji_roundtrip_and_normalization_collision_is_explicit(tmp_path: P
 
     assert output.read_text(encoding="utf-8") == payload
     assert workspace.resolve_artifact(_ref(output)) == output
-    assert digest == hashlib.sha256(payload.encode()).hexdigest()
+    assert digest == hashlib.sha256(output.read_bytes()).hexdigest()
     nfd = unicodedata.normalize("NFD", name)
     assert nfd != name
     with pytest.raises(DocumentError) as caught:
@@ -284,8 +306,7 @@ def test_windows_snapshot_guard_blocks_write_delete_and_replacement(
 ) -> None:
     workspace = DocumentWorkspace(tmp_path)
     source = tmp_path / "source.docx"
-    approved = b"approved snapshot bytes"
-    _ = source.write_bytes(approved)
+    approved = _write_minimal_docx(source)
     attacker = tmp_path / "attacker.docx"
     _ = attacker.write_bytes(b"attacker bytes")
 
