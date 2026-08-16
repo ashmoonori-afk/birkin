@@ -163,7 +163,7 @@ class SnapshotPath(os.PathLike[str]):
         return self
 
     def is_relative_to(self, other: Path) -> bool:
-        return self._logical_path.is_relative_to(other)
+        return self._logical_path.resolve().is_relative_to(other.resolve())
 
     def sha256(self) -> str:
         return hash_descriptor(self._descriptor)

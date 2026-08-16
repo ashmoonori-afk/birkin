@@ -158,8 +158,16 @@ def test_catalog_operation_contract_matches_registered_runtime() -> None:
 
     assert inventory["pdf"]["create"]["state"] == "native"
     assert inventory["pdf"]["create"]["availability"] == "bounded"
-    assert inventory["hwpx"]["create"]["state"] == "lossless-surgical"
-    assert inventory["hwpx"]["create"]["availability"] == "template-only"
+    assert inventory["hwpx"]["create"]["state"] == "native"
+    assert inventory["hwpx"]["create"]["availability"] == "conditional"
+    assert any(
+        "blank authoring uses exact-pinned" in limitation.casefold()
+        for limitation in next(
+            item
+            for item in adapter_inventory()
+            if item["format"] == "hwpx"
+        )["limitations"]
+    )
 
 
 def test_notice_and_manifest_are_exact_catalog_publications() -> None:

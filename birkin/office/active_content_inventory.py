@@ -11,7 +11,7 @@ from collections.abc import Mapping
 from pathlib import Path
 from typing import TypedDict
 
-from defusedxml import ElementTree
+from birkin.office.safe_xml import ElementTree
 
 from .errors import DocumentError, DocumentErrorCode
 from .package import preflight_package

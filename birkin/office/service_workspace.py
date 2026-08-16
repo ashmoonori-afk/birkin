@@ -30,6 +30,7 @@ from .service_output import validate_output_name
 from .service_types import ArtifactRef
 
 MAX_CONTENT_CHARS = 1_000_000
+MAX_ARTIFACT_BYTES = 256 * 1024 * 1024
 
 
 class DocumentWorkspace:
@@ -94,6 +95,17 @@ class DocumentWorkspace:
             return active.duplicate(expected)
         path = Path(uri)
         descriptor = open_regular(path, self.home, self.configured_home)
+        if os.fstat(descriptor).st_size > MAX_ARTIFACT_BYTES:
+            os.close(descriptor)
+            raise DocumentError(
+                DocumentErrorCode.LIMIT_EXCEEDED,
+                "import",
+                "artifact byte limit exceeded",
+                details={
+                    "reason": "artifact_bytes",
+                    "maximum": MAX_ARTIFACT_BYTES,
+                },
+            )
         digest = hash_descriptor(descriptor)
         try:
             _ = verify_descriptor_identity(descriptor, path)

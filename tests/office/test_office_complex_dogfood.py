@@ -165,7 +165,8 @@ def test_literal_complex_office_dogfood_path_and_module(tmp_path: Path) -> None:
         identity = cast(dict[str, object], item["identity"])
         conversion = cast(dict[str, object], item["conversion"])
         assert identity["status"] == "accepted"
-        assert conversion["status"] == "converter_unavailable"
+        assert conversion["status"] == "refused"
+        assert conversion["reason_code"] == "external_engine_forbidden"
         assert item["source_immutable"] is True
 
     cleanup = cast(dict[str, object], report["cleanup_receipt"])

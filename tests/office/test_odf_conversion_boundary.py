@@ -172,8 +172,8 @@ def test_unavailable_conversion_is_hash_consent_and_loss_bound_with_no_artifacts
         ),
     )
     receipt = convert_odf(source, output, request)
-    assert receipt.status == "converter_unavailable"
-    assert receipt.reason_code in {"converter_unavailable", "isolated_runner_unavailable"}
+    assert receipt.status == "refused"
+    assert receipt.reason_code == "external_engine_forbidden"
     assert receipt.output is None and not output.exists()
     assert source.read_bytes() == before and set(tmp_path.iterdir()) == {source}
 

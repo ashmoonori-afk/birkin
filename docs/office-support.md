@@ -4,7 +4,7 @@ This shipped contract describes registered runtime behavior, not theoretical pac
 
 - Birkin version: `0.4.227`
 - `catalog_revision: 4`
-- `inventory_sha256: 66ac4638ee7a8b4f6b68325b036ca7d9b312fdf37eef9b90f3c163a756356d53`
+- `inventory_sha256: a49ab813ee4cdea3d6f87e0e2bd063b1dde54058e5c8dd0af0cf32bec74cae95`
 - Machine publication: [`provenance_manifest.json`](../birkin/office/adapters/provenance_manifest.json)
 - Generated evidence: [`THIRD_PARTY_NOTICES.md`](../birkin/office/adapters/THIRD_PARTY_NOTICES.md)
 
@@ -14,7 +14,7 @@ The tracked catalog and these generated package-tree files are the publication a
 
 - `bounded`: a registered implementation covers only the stated subset.
 - `conditional`: an approved lazy dependency may be required.
-- `template-only`: HWPX creation derives from a trusted template.
+- `conditional`: an exact-pinned, local Python backend may be required.
 - `structural`: validation reports independent layers and incomplete checks.
 - `layered`: comparison independently reports byte, bounded semantic, package, and visual status.
 - `structured-preview`: semantic preview succeeds; visual rendering remains unavailable.
@@ -26,7 +26,7 @@ The tracked catalog and these generated package-tree files are the publication a
 | `xlsx` | bounded | conditional | bounded | structural | layered | bounded | bounded | structured-preview |
 | `pptx` | bounded | conditional | bounded | structural | layered | bounded | bounded | structured-preview |
 | `pdf` | bounded | bounded | conditional | structural | layered | conditional | refused | structured-preview |
-| `hwpx` | bounded | template-only | bounded | structural | layered | bounded | bounded | structured-preview |
+| `hwpx` | bounded | conditional | bounded | structural | layered | bounded | bounded | structured-preview |
 <!-- office-support-matrix:end -->
 
 ### Format boundaries
@@ -37,7 +37,9 @@ The tracked catalog and these generated package-tree files are the publication a
 | XLSX | Scalar-row creation, cell extraction, layered validation/comparison, TXT projection, and one existing sheet-1 cell edit. | Formulas are preserved but never evaluated or recalculated. |
 | PPTX | Title/body creation, text extraction, layered validation/comparison, TXT projection, and one slide-1 placeholder edit. | No master, animation, media, overflow, or layout proof. |
 | PDF | Built-in ASCII text-first creation; optional pypdf inspection/extraction; structural validation and TXT projection. | Non-Latin creation returns a typed refusal. Existing content is read-only: no OCR, form fill, annotation, signing, redaction, or object rewrite. |
-| HWPX | Trusted-template field derivation, extraction, validation/comparison, TXT projection, and one section-0 field edit. | No blank authoring, legacy HWP, Hancom automation, PDF export, or typography proof. |
+| HWPX | Exact-pinned `python-hwpx==6.1.0` text-first blank authoring, trusted-template field derivation, extraction, validation/comparison, TXT projection, and one section-0 field edit. | No legacy HWP, application automation, PDF export, or typography proof. |
+
+Trusted Korean and English Office requests are routed before model execution from user intent and supplied artifact names only. DOCX, XLSX, PPTX, PDF, and HWPX select their matching bundled skill; general Office requests select `office-work-os`; conflicts select inspect-first `office-documents`. Extracted document text is never routing authority. All routed writes remain copy-on-write.
 
 ## Registered tools and arguments
 
@@ -48,7 +50,7 @@ The exact registered set is `list_document_adapters`, `inspect_document`, `extra
 | `list_document_adapters` | none | Returns the authoritative catalog. |
 | `inspect_document` | `source` | Existing artifacts must be inspected first. |
 | `extract_document` | `source` | `projection`, `max_spans`, `max_nodes`, `max_text_bytes`. |
-| `create_document` | `format`, `content`, `output_name` | `template` is required by HWPX and rejected for other formats. |
+| `create_document` | `format`, `content`, `output_name` | HWPX accepts optional `template` derivation; without it, exact-pinned local Python performs text-first blank authoring. Templates are rejected for other formats. |
 | `compare_documents` | `left`, `right` | Returns separate byte, semantic, package, and visual claims. |
 | `fill_template` | `template`, `bindings`, `output_name` | Verifies and reads the in-jail template to bind a hash/format-specific plan; it does not write a file. |
 | `apply_document_patch` | `base`, `patch`, `expected_source_sha256`, `output_name` | `dry_run` defaults to true; only one narrow operation is accepted. |
@@ -81,7 +83,7 @@ create_document
 {"format":"docx","content":{"paragraphs":["Quarterly report"]},"output_name":"quarterly-draft.docx"}
 ```
 
-HWPX uses the same call with `format: "hwpx"`, field-binding content, and an in-jail `template` artifact. This is template derivation, not blank authoring.
+HWPX blank authoring uses the same call with `format: "hwpx"` and paragraph content. Supplying an in-jail `template` artifact instead performs field-binding template derivation.
 
 Convert to TXT with the required explicit loss budget:
 
@@ -116,7 +118,7 @@ python -m pip install -e ".[office]"
 python -m pip install -e ".[office-advanced]"
 ```
 
-Missing optional backends return typed capability errors with installation evidence. Package discovery never upgrades capability by itself. ReportLab remains a refused provenance record and has no runtime execution or install-hint path; unpublished HanDoc candidates remain refused, and pypdfium2 remains unwired and does not enable visual rendering. Exact package versions, source artifacts, hashes, licenses, probes, and refusal reasons are in the tracked manifest and notice files linked above.
+Missing optional Python backends return typed capability errors with installation evidence. Package discovery never upgrades capability by itself. ReportLab remains a refused provenance record and has no runtime execution or install-hint path; pypdfium2 remains unwired and does not enable visual rendering. Separately installed applications, executables, daemons, runtimes, and subprocess conversion engines are never discovered or launched. Exact package versions, source artifacts, hashes, licenses, probes, and refusal reasons are in the tracked manifest and notice files linked above.
 
 ## Security and resource boundaries
 

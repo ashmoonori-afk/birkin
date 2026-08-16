@@ -9,6 +9,8 @@ import pytest
 from birkin.office.errors import DocumentError, DocumentErrorCode
 from birkin.office.package import preflight_package
 from birkin.office.package_types import PackageLimits
+from birkin.office.service import DocumentService
+from birkin.office.service_workspace import MAX_ARTIFACT_BYTES
 
 
 def _zip(path: Path, entries: list[tuple[str, bytes]], *, stored: bool = False) -> None:
@@ -36,6 +38,90 @@ def _assert_error(
         _ = preflight_package(path, limits)
     assert caught.value.code is code
     assert caught.value.details["reason"] == reason
+
+
+def _artifact(path: Path) -> dict[str, str]:
+    import hashlib
+
+    return {
+        "uri": str(path),
+        "content_hash": hashlib.sha256(path.read_bytes()).hexdigest(),
+    }
+
+
+def test_service_rejects_raw_artifact_before_hash_or_snapshot(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    source = tmp_path / "oversized.docx"
+    with source.open("wb") as stream:
+        stream.truncate(MAX_ARTIFACT_BYTES + 1)
+
+    def unexpected_hash(_descriptor: int) -> str:
+        raise AssertionError("oversized artifact was hashed")
+
+    monkeypatch.setattr(
+        "birkin.office.service_workspace.hash_descriptor",
+        unexpected_hash,
+    )
+    with pytest.raises(DocumentError) as caught:
+        _ = DocumentService(tmp_path).inspect_document(
+            {"uri": str(source), "content_hash": "0" * 64}
+        )
+    assert caught.value.code is DocumentErrorCode.LIMIT_EXCEEDED
+    assert caught.value.details["reason"] == "artifact_bytes"
+
+
+def test_service_bounds_compressed_identity_member_before_inflation(
+    tmp_path: Path,
+) -> None:
+    source = tmp_path / "identity-bomb.docx"
+    namespace = "http://schemas.openxmlformats.org/package/2006/content-types"
+    content_types = (
+        f'<Types xmlns="{namespace}">'
+        + (" " * 10_000_000)
+        + '<Override PartName="/word/document.xml" '
+        + 'ContentType="application/vnd.openxmlformats-officedocument.'
+        + 'wordprocessingml.document.main+xml"/></Types>'
+    ).encode()
+    _zip(
+        source,
+        [
+            ("[Content_Types].xml", content_types),
+            ("word/document.xml", b"<w:document/>"),
+        ],
+    )
+
+    with pytest.raises(DocumentError) as caught:
+        _ = DocumentService(tmp_path).inspect_document(_artifact(source))
+    assert caught.value.code is DocumentErrorCode.LIMIT_EXCEEDED
+    assert caught.value.details["reason"] == "identity_member_bytes"
+
+
+def test_service_bounds_identity_xml_depth_before_tree_allocation(
+    tmp_path: Path,
+) -> None:
+    source = tmp_path / "identity-depth.docx"
+    namespace = "http://schemas.openxmlformats.org/package/2006/content-types"
+    nested = ("<a>" * 257) + ("</a>" * 257)
+    content_types = (
+        f'<Types xmlns="{namespace}">{nested}'
+        '<Override PartName="/word/document.xml" '
+        'ContentType="application/vnd.openxmlformats-officedocument.'
+        'wordprocessingml.document.main+xml"/></Types>'
+    ).encode()
+    _zip(
+        source,
+        [
+            ("[Content_Types].xml", content_types),
+            ("word/document.xml", b"<w:document/>"),
+        ],
+    )
+
+    with pytest.raises(DocumentError) as caught:
+        _ = DocumentService(tmp_path).inspect_document(_artifact(source))
+    assert caught.value.code is DocumentErrorCode.LIMIT_EXCEEDED
+    assert caught.value.details["reason"] == "xml_depth"
 
 
 @pytest.mark.parametrize(

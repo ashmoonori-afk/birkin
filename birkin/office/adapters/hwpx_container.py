@@ -9,8 +9,8 @@ import unicodedata
 import zipfile
 from pathlib import Path, PurePosixPath
 
-from defusedxml import ElementTree
-from defusedxml.common import DefusedXmlException
+from birkin.office.safe_xml import ElementTree
+from birkin.office.safe_xml import DefusedXmlException
 
 from ..errors import DocumentError, DocumentErrorCode
 from ..package_types import DEFAULT_LIMITS, PackageManifest, PartManifest

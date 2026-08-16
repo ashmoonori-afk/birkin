@@ -6,8 +6,8 @@ from collections.abc import Iterator, Mapping
 from pathlib import Path
 from typing import Protocol, cast, final
 
-from defusedxml import ElementTree
-from defusedxml.common import DefusedXmlException
+from birkin.office.safe_xml import ElementTree
+from birkin.office.safe_xml import DefusedXmlException
 
 from ..errors import DocumentError, DocumentErrorCode
 from ..package import preflight_package

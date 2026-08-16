@@ -39,7 +39,7 @@ Do not use for legacy DOC/XLS/PPT/HWP, ODF, CSV, images, arbitrary ZIP files, OC
 
 ## Supported/Unsupported Matrix
 
-DOCX/XLSX/PPTX support text-first creation and one narrow package edit. PDF supports text-first creation but remains mutation-read-only. HWPX creation requires a trusted template. Extraction and validation are bounded for all five formats.
+DOCX/XLSX/PPTX support text-first creation and one narrow package edit. PDF supports text-first creation but remains mutation-read-only. HWPX supports exact-pinned local Python blank authoring and trusted-template derivation. Extraction and validation are bounded for all five formats.
 
 Every declared format supports bounded text extraction, layered package/semantic comparison, layered validation, deterministic `structured_preview`, and UTF-8 TXT conversion with a required `loss_budget`. `pdf`, `png`, and `thumbnail` render requests fail with `RENDER_UNAVAILABLE`; structured preview success is not visual proof.
 
@@ -55,7 +55,7 @@ Set `BIRKIN_HOME` to the managed workspace jail, for example `/workspace/.birkin
 
 1. Use `list_document_adapters` when capability discovery is needed.
 2. For an existing file, call `inspect_document`, then `extract_document` with explicit bounds when reading.
-3. Use `create_document` only with the format's strict content schema; HWPX additionally requires `template`.
+3. Use `create_document` only with the format's strict content schema; HWPX accepts an optional `template` for trusted derivation and otherwise uses exact-pinned local Python blank authoring.
 4. Use `compare_documents` for independent byte, bounded semantic, and ZIP-package results; PDF package comparison and all visual comparison remain unavailable.
 5. Use `validate_artifact` and review every layer, including warnings and not-run checks.
 6. Request `render_artifact` with `output_format: structured_preview`; never substitute that result for a visual render.
@@ -67,7 +67,7 @@ Set `BIRKIN_HOME` to the managed workspace jail, for example `/workspace/.birkin
 - `list_document_adapters`: no arguments.
 - `inspect_document`: required `source`.
 - `extract_document`: required `source`; optional `projection`, `max_spans`, `max_nodes`, and `max_text_bytes`.
-- `create_document`: required `format`, `content`, and `output_name`; optional `template` for required HWPX template derivation.
+- `create_document`: required `format`, `content`, and `output_name`; optional `template` for HWPX trusted-template derivation.
 - `compare_documents`: required `left` and `right`.
 - `fill_template`: required `template`, `bindings`, and `output_name`; optional `fields`, `strict`, and `raw_token_fallback`. It verifies and reads the in-jail template, then returns a hash/format-bound plan without writing a file.
 - `apply_document_patch`: required `base`, `patch`, `expected_source_sha256`, and `output_name`; optional `dry_run` defaults to true.

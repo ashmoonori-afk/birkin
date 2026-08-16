@@ -289,8 +289,13 @@ def run(output_dir: Path) -> dict[str, object]:
         preflight = preflight_legacy(source)
         request = LegacyConversionRequest(target_format=target, engine=LegacyEnginePin("libreoffice", "24.2.7.2", input_filter, output_filter))
         receipt = convert_legacy(source, temporary / f"legacy-{ext}.{target}", request)
-        if receipt.status != "converter_unavailable":
-            raise AssertionError(f"legacy {ext} converter unexpectedly available")
+        if (
+            receipt.status != "refused"
+            or receipt.reason_code != "external_engine_forbidden"
+        ):
+            raise AssertionError(
+                f"legacy {ext} external engine was not permanently refused"
+            )
         legacy[ext] = {"identity": preflight.to_dict(), "conversion": receipt.to_dict(), "source_immutable": sha256(source) == preflight.source_sha256}
     shutil.rmtree(temporary)
     cleanup = {"temporary_paths_removed": [str(temporary)], "temporary_paths_remaining": [str(temporary)] if temporary.exists() else [], "artifacts_retained": True}

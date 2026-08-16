@@ -6,8 +6,8 @@ import posixpath
 from collections.abc import Iterator, Mapping
 from typing import Protocol, cast
 
-from defusedxml import ElementTree
-from defusedxml.common import DefusedXmlException
+from birkin.office.safe_xml import ElementTree
+from birkin.office.safe_xml import DefusedXmlException
 
 from ..errors import DocumentError, DocumentErrorCode
 from .xlsx_types import InventoryRecord, XlsxInventory

@@ -7,8 +7,8 @@ import math
 import re
 from pathlib import Path
 
-from defusedxml import ElementTree
-from defusedxml.common import DefusedXmlException
+from birkin.office.safe_xml import ElementTree
+from birkin.office.safe_xml import DefusedXmlException
 
 from ..errors import DocumentError, DocumentErrorCode
 from ..package import clone_package

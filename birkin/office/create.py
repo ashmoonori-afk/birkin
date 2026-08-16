@@ -9,21 +9,21 @@ from pathlib import Path
 from typing import Final
 
 from .adapters.catalog import supported_formats
-from .create_backends import write_docx, write_pptx, write_xlsx
+from .create_backends import write_docx, write_hwpx, write_pptx, write_xlsx
 from .create_content import ParagraphPlan, PresentationPlan, WorkbookPlan, validate_plan
 from .create_pdf import write_pdf
 from .errors import DocumentError, DocumentErrorCode
 
 SUPPORTED_FORMATS: Final[tuple[str, ...]] = tuple(
-    format_name
-    for format_name in supported_formats("create")
-    if format_name != "hwpx"
+    supported_formats("create")
 )
 
 
 def _write(format_name: str, plan: ParagraphPlan | WorkbookPlan | PresentationPlan, target: Path) -> None:
     if format_name == "docx" and isinstance(plan, ParagraphPlan):
         write_docx(plan, target)
+    elif format_name == "hwpx" and isinstance(plan, ParagraphPlan):
+        write_hwpx(plan, target)
     elif format_name == "pdf" and isinstance(plan, ParagraphPlan):
         write_pdf(plan, target)
     elif format_name == "xlsx" and isinstance(plan, WorkbookPlan):

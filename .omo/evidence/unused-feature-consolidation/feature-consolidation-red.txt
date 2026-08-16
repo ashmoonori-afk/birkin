@@ -1,0 +1,17 @@
+Command:
+uv run pytest -q tests/e2e/test_feature_consolidation_e2e.py
+
+Result:
+FFFFFFFF [100%]
+
+Intended failing contracts:
+- legacy theme objects are duplicated rather than canonical re-exports;
+- CLI tool inventory omits canonical browser/documents/plugins groups;
+- trailing `sessions export ... --vault` does not reach the vault;
+- plugin manifests still accept non-activatable hook/mcp_server kinds;
+- worker-hook-qa emits no deprecation notice;
+- lineage has no list/recover/export/prune lifecycle;
+- CheckpointManager has no canonical state snapshot/restore bridge.
+
+8 failed
+Exit code: 1

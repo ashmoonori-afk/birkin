@@ -161,11 +161,10 @@ def test_unavailable_converter_receipt_leaves_source_output_and_temp_untouched(t
 
     receipt = convert_legacy(source, output, request)
 
-    assert receipt.status == "converter_unavailable"
-    assert receipt.reason_code in {"converter_unavailable", "isolated_runner_unavailable"}
+    assert receipt.status == "refused"
+    assert receipt.reason_code == "external_engine_forbidden"
     assert receipt.source_sha256 == hashlib.sha256(before).hexdigest()
     assert receipt.output is None and not output.exists()
     assert source.read_bytes() == before
     assert set(tmp_path.iterdir()) == {source}
-    if probe_legacy_converter(request) is None:
-        assert receipt.reason_code == "converter_unavailable"
+    assert probe_legacy_converter(request) is None

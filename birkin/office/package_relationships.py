@@ -2,8 +2,8 @@
 
 from __future__ import annotations
 
-from defusedxml import ElementTree
-from defusedxml.common import DefusedXmlException
+from birkin.office.safe_xml import ElementTree
+from birkin.office.safe_xml import DefusedXmlException
 
 from . import package_types as types
 

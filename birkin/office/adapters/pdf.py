@@ -151,6 +151,13 @@ class PdfAdapter:
                 "image-only PDF extraction requires OCR",
                 "pdf_image_only_requires_ocr",
             )
+        if state["content_type"] == "backend_unavailable":
+            raise _refusal(
+                "extract",
+                "PDF text extraction requires the approved pypdf package",
+                "pdf_parser_unavailable",
+                DocumentErrorCode.CAPABILITY_UNAVAILABLE,
+            )
         spans: list[dict[str, object]] = []
         for page_number, page in enumerate(reader.pages, 1):
             text = page.extract_text() or ""

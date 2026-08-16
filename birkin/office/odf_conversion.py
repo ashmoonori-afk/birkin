@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import shutil
 from pathlib import Path
 
 from .odf_package import preflight_odf
@@ -24,9 +23,8 @@ _APPROVED_ROUTES = {
 
 
 def probe_libreoffice() -> Path | None:
-    """Locate soffice without invoking it or opening untrusted input."""
-    located = shutil.which("soffice")
-    return None if located is None else Path(located)
+    """Report that external application conversion is permanently unsupported."""
+    return None
 
 
 def _receipt(
@@ -93,19 +91,11 @@ def convert_odf(source: Path, output: Path, request: OdfConversionRequest) -> Od
         _refuse(preflight, request, "output_exists", "conversion boundary never overwrites output")
     if preflight_odf(source_path).source_sha256 != preflight.source_sha256:
         _refuse(preflight, request, "source_changed", "source changed after ODF preflight")
-    executable = probe_libreoffice()
-    if executable is None:
-        return _receipt(
-            preflight,
-            request,
-            "converter_unavailable",
-            f"pinned LibreOffice {request.engine.version} soffice executable is unavailable",
-        )
     return _receipt(
         preflight,
         request,
-        "isolated_runner_unavailable",
-        f"{executable.name} was found, but the required offline jailed runner is unavailable",
+        "external_engine_forbidden",
+        "external application conversion engines are not a shipped capability",
     )
 
 

@@ -1,0 +1,46 @@
+Contract:
+/tmp/birkin-office-python-only-contract.txt
+
+Candidate adoption:
+- python-hwpx==6.1.0
+- Python requirement: >=3.10
+- Required dependency: lxml>=4.9,<7
+- License expression: Apache-2.0
+- Wheel SHA-256: e5ae5836c7307260d3db29c895656c9bd9bda96d63e7895e66a4e77775bdaf13
+- Sdist SHA-256: b607a6fb543f1b8d1bf6e2b28b3607085bf60aade06a9acf9ca795d87a9eaabf
+- License SHA-256: fee6f3e30bfe064913de5de0bbe42e1fb2467958ee458199a192bde5e36c0875
+- Installed-wheel static scan: zero process, network-client, socket, or provider-credential imports.
+- Offline import with socket/process factories blocked: passed.
+- Korean/English create, edit, reopen, package validation, and document validation: passed.
+- Traversal ZIP and DTD/external-entity XML attacks: rejected.
+
+Production routing and engine boundary:
+- Twelve required Korean/English phrases selected the exact bundled skill.
+- Trusted gateway turns received the selected skill body and registered document tools.
+- Conflicting intent/artifact signals selected inspect-first office-documents.
+- Untrusted document text did not affect routing.
+- Untrusted channel turns received neither Office skill bodies nor tools.
+- Fake LibreOffice, soffice, Pandoc, unoconv, and Node executables on PATH were never discovered or launched.
+- Office production AST scan found no process launch/discovery, network client, provider credential, or secret logging path.
+
+Clean base-only wheel:
+- Wheel: /tmp/birkin-office-base-wheel-final.JKP9s0/dist/birkin-0.4.227-py3-none-any.whl
+- Installed packages: birkin, psutil, typing-extensions only.
+- Executed with python -I, empty provider credentials, blocked socket, blocked subprocess.Popen, and blocked subprocess.run.
+- DOCX/XLSX/PPTX/HWPX inspect, extract, validate, compare, and TXT conversion: passed.
+- PDF baseline inspect, validate, and compare: passed; extraction/conversion correctly reported the optional pypdf boundary.
+- Built-in PDF blank creation and stdlib HWPX trusted-template derivation: passed.
+- Missing DOCX/XLSX/PPTX/HWPX optional blank-authoring backends produced typed capability refusals.
+- Bundled skill discovery, deterministic HWPX routing, and document tool registry: passed.
+- Raw artifacts are capped at 256 MiB before hashing or snapshot copy.
+- Identity ZIP members are size/ratio bounded before inflation; compressed identity-bomb regression passed.
+- python-hwpx runtime loading rejects any installed version other than 6.1.0.
+
+Final targeted gates:
+- Complete Office regression: passed (one expected Windows-only sharing-boundary skip on macOS).
+- Ruff: passed.
+- Basedpyright: 0 errors; 3 pre-existing warnings.
+- Bandit high-severity Office scan: passed.
+- compileall: passed.
+- Bundled skill validation: 63 clean, 0 warnings, 0 errors.
+- uv lock --check: passed.

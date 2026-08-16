@@ -112,6 +112,20 @@ PYTHON_PPTX = _published_package(
     role="Conditional PPTX creation backend.",
 )
 
+PYTHON_HWPX = _published_package(
+    name="python-hwpx",
+    version="6.1.0",
+    version_range="==6.1.0",
+    repository_url="https://github.com/airmang/python-hwpx",
+    artifact_url="https://files.pythonhosted.org/packages/cc/62/85356d56026fe5079f1a8b65b20ab036356be94a9d04985649a8aebd8eac/python_hwpx-6.1.0.tar.gz",
+    artifact_sha256="b607a6fb543f1b8d1bf6e2b28b3607085bf60aade06a9acf9ca795d87a9eaabf",
+    license_name="Apache-2.0",
+    license_sha256="fee6f3e30bfe064913de5de0bbe42e1fb2467958ee458199a192bde5e36c0875",
+    tag="v6.1.0",
+    import_name="hwpx",
+    role="Exact-pinned local Python HWPX blank-authoring backend.",
+)
+
 PYPDF = _published_package(
     name="pypdf",
     version="6.16.1",

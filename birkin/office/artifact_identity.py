@@ -6,10 +6,12 @@ import os
 import zipfile
 from pathlib import Path
 
-from defusedxml import ElementTree
-from defusedxml.common import DefusedXmlException
+from birkin.office.safe_xml import ElementTree
+from birkin.office.safe_xml import DefusedXmlException
 
 from .errors import DocumentError, DocumentErrorCode
+from .package_xml import validate_xml
+from .package_types import DEFAULT_LIMITS
 
 _ROOTS = {
     "docx": "word/document.xml",
@@ -33,6 +35,48 @@ def _mismatch(format_name: str, detail: str) -> DocumentError:
     )
 
 
+def _read_identity_member(
+    archive: zipfile.ZipFile,
+    name: str,
+    *,
+    maximum: int,
+) -> bytes:
+    info = archive.getinfo(name)
+    ratio = (
+        info.file_size / info.compress_size
+        if info.compress_size
+        else float("inf") if info.file_size else 1.0
+    )
+    if (
+        info.file_size > maximum
+        or ratio > DEFAULT_LIMITS.max_entry_ratio
+    ):
+        raise DocumentError(
+            DocumentErrorCode.LIMIT_EXCEEDED,
+            "import",
+            f"identity member exceeds resource limits: {name}",
+            details={
+                "reason": "identity_member_bytes",
+                "part": name,
+                "maximum": maximum,
+            },
+        )
+    with archive.open(info) as source:
+        payload = source.read(maximum + 1)
+    if len(payload) > maximum:
+        raise DocumentError(
+            DocumentErrorCode.LIMIT_EXCEEDED,
+            "import",
+            f"identity member exceeds resource limits: {name}",
+            details={
+                "reason": "identity_member_bytes",
+                "part": name,
+                "maximum": maximum,
+            },
+        )
+    return payload
+
+
 def _read_at(descriptor: int, size: int, offset: int = 0) -> bytes:
     if hasattr(os, "pread"):
         return os.pread(descriptor, size, offset)
@@ -51,7 +95,15 @@ def _zip_identity(descriptor: int, format_name: str) -> None:
         with zipfile.ZipFile(stream) as archive:
             names = set(archive.namelist())
             if format_name == "hwpx":
-                if "mimetype" not in names or archive.read("mimetype") != b"application/hwp+zip":
+                if (
+                    "mimetype" not in names
+                    or _read_identity_member(
+                        archive,
+                        "mimetype",
+                        maximum=256,
+                    )
+                    != b"application/hwp+zip"
+                ):
                     raise _mismatch(format_name, "HWPX mimetype is absent or invalid")
                 if not any(name.startswith("Contents/") and name.endswith(".xml") for name in names):
                     raise _mismatch(format_name, "HWPX content parts are absent")
@@ -62,8 +114,17 @@ def _zip_identity(descriptor: int, format_name: str) -> None:
                 raise _mismatch(format_name, "package main part identifies another format")
             if "[Content_Types].xml" not in names:
                 raise _mismatch(format_name, "OOXML content type manifest is absent")
-            manifest = archive.read("[Content_Types].xml")
+            manifest = _read_identity_member(
+                archive,
+                "[Content_Types].xml",
+                maximum=DEFAULT_LIMITS.max_xml_bytes,
+            )
             try:
+                validate_xml(
+                    "[Content_Types].xml",
+                    manifest,
+                    DEFAULT_LIMITS,
+                )
                 types = ElementTree.fromstring(manifest, forbid_dtd=True)
             except (ElementTree.ParseError, DefusedXmlException) as exc:
                 raise _mismatch(format_name, "OOXML content type manifest is malformed") from exc

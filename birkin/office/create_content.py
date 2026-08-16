@@ -149,7 +149,7 @@ def _presentation_plan(content: Content) -> PresentationPlan:
 
 def validate_plan(format_name: str, content: Mapping[str, object]) -> CreatePlan:
     normalized = as_content(content, "content")
-    if format_name in {"docx", "pdf"}:
+    if format_name in {"docx", "pdf", "hwpx"}:
         return _paragraph_plan(normalized, format_name)
     if format_name == "xlsx":
         return _workbook_plan(normalized)
