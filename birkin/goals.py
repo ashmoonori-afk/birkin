@@ -28,6 +28,7 @@ class GoalState:
     gate_last: dict[str, Any] | None
     created_at: str
     updated_at: str
+    session_id: str | None = None
 
 
 def _now() -> str:
@@ -44,8 +45,11 @@ def _slug(objective: str, limit: int = 48) -> str:
     return f"{normalized[:limit - 9].rstrip('-')}-{digest}"
 
 
-def _path(slug: str) -> Path:
-    return config.goals_dir() / f"{slug}.json"
+def _path(slug: str, session_id: str | None = None) -> Path:
+    if session_id is None:
+        return config.goals_dir() / f"{slug}.json"
+    digest = hashlib.sha256(session_id.encode()).hexdigest()[:12]
+    return config.goals_dir() / f"{slug}--{digest}.json"
 
 
 def _domain_lock() -> store.file_lock:
@@ -67,6 +71,11 @@ def _decode(value: Any) -> GoalState | None:
                        if isinstance(value.get("gate_last"), dict) else None),
             created_at=str(value["created_at"]),
             updated_at=str(value["updated_at"]),
+            session_id=(
+                str(value["session_id"])
+                if isinstance(value.get("session_id"), str)
+                else None
+            ),
         )
     except (KeyError, TypeError, ValueError):
         return None
@@ -81,15 +90,19 @@ def _load(path: Path) -> GoalState | None:
 
 
 def _save(state: GoalState) -> GoalState:
-    store._write_json(_path(state.slug), asdict(state))
+    payload = asdict(state)
+    if state.session_id is None:
+        payload.pop("session_id")
+    store._write_json(_path(state.slug, state.session_id), payload)
     return state
 
 
-def _active_unlocked() -> GoalState | None:
+def _active_unlocked(session_id: str | None = None) -> GoalState | None:
     active = []
     for path in config.goals_dir().glob("*.json"):
         state = _load(path)
-        if state is not None and state.status == "active":
+        if (state is not None and state.status == "active"
+                and state.session_id == session_id):
             active.append(state)
     if not active:
         return None
@@ -97,47 +110,61 @@ def _active_unlocked() -> GoalState | None:
                                           state.slug))
 
 
-def set_goal(objective: str, gate: str | None = None) -> GoalState:
+def set_goal(
+    objective: str,
+    gate: str | None = None,
+    *,
+    session_id: str | None = None,
+) -> GoalState:
     """Create a new active goal, pausing any currently active goal."""
     objective = str(objective or "").strip()
     if not objective:
         raise ValueError("goal objective must not be empty")
     gate_cmd = str(gate).strip() if gate is not None else None
     gate_cmd = gate_cmd or None
+    if session_id is not None:
+        from . import harness
+        session_id = harness.validate_working_session_id(session_id)
     now = _now()
     state = GoalState(
         slug=_slug(objective), objective=objective,
         tokens_used=0, status="active", gate_cmd=gate_cmd, gate_last=None,
-        created_at=now, updated_at=now)
+        created_at=now, updated_at=now, session_id=session_id)
     with _domain_lock():
         target_written = False
         for path in config.goals_dir().glob("*.json"):
             with store.file_lock(path):
                 current = _load(path)
-                if path == _path(state.slug):
+                if path == _path(state.slug, session_id):
                     _save(state)
                     target_written = True
-                elif current is not None and current.status == "active":
+                elif (current is not None and current.status == "active"
+                      and current.session_id == session_id):
                     _save(replace(current, status="paused", updated_at=now))
         if not target_written:
-            with store.file_lock(_path(state.slug)):
+            with store.file_lock(_path(state.slug, session_id)):
                 _save(state)
     return state
 
 
-def get_active() -> GoalState | None:
+def get_active(*, session_id: str | None = None) -> GoalState | None:
     """Return the active goal, if one exists."""
-    return _active_unlocked()
+    return _active_unlocked(session_id)
 
 
-def add_usage(input_tokens: int, output_tokens: int) -> GoalState | None:
+def add_usage(
+    input_tokens: int,
+    output_tokens: int,
+    *,
+    session_id: str | None = None,
+) -> GoalState | None:
     """Accumulate one turn's token usage onto the active goal."""
     input_count = max(0, int(input_tokens))
     output_count = max(0, int(output_tokens))
-    active = get_active()
+    active = get_active(session_id=session_id)
     if active is None:
         return None
-    path = _path(active.slug)
+    path = _path(active.slug, active.session_id)
     with store.file_lock(path):
         current = _load(path)
         if current is None or current.status != "active":
@@ -148,12 +175,14 @@ def add_usage(input_tokens: int, output_tokens: int) -> GoalState | None:
         return _save(updated)
 
 
-def _transition(status: str) -> GoalState | None:
+def _transition(
+    status: str, *, session_id: str | None = None
+) -> GoalState | None:
     with _domain_lock():
-        current = _active_unlocked()
+        current = _active_unlocked(session_id)
         if current is None:
             return None
-        path = _path(current.slug)
+        path = _path(current.slug, current.session_id)
         with store.file_lock(path):
             latest = _load(path)
             if latest is None or latest.status != "active":
@@ -161,14 +190,14 @@ def _transition(status: str) -> GoalState | None:
             return _save(replace(latest, status=status, updated_at=_now()))
 
 
-def pause() -> GoalState | None:
+def pause(*, session_id: str | None = None) -> GoalState | None:
     """Pause the active goal."""
-    return _transition("paused")
+    return _transition("paused", session_id=session_id)
 
 
-def done() -> GoalState | None:
+def done(*, session_id: str | None = None) -> GoalState | None:
     """Mark the active goal done."""
-    return _transition("done")
+    return _transition("done", session_id=session_id)
 
 
 def _short_objective(objective: str) -> str:
@@ -194,14 +223,14 @@ def render_status() -> str:
     return " | ".join(parts)
 
 
-def prompt_note() -> str:
+def prompt_note(*, session_id: str | None = None) -> str:
     """The active goal as one system-prompt block (empty when there is none).
 
     Persisting a goal the model never sees is bookkeeping, not steering, so
     every prompt assembled through :mod:`promptgate` carries the objective and
     the verifier that will decide completion.
     """
-    state = get_active()
+    state = get_active(session_id=session_id)
     if state is None:
         return ""
     lines = [f"- objective: {' '.join(state.objective.split())[:_OBJECTIVE_PROMPT]}"]
@@ -224,14 +253,14 @@ def request_completion(state: GoalState,
     gate never ran is not a goal that was met.
     """
     if not (state.gate_cmd or "").strip():
-        return done(), "done"
+        return done(session_id=state.session_id), "done"
     queued = not approvals.is_auto("shell", cfg)
     updated = run_gate(state, cfg)
     if queued:
         return updated, "queued"
     if not (updated.gate_last or {}).get("ok"):
         return updated, "failed"
-    return done(), "done"
+    return done(session_id=state.session_id), "done"
 
 
 def run_gate(state: GoalState, cfg: dict[str, Any]) -> GoalState:
@@ -249,8 +278,8 @@ def run_gate(state: GoalState, cfg: dict[str, Any]) -> GoalState:
             category="shell", title=f"goal verifier: {command[:60]}",
             description=f"Verify session goal '{state.objective[:120]}'.",
             payload={"command": command}, cfg=cfg, origin="goal")
-        with store.file_lock(_path(state.slug)):
-            current = _load(_path(state.slug)) or state
+        with store.file_lock(_path(state.slug, state.session_id)):
+            current = _load(_path(state.slug, state.session_id)) or state
             if current.gate_cmd != command:
                 current = _save(replace(current, gate_cmd=command,
                                         updated_at=_now()))
@@ -265,7 +294,7 @@ def run_gate(state: GoalState, cfg: dict[str, Any]) -> GoalState:
         ok = False
     gate_last = {"ok": ok, "output_tail": str(output)[-_GATE_OUTPUT_TAIL:],
                  "at": _now()}
-    with store.file_lock(_path(state.slug)):
-        current = _load(_path(state.slug)) or state
+    with store.file_lock(_path(state.slug, state.session_id)):
+        current = _load(_path(state.slug, state.session_id)) or state
         return _save(replace(current, gate_cmd=command, gate_last=gate_last,
                              updated_at=_now()))

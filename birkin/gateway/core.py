@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import re
 import sys
 import threading
@@ -16,6 +17,15 @@ from ..codex_session import CodexTurnTimeout
 from ..omo import OmoController
 from ..runtime import ConfigError, Session, build_session
 from .workflow import WORKFLOW_POLICY, is_running as workflow_is_running
+
+
+def conversation_session_id(channel: str, chat_id: str) -> str:
+    """Stable, path-safe Working Memory identity for one gateway conversation."""
+    label = re.sub(r"[^A-Za-z0-9]+", "-", str(channel)).strip("-") or "channel"
+    digest = hashlib.sha256(
+        f"{channel}\0{chat_id}".encode()
+    ).hexdigest()[:20]
+    return f"gateway-{label[:24]}-{digest}"
 
 
 def _utc_stamp() -> str:
@@ -329,6 +339,9 @@ def _restart_marker_path():
 
 class Gateway:
     def __init__(self, cfg: dict[str, Any]):
+        # A reachable conversation must never inherit the operator's legacy
+        # global goal. Gateway turns use only their deterministic session goal.
+        cfg = {**cfg, "session_goal_fallback": False}
         # The gateway may use its own (faster) model without affecting the REPL
         # or the nightly routine: config "gateway_model" overrides "model" for
         # this service only. A stale override from ANOTHER provider family
@@ -658,6 +671,7 @@ class Gateway:
                 return "OMO control is restricted to configured Telegram chat IDs."
             return UNTRUSTED_CHANNEL_REPLY
         key = (channel, str(chat_id))
+        turn_session_id = conversation_session_id(channel, str(chat_id))
         # The global lock guards only the shared bookkeeping (the _claude_sessions
         # / _chats dicts and the single shared self.session). The actual LLM turn
         # runs OUTSIDE it: a persistent ClaudeStreamSession has its own per-session
@@ -860,7 +874,8 @@ class Gateway:
                         sess,
                         self.session._prepare_cli_turn(
                             text, route_query=skill_query,
-                            skill_state=skill_state),
+                            skill_state=skill_state,
+                            session_id=turn_session_id),
                         on_text=on_text, on_progress=_watch_progress)
                 else:
                     # The non-persistent path shares the single self.session, so its
@@ -878,7 +893,8 @@ class Gateway:
                             reply = self.session.ask(
                                 text,
                                 review_skills=self._command_trusted(channel),
-                                route_query=skill_query)
+                                route_query=skill_query,
+                                session_id=turn_session_id)
                         finally:
                             if ctx is not None:
                                 ctx.subagent_approval_required = old_required
@@ -927,13 +943,15 @@ class Gateway:
                     print(f"[gateway] {channel}:{chat_id} ✗ Moirai recovery "
                           f"failed: {recovery_exc}", flush=True)
                     self._record_failed_turn(
-                        display_text, TURN_MOIRAI_RECOVERY_ERROR_REPLY, channel)
+                        display_text, TURN_MOIRAI_RECOVERY_ERROR_REPLY,
+                        channel, str(chat_id))
                     return TURN_MOIRAI_RECOVERY_ERROR_REPLY
                 reply = ((partial + "\n\n") if partial else "") + recovered
                 # A turn that died is exactly the turn worth learning from,
                 # and returning here skipped the self-improvement hook that
                 # the success path below runs.
-                self._record_failed_turn(display_text, reply, channel)
+                self._record_failed_turn(
+                    display_text, reply, channel, str(chat_id))
                 return reply
             except Exception as exc:
                 dt = time.monotonic() - t0
@@ -958,7 +976,8 @@ class Gateway:
             if persistent:
                 self.session._record_turn(
                     display_text, reply or "",
-                    review_skills=self._command_trusted(channel))
+                    review_skills=self._command_trusted(channel),
+                    session_id=turn_session_id)
             # Auto-save the turn so the nightly Morpheus routine can extract
             # memory — but ONLY for trusted conversations (an open Telegram bot's
             # strangers must not be persisted into long-term memory). Runs OUTSIDE
@@ -1245,11 +1264,17 @@ class Gateway:
         from .. import approvals
         approvals.restore_claim(aid)
 
-    def _record_failed_turn(self, display_text: str, reply: str,
-                            channel: str) -> None:
+    def _record_failed_turn(
+        self,
+        display_text: str,
+        reply: str,
+        channel: str,
+        chat_id: str,
+    ) -> None:
         self.session._record_turn(
             display_text, reply or "",
-            review_skills=self._command_trusted(channel))
+            review_skills=self._command_trusted(channel),
+            session_id=conversation_session_id(channel, chat_id))
 
     def _autosave_trusted(self, channel: str) -> bool:
         """Whether turns from ``channel`` may be auto-saved + memorized.

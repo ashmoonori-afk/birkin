@@ -46,14 +46,36 @@ def _filter_tool_guidance(system: str, cfg: dict[str, Any]) -> str:
     return system
 
 
-def _goal_note() -> str:
+def _goal_note(cfg: dict[str, Any]) -> str:
     """The persisted session goal, so the model is steered by it, not just billed.
 
     Imported lazily: ``goals`` pulls in the approval/cron graph, which prompt
     assembly itself has no need for.
     """
     from . import goals
+    session_id = cfg.get("session_id")
+    note = goals.prompt_note(
+        session_id=str(session_id) if session_id is not None else None
+    )
+    if (note or session_id is None
+            or cfg.get("session_goal_fallback", True) is False):
+        return note
     return goals.prompt_note()
+
+
+def _working_note(cfg: dict[str, Any]) -> str:
+    from . import harness
+
+    session_id = cfg.get("session_id")
+    if session_id is None:
+        return ""
+    block = harness.render_working(str(session_id))
+    return f"\n\n{block}" if block else ""
+
+
+def compose_turn_context(cfg: dict[str, Any]) -> str:
+    """Fresh mutable session state for warm CLI turns."""
+    return _goal_note(cfg) + _working_note(cfg)
 
 
 def _persona(persona_text: Optional[str]) -> str:
@@ -77,7 +99,8 @@ def compose_main(cfg: dict[str, Any], *, skills_index: str = "",
         ) \
         + neurosis.auto_trigger_note(cfg) \
         + moirai_trigger.auto_trigger_note(cfg) \
-        + _goal_note()
+        + _goal_note(cfg) \
+        + _working_note(cfg)
     from . import ide
     return prompts.seal_research_policy(system) + ide.consume_context_note()
 
@@ -99,7 +122,8 @@ def compose_cli(cfg: dict[str, Any], *, memory_block: str = "",
         ) \
         + neurosis.auto_trigger_note(cfg) \
         + moirai_trigger.auto_trigger_note(cfg) \
-        + _goal_note()
+        + _goal_note(cfg) \
+        + _working_note(cfg)
     from . import ide
     return prompts.seal_research_policy(system) + ide.consume_context_note()
 

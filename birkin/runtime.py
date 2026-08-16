@@ -15,7 +15,16 @@ from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import Any, Callable, Optional
 
-from . import budget, checkpoints, config, goals, hooks, promptgate, prompts, store
+from . import (
+    budget,
+    checkpoints,
+    config,
+    goals,
+    hooks,
+    promptgate,
+    prompts,
+    store,
+)
 from .agent import Agent
 from .llm import LLMClient, LLMError, build_client
 from .memory import Memory
@@ -68,17 +77,24 @@ class Session:
     # Monotonic stamp of the last harness review; 0.0 = never ran.
     _harness_last: float = 0.0
 
-    def refresh_system_prompt(self) -> None:
+    def refresh_system_prompt(self, *, session_id: str | None = None) -> None:
         """Rebuild the system prompt to reflect current skills/memory/persona.
 
         The persona (``SOUL.md``) is read fresh each turn so edits — and
         ``/personality`` swaps — take effect with no restart."""
+        turn_cfg = (
+            self.cfg
+            if session_id is None
+            else {**self.cfg, "session_id": session_id}
+        )
         self.agent.system = promptgate.compose_main(
-            self.cfg, skills_index=self.skills.index(),
+            turn_cfg, skills_index=self.skills.index(),
             memory_block=self.memory.render(),
-            harness_block=_harness_block(self.cfg))
+            harness_block=_harness_block(turn_cfg))
 
-    def _build_cli_system(self, text: str) -> None:
+    def _build_cli_system(
+        self, text: str, *, session_id: str | None = None
+    ) -> None:
         """For CLI-agent backends: inject identity + memory + skills routed to
         the request (they can't call load_skill themselves)."""
         preloaded = self._route_cli_skills(text)
@@ -104,10 +120,15 @@ class Session:
         # no such attribute at all.
         if getattr(self.client, "birkin_mcp", False):
             extra += prompts.cli_mcp_block()
+        turn_cfg = (
+            self.cfg
+            if session_id is None
+            else {**self.cfg, "session_id": session_id}
+        )
         self.agent.system = promptgate.compose_cli(
-            self.cfg, memory_block=self.memory.render(),
+            turn_cfg, memory_block=self.memory.render(),
             preloaded=preloaded or None, extra=extra,
-            harness_block=_harness_block(self.cfg))
+            harness_block=_harness_block(turn_cfg))
 
     def _route_cli_skills(self, text: str,
                           loaded_skills: set[str] | None = None) -> list[str]:
@@ -122,7 +143,8 @@ class Session:
         return [self.skills.render_skill(skill) for skill in fresh]
 
     def _prepare_cli_turn(self, text: str, *, route_query: str | None = None,
-                          skill_state: dict[str, Any] | None = None) -> str:
+                          skill_state: dict[str, Any] | None = None,
+                          session_id: str | None = None) -> str:
         self.skills.reload_if_changed(debounce=0.0)
         loaded_skills = None
         if skill_state is not None:
@@ -132,17 +154,30 @@ class Session:
                 skill_state["revision"] = self.skills.revision
         preloaded = self._route_cli_skills(
             text if route_query is None else route_query, loaded_skills)
-        if not preloaded:
+        turn_cfg = (
+            self.cfg
+            if session_id is None
+            else {**self.cfg, "session_id": session_id}
+        )
+        current = promptgate.compose_turn_context(turn_cfg)
+        if not preloaded and not current:
             return text
-        return ("## Birkin routed skills for this turn\n\n"
+        sections: list[str] = []
+        if current:
+            sections.append(current)
+        if preloaded:
+            sections.append(
+                "## Birkin routed skills for this turn\n\n"
                 + "\n\n".join(preloaded)
-                + "\n\n## User request\n\n" + text)
+            )
+        return "\n\n".join(sections) + "\n\n## User request\n\n" + text
 
     def ask(self, text: str,
             on_text: Optional[Callable[[str], None]] = None, *,
             review_skills: bool = True,
             route_query: str | None = None,
-            record_turn: bool = True) -> str:
+            record_turn: bool = True,
+            session_id: str | None = None) -> str:
         # Budget gate — refuse with a clear message instead of silently spending.
         over, why = budget.is_over(self.cfg)
         if over:
@@ -165,18 +200,29 @@ class Session:
                 self.ctx.checkpoints.ensure_checkpoint(
                     self.ctx.cwd, "before CLI turn")
         if self._use_warm():
-            reply = self._warm_ask(text, on_text)
+            reply = self._warm_ask(text, on_text, session_id=session_id)
             if record_turn:
-                self._record_turn(text, reply, review_skills=review_skills)
+                self._record_turn(
+                    text,
+                    reply,
+                    review_skills=review_skills,
+                    session_id=session_id,
+                )
             return reply
         if self.cfg.get("provider") in config.CLI_PROVIDERS:
             self._build_cli_system(
-                text if route_query is None else route_query)
+                text if route_query is None else route_query,
+                session_id=session_id)
         else:
-            self.refresh_system_prompt()
+            self.refresh_system_prompt(session_id=session_id)
         reply = self.agent.run(text, on_text=on_text, abort=self.abort)
         if record_turn:
-            self._record_turn(text, reply, review_skills=review_skills)
+            self._record_turn(
+                text,
+                reply,
+                review_skills=review_skills,
+                session_id=session_id,
+            )
         return reply
 
     def steer(self, text: str) -> bool:
@@ -197,12 +243,21 @@ class Session:
         return (bool(self.cfg.get("repl_warm_session"))
                 and self.cfg.get("provider") in ("claude-cli", "codex-cli"))
 
-    def _warm_ask(self, text: str,
-                  on_text: Optional[Callable[[str], None]]) -> str:
+    def _warm_ask(
+        self,
+        text: str,
+        on_text: Optional[Callable[[str], None]],
+        *,
+        session_id: str | None = None,
+    ) -> str:
         if self._warm is None:
             self._warm = self._build_warm()
         return self._warm.ask(
-            self._prepare_cli_turn(text, skill_state=self._warm_skill_state),
+            self._prepare_cli_turn(
+                text,
+                skill_state=self._warm_skill_state,
+                session_id=session_id,
+            ),
             on_text=on_text)
 
     def _build_warm(self):
@@ -248,8 +303,14 @@ class Session:
             self._warm = None
         self._warm_skill_state = {"revision": -1, "names": set()}
 
-    def _record_turn(self, text: str, reply: str, *,
-                     review_skills: bool = True) -> None:
+    def _record_turn(
+        self,
+        text: str,
+        reply: str,
+        *,
+        review_skills: bool = True,
+        session_id: str | None = None,
+    ) -> None:
         """Write an auditable run record (+ ledger line + usage) per chat turn."""
         input_usage = store.estimate_usage(self.agent.system, text)["estTokens"]
         output_usage = store.estimate_usage(reply or "")["estTokens"]
@@ -267,13 +328,27 @@ class Session:
             print(f"[birkin] warning: could not save run record: {exc}",
                   file=sys.stderr, flush=True)
         try:
-            goals.add_usage(input_usage, output_usage)
+            usage_session = (
+                session_id
+                if session_id is not None
+                else str(self.cfg["session_id"])
+            )
+            updated_goal = goals.add_usage(
+                input_usage,
+                output_usage,
+                session_id=usage_session,
+            )
+            if (updated_goal is None and session_id is None
+                    and self.cfg.get("session_goal_fallback", True)):
+                goals.add_usage(input_usage, output_usage)
         except Exception as exc:
             print(f"[birkin] warning: could not update goal usage: {exc}",
                   file=sys.stderr, flush=True)
         if review_skills:
             self._schedule_skill_review(text, reply)
-        self._schedule_harness_review(text, reply)
+        self._schedule_harness_review(
+            text, reply, session_id=session_id
+        )
 
     def _schedule_skill_review(self, text: str, reply: str) -> None:
         provider = self.cfg.get("provider")
@@ -334,7 +409,13 @@ class Session:
                 self._skill_review_thread = None
                 self._skill_review_turns = interval - 1
 
-    def _schedule_harness_review(self, text: str, reply: str) -> None:
+    def _schedule_harness_review(
+        self,
+        text: str,
+        reply: str,
+        *,
+        session_id: str | None = None,
+    ) -> None:
         """Review every ``harness_turn_interval`` turns, at most once per cooldown.
 
         Gate ordering is the cost control: the turn counter and the cooldown are
@@ -364,7 +445,14 @@ class Session:
             review_transcript = "\n\n".join(self._harness_transcripts)
             self._harness_transcripts.clear()
             review_ctx = copy.copy(self.ctx)
-            review_ctx.cfg = dict(self.cfg)
+            review_ctx.cfg = {
+                **self.cfg,
+                "session_id": (
+                    session_id
+                    if session_id is not None
+                    else self.cfg["session_id"]
+                ),
+            }
             review_ctx.client = copy.copy(self.ctx.client)
             provider = self.cfg.get("provider")
             review_model = self.cfg.get("model")
