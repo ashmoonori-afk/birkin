@@ -24,7 +24,7 @@ Production routing and engine boundary:
 - Office production AST scan found no process launch/discovery, network client, provider credential, or secret logging path.
 
 Clean base-only wheel:
-- Wheel: /tmp/birkin-office-base-wheel-final.JKP9s0/dist/birkin-0.4.227-py3-none-any.whl
+- Wheel: /tmp/birkin-final-release-wheel2.kV7aUM/dist/birkin-0.4.227-py3-none-any.whl
 - Installed packages: birkin, psutil, typing-extensions only.
 - Executed with python -I, empty provider credentials, blocked socket, blocked subprocess.Popen, and blocked subprocess.run.
 - DOCX/XLSX/PPTX/HWPX inspect, extract, validate, compare, and TXT conversion: passed.
@@ -44,3 +44,5 @@ Final targeted gates:
 - compileall: passed.
 - Bundled skill validation: 63 clean, 0 warnings, 0 errors.
 - uv lock --check: passed.
+- Definitive post-rebase `BIRKIN_BROWSER_INTEGRATION=1 uv run pytest -q`: passed.
+- Five independent final review lanes: passed after all findings were fixed.
