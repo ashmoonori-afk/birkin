@@ -1,8 +1,103 @@
 import importlib
-from birkin.office.adapters.base import CapabilityState,default_capabilities
+from pathlib import Path
 
-def test_adapter_capabilities_are_exhaustive_and_missing_extras_do_not_import_crash(monkeypatch):
-    caps=default_capabilities(read_only=True)
-    assert set(caps)=={'inspect','extract','compare','fill','patch','render','validate'}
-    assert all(c.state in {CapabilityState.AVAILABLE,CapabilityState.UNAVAILABLE,CapabilityState.READ_ONLY} and c.reason for c in caps.values())
-    assert importlib.import_module('birkin')
+from birkin.office.adapters.base import CapabilityState, default_capabilities
+from birkin.office.service import DocumentService
+
+FORMATS = {"docx", "xlsx", "pptx", "pdf", "hwpx"}
+CAPABILITIES = {
+    "inspect",
+    "extract",
+    "create",
+    "compare",
+    "fill",
+    "patch",
+    "render",
+    "validate",
+    "convert",
+}
+
+
+def test_adapter_capabilities_are_exhaustive_and_missing_extras_do_not_import_crash():
+    caps = default_capabilities(read_only=True)
+    assert set(caps) == CAPABILITIES
+    assert all(
+        c.state
+        in {
+            CapabilityState.AVAILABLE,
+            CapabilityState.UNAVAILABLE,
+            CapabilityState.READ_ONLY,
+        }
+        and c.reason
+        for c in caps.values()
+    )
+    assert importlib.import_module("birkin")
+
+
+def test_service_inventory_has_verified_provenance_and_truthful_capabilities(
+    tmp_path: Path,
+) -> None:
+    inventory = DocumentService(tmp_path).adapter_inventory()
+    assert {entry["format"] for entry in inventory} == FORMATS
+
+    for entry in inventory:
+        assert entry["standard_url"].startswith("https://")
+        assert set(entry["capabilities"]) == CAPABILITIES
+        assert all(
+            capability["state"]
+            in {
+                "native",
+                "lossless-surgical",
+                "conversion-only",
+                "read-only",
+                "unsupported",
+            }
+            and capability["reason"]
+            and capability["availability"]
+            for capability in entry["capabilities"].values()
+        )
+        assert entry["packages"]
+        assert all(
+            package["name"]
+            and package["repository_url"].startswith("https://")
+            and package["selection"] in {"conditional", "refuse"}
+            for package in entry["packages"]
+        )
+
+    by_format = {entry["format"]: entry for entry in inventory}
+    assert by_format["docx"]["packages"][0]["name"] == "python-docx"
+    assert by_format["xlsx"]["packages"][0]["name"] == "openpyxl"
+    assert by_format["pptx"]["packages"][0]["name"] == "python-pptx"
+    assert {package["name"] for package in by_format["pdf"]["packages"]} >= {
+        "Pillow",
+        "pypdf",
+        "pypdfium2",
+        "ReportLab",
+        "rfc8785",
+    }
+    assert all(
+        "rfc8785" in {package["name"] for package in entry["packages"]}
+        for entry in inventory
+    )
+    assert {"Pillow", "XlsxWriter"} <= {
+        package["name"] for package in by_format["pptx"]["packages"]
+    }
+    handoc_packages = {
+        package["name"]: package
+        for package in by_format["hwpx"]["packages"]
+        if package["name"].startswith("@handoc/")
+    }
+    assert set(handoc_packages) == {
+        "@handoc/hwpx-parser",
+        "@handoc/hwpx-writer",
+    }
+    assert all(
+        package["publication_status"] == "unpublished"
+        and package["version"] is None
+        and package["selection"] != "select"
+        and package["refusal_reason"]
+        for package in handoc_packages.values()
+    )
+    assert "@handoc/pdf-export" not in {
+        package["name"] for entry in inventory for package in entry["packages"]
+    }
