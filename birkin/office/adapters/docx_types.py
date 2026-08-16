@@ -1,11 +1,8 @@
 """Precise records returned by the DOCX fragmented-structure inventory."""
 
-from __future__ import annotations
-
 from collections import Counter
 from typing import TypedDict
 
-from ..typing_compat import NotRequired
 from .docx_nodes import DocxNode
 
 
@@ -26,19 +23,24 @@ class BoundaryRecord(RangeBoundary):
     id: str | None
 
 
-class StructureRange(TypedDict):
-    start: NotRequired[RangeBoundary | Point | None]
-    separate: NotRequired[Point | None]
-    end: NotRequired[RangeBoundary | Point | None]
-    zero_length: NotRequired[bool]
-    cross_paragraph: NotRequired[bool]
-    start_order: NotRequired[int]
-    end_order: NotRequired[int]
-    start_offset: NotRequired[int]
-    end_offset: NotRequired[int]
+class StructureRange(TypedDict, total=False):
+    start: RangeBoundary | Point | None
+    separate: Point | None
+    end: RangeBoundary | Point | None
+    zero_length: bool
+    cross_paragraph: bool
+    start_order: int
+    end_order: int
+    start_offset: int
+    end_offset: int
 
 
-class StructureRecord(TypedDict):
+class _StructureRecordOptional(TypedDict, total=False):
+    instruction: str | None
+    boundaries: list[RangeBoundary]
+
+
+class StructureRecord(_StructureRecordOptional):
     stable_id: str
     id: str | None
     type: str
@@ -46,8 +48,6 @@ class StructureRecord(TypedDict):
     state: str
     reasons: list[str]
     range: StructureRange
-    instruction: NotRequired[str | None]
-    boundaries: NotRequired[list[RangeBoundary]]
 
 
 class IssueRecord(TypedDict):

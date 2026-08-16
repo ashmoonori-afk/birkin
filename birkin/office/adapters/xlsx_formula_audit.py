@@ -1,12 +1,9 @@
 """Read-only, non-evaluating XLSX formula and calculation-state audit."""
 
-from __future__ import annotations
-
 import re
 from collections.abc import Mapping, Sequence
 from typing import TypedDict
 
-from ..typing_compat import NotRequired
 from .xlsx_types import Element
 
 
@@ -26,12 +23,15 @@ class FormulaCell(TypedDict):
     in_calculation_chain: bool
 
 
-class ChainEntry(TypedDict):
+class _ChainEntryOptional(TypedDict, total=False):
+    new_dependency_level: bool
+    child_chain: bool
+
+
+class ChainEntry(_ChainEntryOptional):
     sheet: str | None
     sheet_index: int | None
     cell: str
-    new_dependency_level: NotRequired[bool]
-    child_chain: NotRequired[bool]
 
 
 class DynamicArray(TypedDict):

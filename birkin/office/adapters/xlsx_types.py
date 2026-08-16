@@ -1,11 +1,7 @@
 """Typed XLSX locators, inventories, and surgical-edit receipts."""
 
-from __future__ import annotations
-
 from collections.abc import Iterator
 from typing import Literal, Protocol, TypedDict
-
-from ..typing_compat import NotRequired
 
 
 class Element(Protocol):
@@ -13,15 +9,18 @@ class Element(Protocol):
     attrib: dict[str, str]
     text: str | None
 
-    def iter(self) -> Iterator[Element]: ...
+    def iter(self) -> "Iterator[Element]": ...
     def itertext(self) -> Iterator[str]: ...
-    def __iter__(self) -> Iterator[Element]: ...
+    def __iter__(self) -> "Iterator[Element]": ...
 
 
-class SheetLocator(TypedDict):
+class _SheetLocatorOptional(TypedDict, total=False):
+    sheet_id: str
+    part_uri: str
+
+
+class SheetLocator(_SheetLocatorOptional):
     sheet: str
-    sheet_id: NotRequired[str]
-    part_uri: NotRequired[str]
 
 
 class CellLocator(SheetLocator):

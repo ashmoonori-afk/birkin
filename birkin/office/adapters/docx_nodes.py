@@ -1,7 +1,5 @@
 """Stable, JSON-safe locators for editable DOCX story nodes."""
 
-from __future__ import annotations
-
 import hashlib
 import html
 import re
@@ -9,7 +7,6 @@ from collections.abc import Mapping
 from typing import Literal, TypedDict
 
 from ..errors import DocumentError, DocumentErrorCode
-from ..typing_compat import NotRequired
 from .ooxml_surgery import element_blocks
 
 DocxNodeKind = Literal["paragraph", "run", "table"]
@@ -23,7 +20,12 @@ class DocxLocator(TypedDict):
     fingerprint: str
 
 
-class DocxNode(TypedDict):
+class _DocxNodeOptional(TypedDict, total=False):
+    parent_id: str | None
+    parent_type: str | None
+
+
+class DocxNode(_DocxNodeOptional):
     locator: DocxLocator
     text: str
     part: str
@@ -31,8 +33,6 @@ class DocxNode(TypedDict):
     kind: DocxNodeKind
     index: int
     table_depth: int
-    parent_id: NotRequired[str | None]
-    parent_type: NotRequired[str | None]
 
 
 _STORY = re.compile(
