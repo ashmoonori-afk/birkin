@@ -1,3 +1,6 @@
+<div align="center">
+
+<img src="./docs/assets/birkin-hero-courier.png" alt="전령을 앞지르는 구조화된 로컬 에이전트 Birkin" width="820" />
 
 # birkin
 
@@ -841,5 +844,3 @@ CI는 Ubuntu/Python 3.10, macOS/Python 3.13, Windows/Python 3.13에서 파이썬
 ## 라이선스
 
 [MIT](./LICENSE). Attribution은 [NOTICE](./NOTICE)를 참고하십시오.
-
-[Showing lines 4-846 of 846; earlier output dropped]
