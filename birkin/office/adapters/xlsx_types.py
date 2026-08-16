@@ -2,7 +2,20 @@
 
 from __future__ import annotations
 
-from typing import Literal, NotRequired, TypedDict
+from collections.abc import Iterator
+from typing import Literal, Protocol, TypedDict
+
+from ..typing_compat import NotRequired
+
+
+class Element(Protocol):
+    tag: str
+    attrib: dict[str, str]
+    text: str | None
+
+    def iter(self) -> Iterator[Element]: ...
+    def itertext(self) -> Iterator[str]: ...
+    def __iter__(self) -> Iterator[Element]: ...
 
 
 class SheetLocator(TypedDict):

@@ -6,9 +6,10 @@ import hashlib
 import html
 import re
 from collections.abc import Mapping
-from typing import Literal, NotRequired, TypedDict
+from typing import Literal, TypedDict
 
 from ..errors import DocumentError, DocumentErrorCode
+from ..typing_compat import NotRequired
 from .ooxml_surgery import element_blocks
 
 DocxNodeKind = Literal["paragraph", "run", "table"]

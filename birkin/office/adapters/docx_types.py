@@ -3,8 +3,9 @@
 from __future__ import annotations
 
 from collections import Counter
-from typing import NotRequired, TypedDict
+from typing import TypedDict
 
+from ..typing_compat import NotRequired
 from .docx_nodes import DocxNode
 
 

@@ -3,18 +3,11 @@
 from __future__ import annotations
 
 import re
-from collections.abc import Iterator, Mapping, Sequence
-from typing import NotRequired, Protocol, TypedDict
+from collections.abc import Mapping, Sequence
+from typing import TypedDict
 
-
-class Element(Protocol):
-    tag: str
-    attrib: dict[str, str]
-    text: str | None
-
-    def iter(self) -> Iterator[Element]: ...
-    def itertext(self) -> Iterator[str]: ...
-    def __iter__(self) -> Iterator[Element]: ...
+from ..typing_compat import NotRequired
+from .xlsx_types import Element
 
 
 class FormulaCell(TypedDict):
