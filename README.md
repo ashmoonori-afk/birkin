@@ -307,14 +307,15 @@ structured state for one session containing the goal, user corrections,
 constraints, decisions, incomplete items, evidence, and next actions.
 
 Each agent turn reloads the existing session-local harness journal at
-`$BIRKIN_HOME/sessions/<session>/harness/harness_state.json` through the
-Prompt-Gate. Context compaction therefore cannot summarize it away, and a
-process that resumes the same stable session ID reloads the same state. The
-objective and completion verifier remain canonical in `goals.py`; the harness
-journal owns corrections, constraints, decisions, incomplete items, evidence,
-and next actions. Updates are locked and atomically replaced, repeated list
-values are deduplicated, and a new `--goal` replaces that session's previous
-goal.
+`$BIRKIN_HOME/sessions/<normalized-label>--<sha256-prefix>/harness/harness_state.json`
+through the Prompt-Gate. The hash makes valid session IDs collision-safe across
+platforms; an unambiguous older literal session directory is moved to this form
+on first access. Context compaction therefore cannot summarize it away, and a process
+that resumes the same stable session ID reloads the same state. The objective
+and completion verifier remain canonical in `goals.py`; the harness journal
+owns corrections, constraints, decisions, incomplete items, evidence, and next
+actions. Updates are locked and atomically replaced, repeated list values are
+deduplicated, and a new `--goal` replaces that session's previous goal.
 
 ```bash
 birkin working-memory update \
@@ -543,14 +544,14 @@ Run `birkin --help` or `birkin <command> --help` for the complete interface.
 
 </details>
 
-Environment variables remain the right place for provider secrets. `api_keys` names environment-variable pools; it is not a place to paste raw keys. `a2a_enabled` is opt-in. Enforced egress disables uninspected native network paths and allows only configured destinations through Birkin's inspected tools. A sandboxed gateway child can submit a shell request through `propose_action`; Birkin queues it for approval instead of running it inside the child sandbox.
+Environment variables remain the right place for provider secrets. `api_keys` names environment-variable pools; it is not a place to paste raw keys. `a2a_enabled` is opt-in. Enforced egress disables uninspected native network paths and allows only configured destinations through Birkin's inspected tools. A sandboxed gateway child can submit a shell request through `propose_action`; Birkin queues it for approval instead of running it inside the child sandbox. An empty Telegram `allowed_chat_ids` list permits public text-only turns for Claude/native providers, but strips semantic memory, harness state/review, transcript persistence, Birkin/company MCP, and native tools. Codex CLI cannot provide an equivalent tool-free child, so its Telegram gateway requires an explicit chat allowlist. Public replies cannot trigger attachment delivery or workflow persistence, and shared-state commands such as `/neurosis` require an allowlisted chat.
 
 ## Development
 
 ```bash
 python -m pip install -e ".[dev]"
 python -m compileall -q birkin
-python -m pytest
+python -m pytest --cov-fail-under=75
 
 cd vscode-extension
 npm ci

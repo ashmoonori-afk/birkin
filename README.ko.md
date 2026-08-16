@@ -307,8 +307,10 @@ Birkin은 현재 작업 계약을 first-class **Working Memory**로 유지합니
 상태입니다.
 
 각 agent turn은 기존 session-local harness journal인
-`$BIRKIN_HOME/sessions/<session>/harness/harness_state.json`을
-Prompt-Gate를 통해 다시 읽습니다. 따라서 context compaction이 이 상태를
+`$BIRKIN_HOME/sessions/<normalized-label>--<sha256-prefix>/harness/harness_state.json`을
+Prompt-Gate를 통해 다시 읽습니다. Hash가 유효한 session ID 사이의
+cross-platform 충돌을 방지하며, 모호하지 않은 기존 literal session
+directory는 최초 접근 때 이 형식으로 이동합니다. 따라서 context compaction이 이 상태를
 요약해 없앨 수 없고, 동일한 안정적 session ID로 process를 재개하면 같은
 상태를 복구합니다. Objective와 completion verifier는 계속 `goals.py`가
 canonical하게 소유하고, harness journal은 교정·제약·결정·미완료 항목·
@@ -544,14 +546,16 @@ birkin working-memory clear --session issue-123
 
 </details>
 
-Provider secret은 환경 변수에 두는 것이 원칙입니다. `api_keys`는 환경 변수 pool의 이름이며 raw key를 붙여 넣는 곳이 아닙니다. `a2a_enabled`는 opt-in입니다. Enforced egress는 검사되지 않은 네이티브 network 경로를 비활성화하고 설정된 destination만 Birkin의 inspected tool을 통해 허용합니다. Sandbox 안의 gateway child는 `propose_action`으로 shell 요청을 제출할 수 있고, Birkin은 이를 child sandbox에서 실행하지 않고 승인 큐에 넣습니다.
+Provider secret은 환경 변수에 두는 것이 원칙입니다. `api_keys`는 환경 변수 pool의 이름이며 raw key를 붙여 넣는 곳이 아닙니다. `a2a_enabled`는 opt-in입니다. Enforced egress는 검사되지 않은 네이티브 network 경로를 비활성화하고 설정된 destination만 Birkin의 inspected tool을 통해 허용합니다. Sandbox 안의 gateway child는 `propose_action`으로 shell 요청을 제출할 수 있고, Birkin은 이를 child sandbox에서 실행하지 않고 승인 큐에 넣습니다. Telegram의 `allowed_chat_ids`가 비어 있으면 Claude/native provider에서는 public text-only turn만 허용하고 semantic memory, harness state/review, transcript persistence, Birkin/company MCP, native tool을 모두 제거합니다. 동등한 tool-free child를 제공할 수 없는 Codex CLI의 Telegram gateway는 명시적인 chat allowlist가 필요합니다.
+Public reply는 attachment 전달이나 workflow persistence를 trigger할 수 없고,
+`/neurosis` 같은 shared-state command는 allowlist에 포함된 chat에서만 허용됩니다.
 
 ## 개발
 
 ```bash
 python -m pip install -e ".[dev]"
 python -m compileall -q birkin
-python -m pytest
+python -m pytest --cov-fail-under=75
 
 cd vscode-extension
 npm ci
