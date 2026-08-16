@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import argparse
+import importlib
 import json
 import os
 import sys
@@ -12,19 +13,22 @@ ROOT = Path(__file__).resolve().parents[2]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from birkin.office.conversion_audit import LOSS_CATEGORIES
-from birkin.tools import build_registry
-from birkin.tools._types import ToolContext
-from script.qa.office_dogfood_fixtures import (
-    artifact,
-    docx_fixture,
-    extracted_text,
-    hwpx_fixture,
-    receipt,
-    reopen,
-    sha256,
-    zip_fixture,
-)
+_conversion_audit = importlib.import_module("birkin.office.conversion_audit")
+_tools = importlib.import_module("birkin.tools")
+_tool_types = importlib.import_module("birkin.tools._types")
+_dogfood_fixtures = importlib.import_module("script.qa.office_dogfood_fixtures")
+
+LOSS_CATEGORIES = _conversion_audit.LOSS_CATEGORIES
+build_registry = _tools.build_registry
+ToolContext = _tool_types.ToolContext
+artifact = _dogfood_fixtures.artifact
+docx_fixture = _dogfood_fixtures.docx_fixture
+extracted_text = _dogfood_fixtures.extracted_text
+hwpx_fixture = _dogfood_fixtures.hwpx_fixture
+receipt = _dogfood_fixtures.receipt
+reopen = _dogfood_fixtures.reopen
+sha256 = _dogfood_fixtures.sha256
+zip_fixture = _dogfood_fixtures.zip_fixture
 
 FORMATS = ("docx", "xlsx", "pptx", "pdf", "hwpx")
 LOSS_BUDGET = {category: 100 for category in LOSS_CATEGORIES}

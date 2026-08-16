@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import argparse
+import importlib
 import json
 import os
 import shutil
@@ -14,32 +15,41 @@ ROOT = Path(__file__).resolve().parents[2]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from birkin.office.adapters.pdf import PdfAdapter
-from birkin.office.adapters.pptx import PptxAdapter
-from birkin.office.adapters.xlsx import XlsxAdapter
-from birkin.office.conversion_audit import LOSS_CATEGORIES
-from birkin.office.errors import DocumentError
-from birkin.office.legacy_conversion import convert_legacy
-from birkin.office.legacy_preflight import preflight_legacy
-from birkin.office.legacy_types import (
-    LegacyConversionRequest,
-    LegacyEnginePin,
-    LegacyRefusal,
-)
-from birkin.tools import build_registry
-from birkin.tools._types import ToolContext
-from script.qa.office_complex_fixtures import (
-    artifact,
-    docx,
-    hwpx,
-    odf_and_legacy,
-    part_hashes,
-    pdfs,
-    pptx,
-    sha256,
-    xlsx,
-)
-from script.qa.office_complex_report import write_bounded_report
+_pdf_adapter = importlib.import_module("birkin.office.adapters.pdf")
+_pptx_adapter = importlib.import_module("birkin.office.adapters.pptx")
+_xlsx_adapter = importlib.import_module("birkin.office.adapters.xlsx")
+_conversion_audit = importlib.import_module("birkin.office.conversion_audit")
+_errors = importlib.import_module("birkin.office.errors")
+_legacy_conversion = importlib.import_module("birkin.office.legacy_conversion")
+_legacy_preflight = importlib.import_module("birkin.office.legacy_preflight")
+_legacy_types = importlib.import_module("birkin.office.legacy_types")
+_tools = importlib.import_module("birkin.tools")
+_tool_types = importlib.import_module("birkin.tools._types")
+_complex_fixtures = importlib.import_module("script.qa.office_complex_fixtures")
+_complex_report = importlib.import_module("script.qa.office_complex_report")
+
+PdfAdapter = _pdf_adapter.PdfAdapter
+PptxAdapter = _pptx_adapter.PptxAdapter
+XlsxAdapter = _xlsx_adapter.XlsxAdapter
+LOSS_CATEGORIES = _conversion_audit.LOSS_CATEGORIES
+DocumentError = _errors.DocumentError
+convert_legacy = _legacy_conversion.convert_legacy
+preflight_legacy = _legacy_preflight.preflight_legacy
+LegacyConversionRequest = _legacy_types.LegacyConversionRequest
+LegacyEnginePin = _legacy_types.LegacyEnginePin
+LegacyRefusal = _legacy_types.LegacyRefusal
+build_registry = _tools.build_registry
+ToolContext = _tool_types.ToolContext
+artifact = _complex_fixtures.artifact
+docx = _complex_fixtures.docx
+hwpx = _complex_fixtures.hwpx
+odf_and_legacy = _complex_fixtures.odf_and_legacy
+part_hashes = _complex_fixtures.part_hashes
+pdfs = _complex_fixtures.pdfs
+pptx = _complex_fixtures.pptx
+sha256 = _complex_fixtures.sha256
+xlsx = _complex_fixtures.xlsx
+write_bounded_report = _complex_report.write_bounded_report
 
 FORMATS = ("docx", "xlsx", "pptx", "pdf", "hwpx")
 CREATE: dict[str, dict[str, object]] = {

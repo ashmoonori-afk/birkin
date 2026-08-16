@@ -1,5 +1,14 @@
+from typing import Any
+
+from birkin import compaction, lineage
 from birkin.agent import Agent
-from birkin.tools import ToolResult
+from birkin.llm import LLMClient, StreamCallback
+
+
+class FakeToolResult:
+    def __init__(self, content: str) -> None:
+        self.content: str | list[dict[str, Any]] = content
+        self.is_error = False
 
 
 class FakeRegistry:
@@ -8,26 +17,42 @@ class FakeRegistry:
     def __init__(self):
         self.calls: list[str] = []
 
-    def specs(self):
+    def specs(self) -> list[dict[str, Any]]:
         return [
             {"name": "read_file", "description": "d", "input_schema": {}},
             {"name": "create_skill", "description": "d", "input_schema": {}},
         ]
 
-    def execute(self, name, tool_input):
+    def execute(
+        self,
+        name: str,
+        tool_input: dict[str, Any],
+    ) -> FakeToolResult:
         self.calls.append(name)
-        return ToolResult(f"ok:{name}")
+        return FakeToolResult(f"ok:{name}")
 
 
-class FakeClient:
-    provider = "anthropic"
-    model = "m"
-
-    def __init__(self, script):
+class FakeClient(LLMClient):
+    def __init__(self, script: list[dict[str, str]]) -> None:
+        super().__init__(
+            provider="anthropic",
+            model="m",
+            api_key="",
+            base_url="https://example.invalid",
+        )
         self.script = list(script)
         self.systems: list[str] = []
 
-    def complete(self, *, system, messages, tools, model=None, on_text=None, abort=None):
+    def complete(
+        self,
+        *,
+        system: str,
+        messages: list[dict[str, Any]],
+        tools: list[dict[str, Any]] | None = None,
+        model: str | None = None,
+        on_text: StreamCallback = None,
+        abort: Any | None = None,
+    ) -> dict[str, Any]:
         self.systems.append(system)
         step = self.script.pop(0) if self.script else {"type": "text", "text": "done"}
         if step["type"] == "tool":
@@ -99,3 +124,88 @@ def test_self_improve_off_no_nudge():
                   skill_nudge_interval=1, memory_nudge_interval=1)
     agent.run("x")
     assert agent._pending_nudge == ""
+
+
+def test_untrusted_turn_skips_pre_llm_hooks():
+    class Hook:
+        calls = 0
+
+        def pre_llm(self, *_args, **_kwargs):
+            self.calls += 1
+            return "private hook context"
+
+    hook = Hook()
+    client = FakeClient([{"type": "text", "text": "done"}])
+    agent = Agent(
+        client=client,
+        system="PUBLIC",
+        registry=FakeRegistry(),
+        hooks=hook,
+    )
+
+    assert agent.run("hello", trusted=False) == "done"
+    assert hook.calls == 0
+    assert "private hook context" not in client.systems[-1]
+
+
+def test_untrusted_turn_does_not_consume_or_mutate_nudge_state():
+    client = FakeClient([{"type": "text", "text": "done"}])
+    agent = Agent(
+        client=client,
+        system="PUBLIC",
+        registry=FakeRegistry(),
+        memory_nudge_interval=1,
+        skill_nudge_interval=1,
+    )
+    agent._pending_nudge = "PRIVATE NUDGE"
+    agent._turns_since_memory = 7
+    agent._iters_since_skill = 9
+
+    assert agent.run("hello", trusted=False) == "done"
+
+    assert "PRIVATE NUDGE" not in client.systems[-1]
+    assert agent._pending_nudge == "PRIVATE NUDGE"
+    assert agent._turns_since_memory == 7
+    assert agent._iters_since_skill == 9
+
+
+def test_untrusted_turn_does_not_consume_private_steering():
+    client = FakeClient([{"type": "text", "text": "done"}])
+    agent = Agent(
+        client=client,
+        system="PUBLIC",
+        registry=FakeRegistry(),
+    )
+    agent.steer("PRIVATE STEERING")
+
+    assert agent.run("hello", trusted=False) == "done"
+    assert agent._drain_steer() == "PRIVATE STEERING"
+
+
+def test_untrusted_turn_compaction_does_not_persist_lineage(monkeypatch):
+    snapshots: list[list[dict[str, Any]]] = []
+    monkeypatch.setattr(compaction, "should_compact", lambda *_args: True)
+    monkeypatch.setattr(
+        compaction,
+        "compact",
+        lambda _client, messages, **_kwargs: messages[-1:],
+    )
+    monkeypatch.setattr(
+        lineage,
+        "snapshot",
+        lambda messages, **_kwargs: snapshots.append(messages) or "snapshot",
+    )
+    client = FakeClient([{"type": "text", "text": "done"}])
+    agent = Agent(
+        client=client,
+        system="PUBLIC",
+        registry=FakeRegistry(),
+        context_window=1,
+    )
+    agent.messages = [
+        {"role": "user", "content": [{"type": "text", "text": str(i)}]}
+        for i in range(8)
+    ]
+
+    assert agent.run("hello", trusted=False) == "done"
+    assert snapshots == []

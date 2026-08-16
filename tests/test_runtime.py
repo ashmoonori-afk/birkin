@@ -43,6 +43,27 @@ def test_build_session_assigns_a_stable_unique_harness_session_id():
     assert named.cfg["session_id"] == "saved-session"
 
 
+def test_legacy_agent_run_signature_stays_compatible_and_fails_closed(
+        monkeypatch):
+    session = build_session({"provider": "codex-cli", "model": ""})
+    session.cfg["provider"] = "anthropic"
+    calls: list[str] = []
+
+    def legacy_run(text, on_text=None, abort=None):
+        calls.append(text)
+        return "legacy reply"
+
+    monkeypatch.setattr(session.agent, "run", legacy_run)
+
+    assert session.ask("trusted", record_turn=False) == "legacy reply"
+    with pytest.raises(
+        ConfigError,
+        match="cannot enforce untrusted turn isolation",
+    ):
+        session.ask("public", trusted=False, record_turn=False)
+    assert calls == ["trusted"]
+
+
 def test_record_turn_writes_run_and_ledger():
     s = build_session({"provider": "codex-cli", "model": ""})
     s._record_turn("hello there", "hi back\nsecond line")

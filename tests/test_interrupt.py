@@ -11,7 +11,7 @@ from typing import ClassVar
 import pytest
 
 from birkin import pools
-from birkin.gateway.core import Gateway
+from birkin.gateway.core import Gateway, TURN_ERROR_REPLY
 
 
 class _BufferPopen(subprocess.Popen[str]):
@@ -29,8 +29,21 @@ def _buffer_popen(stdin: io.StringIO | None = None) -> _BufferPopen:
 def _gateway(tmp_path, monkeypatch):
     monkeypatch.setenv("BIRKIN_HOME", str(tmp_path))
     from birkin import config
-    config.save_config({**config.DEFAULT_CONFIG, "provider": "codex-cli",
-                        "model": "gpt-5.6-sol", "gateway_prewarm": False})
+    config.save_config({
+        **config.DEFAULT_CONFIG,
+        "provider": "codex-cli",
+        "model": "gpt-5.6-sol",
+        "gateway_prewarm": False,
+        "channels": {
+            **config.DEFAULT_CONFIG["channels"],
+            "telegram": {
+                "enabled": True,
+                "token": "test-token",
+                "allowed_chat_ids": ["42"],
+                "stream": True,
+            },
+        },
+    })
     from birkin.gateway.core import Gateway
     return Gateway(config.load_config())
 
@@ -174,8 +187,7 @@ def test_gateway_releases_session_after_pre_ask_error(tmp_path, monkeypatch):
         gw, "_command_trusted",
         lambda _channel: (_ for _ in ()).throw(RuntimeError("trust failed")))
 
-    with pytest.raises(RuntimeError, match="trust failed"):
-        gw.handle("http", "42", "hello")
+    assert gw.handle("http", "42", "hello") == TURN_ERROR_REPLY
     _assert_released(pool, session)
 
 

@@ -4,11 +4,14 @@ from __future__ import annotations
 
 import json
 import threading
+from collections.abc import Sequence
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Protocol, Sequence
+from typing import ClassVar, Protocol, cast, runtime_checkable
 
-from .omo_rpc import OmoRpcClient, OmoState, RpcError
+from .omo_bridge import install_bridge_extension
+from .omo_live import DeliveryAck, OmoLiveClient
+from .omo_rpc import OmoState, RpcError
 
 
 class Rpc(Protocol):
@@ -21,6 +24,17 @@ class Rpc(Protocol):
     def get_state(self) -> OmoState: ...
     def get_last_assistant_text(self) -> str | None: ...
     def close(self) -> None: ...
+
+
+@runtime_checkable
+class MultiSessionRpc(Protocol):
+    """Direct exact-ID delivery supported by live-session clients."""
+
+    def send_to_sessions(
+        self,
+        session_ids: Sequence[str],
+        message: str,
+    ) -> tuple[DeliveryAck, ...]: ...
 
 
 @dataclass(frozen=True, slots=True)
@@ -72,10 +86,20 @@ def list_sessions(roots: Sequence[Path], limit: int = 10) -> list[SessionInfo]:
     for modified_at, path in sorted(candidates, reverse=True):
         try:
             with path.open(encoding="utf-8") as handle:
-                header = json.loads(handle.readline())
+                decoded = cast(object, json.loads(handle.readline()))
+            if not isinstance(decoded, dict):
+                continue
+            header = cast(dict[str, object], decoded)
             if header.get("type") != "session" or not header.get("id"):
                 continue
-            sessions.append(SessionInfo(str(header["id"]), str(header.get("cwd") or ""), path, modified_at))
+            sessions.append(
+                SessionInfo(
+                    str(header["id"]),
+                    str(header.get("cwd") or ""),
+                    path,
+                    modified_at,
+                )
+            )
         except (OSError, UnicodeError, json.JSONDecodeError):
             continue
         if len(sessions) >= limit:
@@ -86,20 +110,26 @@ def list_sessions(roots: Sequence[Path], limit: int = 10) -> list[SessionInfo]:
 class OmoController:
     """Select and control one local OMO session from a trusted chat."""
 
-    HELP = ("OMO session control\n"
+    HELP: ClassVar[str] = ("OMO session control\n"
             "/omo list [count] - recent sessions\n"
-            "/omo use <id-prefix> - select a session\n"
-            "/omo send <prompt> - start a turn in the background\n"
+            "/omo use <id-prefix> - select an exact live session\n"
+            "/omo send <prompt> - start a turn in the selected live session\n"
+            "/omo send-to <id>[,<id>...] -- <prompt> - exact live delivery\n"
             "/omo steer <message> - steer a running turn\n"
             "/omo abort - interrupt the running turn\n"
             "/omo status - inspect the selected session\n"
-            "/omo last - show its latest assistant reply")
+            "/omo last - show its latest assistant reply\n"
+            "/omo bridge install - install the live-session extension")
 
     def __init__(self, rpc: Rpc | None = None, session_roots: Sequence[Path] | None = None) -> None:
-        self._rpc = rpc or OmoRpcClient()
-        self._roots = tuple(session_roots) if session_roots is not None else default_session_roots()
+        self._rpc: Rpc = rpc if rpc is not None else OmoLiveClient()
+        self._roots: tuple[Path, ...] = (
+            tuple(session_roots)
+            if session_roots is not None
+            else default_session_roots()
+        )
         self._selected: SessionInfo | None = None
-        self._operation_lock = threading.Lock()
+        self._operation_lock: threading.Lock = threading.Lock()
         self._prompt_thread: threading.Thread | None = None
         self._prompt_error: str | None = None
 
@@ -116,6 +146,10 @@ class OmoController:
                 return self._list(argument)
             if command == "use":
                 return self._use(argument)
+            if command == "send-to":
+                return self._send_to(argument)
+            if command == "bridge":
+                return self._bridge(argument)
             if self._selected is None and command in {"send", "steer", "abort", "stop", "interrupt", "status", "last"}:
                 return "Select a session first with /omo use <id-prefix>."
             if command == "send":
@@ -148,6 +182,34 @@ class OmoController:
             marker = "*" if self._selected and self._selected.path == session.path else " "
             rows.append(f"{marker} {session.session_id}  {session.cwd}")
         return "\n".join(rows)
+
+    def _send_to(self, argument: str) -> str:
+        target_text, separator, message = argument.partition(" -- ")
+        if not separator or not target_text.strip() or not message.strip():
+            return "Usage: /omo send-to <id>[,<id>...] -- <prompt>"
+        if not isinstance(self._rpc, MultiSessionRpc):
+            raise OmoCommandError("Configured OMO backend has no live-session bridge.")
+        session_ids = tuple(
+            session_id.strip()
+            for session_id in target_text.split(",")
+            if session_id.strip()
+        )
+        acknowledgements = self._rpc.send_to_sessions(session_ids, message.strip())
+        return "\n".join(
+            f"{ack.session_id} accepted {ack.request_id}"
+            for ack in acknowledgements
+            if ack.accepted
+        )
+
+    @staticmethod
+    def _bridge(argument: str) -> str:
+        if argument != "install":
+            return "Usage: /omo bridge install"
+        destination = install_bridge_extension()
+        return (
+            f"Installed the OMO live bridge at {destination}. "
+            "Reload each open OMO session if it does not reload automatically."
+        )
 
     def _use(self, prefix: str) -> str:
         if not prefix:
@@ -190,7 +252,7 @@ class OmoController:
 
     def _run_prompt(self, message: str) -> None:
         try:
-            self._rpc.prompt(message)
+            _ = self._rpc.prompt(message)
         except (OSError, RpcError, ValueError) as exc:
             with self._operation_lock:
                 self._prompt_error = str(exc)

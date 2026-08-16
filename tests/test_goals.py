@@ -34,6 +34,30 @@ def test_set_goal_validates_objective():
         goals.set_goal("  ")
 
 
+def test_session_goals_do_not_replace_each_other():
+    first = goals.set_goal("First session goal", session_id="session-one")
+    second = goals.set_goal("Second session goal", session_id="session-two")
+
+    assert first.session_id == "session-one"
+    assert second.session_id == "session-two"
+    assert goals.get_active(session_id="session-one") == first
+    assert goals.get_active(session_id="session-two") == second
+    assert "First session goal" in goals.prompt_note(session_id="session-one")
+    assert "Second session goal" not in goals.prompt_note(
+        session_id="session-one"
+    )
+
+
+def test_explicit_session_never_falls_back_to_global_goal():
+    global_goal = goals.set_goal("Private local goal")
+
+    assert goals.prompt_note(session_id="gateway-conversation") == ""
+    assert goals.add_usage(
+        10, 20, session_id="gateway-conversation"
+    ) is None
+    assert goals.get_active() == global_goal
+
+
 def test_usage_accumulates_and_pause_done_are_persisted():
     goals.set_goal("Count this turn")
     assert goals.add_usage(3, 4).tokens_used == 7

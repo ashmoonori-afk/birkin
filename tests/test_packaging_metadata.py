@@ -40,8 +40,8 @@ def test_package_versions_match() -> None:
     assert _project()["version"] == __version__
 
 
-def test_core_install_has_no_runtime_dependencies() -> None:
-    assert _project()["dependencies"] == []
+def test_core_install_has_only_process_identity_dependency() -> None:
+    assert _project()["dependencies"] == ["psutil>=6"]
 
 
 def test_feature_extras_are_split_and_full_is_their_union() -> None:
@@ -50,8 +50,11 @@ def test_feature_extras_are_split_and_full_is_their_union() -> None:
         "voice": {"openai[realtime,voice_helpers]>=2.53,<3"},
         "desktop": {
             "Pillow>=11,<13",
+            "pyobjc-framework-ApplicationServices>=12.0; sys_platform == 'darwin'",
             "pyobjc-framework-Quartz>=12.0; sys_platform == 'darwin'",
+            "python-xlib>=0.33; sys_platform == 'linux'",
             "pywinctl>=0.4.1; sys_platform == 'linux'",
+            "pywinauto>=0.6.9; sys_platform == 'win32'",
             "pywin32>=308; sys_platform == 'win32'",
         },
         "office": {
@@ -78,7 +81,7 @@ def test_feature_extras_are_split_and_full_is_their_union() -> None:
 
 def test_p3_extras_are_optional_and_core_ci_installs_no_new_p3_distributions() -> None:
     extras = _project()["optional_dependencies"]
-    assert _project()["dependencies"] == []
+    assert _project()["dependencies"] == ["psutil>=6"]
     assert {"office", "office-advanced", "office-docling", "research", "work"} <= extras.keys()
     forbidden = {"jsonschema", "rfc8785", "defusedxml", "lxml", "python-docx", "python-pptx", "pypdf", "pypdfium2", "docling"}
     assert not any(req.split("[",1)[0].split(">",1)[0] in forbidden for req in extras["dev"])

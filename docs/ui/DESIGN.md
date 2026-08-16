@@ -79,7 +79,7 @@ Birkin은 여러 에이전트를 띄우는 터미널이 아니라, **사용자�
 
 검증 크기: 60×20, 80×24, 120×30, 160×40. 3열의 단순 압축 금지 — narrow는 별도 구성.
 
-WebUI(px): 375(모바일: 스택+drawer) / 768(2열: Ledger 접이식) / 1024(2열+Loupe 오버레이) / 1440(3열). 동일 상태 계약·우선순위, 레이아웃은 독자적.
+WebUI(px): 390(모바일: 스택+drawer) / 768(2열: Ledger 접이식) / 1024(2열+Loupe 오버레이) / 1440(3열). 동일 상태 계약·우선순위, 레이아웃은 독자적.
 
 ## 6. Component inventory
 
@@ -150,10 +150,73 @@ Birkin slash 명령은 ~20개로 tmux급 충돌이 없다. 단일 키 + 수식�
 - CJK: 모든 폭 계산은 `ui.cell_width` 경유, 한글 혼합 케이스가 각 컴포넌트 테스트에 포함.
 - NO_COLOR/ASCII: escape 0개 보장 + ascii_only 글리프 세트.
 - 권한 경계: UI 모듈은 shell/tool executor를 import하지 않는다. 승인/거부는 확인 후 `resolve_approval()` adapter가 Python authority를 호출하고, UI는 authority 응답 후 snapshot을 다시 읽는다.
-- 시각 QA 증거: 터미널 60×20/80×24/120×30/160×40 실 렌더의 전체 line set과 폭 측정, WebUI 375/768/1024/1440 전체 화면 스크린샷.
+- 시각 QA 증거: 터미널 60×20/80×24/120×30/160×40 실 렌더의 전체 line set과 폭 측정, WebUI 390/768/1024/1440 전체 화면 스크린샷.
 
 ### 이번 surface의 명시적 비범위
 
 - Loupe와 Composer **컴포넌트 계약**은 후속 채팅 surface 통합을 위해 남아 있지만, 이번 `/work` TUI 조합에는 포함하지 않는다. 실행 가능한 terminal 범위는 Ledger/Bench/Pulse, 세션 tool trace, 승인 상세, 도움말이다.
 - `birkin dash`는 기존 호환 surface이며 이 계약의 상태 통합 대상이 아니다. 단일 `UIState` 계약은 새 `/work`와 Web workbench에 적용된다.
 - 터미널 증거는 ANSI/CJK 폭을 계산한 전체 frame 출력이다. PTY 이미지 golden은 현재 저장하지 않으며 이를 snapshot coverage로 주장하지 않는다.
+
+## 13. Unified chat workspace amendment (2026-08-15)
+
+This section supersedes the earlier separation between terminal chat, `/work`,
+`/dash`, and the read-mostly web dashboard.
+
+### Product surface
+
+- `birkin chat` is the default unified workspace. Conversation and composer are
+  primary; Tasks/Runs, Approvals, Files/Evidence, Sessions, Activity/Logs, Cron,
+  Memory/Skills, Checkpoints/Restore, and Settings/Status are contextual panels.
+- `/work` and `workbench` focus Tasks/Runs in the current workspace.
+- `/dash` and `dashboard` are deprecated focus aliases for Activity/Logs.
+  Neither alias starts an independent state loop.
+- The web root is a complete responsive chat-first client over the same
+  snapshot/event/command protocol and session history.
+
+### Shared semantics
+
+- Terminal and web consume `birkin.workspace.v1`: one versioned snapshot,
+  monotonic event cursor, idempotent command id, server-derived actor, canonical
+  `uistate`, capability descriptors, and shared presentation panel keys.
+- Reconnect uses snapshot plus ordered replay/SSE. Polling-only workspace state
+  is forbidden.
+- UI code has no execution authority. Approval, checkpoint, cron, memory,
+  skill, filesystem, egress, and model actions remain in their existing backend
+  authorities.
+
+### Information architecture
+
+- Wide: conversation plus one contextual panel.
+- Medium: conversation plus compact panel tabs/drawer.
+- Narrow/mobile: conversation and composer stay visible; contextual panels
+  become a full-width sheet/tab route with deterministic Escape/back behavior.
+- Focus, selected item, expanded evidence, scroll anchor, and composer draft
+  survive panel changes, resize, reconnect, and responsive transitions.
+- New output follows only when the user is already at the end of the
+  conversation.
+
+### Birkin semantic theme
+
+Birkin uses one semantic role vocabulary across ANSI and CSS: core text/surface/
+border/focus roles; success/warning/error/info/pending/blocked/action-needed;
+message/tool/evidence/composer surfaces; markdown/diff/syntax roles; and
+actionable status segments. Components never embed raw color literals.
+
+The default dark identity is a calm mineral studio with a restrained warm-copper
+focus accent, cool-blue information, green success, amber action, red failure,
+and plum pending handoff. Light/high-contrast, xterm-256, ASCII, and no-color
+adapters preserve the same meanings. This uses Gajae's semantic-token and
+responsive-tab grammar only as inspiration; no source, branding, names,
+iconography, or palette is copied.
+
+### Accessibility and QA
+
+- Web uses landmarks, labels, logical tab order, focus restoration, polite live
+  regions, touch-sized controls, visible focus, reduced motion, and no
+  color-only status.
+- Terminal preserves line-editor paste/history/Unicode behavior and measures
+  all CJK/ambiguous-width output through `ui.cell_width`.
+- Required evidence now includes real PTY captures, real Playwright desktop and
+  mobile screenshots, console/network logs, and terminal→web→terminal session
+  handoff. Pure render snapshots alone are insufficient.

@@ -49,13 +49,21 @@ def test_desktop_runtime_dependencies_are_declared_in_the_desktop_extra():
     except ModuleNotFoundError:                      # py3.10
         pytest.skip("tomllib needs Python 3.11+")
     data = tomllib.loads((ROOT / "pyproject.toml").read_text(encoding="utf-8"))
-    assert data["project"]["dependencies"] == []
+    assert data["project"]["dependencies"] == ["psutil>=6"]
     dependencies = data["project"]["optional-dependencies"]["desktop"]
     names = {
         re.split(r"[<>=!~;\s\[]", requirement, maxsplit=1)[0].lower()
         for requirement in dependencies
     }
-    assert {"pillow", "pywin32"} <= names
+    assert {
+        "pillow",
+        "pyobjc-framework-applicationservices",
+        "pyobjc-framework-quartz",
+        "python-xlib",
+        "pywinctl",
+        "pywinauto",
+        "pywin32",
+    } == names
 
 
 def test_no_typing_name_newer_than_the_python_floor():

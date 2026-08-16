@@ -466,10 +466,19 @@ class TelegramChannel(Channel):
             print(f"[telegram] document send error ({path.name}): {exc}")
             return False
 
-    def _deliver_reply(self, chat_id: str, reply: str,
-                       streamer: "_Streamer | None" = None) -> bool:
+    def _deliver_reply(
+        self,
+        chat_id: str,
+        reply: str,
+        streamer: _Streamer | None = None,
+        *,
+        allow_attachments: bool = True,
+    ) -> bool:
         """Deliver visible reply text followed by explicitly marked files."""
-        visible, paths = self._extract_attachments(reply)
+        if allow_attachments:
+            visible, paths = self._extract_attachments(reply)
+        else:
+            visible, paths = reply, []
         delivered = True
         if visible:
             if streamer is not None:
@@ -986,7 +995,14 @@ class TelegramChannel(Channel):
         # unsent. Record the obligation first, discharge it after.
         from ... import delivery
         obligation = delivery.record("telegram", chat_id, reply or "")
-        proposal = workflow.parse_proposal(reply or "")
+        trusted_chat = bool(
+            self.allowed_chat_ids and chat_id in self.allowed_chat_ids
+        )
+        proposal = (
+            workflow.parse_proposal(reply or "")
+            if trusted_chat
+            else None
+        )
         delivered = True
         if proposal is not None and workflow_id is not None:
             failed = True
@@ -998,7 +1014,11 @@ class TelegramChannel(Channel):
             self._send_workflow_proposal(chat_id, proposal, text)
         else:
             delivered = self._deliver_reply(
-                chat_id, reply or "(no reply)", streamer=streamer)
+                chat_id,
+                reply or "(no reply)",
+                streamer=streamer,
+                allow_attachments=trusted_chat,
+            )
         if delivered:
             delivery.clear(obligation)
         if workflow_id is not None:
@@ -1012,12 +1032,27 @@ class TelegramChannel(Channel):
                 pass
             gateway.do_hard_restart()  # replaces the process; never returns
 
-    def start(self, gateway: "Gateway") -> None:
-        print("  · telegram channel polling for updates")
+    def _redeliver_pending(self) -> int:
         from ... import delivery
-        owed = delivery.redeliver(
-            "telegram", lambda chat_id, text: self._deliver_reply(chat_id, text),
+
+        def send(chat_id: str, text: str) -> bool:
+            trusted_chat = chat_id in self.allowed_chat_ids
+            if self.allowed_chat_ids and not trusted_chat:
+                return False
+            return self._deliver_reply(
+                chat_id,
+                text,
+                allow_attachments=trusted_chat,
+            )
+
+        return delivery.redeliver(
+            "telegram",
+            send,
             prefix="[재전송]\n")
+
+    def start(self, gateway: Gateway) -> None:
+        print("  · telegram channel polling for updates")
+        owed = self._redeliver_pending()
         if owed:
             print(f"[telegram] redelivered {owed} reply(ies) owed from a "
                   f"previous run")

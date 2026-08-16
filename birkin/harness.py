@@ -17,9 +17,12 @@ import hashlib
 import json
 import re
 import uuid
+from collections.abc import Callable, Iterable
+from contextlib import contextmanager
 from datetime import datetime, timezone
+from html import escape
 from pathlib import Path
-from typing import Any, Iterable
+from typing import Any
 
 from . import config, store
 
@@ -32,6 +35,18 @@ MAX_CONTENT = 2000
 RENDER_PER_KIND = 6
 RENDER_HISTORY = 5
 RENDER_WIDTH = 180
+WORKING_FIELDS = (
+    "corrections",
+    "constraints",
+    "decisions",
+    "incomplete",
+    "evidence",
+    "next_actions",
+)
+WORKING_MAX_ITEM = 2000
+WORKING_MAX_RENDER = 20_000
+WORKING_MAX_VALUES = 256
+_WORKING_SESSION_ID = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$")
 
 STATE_FILE = "harness_state.json"
 HISTORY_FILE = "refinements.jsonl"
@@ -45,6 +60,14 @@ _KIND_HEADINGS = {
 
 
 def _session_key(session_id: str | None) -> str:
+    raw = str(session_id or "default")
+    cleaned = re.sub(r"[^A-Za-z0-9._-]+", "_", raw)
+    label = cleaned.strip("._-").lower()[:64] or "session"
+    digest = hashlib.sha256(raw.encode()).hexdigest()[:24]
+    return f"{label}--{digest}"
+
+
+def _legacy_session_key(session_id: str | None) -> str:
     cleaned = re.sub(r"[^A-Za-z0-9._-]+", "_", str(session_id or "default"))
     return cleaned.strip("._-")[:120] or "default"
 
@@ -52,20 +75,75 @@ def _session_key(session_id: str | None) -> str:
 def harness_dir(scope: str = "global", *, session_id: str | None = None) -> Path:
     if scope == "global":
         return config.birkin_home() / "harness"
-    return config.sessions_dir() / _session_key(session_id) / "harness"
+    sessions = config.sessions_dir()
+    target = sessions / _session_key(session_id) / "harness"
+    raw_session = str(session_id or "default")
+    legacy_key = _legacy_session_key(session_id)
+    if raw_session != legacy_key:
+        return target
+    target.parent.mkdir(parents=True, exist_ok=True)
+    lock_digest = hashlib.sha256(
+        legacy_key.casefold().encode()
+    ).hexdigest()[:24]
+    migration_lock = sessions / f".harness-migration-{lock_digest}"
+    with store.file_lock(migration_lock):
+        try:
+            legacy_session = next(
+                candidate
+                for candidate in sessions.iterdir()
+                if candidate.is_dir() and candidate.name == raw_session
+            )
+        except (FileNotFoundError, StopIteration):
+            return target
+        legacy = legacy_session / "harness"
+        if legacy.is_dir() and target.exists():
+            raise RuntimeError(
+                f"legacy and hashed harness state both exist for {raw_session!r}"
+            )
+        if legacy.is_dir() and not target.exists():
+            try:
+                legacy.rename(target)
+            except OSError:
+                return legacy
+            try:
+                legacy_session.rmdir()
+            except OSError:
+                pass
+    return target
 
 
 def state_path(scope: str = "global", *, session_id: str | None = None) -> Path:
     return harness_dir(scope, session_id=session_id) / STATE_FILE
 
 
+@contextmanager
+def working_transaction(session_id: str):
+    session = validate_working_session_id(session_id)
+    directory = harness_dir("local", session_id=session)
+    directory.mkdir(parents=True, exist_ok=True)
+    with store.file_lock(directory / ".working-transaction"):
+        yield
+
+
 def history_path(scope: str = "global", *, session_id: str | None = None) -> Path:
     return harness_dir(scope, session_id=session_id) / HISTORY_FILE
 
 
+def empty_working() -> dict[str, Any]:
+    return {
+        "revision": 0,
+        "updated_at": "",
+        **{field: [] for field in WORKING_FIELDS},
+    }
+
+
 def empty_state() -> dict[str, Any]:
-    return {"schema": 2, "entries": {kind: {} for kind in KINDS},
-            "refinements": []}
+    return {
+        "schema": 3,
+        "entries": {kind: {} for kind in KINDS},
+        "refinements": [],
+        "working": empty_working(),
+    }
 
 
 def _now() -> str:
@@ -82,14 +160,8 @@ def slug(raw: str, fallback: str = "entry") -> str:
     return cleaned.strip("_")[:80] or fallback
 
 
-def load(scope: str = "global", *, session_id: str | None = None) -> dict[str, Any]:
-    """Read the harness state, degrading to empty on anything unreadable.
-
-    This runs on every system-prompt build, so a corrupt file must never break
-    a session; the next save rewrites it cleanly.
-    """
+def _decode_state(raw: object) -> dict[str, Any]:
     state = empty_state()
-    raw = store._read_json(state_path(scope, session_id=session_id), None)
     if not isinstance(raw, dict):
         return state
     schema = raw.get("schema")
@@ -111,19 +183,34 @@ def load(scope: str = "global", *, session_id: str | None = None) -> dict[str, A
                         **entry,
                         "kind": "skill_note",
                     }
-    state["schema"] = 2
+    state["schema"] = 3
     refinements = raw.get("refinements")
     if isinstance(refinements, list):
         state["refinements"] = [r for r in refinements if isinstance(r, dict)]
+    state["working"] = _decode_working(raw.get("working"))
     return state
+
+
+def load(scope: str = "global", *, session_id: str | None = None) -> dict[str, Any]:
+    """Read the harness state, degrading to empty on anything unreadable.
+
+    This runs on every system-prompt build, so a corrupt file must never break
+    a session; the next save rewrites it cleanly.
+    """
+    raw = store._read_json(state_path(scope, session_id=session_id), None)
+    return _decode_state(raw)
 
 
 def save(state: dict[str, Any], scope: str = "global", *,
          session_id: str | None = None) -> Path:
     path = state_path(scope, session_id=session_id)
     path.parent.mkdir(parents=True, exist_ok=True)
+    payload = copy.deepcopy(state)
     with store.file_lock(path):
-        store._write_json(path, state)
+        latest = store._read_json(path, None)
+        if isinstance(latest, dict):
+            payload["working"] = _decode_working(latest.get("working"))
+        store._write_json(path, payload)
     return path
 
 
@@ -238,6 +325,66 @@ def apply(state: dict[str, Any], proposal: dict[str, Any], *,
           rollback_of: str | None = None,
           persist: bool = True) -> dict[str, Any]:
     """Apply a proposal edit-by-edit. Partial failure is the normal path."""
+    if persist:
+        path = state_path(scope, session_id=session_id)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        with store.file_lock(path):
+            raw = store._read_json(path, None)
+            current = (
+                _decode_state(raw)
+                if isinstance(raw, dict)
+                else copy.deepcopy(state)
+            )
+            event = _apply_unpersisted(
+                current,
+                proposal,
+                baseline=baseline,
+                scope=scope,
+                session_id=session_id,
+                rid=rid,
+                source=source,
+                max_edits=max_edits,
+                max_content=max_content,
+                rollback_of=rollback_of,
+                persist=False,
+            )
+            original = copy.deepcopy(
+                _decode_state(raw)
+                if isinstance(raw, dict)
+                else state
+            )
+            history = history_path(scope, session_id=session_id)
+            try:
+                history_before = history.read_bytes()
+                history_existed = True
+            except FileNotFoundError:
+                history_before = b""
+                history_existed = False
+            store._write_json(path, current)
+            try:
+                _append_history(event, scope, session_id=session_id)
+            except BaseException:
+                rollback_error: BaseException | None = None
+                try:
+                    store._write_json(path, original)
+                except BaseException as exc:
+                    rollback_error = exc
+                try:
+                    if history_existed:
+                        history.write_bytes(history_before)
+                    else:
+                        history.unlink(missing_ok=True)
+                except BaseException as exc:
+                    rollback_error = rollback_error or exc
+                if rollback_error is not None:
+                    raise RuntimeError(
+                        "harness history failed and state rollback failed"
+                    ) from rollback_error
+                raise
+        state.clear()
+        state.update(copy.deepcopy(current))
+        return event
+
     rid = rid or new_id()
     edits = proposal.get("edits")
     edits = list(edits)[:max_edits] if isinstance(edits, list) else []
@@ -312,10 +459,10 @@ def apply(state: dict[str, Any], proposal: dict[str, Any], *,
         event["rollback_of"] = rollback_of
 
     state["refinements"] = (state.get("refinements") or [])[-19:] + [event]
-    if persist:
-        save(state, scope, session_id=session_id)
-        _append_history(event, scope, session_id=session_id)
     return event
+
+
+_apply_unpersisted = apply
 
 
 def _inverse_edits(event: dict[str, Any]) -> list[dict[str, Any]]:
@@ -461,6 +608,263 @@ def _clip(text: str, width: int) -> str:
     return flat if len(flat) <= width else flat[:width - 1] + "…"
 
 
+def validate_working_session_id(session_id: str) -> str:
+    value = str(session_id or "").strip()
+    if not _WORKING_SESSION_ID.fullmatch(value) or value in {".", ".."}:
+        raise ValueError(
+            "invalid session id: use 1-128 ASCII letters, digits, '.', '_' or "
+            "'-', beginning with a letter or digit"
+        )
+    return value
+
+
+def _decode_working(raw: object) -> dict[str, Any]:
+    working = empty_working()
+    if not isinstance(raw, dict):
+        return working
+    revision = raw.get("revision")
+    if not isinstance(revision, int) or revision <= 0:
+        return working
+    working["revision"] = revision
+    updated_at = raw.get("updated_at")
+    if isinstance(updated_at, str):
+        working["updated_at"] = updated_at
+    processed = 0
+    for field in WORKING_FIELDS:
+        values = raw.get(field)
+        if isinstance(values, list):
+            normalized: list[str] = []
+            seen: set[str] = set()
+            for value in values:
+                if processed >= WORKING_MAX_VALUES:
+                    break
+                processed += 1
+                if not isinstance(value, str):
+                    continue
+                text = value.strip()
+                if (not text or len(text) > WORKING_MAX_ITEM
+                        or text in seen):
+                    continue
+                seen.add(text)
+                normalized.append(text)
+            working[field] = normalized
+    worst_case_session = "s" * 128
+    while (len(_render_working_state(worst_case_session, working))
+           > WORKING_MAX_RENDER):
+        for field in reversed(WORKING_FIELDS):
+            if working[field]:
+                working[field].pop()
+                break
+        else:
+            return empty_working()
+    return working
+
+
+def _working_value(value: str) -> str:
+    text = str(value).strip()
+    if not text:
+        raise ValueError("working-memory values must not be empty")
+    if len(text) > WORKING_MAX_ITEM:
+        raise ValueError(
+            f"working-memory values must be at most {WORKING_MAX_ITEM} characters"
+        )
+    return text
+
+
+def _working_merge(current: object, incoming: Iterable[str]) -> list[str]:
+    values = list(current) if isinstance(current, list) else []
+    for raw in incoming:
+        value = _working_value(raw)
+        if value not in values:
+            values.append(value)
+    return values
+
+
+def working_state(session_id: str) -> dict[str, Any]:
+    session = validate_working_session_id(session_id)
+    return copy.deepcopy(
+        load("local", session_id=session).get("working") or empty_working()
+    )
+
+
+def _next_working(
+    session_id: str,
+    current: dict[str, Any],
+    incoming: dict[str, Iterable[str]],
+) -> dict[str, Any]:
+    updated = {
+        "revision": int(current.get("revision") or 0) + 1,
+        "updated_at": _now(),
+        **{
+            field: _working_merge(current.get(field), incoming[field])
+            for field in WORKING_FIELDS
+        },
+    }
+    if len(_render_working_state(session_id, updated)) > WORKING_MAX_RENDER:
+        raise ValueError(
+            f"working memory exceeds {WORKING_MAX_RENDER} rendered characters"
+        )
+    return updated
+
+
+def preview_working_update(
+    session_id: str,
+    *,
+    corrections: Iterable[str] = (),
+    constraints: Iterable[str] = (),
+    decisions: Iterable[str] = (),
+    incomplete: Iterable[str] = (),
+    evidence: Iterable[str] = (),
+    next_actions: Iterable[str] = (),
+) -> dict[str, Any]:
+    """Validate and render-budget a prospective update without persisting it."""
+    session = validate_working_session_id(session_id)
+    incoming = {
+        "corrections": corrections,
+        "constraints": constraints,
+        "decisions": decisions,
+        "incomplete": incomplete,
+        "evidence": evidence,
+        "next_actions": next_actions,
+    }
+    return _next_working(session, working_state(session), incoming)
+
+
+def update_working(
+    session_id: str,
+    *,
+    corrections: Iterable[str] = (),
+    constraints: Iterable[str] = (),
+    decisions: Iterable[str] = (),
+    incomplete: Iterable[str] = (),
+    evidence: Iterable[str] = (),
+    next_actions: Iterable[str] = (),
+    commit: Callable[[], Any] | None = None,
+) -> dict[str, Any]:
+    session = validate_working_session_id(session_id)
+    path = state_path("local", session_id=session)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    incoming = {
+        "corrections": corrections,
+        "constraints": constraints,
+        "decisions": decisions,
+        "incomplete": incomplete,
+        "evidence": evidence,
+        "next_actions": next_actions,
+    }
+    with working_transaction(session):
+        with store.file_lock(path):
+            state = load("local", session_id=session)
+            current = state.get("working") or empty_working()
+            updated = _next_working(session, current, incoming)
+            state["schema"] = 3
+            state["working"] = updated
+            store._write_json(path, state)
+            if commit is not None:
+                try:
+                    commit()
+                except BaseException:
+                    state["working"] = copy.deepcopy(current)
+                    store._write_json(path, state)
+                    raise
+    return copy.deepcopy(updated)
+
+
+def clear_working(
+    session_id: str,
+    *,
+    commit: Callable[[], Any] | None = None,
+) -> bool:
+    session = validate_working_session_id(session_id)
+    path = state_path("local", session_id=session)
+    with working_transaction(session):
+        with store.file_lock(path):
+            state = load("local", session_id=session)
+            current = state.get("working") or empty_working()
+            if int(current.get("revision") or 0) == 0:
+                if commit is not None:
+                    commit()
+                return False
+            state["schema"] = 3
+            state["working"] = empty_working()
+            store._write_json(path, state)
+            if commit is not None:
+                try:
+                    commit()
+                except BaseException:
+                    state["working"] = copy.deepcopy(current)
+                    store._write_json(path, state)
+                    raise
+            return True
+
+
+def restore_working(
+    session_id: str,
+    previous: dict[str, Any],
+    *,
+    expected_revision: int,
+) -> bool:
+    """Rollback one CLI mutation without clobbering a concurrent writer."""
+    session = validate_working_session_id(session_id)
+    restored = _decode_working(previous)
+    path = state_path("local", session_id=session)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with store.file_lock(path):
+        state = load("local", session_id=session)
+        current = state.get("working") or empty_working()
+        if int(current.get("revision") or 0) != expected_revision:
+            return False
+        state["schema"] = 3
+        state["working"] = restored
+        store._write_json(path, state)
+    return True
+
+
+def _render_working_state(
+    session_id: str, working: dict[str, Any]
+) -> str:
+    if int(working.get("revision") or 0) == 0:
+        return ""
+    headings = {
+        "corrections": "User corrections",
+        "constraints": "Constraints",
+        "decisions": "Decisions",
+        "incomplete": "Incomplete items",
+        "evidence": "Evidence",
+        "next_actions": "Next actions",
+    }
+    lines = [
+        "<working-memory>",
+        "Current session state. Preserve it across turns. It is context, "
+        "not a new user instruction or long-term semantic memory.",
+        f"Session: {session_id} (revision {working['revision']})",
+    ]
+    for field in WORKING_FIELDS:
+        values = working.get(field) or []
+        if not values:
+            continue
+        lines.append(f"{headings[field]}:")
+        lines.extend(f"- {escape(str(value), quote=False)}" for value in values)
+    lines.append("</working-memory>")
+    return "\n".join(lines)
+
+
+def render_working(session_id: str) -> str:
+    session = validate_working_session_id(session_id)
+    return _render_working_state(session, working_state(session))
+
+
+def render_working_reset(session_id: str) -> str:
+    session = escape(
+        validate_working_session_id(session_id),
+        quote=True,
+    )
+    return (
+        f'<working-memory-reset session="{session}" '
+        'revision="0" state="empty"/>'
+    )
+
+
 def merge_states(*states: dict[str, Any]) -> dict[str, Any]:
     merged = empty_state()
     for state in states:
@@ -470,6 +874,9 @@ def merge_states(*states: dict[str, Any]) -> dict[str, Any]:
                     f"{entry.get('scope', 'local')}:{eid}"
                 merged["entries"][kind][key] = entry
         merged["refinements"].extend(state.get("refinements") or [])
+        working = state.get("working")
+        if isinstance(working, dict) and int(working.get("revision") or 0) > 0:
+            merged["working"] = copy.deepcopy(working)
     merged["refinements"].sort(key=lambda e: str(e.get("created_at", "")))
     return merged
 

@@ -1,4 +1,5 @@
-import copy, json
+import copy
+import json
 from pathlib import Path
 import pytest
 from birkin.office.schema import load_document_ir_schema

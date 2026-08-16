@@ -179,9 +179,12 @@ def _pdf(objects: list[bytes]) -> bytes:
     data = bytearray(b"%PDF-1.7\n%\xe2\xe3\xcf\xd3\n")
     offsets = [0]
     for number, body in enumerate(objects, 1):
-        offsets.append(len(data)); data.extend(f"{number} 0 obj\n".encode() + body + b"\nendobj\n")
-    xref = len(data); data.extend(f"xref\n0 {len(objects)+1}\n0000000000 65535 f \n".encode())
-    for offset in offsets[1:]: data.extend(f"{offset:010d} 00000 n \n".encode())
+        offsets.append(len(data))
+        data.extend(f"{number} 0 obj\n".encode() + body + b"\nendobj\n")
+    xref = len(data)
+    data.extend(f"xref\n0 {len(objects)+1}\n0000000000 65535 f \n".encode())
+    for offset in offsets[1:]:
+        data.extend(f"{offset:010d} 00000 n \n".encode())
     data.extend(f"trailer\n<< /Size {len(objects)+1} /Root 1 0 R >>\nstartxref\n{xref}\n%%EOF\n".encode())
     return bytes(data)
 
@@ -190,18 +193,22 @@ def pdfs(folder: Path) -> dict[str, Path]:
     content = b"BT /F1 12 Tf 72 720 Td (Complex native PDF) Tj ET"
     base = [b"<< /Type /Catalog /Pages 2 0 R >>", b"<< /Type /Pages /Kids [3 0 R] /Count 1 >>", b"<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Resources << /Font << /F1 4 0 R >> >> /Contents 5 0 R >>", b"<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>", b"<< /Length " + str(len(content)).encode() + b" >>\nstream\n" + content + b"\nendstream"]
     variants = {"native": _pdf(base)}
-    image = b"\0\0\0"; drawing = b"q 100 0 0 100 0 0 cm /Im0 Do Q"
+    image = b"\0\0\0"
+    drawing = b"q 100 0 0 100 0 0 cm /Im0 Do Q"
     variants["scanned"] = _pdf([base[0], base[1], b"<< /Type /Page /Parent 2 0 R /MediaBox [0 0 100 100] /Resources << /XObject << /Im0 4 0 R >> >> /Contents 5 0 R >>", b"<< /Type /XObject /Subtype /Image /Width 1 /Height 1 /ColorSpace /DeviceRGB /BitsPerComponent 8 /Length 3 >>\nstream\n" + image + b"\nendstream", b"<< /Length " + str(len(drawing)).encode() + b" >>\nstream\n" + drawing + b"\nendstream"])
     variants["form"] = _pdf([b"<< /Type /Catalog /Pages 2 0 R /AcroForm 6 0 R >>", base[1], base[2][:-3] + b" /Annots [7 0 R] >>", base[3], base[4], b"<< /Fields [7 0 R] >>", b"<< /Type /Annot /Subtype /Widget /FT /Tx /T (name) /Rect [0 0 50 20] /P 3 0 R >>"])
     variants["active"] = _pdf([b"<< /Type /Catalog /Pages 2 0 R /OpenAction 6 0 R /Names << /JavaScript << /Names [(startup) 7 0 R] >> >> >>", *base[1:], b"<< /Type /Action /S /Launch /F (never.bin) >>", b"<< /Type /Action /S /JavaScript /JS (app.alert('never')) >>"])
     variants["signed"] = _pdf([b"<< /Type /Catalog /Pages 2 0 R /AcroForm 6 0 R /Perms << /DocMDP 7 0 R >> >>", *base[1:], b"<< /Fields [8 0 R] /SigFlags 3 >>", b"<< /Type /Sig /Filter /Adobe.PPKLite /SubFilter /adbe.pkcs7.detached /ByteRange [0 0 0 0] /Contents <01020304> >>", b"<< /FT /Sig /T (Approval) /V 7 0 R >>"])
     paths: dict[str, Path] = {}
     for name, payload in variants.items():
-        paths[name] = folder / f"{name}.pdf"; _ = paths[name].write_bytes(payload)
+        paths[name] = folder / f"{name}.pdf"
+        _ = paths[name].write_bytes(payload)
     from pypdf import PdfReader, PdfWriter
-    writer = PdfWriter(clone_from=PdfReader(BytesIO(variants["native"]), strict=True)); writer.encrypt("correct horse", algorithm="RC4-128")
+    writer = PdfWriter(clone_from=PdfReader(BytesIO(variants["native"]), strict=True))
+    writer.encrypt("correct horse", algorithm="RC4-128")
     paths["encrypted"] = folder / "encrypted.pdf"
-    with paths["encrypted"].open("wb") as output: _ = writer.write(output)
+    with paths["encrypted"].open("wb") as output:
+        _ = writer.write(output)
     return paths
 
 
@@ -210,13 +217,35 @@ def odf_and_legacy(folder: Path) -> dict[str, Path]:
     for ext, mime, root in (("odt", "application/vnd.oasis.opendocument.text", "text"), ("ods", "application/vnd.oasis.opendocument.spreadsheet", "spreadsheet"), ("odp", "application/vnd.oasis.opendocument.presentation", "presentation")):
         path = folder / f"identity.{ext}"
         with ZipFile(path, "w") as package:
-            package.writestr("mimetype", mime); package.writestr("content.xml", f'<office:document-content xmlns:office="urn:oasis:names:tc:opendocument:xmlns:office:1.0"><office:body><office:{root}/></office:body></office:document-content>')
+            package.writestr("mimetype", mime)
+            package.writestr("content.xml", f'<office:document-content xmlns:office="urn:oasis:names:tc:opendocument:xmlns:office:1.0"><office:body><office:{root}/></office:body></office:document-content>')
         result[ext] = path
     free, end, fat_marker = 0xFFFFFFFF, 0xFFFFFFFE, 0xFFFFFFFD
     for ext, identity in (("doc", "WordDocument"), ("xls", "Workbook"), ("ppt", "PowerPoint Document"), ("hwp", "HWP Document File")):
-        encoded = (identity + "\0").encode("utf-16le"); entry = bytearray(128); entry[:len(encoded)] = encoded; struct.pack_into("<H", entry, 64, len(encoded)); entry[66] = 2; struct.pack_into("<III", entry, 68, free, free, free); struct.pack_into("<I", entry, 116, end)
-        root = bytearray(128); name = "Root Entry\0".encode("utf-16le"); root[:len(name)] = name; struct.pack_into("<H", root, 64, len(name)); root[66] = 5; struct.pack_into("<III", root, 68, free, free, free); struct.pack_into("<I", root, 116, end)
-        header = bytearray(512); header[:8] = bytes.fromhex("d0cf11e0a1b11ae1"); struct.pack_into("<HHHH", header, 24, 0x3E, 3, 0xFFFE, 9); struct.pack_into("<H", header, 32, 6); struct.pack_into("<IIIIIIIII", header, 40, 0, 1, 0, 0, 4096, end, 0, end, 0); struct.pack_into("<109I", header, 76, 1, *([free] * 108)); fat = [end, fat_marker] + [free] * 126
-        path = folder / f"identity.{ext}"; _ = path.write_bytes(bytes(header) + (bytes(root) + bytes(entry)).ljust(512, b"\0") + struct.pack("<128I", *fat)); result[ext] = path
-    result["rtf"] = folder / "identity.rtf"; _ = result["rtf"].write_bytes(b"{\\rtf1\\ansi\\ansicpg949 Complex \\field Korean-English}")
+        encoded = (identity + "\0").encode("utf-16le")
+        entry = bytearray(128)
+        entry[:len(encoded)] = encoded
+        struct.pack_into("<H", entry, 64, len(encoded))
+        entry[66] = 2
+        struct.pack_into("<III", entry, 68, free, free, free)
+        struct.pack_into("<I", entry, 116, end)
+        root = bytearray(128)
+        name = "Root Entry\0".encode("utf-16le")
+        root[:len(name)] = name
+        struct.pack_into("<H", root, 64, len(name))
+        root[66] = 5
+        struct.pack_into("<III", root, 68, free, free, free)
+        struct.pack_into("<I", root, 116, end)
+        header = bytearray(512)
+        header[:8] = bytes.fromhex("d0cf11e0a1b11ae1")
+        struct.pack_into("<HHHH", header, 24, 0x3E, 3, 0xFFFE, 9)
+        struct.pack_into("<H", header, 32, 6)
+        struct.pack_into("<IIIIIIIII", header, 40, 0, 1, 0, 0, 4096, end, 0, end, 0)
+        struct.pack_into("<109I", header, 76, 1, *([free] * 108))
+        fat = [end, fat_marker] + [free] * 126
+        path = folder / f"identity.{ext}"
+        _ = path.write_bytes(bytes(header) + (bytes(root) + bytes(entry)).ljust(512, b"\0") + struct.pack("<128I", *fat))
+        result[ext] = path
+    result["rtf"] = folder / "identity.rtf"
+    _ = result["rtf"].write_bytes(b"{\\rtf1\\ansi\\ansicpg949 Complex \\field Korean-English}")
     return result

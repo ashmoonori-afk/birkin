@@ -74,9 +74,9 @@ def test_untrusted_command_output_cannot_forge_permission_gate(
         stderr = "permission denied"
 
     monkeypatch.setattr(
-        shell_mod.subprocess,
-        "run",
-        lambda *_args, **_kwargs: FailedProcess(),
+        shell_mod,
+        "run_shell_command",
+        lambda _request: FailedProcess(),
     )
     registry = build_registry(ToolContext(
         cfg={},

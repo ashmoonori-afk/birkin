@@ -15,6 +15,7 @@ from __future__ import annotations
 import argparse
 import json
 import sys
+from pathlib import Path
 from typing import Any
 
 from . import __version__
@@ -154,6 +155,80 @@ def _cmd_compare(args: argparse.Namespace) -> int:
             print()
     print(f"\n{CYAN}A = {res['A']['model']}    B = {res['B']['model']}{RESET}")
     return 0
+
+
+def _cmd_plugins(args: argparse.Namespace) -> int:
+    """Inspect, install, and resolve exact plugin bundle pins."""
+    from .plugin_install import PluginInstallError, PluginInstaller, Scope
+    from .plugin_manifest import ManifestError
+    from .plugin_runtime import registry_roots
+    from .plugin_signature import SignatureError
+
+    keys: dict[str, bytes] = {}
+    try:
+        for item in args.key or []:
+            key_id, separator, encoded = item.partition("=")
+            if not separator or not key_id:
+                raise ValueError("trusted keys use KEY_ID=HEX")
+            keys[key_id] = bytes.fromhex(encoded)
+        project_root, team_root = registry_roots()
+        installer = PluginInstaller(project_root, team_root, keys)
+        if args.action == "resolve":
+            found = installer.resolve(args.name, args.version)
+            record = {"name": found.name, "version": found.version,
+                      "scope": found.scope.value, "path": str(found.path),
+                      "digest": found.digest}
+            print(json.dumps(record, sort_keys=True) if args.json else
+                  f"{found.name}@{found.version} [{found.scope.value}] {found.path}")
+            return 0
+        source = Path(args.source).expanduser().resolve()
+        inspection = installer.inspect(source)
+        record = inspection.machine_record()
+        if args.json:
+            print(json.dumps(record, sort_keys=True))
+        else:
+            permissions = record["permissions"]
+            assert isinstance(permissions, dict)
+            print(f"Bundle: {inspection.manifest.name}@{inspection.manifest.version}")
+            print(f"Signature: {inspection.signature}")
+            print("Required permissions:")
+            print(f"  network: {permissions['network']}")
+            for field in ("network_allowlist", "env_allowlist", "write_paths"):
+                values = permissions[field]
+                assert isinstance(values, list)
+                print(f"  {field}: {', '.join(values) if values else '(none)'}")
+            print("Confirmation required: " +
+                  ("yes" if inspection.manifest.requires_confirmation else "no"))
+        if args.action == "inspect":
+            return 0
+        confirmed = bool(args.yes)
+        if inspection.manifest.requires_confirmation and not confirmed:
+            if args.json:
+                print(json.dumps({"error": "confirmation required"}, sort_keys=True))
+                return 1
+            try:
+                confirmed = input("Install with these permissions? [y/N] ").strip().lower() in ("y", "yes")
+            except (EOFError, KeyboardInterrupt):
+                confirmed = False
+            if not confirmed:
+                print("Installation refused; no files were changed.")
+                return 1
+        installed = installer.install(
+            source, Scope(args.scope), args.version,
+            confirmed=confirmed, upgrade=args.upgrade,
+        )
+        result = {"name": installed.name, "version": installed.version,
+                  "scope": installed.scope.value, "path": str(installed.path),
+                  "digest": installed.digest}
+        print(json.dumps(result, sort_keys=True) if args.json else
+              f"Installed {installed.name}@{installed.version} [{installed.scope.value}]")
+        return 0
+    except (ManifestError, SignatureError, PluginInstallError, OSError, ValueError) as exc:
+        if getattr(args, "json", False):
+            print(json.dumps({"error": str(exc)}, sort_keys=True))
+        else:
+            print(f"Plugin error: {exc}")
+        return 1
 
 
 def _cmd_skills(args: argparse.Namespace) -> int:
@@ -419,6 +494,104 @@ def _cmd_harness(args: argparse.Namespace) -> int:
     return 0
 
 
+def _cmd_working_memory(args: argparse.Namespace) -> int:
+    """Inspect or update the canonical current-task state for one session."""
+    from . import goals, harness
+
+    try:
+        session_id = harness.validate_working_session_id(args.session)
+
+        def snapshot_locked() -> dict[str, object]:
+            working = harness.working_state(session_id)
+            goal = goals.get_active(session_id=session_id)
+            return {
+                "schema": 1,
+                "session_id": session_id,
+                "revision": working["revision"],
+                "goal": goal.objective if goal is not None else "",
+                **{
+                    field: list(working[field])
+                    for field in harness.WORKING_FIELDS
+                },
+                "updated_at": (
+                    working["updated_at"]
+                    or (goal.updated_at if goal is not None else "")
+                ),
+            }
+
+        def snapshot() -> dict[str, object]:
+            with harness.working_transaction(session_id):
+                return snapshot_locked()
+
+        if args.working_memory_action == "show":
+            if args.json:
+                state = snapshot()
+                print(json.dumps(state, ensure_ascii=False))
+            else:
+                with harness.working_transaction(session_id):
+                    state = snapshot_locked()
+                    goal = str(state["goal"])
+                    block = harness.render_working(session_id)
+                rendered = "\n\n".join(
+                    part for part in (
+                        f"Goal: {goal}" if goal else "",
+                        block,
+                    )
+                    if part
+                )
+                print(rendered or "Working memory is empty.")
+            return 0
+        if args.working_memory_action == "clear":
+            goal_removed = False
+
+            def pause_goal() -> None:
+                nonlocal goal_removed
+                goal_removed = goals.pause(session_id=session_id) is not None
+
+            removed = harness.clear_working(
+                session_id,
+                commit=pause_goal,
+            )
+            print(
+                f"Cleared working memory for {session_id}."
+                if removed or goal_removed
+                else f"Working memory for {session_id} was already empty."
+            )
+            return 0
+
+        updates = {
+            "corrections": args.corrections,
+            "constraints": args.constraints,
+            "decisions": args.decisions,
+            "incomplete": args.incomplete,
+            "evidence": args.evidence,
+            "next_actions": args.next_actions,
+        }
+        if args.goal is None and not any(
+            updates.values()
+        ):
+            print("error: update needs at least one state value", file=sys.stderr)
+            return 2
+        if args.goal is not None and not str(args.goal).strip():
+            raise ValueError("goal objective must not be empty")
+        def commit() -> None:
+            _ = goals.set_goal(args.goal, session_id=session_id)
+
+        state = harness.update_working(
+            session_id,
+            **updates,
+            commit=commit if args.goal is not None else None,
+        )
+        print(
+            f"Updated working memory for {session_id} "
+            f"(revision {state['revision']})."
+        )
+        return 0
+    except (OSError, RuntimeError, ValueError) as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 2
+
+
 def _cmd_voice(args: argparse.Namespace) -> int:
     from .voice import onboarding
     from .voice.daemon import (
@@ -546,6 +719,37 @@ def _cmd_tools(args: argparse.Namespace) -> int:
     print(f"\n{DIM}Toggle:{RESET} birkin tools --disable <name> / --enable <name>"
           f"  ·  {RED}red{RESET} = disabled")
     return 0
+
+
+def _cmd_computer_use(args: argparse.Namespace) -> int:
+    """Run explicit Computer Use diagnostics and setup guidance."""
+    import json
+
+    from . import config
+    from .computer_use.runtime import create_service
+    from .computer_use.setup_cli import setup_report
+
+    if args.computer_use_action == "setup":
+        result = setup_report()
+    elif args.computer_use_action == "doctor":
+        loaded_config = config.load_config()
+        computer_use_policy = loaded_config.get("computer_use")
+        service = create_service(
+            artifact_root=config.birkin_home() / "computer-use" / "artifacts",
+            policy_config=(
+                computer_use_policy
+                if isinstance(computer_use_policy, dict)
+                else None
+            ),
+        )
+        result = service.execute({"version": 1, "action": "doctor"})
+    else:
+        return 2
+    if args.json:
+        print(json.dumps(result, ensure_ascii=False, sort_keys=True))
+    else:
+        print(json.dumps(result, ensure_ascii=False, indent=2, sort_keys=True))
+    return 0 if result.get("ok") else 1
 
 
 _CLI_ACCESS_LEVELS = [
@@ -1034,6 +1238,27 @@ def build_parser() -> argparse.ArgumentParser:
     )
     chatp.set_defaults(func=_cmd_chat)
 
+    pp = sub.add_parser("plugins", help="inspect and install signed plugin bundles")
+    pps = pp.add_subparsers(dest="action", required=True)
+    inspectp = pps.add_parser("inspect", help="show permissions before installation")
+    inspectp.add_argument("source")
+    installp = pps.add_parser("install", help="install an exact bundle version")
+    installp.add_argument("source")
+    installp.add_argument("--version", required=True, help="exact semantic version")
+    installp.add_argument("--scope", choices=("project", "team"), default="project")
+    installp.add_argument("--yes", action="store_true", help="confirm disclosed permissions")
+    installp.add_argument("--upgrade", action="store_true", help="replace an existing scope pin")
+    resolvep = pps.add_parser("resolve", help="show the effective project/team pin")
+    resolvep.add_argument("name")
+    resolvep.add_argument("--version", help="require this exact installed version")
+    for plugin_parser in (inspectp, installp, resolvep):
+        plugin_parser.add_argument("--json", action="store_true", help="machine-readable JSON")
+        plugin_parser.add_argument(
+            "--key", action="append", default=[], metavar="KEY_ID=HEX",
+            help="trusted HMAC key (repeatable)",
+        )
+        plugin_parser.set_defaults(func=_cmd_plugins)
+
     sp = sub.add_parser("skills",
                         help="list skills, show one, `skills sync`, or `skills validate`")
     sp.add_argument("name", nargs="?",
@@ -1202,6 +1427,27 @@ def build_parser() -> argparse.ArgumentParser:
     tp.add_argument("--disable", help="tool name to disable")
     tp.set_defaults(func=_cmd_tools)
 
+    cup = sub.add_parser(
+        "computer-use",
+        help="inspect native desktop capabilities and setup guidance",
+    )
+    cu_sub = cup.add_subparsers(
+        dest="computer_use_action",
+        required=True,
+    )
+    cu_doctor = cu_sub.add_parser(
+        "doctor",
+        help="report capabilities and permissions without prompting",
+    )
+    cu_doctor.add_argument("--json", action="store_true")
+    cu_doctor.set_defaults(func=_cmd_computer_use)
+    cu_setup = cu_sub.add_parser(
+        "setup",
+        help="print explicit install and least-privilege permission steps",
+    )
+    cu_setup.add_argument("--json", action="store_true")
+    cu_setup.set_defaults(func=_cmd_computer_use)
+
     mp = sub.add_parser("model", aliases=["models"],
                         help="choose the model (interactive, like `hermes model`)")
     mp.add_argument("name", nargs="?", help="set this model directly (skips the picker)")
@@ -1256,6 +1502,54 @@ def build_parser() -> argparse.ArgumentParser:
     hp.add_argument("-n", "--limit", type=int, default=None,
                     help="history: show only the last N refinements")
     hp.set_defaults(func=_cmd_harness)
+
+    working = sub.add_parser(
+        "working-memory",
+        help="inspect or update structured current-session task state",
+    )
+    working_actions = working.add_subparsers(
+        dest="working_memory_action", required=True
+    )
+    working_update = working_actions.add_parser(
+        "update", help="merge current task facts into one session"
+    )
+    working_show = working_actions.add_parser(
+        "show", help="show one session's current task state"
+    )
+    working_clear = working_actions.add_parser(
+        "clear", help="delete one session's current task state"
+    )
+    for action in (working_update, working_show, working_clear):
+        action.add_argument("--session", required=True, help="stable session id")
+        action.set_defaults(func=_cmd_working_memory)
+    working_update.add_argument("--goal", help="replace the current goal")
+    working_update.add_argument(
+        "--correction", dest="corrections", action="append", default=[],
+        help="append a user correction (repeatable)",
+    )
+    working_update.add_argument(
+        "--constraint", dest="constraints", action="append", default=[],
+        help="append a constraint (repeatable)",
+    )
+    working_update.add_argument(
+        "--decision", dest="decisions", action="append", default=[],
+        help="append a decision (repeatable)",
+    )
+    working_update.add_argument(
+        "--incomplete", action="append", default=[],
+        help="append an incomplete item (repeatable)",
+    )
+    working_update.add_argument(
+        "--evidence", action="append", default=[],
+        help="append evidence (repeatable)",
+    )
+    working_update.add_argument(
+        "--next-action", dest="next_actions", action="append", default=[],
+        help="append a concrete next action (repeatable)",
+    )
+    working_show.add_argument(
+        "--json", action="store_true", help="print the canonical JSON state"
+    )
 
     sub.add_parser("update", help="pull new code from the repo (fast-forward only)").set_defaults(func=_cmd_update)
 

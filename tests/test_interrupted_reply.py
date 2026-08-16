@@ -46,6 +46,15 @@ def _gateway(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Gateway:
             "provider": "codex-cli",
             "model": "gpt-5.6-sol",
             "gateway_prewarm": False,
+            "channels": {
+                **config.DEFAULT_CONFIG["channels"],
+                "telegram": {
+                    "enabled": True,
+                    "token": "test-token",
+                    "allowed_chat_ids": ["42"],
+                    "stream": False,
+                },
+            },
         }
     )
     return Gateway(config.load_config())

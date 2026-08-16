@@ -11,8 +11,9 @@ import sys
 from collections.abc import Callable, Mapping
 from dataclasses import replace
 from pathlib import Path
-from typing import Protocol
+from typing import Protocol, cast
 
+from ..procreg import pid_alive as _pid_alive
 from .daemon_readiness import await_worker
 from .daemon_state import (
     DaemonState,
@@ -48,7 +49,7 @@ def start_daemon(
     log_path: Path | None = None,
     launcher: Launcher | None = None,
 ) -> int:
-    if args.once or any(
+    if getattr(args, "once", False) or any(
         getattr(args, name, None)
         for name in (
             "audio",
@@ -73,7 +74,7 @@ def start_daemon(
 
     listener = create_control_listener()
     ready_token = secrets.token_urlsafe(32)
-    ready_port = listener.getsockname()[1]
+    ready_port = cast(tuple[str, int], listener.getsockname())[1]
     env = dict(os.environ)
     env[READY_ENV] = json.dumps(
         {"port": ready_port, "token": ready_token}
@@ -142,26 +143,14 @@ def _active_state(path: Path) -> DaemonState | None:
     except (OSError, TypeError, ValueError, json.JSONDecodeError):
         if _pid_alive(state.pid):
             return replace(state, status="unreachable")
-        remove_state(path, state.instance_id)
+        _ = remove_state(path, state.instance_id)
         return None
     if status == "running":
         return state
     if status == "stopping":
         return replace(state, status="stopping")
-    remove_state(path, state.instance_id)
+    _ = remove_state(path, state.instance_id)
     return None
-
-
-def _pid_alive(pid: int) -> bool:
-    try:
-        os.kill(pid, 0)
-    except ProcessLookupError:
-        return False
-    except PermissionError:
-        return True
-    except OSError:
-        return False
-    return True
 
 
 def _launch(

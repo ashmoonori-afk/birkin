@@ -236,3 +236,21 @@ def test_redelivery_uses_registered_adapter_before_legacy_send(
 def test_legacy_build_channels_is_unchanged_when_webhooks_are_absent():
     cfg = {"gateway_port": 0, "channels": {"http": {"enabled": True}}}
     assert [channel.name for channel in build_channels(cfg)] == ["http"]
+
+
+def test_build_channels_allows_capability_stripped_open_telegram():
+    cfg = {
+        "channels": {
+            "http": {"enabled": False},
+            "telegram": {
+                "enabled": True,
+                "token": "test-token",
+                "allowed_chat_ids": [],
+                "stream": True,
+            },
+        },
+    }
+
+    channels = build_channels(cfg)
+
+    assert [channel.name for channel in channels] == ["telegram"]

@@ -238,9 +238,11 @@ def test_auto_approved_shell_executes_exactly_once(tmp_path, monkeypatch):
     """One run_shell call must be one execution, not two."""
     calls = []
 
-    import subprocess as _sp
-    monkeypatch.setattr(_sp, "run",
-                        lambda *a, **k: calls.append(a) or _Completed())
+    monkeypatch.setattr(
+        shell_mod,
+        "run_shell_command",
+        lambda request: calls.append(request) or _Completed(),
+    )
     monkeypatch.chdir(tmp_path)
 
     ctx = _ctx(cfg={"auto_approve": ["shell"]})
@@ -335,7 +337,7 @@ def test_tokscale_submit_is_approval_gated(
         calls += 1
         return _Completed()
 
-    monkeypatch.setattr(shell_mod.subprocess, "run", run)
+    monkeypatch.setattr(shell_mod, "run_shell_command", run)
     registry = build_registry(ctx, include={"shell"})
 
     # When
