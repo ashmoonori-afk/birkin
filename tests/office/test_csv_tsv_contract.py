@@ -90,6 +90,18 @@ def test_malformed_encoding_control_bytes_and_wrong_newline_are_refused() -> Non
         assert caught.value.artifact_sha256 == hashlib.sha256(payload).hexdigest()
 
 
+def test_nul_is_never_a_valid_dialect_character() -> None:
+    with pytest.raises(ValueError, match="non-NUL"):
+        _ = CsvDialect(delimiter="\x00")
+    with pytest.raises(ValueError, match="non-NUL"):
+        _ = CsvDialect(quotechar="\x00")
+    with pytest.raises(ValueError, match="non-NUL"):
+        _ = CsvDialect(escapechar="\x00")
+
+    with pytest.raises(ValueError, match="non-NUL"):
+        _ = CsvSniffPolicy(candidates=("\x00", ","))
+
+
 def test_sniff_is_opt_in_bounded_and_refuses_ambiguous_delimiters() -> None:
     pipe = b"a|b\n1|2\n"
     assert import_delimited(pipe, CsvImportPlan()).rows == (("a|b",), ("1|2",))

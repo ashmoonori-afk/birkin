@@ -50,8 +50,8 @@ _BOMS = {CsvEncoding.UTF8_BOM: codecs.BOM_UTF8,
 def _character(value: str | None, name: str, *, optional: bool = False) -> None:
     if value is None and optional:
         return
-    if value is None or len(value) != 1 or value in "\r\n":
-        raise ValueError(f"{name} must be one non-line-break character")
+    if value is None or len(value) != 1 or value in "\x00\r\n":
+        raise ValueError(f"{name} must be one non-NUL, non-line-break character")
 
 
 @dataclass(frozen=True, slots=True)
