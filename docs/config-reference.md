@@ -38,6 +38,7 @@ Schema version: 1
 | `parallel_tools` | `boolean` | `true` | Birkin setting `parallel_tools`. |
 | `parallel_tool_workers` | `integer` | `8` | Birkin setting `parallel_tool_workers`. |
 | `shell_approval` | `string` | `"manual"` | Birkin setting `shell_approval`. |
+| `allow_powershell` | `boolean` | `false` | Birkin setting `allow_powershell`. |
 | `checkpoints` | `boolean` | `true` | Birkin setting `checkpoints`. |
 | `hooks` | `object` | `{}` | Birkin setting `hooks`. |
 | `hooks_auto_accept` | `boolean` | `false` | Birkin setting `hooks_auto_accept`. |
@@ -49,10 +50,19 @@ Schema version: 1
 | `extra_skill_dirs` | `array` | `[]` | Birkin setting `extra_skill_dirs`. |
 | `disabled_tools` | `array` | `[]` | Birkin setting `disabled_tools`. |
 | `desktop_tools` | `boolean` | `false` | Birkin setting `desktop_tools`. |
+| `computer_use` | `object` | `{"enabled": false, "allowed_apps": [], "denied_apps": [], "allowed_windows": null, "denied_windows": [], "allowed_operations": ["click", "double_click", "right_click", "middle_click", "drag", "scroll", "type"], "max_actions": 200}` | Birkin setting `computer_use`. |
+| `computer_use.enabled` | `boolean` | `false` | Birkin setting `computer_use.enabled`. |
+| `computer_use.allowed_apps` | `array` | `[]` | Birkin setting `computer_use.allowed_apps`. |
+| `computer_use.denied_apps` | `array` | `[]` | Birkin setting `computer_use.denied_apps`. |
+| `computer_use.allowed_windows` | `any` | `null` | Birkin setting `computer_use.allowed_windows`. |
+| `computer_use.denied_windows` | `array` | `[]` | Birkin setting `computer_use.denied_windows`. |
+| `computer_use.allowed_operations` | `array` | `["click", "double_click", "right_click", "middle_click", "drag", "scroll", "type"]` | Birkin setting `computer_use.allowed_operations`. |
+| `computer_use.max_actions` | `integer` | `200` | Birkin setting `computer_use.max_actions`. |
 | `self_improve` | `boolean` | `true` | Birkin setting `self_improve`. |
 | `skill_nudge_interval` | `integer` | `3` | Birkin setting `skill_nudge_interval`. |
 | `memory_nudge_interval` | `integer` | `6` | Birkin setting `memory_nudge_interval`. |
 | `web_port` | `integer` | `8787` | Birkin setting `web_port`. |
+| `web_remote_access` | `boolean` | `false` | Birkin setting `web_remote_access`. |
 | `gateway_port` | `integer` | `8788` | Birkin setting `gateway_port`. |
 | `gateway_model` | `string` | `""` | Birkin setting `gateway_model`. |
 | `gateway_reasoning_effort` | `string` | `""` | Birkin setting `gateway_reasoning_effort`. |

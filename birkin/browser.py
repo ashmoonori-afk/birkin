@@ -3,42 +3,25 @@
 from __future__ import annotations
 
 import json
+from collections.abc import Callable, Mapping
 from dataclasses import asdict, dataclass
 from pathlib import Path, PurePosixPath
-from typing import Any, Callable, Protocol
+from typing import Protocol, cast, final, runtime_checkable
 from urllib.parse import urlsplit
+
+from birkin.browser_contracts import (
+    BrowserError,
+    BrowserPolicyViolation,
+    BrowserUnavailableError,
+    ConsoleMessage,
+    NetworkEvent,
+)
 
 from .sandbox import PolicyRequest, SandboxPolicy, SandboxViolation, load_repo_sandbox
 from .tools._types import Tool, ToolContext, ToolResult
 
 
-class BrowserError(RuntimeError):
-    """Base class for browser-surface failures."""
-
-
-class BrowserUnavailableError(BrowserError):
-    """The optional browser runtime is not installed or cannot start."""
-
-
-class BrowserPolicyViolation(BrowserError, PermissionError):
-    """A browser action was refused by the shared sandbox policy."""
-
-
-@dataclass(frozen=True, slots=True)
-class ConsoleMessage:
-    type: str
-    text: str
-
-
-@dataclass(frozen=True, slots=True)
-class NetworkEvent:
-    kind: str
-    method: str
-    url: str
-    status: int | None
-    resource_type: str
-
-
+@runtime_checkable
 class BrowserDriver(Protocol):
     def start(self, request_guard: Callable[[str], None]) -> None: ...
     def navigate(self, url: str) -> str: ...
@@ -51,29 +34,50 @@ class BrowserDriver(Protocol):
     def close(self) -> None: ...
 
 
+@dataclass(frozen=True, slots=True)
+class BrowserPolicyGate:
+    """Shared typed navigation gate for every Birkin browser adapter."""
+
+    policy: SandboxPolicy | None = None
+    allow_private_network: bool = False
+
+    def check_navigation(self, url: str) -> None:
+        parsed = urlsplit(url)
+        if parsed.scheme not in ("http", "https") or not parsed.hostname:
+            raise BrowserPolicyViolation(
+                f"browser network URL must use http or https: {url}"
+            )
+        if parsed.username is not None or parsed.password is not None:
+            raise BrowserPolicyViolation(
+                "browser network URL must not contain credentials"
+            )
+        if self.policy is None:
+            return
+        try:
+            _ = self.policy.require(
+                PolicyRequest(network_hosts=(parsed.hostname,))
+            )
+        except SandboxViolation as exc:
+            raise BrowserPolicyViolation(str(exc)) from exc
+
+
+@final
 class BrowserSession:
     """Stateful browser page whose actions use one immutable SandboxPolicy."""
 
     def __init__(self, driver: BrowserDriver, policy: SandboxPolicy, root: Path):
         self._driver = driver
         self._policy = policy
+        self._gate = BrowserPolicyGate(policy)
         self._root = root.resolve()
         self._closed = False
-        driver.start(self._guard_request)
+        driver.start(self._gate.check_navigation)
 
     def _require(self, request: PolicyRequest) -> None:
         try:
-            self._policy.require(request)
+            _ = self._policy.require(request)
         except SandboxViolation as exc:
             raise BrowserPolicyViolation(str(exc)) from exc
-
-    def _guard_request(self, url: str) -> None:
-        parsed = urlsplit(url)
-        if parsed.scheme not in ("http", "https") or not parsed.hostname:
-            raise BrowserPolicyViolation(
-                f"browser network URL must use http or https: {url}"
-            )
-        self._require(PolicyRequest(network_hosts=(parsed.hostname,)))
 
     def _action(self) -> None:
         if self._closed:
@@ -138,22 +142,35 @@ class BrowserSession:
 
 
 def _session(ctx: ToolContext) -> BrowserSession:
-    current = ctx.browser_session
+    current = cast(object, ctx.browser_session)
     if isinstance(current, BrowserSession):
         return current
-    driver = ctx.browser_driver
-    if driver is None:
+    candidate = cast(object, ctx.browser_driver)
+    driver: BrowserDriver
+    if candidate is None:
         try:
             from .browser_playwright import PlaywrightDriver
+
             driver = PlaywrightDriver()
         except (ImportError, BrowserUnavailableError) as exc:
             raise BrowserUnavailableError(
                 "Browser QA requires `pip install birkin[browser]` and "
-                "`python -m playwright install chromium`."
+                + "`python -m playwright install chromium`."
             ) from exc
-    defaults = ctx.cfg.get("sandbox", {})
+    elif isinstance(candidate, BrowserDriver):
+        driver = candidate
+    else:
+        raise TypeError("browser_driver does not satisfy BrowserDriver")
+    cfg = cast(dict[str, object], cast(object, ctx.cfg))
+    defaults = cfg.get("sandbox", {})
+    sandbox_defaults = (
+        cast(dict[str, object], defaults)
+        if isinstance(defaults, dict)
+        else None
+    )
     spec = load_repo_sandbox(
-        ctx.cwd, defaults if isinstance(defaults, dict) else None
+        ctx.cwd,
+        sandbox_defaults,
     )
     current = BrowserSession(driver, spec.policy, ctx.cwd)
     ctx.browser_session = current
@@ -161,10 +178,18 @@ def _session(ctx: ToolContext) -> BrowserSession:
 
 
 def _ok(value: object = None) -> ToolResult:
-    return ToolResult("ok" if value is None else json.dumps(value, ensure_ascii=False))
+    return ToolResult(
+        "ok"
+        if value is None
+        else json.dumps(value, ensure_ascii=False)
+    )
 
 
-def _run(action: str, inp: dict[str, Any], ctx: ToolContext) -> ToolResult:
+def _run(
+    action: str,
+    inp: dict[str, object],
+    ctx: ToolContext,
+) -> ToolResult:
     try:
         browser = _session(ctx)
         if action == "navigate":
@@ -197,16 +222,30 @@ def _run(action: str, inp: dict[str, Any], ctx: ToolContext) -> ToolResult:
         }), is_error=True)
 
 
-def _tool(name: str, description: str, properties: dict[str, Any], required: list[str]) -> Tool:
+def _tool(
+    name: str,
+    description: str,
+    properties: Mapping[str, object],
+    required: list[str],
+) -> Tool:
     action = name.removeprefix("browser_")
+
+    def invoke(
+        inp: dict[str, object],
+        ctx: ToolContext,
+    ) -> ToolResult:
+        return _run(action, inp, ctx)
+
     return Tool(name, description, {
         "type": "object", "properties": properties, "required": required,
         "additionalProperties": False,
-    }, lambda inp, ctx, action=action: _run(action, inp, ctx))
+    }, invoke)
 
 
 def tools() -> list[Tool]:
-    selector = {"selector": {"type": "string"}}
+    selector: dict[str, object] = {
+        "selector": {"type": "string"}
+    }
     return [
         _tool("browser_navigate", "Navigate the QA browser to an allowlisted HTTP(S) URL.", {"url": {"type": "string"}}, ["url"]),
         _tool("browser_click", "Click a selector on the current page.", selector, ["selector"]),

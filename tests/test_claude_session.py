@@ -21,7 +21,12 @@ from birkin.claude_session import ClaudeStreamSession
 class _FakeStdin:
     """Captures user messages and enqueues canned response events on stdout."""
 
-    def __init__(self, out_q: "queue.Queue", sent: list, behavior):
+    def __init__(
+        self,
+        out_q: queue.Queue[object],
+        sent: list[object],
+        behavior,
+    ):
         self._out = out_q
         self._sent = sent
         self._behavior = behavior
@@ -47,7 +52,7 @@ class _FakeStdin:
 class _BlockingLines:
     """Iterable yielding queued lines; blocks until more arrive (like a pipe)."""
 
-    def __init__(self, q: "queue.Queue"):
+    def __init__(self, q: queue.Queue[object]):
         self._q = q
 
     def __iter__(self):
@@ -60,10 +65,12 @@ class _BlockingLines:
 
 class _FakePopen:
     def __init__(self, behavior, *, die_after=None):
-        self._out_q: "queue.Queue" = queue.Queue()
-        self._err_q: "queue.Queue" = queue.Queue()
+        self.pid = 2_147_483_647
+        self.args: list[str] = []
+        self._out_q: queue.Queue[object] = queue.Queue()
+        self._err_q: queue.Queue[object] = queue.Queue()
         self._err_q.put(None)  # stderr closes immediately (no diagnostics)
-        self.sent: list = []
+        self.sent: list[object] = []
         self.stdin = _FakeStdin(self._out_q, self.sent, behavior)
         self.stdout = _BlockingLines(self._out_q)
         self.stderr = _BlockingLines(self._err_q)
@@ -72,6 +79,16 @@ class _FakePopen:
 
     def poll(self):
         return self.returncode
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, _exc_type, _exc, _traceback) -> None:
+        pass
+
+    def communicate(self, input=None, timeout=None):
+        self.returncode = 1
+        return b"", b""
 
     def terminate(self):
         self._terminated = True
@@ -127,7 +144,7 @@ def test_only_new_turn_is_sent(monkeypatch):
 def test_on_text_callback_fires(monkeypatch):
     _patch_popen(monkeypatch, lambda: _FakePopen(_ok_behavior))
     s = ClaudeStreamSession()
-    seen: list = []
+    seen: list[str] = []
     s.ask("hi", on_text=seen.append)
     assert seen == ["echo:hi"]
     s.close()
@@ -252,7 +269,7 @@ def test_send_raises_without_process():
 def test_drain_never_blocks_on_full_queue():
     """The 'out' drain must drop the oldest stale event rather than block when
     the bounded queue fills (the C2 deadlock fix). If it blocked, this hangs."""
-    q: "queue.Queue" = queue.Queue(maxsize=2)
+    q: queue.Queue[tuple[str, str | None]] = queue.Queue(maxsize=2)
     lines = [f"line{i}\n" for i in range(12)]
     claude_session.ClaudeStreamSession._drain(iter(lines), "out", q)
     items = []

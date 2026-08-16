@@ -38,6 +38,7 @@ Schema version: 1
 | `parallel_tools` | `boolean` | `true` | Birkin 설정 `parallel_tools`. |
 | `parallel_tool_workers` | `integer` | `8` | Birkin 설정 `parallel_tool_workers`. |
 | `shell_approval` | `string` | `"manual"` | Birkin 설정 `shell_approval`. |
+| `allow_powershell` | `boolean` | `false` | Birkin 설정 `allow_powershell`. |
 | `checkpoints` | `boolean` | `true` | Birkin 설정 `checkpoints`. |
 | `hooks` | `object` | `{}` | Birkin 설정 `hooks`. |
 | `hooks_auto_accept` | `boolean` | `false` | Birkin 설정 `hooks_auto_accept`. |
@@ -49,10 +50,19 @@ Schema version: 1
 | `extra_skill_dirs` | `array` | `[]` | Birkin 설정 `extra_skill_dirs`. |
 | `disabled_tools` | `array` | `[]` | Birkin 설정 `disabled_tools`. |
 | `desktop_tools` | `boolean` | `false` | Birkin 설정 `desktop_tools`. |
+| `computer_use` | `object` | `{"enabled": false, "allowed_apps": [], "denied_apps": [], "allowed_windows": null, "denied_windows": [], "allowed_operations": ["click", "double_click", "right_click", "middle_click", "drag", "scroll", "type"], "max_actions": 200}` | Birkin 설정 `computer_use`. |
+| `computer_use.enabled` | `boolean` | `false` | Birkin 설정 `computer_use.enabled`. |
+| `computer_use.allowed_apps` | `array` | `[]` | Birkin 설정 `computer_use.allowed_apps`. |
+| `computer_use.denied_apps` | `array` | `[]` | Birkin 설정 `computer_use.denied_apps`. |
+| `computer_use.allowed_windows` | `any` | `null` | Birkin 설정 `computer_use.allowed_windows`. |
+| `computer_use.denied_windows` | `array` | `[]` | Birkin 설정 `computer_use.denied_windows`. |
+| `computer_use.allowed_operations` | `array` | `["click", "double_click", "right_click", "middle_click", "drag", "scroll", "type"]` | Birkin 설정 `computer_use.allowed_operations`. |
+| `computer_use.max_actions` | `integer` | `200` | Birkin 설정 `computer_use.max_actions`. |
 | `self_improve` | `boolean` | `true` | Birkin 설정 `self_improve`. |
 | `skill_nudge_interval` | `integer` | `3` | Birkin 설정 `skill_nudge_interval`. |
 | `memory_nudge_interval` | `integer` | `6` | Birkin 설정 `memory_nudge_interval`. |
 | `web_port` | `integer` | `8787` | Birkin 설정 `web_port`. |
+| `web_remote_access` | `boolean` | `false` | Birkin 설정 `web_remote_access`. |
 | `gateway_port` | `integer` | `8788` | Birkin 설정 `gateway_port`. |
 | `gateway_model` | `string` | `""` | Birkin 설정 `gateway_model`. |
 | `gateway_reasoning_effort` | `string` | `""` | Birkin 설정 `gateway_reasoning_effort`. |

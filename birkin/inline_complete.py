@@ -23,15 +23,22 @@ from __future__ import annotations
 import os
 import re
 import sys
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from typing import Iterable, Optional, Sequence
 
 # Lazy ANSI imports — keep this module usable even if ui.py isn't importable
 # during isolated tests.
 try:
-    from .ui import CYAN, DIM, RESET
+    from .ui import CYAN as _cyan
+    from .ui import DIM as _dim
+    from .ui import RESET as _reset
 except Exception:  # pragma: no cover - defensive
-    CYAN = DIM = RESET = ""
+    _cyan = _dim = _reset = ""
+
+CYAN = _cyan
+DIM = _dim
+RESET = _reset
 
 # Enable ANSI / VT processing. On Windows the bare ``os.system("")`` trick
 # silently no-ops on some consoles (redirected stdout, legacy conhost) — and then
@@ -545,6 +552,22 @@ def _is_interactive() -> bool:
         return False
 
 
+def _enter_posix_raw_mode() -> Callable[[], None]:
+    if os.name == "nt":
+        return lambda: None
+    import termios
+    import tty
+
+    fd = sys.stdin.fileno()
+    previous = termios.tcgetattr(fd)
+    tty.setraw(fd)
+
+    def restore() -> None:
+        termios.tcsetattr(fd, termios.TCSADRAIN, previous)
+
+    return restore
+
+
 def _read_event_posix() -> tuple[str, str]:
     """One key read on POSIX, including CSI sequences for navigation keys.
 
@@ -560,7 +583,7 @@ def _read_event_posix() -> tuple[str, str]:
     fd = sys.stdin.fileno()
     old = termios.tcgetattr(fd)
     try:
-        tty.setraw(fd)
+        tty.setraw(fd, termios.TCSANOW)
 
         # Honor any pushed-back control byte from a previous paste batch.
         if _pushback:
@@ -862,14 +885,14 @@ def prompt_with_completion(prompt: str,
     prev_cursor_row = 0
     prev_total_rows = 1
 
-    # Opt in to the Kitty Keyboard Protocol so Shift/Ctrl/Alt+Enter come in
-    # as distinguishable CSI sequences. Terminals that don't support it just
-    # ignore the enable byte — there is no fallback to manage.
-    sys.stdout.write(KITTY_ENABLE)
-    sys.stdout.write(prompt)
-    sys.stdout.flush()
-
+    restore_input = _enter_posix_raw_mode()
     try:
+        # Opt in to the Kitty Keyboard Protocol so Shift/Ctrl/Alt+Enter come in
+        # as distinguishable CSI sequences. Terminals that don't support it
+        # ignore the enable byte.
+        _ = sys.stdout.write(KITTY_ENABLE)
+        _ = sys.stdout.write(prompt)
+        _ = sys.stdout.flush()
         while not state.submitted and not state.exited:
             ms = matches_for(state, commands)
             menu_lines = render_menu_lines(ms, state.selected) if ms else []
@@ -882,12 +905,15 @@ def prompt_with_completion(prompt: str,
         # Always restore, even if the loop raised: park the cursor below all
         # rendered rows, emit a clean newline, and disable the Kitty Keyboard
         # Protocol so a leftover enable can't confuse the shell or other apps.
-        rows_below = prev_total_rows - 1 - prev_cursor_row
-        if rows_below > 0:
-            sys.stdout.write(f"\x1b[{rows_below}B")
-        sys.stdout.write("\n")
-        sys.stdout.write(KITTY_DISABLE)
-        sys.stdout.flush()
+        try:
+            rows_below = prev_total_rows - 1 - prev_cursor_row
+            if rows_below > 0:
+                sys.stdout.write(f"\x1b[{rows_below}B")
+            sys.stdout.write("\n")
+            sys.stdout.write(KITTY_DISABLE)
+            sys.stdout.flush()
+        finally:
+            restore_input()
 
     if state.exited:
         return None
@@ -899,7 +925,7 @@ def prompt_with_completion(prompt: str,
 
 # -- adapter for the REPL ---------------------------------------------------
 
-def hints_from_registry(registry: dict) -> list[CommandHint]:
+def hints_from_registry(registry: Mapping[str, object]) -> list[CommandHint]:
     """Convert ``birkin.slashcommands._REGISTRY`` into a CommandHint list."""
     out = [CommandHint(name=name, summary=getattr(cmd, "summary", ""))
            for name, cmd in registry.items()]

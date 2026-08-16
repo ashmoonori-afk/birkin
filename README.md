@@ -32,7 +32,7 @@ Agent runtimes are easy to demo and hard to trust. Birkin keeps the model useful
 | A coding agent changes files before the user understands the plan | The official VS Code extension sends editor context, reviews a plan first, renders proposed diffs, resolves Birkin approvals, and restores checkpoints. |
 | A local tool becomes an opaque service | Runs, approvals, checkpoints, status, and configuration remain local and inspectable. |
 
-Birkin's core runtime has **no mandatory third-party Python dependencies**. Optional extras add voice, desktop vision, and office-file support. The repository currently bundles **56 skills**; all default tests are designed to run offline.
+Birkin's core runtime has one mandatory process-identity dependency (`psutil`). Optional extras add voice, native desktop Computer Use, browser, and office-file support. The repository currently bundles **56 skills**; all default tests are designed to run offline.
 
 ## Memory
 
@@ -72,7 +72,7 @@ Run the local service surfaces in separate terminals:
 
 ```bash
 birkin gateway          # local HTTP on 127.0.0.1:8788; Telegram is optional
-birkin web --no-browser # dashboard/control API on 127.0.0.1:8787
+birkin web --no-browser # authenticated chat workspace on 127.0.0.1:8787
 ```
 
 Optional features are explicit:
@@ -82,11 +82,107 @@ python -m pip install -e ".[memory-semantic]"
 python -m pip install -e ".[voice]"
 python -m pip install -e ".[desktop]"
 python -m pip install -e ".[office]"
+python -m pip install -e ".[browser]"
+python -m playwright install chromium
 python -m pip install -e ".[full]"
 ```
 
+### Native Browser Aside
+
+With the optional browser dependency installed, `birkin web` exposes a
+collapsible **Browser** plane beside the unified workspace. It is a real
+isolated persistent Playwright Chromium context: there is no iframe, HTML
+projection, or mock browser. Open the plane, enter an `http://` or `https://`
+URL, and press Enter. Collapsing the plane preserves its session and storage;
+the authenticated `DELETE /api/browser-aside/session` endpoint or WebUI
+shutdown closes it.
+
+The plane reuses the unified workspace's shared semantic theme, including its
+dark, light, and high-contrast palettes. Its compact status rail exposes
+ready, loading, blocked, stale, and error states without relying on color, and
+revision-aware frame polling keeps the canvas synchronized without embedding
+image data in the page.
+
+Live JPEG frames use bounded, workspace-scoped content-addressed memory
+storage. UI state and event/context records carry only frame digest/ref
+metadata, never inline image bytes or base64. Private-network navigation is
+denied by default. An exact test-only destination may be admitted with a
+host/CIDR/port rule such as
+`BIRKIN_BROWSER_PRIVATE_NETWORK_RULES='[{"host":"127.0.0.1","cidr":"127.0.0.1/32","port":8080}]'`;
+there is no global private-network switch. Repository sandbox network policy
+still applies. If Playwright Chromium is unavailable, the browser endpoint
+returns an actionable `503` without affecting core startup.
+
+## Computer Use
+
+Computer Use is an opt-in native desktop capability exposed as one typed tool, `computer_use`. Install the desktop extra, enable both the legacy desktop observation group and the separate Computer Use mutation gate, then inspect permissions without prompting:
+
+```bash
+python -m pip install -e ".[desktop]"
+birkin computer-use setup --json
+birkin computer-use doctor --json
+```
+
+The commands above emit setup or capability reports. Configuration is written separately:
+
+```json
+{
+  "desktop_tools": true,
+  "computer_use": {
+    "enabled": true,
+    "allowed_apps": ["org.example.QAFixture"],
+    "denied_apps": [],
+    "allowed_windows": null,
+    "denied_windows": [],
+    "allowed_operations": ["click", "scroll", "type"],
+    "max_actions": 200
+  }
+}
+```
+
+Rules use exact native identities and window IDs. Titles, OCR, accessibility labels, screenshots, and other screen content are evidence only and never mutation authority.
+
+The public action union is:
+
+```text
+capture, list_apps, list_windows,
+click, double_click, right_click, middle_click,
+drag, scroll, type, doctor
+```
+
+Mutations require the latest opaque app/window/snapshot/element refs. An empty `allowed_apps` list denies every app; `allowed_windows: null` permits the windows of explicitly allowed apps. Birkin attempts semantic background delivery first, verifies the predicted effect from fresh native state, and reports `confirmed`, `unverifiable`, or `suspected_noop`. Pointer foreground fallback is available only for native backends that advertise it, and requires a recorded background failure, an exact one-shot approval, a topmost-window hit test, and focus restoration evidence. Horizontal foreground scroll is Linux X11-only; macOS and Windows refuse it rather than silently substituting vertical scroll. Native password fields are hard-blocked; additional sensitive/risky classes are enforced only when the backend supplies trusted native metadata.
+
+| Platform | Discovery and structure | Exact capture | Background mutation | Foreground input |
+|---|---|---|---|---|
+| macOS | AX, conditional on Accessibility | Quartz exact `CGWindowID`, conditional on Screen Recording | AX semantic actions only | Approved Quartz pointer fallback bound to current AX bounds |
+| Windows | UIA in an interactive desktop with compatible integrity | `PrintWindow` exact `HWND` | UIA patterns only | Approved pointer fallback bound to the current UIA rectangle |
+| Linux X11 | AT-SPI with exact PID/XID correlation | Exact X11 window image | AT-SPI semantic actions only | Approved XTest fallback bound to current AT-SPI bounds |
+| Linux XWayland | Conditional on unique AT-SPI/XID correlation | Conditional on authoritative XID | Conditional | Only when the X11 fallback conditions hold |
+| Linux native Wayland | App observation may be available | Generic exact-window capture unsupported | Generic authoritative mutation unsupported | Unsupported |
+| Optional browser adapter | Contract seam with no production route | Contract seam only | Contract seam only | Never controls browser chrome or OS surfaces |
+
+The unified terminal and web workspace expose a dedicated Computer Use panel. Both surfaces replay the same versioned reducer state, reject stale or cross-session overlays, and hand foreground approval IDs to the existing approvals panel instead of inventing a second approval channel.
+
+Raw screenshots are content-addressed under `BIRKIN_HOME/computer-use/artifacts`; events and journals retain bounded redacted metadata, digests, scopes, effects, and receipts instead of raw pixels or typed secrets. Runtime code never installs dependencies, opens privacy settings, or clicks permission dialogs.
+
 > [!IMPORTANT]
 > Native tools run with your operating-system account. Keep the gateway loopback-only, configure `shell_approval`, `fs_jail`, disabled tools, and channel allowlists for your deployment, and review consequential actions before approval.
+
+## Unified chat workspace
+
+`birkin chat` now opens the terminal workspace by default and starts its authenticated loopback web authority. The private bootstrap URL printed at startup exchanges its one-time path capability for an `HttpOnly`, `SameSite=Strict` cookie, then removes the secret from the address bar. `birkin web [--no-browser]` runs the same responsive web workspace as a standalone local surface.
+
+Both surfaces consume the same ordered command/event protocol and durable journal. Conversation messages, tasks and runs, approvals, evidence, sessions, activity, cron, memory and skills, checkpoints, and status are canonical snapshot panels rather than separate dashboard state. When a surface reconnects with an existing session ID, the journal replays its conversation, panel data, and command cursor.
+
+- Terminal: type and press Enter to send, press Esc to interrupt, use `/work` to focus tasks/runs, and use the deprecated `/dash` compatibility alias to focus activity/logs.
+- Web: press Ctrl+Enter to send, press Esc to interrupt, use the context button for the nine canonical panels, and use the explicit approve/reject actions after reviewing requester, target, impact, rejection result, risk, expiry, and evidence.
+- Themes: Studio Dark, Paper Light, and High Contrast share semantic roles with terminal truecolor/ANSI-256 rendering. `NO_COLOR=1` keeps the terminal usable without color.
+- Responsive behavior: desktop keeps conversation and context side by side; mobile uses an opaque sheet above a composer that remains visible, with touch-sized controls and an explicit back action.
+
+The workspace remains loopback-only and preserves Host validation, capability checks, approval authority, filesystem jail, network egress, and audit records. Deprecated UI paths `/legacy-dashboard`, `/dashboard`, and `/workbench` return a permanent `308` redirect to `/` with deprecation metadata; existing backend APIs remain available.
+
+The embedded web authority does not overwrite the standalone WebUI discovery file. If the configured web port is already occupied, `birkin chat` binds its private embedded authority to an available loopback port and prints that bootstrap URL instead.
+The embedded authority is bootstrap-URL only; run standalone `birkin web` when the VS Code extension needs `~/.birkin/web_session.json` discovery.
 
 ## GitHub Action
 
@@ -215,13 +311,13 @@ All rows below describe surfaces shipped in this repository.
 
 | Capability | CLI / REPL | Gateway | WebUI | VS Code |
 |---|:---:|:---:|:---:|:---:|
-| Conversational agent | Yes | Yes | No (monitoring/control) | Yes, through gateway |
+| Conversational agent | Yes | Yes | Yes | Yes, through gateway |
 | Current editor selection and open files | Manual | Manual | No | Yes |
-| Plan review before execution | Slash-command/workflow dependent | Conversation dependent | No | Dedicated review surface |
+| Plan review before execution | Slash-command/workflow dependent | Conversation dependent | Conversation + explicit approval | Dedicated review surface |
 | Proposed-change diff | Terminal checkpoint diff | No | Approval details | Native VS Code diff editor |
 | Approval queue | `birkin review` | Trusted chat controls | Approve/reject API and UI | Approve/reject API |
-| File rollback | `/rollback` | No | Checkpoint control API | Checkpoint picker |
-| Live status | Status line | Progress callbacks | Dashboard | Status bar |
+| File rollback | `/rollback` | No | Checkpoint restore panel | Checkpoint picker |
+| Live status | Workspace status/panels | Progress callbacks | Chat workspace | Status bar |
 | Local transport | Process stdin/stdout | Loopback HTTP / channels | Loopback HTTP | Existing gateway + WebUI APIs |
 
 ## Architecture
@@ -230,7 +326,7 @@ The model proposes; deterministic code owns persistence, policy, and authority.
 
 ```mermaid
 flowchart LR
-    U[CLI · Gateway · VS Code] --> P[promptgate.py]
+    U[CLI · Web · Gateway · VS Code] --> P[promptgate.py]
     P --> A[Agent loop]
     A --> R[ToolRegistry]
     R --> G{Policy gates}
@@ -254,7 +350,9 @@ birkin/
   approvals.py      human gate and approved action execution
   checkpoints.py    external shadow-git snapshots and restore
   gateway/          local HTTP, Telegram, and outbound channel adapters
-  web/              local dashboard and authenticated control API
+  web/              local chat workspace and authenticated control API
+  workspace/        shared commands, events, journal, snapshots, and themes
+  workspace_terminal.py  default terminal workspace adapter
   harness.py        validated self-improvement ledger and rollback
   moirai/           deterministic multi-agent graph runtime
   mcp_server.py     stdio MCP server for memory, skills, and proposals
@@ -263,9 +361,26 @@ skills/             bundled Markdown skills
 tests/              offline unit, integration, and end-to-end coverage
 ```
 
-State is file-backed under `BIRKIN_HOME` (normally `~/.birkin`). The dashboard uses a per-process capability; the gateway binds to loopback and can additionally require `BIRKIN_HTTP_TOKEN`. MCP uses newline-delimited JSON-RPC over stdio. The VS Code extension uses these existing authorities: gateway `/message` for turns and WebUI endpoints for approvals, status, editor context, and checkpoints.
+State is file-backed under `BIRKIN_HOME` (normally `~/.birkin`). The workspace uses a per-process capability and honors `BIRKIN_HTTP_TOKEN` as an explicit bearer-capability override; the gateway also binds to loopback and can require that token. MCP uses newline-delimited JSON-RPC over stdio. The VS Code extension uses these existing authorities: gateway `/message` for turns and WebUI endpoints for approvals, status, editor context, and checkpoints.
 
 </details>
+
+## Approval console
+
+`birkin web` opens a responsive control surface for background agent runs and
+risky actions. It shows live run states (`running`, `blocked`,
+`waiting-approval`, and `done`), progress and results, related shell/cron
+proposals, action diffs, and execution receipts. A run can be steered, aborted,
+or resumed from its detail card; approval and rejection continue to use the
+same file-backed authority as `birkin review`.
+
+The server remains loopback-only by default. Set `web_remote_access` to `true`
+only when remote access is intentional; this binds on all interfaces but does
+**not** create a public route. Open the secret bootstrap URL printed by
+`birkin web` on the remote device. It exchanges the per-process capability for
+an HttpOnly, SameSite cookie, and every remote request without that capability
+is rejected. Put TLS or a trusted private-network tunnel in front when traffic
+leaves the host.
 
 ## Checkpoints
 
@@ -341,14 +456,15 @@ letter or digit. Use `birkin working-memory --help` for the complete surface.
 | Command | Purpose |
 |---|---|
 | `birkin setup` | Guided provider and workspace onboarding. |
-| `birkin chat` | Interactive local agent (the default command). |
+| `birkin chat` | Default terminal chat workspace plus private loopback web authority. |
 | `birkin gateway` | Run loopback HTTP and configured message channels. |
-| `birkin web [--no-browser]` | Run the local dashboard and authenticated control API. |
+| `birkin web [--no-browser]` | Run the standalone authenticated chat workspace and control API. |
 | `birkin review` | Approve or reject pending consequential actions. |
 | `birkin permission` | Inspect or change approval categories and CLI access. |
 | `birkin tools` | List, enable, or disable native tools. |
 | `birkin model` / `birkin models` | Inspect or select the model. |
 | `birkin skills` | List, inspect, sync, validate, or manage skills. |
+| `birkin plugins` | Inspect permissions, install exact signed bundle versions, or resolve pins. |
 | `birkin daemon` | Run or install the Morpheus + cron scheduler. |
 | `birkin morpheus [--dry-run]` | Run the scheduled self-improvement routine now. |
 | `birkin harness` | Show, refine, export, or roll back the improvement ledger. |
@@ -361,6 +477,82 @@ letter or digit. Use `birkin working-memory --help` for the complete surface.
 | `birkin voice` | Configure or control the optional voice daemon. |
 
 Run `birkin --help` or `birkin <command> --help` for the complete interface.
+
+### Live OMO session control
+
+Birkin controls an already-open OMO session through an extension owned by that
+session. It does not open a replacement `omo --mode rpc` process, acquire
+OMO's `settings.json.lock`, or discover windows by title.
+
+From a trusted Birkin chat or gateway channel, install the extension once:
+
+```text
+/omo bridge install
+```
+
+This copies `birkin-omo-live-bridge.mjs` into the active OMO agent extension
+directory without editing `settings.json`. Open OMO sessions normally discover
+the new extension; run `/reload` in a session if it does not reload
+automatically. A session that has not loaded the extension is deliberately not
+controllable.
+
+Send one prompt to one or more already-open sessions by full, exact session ID:
+
+```text
+/omo send-to 019ffe4c-0ba9-7fa2-acab-176a22fc1fd3,019ffda0-c982-7ffe-badf-b952f457011e -- resume
+```
+
+Birkin returns one acknowledgement line per target with the exact session ID
+and request ID. It resolves every target before delivering any prompt, removes
+duplicate IDs within the request, and rejects unknown, stale, unauthorized, or
+ambiguous live registrations. Historical JSONL sessions are never treated as
+live targets.
+
+Each live session listens on loopback only and publishes a private registration
+containing a random capability token. Birkin validates the token-bound response,
+session ID, request ID, and protocol version. Transport failures are surfaced
+instead of retried blindly, preserving at-most-once delivery for each request.
+## Plugin registry
+
+A bundle is a directory containing `birkin-plugin.json`, its entry-point files,
+and a detached `bundle.sig`. The strict manifest declares one exact semantic
+version, one or more `skill`, `agent`, `hook`, or `mcp_server` kinds, and the
+permissions it needs using the same `network`, `network_allowlist`,
+`env_allowlist`, and `write_paths` vocabulary as `SandboxPolicy`:
+
+```jsonc
+{
+  "name": "acme-review",
+  "version": "1.2.3",
+  "kinds": ["skill", "agent"],
+  "entry_points": {
+    "skill": ["skills/review"],
+    "agent": ["agent.py:tools"]
+  },
+  "required_permissions": {
+    "network": "off",
+    "network_allowlist": [],
+    "env_allowlist": ["ACME_TOKEN"],
+    "write_paths": ["reports"]
+  }
+}
+```
+
+Run `birkin plugins inspect BUNDLE [--json]` to see the exact permission record
+before installation. `birkin plugins install BUNDLE --version 1.2.3` always
+prints that disclosure and requires interactive confirmation (or explicit
+`--yes`) unless all four permission fields are read-only/empty. Signed bundles
+also need a trusted shared key supplied as `--key KEY_ID=HEX`; missing,
+untrusted, or mismatched signatures fail closed. A publisher may deliberately
+set `"unsigned_allowed": true`, which makes only a missing signature acceptable.
+
+Project pins live under `.birkin/registry/registry.lock`; team pins live under
+`~/.birkin/registry/team/registry.lock`. Resolution is deterministic: a project
+pin shadows a team pin with the same bundle name, including when their versions
+differ. An exact version request that disagrees with the project pin is a
+conflict rather than a fallback to team scope. Existing pins change only with
+`--upgrade`. Skill entry points feed the existing `SkillManager`; agent entry
+points return `Tool` objects consumed by the existing native tool registry.
 
 ## Configuration
 
@@ -404,6 +596,7 @@ Run `birkin --help` or `birkin <command> --help` for the complete interface.
   "parallel_tools": true,
   "parallel_tool_workers": 8,
   "shell_approval": "manual",
+  "allow_powershell": false,
   "checkpoints": true,
   "hooks": {},
   "hooks_auto_accept": false,
@@ -415,10 +608,28 @@ Run `birkin --help` or `birkin <command> --help` for the complete interface.
   "extra_skill_dirs": [],
   "disabled_tools": [],
   "desktop_tools": false,
+  "computer_use": {
+    "enabled": false,
+    "allowed_apps": [],
+    "denied_apps": [],
+    "allowed_windows": null,
+    "denied_windows": [],
+    "allowed_operations": [
+      "click",
+      "double_click",
+      "right_click",
+      "middle_click",
+      "drag",
+      "scroll",
+      "type"
+    ],
+    "max_actions": 200
+  },
   "self_improve": true,
   "skill_nudge_interval": 3,
   "memory_nudge_interval": 6,
   "web_port": 8787,
+  "web_remote_access": false,
   "gateway_port": 8788,
   "gateway_model": "",
   "gateway_reasoning_effort": "",
@@ -546,12 +757,18 @@ Run `birkin --help` or `birkin <command> --help` for the complete interface.
 
 Environment variables remain the right place for provider secrets. `api_keys` names environment-variable pools; it is not a place to paste raw keys. `a2a_enabled` is opt-in. Enforced egress disables uninspected native network paths and allows only configured destinations through Birkin's inspected tools. A sandboxed gateway child can submit a shell request through `propose_action`; Birkin queues it for approval instead of running it inside the child sandbox. An empty Telegram `allowed_chat_ids` list permits public text-only turns for Claude/native providers, but strips semantic memory, harness state/review, transcript persistence, Birkin/company MCP, and native tools. Codex CLI cannot provide an equivalent tool-free child, so its Telegram gateway requires an explicit chat allowlist. Public replies cannot trigger attachment delivery or workflow persistence, and shared-state commands such as `/neurosis` require an allowlisted chat.
 
+Free-form shell requests use a fixed non-login platform shell (`%SystemRoot%\System32\cmd.exe /d /s /c` on Windows and `/bin/bash -c` on POSIX) inside an owned process tree. Windows disables AutoRun and selects code page 65001 before user command evaluation, so native `cmd.exe` built-ins and UTF-8 runtimes share the captured stream contract. Birkin preserves the inherited `PATH`, adds known runtime directories without sourcing user profiles, captures UTF-8 streams, and provides writable temporary directories. The same managed runner serves the native shell tool, approved shell continuations, scheduler shell jobs, script monitors, lifecycle hooks, GitHub Action test commands, and worktree setup commands. Worktree setup still exposes only policy-approved payload variables plus non-secret process mechanics such as `PATH`, system interpreter variables, and an isolated `TMPDIR`/`TEMP`/`TMP`; Docker setup shell text remains inside the policy-constrained container. Timeout, interrupt, and Job Object/process-group closure terminate descendants before returning and preserve partial stdout and stderr.
+
+PowerShell is disabled by default on the model-facing native shell tool: set `allow_powershell` to `true` deliberately, or approve one exact queued operation. Other owner-controlled shell surfaces retain their existing explicit authority boundaries. Lifecycle-hook consents recorded before the managed-shell contract require one-time reapproval so old discrete-argv consent cannot silently authorize shell operators. Native macOS and Windows CI exercise commands, pipelines, redirection, quoting, Unicode and spaced working directories, environment and temporary-directory behavior, exit propagation, runtime/package-manager resolution, and descendant cleanup.
+
 ## Development
 
 ```bash
 python -m pip install -e ".[dev]"
 python -m compileall -q birkin
-python -m pytest --cov-fail-under=75
+python -m pytest
+uv run python scripts/qa/macos_shell_smoke.py
+uv run python scripts/qa/windows_shell_smoke.py
 
 cd vscode-extension
 npm ci
@@ -560,7 +777,7 @@ npm run compile
 npm run test:e2e
 ```
 
-CI executes the Python suite on Ubuntu/Python 3.10, macOS/Python 3.13, and Windows/Python 3.13. Extension unit tests use Vitest; the host QA target uses `@vscode/test-electron`.
+CI executes the Python suite on Ubuntu/Python 3.10, macOS/Python 3.13, and Windows/Python 3.13. The macOS and Windows jobs install a pinned Bun release, run native managed-shell acceptance, and execute their tracked sibling-surface smoke drivers. Extension unit tests use Vitest; the host QA target uses `@vscode/test-electron`.
 
 ## License
 

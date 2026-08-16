@@ -8,11 +8,19 @@ slash commands to :mod:`birkin.slashcommands`. Uses ``input()`` (and
 from __future__ import annotations
 
 import os
+from collections.abc import Callable
 from datetime import datetime
 from typing import Any
 
-from . import (abortkey, inline_complete, slashcommands, statusline, store,
-               transcripts, ui)
+from . import (
+    abortkey,
+    inline_complete,
+    slashcommands,
+    statusline,
+    store,
+    transcripts,
+    ui,
+)
 from .runtime import ConfigError, Session, build_session
 from .ui import BIRKIN_BANNER, CYAN, DIM, RED, RESET, YELLOW
 
@@ -43,13 +51,47 @@ def _banner(session: Session) -> None:
 
 
 def run(cfg: dict[str, Any] | None = None) -> int:
-    try:
-        session = build_session(cfg, on_event=ui.make_event_printer())
-    except ConfigError as exc:
-        print(f"{RED}{exc}{RESET}")
-        return 1
+    from . import workspace_terminal
+
+    return workspace_terminal.run(
+        cfg,
+        lambda value, session, handler: run_legacy(
+            value,
+            workspace=True,
+            existing_session=session,
+            turn_handler=handler,
+        ),
+    )
+
+
+def run_legacy(
+    cfg: dict[str, Any] | None = None,
+    *,
+    workspace: bool = False,
+    existing_session: Session | None = None,
+    turn_handler: Callable[
+        [str, Callable[[str], None]],
+        str,
+    ] | None = None,
+) -> int:
+    owns_session = existing_session is None
+    if existing_session is None:
+        try:
+            session = build_session(cfg, on_event=ui.make_event_printer())
+        except ConfigError as exc:
+            print(f"{RED}{exc}{RESET}")
+            return 1
+    else:
+        session = existing_session
 
     _banner(session)
+    workspace_state = None
+    if workspace:
+        from . import workspace_terminal
+
+        workspace_state = workspace_terminal.TerminalWorkspaceState()
+        session.workspace_focus = workspace_state.focus
+        workspace_terminal.render_session(session, workspace_state)
     # One auto-save transcript file per REPL process run (feeds nightly memory).
     run_id = f"{datetime.now():%Y%m%d-%H%M%S}-{os.getpid()}"
     hints = inline_complete.hints_from_registry(slashcommands._REGISTRY)
@@ -117,7 +159,7 @@ def run(cfg: dict[str, Any] | None = None) -> int:
                 print(f"\n{CYAN}birkin{RESET} >\n", end="", flush=True)
             ui.stream_text(piece)
 
-        def turn_event(ev: str, payload: dict) -> None:
+        def turn_event(ev: str, payload: dict[str, Any]) -> None:
             stop_spin()
             if base_event:
                 base_event(ev, payload)
@@ -178,7 +220,11 @@ def run(cfg: dict[str, Any] | None = None) -> int:
         listener_cell["v"] = listener
         start_spin()
         try:
-            reply = session.ask(line, on_text=on_text)  # streamed live above
+            reply = (
+                turn_handler(line, on_text)
+                if turn_handler is not None
+                else session.ask(line, on_text=on_text)
+            )
             stop_spin()
             if first["v"] and (reply or "").strip():
                 # Provider emitted no incremental text — print it once so the
@@ -193,9 +239,19 @@ def run(cfg: dict[str, Any] | None = None) -> int:
             _sl = statusline.render(session.cfg)
             if _sl.strip():
                 print(_sl)
-            store.append_activity(f"chat: {line[:120]}")
-            transcripts.append_turn("repl", run_id, line, reply or "",
-                                    cfg=session.cfg)
+            _ = store.append_activity(f"chat: {line[:120]}")
+            if turn_handler is None:
+                _ = transcripts.append_turn(
+                    "repl",
+                    run_id,
+                    line,
+                    reply or "",
+                    cfg=session.cfg,
+                )
+            if workspace and workspace_state is not None:
+                from . import workspace_terminal
+
+                workspace_terminal.render_session(session, workspace_state)
         except KeyboardInterrupt:
             session.abort.set()
             stop_spin()
@@ -212,6 +268,7 @@ def run(cfg: dict[str, Any] | None = None) -> int:
             # A line typed during the reply (Enter-interrupt) becomes next input.
             pending = (getattr(live, "pending_line", "") or "").strip()
             session.agent.on_event = base_event
-    session.close()   # release the warm CLI process, if repl_warm_session
+    if owns_session:
+        session.close()   # release the warm CLI process, if repl_warm_session
     print(f"{DIM}bye.{RESET}")
     return 0

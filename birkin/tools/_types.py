@@ -96,6 +96,9 @@ class ToolContext:
     # optional Playwright adapter. Kept on the context so calls share one page.
     browser_driver: Any = None
     browser_session: Any = None
+    # Stateful Computer Use service, initialized only for the opt-in desktop
+    # group. Tests and native hosts may inject an implementation explicitly.
+    computer_use_service: Any = None
 
 
 @dataclass

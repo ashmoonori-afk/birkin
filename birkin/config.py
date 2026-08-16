@@ -104,6 +104,9 @@ DEFAULT_CONFIG: dict[str, Any] = {
     #   "off"    — no gate (the pre-shellguard behavior)
     # A small set of catastrophic commands is refused in every mode.
     "shell_approval": "manual",
+    # PowerShell is never implicit. Set this deliberately, or approve one
+    # exact run_shell operation when Birkin queues it for review.
+    "allow_powershell": False,
     # Snapshot the workspace before a mutating tool runs, into a bare git
     # store under <birkin_home>/checkpoints (never inside your project,
     # and never touching your own git history). Undo with /rollback.
@@ -132,13 +135,36 @@ DEFAULT_CONFIG: dict[str, Any] = {
     "max_depth": 2,  # subagent recursion bound
     "extra_skill_dirs": [],  # additional directories to scan for SKILL.md
     "disabled_tools": [],  # tool names the agent may NOT use (see `birkin tools`)
-    "desktop_tools": False,  # opt in to visible-window listing/screenshots
+    "desktop_tools": False,  # opt in to native desktop observation tools
+    "computer_use": {
+        "enabled": False,
+        # Exact native identities only; titles and screen text are never rules.
+        "allowed_apps": [],
+        "denied_apps": [],
+        # Null means every window of an explicitly allowed app.
+        "allowed_windows": None,
+        "denied_windows": [],
+        "allowed_operations": [
+            "click",
+            "double_click",
+            "right_click",
+            "middle_click",
+            "drag",
+            "scroll",
+            "type",
+        ],
+        "max_actions": 200,
+    },
     "self_improve": True,  # allow the agent to write/refine skills after tasks
     # Automatic self-improvement nudges (native: no extra call; Claude: skill
     # review; Codex: trusted memory review; local CLI: no review):
     "skill_nudge_interval": 3,   # tool iterations w/o saving a skill -> nudge (0 = off)
     "memory_nudge_interval": 6,  # user turns w/o updating memory -> nudge (0 = off)
     "web_port": 8787,
+    # Bind the approval console beyond loopback. Remote requests still require
+    # the per-process WebUI capability; false keeps the historical local-only
+    # surface and rejects forged/non-loopback Host headers.
+    "web_remote_access": False,
     # --- Gateway (run the agent as a service across channels) ---
     "gateway_port": 8788,
     # Model used only by `birkin gateway` (the always-on service). Empty -> use
@@ -521,6 +547,10 @@ def skill_dirs(cfg: dict[str, Any]) -> list[tuple[Path, str]]:
     dirs: list[tuple[Path, str]] = [(d, "bundled") for d in bundled_skills_dirs()]
     for extra in cfg.get("extra_skill_dirs", []) or []:
         dirs.append((Path(extra).expanduser(), "extra"))
+    from .plugin_manifest import PluginKind
+    from .plugin_runtime import entry_paths, registry_roots
+    project_registry, team_registry = registry_roots()
+    dirs.extend(entry_paths(project_registry, team_registry, PluginKind.SKILL))
     dirs.append((user_skills_dir(), "user"))
     return dirs
 

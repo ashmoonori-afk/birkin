@@ -26,7 +26,6 @@ from __future__ import annotations
 import json
 import os
 import re
-import shlex
 import subprocess
 import sys
 import time
@@ -35,6 +34,7 @@ from pathlib import Path
 from typing import Any, Optional
 
 from . import config, store
+from .proc import ShellCommand, run_shell_command, shell_env
 
 EVENTS = ("pre_tool_call", "post_tool_call", "pre_llm_call")
 
@@ -43,6 +43,7 @@ EVENTS = ("pre_tool_call", "post_tool_call", "pre_llm_call")
 DEFAULT_TIMEOUT = 10
 MAX_TIMEOUT = 300
 MAX_CONTEXT_CHARS = 8_000
+_EXECUTION_CONTRACT = "managed-shell-v1"
 
 
 @dataclass(frozen=True)
@@ -108,8 +109,12 @@ def _load_allowlist() -> list[dict[str, str]]:
 def is_allowed(spec: HookSpec, entries: Optional[list[dict[str, str]]] = None
                ) -> bool:
     entries = _load_allowlist() if entries is None else entries
-    return any(e.get("event") == spec.event and e.get("command") == spec.command
-               for e in entries)
+    return any(
+        entry.get("event") == spec.event
+        and entry.get("command") == spec.command
+        and entry.get("execution_contract") == _EXECUTION_CONTRACT
+        for entry in entries
+    )
 
 
 def allow(spec: HookSpec) -> None:
@@ -119,8 +124,12 @@ def allow(spec: HookSpec) -> None:
         with store.file_lock(path):
             entries = _load_allowlist()
             if not is_allowed(spec, entries):
-                entries.append({"event": spec.event, "command": spec.command,
-                                "approved_at": time.strftime("%Y-%m-%dT%H:%M:%S")})
+                entries.append({
+                    "event": spec.event,
+                    "command": spec.command,
+                    "execution_contract": _EXECUTION_CONTRACT,
+                    "approved_at": time.strftime("%Y-%m-%dT%H:%M:%S"),
+                })
                 store._write_json(path, entries)
     except store.FileLockTimeout:
         pass
@@ -175,29 +184,19 @@ def _consent(spec: HookSpec, cfg: dict[str, Any]) -> bool:
 
 # -- execution -------------------------------------------------------------
 
-def _spawn(spec: HookSpec, payload: dict[str, Any]) -> Optional[dict[str, Any]]:
+def run_hook(spec: HookSpec, payload: dict[str, Any]) -> Optional[dict[str, Any]]:
     """Run the hook and parse its stdout. None means "no opinion"."""
     try:
-        argv = shlex.split(os.path.expanduser(spec.command),
-                           posix=(os.name != "nt"))
-    except ValueError:
-        return None
-    if os.name == "nt":
-        # posix=False is right for Windows backslashes, but it leaves the
-        # quotes attached to each token — so a quoted program path would be
-        # looked up including its quote characters and never found.
-        argv = [a[1:-1] if len(a) >= 2 and a[0] == a[-1] == '"' else a
-                for a in argv]
-    if not argv:
-        return None
-    kwargs: dict[str, Any] = {}
-    if os.name == "nt":
-        kwargs["creationflags"] = getattr(subprocess, "CREATE_NO_WINDOW", 0)
-    try:
-        proc = subprocess.run(
-            argv, input=json.dumps(payload, ensure_ascii=False),
-            capture_output=True, text=True, errors="replace",
-            timeout=spec.timeout, shell=False, **kwargs)
+        proc = run_shell_command(
+            ShellCommand(
+                command=os.path.expanduser(spec.command),
+                cwd=None,
+                timeout=spec.timeout,
+                environment=shell_env(),
+                stdin=json.dumps(payload, ensure_ascii=False),
+                hide_window=True,
+            )
+        )
     except (OSError, subprocess.SubprocessError) as exc:
         print(f"[birkin] hook failed ({spec.command}): {exc}", flush=True)
         return None
@@ -245,7 +244,7 @@ class HookBus:
                  tool_input: dict[str, Any]) -> Optional[str]:
         """Returns a block message, or None to let the call proceed."""
         for spec in self._for("pre_tool_call", tool_name):
-            result = _spawn(spec, self._payload(
+            result = run_hook(spec, self._payload(
                 "pre_tool_call", tool_name=tool_name, tool_input=tool_input))
             if result and result.get("action") == "block":
                 return result["message"]        # first block wins
@@ -254,7 +253,7 @@ class HookBus:
     def post_tool(self, tool_name: str, tool_input: dict[str, Any],
                   content: str, is_error: bool) -> None:
         for spec in self._for("post_tool_call", tool_name):
-            _spawn(spec, self._payload(
+            run_hook(spec, self._payload(
                 "post_tool_call", tool_name=tool_name, tool_input=tool_input,
                 extra={"is_error": is_error, "content": content[:4000]}))
 
@@ -262,7 +261,7 @@ class HookBus:
                 provider: str = "") -> str:
         parts: list[str] = []
         for spec in self._for("pre_llm_call"):
-            result = _spawn(spec, self._payload(
+            result = run_hook(spec, self._payload(
                 "pre_llm_call", extra={"user_text": user_text[:4000],
                                        "model": model, "provider": provider}))
             if result and result.get("context"):

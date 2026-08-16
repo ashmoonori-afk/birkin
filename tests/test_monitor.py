@@ -120,23 +120,23 @@ def test_monitor_script_uses_shell_policy_and_hashes_stdout_plus_stderr(
         monkeypatch):
     captured = {}
 
-    def fake_run(argv, **kwargs):
-        captured.update(argv=argv, kwargs=kwargs)
+    def fake_run(request):
+        captured["request"] = request
 
         class Result:
-            stdout = b"out"
-            stderr = b"err"
+            stdout = "out"
+            stderr = "err"
             returncode = 0
 
         return Result()
 
-    monkeypatch.setattr(monitor.subprocess, "run", fake_run)
+    monkeypatch.setattr(monitor, "run_shell_command", fake_run)
     result = monitor.check({"id": "script", "monitor_script": "echo check"})
 
     assert result.error is None
-    assert "echo check" in captured["argv"]
-    assert captured["kwargs"]["capture_output"] is True
-    assert captured["kwargs"]["timeout"] == 600
+    request = captured["request"]
+    assert request.command == "echo check"
+    assert request.timeout == 600
     assert monitor.load_state("script")["last_hash"] == hashlib.sha256(
         b"outerr"
     ).hexdigest()

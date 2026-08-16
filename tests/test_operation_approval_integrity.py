@@ -117,9 +117,9 @@ def test_non_policy_shell_failure_is_not_queued(
         stderr = "assertion failed: expected 2, got 3"
 
     monkeypatch.setattr(
-        shell_mod.subprocess,
-        "run",
-        lambda *_args, **_kwargs: FailedProcess(),
+        shell_mod,
+        "run_shell_command",
+        lambda _request: FailedProcess(),
     )
 
     # When: the command returns its application failure.
@@ -190,7 +190,7 @@ def test_approved_temp_policy_retry_uses_local_scoped_directories(
             self.returncode = returncode
             self.stderr = stderr
 
-    def run(_argv: list[str], **kwargs) -> Process:
+    def run(request) -> Process:
         nonlocal attempts
         attempts += 1
         if attempts == 1:
@@ -199,7 +199,7 @@ def test_approved_temp_policy_retry_uses_local_scoped_directories(
                 "Access is denied: "
                 "C:\\Users\\me\\AppData\\Local\\Temp\\uv-cache",
             )
-        environment = kwargs["env"]
+        environment = request.environment
         assert environment["TEMP"] == str(tmp_path / ".birkin-tmp")
         assert environment["TMP"] == str(tmp_path / ".birkin-tmp")
         assert environment["UV_CACHE_DIR"] == str(tmp_path / ".uv-cache")
@@ -207,7 +207,8 @@ def test_approved_temp_policy_retry_uses_local_scoped_directories(
         assert Path(environment["UV_CACHE_DIR"]).is_dir()
         return Process(0)
 
-    monkeypatch.setattr(shell_mod.subprocess, "run", run)
+    monkeypatch.setattr(shell_mod, "run_shell_command", run)
+    monkeypatch.setattr(approvals, "run_shell_command", run)
     registry = _registry(tmp_path)
     queued = registry.execute(
         "run_shell",

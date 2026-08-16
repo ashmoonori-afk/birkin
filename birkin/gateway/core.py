@@ -474,6 +474,8 @@ class Gateway:
         trusted: bool = True,
     ) -> ClaudeStreamSession | CodexAppServerSession:
         """Warm session for the configured provider (claude or codex)."""
+        model_value = self.cfg.get("model")
+        model = model_value if isinstance(model_value, str) else None
         system_prompt = (
             self._system_prompt()
             if trusted
@@ -487,7 +489,7 @@ class Gateway:
                        if self.cfg.get("cli_access") == "full"
                        else "workspace-write")
             return CodexAppServerSession(
-                model=self.cfg.get("model"),
+                model=model,
                 cwd=_configured_workspace(self.cfg),
                 preamble=system_prompt,
                 reasoning_effort=str(
@@ -507,7 +509,12 @@ class Gateway:
                 birkin_mcp=trusted, birkin_mcp_scope="full")
         # Tools the headless gateway may use without a permission prompt
         # (e.g. company MCP servers). Empty -> rely on Claude Code settings.
-        allowed = [str(t) for t in self.cfg.get("gateway_allowed_tools", []) if t]
+        allowed_value = self.cfg.get("gateway_allowed_tools", [])
+        allowed = (
+            [str(tool) for tool in allowed_value if tool]
+            if isinstance(allowed_value, list)
+            else []
+        )
         extra = ["--allowedTools", ",".join(allowed)] if allowed else None
         # Headless children run with the user's interactive hook stack
         # DISABLED and a bounded thinking budget — measured at 3-6 s/turn of
@@ -523,9 +530,15 @@ class Gateway:
             and bool(egress_cfg.get("enabled", True))
             and bool(egress_cfg.get("enforced", True))
         )
+        cli_access_value = self.cfg.get("cli_access", "workspace")
+        cli_access = (
+            cli_access_value
+            if isinstance(cli_access_value, str)
+            else "workspace"
+        )
         return ClaudeStreamSession(
-            model=self.cfg.get("model"),
-            cli_access=self.cfg.get("cli_access", "workspace"),
+            model=model,
+            cli_access=cli_access,
             append_system_prompt=system_prompt,
             extra_args=extra, settings=settings, env_extra=env_extra,
             birkin_mcp=trusted,
@@ -1069,7 +1082,10 @@ class Gateway:
         new model takes effect (the gateway's model is fixed at process start).
         Called under the lock."""
         parts = (arg or "").strip().split()
-        provider = self.cfg.get("provider", "")
+        provider_value = self.cfg.get("provider", "")
+        provider = (
+            provider_value if isinstance(provider_value, str) else ""
+        )
         known = _gateway_model_choices(provider, self.cfg)
         listing = "\n".join(f"{i}. {model}" for i, model in enumerate(known, 1))
         if not parts:
@@ -1349,9 +1365,7 @@ class Gateway:
         normalized = str(channel or "").strip().lower()
         if normalized in _LOCAL_TRUSTED_CHANNELS:
             return True
-        settings = (
-            (self.cfg.get("channels", {}) or {}).get(normalized, {}) or {}
-        )
+        settings = self._channel_settings(normalized)
         if normalized == "telegram":
             return bool(settings.get("allowed_chat_ids"))
         return bool(settings.get("allowed_sender_ids"))
@@ -1363,19 +1377,23 @@ class Gateway:
         normalized = str(channel or "").strip().lower()
         if normalized in _LOCAL_TRUSTED_CHANNELS:
             return True
-        settings = (
-            (self.cfg.get("channels", {}) or {}).get(normalized, {}) or {}
-        )
+        settings = self._channel_settings(normalized)
         sender = str(sender_id or "").strip()
+        sender_values = settings.get("allowed_sender_ids")
         allowed_senders = {
             str(value).strip()
-            for value in (settings.get("allowed_sender_ids") or [])
+            for value in (
+                sender_values if isinstance(sender_values, list) else []
+            )
             if str(value).strip()
         }
         if normalized == "telegram":
+            chat_values = settings.get("allowed_chat_ids")
             allowed_chats = {
                 str(value).strip()
-                for value in (settings.get("allowed_chat_ids") or [])
+                for value in (
+                    chat_values if isinstance(chat_values, list) else []
+                )
                 if str(value).strip()
             }
             if not allowed_chats:
@@ -1392,11 +1410,21 @@ class Gateway:
     def _command_trusted(self, channel: str) -> bool:
         """Whether a channel has an explicit trusted-principal policy."""
         return self._autosave_trusted(channel)
+
+    def _channel_settings(self, channel: str) -> dict[str, object]:
+        channels = self.cfg.get("channels")
+        if not isinstance(channels, dict):
+            return {}
+        settings = channels.get(channel)
+        if not isinstance(settings, dict):
+            return {}
+        return {str(key): value for key, value in settings.items()}
+
     def _omo_command_trusted(self, channel: str, chat_id: str) -> bool:
         """Require an explicit Telegram allow-list for local OMO control."""
         if channel != "telegram":
             return True
-        telegram = (self.cfg.get("channels", {}) or {}).get("telegram", {}) or {}
+        telegram = self._channel_settings("telegram")
         allowed = telegram.get("allowed_chat_ids")
         return isinstance(allowed, list) and str(chat_id) in {str(value) for value in allowed}
 

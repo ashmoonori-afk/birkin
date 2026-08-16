@@ -40,9 +40,8 @@ def test_next_nightly_custom_hour():
 def test_run_job_shell_records_run(monkeypatch):
     captured = {}
 
-    def fake_run(argv, **kw):
-        captured["argv"] = argv
-        captured["kw"] = kw
+    def fake_run(request):
+        captured["request"] = request
 
         class R:
             stdout = "hello"
@@ -50,14 +49,13 @@ def test_run_job_shell_records_run(monkeypatch):
             returncode = 0
         return R()
 
-    monkeypatch.setattr(subprocess, "run", fake_run)
+    monkeypatch.setattr(scheduler, "run_shell_command", fake_run)
     job = {"id": "j1", "name": "morning", "type": "shell",
            "value": "echo hi"}
-    scheduler._run_job(job)
+    scheduler.run_job(job)
     runs = store.list_runs()
     assert any(r["kind"] == "cron" for r in runs)
-    # argv form (no shell=True) and the command was wrapped via shell_argv
-    assert "echo hi" in captured["argv"]
+    assert captured["request"].command == "echo hi"
 
 
 def test_run_job_monitor_unchanged_is_silent_without_prompt(monkeypatch):
@@ -79,7 +77,7 @@ def test_run_job_monitor_unchanged_is_silent_without_prompt(monkeypatch):
     import birkin.runtime as runtime
     monkeypatch.setattr(runtime, "build_session", lambda: Session())
 
-    scheduler._run_job({
+    scheduler.run_job({
         "id": "m1", "name": "watch", "type": "monitor",
         "value": "report changes", "monitor_url": "https://example.test",
     })
@@ -108,7 +106,7 @@ def test_run_job_monitor_changed_invokes_prompt_with_context(monkeypatch):
     monkeypatch.setattr(runtime, "build_session", lambda: Session())
     monkeypatch.setattr(scheduler, "_deliver", lambda job, text: "none")
 
-    scheduler._run_job({
+    scheduler.run_job({
         "id": "m2", "name": "watch", "type": "monitor",
         "value": "report changes", "monitor_script": "echo changed",
     })
@@ -132,7 +130,7 @@ def test_run_job_prompt_skips_without_key(monkeypatch):
 
     job = {"id": "j2", "name": "digest", "type": "prompt",
            "value": "summarise yesterday"}
-    scheduler._run_job(job)
+    scheduler.run_job(job)
     runs = store.list_runs()
     assert any(r["kind"] == "cron" and "skipped" in r["summary"].lower()
                for r in runs)
@@ -218,15 +216,15 @@ def test_is_silent_marker_must_lead_the_output():
 
 
 def test_run_job_shell_records_delivery_status(monkeypatch):
-    def fake_run(argv, **kw):
+    def fake_run(_request):
         class R:
             stdout = "[SILENT] all quiet"
             stderr = ""
             returncode = 0
         return R()
 
-    monkeypatch.setattr(subprocess, "run", fake_run)
-    scheduler._run_job({"id": "j9", "name": "quiet", "type": "shell",
+    monkeypatch.setattr(scheduler, "run_shell_command", fake_run)
+    scheduler.run_job({"id": "j9", "name": "quiet", "type": "shell",
                         "value": "check", "deliver_chat_id": "7"})
     runs = store.list_runs()
     rec = next(r for r in runs if r["kind"] == "cron"
@@ -261,6 +259,7 @@ def test_windows_schedule_pins_configured_workspace(monkeypatch, tmp_path):
         "executable",
         r"C:\Python\python.exe",
     )
+    monkeypatch.setenv("SystemRoot", r"C:\Windows")
     monkeypatch.setenv("USERNAME", "tester")
 
     class Result:
@@ -277,5 +276,40 @@ def test_windows_schedule_pins_configured_workspace(monkeypatch, tmp_path):
     assert scheduler.install_os_schedule() == 0
     args = captured["args"]
     command = args[args.index("/TR") + 1]
+    assert command.startswith(
+        r'"C:\Windows\System32\cmd.exe" /d /s /c '
+    )
     assert f'cd /d ""{workspace}""' in command
     assert r'""C:\Python\python.exe"" -m birkin daemon' in command
+
+
+def test_posix_schedule_quotes_python_path(
+    monkeypatch,
+    tmp_path,
+) -> None:
+    python = tmp_path / "Python Runtime" / "python"
+    captured: list[str] = []
+    monkeypatch.setattr(
+        scheduler.config,
+        "load_config",
+        lambda: {"workspace_roots": [str(tmp_path)]},
+    )
+    monkeypatch.setattr(scheduler.sys, "platform", "linux")
+    monkeypatch.setattr(scheduler.sys, "executable", str(python))
+
+    class Result:
+        returncode = 0
+        stdout = ""
+        stderr = ""
+
+    def fake_run(args, **kwargs):
+        if args == ["crontab", "-"]:
+            captured.append(kwargs["input"])
+        return Result()
+
+    monkeypatch.setattr(subprocess, "run", fake_run)
+
+    assert scheduler.install_os_schedule() == 0
+    assert captured == [
+        f"@reboot '{python}' -m birkin daemon  # birkin-nightly\n"
+    ]
