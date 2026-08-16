@@ -299,6 +299,43 @@ checkpoint에서 일회용 policy-controlled sandbox worktree를 만들고 linea
 
 </details>
 
+## Working Memory
+
+Birkin은 현재 작업 계약을 first-class **Working Memory**로 유지합니다. 이는
+대화 transcript나 장기 semantic memory가 아닙니다. 한 세션의 목표, 사용자
+교정, 제약, 결정, 미완료 항목, 증거, 다음 행동을 담는 작고 구조화된
+상태입니다.
+
+각 agent turn은 기존 session-local harness journal인
+`$BIRKIN_HOME/sessions/<session>/harness/harness_state.json`을
+Prompt-Gate를 통해 다시 읽습니다. 따라서 context compaction이 이 상태를
+요약해 없앨 수 없고, 동일한 안정적 session ID로 process를 재개하면 같은
+상태를 복구합니다. Objective와 completion verifier는 계속 `goals.py`가
+canonical하게 소유하고, harness journal은 교정·제약·결정·미완료 항목·
+증거·다음 행동을 소유합니다. Update는 lock 안에서 atomic replace로
+저장됩니다. 반복된 목록 값은 deduplicate되고 새 `--goal`은 해당 session의
+이전 목표를 교체합니다.
+
+```bash
+birkin working-memory update \
+  --session issue-123 \
+  --goal "수정 사항 배포" \
+  --correction "공개 JSON 형상을 유지" \
+  --constraint "오프라인 유지" \
+  --decision "기존 atomic store 사용" \
+  --incomplete "보안 regression 실행" \
+  --evidence "집중 테스트 통과" \
+  --next-action "전체 suite 실행"
+
+birkin working-memory show --session issue-123 --json
+birkin working-memory clear --session issue-123
+```
+
+목록 값 flag는 반복해서 지정할 수 있습니다. Session ID는 path-safe하게
+제한됩니다. 첫 글자는 영문자나 숫자여야 하며 전체 길이는 1-128자, 허용
+문자는 ASCII 영문자, 숫자, `.`, `_`, `-`입니다. 전체 표면은
+`birkin working-memory --help`로 확인하십시오.
+
 ## 명령어
 
 | 명령 | 용도 |
@@ -319,6 +356,7 @@ checkpoint에서 일회용 policy-controlled sandbox worktree를 만들고 linea
 | `birkin runs` / `birkin trace ID` | Run summary와 상세 audit record 조회. |
 | `birkin cron` | 예약 job 목록 또는 삭제. |
 | `birkin sessions` | 저장된 대화 목록 또는 export. |
+| `birkin working-memory` | 구조화된 현재 작업 상태 조회·갱신·삭제. |
 | `birkin mcp-serve` | Birkin memory, skill, proposal을 MCP stdio로 제공. |
 | `birkin voice` | 선택적 voice daemon 설정·제어. |
 

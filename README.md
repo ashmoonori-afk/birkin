@@ -299,6 +299,42 @@ The authenticated API exposes the checkpoint list, `/timeline`, `/lineage`,
 
 </details>
 
+## Working Memory
+
+Birkin keeps the current task contract in first-class **Working Memory**. This
+is not transcript history or long-term semantic memory: it is a compact,
+structured state for one session containing the goal, user corrections,
+constraints, decisions, incomplete items, evidence, and next actions.
+
+Each agent turn reloads the existing session-local harness journal at
+`$BIRKIN_HOME/sessions/<session>/harness/harness_state.json` through the
+Prompt-Gate. Context compaction therefore cannot summarize it away, and a
+process that resumes the same stable session ID reloads the same state. The
+objective and completion verifier remain canonical in `goals.py`; the harness
+journal owns corrections, constraints, decisions, incomplete items, evidence,
+and next actions. Updates are locked and atomically replaced, repeated list
+values are deduplicated, and a new `--goal` replaces that session's previous
+goal.
+
+```bash
+birkin working-memory update \
+  --session issue-123 \
+  --goal "Ship the fix" \
+  --correction "Preserve the public JSON shape" \
+  --constraint "Stay offline" \
+  --decision "Use the existing atomic store" \
+  --incomplete "Run the security regression" \
+  --evidence "Focused tests passed" \
+  --next-action "Run the full suite"
+
+birkin working-memory show --session issue-123 --json
+birkin working-memory clear --session issue-123
+```
+
+The list-valued flags are repeatable. Session IDs are deliberately
+path-safe: 1-128 ASCII letters, digits, `.`, `_`, or `-`, beginning with a
+letter or digit. Use `birkin working-memory --help` for the complete surface.
+
 ## Commands
 
 | Command | Purpose |
@@ -319,6 +355,7 @@ The authenticated API exposes the checkpoint list, `/timeline`, `/lineage`,
 | `birkin runs` / `birkin trace ID` | Inspect run summaries and detailed audit records. |
 | `birkin cron` | List or remove scheduled jobs. |
 | `birkin sessions` | List or export saved conversations. |
+| `birkin working-memory` | Inspect, update, or clear structured current-task state. |
 | `birkin mcp-serve` | Serve Birkin memory, skills, and proposals over MCP stdio. |
 | `birkin voice` | Configure or control the optional voice daemon. |
 
