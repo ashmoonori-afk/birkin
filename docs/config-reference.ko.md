@@ -53,6 +53,7 @@ Schema version: 1
 | `skill_nudge_interval` | `integer` | `3` | Birkin 설정 `skill_nudge_interval`. |
 | `memory_nudge_interval` | `integer` | `6` | Birkin 설정 `memory_nudge_interval`. |
 | `web_port` | `integer` | `8787` | Birkin 설정 `web_port`. |
+| `web_remote_access` | `boolean` | `false` | Birkin 설정 `web_remote_access`. |
 | `gateway_port` | `integer` | `8788` | Birkin 설정 `gateway_port`. |
 | `gateway_model` | `string` | `""` | Birkin 설정 `gateway_model`. |
 | `gateway_reasoning_effort` | `string` | `""` | Birkin 설정 `gateway_reasoning_effort`. |

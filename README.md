@@ -267,6 +267,23 @@ State is file-backed under `BIRKIN_HOME` (normally `~/.birkin`). The dashboard u
 
 </details>
 
+## Approval console
+
+`birkin web` opens a responsive control surface for background agent runs and
+risky actions. It shows live run states (`running`, `blocked`,
+`waiting-approval`, and `done`), progress and results, related shell/cron
+proposals, action diffs, and execution receipts. A run can be steered, aborted,
+or resumed from its detail card; approval and rejection continue to use the
+same file-backed authority as `birkin review`.
+
+The server remains loopback-only by default. Set `web_remote_access` to `true`
+only when remote access is intentional; this binds on all interfaces but does
+**not** create a public route. Open the secret bootstrap URL printed by
+`birkin web` on the remote device. It exchanges the per-process capability for
+an HttpOnly, SameSite cookie, and every remote request without that capability
+is rejected. Put TLS or a trusted private-network tunnel in front when traffic
+leaves the host.
+
 ## Checkpoints
 
 The WebUI workbench turns Birkin's external shadow-git snapshots into a tool-level
@@ -381,6 +398,7 @@ Run `birkin --help` or `birkin <command> --help` for the complete interface.
   "skill_nudge_interval": 3,
   "memory_nudge_interval": 6,
   "web_port": 8787,
+  "web_remote_access": false,
   "gateway_port": 8788,
   "gateway_model": "",
   "gateway_reasoning_effort": "",

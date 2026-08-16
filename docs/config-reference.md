@@ -53,6 +53,7 @@ Schema version: 1
 | `skill_nudge_interval` | `integer` | `3` | Birkin setting `skill_nudge_interval`. |
 | `memory_nudge_interval` | `integer` | `6` | Birkin setting `memory_nudge_interval`. |
 | `web_port` | `integer` | `8787` | Birkin setting `web_port`. |
+| `web_remote_access` | `boolean` | `false` | Birkin setting `web_remote_access`. |
 | `gateway_port` | `integer` | `8788` | Birkin setting `gateway_port`. |
 | `gateway_model` | `string` | `""` | Birkin setting `gateway_model`. |
 | `gateway_reasoning_effort` | `string` | `""` | Birkin setting `gateway_reasoning_effort`. |
