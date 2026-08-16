@@ -1213,15 +1213,30 @@ class Handler(BaseHTTPRequestHandler):
                 except ValueError:
                     self._json({"error": "mode must be files, task, or both"}, code=400)
                     return
+                session_id = str(payload.get("session_id") or "")
+                if mode is not RestoreMode.FILES and not session_id:
+                    self._json({"error": "session_id is required"}, code=400)
+                    return
+                target = (
+                    f" for session {session_id}"
+                    if session_id
+                    else ""
+                )
+                restore_payload = {
+                    "workspace": str(workspace),
+                    "checkpoint": checkpoint,
+                    "mode": mode.value,
+                }
+                if session_id:
+                    restore_payload["session_id"] = session_id
                 proposal = approvals.propose(
                     category="checkpoint_restore",
                     title=f"Restore checkpoint {checkpoint[:7]}",
                     description=(
-                        f"Restore {mode.value} for {workspace}. "
+                        f"Restore {mode.value} for {workspace}{target}. "
                         "This destructive action is undo-checkpointed before execution."
                     ),
-                    payload={"workspace": str(workspace), "checkpoint": checkpoint,
-                             "mode": mode.value},
+                    payload=restore_payload,
                     cfg=config.load_config(), origin="web:checkpoints",
                 )
                 self._json({"ok": True, "approval_required": True,

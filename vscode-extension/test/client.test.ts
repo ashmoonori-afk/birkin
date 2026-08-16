@@ -24,6 +24,17 @@ describe("Birkin client", () => {
     }));
   });
 
+  it("limits rollback requests to explicit files mode", async () => {
+    const request = vi.fn<Request>().mockResolvedValue({ status: 200, body: '{"ok":true}' });
+    await new BirkinClient(request).rollback(runtime, "abc123abc123", "/tmp/workspace");
+    expect(request).toHaveBeenCalledWith(
+      `${runtime.url}/api/checkpoints/abc123abc123/restore`,
+      expect.objectContaining({
+        body: JSON.stringify({ workspace: "/tmp/workspace", mode: "files" }),
+      }),
+    );
+  });
+
   it("surfaces HTTP failures as typed transport errors", async () => {
     const request: Request = async () => ({ status: 403, body: "forbidden" });
     await expect(new BirkinClient(request).approvals(runtime)).rejects.toMatchObject({ code: "transport" });

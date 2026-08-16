@@ -127,12 +127,24 @@ def test_checkpoints_timeline_diff_and_gated_restore(srv, monkeypatch):
     assert diff["files"][0]["path"] == "x"
 
     status, _, body = request(
-        srv, "POST", f"/api/checkpoints/{'a' * 40}/restore", {"mode": "files"})
+        srv,
+        "POST",
+        f"/api/checkpoints/{'a' * 40}/restore",
+        {"mode": "files"},
+    )
     queued = json.loads(body)
     assert status == 202 and queued["approval_required"] is True
     record = store.get_pending(queued["approval_id"])
     assert record and record["category"] == "checkpoint_restore"
     assert record["payload"]["mode"] == "files"
+    assert "session_id" not in record["payload"]
+    task_status, _, _ = request(
+        srv,
+        "POST",
+        f"/api/checkpoints/{'a' * 40}/restore",
+        {"mode": "task"},
+    )
+    assert task_status == 400
     assert request(srv, "POST", f"/api/checkpoints/{'a' * 40}/restore", {})[0] == 400
     assert request(srv, "POST", "/api/checkpoints/nope/restore", {})[0] == 400
 

@@ -251,6 +251,9 @@ def execute_action(category: str, payload: dict[str, Any],
             action_type=payload.get("type", "prompt"),
             value=payload.get("value", ""),
             deliver_chat_id=payload.get("deliver_chat_id"),
+            deliver_channel=str(
+                payload.get("deliver_channel") or "telegram"
+            ),
             schedule=str(schedule) if schedule else None,
             monitor_url=_opt_text(payload.get("monitor_url")),
             monitor_script=_opt_text(payload.get("monitor_script")),
@@ -299,6 +302,7 @@ def execute_action(category: str, payload: dict[str, Any],
         from .computer_use.approval_bridge import approve_payload
         return approve_payload(payload)
     if category == "checkpoint_restore":
+        from . import checkpoint_state
         from .checkpoints import CheckpointManager, RestoreMode
         workspace = Path(str(payload.get("workspace") or "")).expanduser().resolve()
         checkpoint = str(payload.get("checkpoint") or "")
@@ -306,8 +310,22 @@ def execute_action(category: str, payload: dict[str, Any],
             mode = RestoreMode(str(payload.get("mode") or ""))
         except ValueError as exc:
             raise ValueError("invalid checkpoint restore mode") from exc
-        outcome = CheckpointManager(enabled=True).restore(
-            workspace, checkpoint, mode=mode)
+        session_id = str(payload.get("session_id") or "")
+        if mode is not RestoreMode.FILES and not session_id:
+            raise ValueError("checkpoint restore requires a session id")
+        manager = (
+            CheckpointManager(enabled=True)
+            if mode is RestoreMode.FILES
+            else CheckpointManager(
+                enabled=True,
+                state_snapshot=lambda: checkpoint_state.snapshot(session_id),
+                state_restore=lambda state: checkpoint_state.restore(
+                    session_id,
+                    state,
+                ),
+            )
+        )
+        outcome = manager.restore(workspace, checkpoint, mode=mode)
         if not outcome.ok:
             raise ValueError(outcome.message)
         return outcome.message

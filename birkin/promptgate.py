@@ -125,9 +125,11 @@ def _persona(persona_text: Optional[str]) -> str:
     return persona.read_soul() if persona_text is None else persona_text
 
 
-def compose_public() -> str:
-    """Minimal prompt for untrusted channels, with no local context reads."""
-    return prompts.seal_research_policy(_PUBLIC_SYSTEM)
+def compose_public(*, trusted_session_state: str = "") -> str:
+    """Minimal prompt for untrusted channels plus local canonical task state."""
+    return prompts.seal_research_policy(
+        _PUBLIC_SYSTEM + trusted_session_state
+    )
 
 
 def compose_main(cfg: dict[str, Any], *, skills_index: str = "",

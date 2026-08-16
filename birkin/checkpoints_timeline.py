@@ -76,27 +76,57 @@ class TimelineStore:
                 entries.append(value)
         return entries
 
-    def set_task_state(self, workspace: Path, value: dict[str, Any]) -> None:
-        self._write(self._dir(workspace) / "task-current.json", value)
-
-    def task_state(self, workspace: Path) -> dict[str, Any]:
-        value = self._read(self._dir(workspace) / "task-current.json", {})
-        return value if isinstance(value, dict) else {}
-
-    def snapshot_task(self, workspace: Path, checkpoint: str) -> None:
+    def snapshot_task(
+        self,
+        workspace: Path,
+        checkpoint: str,
+        value: dict[str, Any],
+    ) -> None:
         self._write(
             self._dir(workspace) / "tasks" / f"{checkpoint}.json",
-            self.task_state(workspace),
+            value,
         )
 
-    def task_changed(self, workspace: Path, checkpoint: str) -> bool:
+    def task_changed(
+        self,
+        workspace: Path,
+        checkpoint: str,
+        current: dict[str, Any],
+    ) -> bool:
         previous = self._read(
             self._dir(workspace) / "tasks" / f"{checkpoint}.json", None)
-        return previous != self.task_state(workspace)
+        return previous != current
 
-    def restore_task(self, workspace: Path, checkpoint: str) -> None:
+    def copy_task_snapshots(
+        self,
+        workspace: Path,
+        rewritten: dict[str, str],
+    ) -> None:
+        directory = self._dir(workspace) / "tasks"
+        for previous, current in rewritten.items():
+            value = self._read(directory / f"{previous}.json", None)
+            if isinstance(value, dict):
+                self._write(directory / f"{current}.json", value)
+
+    def remove_task_snapshots(
+        self,
+        workspace: Path,
+        checkpoints: set[str],
+    ) -> None:
+        directory = self._dir(workspace) / "tasks"
+        for checkpoint in checkpoints:
+            try:
+                (directory / f"{checkpoint}.json").unlink(missing_ok=True)
+            except OSError as exc:
+                raise TimelineError(str(exc)) from exc
+
+    def restore_task(
+        self,
+        workspace: Path,
+        checkpoint: str,
+    ) -> dict[str, Any]:
         path = self._dir(workspace) / "tasks" / f"{checkpoint}.json"
         value = self._read(path, None)
         if not isinstance(value, dict):
             raise TimelineError("checkpoint has no task/conversation snapshot")
-        self.set_task_state(workspace, value)
+        return value

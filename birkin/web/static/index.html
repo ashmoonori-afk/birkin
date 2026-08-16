@@ -1399,7 +1399,10 @@ function appendCheckpointDetail(item) {
         {
           method: "POST",
           headers: {"Content-Type": "application/json"},
-          body: JSON.stringify({mode: mode.value}),
+          body: JSON.stringify({
+            mode: mode.value,
+            session_id: state.sessionId,
+          }),
         }
       );
       status.textContent = `복원 승인 대기: ${result.approval_id}`;

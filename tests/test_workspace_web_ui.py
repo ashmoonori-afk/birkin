@@ -106,7 +106,8 @@ def test_web_workspace_consumes_shared_session_event_command_routes() -> None:
     assert "workspace-question-answer" in source
     assert 'sendCommand("question.answer"' in source
     assert "복원 범위" in source
-    assert 'body: JSON.stringify({mode: mode.value})' in source
+    assert "mode: mode.value" in source
+    assert "session_id: state.sessionId" in source
     assert "chat.resume" in source
 
 

@@ -27,7 +27,7 @@ import uuid
 from dataclasses import dataclass
 from enum import Enum
 from pathlib import Path
-from typing import Any, Callable, Optional, Sequence
+from typing import Any, Callable, Optional, Sequence, TypedDict
 
 from . import config
 from .checkpoints_timeline import TimelineError, TimelineStore, now
@@ -52,6 +52,14 @@ _DEFAULT_KEEP = 20
 
 class CheckpointError(RuntimeError):
     """A required pre-mutation snapshot could not be recorded."""
+
+
+class CanonicalStateSnapshot(TypedDict):
+    """Canonical per-session state saved beside one file checkpoint."""
+
+    session_id: str
+    working_memory: dict[str, Any]
+    goal: dict[str, Any] | None
 
 
 class RestoreMode(str, Enum):
@@ -102,8 +110,15 @@ def _ref_for(workdir: Path) -> str:
 class CheckpointManager:
     """One bare git store shared by every workspace birkin touches."""
 
-    def __init__(self, *, enabled: bool = True, store_dir: Optional[Path] = None,
-                 keep: int = _DEFAULT_KEEP):
+    def __init__(
+        self,
+        *,
+        enabled: bool = True,
+        store_dir: Optional[Path] = None,
+        keep: int = _DEFAULT_KEEP,
+        state_snapshot: Callable[[], CanonicalStateSnapshot] | None = None,
+        state_restore: Callable[[CanonicalStateSnapshot], None] | None = None,
+    ):
         self.enabled = bool(enabled)
         self.store = Path(store_dir) if store_dir \
             else config.birkin_home() / "checkpoints" / "store"
@@ -112,6 +127,27 @@ class CheckpointManager:
         self._this_turn: set[str] = set()
         self._timeline = TimelineStore(self.store.parent / "timeline")
         self._active_tools: list[dict[str, Any]] = []
+        self._state_snapshot = state_snapshot
+        self._state_restore = state_restore
+
+    def _capture_state(self) -> CanonicalStateSnapshot | None:
+        if self._state_snapshot is None:
+            return None
+        state = self._state_snapshot()
+        if set(state) != {"session_id", "working_memory", "goal"}:
+            raise CheckpointError("canonical state snapshot has invalid fields")
+        if not isinstance(state["session_id"], str) or not state["session_id"]:
+            raise CheckpointError("canonical state snapshot needs a session id")
+        if not isinstance(state["working_memory"], dict):
+            raise CheckpointError("working memory snapshot must be an object")
+        goal = state["goal"]
+        if goal is not None and not isinstance(goal, dict):
+            raise CheckpointError("goal snapshot must be an object or null")
+        return CanonicalStateSnapshot(
+            session_id=state["session_id"],
+            working_memory=dict(state["working_memory"]),
+            goal=dict(goal) if goal is not None else None,
+        )
 
     # -- plumbing ----------------------------------------------------------
 
@@ -208,9 +244,16 @@ class CheckpointManager:
         self._this_turn.add(key)
         return commit
 
-    def _take(self, workdir: Path, reason: str) -> Optional[str]:
+    def _take(
+        self,
+        workdir: Path,
+        reason: str,
+        *,
+        prune: bool = True,
+    ) -> Optional[str]:
         if not self._ensure_store():
             raise CheckpointError("could not initialize checkpoint store")
+        state = self._capture_state()
         env = self._env(workdir)
         ref = _ref_for(workdir)
 
@@ -236,11 +279,15 @@ class CheckpointManager:
         if parent:
             code, out = _run(
                 ["git", "diff-index", "--cached", "--quiet", parent], env)
-            if code == 0 and not self._timeline.task_changed(workdir, parent):
-                return None            # neither files nor task state changed
-            if code != 1:
+            if code == 0:
+                if (
+                    state is None
+                    or not self._timeline.task_changed(workdir, parent, state)
+                ):
+                    return None        # neither files nor task state changed
+            elif code != 1:
                 raise CheckpointError(
-                    f"git diff-index failed: {out.strip()}")
+                    f"git diff-index failed ({code}): {out.strip()}")
 
         code, out = _run(["git", "write-tree"], env)
         if code != 0:
@@ -261,10 +308,11 @@ class CheckpointManager:
         code, out = _run(update, env)
         if code != 0:
             raise CheckpointError(f"git update-ref failed: {out.strip()}")
-        self._prune(workdir)
+        if state is not None:
+            self._timeline.snapshot_task(workdir, commit, state)
+        retained = self._prune(workdir, commit) if prune else commit
         self._record_project(workdir)
-        self._timeline.snapshot_task(workdir, commit)
-        return commit
+        return retained
 
     def _too_big(self, workdir: Path) -> bool:
         count = 0
@@ -277,41 +325,51 @@ class CheckpointManager:
                 return True
         return False
 
-    def _prune(self, workdir: Path) -> None:
+    def _prune(self, workdir: Path, newest: str) -> str:
         """Keep the newest ``keep`` snapshots by rewriting the ref chain."""
         env = self._env(workdir)
         ref = _ref_for(workdir)
         code, out = _run(["git", "rev-list", ref], env)
         if code != 0:
-            return
+            return newest
         commits = [c for c in out.split() if c]
         if len(commits) <= self.keep:
-            return
+            return newest
         # Re-parent the oldest kept commit onto nothing, dropping the tail.
         cutoff = commits[self.keep - 1]
         code, out = _run(["git", "log", "-1", "--format=%T%n%s", cutoff], env)
         if code != 0:
-            return
+            return newest
         lines = out.strip().splitlines()
         if len(lines) < 1:
-            return
+            return newest
         tree, subject = lines[0], (lines[1] if len(lines) > 1 else "checkpoint")
         code, out = _run(["git", "commit-tree", tree, "-m", subject], env)
         if code != 0:
-            return
+            return newest
         rebased = out.strip()
+        rewritten = {cutoff: rebased}
         for commit in reversed(commits[:self.keep - 1]):
             code, out2 = _run(["git", "log", "-1", "--format=%T%n%s", commit], env)
             if code != 0:
-                return
+                return newest
             parts = out2.strip().splitlines()
             code, out2 = _run(["git", "commit-tree", parts[0], "-p", rebased,
                                "-m", parts[1] if len(parts) > 1 else "checkpoint"],
                               env)
             if code != 0:
-                return
+                return newest
             rebased = out2.strip()
-        _run(["git", "update-ref", ref, rebased], env)
+            rewritten[commit] = rebased
+        self._timeline.copy_task_snapshots(workdir, rewritten)
+        code, _ = _run(["git", "update-ref", ref, rebased], env)
+        if code != 0:
+            return newest
+        self._timeline.remove_task_snapshots(
+            workdir,
+            set(rewritten) - set(rewritten.values()),
+        )
+        return rewritten.get(newest, newest)
 
     def _record_project(self, workdir: Path) -> None:
         try:
@@ -383,13 +441,6 @@ class CheckpointManager:
         return {"checkpoint": commit, "patch": patch, "files": files,
                 "additions": additions, "deletions": deletions}
 
-    def set_task_state(self, workdir: Any, state: dict[str, Any]) -> None:
-        """Set the durable task/conversation state associated with a workspace."""
-        self._timeline.set_task_state(Path(workdir).resolve(), state)
-
-    def task_state(self, workdir: Any) -> dict[str, Any]:
-        return self._timeline.task_state(Path(workdir).resolve())
-
     def restore(self, workdir: Any, commit: str,
                 file: Optional[str] = None, *,
                 mode: RestoreMode | str = RestoreMode.FILES) -> RestoreOutcome:
@@ -410,39 +461,128 @@ class CheckpointManager:
             return RestoreOutcome(False, "not a valid checkpoint id")
         if not self._ensure_store():
             return RestoreOutcome(False, "checkpoint store unavailable")
+        env = self._env(path)
+        code, _ = _run(
+            ["git", "merge-base", "--is-ancestor", commit, _ref_for(path)],
+            env,
+        )
+        if code != 0:
+            return RestoreOutcome(
+                False,
+                "checkpoint does not belong to this workspace",
+            )
         if file is not None and not _safe_relpath(file):
             return RestoreOutcome(False, "refusing that path")
         if file is not None and selected is RestoreMode.TASK:
             return RestoreOutcome(False, "a file cannot be combined with task-only restore")
+        if (
+            selected in (RestoreMode.TASK, RestoreMode.BOTH)
+            and self._state_restore is None
+        ):
+            return RestoreOutcome(
+                False,
+                "canonical state restore is unavailable",
+            )
+        pending_state: CanonicalStateSnapshot | None = None
+        if selected in (RestoreMode.TASK, RestoreMode.BOTH):
+            try:
+                restored = self._timeline.restore_task(path, commit)
+                pending_state = CanonicalStateSnapshot(
+                    session_id=restored["session_id"],
+                    working_memory=restored["working_memory"],
+                    goal=restored.get("goal"),
+                )
+                current = self._capture_state()
+                if current is None:
+                    return RestoreOutcome(
+                        False,
+                        "canonical state snapshot is unavailable",
+                    )
+                if pending_state["session_id"] != current["session_id"]:
+                    return RestoreOutcome(
+                        False,
+                        "checkpoint belongs to a different session",
+                    )
+            except TimelineError as exc:
+                return RestoreOutcome(False, str(exc))
+            except (KeyError, TypeError, ValueError) as exc:
+                return RestoreOutcome(
+                    False,
+                    f"invalid canonical state snapshot: {exc}",
+                )
 
         # Protect both current surfaces before changing either one.
         self._this_turn.discard(str(path))
+        rollback_head = self._head(path)
         try:
-            self.ensure_checkpoint(path, "before rollback")
-        except (CheckpointError, TimelineError) as exc:
+            undo = self._take(path, "before rollback", prune=False)
+        except (CheckpointError, TimelineError, OSError) as exc:
             return RestoreOutcome(False, f"could not protect current state: {exc}")
+
+        def finish(outcome: RestoreOutcome) -> RestoreOutcome:
+            if undo is not None:
+                self._prune(path, undo)
+            return outcome
 
         files_restored = False
         task_restored = False
+
+        def task_failure(message: str) -> RestoreOutcome:
+            nonlocal files_restored
+            rollback_target = undo or rollback_head
+            if files_restored and rollback_target:
+                target = ["--", file] if file else ["--", "."]
+                code, out = _run(
+                    ["git", "checkout", rollback_target] + target,
+                    self._env(path),
+                    cwd=str(path),
+                )
+                if code != 0:
+                    return finish(RestoreOutcome(
+                        False,
+                        f"{message}; file rollback failed: {out.strip()[:200]}",
+                        True,
+                        False,
+                    ))
+                files_restored = False
+            return finish(RestoreOutcome(
+                False,
+                message,
+                files_restored,
+                False,
+            ))
+
         if selected in (RestoreMode.FILES, RestoreMode.BOTH):
             env = self._env(path)
             target = ["--", file] if file else ["--", "."]
             code, out = _run(["git", "checkout", commit] + target, env, cwd=str(path))
             if code != 0:
-                return RestoreOutcome(False, out.strip()[:300])
+                return finish(RestoreOutcome(False, out.strip()[:300]))
             files_restored = True
         if selected in (RestoreMode.TASK, RestoreMode.BOTH):
             try:
-                self._timeline.restore_task(path, commit)
+                if self._state_restore is None or pending_state is None:
+                    return task_failure(
+                        "canonical state restore is unavailable"
+                    )
+                self._state_restore(pending_state)
             except TimelineError as exc:
-                return RestoreOutcome(False, str(exc), files_restored, False)
+                return task_failure(str(exc))
+            except (KeyError, OSError, RuntimeError, TypeError, ValueError) as exc:
+                return task_failure(
+                    f"invalid canonical state snapshot: {exc}"
+                )
             task_restored = True
         surfaces = " and ".join(
             name for name, changed in (("files", files_restored), ("task state", task_restored))
             if changed
         )
-        return RestoreOutcome(True, f"restored {surfaces} from the checkpoint",
-                              files_restored, task_restored)
+        return finish(RestoreOutcome(
+            True,
+            f"restored {surfaces} from the checkpoint",
+            files_restored,
+            task_restored,
+        ))
 
     def _head(self, workdir: Path) -> str:
         if not self._ensure_store():

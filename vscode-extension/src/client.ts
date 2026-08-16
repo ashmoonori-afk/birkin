@@ -52,7 +52,7 @@ export class BirkinClient {
   }
 
   public async rollback(runtime: DashboardSession, hash: string, workspace: string): Promise<void> {
-    decode(await this.post(runtime, `/api/checkpoints/${hash}/restore`, { workspace }));
+    decode(await this.post(runtime, `/api/checkpoints/${hash}/restore`, { workspace, mode: "files" }));
   }
 
   public async status(runtime: DashboardSession): Promise<RuntimeStatus> {

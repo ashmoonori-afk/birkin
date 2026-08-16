@@ -73,6 +73,39 @@ def test_public_channel_requires_allowlisted_sender(tmp_path, monkeypatch):
     assert dispatched == [""]
 
 
+def test_gateway_turn_rebinds_checkpoint_state_to_conversation(
+    tmp_path,
+    monkeypatch,
+):
+    gateway = _gateway(
+        tmp_path,
+        monkeypatch,
+        {
+            "telegram": {
+                "enabled": True,
+                "token": "test-token",
+                "allowed_chat_ids": ["42"],
+                "stream": False,
+            },
+        },
+    )
+    monkeypatch.setattr(
+        gateway.session.agent,
+        "run",
+        lambda *_args, **_kwargs: "ok",
+    )
+
+    assert gateway.handle("telegram", "42", "checkpoint me") == "ok"
+    manager = gateway.session.ctx.checkpoints
+    assert manager is not None
+    snapshot = manager._capture_state()
+    assert snapshot is not None
+    assert snapshot["session_id"] == gateway_core.conversation_session_id(
+        "telegram",
+        "42",
+    )
+
+
 def test_existing_local_and_telegram_trust_contracts_remain(
         tmp_path, monkeypatch):
     gateway = _gateway(
@@ -167,7 +200,7 @@ class _InjectedMemoryClient(LLMClient):
         }
 
 
-def test_untrusted_native_session_hides_and_blocks_global_memory(
+def test_untrusted_native_session_injects_only_canonical_local_state(
         tmp_path, monkeypatch):
     from birkin import goals, harness, promptgate, runtime
 
@@ -239,8 +272,8 @@ def test_untrusted_native_session_hides_and_blocks_global_memory(
         for system in client.systems
     )
     assert all(
-        "PRIVATE-GOAL-SENTINEL" not in system
-        and "PRIVATE-WORKING-SENTINEL" not in system
+        "PRIVATE-GOAL-SENTINEL" in system
+        and "PRIVATE-WORKING-SENTINEL" in system
         and "PRIVATE-SKILL-SENTINEL" not in system
         and "PRIVATE-PERSONA-SENTINEL" not in system
         for system in client.systems
@@ -248,6 +281,37 @@ def test_untrusted_native_session_hides_and_blocks_global_memory(
     assert client.tool_names
     assert all(not names for names in client.tool_names)
     assert harness_trust == []
+
+
+def test_untrusted_session_without_local_goal_never_falls_back_global(
+        tmp_path, monkeypatch):
+    from birkin import goals
+
+    gateway = _gateway(
+        tmp_path,
+        monkeypatch,
+        {
+            "telegram": {
+                "enabled": True,
+                "token": "test-token",
+                "allowed_chat_ids": [],
+                "stream": True,
+            },
+        },
+    )
+    goals.set_goal("GLOBAL-GOAL-SENTINEL")
+    session_id = gateway_core.conversation_session_id(
+        "telegram",
+        "public-without-local-goal",
+    )
+
+    gateway.session.refresh_system_prompt(
+        trusted=False,
+        session_id=session_id,
+    )
+    system = gateway.session.agent.system
+
+    assert "GLOBAL-GOAL-SENTINEL" not in system
 
 
 def test_untrusted_warm_system_omits_private_persona(
@@ -277,7 +341,7 @@ def test_untrusted_warm_system_omits_private_persona(
     )
 
 
-def test_untrusted_persistent_turn_omits_session_state_and_skills(
+def test_untrusted_persistent_turn_uses_only_canonical_session_state(
         tmp_path, monkeypatch):
     from birkin import goals, harness, store, transcripts
 
@@ -342,8 +406,8 @@ def test_untrusted_persistent_turn_omits_session_state_and_skills(
         "attacker",
         "public request",
     ) == "public reply"
-    assert "PRIVATE-GOAL-SENTINEL" not in warm.asked
-    assert "PRIVATE-WORKING-SENTINEL" not in warm.asked
+    assert "PRIVATE-GOAL-SENTINEL" in warm.asked
+    assert "PRIVATE-WORKING-SENTINEL" in warm.asked
     assert "PRIVATE-TRANSCRIPT-SENTINEL" not in warm.asked
 
 
