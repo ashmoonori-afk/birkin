@@ -7,6 +7,7 @@ configured identically in either surface.
 from __future__ import annotations
 
 import copy
+import inspect
 import sys
 import threading
 import time
@@ -36,9 +37,13 @@ class ConfigError(RuntimeError):
     pass
 
 
-def _harness_block(cfg: dict[str, Any]) -> str:
+def _harness_block(
+    cfg: dict[str, Any],
+    *,
+    trusted: bool = True,
+) -> str:
     """The harness summary injected into the system prompt (empty when off)."""
-    if not cfg.get("harness_enabled", True):
+    if not trusted or not cfg.get("harness_enabled", True):
         return ""
     from . import harness
     current = harness.snapshot(str(cfg.get("session_id") or "default"))
@@ -70,36 +75,54 @@ class Session:
     _skill_review_thread: threading.Thread | None = None
     _skill_review_lock: Any = field(default_factory=threading.Lock)
     _memory_review_transcripts: list[str] = field(default_factory=list)
-    _harness_turns: int = 0
+    _harness_turns: dict[str, int] = field(default_factory=dict)
     _harness_thread: threading.Thread | None = None
     _harness_lock: Any = field(default_factory=threading.Lock)
-    _harness_transcripts: list[str] = field(default_factory=list)
-    # Monotonic stamp of the last harness review; 0.0 = never ran.
-    _harness_last: float = 0.0
+    _harness_transcripts: dict[str, list[str]] = field(default_factory=dict)
+    # Per-session monotonic stamp of the last harness review.
+    _harness_last: dict[str, float] = field(default_factory=dict)
 
-    def refresh_system_prompt(self, *, session_id: str | None = None) -> None:
+    def refresh_system_prompt(
+        self,
+        *,
+        session_id: str | None = None,
+        trusted: bool = True,
+    ) -> None:
         """Rebuild the system prompt to reflect current skills/memory/persona.
 
         The persona (``SOUL.md``) is read fresh each turn so edits — and
         ``/personality`` swaps — take effect with no restart."""
+        if not trusted:
+            self.agent.system = promptgate.compose_public()
+            return
         turn_cfg = (
             self.cfg
             if session_id is None
             else {**self.cfg, "session_id": session_id}
         )
         self.agent.system = promptgate.compose_main(
-            turn_cfg, skills_index=self.skills.index(),
-            memory_block=self.memory.render(),
-            harness_block=_harness_block(turn_cfg))
+            turn_cfg,
+            skills_index=self.skills.index() if trusted else "",
+            memory_block=self.memory.render() if trusted else "",
+            harness_block=_harness_block(turn_cfg, trusted=trusted),
+            include_turn_state=trusted,
+            persona_text=None if trusted else "")
 
     def _build_cli_system(
-        self, text: str, *, session_id: str | None = None
+        self,
+        text: str,
+        *,
+        session_id: str | None = None,
+        trusted: bool = True,
     ) -> None:
         """For CLI-agent backends: inject identity + memory + skills routed to
         the request (they can't call load_skill themselves)."""
-        preloaded = self._route_cli_skills(text)
+        if not trusted:
+            self.agent.system = promptgate.compose_public()
+            return
+        preloaded = self._route_cli_skills(text) if trusted else []
         extra = ""
-        if not preloaded:
+        if trusted and not preloaded:
             # Routing is keyword overlap against skill text, which is
             # written in English — so a request in another language matches
             # nothing and the CLI child would see no skills at all. That is
@@ -126,9 +149,12 @@ class Session:
             else {**self.cfg, "session_id": session_id}
         )
         self.agent.system = promptgate.compose_cli(
-            turn_cfg, memory_block=self.memory.render(),
+            turn_cfg,
+            memory_block=self.memory.render() if trusted else "",
             preloaded=preloaded or None, extra=extra,
-            harness_block=_harness_block(turn_cfg))
+            harness_block=_harness_block(turn_cfg, trusted=trusted),
+            include_turn_state=trusted,
+            persona_text=None if trusted else "")
 
     def _route_cli_skills(self, text: str,
                           loaded_skills: set[str] | None = None) -> list[str]:
@@ -144,7 +170,8 @@ class Session:
 
     def _prepare_cli_turn(self, text: str, *, route_query: str | None = None,
                           skill_state: dict[str, Any] | None = None,
-                          session_id: str | None = None) -> str:
+                          session_id: str | None = None,
+                          trusted: bool = True) -> str:
         self.skills.reload_if_changed(debounce=0.0)
         loaded_skills = None
         if skill_state is not None:
@@ -152,14 +179,24 @@ class Session:
             if skill_state["revision"] != self.skills.revision:
                 loaded_skills.clear()
                 skill_state["revision"] = self.skills.revision
-        preloaded = self._route_cli_skills(
-            text if route_query is None else route_query, loaded_skills)
+        preloaded = (
+            self._route_cli_skills(
+                text if route_query is None else route_query,
+                loaded_skills,
+            )
+            if trusted
+            else []
+        )
         turn_cfg = (
             self.cfg
             if session_id is None
             else {**self.cfg, "session_id": session_id}
         )
-        current = promptgate.compose_turn_context(turn_cfg)
+        current = (
+            promptgate.compose_turn_context(turn_cfg)
+            if trusted
+            else ""
+        )
         if not preloaded and not current:
             return text
         sections: list[str] = []
@@ -177,7 +214,8 @@ class Session:
             review_skills: bool = True,
             route_query: str | None = None,
             record_turn: bool = True,
-            session_id: str | None = None) -> str:
+            session_id: str | None = None,
+            trusted: bool = True) -> str:
         # Budget gate — refuse with a clear message instead of silently spending.
         over, why = budget.is_over(self.cfg)
         if over:
@@ -199,7 +237,7 @@ class Session:
                 # chance to snapshot is here, before the turn starts.
                 self.ctx.checkpoints.ensure_checkpoint(
                     self.ctx.cwd, "before CLI turn")
-        if self._use_warm():
+        if self._use_warm() and trusted:
             reply = self._warm_ask(text, on_text, session_id=session_id)
             if record_turn:
                 self._record_turn(
@@ -207,21 +245,55 @@ class Session:
                     reply,
                     review_skills=review_skills,
                     session_id=session_id,
+                    review_harness=trusted,
                 )
             return reply
         if self.cfg.get("provider") in config.CLI_PROVIDERS:
             self._build_cli_system(
                 text if route_query is None else route_query,
-                session_id=session_id)
+                session_id=session_id,
+                trusted=trusted)
         else:
-            self.refresh_system_prompt(session_id=session_id)
-        reply = self.agent.run(text, on_text=on_text, abort=self.abort)
+            self.refresh_system_prompt(
+                session_id=session_id,
+                trusted=trusted,
+            )
+        blocked_tools = (
+            None
+            if trusted
+            else frozenset(
+                str(spec.get("name", ""))
+                for spec in self.agent.registry.specs()
+            )
+        )
+        run_params = inspect.signature(self.agent.run).parameters
+        accepts_kwargs = any(
+            parameter.kind is inspect.Parameter.VAR_KEYWORD
+            for parameter in run_params.values()
+        )
+        run_kwargs: dict[str, Any] = {}
+        if accepts_kwargs or "on_text" in run_params:
+            run_kwargs["on_text"] = on_text
+        if accepts_kwargs or "abort" in run_params:
+            run_kwargs["abort"] = self.abort
+        supports_blocking = accepts_kwargs or "blocked_tools" in run_params
+        supports_trust = accepts_kwargs or "trusted" in run_params
+        if not trusted and (not supports_blocking or not supports_trust):
+            raise ConfigError(
+                "agent implementation cannot enforce untrusted turn isolation"
+            )
+        if supports_blocking:
+            run_kwargs["blocked_tools"] = blocked_tools
+        if supports_trust:
+            run_kwargs["trusted"] = trusted
+        reply = self.agent.run(text, **run_kwargs)
         if record_turn:
             self._record_turn(
                 text,
                 reply,
                 review_skills=review_skills,
                 session_id=session_id,
+                review_harness=trusted,
             )
         return reply
 
@@ -273,7 +345,8 @@ class Session:
                  "follow one when it fits the task.\n" + idx) if idx else ""
         system = promptgate.compose_cli(
             self.cfg, memory_block=self.memory.render(), extra=extra,
-            harness_block=_harness_block(self.cfg))
+            harness_block=_harness_block(self.cfg),
+            include_turn_state=False)
         if self.cfg.get("provider") == "codex-cli":
             from .codex_session import CodexAppServerSession
             sandbox = ("danger-full-access"
@@ -310,6 +383,7 @@ class Session:
         *,
         review_skills: bool = True,
         session_id: str | None = None,
+        review_harness: bool = True,
     ) -> None:
         """Write an auditable run record (+ ledger line + usage) per chat turn."""
         input_usage = store.estimate_usage(self.agent.system, text)["estTokens"]
@@ -346,9 +420,10 @@ class Session:
                   file=sys.stderr, flush=True)
         if review_skills:
             self._schedule_skill_review(text, reply)
-        self._schedule_harness_review(
-            text, reply, session_id=session_id
-        )
+        if review_harness:
+            self._schedule_harness_review(
+                text, reply, session_id=session_id
+            )
 
     def _schedule_skill_review(self, text: str, reply: str) -> None:
         provider = self.cfg.get("provider")
@@ -429,29 +504,36 @@ class Session:
             return
         cooldown = float(self.cfg.get("harness_cooldown_min", 15) or 0) * 60
         transcript = f"USER:\n{text}\n\nASSISTANT:\n{reply}"
+        review_session = str(
+            session_id
+            if session_id is not None
+            else self.cfg["session_id"]
+        )
         with self._harness_lock:
-            self._harness_transcripts.append(transcript)
-            del self._harness_transcripts[:-interval]
-            self._harness_turns += 1
-            if self._harness_turns < interval:
+            transcripts = self._harness_transcripts.setdefault(
+                review_session,
+                [],
+            )
+            transcripts.append(transcript)
+            del transcripts[:-interval]
+            turns = self._harness_turns.get(review_session, 0) + 1
+            self._harness_turns[review_session] = turns
+            if turns < interval:
                 return
-            if (self._harness_last
-                    and time.monotonic() - self._harness_last < cooldown):
+            last_review = self._harness_last.get(review_session, 0.0)
+            if (last_review
+                    and time.monotonic() - last_review < cooldown):
                 return
             if self._harness_thread and self._harness_thread.is_alive():
                 return
-            self._harness_turns = 0
-            self._harness_last = time.monotonic()
-            review_transcript = "\n\n".join(self._harness_transcripts)
-            self._harness_transcripts.clear()
+            self._harness_turns[review_session] = 0
+            self._harness_last[review_session] = time.monotonic()
+            review_transcript = "\n\n".join(transcripts)
+            transcripts.clear()
             review_ctx = copy.copy(self.ctx)
             review_ctx.cfg = {
                 **self.cfg,
-                "session_id": (
-                    session_id
-                    if session_id is not None
-                    else self.cfg["session_id"]
-                ),
+                "session_id": review_session,
             }
             review_ctx.client = copy.copy(self.ctx.client)
             provider = self.cfg.get("provider")
@@ -475,14 +557,15 @@ class Session:
                 self._harness_thread.start()
             except (OSError, RuntimeError):
                 self._harness_thread = None
-                self._harness_turns = interval - 1
+                self._harness_turns[review_session] = interval - 1
 
     def new_conversation(self) -> None:
         self.agent.reset()
         self._skill_review_turns = 0
         self._memory_review_transcripts.clear()
-        self._harness_turns = 0
+        self._harness_turns.clear()
         self._harness_transcripts.clear()
+        self._harness_last.clear()
         # The warm session keeps its OWN conversation context in the child
         # process, so /new must drop it or the model still remembers the prior
         # turns despite "Started a new conversation."

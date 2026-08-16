@@ -178,6 +178,18 @@ def test_nonpersistent_gateway_passes_stable_conversation_session_id(
     ]
 
 
+def test_conversation_session_id_uses_unambiguous_tuple_encoding():
+    prefix = "a" * 25
+
+    assert gw_core.conversation_session_id(
+        prefix,
+        "x\0y",
+    ) != gw_core.conversation_session_id(
+        f"{prefix}\0x",
+        "y",
+    )
+
+
 def test_gateway_moirai_recovery_failure_reports_server_error(monkeypatch):
     # Given: Codex timed out and no Moirai worker route can start.
     from birkin.codex_session import CodexTurnTimeout
@@ -454,7 +466,8 @@ def test_local_http_stop_does_not_deadlock_before_serve_loop(monkeypatch):
 
 # ---------------- Telegram verify_token (offline error path) ----------------
 
-def test_open_telegram_without_allowlist_is_refused(capsys, monkeypatch):
+def test_open_telegram_without_allowlist_is_capability_stripped(
+        capsys, monkeypatch):
     # Given: Telegram is enabled with a token but no authorized chat ids.
     monkeypatch.delenv("TELEGRAM_BOT_TOKEN", raising=False)
     monkeypatch.delenv("BIRKIN_TELEGRAM_TOKEN", raising=False)
@@ -472,11 +485,11 @@ def test_open_telegram_without_allowlist_is_refused(capsys, monkeypatch):
     # When: the gateway constructs its enabled channels.
     channels = build_channels(cfg)
 
-    # Then: the reachable Telegram channel is refused before it can start.
-    assert channels == []
+    # Then: the channel starts in the public capability-stripped mode.
+    assert [channel.name for channel in channels] == ["telegram"]
     output = capsys.readouterr().out
     assert "allowed_chat_ids" in output
-    assert "refusing" in output.lower()
+    assert "capability-stripped" in output.lower()
 
 
 def test_verify_token_empty_returns_false():

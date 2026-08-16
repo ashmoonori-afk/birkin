@@ -76,7 +76,8 @@ class ClaudeStreamSession:
                  settings: Optional[dict] = None,
                  env_extra: Optional[dict] = None,
                  birkin_mcp: bool = False,
-                 egress_enforced: bool = False):
+                 egress_enforced: bool = False,
+                 tool_free: bool = False):
         self.model = model
         self.permission_mode = permission_mode
         self.cli_access = cli_access
@@ -96,6 +97,7 @@ class ClaudeStreamSession:
         self.env_extra = {k: str(v) for k, v in (env_extra or {}).items()}
         self.birkin_mcp = bool(birkin_mcp)
         self.egress_enforced = bool(egress_enforced)
+        self.tool_free = bool(tool_free)
 
         self._proc: Optional[subprocess.Popen] = None
         self._q: "queue.Queue[tuple[str, Optional[str]]]" = queue.Queue()
@@ -170,6 +172,8 @@ class ClaudeStreamSession:
 
     def _ensure_mcp_file(self) -> Optional[Path]:
         """Materialize Birkin's MCP launch config for this child."""
+        if self.tool_free:
+            return None
         if not (self.birkin_mcp or self.egress_enforced):
             return None
         if self._mcp_file and self._mcp_file.exists():
@@ -204,7 +208,17 @@ class ClaudeStreamSession:
                  # token-level deltas so channels can stream partial replies
                  # (hermes-style perceived latency; see hermes-comparison §6)
                  "--include-partial-messages"]
-        if self.egress_enforced:
+        if self.tool_free:
+            parts.extend([
+                "--permission-mode", "dontAsk",
+                "--tools", "",
+                "--setting-sources", "",
+                "--strict-mcp-config",
+                "--disable-slash-commands",
+                "--no-chrome",
+                "--no-session-persistence",
+            ])
+        elif self.egress_enforced:
             parts.extend(enforced_egress_args())
         elif self.cli_access == "full":
             parts.append("--dangerously-skip-permissions")
@@ -214,7 +228,12 @@ class ClaudeStreamSession:
             parts += ["--model", self.model]
         sys_file = self._ensure_sys_file()
         if sys_file is not None:
-            parts += ["--append-system-prompt-file", str(sys_file)]
+            system_flag = (
+                "--system-prompt-file"
+                if self.tool_free
+                else "--append-system-prompt-file"
+            )
+            parts += [system_flag, str(sys_file)]
         settings_file = self._ensure_settings_file()
         if settings_file is not None:
             parts += ["--settings", str(settings_file)]
@@ -223,7 +242,7 @@ class ClaudeStreamSession:
             parts += ["--mcp-config", str(mcp_file)]
         for d in self.add_dirs:
             parts += ["--add-dir", d]
-        if not self.egress_enforced:
+        if not self.egress_enforced and not self.tool_free:
             parts += self.extra_args
         return cli_argv(parts)
 

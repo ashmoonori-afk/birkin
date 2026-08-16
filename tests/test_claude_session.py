@@ -208,6 +208,19 @@ def test_system_prompt_written_to_tempfile(monkeypatch):
     assert not pathlib.Path(path).exists()  # cleaned up
 
 
+def test_tool_free_session_replaces_claude_default_system_prompt():
+    session = ClaudeStreamSession(
+        append_system_prompt="PUBLIC ONLY",
+        tool_free=True,
+    )
+
+    argv = session._build_argv()
+
+    assert "--system-prompt-file" in argv
+    assert "--append-system-prompt-file" not in argv
+    session.close()
+
+
 def test_enforced_warm_session_uses_only_birkin_mcp_tools():
     session = ClaudeStreamSession(birkin_mcp=True)
     session.egress_enforced = True

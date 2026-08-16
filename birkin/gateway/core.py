@@ -13,7 +13,7 @@ from typing import Any
 
 from .. import config, models, pools, promptgate, security, store
 from ..claude_session import ClaudeStreamSession
-from ..codex_session import CodexTurnTimeout
+from ..codex_session import CodexAppServerSession, CodexTurnTimeout
 from ..omo import OmoController
 from ..runtime import ConfigError, Session, build_session
 from .workflow import WORKFLOW_POLICY, is_running as workflow_is_running
@@ -21,10 +21,26 @@ from .workflow import WORKFLOW_POLICY, is_running as workflow_is_running
 
 def conversation_session_id(channel: str, chat_id: str) -> str:
     """Stable, path-safe Working Memory identity for one gateway conversation."""
-    label = re.sub(r"[^A-Za-z0-9]+", "-", str(channel)).strip("-") or "channel"
-    digest = hashlib.sha256(
-        f"{channel}\0{chat_id}".encode()
-    ).hexdigest()[:20]
+    channel_value = str(channel)
+    chat_value = str(chat_id)
+    label = (
+        re.sub(r"[^A-Za-z0-9]+", "-", channel_value).strip("-")
+        or "channel"
+    )
+    if "\0" in channel_value or "\0" in chat_value:
+        channel_bytes = channel_value.encode()
+        chat_bytes = chat_value.encode()
+        payload = (
+            b"v2\0"
+            + len(channel_bytes).to_bytes(8, "big")
+            + channel_bytes
+            + len(chat_bytes).to_bytes(8, "big")
+            + chat_bytes
+        )
+    else:
+        # Preserve already-shipped IDs for ordinary channel/chat values.
+        payload = f"{channel_value}\0{chat_value}".encode()
+    digest = hashlib.sha256(payload).hexdigest()[:20]
     return f"gateway-{label[:24]}-{digest}"
 
 
@@ -155,7 +171,7 @@ _CODEX_REASONING_EFFORTS = ["default", "low", "medium", "high", "xhigh"]
 # trusted channels only (see Gateway._command_trusted).
 _PRIVILEGED_COMMANDS = {"update", "models", "effort", "restart", "hard_restart",
                         "pending", "deny", "remind", "commitment", "checkin",
-                        "companion", "omo"}
+                        "companion", "neurosis", "omo"}
 _LOCAL_TRUSTED_CHANNELS = frozenset({"http", "local", "repl", "voice"})
 UNTRUSTED_CHANNEL_REPLY = "⛔ This channel sender is not authorized."
 # Providers with a warm persistent-session implementation (see
@@ -409,38 +425,61 @@ class Gateway:
         self._restart_notice: dict[str, Any] | None = None
         self._omo_controller = OmoController()
 
-    def _system_prompt(self) -> str:
+    def _system_prompt(self, *, trusted: bool = True) -> str:
         """birkin persona + memory + skill index, snapshot for a warm session.
         Composed through the Prompt-Gate (promptgate) like every other surface."""
-        try:
-            idx = self.session.skills.index()
-        except Exception:
+        if not trusted:
+            return promptgate.compose_public()
+        if trusted:
+            try:
+                idx = self.session.skills.index()
+            except Exception:
+                idx = ""
+        else:
             idx = ""
         extra = ("\n\n## birkin skills available\n"
                  "Read the referenced SKILL.md with your own file tools to "
                  "follow one when it fits the task.\n" + idx) if idx else ""
         return promptgate.compose_cli(
-            self.cfg, memory_block=self.session.memory.render(), extra=extra)
+            self.cfg,
+            memory_block=self.session.memory.render() if trusted else "",
+            extra=extra,
+            include_turn_state=False,
+            persona_text=None if trusted else "",
+        )
 
-    def _new_claude_session(self, key: tuple[str, str]) -> ClaudeStreamSession:
+    def _new_claude_session(
+        self,
+        key: tuple[str, str],
+    ) -> ClaudeStreamSession | CodexAppServerSession:
         """SessionPool factory: one warm session per conversation key.
 
         A pre-warmed spare (see :meth:`prewarm`) is adopted first: gateway
         sessions are configured identically, so the spare is fungible and the
         first message of a new conversation skips the ~28 s cold start.
         """
-        with self._spare_lock:
-            spare, self._spare = self._spare, None
-        if spare is not None and spare.is_alive():
-            # replace the spare in the background for the NEXT new conversation
-            threading.Thread(target=self._make_spare, daemon=True).start()
-            return spare
-        return self._build_claude_session()
+        trusted = self._command_trusted(key[0])
+        if trusted:
+            with self._spare_lock:
+                spare, self._spare = self._spare, None
+            if spare is not None and spare.is_alive():
+                # Replace the trusted spare for the next trusted conversation.
+                threading.Thread(target=self._make_spare, daemon=True).start()
+                return spare
+        return self._build_claude_session(trusted=trusted)
 
-    def _build_claude_session(self):
+    def _build_claude_session(
+        self,
+        *,
+        trusted: bool = True,
+    ) -> ClaudeStreamSession | CodexAppServerSession:
         """Warm session for the configured provider (claude or codex)."""
+        system_prompt = (
+            self._system_prompt()
+            if trusted
+            else self._system_prompt(trusted=False)
+        )
         if self.cfg.get("provider") == "codex-cli":
-            from ..codex_session import CodexAppServerSession
             # cli_access is already forced to "workspace" in __init__ for the
             # gateway, so codex stays cwd-scoped and can never escalate —
             # network is granted independently of host filesystem access.
@@ -450,7 +489,7 @@ class Gateway:
             return CodexAppServerSession(
                 model=self.cfg.get("model"),
                 cwd=_configured_workspace(self.cfg),
-                preamble=self._system_prompt(),
+                preamble=system_prompt,
                 reasoning_effort=str(
                     self.cfg.get("gateway_reasoning_effort", "") or ""),
                 turn_timeout=float(self.cfg.get("cli_timeout", 300)),
@@ -465,7 +504,7 @@ class Gateway:
                 # have no local memory path" — birkin's headline feature, and
                 # the gateway could not do it. memory/skills/propose_action
                 # only; propose_action still queues to `birkin review`.
-                birkin_mcp=True, birkin_mcp_scope="full")
+                birkin_mcp=trusted, birkin_mcp_scope="full")
         # Tools the headless gateway may use without a permission prompt
         # (e.g. company MCP servers). Empty -> rely on Claude Code settings.
         allowed = [str(t) for t in self.cfg.get("gateway_allowed_tools", []) if t]
@@ -487,9 +526,11 @@ class Gateway:
         return ClaudeStreamSession(
             model=self.cfg.get("model"),
             cli_access=self.cfg.get("cli_access", "workspace"),
-            append_system_prompt=self._system_prompt(),
+            append_system_prompt=system_prompt,
             extra_args=extra, settings=settings, env_extra=env_extra,
-            birkin_mcp=True, egress_enforced=egress_enforced)
+            birkin_mcp=trusted,
+            egress_enforced=egress_enforced,
+            tool_free=not trusted)
 
     def _make_spare(self) -> None:
         """Spawn one warm, unclaimed session so the next new conversation
@@ -559,6 +600,7 @@ class Gateway:
             cfg = {**cfg, "model": cfg["gateway_model"]}
         if cfg.get("cli_access") == "full":
             cfg = {**cfg, "cli_access": "workspace"}
+        cfg = {**cfg, "session_goal_fallback": False}
         self.cfg = cfg
         self._persistent = (bool(cfg.get("gateway_persistent", True))
                             and cfg.get("provider") in _PERSISTENT_PROVIDERS)
@@ -679,6 +721,10 @@ class Gateway:
         cmd, cmd_arg = match_command(text)
         display_text = text
         skill_query = display_text
+        if cmd in _PRIVILEGED_COMMANDS and not self._command_trusted(channel):
+            return ("This command is restricted. Set "
+                    "channels.telegram.allowed_chat_ids so only you can run "
+                    "privileged commands.")
         if cmd == "neurosis":
             # Seed/resume the interview, then run the kickoff as a normal turn so
             # it works on both the persistent and non-persistent paths.
@@ -707,14 +753,6 @@ class Gateway:
             skill_query = f"neurosis {display_text}"
             cmd = None                                       # fall through to a turn
         with self._lock:
-            # Privileged commands pull code / restart the service / rewrite config.
-            # An OPEN Telegram bot (no allowed_chat_ids) must not let strangers
-            # trigger them. (When allowed_chat_ids IS set, telegram.py already
-            # dropped unauthorized chats before this point.)
-            if cmd in _PRIVILEGED_COMMANDS and not self._command_trusted(channel):
-                return ("This command is restricted. Set "
-                        "channels.telegram.allowed_chat_ids so only you can run "
-                        "/update, /models, /effort, /restart and /hard_restart.")
             if cmd == "help":
                 return gateway_help_text()
             if cmd == "models":
@@ -844,7 +882,7 @@ class Gateway:
                 and workflow_id
                 and workflow_is_running(workflow_id, str(chat_id))
             )
-            if needs_seed:
+            if needs_seed and self._autosave_trusted(channel):
                 from .. import transcripts
                 tail = transcripts.read_recent(channel, str(chat_id))
                 if tail:
@@ -863,7 +901,27 @@ class Gateway:
                     on_progress(info)
 
             try:
-                if persistent:
+                untrusted_claude = (
+                    not self._command_trusted(channel)
+                    and self.cfg.get("provider") == "claude-cli"
+                )
+                if untrusted_claude and not persistent:
+                    one_shot = self._build_claude_session(trusted=False)
+                    try:
+                        reply = ask_session(
+                            one_shot,
+                            self.session._prepare_cli_turn(
+                                text,
+                                route_query=skill_query,
+                                session_id=turn_session_id,
+                                trusted=False,
+                            ),
+                            on_text=on_text,
+                            on_progress=_watch_progress,
+                        )
+                    finally:
+                        one_shot.close()
+                elif persistent:
                     # Warm Claude Code process keeps its own conversation context,
                     # so only the new turn is sent.
                     skill_state = getattr(sess, "_birkin_skill_state", None)
@@ -875,7 +933,8 @@ class Gateway:
                         self.session._prepare_cli_turn(
                             text, route_query=skill_query,
                             skill_state=skill_state,
-                            session_id=turn_session_id),
+                            session_id=turn_session_id,
+                            trusted=self._command_trusted(channel)),
                         on_text=on_text, on_progress=_watch_progress)
                 else:
                     # The non-persistent path shares the single self.session, so its
@@ -894,7 +953,9 @@ class Gateway:
                                 text,
                                 review_skills=self._command_trusted(channel),
                                 route_query=skill_query,
-                                session_id=turn_session_id)
+                                record_turn=self._command_trusted(channel),
+                                session_id=turn_session_id,
+                                trusted=self._command_trusted(channel))
                         finally:
                             if ctx is not None:
                                 ctx.subagent_approval_required = old_required
@@ -971,9 +1032,10 @@ class Gateway:
             dt = time.monotonic() - t0
             print(f"[gateway] {channel}:{chat_id} » {len(reply or '')} chars in "
                   f"{dt:.1f}s", flush=True)
-            store.append_activity(
-                f"gateway[{channel}:{chat_id}]: {display_text[:100]}")
-            if persistent:
+            if self._autosave_trusted(channel):
+                store.append_activity(
+                    f"gateway[{channel}:{chat_id}]: {display_text[:100]}")
+            if persistent and self._command_trusted(channel):
                 self.session._record_turn(
                     display_text, reply or "",
                     review_skills=self._command_trusted(channel),
@@ -1271,6 +1333,8 @@ class Gateway:
         channel: str,
         chat_id: str,
     ) -> None:
+        if not self._command_trusted(channel):
+            return
         self.session._record_turn(
             display_text, reply or "",
             review_skills=self._command_trusted(channel),
@@ -1315,7 +1379,11 @@ class Gateway:
                 if str(value).strip()
             }
             if not allowed_chats:
-                return True
+                # Claude/native public turns are stripped of memory, harness,
+                # review persistence, MCP, and native tools. Codex app-server
+                # cannot provide an equivalent tool-free child, so it fails
+                # closed unless the chat is explicitly allowlisted.
+                return self.cfg.get("provider") != "codex-cli"
             if str(chat_id).strip() not in allowed_chats:
                 return False
             return not allowed_senders or sender in allowed_senders

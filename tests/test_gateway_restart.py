@@ -60,6 +60,27 @@ def test_restart_reloads_cli_access_safety(tmp_path, monkeypatch):
     assert gw.cfg["cli_access"] == "workspace"
 
 
+def test_restart_preserves_gateway_goal_isolation(tmp_path, monkeypatch):
+    gw = _gateway(tmp_path, monkeypatch)
+    from birkin import goals, promptgate
+    from birkin.gateway.core import conversation_session_id
+
+    goals.set_goal("PRIVATE OPERATOR GOAL")
+    session_id = conversation_session_id("telegram", "stranger")
+    assert "PRIVATE OPERATOR GOAL" not in promptgate._goal_note(
+        {**gw.cfg, "session_id": session_id}
+    )
+
+    monkeypatch.setattr(gw, "prewarm", lambda: None)
+    with gw._lock:
+        gw.restart()
+
+    assert gw.cfg["session_goal_fallback"] is False
+    assert "PRIVATE OPERATOR GOAL" not in promptgate._goal_note(
+        {**gw.cfg, "session_id": session_id}
+    )
+
+
 def test_hard_restart_sets_flag_without_execing(tmp_path, monkeypatch):
     """handle() must only FLAG a hard restart — the channel re-execs after reply."""
     gw = _gateway(tmp_path, monkeypatch)
@@ -194,7 +215,13 @@ def test_privileged_commands_refused_on_open_telegram(tmp_path, monkeypatch):
     commands — a stranger must not be able to pull code or restart the
     service (Gateway._command_trusted)."""
     gw = _gateway(tmp_path, monkeypatch)                 # no allowed_chat_ids
-    for cmd in ("/update", "/models opus", "/hard-restart", "/restart"):
+    for cmd in (
+        "/update",
+        "/models opus",
+        "/hard-restart",
+        "/restart",
+        "/neurosis inspect shared state",
+    ):
         out = gw.handle("telegram", "999", cmd)
         assert "restricted" in out.lower(), cmd
     assert gw.pending_hard_restart is False

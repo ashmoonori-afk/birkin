@@ -125,7 +125,7 @@ def test_gateway_attaches_birkin_mcp_to_its_claude_session():
         "gateway_clean_hooks": True,
         "gateway_thinking_tokens": 0,
     }
-    gateway._system_prompt = lambda: "birkin gateway"
+    gateway._system_prompt = lambda **_kwargs: "birkin gateway"
 
     # When: the exact child argv is materialized.
     session = gateway._build_claude_session()
@@ -146,6 +146,31 @@ def test_gateway_attaches_birkin_mcp_to_its_claude_session():
     assert not mcp_path.exists()
 
 
+def test_untrusted_gateway_child_omits_birkin_mcp():
+    from birkin.gateway import core
+
+    gateway = core.Gateway.__new__(core.Gateway)
+    gateway.cfg = {
+        "provider": "claude-cli",
+        "model": "claude-sonnet-4-5",
+        "cli_access": "workspace",
+        "gateway_clean_hooks": True,
+        "gateway_thinking_tokens": 0,
+    }
+    gateway._system_prompt = lambda **_kwargs: "public gateway"
+
+    session = gateway._build_claude_session(trusted=False)
+    try:
+        argv = session._build_argv()
+        joined = " ".join(argv)
+        assert "mcp_servers.birkin" not in joined
+        assert "--strict-mcp-config" in argv
+        assert argv[argv.index("--tools") + 1] == ""
+        assert "--allowedTools" not in argv
+    finally:
+        session.close()
+
+
 def test_gateway_propagates_enforced_egress_to_claude_session():
     from birkin.gateway import core
 
@@ -158,7 +183,7 @@ def test_gateway_propagates_enforced_egress_to_claude_session():
         "gateway_thinking_tokens": 0,
         "egress": {"enabled": True, "enforced": True},
     }
-    gateway._system_prompt = lambda: "birkin gateway"
+    gateway._system_prompt = lambda **_kwargs: "birkin gateway"
 
     session = gateway._build_claude_session()
     try:

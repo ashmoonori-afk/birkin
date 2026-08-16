@@ -127,6 +127,7 @@ class Agent:
         self._iters_since_skill = 0
         self._turns_since_memory = 0
         self._pending_nudge = ""
+        self._blocked_tools: frozenset[str] = frozenset()
         # Per-turn telemetry (read by the caller for run records).
         self.last_tools: list[str] = []
         self.last_iterations = 0
@@ -143,6 +144,8 @@ class Agent:
         # Newest pre-compaction snapshot id -- the head of the lineage chain
         # that keeps compacted-away history recoverable (see lineage.py).
         self._lineage_head: Optional[str] = None
+        self._persist_lineage = True
+        self._trusted_turn = True
 
         # Mid-turn steering. Written from another thread (the REPL key
         # listener, a gateway channel poller) and drained by the loop thread;
@@ -194,8 +197,10 @@ class Agent:
                 pass  # UI hooks must never break the loop
 
     def run(self, user_text: str,
-            on_text: Optional[Callable[[str], None]] = None,
-            abort: Optional["AbortLike"] = None) -> str:
+            on_text: Callable[[str], None] | None = None,
+            abort: AbortLike | None = None,
+            blocked_tools: frozenset[str] | None = None,
+            trusted: bool = True) -> str:
         """Send a user message and run the loop until the assistant stops
         calling tools (or the turn guard trips). Returns the final text.
 
@@ -205,17 +210,25 @@ class Agent:
         REPL)."""
         # A steer that landed after the last tool batch of the previous turn
         # has nowhere to go but here — carry it rather than dropping it.
-        carried = self._drain_steer()
+        carried = self._drain_steer() if trusted else ""
         if carried:
             user_text = f"{user_text}\n\n[carried over from mid-turn]\n{carried}"
         self.messages.append(
             {"role": "user", "content": [{"type": "text", "text": user_text}]})
         self.last_tools = []
         self.last_iterations = 0
-        self._turns_since_memory += 1
-        nudge = self._pending_nudge       # consume any nudge queued last turn
-        self._pending_nudge = ""
-        if self.hooks is not None:
+        nudge_state = (
+            self._pending_nudge,
+            self._turns_since_memory,
+            self._iters_since_skill,
+        )
+        if trusted:
+            self._turns_since_memory += 1
+            nudge = self._pending_nudge
+            self._pending_nudge = ""
+        else:
+            nudge = ""
+        if trusted and self.hooks is not None:
             # Rides the same ephemeral per-turn channel as the
             # self-improvement nudges. birkin rebuilds its system prompt
             # every turn anyway, so unlike hermes there is no cached
@@ -228,7 +241,24 @@ class Agent:
                 extra = ""
             if extra:
                 nudge = f"{nudge}\n\n{extra}" if nudge else extra
-        return self._loop(on_text, extra_system=nudge, abort=abort)
+        previous_blocked = self._blocked_tools
+        previous_persist_lineage = self._persist_lineage
+        previous_trusted_turn = getattr(self, "_trusted_turn", True)
+        self._blocked_tools = blocked_tools or frozenset()
+        self._persist_lineage = trusted
+        self._trusted_turn = trusted
+        try:
+            return self._loop(on_text, extra_system=nudge, abort=abort)
+        finally:
+            self._blocked_tools = previous_blocked
+            self._persist_lineage = previous_persist_lineage
+            self._trusted_turn = previous_trusted_turn
+            if not trusted:
+                (
+                    self._pending_nudge,
+                    self._turns_since_memory,
+                    self._iters_since_skill,
+                ) = nudge_state
 
     @staticmethod
     def _aborted(abort: Optional["AbortLike"]) -> bool:
@@ -250,11 +280,16 @@ class Agent:
         # Snapshot the history being replaced BEFORE swapping it out, so the
         # summarized turns stay recoverable. Best-effort: a failed snapshot
         # must never block the compaction that keeps the chat alive.
-        from . import lineage
-        snap = lineage.snapshot(self.messages, parent=self._lineage_head,
-                                reason=reason)
-        if snap:
-            self._lineage_head = snap
+        snap: str | None = None
+        if getattr(self, "_persist_lineage", True):
+            from . import lineage
+            snap = lineage.snapshot(
+                self.messages,
+                parent=self._lineage_head,
+                reason=reason,
+            )
+            if snap:
+                self._lineage_head = snap
         self.messages = compacted
         self._compact_floor = 0
         self._emit("compact", {"reason": reason, "before": before,
@@ -289,19 +324,27 @@ class Agent:
     def _loop(self, on_text, extra_system: str = "",
               abort: Optional["AbortLike"] = None) -> str:
         final_text = ""
-        tool_specs = self.registry.specs()
+        tool_specs = [
+            spec for spec in self.registry.specs()
+            if str(spec.get("name", "")) not in self._blocked_tools
+        ]
         system = self.system + (f"\n\n{extra_system}" if extra_system else "")
         used_skill = used_memory = False
 
         for _turn in range(self.max_turns):
             if self._aborted(abort):
-                self._drain_steer()      # an interrupt supersedes a steer
+                if getattr(self, "_trusted_turn", True):
+                    self._drain_steer()
                 return (final_text + "\n\n[birkin] aborted.").strip()
             # Deliver anything the user typed while the previous model call or
             # tool batch was running. Folding it into the trailing user message
             # (rather than appending a new one) keeps it user-authored content
             # arriving before the next model call, which is the whole point.
-            steer = self._drain_steer()
+            steer = (
+                self._drain_steer()
+                if getattr(self, "_trusted_turn", True)
+                else ""
+            )
             if steer:
                 _append_user_text(self.messages, f"{_STEER_NOTE}\n{steer}")
                 self._emit("steer", {"text": steer})
@@ -326,7 +369,8 @@ class Agent:
                         {"type": "tool_result", "tool_use_id": tu.get("id"),
                          "content": "aborted", "is_error": True}
                         for tu in tool_uses]})
-                self._drain_steer()      # an interrupt supersedes a steer
+                if getattr(self, "_trusted_turn", True):
+                    self._drain_steer()
                 self._update_nudges(used_skill, used_memory)
                 return (final_text + "\n\n[birkin] aborted.").strip()
 
@@ -372,6 +416,12 @@ class Agent:
 
     def _run_one(self, tool_use: dict[str, Any]) -> dict[str, Any]:
         name = tool_use.get("name", "")
+        if name in self._blocked_tools:
+            return self._result_block(
+                tool_use,
+                f"Tool {name!r} is unavailable for this untrusted turn.",
+                True,
+            )
         res = self.registry.execute(name, tool_use.get("input", {}) or {})
         return self._result_block(tool_use, res.content, res.is_error)
 

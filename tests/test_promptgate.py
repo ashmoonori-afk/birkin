@@ -5,7 +5,7 @@ from __future__ import annotations
 from pathlib import Path
 
 import birkin
-from birkin import goals, harness, promptgate
+from birkin import goals, harness, ide, promptgate
 
 
 def test_compose_main_includes_persona_and_neurosis_note():
@@ -96,6 +96,43 @@ def test_turn_context_refreshes_warm_session_working_state():
     assert "canonical harness journal" in second
 
 
+def test_turn_context_emits_reset_marker_after_clear():
+    session_id = "warm-clear"
+    harness.update_working(
+        session_id,
+        decisions=["stale decision"],
+    )
+    assert "stale decision" in promptgate.compose_turn_context({
+        "session_id": session_id,
+    })
+
+    assert harness.clear_working(session_id)
+    cleared = promptgate.compose_turn_context({"session_id": session_id})
+
+    assert "stale decision" not in cleared
+    assert "<working-memory-reset" in cleared
+    assert 'revision="0"' in cleared
+
+
+def test_turn_context_emits_goal_reset_while_journal_remains():
+    session_id = "goal-clear"
+    goals.set_goal("stale goal", session_id=session_id)
+    harness.update_working(
+        session_id,
+        decisions=["journal remains"],
+    )
+    assert "stale goal" in promptgate.compose_turn_context({
+        "session_id": session_id,
+    })
+
+    goals.pause(session_id=session_id)
+    cleared = promptgate.compose_turn_context({"session_id": session_id})
+
+    assert "stale goal" not in cleared
+    assert "<active-goal-reset" in cleared
+    assert "journal remains" in cleared
+
+
 def test_neurosis_note_off_when_disabled():
     out = promptgate.compose_main({"neurosis_auto": False}, persona_text="x")
     assert "when to run it automatically" not in out.lower()
@@ -112,6 +149,28 @@ def test_enforced_cli_prompt_scrubs_unavailable_skill_tool_ids():
     )
 
     assert "run_shell" not in out
+
+
+def test_public_prompt_bypasses_workspace_files_and_ide_context(
+        monkeypatch, tmp_path):
+    for name in ("SOUL.md", "AGENTS.md", "TOOLS.md"):
+        (tmp_path / name).write_text(
+            f"PRIVATE {name} SENTINEL",
+            encoding="utf-8",
+        )
+    monkeypatch.chdir(tmp_path)
+    ide_calls: list[bool] = []
+    monkeypatch.setattr(
+        ide,
+        "consume_context_note",
+        lambda: ide_calls.append(True) or "PRIVATE IDE SENTINEL",
+    )
+
+    out = promptgate.compose_public()
+
+    assert "You are birkin" in out
+    assert "PRIVATE" not in out
+    assert ide_calls == []
 
 
 def test_static_audit_main_turn_prompt_goes_through_the_gate():
