@@ -55,7 +55,7 @@ STALE_EFF, STALE_DAYS = 0.1, 90       # hermes curator archive tier
 MAX_ZONES = 24
 RELATED_LIMIT = 5                     # A-MEM: keep top-k small
 RELATED_QUERY_TERMS = 12
-INDEX_VERSION = 1
+INDEX_VERSION = 2
 
 INDEX_FILE = ".birkin-index.json"
 DYNAMICS_FILE = ".birkin-dynamics.json"
@@ -322,6 +322,12 @@ def _note_entry(path: Path, rel: str) -> dict[str, Any] | None:
         "polarity": str(meta.get("polarity") or "positive"),
         "expires_at": (str(meta["expires_at"])
                        if meta.get("expires_at") else None),
+        "valid_at": (str(meta["valid_at"])
+                     if meta.get("valid_at") else None),
+        "invalid_at": (str(meta["invalid_at"])
+                       if meta.get("invalid_at") else None),
+        "supersedes": ([str(value) for value in meta.get("supersedes", [])]
+                       if isinstance(meta.get("supersedes"), list) else []),
         "summary": summary,
         "mtime": st.st_mtime, "size": st.st_size,
         "doclen": sum(terms.values()), "terms": terms,
@@ -627,7 +633,8 @@ class Mnemosyne:
 
     def search(self, query: str, limit: int = 8, zone: str | None = None,
                include_archive: bool = False,
-               now: datetime | None = None) -> list[dict[str, Any]]:
+               now: datetime | None = None,
+               valid_on: date | None = None) -> list[dict[str, Any]]:
         """BM25 × (1 + W_DYN·eff/cap + W_ZONE·zone priority), index-only."""
         self.refresh()
         now = now or datetime.now(timezone.utc)
@@ -647,7 +654,7 @@ class Mnemosyne:
             when = temporal_target(query, now)
             # TTL is a user-facing calendar date -> LOCAL today, matching
             # memory._is_expired (render/list/purge) so no path disagrees.
-            expiry_today = date.today()
+            expiry_today = valid_on or date.today()
             hits: list[dict[str, Any]] = []
             for s, bm in cands:
                 e = notes[s]

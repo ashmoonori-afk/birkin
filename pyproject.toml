@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "birkin"
-version = "0.4.213"
+version = "0.4.217"
 description = "Lightweight, self-improving CLI agent workspace with skill management, subagents, and a WebUI. Inspired by hermes-agent and openclaw."
 readme = "README.md"
 requires-python = ">=3.10"
@@ -16,6 +16,9 @@ keywords = ["agent", "cli", "skills", "subagents", "self-improving", "llm"]
 dependencies = []
 
 [project.optional-dependencies]
+memory-semantic = [
+    "sentence-transformers>=3,<6",
+]
 voice = [
     "openai[realtime,voice_helpers]>=2.53,<3",
 ]
