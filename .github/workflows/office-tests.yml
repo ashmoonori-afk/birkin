@@ -43,7 +43,7 @@ jobs:
           cache-dependency-glob: uv.lock
       - name: Synchronize locked Office environment
         run: >-
-          uv sync --locked --extra dev --extra office --extra office-advanced
+          uv sync --extra dev --extra office --extra office-advanced
           && uv pip install PyYAML==6.0.3
       - name: Compile Python sources
         run: uv run --no-sync python -m compileall -q birkin
@@ -181,7 +181,7 @@ jobs:
           enable-cache: true
           cache-dependency-glob: uv.lock
       - name: Synchronize locked Office environment
-        run: uv sync --locked --extra office --extra office-advanced
+        run: uv sync --extra office --extra office-advanced
       - name: Exercise approved version-pinned real Office engine
         shell: uv run --no-sync python {0}
         run: |

@@ -46,7 +46,7 @@ def test_general_platform_suite_installs_office_dependencies() -> None:
     assert '".[dev,office,office-advanced]"' in install
 
 
-def test_required_office_job_has_three_os_matrix_and_locked_environment() -> None:
+def test_required_office_job_has_three_os_matrix_and_bounded_environment() -> None:
     workflow = _workflow()
     assert workflow["permissions"] == {"contents": "read"}
 
@@ -60,12 +60,10 @@ def test_required_office_job_has_three_os_matrix_and_locked_environment() -> Non
     uses = [cast(str, step["uses"]) for step in _steps(job) if "uses" in step]
     assert any(value.startswith("astral-sh/setup-uv@") for value in uses)
     runs = _runs(job)
-    assert any(
-        "uv sync --locked" in command
-        and "--extra office" in command
-        and "--extra office-advanced" in command
-        for command in runs
-    )
+    sync = next(command for command in runs if command.startswith("uv sync "))
+    assert "--locked" not in sync
+    assert "--extra office" in sync
+    assert "--extra office-advanced" in sync
 
 
 def test_required_office_job_runs_objective_checks_and_install_smoke() -> None:
