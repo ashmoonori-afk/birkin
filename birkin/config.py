@@ -230,8 +230,22 @@ DEFAULT_CONFIG: dict[str, Any] = {
         "slack": {"enabled": False, "webhook_url": ""},
         "discord": {"enabled": False, "webhook_url": ""},
     },
-    # --- Obsidian-vault semantic memory ---
+    # --- Obsidian-vault memory (lexical remains the zero-dependency default) ---
     "vault_path": "",  # empty -> <birkin_home>/vault
+    "memory_vector_enabled": False,
+    "memory_vector_backend": "sentence-transformers",
+    "memory_vector_model": "all-MiniLM-L6-v2",
+    "memory_entity_enabled": False,
+    "memory_temporal_enabled": False,
+    # Scoped roots live below vault/.birkin-scopes; user keeps the legacy root.
+    "memory_scope": "user",
+    "memory_visible_scopes": [
+        "workflow", "agent", "project", "organization", "user",
+    ],
+    # Unknown/legacy sources remain visible by default; queries may raise the
+    # threshold and source-specific declarations can lower or raise trust.
+    "memory_default_trust": "medium",
+    "memory_source_trust": {},
     # --- Morpheus (daily 07:00 self-improvement routine) ---
     # Telegram chat to receive the nightly summary as a morning digest
     # (P0-3). Empty selects the sole allowlisted Telegram chat when exactly one
