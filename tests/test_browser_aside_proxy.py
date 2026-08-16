@@ -2,7 +2,8 @@ from __future__ import annotations
 
 import base64
 import socket
-from typing import cast
+from threading import Event
+from typing import NoReturn, cast
 from urllib.parse import urlsplit
 
 import pytest
@@ -117,6 +118,46 @@ def test_proxy_closes_peer_that_differs_from_pinned_dns(
 
     assert captured.value.code == "peer_mismatch_denied"
     assert upstream.closed is True
+
+
+def test_proxy_shutdown_interrupts_blocking_accept() -> None:
+    class BlockingListener:
+        def __init__(self) -> None:
+            self.accepting = Event()
+            self.released = Event()
+            self.exited = Event()
+            self.shutdown_calls: list[int] = []
+
+        def accept(self) -> NoReturn:
+            self.accepting.set()
+            if not self.released.wait(timeout=10):
+                raise AssertionError("listener shutdown was not signaled")
+            self.exited.set()
+            raise OSError
+
+        def shutdown(self, how: int) -> None:
+            self.shutdown_calls.append(how)
+            self.released.set()
+
+        def close(self) -> None:
+            pass
+
+    proxy = BrowserFilteringProxy(BrowserEgressPolicy())
+    proxy._listener.close()
+    listener = BlockingListener()
+    proxy._listener = cast(
+        socket.socket,
+        cast(object, listener),
+    )
+    proxy.start()
+    assert listener.accepting.wait(timeout=1)
+    try:
+        proxy.close()
+    finally:
+        listener.released.set()
+        assert listener.exited.wait(timeout=1)
+        proxy._thread.join(timeout=1)
+    assert listener.shutdown_calls == [socket.SHUT_RDWR]
 
 
 def test_proxy_refuses_unconditional_control_address() -> None:

@@ -116,12 +116,29 @@ def test_private_network_ssrf_requires_an_exact_trusted_rule() -> None:
                "http://10.0.0.5/admin", "http://metadata.google.internal/", "http://2130706433/",
                "http://[::1]:8080/")
     module = _module()
-    wide = module.browser_egress_policy(_policy(*hosts))
+    addresses = {
+        "localhost": ("127.0.0.1",),
+        "169.254.169.254": ("169.254.169.254",),
+        "10.0.0.5": ("10.0.0.5",),
+        "metadata.google.internal": ("169.254.169.254",),
+        "2130706433": ("127.0.0.1",),
+        "::1": ("::1",),
+        "dev.localhost": ("127.0.0.1",),
+    }
+    resolver = lambda host: addresses[host]
+    wide = module.browser_egress_policy(
+        _policy(*hosts),
+        resolver=resolver,
+    )
     for url in blocked:
         assert _denied(lambda u=url: wide.evaluate(u)) == "private_network_denied"
 
     scoped = module.browser_egress_policy(
-        _policy(*hosts), private_network=(("dev.localhost", "127.0.0.1/32", 8080),)
+        _policy(*hosts),
+        private_network=(
+            ("dev.localhost", "127.0.0.1/32", 8080),
+        ),
+        resolver=resolver,
     )
     allowed = scoped.evaluate("http://dev.localhost:8080/fixture")
     assert (allowed.host, allowed.port) == ("dev.localhost", 8080)

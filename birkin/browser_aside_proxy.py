@@ -61,6 +61,10 @@ class BrowserFilteringProxy:
 
     def close(self) -> None:
         self._stop.set()
+        try:
+            self._listener.shutdown(socket.SHUT_RDWR)
+        except OSError:
+            pass
         self._listener.close()
         with self._lock:
             connections = tuple(self._connections)
