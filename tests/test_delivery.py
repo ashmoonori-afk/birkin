@@ -7,6 +7,7 @@ lost the answer AND the tokens, silently.
 
 from __future__ import annotations
 
+import threading
 from collections.abc import Callable, Mapping
 
 import pytest
@@ -72,6 +73,96 @@ def test_pending_lists_every_channel_when_unfiltered():
     delivery.record("telegram", "1", "a")
     delivery.record("http", "2", "b")
     assert len(delivery.pending()) == 2
+
+
+def test_concurrent_claimers_cannot_own_the_same_obligation(monkeypatch):
+    row_id = delivery.record("telegram", "42", "deliver once")
+    assert row_id is not None
+
+    original_connect = delivery._connect
+    both_selected = threading.Barrier(2)
+    first_committed = threading.Event()
+
+    class CoordinatedCursor:
+        def __init__(self, cursor, connection):
+            self._cursor = cursor
+            self._connection = connection
+
+        def fetchall(self):
+            rows = self._cursor.fetchall()
+            if not self._connection.serialized:
+                both_selected.wait(timeout=5)
+                if self._connection.owner == "second":
+                    assert first_committed.wait(timeout=5)
+            return rows
+
+    class CoordinatedConnection:
+        def __init__(self, connection):
+            self._connection = connection
+            self.owner = threading.current_thread().name
+            self.serialized = False
+
+        @property
+        def row_factory(self):
+            return self._connection.row_factory
+
+        @row_factory.setter
+        def row_factory(self, value):
+            self._connection.row_factory = value
+
+        def execute(self, statement, parameters=()):
+            if statement == "BEGIN IMMEDIATE":
+                self.serialized = True
+            cursor = self._connection.execute(statement, parameters)
+            if statement.startswith("SELECT * FROM outbox"):
+                return CoordinatedCursor(cursor, self)
+            return cursor
+
+        def __enter__(self):
+            self._connection.__enter__()
+            return self
+
+        def __exit__(self, exc_type, exc_value, traceback):
+            result = self._connection.__exit__(exc_type, exc_value, traceback)
+            if self.owner == "first":
+                first_committed.set()
+            return result
+
+        def close(self):
+            self._connection.close()
+
+    monkeypatch.setattr(
+        delivery,
+        "_connect",
+        lambda: CoordinatedConnection(original_connect()),
+    )
+    claimed: list[tuple[str, list[int]]] = []
+    errors: list[BaseException] = []
+    result_lock = threading.Lock()
+
+    def run_claim(owner: str) -> None:
+        try:
+            rows = delivery.claim("telegram", owner=owner)
+            result = (owner, [int(row["id"]) for row in rows])
+            with result_lock:
+                claimed.append(result)
+        except BaseException as exc:
+            with result_lock:
+                errors.append(exc)
+
+    threads = [
+        threading.Thread(target=run_claim, args=("first",), name="first"),
+        threading.Thread(target=run_claim, args=("second",), name="second"),
+    ]
+    for thread in threads:
+        thread.start()
+    for thread in threads:
+        thread.join(timeout=10)
+
+    assert errors == []
+    assert not any(thread.is_alive() for thread in threads)
+    owners = [owner for owner, ids in claimed if row_id in ids]
+    assert len(owners) == 1
 
 
 def test_telegram_turn_records_then_clears_the_obligation(monkeypatch):

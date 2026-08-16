@@ -165,6 +165,10 @@ def claim(channel: str, *, owner: str | None = None,
     cutoff = now - max(0.0, float(stale_after))
     try:
         with closing(_connect()) as con, con:
+            # A deferred transaction begins only at the first write. Without
+            # an eager write lock, two gateways can both select the same
+            # pending rows and then claim the stale result set in sequence.
+            con.execute("BEGIN IMMEDIATE")
             con.row_factory = sqlite3.Row
             rows = [dict(r) for r in con.execute(
                 "SELECT * FROM outbox WHERE channel = ? AND ("
