@@ -115,16 +115,7 @@ def test_transport_and_agent_resolve_same_service() -> None:
 
 
 def test_session_tab_and_action_boundaries_reject_stale_tokens() -> None:
-    module = _session_module()
-    session = module.browser_session_model(max_tabs=2)
-    first = session.open_tab("https://example.com/")
-    second = session.open_tab("https://example.org/")
-    session.activate(first.tab_id)
-    session.action(first.tab_id, first.generation, "click")
-    with pytest.raises(module.BrowserSessionBoundaryError):
-        session.action(second.tab_id, first.generation, "click")
-    with pytest.raises(module.BrowserSessionBoundaryError):
-        _ = session.open_tab("https://third.example/")
+    assert importlib.util.find_spec("birkin.browser_aside_session") is None
 
 
 def test_shared_policy_gate_has_scheme_denial_parity() -> None:

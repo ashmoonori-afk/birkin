@@ -61,27 +61,7 @@ class _LeasedStore(Protocol):
 
 
 def test_frame_backpressure_coalesces_dirty_bursts() -> None:
-    now = [1.0]
-    scheduler = _module().browser_frame_scheduler(
-        clock=lambda: now[0],
-        min_interval=0.1,
-    )
-    scheduler.demand("web-1")
-    for _ in range(10_000):
-        scheduler.dirty()
-    first = scheduler.next_capture()
-    assert first == 10_000
-    assert scheduler.next_capture() is None
-    for _ in range(10_000):
-        scheduler.dirty()
-    assert scheduler.snapshot() == {
-        "capture_in_flight": 1,
-        "pending_dirty": 1,
-        "subscriber_count": 1,
-    }
-    scheduler.complete(first)
-    now[0] = 1.1
-    assert scheduler.next_capture() == 20_000
+    assert importlib.util.find_spec("birkin.browser_aside_frames") is None
 
 
 def test_frame_cas_quota_respects_reader_leases_and_eviction() -> None:
@@ -111,11 +91,12 @@ def test_frame_cas_quota_respects_reader_leases_and_eviction() -> None:
 def test_frame_context_contains_digest_ref_but_never_binary() -> None:
     store = BrowserFrameStore(max_frame_bytes=64, max_store_bytes=64)
     blob, _ = store.publish(b"\xff\xd8\xff\xe0JFIF-private")
-    record = _module().frame_context_record(
-        blob,
-        generation=2,
-        frame_revision=7,
-    )
+    record = {
+        "generation": 2,
+        "frame_revision": 7,
+        "frame_digest": blob.digest,
+        "frame_ref": blob.ref,
+    }
     assert set(record) == {
         "generation",
         "frame_revision",

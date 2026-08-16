@@ -71,6 +71,18 @@ def test_load_jobs_skips_unknown_action_type(capsys):
         cron.save_jobs([bad])
 
 
+def test_load_jobs_quarantines_non_string_delivery_channel(capsys):
+    good = cron.add_job(name="good")
+    bad = {**good, "id": "bad-channel", "deliver_channel": []}
+    config.cron_path().write_text(json.dumps([good, bad]), encoding="utf-8")
+
+    assert [job["id"] for job in cron.load_jobs()] == [good["id"]]
+    assert ".deliver_channel" in capsys.readouterr().out
+
+    with pytest.raises(cron.CronFormatError, match=r"\.deliver_channel"):
+        cron.save_jobs([bad])
+
+
 def test_load_jobs_survives_a_file_that_is_not_a_list(capsys):
     config.cron_path().write_text('{"oops": true}', encoding="utf-8")
 

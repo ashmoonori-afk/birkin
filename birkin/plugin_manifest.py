@@ -20,8 +20,6 @@ class ManifestError(ValueError):
 class PluginKind(str, Enum):
     SKILL = "skill"
     AGENT = "agent"
-    HOOK = "hook"
-    MCP_SERVER = "mcp_server"
 
 
 _NAME = re.compile(r"^[a-z0-9]+(?:-[a-z0-9]+)*$")
@@ -123,6 +121,18 @@ def load_manifest(path: Path) -> PluginManifest:
         raise ManifestError("version must be an exact semantic version")
     if not isinstance(raw["kinds"], list) or not raw["kinds"]:
         raise ManifestError("kinds must be a non-empty array")
+    unsupported = sorted(
+        {
+            str(item)
+            for item in raw["kinds"]
+            if item in {"hook", "mcp_server"}
+        }
+    )
+    if unsupported:
+        raise ManifestError(
+            f"plugin kind {unsupported[0]!r} is not activatable; "
+            "supported kinds are skill and agent"
+        )
     try:
         kinds = tuple(PluginKind(item) for item in raw["kinds"])
     except (TypeError, ValueError) as exc:

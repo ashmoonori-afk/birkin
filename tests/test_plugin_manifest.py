@@ -49,8 +49,8 @@ def test_manifest_parses_kinds_entry_points_and_existing_policy(tmp_path: Path):
 def test_read_only_manifest_needs_no_confirmation(tmp_path: Path):
     path = _write(
         tmp_path / "birkin-plugin.json",
-        kinds=["mcp_server"],
-        entry_points={"mcp_server": ["server.py:serve"]},
+        kinds=["skill"],
+        entry_points={"skill": ["skills/review"]},
         required_permissions={
             "network": "off",
             "network_allowlist": [],

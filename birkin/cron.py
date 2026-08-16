@@ -35,7 +35,8 @@ _ACTION_TYPES = {"prompt", "shell", "monitor"}
 _SCHEDULE_KINDS = {"daily", "interval", "once", "cron"}
 _COMMON_JOB_FIELDS = {
     "schema_version", "id", "name", "hour", "minute", "type", "value",
-    "enabled", "deliver_chat_id", "created", "last_run", "schedule",
+    "enabled", "deliver_channel", "deliver_chat_id", "created", "last_run",
+    "schedule",
     "next_run",
 }
 _MONITOR_FIELDS = {"monitor_url", "monitor_script", "max_bytes"}
@@ -355,6 +356,14 @@ def _validate_job(
         raise CronFormatError(
             f"{path}.deliver_chat_id: expected a string or null"
         )
+    deliver_channel = job.get("deliver_channel", "telegram")
+    if (
+        not isinstance(deliver_channel, str)
+        or deliver_channel not in {"telegram", "slack", "discord"}
+    ):
+        raise CronFormatError(
+            f"{path}.deliver_channel: expected telegram, slack, or discord"
+        )
     allowed_fields = set(_COMMON_JOB_FIELDS)
     if job["type"] == "monitor":
         allowed_fields |= _MONITOR_FIELDS
@@ -405,6 +414,7 @@ def _migrate_job(job: dict[str, Any], index: int) -> tuple[dict[str, Any], bool]
     migrated["schema_version"] = CRON_SCHEMA_VERSION
     migrated.setdefault("enabled", True)
     migrated.setdefault("deliver_chat_id", None)
+    migrated.setdefault("deliver_channel", "telegram")
     migrated.setdefault("last_run", None)
     if not isinstance(migrated.get("schedule"), dict):
         hour, minute = int(migrated.get("hour", 0)), int(migrated.get("minute", 0))
@@ -477,6 +487,7 @@ def save_jobs(jobs: list[dict[str, Any]]) -> None:
 def add_job(*, name: str, hour: int = 9, minute: int = 0,
             action_type: str = "prompt", value: str = "",
             enabled: bool = True, deliver_chat_id: str | None = None,
+            deliver_channel: str = "telegram",
             schedule: str | dict[str, Any] | None = None,
             monitor_url: str | None = None,
             monitor_script: str | None = None,
@@ -516,8 +527,9 @@ def add_job(*, name: str, hour: int = 9, minute: int = 0,
         "type": action_type,  # "prompt" | "shell" | "monitor"
         "value": value,
         "enabled": enabled,
-        # Telegram chat to notify with the job's output (optional). The
-        # scheduler honors the [SILENT] convention before sending.
+        # Policy-gated channel target for job output (optional). The scheduler
+        # honors the [SILENT] convention before sending.
+        "deliver_channel": str(deliver_channel or "telegram").strip().lower(),
         "deliver_chat_id": str(deliver_chat_id) if deliver_chat_id else None,
         "created": datetime.now().isoformat(timespec="seconds"),
         "last_run": None,

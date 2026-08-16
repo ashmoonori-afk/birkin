@@ -72,66 +72,39 @@ def _dry_run(args: argparse.Namespace) -> int:
 
 
 def _cmd_worker_hook_qa(args: argparse.Namespace) -> int:
-    """Exercise the real approval/continuation state machine without side effects."""
-    import os
-    import tempfile
-    from pathlib import Path
-    from unittest.mock import patch
+    """Deprecated compatibility alias for the importable QA driver."""
+    from . import worker_hook_qa
 
-    from . import approvals, store
+    print(
+        "deprecated: use `python -m birkin.worker_hook_qa --decision ...`",
+        file=sys.stderr,
+    )
+    return worker_hook_qa.run(args.decision)
 
-    counts = {"action_runs": 0, "resume_runs": 0}
 
-    def execute_action(*unused_args: Any, **unused_kwargs: Any) -> str:
-        counts["action_runs"] += 1
-        return "qa action complete"
+def _cmd_lineage(args: argparse.Namespace) -> int:
+    """Inspect and recover trusted compaction lineage."""
+    from . import lineage
 
-    def on_event(event: dict[str, Any]) -> None:
-        if event.get("type") != "worker_resume":
-            raise ValueError("unexpected worker hook event")
-        counts["resume_runs"] += 1
-
-    previous_home = os.environ.get("BIRKIN_HOME")
-    summary: dict[str, Any]
-    with tempfile.TemporaryDirectory(prefix="birkin-worker-hook-qa-") as home:
-        os.environ["BIRKIN_HOME"] = home
-        try:
-            with patch.object(approvals, "execute_action", execute_action):
-                queued = approvals.propose(
-                    category="shell",
-                    title="worker hook QA",
-                    description="prove approval gates action and continuation",
-                    payload={"command": "not executed by QA"},
-                    cfg={"auto_approve": []},
-                    origin="odyssey",
-                    continuation={
-                        "schema": 1,
-                        "handler": "worker.resume.v1",
-                        "worker": "odyssey",
-                        "context": {"checkpoint": "qa"},
-                    },
-                )
-                before = store.get_pending(queued["id"])
-                if args.decision == "approve":
-                    result = approvals.approve(queued["id"], on_event=on_event)
-                else:
-                    result = approvals.reject(queued["id"], reason="qa rejection")
-                final = store.get_pending(queued["id"])
-        finally:
-            if previous_home is None:
-                os.environ.pop("BIRKIN_HOME", None)
-            else:
-                os.environ["BIRKIN_HOME"] = previous_home
-        summary = {
-            "status": final.get("status") if final else "missing",
-            "action_runs": counts["action_runs"],
-            "resume_runs": counts["resume_runs"],
-            "pending_before": bool(before and before.get("status") == "pending"),
-            "ok": bool(result.get("ok")),
-        }
-    summary["cleaned"] = not Path(home).exists()
-    print(json.dumps(summary, sort_keys=True))
-    return 0 if summary["ok"] and summary["cleaned"] else 1
+    try:
+        if args.lineage_action == "list":
+            print(json.dumps(lineage.list_snapshots(), ensure_ascii=False))
+        elif args.lineage_action == "recover":
+            print(json.dumps(lineage.recover(args.snapshot_id), ensure_ascii=False))
+        elif args.lineage_action == "prune":
+            print(json.dumps(lineage.prune(keep=args.keep)))
+        elif args.lineage_action == "export":
+            path = lineage.export_snapshot(
+                args.snapshot_id,
+                Path(args.destination),
+            )
+            print(path)
+        else:
+            raise ValueError("unknown lineage action")
+    except (OSError, ValueError) as exc:
+        print(f"lineage: {exc}", file=sys.stderr)
+        return 1
+    return 0
 
 
 def _cmd_compare(args: argparse.Namespace) -> int:
@@ -621,21 +594,6 @@ def _cmd_voice(args: argparse.Namespace) -> int:
     return run_once(args)
 
 
-# Tools grouped by "toolset" for the Available Tools panel.
-_TOOL_GROUPS = [
-    "files",
-    "shell",
-    "web",
-    "vision",
-    "desktop",
-    "sessions",
-    "skills",
-    "memory",
-    "egress",
-    "companion",
-    "subagent",
-]
-
 def _cmd_curate(args: argparse.Namespace) -> int:
     """Skill lifecycle pass: report stale, archive long-unused user skills."""
     from . import config, curator
@@ -669,7 +627,7 @@ def _cmd_tools(args: argparse.Namespace) -> int:
     from .llm import LLMClient
     from .memory import VaultMemory
     from .skills import build_manager
-    from .tools import ToolContext, build_registry
+    from .tools import ToolContext, build_tool_groups
     from .ui import BIRKIN_ART, CYAN, DIM, RED, RESET
 
     cfg = config.load_config()
@@ -690,17 +648,18 @@ def _cmd_tools(args: argparse.Namespace) -> int:
     ctx = ToolContext(cfg=base, client=client, cwd=Path.cwd(),
                       skills=skills, memory=memory)
 
-    # group -> [tool names], skipping empty groups
+    groups = build_tool_groups(ctx)
     rows: list[str] = []
     total = enabled = 0
-    for group in _TOOL_GROUPS:
-        names = build_registry(ctx, include={group}).names()
+    for group, tools in groups.items():
+        names = [tool.name for tool in tools]
         if not names:
+            rows.append(f"{CYAN}{group}{RESET}: (none)")
             continue
         marks = []
         for n in names:
             total += 1
-            if n in disabled:
+            if group in disabled or n in disabled:
                 marks.append(f"{RED}{n}{RESET}")
             else:
                 enabled += 1
@@ -910,15 +869,23 @@ def _cmd_sessions(args: argparse.Namespace) -> int:
         print("\nExport one with `birkin sessions export <name> [--vault]`.")
         return 0
 
+    export_all = bool(
+        getattr(args, "all", False)
+        or getattr(args, "legacy_all", False)
+    )
+    to_vault = bool(
+        getattr(args, "vault", False)
+        or getattr(args, "legacy_vault", False)
+    )
     stems = ([f.stem for f in sessions_export.list_sessions()]
-             if args.all else [s for s in (args.name or []) if s != "--"])
+             if export_all else [s for s in (args.name or []) if s != "--"])
     if not stems:
         print('Which session? `birkin sessions export <name>` or --all.')
         return 1
     written, failed = [], []
     for stem in stems:
         try:
-            written.append(sessions_export.export(stem, to_vault=args.vault))
+            written.append(sessions_export.export(stem, to_vault=to_vault))
         except (FileNotFoundError, ValueError, OSError) as exc:
             failed.append(f"{stem}: {exc}")
     for path in written:
@@ -1453,16 +1420,15 @@ def build_parser() -> argparse.ArgumentParser:
     mp.add_argument("name", nargs="?", help="set this model directly (skips the picker)")
     mp.set_defaults(func=_cmd_model)
 
-    # `morpheus` is the canonical name (the routine is named Morpheus —
-    # Greek god of dreams — because it runs daily while you sleep).
-    # `nightly` stays as a hidden alias so muscle memory still works.
-    for canonical_name, alias_help in (
-            ("morpheus", "run the self-improvement routine now (Morpheus)"),
-            ("nightly", argparse.SUPPRESS)):   # hidden alias
-        npar = sub.add_parser(canonical_name, help=alias_help)
-        npar.add_argument("--dry-run", action="store_true",
-                          help="analyze but propose nothing for execution")
-        npar.set_defaults(func=_cmd_morpheus)
+    # `nightly` remains an argv-level compatibility alias so argparse does not
+    # leak the supposedly hidden command as ``==SUPPRESS==`` in top-level help.
+    npar = sub.add_parser(
+        "morpheus",
+        help="run the self-improvement routine now (Morpheus)",
+    )
+    npar.add_argument("--dry-run", action="store_true",
+                      help="analyze but propose nothing for execution")
+    npar.set_defaults(func=_cmd_morpheus)
 
     dp = sub.add_parser("daemon", help="run the morpheus + cron scheduler")
     dp.add_argument("--install", action="store_true",
@@ -1484,6 +1450,22 @@ def build_parser() -> argparse.ArgumentParser:
     )
     whq.add_argument("--decision", required=True, choices=["approve", "reject"])
     whq.set_defaults(func=_cmd_worker_hook_qa)
+
+    lp = sub.add_parser(
+        "lineage",
+        help="list, recover, prune, or export trusted compaction snapshots",
+    )
+    lps = lp.add_subparsers(dest="lineage_action", required=True)
+    lps.add_parser("list", help="list trusted snapshots")
+    recoverp = lps.add_parser("recover", help="print one snapshot's messages")
+    recoverp.add_argument("snapshot_id")
+    prunep = lps.add_parser("prune", help="keep only the newest snapshots")
+    prunep.add_argument("--keep", type=int, required=True)
+    exportp = lps.add_parser("export", help="export one trusted snapshot")
+    exportp.add_argument("snapshot_id")
+    exportp.add_argument("destination")
+    for lineage_parser in lps.choices.values():
+        lineage_parser.set_defaults(func=_cmd_lineage)
 
     hp = sub.add_parser(
         "harness",
@@ -1679,15 +1661,45 @@ def build_parser() -> argparse.ArgumentParser:
     ses = sub.add_parser(
         "sessions",
         help="list saved conversations, or export one as Markdown you own")
-    ses.add_argument("action", nargs="?", default="",
-                     help="'export' to write Markdown (omit to list)")
-    ses.add_argument("name", nargs=argparse.REMAINDER,
-                     help="session name(s) to export")
-    ses.add_argument("--all", action="store_true",
-                     help="export every saved session")
-    ses.add_argument("--vault", action="store_true",
-                     help="file the export in the vault's journal zone")
-    ses.set_defaults(func=_cmd_sessions)
+    ses.add_argument(
+        "--all",
+        dest="legacy_all",
+        action="store_true",
+        help=argparse.SUPPRESS,
+    )
+    ses.add_argument(
+        "--vault",
+        dest="legacy_vault",
+        action="store_true",
+        help=argparse.SUPPRESS,
+    )
+    sess = ses.add_subparsers(dest="action")
+    export_session = sess.add_parser(
+        "export",
+        help="export saved sessions as Markdown",
+    )
+    export_session.add_argument(
+        "name",
+        nargs="*",
+        help="session name(s) to export",
+    )
+    export_session.add_argument(
+        "--all",
+        action="store_true",
+        help="export every saved session",
+    )
+    export_session.add_argument(
+        "--vault",
+        action="store_true",
+        help="file the export in the vault's journal zone",
+    )
+    ses.set_defaults(
+        func=_cmd_sessions,
+        name=[],
+        all=False,
+        vault=False,
+    )
+    export_session.set_defaults(func=_cmd_sessions)
 
     ody = sub.add_parser(
         "odyssey",
@@ -1728,7 +1740,10 @@ def _force_utf8_output() -> None:
 def main(argv: list[str] | None = None) -> int:
     _force_utf8_output()
     parser = build_parser()
-    args = parser.parse_args(argv if argv is not None else sys.argv[1:])
+    command_line = list(argv if argv is not None else sys.argv[1:])
+    if command_line and command_line[0] == "nightly":
+        command_line[0] = "morpheus"
+    args = parser.parse_args(command_line)
     if not getattr(args, "command", None):
         return _cmd_chat(args)
     return args.func(args)
