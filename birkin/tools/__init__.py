@@ -153,7 +153,7 @@ def build_registry(
     ``vision``, ``desktop``, ``browser``, ``egress``, ``companion``, ``subagent``.
     """
     from .. import browser
-    from . import (citations, computer_use, desktop, egress, files, market,
+    from . import (citations, computer_use, desktop, documents, egress, files, market,
                    sessions, shell, vision, web)  # local: avoid cycles
     from .subagent_tool import subagent_tools
 
@@ -165,6 +165,7 @@ def build_registry(
         "vision": vision.tools(),
         "browser": browser.tools(),
         "egress": egress.tools(),
+        "documents": documents.tools(),
     }
     from ..plugin_runtime import load_agent_tools, registry_roots
     plugin_project, plugin_team = registry_roots(ctx.cwd)

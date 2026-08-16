@@ -33,3 +33,10 @@ def test_tests_workflow_covers_supported_operating_systems() -> None:
     assert "Windows CLI invalid input" in workflow
     assert "Windows security scan" in workflow
     assert 'python: "3.10"' in workflow
+
+
+def test_optional_workflow_is_separate_and_utf8() -> None:
+    workflow = (WORKFLOW.parent / "optional-tests.yml").read_text(encoding="utf-8")
+    assert "PYTHONUTF8" in workflow
+    assert "office-advanced" in workflow
+    assert "office-docling" not in workflow

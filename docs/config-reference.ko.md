@@ -72,6 +72,13 @@ Schema version: 1
 | `gateway_clean_hooks` | `boolean` | `true` | Birkin 설정 `gateway_clean_hooks`. |
 | `gateway_thinking_tokens` | `integer` | `0` | Birkin 설정 `gateway_thinking_tokens`. |
 | `gateway_prewarm` | `boolean` | `true` | Birkin 설정 `gateway_prewarm`. |
+| `office` | `object` | `{"handoc": {"node_path": "", "node_version": "22.14.0", "module_root": "", "package_manifest_sha256": "", "timeout_seconds": 30}}` | Birkin 설정 `office`. |
+| `office.handoc` | `object` | `{"node_path": "", "node_version": "22.14.0", "module_root": "", "package_manifest_sha256": "", "timeout_seconds": 30}` | Birkin 설정 `office.handoc`. |
+| `office.handoc.node_path` | `string` | `""` | Birkin 설정 `office.handoc.node_path`. |
+| `office.handoc.node_version` | `string` | `"22.14.0"` | Birkin 설정 `office.handoc.node_version`. |
+| `office.handoc.module_root` | `string` | `""` | Birkin 설정 `office.handoc.module_root`. |
+| `office.handoc.package_manifest_sha256` | `string` | `""` | Birkin 설정 `office.handoc.package_manifest_sha256`. |
+| `office.handoc.timeout_seconds` | `integer` | `30` | Birkin 설정 `office.handoc.timeout_seconds`. |
 | `voice` | `object` | `{"wake_phrase": "Daddy is home", "gateway_url": "", "session_id": "voice-local", "sample_rate": 24000, "stt_model": "gpt-transcribe", "tts_model": "gpt-4o-mini-tts", "tts_voice": "coral", "tts_instructions": "Speak concisely and clearly.", "conversation_style": "", "onboarding_complete": false, "background_workers": 2}` | Birkin 설정 `voice`. |
 | `voice.wake_phrase` | `string` | `"Daddy is home"` | Birkin 설정 `voice.wake_phrase`. |
 | `voice.gateway_url` | `string` | `""` | Birkin 설정 `voice.gateway_url`. |

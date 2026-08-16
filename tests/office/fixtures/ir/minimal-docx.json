@@ -1,0 +1,181 @@
+{
+  "schema_version": "1.0",
+  "document_id": "00000000-0000-4000-8000-000000000001",
+  "revision": {
+    "number": 1,
+    "parent_ir_sha256": null,
+    "ir_sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+    "created_at": "2026-01-01T00:00:00Z",
+    "created_by": "fixture"
+  },
+  "source": {
+    "artifact_id": "00000000-0000-4000-8000-000000000001",
+    "uri": "fixture.docx",
+    "display_name": "fixture.docx",
+    "format": "docx",
+    "mime_type": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+    "byte_length": 0,
+    "sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+    "imported_at": "2026-01-01T00:00:00Z",
+    "adapter": {
+      "name": "fixture",
+      "version": "1",
+      "options_sha256": "0000000000000000000000000000000000000000000000000000000000000000"
+    },
+    "immutable_blob_ref": "cas:0000000000000000000000000000000000000000000000000000000000000000",
+    "sensitivity": "internal",
+    "acl": {
+      "allow": [],
+      "deny": [],
+      "source_permission_version": "1",
+      "fingerprint": "0000000000000000000000000000000000000000000000000000000000000000"
+    }
+  },
+  "package": {
+    "kind": "ooxml",
+    "original_package_sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+    "current_package_sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+    "parts": [
+      {
+        "part_uri": "/word/document.xml",
+        "content_type": "application/xml",
+        "original_sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+        "current_sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+        "byte_length": 0,
+        "mode": "parsed",
+        "preservation": "original_verbatim",
+        "relationship_ids": [],
+        "original_bytes_ref": "cas:0000000000000000000000000000000000000000000000000000000000000000",
+        "current_bytes_ref": "cas:0000000000000000000000000000000000000000000000000000000000000000",
+        "opaque_fragments": [],
+        "zip_entry": {
+          "index": 0,
+          "compression": 8,
+          "crc32": 0,
+          "timestamp": "1980-01-01T00:00:00Z"
+        }
+      }
+    ],
+    "relationships": [],
+    "unknown_parts_policy": "preserve_verbatim",
+    "unknown_subtrees_policy": "preserve_verbatim",
+    "macros": [],
+    "external_relationships": []
+  },
+  "coordinate_spaces": [],
+  "containers": [],
+  "nodes": [
+    {
+      "id": "00000000-0000-4000-8000-000000000002",
+      "kind": "paragraph",
+      "parent_id": null,
+      "order": 0,
+      "native_id": "p1",
+      "source_locator": {
+        "format": "docx",
+        "part_uri": "/word/document.xml",
+        "story": "body",
+        "section_id": null,
+        "paragraph_native_id": "p1"
+      },
+      "semantic_role": "body",
+      "content": {
+        "text_original": "Hello",
+        "text_normalized": "Hello",
+        "language": "en",
+        "semantic_value": null,
+        "table": null,
+        "asset_id": null,
+        "formula_id": null,
+        "field": null
+      },
+      "style": {
+        "direct": {},
+        "inherited_refs": [],
+        "effective": {},
+        "theme_refs": [],
+        "korean_typography": {}
+      },
+      "layout": {
+        "coordinate_space_id": null,
+        "bbox": null,
+        "anchor": null,
+        "wrap": null,
+        "rotation": null,
+        "z_order": null,
+        "page_break": null,
+        "overflow_policy": "unknown"
+      },
+      "provenance": [
+        {
+          "source_sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+          "source_locator": {
+            "format": "docx",
+            "part_uri": "/word/document.xml",
+            "story": "body",
+            "section_id": null,
+            "paragraph_native_id": "p1"
+          },
+          "source_char_range": {
+            "start": 0,
+            "end": 5
+          },
+          "rendered_locator": null,
+          "method": "native_xml",
+          "extractor": {
+            "name": "fixture",
+            "version": "1",
+            "model": null,
+            "options_sha256": "0000000000000000000000000000000000000000000000000000000000000000"
+          },
+          "confidence": 1,
+          "evidence_asset_ref": null,
+          "transformations": []
+        }
+      ],
+      "permissions": {
+        "editable": true,
+        "locked": false,
+        "reason": null,
+        "principals": []
+      },
+      "sensitivity": {
+        "classification": "internal",
+        "label_id": null,
+        "name": null,
+        "marking": null,
+        "source": "document"
+      },
+      "opaque_fragments": [],
+      "revision": {
+        "number": 1,
+        "content_sha256": "0000000000000000000000000000000000000000000000000000000000000000"
+      }
+    }
+  ],
+  "assets": [],
+  "formulas": [],
+  "permissions": {
+    "encrypted": false,
+    "document_protection": null,
+    "editable_ranges": [],
+    "locks": [],
+    "signatures": []
+  },
+  "sensitivity": {
+    "classification": "internal",
+    "labels": [],
+    "pii_findings": [],
+    "retention": null
+  },
+  "history": {
+    "base_sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+    "native_revisions": [],
+    "patches": []
+  },
+  "diagnostics": {
+    "parse_warnings": [],
+    "unsupported_features": [],
+    "preservation_findings": []
+  }
+}

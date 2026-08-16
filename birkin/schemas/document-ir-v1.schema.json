@@ -1,0 +1,843 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://birkin.dev/schemas/document-ir-v1.schema.json",
+  "title": "Birkin DocumentIR v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "document_id",
+    "revision",
+    "source",
+    "package",
+    "coordinate_spaces",
+    "containers",
+    "nodes",
+    "assets",
+    "formulas",
+    "permissions",
+    "sensitivity",
+    "history",
+    "diagnostics"
+  ],
+  "properties": {
+    "schema_version": {"const": "1.0"},
+    "document_id": {"$ref": "#/$defs/uuid"},
+    "revision": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["number", "parent_ir_sha256", "ir_sha256", "created_at", "created_by"],
+      "properties": {
+        "number": {"type": "integer", "minimum": 1},
+        "parent_ir_sha256": {"oneOf": [{"$ref": "#/$defs/hash"}, {"type": "null"}]},
+        "ir_sha256": {"$ref": "#/$defs/hash"},
+        "created_at": {"type": "string", "format": "date-time"},
+        "created_by": {"type": "string", "minLength": 1, "maxLength": 256}
+      }
+    },
+    "source": {"$ref": "#/$defs/source"},
+    "package": {
+      "oneOf": [
+        {"$ref": "#/$defs/package"},
+        {"type": "null"}
+      ]
+    },
+    "coordinate_spaces": {
+      "type": "array",
+      "items": {"$ref": "#/$defs/coordinateSpace"}
+    },
+    "containers": {
+      "type": "array",
+      "items": {"$ref": "#/$defs/container"}
+    },
+    "nodes": {
+      "type": "array",
+      "items": {"$ref": "#/$defs/node"}
+    },
+    "assets": {
+      "type": "array",
+      "items": {"$ref": "#/$defs/asset"}
+    },
+    "formulas": {
+      "type": "array",
+      "items": {"$ref": "#/$defs/formula"}
+    },
+    "permissions": {"$ref": "#/$defs/documentPermissions"},
+    "sensitivity": {"$ref": "#/$defs/documentSensitivity"},
+    "history": {"$ref": "#/$defs/history"},
+    "diagnostics": {"$ref": "#/$defs/diagnostics"}
+  },
+  "$defs": {
+    "hash": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "uuid": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "byteRange": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["start", "end"],
+      "properties": {
+        "start": {"type": "integer", "minimum": 0},
+        "end": {"type": "integer", "minimum": 0}
+      }
+    },
+    "charRange": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["start", "end"],
+      "properties": {
+        "start": {"type": "integer", "minimum": 0},
+        "end": {"type": "integer", "minimum": 0}
+      }
+    },
+    "bbox": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["x", "y", "width", "height"],
+      "properties": {
+        "x": {"type": "number"},
+        "y": {"type": "number"},
+        "width": {"type": "number", "minimum": 0},
+        "height": {"type": "number", "minimum": 0}
+      }
+    },
+    "principal": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["type", "id"],
+      "properties": {
+        "type": {"enum": ["user", "group", "service"]},
+        "id": {"type": "string", "minLength": 1, "maxLength": 256},
+        "display_name": {"type": "string", "maxLength": 256}
+      }
+    },
+    "acl": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["allow", "deny", "source_permission_version", "fingerprint"],
+      "properties": {
+        "allow": {"type": "array", "items": {"$ref": "#/$defs/principal"}},
+        "deny": {"type": "array", "items": {"$ref": "#/$defs/principal"}},
+        "source_permission_version": {"type": "string", "minLength": 1},
+        "fingerprint": {"$ref": "#/$defs/hash"}
+      }
+    },
+    "adapter": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "version", "options_sha256"],
+      "properties": {
+        "name": {"type": "string", "minLength": 1, "maxLength": 128},
+        "version": {"type": "string", "minLength": 1, "maxLength": 64},
+        "options_sha256": {"$ref": "#/$defs/hash"}
+      }
+    },
+    "source": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "artifact_id",
+        "uri",
+        "display_name",
+        "format",
+        "mime_type",
+        "byte_length",
+        "sha256",
+        "imported_at",
+        "adapter",
+        "immutable_blob_ref",
+        "sensitivity",
+        "acl"
+      ],
+      "properties": {
+        "artifact_id": {"$ref": "#/$defs/uuid"},
+        "uri": {"type": "string", "format": "uri-reference"},
+        "display_name": {"type": "string", "minLength": 1, "maxLength": 512},
+        "format": {"enum": ["docx", "xlsx", "pptx", "pdf", "hwpx"]},
+        "mime_type": {"type": "string", "minLength": 1, "maxLength": 256},
+        "byte_length": {"type": "integer", "minimum": 0},
+        "sha256": {"$ref": "#/$defs/hash"},
+        "imported_at": {"type": "string", "format": "date-time"},
+        "adapter": {"$ref": "#/$defs/adapter"},
+        "immutable_blob_ref": {"type": "string", "format": "uri-reference"},
+        "sensitivity": {"$ref": "#/$defs/classification"},
+        "acl": {"$ref": "#/$defs/acl"}
+      }
+    },
+    "relationship": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["source_part", "rel_id", "relationship_type", "target", "target_mode"],
+      "properties": {
+        "source_part": {"type": "string", "minLength": 1},
+        "rel_id": {"type": "string", "minLength": 1},
+        "relationship_type": {"type": "string", "minLength": 1},
+        "target": {"type": "string", "minLength": 1},
+        "target_mode": {"enum": ["internal", "external"]}
+      }
+    },
+    "opaqueFragment": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "fragment_id",
+        "part_uri",
+        "xpath_hint",
+        "byte_range",
+        "original_sha256",
+        "current_sha256",
+        "bytes_ref",
+        "preservation"
+      ],
+      "properties": {
+        "fragment_id": {"$ref": "#/$defs/uuid"},
+        "part_uri": {"type": "string", "minLength": 1},
+        "xpath_hint": {"type": ["string", "null"]},
+        "byte_range": {"$ref": "#/$defs/byteRange"},
+        "original_sha256": {"$ref": "#/$defs/hash"},
+        "current_sha256": {"$ref": "#/$defs/hash"},
+        "bytes_ref": {"type": "string", "format": "uri-reference"},
+        "preservation": {"const": "original_verbatim"}
+      }
+    },
+    "part": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "part_uri",
+        "content_type",
+        "original_sha256",
+        "current_sha256",
+        "byte_length",
+        "mode",
+        "preservation",
+        "relationship_ids",
+        "original_bytes_ref",
+        "current_bytes_ref",
+        "opaque_fragments",
+        "zip_entry"
+      ],
+      "properties": {
+        "part_uri": {"type": "string", "pattern": "^/[^.].*$"},
+        "content_type": {"type": "string", "minLength": 1},
+        "original_sha256": {"$ref": "#/$defs/hash"},
+        "current_sha256": {"$ref": "#/$defs/hash"},
+        "byte_length": {"type": "integer", "minimum": 0},
+        "mode": {"enum": ["parsed", "opaque"]},
+        "preservation": {"enum": ["original_verbatim", "surgically_patched", "generated"]},
+        "relationship_ids": {"type": "array", "items": {"type": "string"}, "uniqueItems": true},
+        "original_bytes_ref": {"type": "string", "format": "uri-reference"},
+        "current_bytes_ref": {"type": "string", "format": "uri-reference"},
+        "opaque_fragments": {"type": "array", "items": {"$ref": "#/$defs/opaqueFragment"}},
+        "zip_entry": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["index", "compression", "crc32", "timestamp"],
+          "properties": {
+            "index": {"type": "integer", "minimum": 0},
+            "compression": {"type": "integer", "minimum": 0},
+            "crc32": {"type": "integer", "minimum": 0},
+            "timestamp": {"type": "string"}
+          }
+        }
+      }
+    },
+    "package": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "kind",
+        "original_package_sha256",
+        "current_package_sha256",
+        "parts",
+        "relationships",
+        "unknown_parts_policy",
+        "unknown_subtrees_policy",
+        "macros",
+        "external_relationships"
+      ],
+      "properties": {
+        "kind": {"enum": ["ooxml", "opc-hwpx"]},
+        "original_package_sha256": {"$ref": "#/$defs/hash"},
+        "current_package_sha256": {"$ref": "#/$defs/hash"},
+        "parts": {"type": "array", "items": {"$ref": "#/$defs/part"}, "minItems": 1},
+        "relationships": {"type": "array", "items": {"$ref": "#/$defs/relationship"}},
+        "unknown_parts_policy": {"const": "preserve_verbatim"},
+        "unknown_subtrees_policy": {"const": "preserve_verbatim"},
+        "macros": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["part_uri", "sha256", "executable", "executed"],
+            "properties": {
+              "part_uri": {"type": "string"},
+              "sha256": {"$ref": "#/$defs/hash"},
+              "executable": {"const": true},
+              "executed": {"const": false}
+            }
+          }
+        },
+        "external_relationships": {"type": "array", "items": {"$ref": "#/$defs/relationship"}}
+      }
+    },
+    "coordinateSpace": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "kind", "unit", "origin", "width", "height"],
+      "properties": {
+        "id": {"$ref": "#/$defs/uuid"},
+        "kind": {"enum": ["page", "slide", "sheet", "section"]},
+        "unit": {"enum": ["pt", "emu", "hwpunit", "cell", "pdf_point"]},
+        "origin": {"enum": ["top_left", "bottom_left"]},
+        "width": {"type": ["number", "null"], "minimum": 0},
+        "height": {"type": ["number", "null"], "minimum": 0}
+      }
+    },
+    "docxLocator": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["format", "part_uri", "story", "section_id"],
+      "properties": {
+        "format": {"const": "docx"},
+        "part_uri": {"type": "string", "minLength": 1},
+        "story": {"enum": ["body", "header", "footer", "footnote", "endnote", "comment", "text_box"]},
+        "section_id": {"type": ["string", "null"]},
+        "paragraph_native_id": {"type": ["string", "null"]},
+        "paragraph_fingerprint": {"oneOf": [{"$ref": "#/$defs/hash"}, {"type": "null"}]},
+        "table_path": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["table_native_id", "row", "column"],
+            "properties": {
+              "table_native_id": {"type": ["string", "null"]},
+              "row": {"type": "integer", "minimum": 1},
+              "column": {"type": "integer", "minimum": 1}
+            }
+          }
+        },
+        "run_index": {"type": ["integer", "null"], "minimum": 1},
+        "char_range": {"oneOf": [{"$ref": "#/$defs/charRange"}, {"type": "null"}]},
+        "xpath_fallback": {"type": ["string", "null"]}
+      },
+      "anyOf": [
+        {
+          "properties": {"paragraph_native_id": {"type": "string", "minLength": 1}},
+          "required": ["paragraph_native_id"]
+        },
+        {
+          "properties": {"paragraph_fingerprint": {"$ref": "#/$defs/hash"}},
+          "required": ["paragraph_fingerprint"]
+        },
+        {
+          "properties": {"table_path": {"type": "array", "minItems": 1}},
+          "required": ["table_path"]
+        },
+        {
+          "properties": {"xpath_fallback": {"type": "string", "minLength": 1}},
+          "required": ["xpath_fallback"]
+        }
+      ]
+    },
+    "xlsxLocator": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["format", "workbook_id", "sheet_id", "sheet_name_at_import"],
+      "properties": {
+        "format": {"const": "xlsx"},
+        "workbook_id": {"type": "string", "minLength": 1},
+        "sheet_id": {"type": "string", "minLength": 1},
+        "sheet_name_at_import": {"type": "string", "minLength": 1},
+        "cell": {"type": ["string", "null"], "pattern": "^\\$?[A-Z]{1,3}\\$?[1-9][0-9]*$"},
+        "range": {"type": ["string", "null"], "pattern": "^\\$?[A-Z]{1,3}\\$?[1-9][0-9]*:\\$?[A-Z]{1,3}\\$?[1-9][0-9]*$"},
+        "table_name": {"type": ["string", "null"]},
+        "chart_rel_id": {"type": ["string", "null"]},
+        "defined_name": {"type": ["string", "null"]}
+      },
+      "anyOf": [
+        {
+          "properties": {"cell": {"type": "string", "pattern": "^\\$?[A-Z]{1,3}\\$?[1-9][0-9]*$"}},
+          "required": ["cell"]
+        },
+        {
+          "properties": {"range": {"type": "string", "pattern": "^\\$?[A-Z]{1,3}\\$?[1-9][0-9]*:\\$?[A-Z]{1,3}\\$?[1-9][0-9]*$"}},
+          "required": ["range"]
+        },
+        {
+          "properties": {"table_name": {"type": "string", "minLength": 1}},
+          "required": ["table_name"]
+        },
+        {
+          "properties": {"chart_rel_id": {"type": "string", "minLength": 1}},
+          "required": ["chart_rel_id"]
+        },
+        {
+          "properties": {"defined_name": {"type": "string", "minLength": 1}},
+          "required": ["defined_name"]
+        }
+      ]
+    },
+    "pptxLocator": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["format", "part_uri", "slide_id", "slide_index_at_import"],
+      "properties": {
+        "format": {"const": "pptx"},
+        "part_uri": {"type": "string", "minLength": 1},
+        "slide_id": {"type": "string", "minLength": 1},
+        "slide_index_at_import": {"type": "integer", "minimum": 1},
+        "shape_id": {"type": ["string", "null"]},
+        "group_path": {"type": "array", "items": {"type": "string"}},
+        "placeholder_idx": {"type": ["integer", "null"], "minimum": 0},
+        "paragraph_index": {"type": ["integer", "null"], "minimum": 1},
+        "run_index": {"type": ["integer", "null"], "minimum": 1},
+        "notes": {"type": "boolean", "default": false}
+      },
+      "anyOf": [
+        {
+          "properties": {"shape_id": {"type": "string", "minLength": 1}},
+          "required": ["shape_id"]
+        },
+        {
+          "properties": {"placeholder_idx": {"type": "integer", "minimum": 0}},
+          "required": ["placeholder_idx"]
+        },
+        {"properties": {"notes": {"const": true}}, "required": ["notes"]}
+      ]
+    },
+    "pdfLocator": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["format", "page_no", "coordinate_space_id"],
+      "properties": {
+        "format": {"const": "pdf"},
+        "page_no": {"type": "integer", "minimum": 1},
+        "coordinate_space_id": {"$ref": "#/$defs/uuid"},
+        "object_ref": {"type": ["string", "null"]},
+        "char_range": {"oneOf": [{"$ref": "#/$defs/charRange"}, {"type": "null"}]},
+        "bbox": {"oneOf": [{"$ref": "#/$defs/bbox"}, {"type": "null"}]}
+      }
+    },
+    "hwpxLocator": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["format", "part_uri", "section_index"],
+      "properties": {
+        "format": {"const": "hwpx"},
+        "part_uri": {"type": "string", "pattern": "^/Contents/section[0-9]+\\.xml$"},
+        "section_index": {"type": "integer", "minimum": 0},
+        "paragraph_id": {"type": ["string", "null"]},
+        "run_index": {"type": ["integer", "null"], "minimum": 1},
+        "table_cell_address": {"type": ["string", "null"]},
+        "control_id": {"type": ["string", "null"]},
+        "xpath_fallback": {"type": ["string", "null"]}
+      },
+      "anyOf": [
+        {
+          "properties": {"paragraph_id": {"type": "string", "minLength": 1}},
+          "required": ["paragraph_id"]
+        },
+        {
+          "properties": {"table_cell_address": {"type": "string", "minLength": 1}},
+          "required": ["table_cell_address"]
+        },
+        {
+          "properties": {"control_id": {"type": "string", "minLength": 1}},
+          "required": ["control_id"]
+        },
+        {
+          "properties": {"xpath_fallback": {"type": "string", "minLength": 1}},
+          "required": ["xpath_fallback"]
+        }
+      ]
+    },
+    "sourceLocator": {
+      "oneOf": [
+        {"$ref": "#/$defs/docxLocator"},
+        {"$ref": "#/$defs/xlsxLocator"},
+        {"$ref": "#/$defs/pptxLocator"},
+        {"$ref": "#/$defs/pdfLocator"},
+        {"$ref": "#/$defs/hwpxLocator"}
+      ]
+    },
+    "renderedLocator": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "index", "coordinate_space_id", "bbox", "render_artifact_sha256"],
+      "properties": {
+        "kind": {"enum": ["page", "slide", "sheet"]},
+        "index": {"type": "integer", "minimum": 1},
+        "coordinate_space_id": {"$ref": "#/$defs/uuid"},
+        "bbox": {"$ref": "#/$defs/bbox"},
+        "render_artifact_sha256": {"$ref": "#/$defs/hash"}
+      }
+    },
+    "container": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "kind", "native_id", "source_locator", "order", "visibility", "dimensions"],
+      "properties": {
+        "id": {"$ref": "#/$defs/uuid"},
+        "kind": {"enum": ["section", "page", "slide", "sheet", "header", "footer", "notes", "master", "layout"]},
+        "native_id": {"type": ["string", "null"]},
+        "source_locator": {"$ref": "#/$defs/sourceLocator"},
+        "order": {"type": "integer", "minimum": 0},
+        "visibility": {"enum": ["visible", "hidden", "very_hidden"]},
+        "dimensions": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "coordinate_space_id": {"oneOf": [{"$ref": "#/$defs/uuid"}, {"type": "null"}]},
+            "width": {"type": ["number", "null"]},
+            "height": {"type": ["number", "null"]},
+            "margins": {"type": ["object", "null"], "additionalProperties": {"type": "number"}}
+          }
+        }
+      }
+    },
+    "spanProvenance": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "source_sha256",
+        "source_locator",
+        "source_char_range",
+        "rendered_locator",
+        "method",
+        "extractor",
+        "confidence",
+        "evidence_asset_ref",
+        "transformations"
+      ],
+      "properties": {
+        "source_sha256": {"$ref": "#/$defs/hash"},
+        "source_locator": {"$ref": "#/$defs/sourceLocator"},
+        "source_char_range": {"oneOf": [{"$ref": "#/$defs/charRange"}, {"type": "null"}]},
+        "rendered_locator": {"oneOf": [{"$ref": "#/$defs/renderedLocator"}, {"type": "null"}]},
+        "method": {"enum": ["native_xml", "pdf_text_operator", "ocr", "vlm", "derived_formula", "user_patch"]},
+        "extractor": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["name", "version", "model", "options_sha256"],
+          "properties": {
+            "name": {"type": "string", "minLength": 1},
+            "version": {"type": "string", "minLength": 1},
+            "model": {"type": ["string", "null"]},
+            "options_sha256": {"$ref": "#/$defs/hash"}
+          }
+        },
+        "confidence": {"type": ["number", "null"], "minimum": 0, "maximum": 1},
+        "evidence_asset_ref": {"type": ["string", "null"], "format": "uri-reference"},
+        "transformations": {
+          "type": "array",
+          "items": {"enum": ["unicode_normalize", "whitespace_join", "dehyphenate", "table_reconstruction", "ocr_correction", "formula_evaluation"]}
+        }
+      }
+    },
+    "style": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["direct", "inherited_refs", "effective", "theme_refs", "korean_typography"],
+      "properties": {
+        "direct": {"type": "object", "additionalProperties": true},
+        "inherited_refs": {"type": "array", "items": {"type": "string"}},
+        "effective": {"type": "object", "additionalProperties": true},
+        "theme_refs": {"type": "array", "items": {"type": "string"}},
+        "korean_typography": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "hangul_font_ref": {"type": ["string", "null"]},
+            "latin_font_ref": {"type": ["string", "null"]},
+            "hanja_font_ref": {"type": ["string", "null"]},
+            "ratio_percent": {"type": ["number", "null"]},
+            "spacing_percent": {"type": ["number", "null"]},
+            "baseline_offset": {"type": ["number", "null"]},
+            "line_spacing": {"type": ["number", "null"]}
+          }
+        }
+      }
+    },
+    "layout": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["coordinate_space_id", "bbox", "anchor", "wrap", "rotation", "z_order", "page_break", "overflow_policy"],
+      "properties": {
+        "coordinate_space_id": {"oneOf": [{"$ref": "#/$defs/uuid"}, {"type": "null"}]},
+        "bbox": {"oneOf": [{"$ref": "#/$defs/bbox"}, {"type": "null"}]},
+        "anchor": {"type": ["object", "null"], "additionalProperties": true},
+        "wrap": {"type": ["string", "null"]},
+        "rotation": {"type": ["number", "null"]},
+        "z_order": {"type": ["integer", "null"]},
+        "page_break": {"type": ["boolean", "null"]},
+        "overflow_policy": {"enum": ["clip", "shrink", "wrap", "paginate", "unknown"]}
+      }
+    },
+    "nodePermissions": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["editable", "locked", "reason", "principals"],
+      "properties": {
+        "editable": {"type": "boolean"},
+        "locked": {"type": "boolean"},
+        "reason": {"type": ["string", "null"]},
+        "principals": {"type": "array", "items": {"$ref": "#/$defs/principal"}}
+      }
+    },
+    "nodeSensitivity": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["classification", "label_id", "name", "marking", "source"],
+      "properties": {
+        "classification": {"$ref": "#/$defs/classification"},
+        "label_id": {"type": ["string", "null"]},
+        "name": {"type": ["string", "null"]},
+        "marking": {"type": ["string", "null"]},
+        "source": {"enum": ["document", "inherited", "detector", "user"]}
+      }
+    },
+    "tableData": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["row", "column", "row_span", "column_span", "header_role", "fillable", "child_node_ids"],
+      "properties": {
+        "row": {"type": "integer", "minimum": 1},
+        "column": {"type": "integer", "minimum": 1},
+        "row_span": {"type": "integer", "minimum": 1},
+        "column_span": {"type": "integer", "minimum": 1},
+        "header_role": {"enum": ["none", "row", "column", "section"]},
+        "fillable": {"type": "boolean"},
+        "child_node_ids": {"type": "array", "items": {"$ref": "#/$defs/uuid"}}
+      }
+    },
+    "fieldData": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["field_type", "instruction", "result", "placeholder", "current_value", "constraints"],
+      "properties": {
+        "field_type": {"type": "string", "minLength": 1},
+        "instruction": {"type": ["string", "null"]},
+        "result": {"type": ["string", "null"]},
+        "placeholder": {"type": ["string", "null"]},
+        "current_value": {},
+        "constraints": {"type": "object", "additionalProperties": true}
+      }
+    },
+    "nodeContent": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["text_original", "text_normalized", "language", "semantic_value", "table", "asset_id", "formula_id", "field"],
+      "properties": {
+        "text_original": {"type": ["string", "null"]},
+        "text_normalized": {"type": ["string", "null"]},
+        "language": {"type": ["string", "null"]},
+        "semantic_value": {},
+        "table": {"oneOf": [{"$ref": "#/$defs/tableData"}, {"type": "null"}]},
+        "asset_id": {"oneOf": [{"$ref": "#/$defs/uuid"}, {"type": "null"}]},
+        "formula_id": {"oneOf": [{"$ref": "#/$defs/uuid"}, {"type": "null"}]},
+        "field": {"oneOf": [{"$ref": "#/$defs/fieldData"}, {"type": "null"}]}
+      }
+    },
+    "node": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "kind",
+        "parent_id",
+        "order",
+        "native_id",
+        "source_locator",
+        "semantic_role",
+        "content",
+        "style",
+        "layout",
+        "provenance",
+        "permissions",
+        "sensitivity",
+        "opaque_fragments",
+        "revision"
+      ],
+      "properties": {
+        "id": {"$ref": "#/$defs/uuid"},
+        "kind": {"enum": ["paragraph", "run", "table", "row", "cell", "image", "shape", "chart", "formula", "field", "form_field", "group", "comment", "footnote", "endnote", "unknown"]},
+        "parent_id": {"oneOf": [{"$ref": "#/$defs/uuid"}, {"type": "null"}]},
+        "order": {"type": "integer", "minimum": 0},
+        "native_id": {"type": ["string", "null"]},
+        "source_locator": {"$ref": "#/$defs/sourceLocator"},
+        "semantic_role": {"enum": ["title", "heading", "body", "header", "footer", "label", "value", "caption", "note", "background", "unknown"]},
+        "content": {"$ref": "#/$defs/nodeContent"},
+        "style": {"$ref": "#/$defs/style"},
+        "layout": {"$ref": "#/$defs/layout"},
+        "provenance": {"type": "array", "items": {"$ref": "#/$defs/spanProvenance"}, "minItems": 1},
+        "permissions": {"$ref": "#/$defs/nodePermissions"},
+        "sensitivity": {"$ref": "#/$defs/nodeSensitivity"},
+        "opaque_fragments": {"type": "array", "items": {"$ref": "#/$defs/opaqueFragment"}},
+        "revision": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["number", "content_sha256"],
+          "properties": {
+            "number": {"type": "integer", "minimum": 1},
+            "content_sha256": {"$ref": "#/$defs/hash"}
+          }
+        }
+      }
+    },
+    "asset": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "media_type", "sha256", "bytes_ref", "filename", "alt_text", "dimensions", "crop", "relationship_refs"],
+      "properties": {
+        "id": {"$ref": "#/$defs/uuid"},
+        "media_type": {"type": "string", "minLength": 1},
+        "sha256": {"$ref": "#/$defs/hash"},
+        "bytes_ref": {"type": "string", "format": "uri-reference"},
+        "filename": {"type": ["string", "null"]},
+        "alt_text": {"type": ["string", "null"]},
+        "dimensions": {"type": ["object", "null"], "additionalProperties": {"type": "number"}},
+        "crop": {"type": ["object", "null"], "additionalProperties": {"type": "number"}},
+        "relationship_refs": {"type": "array", "items": {"type": "string"}}
+      }
+    },
+    "formula": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "node_id", "dialect", "raw", "ast", "cached_value", "calc_state", "dependencies", "volatile", "array_or_spill_range"],
+      "properties": {
+        "id": {"$ref": "#/$defs/uuid"},
+        "node_id": {"$ref": "#/$defs/uuid"},
+        "dialect": {"enum": ["excel-a1", "excel-r1c1", "word-field", "hwp-field", "other"]},
+        "raw": {"type": "string"},
+        "ast": {"type": ["object", "null"], "additionalProperties": true},
+        "cached_value": {},
+        "calc_state": {"enum": ["fresh", "stale", "missing", "unknown"]},
+        "dependencies": {"type": "array", "items": {"$ref": "#/$defs/sourceLocator"}},
+        "volatile": {"type": "boolean"},
+        "array_or_spill_range": {"type": ["string", "null"]}
+      }
+    },
+    "documentPermissions": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["encrypted", "document_protection", "editable_ranges", "locks", "signatures"],
+      "properties": {
+        "encrypted": {"type": "boolean"},
+        "document_protection": {"type": ["object", "null"], "additionalProperties": true},
+        "editable_ranges": {"type": "array", "items": {"$ref": "#/$defs/sourceLocator"}},
+        "locks": {"type": "array", "items": {"type": "object", "additionalProperties": true}},
+        "signatures": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["type", "status", "signer", "covered_parts"],
+            "properties": {
+              "type": {"type": "string"},
+              "status": {"enum": ["valid", "invalid", "unknown"]},
+              "signer": {"type": ["string", "null"]},
+              "covered_parts": {"type": "array", "items": {"type": "string"}}
+            }
+          }
+        }
+      }
+    },
+    "classification": {
+      "enum": ["public", "internal", "confidential", "restricted", "unknown"]
+    },
+    "documentSensitivity": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["classification", "labels", "pii_findings", "retention"],
+      "properties": {
+        "classification": {"$ref": "#/$defs/classification"},
+        "labels": {"type": "array", "items": {"type": "object", "additionalProperties": true}},
+        "pii_findings": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["class", "node_id", "char_range", "confidence", "detector"],
+            "properties": {
+              "class": {"type": "string"},
+              "node_id": {"$ref": "#/$defs/uuid"},
+              "char_range": {"$ref": "#/$defs/charRange"},
+              "confidence": {"type": "number", "minimum": 0, "maximum": 1},
+              "detector": {"type": "string"}
+            }
+          }
+        },
+        "retention": {"type": ["object", "null"], "additionalProperties": true}
+      }
+    },
+    "history": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["base_sha256", "native_revisions", "patches"],
+      "properties": {
+        "base_sha256": {"$ref": "#/$defs/hash"},
+        "native_revisions": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["native_revision_id", "type", "author", "timestamp", "affected_node_ids", "raw_ref"],
+            "properties": {
+              "native_revision_id": {"type": "string"},
+              "type": {"type": "string"},
+              "author": {"type": ["string", "null"]},
+              "timestamp": {"type": ["string", "null"], "format": "date-time"},
+              "affected_node_ids": {"type": "array", "items": {"$ref": "#/$defs/uuid"}},
+              "raw_ref": {"type": "string", "format": "uri-reference"}
+            }
+          }
+        },
+        "patches": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["patch_id", "actor", "timestamp", "preconditions_sha256", "operations_sha256", "result_sha256", "validation_run_id"],
+            "properties": {
+              "patch_id": {"$ref": "#/$defs/uuid"},
+              "actor": {"type": "string", "minLength": 1},
+              "timestamp": {"type": "string", "format": "date-time"},
+              "preconditions_sha256": {"$ref": "#/$defs/hash"},
+              "operations_sha256": {"$ref": "#/$defs/hash"},
+              "result_sha256": {"$ref": "#/$defs/hash"},
+              "validation_run_id": {"oneOf": [{"$ref": "#/$defs/uuid"}, {"type": "null"}]}
+            }
+          }
+        }
+      }
+    },
+    "diagnostic": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["code", "severity", "message", "source_locator", "details"],
+      "properties": {
+        "code": {"type": "string", "pattern": "^[A-Z][A-Z0-9_]+$"},
+        "severity": {"enum": ["info", "warning", "error"]},
+        "message": {"type": "string", "maxLength": 2000},
+        "source_locator": {"oneOf": [{"$ref": "#/$defs/sourceLocator"}, {"type": "null"}]},
+        "details": {"type": "object", "additionalProperties": true}
+      }
+    },
+    "diagnostics": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["parse_warnings", "unsupported_features", "preservation_findings"],
+      "properties": {
+        "parse_warnings": {"type": "array", "items": {"$ref": "#/$defs/diagnostic"}},
+        "unsupported_features": {"type": "array", "items": {"$ref": "#/$defs/diagnostic"}},
+        "preservation_findings": {"type": "array", "items": {"$ref": "#/$defs/diagnostic"}}
+      }
+    }
+  }
+}
