@@ -221,6 +221,7 @@ jobs:
       - run: >-
           sudo /usr/bin/python3 -m pip install
           --break-system-packages
+          --ignore-installed
           -e ".[desktop]"
       - run: >-
           gcc scripts/qa/linux/ComputerUseFixture.c

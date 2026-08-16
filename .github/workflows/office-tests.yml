@@ -80,6 +80,7 @@ jobs:
           import sys
           import textwrap
 
+          checkout = pathlib.Path(os.environ["GITHUB_WORKSPACE"]).resolve()
           wheel = next(pathlib.Path("dist").glob("*.whl")).resolve()
           wheel_requirement = f"birkin @ {wheel.as_uri()}"
           outside = pathlib.Path(os.environ["RUNNER_TEMP"]) / "office-wheel-outside"
