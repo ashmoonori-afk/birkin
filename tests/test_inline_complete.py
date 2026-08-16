@@ -108,7 +108,7 @@ def test_render_menu_lines_truncates_with_extra_marker():
     many = [ic.CommandHint(f"cmd{i}", "x") for i in range(20)]
     lines = ic.render_menu_lines(many, selected=0, max_show=5)
     assert len(lines) == 6   # 5 shown + 1 "+ N more"
-    assert "+15 more" in ic.visible_len.__call__.__doc__ or True  # smoke
+    assert "+15 more" in lines[-1]
     assert "+15" in "\n".join(lines)
 
 
@@ -175,6 +175,31 @@ def test_prompt_with_completion_returns_none_on_keyboardinterrupt_in_fallback(
         raise KeyboardInterrupt
     monkeypatch.setattr("builtins.input", boom)
     assert ic.prompt_with_completion("> ", cmds) is None
+
+
+def test_prompt_restores_raw_mode_when_stdout_write_fails(
+        monkeypatch, cmds):
+    restored: list[bool] = []
+
+    class BrokenStdout:
+        def write(self, _text):
+            raise BrokenPipeError("closed")
+
+        def flush(self):
+            return None
+
+    monkeypatch.setattr(ic, "_is_interactive", lambda: True)
+    monkeypatch.setattr(ic, "_VT_OK", True)
+    monkeypatch.setattr(
+        ic,
+        "_enter_posix_raw_mode",
+        lambda: lambda: restored.append(True),
+    )
+    monkeypatch.setattr(ic.sys, "stdout", BrokenStdout())
+
+    with pytest.raises(BrokenPipeError, match="closed"):
+        _ = ic.prompt_with_completion("> ", cmds)
+    assert restored == [True]
 
 
 # ---------------- state machine: typing + cursor ----------------------------

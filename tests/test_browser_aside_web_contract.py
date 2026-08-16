@@ -94,6 +94,17 @@ def test_browser_aside_exposes_semantic_status_and_frame_polling() -> None:
     assert "status.control_owner_kind" in source
 
 
+def test_browser_aside_preserves_navigation_denials_until_next_attempt() -> None:
+    source = _INDEX.read_text(encoding="utf-8")
+    start = source.index("async function navigateBrowserAside()")
+    end = source.index("function setConnection", start)
+    navigate = source[start:end]
+
+    success, failure = navigate.split("} catch (error) {", maxsplit=1)
+    assert "scheduleBrowserFramePoll();" in success
+    assert "stopBrowserFramePoll();" in failure
+
+
 def test_browser_aside_uses_unified_workspace_theme_contract() -> None:
     from birkin import workspace_theme
 

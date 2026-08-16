@@ -113,7 +113,7 @@ def test_execution_policy_diagnostics_queue_exact_operation(
     gate: str,
 ) -> None:
     # Given: a benign shell command reaches a host execution-policy boundary.
-    calls: list[tuple[str, ...]] = []
+    calls: list[str] = []
 
     class FailedProcess:
         returncode = 1
@@ -122,11 +122,11 @@ def test_execution_policy_diagnostics_queue_exact_operation(
         def __init__(self, error: str) -> None:
             self.stderr = error
 
-    def blocked_run(argv: list[str], **_kwargs) -> FailedProcess:
-        calls.append(tuple(argv))
+    def blocked_run(request) -> FailedProcess:
+        calls.append(request.command)
         return FailedProcess(stderr)
 
-    monkeypatch.setattr(shell_mod.subprocess, "run", blocked_run)
+    monkeypatch.setattr(shell_mod, "run_shell_command", blocked_run)
     registry = build_registry(ToolContext(
         cfg={},
         client=None,
@@ -172,9 +172,9 @@ def test_bun_temp_diagnostic_queues_workspace_local_retry(
         )
 
     monkeypatch.setattr(
-        shell_mod.subprocess,
-        "run",
-        lambda _argv, **_kwargs: FailedProcess(),
+        shell_mod,
+        "run_shell_command",
+        lambda _request: FailedProcess(),
     )
     registry = build_registry(ToolContext(
         cfg={},
@@ -233,7 +233,7 @@ def test_approval_replays_exact_sealed_file_operation(tmp_path: Path) -> None:
     __import__("os").name != "nt",
     reason="Windows cmd.exe and TEMP replay contract",
 )
-def test_approved_tokscale_submit_uses_cmd_and_workspace_temp(
+def test_approved_tokscale_submit_uses_managed_workspace_temp(
         tmp_path: Path,
         monkeypatch,
 ) -> None:
@@ -241,18 +241,18 @@ def test_approved_tokscale_submit_uses_cmd_and_workspace_temp(
     workspace = tmp_path / "workspace"
     workspace.mkdir()
     command = "bunx tokscale@latest submit"
-    calls: list[tuple[list[str], dict[str, object]]] = []
+    calls = []
 
     class Process:
         returncode = 0
         stdout = "submitted"
         stderr = ""
 
-    def run(argv: list[str], **kwargs: object) -> Process:
-        calls.append((argv, kwargs))
+    def run(request) -> Process:
+        calls.append(request)
         return Process()
 
-    monkeypatch.setattr(approvals.subprocess, "run", run)
+    monkeypatch.setattr(approvals, "run_shell_command", run)
     status = approvals.propose(
         category="shell",
         title="Tokscale 제출",
@@ -268,11 +268,10 @@ def test_approved_tokscale_submit_uses_cmd_and_workspace_temp(
     # Then
     assert resolution["ok"] is True, resolution
     assert len(calls) == 1
-    argv, kwargs = calls[0]
-    assert argv == ["cmd", "/c", command]
-    assert kwargs["cwd"] == str(workspace)
-    environment = kwargs["env"]
-    assert isinstance(environment, dict)
+    request = calls[0]
+    assert request.command == command
+    assert request.cwd == workspace
+    environment = request.environment
     assert environment["TEMP"] == str(workspace / ".birkin-tmp")
     assert environment["TMP"] == str(workspace / ".birkin-tmp")
     assert Path(environment["TEMP"]).is_dir()

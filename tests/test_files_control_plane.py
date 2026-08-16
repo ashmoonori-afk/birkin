@@ -142,8 +142,8 @@ def test_scheduler_runs_shell_jobs_without_asking():
     """Documents WHY cron.json is protected: nothing downstream re-checks."""
     import inspect
     from birkin import scheduler
-    src = inspect.getsource(scheduler._run_job)
-    assert 'jtype == "shell"' in src and "subprocess.run" in src
+    src = inspect.getsource(scheduler.run_job)
+    assert 'jtype == "shell"' in src and "run_shell_command" in src
     assert "approv" not in src.lower(), (
         "if _run_job grew its own consent check, revisit this test")
 

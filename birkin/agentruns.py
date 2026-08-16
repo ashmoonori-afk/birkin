@@ -212,6 +212,45 @@ def list_runs() -> list[dict[str, Any]]:
     return roots
 
 
+def control(run_id: str, action: str, text: str = "") -> dict[str, Any] | None:
+    """Persist a console control command after validating its state transition.
+
+    ``abort`` blocks delivery at the next worker boundary rather than deleting
+    the run, so a remote operator can explicitly resume it. Workers continue to
+    use the existing inbox authority for steering messages.
+    """
+    if not _valid_id(run_id):
+        return None
+    path = _record_path(run_id)
+    with file_lock(path):
+        rec = _read_json(path, None)
+        if not _is_record(rec):
+            return None
+        if rec["status"] != "running":
+            return {"ok": False, "error": "run is already finished"}
+        blocked = rec.get("control_state") == "blocked"
+        if action == "steer":
+            if blocked:
+                return {"ok": False, "error": "blocked run must be resumed first"}
+            if not text.strip():
+                return {"ok": False, "error": "steer text is required"}
+        elif action == "abort":
+            if blocked:
+                return {"ok": False, "error": "run is already blocked"}
+            rec["control_state"] = "blocked"
+        elif action == "resume":
+            if not blocked:
+                return {"ok": False, "error": "only a blocked run can resume"}
+            rec["control_state"] = "active"
+        else:
+            return {"ok": False, "error": "unknown control action"}
+        rec["last_control"] = {"action": action, "at": _now()}
+        _write_json(path, rec)
+    if action == "steer" and not append_message(run_id, text.strip()[:TASK_MAX_CHARS]):
+        return {"ok": False, "error": "could not queue steer message"}
+    return {"ok": True, "record": dict(rec)}
+
+
 def append_message(run_id: str, text: str) -> bool:
     """Atomically append one message file to a run's inbox."""
     if not _valid_id(run_id) or not isinstance(text, str) or not text:

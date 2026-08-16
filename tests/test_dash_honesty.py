@@ -168,7 +168,11 @@ def test_run_badge_reads_the_error_that_is_actually_written():
     """moirai records failures under details.error (engine.py); nothing writes
     a top-level `error`, which is why the old check never fired."""
     html = _index_html()
-    assert "details||{}).error" in html or "details || {}).error" in html, (
+    assert (
+        "run.details?.error" in html
+        or "details||{}).error" in html
+        or "details || {}).error" in html
+    ), (
         "the badge still ignores details.error, the one signal that exists")
 
 

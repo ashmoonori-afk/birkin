@@ -246,23 +246,22 @@ def test_shell_replaces_unwritable_windows_temp_env(
     )
     monkeypatch.setenv("TEMP", protected_temp)
     monkeypatch.setenv("TMP", protected_temp)
-    captured: dict[str, object] = {}
+    captured: list[object] = []
 
-    def fake_run(
-            argv: list[str], **kwargs: object
-    ) -> subprocess.CompletedProcess[str]:
-        captured.update(kwargs)
-        return subprocess.CompletedProcess(argv, 0, "ok", "")
+    def fake_run(request: object) -> subprocess.CompletedProcess[str]:
+        captured.append(request)
+        return subprocess.CompletedProcess([], 0, "ok", "")
 
-    monkeypatch.setattr(shell_mod.subprocess, "run", fake_run)
+    monkeypatch.setattr(shell_mod, "run_shell_command", fake_run)
     fn = next(t for t in shell_mod.tools() if t.name == "run_shell").fn
 
     result = fn({"command": "echo ok"}, _ctx(tmp_path))
-    child_env = cast(dict[str, str], captured["env"])
+    request = cast("shell_mod.ShellCommand", captured[0])
+    child_env = request.environment
 
     assert result.is_error is False
-    assert child_env["TEMP"] == expected_temp
-    assert child_env["TMP"] == expected_temp
+    assert Path(child_env["TEMP"]).samefile(expected_temp)
+    assert Path(child_env["TMP"]).samefile(expected_temp)
 
 
 # ---------------- web (monkeypatch the opener — no network) ----------------

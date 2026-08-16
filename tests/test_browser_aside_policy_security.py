@@ -125,7 +125,9 @@ def test_private_network_ssrf_requires_an_exact_trusted_rule() -> None:
         "::1": ("::1",),
         "dev.localhost": ("127.0.0.1",),
     }
-    resolver = lambda host: addresses[host]
+    def resolver(host: str) -> tuple[str, ...]:
+        return addresses[host]
+
     wide = module.browser_egress_policy(
         _policy(*hosts),
         resolver=resolver,

@@ -1,9 +1,19 @@
 import os
+import shlex
 import signal
+import subprocess
+import sys
+from pathlib import Path
 
 import pytest
 
 from birkin import proc
+
+
+def _command(parts: list[str]) -> str:
+    if os.name == "nt":
+        return subprocess.list2cmdline(parts)
+    return shlex.join(parts)
 
 
 class _FakeProcess:
@@ -14,6 +24,33 @@ class _FakeProcess:
 
     def kill(self) -> None:
         self.killed = True
+
+
+class _InterruptedProcess(_FakeProcess):
+    def __init__(self) -> None:
+        super().__init__()
+        self.communications = 0
+
+    def communicate(self, **_kwargs):
+        self.communications += 1
+        if self.communications == 1:
+            raise KeyboardInterrupt
+        return "", ""
+
+    def wait(self) -> int:
+        return 0
+
+
+class _ManagedTree:
+    def __init__(self) -> None:
+        self.terminations: list[int] = []
+        self.closed = False
+
+    def terminate(self, exit_code: int = 1) -> None:
+        self.terminations.append(exit_code)
+
+    def close(self) -> None:
+        self.closed = True
 
 
 def test_popen_tree_kwargs_is_native() -> None:
@@ -37,20 +74,143 @@ def test_kill_tree_terminates_posix_process_group(monkeypatch) -> None:
         raising=False,
     )
 
-    assert proc._kill_posix_tree(process, process.pid) is True
+    assert proc.kill_process_group(process.pid) is True
 
     assert calls == [(4312, proc._POSIX_KILL_SIGNAL)]
     assert process.killed is False
 
 
+@pytest.mark.skipif(os.name == "nt", reason="POSIX process groups")
+def test_kill_posix_tree_survives_exited_shell_leader(monkeypatch) -> None:
+    calls: list[tuple[int, signal.Signals]] = []
+    monkeypatch.setattr(
+        proc.os,
+        "getpgid",
+        lambda _pid: (_ for _ in ()).throw(ProcessLookupError),
+    )
+    monkeypatch.setattr(proc.os, "getpgrp", lambda: 9000)
+    monkeypatch.setattr(
+        proc.os,
+        "killpg",
+        lambda group, signum: calls.append((group, signum)),
+    )
+
+    assert proc.kill_process_group(4312) is True
+    assert calls == [(4312, proc._POSIX_KILL_SIGNAL)]
+
+
+def test_run_shell_command_cleans_tree_when_interrupted(monkeypatch) -> None:
+    process = _InterruptedProcess()
+    killed: list[_InterruptedProcess] = []
+    managed = _ManagedTree()
+    if os.name == "nt":
+        monkeypatch.setattr(
+            proc,
+            "_spawn_managed_windows_shell",
+            lambda _argv, _request: (process, managed),
+        )
+    else:
+        monkeypatch.setattr(
+            proc,
+            "_spawn_shell",
+            lambda _argv, _request: process,
+        )
+    monkeypatch.setattr(proc, "kill_tree", killed.append)
+    request = proc.ShellCommand(
+        command="long-running-command",
+        cwd=None,
+        timeout=30,
+        environment={},
+    )
+
+    with pytest.raises(KeyboardInterrupt):
+        proc.run_shell_command(request)
+
+    if os.name == "nt":
+        assert killed == []
+        assert managed.terminations == [1]
+        assert managed.closed is True
+    else:
+        assert killed == [process]
+    assert process.communications == 2
+
+
+def test_run_shell_command_utf8_stdin_and_merged_streams(
+    tmp_path: Path,
+) -> None:
+    script = tmp_path / "stream probe.py"
+    _ = script.write_text(
+        "import sys\n"
+        "payload = sys.stdin.read()\n"
+        "print(f'stdout:{payload}', flush=True)\n"
+        "print('stderr:한글✓', file=sys.stderr, flush=True)\n",
+        encoding="utf-8",
+    )
+
+    result = proc.run_shell_command(
+        proc.ShellCommand(
+            command=_command([sys.executable, str(script)]),
+            cwd=tmp_path,
+            timeout=10,
+            environment=proc.shell_env(),
+            stdin='{"value":"입력"}',
+            merge_stderr=True,
+        )
+    )
+
+    assert result.returncode == 0
+    assert result.stdout == (
+        'stdout:{"value":"입력"}\n'
+        "stderr:한글✓\n"
+    )
+    assert result.stderr is None
+
+
 def test_shell_argv_wraps_command_string():
     argv = proc.shell_argv("echo hi")
-    assert argv[-1] == "echo hi"
-    assert argv[0] in ("bash", "cmd")
     if os.name == "nt":
-        assert argv == ["cmd", "/c", "echo hi"]
+        assert argv[-4:] == [
+            "/d",
+            "/s",
+            "/c",
+            "@C:\\Windows\\System32\\chcp.com 65001>nul & echo hi",
+        ]
+        assert argv[0].lower().endswith(r"\system32\cmd.exe")
     else:
-        assert argv == ["bash", "-lc", "echo hi"]
+        assert argv == ["/bin/bash", "-c", "echo hi"]
+
+
+def test_windows_shell_argv_uses_native_cmd_without_autorun() -> None:
+    argv = proc.windows_shell_argv("echo hi", r"C:\Windows")
+
+    assert argv == [
+        r"C:\Windows\System32\cmd.exe",
+        "/d",
+        "/s",
+        "/c",
+        "@C:\\Windows\\System32\\chcp.com 65001>nul & echo hi",
+    ]
+
+
+def test_windows_hidden_creation_flags_preserve_process_group() -> None:
+    group = proc.windows_creation_flags(False)
+    hidden = proc.windows_creation_flags(True)
+
+    assert group & 0x00000200
+    assert not group & 0x08000000
+    assert hidden & 0x00000200
+    assert hidden & 0x08000000
+
+
+@pytest.mark.skipif(os.name == "nt", reason="POSIX runtime PATH contract")
+def test_shell_env_adds_runtime_path_without_login_shell(monkeypatch) -> None:
+    monkeypatch.setenv("PATH", "/usr/bin:/bin")
+
+    environment = proc.shell_env()
+
+    assert str(Path(sys.executable).parent) in environment["PATH"].split(
+        os.pathsep
+    )
 
 
 def test_cli_argv_keeps_parts_discrete():

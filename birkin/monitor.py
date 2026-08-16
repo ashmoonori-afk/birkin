@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import hashlib
-import subprocess
 import urllib.request
 from dataclasses import dataclass
 from datetime import datetime, timezone
@@ -12,7 +11,7 @@ from typing import Any
 from urllib.parse import urlparse
 
 from . import config, store
-from .proc import shell_argv
+from .proc import ShellCommand, run_shell_command, shell_env
 from .tools.web import _GuardedRedirectHandler, _is_blocked_url
 
 MAX_BYTES = 256 * 1024
@@ -87,8 +86,16 @@ def _fetch_url(url: str, max_bytes: int) -> bytes:
         return response.read(max_bytes)
 
 
-def _run_script(command: str) -> bytes:
-    proc = subprocess.run(shell_argv(command), capture_output=True, timeout=600)
+def run_script(command: str) -> bytes:
+    proc = run_shell_command(
+        ShellCommand(
+            command=command,
+            cwd=None,
+            timeout=600,
+            environment=shell_env(),
+            hide_window=True,
+        )
+    )
     stdout = proc.stdout or b""
     stderr = proc.stderr or b""
     if isinstance(stdout, str):
@@ -108,7 +115,7 @@ def _acquire(job: dict[str, Any]) -> bytes:
         raise ValueError("monitor requires exactly one of monitor_url or monitor_script")
     if url:
         return _fetch_url(url, clamp_max_bytes(job.get("max_bytes")))
-    return _run_script(script)
+    return run_script(script)
 
 
 def _tail(content: bytes) -> str:
