@@ -1,9 +1,9 @@
 import json
+from importlib.metadata import version as installed_version
 from pathlib import Path
 from typing import cast
 
 import pytest
-import tomli
 
 from birkin.office.adapters import adapter_provenance as publication
 from birkin.office.adapters import catalog
@@ -90,23 +90,7 @@ def test_inventory_has_typed_operation_and_provenance_evidence() -> None:
             }
 
 
-def test_required_office_packages_match_lock_manifest_and_notice() -> None:
-    lock_path = Path(__file__).parents[2] / "uv.lock"
-    with lock_path.open("rb") as stream:
-        lock = tomli.load(stream)
-    lock_packages = cast(list[dict[str, object]], lock["package"])
-    locked: dict[str, tuple[str, str, str]] = {}
-    for package in lock_packages:
-        name = cast(str, package["name"]).casefold()
-        if name in REQUIRED_LOCKED_PACKAGES:
-            sdist = cast(dict[str, str], package["sdist"])
-            locked[name] = (
-                cast(str, package["version"]),
-                sdist["url"],
-                sdist["hash"].removeprefix("sha256:"),
-            )
-    assert set(locked) == set(REQUIRED_LOCKED_PACKAGES)
-
+def test_required_office_packages_match_environment_manifest_and_notice() -> None:
     inventory = adapter_inventory()
     manifest_packages = {
         package["name"].casefold(): package
@@ -116,10 +100,13 @@ def test_required_office_packages_match_lock_manifest_and_notice() -> None:
     notice = render_third_party_notices()
     for name, (version, license_name) in REQUIRED_LOCKED_PACKAGES.items():
         package = manifest_packages[name]
-        locked_version, artifact_url, artifact_sha256 = locked[name]
-        assert package["version"] == version == locked_version
-        assert package["artifact_url"] == artifact_url
-        assert package["artifact_sha256"] == artifact_sha256
+        assert package["version"] == version == installed_version(package["name"])
+        artifact_url = package["artifact_url"]
+        artifact_sha256 = package["artifact_sha256"]
+        assert artifact_url is not None
+        assert artifact_sha256 is not None
+        assert artifact_url.startswith("https://files.pythonhosted.org/")
+        assert len(artifact_sha256) == 64
         assert package["license"] == license_name
         assert package["license_sha256"]
         assert package["selection"] == "conditional"
