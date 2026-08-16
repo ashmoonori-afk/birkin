@@ -342,6 +342,40 @@ The authenticated API exposes the checkpoint list, `/timeline`, `/lineage`,
 
 Run `birkin --help` or `birkin <command> --help` for the complete interface.
 
+### Live OMO session control
+
+Birkin controls an already-open OMO session through an extension owned by that
+session. It does not open a replacement `omo --mode rpc` process, acquire
+OMO's `settings.json.lock`, or discover windows by title.
+
+From a trusted Birkin chat or gateway channel, install the extension once:
+
+```text
+/omo bridge install
+```
+
+This copies `birkin-omo-live-bridge.mjs` into the active OMO agent extension
+directory without editing `settings.json`. Open OMO sessions normally discover
+the new extension; run `/reload` in a session if it does not reload
+automatically. A session that has not loaded the extension is deliberately not
+controllable.
+
+Send one prompt to one or more already-open sessions by full, exact session ID:
+
+```text
+/omo send-to 019ffe4c-0ba9-7fa2-acab-176a22fc1fd3,019ffda0-c982-7ffe-badf-b952f457011e -- resume
+```
+
+Birkin returns one acknowledgement line per target with the exact session ID
+and request ID. It resolves every target before delivering any prompt, removes
+duplicate IDs within the request, and rejects unknown, stale, unauthorized, or
+ambiguous live registrations. Historical JSONL sessions are never treated as
+live targets.
+
+Each live session listens on loopback only and publishes a private registration
+containing a random capability token. Birkin validates the token-bound response,
+session ID, request ID, and protocol version. Transport failures are surfaced
+instead of retried blindly, preserving at-most-once delivery for each request.
 ## Plugin registry
 
 A bundle is a directory containing `birkin-plugin.json`, its entry-point files,
@@ -426,6 +460,7 @@ points return `Tool` objects consumed by the existing native tool registry.
   "parallel_tools": true,
   "parallel_tool_workers": 8,
   "shell_approval": "manual",
+  "allow_powershell": false,
   "checkpoints": true,
   "hooks": {},
   "hooks_auto_accept": false,
@@ -569,12 +604,18 @@ points return `Tool` objects consumed by the existing native tool registry.
 
 Environment variables remain the right place for provider secrets. `api_keys` names environment-variable pools; it is not a place to paste raw keys. `a2a_enabled` is opt-in. Enforced egress disables uninspected native network paths and allows only configured destinations through Birkin's inspected tools. A sandboxed gateway child can submit a shell request through `propose_action`; Birkin queues it for approval instead of running it inside the child sandbox.
 
+Free-form shell requests use a fixed non-login platform shell (`%SystemRoot%\System32\cmd.exe /d /s /c` on Windows and `/bin/bash -c` on POSIX) inside an owned process tree. Windows disables AutoRun and selects code page 65001 before user command evaluation, so native `cmd.exe` built-ins and UTF-8 runtimes share the captured stream contract. Birkin preserves the inherited `PATH`, adds known runtime directories without sourcing user profiles, captures UTF-8 streams, and provides writable temporary directories. The same managed runner serves the native shell tool, approved shell continuations, scheduler shell jobs, script monitors, lifecycle hooks, GitHub Action test commands, and worktree setup commands. Worktree setup still exposes only policy-approved payload variables plus non-secret process mechanics such as `PATH`, system interpreter variables, and an isolated `TMPDIR`/`TEMP`/`TMP`; Docker setup shell text remains inside the policy-constrained container. Timeout, interrupt, and Job Object/process-group closure terminate descendants before returning and preserve partial stdout and stderr.
+
+PowerShell is disabled by default on the model-facing native shell tool: set `allow_powershell` to `true` deliberately, or approve one exact queued operation. Other owner-controlled shell surfaces retain their existing explicit authority boundaries. Lifecycle-hook consents recorded before the managed-shell contract require one-time reapproval so old discrete-argv consent cannot silently authorize shell operators. Native macOS and Windows CI exercise commands, pipelines, redirection, quoting, Unicode and spaced working directories, environment and temporary-directory behavior, exit propagation, runtime/package-manager resolution, and descendant cleanup.
+
 ## Development
 
 ```bash
 python -m pip install -e ".[dev]"
 python -m compileall -q birkin
 python -m pytest
+uv run python scripts/qa/macos_shell_smoke.py
+uv run python scripts/qa/windows_shell_smoke.py
 
 cd vscode-extension
 npm ci
@@ -583,7 +624,7 @@ npm run compile
 npm run test:e2e
 ```
 
-CI executes the Python suite on Ubuntu/Python 3.10, macOS/Python 3.13, and Windows/Python 3.13. Extension unit tests use Vitest; the host QA target uses `@vscode/test-electron`.
+CI executes the Python suite on Ubuntu/Python 3.10, macOS/Python 3.13, and Windows/Python 3.13. The macOS and Windows jobs install a pinned Bun release, run native managed-shell acceptance, and execute their tracked sibling-surface smoke drivers. Extension unit tests use Vitest; the host QA target uses `@vscode/test-electron`.
 
 ## License
 

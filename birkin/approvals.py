@@ -23,7 +23,7 @@ from typing import Any
 
 from . import actions, config, cron, risk, store, worker_hooks
 from .operation_policy import retry_environment
-from .proc import shell_argv, shell_env
+from .proc import ShellCommand, run_shell_command, shell_env
 
 
 def is_auto(category: str, cfg: dict[str, Any]) -> bool:
@@ -279,10 +279,15 @@ def execute_action(category: str, payload: dict[str, Any],
                 to = int(to)
             except (TypeError, ValueError):
                 to = 300
-            proc = subprocess.run(shell_argv(command), capture_output=True,
-                                  text=True, errors="replace",
-                                  timeout=max(1, min(3600, to)),
-                                  cwd=str(cwd), env=environment, check=False)
+            proc = run_shell_command(
+                ShellCommand(
+                    command=command,
+                    cwd=cwd,
+                    timeout=max(1, min(3600, to)),
+                    environment=environment,
+                    hide_window=True,
+                )
+            )
         except subprocess.TimeoutExpired:
             return "Command timed out."
         out = (proc.stdout or "") + (proc.stderr or "")

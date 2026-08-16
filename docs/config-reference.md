@@ -38,6 +38,7 @@ Schema version: 1
 | `parallel_tools` | `boolean` | `true` | Birkin setting `parallel_tools`. |
 | `parallel_tool_workers` | `integer` | `8` | Birkin setting `parallel_tool_workers`. |
 | `shell_approval` | `string` | `"manual"` | Birkin setting `shell_approval`. |
+| `allow_powershell` | `boolean` | `false` | Birkin setting `allow_powershell`. |
 | `checkpoints` | `boolean` | `true` | Birkin setting `checkpoints`. |
 | `hooks` | `object` | `{}` | Birkin setting `hooks`. |
 | `hooks_auto_accept` | `boolean` | `false` | Birkin setting `hooks_auto_accept`. |

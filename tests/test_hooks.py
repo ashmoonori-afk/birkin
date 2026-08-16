@@ -8,7 +8,7 @@ from pathlib import Path
 
 import pytest
 
-from birkin import hooks
+from birkin import hooks, store
 from birkin.agent import Agent
 from birkin.tools import ToolContext, ToolRegistry, Tool, ToolResult
 
@@ -128,6 +128,24 @@ def test_consent_is_remembered_across_runs(script, monkeypatch):
 
     monkeypatch.delenv("BIRKIN_ACCEPT_HOOKS")
     assert hooks.build_bus(_cfg(cmd)) is not None, "allowlist should carry over"
+
+
+def test_legacy_discrete_hook_consent_requires_managed_shell_reapproval(
+    script,
+) -> None:
+    command = script(ECHO_BLOCK)
+    store._write_json(
+        hooks._allowlist_path(),
+        [
+            {
+                "event": "pre_tool_call",
+                "command": command,
+                "approved_at": "2026-01-01T00:00:00",
+            }
+        ],
+    )
+
+    assert hooks.is_allowed(hooks.HookSpec("pre_tool_call", command)) is False
 
 
 def test_tty_prompt_yes_and_no(script, monkeypatch):

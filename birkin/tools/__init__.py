@@ -28,8 +28,8 @@ from ._types import (
     TextContentBlock as TextContentBlock,
     Tool,
     ToolContent,
-    ToolContext,
-    ToolResult,
+    ToolContext as ToolContext,
+    ToolResult as ToolResult,
     content_text,
 )
 
@@ -106,7 +106,7 @@ class ToolRegistry:
                     f"Checkpoint failed after {name!r}: {exc}", is_error=True)
         if result.is_error:
             block = diagnostic_block(
-                result.content,
+                content_text(result.content),
                 tool=name,
                 command=str(tool_input.get("command", "")),
             )
