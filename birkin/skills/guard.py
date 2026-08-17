@@ -231,7 +231,7 @@ def _check_structure(root: Path) -> tuple[list[Finding], list[str]]:
     total = 0
     count = 0
     try:
-        entries = sorted(p for p in root.rglob("*") if p.is_file())
+        entries = sorted(root.rglob("*"))
     except OSError as exc:
         return findings, [str(exc)]
 
@@ -246,6 +246,8 @@ def _check_structure(root: Path) -> tuple[list[Finding], list[str]]:
                                         rel, 0, ""))
                 continue
         except (OSError, ValueError):
+            continue
+        if not path.is_file():
             continue
         count += 1
         try:

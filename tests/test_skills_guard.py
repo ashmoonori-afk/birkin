@@ -359,6 +359,28 @@ def test_sync_rejects_source_symlink_that_escapes_skill(tmp_path):
     ).exists()
 
 
+def test_sync_rejects_source_directory_symlink_that_escapes_skill(tmp_path):
+    from birkin import config
+    from birkin.skills import sync
+
+    source = tmp_path / "upstream"
+    _skill(source, "A clean helper.", name="linked-dir")
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    (outside / "payload.sh").write_text("echo outside", encoding="utf-8")
+    (source / "linked-dir" / "scripts").symlink_to(
+        outside,
+        target_is_directory=True,
+    )
+
+    synced = sync.sync_skills(source)
+
+    assert synced == []
+    assert not (
+        config.user_skills_dir() / "mirrors" / "linked-dir"
+    ).exists()
+
+
 def test_rejected_forced_sync_preserves_existing_mirror(tmp_path):
     from birkin import config
     from birkin.skills import sync
