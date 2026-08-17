@@ -8,6 +8,7 @@ from birkin.skills import build_manager, frontmatter
 from birkin.skills import manager as manager_module
 from birkin.skills.manager import (
     IndeterminatePublicationError,
+    PublicationCleanupError,
     SkillManager,
     SkillProposalError,
     _write_skill,
@@ -845,6 +846,61 @@ def test_truncate_failure_overwrites_attacker_renamed_temp(
     assert path.read_bytes() == original
     assert moved_bytes
     assert set(moved_bytes) == {0}
+    moved_temp.unlink()
+
+
+@pytest.mark.skipif(
+    os.name == "nt",
+    reason="POSIX publication cleanup failure contract",
+)
+def test_cleanup_failure_reports_possible_residue(
+        monkeypatch):
+    path = _write_skill(
+        "cleanup-failure-contract",
+        "cleanup failure contract",
+        "ORIGINAL",
+        [],
+    )
+    original = path.read_bytes()
+    moved_temp = path.parent / "attacker-moved-cleanup.tmp"
+    original_write_all = manager_module._write_all
+
+    def write_then_move_and_fail(
+            descriptor: int,
+            payload: bytes) -> None:
+        original_write_all(descriptor, payload)
+        temporary = next(
+            path.parent.glob(".birkin-publish-*.tmp")
+        )
+        temporary.replace(moved_temp)
+        raise OSError("injected pre-rename write failure")
+
+    def fail_cleanup(*_args) -> None:
+        raise OSError("injected cleanup failure")
+
+    monkeypatch.setattr(
+        manager_module,
+        "_write_all",
+        write_then_move_and_fail,
+    )
+    monkeypatch.setattr(os, "ftruncate", fail_cleanup)
+    monkeypatch.setattr(os, "pwrite", fail_cleanup)
+
+    with pytest.raises(PublicationCleanupError) as raised:
+        apply_skill_proposal({
+            "action": "improve",
+            "target": "cleanup-failure-contract",
+            "addition": "CLEANUP FAILURE PAYLOAD",
+        })
+
+    error = raised.value
+    assert error.operation.startswith(".birkin-publish-")
+    assert error.operation_id == error.operation
+    assert len(error.candidate_sha256) == 64
+    assert error.retry_safe is False
+    assert error.residue_possible is True
+    assert path.read_bytes() == original
+    assert b"CLEANUP FAILURE PAYLOAD" in moved_temp.read_bytes()
     moved_temp.unlink()
 
 

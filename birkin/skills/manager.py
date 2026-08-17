@@ -41,6 +41,20 @@ class IndeterminatePublicationError(SkillProposalError):
         )
 
 
+class PublicationCleanupError(SkillProposalError):
+    def __init__(self, operation: str, candidate_sha256: str):
+        self.operation = operation
+        self.operation_id = operation
+        self.candidate_sha256 = candidate_sha256
+        self.retry_safe = False
+        self.residue_possible = True
+        super().__init__(
+            "failed skill publication could not be securely cleaned "
+            f"(operation={operation}, sha256={candidate_sha256}); "
+            "residue may remain, so do not retry until reconciled"
+        )
+
+
 class SkillManager:
     def __init__(self, dirs: list[tuple[Path, str]]):
         self._dirs = dirs
@@ -541,6 +555,7 @@ def _publish_skill_bytes_posix(
     temporary_fd = -1
     published = False
     indeterminate = False
+    cleanup_failed = False
     try:
         flags = os.O_WRONLY | os.O_CREAT | os.O_EXCL
         flags |= getattr(os, "O_NOFOLLOW", 0)
@@ -585,7 +600,15 @@ def _publish_skill_bytes_posix(
                 raise
         finally:
             if not published and not indeterminate:
-                _zero_open_descriptor(temporary_fd)
+                try:
+                    _zero_open_descriptor(temporary_fd)
+                except BaseException as cleanup_error:
+                    cleanup_failed = True
+                    digest = hashlib.sha256(payload).hexdigest()
+                    raise PublicationCleanupError(
+                        temporary,
+                        digest,
+                    ) from cleanup_error
     finally:
         if temporary_fd >= 0:
             os.close(temporary_fd)
@@ -594,6 +617,9 @@ def _publish_skill_bytes_posix(
                 os.unlink(temporary, dir_fd=target_fd)
             except FileNotFoundError:
                 pass
+            except OSError:
+                if not cleanup_failed:
+                    raise
         os.close(target_fd)
 
 
@@ -913,8 +939,6 @@ def _publish_skill_bytes_windows(
             if disposition_failed and not indeterminate:
                 if kernel32.DeleteFileW(str(temporary)):
                     cleanup_error = 0
-                elif ctypes.get_last_error() in {2, 3}:
-                    cleanup_error = 0
             if indeterminate:
                 digest = hashlib.sha256(payload).hexdigest()
                 raise IndeterminatePublicationError(
@@ -922,7 +946,11 @@ def _publish_skill_bytes_windows(
                     digest,
                 )
             if cleanup_error:
-                raise OSError(cleanup_error, str(temporary))
+                digest = hashlib.sha256(payload).hexdigest()
+                raise PublicationCleanupError(
+                    temporary.name,
+                    digest,
+                ) from OSError(cleanup_error, str(temporary))
     finally:
         for handle in reversed(handles):
             close_handle(wintypes.HANDLE(handle))
