@@ -231,7 +231,6 @@ class PersistentBrowserRuntime:
             )
             if not self._ready.is_set():
                 self._startup_error = error
-                self._ready.set()
             else:
                 self._terminal_error = error
                 fail_pending(self._commands, error)
@@ -262,3 +261,5 @@ class PersistentBrowserRuntime:
                     self._terminal_error = exc
             _ = profile_lock.__exit__(None, None, None)
             self._store.clear()
+            if not self._ready.is_set():
+                self._ready.set()
