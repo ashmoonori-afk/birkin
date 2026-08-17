@@ -12,10 +12,8 @@ from ..office.active_content_schema import (
     PATCH_OPERATION_SCHEMA,
 )
 from ..office.adapters.catalog import supported_formats
-from ..office.conversion_tool import budget_schema, execute_tool_conversion
+from ..office.conversion_schema import budget_schema
 from ..office.create_schema import create_content_schema
-from ..office.errors import DocumentError, DocumentErrorCode
-from ..office.service import DocumentService
 from ._types import Tool, ToolContext, ToolInput, ToolResult
 
 NAMES = (
@@ -74,6 +72,10 @@ def _payload(value: object) -> dict[str, object]:
 
 def _handler(name: str) -> Callable[[ToolInput, ToolContext], ToolResult]:
     def run(data: ToolInput, ctx: ToolContext) -> ToolResult:
+        from ..office.conversion_tool import execute_tool_conversion
+        from ..office.errors import DocumentError, DocumentErrorCode
+        from ..office.service import DocumentService
+
         _ = ctx
         home = Path(os.environ.get("BIRKIN_HOME", Path.home() / ".birkin"))
         service = DocumentService(home)

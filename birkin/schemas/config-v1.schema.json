@@ -86,23 +86,6 @@
       "type": "string",
       "enum": ["steer", "kill"]
     },
-    "office": {
-      "type": "object",
-      "additionalProperties": true,
-      "properties": {
-        "handoc": {
-          "type": "object",
-          "additionalProperties": true,
-          "properties": {
-            "node_path": {"type": "string"},
-            "node_version": {"const": "22.14.0"},
-            "module_root": {"type": "string"},
-            "package_manifest_sha256": {"type": "string", "pattern": "^$|^[0-9a-f]{64}$"},
-            "timeout_seconds": {"type": "integer", "minimum": 1, "maximum": 300}
-          }
-        }
-      }
-    },
     "voice": {
       "type": "object",
       "additionalProperties": true,

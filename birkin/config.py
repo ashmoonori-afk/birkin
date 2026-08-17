@@ -204,15 +204,6 @@ DEFAULT_CONFIG: dict[str, Any] = {
     # Keep one pre-warmed spare claude process so the FIRST message of a new
     # conversation skips the ~28 s CLI cold start.
     "gateway_prewarm": True,
-    "office": {
-        "handoc": {
-            "node_path": "",
-            "node_version": "22.14.0",
-            "module_root": "",
-            "package_manifest_sha256": "",
-            "timeout_seconds": 30,
-        },
-    },
     "voice": {
         "wake_phrase": "Daddy is home",
         "gateway_url": "",
@@ -258,8 +249,16 @@ DEFAULT_CONFIG: dict[str, Any] = {
                      "stream": True},
         # Send-only incoming-webhook targets. They do not start listeners and
         # remain inert unless explicitly enabled with an HTTPS URL.
-        "slack": {"enabled": False, "webhook_url": ""},
-        "discord": {"enabled": False, "webhook_url": ""},
+        "slack": {
+            "enabled": False,
+            "webhook_url": "",
+            "allowed_channel_ids": [],
+        },
+        "discord": {
+            "enabled": False,
+            "webhook_url": "",
+            "allowed_channel_ids": [],
+        },
     },
     # --- Obsidian-vault memory (lexical remains the zero-dependency default) ---
     "vault_path": "",  # empty -> <birkin_home>/vault

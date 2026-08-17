@@ -851,14 +851,14 @@
           "state": "conversion-only"
         },
         "create": {
-          "availability": "template-only",
-          "fidelity_limits": "This is template derivation only, not blank HWPX authoring.",
-          "install_probe": null,
-          "integration_mode": "internal-stdlib",
-          "reason": "Trusted HWPX template creation applies validated field bindings copy-on-write.",
+          "availability": "conditional",
+          "fidelity_limits": "Blank authoring uses package defaults; template derivation preserves unmatched package parts.",
+          "install_probe": "python-import:hwpx",
+          "integration_mode": "optional-python",
+          "reason": "Exact-pinned python-hwpx provides local text-first blank authoring; trusted-template derivation remains copy-on-write.",
           "refusal_reason": null,
           "security_limits": "Untrusted input is bounded by package preflight; semantic XML is not a sandbox.",
-          "state": "lossless-surgical"
+          "state": "native"
         },
         "extract": {
           "availability": "built-in",
@@ -922,54 +922,75 @@
         }
       },
       "fidelity_limits": [
-        "HanDoc-based parsing and blank authoring remain refused pending provenance."
+        "Blank authoring uses exact-pinned local Python; application automation is unsupported."
       ],
       "format": "hwpx",
       "limitations": [
-        "HanDoc-based parsing and blank authoring remain refused pending provenance."
+        "Blank authoring uses exact-pinned local Python; application automation is unsupported."
       ],
       "packages": [
         {
-          "artifact_sha256": null,
-          "artifact_url": null,
+          "artifact_sha256": "b607a6fb543f1b8d1bf6e2b28b3607085bf60aade06a9acf9ca795d87a9eaabf",
+          "artifact_url": "https://files.pythonhosted.org/packages/cc/62/85356d56026fe5079f1a8b65b20ab036356be94a9d04985649a8aebd8eac/python_hwpx-6.1.0.tar.gz",
           "commit": null,
-          "install_probe": "source-provenance-required:commit+artifact+license-hash",
-          "integration_mode": "conditional-source-build",
-          "license": null,
-          "license_sha256": null,
-          "name": "@handoc/hwpx-parser",
-          "os_evidence": "x64 was proposed; no verified OS support matrix is recorded.",
-          "publication_status": "unpublished",
-          "refusal_reason": "No npm publication, approved commit, source artifact hash, or license hash is proven.",
-          "repository_url": "https://github.com/muin-company/handoc",
-          "role": "Unpublished HWPX parser workspace candidate.",
-          "runtime_evidence": "Proposed Node.js 22.14.0 x64 runtime; source revision is unproven.",
-          "selection": "refuse",
-          "tag": null,
-          "update_procedure": "Approve an immutable source revision and artifact with license evidence, then regenerate the manifest and notices.",
-          "version": null,
-          "version_range": null
+          "install_probe": "python-import:hwpx",
+          "integration_mode": "optional-python",
+          "license": "Apache-2.0",
+          "license_sha256": "fee6f3e30bfe064913de5de0bbe42e1fb2467958ee458199a192bde5e36c0875",
+          "name": "python-hwpx",
+          "os_evidence": "OS-independent Python package according to the locked wheel.",
+          "publication_status": "published",
+          "refusal_reason": null,
+          "repository_url": "https://github.com/airmang/python-hwpx",
+          "role": "Exact-pinned local Python HWPX blank-authoring backend.",
+          "runtime_evidence": "CPython >=3.10; package is imported lazily and is not bundled.",
+          "selection": "conditional",
+          "tag": "v6.1.0",
+          "update_procedure": "Update the approved range and uv.lock together; verify the locked sdist SHA-256, upstream license expression and license-file SHA-256, then regenerate the manifest and notices.",
+          "version": "6.1.0",
+          "version_range": "==6.1.0"
         },
         {
-          "artifact_sha256": null,
-          "artifact_url": null,
+          "artifact_sha256": "1bb3032db185915b62d7c6209c5a8792be6a32ab2fedacc84e01b52c51aa3e69",
+          "artifact_url": "https://files.pythonhosted.org/packages/0f/d5/c66da9b79e5bdb124974bfe172b4daf3c984ebd9c2a06e2b8a4dc7331c72/defusedxml-0.7.1.tar.gz",
           "commit": null,
-          "install_probe": "source-provenance-required:commit+artifact+license-hash",
-          "integration_mode": "conditional-source-build",
-          "license": null,
+          "install_probe": "python-import:defusedxml",
+          "integration_mode": "optional-python",
+          "license": "PSF-2.0",
           "license_sha256": null,
-          "name": "@handoc/hwpx-writer",
-          "os_evidence": "x64 was proposed; no verified OS support matrix is recorded.",
-          "publication_status": "unpublished",
-          "refusal_reason": "No npm publication, approved commit, source artifact hash, or license hash is proven.",
-          "repository_url": "https://github.com/muin-company/handoc",
-          "role": "Unpublished HWPX writer workspace candidate.",
-          "runtime_evidence": "Proposed Node.js 22.14.0 x64 runtime; source revision is unproven.",
-          "selection": "refuse",
+          "name": "defusedxml",
+          "os_evidence": "OS-independent Python package according to the locked wheel.",
+          "publication_status": "published",
+          "refusal_reason": null,
+          "repository_url": "https://github.com/tiran/defusedxml",
+          "role": "Optional hardened XML parsing at validation boundaries.",
+          "runtime_evidence": "CPython >=3.10; package is imported lazily and is not bundled.",
+          "selection": "conditional",
           "tag": null,
-          "update_procedure": "Approve an immutable source revision and artifact with license evidence, then regenerate the manifest and notices.",
-          "version": null,
-          "version_range": null
+          "update_procedure": "Update the approved range and uv.lock together; verify the locked sdist SHA-256, upstream license expression and license-file SHA-256, then regenerate the manifest and notices.",
+          "version": "0.7.1",
+          "version_range": ">=0.7,<1"
+        },
+        {
+          "artifact_sha256": "ba96ae44888e0185281e937633a743ea90d5a196c6000f82565ebb0580012d40",
+          "artifact_url": "https://files.pythonhosted.org/packages/05/3b/aab6728cae887456f409b4d75e8a01856e4f04bd510de38052a47768b680/lxml-6.1.1.tar.gz",
+          "commit": null,
+          "install_probe": "python-import:lxml",
+          "integration_mode": "optional-python",
+          "license": "BSD-3-Clause",
+          "license_sha256": null,
+          "name": "lxml",
+          "os_evidence": "Platform-specific wheels are lock-recorded; no universal OS claim.",
+          "publication_status": "published",
+          "refusal_reason": null,
+          "repository_url": "https://github.com/lxml/lxml",
+          "role": "Optional schema-aware deep XML validation.",
+          "runtime_evidence": "CPython >=3.10; package is imported lazily and is not bundled.",
+          "selection": "conditional",
+          "tag": null,
+          "update_procedure": "Update the approved range and uv.lock together; verify the locked sdist SHA-256, upstream license expression and license-file SHA-256, then regenerate the manifest and notices.",
+          "version": "6.1.1",
+          "version_range": ">=5.3,<7"
         },
         {
           "artifact_sha256": "e545841329fe0eee4f6a3b44e7034343100c12b4ec566dc06ca9735681deb4da",
@@ -999,6 +1020,6 @@
       "standard_url": "https://tech.hancom.com/hwpxformat/"
     }
   ],
-  "inventory_sha256": "66ac4638ee7a8b4f6b68325b036ca7d9b312fdf37eef9b90f3c163a756356d53",
+  "inventory_sha256": "a49ab813ee4cdea3d6f87e0e2bd063b1dde54058e5c8dd0af0cf32bec74cae95",
   "schema": "https://birkin.invalid/schemas/office-adapter-provenance-v1"
 }

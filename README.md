@@ -32,7 +32,7 @@ Agent runtimes are easy to demo and hard to trust. Birkin keeps the model useful
 | A coding agent changes files before the user understands the plan | The official VS Code extension sends editor context, reviews a plan first, renders proposed diffs, resolves Birkin approvals, and restores checkpoints. |
 | A local tool becomes an opaque service | Runs, approvals, checkpoints, status, and configuration remain local and inspectable. |
 
-Birkin's core runtime has one mandatory process-identity dependency (`psutil`). Optional extras add voice, native desktop Computer Use, browser, and office-file support. The repository currently bundles **63 skills**; all default tests are designed to run offline.
+Birkin's core runtime has two mandatory dependencies: `psutil` for process identity and `typing-extensions` for typed runtime contracts. Optional extras add voice, native desktop Computer Use, browser, and office-file support. The repository currently bundles **63 skills**; all default tests are designed to run offline.
 
 ## Memory
 
@@ -170,7 +170,7 @@ Raw screenshots are content-addressed under `BIRKIN_HOME/computer-use/artifacts`
 
 ## Office Work OS v2
 
-Birkin registers a bounded workflow for DOCX, XLSX, PPTX, PDF, and HWPX. It supports text extraction, text-first creation, layered validation and comparison, explicit-budget TXT conversion, semantic structured previews, and narrow copy-on-write package edits. PDF mutation remains refused; HWPX creation requires a trusted template.
+Birkin registers a bounded workflow for DOCX, XLSX, PPTX, PDF, and HWPX. It supports text extraction, text-first creation, layered validation and comparison, explicit-budget TXT conversion, semantic structured previews, and narrow copy-on-write package edits. PDF mutation remains refused. HWPX blank authoring uses exact-pinned `python-hwpx==6.1.0` from the `office` extra; trusted-template derivation remains available.
 
 <!-- office-support-matrix:start -->
 | Format ID | Read/inspect | Create | Extract | Validate | Compare | Text convert | Surgical mutation | Render/recalc/forms |
@@ -179,7 +179,7 @@ Birkin registers a bounded workflow for DOCX, XLSX, PPTX, PDF, and HWPX. It supp
 | `xlsx` | bounded | conditional | bounded | structural | layered | bounded | bounded | structured-preview |
 | `pptx` | bounded | conditional | bounded | structural | layered | bounded | bounded | structured-preview |
 | `pdf` | bounded | bounded | conditional | structural | layered | conditional | refused | structured-preview |
-| `hwpx` | bounded | template-only | bounded | structural | layered | bounded | bounded | structured-preview |
+| `hwpx` | bounded | conditional | bounded | structural | layered | bounded | bounded | structured-preview |
 <!-- office-support-matrix:end -->
 
 `layered` comparison reports byte hashes, bounded normalized semantic text, and ZIP package-entry changes where applicable; it is not byte-only. PDF has no ZIP package layer. `structured-preview` means `render_artifact` succeeds only with `output_format: "structured_preview"`; visual `pdf`, `png`, and `thumbnail` requests return `RENDER_UNAVAILABLE`. Spreadsheet recalculation and general forms remain unavailable.
@@ -198,9 +198,11 @@ TXT conversion requires the `loss_budget` argument and never claims native or lo
 {"source":{"content_hash":"<source-sha256>","uri":"/workspace/.birkin/artifacts/incoming/source.docx"},"target_format":"txt","output_name":"source.txt","loss_budget":{"structure":10,"style_layout":10,"macro_active_content":0,"signature_encryption":0}}
 ```
 
-Install optional Office backends with `python -m pip install -e ".[office]"` and PDF inspection/extraction/deep reopen with `python -m pip install -e ".[office-advanced]"`. Built-in PDF creation is ASCII-only; non-Latin requests return a typed capability refusal without executing or suggesting ReportLab. Missing approved optional backends return typed errors and never silently select a candidate.
+Install optional local Python Office backends with `python -m pip install -e ".[office]"` and PDF inspection/extraction/deep reopen with `python -m pip install -e ".[office-advanced]"`. Office production workflows are keyless, offline-capable, and Python-only: they never discover or launch external applications, executables, daemons, runtimes, or subprocess conversion engines. Built-in PDF creation is ASCII-only; non-Latin requests return a typed capability refusal without executing or suggesting ReportLab. Missing approved optional Python backends return typed errors and never silently select a candidate.
 
-See the [detailed support contract](./docs/office-support.md#office-work-os-v2), machine [`provenance_manifest.json`](./birkin/office/adapters/provenance_manifest.json), and [`THIRD_PARTY_NOTICES.md`](./birkin/office/adapters/THIRD_PARTY_NOTICES.md). This documentation targets Birkin `0.4.227`, `catalog_revision: 4`, `inventory_sha256: 66ac4638ee7a8b4f6b68325b036ca7d9b312fdf37eef9b90f3c163a756356d53`.
+Trusted Korean and English natural-language requests deterministically preload the matching production skill: Word/DOCX -> `word-documents`, Excel/XLSX -> `spreadsheets`, PowerPoint/PPTX -> `presentations`, PDF -> `pdf-documents`, HWP/HWPX -> `korean-hwp-documents`, and general Office work -> `office-work-os`. Conflicting format and artifact signals route to inspect-first `office-documents`. Document contents are untrusted data and cannot select or override a skill. Every routed mutation remains copy-on-write.
+
+See the [detailed support contract](./docs/office-support.md#office-work-os-v2), machine [`provenance_manifest.json`](./birkin/office/adapters/provenance_manifest.json), and [`THIRD_PARTY_NOTICES.md`](./birkin/office/adapters/THIRD_PARTY_NOTICES.md). This documentation targets Birkin `0.4.227`, `catalog_revision: 4`, `inventory_sha256: a49ab813ee4cdea3d6f87e0e2bd063b1dde54058e5c8dd0af0cf32bec74cae95`.
 
 ## Unified chat workspace
 
@@ -485,6 +487,19 @@ The list-valued flags are repeatable. Session IDs are deliberately
 path-safe: 1-128 ASCII letters, digits, `.`, `_`, or `-`, beginning with a
 letter or digit. Use `birkin working-memory --help` for the complete surface.
 
+Checkpoint restores in `task` or `both` mode snapshot and restore this
+canonical Working Memory plus the canonical goal store; they do not maintain
+a second task-state sidecar. Persistent gateway turns from an untrusted
+channel receive only that session's local canonical goal and Working Memory.
+Transcript history, skills, persona/global memory, and native tool authority
+remain excluded.
+
+Trusted context compaction writes a recoverable snapshot chain under
+`BIRKIN_HOME`. Untrusted turns never persist compaction lineage. Inspect the
+chain with `birkin lineage list`, print one snapshot with `recover`, retain only
+the newest snapshots with `prune --keep N`, or copy a snapshot with
+`export ID DESTINATION`.
+
 ## Commands
 
 | Command | Purpose |
@@ -495,7 +510,7 @@ letter or digit. Use `birkin working-memory --help` for the complete surface.
 | `birkin web [--no-browser]` | Run the standalone authenticated chat workspace and control API. |
 | `birkin review` | Approve or reject pending consequential actions. |
 | `birkin permission` | Inspect or change approval categories and CLI access. |
-| `birkin tools` | List, enable, or disable native tools. |
+| `birkin tools` | List, enable, or disable native tools from the canonical registry inventory. |
 | `birkin model` / `birkin models` | Inspect or select the model. |
 | `birkin skills` | List, inspect, sync, validate, or manage skills. |
 | `birkin plugins` | Inspect permissions, install exact signed bundle versions, or resolve pins. |
@@ -506,7 +521,9 @@ letter or digit. Use `birkin working-memory --help` for the complete surface.
 | `birkin runs` / `birkin trace ID` | Inspect run summaries and detailed audit records. |
 | `birkin cron` | List or remove scheduled jobs. |
 | `birkin companion` | Manage opt-in commitments, check-ins, and notification policy. Fixed UTC fallback offsets must be strictly between -1440 and 1440 minutes. |
-| `birkin sessions` | List or export saved conversations. |
+| `birkin sessions` / `birkin sessions export NAME [--vault]` | List or export saved conversations. |
+| `birkin lineage` | List, recover, prune, or export trusted compaction snapshots. |
+| `birkin worker-hook-qa` | Deprecated compatibility alias for the side-effect-free worker continuation QA driver. |
 | `birkin working-memory` | Inspect, update, or clear structured current-task state. |
 | `birkin mcp-serve` | Serve Birkin memory, skills, and proposals over MCP stdio. |
 | `birkin voice` | Configure or control the optional voice daemon. |
@@ -551,7 +568,7 @@ instead of retried blindly, preserving at-most-once delivery for each request.
 
 A bundle is a directory containing `birkin-plugin.json`, its entry-point files,
 and a detached `bundle.sig`. The strict manifest declares one exact semantic
-version, one or more `skill`, `agent`, `hook`, or `mcp_server` kinds, and the
+version, one or more activatable `skill` or `agent` kinds, and the
 permissions it needs using the same `network`, `network_allowlist`,
 `env_allowlist`, and `write_paths` vocabulary as `SandboxPolicy`:
 
@@ -674,15 +691,6 @@ points return `Tool` objects consumed by the existing native tool registry.
   "gateway_clean_hooks": true,
   "gateway_thinking_tokens": 0,
   "gateway_prewarm": true,
-  "office": {
-    "handoc": {
-      "node_path": "",
-      "node_version": "22.14.0",
-      "module_root": "",
-      "package_manifest_sha256": "",
-      "timeout_seconds": 30
-    }
-  },
   "voice": {
     "wake_phrase": "Daddy is home",
     "gateway_url": "",
@@ -716,11 +724,13 @@ points return `Tool` objects consumed by the existing native tool registry.
     },
     "slack": {
       "enabled": false,
-      "webhook_url": ""
+      "webhook_url": "",
+      "allowed_channel_ids": []
     },
     "discord": {
       "enabled": false,
-      "webhook_url": ""
+      "webhook_url": "",
+      "allowed_channel_ids": []
     }
   },
   "vault_path": "",
@@ -800,6 +810,12 @@ points return `Tool` objects consumed by the existing native tool registry.
 </details>
 
 Environment variables remain the right place for provider secrets. `api_keys` names environment-variable pools; it is not a place to paste raw keys. `a2a_enabled` is opt-in. Enforced egress disables uninspected native network paths and allows only configured destinations through Birkin's inspected tools. A sandboxed gateway child can submit a shell request through `propose_action`; Birkin queues it for approval instead of running it inside the child sandbox. An empty Telegram `allowed_chat_ids` list permits public text-only turns for Claude/native providers, but strips semantic memory, harness state/review, transcript persistence, Birkin/company MCP, and native tools. Codex CLI cannot provide an equivalent tool-free child, so its Telegram gateway requires an explicit chat allowlist. Public replies cannot trigger attachment delivery or workflow persistence, and shared-state commands such as `/neurosis` require an allowlisted chat.
+
+Slack and Discord are send-only HTTPS webhook targets: they never start an
+inbound listener. Scheduler jobs select them with `deliver_channel` and must
+name a destination in that channel's `allowed_channel_ids`. Birkin records the
+delivery obligation before the network request, clears it only after success,
+and replays pending Slack/Discord obligations when the scheduler daemon starts.
 
 Free-form shell requests use a fixed non-login platform shell (`%SystemRoot%\System32\cmd.exe /d /s /c` on Windows and `/bin/bash -c` on POSIX) inside an owned process tree. Windows disables AutoRun and selects code page 65001 before user command evaluation, so native `cmd.exe` built-ins and UTF-8 runtimes share the captured stream contract. Birkin preserves the inherited `PATH`, adds known runtime directories without sourcing user profiles, captures UTF-8 streams, and provides writable temporary directories. The same managed runner serves the native shell tool, approved shell continuations, scheduler shell jobs, script monitors, lifecycle hooks, GitHub Action test commands, and worktree setup commands. Worktree setup still exposes only policy-approved payload variables plus non-secret process mechanics such as `PATH`, system interpreter variables, and an isolated `TMPDIR`/`TEMP`/`TMP`; Docker setup shell text remains inside the policy-constrained container. Timeout, interrupt, and Job Object/process-group closure terminate descendants before returning and preserve partial stdout and stderr.
 

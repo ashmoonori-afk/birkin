@@ -92,11 +92,72 @@ def _locked_state() -> dict[str, object]:
     }
 
 
+def _basic_state(path: Path) -> tuple[dict[str, object], ParsedPdf]:
+    raw = path.read_bytes()
+    if not raw.startswith(b"%PDF-") or b"%%EOF" not in raw[-2048:]:
+        raise DocumentError(
+            DocumentErrorCode.PACKAGE_INVALID,
+            "inspect",
+            "PDF header or end marker is invalid",
+            details={"reason": "pdf_structure_invalid"},
+        )
+    encrypted = b"/Encrypt" in raw
+    capabilities = pdf_capabilities(
+        "unknown",
+        "backend_unavailable",
+        "pdf_parser_unavailable",
+    )
+    state: dict[str, object] = {
+        "encrypted": encrypted,
+        "credential_required": False,
+        "security": {
+            "encrypted": encrypted,
+            "credential_required": False,
+            "credential_supplied": False,
+            "permissions": None,
+            "permissions_valid": None,
+            "text_extraction_allowed": None,
+        },
+        "form_type": "unknown",
+        "forms": {
+            "state": "unknown",
+            "has_acroform": None,
+            "has_xfa": None,
+            "field_count": None,
+        },
+        "content_type": "backend_unavailable",
+        "content": {
+            "state": "backend_unavailable",
+            "native_text": None,
+            "image_only": None,
+            "pages": None,
+            "image_pages": None,
+        },
+        "signed": None,
+        "signatures": {
+            "present": None,
+            "count": None,
+            "items": [],
+            "cryptographic_verification": "unsupported",
+            "trust_evaluation": "unsupported",
+        },
+        "active_content": [],
+        "active_content_inspection": "parser_unavailable",
+        "capabilities": capabilities,
+    }
+    return state, ParsedPdf(encrypted, None, (), None, None)
+
+
 def inspect_pdf(
     path: Path, password: str | bytes | None = None
 ) -> tuple[dict[str, object], ParsedPdf]:
     source = path
-    reader = _reader(source, password)
+    try:
+        reader = _reader(source, password)
+    except DocumentError as exc:
+        if exc.code is not DocumentErrorCode.CAPABILITY_UNAVAILABLE:
+            raise
+        return _basic_state(source)
     encrypted = bool(reader.is_encrypted)
     if encrypted and password is None:
         locked = ParsedPdf(True, None, (), None, None)

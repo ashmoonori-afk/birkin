@@ -27,6 +27,7 @@ jobs:
             python: "3.13"
     runs-on: ${{ matrix.os }}
     env:
+      BIRKIN_BROWSER_INTEGRATION: "1"
       PYTHONUTF8: "1"
     timeout-minutes: 60
     steps:
@@ -41,7 +42,13 @@ jobs:
         uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
         with:
           bun-version: "1.2.22"
-      - run: python -m pip install --upgrade pip && python -m pip install -e ".[dev,office,office-advanced]" PyYAML
+      - run: python -m pip install --upgrade pip && python -m pip install -e ".[dev,office,office-advanced,browser]" PyYAML
+      - name: Install Chromium with Linux dependencies
+        if: runner.os == 'Linux'
+        run: python -m playwright install --with-deps chromium
+      - name: Install Chromium
+        if: runner.os != 'Linux'
+        run: python -m playwright install chromium
       - name: Install Windows verification tools
         if: runner.os == 'Windows'
         shell: cmd
@@ -214,6 +221,7 @@ jobs:
       - run: >-
           sudo /usr/bin/python3 -m pip install
           --break-system-packages
+          --ignore-installed
           -e ".[desktop]"
       - run: >-
           gcc scripts/qa/linux/ComputerUseFixture.c

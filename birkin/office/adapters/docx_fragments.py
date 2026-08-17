@@ -6,7 +6,7 @@ import html
 import re
 from collections import defaultdict
 
-from defusedxml.ElementTree import ParseError, fromstring
+from birkin.office.safe_xml import ParseError, fromstring
 
 from ..errors import DocumentError, DocumentErrorCode
 from .docx_types import (

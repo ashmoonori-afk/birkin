@@ -32,7 +32,7 @@
 | 코딩 에이전트가 사용자가 plan을 이해하기 전에 파일을 변경함 | 공식 VS Code extension이 editor context를 보내고, plan을 먼저 검토하며, 제안 diff를 표시하고, Birkin 승인을 처리하고, checkpoint를 복원합니다. |
 | 로컬 도구가 불투명한 서비스가 됨 | run, approval, checkpoint, status, config가 모두 로컬에서 확인 가능합니다. |
 
-Birkin 핵심 런타임에는 process identity를 위한 필수 의존성 하나(`psutil`)가 있습니다. 선택적 extra가 voice, native desktop Computer Use, browser, office 파일 지원을 추가합니다. 현재 저장소에는 **63개 스킬**이 번들되며, 기본 테스트는 모두 오프라인 실행을 목표로 합니다.
+Birkin 핵심 런타임에는 process identity용 `psutil`과 타입화된 runtime 계약용 `typing-extensions`라는 두 필수 의존성이 있습니다. 선택적 extra가 voice, native desktop Computer Use, browser, office 파일 지원을 추가합니다. 현재 저장소에는 **63개 스킬**이 번들되며, 기본 테스트는 모두 오프라인 실행을 목표로 합니다.
 
 ## 메모리
 
@@ -169,7 +169,7 @@ Raw screenshot은 `BIRKIN_HOME/computer-use/artifacts` 아래 content-addressed 
 
 ## Office Work OS v2
 
-Birkin은 DOCX, XLSX, PPTX, PDF, HWPX에 대해 범위가 제한된 workflow를 등록합니다. 텍스트 추출, 텍스트 중심 생성, 계층형 검증/비교, 명시적 손실 예산을 사용하는 TXT 변환, semantic structured preview, copy-on-write package 수정 한 건을 지원합니다. PDF 변경은 거부하고 HWPX 생성에는 신뢰된 template이 필요합니다.
+Birkin은 DOCX, XLSX, PPTX, PDF, HWPX에 대해 범위가 제한된 workflow를 등록합니다. 텍스트 추출, 텍스트 중심 생성, 계층형 검증/비교, 명시적 손실 예산을 사용하는 TXT 변환, semantic structured preview, copy-on-write package 수정 한 건을 지원합니다. PDF 변경은 거부합니다. HWPX blank authoring은 `office` extra의 정확히 pin된 `python-hwpx==6.1.0`을 사용하며, 신뢰된 template derivation도 계속 지원합니다.
 
 <!-- office-support-matrix:start -->
 | Format ID | Read/inspect | Create | Extract | Validate | Compare | Text convert | Surgical mutation | Render/recalc/forms |
@@ -178,7 +178,7 @@ Birkin은 DOCX, XLSX, PPTX, PDF, HWPX에 대해 범위가 제한된 workflow를 
 | `xlsx` | bounded | conditional | bounded | structural | layered | bounded | bounded | structured-preview |
 | `pptx` | bounded | conditional | bounded | structural | layered | bounded | bounded | structured-preview |
 | `pdf` | bounded | bounded | conditional | structural | layered | conditional | refused | structured-preview |
-| `hwpx` | bounded | template-only | bounded | structural | layered | bounded | bounded | structured-preview |
+| `hwpx` | bounded | conditional | bounded | structural | layered | bounded | bounded | structured-preview |
 <!-- office-support-matrix:end -->
 
 `layered` 비교는 byte hash뿐 아니라 범위가 제한된 정규화 semantic text와 가능한 경우 ZIP package entry 변경도 각각 보고합니다. PDF에는 ZIP package 계층이 없습니다. `structured-preview`는 `output_format: "structured_preview"`일 때만 `render_artifact`가 성공한다는 뜻입니다. Visual `pdf`, `png`, `thumbnail` 요청은 `RENDER_UNAVAILABLE`을 반환합니다. Spreadsheet 재계산과 일반 form 처리는 지원하지 않습니다.
@@ -197,9 +197,11 @@ TXT 변환에는 `loss_budget` 인자가 필수이며 native 또는 lossless 변
 {"source":{"content_hash":"<source-sha256>","uri":"/workspace/.birkin/artifacts/incoming/source.docx"},"target_format":"txt","output_name":"source.txt","loss_budget":{"structure":10,"style_layout":10,"macro_active_content":0,"signature_encryption":0}}
 ```
 
-선택 Office backend는 `python -m pip install -e ".[office]"`로, PDF 검사/추출/심층 reopen은 `python -m pip install -e ".[office-advanced]"`로 설치합니다. 내장 PDF 생성은 ASCII 전용이며 non-Latin 요청은 ReportLab을 실행하거나 설치하라고 안내하지 않고 타입화된 capability refusal을 반환합니다. 승인된 선택 backend가 없으면 타입화된 오류를 반환하며 다른 후보를 조용히 선택하지 않습니다.
+선택 local Python Office backend는 `python -m pip install -e ".[office]"`로, PDF 검사/추출/심층 reopen은 `python -m pip install -e ".[office-advanced]"`로 설치합니다. Office production workflow는 keyless, offline-capable, Python-only이며 외부 application, executable, daemon, runtime 또는 subprocess conversion engine을 탐색하거나 실행하지 않습니다. 내장 PDF 생성은 ASCII 전용이며 non-Latin 요청은 ReportLab을 실행하거나 설치하라고 안내하지 않고 타입화된 capability refusal을 반환합니다. 승인된 선택 Python backend가 없으면 타입화된 오류를 반환하며 다른 후보를 조용히 선택하지 않습니다.
 
-[상세 지원 계약](./docs/office-support.md#office-work-os-v2), machine [`provenance_manifest.json`](./birkin/office/adapters/provenance_manifest.json), [`THIRD_PARTY_NOTICES.md`](./birkin/office/adapters/THIRD_PARTY_NOTICES.md)를 참고하십시오. 이 문서는 Birkin `0.4.227`, `catalog_revision: 4`, `inventory_sha256: 66ac4638ee7a8b4f6b68325b036ca7d9b312fdf37eef9b90f3c163a756356d53`를 대상으로 합니다.
+신뢰된 한국어·영어 자연어 요청은 production skill을 결정적으로 preload합니다. Word/DOCX는 `word-documents`, Excel/XLSX는 `spreadsheets`, PowerPoint/PPTX는 `presentations`, PDF는 `pdf-documents`, HWP/HWPX는 `korean-hwp-documents`, 일반 Office 작업은 `office-work-os`로 route합니다. Format intent와 artifact 신호가 충돌하면 inspect-first `office-documents`로 route합니다. 문서 내용은 untrusted data이므로 skill을 선택하거나 override할 수 없고, 모든 routed mutation은 copy-on-write를 유지합니다.
+
+[상세 지원 계약](./docs/office-support.md#office-work-os-v2), machine [`provenance_manifest.json`](./birkin/office/adapters/provenance_manifest.json), [`THIRD_PARTY_NOTICES.md`](./birkin/office/adapters/THIRD_PARTY_NOTICES.md)를 참고하십시오. 이 문서는 Birkin `0.4.227`, `catalog_revision: 4`, `inventory_sha256: a49ab813ee4cdea3d6f87e0e2bd063b1dde54058e5c8dd0af0cf32bec74cae95`를 대상으로 합니다.
 
 ## 통합 chat workspace
 
@@ -486,6 +488,18 @@ birkin working-memory clear --session issue-123
 문자는 ASCII 영문자, 숫자, `.`, `_`, `-`입니다. 전체 표면은
 `birkin working-memory --help`로 확인하십시오.
 
+`task` 또는 `both` mode의 checkpoint restore는 이 canonical Working Memory와
+canonical goal store를 snapshot하고 복원합니다. 별도의 task-state sidecar는
+유지하지 않습니다. 신뢰되지 않은 channel의 persistent gateway turn에는 해당
+session의 로컬 canonical goal과 Working Memory만 주입합니다. Transcript history,
+skill, persona/global memory, native tool 권한은 계속 제외됩니다.
+
+신뢰된 context compaction은 `BIRKIN_HOME` 아래에 복구 가능한 snapshot chain을
+기록합니다. 신뢰되지 않은 turn은 compaction lineage를 저장하지 않습니다.
+`birkin lineage list`로 chain을 조회하고, `recover`로 snapshot 하나를 출력하며,
+`prune --keep N`으로 최신 snapshot만 남기거나 `export ID DESTINATION`으로
+snapshot을 복사할 수 있습니다.
+
 ## 명령어
 
 | 명령 | 용도 |
@@ -496,7 +510,7 @@ birkin working-memory clear --session issue-123
 | `birkin web [--no-browser]` | 독립 인증 chat workspace와 control API 실행. |
 | `birkin review` | 결과가 생기는 대기 action 승인 또는 거절. |
 | `birkin permission` | Approval category와 CLI access 확인·변경. |
-| `birkin tools` | 네이티브 tool 목록·활성화·비활성화. |
+| `birkin tools` | Canonical registry inventory에서 네이티브 tool 목록·활성화·비활성화. |
 | `birkin model` / `birkin models` | Model 확인 또는 선택. |
 | `birkin skills` | Skill 목록·조회·sync·validate·관리. |
 | `birkin plugins` | 권한 확인, 정확한 signed bundle version 설치, pin resolution. |
@@ -507,7 +521,9 @@ birkin working-memory clear --session issue-123
 | `birkin runs` / `birkin trace ID` | Run summary와 상세 audit record 조회. |
 | `birkin cron` | 예약 job 목록 또는 삭제. |
 | `birkin companion` | Opt-in 약속, 체크인, 알림 정책 관리. 고정 UTC fallback offset은 -1440분 초과 1440분 미만이어야 함. |
-| `birkin sessions` | 저장된 대화 목록 또는 export. |
+| `birkin sessions` / `birkin sessions export NAME [--vault]` | 저장된 대화 목록 또는 export. |
+| `birkin lineage` | 신뢰된 compaction snapshot 목록·복구·prune·export. |
+| `birkin worker-hook-qa` | Side effect 없는 worker continuation QA driver의 deprecated compatibility alias. |
 | `birkin working-memory` | 구조화된 현재 작업 상태 조회·갱신·삭제. |
 | `birkin mcp-serve` | Birkin memory, skill, proposal을 MCP stdio로 제공. |
 | `birkin voice` | 선택적 voice daemon 설정·제어. |
@@ -552,7 +568,7 @@ request ID, protocol version을 모두 검증합니다. Transport 실패는 자�
 
 Bundle은 `birkin-plugin.json`, entry-point file, detached `bundle.sig`를 담은
 directory입니다. 엄격한 manifest는 정확한 semantic version 하나,
-`skill`, `agent`, `hook`, `mcp_server` kind 하나 이상, 그리고
+활성화 가능한 `skill` 또는 `agent` kind 하나 이상, 그리고
 `SandboxPolicy`와 동일한 `network`, `network_allowlist`, `env_allowlist`,
 `write_paths` vocabulary로 필요한 권한을 선언합니다.
 
@@ -675,15 +691,6 @@ registry에 연결됩니다.
   "gateway_clean_hooks": true,
   "gateway_thinking_tokens": 0,
   "gateway_prewarm": true,
-  "office": {
-    "handoc": {
-      "node_path": "",
-      "node_version": "22.14.0",
-      "module_root": "",
-      "package_manifest_sha256": "",
-      "timeout_seconds": 30
-    }
-  },
   "voice": {
     "wake_phrase": "Daddy is home",
     "gateway_url": "",
@@ -717,11 +724,13 @@ registry에 연결됩니다.
     },
     "slack": {
       "enabled": false,
-      "webhook_url": ""
+      "webhook_url": "",
+      "allowed_channel_ids": []
     },
     "discord": {
       "enabled": false,
-      "webhook_url": ""
+      "webhook_url": "",
+      "allowed_channel_ids": []
     }
   },
   "vault_path": "",
@@ -803,6 +812,12 @@ registry에 연결됩니다.
 Provider secret은 환경 변수에 두는 것이 원칙입니다. `api_keys`는 환경 변수 pool의 이름이며 raw key를 붙여 넣는 곳이 아닙니다. `a2a_enabled`는 opt-in입니다. Enforced egress는 검사되지 않은 네이티브 network 경로를 비활성화하고 설정된 destination만 Birkin의 inspected tool을 통해 허용합니다. Sandbox 안의 gateway child는 `propose_action`으로 shell 요청을 제출할 수 있고, Birkin은 이를 child sandbox에서 실행하지 않고 승인 큐에 넣습니다. Telegram의 `allowed_chat_ids`가 비어 있으면 Claude/native provider에서는 public text-only turn만 허용하고 semantic memory, harness state/review, transcript persistence, Birkin/company MCP, native tool을 모두 제거합니다. 동등한 tool-free child를 제공할 수 없는 Codex CLI의 Telegram gateway는 명시적인 chat allowlist가 필요합니다.
 Public reply는 attachment 전달이나 workflow persistence를 trigger할 수 없고,
 `/neurosis` 같은 shared-state command는 allowlist에 포함된 chat에서만 허용됩니다.
+
+Slack과 Discord는 send-only HTTPS webhook target이며 inbound listener를 시작하지
+않습니다. Scheduler job은 `deliver_channel`로 target을 선택하고 해당 channel의
+`allowed_channel_ids`에 포함된 destination만 지정할 수 있습니다. Birkin은
+network request 전에 delivery obligation을 기록하고 성공 후에만 제거하며,
+scheduler daemon 시작 시 pending Slack/Discord obligation을 replay합니다.
 
 자유 형식 shell 요청은 소유권이 있는 process tree 안에서 고정된 non-login platform shell(Windows의 `%SystemRoot%\System32\cmd.exe /d /s /c`, POSIX의 `/bin/bash -c`)을 사용합니다. Windows는 AutoRun을 비활성화하고 사용자 명령을 평가하기 전에 code page 65001을 선택하므로 네이티브 `cmd.exe` built-in과 UTF-8 runtime이 같은 stream capture 계약을 따릅니다. Birkin은 상속된 `PATH`를 보존하고 사용자 profile을 읽지 않은 채 알려진 runtime 디렉터리를 추가하며, UTF-8 stream과 쓰기 가능한 임시 디렉터리를 제공합니다. 네이티브 shell tool, 승인된 shell continuation, scheduler shell job, script monitor, lifecycle hook, GitHub Action test command, worktree setup command가 같은 managed runner를 공유합니다. Worktree setup의 payload 환경은 정책이 허용한 변수만 받고, 별도로 비밀이 아닌 `PATH`, system interpreter 변수, 격리된 `TMPDIR`/`TEMP`/`TMP` 같은 process 실행 요소만 받습니다. Docker setup shell text는 정책으로 제한된 container 안에 남습니다. Timeout, interrupt, Job Object/process-group 종료는 반환 전에 descendant를 제거하고 부분 stdout과 stderr를 보존합니다.
 

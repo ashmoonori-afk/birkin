@@ -72,13 +72,6 @@ Schema version: 1
 | `gateway_clean_hooks` | `boolean` | `true` | Birkin 설정 `gateway_clean_hooks`. |
 | `gateway_thinking_tokens` | `integer` | `0` | Birkin 설정 `gateway_thinking_tokens`. |
 | `gateway_prewarm` | `boolean` | `true` | Birkin 설정 `gateway_prewarm`. |
-| `office` | `object` | `{"handoc": {"node_path": "", "node_version": "22.14.0", "module_root": "", "package_manifest_sha256": "", "timeout_seconds": 30}}` | Birkin 설정 `office`. |
-| `office.handoc` | `object` | `{"node_path": "", "node_version": "22.14.0", "module_root": "", "package_manifest_sha256": "", "timeout_seconds": 30}` | Birkin 설정 `office.handoc`. |
-| `office.handoc.node_path` | `string` | `""` | Birkin 설정 `office.handoc.node_path`. |
-| `office.handoc.node_version` | `string` | `"22.14.0"` | Birkin 설정 `office.handoc.node_version`. |
-| `office.handoc.module_root` | `string` | `""` | Birkin 설정 `office.handoc.module_root`. |
-| `office.handoc.package_manifest_sha256` | `string` | `""` | Birkin 설정 `office.handoc.package_manifest_sha256`. |
-| `office.handoc.timeout_seconds` | `integer` | `30` | Birkin 설정 `office.handoc.timeout_seconds`. |
 | `voice` | `object` | `{"wake_phrase": "Daddy is home", "gateway_url": "", "session_id": "voice-local", "sample_rate": 24000, "stt_model": "gpt-transcribe", "tts_model": "gpt-4o-mini-tts", "tts_voice": "coral", "tts_instructions": "Speak concisely and clearly.", "conversation_style": "", "onboarding_complete": false, "background_workers": 2}` | Birkin 설정 `voice`. |
 | `voice.wake_phrase` | `string` | `"Daddy is home"` | Birkin 설정 `voice.wake_phrase`. |
 | `voice.gateway_url` | `string` | `""` | Birkin 설정 `voice.gateway_url`. |
@@ -99,7 +92,7 @@ Schema version: 1
 | `autosave_max_files` | `integer` | `500` | Birkin 설정 `autosave_max_files`. |
 | `neurosis_threshold` | `any` | `null` | Birkin 설정 `neurosis_threshold`. |
 | `neurosis_auto` | `boolean` | `true` | Birkin 설정 `neurosis_auto`. |
-| `channels` | `object` | `{"http": {"enabled": true}, "telegram": {"enabled": false, "token": "", "allowed_chat_ids": [], "stream": true}, "slack": {"enabled": false, "webhook_url": ""}, "discord": {"enabled": false, "webhook_url": ""}}` | Birkin 설정 `channels`. |
+| `channels` | `object` | `{"http": {"enabled": true}, "telegram": {"enabled": false, "token": "", "allowed_chat_ids": [], "stream": true}, "slack": {"enabled": false, "webhook_url": "", "allowed_channel_ids": []}, "discord": {"enabled": false, "webhook_url": "", "allowed_channel_ids": []}}` | Birkin 설정 `channels`. |
 | `channels.http` | `object` | `{"enabled": true}` | Birkin 설정 `channels.http`. |
 | `channels.http.enabled` | `boolean` | `true` | Birkin 설정 `channels.http.enabled`. |
 | `channels.telegram` | `object` | `{"enabled": false, "token": "", "allowed_chat_ids": [], "stream": true}` | Birkin 설정 `channels.telegram`. |
@@ -107,12 +100,14 @@ Schema version: 1
 | `channels.telegram.token` | `string` | `""` | Birkin 설정 `channels.telegram.token`. |
 | `channels.telegram.allowed_chat_ids` | `array` | `[]` | Birkin 설정 `channels.telegram.allowed_chat_ids`. |
 | `channels.telegram.stream` | `boolean` | `true` | Birkin 설정 `channels.telegram.stream`. |
-| `channels.slack` | `object` | `{"enabled": false, "webhook_url": ""}` | Birkin 설정 `channels.slack`. |
+| `channels.slack` | `object` | `{"enabled": false, "webhook_url": "", "allowed_channel_ids": []}` | Birkin 설정 `channels.slack`. |
 | `channels.slack.enabled` | `boolean` | `false` | Birkin 설정 `channels.slack.enabled`. |
 | `channels.slack.webhook_url` | `string` | `""` | Birkin 설정 `channels.slack.webhook_url`. |
-| `channels.discord` | `object` | `{"enabled": false, "webhook_url": ""}` | Birkin 설정 `channels.discord`. |
+| `channels.slack.allowed_channel_ids` | `array` | `[]` | Birkin 설정 `channels.slack.allowed_channel_ids`. |
+| `channels.discord` | `object` | `{"enabled": false, "webhook_url": "", "allowed_channel_ids": []}` | Birkin 설정 `channels.discord`. |
 | `channels.discord.enabled` | `boolean` | `false` | Birkin 설정 `channels.discord.enabled`. |
 | `channels.discord.webhook_url` | `string` | `""` | Birkin 설정 `channels.discord.webhook_url`. |
+| `channels.discord.allowed_channel_ids` | `array` | `[]` | Birkin 설정 `channels.discord.allowed_channel_ids`. |
 | `vault_path` | `string` | `""` | Birkin 설정 `vault_path`. |
 | `memory_vector_enabled` | `boolean` | `false` | Birkin 설정 `memory_vector_enabled`. |
 | `memory_vector_backend` | `string` | `"sentence-transformers"` | Birkin 설정 `memory_vector_backend`. |

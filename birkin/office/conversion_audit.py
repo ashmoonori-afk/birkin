@@ -6,24 +6,11 @@ import re
 import zipfile
 from collections.abc import Mapping
 from pathlib import Path
-from typing import Final, cast
+from typing import cast
 
+from .conversion_schema import LOSS_CATEGORIES
 from .errors import DocumentError, DocumentErrorCode
 from .package import preflight_package
-
-LOSS_CATEGORIES: Final[tuple[str, ...]] = (
-    "structure",
-    "style_layout",
-    "formula_cache",
-    "chart_media",
-    "macro_active_content",
-    "tracked_changes_comments",
-    "form_field",
-    "metadata",
-    "signature_encryption",
-    "accessibility",
-)
-
 
 def normalize_budget(value: Mapping[str, object] | None) -> dict[str, int]:
     """Return a complete budget; omitted categories require zero loss."""

@@ -92,6 +92,7 @@ def test_gateway_resolves_registry_before_legacy(monkeypatch):
             "slack": {
                 "enabled": True,
                 "webhook_url": "https://hooks.slack.test/services/1",
+                "allowed_channel_ids": ["ops"],
             }
         }
     }
@@ -117,13 +118,14 @@ def test_slack_posts_json_and_truncates(monkeypatch):
             "slack": {
                 "enabled": True,
                 "webhook_url": "https://hooks.slack.test/services/1",
+                "allowed_channel_ids": ["ops"],
             }
         }
     }
     adapter = slack_webhook.SlackWebhookAdapter(cfg)
     seen = _capture_post(monkeypatch, slack_webhook)
 
-    assert adapter.send("ignored", "x" * 4000) is True
+    assert adapter.send("ops", "x" * 4000) is True
     request = seen["request"]
     payload = json.loads(request.data.decode("utf-8"))
     assert request.full_url == cfg["channels"]["slack"]["webhook_url"]
@@ -141,13 +143,14 @@ def test_discord_posts_json_and_truncates(monkeypatch):
             "discord": {
                 "enabled": True,
                 "webhook_url": "https://discord.test/api/webhooks/1",
+                "allowed_channel_ids": ["ops"],
             }
         }
     }
     adapter = discord_webhook.DiscordWebhookAdapter(cfg)
     seen = _capture_post(monkeypatch, discord_webhook)
 
-    assert adapter.send("ignored", "y" * 2500) is True
+    assert adapter.send("ops", "y" * 2500) is True
     payload = json.loads(seen["request"].data.decode("utf-8"))
     assert len(payload["content"]) == 2000
     assert payload["content"].endswith(discord_webhook.TRUNCATION_MARKER)

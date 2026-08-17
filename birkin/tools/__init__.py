@@ -139,19 +139,8 @@ class ToolRegistry:
             else ToolResult(content, result.is_error)
 
 
-def build_registry(
-    ctx: ToolContext,
-    *,
-    include: Optional[set[str]] = None,
-    approval_replay: bool = False,
-) -> ToolRegistry:
-    """Assemble the default toolset.
-
-    ``include`` optionally restricts which tool *groups* are registered
-    (used to give subagents a scoped toolset). Groups:
-    ``files``, ``shell``, ``web``, ``sessions``, ``skills``, ``memory``,
-    ``vision``, ``desktop``, ``browser``, ``egress``, ``companion``, ``subagent``.
-    """
+def build_tool_groups(ctx: ToolContext) -> dict[str, list[Tool]]:
+    """Build the canonical ordered tool-group inventory."""
     from .. import browser
     from . import (citations, computer_use, desktop, documents, egress, files, market,
                    sessions, shell, vision, web)  # local: avoid cycles
@@ -192,6 +181,17 @@ def build_registry(
     # Subagents may spawn further subagents only until max_depth.
     if ctx.depth < ctx.max_depth:
         groups["subagent"] = subagent_tools()
+    return groups
+
+
+def build_registry(
+    ctx: ToolContext,
+    *,
+    include: Optional[set[str]] = None,
+    approval_replay: bool = False,
+) -> ToolRegistry:
+    """Assemble the default toolset from canonical group metadata."""
+    groups = build_tool_groups(ctx)
 
     disabled = (
         set()

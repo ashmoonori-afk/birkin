@@ -341,6 +341,149 @@ def test_execute_action_unknown_category_raises():
         approvals.execute_action("bogus", {})
 
 
+def test_approved_checkpoint_restore_updates_canonical_session_state(
+    tmp_path,
+):
+    from birkin import checkpoint_state, checkpoints, goals, harness
+
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    (workspace / "state.txt").write_text("stable\n", encoding="utf-8")
+    session_id = "approval-restore"
+    harness.update_working(session_id, decisions=["before"])
+    goals.set_goal("before goal", session_id=session_id)
+    manager = checkpoints.CheckpointManager(
+        state_snapshot=lambda: checkpoint_state.snapshot(session_id),
+        state_restore=lambda state: checkpoint_state.restore(
+            session_id,
+            state,
+        ),
+    )
+    checkpoint = manager.ensure_checkpoint(workspace, "before")
+    assert checkpoint
+    harness.update_working(session_id, decisions=["after"])
+    goals.set_goal("after goal", session_id=session_id)
+
+    result = approvals.execute_action(
+        "checkpoint_restore",
+        {
+            "workspace": str(workspace),
+            "checkpoint": checkpoint,
+            "mode": "task",
+            "session_id": session_id,
+        },
+    )
+
+    assert "task state" in result
+    assert harness.working_state(session_id)["decisions"] == ["before"]
+    restored_goal = goals.get_active(session_id=session_id)
+    assert restored_goal is not None
+    assert restored_goal.objective == "before goal"
+
+
+def test_approved_checkpoint_restore_rejects_cross_session_state(
+    tmp_path,
+):
+    from birkin import checkpoint_state, checkpoints, goals, harness
+
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    (workspace / "state.txt").write_text("stable\n", encoding="utf-8")
+    source = "source-session"
+    target = "target-session"
+    harness.update_working(source, decisions=["source"])
+    goals.set_goal("source goal", session_id=source)
+    manager = checkpoints.CheckpointManager(
+        state_snapshot=lambda: checkpoint_state.snapshot(source),
+        state_restore=lambda state: checkpoint_state.restore(source, state),
+    )
+    checkpoint = manager.ensure_checkpoint(workspace, "source")
+    assert checkpoint
+    harness.update_working(target, decisions=["target"])
+    goals.set_goal("target goal", session_id=target)
+
+    with pytest.raises(ValueError, match="different session"):
+        approvals.execute_action(
+            "checkpoint_restore",
+            {
+                "workspace": str(workspace),
+                "checkpoint": checkpoint,
+                "mode": "task",
+                "session_id": target,
+            },
+        )
+
+    assert harness.working_state(target)["decisions"] == ["target"]
+    target_goal = goals.get_active(session_id=target)
+    assert target_goal is not None
+    assert target_goal.objective == "target goal"
+
+
+def test_cross_session_both_restore_rejects_before_file_mutation(
+    tmp_path,
+):
+    from birkin import checkpoint_state, checkpoints, goals, harness
+
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    state_file = workspace / "state.txt"
+    state_file.write_text("source\n", encoding="utf-8")
+    source = "source-both-session"
+    target = "target-both-session"
+    harness.update_working(source, decisions=["source"])
+    goals.set_goal("source goal", session_id=source)
+    manager = checkpoints.CheckpointManager(
+        state_snapshot=lambda: checkpoint_state.snapshot(source),
+        state_restore=lambda state: checkpoint_state.restore(source, state),
+    )
+    checkpoint = manager.ensure_checkpoint(workspace, "source")
+    assert checkpoint
+    state_file.write_text("target\n", encoding="utf-8")
+    harness.update_working(target, decisions=["target"])
+    goals.set_goal("target goal", session_id=target)
+
+    with pytest.raises(ValueError, match="different session"):
+        approvals.execute_action(
+            "checkpoint_restore",
+            {
+                "workspace": str(workspace),
+                "checkpoint": checkpoint,
+                "mode": "both",
+                "session_id": target,
+            },
+        )
+
+    assert state_file.read_text(encoding="utf-8") == "target\n"
+    assert harness.working_state(target)["decisions"] == ["target"]
+
+
+def test_checkpoint_state_rejects_malformed_goal_before_working_mutation(
+    tmp_path,
+    monkeypatch,
+):
+    from birkin import checkpoint_state, goals, harness
+
+    monkeypatch.setenv("BIRKIN_HOME", str(tmp_path))
+    session_id = "transactional-state"
+    harness.update_working(session_id, decisions=["current"])
+    goals.set_goal("current goal", session_id=session_id)
+    before_working = harness.working_state(session_id)
+    before_goal = goals.get_active(session_id=session_id)
+
+    with pytest.raises(ValueError, match="goal snapshot is malformed"):
+        checkpoint_state.restore(
+            session_id,
+            {
+                "session_id": session_id,
+                "working_memory": {"decisions": ["restored"]},
+                "goal": {"objective": 3},
+            },
+        )
+
+    assert harness.working_state(session_id) == before_working
+    assert goals.get_active(session_id=session_id) == before_goal
+
+
 def test_execute_claimed_unknown_category_marks_error():
     rec = store.add_pending(
         category="bogus",

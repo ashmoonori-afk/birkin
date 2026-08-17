@@ -6,26 +6,10 @@ from collections.abc import Mapping
 from pathlib import Path
 from typing import cast
 
-from .conversion_audit import LOSS_CATEGORIES
 from .service import DocumentService
 from .service_create import convert_document
 from .service_types import ConvertedDocument
 from .service_workspace import DocumentWorkspace
-
-
-def budget_schema() -> dict[str, object]:
-    return {
-        "type": "object",
-        "description": (
-            "Maximum observed losses by category; omitted categories require "
-            "lossless preservation."
-        ),
-        "properties": {
-            category: {"type": "integer", "minimum": 0}
-            for category in LOSS_CATEGORIES
-        },
-        "additionalProperties": False,
-    }
 
 
 def execute_tool_conversion(

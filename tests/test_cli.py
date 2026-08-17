@@ -21,7 +21,7 @@ from birkin.cli import (
 
 SUBCOMMANDS = [
     "chat", "skills", "web", "setup", "onboard", "gateway", "tools",
-    "model", "nightly", "daemon", "review", "permission", "cron", "runs",
+    "model", "daemon", "review", "permission", "cron", "runs",
 ]
 
 
@@ -44,6 +44,10 @@ def test_installed_console_script_help():
     assert result.returncode == 0, result.stderr
     assert "chat" in result.stdout
     assert "mcp-serve" in result.stdout
+
+
+def test_top_level_help_hides_legacy_nightly_alias():
+    assert "nightly" not in build_parser().format_help()
 
 
 def test_installed_console_script_version():
@@ -225,11 +229,9 @@ def test_cmd_tools_panel(capsys):
     assert "Available Tools" in out
     assert all(
         group in out
-        for group in ("files", "sessions", "skills", "egress")
+        for group in ("files", "shell", "sessions", "skills", "egress")
     )
     assert "vision_analyze" in out
-    assert "shell" not in out
-    assert "subagent" not in out
 
 
 def test_cmd_tools_panel_includes_opted_in_desktop_tools(capsys):

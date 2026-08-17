@@ -1,0 +1,18 @@
+Command:
+uv run pytest -q tests/e2e/test_feature_consolidation_e2e.py
+
+Result:
+........... [100%]
+
+11 passed
+Exit code: 0
+
+Verified production contracts:
+- legacy workspace theme is a canonical re-export;
+- CLI tool inventory derives all canonical groups;
+- nested sessions export accepts trailing options;
+- hook/mcp_server plugin kinds are rejected before activation;
+- worker-hook-qa is a deprecated driver alias;
+- Slack/Discord scheduler delivery is policy-gated and recoverable;
+- lineage list/recover/prune/export works in module and CLI;
+- checkpoint task restore uses the canonical state bridge.

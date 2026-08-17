@@ -165,6 +165,44 @@ def get_active(*, session_id: str | None = None) -> GoalState | None:
         return _active_unlocked(session_id)
 
 
+def validate_snapshot(
+    value: dict[str, Any] | None,
+    *,
+    session_id: str,
+) -> GoalState | None:
+    """Decode a canonical goal snapshot without mutating persisted state."""
+    from . import harness
+
+    session = harness.validate_working_session_id(session_id)
+    if value is None:
+        return None
+    restored = _decode({**value, "session_id": session})
+    if restored is None:
+        raise ValueError("goal snapshot is malformed")
+    return restored
+
+
+def restore_snapshot(
+    value: dict[str, Any] | None,
+    *,
+    session_id: str,
+) -> GoalState | None:
+    """Restore one canonical session goal snapshot."""
+    restored = validate_snapshot(value, session_id=session_id)
+    with _domain_lock():
+        active = _active_unlocked(session_id)
+        try:
+            if active is not None:
+                _save(replace(active, status="paused", updated_at=_now()))
+            if restored is None:
+                return None
+            return _save(restored)
+        except BaseException:
+            if active is not None:
+                _save(active)
+            raise
+
+
 def add_usage(
     input_tokens: int,
     output_tokens: int,

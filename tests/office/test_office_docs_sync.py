@@ -66,7 +66,7 @@ EXPECTED_MATRIX = {
     ),
     "hwpx": (
         "bounded",
-        "template-only",
+        "conditional",
         "bounded",
         "structural",
         "layered",

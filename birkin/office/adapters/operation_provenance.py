@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from .approved_package_provenance import PYPDF
+from .approved_package_provenance import PYPDF, PYTHON_HWPX
 from .base import IntegrationMode, OperationState
 from .provenance_models import OperationRecord
 
@@ -185,10 +185,16 @@ def hwpx_operations() -> tuple[tuple[str, OperationRecord], ...]:
         else (
             name,
             _operation(
-                OperationState.LOSSLESS_SURGICAL,
-                "Trusted HWPX template creation applies validated field bindings copy-on-write.",
-                availability="template-only",
-                fidelity="This is template derivation only, not blank HWPX authoring.",
+                OperationState.NATIVE,
+                "Exact-pinned python-hwpx provides local text-first blank authoring; "
+                "trusted-template derivation remains copy-on-write.",
+                availability="conditional",
+                mode=IntegrationMode.OPTIONAL_PYTHON,
+                install_probe=PYTHON_HWPX.install_probe,
+                fidelity=(
+                    "Blank authoring uses package defaults; template derivation "
+                    "preserves unmatched package parts."
+                ),
             ),
         )
         for name, operation in opc_operations("source-provenance-required")

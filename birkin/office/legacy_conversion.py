@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import hashlib
-import shutil
 from pathlib import Path
 
 from .legacy_preflight import preflight_legacy
@@ -15,11 +14,6 @@ from .legacy_types import (
     LegacyRefusal,
 )
 
-_EXECUTABLES: dict[str, tuple[str, ...]] = {
-    "libreoffice": ("libreoffice", "soffice"),
-    "pandoc": ("pandoc",),
-    "unoconv": ("unoconv",),
-}
 _TARGETS: dict[str, frozenset[str]] = {
     "doc": frozenset(("docx", "odt", "pdf", "txt")),
     "xls": frozenset(("xlsx", "ods", "pdf", "csv")),
@@ -62,11 +56,8 @@ def _receipt(
 
 
 def probe_legacy_converter(request: LegacyConversionRequest) -> Path | None:
-    """Locate only the requested engine; probing never invokes untrusted input."""
-    for executable in _EXECUTABLES[request.engine.engine]:
-        located = shutil.which(executable)
-        if located is not None:
-            return Path(located)
+    """Report that external conversion engines are permanently unsupported."""
+    _ = request
     return None
 
 
@@ -99,25 +90,15 @@ def convert_legacy(
         raise LegacyRefusal(
             _receipt(preflight, request, "output_exists", "conversion boundary never overwrites an output")
         )
-    executable = probe_legacy_converter(request)
     if _hash(source_path) != preflight.source_sha256:
         raise LegacyRefusal(
             _receipt(preflight, request, "source_changed", "source changed after legacy preflight")
         )
-    if executable is None:
-        return _receipt(
-            preflight,
-            request,
-            "converter_unavailable",
-            f"pinned {request.engine.engine} {request.engine.version} executable is unavailable",
-            status="converter_unavailable",
-        )
     return _receipt(
         preflight,
         request,
-        "isolated_runner_unavailable",
-        f"{executable.name} was found, but the required offline jailed process runner is unavailable",
-        status="converter_unavailable",
+        "external_engine_forbidden",
+        "external application conversion engines are not a shipped capability",
     )
 
 

@@ -29,7 +29,7 @@ from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Any
 
-from . import config, cron, monitor, store
+from . import config, cron, delivery, monitor, store
 from .proc import (
     ShellCommand,
     run_shell_command,
@@ -60,7 +60,7 @@ def _send_telegram(token: str, chat_id: str, text: str) -> None:
 
 
 def _deliver(job: dict[str, Any], text: str) -> str:
-    """Deliver a job's output to its Telegram chat, honoring ``[SILENT]``.
+    """Deliver a job output through its policy-gated channel.
 
     Returns a short status recorded with the run: ``sent`` /
     ``skipped-silent`` / ``none`` (no deliver target) / ``error: …``."""
@@ -70,6 +70,37 @@ def _deliver(job: dict[str, Any], text: str) -> str:
     if _is_silent(text):
         return "skipped-silent"
     cfg = config.load_config()
+    channel = str(job.get("deliver_channel") or "telegram").strip().lower()
+    message = f"[{job.get('name', 'cron')}] {text}"
+    if channel in {"slack", "discord"}:
+        from .gateway.channels.registry import resolve_delivery_target
+
+        settings = ((cfg.get("channels") or {}).get(channel) or {})
+        allowed = [
+            str(value)
+            for value in settings.get("allowed_channel_ids", [])
+        ]
+        if not allowed or chat not in allowed:
+            return (
+                f"error: channel_id not in "
+                f"channels.{channel}.allowed_channel_ids"
+            )
+        adapter = resolve_delivery_target(channel, cfg)
+        if adapter is None:
+            return f"error: {channel} delivery is disabled or invalid"
+        obligation = delivery.record(channel, chat, message)
+        if obligation is None:
+            return "error: could not record delivery obligation"
+        try:
+            sent = bool(adapter.send(chat, message))
+        except Exception as exc:
+            return f"error: {exc}"
+        if not sent:
+            return f"error: {channel} webhook delivery failed"
+        delivery.clear(obligation)
+        return "sent"
+    if channel != "telegram":
+        return f"error: unsupported delivery channel {channel!r}"
     tg = (cfg.get("channels") or {}).get("telegram") or {}
     # Outbound targets honor the same allowlist as inbound messages — a job
     # payload must not be able to exfiltrate run output to a stranger's chat.
@@ -80,17 +111,56 @@ def _deliver(job: dict[str, Any], text: str) -> str:
     if not token:
         return "error: no telegram token (set TELEGRAM_BOT_TOKEN)"
     try:
-        _send_telegram(token, chat, f"[{job.get('name', 'cron')}] {text}")
+        _send_telegram(token, chat, message)
         return "sent"
     except Exception as exc:                    # network/HTTP — job still ran
         return f"error: {exc}"
 
 
-def deliver(name: str, chat_id: str | None, text: str) -> str:
+def deliver(
+    name: str,
+    chat_id: str | None,
+    text: str,
+    *,
+    channel: str = "telegram",
+) -> str:
     """Public one-shot delivery to a Telegram chat, honoring the [SILENT]
     convention and the outbound allowlist — used by Morpheus for the
     morning digest (P0-3) in addition to cron jobs."""
-    return _deliver({"name": name, "deliver_chat_id": chat_id or ""}, text)
+    return _deliver(
+        {
+            "name": name,
+            "deliver_channel": channel,
+            "deliver_chat_id": chat_id or "",
+        },
+        text,
+    )
+
+
+def redeliver_send_only_channels() -> int:
+    """Replay crash-surviving Slack and Discord delivery obligations."""
+    from .gateway.channels.registry import resolve_delivery_target
+
+    cfg = config.load_config()
+    sent = 0
+    for channel in ("slack", "discord"):
+        settings = ((cfg.get("channels") or {}).get(channel) or {})
+        allowed = frozenset(
+            str(value) for value in settings.get("allowed_channel_ids", [])
+        )
+        adapter = resolve_delivery_target(channel, cfg)
+        if adapter is None:
+            continue
+
+        def send(channel_id: str, text: str) -> bool:
+            return channel_id in allowed and bool(adapter.send(channel_id, text))
+
+        sent += delivery.redeliver(
+            channel,
+            send,
+            prefix="[redelivery]\n",
+        )
+    return sent
 
 
 def _send_checkin(chat_id: str, text: str, markup: str) -> str | None:
@@ -212,6 +282,9 @@ def run_daemon() -> int:
     print(f"birkin daemon started. Next Morpheus run at "
           f"{next_morpheus:%Y-%m-%d %H:%M}. Ctrl-C to stop.")
     _write_status(cfg, next_morpheus, running=True)
+    redelivered = redeliver_send_only_channels()
+    if redelivered:
+        print(f"redelivered {redelivered} pending webhook message(s)")
 
     # Clear the on-disk status on a graceful stop OR a SIGTERM (so the
     # dashboard never claims a dead daemon is still running).

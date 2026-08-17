@@ -43,13 +43,16 @@ def test_pyproject_parses_and_agrees_with_the_package_version():
     assert data["project"]["version"] == birkin.__version__
 
 
-def test_desktop_runtime_dependencies_are_declared_in_the_desktop_extra():
+def test_runtime_dependencies_and_desktop_extra_are_declared():
     try:
         import tomllib
     except ModuleNotFoundError:                      # py3.10
         pytest.skip("tomllib needs Python 3.11+")
     data = tomllib.loads((ROOT / "pyproject.toml").read_text(encoding="utf-8"))
-    assert data["project"]["dependencies"] == ["psutil>=6"]
+    assert data["project"]["dependencies"] == [
+        "psutil>=6",
+        "typing-extensions>=4.12",
+    ]
     dependencies = data["project"]["optional-dependencies"]["desktop"]
     names = {
         re.split(r"[<>=!~;\s\[]", requirement, maxsplit=1)[0].lower()

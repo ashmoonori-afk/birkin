@@ -5,49 +5,7 @@ optional or refused candidates; none is bundled or unconditionally selected.
 Operation capability comes from the inventory, not package discovery alone.
 
 Catalog revision: 4
-Inventory SHA-256: `66ac4638ee7a8b4f6b68325b036ca7d9b312fdf37eef9b90f3c163a756356d53`
-
-## @handoc/hwpx-parser
-
-- Publication: unpublished
-- Decision: refuse
-- Integration: conditional-source-build
-- Exact version: not proven
-- Approved range: not proven
-- Repository: https://github.com/muin-company/handoc
-- Tag: not proven
-- Commit: not proven
-- Artifact: not proven
-- Artifact SHA-256: not proven
-- License expression: not proven
-- License text SHA-256: not proven
-- Runtime evidence: Proposed Node.js 22.14.0 x64 runtime; source revision is unproven.
-- OS evidence: x64 was proposed; no verified OS support matrix is recorded.
-- Install probe: `source-provenance-required:commit+artifact+license-hash`
-- Update procedure: Approve an immutable source revision and artifact with license evidence, then regenerate the manifest and notices.
-- Refusal reason: No npm publication, approved commit, source artifact hash, or license hash is proven.
-- Role: Unpublished HWPX parser workspace candidate.
-
-## @handoc/hwpx-writer
-
-- Publication: unpublished
-- Decision: refuse
-- Integration: conditional-source-build
-- Exact version: not proven
-- Approved range: not proven
-- Repository: https://github.com/muin-company/handoc
-- Tag: not proven
-- Commit: not proven
-- Artifact: not proven
-- Artifact SHA-256: not proven
-- License expression: not proven
-- License text SHA-256: not proven
-- Runtime evidence: Proposed Node.js 22.14.0 x64 runtime; source revision is unproven.
-- OS evidence: x64 was proposed; no verified OS support matrix is recorded.
-- Install probe: `source-provenance-required:commit+artifact+license-hash`
-- Update procedure: Approve an immutable source revision and artifact with license evidence, then regenerate the manifest and notices.
-- Refusal reason: No npm publication, approved commit, source artifact hash, or license hash is proven.
-- Role: Unpublished HWPX writer workspace candidate.
+Inventory SHA-256: `a49ab813ee4cdea3d6f87e0e2bd063b1dde54058e5c8dd0af0cf32bec74cae95`
 
 ## defusedxml
 
@@ -195,6 +153,27 @@ Inventory SHA-256: `66ac4638ee7a8b4f6b68325b036ca7d9b312fdf37eef9b90f3c163a75635
 - Update procedure: Update the approved range and uv.lock together; verify the locked sdist SHA-256, upstream license expression and license-file SHA-256, then regenerate the manifest and notices.
 - Refusal reason: not proven
 - Role: Conditional DOCX creation backend.
+
+## python-hwpx
+
+- Publication: published
+- Decision: conditional
+- Integration: optional-python
+- Exact version: 6.1.0
+- Approved range: ==6.1.0
+- Repository: https://github.com/airmang/python-hwpx
+- Tag: v6.1.0
+- Commit: not proven
+- Artifact: https://files.pythonhosted.org/packages/cc/62/85356d56026fe5079f1a8b65b20ab036356be94a9d04985649a8aebd8eac/python_hwpx-6.1.0.tar.gz
+- Artifact SHA-256: b607a6fb543f1b8d1bf6e2b28b3607085bf60aade06a9acf9ca795d87a9eaabf
+- License expression: Apache-2.0
+- License text SHA-256: fee6f3e30bfe064913de5de0bbe42e1fb2467958ee458199a192bde5e36c0875
+- Runtime evidence: CPython >=3.10; package is imported lazily and is not bundled.
+- OS evidence: OS-independent Python package according to the locked wheel.
+- Install probe: `python-import:hwpx`
+- Update procedure: Update the approved range and uv.lock together; verify the locked sdist SHA-256, upstream license expression and license-file SHA-256, then regenerate the manifest and notices.
+- Refusal reason: not proven
+- Role: Exact-pinned local Python HWPX blank-authoring backend.
 
 ## python-pptx
 

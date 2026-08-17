@@ -7,8 +7,8 @@ from dataclasses import dataclass
 from typing import Protocol, cast
 from xml.parsers import expat
 
-from defusedxml import ElementTree
-from defusedxml.common import DefusedXmlException
+from birkin.office.safe_xml import ElementTree
+from birkin.office.safe_xml import DefusedXmlException
 
 from ..errors import DocumentError, DocumentErrorCode
 

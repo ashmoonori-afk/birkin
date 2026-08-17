@@ -130,3 +130,14 @@ def test_package_streaming_parser_preserves_resource_limits(
         code=DocumentErrorCode.LIMIT_EXCEEDED,
     )
     assert error.details == {"reason": reason}
+
+
+def test_streaming_xml_parser_rejects_entity_declarations() -> None:
+    from birkin.office.safe_xml import DefusedXmlException, ElementTree
+
+    parser = ElementTree.XMLParser()
+    parser.feed(b"<!DOCTYPE r [<!ENTITY x 'expanded'>]>")
+    parser.feed(b"<r>&x;</r>")
+
+    with pytest.raises(DefusedXmlException, match="DTD and entity"):
+        _ = parser.close()

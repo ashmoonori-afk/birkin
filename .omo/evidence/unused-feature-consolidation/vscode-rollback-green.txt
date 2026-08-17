@@ -1,0 +1,8 @@
+Command:
+npm --prefix vscode-extension test -- --run test/client.test.ts
+
+Result:
+4 passed
+Exit code: 0
+
+The rollback request body includes explicit `mode: "files"`.

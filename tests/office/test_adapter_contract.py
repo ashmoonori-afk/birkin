@@ -82,22 +82,13 @@ def test_service_inventory_has_verified_provenance_and_truthful_capabilities(
     assert {"Pillow", "XlsxWriter"} <= {
         package["name"] for package in by_format["pptx"]["packages"]
     }
-    handoc_packages = {
+    hwpx_packages = {
         package["name"]: package
         for package in by_format["hwpx"]["packages"]
-        if package["name"].startswith("@handoc/")
     }
-    assert set(handoc_packages) == {
-        "@handoc/hwpx-parser",
-        "@handoc/hwpx-writer",
-    }
-    assert all(
-        package["publication_status"] == "unpublished"
-        and package["version"] is None
-        and package["selection"] != "select"
-        and package["refusal_reason"]
-        for package in handoc_packages.values()
-    )
-    assert "@handoc/pdf-export" not in {
-        package["name"] for entry in inventory for package in entry["packages"]
-    }
+    python_hwpx = hwpx_packages["python-hwpx"]
+    assert python_hwpx["version"] == "6.1.0"
+    assert python_hwpx["version_range"] == "==6.1.0"
+    assert python_hwpx["license"] == "Apache-2.0"
+    assert python_hwpx["integration_mode"] == "optional-python"
+    assert all(not name.startswith("@handoc/") for name in hwpx_packages)

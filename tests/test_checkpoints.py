@@ -152,6 +152,43 @@ def test_prune_keeps_only_the_newest(work):
     assert entries[0]["reason"] == "snap 5"
 
 
+def test_prune_preserves_canonical_state_for_rewritten_hashes(work):
+    state = {
+        "session_id": "prune-session",
+        "working_memory": {"revision": 0},
+        "goal": None,
+    }
+
+    def restore(snapshot):
+        state.clear()
+        state.update(snapshot)
+
+    mgr = _mgr(
+        keep=2,
+        state_snapshot=lambda: {
+            "session_id": state["session_id"],
+            "working_memory": dict(state["working_memory"]),
+            "goal": state["goal"],
+        },
+        state_restore=restore,
+    )
+    returned = ""
+    for revision in range(3):
+        mgr.new_turn()
+        state["working_memory"] = {"revision": revision}
+        (work / "main.py").write_text(f"v{revision}\n", encoding="utf-8")
+        returned = mgr.ensure_checkpoint(work, f"snap {revision}") or ""
+
+    newest = mgr.list_checkpoints(work)[0]["hash"]
+    assert returned == newest
+    state["working_memory"] = {"revision": 99}
+
+    outcome = mgr.restore(work, newest, mode=checkpoints.RestoreMode.TASK)
+
+    assert outcome.ok is True
+    assert state["working_memory"] == {"revision": 2}
+
+
 def test_excluded_paths_are_not_snapshotted(work):
     (work / "node_modules").mkdir()
     (work / "node_modules" / "big.js").write_text("x" * 100, encoding="utf-8")
@@ -263,6 +300,25 @@ def test_reads_are_not_checkpointed(work):
     reg.execute("read_file", {"path": "main.py"})
     reg.execute("list_files", {"path": "."})
     assert ctx.checkpoints.list_checkpoints(work) == []
+
+
+def test_restore_rejects_checkpoint_from_another_workspace(tmp_path):
+    first = tmp_path / "first"
+    second = tmp_path / "second"
+    first.mkdir()
+    second.mkdir()
+    (first / "state.txt").write_text("first\n", encoding="utf-8")
+    (second / "state.txt").write_text("second\n", encoding="utf-8")
+    manager = _mgr()
+    checkpoint = manager.ensure_checkpoint(first, "first workspace")
+    assert checkpoint
+    assert manager.ensure_checkpoint(second, "second workspace")
+
+    outcome = manager.restore(second, checkpoint)
+
+    assert outcome.ok is False
+    assert "does not belong to this workspace" in outcome.message
+    assert (second / "state.txt").read_text(encoding="utf-8") == "second\n"
 
 
 def test_a_failing_checkpoint_blocks_the_tool(work, monkeypatch):

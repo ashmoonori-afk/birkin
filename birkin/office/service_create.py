@@ -82,14 +82,20 @@ def _limits(format_name: str) -> tuple[list[str], list[str]]:
         "xlsx": ["scalar cell values only", "maximum 256 sheets and 100000 rows"],
         "pptx": ["title and body slides only", "maximum 10000 slides"],
         "pdf": ["text paragraphs only", "no forms, links, signatures, or encryption"],
-        "hwpx": ["trusted HWPX template field bindings only", "templates are never executed"],
+        "hwpx": [
+            "text-first blank authoring or trusted template field bindings",
+            "local Python execution only",
+        ],
     }
     fidelity = {
         "docx": ["blank default Word styles; no layout or rendering claim"],
         "xlsx": ["blank default workbook styles; formulas are not calculated"],
         "pptx": ["default title-and-content layout; no rendering claim"],
         "pdf": ["text-first A4 output; line wrapping is approximate"],
-        "hwpx": ["only matched field XML changes; all other package parts are preserved"],
+        "hwpx": [
+            "blank authoring uses python-hwpx defaults",
+            "template derivation preserves every unmatched package part",
+        ],
     }
     return capability[format_name], fidelity[format_name]
 
@@ -165,9 +171,12 @@ def create_document(
     source_sha256: str | None = None
     warnings: list[str] = []
     if fmt == "hwpx":
-        plan, _ = _create_hwpx(workspace, content, template, output)
-        source_sha256 = plan.source_sha256
-        warnings.extend(plan.warnings)
+        if template is None:
+            create_document_file(fmt, content, output)
+        else:
+            plan, _ = _create_hwpx(workspace, content, template, output)
+            source_sha256 = plan.source_sha256
+            warnings.extend(plan.warnings)
     else:
         if template is not None:
             raise DocumentError(DocumentErrorCode.INVALID_INPUT, "plan", "template derivation is supported only for HWPX")

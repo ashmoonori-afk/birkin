@@ -88,6 +88,7 @@ class Session:
     _harness_transcripts: dict[str, list[str]] = field(default_factory=dict)
     # Per-session monotonic stamp of the last harness review.
     _harness_last: dict[str, float] = field(default_factory=dict)
+    _checkpoint_session: list[str] = field(default_factory=list)
 
     def refresh_system_prompt(
         self,
@@ -100,7 +101,17 @@ class Session:
         The persona (``SOUL.md``) is read fresh each turn so edits — and
         ``/personality`` swaps — take effect with no restart."""
         if not trusted:
-            self.agent.system = promptgate.compose_public()
+            turn_cfg = (
+                self.cfg
+                if session_id is None
+                else {**self.cfg, "session_id": session_id}
+            )
+            turn_cfg = {**turn_cfg, "session_goal_fallback": False}
+            self.agent.system = promptgate.compose_public(
+                trusted_session_state=promptgate.compose_turn_context(
+                    turn_cfg
+                )
+            )
             return
         turn_cfg = (
             self.cfg
@@ -125,7 +136,17 @@ class Session:
         """For CLI-agent backends: inject identity + memory + skills routed to
         the request (they can't call load_skill themselves)."""
         if not trusted:
-            self.agent.system = promptgate.compose_public()
+            turn_cfg = (
+                self.cfg
+                if session_id is None
+                else {**self.cfg, "session_id": session_id}
+            )
+            turn_cfg = {**turn_cfg, "session_goal_fallback": False}
+            self.agent.system = promptgate.compose_public(
+                trusted_session_state=promptgate.compose_turn_context(
+                    turn_cfg
+                )
+            )
             return
         preloaded = self._route_cli_skills(text) if trusted else []
         extra = ""
@@ -166,14 +187,32 @@ class Session:
     def _route_cli_skills(self, text: str,
                           loaded_skills: set[str] | None = None) -> list[str]:
         from .curator import record_use
-        routed = self.skills.route(text, limit=3)
+        from .office.skill_router import route_office_request
+
+        office_route = route_office_request(text)
+        office_skill = (
+            self.skills.get(office_route.skill_name)
+            if office_route is not None
+            else None
+        )
+        routed = (
+            [office_skill]
+            if office_skill is not None and office_skill.eligible
+            else self.skills.route(text, limit=3)
+        )
         for skill in routed:
             record_use(skill.name)
         fresh = [skill for skill in routed
                  if loaded_skills is None or skill.name not in loaded_skills]
         if loaded_skills is not None:
             loaded_skills.update(skill.name for skill in routed)
-        return [self.skills.render_skill(skill) for skill in fresh]
+        rendered = [self.skills.render_skill(skill) for skill in fresh]
+        if office_route is not None and rendered:
+            rendered[0] = (
+                "Office route policy: inspect-first; write policy: "
+                f"{office_route.write_policy}.\n\n{rendered[0]}"
+            )
+        return rendered
 
     def _prepare_cli_turn(self, text: str, *, route_query: str | None = None,
                           skill_state: dict[str, Any] | None = None,
@@ -199,11 +238,9 @@ class Session:
             if session_id is None
             else {**self.cfg, "session_id": session_id}
         )
-        current = (
-            promptgate.compose_turn_context(turn_cfg)
-            if trusted
-            else ""
-        )
+        if not trusted:
+            turn_cfg = {**turn_cfg, "session_goal_fallback": False}
+        current = promptgate.compose_turn_context(turn_cfg)
         if not preloaded and not current:
             return text
         sections: list[str] = []
@@ -222,7 +259,13 @@ class Session:
             route_query: str | None = None,
             record_turn: bool = True,
             session_id: str | None = None,
-            trusted: bool = True) -> str:
+        trusted: bool = True) -> str:
+        if self._checkpoint_session:
+            self._checkpoint_session[0] = str(
+                session_id
+                or self.cfg.get("session_id")
+                or self._checkpoint_session[0]
+            )
         # Budget gate — refuse with a clear message instead of silently spending.
         over, why = budget.is_over(self.cfg)
         if over:
@@ -265,6 +308,15 @@ class Session:
                 session_id=session_id,
                 trusted=trusted,
             )
+            if trusted:
+                preloaded = self._route_cli_skills(
+                    text if route_query is None else route_query
+                )
+                if preloaded:
+                    self.agent.system += (
+                        "\n\n## Birkin routed skills for this turn\n\n"
+                        + "\n\n".join(preloaded)
+                    )
         blocked_tools = (
             None
             if trusted
@@ -650,9 +702,20 @@ def build_session(cfg: Optional[dict[str, Any]] = None,
     client = build_client(cfg, api_key)
     skills = build_manager(cfg)
     memory = Memory(cfg)
+    checkpoint_session = [str(cfg["session_id"])]
+
+    from . import checkpoint_state
+
     checkpoint_mgr = checkpoints.CheckpointManager(
         enabled=bool(cfg.get("checkpoints", True)),
-        keep=int(cfg.get("checkpoint_keep", 20)))
+        keep=int(cfg.get("checkpoint_keep", 20)),
+        state_snapshot=lambda: checkpoint_state.snapshot(
+            checkpoint_session[0]
+        ),
+        state_restore=lambda state: checkpoint_state.restore(
+            checkpoint_session[0],
+            state,
+        ))
     hook_bus = hooks.build_bus(cfg)
     ctx = ToolContext(
         cfg=cfg, client=client, cwd=Path.cwd(),
@@ -675,8 +738,15 @@ def build_session(cfg: Optional[dict[str, Any]] = None,
                   parallel_tools=bool(cfg.get("parallel_tools", True)),
                   parallel_workers=int(cfg.get("parallel_tool_workers", 8)),
                   hooks=hook_bus)
-    return Session(cfg=cfg, client=client, skills=skills, memory=memory,
-                   ctx=ctx, agent=agent)
+    return Session(
+        cfg=cfg,
+        client=client,
+        skills=skills,
+        memory=memory,
+        ctx=ctx,
+        agent=agent,
+        _checkpoint_session=checkpoint_session,
+    )
 
 
 def build_dry_run_packet(text: str, cfg: Optional[dict[str, Any]] = None

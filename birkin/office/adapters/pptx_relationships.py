@@ -6,8 +6,8 @@ from collections.abc import Iterator
 from typing import Protocol
 from urllib.parse import unquote
 
-from defusedxml import ElementTree
-from defusedxml.common import DefusedXmlException
+from birkin.office.safe_xml import ElementTree
+from birkin.office.safe_xml import DefusedXmlException
 
 from ..errors import DocumentError, DocumentErrorCode
 from .pptx_types import AuditWarning, Locator, MediaRecord, RelationshipRecord

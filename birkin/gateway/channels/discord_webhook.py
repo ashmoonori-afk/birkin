@@ -51,9 +51,16 @@ class DiscordWebhookAdapter:
         settings = _settings(cfg)
         self.enabled = bool(settings.get("enabled", False))
         self.webhook_url = str(settings.get("webhook_url") or "").strip()
+        self.allowed_channel_ids = frozenset(
+            str(value) for value in settings.get("allowed_channel_ids", [])
+        )
 
-    def allowed(self, _channel_id: str) -> bool:
-        return self.enabled and not validate_cfg(self._cfg)
+    def allowed(self, channel_id: str) -> bool:
+        return (
+            self.enabled
+            and channel_id in self.allowed_channel_ids
+            and not validate_cfg(self._cfg)
+        )
 
     def health(self) -> str:
         configured = _configured_url(self.webhook_url)
@@ -88,7 +95,7 @@ def entry() -> ChannelEntry:
         validate_cfg=validate_cfg,
         health=lambda: "available",
         max_message_len=MAX_MESSAGE_LEN,
-        allowed=lambda _channel_id: True,
+        allowed=lambda _channel_id: False,
     )
 
 

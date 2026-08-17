@@ -105,17 +105,14 @@ def test_cmd_morpheus_delegates(monkeypatch):
 
 
 def test_cli_accepts_legacy_nightly_subcommand(monkeypatch):
-    """The CLI still exposes `birkin nightly` as a hidden alias for
-    `birkin morpheus` so existing scripts / docs / muscle memory work."""
+    """The CLI accepts `birkin nightly` without listing the legacy alias."""
     called = {}
 
     def fake_run_once(dry_run=False):
         called["dry"] = dry_run
         return 0
     monkeypatch.setattr("birkin.morpheus.run_once", fake_run_once)
-    parser = cli_mod.build_parser()
-    args = parser.parse_args(["nightly", "--dry-run"])
-    rc = args.func(args)
+    rc = cli_mod.main(["nightly", "--dry-run"])
     assert rc == 0 and called["dry"] is True
 
 

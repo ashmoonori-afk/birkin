@@ -8,15 +8,12 @@ from .approved_package_provenance import (
     PYPDF,
     PYPDFIUM2,
     PYTHON_DOCX,
+    PYTHON_HWPX,
     PYTHON_PPTX,
     RFC8785,
     XLSXWRITER,
 )
-from .candidate_package_provenance import (
-    HANDOC_PARSER,
-    HANDOC_WRITER,
-    REPORTLAB,
-)
+from .candidate_package_provenance import REPORTLAB
 from .operation_provenance import (
     PDF_OPERATIONS,
     SECURITY_LIMIT,
@@ -67,11 +64,12 @@ ADAPTER_RECORDS = (
     AdapterRecord(
         "hwpx",
         "https://tech.hancom.com/hwpxformat/",
-        (HANDOC_PARSER, HANDOC_WRITER, RFC8785),
+        (PYTHON_HWPX, DEFUSEDXML, LXML, RFC8785),
         hwpx_operations(),
         (SECURITY_LIMIT,),
         (
-            "HanDoc-based parsing and blank authoring remain refused pending provenance.",
+            "Blank authoring uses exact-pinned local Python; application "
+            "automation is unsupported.",
         ),
     ),
 )

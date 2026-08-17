@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from pathlib import Path
 from typing import cast
 
@@ -43,7 +44,9 @@ def test_general_platform_suite_installs_office_dependencies() -> None:
     runs = _runs(job)
     assert any("python -m pytest" in command for command in runs)
     install = next(command for command in runs if "pip install -e" in command)
-    assert '".[dev,office,office-advanced]"' in install
+    assert '".[dev,office,office-advanced,browser]"' in install
+    assert any("playwright install" in command for command in runs)
+    assert _mapping(job["env"])["BIRKIN_BROWSER_INTEGRATION"] == "1"
 
 
 def test_required_office_job_has_three_os_matrix_and_bounded_environment() -> None:
@@ -61,7 +64,7 @@ def test_required_office_job_has_three_os_matrix_and_bounded_environment() -> No
     assert any(value.startswith("astral-sh/setup-uv@") for value in uses)
     runs = _runs(job)
     sync = next(command for command in runs if command.startswith("uv sync "))
-    assert "--locked" not in sync
+    assert "--locked" in sync
     assert "--extra office" in sync
     assert "--extra office-advanced" in sync
 
@@ -98,7 +101,7 @@ def test_clean_wheel_smoke_runs_outside_checkout_and_probes_office_resources() -
     assert step["shell"] == "python"
     assert ".resolve()" in smoke
     assert "cwd=outside" in smoke
-    assert "birkin[office,office-advanced]" in smoke
+    assert 'wheel_requirement = f"birkin @ {wheel.as_uri()}"' in smoke
     assert "wheel.as_uri()" in smoke
     assert 'environment.pop("PYTHONPATH"' in smoke
     assert "GITHUB_WORKSPACE" in smoke
@@ -110,11 +113,13 @@ def test_clean_wheel_smoke_runs_outside_checkout_and_probes_office_resources() -
     assert "office-work-os" in smoke
     assert "office-documents" in smoke
     assert "provenance_manifest.json" in smoke
+    assert "office_base_wheel_smoke.py" in smoke
+    assert '"-I"' in smoke
 
 
 def test_cross_platform_steps_use_runner_native_or_python_shells() -> None:
     workflow = _workflow()
-    for job_name in ("office-core", "office-real"):
+    for job_name in ("office-core",):
         for step in _steps(_job(workflow, job_name)):
             command = step.get("run")
             if not isinstance(command, str):
@@ -125,63 +130,15 @@ def test_cross_platform_steps_use_runner_native_or_python_shells() -> None:
                 assert shell in {"python", "uv run --no-sync python {0}"}
 
 
-def test_optional_external_engine_job_is_explicitly_capability_gated() -> None:
+def test_workflow_has_no_external_application_engine_job() -> None:
     workflow = _workflow()
-    job = _job(workflow, "office-real")
-    condition = cast(str, job["if"])
-
-    assert "vars.OFFICE_REAL_RUNNER" in condition
-    assert "vars.OFFICE_REAL_ENGINE == 'libreoffice'" in condition
-    assert "office-core" not in cast(list[str], job.get("needs", []))
-    assert job["runs-on"] == ["self-hosted", "${{ vars.OFFICE_REAL_RUNNER }}"]
-
-    environment = _mapping(job["env"])
-    assert environment["OFFICE_LIBREOFFICE_VERSION"] == "${{ vars.OFFICE_LIBREOFFICE_VERSION }}"
-    exercise = next(command for command in _runs(job) if "status.json" in command)
-    assert "approved_executable_not_present" in exercise
-    assert "--version" in exercise
-    assert "OFFICE_LIBREOFFICE_VERSION" in exercise
-    assert "actual_version != expected_version" in exercise
-    assert "SystemExit(0)" not in exercise
-
-    upload = next(
-        step
-        for step in _steps(job)
-        if cast(str, step.get("uses", "")).startswith("actions/upload-artifact@")
-    )
-    settings = _mapping(upload["with"])
-    assert settings["path"] == "office-real-evidence/status.json"
-    assert cast(int, settings["retention-days"]) <= 7
-
-
-def test_real_engine_script_uses_uv_managed_project_interpreter() -> None:
-    job = _job(_workflow(), "office-real")
-    exercise_step = next(
-        step for step in _steps(job) if "status.json" in str(step.get("run", ""))
-    )
-    exercise = cast(str, exercise_step["run"])
-
-    assert exercise_step["shell"] == "uv run --no-sync python {0}"
-    assert "sys.executable" in exercise
-    assert '"script/qa/office_work_os_dogfood.py"' in exercise
-
-
-def test_real_engine_uses_edited_receipts_and_exact_output_mapping() -> None:
-    exercise = next(
-        command
-        for command in _runs(_job(_workflow(), "office-real"))
-        if "status.json" in command
-    )
-
-    assert "next(work.rglob" not in exercise
-    assert 'report["formats"]' in exercise
-    assert '["artifacts"]' in exercise
-    assert '["modify"]' in exercise
-    assert "modified-{format_name}.{format_name}" in exercise
-    assert 'format_receipt["operations"]["modify"]["artifact"]' in exercise
-    assert 'format_receipt["primary_artifact"]' in exercise
-    assert 'receipt["sha256"]' in exercise
-    assert "hashlib.sha256" in exercise
-    assert '"selected_receipts"' in exercise
-    assert '"output_mapping"' in exercise
-    assert "outputs == sorted(expected_output_mapping.values())" in exercise
+    assert set(_mapping(workflow["jobs"])) == {"office-core"}
+    serialized = json.dumps(workflow).casefold()
+    for forbidden in (
+        "libreoffice",
+        "soffice",
+        "pandoc",
+        "unoconv",
+        "office_real_engine",
+    ):
+        assert forbidden not in serialized

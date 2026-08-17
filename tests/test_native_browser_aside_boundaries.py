@@ -129,7 +129,8 @@ def test_populated_workspace_stays_bounded_at_responsive_widths(
         payload={"target": "https://example.com"},
     )
     with SUPPORT.browser_harness() as harness:
-        item = harness.page.locator(".queue button")
+        harness.page.locator("#approval-tab").click()
+        item = harness.page.locator(".panel-item")
         harness.module.expect(item).to_have_count(1)
         item.click()
         harness.page.locator("#browser-aside-toggle").click()

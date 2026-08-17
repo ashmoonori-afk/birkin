@@ -9,7 +9,7 @@ from pathlib import PurePosixPath
 from typing import Protocol
 from urllib.parse import urlsplit
 
-from defusedxml import ElementTree
+from birkin.office.safe_xml import ElementTree
 
 from ..package_types import PackageManifest
 from .hwpx_types import HwpxEncryptedPart, HwpxEncryptionInventory

@@ -13,7 +13,10 @@ license-files = ["LICENSE", "NOTICE"]
 authors = [{ name = "birkin" }]
 keywords = ["agent", "cli", "skills", "subagents", "self-improving", "llm"]
 
-dependencies = ["psutil>=6"]
+dependencies = [
+    "psutil>=6",
+    "typing-extensions>=4.12",
+]
 
 [project.optional-dependencies]
 memory-semantic = [
@@ -38,6 +41,7 @@ office = [
     "lxml>=5.3,<7",
     "openpyxl>=3.1.5,<4",
     "python-docx>=1.2,<2",
+    "python-hwpx==6.1.0",
     "python-pptx>=1.0.2,<2",
 ]
 office-advanced = [
@@ -66,6 +70,7 @@ full = [
     "lxml>=5.3,<7",
     "openpyxl>=3.1.5,<4",
     "python-docx>=1.2,<2",
+    "python-hwpx==6.1.0",
     "python-pptx>=1.0.2,<2",
     "pypdf>=5.9,<7",
     "pypdfium2>=4.30,<5",

@@ -5,6 +5,7 @@ from __future__ import annotations
 import shutil
 import subprocess
 import sys
+from copy import deepcopy
 from pathlib import Path
 
 import pytest
@@ -76,12 +77,24 @@ def test_diff_preview_is_structured_per_file_and_aggregate(work: Path) -> None:
 def test_restore_mode_touched_surface_matrix(
     work: Path, mode: RestoreMode, files_changed: bool, task_changed: bool
 ) -> None:
-    manager = checkpoints.CheckpointManager()
-    manager.set_task_state(work, {"messages": ["before"]})
+    state = {
+        "session_id": "timeline-session",
+        "working_memory": {"messages": ["before"]},
+        "goal": None,
+    }
+
+    def restore(snapshot):
+        state.clear()
+        state.update(deepcopy(snapshot))
+
+    manager = checkpoints.CheckpointManager(
+        state_snapshot=lambda: deepcopy(state),
+        state_restore=restore,
+    )
     checkpoint = manager.ensure_checkpoint(work, "before edit")
     assert checkpoint
     (work / "main.py").write_text("after\n", encoding="utf-8")
-    manager.set_task_state(work, {"messages": ["after"]})
+    state["working_memory"]["messages"] = ["after"]
 
     outcome = manager.restore(work, checkpoint, mode=mode)
 
@@ -91,7 +104,70 @@ def test_restore_mode_touched_surface_matrix(
     expected_file = "before\n" if files_changed else "after\n"
     expected_task = "before" if task_changed else "after"
     assert (work / "main.py").read_text(encoding="utf-8") == expected_file
-    assert manager.task_state(work)["messages"] == [expected_task]
+    assert state["working_memory"]["messages"] == [expected_task]
+
+
+def test_both_restore_rolls_files_back_when_task_restore_fails(
+    work: Path,
+) -> None:
+    state = {
+        "session_id": "transaction-session",
+        "working_memory": {"messages": ["before"]},
+        "goal": None,
+    }
+    manager = checkpoints.CheckpointManager(
+        state_snapshot=lambda: deepcopy(state),
+        state_restore=lambda _snapshot: (_ for _ in ()).throw(
+            ValueError("task write failed")
+        ),
+    )
+    checkpoint = manager.ensure_checkpoint(work, "before edit")
+    assert checkpoint
+    (work / "main.py").write_text("after\n", encoding="utf-8")
+
+    outcome = manager.restore(
+        work,
+        checkpoint,
+        mode=RestoreMode.BOTH,
+    )
+
+    assert outcome.ok is False
+    assert outcome.files_restored is False
+    assert (work / "main.py").read_text(encoding="utf-8") == "after\n"
+
+
+def test_both_restore_uses_head_when_no_new_undo_commit_exists(
+    work: Path,
+) -> None:
+    state = {
+        "session_id": "no-undo-session",
+        "working_memory": {"messages": ["old"]},
+        "goal": None,
+    }
+    manager = checkpoints.CheckpointManager(
+        state_snapshot=lambda: deepcopy(state),
+        state_restore=lambda _snapshot: (_ for _ in ()).throw(
+            ValueError("task write failed")
+        ),
+    )
+    old = manager.ensure_checkpoint(work, "old")
+    assert old
+    manager.new_turn()
+    (work / "main.py").write_text("new\n", encoding="utf-8")
+    state["working_memory"]["messages"] = ["new"]
+    newest = manager.ensure_checkpoint(work, "new")
+    assert newest
+    manager.new_turn()
+
+    outcome = manager.restore(
+        work,
+        old,
+        mode=RestoreMode.BOTH,
+    )
+
+    assert outcome.ok is False
+    assert outcome.files_restored is False
+    assert (work / "main.py").read_text(encoding="utf-8") == "new\n"
 
 
 def _repo(tmp_path: Path) -> Path:

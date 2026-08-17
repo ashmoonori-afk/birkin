@@ -13,7 +13,7 @@ import zipfile
 from pathlib import Path, PurePosixPath
 from urllib.parse import unquote, urlsplit
 
-from defusedxml import ElementTree
+from birkin.office.safe_xml import ElementTree
 
 from .errors import DocumentError, DocumentErrorCode
 from .limits import PackageLimits as BasePackageLimits

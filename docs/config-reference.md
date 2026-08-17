@@ -72,13 +72,6 @@ Schema version: 1
 | `gateway_clean_hooks` | `boolean` | `true` | Birkin setting `gateway_clean_hooks`. |
 | `gateway_thinking_tokens` | `integer` | `0` | Birkin setting `gateway_thinking_tokens`. |
 | `gateway_prewarm` | `boolean` | `true` | Birkin setting `gateway_prewarm`. |
-| `office` | `object` | `{"handoc": {"node_path": "", "node_version": "22.14.0", "module_root": "", "package_manifest_sha256": "", "timeout_seconds": 30}}` | Birkin setting `office`. |
-| `office.handoc` | `object` | `{"node_path": "", "node_version": "22.14.0", "module_root": "", "package_manifest_sha256": "", "timeout_seconds": 30}` | Birkin setting `office.handoc`. |
-| `office.handoc.node_path` | `string` | `""` | Birkin setting `office.handoc.node_path`. |
-| `office.handoc.node_version` | `string` | `"22.14.0"` | Birkin setting `office.handoc.node_version`. |
-| `office.handoc.module_root` | `string` | `""` | Birkin setting `office.handoc.module_root`. |
-| `office.handoc.package_manifest_sha256` | `string` | `""` | Birkin setting `office.handoc.package_manifest_sha256`. |
-| `office.handoc.timeout_seconds` | `integer` | `30` | Birkin setting `office.handoc.timeout_seconds`. |
 | `voice` | `object` | `{"wake_phrase": "Daddy is home", "gateway_url": "", "session_id": "voice-local", "sample_rate": 24000, "stt_model": "gpt-transcribe", "tts_model": "gpt-4o-mini-tts", "tts_voice": "coral", "tts_instructions": "Speak concisely and clearly.", "conversation_style": "", "onboarding_complete": false, "background_workers": 2}` | Birkin setting `voice`. |
 | `voice.wake_phrase` | `string` | `"Daddy is home"` | Birkin setting `voice.wake_phrase`. |
 | `voice.gateway_url` | `string` | `""` | Birkin setting `voice.gateway_url`. |
@@ -99,7 +92,7 @@ Schema version: 1
 | `autosave_max_files` | `integer` | `500` | Birkin setting `autosave_max_files`. |
 | `neurosis_threshold` | `any` | `null` | Birkin setting `neurosis_threshold`. |
 | `neurosis_auto` | `boolean` | `true` | Birkin setting `neurosis_auto`. |
-| `channels` | `object` | `{"http": {"enabled": true}, "telegram": {"enabled": false, "token": "", "allowed_chat_ids": [], "stream": true}, "slack": {"enabled": false, "webhook_url": ""}, "discord": {"enabled": false, "webhook_url": ""}}` | Birkin setting `channels`. |
+| `channels` | `object` | `{"http": {"enabled": true}, "telegram": {"enabled": false, "token": "", "allowed_chat_ids": [], "stream": true}, "slack": {"enabled": false, "webhook_url": "", "allowed_channel_ids": []}, "discord": {"enabled": false, "webhook_url": "", "allowed_channel_ids": []}}` | Birkin setting `channels`. |
 | `channels.http` | `object` | `{"enabled": true}` | Birkin setting `channels.http`. |
 | `channels.http.enabled` | `boolean` | `true` | Birkin setting `channels.http.enabled`. |
 | `channels.telegram` | `object` | `{"enabled": false, "token": "", "allowed_chat_ids": [], "stream": true}` | Birkin setting `channels.telegram`. |
@@ -107,12 +100,14 @@ Schema version: 1
 | `channels.telegram.token` | `string` | `""` | Birkin setting `channels.telegram.token`. |
 | `channels.telegram.allowed_chat_ids` | `array` | `[]` | Birkin setting `channels.telegram.allowed_chat_ids`. |
 | `channels.telegram.stream` | `boolean` | `true` | Birkin setting `channels.telegram.stream`. |
-| `channels.slack` | `object` | `{"enabled": false, "webhook_url": ""}` | Birkin setting `channels.slack`. |
+| `channels.slack` | `object` | `{"enabled": false, "webhook_url": "", "allowed_channel_ids": []}` | Birkin setting `channels.slack`. |
 | `channels.slack.enabled` | `boolean` | `false` | Birkin setting `channels.slack.enabled`. |
 | `channels.slack.webhook_url` | `string` | `""` | Birkin setting `channels.slack.webhook_url`. |
-| `channels.discord` | `object` | `{"enabled": false, "webhook_url": ""}` | Birkin setting `channels.discord`. |
+| `channels.slack.allowed_channel_ids` | `array` | `[]` | Birkin setting `channels.slack.allowed_channel_ids`. |
+| `channels.discord` | `object` | `{"enabled": false, "webhook_url": "", "allowed_channel_ids": []}` | Birkin setting `channels.discord`. |
 | `channels.discord.enabled` | `boolean` | `false` | Birkin setting `channels.discord.enabled`. |
 | `channels.discord.webhook_url` | `string` | `""` | Birkin setting `channels.discord.webhook_url`. |
+| `channels.discord.allowed_channel_ids` | `array` | `[]` | Birkin setting `channels.discord.allowed_channel_ids`. |
 | `vault_path` | `string` | `""` | Birkin setting `vault_path`. |
 | `memory_vector_enabled` | `boolean` | `false` | Birkin setting `memory_vector_enabled`. |
 | `memory_vector_backend` | `string` | `"sentence-transformers"` | Birkin setting `memory_vector_backend`. |

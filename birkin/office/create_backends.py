@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import importlib
+import importlib.metadata
 from collections.abc import Callable, Sequence
 from pathlib import Path
 from types import ModuleType
@@ -18,9 +19,11 @@ from .errors import DocumentError, DocumentErrorCode
 
 _PACKAGES: Final[dict[str, tuple[str, str]]] = {
     "docx": ("python-docx", "uv sync --extra office"),
+    "hwpx": ("python-hwpx", "uv sync --extra office"),
     "xlsx": ("openpyxl", "uv sync --extra office"),
     "pptx": ("python-pptx", "uv sync --extra office"),
 }
+_EXACT_VERSIONS: Final[dict[str, str]] = {"hwpx": "6.1.0"}
 
 
 class _Document(Protocol):
@@ -66,6 +69,19 @@ class _Presentation(Protocol):
     def save(self, path: str) -> None: ...
 
 
+class _ValidationReport(Protocol):
+    ok: bool
+
+
+class _HwpxDocument(Protocol):
+    @classmethod
+    def new(cls) -> _HwpxDocument: ...
+
+    def add_paragraph(self, text: str) -> object: ...
+    def save_to_path(self, path: Path) -> object: ...
+    def validate(self) -> _ValidationReport: ...
+
+
 def module_member(module: ModuleType, name: str) -> object:
     namespace: dict[str, object] = vars(module)
     return namespace[name]
@@ -74,8 +90,38 @@ def module_member(module: ModuleType, name: str) -> object:
 def optional_backend(module_name: str, format_name: str) -> ModuleType:
     """Import an optional writer or raise a typed capability refusal."""
     package, install_hint = _PACKAGES[format_name]
+    expected = _EXACT_VERSIONS.get(format_name)
+    if expected is not None:
+        try:
+            actual = importlib.metadata.version(package)
+        except importlib.metadata.PackageNotFoundError as exc:
+            raise DocumentError(
+                DocumentErrorCode.CAPABILITY_UNAVAILABLE,
+                "emit",
+                f"{format_name} creation requires {package}=={expected}",
+                details={
+                    "format": format_name,
+                    "package": package,
+                    "expected_version": expected,
+                    "actual_version": None,
+                    "install_hint": install_hint,
+                },
+            ) from exc
+        if actual != expected:
+            raise DocumentError(
+                DocumentErrorCode.CAPABILITY_UNAVAILABLE,
+                "emit",
+                f"{format_name} creation requires {package}=={expected}",
+                details={
+                    "format": format_name,
+                    "package": package,
+                    "expected_version": expected,
+                    "actual_version": actual,
+                    "install_hint": install_hint,
+                },
+            )
     try:
-        return importlib.import_module(module_name)
+        module = importlib.import_module(module_name)
     except ImportError as exc:
         raise DocumentError(
             DocumentErrorCode.CAPABILITY_UNAVAILABLE,
@@ -83,6 +129,7 @@ def optional_backend(module_name: str, format_name: str) -> ModuleType:
             f"{format_name} creation requires the {package} package",
             details={"format": format_name, "package": package, "install_hint": install_hint},
         ) from exc
+    return module
 
 
 def write_docx(plan: ParagraphPlan, target: Path) -> None:
@@ -114,3 +161,20 @@ def write_pptx(plan: PresentationPlan, target: Path) -> None:
         slide.shapes.title.text = item.title
         slide.placeholders[1].text = "" if item.body is None else item.body
     presentation.save(str(target))
+
+
+def write_hwpx(plan: ParagraphPlan, target: Path) -> None:
+    document_class = cast(
+        "type[_HwpxDocument]",
+        module_member(optional_backend("hwpx", "hwpx"), "HwpxDocument"),
+    )
+    document = document_class.new()
+    for paragraph in plan.paragraphs:
+        _ = document.add_paragraph(paragraph)
+    _ = document.save_to_path(target)
+    if not document.validate().ok:
+        raise DocumentError(
+            DocumentErrorCode.INTERNAL_ERROR,
+            "validate",
+            "python-hwpx emitted a document that failed validation",
+        )
