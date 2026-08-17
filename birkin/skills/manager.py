@@ -414,6 +414,7 @@ def _publish_skill_bytes_posix(
     )
     temporary = f".birkin-publish-{secrets.token_hex(12)}.tmp"
     temporary_fd = -1
+    published = False
     try:
         flags = os.O_WRONLY | os.O_CREAT | os.O_EXCL
         flags |= getattr(os, "O_NOFOLLOW", 0)
@@ -425,14 +426,18 @@ def _publish_skill_bytes_posix(
         )
         _write_all(temporary_fd, payload)
         os.fsync(temporary_fd)
-        os.close(temporary_fd)
-        temporary_fd = -1
-        os.replace(
-            temporary,
-            target.name,
-            src_dir_fd=target_fd,
-            dst_dir_fd=target_fd,
-        )
+        try:
+            os.replace(
+                temporary,
+                target.name,
+                src_dir_fd=target_fd,
+                dst_dir_fd=target_fd,
+            )
+            published = True
+        finally:
+            if not published:
+                os.ftruncate(temporary_fd, 0)
+                os.fsync(temporary_fd)
     finally:
         if temporary_fd >= 0:
             os.close(temporary_fd)
@@ -603,6 +608,7 @@ def _publish_skill_bytes_windows(
             published = True
         finally:
             cleanup_error = 0
+            disposition_failed = False
             if not published:
                 class FileDispositionInfo(ctypes.Structure):
                     _fields_ = [("DeleteFile", wintypes.BOOLEAN)]
@@ -615,7 +621,30 @@ def _publish_skill_bytes_windows(
                     ctypes.sizeof(disposition),
                 ):
                     cleanup_error = ctypes.get_last_error()
+                    disposition_failed = True
+                    class FileEndOfFileInfo(ctypes.Structure):
+                        _fields_ = [
+                            ("EndOfFile", ctypes.c_longlong),
+                        ]
+
+                    end_of_file = FileEndOfFileInfo(0)
+                    if not kernel32.SetFileInformationByHandle(
+                        wintypes.HANDLE(source_handle),
+                        6,
+                        ctypes.byref(end_of_file),
+                        ctypes.sizeof(end_of_file),
+                    ):
+                        cleanup_error = ctypes.get_last_error()
+                    elif not kernel32.FlushFileBuffers(
+                        wintypes.HANDLE(source_handle)
+                    ):
+                        cleanup_error = ctypes.get_last_error()
             close_handle(wintypes.HANDLE(source_handle))
+            if disposition_failed:
+                if kernel32.DeleteFileW(str(temporary)):
+                    cleanup_error = 0
+                elif ctypes.get_last_error() in {2, 3}:
+                    cleanup_error = 0
             if cleanup_error:
                 raise OSError(cleanup_error, str(temporary))
     finally:

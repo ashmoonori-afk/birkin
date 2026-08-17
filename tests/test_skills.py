@@ -340,12 +340,13 @@ def test_windows_publication_failure_removes_internal_temp(
             if information_class == 3:
                 ctypes.set_last_error(5)
                 return 0
-            temporary = next(
-                path.parent.glob(".birkin-publish-*.tmp")
-            )
-            with pytest.raises(OSError):
-                temporary.replace(moved_temp)
-            cleanup_race_attempts.append(True)
+            if information_class == 4:
+                temporary = next(
+                    path.parent.glob(".birkin-publish-*.tmp")
+                )
+                with pytest.raises(OSError):
+                    temporary.replace(moved_temp)
+                cleanup_race_attempts.append(True)
             return real_kernel32.SetFileInformationByHandle(
                 handle,
                 information_class,
@@ -370,6 +371,60 @@ def test_windows_publication_failure_removes_internal_temp(
     assert cleanup_race_attempts == [True]
     assert list(path.parent.glob(".birkin-publish-*.tmp")) == []
     assert moved_temp.exists() is False
+
+
+@pytest.mark.skipif(
+    os.name == "nt",
+    reason="POSIX descriptor cleanup semantics",
+)
+def test_failed_publication_zeroes_attacker_renamed_temp(
+        monkeypatch):
+    path = _write_skill(
+        "failed-publication-zeroize",
+        "failed publication zeroize",
+        "ORIGINAL",
+        [],
+    )
+    original = path.read_bytes()
+    moved_temp = path.parent / "attacker-moved.tmp"
+    original_replace = os.replace
+
+    def rename_temp_then_fail(
+            source,
+            destination,
+            *,
+            src_dir_fd=None,
+            dst_dir_fd=None):
+        if (
+            Path(destination).name == "SKILL.md"
+            and Path(source).name.startswith(".birkin-publish-")
+        ):
+            os.rename(
+                source,
+                moved_temp.name,
+                src_dir_fd=src_dir_fd,
+                dst_dir_fd=dst_dir_fd,
+            )
+            raise OSError("injected publication failure")
+        original_replace(
+            source,
+            destination,
+            src_dir_fd=src_dir_fd,
+            dst_dir_fd=dst_dir_fd,
+        )
+
+    monkeypatch.setattr(os, "replace", rename_temp_then_fail)
+
+    with pytest.raises(OSError):
+        apply_skill_proposal({
+            "action": "improve",
+            "target": "failed-publication-zeroize",
+            "addition": "UNPUBLISHED VERIFIED BYTES",
+        })
+
+    assert path.read_bytes() == original
+    assert moved_temp.read_bytes() == b""
+    moved_temp.unlink()
 
 
 @pytest.mark.parametrize("guard_enabled", [False, True])
