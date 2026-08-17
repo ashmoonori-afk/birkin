@@ -124,6 +124,58 @@ def test_native_frame_rejects_invalid_utf8() -> None:
     assert exc_info.value.code == "E_INVALID_UTF8"
 
 
+def test_native_frame_rejects_duplicate_json_keys() -> None:
+    text = (
+        '{"protocol":"birkin-local-1","protocol_version":1,'
+        '"kind":"ping","kind":"pong","id":"duplicate-key",'
+        '"in_reply_to":null,"body":{}}'
+    )
+    body = text.encode()
+
+    with pytest.raises(NativeProtocolError) as exc_info:
+        _ = decode_frame(struct.pack(">I", len(body)) + body)
+
+    assert exc_info.value.code == "E_DUPLICATE_KEY"
+
+
+@pytest.mark.parametrize("constant", ("NaN", "Infinity", "-Infinity"))
+def test_native_frame_rejects_nonfinite_json_numbers(constant: str) -> None:
+    text = (
+        '{"protocol":"birkin-local-1","protocol_version":1,'
+        '"kind":"ping","id":"nonfinite","in_reply_to":null,'
+        f'"body":{{"value":{constant}}}}}'
+    )
+    body = text.encode()
+
+    with pytest.raises(NativeProtocolError) as exc_info:
+        _ = decode_frame(struct.pack(">I", len(body)) + body)
+
+    assert exc_info.value.code == "E_NONFINITE_NUMBER"
+
+
+def test_native_frame_rejects_nonfinite_number_during_encode() -> None:
+    with pytest.raises(NativeProtocolError) as exc_info:
+        _ = encode_frame(_envelope(body={"value": float("nan")}))
+
+    assert exc_info.value.code == "E_NONFINITE_NUMBER"
+
+
+def test_native_frame_revalidates_constructed_envelope() -> None:
+    invalid = NativeEnvelope(
+        protocol="not-birkin",
+        protocol_version=NATIVE_PROTOCOL_VERSION,
+        kind="ping",
+        id="constructed",
+        in_reply_to=None,
+        body={},
+    )
+
+    with pytest.raises(NativeProtocolError) as exc_info:
+        _ = encode_frame(invalid)
+
+    assert exc_info.value.code == "E_PROTOCOL"
+
+
 def test_native_envelope_rejects_extra_keys() -> None:
     payload = _envelope(extra="forbidden")
     body = json.dumps(payload, separators=(",", ":")).encode()

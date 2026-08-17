@@ -3,11 +3,12 @@
 from __future__ import annotations
 
 import json
+import math
 import re
 import struct
 from collections.abc import Mapping
 from dataclasses import dataclass
-from typing import TypeAlias, cast
+from typing import NoReturn, TypeAlias, cast
 
 NATIVE_PROTOCOL_NAME = "birkin-local-1"
 NATIVE_PROTOCOL_VERSION = 1
@@ -124,16 +125,23 @@ class NativeEnvelope:
 def encode_frame(envelope: NativeEnvelope | Mapping[str, object]) -> bytes:
     """Validate and encode one complete length-prefixed frame."""
 
-    parsed = (
-        envelope
+    parsed = NativeEnvelope.parse(
+        envelope.to_dict()
         if isinstance(envelope, NativeEnvelope)
-        else NativeEnvelope.parse(dict(envelope))
+        else dict(envelope)
     )
-    body = json.dumps(
-        parsed.to_dict(),
-        ensure_ascii=False,
-        separators=(",", ":"),
-    ).encode("utf-8")
+    try:
+        body = json.dumps(
+            parsed.to_dict(),
+            allow_nan=False,
+            ensure_ascii=False,
+            separators=(",", ":"),
+        ).encode("utf-8")
+    except ValueError as exc:
+        raise NativeProtocolError(
+            "E_NONFINITE_NUMBER",
+            "frame contains a non-finite number",
+        ) from exc
     if len(body) > MAX_FRAME_BYTES:
         raise NativeProtocolError("E_FRAME_TOO_LARGE", "native frame exceeds limit")
     return struct.pack(">I", len(body)) + body
@@ -160,7 +168,14 @@ def decode_frame(frame: bytes) -> NativeEnvelope:
     except UnicodeDecodeError as exc:
         raise NativeProtocolError("E_INVALID_UTF8", "frame is not UTF-8") from exc
     try:
-        raw = cast(object, json.loads(text))
+        raw = cast(
+            object,
+            json.loads(
+                text,
+                object_pairs_hook=_strict_object_pairs,
+                parse_constant=_reject_nonfinite,
+            ),
+        )
     except json.JSONDecodeError as exc:
         raise NativeProtocolError("E_JSON", "frame body is not valid JSON") from exc
     return NativeEnvelope.parse(raw)
@@ -201,6 +216,11 @@ def _json_object(raw: object, *, depth: int) -> dict[str, JSONValue]:
 def _json_value(raw: object, *, depth: int) -> JSONValue:
     if depth > MAX_JSON_DEPTH:
         raise NativeProtocolError("E_JSON_DEPTH", "JSON exceeds maximum depth")
+    if isinstance(raw, float) and not math.isfinite(raw):
+        raise NativeProtocolError(
+            "E_NONFINITE_NUMBER",
+            "body contains a non-finite number",
+        )
     if raw is None or isinstance(raw, bool | int | float | str):
         return raw
     if isinstance(raw, list):
@@ -209,3 +229,22 @@ def _json_value(raw: object, *, depth: int) -> JSONValue:
     if isinstance(raw, dict):
         return _json_object(cast(object, raw), depth=depth)
     raise NativeProtocolError("E_JSON", "body contains a non-JSON value")
+
+
+def _strict_object_pairs(pairs: list[tuple[str, object]]) -> dict[str, object]:
+    mapping: dict[str, object] = {}
+    for key, value in pairs:
+        if key in mapping:
+            raise NativeProtocolError(
+                "E_DUPLICATE_KEY",
+                "JSON object contains a duplicate key",
+            )
+        mapping[key] = value
+    return mapping
+
+
+def _reject_nonfinite(_value: str) -> NoReturn:
+    raise NativeProtocolError(
+        "E_NONFINITE_NUMBER",
+        "JSON contains a non-finite number",
+    )
