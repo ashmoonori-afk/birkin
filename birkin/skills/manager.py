@@ -12,6 +12,8 @@ from __future__ import annotations
 import hashlib
 import json
 import re
+import shutil
+import tempfile
 import time
 from pathlib import Path
 from typing import Any
@@ -283,9 +285,8 @@ class SkillManager:
 def _guard_agent_written(
     path: Path,
     what: str,
-    previous: bytes | None = None,
 ) -> None:
-    """Scan a skill the agent just wrote, rolling the write back if it trips.
+    """Scan a staged skill before publishing it.
 
     Opt-in (``skills_guard_agent_created``) for the same reason hermes leaves
     it off: on the native loop the agent already has shell, so this catches a
@@ -297,16 +298,25 @@ def _guard_agent_written(
     result = guard.scan_skill(path.parent, source="agent-created")
     if guard.should_allow_install(result) is True:
         return
-    if previous is None:
-        try:
-            path.unlink()
-        except OSError:
-            pass
-    else:
-        path.write_bytes(previous)
     raise SkillProposalError(
-        f"{what} was rolled back — the security scan returned "
+        f"{what} was rejected before publication — the security scan returned "
         f"{result.verdict}:\n{guard.format_report(result, path.parent.name)}")
+
+
+def _publish_skill_directory(
+    candidate: Path,
+    target: Path,
+    staging_root: Path,
+) -> None:
+    previous = staging_root / "previous"
+    if target.exists():
+        target.replace(previous)
+    try:
+        candidate.replace(target)
+    except OSError:
+        if previous.exists():
+            previous.replace(target)
+        raise
 
 
 def apply_skill_proposal(payload: dict[str, Any]) -> str:
@@ -327,15 +337,36 @@ def apply_skill_proposal(payload: dict[str, Any]) -> str:
             raise SkillProposalError(
                 "skill create proposal missing name/description/body")
         canonical = _slug(name)
-        path = _user_skill_path(canonical)
+        path = _user_skill_path(canonical, create=False)
         try:
-            with store.file_lock(path):
+            with store.file_lock(_proposal_lock_path(canonical)):
                 if _skill_exists(canonical):
                     raise SkillProposalError(f"skill already exists: {canonical}")
-                path = _write_skill(name, desc, body, payload.get("tags") or [])
+                with tempfile.TemporaryDirectory(
+                    dir=path.parent.parent,
+                    prefix=".proposal-",
+                ) as staging_name:
+                    staging = Path(staging_name)
+                    candidate_dir = staging / canonical
+                    candidate_dir.mkdir()
+                    candidate = candidate_dir / "SKILL.md"
+                    candidate.write_text(
+                        _render_skill(
+                            name,
+                            desc,
+                            body,
+                            payload.get("tags") or [],
+                        ),
+                        encoding="utf-8",
+                    )
+                    _guard_agent_written(candidate, f"skill {name!r}")
+                    _publish_skill_directory(
+                        candidate_dir,
+                        path.parent,
+                        staging,
+                    )
         except store.FileLockTimeout:
             raise SkillProposalError("skill store is busy") from None
-        _guard_agent_written(path, f"skill {name!r}")
         return f"Created skill {name!r} at {path}"
     if action == "improve":
         target_name = payload.get("target", "").strip()
@@ -343,25 +374,44 @@ def apply_skill_proposal(payload: dict[str, Any]) -> str:
         if not (target_name and addition):
             raise SkillProposalError(
                 "skill improve proposal missing target/addition")
-        lock_path = _user_skill_path(_slug(target_name))
+        lock_path = _proposal_lock_path(target_name)
         try:
             with store.file_lock(lock_path):
                 dirs = config.skill_dirs(config.load_config())
                 skill = discover(dirs).get(target_name)
                 if skill is None:
                     raise SkillProposalError(f"skill not found: {target_name}")
-                target = skill.path
-                previous = target.read_bytes() if skill.source != "bundled" else None
-                if skill.source == "bundled":
-                    target = _user_skill_path(skill.name)
-                    target.write_text(skill.full(), encoding="utf-8")
-                with target.open("a", encoding="utf-8") as fh:
-                    fh.write(f"\n\n## Learned ({_today()})\n\n{addition}\n")
-                _guard_agent_written(
-                    target,
-                    f"skill {target_name!r}",
-                    previous=previous,
+                target = (
+                    _user_skill_path(skill.name, create=False)
+                    if skill.source == "bundled"
+                    else skill.path
                 )
+                target.parent.parent.mkdir(parents=True, exist_ok=True)
+                with tempfile.TemporaryDirectory(
+                    dir=target.parent.parent,
+                    prefix=".proposal-",
+                ) as staging_name:
+                    staging = Path(staging_name)
+                    candidate_dir = staging / target.parent.name
+                    shutil.copytree(
+                        skill.path.parent,
+                        candidate_dir,
+                        symlinks=True,
+                    )
+                    candidate = candidate_dir / "SKILL.md"
+                    with candidate.open("a", encoding="utf-8") as fh:
+                        fh.write(
+                            f"\n\n## Learned ({_today()})\n\n{addition}\n"
+                        )
+                    _guard_agent_written(
+                        candidate,
+                        f"skill {target_name!r}",
+                    )
+                    _publish_skill_directory(
+                        candidate_dir,
+                        target.parent,
+                        staging,
+                    )
         except store.FileLockTimeout:
             raise SkillProposalError("skill store is busy") from None
         return f"Appended learned note to {target_name!r}."
@@ -418,18 +468,30 @@ def _today() -> str:
     return date.today().isoformat()
 
 
-def _user_skill_path(name: str) -> Path:
+def _user_skill_path(name: str, *, create: bool = True) -> Path:
     root = config.user_skills_dir().resolve()
+    root.mkdir(parents=True, exist_ok=True)
     d = root / _slug(name)
-    d.mkdir(parents=True, exist_ok=True)
+    if create:
+        d.mkdir(parents=True, exist_ok=True)
     resolved = d.resolve()
     if root != resolved and root not in resolved.parents:
         raise SkillProposalError("skill path escapes the user skills directory")
     return resolved / "SKILL.md"
 
 
-def _write_skill(name: str, description: str, body: str, tags: list[str]) -> Path:
-    path = _user_skill_path(name)
+def _proposal_lock_path(name: str) -> Path:
+    root = config.user_skills_dir().resolve()
+    root.mkdir(parents=True, exist_ok=True)
+    return root / f".{_slug(name)}.proposal"
+
+
+def _render_skill(
+    name: str,
+    description: str,
+    body: str,
+    tags: list[str],
+) -> str:
     tag_block = "    tags: []\n" if not tags else (
         "    tags:\n" + "".join(
             f"      - {json.dumps(str(tag), ensure_ascii=False)}\n"
@@ -445,7 +507,15 @@ def _write_skill(name: str, description: str, body: str, tags: list[str]) -> Pat
         f"{tag_block}"
         "---\n\n"
     )
-    path.write_text(fm + body.strip() + "\n", encoding="utf-8")
+    return fm + body.strip() + "\n"
+
+
+def _write_skill(name: str, description: str, body: str, tags: list[str]) -> Path:
+    path = _user_skill_path(name)
+    path.write_text(
+        _render_skill(name, description, body, tags),
+        encoding="utf-8",
+    )
     return path
 
 
