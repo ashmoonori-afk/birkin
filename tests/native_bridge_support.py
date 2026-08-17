@@ -126,6 +126,17 @@ def handshake(client: socket.socket) -> str:
     return token
 
 
+def receive_kind(
+    client: socket.socket,
+    kind: str,
+) -> NativeEnvelope:
+    for _index in range(16):
+        envelope = receive_frame(client)
+        if envelope.kind == kind:
+            return envelope
+    raise AssertionError(f"did not receive {kind}")
+
+
 def command_body(
     token: str,
     *,

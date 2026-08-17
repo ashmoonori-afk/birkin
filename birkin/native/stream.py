@@ -58,6 +58,10 @@ class BoundedEventBuffer:
                     )
             return events
 
+    def has_pending(self) -> bool:
+        with self._lock:
+            return self._marker_pending or bool(self._events)
+
     def resubscribe(self, *, after_cursor: int) -> None:
         if isinstance(after_cursor, bool) or after_cursor < 0:
             raise ValueError("after_cursor must be a non-negative integer")
@@ -66,3 +70,36 @@ class BoundedEventBuffer:
             self._last_delivered_cursor = after_cursor
             self._desynchronized = False
             self._marker_pending = False
+
+
+@final
+class NativeEventQueue:
+    """Wakeable bounded queue used by one connection writer."""
+
+    def __init__(self, *, capacity: int = 512) -> None:
+        self._buffer = BoundedEventBuffer(capacity=capacity)
+        self._condition = threading.Condition()
+        self._closed = False
+
+    def publish(self, event: dict[str, object]) -> None:
+        _ = self._buffer.push(event)
+        with self._condition:
+            self._condition.notify_all()
+
+    def wait_and_drain(
+        self,
+        *,
+        timeout: float,
+    ) -> tuple[dict[str, object], ...]:
+        with self._condition:
+            if not self._closed and not self._buffer.has_pending():
+                _ = self._condition.wait(timeout)
+        return self._buffer.drain()
+
+    def resubscribe(self, *, after_cursor: int) -> None:
+        self._buffer.resubscribe(after_cursor=after_cursor)
+
+    def close(self) -> None:
+        with self._condition:
+            self._closed = True
+            self._condition.notify_all()

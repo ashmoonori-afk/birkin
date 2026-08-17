@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import threading
 from dataclasses import dataclass, field
 from typing import final
 
@@ -47,6 +48,10 @@ class NativeConnectionState:
     _seen_ids: set[str] = field(default_factory=set)
     _pending_received: dict[str, str] = field(default_factory=dict)
     _pending_sent: dict[str, str] = field(default_factory=dict)
+    _lock: threading.RLock = field(
+        default_factory=threading.RLock,
+        repr=False,
+    )
 
     @classmethod
     def server(cls) -> NativeConnectionState:
@@ -57,44 +62,50 @@ class NativeConnectionState:
         return cls(role="client")
 
     def receive(self, envelope: NativeEnvelope) -> None:
-        parsed = NativeEnvelope.parse(envelope.to_dict())
-        self._claim_id(parsed.id)
-        allowed = _CLIENT_KINDS if self.role == "server" else _SERVER_KINDS
-        if parsed.kind not in allowed:
-            raise NativeProtocolError(
-                "E_DIRECTION",
-                "message kind came from the wrong endpoint",
+        with self._lock:
+            parsed = NativeEnvelope.parse(envelope.to_dict())
+            self._claim_id(parsed.id)
+            allowed = (
+                _CLIENT_KINDS if self.role == "server" else _SERVER_KINDS
             )
-        self._validate_phase(parsed, outbound=False)
-        validate_body(
-            parsed,
-            client_origin=self.role == "server",
-        )
-        self._validate_response(parsed, self._pending_sent)
-        if parsed.kind in {"hello", "command", "ping"}:
-            self._ensure_pending_capacity(self._pending_received)
-            self._pending_received[parsed.id] = parsed.kind
-        self._advance(parsed.kind)
+            if parsed.kind not in allowed:
+                raise NativeProtocolError(
+                    "E_DIRECTION",
+                    "message kind came from the wrong endpoint",
+                )
+            self._validate_phase(parsed, outbound=False)
+            validate_body(
+                parsed,
+                client_origin=self.role == "server",
+            )
+            self._validate_response(parsed, self._pending_sent)
+            if parsed.kind in {"hello", "command", "ping"}:
+                self._ensure_pending_capacity(self._pending_received)
+                self._pending_received[parsed.id] = parsed.kind
+            self._advance(parsed.kind)
 
     def send(self, envelope: NativeEnvelope) -> None:
-        parsed = NativeEnvelope.parse(envelope.to_dict())
-        self._claim_id(parsed.id)
-        allowed = _SERVER_KINDS if self.role == "server" else _CLIENT_KINDS
-        if parsed.kind not in allowed:
-            raise NativeProtocolError(
-                "E_DIRECTION",
-                "message kind came from the wrong endpoint",
+        with self._lock:
+            parsed = NativeEnvelope.parse(envelope.to_dict())
+            self._claim_id(parsed.id)
+            allowed = (
+                _SERVER_KINDS if self.role == "server" else _CLIENT_KINDS
             )
-        self._validate_phase(parsed, outbound=True)
-        validate_body(
-            parsed,
-            client_origin=self.role == "client",
-        )
-        self._validate_response(parsed, self._pending_received)
-        if parsed.kind in {"hello", "command", "ping"}:
-            self._ensure_pending_capacity(self._pending_sent)
-            self._pending_sent[parsed.id] = parsed.kind
-        self._advance(parsed.kind)
+            if parsed.kind not in allowed:
+                raise NativeProtocolError(
+                    "E_DIRECTION",
+                    "message kind came from the wrong endpoint",
+                )
+            self._validate_phase(parsed, outbound=True)
+            validate_body(
+                parsed,
+                client_origin=self.role == "client",
+            )
+            self._validate_response(parsed, self._pending_received)
+            if parsed.kind in {"hello", "command", "ping"}:
+                self._ensure_pending_capacity(self._pending_sent)
+                self._pending_sent[parsed.id] = parsed.kind
+            self._advance(parsed.kind)
 
     def _claim_id(self, frame_id: str) -> None:
         if frame_id in self._seen_ids:

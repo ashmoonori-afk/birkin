@@ -4,9 +4,9 @@ from __future__ import annotations
 
 import os
 import socket
-import stat
 import struct
-from dataclasses import dataclass
+import threading
+from dataclasses import dataclass, field
 from pathlib import Path
 from types import TracebackType
 from typing import cast, final
@@ -18,6 +18,7 @@ from birkin.native.protocol import (
     decode_frame,
     encode_frame,
 )
+from birkin.native.transport_security import peer_uid, reject_symlinks
 
 _MAX_UNIX_PATH_BYTES = 103
 _LISTEN_BACKLOG = 32
@@ -28,6 +29,10 @@ _LISTEN_BACKLOG = 32
 class NativeConnection:
     socket: socket.socket
     peer_uid: int | None
+    _send_lock: threading.Lock = field(
+        default_factory=threading.Lock,
+        repr=False,
+    )
 
     def __enter__(self) -> NativeConnection:
         return self
@@ -47,7 +52,14 @@ class NativeConnection:
         return receive_frame(self.socket)
 
     def send(self, envelope: NativeEnvelope) -> None:
-        self.socket.sendall(encode_frame(envelope))
+        with self._send_lock:
+            self.socket.sendall(encode_frame(envelope))
+
+    def interrupt(self) -> None:
+        try:
+            self.socket.shutdown(socket.SHUT_RDWR)
+        except OSError:
+            pass
 
 
 @final
@@ -73,10 +85,10 @@ class NativeListener:
                 "E_SOCKET_PATH_TOO_LONG",
                 "Unix socket path exceeds the platform limit",
             )
-        _reject_symlinks(socket_path)
+        reject_symlinks(socket_path)
         socket_path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
         os.chmod(socket_path.parent, 0o700)
-        _reject_symlinks(socket_path)
+        reject_symlinks(socket_path)
         if socket_path.exists():
             cls._remove_stale_socket(socket_path)
         listener = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
@@ -133,18 +145,18 @@ class NativeListener:
 
     def accept(self, *, expected_uid: int | None = None) -> NativeConnection:
         connection = self._listener.accept()[0]
-        peer_uid = (
-            _peer_uid(connection)
+        accepted_uid = (
+            peer_uid(connection)
             if self.transport == "uds"
             else None
         )
-        if expected_uid is not None and peer_uid != expected_uid:
+        if expected_uid is not None and accepted_uid != expected_uid:
             connection.close()
             raise NativeProtocolError(
                 "E_PEER_UID_MISMATCH",
                 "Unix socket peer does not match the server user",
             )
-        return NativeConnection(socket=connection, peer_uid=peer_uid)
+        return NativeConnection(socket=connection, peer_uid=accepted_uid)
 
     def close(self) -> None:
         if self._closed:
@@ -189,7 +201,13 @@ def _receive_exact(connection: socket.socket, length: int) -> bytes:
     chunks: list[bytes] = []
     remaining = length
     while remaining:
-        chunk = connection.recv(remaining)
+        try:
+            chunk = connection.recv(remaining)
+        except OSError as exc:
+            raise NativeProtocolError(
+                "E_FRAME_INCOMPLETE",
+                "connection closed before a complete frame arrived",
+            ) from exc
         if not chunk:
             raise NativeProtocolError(
                 "E_FRAME_INCOMPLETE",
@@ -198,46 +216,3 @@ def _receive_exact(connection: socket.socket, length: int) -> bytes:
         chunks.append(chunk)
         remaining -= len(chunk)
     return b"".join(chunks)
-
-
-def _peer_uid(connection: socket.socket) -> int | None:
-    getpeereid = getattr(connection, "getpeereid", None)
-    if callable(getpeereid):
-        peer = cast(tuple[int, int], getpeereid())
-        return peer[0]
-    so_peercred = getattr(socket, "SO_PEERCRED", None)
-    if isinstance(so_peercred, int):
-        raw = connection.getsockopt(
-            socket.SOL_SOCKET,
-            so_peercred,
-            struct.calcsize("3i"),
-        )
-        _pid, uid, _gid = struct.unpack("3i", raw)
-        return uid
-    local_peercred = getattr(socket, "LOCAL_PEERCRED", None)
-    if isinstance(local_peercred, int):
-        xucred_format = "@IIh2x16I"
-        raw = connection.getsockopt(
-            0,
-            local_peercred,
-            struct.calcsize(xucred_format),
-        )
-        _version, uid, _group_count, *_groups = struct.unpack(
-            xucred_format,
-            raw,
-        )
-        return uid
-    return None
-
-
-def _reject_symlinks(socket_path: Path) -> None:
-    for candidate in (socket_path, *socket_path.parents):
-        try:
-            mode = os.lstat(candidate).st_mode
-        except FileNotFoundError:
-            continue
-        if stat.S_ISLNK(mode):
-            raise NativeProtocolError(
-                "E_SOCKET_PATH",
-                "Unix socket path must not traverse symbolic links",
-            )

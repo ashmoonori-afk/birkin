@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import threading
 from typing import final
 
 from birkin.native.capability import SessionCapability
@@ -41,6 +42,7 @@ class NativeMessageFactory:
         self._server_version = server_version
         self._command_types = command_types
         self._next_id = 0
+        self._id_lock = threading.Lock()
 
     def ready(
         self,
@@ -139,13 +141,15 @@ class NativeMessageFactory:
         body: dict[str, object],
         in_reply_to: str | None = None,
     ) -> NativeEnvelope:
-        self._next_id += 1
+        with self._id_lock:
+            self._next_id += 1
+            frame_id = f"server-{self._next_id}"
         return NativeEnvelope.parse(
             {
                 "protocol": NATIVE_PROTOCOL_NAME,
                 "protocol_version": NATIVE_PROTOCOL_VERSION,
                 "kind": kind,
-                "id": f"server-{self._next_id}",
+                "id": frame_id,
                 "in_reply_to": in_reply_to,
                 "body": body,
             }

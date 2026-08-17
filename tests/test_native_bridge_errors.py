@@ -10,6 +10,7 @@ from tests.native_bridge_support import (
     command_body,
     envelope,
     handshake,
+    receive_kind,
     serve,
     server,
     server_with_source,
@@ -39,7 +40,7 @@ def test_loopback_rejects_invalid_bootstrap_secret(tmp_path: Path) -> None:
         client.sendall(
             encode_frame(envelope("hello", frame_id="hello-1", body=hello))
         )
-        error = receive_frame(client)
+        error = receive_kind(client, "error")
         assert error.body["code"] == "E_BOOTSTRAP_INVALID"
     finally:
         client.close()
@@ -72,7 +73,7 @@ def test_malformed_workspace_command_returns_bounded_error(
                 )
             )
         )
-        error = receive_frame(client)
+        error = receive_kind(client, "error")
         assert error.kind == "error"
         assert error.body["code"] == "E_BODY"
     finally:
@@ -121,7 +122,7 @@ def test_stale_cursor_returns_current_cursor(tmp_path: Path) -> None:
                 )
             )
         )
-        error = receive_frame(client)
+        error = receive_kind(client, "error")
         assert error.body["code"] == "E_STALE_CURSOR"
         assert error.body["current_cursor"] == 3
     finally:
@@ -170,7 +171,7 @@ def test_command_id_payload_conflict_returns_error(tmp_path: Path) -> None:
                 )
             )
         )
-        error = receive_frame(client)
+        error = receive_kind(client, "error")
         assert error.body["code"] == "E_COMMAND_ID_CONFLICT"
     finally:
         client.close()
@@ -213,7 +214,7 @@ def test_unadvertised_known_command_is_journaled_as_failed(
                 )
             )
         )
-        error = receive_frame(client)
+        error = receive_kind(client, "error")
         events = source.events()
 
         assert error.body["code"] == "E_UNSUPPORTED_COMMAND"

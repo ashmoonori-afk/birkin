@@ -44,7 +44,7 @@ class WorkspaceService:
         self._handlers = dict(handlers)
         self._lock = threading.RLock()
         self._active_receipt: CommandReceipt | None = None
-        self._event_listener: EventListener | None = None
+        self._event_listeners: list[EventListener] = []
 
     def set_handlers(self, handlers: Mapping[str, CommandHandler]) -> None:
         with self._lock:
@@ -54,11 +54,24 @@ class WorkspaceService:
 
     def set_event_listener(self, listener: EventListener) -> None:
         with self._lock:
-            self._event_listener = listener
+            self._event_listeners = [listener]
+
+    def add_event_listener(
+        self,
+        listener: EventListener,
+    ) -> Callable[[], None]:
+        with self._lock:
+            self._event_listeners.append(listener)
+
+        def unsubscribe() -> None:
+            with self._lock:
+                if listener in self._event_listeners:
+                    self._event_listeners.remove(listener)
+
+        return unsubscribe
 
     def _notify(self, event: WorkspaceEvent) -> None:
-        listener = self._event_listener
-        if listener is not None:
+        for listener in tuple(self._event_listeners):
             listener(event)
 
     def _append(

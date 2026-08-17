@@ -3,9 +3,15 @@
 from __future__ import annotations
 
 import secrets
+from collections.abc import Callable
 from typing import Protocol, final
 
 from birkin.native.auth import NativeConnectionAuth
+from birkin.native.bridge_commands import (
+    NativeCommandExecutor,
+    WorkspaceCommandAuthority,
+)
+from birkin.native.bridge_stream import NativeBridgeStream
 from birkin.native.capability import BootstrapSecretStore, SessionCapability
 from birkin.native.messages import (
     NativeMessageFactory,
@@ -19,21 +25,21 @@ from birkin.native.protocol import (
 from birkin.native.session import NativeProjectionSession, WorkspaceProjectionSource
 from birkin.native.state import NativeConnectionState
 from birkin.native.transport import NativeConnection
-from birkin.workspace import CommandReceipt, WorkspaceCommand
-from birkin.workspace.contracts import ProtocolError as WorkspaceProtocolError
+from birkin.workspace.records import WorkspaceEvent
 
 
-class WorkspaceAuthority(WorkspaceProjectionSource, Protocol):
+class WorkspaceAuthority(
+    WorkspaceProjectionSource,
+    WorkspaceCommandAuthority,
+    Protocol,
+):
     @property
     def supported_commands(self) -> frozenset[str]: ...
 
-    def submit(
+    def add_event_listener(
         self,
-        command: WorkspaceCommand,
-        *,
-        actor_id: str,
-    ) -> CommandReceipt: ...
-
+        listener: Callable[[WorkspaceEvent], None],
+    ) -> Callable[[], None]: ...
 
 @final
 class NativeBridgeServer:
@@ -46,7 +52,12 @@ class NativeBridgeServer:
         capabilities: BootstrapSecretStore,
         instance_id: str,
         server_version: str,
+        heartbeat_interval: float = 30.0,
+        peer_timeout: float = 10.0,
+        outbound_capacity: int = 512,
     ) -> None:
+        if heartbeat_interval <= 0 or peer_timeout <= 0:
+            raise ValueError("heartbeat intervals must be positive")
         self._authority = authority
         self._capabilities = capabilities
         self._auth = NativeConnectionAuth(
@@ -64,6 +75,10 @@ class NativeBridgeServer:
             server_version=server_version,
             command_types=authority.supported_commands,
         )
+        self._commands = NativeCommandExecutor(authority, self._messages)
+        self._heartbeat_interval = heartbeat_interval
+        self._peer_timeout = peer_timeout
+        self._outbound_capacity = outbound_capacity
 
     def serve_connection(
         self,
@@ -74,6 +89,8 @@ class NativeBridgeServer:
         state = NativeConnectionState.server()
         issued_tokens: set[str] = set()
         connection_id = secrets.token_urlsafe(16)
+        stream: NativeBridgeStream | None = None
+        unsubscribe: Callable[[], None] | None = None
         with connection:
             try:
                 hello = connection.receive()
@@ -92,16 +109,33 @@ class NativeBridgeServer:
                 state.send(ready)
                 connection.send(ready)
                 issued_tokens.add(capability.token)
+                stream = NativeBridgeStream(
+                    connection,
+                    state,
+                    self._messages,
+                    heartbeat_interval=self._heartbeat_interval,
+                    peer_timeout=self._peer_timeout,
+                    capacity=self._outbound_capacity,
+                )
+                unsubscribe = self._authority.add_event_listener(
+                    stream.publish,
+                )
+                stream.start()
                 self._serve_messages(
                     connection,
                     state,
                     capability,
                     issued_tokens,
+                    stream,
                 )
             except NativeProtocolError as exc:
                 if exc.code != "E_FRAME_INCOMPLETE":
                     connection.send(self._messages.error(exc))
             finally:
+                if unsubscribe is not None:
+                    unsubscribe()
+                if stream is not None:
+                    stream.stop()
                 for token in issued_tokens:
                     self._capabilities.revoke_session(token)
 
@@ -111,6 +145,7 @@ class NativeBridgeServer:
         state: NativeConnectionState,
         capability: SessionCapability,
         issued_tokens: set[str],
+        stream: NativeBridgeStream,
     ) -> None:
         active_token = capability.token
         while True:
@@ -127,6 +162,9 @@ class NativeBridgeServer:
                 connection.send(renewal)
             if message.kind == "goodbye":
                 return
+            if message.kind == "pong":
+                stream.acknowledge_pong()
+                continue
             if message.kind == "ping":
                 pong_body: dict[str, object] = dict(message.body)
                 _ = pong_body.pop("session_capability", None)
@@ -138,23 +176,29 @@ class NativeBridgeServer:
                 state.send(response)
                 connection.send(response)
             elif message.kind == "subscribe":
-                self._send_projection(connection, state, message)
+                self._send_projection(
+                    connection,
+                    state,
+                    message,
+                    stream,
+                )
             elif message.kind == "command":
+                stream.suspend()
                 try:
-                    self._execute_command(connection, state, message)
-                except WorkspaceProtocolError as exc:
-                    self._send_workspace_error(
+                    self._commands.execute(
                         connection,
                         state,
                         message,
-                        exc,
                     )
+                finally:
+                    stream.resume()
 
     def _send_projection(
         self,
         connection: NativeConnection,
         state: NativeConnectionState,
         message: NativeEnvelope,
+        stream: NativeBridgeStream,
     ) -> None:
         session_id = body_string(message.body, "session_id")
         if session_id != self._authority.snapshot().session_id:
@@ -184,38 +228,4 @@ class NativeBridgeServer:
             response = self._messages.message("event", body=event)
             state.send(response)
             connection.send(response)
-
-    def _execute_command(
-        self,
-        connection: NativeConnection,
-        state: NativeConnectionState,
-        message: NativeEnvelope,
-    ) -> None:
-        command = WorkspaceCommand.parse(message.body.get("command"))
-        receipt = self._authority.submit(
-            command,
-            actor_id=f"macos:{command.client_context.view_id}",
-        )
-        body = receipt.to_public_json()
-        body["outcome"] = "duplicate" if receipt.duplicate else "accepted"
-        response = self._messages.message(
-            "receipt",
-            body=body,
-            in_reply_to=message.id,
-        )
-        state.send(response)
-        connection.send(response)
-
-    def _send_workspace_error(
-        self,
-        connection: NativeConnection,
-        state: NativeConnectionState,
-        message: NativeEnvelope,
-        error: WorkspaceProtocolError,
-    ) -> None:
-        response = self._messages.workspace_error(
-            error,
-            in_reply_to=message.id,
-        )
-        state.send(response)
-        connection.send(response)
+        stream.activate(after_cursor=after_cursor)

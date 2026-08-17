@@ -29,6 +29,7 @@ _TERMINAL_INPUT_SAFE_KEYS = {
     "terminal_id",
 }
 _MAX_ERROR_CHARS = 300
+_MAX_PUBLIC_TEXT = 20_000
 _PRIVACY_FILTER = browser_privacy_filter()
 _SECRET_TEXT = re.compile(
     r"(?i)\b(?:bearer\s+\S+|seeded[_-][A-Za-z0-9_-]+|"
@@ -110,5 +111,4 @@ def public_error_text(value: str) -> str:
 
 def _public_text(value: str) -> str:
     redacted = _SECRET_TEXT.sub("[REDACTED]", value)
-    projected = _PRIVACY_FILTER.observability({"text": redacted})["text"]
-    return projected if isinstance(projected, str) else "[REDACTED]"
+    return _PRIVACY_FILTER.text(redacted, max_length=_MAX_PUBLIC_TEXT)
