@@ -6,7 +6,7 @@ import stat
 import struct
 from collections.abc import Iterator
 from pathlib import Path
-from tempfile import TemporaryDirectory
+from tempfile import TemporaryDirectory, gettempdir
 
 import pytest
 
@@ -14,11 +14,12 @@ from birkin.native.protocol import MAX_FRAME_BYTES, NativeProtocolError
 from birkin.native.transport import NativeListener, receive_frame
 
 _HAS_POSIX_PEER_UID = hasattr(os, "geteuid")
+_TEMP_ROOT = str(Path(gettempdir()).resolve())
 
 
 @pytest.fixture
 def uds_path() -> Iterator[Path]:
-    with TemporaryDirectory(prefix="birkin-native-", dir="/tmp") as root:
+    with TemporaryDirectory(prefix="birkin-native-", dir=_TEMP_ROOT) as root:
         yield Path(root) / "run" / "bridge.sock"
 
 
@@ -86,3 +87,29 @@ def test_uds_listener_rejects_overlong_socket_path(tmp_path: Path) -> None:
         _ = NativeListener.uds(socket_path)
 
     assert exc_info.value.code == "E_SOCKET_PATH_TOO_LONG"
+
+
+def test_uds_listener_rejects_symlinked_parent() -> None:
+    with TemporaryDirectory(prefix="birkin-native-", dir=_TEMP_ROOT) as root:
+        actual = Path(root) / "actual"
+        actual.mkdir()
+        linked = Path(root) / "linked"
+        linked.symlink_to(actual, target_is_directory=True)
+
+        with pytest.raises(NativeProtocolError) as exc_info:
+            _ = NativeListener.uds(linked / "native.sock")
+
+    assert exc_info.value.code == "E_SOCKET_PATH"
+
+
+def test_uds_listener_rejects_symlinked_socket_path() -> None:
+    with TemporaryDirectory(prefix="birkin-native-", dir=_TEMP_ROOT) as root:
+        target = Path(root) / "target.sock"
+        target.touch()
+        linked = Path(root) / "native.sock"
+        linked.symlink_to(target)
+
+        with pytest.raises(NativeProtocolError) as exc_info:
+            _ = NativeListener.uds(linked)
+
+    assert exc_info.value.code == "E_SOCKET_PATH"

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import os
 import socket
+import stat
 import struct
 from dataclasses import dataclass
 from pathlib import Path
@@ -72,8 +73,10 @@ class NativeListener:
                 "E_SOCKET_PATH_TOO_LONG",
                 "Unix socket path exceeds the platform limit",
             )
+        _reject_symlinks(socket_path)
         socket_path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
         os.chmod(socket_path.parent, 0o700)
+        _reject_symlinks(socket_path)
         if socket_path.exists():
             cls._remove_stale_socket(socket_path)
         listener = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
@@ -225,3 +228,16 @@ def _peer_uid(connection: socket.socket) -> int | None:
         )
         return uid
     return None
+
+
+def _reject_symlinks(socket_path: Path) -> None:
+    for candidate in (socket_path, *socket_path.parents):
+        try:
+            mode = os.lstat(candidate).st_mode
+        except FileNotFoundError:
+            continue
+        if stat.S_ISLNK(mode):
+            raise NativeProtocolError(
+                "E_SOCKET_PATH",
+                "Unix socket path must not traverse symbolic links",
+            )
