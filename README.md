@@ -26,10 +26,10 @@ Agent runtimes are easy to demo and hard to trust. Birkin keeps the model useful
 
 | The problem | Birkin's fix |
 |---|---|
-| Memory disappears into a hosted service or vector database | Markdown notes, YAML frontmatter, and wikilinks live in an Obsidian-compatible local vault. |
+| Memory disappears into a hosted service or vector database | Markdown notes, escaped YAML frontmatter, and wikilinks live in an Obsidian-compatible local vault; model-facing writes derive trust provenance from runtime context. |
 | A prompt is asked to enforce its own safety | Native tools pass through one registry; shell and scheduled actions use deterministic policy and the approval queue. |
 | “Multi-agent” means a model recursively spawning itself | Moirai provides Python-owned `agent`, `parallel`, and `pipeline` graph primitives with budget and spawn ceilings. |
-| Self-improvement silently mutates the runtime | Harness records typed proposals in a versioned ledger and supports rollback. |
+| Self-improvement silently mutates the runtime | Harness records typed proposals in a versioned ledger and supports rollback; skill sync and learned updates pass through the shared install policy before publication. |
 | A coding agent changes files before the user understands the plan | The official VS Code extension sends editor context, reviews a plan first, renders proposed diffs, resolves Birkin approvals, and restores checkpoints. |
 | A local tool becomes an opaque service | Runs, approvals, checkpoints, status, and configuration remain local and inspectable. |
 
@@ -178,6 +178,8 @@ Raw screenshots are content-addressed under `BIRKIN_HOME/computer-use/artifacts`
 ## Office Work OS v2
 
 Birkin registers a bounded workflow for DOCX, XLSX, PPTX, PDF, and HWPX. It supports text extraction, text-first creation, layered validation and comparison, explicit-budget TXT conversion, semantic structured previews, and narrow copy-on-write package edits. PDF mutation remains refused. HWPX blank authoring uses exact-pinned `python-hwpx==6.1.0` from the `office` extra; trusted-template derivation remains available.
+
+Office provenance keeps exact reviewed artifact versions and supported runtime ranges as separate contracts. Normal environments validate the declared range; the locked Office CI also verifies exact installed versions.
 
 <!-- office-support-matrix:start -->
 | Format ID | Read/inspect | Create | Extract | Validate | Compare | Text convert | Surgical mutation | Render/recalc/forms |
@@ -451,8 +453,10 @@ only when remote access is intentional; this binds on all interfaces but does
 **not** create a public route. Open the secret bootstrap URL printed by
 `birkin web` on the remote device. It exchanges the per-process capability for
 an HttpOnly, SameSite cookie, and every remote request without that capability
-is rejected. Put TLS or a trusted private-network tunnel in front when traffic
-leaves the host.
+is rejected. Local versus remote authority is derived from the TCP peer address,
+not the client-controlled `Host` header; the exact one-time bootstrap URL is the
+only unauthenticated remote exception. Put TLS or a trusted private-network
+tunnel in front when traffic leaves the host.
 
 ## Checkpoints
 

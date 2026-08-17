@@ -25,10 +25,10 @@
 
 | 문제 | Birkin의 해법 |
 |---|---|
-| 메모리가 호스팅 서비스나 벡터 데이터베이스 안으로 사라짐 | YAML frontmatter와 wikilink를 쓰는 마크다운 노트를 Obsidian 호환 로컬 볼트에 저장합니다. |
+| 메모리가 호스팅 서비스나 벡터 데이터베이스 안으로 사라짐 | Escaping된 YAML frontmatter와 wikilink를 쓰는 마크다운 노트를 Obsidian 호환 로컬 볼트에 저장하며, 모델이 쓰는 노트의 신뢰 출처는 runtime context에서 결정합니다. |
 | 프롬프트가 자기 자신의 안전을 강제해야 함 | 네이티브 도구는 하나의 registry를 지나며, shell과 예약 작업은 결정적 정책과 승인 큐를 통과합니다. |
 | “멀티에이전트”가 모델의 재귀적 자기 spawn을 뜻함 | Moirai가 budget·spawn 상한과 함께 파이썬 소유의 `agent`, `parallel`, `pipeline` 그래프 primitive를 제공합니다. |
-| 자기개선이 런타임을 몰래 변경함 | Harness가 타입화된 proposal을 버전 ledger에 기록하고 rollback을 지원합니다. |
+| 자기개선이 런타임을 몰래 변경함 | Harness가 타입화된 proposal을 버전 ledger에 기록하고 rollback을 지원하며, skill sync와 learned update는 게시 전에 공통 설치 정책을 통과합니다. |
 | 코딩 에이전트가 사용자가 plan을 이해하기 전에 파일을 변경함 | 공식 VS Code extension이 editor context를 보내고, plan을 먼저 검토하며, 제안 diff를 표시하고, Birkin 승인을 처리하고, checkpoint를 복원합니다. |
 | 로컬 도구가 불투명한 서비스가 됨 | run, approval, checkpoint, status, config가 모두 로컬에서 확인 가능합니다. |
 
@@ -178,6 +178,8 @@ Raw screenshot은 `BIRKIN_HOME/computer-use/artifacts` 아래 content-addressed 
 ## Office Work OS v2
 
 Birkin은 DOCX, XLSX, PPTX, PDF, HWPX에 대해 범위가 제한된 workflow를 등록합니다. 텍스트 추출, 텍스트 중심 생성, 계층형 검증/비교, 명시적 손실 예산을 사용하는 TXT 변환, semantic structured preview, copy-on-write package 수정 한 건을 지원합니다. PDF 변경은 거부합니다. HWPX blank authoring은 `office` extra의 정확히 pin된 `python-hwpx==6.1.0`을 사용하며, 신뢰된 template derivation도 계속 지원합니다.
+
+Office provenance는 검토된 artifact의 정확한 version과 지원 runtime range를 서로 다른 계약으로 유지합니다. 일반 환경은 선언된 range를 검증하고, locked Office CI는 설치된 정확한 version도 함께 검증합니다.
 
 <!-- office-support-matrix:start -->
 | Format ID | Read/inspect | Create | Extract | Validate | Compare | Text convert | Surgical mutation | Render/recalc/forms |
@@ -451,8 +453,10 @@ Server는 기본적으로 loopback에서만 동작합니다. Remote access가 �
 interface에 bind하지만 public route를 만들지는 않습니다. Remote device에서
 `birkin web`이 출력한 secret bootstrap URL을 여십시오. 이 URL은 process별
 capability를 HttpOnly, SameSite cookie로 교환하며, capability가 없는 모든
-remote request는 거부됩니다. Traffic이 host 밖으로 나가면 TLS 또는 신뢰할
-수 있는 private-network tunnel을 앞에 두십시오.
+remote request는 거부됩니다. Local/remote 권한은 client가 제어하는 `Host`
+header가 아니라 TCP peer address에서 결정되며, 정확한 one-time bootstrap
+URL만 인증되지 않은 remote 예외입니다. Traffic이 host 밖으로 나가면 TLS
+또는 신뢰할 수 있는 private-network tunnel을 앞에 두십시오.
 
 ## Checkpoints
 
