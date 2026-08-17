@@ -443,6 +443,11 @@ def _publish_skill_bytes_posix(
         os.close(target_fd)
 
 
+def _windows_kernel32() -> Any:
+    import ctypes
+    return ctypes.WinDLL("kernel32", use_last_error=True)
+
+
 def _publish_skill_bytes_windows(
     payload: bytes,
     target: Path,
@@ -451,7 +456,7 @@ def _publish_skill_bytes_windows(
     import ctypes
     from ctypes import wintypes
 
-    kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+    kernel32 = _windows_kernel32()
     create_file = kernel32.CreateFileW
     create_file.restype = wintypes.HANDLE
     create_file.argtypes = (
@@ -596,6 +601,10 @@ def _publish_skill_bytes_windows(
                 raise OSError(ctypes.get_last_error(), str(target))
         finally:
             close_handle(wintypes.HANDLE(source_handle))
+            if not kernel32.DeleteFileW(str(temporary)):
+                cleanup_error = ctypes.get_last_error()
+                if cleanup_error not in {2, 3}:
+                    raise OSError(cleanup_error, str(temporary))
     finally:
         for handle in reversed(handles):
             close_handle(wintypes.HANDLE(handle))

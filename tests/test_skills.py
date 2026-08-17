@@ -304,6 +304,53 @@ def test_windows_improve_locks_parent_against_swap(
     assert "WINDOWS SAFE GUIDANCE" in path.read_text(encoding="utf-8")
 
 
+@pytest.mark.skipif(
+    os.name != "nt",
+    reason="Windows handle-relative failure cleanup",
+)
+def test_windows_publication_failure_removes_internal_temp(
+        monkeypatch):
+    import ctypes
+
+    config.save_config({
+        **config.load_config(),
+        "skills_guard_agent_created": True,
+    })
+    path = _write_skill(
+        "windows-failure-cleanup",
+        "windows failure cleanup",
+        "ORIGINAL",
+        [],
+    )
+    original = path.read_bytes()
+    real_kernel32 = manager_module._windows_kernel32()
+
+    class FailingRenameKernel:
+        def __getattr__(self, name):
+            return getattr(real_kernel32, name)
+
+        @staticmethod
+        def SetFileInformationByHandle(*_args) -> int:
+            ctypes.set_last_error(5)
+            return 0
+
+    monkeypatch.setattr(
+        manager_module,
+        "_windows_kernel32",
+        lambda: FailingRenameKernel(),
+    )
+
+    with pytest.raises(OSError):
+        apply_skill_proposal({
+            "action": "improve",
+            "target": "windows-failure-cleanup",
+            "addition": "SHOULD NOT PUBLISH",
+        })
+
+    assert path.read_bytes() == original
+    assert list(path.parent.glob(".birkin-publish-*.tmp")) == []
+
+
 @pytest.mark.parametrize("guard_enabled", [False, True])
 def test_improve_rejects_candidate_changed_after_guard(
         monkeypatch,
