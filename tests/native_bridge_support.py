@@ -72,7 +72,6 @@ def server_with_source(
         capabilities=capabilities,
         instance_id="instance-1",
         server_version="1.0.0",
-        command_types={"chat.send"},
     )
     return bridge, capabilities, source
 

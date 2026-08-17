@@ -101,7 +101,6 @@ def test_near_expiry_ping_renews_capability_in_band(tmp_path: Path) -> None:
         capabilities=capabilities,
         instance_id="instance-1",
         server_version="1.0.0",
-        command_types=set(),
     )
     server_socket, client = socket.socketpair()
     thread, errors = serve(

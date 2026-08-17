@@ -24,6 +24,9 @@ from birkin.workspace.contracts import ProtocolError as WorkspaceProtocolError
 
 
 class WorkspaceAuthority(WorkspaceProjectionSource, Protocol):
+    @property
+    def supported_commands(self) -> frozenset[str]: ...
+
     def submit(
         self,
         command: WorkspaceCommand,
@@ -43,7 +46,6 @@ class NativeBridgeServer:
         capabilities: BootstrapSecretStore,
         instance_id: str,
         server_version: str,
-        command_types: set[str],
     ) -> None:
         self._authority = authority
         self._capabilities = capabilities
@@ -57,11 +59,10 @@ class NativeBridgeServer:
         )
         self._instance_id = instance_id
         self._server_version = server_version
-        self._command_types = frozenset(command_types)
         self._messages = NativeMessageFactory(
             instance_id=instance_id,
             server_version=server_version,
-            command_types=self._command_types,
+            command_types=authority.supported_commands,
         )
 
     def serve_connection(

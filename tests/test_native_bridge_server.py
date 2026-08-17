@@ -4,10 +4,13 @@ import os
 import socket
 from pathlib import Path
 
+from birkin.native.capability import BootstrapSecretStore
 from birkin.native.protocol import (
     encode_frame,
 )
+from birkin.native.server import NativeBridgeServer
 from birkin.native.transport import receive_frame
+from birkin.workspace import WorkspaceService
 from tests.native_bridge_support import envelope, hello, serve, server
 
 
@@ -150,6 +153,40 @@ def test_authenticated_command_returns_public_receipt(tmp_path: Path) -> None:
         assert receipt.in_reply_to == "command-1"
         assert receipt.body["outcome"] == "accepted"
         assert "fingerprint" not in receipt.body
+    finally:
+        client.close()
+        thread.join(timeout=2)
+    assert errors == []
+
+
+def test_ready_advertises_authority_handlers_not_caller_claims(
+    tmp_path: Path,
+) -> None:
+    source = WorkspaceService(
+        root=tmp_path / "workspace",
+        session_id="session-1",
+        handlers={"chat.send": lambda payload: {"reply": payload}},
+    )
+    bridge = NativeBridgeServer(
+        source,
+        capabilities=BootstrapSecretStore(tmp_path / "native"),
+        instance_id="instance-1",
+        server_version="1.0.0",
+    )
+    server_socket, client = socket.socketpair()
+    thread, errors = serve(
+        bridge,
+        server_socket,
+        transport="uds",
+        peer_uid=os.geteuid(),
+    )
+    try:
+        client.sendall(encode_frame(hello(bootstrap_secret=None)))
+        ready = receive_frame(client)
+        capabilities = ready.body["capabilities"]
+
+        assert isinstance(capabilities, dict)
+        assert capabilities["commands"] == ["chat.send"]
     finally:
         client.close()
         thread.join(timeout=2)

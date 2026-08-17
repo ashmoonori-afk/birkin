@@ -29,6 +29,10 @@ EventListener = Callable[[WorkspaceEvent], None]
 class WorkspaceService:
     """Execute one session's commands in accepted event order."""
 
+    @property
+    def supported_commands(self) -> frozenset[str]:
+        return frozenset(self._handlers)
+
     def __init__(
         self,
         *,
