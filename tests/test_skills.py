@@ -489,13 +489,15 @@ def test_windows_indeterminate_rename_preserves_committed_target(
     with pytest.raises(
         IndeterminatePublicationError,
         match="do not retry",
-    ):
+    ) as raised:
         apply_skill_proposal({
             "action": "improve",
             "target": "windows-indeterminate-rename",
             "addition": "INDETERMINATE WINDOWS GUIDANCE",
         })
 
+    assert raised.value.retry_safe is False
+    assert len(raised.value.candidate_sha256) == 64
     assert "INDETERMINATE WINDOWS GUIDANCE" in path.read_text(
         encoding="utf-8"
     )
@@ -506,7 +508,7 @@ def test_windows_indeterminate_rename_preserves_committed_target(
     os.name == "nt",
     reason="POSIX descriptor cleanup semantics",
 )
-def test_failed_publication_zeroes_attacker_renamed_temp(
+def test_ambiguous_failure_preserves_attacker_renamed_temp(
         monkeypatch):
     path = _write_skill(
         "failed-publication-zeroize",
@@ -517,7 +519,6 @@ def test_failed_publication_zeroes_attacker_renamed_temp(
     original = path.read_bytes()
     moved_temp = path.parent / "attacker-moved.tmp"
     original_replace = os.replace
-    original_stat = os.stat
 
     def rename_temp_then_fail(
             source,
@@ -545,28 +546,7 @@ def test_failed_publication_zeroes_attacker_renamed_temp(
 
     monkeypatch.setattr(os, "replace", rename_temp_then_fail)
 
-    def fail_target_stat(
-            target_name,
-            *args,
-            dir_fd=None,
-            **kwargs):
-        if target_name == "SKILL.md" and dir_fd is not None:
-            raise OSError("injected target identity probe failure")
-        return original_stat(
-            target_name,
-            *args,
-            dir_fd=dir_fd,
-            **kwargs,
-        )
-
-    monkeypatch.setattr(os, "stat", fail_target_stat)
-
-    def fail_fstat(*_args) -> None:
-        raise OSError("injected descriptor identity probe failure")
-
-    monkeypatch.setattr(os, "fstat", fail_fstat)
-
-    with pytest.raises(OSError):
+    with pytest.raises(IndeterminatePublicationError):
         apply_skill_proposal({
             "action": "improve",
             "target": "failed-publication-zeroize",
@@ -574,7 +554,7 @@ def test_failed_publication_zeroes_attacker_renamed_temp(
         })
 
     assert path.read_bytes() == original
-    assert moved_temp.read_bytes() == b""
+    assert b"UNPUBLISHED VERIFIED BYTES" in moved_temp.read_bytes()
     moved_temp.unlink()
 
 
@@ -737,12 +717,19 @@ def test_indeterminate_publication_never_destroys_open_object(
     with pytest.raises(
         IndeterminatePublicationError,
         match="do not retry",
-    ):
+    ) as raised:
         apply_skill_proposal({
             "action": "improve",
             "target": "indeterminate-publication",
             "addition": "INDETERMINATE VERIFIED GUIDANCE",
         })
+
+    error = raised.value
+    assert error.operation.startswith(".birkin-publish-")
+    assert error.operation_id == error.operation
+    assert len(error.candidate_sha256) == 64
+    assert set(error.candidate_sha256) <= set("0123456789abcdef")
+    assert error.retry_safe is False
 
     if rename_commits:
         assert "INDETERMINATE VERIFIED GUIDANCE" in path.read_text(
@@ -754,6 +741,56 @@ def test_indeterminate_publication_never_destroys_open_object(
             moved_temp.read_bytes()
         )
         moved_temp.unlink()
+
+
+@pytest.mark.skipif(
+    os.name == "nt",
+    reason="POSIX committed relocation ambiguity",
+)
+def test_committed_then_relocated_publication_is_indeterminate(
+        monkeypatch):
+    path = _write_skill(
+        "committed-relocation",
+        "committed relocation",
+        "ORIGINAL",
+        [],
+    )
+    moved_target = path.parent / "attacker-relocated.tmp"
+    original_replace = os.replace
+
+    def commit_relocate_then_raise(
+            source,
+            destination,
+            *,
+            src_dir_fd=None,
+            dst_dir_fd=None):
+        original_replace(
+            source,
+            destination,
+            src_dir_fd=src_dir_fd,
+            dst_dir_fd=dst_dir_fd,
+        )
+        os.rename(
+            destination,
+            moved_target.name,
+            src_dir_fd=dst_dir_fd,
+            dst_dir_fd=dst_dir_fd,
+        )
+        raise OSError("injected committed relocation")
+
+    monkeypatch.setattr(os, "replace", commit_relocate_then_raise)
+
+    with pytest.raises(IndeterminatePublicationError) as raised:
+        apply_skill_proposal({
+            "action": "improve",
+            "target": "committed-relocation",
+            "addition": "RELOCATED COMMITTED GUIDANCE",
+        })
+
+    assert raised.value.retry_safe is False
+    assert path.exists() is False
+    assert b"RELOCATED COMMITTED GUIDANCE" in moved_target.read_bytes()
+    moved_target.unlink()
 
 
 @pytest.mark.skipif(
@@ -770,30 +807,23 @@ def test_truncate_failure_overwrites_attacker_renamed_temp(
     )
     original = path.read_bytes()
     moved_temp = path.parent / "attacker-moved-truncate.tmp"
-    original_replace = os.replace
+    original_write_all = manager_module._write_all
 
-    def rename_temp_then_fail(
-            source,
-            destination,
-            *,
-            src_dir_fd=None,
-            dst_dir_fd=None):
-        if Path(destination).name == "SKILL.md":
-            os.rename(
-                source,
-                moved_temp.name,
-                src_dir_fd=src_dir_fd,
-                dst_dir_fd=dst_dir_fd,
-            )
-            raise OSError("injected replace failure")
-        original_replace(
-            source,
-            destination,
-            src_dir_fd=src_dir_fd,
-            dst_dir_fd=dst_dir_fd,
+    def write_then_move_and_fail(
+            descriptor: int,
+            payload: bytes) -> None:
+        original_write_all(descriptor, payload)
+        temporary = next(
+            path.parent.glob(".birkin-publish-*.tmp")
         )
+        temporary.replace(moved_temp)
+        raise OSError("injected pre-rename write failure")
 
-    monkeypatch.setattr(os, "replace", rename_temp_then_fail)
+    monkeypatch.setattr(
+        manager_module,
+        "_write_all",
+        write_then_move_and_fail,
+    )
 
     def fail_ftruncate(*_args) -> None:
         raise OSError("injected truncate failure")

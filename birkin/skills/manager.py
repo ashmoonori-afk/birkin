@@ -29,7 +29,16 @@ class SkillProposalError(RuntimeError):
 
 
 class IndeterminatePublicationError(SkillProposalError):
-    pass
+    def __init__(self, operation: str, candidate_sha256: str):
+        self.operation = operation
+        self.operation_id = operation
+        self.candidate_sha256 = candidate_sha256
+        self.retry_safe = False
+        super().__init__(
+            "skill publication outcome is indeterminate "
+            f"(operation={operation}, sha256={candidate_sha256}); "
+            "do not retry until the target is reconciled"
+        )
 
 
 class SkillManager:
@@ -450,9 +459,11 @@ def _descriptor_path_is_target(
             )
         except OSError:
             return None
-    return Path(descriptor_name) == (
+    if Path(descriptor_name) == (
         Path(target_directory) / target_name
-    )
+    ):
+        return True
+    return None
 
 
 def _descriptor_is_target(
@@ -475,7 +486,7 @@ def _descriptor_is_target(
             follow_symlinks=False,
         )
     except FileNotFoundError:
-        return False
+        return None
     except OSError:
         flags = os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0)
         try:
@@ -485,7 +496,7 @@ def _descriptor_is_target(
                 dir_fd=target_fd,
             )
         except FileNotFoundError:
-            return False
+            return None
         except OSError:
             return _descriptor_path_is_target(
                 descriptor,
@@ -503,13 +514,15 @@ def _descriptor_is_target(
                 )
         finally:
             os.close(target_descriptor)
-    return (
+    if (
         descriptor_stat.st_dev,
         descriptor_stat.st_ino,
     ) == (
         target_stat.st_dev,
         target_stat.st_ino,
-    )
+    ):
+        return True
+    return None
 
 
 def _publish_skill_bytes_posix(
@@ -566,9 +579,8 @@ def _publish_skill_bytes_posix(
                         indeterminate = True
                         digest = hashlib.sha256(payload).hexdigest()
                         raise IndeterminatePublicationError(
-                            "skill publication outcome is indeterminate "
-                            f"(operation={temporary}, sha256={digest}); "
-                            "do not retry until the target is reconciled"
+                            temporary,
+                            digest,
                         ) from error
                 raise
         finally:
@@ -657,9 +669,11 @@ def _windows_handle_is_target(
             len(buffer),
             0,
         ):
-            return normalize(buffer.value) == normalize(
+            if normalize(buffer.value) == normalize(
                 str(target.absolute())
-            )
+            ):
+                return True
+            return None
 
     class FileNameInfo(ctypes.Structure):
         _fields_ = [
@@ -683,7 +697,9 @@ def _windows_handle_is_target(
         filename_offset:filename_offset + info.FileNameLength
     ].decode("utf-16-le")
     _, target_tail = os.path.splitdrive(str(target.absolute()))
-    return normalize(filename) == normalize(target_tail)
+    if normalize(filename) == normalize(target_tail):
+        return True
+    return None
 
 
 def _publish_skill_bytes_windows(
@@ -902,9 +918,8 @@ def _publish_skill_bytes_windows(
             if indeterminate:
                 digest = hashlib.sha256(payload).hexdigest()
                 raise IndeterminatePublicationError(
-                    "skill publication outcome is indeterminate "
-                    f"(operation={temporary.name}, sha256={digest}); "
-                    "do not retry until the target is reconciled"
+                    temporary.name,
+                    digest,
                 )
             if cleanup_error:
                 raise OSError(cleanup_error, str(temporary))
