@@ -536,22 +536,69 @@ def test_vault_symlink_retarget_cannot_reuse_pinned_provenance(
         "retargeted vault marker",
         source="signed-import",
     )
-    forged = vault_b / trusted.relative_to(active)
+    forged = vault_b / trusted.relative_to(vault_a)
     forged.parent.mkdir(parents=True)
     forged.write_bytes(trusted.read_bytes())
     active.unlink()
     active.symlink_to(vault_b, target_is_directory=True)
     mem.reindex()
 
-    record = mem.get_note_record("Retargeted boundary")
+    pinned_record = mem.get_note_record("Retargeted boundary")
+    retargeted = VaultMemory({
+        **config.load_config(),
+        "vault_path": str(active),
+        "memory_source_trust": {
+            "legacy": "low",
+            "signed-import": "high",
+        },
+    })
+    retargeted_record = retargeted.get_note_record("Retargeted boundary")
 
-    assert record is not None
-    assert record["record_source"] == "legacy"
-    assert record["trust"] == "low"
-    assert mem.search(
+    assert pinned_record is not None
+    assert pinned_record["record_source"] == "signed-import"
+    assert pinned_record["trust"] == "high"
+    assert retargeted_record is not None
+    assert retargeted_record["record_source"] == "legacy"
+    assert retargeted_record["trust"] == "low"
+    assert retargeted.search(
         "retargeted vault marker",
         min_trust="high",
     ) == []
+
+
+def test_vault_symlink_retarget_cannot_redirect_mutations(
+        tmp_path: Path,
+) -> None:
+    vault_a = tmp_path / "vault-a"
+    vault_b = tmp_path / "vault-b"
+    vault_a.mkdir()
+    vault_b.mkdir()
+    active = tmp_path / "active-vault"
+    active.symlink_to(vault_a, target_is_directory=True)
+    mem = VaultMemory({
+        **config.load_config(),
+        "vault_path": str(active),
+    })
+    original = mem.write_note(
+        "Pinned original",
+        "original marker",
+        source="conversation",
+    )
+    active.unlink()
+    active.symlink_to(vault_b, target_is_directory=True)
+
+    created = mem.write_note(
+        "Pinned mutation",
+        "mutation marker",
+        source="conversation",
+    )
+    moved = mem.rezone("Pinned original", "projects")
+
+    assert created.is_relative_to(vault_a)
+    assert moved.is_relative_to(vault_a)
+    assert moved.parent.name == "projects"
+    assert not (vault_b / created.relative_to(vault_a)).exists()
+    assert not (vault_b / original.relative_to(vault_a)).exists()
 
 
 def test_protected_user_role_files_remain_in_legacy_user_scope():
