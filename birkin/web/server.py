@@ -870,37 +870,27 @@ class Handler(BaseHTTPRequestHandler):
             return
         if self.path.startswith("/_bootstrap/"):
             nonce = self.path.removeprefix("/_bootstrap/")
-            if secrets.compare_digest(nonce, _TOKEN):
-                if not _consume_bootstrap(self.server):
-                    self._send(
-                        410,
-                        b"bootstrap capability already consumed",
-                        "text/plain; charset=utf-8",
-                    )
-                    return
-                capability = _CAPABILITY_TOKEN
-            else:
-                try:
-                    capability = _browser_guard(
-                        self.server,
-                        cast(HTTPServer, self.server).server_port,
-                    ).consume_bootstrap(
-                        nonce,
-                        host=self.headers.get("Host", ""),
-                        allow_remote_host=(
-                            self.client_address[0] not in _LOOPBACK_PEERS
-                        ),
-                    )
-                except BrowserRequestDenied as exc:
-                    self._send_browser_denial(exc)
-                    return
-                if not _consume_bootstrap(self.server):
-                    self._send(
-                        410,
-                        b"bootstrap capability already consumed",
-                        "text/plain; charset=utf-8",
-                    )
-                    return
+            try:
+                capability = _browser_guard(
+                    self.server,
+                    cast(HTTPServer, self.server).server_port,
+                ).consume_bootstrap(
+                    nonce,
+                    host=self.headers.get("Host", ""),
+                    allow_remote_host=(
+                        self.client_address[0] not in _LOOPBACK_PEERS
+                    ),
+                )
+            except BrowserRequestDenied as exc:
+                self._send_browser_denial(exc)
+                return
+            if not _consume_bootstrap(self.server):
+                self._send(
+                    410,
+                    b"bootstrap capability already consumed",
+                    "text/plain; charset=utf-8",
+                )
+                return
             self._send(
                 303,
                 b"",

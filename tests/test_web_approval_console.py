@@ -203,3 +203,16 @@ def test_remote_process_capability_is_not_a_bootstrap_url(
     )
 
     assert status == 403
+
+
+def test_loopback_process_capability_is_not_a_bootstrap_url(srv):
+    _, capability = srv
+
+    status, _ = request(
+        srv,
+        "GET",
+        f"/_bootstrap/{capability}",
+        token=False,
+    )
+
+    assert status == 403
