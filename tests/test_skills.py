@@ -591,13 +591,14 @@ def test_partial_write_failure_zeroes_attacker_renamed_temp(
         write_then_move_and_fail,
     )
 
-    with pytest.raises(OSError):
+    with pytest.raises(PublicationCleanupError) as raised:
         apply_skill_proposal({
             "action": "improve",
             "target": "partial-write-zeroize",
             "addition": "UNPUBLISHED VERIFIED PAYLOAD",
         })
 
+    assert raised.value.residue_possible is True
     assert path.read_bytes() == original
     assert moved_temp.read_bytes() == b""
     moved_temp.unlink()
@@ -835,7 +836,7 @@ def test_truncate_failure_overwrites_attacker_renamed_temp(
         fail_ftruncate,
     )
 
-    with pytest.raises(OSError):
+    with pytest.raises(PublicationCleanupError) as raised:
         apply_skill_proposal({
             "action": "improve",
             "target": "truncate-fallback",
@@ -843,6 +844,7 @@ def test_truncate_failure_overwrites_attacker_renamed_temp(
         })
 
     moved_bytes = moved_temp.read_bytes()
+    assert raised.value.residue_possible is True
     assert path.read_bytes() == original
     assert moved_bytes
     assert set(moved_bytes) == {0}
@@ -902,6 +904,68 @@ def test_cleanup_failure_reports_possible_residue(
     assert path.read_bytes() == original
     assert b"CLEANUP FAILURE PAYLOAD" in moved_temp.read_bytes()
     moved_temp.unlink()
+
+
+@pytest.mark.skipif(
+    os.name == "nt",
+    reason="POSIX publication unlink failure contract",
+)
+def test_unlink_failure_reports_zero_byte_residue(
+        monkeypatch):
+    path = _write_skill(
+        "unlink-failure-contract",
+        "unlink failure contract",
+        "ORIGINAL",
+        [],
+    )
+    original = path.read_bytes()
+    original_write_all = manager_module._write_all
+    original_unlink = os.unlink
+
+    def write_then_fail(
+            descriptor: int,
+            payload: bytes) -> None:
+        original_write_all(descriptor, payload)
+        raise OSError("injected pre-rename write failure")
+
+    def fail_publication_unlink(
+            target_name,
+            *args,
+            dir_fd=None,
+            **kwargs):
+        if (
+            str(target_name).startswith(".birkin-publish-")
+            and dir_fd is not None
+        ):
+            raise PermissionError("injected publication unlink failure")
+        return original_unlink(
+            target_name,
+            *args,
+            dir_fd=dir_fd,
+            **kwargs,
+        )
+
+    monkeypatch.setattr(
+        manager_module,
+        "_write_all",
+        write_then_fail,
+    )
+    monkeypatch.setattr(os, "unlink", fail_publication_unlink)
+
+    with pytest.raises(PublicationCleanupError) as raised:
+        apply_skill_proposal({
+            "action": "improve",
+            "target": "unlink-failure-contract",
+            "addition": "UNLINK FAILURE PAYLOAD",
+        })
+
+    residues = list(path.parent.glob(".birkin-publish-*.tmp"))
+    assert raised.value.retry_safe is False
+    assert raised.value.residue_possible is True
+    assert path.read_bytes() == original
+    assert len(residues) == 1
+    assert residues[0].read_bytes() == b""
+    original_unlink(residues[0])
 
 
 @pytest.mark.parametrize("guard_enabled", [False, True])

@@ -555,7 +555,6 @@ def _publish_skill_bytes_posix(
     temporary_fd = -1
     published = False
     indeterminate = False
-    cleanup_failed = False
     try:
         flags = os.O_WRONLY | os.O_CREAT | os.O_EXCL
         flags |= getattr(os, "O_NOFOLLOW", 0)
@@ -603,7 +602,6 @@ def _publish_skill_bytes_posix(
                 try:
                     _zero_open_descriptor(temporary_fd)
                 except BaseException as cleanup_error:
-                    cleanup_failed = True
                     digest = hashlib.sha256(payload).hexdigest()
                     raise PublicationCleanupError(
                         temporary,
@@ -615,11 +613,19 @@ def _publish_skill_bytes_posix(
         if not indeterminate:
             try:
                 os.unlink(temporary, dir_fd=target_fd)
-            except FileNotFoundError:
-                pass
-            except OSError:
-                if not cleanup_failed:
-                    raise
+            except FileNotFoundError as cleanup_error:
+                if not published:
+                    digest = hashlib.sha256(payload).hexdigest()
+                    raise PublicationCleanupError(
+                        temporary,
+                        digest,
+                    ) from cleanup_error
+            except OSError as cleanup_error:
+                digest = hashlib.sha256(payload).hexdigest()
+                raise PublicationCleanupError(
+                    temporary,
+                    digest,
+                ) from cleanup_error
         os.close(target_fd)
 
 
@@ -939,6 +945,8 @@ def _publish_skill_bytes_windows(
             if disposition_failed and not indeterminate:
                 if kernel32.DeleteFileW(str(temporary)):
                     cleanup_error = 0
+                elif not cleanup_error:
+                    cleanup_error = ctypes.get_last_error() or 1
             if indeterminate:
                 digest = hashlib.sha256(payload).hexdigest()
                 raise IndeterminatePublicationError(
