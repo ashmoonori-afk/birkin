@@ -706,6 +706,8 @@ points return `Tool` objects consumed by the existing native tool registry.
 
 <img src="./docs/assets/birkin-native-app-roadmap.png" alt="Future Birkin macOS native control shell with Sessions and Working Memory on the left, chat and terminal workspace in the center, and approvals, activity, Browser Aside, and Office surfaces on the right" width="920" />
 
+Interface contracts for this application: [`docs/native-app/`](./docs/native-app/README.md).
+
 *Concept layout only. Panel labels and toggles do not define the canonical
 Working Memory schema, approval categories, or egress policy; those remain the
 contracts documented above.*

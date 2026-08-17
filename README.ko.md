@@ -709,6 +709,8 @@ registry에 연결됩니다.
 
 <img src="./docs/assets/birkin-native-app-roadmap.png" alt="왼쪽에 session과 Working Memory, 중앙에 chat과 terminal workspace, 오른쪽에 approval, activity, Browser Aside, Office surface를 배치한 향후 Birkin macOS 네이티브 control shell" width="920" />
 
+이 앱의 interface contract: [`docs/native-app/`](./docs/native-app/README.md).
+
 *이 이미지는 개념적인 화면 배치만 보여줍니다. 패널 이름과 토글은 정식
 Working Memory 구조, 승인 분류, 외부 통신 정책을 정의하지 않으며 실제
 동작은 앞에서 설명한 운영 경계를 따릅니다.*
