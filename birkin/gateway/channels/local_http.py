@@ -22,6 +22,7 @@ if TYPE_CHECKING:
     from ..core import Gateway
 
 _ALLOWED_HOSTS = {"127.0.0.1", "localhost"}
+_LOOPBACK_PEERS = {"127.0.0.1", "::1"}
 _MAX_BODY = 1_000_000  # 1 MB cap on a request body — this endpoint takes a chat line
 _BODY_TIMEOUT_SECONDS = 2.0
 # Optional shared secret. When BIRKIN_HTTP_TOKEN is set, /message requires a
@@ -68,8 +69,10 @@ class LocalHTTPChannel(Channel):
                 pass
 
             def _host_ok(self) -> bool:
+                if self.client_address[0] not in _LOOPBACK_PEERS:
+                    return False
                 host = (self.headers.get("Host", "") or "").rsplit(":", 1)[0]
-                return host in _ALLOWED_HOSTS or host == ""
+                return host in _ALLOWED_HOSTS
 
             def _json(self, obj: Any, code: int = 200) -> None:
                 body = json.dumps(obj, ensure_ascii=False).encode("utf-8")

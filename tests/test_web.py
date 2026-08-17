@@ -158,6 +158,29 @@ def test_handler_server_version_uses_runtime_version():
     assert web_server.Handler.server_version == f"birkin-dashboard/{birkin.__version__}"
 
 
+class _ForcedRemoteHTTPServer(HTTPServer):
+    def get_request(self):
+        request, address = super().get_request()
+        return request, ("198.51.100.23", address[1])
+
+
+def test_remote_peer_cannot_forge_loopback_host(monkeypatch):
+    cfg = {**web_server.config.load_config(), "web_remote_access": True}
+    monkeypatch.setattr(web_server.config, "load_config", lambda: cfg)
+    httpd = _ForcedRemoteHTTPServer(("127.0.0.1", 0), web_server.Handler)
+    port = int(httpd.server_address[1])
+    thread = threading.Thread(target=httpd.serve_forever, daemon=True)
+    thread.start()
+    try:
+        code, _, _ = _request("127.0.0.1", port, "GET", "/")
+    finally:
+        httpd.shutdown()
+        httpd.server_close()
+        thread.join(timeout=2)
+
+    assert code == 403
+
+
 def test_run_prints_secret_bootstrap_url_for_no_browser(monkeypatch, capsys):
     class StoppingServer:
         def __init__(self, address, handler):

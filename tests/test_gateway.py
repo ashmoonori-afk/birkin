@@ -350,6 +350,32 @@ def test_local_http_forged_host_403(http_channel):
     assert code == 403
 
 
+def test_local_http_remote_peer_cannot_forge_loopback_host(monkeypatch):
+    real_server = local_http.ThreadingHTTPServer
+
+    class ForcedRemoteServer(real_server):
+        def get_request(self):
+            request, address = super().get_request()
+            return request, ("198.51.100.23", address[1])
+
+    monkeypatch.setattr(local_http, "ThreadingHTTPServer", ForcedRemoteServer)
+    calls = []
+    gateway = types.SimpleNamespace(
+        handle=lambda *args: calls.append(args) or "unexpected",
+        pending_hard_restart=False,
+    )
+    channel, thread = _start_http_channel(gateway)
+    try:
+        body = json.dumps({"text": "x"}).encode()
+        code, _ = _req(channel, "POST", "/message", body=body)
+    finally:
+        channel.stop()
+        thread.join(timeout=2.0)
+
+    assert code == 403
+    assert calls == []
+
+
 def test_local_http_bad_paths_and_payloads(http_channel):
     code, _ = _req(http_channel, "GET", "/whatever")
     assert code == 404

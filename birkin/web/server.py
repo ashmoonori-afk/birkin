@@ -94,6 +94,7 @@ _BOOTSTRAP_LOCK = threading.Lock()
 _BOOTSTRAPPED_SERVERS: WeakKeyDictionary[object, bool] = WeakKeyDictionary()
 _workspace_stream_slots = threading.BoundedSemaphore(32)
 _ALLOWED_HOSTS = {"127.0.0.1", "localhost"}
+_LOOPBACK_PEERS = {"127.0.0.1", "::1"}
 _workspace_root: Path | None = None
 _workspace_handlers: Mapping[str, CommandHandler] | None = None
 _workspace_hub: WorkspaceHub | None = None
@@ -685,15 +686,13 @@ class Handler(BaseHTTPRequestHandler):
         return True
 
     def _host_ok(self) -> bool:
+        peer = self.client_address[0]
         host = (self.headers.get("Host", "") or "").rsplit(":", 1)[0]
-        if host in _ALLOWED_HOSTS or host == "":
-            return True
+        if peer in _LOOPBACK_PEERS:
+            return host in _ALLOWED_HOSTS
         if not bool(config.load_config().get("web_remote_access", False)):
             return False
-        # Remote access is never a public dashboard. The secret bootstrap URL
-        # may mint the HttpOnly cookie; every other remote request must already
-        # carry that cookie or the existing X-Birkin-Token capability.
-        return self.path == f"/_bootstrap/{_TOKEN}" or self._capability_ok()
+        return self._capability_ok()
 
     def _header_capability_ok(self) -> bool:
         token = self.headers.get("X-Birkin-Token", "")
