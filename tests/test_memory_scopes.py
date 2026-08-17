@@ -422,6 +422,59 @@ def test_provenance_registration_is_scoped_to_one_vault(
     ) == []
 
 
+def test_direct_read_binds_content_to_provenance_snapshot(
+        monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    cfg = {
+        **config.load_config(),
+        "memory_source_trust": {
+            "legacy": "low",
+            "signed-import": "high",
+        },
+    }
+    mem = VaultMemory(cfg)
+    path = mem.write_note(
+        "Direct snapshot",
+        "registered direct content",
+        source="signed-import",
+    )
+    registered = path.read_text(encoding="utf-8")
+    attacker = registered.replace(
+        "registered direct content",
+        "ATTACKER direct content",
+    )
+    real_find_note = mem._find_note
+    real_read_text = Path.read_text
+    attacked = False
+    restored = False
+
+    def find_then_attack(title: str, scope: MemoryScope) -> Path | None:
+        nonlocal attacked
+        found = real_find_note(title, scope)
+        if found == path and not attacked:
+            found.write_text(attacker, encoding="utf-8")
+            attacked = True
+        return found
+
+    def read_then_restore(candidate: Path, *args, **kwargs) -> str:
+        nonlocal restored
+        text = real_read_text(candidate, *args, **kwargs)
+        if candidate == path and attacked and not restored:
+            restored = True
+            candidate.write_text(registered, encoding="utf-8")
+        return text
+
+    monkeypatch.setattr(mem, "_find_note", find_then_attack)
+    monkeypatch.setattr(Path, "read_text", read_then_restore)
+
+    record = mem.get_note_record("Direct snapshot")
+
+    assert record is not None
+    assert "ATTACKER direct content" in record["content"]
+    assert record["record_source"] == "legacy"
+    assert record["trust"] == "low"
+
+
 def test_protected_user_role_files_remain_in_legacy_user_scope():
     mem = _scoped(MemoryScope.USER)
     system = mem.vault / "system"

@@ -267,12 +267,10 @@ class VaultMemory:
             p = self._find_note(title, owner)
             if p is None:
                 continue
-            try:
-                text = p.read_text(encoding="utf-8", errors="replace")
-            except OSError:
+            source, _, text = self._record_source_snapshot(p)
+            if not text and not p.is_file():
                 continue
             meta, _ = frontmatter.parse(text)
-            source = self._record_source(p)
             self._dex_for(owner).record_access(p.stem)
             return {"content": text, "scope": owner.value,
                     "record_source": source,
