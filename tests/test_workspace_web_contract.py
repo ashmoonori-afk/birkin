@@ -14,6 +14,7 @@ import pytest
 
 from birkin.web import server as web_server
 from birkin.workspace import WorkspaceHub
+from script.qa import workspace_web_e2e
 from tests.local_http_support import local_http_timeout
 
 EXPECTED_PANEL_KEYS = (
@@ -427,3 +428,51 @@ def test_workspace_stream_limit_rejects_excess_subscriber(
     )
     assert code == 503
     assert _json(body)["error"] == "workspace stream capacity reached"
+
+
+def test_attached_workspace_qa_uses_listener_nonce(
+        monkeypatch: pytest.MonkeyPatch,
+        tmp_path: Path,
+) -> None:
+    session = tmp_path / "web_session.json"
+    session.write_text(
+        json.dumps({
+            "port": 43210,
+            "token": "process-capability",
+            "bootstrap_nonce": "listener-nonce",
+        }),
+        encoding="utf-8",
+    )
+    observed_urls: list[str] = []
+    monkeypatch.delenv("BIRKIN_HTTP_TOKEN", raising=False)
+    monkeypatch.setattr(
+        workspace_web_e2e.config,
+        "birkin_home",
+        lambda: tmp_path,
+    )
+    monkeypatch.setattr(
+        workspace_web_e2e,
+        "_run_driver",
+        lambda url, _evidence: observed_urls.append(url),
+    )
+    monkeypatch.setattr(
+        workspace_web_e2e,
+        "_png_dimensions",
+        lambda path: workspace_web_e2e.SCREENSHOTS[path.name],
+    )
+    monkeypatch.setattr(
+        workspace_web_e2e.sys,
+        "argv",
+        [
+            "workspace_web_e2e.py",
+            "--base-url",
+            "http://127.0.0.1:43210",
+            "--evidence-dir",
+            str(tmp_path / "evidence"),
+        ],
+    )
+
+    assert workspace_web_e2e.main() == 0
+    assert observed_urls == [
+        "http://127.0.0.1:43210/_bootstrap/listener-nonce"
+    ]

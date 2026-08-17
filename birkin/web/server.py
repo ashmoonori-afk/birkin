@@ -1357,7 +1357,11 @@ def run(port: int | None = None, *, open_browser: bool = True) -> int:
     session_path.parent.mkdir(parents=True, exist_ok=True)
     store._write_json(
         session_path,
-        {"port": actual_port, "token": _CAPABILITY_TOKEN},
+        {
+            "port": actual_port,
+            "token": _CAPABILITY_TOKEN,
+            "bootstrap_nonce": bootstrap_nonce,
+        },
     )
     url = f"http://127.0.0.1:{actual_port}"
     bootstrap_url = f"{url}/_bootstrap/{bootstrap_nonce}"
