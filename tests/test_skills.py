@@ -377,6 +377,75 @@ def test_windows_publication_failure_removes_internal_temp(
 
 @pytest.mark.skipif(
     os.name != "nt",
+    reason="Windows publication close-failure contract",
+)
+def test_windows_source_close_failure_is_typed(
+        monkeypatch):
+    import ctypes
+
+    path = _write_skill(
+        "windows-close-failure",
+        "windows close failure",
+        "ORIGINAL",
+        [],
+    )
+    original = path.read_bytes()
+    real_kernel32 = manager_module._windows_kernel32()
+
+    class FailingCloseKernel:
+        fail_source_close = False
+
+        def __getattr__(self, name):
+            return getattr(real_kernel32, name)
+
+        def CloseHandle(self, handle) -> int:
+            result = real_kernel32.CloseHandle(handle)
+            if self.fail_source_close:
+                self.fail_source_close = False
+                ctypes.set_last_error(6)
+                return 0
+            return result
+
+        def SetFileInformationByHandle(
+                self,
+                handle,
+                information_class,
+                information,
+                size) -> int:
+            if information_class == 3:
+                ctypes.set_last_error(5)
+                return 0
+            result = real_kernel32.SetFileInformationByHandle(
+                handle,
+                information_class,
+                information,
+                size,
+            )
+            if information_class == 4 and result:
+                self.fail_source_close = True
+            return result
+
+    kernel = FailingCloseKernel()
+    monkeypatch.setattr(
+        manager_module,
+        "_windows_kernel32",
+        lambda: kernel,
+    )
+
+    with pytest.raises(PublicationCleanupError) as raised:
+        apply_skill_proposal({
+            "action": "improve",
+            "target": "windows-close-failure",
+            "addition": "SHOULD NOT PUBLISH",
+        })
+
+    assert raised.value.cleanup_error_code == 6
+    assert raised.value.residue_possible is True
+    assert path.read_bytes() == original
+
+
+@pytest.mark.skipif(
+    os.name != "nt",
     reason="Windows handle-relative ambiguous success",
 )
 def test_windows_exception_after_committed_rename_preserves_target(
@@ -966,6 +1035,109 @@ def test_unlink_failure_reports_zero_byte_residue(
     assert len(residues) == 1
     assert residues[0].read_bytes() == b""
     original_unlink(residues[0])
+
+
+@pytest.mark.skipif(
+    os.name == "nt",
+    reason="POSIX publication identity-checked unlink",
+)
+def test_cleanup_does_not_unlink_replaced_temp_name(
+        monkeypatch):
+    path = _write_skill(
+        "replacement-cleanup-contract",
+        "replacement cleanup contract",
+        "ORIGINAL",
+        [],
+    )
+    original = path.read_bytes()
+    moved_temp = path.parent / "attacker-moved-replacement.tmp"
+    replacement: Path | None = None
+    original_write_all = manager_module._write_all
+
+    def write_move_replace_and_fail(
+            descriptor: int,
+            payload: bytes) -> None:
+        nonlocal replacement
+        original_write_all(descriptor, payload)
+        temporary = next(
+            path.parent.glob(".birkin-publish-*.tmp")
+        )
+        temporary.replace(moved_temp)
+        replacement = temporary
+        replacement.write_bytes(b"UNRELATED REPLACEMENT")
+        raise OSError("injected pre-rename write failure")
+
+    monkeypatch.setattr(
+        manager_module,
+        "_write_all",
+        write_move_replace_and_fail,
+    )
+
+    with pytest.raises(PublicationCleanupError):
+        apply_skill_proposal({
+            "action": "improve",
+            "target": "replacement-cleanup-contract",
+            "addition": "REPLACED TEMP PAYLOAD",
+        })
+
+    assert replacement is not None
+    assert path.read_bytes() == original
+    assert moved_temp.read_bytes() == b""
+    assert replacement.read_bytes() == b"UNRELATED REPLACEMENT"
+    moved_temp.unlink()
+    replacement.unlink()
+
+
+@pytest.mark.skipif(
+    os.name == "nt",
+    reason="POSIX publication close-error precedence",
+)
+def test_close_failure_preserves_typed_cleanup_error(
+        monkeypatch):
+    _write_skill(
+        "close-failure-contract",
+        "close failure contract",
+        "ORIGINAL",
+        [],
+    )
+    original_write_all = manager_module._write_all
+    original_close = os.close
+    publication_fds: set[int] = set()
+
+    def write_then_fail(
+            descriptor: int,
+            payload: bytes) -> None:
+        publication_fds.add(descriptor)
+        original_write_all(descriptor, payload)
+        raise OSError("injected pre-rename write failure")
+
+    def fail_cleanup(*_args) -> None:
+        raise OSError("injected cleanup failure")
+
+    def close_then_fail(descriptor: int) -> None:
+        original_close(descriptor)
+        if descriptor in publication_fds:
+            publication_fds.remove(descriptor)
+            raise OSError("injected close failure")
+
+    monkeypatch.setattr(
+        manager_module,
+        "_write_all",
+        write_then_fail,
+    )
+    monkeypatch.setattr(os, "ftruncate", fail_cleanup)
+    monkeypatch.setattr(os, "pwrite", fail_cleanup)
+    monkeypatch.setattr(os, "close", close_then_fail)
+
+    with pytest.raises(PublicationCleanupError) as raised:
+        apply_skill_proposal({
+            "action": "improve",
+            "target": "close-failure-contract",
+            "addition": "CLOSE FAILURE PAYLOAD",
+        })
+
+    assert raised.value.retry_safe is False
+    assert raised.value.residue_possible is True
 
 
 @pytest.mark.parametrize("guard_enabled", [False, True])

@@ -42,12 +42,18 @@ class IndeterminatePublicationError(SkillProposalError):
 
 
 class PublicationCleanupError(SkillProposalError):
-    def __init__(self, operation: str, candidate_sha256: str):
+    def __init__(
+        self,
+        operation: str,
+        candidate_sha256: str,
+        cleanup_error_code: int | None = None,
+    ):
         self.operation = operation
         self.operation_id = operation
         self.candidate_sha256 = candidate_sha256
         self.retry_safe = False
         self.residue_possible = True
+        self.cleanup_error_code = cleanup_error_code
         super().__init__(
             "failed skill publication could not be securely cleaned "
             f"(operation={operation}, sha256={candidate_sha256}); "
@@ -553,6 +559,7 @@ def _publish_skill_bytes_posix(
     )
     temporary = f".birkin-publish-{secrets.token_hex(12)}.tmp"
     temporary_fd = -1
+    temporary_identity: tuple[int, int] | None = None
     published = False
     indeterminate = False
     try:
@@ -564,6 +571,14 @@ def _publish_skill_bytes_posix(
             0o600,
             dir_fd=target_fd,
         )
+        try:
+            temporary_stat = os.fstat(temporary_fd)
+            temporary_identity = (
+                temporary_stat.st_dev,
+                temporary_stat.st_ino,
+            )
+        except OSError:
+            temporary_identity = None
         try:
             rename_started = False
             try:
@@ -608,25 +623,60 @@ def _publish_skill_bytes_posix(
                         digest,
                     ) from cleanup_error
     finally:
+        import sys
+        active_error = sys.exc_info()[1]
+        close_errors: list[OSError] = []
         if temporary_fd >= 0:
-            os.close(temporary_fd)
-        if not indeterminate:
             try:
-                os.unlink(temporary, dir_fd=target_fd)
-            except FileNotFoundError as cleanup_error:
-                if not published:
-                    digest = hashlib.sha256(payload).hexdigest()
-                    raise PublicationCleanupError(
-                        temporary,
-                        digest,
-                    ) from cleanup_error
-            except OSError as cleanup_error:
-                digest = hashlib.sha256(payload).hexdigest()
-                raise PublicationCleanupError(
+                os.close(temporary_fd)
+            except OSError as close_error:
+                close_errors.append(close_error)
+        namespace_error: OSError | None = None
+        if not indeterminate and not published:
+            try:
+                if temporary_identity is None:
+                    raise OSError(
+                        "publication temp identity is unavailable"
+                    )
+                current_stat = os.stat(
                     temporary,
-                    digest,
-                ) from cleanup_error
-        os.close(target_fd)
+                    dir_fd=target_fd,
+                    follow_symlinks=False,
+                )
+                current_identity = (
+                    current_stat.st_dev,
+                    current_stat.st_ino,
+                )
+                if current_identity != temporary_identity:
+                    raise OSError(
+                        "publication temp identity changed"
+                    )
+                os.unlink(temporary, dir_fd=target_fd)
+            except OSError as cleanup_error:
+                namespace_error = cleanup_error
+        try:
+            os.close(target_fd)
+        except OSError as close_error:
+            close_errors.append(close_error)
+        cleanup_error = namespace_error or (
+            close_errors[0] if close_errors else None
+        )
+        if (
+            not published
+            and cleanup_error is not None
+            and not isinstance(active_error, PublicationCleanupError)
+        ):
+            digest = hashlib.sha256(payload).hexdigest()
+            raise PublicationCleanupError(
+                temporary,
+                digest,
+            ) from cleanup_error
+        if (
+            active_error is None
+            and close_errors
+            and cleanup_error is not None
+        ):
+            raise cleanup_error
 
 
 def _windows_kernel32() -> Any:
@@ -892,8 +942,9 @@ def _publish_skill_bytes_windows(
                 raise OSError(ctypes.get_last_error(), str(target))
             published = True
         finally:
+            import sys
+            active_error = sys.exc_info()[1]
             cleanup_error = 0
-            disposition_failed = False
             if not published and rename_started:
                 try:
                     target_state = _windows_handle_is_target(
@@ -919,7 +970,6 @@ def _publish_skill_bytes_windows(
                     ctypes.sizeof(disposition),
                 ):
                     cleanup_error = ctypes.get_last_error()
-                    disposition_failed = True
                     class FileEndOfFileInfo(ctypes.Structure):
                         _fields_ = [
                             ("EndOfFile", ctypes.c_longlong),
@@ -941,12 +991,11 @@ def _publish_skill_bytes_windows(
                         wintypes.HANDLE(source_handle)
                     ):
                         cleanup_error = ctypes.get_last_error()
-            close_handle(wintypes.HANDLE(source_handle))
-            if disposition_failed and not indeterminate:
-                if kernel32.DeleteFileW(str(temporary)):
-                    cleanup_error = 0
-                elif not cleanup_error:
-                    cleanup_error = ctypes.get_last_error() or 1
+            source_close_error = 0
+            if not close_handle(wintypes.HANDLE(source_handle)):
+                source_close_error = ctypes.get_last_error() or 1
+                if not published and not indeterminate:
+                    cleanup_error = cleanup_error or source_close_error
             if indeterminate:
                 digest = hashlib.sha256(payload).hexdigest()
                 raise IndeterminatePublicationError(
@@ -958,7 +1007,10 @@ def _publish_skill_bytes_windows(
                 raise PublicationCleanupError(
                     temporary.name,
                     digest,
-                ) from OSError(cleanup_error, str(temporary))
+                    cleanup_error,
+                )
+            if source_close_error and active_error is None:
+                raise OSError(source_close_error, str(temporary))
     finally:
         for handle in reversed(handles):
             close_handle(wintypes.HANDLE(handle))
