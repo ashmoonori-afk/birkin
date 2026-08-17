@@ -308,7 +308,7 @@ class VaultMemory:
         for note_slug, entry in self.dex.entries().items():
             if entry["zone"] != ARCHIVE_ZONE and _is_expired(entry):
                 try:
-                    self.dex.rezone(note_slug, ARCHIVE_ZONE)
+                    self.rezone(note_slug, ARCHIVE_ZONE)
                     archived += 1
                 except (OSError, ValueError):
                     pass

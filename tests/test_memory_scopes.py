@@ -1,10 +1,12 @@
 """Scoped-memory contracts, beginning with the legacy vault baseline."""
 
+import json
 from pathlib import Path
 
 import pytest
 
 from birkin import config
+from birkin import curation
 from birkin import memory as memory_module
 from birkin.memory import VaultMemory
 from birkin.memory_scopes import (
@@ -316,6 +318,69 @@ def test_search_binds_high_trust_to_authenticated_byte_snapshot(
     assert results[0]["trust"] == "high"
     assert "trusted snapshot marker" in results[0]["snippet"]
     assert "ATTACKER" not in results[0]["snippet"]
+
+
+def test_curation_rezone_preserves_authenticated_provenance() -> None:
+    cfg = {
+        **config.load_config(),
+        "memory_source_trust": {
+            "legacy": "low",
+            "signed-import": "high",
+        },
+    }
+    mem = VaultMemory(cfg)
+    mem.write_note(
+        "Curated provenance",
+        "curation provenance marker",
+        source="signed-import",
+    )
+
+    def rezone_plan(_prompt: str) -> str:
+        return json.dumps({
+            "plan_version": 1,
+            "ops": [{
+                "op": "rezone",
+                "slug": "curated-provenance",
+                "zone": "projects",
+            }],
+            "summary": "curate authenticated note",
+        })
+
+    outcome = curation.run_curation_pass(
+        mem.vault,
+        rezone_plan,
+        provider="test",
+    )
+    record = mem.get_note_record("Curated provenance")
+
+    assert outcome.effected
+    assert record is not None
+    assert record["record_source"] == "signed-import"
+    assert record["trust"] == "high"
+
+
+def test_expiry_archive_preserves_authenticated_provenance() -> None:
+    cfg = {
+        **config.load_config(),
+        "memory_source_trust": {
+            "legacy": "low",
+            "signed-import": "high",
+        },
+    }
+    mem = VaultMemory(cfg)
+    mem.write_note(
+        "Expired provenance",
+        "expired provenance marker",
+        source="signed-import",
+        expired_at="2000-01-01",
+    )
+
+    assert mem.purge_expired() == 1
+    record = mem.get_note_record("Expired provenance")
+
+    assert record is not None
+    assert record["record_source"] == "signed-import"
+    assert record["trust"] == "high"
 
 
 def test_protected_user_role_files_remain_in_legacy_user_scope():

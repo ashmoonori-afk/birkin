@@ -58,7 +58,14 @@ def run_curation_pass(vault: Path, complete: Callable[[str], str], *,
     if apply:
         if accepted:
             snapshot_vault(vault)
-        effected = apply_plan(accepted, vault, dex)
+        from .memory import VaultMemory
+        memory = VaultMemory({"vault_path": str(vault)})
+        effected = apply_plan(
+            accepted,
+            vault,
+            dex,
+            move_note=memory.rezone,
+        )
     else:
         effected = []        # --dry-run: propose and gate, change nothing
     return CurationOutcome(

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+from collections.abc import Callable
 from pathlib import Path
 
 from . import mnemosyne
@@ -96,17 +97,22 @@ def _write_anchors(vault: Path, dex: Mnemosyne, s: str,
 
 
 def apply_plan(accepted: list[dict], vault: Path,
-               dex: Mnemosyne) -> list[dict]:
+               dex: Mnemosyne, *,
+               move_note: Callable[[str, str], Path] | None = None,
+               ) -> list[dict]:
     effected: list[dict] = []
+    move = move_note or dex.rezone
     for op in accepted:
         kind = op["op"]
         try:
             if kind == "rezone":
-                dex.rezone(op["slug"], op["zone"])
+                move(op["slug"], op["zone"])
+                dex.refresh()
                 effected.append({"op": "rezone", "slug": op["slug"],
                                  "zone": op["zone"]})
             elif kind == "archive":
-                dex.rezone(op["slug"], mnemosyne.ARCHIVE_ZONE)
+                move(op["slug"], mnemosyne.ARCHIVE_ZONE)
+                dex.refresh()
                 effected.append({"op": "archive", "slug": op["slug"]})
             elif kind == "link":
                 a, b = op["a"], op["b"]
