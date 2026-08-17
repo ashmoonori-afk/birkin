@@ -692,6 +692,8 @@ class Handler(BaseHTTPRequestHandler):
             return host in _ALLOWED_HOSTS
         if not bool(config.load_config().get("web_remote_access", False)):
             return False
+        if self.path == f"/_bootstrap/{_TOKEN}":
+            return True
         return self._capability_ok()
 
     def _header_capability_ok(self) -> bool:

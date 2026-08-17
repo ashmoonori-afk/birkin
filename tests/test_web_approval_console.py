@@ -164,3 +164,21 @@ def test_remote_access_is_opt_in_and_every_remote_request_is_authenticated(
     assert request(
         remote_srv, "GET", "/", token=True, host="console.example"
     )[0] == 200
+
+
+def test_remote_secret_bootstrap_mints_capability_cookie(
+        remote_srv, monkeypatch):
+    monkeypatch.setattr(web_server.config, "load_config", lambda: {
+        **config.DEFAULT_CONFIG, "web_remote_access": True})
+    _, capability = remote_srv
+
+    status, payload = request(
+        remote_srv,
+        "GET",
+        f"/_bootstrap/{capability}",
+        token=False,
+        host="console.example",
+    )
+
+    assert status == 303
+    assert payload is None
