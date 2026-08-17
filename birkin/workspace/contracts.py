@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import json
 import re
 from collections.abc import Mapping
@@ -183,9 +184,10 @@ class WorkspaceCommand:
         )
 
     def fingerprint(self) -> str:
-        return json.dumps(
+        canonical = json.dumps(
             {"type": self.type, "payload": self.payload},
             ensure_ascii=False,
             sort_keys=True,
             separators=(",", ":"),
         )
+        return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
