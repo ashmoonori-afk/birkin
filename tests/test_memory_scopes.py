@@ -5,6 +5,7 @@ from pathlib import Path
 import pytest
 
 from birkin import config
+from birkin import memory as memory_module
 from birkin.memory import VaultMemory
 from birkin.memory_scopes import (
     MemoryScope,
@@ -206,6 +207,71 @@ def test_tampered_note_loses_registered_high_trust() -> None:
     assert record is not None
     assert record["record_source"] == "legacy"
     assert record["trust"] == "low"
+
+
+def test_concurrent_replacement_cannot_be_registered_as_trusted(
+        monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    cfg = {
+        **config.load_config(),
+        "memory_source_trust": {
+            "legacy": "low",
+            "signed-import": "high",
+        },
+    }
+    mem = VaultMemory(cfg)
+    real_atomic_write = memory_module._atomic_write
+
+    def replace_after_publish(path: Path, text: str) -> None:
+        real_atomic_write(path, text)
+        if path.suffix == ".md":
+            path.write_text("ATTACKER RACE PAYLOAD\n", encoding="utf-8")
+
+    monkeypatch.setattr(
+        memory_module,
+        "_atomic_write",
+        replace_after_publish,
+    )
+
+    mem.write_note(
+        "Raced note",
+        "trusted original",
+        source="signed-import",
+    )
+    record = mem.get_note_record("Raced note")
+
+    assert record is not None
+    assert record["record_source"] == "legacy"
+    assert record["trust"] == "low"
+    assert mem.search("ATTACKER RACE PAYLOAD", min_trust="high") == []
+
+
+def test_rezone_preserves_authenticated_provenance() -> None:
+    cfg = {
+        **config.load_config(),
+        "memory_source_trust": {
+            "legacy": "low",
+            "signed-import": "high",
+        },
+    }
+    mem = VaultMemory(cfg)
+    mem.write_note(
+        "Rezoned note",
+        "rezoned provenance marker",
+        source="signed-import",
+    )
+
+    moved = mem.rezone("Rezoned note", "projects")
+    record = mem.get_note_record("Rezoned note")
+
+    assert moved.parent.name == "projects"
+    assert record is not None
+    assert record["record_source"] == "signed-import"
+    assert record["trust"] == "high"
+    assert mem.search(
+        "rezoned provenance marker",
+        min_trust="high",
+    )
 
 
 def test_protected_user_role_files_remain_in_legacy_user_scope():

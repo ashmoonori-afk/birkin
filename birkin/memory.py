@@ -184,25 +184,34 @@ class VaultMemory:
             if isinstance(value, dict)
         }
 
-    def _register_record_source(self, path: Path, source: str) -> None:
-        digest = hashlib.sha256(path.read_bytes()).hexdigest()
-        with _PROVENANCE_LOCK:
+    def _register_record_source(
+        self,
+        path: Path,
+        source: str,
+        *,
+        digest: str,
+        previous_path: Path | None = None,
+    ) -> None:
+        with _PROVENANCE_LOCK, store.file_lock(self._provenance_path):
             records = self._provenance_records()
-            records[self._provenance_key(path)] = {
-                "record_source": source,
-                "sha256": digest,
-            }
+            if previous_path is not None:
+                records.pop(self._provenance_key(previous_path), None)
+            if source != "legacy":
+                records[self._provenance_key(path)] = {
+                    "record_source": source,
+                    "sha256": digest,
+                }
             _atomic_write(
                 self._provenance_path,
                 json.dumps(records, indent=2, sort_keys=True) + "\n",
             )
 
-    def _record_source(self, path: Path) -> str:
+    def _record_source_with_digest(self, path: Path) -> tuple[str, str]:
         try:
             digest = hashlib.sha256(path.read_bytes()).hexdigest()
             key = self._provenance_key(path)
         except (OSError, ValueError):
-            return "legacy"
+            return "legacy", ""
         with _PROVENANCE_LOCK:
             record = self._provenance_records().get(key)
         if (
@@ -210,8 +219,11 @@ class VaultMemory:
             and record["sha256"] == digest
             and record["record_source"]
         ):
-            return record["record_source"]
-        return "legacy"
+            return record["record_source"], digest
+        return "legacy", digest
+
+    def _record_source(self, path: Path) -> str:
+        return self._record_source_with_digest(path)[0]
 
     def _entry_record_source(
         self,
@@ -436,8 +448,14 @@ class VaultMemory:
                 record_source=record_source,
                 trust=self.policy.trust_for(record_source).value,
                 shared_read_only=resolved_shared)
-            _atomic_write(p, fm + body + "\n")
-            self._register_record_source(p, record_source)
+            note_text = fm + body + "\n"
+            digest = hashlib.sha256(note_text.encode("utf-8")).hexdigest()
+            _atomic_write(p, note_text)
+            self._register_record_source(
+                p,
+                record_source,
+                digest=digest,
+            )
             owner_dex = self._dex_for(owner)
             owner_dex.note_written(p)
             owner_dex.record_access(_slug(title))   # writing = using
@@ -636,8 +654,24 @@ class VaultMemory:
 
     def rezone(self, title: str, zone: str) -> Path:
         """Move a note to another zone (Morpheus's placement instrument)."""
-        with _note_lock(_slug(title)):
-            return self.dex.rezone(_slug(title), zone)
+        slug = _slug(title)
+        owner = self.policy.actor_scope
+        root = scope_root(self.vault, owner)
+        with _note_lock(slug), store.file_lock(
+            root / f".birkin-note-{slug}"
+        ):
+            current = self._find_note(title, owner)
+            if current is None:
+                return self.dex.rezone(slug, zone)
+            source, digest = self._record_source_with_digest(current)
+            moved = self.dex.rezone(slug, zone)
+            self._register_record_source(
+                moved,
+                source,
+                digest=digest,
+                previous_path=current,
+            )
+            return moved
 
     def reindex(self) -> dict[str, int]:
         """Force-rebuild the vault index; returns stats (``birkin reindex``)."""
