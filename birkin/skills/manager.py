@@ -552,6 +552,7 @@ def _publish_skill_bytes_windows(
             create_new,
             temporary_attribute,
         )
+        published = False
         try:
             payload_buffer = ctypes.create_string_buffer(payload)
             written = wintypes.DWORD()
@@ -599,12 +600,24 @@ def _publish_skill_bytes_windows(
                 len(buffer),
             ):
                 raise OSError(ctypes.get_last_error(), str(target))
+            published = True
         finally:
+            cleanup_error = 0
+            if not published:
+                class FileDispositionInfo(ctypes.Structure):
+                    _fields_ = [("DeleteFile", wintypes.BOOLEAN)]
+
+                disposition = FileDispositionInfo(True)
+                if not kernel32.SetFileInformationByHandle(
+                    wintypes.HANDLE(source_handle),
+                    4,
+                    ctypes.byref(disposition),
+                    ctypes.sizeof(disposition),
+                ):
+                    cleanup_error = ctypes.get_last_error()
             close_handle(wintypes.HANDLE(source_handle))
-            if not kernel32.DeleteFileW(str(temporary)):
-                cleanup_error = ctypes.get_last_error()
-                if cleanup_error not in {2, 3}:
-                    raise OSError(cleanup_error, str(temporary))
+            if cleanup_error:
+                raise OSError(cleanup_error, str(temporary))
     finally:
         for handle in reversed(handles):
             close_handle(wintypes.HANDLE(handle))

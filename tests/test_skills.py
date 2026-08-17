@@ -324,15 +324,34 @@ def test_windows_publication_failure_removes_internal_temp(
     )
     original = path.read_bytes()
     real_kernel32 = manager_module._windows_kernel32()
+    moved_temp = path.parent / "attacker-moved.tmp"
+    cleanup_race_attempts: list[bool] = []
 
     class FailingRenameKernel:
         def __getattr__(self, name):
             return getattr(real_kernel32, name)
 
         @staticmethod
-        def SetFileInformationByHandle(*_args) -> int:
-            ctypes.set_last_error(5)
-            return 0
+        def SetFileInformationByHandle(
+                handle,
+                information_class,
+                information,
+                size) -> int:
+            if information_class == 3:
+                ctypes.set_last_error(5)
+                return 0
+            temporary = next(
+                path.parent.glob(".birkin-publish-*.tmp")
+            )
+            with pytest.raises(OSError):
+                temporary.replace(moved_temp)
+            cleanup_race_attempts.append(True)
+            return real_kernel32.SetFileInformationByHandle(
+                handle,
+                information_class,
+                information,
+                size,
+            )
 
     monkeypatch.setattr(
         manager_module,
@@ -348,7 +367,9 @@ def test_windows_publication_failure_removes_internal_temp(
         })
 
     assert path.read_bytes() == original
+    assert cleanup_race_attempts == [True]
     assert list(path.parent.glob(".birkin-publish-*.tmp")) == []
+    assert moved_temp.exists() is False
 
 
 @pytest.mark.parametrize("guard_enabled", [False, True])
