@@ -150,6 +150,22 @@ class NativeListener:
             if self.transport == "uds"
             else None
         )
+        if self.transport == "uds" and expected_uid is None:
+            geteuid = getattr(os, "geteuid", None)
+            if not callable(geteuid):
+                connection.close()
+                raise NativeProtocolError(
+                    "E_PEER_UID_MISMATCH",
+                    "Unix socket peer identity is unavailable",
+                )
+            effective_uid = geteuid()
+            if not isinstance(effective_uid, int):
+                connection.close()
+                raise NativeProtocolError(
+                    "E_PEER_UID_MISMATCH",
+                    "Unix socket peer identity is invalid",
+                )
+            expected_uid = effective_uid
         if expected_uid is not None and accepted_uid != expected_uid:
             connection.close()
             raise NativeProtocolError(

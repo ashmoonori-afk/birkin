@@ -69,12 +69,19 @@ def read_record(path: Path) -> BootstrapRecord:
     return BootstrapRecord(secret=secret, expires_at=expiry)
 
 
-def write_record(path: Path, record: BootstrapRecord) -> None:
-    payload = {
+def write_record(
+    path: Path,
+    record: BootstrapRecord,
+    *,
+    metadata: dict[str, object] | None = None,
+) -> None:
+    payload: dict[str, object] = {
         "transport": "loopback",
         "bootstrap_secret": record.secret,
         "expires_at": record.expires_at.isoformat(),
     }
+    if metadata is not None:
+        payload.update(metadata)
     fd, temp_name = tempfile.mkstemp(
         prefix=f".{path.name}.",
         dir=path.parent,

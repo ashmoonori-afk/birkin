@@ -76,10 +76,12 @@ class BootstrapSecretStore:
         self._now = now
         self._capabilities: dict[str, SessionCapability] = {}
         self._capability_lock = threading.Lock()
+        self._endpoint_metadata: dict[str, object] | None = None
         prepare_private_root(self.root)
 
     def issue(self) -> BootstrapRecord:
         with store.file_lock(self.lock_path):
+            self._endpoint_metadata = None
             record = new_record(self._now(), self._ttl)
             write_record(self.endpoint_path, record)
             return record
@@ -87,6 +89,32 @@ class BootstrapSecretStore:
     def current(self) -> BootstrapRecord:
         with store.file_lock(self.lock_path):
             return read_record(self.endpoint_path)
+
+    def publish_loopback(
+        self,
+        *,
+        host: str,
+        port: int,
+        instance_id: str,
+        server_version: str,
+    ) -> BootstrapRecord:
+        with store.file_lock(self.lock_path):
+            record = new_record(self._now(), self._ttl)
+            metadata: dict[str, object] = {
+                "transport": "loopback",
+                "host": host,
+                "port": port,
+                "instance_id": instance_id,
+                "server_version": server_version,
+                "protocol_versions": [1],
+            }
+            self._endpoint_metadata = metadata
+            write_record(
+                self.endpoint_path,
+                record,
+                metadata=metadata,
+            )
+            return record
 
     def exchange(
         self,
@@ -110,6 +138,7 @@ class BootstrapSecretStore:
             write_record(
                 self.endpoint_path,
                 new_record(self._now(), self._ttl),
+                metadata=self._endpoint_metadata,
             )
             return capability
 
