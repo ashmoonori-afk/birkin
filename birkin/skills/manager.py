@@ -13,6 +13,7 @@ import hashlib
 import json
 import os
 import re
+import secrets
 import shutil
 import tempfile
 import time
@@ -320,13 +321,13 @@ def _canonical_skill_target(
     raise SkillProposalError("skill improve target is outside configured roots")
 
 
-def _open_anchored_directory(root: Path, relative: Path) -> int:
+def _open_directory_tree(root: Path) -> int:
     flags = os.O_RDONLY
     flags |= getattr(os, "O_DIRECTORY", 0)
     flags |= getattr(os, "O_NOFOLLOW", 0)
-    descriptor = os.open(root, flags)
+    descriptor = os.open(root.anchor, flags)
     try:
-        for part in relative.parts:
+        for part in root.parts[1:]:
             if part in {"", ".", ".."}:
                 raise SkillProposalError(
                     "skill improve target has an unsafe path"
@@ -344,46 +345,281 @@ def _open_anchored_directory(root: Path, relative: Path) -> int:
         raise
 
 
-def _publish_skill_file(
-    candidate: Path,
+def _open_descendant_directory(
+    root_fd: int,
+    relative: Path,
+    *,
+    create: bool = False,
+) -> int:
+    flags = os.O_RDONLY
+    flags |= getattr(os, "O_DIRECTORY", 0)
+    flags |= getattr(os, "O_NOFOLLOW", 0)
+    descriptor = os.dup(root_fd)
+    try:
+        for part in relative.parts:
+            if part in {"", ".", ".."}:
+                raise SkillProposalError(
+                    "skill improve target has an unsafe path"
+                )
+            try:
+                child = os.open(part, flags, dir_fd=descriptor)
+            except FileNotFoundError:
+                if not create:
+                    raise
+                os.mkdir(part, 0o700, dir_fd=descriptor)
+                child = os.open(part, flags, dir_fd=descriptor)
+            os.close(descriptor)
+            descriptor = child
+        return descriptor
+    except BaseException:
+        os.close(descriptor)
+        raise
+
+
+def _verified_candidate_bytes(candidate: Path, what: str) -> bytes:
+    if candidate.is_symlink():
+        raise SkillProposalError("staged SKILL.md must not be a symlink")
+    before = candidate.read_bytes()
+    _guard_agent_written(candidate, what)
+    if candidate.is_symlink():
+        raise SkillProposalError("staged SKILL.md must not be a symlink")
+    after = candidate.read_bytes()
+    if not secrets.compare_digest(
+        hashlib.sha256(before).digest(),
+        hashlib.sha256(after).digest(),
+    ):
+        raise SkillProposalError(
+            "staged SKILL.md changed during security review"
+        )
+    return after
+
+
+def _write_all(descriptor: int, payload: bytes) -> None:
+    written = 0
+    while written < len(payload):
+        written += os.write(descriptor, payload[written:])
+
+
+def _publish_skill_bytes_posix(
+    payload: bytes,
+    target: Path,
+    target_root: Path,
+    root_fd: int,
+) -> None:
+    relative_parent = target.parent.relative_to(target_root)
+    target_fd = _open_descendant_directory(
+        root_fd,
+        relative_parent,
+        create=True,
+    )
+    temporary = f".birkin-publish-{secrets.token_hex(12)}.tmp"
+    temporary_fd = -1
+    try:
+        flags = os.O_WRONLY | os.O_CREAT | os.O_EXCL
+        flags |= getattr(os, "O_NOFOLLOW", 0)
+        temporary_fd = os.open(
+            temporary,
+            flags,
+            0o600,
+            dir_fd=target_fd,
+        )
+        _write_all(temporary_fd, payload)
+        os.fsync(temporary_fd)
+        os.close(temporary_fd)
+        temporary_fd = -1
+        os.replace(
+            temporary,
+            target.name,
+            src_dir_fd=target_fd,
+            dst_dir_fd=target_fd,
+        )
+    finally:
+        if temporary_fd >= 0:
+            os.close(temporary_fd)
+        try:
+            os.unlink(temporary, dir_fd=target_fd)
+        except FileNotFoundError:
+            pass
+        os.close(target_fd)
+
+
+def _publish_skill_bytes_windows(
+    payload: bytes,
     target: Path,
     target_root: Path,
 ) -> None:
-    target.parent.mkdir(parents=True, exist_ok=True)
-    if os.open not in os.supports_dir_fd:
-        resolved_parent = target.parent.resolve(strict=True)
-        if not resolved_parent.is_relative_to(target_root):
-            raise SkillProposalError(
-                "skill improve target escaped its configured root"
-            )
-        candidate.replace(resolved_parent / target.name)
-        return
-    relative_parent = target.parent.relative_to(target_root)
-    source_fd = _open_anchored_directory(
-        candidate.parent.resolve(),
-        Path(),
+    import ctypes
+    from ctypes import wintypes
+
+    kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+    create_file = kernel32.CreateFileW
+    create_file.restype = wintypes.HANDLE
+    create_file.argtypes = (
+        wintypes.LPCWSTR,
+        wintypes.DWORD,
+        wintypes.DWORD,
+        wintypes.LPVOID,
+        wintypes.DWORD,
+        wintypes.DWORD,
+        wintypes.HANDLE,
     )
-    target_fd = _open_anchored_directory(
-        target_root,
-        relative_parent,
-    )
-    try:
-        os.replace(
-            candidate.name,
-            target.name,
-            src_dir_fd=source_fd,
-            dst_dir_fd=target_fd,
+    close_handle = kernel32.CloseHandle
+    invalid_handle = wintypes.HANDLE(-1).value
+    file_read_attributes = 0x0080
+    delete_access = 0x00010000
+    generic_write = 0x40000000
+    share_read = 0x00000001
+    share_write = 0x00000002
+    open_existing = 3
+    create_new = 1
+    backup_semantics = 0x02000000
+    open_reparse_point = 0x00200000
+    temporary_attribute = 0x00000100
+    reparse_attribute = 0x00000400
+
+    handles: list[int] = []
+
+    def open_handle(
+        path: Path,
+        access: int,
+        share: int,
+        creation: int,
+        flags: int,
+    ) -> int:
+        handle = create_file(
+            str(path),
+            access,
+            share,
+            None,
+            creation,
+            flags,
+            None,
         )
-    except (NotImplementedError, TypeError):
-        resolved_parent = target.parent.resolve(strict=True)
-        if not resolved_parent.is_relative_to(target_root):
-            raise SkillProposalError(
-                "skill improve target escaped its configured root"
-            ) from None
-        candidate.replace(resolved_parent / target.name)
+        if handle == invalid_handle:
+            raise OSError(ctypes.get_last_error(), str(path))
+        return int(handle)
+
+    try:
+        current = Path(target_root.anchor)
+        for part in (*target_root.parts[1:], *target.parent.relative_to(
+                target_root).parts):
+            current /= part
+            if not current.exists():
+                if not kernel32.CreateDirectoryW(str(current), None):
+                    raise OSError(ctypes.get_last_error(), str(current))
+            handle = open_handle(
+                current,
+                file_read_attributes,
+                share_read | share_write,
+                open_existing,
+                backup_semantics | open_reparse_point,
+            )
+
+            class FileAttributeTagInfo(ctypes.Structure):
+                _fields_ = [
+                    ("FileAttributes", wintypes.DWORD),
+                    ("ReparseTag", wintypes.DWORD),
+                ]
+
+            tag_info = FileAttributeTagInfo()
+            if not kernel32.GetFileInformationByHandleEx(
+                wintypes.HANDLE(handle),
+                9,
+                ctypes.byref(tag_info),
+                ctypes.sizeof(tag_info),
+            ):
+                close_handle(wintypes.HANDLE(handle))
+                raise OSError(ctypes.get_last_error(), str(current))
+            if tag_info.FileAttributes & reparse_attribute:
+                close_handle(wintypes.HANDLE(handle))
+                raise SkillProposalError(
+                    "skill improve target contains a reparse point"
+                )
+            handles.append(handle)
+
+        temporary = target.parent / (
+            f".birkin-publish-{secrets.token_hex(12)}.tmp"
+        )
+        source_handle = open_handle(
+            temporary,
+            generic_write | delete_access,
+            0,
+            create_new,
+            temporary_attribute,
+        )
+        try:
+            payload_buffer = ctypes.create_string_buffer(payload)
+            written = wintypes.DWORD()
+            if not kernel32.WriteFile(
+                wintypes.HANDLE(source_handle),
+                payload_buffer,
+                len(payload),
+                ctypes.byref(written),
+                None,
+            ):
+                raise OSError(ctypes.get_last_error(), str(temporary))
+            if written.value != len(payload):
+                raise OSError("short Windows skill publication write")
+            if not kernel32.FlushFileBuffers(
+                wintypes.HANDLE(source_handle)
+            ):
+                raise OSError(ctypes.get_last_error(), str(temporary))
+
+            class FileRenameInfo(ctypes.Structure):
+                _fields_ = [
+                    ("ReplaceIfExists", wintypes.BOOLEAN),
+                    ("RootDirectory", wintypes.HANDLE),
+                    ("FileNameLength", wintypes.DWORD),
+                    ("FileName", wintypes.WCHAR * 1),
+                ]
+
+            encoded_name = target.name.encode("utf-16-le")
+            filename_offset = FileRenameInfo.FileName.offset
+            buffer = ctypes.create_string_buffer(
+                filename_offset + len(encoded_name)
+            )
+            rename_info = FileRenameInfo.from_buffer(buffer)
+            rename_info.ReplaceIfExists = True
+            rename_info.RootDirectory = wintypes.HANDLE(handles[-1])
+            rename_info.FileNameLength = len(encoded_name)
+            ctypes.memmove(
+                ctypes.addressof(buffer) + filename_offset,
+                encoded_name,
+                len(encoded_name),
+            )
+            if not kernel32.SetFileInformationByHandle(
+                wintypes.HANDLE(source_handle),
+                3,
+                buffer,
+                len(buffer),
+            ):
+                raise OSError(ctypes.get_last_error(), str(target))
+        finally:
+            close_handle(wintypes.HANDLE(source_handle))
     finally:
-        os.close(source_fd)
-        os.close(target_fd)
+        for handle in reversed(handles):
+            close_handle(wintypes.HANDLE(handle))
+
+
+def _publish_skill_bytes(
+    payload: bytes,
+    target: Path,
+    target_root: Path,
+    root_fd: int | None,
+) -> None:
+    if os.name == "nt":
+        _publish_skill_bytes_windows(payload, target, target_root)
+        return
+    if root_fd is None:
+        raise SkillProposalError(
+            "anchored skill publication is unavailable"
+        )
+    _publish_skill_bytes_posix(
+        payload,
+        target,
+        target_root,
+        root_fd,
+    )
 
 
 def apply_skill_proposal(payload: dict[str, Any]) -> str:
@@ -413,25 +649,41 @@ def apply_skill_proposal(payload: dict[str, Any]) -> str:
             with store.file_lock(_proposal_lock_path(canonical)):
                 if _skill_exists(canonical):
                     raise SkillProposalError(f"skill already exists: {canonical}")
-                with tempfile.TemporaryDirectory(
-                    dir=path.parent.parent,
-                    prefix=".proposal-",
-                ) as staging_name:
-                    staging = Path(staging_name)
-                    candidate_dir = staging / canonical
-                    candidate_dir.mkdir()
-                    candidate = candidate_dir / "SKILL.md"
-                    candidate.write_text(
-                        _render_skill(
-                            name,
-                            desc,
-                            body,
-                            payload.get("tags") or [],
-                        ),
-                        encoding="utf-8",
-                    )
-                    _guard_agent_written(candidate, f"skill {name!r}")
-                    _publish_skill_file(candidate, path, target_root)
+                root_fd = (
+                    None
+                    if os.name == "nt"
+                    else _open_directory_tree(target_root)
+                )
+                try:
+                    with tempfile.TemporaryDirectory(
+                        prefix=".proposal-",
+                    ) as staging_name:
+                        staging = Path(staging_name)
+                        candidate_dir = staging / canonical
+                        candidate_dir.mkdir()
+                        candidate = candidate_dir / "SKILL.md"
+                        candidate.write_text(
+                            _render_skill(
+                                name,
+                                desc,
+                                body,
+                                payload.get("tags") or [],
+                            ),
+                            encoding="utf-8",
+                        )
+                        verified = _verified_candidate_bytes(
+                            candidate,
+                            f"skill {name!r}",
+                        )
+                        _publish_skill_bytes(
+                            verified,
+                            path,
+                            target_root,
+                            root_fd,
+                        )
+                finally:
+                    if root_fd is not None:
+                        os.close(root_fd)
         except store.FileLockTimeout:
             raise SkillProposalError("skill store is busy") from None
         return f"Created skill {name!r} at {path}"
@@ -466,36 +718,44 @@ def apply_skill_proposal(payload: dict[str, Any]) -> str:
                     raise SkillProposalError(
                         "skill improve target must not be a symlink"
                     )
-                target.parent.parent.mkdir(parents=True, exist_ok=True)
-                with tempfile.TemporaryDirectory(
-                    dir=target.parent.parent,
-                    prefix=".proposal-",
-                ) as staging_name:
-                    staging = Path(staging_name)
-                    candidate_dir = staging / target.parent.name
-                    shutil.copytree(
-                        skill.path.parent,
-                        candidate_dir,
-                        symlinks=True,
-                    )
-                    candidate = candidate_dir / "SKILL.md"
-                    if candidate.is_symlink():
-                        raise SkillProposalError(
-                            "staged SKILL.md must not be a symlink"
+                root_fd = (
+                    None
+                    if os.name == "nt"
+                    else _open_directory_tree(target_root)
+                )
+                try:
+                    with tempfile.TemporaryDirectory(
+                        prefix=".proposal-",
+                    ) as staging_name:
+                        staging = Path(staging_name)
+                        candidate_dir = staging / target.parent.name
+                        shutil.copytree(
+                            skill.path.parent,
+                            candidate_dir,
+                            symlinks=True,
                         )
-                    with candidate.open("a", encoding="utf-8") as fh:
-                        fh.write(
-                            f"\n\n## Learned ({_today()})\n\n{addition}\n"
+                        candidate = candidate_dir / "SKILL.md"
+                        if candidate.is_symlink():
+                            raise SkillProposalError(
+                                "staged SKILL.md must not be a symlink"
+                            )
+                        with candidate.open("a", encoding="utf-8") as fh:
+                            fh.write(
+                                f"\n\n## Learned ({_today()})\n\n{addition}\n"
+                            )
+                        verified = _verified_candidate_bytes(
+                            candidate,
+                            f"skill {target_name!r}",
                         )
-                    _guard_agent_written(
-                        candidate,
-                        f"skill {target_name!r}",
-                    )
-                    _publish_skill_file(
-                        candidate,
-                        target,
-                        target_root,
-                    )
+                        _publish_skill_bytes(
+                            verified,
+                            target,
+                            target_root,
+                            root_fd,
+                        )
+                finally:
+                    if root_fd is not None:
+                        os.close(root_fd)
         except store.FileLockTimeout:
             raise SkillProposalError("skill store is busy") from None
         return f"Appended learned note to {target_name!r}."

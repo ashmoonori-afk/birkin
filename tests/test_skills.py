@@ -5,6 +5,7 @@ import pytest
 
 from birkin import config, store
 from birkin.skills import build_manager, frontmatter
+from birkin.skills import manager as manager_module
 from birkin.skills.manager import (
     SkillManager,
     SkillProposalError,
@@ -217,8 +218,7 @@ def test_improve_parent_swap_cannot_escape_skill_root(
             **kwargs):
         nonlocal swapped
         if (
-            Path(source).name == "SKILL.md"
-            and Path(destination).name == "SKILL.md"
+            Path(destination).name == "SKILL.md"
             and not swapped
         ):
             original_replace(victim, saved_victim)
@@ -245,9 +245,103 @@ def test_improve_parent_swap_cannot_escape_skill_root(
     assert external_target.read_text(
         encoding="utf-8"
     ) == "EXTERNAL SENTINEL\n"
-    assert "SAFE LEARNED GUIDANCE" in (
-        saved_victim / "SKILL.md"
-    ).read_text(encoding="utf-8")
+    published = (
+        target
+        if os.name == "nt"
+        else saved_victim / "SKILL.md"
+    )
+    assert "SAFE LEARNED GUIDANCE" in published.read_text(
+        encoding="utf-8"
+    )
+
+
+@pytest.mark.skipif(
+    os.name != "nt",
+    reason="Windows directory-handle sharing semantics",
+)
+def test_windows_improve_locks_parent_against_swap(
+        monkeypatch,
+        tmp_path: Path):
+    config.save_config({
+        **config.load_config(),
+        "skills_guard_agent_created": True,
+    })
+    path = _write_skill(
+        "windows-parent-lock",
+        "windows parent lock",
+        "ORIGINAL",
+        [],
+    )
+    external = tmp_path / "external"
+    external.mkdir()
+    external_target = external / "SKILL.md"
+    external_target.write_text("EXTERNAL\n", encoding="utf-8")
+    saved = path.parent.with_name("saved-parent")
+    original_token_hex = manager_module.secrets.token_hex
+    attempted = False
+
+    def attempt_parent_swap(length: int) -> str:
+        nonlocal attempted
+        attempted = True
+        with pytest.raises(OSError):
+            path.parent.replace(saved)
+        return original_token_hex(length)
+
+    monkeypatch.setattr(
+        manager_module.secrets,
+        "token_hex",
+        attempt_parent_swap,
+    )
+
+    apply_skill_proposal({
+        "action": "improve",
+        "target": "windows-parent-lock",
+        "addition": "WINDOWS SAFE GUIDANCE",
+    })
+
+    assert attempted is True
+    assert external_target.read_text(encoding="utf-8") == "EXTERNAL\n"
+    assert "WINDOWS SAFE GUIDANCE" in path.read_text(encoding="utf-8")
+
+
+@pytest.mark.parametrize("guard_enabled", [False, True])
+def test_improve_rejects_candidate_changed_after_guard(
+        monkeypatch,
+        guard_enabled: bool):
+    config.save_config({
+        **config.load_config(),
+        "skills_guard_agent_created": guard_enabled,
+    })
+    path = _write_skill(
+        "candidate-snapshot",
+        "candidate snapshot",
+        "ORIGINAL",
+        [],
+    )
+    original = path.read_bytes()
+    real_guard = manager_module._guard_agent_written
+
+    def replace_after_guard(candidate: Path, what: str) -> None:
+        real_guard(candidate, what)
+        candidate.write_text(
+            "DANGEROUS UNSCANNED CANDIDATE\n",
+            encoding="utf-8",
+        )
+
+    monkeypatch.setattr(
+        manager_module,
+        "_guard_agent_written",
+        replace_after_guard,
+    )
+
+    with pytest.raises(SkillProposalError):
+        apply_skill_proposal({
+            "action": "improve",
+            "target": "candidate-snapshot",
+            "addition": "SAFE LEARNED GUIDANCE",
+        })
+
+    assert path.read_bytes() == original
 
 
 def test_get_case_insensitive():
