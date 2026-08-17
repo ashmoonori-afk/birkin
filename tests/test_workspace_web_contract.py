@@ -84,7 +84,7 @@ def _sse_events(body: bytes) -> list[dict[str, object]]:
 def workspace_server(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
-) -> Iterator[tuple[int, str]]:
+) -> Iterator[tuple[int, str, str]]:
     def chat_send(payload: dict[str, object]) -> dict[str, object]:
         return {
             "reply": f"echo:{payload.get('text', '')}",
