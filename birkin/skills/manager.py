@@ -424,9 +424,9 @@ def _publish_skill_bytes_posix(
             0o600,
             dir_fd=target_fd,
         )
-        _write_all(temporary_fd, payload)
-        os.fsync(temporary_fd)
         try:
+            _write_all(temporary_fd, payload)
+            os.fsync(temporary_fd)
             os.replace(
                 temporary,
                 target.name,

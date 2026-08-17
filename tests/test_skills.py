@@ -427,6 +427,50 @@ def test_failed_publication_zeroes_attacker_renamed_temp(
     moved_temp.unlink()
 
 
+@pytest.mark.skipif(
+    os.name == "nt",
+    reason="POSIX descriptor cleanup semantics",
+)
+def test_partial_write_failure_zeroes_attacker_renamed_temp(
+        monkeypatch):
+    path = _write_skill(
+        "partial-write-zeroize",
+        "partial write zeroize",
+        "ORIGINAL",
+        [],
+    )
+    original = path.read_bytes()
+    moved_temp = path.parent / "attacker-moved-write.tmp"
+    original_write_all = manager_module._write_all
+
+    def write_then_move_and_fail(
+            descriptor: int,
+            payload: bytes) -> None:
+        original_write_all(descriptor, payload)
+        temporary = next(
+            path.parent.glob(".birkin-publish-*.tmp")
+        )
+        temporary.replace(moved_temp)
+        raise OSError("injected write failure after payload write")
+
+    monkeypatch.setattr(
+        manager_module,
+        "_write_all",
+        write_then_move_and_fail,
+    )
+
+    with pytest.raises(OSError):
+        apply_skill_proposal({
+            "action": "improve",
+            "target": "partial-write-zeroize",
+            "addition": "UNPUBLISHED VERIFIED PAYLOAD",
+        })
+
+    assert path.read_bytes() == original
+    assert moved_temp.read_bytes() == b""
+    moved_temp.unlink()
+
+
 @pytest.mark.parametrize("guard_enabled", [False, True])
 def test_improve_rejects_candidate_changed_after_guard(
         monkeypatch,
