@@ -6,7 +6,7 @@
 
 ### 로컬 메모리. 결정적 제어. 사람의 권한.
 
-메모리, 실행, 자기개선을 내 컴퓨터에서 직접 확인할 수 있는 의존성 가벼운 파이썬 에이전트.
+필수 의존성이 적은 Python agent로, 메모리와 실행, 자기개선 과정을 내 컴퓨터에서 직접 확인할 수 있습니다.
 
 [![Tests](https://github.com/ashmoonori-afk/birkin/actions/workflows/tests.yml/badge.svg)](https://github.com/ashmoonori-afk/birkin/actions/workflows/tests.yml)
 [![Python 3.10+](https://img.shields.io/badge/python-3.10%2B-3776AB?logo=python&logoColor=white)](./pyproject.toml)
@@ -36,7 +36,7 @@ Birkin 핵심 런타임에는 process identity용 `psutil`과 타입화된 runti
 
 ## 메모리
 
-Hangul/jamo 인식 tokenization을 사용하는 BM25가 추가 package 없는 기본 retrieval engine입니다. 모든 결과는 정규화된 `lexical`, `vector`, `entity`, `time` score와 결과를 만든 signal, 각 backend 이름을 공개합니다. Vector embedding, 1-hop entity traversal, temporal reranking은 서로 독립적인 opt-in입니다.
+한글과 자모를 인식해 tokenize하는 BM25가 기본 retrieval engine이며 선택 package가 필요 없습니다. 결과에는 정규화된 `lexical`, `vector`, `entity`, `time` score와 기여한 signal, backend 이름이 표시됩니다. Vector embedding, 1-hop entity traversal, temporal reranking은 각각 별도로 켜는 opt-in 기능입니다.
 
 ```bash
 python -m pip install -e ".[memory-semantic]"  # 로컬 sentence-transformers 전용
@@ -50,15 +50,15 @@ python -m pip install -e ".[memory-semantic]"  # 로컬 sentence-transformers �
 }
 ```
 
-Markdown가 계속 source of truth입니다. Entity graph는 title, tag, `[[wikilink]]`에서 다시 만들 수 있으며 lexical search에 graph sidecar가 필요하지 않습니다. Temporal fact는 `valid_at`(사실이 된 시점), `invalid_at`(더 이상 사실이 아닌 시점), `expired_at`(잘못임을 알게 된 시점)을 분리하고 선택적으로 `supersedes` link를 둡니다. Search는 `as_of`, `since`, `until` date filter를 받습니다.
+Markdown이 source of truth입니다. 선택 기능인 entity graph는 title, tag, `[[wikilink]]`에서 다시 만들며 lexical search에는 graph sidecar가 필요 없습니다. Temporal fact는 `valid_at`(사실이 된 시점), `invalid_at`(더 이상 사실이 아닌 시점), `expired_at`(잘못임을 알게 된 시점)을 구분하고 선택적으로 `supersedes` link를 둡니다. Search는 `as_of`, `since`, `until` date filter를 받습니다.
 
-메모리 소유 범위는 `user`, `organization`, `project`, `agent`, `workflow`입니다. User 메모리는 기존 vault layout을 그대로 사용하고, 나머지 root는 `.birkin-scopes/<scope>`에 있으며 내부에서는 같은 zone layout을 유지합니다. 같은 key는 가장 구체적인 순서인 **workflow > agent > project > organization > user**로 resolve됩니다. `memory_visible_scopes`는 읽을 수 없는 root를 fail closed로 차단하고, `memory_source_trust`, `memory_default_trust`, query의 `min_trust`가 source filtering을 제어합니다. Search hit는 `scope`, `record_source`, `trust`를 공개합니다. Owner가 note를 `shared_read_only`로 표시하면 볼 수 있는 agent는 owner label과 함께 읽을 수 있지만 non-owner write는 typed policy error로 거부됩니다.
+메모리에는 `user`, `organization`, `project`, `agent`, `workflow`의 다섯 소유 범위가 있습니다. User 메모리는 기존 vault layout을 사용하고, 나머지는 `.birkin-scopes/<scope>` 아래에서 같은 zone을 유지합니다. 같은 key는 구체적인 순서대로 **workflow > agent > project > organization > user**에서 resolve됩니다. `memory_visible_scopes`는 읽을 수 없는 root를 fail closed로 차단합니다. `memory_source_trust`, `memory_default_trust`, query의 `min_trust`는 설정 가능한 source label을 기준으로 filter하며, 각 hit는 `scope`, `record_source`, `trust`를 표시합니다. 이 label은 인증된 provenance가 아니며 model-facing write가 source 값을 제공할 수 있습니다. 높은 trust label은 봉인된 ingestion path가 지정한 경우에만 신뢰 근거로 사용해야 합니다. Owner가 note를 `shared_read_only`로 지정하면 허용된 agent가 label이 붙은 block을 읽을 수 있지만, non-owner write는 typed policy error로 실패합니다.
 
-Commit된 14-question LongMemEval fixture는 retrieval과 final-answer stage를 분리해 보고합니다. 네 configuration 모두 retrieval recall `1.000`, answer accuracy `0.857`(query당 context token 11.9-12.4)이었으므로 retrieval 뒤 context assembly gap이 숨지 않습니다. Category·cost table과 public dataset 정확한 실행 명령은 [benchmark 결과](./benchmarks/RESULTS.md)에 있습니다. 이 값은 fixture 결과이며 public leaderboard 결과가 아닙니다.
+저장소의 14-question LongMemEval fixture는 retrieval과 final answer를 나누어 보고합니다. 테스트한 네 configuration 모두 retrieval recall `1.000`, answer accuracy `0.857`이었고 query당 context token은 11.9-12.4였습니다. 두 수치의 차이로 context assembly의 한계를 확인할 수 있습니다. Category·cost table과 public dataset 실행 명령은 [benchmark 결과](./benchmarks/RESULTS.md)에 있습니다. 이 수치는 fixture 결과이지 public leaderboard 점수가 아닙니다.
 
 ## 빠른 시작
 
-Python 3.10 이상이 필요합니다. 기본 provider는 로컬 인증된 Codex CLI이며, setup에서 Claude CLI나 API provider를 고를 수 있습니다.
+Birkin은 Python 3.10 이상이 필요합니다. 기본값은 로컬에서 인증한 Codex CLI이며, `birkin setup`에서 Claude CLI나 API provider를 선택할 수 있습니다.
 
 ```bash
 git clone https://github.com/ashmoonori-afk/birkin.git
@@ -82,6 +82,8 @@ python -m pip install -e ".[memory-semantic]"
 python -m pip install -e ".[voice]"
 python -m pip install -e ".[desktop]"
 python -m pip install -e ".[office]"
+python -m pip install -e ".[office-advanced]"
+python -m pip install -e ".[office-docling]"
 python -m pip install -e ".[browser]"
 python -m playwright install chromium
 python -m pip install -e ".[full]"
@@ -89,12 +91,13 @@ python -m pip install -e ".[full]"
 
 ### Native Browser Aside
 
-선택 browser dependency를 설치하면 `birkin web`의 unified workspace 옆에
-접을 수 있는 **Browser** plane이 나타납니다. iframe, HTML projection,
-모의 browser가 아니라 격리된 persistent Playwright Chromium context입니다.
-plane을 열고 `http://` 또는 `https://` URL을 입력한 뒤 Enter를 누르십시오.
-plane을 접어도 session과 storage는 유지되며, 인증된
-`DELETE /api/browser-aside/session` endpoint 또는 WebUI 종료 시 닫힙니다.
+선택 browser extra와 Playwright Chromium을 설치하면 `birkin web` 옆에
+접을 수 있는 **Browser** plane이 추가됩니다. iframe, HTML projection,
+모의 browser가 아니라 격리된 실제 persistent Chromium context입니다.
+`http://` 또는 `https://` URL을 입력하고 Enter를 누르십시오. Plane을 접어도
+같은 WebUI service가 실행 중인 동안에는 session과 storage가 유지되지만,
+process 재시작 뒤 복원까지 보장하지는 않습니다. 인증된
+`DELETE /api/browser-aside/session` endpoint나 WebUI 종료 시 context가 닫힙니다.
 
 plane은 unified workspace의 shared semantic theme를 재사용하며 dark,
 light, high-contrast palette를 함께 지원합니다. compact status rail은
@@ -102,19 +105,21 @@ color에만 의존하지 않고 ready, loading, blocked, stale, error 상태를
 표시하며, revision-aware frame polling은 image data를 page에 embed하지
 않고 canvas를 최신 상태로 유지합니다.
 
-live JPEG frame은 workspace 범위의 bounded content-addressed memory
-storage에 저장됩니다. UI state와 event/context record에는 image binary나
-base64 대신 frame digest/ref만 남습니다. private network navigation은
+Live JPEG frame은 workspace 범위의 bounded content-addressed memory
+storage에 저장됩니다. UI와 event/context record에는 image binary나
+base64 대신 frame digest/ref만 남습니다. Private network navigation은
 기본적으로 거부됩니다. local fixture test는
 `BIRKIN_BROWSER_PRIVATE_NETWORK_RULES='[{"host":"127.0.0.1","cidr":"127.0.0.1/32","port":8080}]'`
 같은 exact host/CIDR/port rule로만 허용할 수 있으며 global private-network
 switch는 없습니다. repository sandbox network policy도 계속 적용됩니다.
-Playwright Chromium이 없으면 core startup에는 영향을 주지 않고 browser
-endpoint가 설치 방법을 포함한 `503`을 반환합니다.
+Playwright Chromium이 없으면 core startup은 계속되고 browser endpoint가
+설치 방법을 포함한 `503`을 반환합니다. 실제 Chromium integration test는
+선택 사항이며, Chromium runtime을 설치하고
+`BIRKIN_BROWSER_INTEGRATION=1`을 설정했을 때만 실행되는 skip-gated test입니다.
 
 ## Computer Use
 
-Computer Use는 하나의 typed tool인 `computer_use`로 노출되는 opt-in native desktop 기능입니다. desktop extra를 설치하고 기존 desktop observation group과 별도 Computer Use mutation gate를 모두 켠 뒤, permission prompt 없이 현재 상태를 확인합니다.
+자동화를 켜기 전에 `doctor`로 native desktop capability부터 확인하십시오. Computer Use는 opt-in typed tool인 `computer_use`이며 선택 desktop extra와 OS permission, 기존 desktop observation group, 별도 mutation gate가 모두 필요합니다.
 
 ```bash
 python -m pip install -e ".[desktop]"
@@ -197,7 +202,9 @@ TXT 변환에는 `loss_budget` 인자가 필수이며 native 또는 lossless 변
 {"source":{"content_hash":"<source-sha256>","uri":"/workspace/.birkin/artifacts/incoming/source.docx"},"target_format":"txt","output_name":"source.txt","loss_budget":{"structure":10,"style_layout":10,"macro_active_content":0,"signature_encryption":0}}
 ```
 
-선택 local Python Office backend는 `python -m pip install -e ".[office]"`로, PDF 검사/추출/심층 reopen은 `python -m pip install -e ".[office-advanced]"`로 설치합니다. Office production workflow는 keyless, offline-capable, Python-only이며 외부 application, executable, daemon, runtime 또는 subprocess conversion engine을 탐색하거나 실행하지 않습니다. 내장 PDF 생성은 ASCII 전용이며 non-Latin 요청은 ReportLab을 실행하거나 설치하라고 안내하지 않고 타입화된 capability refusal을 반환합니다. 승인된 선택 Python backend가 없으면 타입화된 오류를 반환하며 다른 후보를 조용히 선택하지 않습니다.
+Base install의 경계는 명확합니다. 다섯 format 모두 inspect, validate, compare를 지원합니다. DOCX, XLSX, PPTX, HWPX는 bounded extraction과 명시적 budget을 둔 TXT conversion도 지원합니다. PDF inspection은 base에서 가능하지만 PDF extraction과 TXT conversion은 typed optional-capability boundary를 반환합니다. Base creation은 ASCII PDF와 trusted-template HWPX derivation을 제공하며, 빈 DOCX, XLSX, PPTX, HWPX authoring은 `CAPABILITY_UNAVAILABLE`로 거부합니다.
+
+선택 local Python tier는 이 경계를 바꾸지 않고 fidelity를 추가합니다. `office`는 조건부 DOCX/XLSX/PPTX/HWPX blank authoring과 bounded package operation을, `office-advanced`는 선택적 PDF extraction/TXT/deep reopen을, `office-docling`은 별도 docling path를 제공합니다. Package가 설치되어도 연결되지 않은 capability는 활성화되지 않으며 pypdfium2는 visual rendering을 제공하지 않습니다. 검증된 계약은 **keyless, local-only Python stack; no external Office application/runtime required**입니다. Office production workflow는 offline-capable, Python-only이며 외부 application, executable, daemon, runtime 또는 subprocess conversion engine을 탐색하거나 실행하지 않습니다. 내장 PDF 생성은 ASCII 전용이며 non-Latin 요청은 ReportLab을 실행하거나 설치하라고 안내하지 않고 타입화된 capability refusal을 반환합니다. 승인된 선택 Python backend가 없으면 타입화된 오류를 반환하며 다른 후보를 조용히 선택하지 않습니다.
 
 신뢰된 한국어·영어 자연어 요청은 production skill을 결정적으로 preload합니다. Word/DOCX는 `word-documents`, Excel/XLSX는 `spreadsheets`, PowerPoint/PPTX는 `presentations`, PDF는 `pdf-documents`, HWP/HWPX는 `korean-hwp-documents`, 일반 Office 작업은 `office-work-os`로 route합니다. Format intent와 artifact 신호가 충돌하면 inspect-first `office-documents`로 route합니다. 문서 내용은 untrusted data이므로 skill을 선택하거나 override할 수 없고, 모든 routed mutation은 copy-on-write를 유지합니다.
 
@@ -205,7 +212,7 @@ TXT 변환에는 `loss_budget` 인자가 필수이며 native 또는 lossless 변
 
 ## 통합 chat workspace
 
-`birkin chat`은 이제 terminal workspace를 기본으로 열고 인증된 loopback web authority를 함께 시작합니다. 시작 시 출력하는 private bootstrap URL은 일회용 path capability를 `HttpOnly`, `SameSite=Strict` cookie로 교환한 뒤 주소 표시줄에서 secret을 제거합니다. `birkin web [--no-browser]`는 같은 responsive web workspace를 독립 로컬 surface로 실행합니다.
+`birkin chat`은 terminal workspace를 열고 인증된 loopback web authority를 함께 시작합니다. 시작 시 출력하는 private bootstrap URL은 일회용 path capability를 `HttpOnly`, `SameSite=Strict` cookie로 교환한 뒤 주소 표시줄에서 secret을 제거합니다. `birkin web [--no-browser]`는 같은 responsive web workspace를 독립 로컬 surface로 실행합니다.
 
 두 surface는 같은 순서 보장 command/event protocol과 durable journal을 사용합니다. Conversation message, task/run, approval, evidence, session, activity, cron, memory/skill, checkpoint, status는 별도 dashboard state가 아니라 canonical snapshot panel입니다. Surface가 기존 session ID로 다시 연결되면 journal이 conversation, panel data, command cursor를 replay합니다.
 
@@ -221,7 +228,7 @@ Embedded authority는 bootstrap URL로만 연결합니다. VS Code extension이 
 
 ## GitHub Action
 
-공식 composite Action은 신뢰된 issue 또는 pull request comment를 격리된 Birkin job으로 바꿉니다. 소비자 repository의 `.github/workflows/birkin.yml`에 아래 workflow를 넣고 Actions secret으로 `ANTHROPIC_API_KEY`를 추가하십시오. 사용할 버전을 정한 뒤 `@main`은 release tag나 commit SHA로 고정하십시오.
+공식 composite Action은 신뢰된 issue 또는 pull request comment를 격리된 Birkin job으로 실행합니다. 사용하는 repository의 `.github/workflows/birkin.yml`에 아래 workflow를 추가하고 `ANTHROPIC_API_KEY`를 Actions secret에 저장하십시오. Birkin은 검토한 full commit SHA에 고정하십시오.
 
 ```yaml
 name: Birkin
@@ -246,7 +253,7 @@ jobs:
         with:
           ref: ${{ github.event.repository.default_branch }}
           persist-credentials: false
-      - uses: ashmoonori-afk/birkin@main
+      - uses: ashmoonori-afk/birkin@72b4f5887df581036ca76a3203e6c19d6dddf765
         with:
           github-token: ${{ secrets.GITHUB_TOKEN }}
           anthropic-api-key: ${{ secrets.ANTHROPIC_API_KEY }}
@@ -254,14 +261,14 @@ jobs:
           max-retries: "1"
 ```
 
-신뢰된 maintainer가 issue나 PR에 `/birkin <task>`를 comment하면 Birkin은 default branch에서 작업 branch를 만들고 설정된 test command를 실행합니다. 실패하면 정확한 출력으로 제한된 횟수만큼 수정한 뒤 push하고 원본 issue/PR을 참조하는 PR을 엽니다. PR에서 `/birkin review <focus>`를 사용하면 도구 없는 model call로 diff를 읽고 구조화된 review comment를 게시하며 PR 코드는 실행하지 않습니다.
+신뢰된 maintainer가 issue나 PR에 `/birkin <task>`를 남기면 작업이 시작됩니다. Birkin은 default branch에서 branch를 만들고 파일을 수정한 뒤 설정된 test command를 실행합니다. 실패한 경우 정확한 출력으로 제한된 repair를 시도한 다음 push하고 원본을 연결한 PR을 엽니다. 기존 PR의 `/birkin review <focus>`는 tool-free model call로 diff를 읽어 구조화된 review를 게시하며 PR 코드는 실행하지 않습니다.
 
 > [!CAUTION]
 > 이 workflow는 secret을 가진 fork checkout 대신 `issue_comment`를 사용합니다. 실행 주체를 `OWNER`, `MEMBER`, `COLLABORATOR`로 제한하고, 신뢰된 default branch만 checkout하며, workflow 전체는 read-only이고 job에는 필요한 세 write scope만 선언합니다. Credential은 문서화된 `github-token`, `anthropic-api-key`, `openai-api-key` input으로만 받습니다. Driver는 task나 diff를 처리하기 전에 agent tool과 test subprocess 환경에서 이 값을 제거합니다. Secret을 가진 채 신뢰되지 않은 코드를 checkout하는 형태로 바꾸지 마십시오.
 
 ## 격리 실행
 
-Birkin은 선언된 repository job을 일회용 **git worktree** 또는 **Docker container**에서 실행할 수 있습니다. 두 backend 모두 동일한 불변 `SandboxPolicy`를 사용하며, GitHub Action worker도 별도의 remote policy 대신 local 실행과 같은 evaluator를 호출합니다.
+선언된 repository job은 일회용 **git worktree** 또는 **Docker container**에서 실행할 수 있습니다. 두 backend는 같은 불변 `SandboxPolicy`를 사용합니다. GitHub Action worker도 별도 remote policy를 두지 않고 local 실행과 같은 evaluator를 호출합니다.
 
 재현 가능한 setup을 위해 `.birkin/sandbox.json`을 commit합니다.
 
@@ -285,7 +292,7 @@ Policy 또는 config 위반은 typed error로 delivery 전에 실패합니다. S
 
 ## Browser QA
 
-선택적 browser surface와 Chromium runtime을 설치합니다. Core Birkin은 Playwright를 import하지 않습니다.
+Browser QA는 선택 기능입니다. Browser extra와 Chromium runtime을 설치하며, core Birkin은 Playwright를 import하지 않습니다.
 
 ```bash
 python -m pip install 'birkin[browser]'
@@ -304,11 +311,11 @@ Birkin 자체 WebUI를 대상으로 실행할 수 있는 ouroboros 검증 절차
 4. `browser_evidence`를 호출해 console 및 request/response summary를 screenshot과 함께 저장합니다. 마지막에는 `browser_close`로 Chromium과 모든 context를 종료합니다.
 5. Negative proof로 allowlist에 없는 host로 navigate하고 typed refusal을 보관합니다. 이 request는 network에 도달하면 안 됩니다.
 
-이는 HTML parser가 아니라 실제 browser 실행입니다. Form에는 `browser_fill`/`browser_press`, 집중된 page-state assertion에는 `browser_execute`를 사용합니다. 특정 surface에서 action을 노출하지 않으려면 `disabled_tools`에서 이름별로 비활성화합니다.
+이 도구들은 HTML parser가 아니라 실제 browser를 실행합니다. Form에는 `browser_fill`/`browser_press`, 집중된 page-state assertion에는 `browser_execute`를 사용합니다. 특정 surface에서 action을 내보내지 않으려면 해당 이름을 `disabled_tools`에 넣습니다.
 
 ## VS Code extension
 
-`vscode-extension/`은 공식 TypeScript extension입니다. 두 번째 에이전트 프로토콜을 만들지 않고 Birkin의 기존 로컬 표면에 연결됩니다.
+`vscode-extension/`의 공식 TypeScript extension은 Birkin의 기존 로컬 authority에 연결되며, 두 번째 agent protocol을 만들지 않습니다.
 
 - 활성 selection, range, workspace, 열린 파일 descriptor를 gateway에 전달
 - 실행하지 않는 plan을 요청하고 명시적인 **Execute Plan** 결정 요구
@@ -342,7 +349,7 @@ Command Palette에서 **Birkin: Review Plan Before Execution**을 실행하십�
 
 ## 표면 비교
 
-아래 행은 모두 이 저장소에 실제로 포함된 표면을 설명합니다.
+모든 행은 이 저장소에 실제로 포함된 surface를 설명하며, `미지원`은 해당 surface가 그 capability를 제공하지 않는다는 뜻입니다.
 
 | 기능 | CLI / REPL | Gateway | WebUI | VS Code |
 |---|:---:|:---:|:---:|:---:|
@@ -357,7 +364,7 @@ Command Palette에서 **Birkin: Review Plan Before Execution**을 실행하십�
 
 ## 아키텍처
 
-모델은 제안하고, 결정적 코드는 영속화·정책·권한을 소유합니다.
+모델은 제안합니다. Runtime code가 scheduling과 policy evaluation을 담당하며, Birkin은 **기억은 파일에, 제어 흐름은 코드에, 권한은 명시적 경계 안에** 둡니다.
 
 ```mermaid
 flowchart LR
@@ -396,14 +403,14 @@ skills/             번들 Markdown skill
 tests/              offline unit, integration, end-to-end coverage
 ```
 
-상태는 `BIRKIN_HOME`(보통 `~/.birkin`) 아래 파일에 저장됩니다. Workspace는 process별 capability를 사용하고 `BIRKIN_HTTP_TOKEN`을 명시적 bearer-capability override로 지원합니다. Gateway도 loopback에 bind하며 같은 token을 요구할 수 있습니다. MCP는 stdio 위 newline-delimited JSON-RPC를 사용합니다. VS Code extension은 이 기존 권한에 연결됩니다. turn은 gateway `/message`, approval·status·editor context·checkpoint는 WebUI endpoint를 사용합니다.
+상태는 `BIRKIN_HOME`(보통 `~/.birkin`) 아래 파일에 남습니다. Workspace는 process별 capability를 사용하며 `BIRKIN_HTTP_TOKEN`을 명시적인 bearer-capability override로 받을 수 있습니다. Loopback gateway도 같은 token을 요구할 수 있습니다. MCP는 stdio에서 newline-delimited JSON-RPC를 사용합니다. VS Code extension은 기존 경계를 재사용해 turn은 gateway `/message`, approval·status·editor context·checkpoint는 WebUI endpoint로 처리합니다.
 
 </details>
 
 ## Approval console
 
-`birkin web`은 background agent run과 위험 action을 위한 responsive control
-surface를 엽니다. 실시간 run 상태(`running`, `blocked`, `waiting-approval`,
+`birkin web`은 background run과 결과가 생기는 action을 사람이 제어하는
+하나의 responsive surface를 제공합니다. 실시간 run 상태(`running`, `blocked`, `waiting-approval`,
 `done`), progress와 result, 관련 shell/cron proposal, action diff와 execution
 receipt를 표시합니다. 상세 card에서 run을 steer, abort, resume할 수 있으며
 approval과 rejection은 `birkin review`와 동일한 file-backed authority를
@@ -417,9 +424,9 @@ capability를 HttpOnly, SameSite cookie로 교환하며, capability가 없는 �
 remote request는 거부됩니다. Traffic이 host 밖으로 나가면 TLS 또는 신뢰할
 수 있는 private-network tunnel을 앞에 두십시오.
 
-## Checkpoint
+## Checkpoints
 
-WebUI workbench는 Birkin의 외부 shadow-git snapshot을 tool 단위 timeline으로
+WebUI는 Birkin의 외부 shadow-git snapshot을 tool 단위 recovery timeline으로
 표시합니다. 각 항목은 tool, 시간, 변경 경로, 결과, 그리고 실행 전후 상태를
 담은 checkpoint hash를 기록합니다. 어떤 checkpoint든 열어 변경 전에 전체
 patch와 파일별 patch를 미리 볼 수 있습니다.
@@ -568,7 +575,7 @@ request ID, protocol version을 모두 검증합니다. Transport 실패는 자�
 
 Bundle은 `birkin-plugin.json`, entry-point file, detached `bundle.sig`를 담은
 directory입니다. 엄격한 manifest는 정확한 semantic version 하나,
-활성화 가능한 `skill` 또는 `agent` kind 하나 이상, 그리고
+활성화 가능한 `skill` 또는 `agent` kind 하나 이상, 그리고 공개할
 `SandboxPolicy`와 동일한 `network`, `network_allowlist`, `env_allowlist`,
 `write_paths` vocabulary로 필요한 권한을 선언합니다.
 
@@ -593,10 +600,18 @@ directory입니다. 엄격한 manifest는 정확한 semantic version 하나,
 설치 전에 `birkin plugins inspect BUNDLE [--json]`으로 정확한 권한 record를
 확인합니다. `birkin plugins install BUNDLE --version 1.2.3`은 항상 이 내용을
 먼저 표시하며, 네 권한 field가 모두 read-only/empty가 아니면 대화형 확인
-(또는 명시적 `--yes`)이 필요합니다. Signed bundle은
-`--key KEY_ID=HEX`로 trusted shared key도 제공해야 합니다. Signature가 없거나,
-신뢰되지 않거나, 일치하지 않으면 fail-closed합니다. Publisher가
-`"unsigned_allowed": true`를 명시한 경우에만 signature 부재를 허용합니다.
+(또는 명시적 `--yes`)이 필요합니다. 이 절차는 권한 disclosure와 동의이지
+runtime confinement가 아닙니다. Agent entry module과 factory는 Birkin
+process 안에서 host 권한을 가진 trusted Python으로 실행됩니다. 신뢰하는
+코드만 설치하십시오.
+
+Signed bundle 검증은 `--key KEY_ID=HEX`로 전달한 shared HMAC key를
+사용합니다. 같은 secret을 가진 주체 사이의 integrity는 확인하지만 publisher
+identity를 증명하지는 않습니다. 현재 argv 방식은 장기 key를 shell history나
+process inspection에 노출할 수 있으므로 publisher-signature boundary로
+간주하지 마십시오. Bundle이 직접 `"unsigned_allowed": true`를 설정할 수
+있으므로 unsigned bundle이 항상 fail-closed한다고 가정하지 말고 이 field를
+검사하십시오.
 
 Project pin은 `.birkin/registry/registry.lock`, team pin은
 `~/.birkin/registry/team/registry.lock`에 저장됩니다. Resolution은 결정적입니다.
@@ -605,6 +620,76 @@ Project pin은 `.birkin/registry/registry.lock`, team pin은
 conflict가 됩니다. 기존 pin은 `--upgrade`로만 변경됩니다. Skill entry point는
 기존 `SkillManager`에, agent entry point가 반환한 `Tool`은 기존 native tool
 registry에 연결됩니다.
+
+## Future Roadmap: 네이티브 control shell
+
+> **향후 계획이며 현재 Birkin 기능이 아닙니다.** 아래 목업은 네이티브
+> 데스크톱 클라이언트의 권장 방향을 보여줍니다. 현재 CLI, WebUI, VS Code
+> extension, 배포 package에는 포함되지 않습니다.
+
+<img src="./docs/assets/birkin-native-app-roadmap.png" alt="왼쪽에 session과 Working Memory, 중앙에 chat과 terminal workspace, 오른쪽에 approval, activity, Browser Aside, Office surface를 배치한 향후 Birkin macOS 네이티브 control shell" width="920" />
+
+*이 이미지는 개념적인 화면 배치만 보여줍니다. 패널 이름과 토글은 정식
+Working Memory 구조, 승인 분류, 외부 통신 정책을 정의하지 않으며 실제
+동작은 앞에서 설명한 운영 경계를 따릅니다.*
+
+권장하는 macOS 앱은 별도의 agent 구현이 아니라 **기존 Python runtime
+위에 얹는 얇은 SwiftUI shell**입니다. 메모리, tool 실행, policy, approval,
+audit record, recovery의 권한은 계속 Birkin Python core가 가집니다.
+네이티브 process는 version이 명시된 local protocol로 이 기능을
+표시합니다. macOS에서는 Unix domain socket을 우선 사용하고,
+browser-compatible transport가 필요할 때만 인증된 private loopback을
+fallback으로 둡니다.
+
+이 경계는 Birkin의 정체성을 그대로 지킵니다.
+
+- **영속 상태:** Shell은 session과 Working Memory의 projection을
+  읽으며, 별도 native database를 두 번째 source of truth로 만들지 않습니다.
+- **실행:** 작업 예약, budget 적용, tool 실행,
+  typed result 생성은 Python이 맡고 SwiftUI는 상태를 표시하고 명시적인
+  command를 보냅니다.
+- **권한:** Approval 결정은 Python authority로
+  돌아갑니다. UI 상태, window focus, notification tap은 action이
+  승인됐다는 증거가 될 수 없습니다.
+
+다음 단계는 각각 독립적으로 관찰 가능한 결과를 내야 합니다.
+
+1. **읽기 전용 기반:** session, run status, transcript, Working Memory를
+   표시하고 reconnect와 protocol version 진단을 제공합니다.
+2. **사람의 제어:** approval, activity receipt, local notification을
+   제공합니다. Native shell은 approval에 답할 수 있지만 policy를
+   재해석하지 않습니다.
+3. **Workspace surface:** Browser Aside, native Computer Use 상태와 동의,
+   Office workspace artifact를 연결하되 기존 격리와 refusal contract를
+   그대로 사용합니다.
+4. **Desktop integration:** menu bar status, jailed import path로 제한한
+   drag and drop, 선택적 voice control, 두 프로세스 중 하나가 재시작되어도
+   복구할 수 있는 lifecycle을 추가합니다.
+5. **Platform 결정:** protocol과 macOS shell이 검증된 뒤 accessibility
+   API, installer 유지보수, 실제 사용량을 기준으로 Windows native
+   client와 공통 cross-platform shell 중 하나를 선택합니다. 코드 재사용률만
+   보고 결정하지 않습니다.
+
+### 절충점과 비목표
+
+Native shell은 browser tab보다 accessibility, notification, window
+lifecycle, drag and drop, OS 수준 recovery를 더 자연스럽게 제공할 수
+있습니다. 대신 두 번째 release artifact, transport compatibility,
+signing/notarization, platform별 QA가 필요합니다. 따라서 local protocol은
+명시적인 version negotiation, 수명이 짧은 capability, bounded payload,
+눈에 보이는 disconnected state를 가져야 합니다.
+이 roadmap은 다음을 제안하지 않습니다.
+
+- Birkin 전체를 Swift로 다시 작성하는 일
+- memory ownership, policy evaluation, approval, audit authority를 UI로
+  옮기는 일
+- 기본 설정에서 Unix socket 또는 인증된 private loopback 밖으로 control
+  protocol을 노출하는 일
+- 편의를 위해 개인 browser profile을 연결하거나 Browser Aside,
+  Computer Use, Office의 refusal boundary를 약화하는 일
+- app 안에 provider token, debug dump, 숨은 execution state를 저장하는 일
+- package, test, release artifact가 나오기 전에 목업이나 완료된 단계를
+  실제 출시 기능으로 표현하는 일
 
 ## 설정
 
@@ -839,7 +924,7 @@ npm run compile
 npm run test:e2e
 ```
 
-CI는 Ubuntu/Python 3.10, macOS/Python 3.13, Windows/Python 3.13에서 파이썬 suite를 실행합니다. macOS와 Windows job은 고정된 Bun release를 설치하고 네이티브 managed-shell acceptance 및 각 platform의 tracked sibling-surface smoke driver를 실행합니다. Extension unit test는 Vitest, 실제 host QA는 `@vscode/test-electron`을 사용합니다.
+CI는 Ubuntu/Python 3.10, macOS/Python 3.13, Windows/Python 3.13에서 일반 Python suite를 실행합니다. macOS와 Windows job은 고정된 Bun release를 추가로 설치하고, workflow의 **Native macOS shell acceptance** 또는 **Native Windows shell acceptance** step과 각 platform의 tracked sibling-surface smoke driver를 실행합니다. Extension unit test는 Vitest, host QA는 `@vscode/test-electron`을 사용합니다.
 
 ## 라이선스
 
