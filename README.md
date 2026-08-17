@@ -6,7 +6,7 @@
 
 ### Local memory. Deterministic control. Human authority.
 
-A dependency-light Python agent whose memory, execution, and self-improvement stay inspectable on your machine.
+A dependency-light Python agent that keeps memory, execution, and self-improvement inspectable on your machine.
 
 [![Tests](https://github.com/ashmoonori-afk/birkin/actions/workflows/tests.yml/badge.svg)](https://github.com/ashmoonori-afk/birkin/actions/workflows/tests.yml)
 [![Python 3.10+](https://img.shields.io/badge/python-3.10%2B-3776AB?logo=python&logoColor=white)](./pyproject.toml)
@@ -36,7 +36,7 @@ Birkin's core runtime has two mandatory dependencies: `psutil` for process ident
 
 ## Memory
 
-BM25 with Hangul/jamo-aware tokenization remains the default retrieval engine and requires no extra package. Every result discloses normalized `lexical`, `vector`, `entity`, and `time` scores, the signals that sourced it, and each backend name. Vector embeddings, one-hop entity traversal, and temporal reranking are independent opt-ins:
+BM25 with Hangul/jamo-aware tokenization is the default retrieval engine and needs no optional package. Results disclose normalized `lexical`, `vector`, `entity`, and `time` scores, their contributing signals, and backend names. Vector embeddings, one-hop entity traversal, and temporal reranking are separate opt-ins:
 
 ```bash
 python -m pip install -e ".[memory-semantic]"  # local sentence-transformers only
@@ -50,15 +50,15 @@ python -m pip install -e ".[memory-semantic]"  # local sentence-transformers onl
 }
 ```
 
-Markdown remains the source of truth. The entity graph is rebuilt from titles, tags, and `[[wikilinks]]`; no graph sidecar is required for lexical search. Temporal facts keep separate `valid_at` (became true), `invalid_at` (stopped being true), and `expired_at` (learned to be wrong) fields, plus optional `supersedes` links. Search accepts `as_of`, `since`, and `until` date filters.
+Markdown is the source of truth. Birkin rebuilds the optional entity graph from titles, tags, and `[[wikilinks]]`; lexical search does not need a graph sidecar. Temporal facts distinguish `valid_at` (became true), `invalid_at` (stopped being true), and `expired_at` (learned to be wrong), with optional `supersedes` links. Search accepts `as_of`, `since`, and `until` date filters.
 
-Memory can be owned by `user`, `organization`, `project`, `agent`, or `workflow`. User memory keeps the existing vault layout; the other roots live at `.birkin-scopes/<scope>` and retain the same zone layout inside them. Duplicate keys resolve from most specific to least specific: **workflow > agent > project > organization > user**. `memory_visible_scopes` fails closed for unreadable roots, while `memory_source_trust`, `memory_default_trust`, and the query's `min_trust` control source filtering. Search hits disclose `scope`, `record_source`, and `trust`. Owners may mark a note `shared_read_only`; visible agents can read the labeled block, but a non-owner write raises a typed policy error.
+Memory ownership has five scopes: `user`, `organization`, `project`, `agent`, and `workflow`. User memory keeps the existing vault layout; other roots use `.birkin-scopes/<scope>` with the same zones. Duplicate keys resolve from most to least specific: **workflow > agent > project > organization > user**. `memory_visible_scopes` fails closed when a root is unreadable. `memory_source_trust`, `memory_default_trust`, and the query's `min_trust` apply configurable source-label filtering; each hit reports `scope`, `record_source`, and `trust`. These labels are not authenticated provenance, and model-facing writes can supply a source value. Treat a high-trust label as meaningful only when a sealed ingestion path assigns it. An owner can mark a note `shared_read_only`: visible agents may read the labeled block, but non-owner writes fail with a typed policy error.
 
-The committed 14-question LongMemEval fixture reports retrieval and final-answer stages separately. All four configurations reached `1.000` retrieval recall but `0.857` answer accuracy (11.9-12.4 context tokens/query), exposing the context-assembly gap rather than hiding it behind retrieval. See [the category and cost tables](./benchmarks/RESULTS.md) and the exact public-dataset command there. These are fixture results, not public leaderboard numbers.
+The committed 14-question LongMemEval fixture reports retrieval and final answers separately. All four tested configurations reached `1.000` retrieval recall and `0.857` answer accuracy, using 11.9-12.4 context tokens per query. The difference makes the context-assembly gap visible. See [the category and cost tables](./benchmarks/RESULTS.md) and the exact public-dataset command. These are fixture results, not public leaderboard scores.
 
 ## Quick Start
 
-Python 3.10 or newer is required. The default provider is the locally authenticated Codex CLI; setup can select Claude CLI or API-backed providers instead.
+Birkin requires Python 3.10 or newer. It defaults to a locally authenticated Codex CLI; `birkin setup` can select Claude CLI or an API-backed provider instead.
 
 ```bash
 git clone https://github.com/ashmoonori-afk/birkin.git
@@ -82,6 +82,8 @@ python -m pip install -e ".[memory-semantic]"
 python -m pip install -e ".[voice]"
 python -m pip install -e ".[desktop]"
 python -m pip install -e ".[office]"
+python -m pip install -e ".[office-advanced]"
+python -m pip install -e ".[office-docling]"
 python -m pip install -e ".[browser]"
 python -m playwright install chromium
 python -m pip install -e ".[full]"
@@ -89,13 +91,13 @@ python -m pip install -e ".[full]"
 
 ### Native Browser Aside
 
-With the optional browser dependency installed, `birkin web` exposes a
-collapsible **Browser** plane beside the unified workspace. It is a real
-isolated persistent Playwright Chromium context: there is no iframe, HTML
-projection, or mock browser. Open the plane, enter an `http://` or `https://`
-URL, and press Enter. Collapsing the plane preserves its session and storage;
-the authenticated `DELETE /api/browser-aside/session` endpoint or WebUI
-shutdown closes it.
+Install the optional browser extra and Playwright Chromium to add a collapsible
+**Browser** plane beside `birkin web`. It uses a real isolated persistent
+Chromium context, not an iframe, HTML projection, or mock. Enter an `http://` or
+`https://` URL and press Enter. Collapsing the plane preserves session and
+storage only while that WebUI service keeps running; it does not promise
+session restoration after a process restart. The authenticated
+`DELETE /api/browser-aside/session` endpoint or WebUI shutdown closes it.
 
 The plane reuses the unified workspace's shared semantic theme, including its
 dark, light, and high-contrast palettes. Its compact status rail exposes
@@ -103,19 +105,20 @@ ready, loading, blocked, stale, and error states without relying on color, and
 revision-aware frame polling keeps the canvas synchronized without embedding
 image data in the page.
 
-Live JPEG frames use bounded, workspace-scoped content-addressed memory
-storage. UI state and event/context records carry only frame digest/ref
-metadata, never inline image bytes or base64. Private-network navigation is
-denied by default. An exact test-only destination may be admitted with a
+Live JPEG frames use bounded, workspace-scoped, content-addressed memory
+storage. UI and event/context records contain frame digest/ref metadata, never
+inline image bytes or base64. Private-network navigation is denied by default. An exact test-only destination may be admitted with a
 host/CIDR/port rule such as
 `BIRKIN_BROWSER_PRIVATE_NETWORK_RULES='[{"host":"127.0.0.1","cidr":"127.0.0.1/32","port":8080}]'`;
 there is no global private-network switch. Repository sandbox network policy
-still applies. If Playwright Chromium is unavailable, the browser endpoint
-returns an actionable `503` without affecting core startup.
+still applies. If Playwright Chromium is unavailable, the browser endpoint returns an
+actionable `503` and core startup continues. Real-Chromium integration tests
+are optional and skip-gated by `BIRKIN_BROWSER_INTEGRATION=1` plus an installed
+Chromium runtime.
 
 ## Computer Use
 
-Computer Use is an opt-in native desktop capability exposed as one typed tool, `computer_use`. Install the desktop extra, enable both the legacy desktop observation group and the separate Computer Use mutation gate, then inspect permissions without prompting:
+Use `doctor` to inspect native desktop capabilities before enabling automation. Computer Use is the opt-in typed tool `computer_use`; it requires the optional desktop extra, OS permissions, the legacy desktop observation group, and a separate mutation gate:
 
 ```bash
 python -m pip install -e ".[desktop]"
@@ -198,7 +201,9 @@ TXT conversion requires the `loss_budget` argument and never claims native or lo
 {"source":{"content_hash":"<source-sha256>","uri":"/workspace/.birkin/artifacts/incoming/source.docx"},"target_format":"txt","output_name":"source.txt","loss_budget":{"structure":10,"style_layout":10,"macro_active_content":0,"signature_encryption":0}}
 ```
 
-Install optional local Python Office backends with `python -m pip install -e ".[office]"` and PDF inspection/extraction/deep reopen with `python -m pip install -e ".[office-advanced]"`. Office production workflows are keyless, offline-capable, and Python-only: they never discover or launch external applications, executables, daemons, runtimes, or subprocess conversion engines. Built-in PDF creation is ASCII-only; non-Latin requests return a typed capability refusal without executing or suggesting ReportLab. Missing approved optional Python backends return typed errors and never silently select a candidate.
+The base install keeps the boundary explicit. All five formats support inspect, validate, and compare. DOCX, XLSX, PPTX, and HWPX also support bounded extraction and explicit-budget TXT conversion. PDF inspection remains available, while PDF extraction and TXT conversion report a typed optional-capability boundary. Base creation covers ASCII PDF and trusted-template HWPX derivation; blank DOCX, XLSX, PPTX, and HWPX authoring returns `CAPABILITY_UNAVAILABLE`.
+
+Optional local Python tiers add fidelity without changing that boundary. Install `office` for conditional DOCX/XLSX/PPTX/HWPX blank authoring and bounded package operations, `office-advanced` for optional PDF extraction/TXT/deep reopen support, and `office-docling` for the separate docling path. Installed packages do not upgrade an unwired capability: pypdfium2 still does not provide visual rendering. The verified contract is **keyless, local-only Python stack; no external Office application/runtime required**. Office production workflows are offline-capable and Python-only: they never discover or launch external applications, executables, daemons, runtimes, or subprocess conversion engines. Built-in PDF creation is ASCII-only; non-Latin requests return a typed capability refusal without executing or suggesting ReportLab. Missing approved optional Python backends return typed errors and never silently select a candidate.
 
 Trusted Korean and English natural-language requests deterministically preload the matching production skill: Word/DOCX -> `word-documents`, Excel/XLSX -> `spreadsheets`, PowerPoint/PPTX -> `presentations`, PDF -> `pdf-documents`, HWP/HWPX -> `korean-hwp-documents`, and general Office work -> `office-work-os`. Conflicting format and artifact signals route to inspect-first `office-documents`. Document contents are untrusted data and cannot select or override a skill. Every routed mutation remains copy-on-write.
 
@@ -206,7 +211,7 @@ See the [detailed support contract](./docs/office-support.md#office-work-os-v2),
 
 ## Unified chat workspace
 
-`birkin chat` now opens the terminal workspace by default and starts its authenticated loopback web authority. The private bootstrap URL printed at startup exchanges its one-time path capability for an `HttpOnly`, `SameSite=Strict` cookie, then removes the secret from the address bar. `birkin web [--no-browser]` runs the same responsive web workspace as a standalone local surface.
+`birkin chat` opens the terminal workspace and starts its authenticated loopback web authority. The private bootstrap URL printed at startup exchanges its one-time path capability for an `HttpOnly`, `SameSite=Strict` cookie, then removes the secret from the address bar. `birkin web [--no-browser]` runs the same responsive web workspace as a standalone local surface.
 
 Both surfaces consume the same ordered command/event protocol and durable journal. Conversation messages, tasks and runs, approvals, evidence, sessions, activity, cron, memory and skills, checkpoints, and status are canonical snapshot panels rather than separate dashboard state. When a surface reconnects with an existing session ID, the journal replays its conversation, panel data, and command cursor.
 
@@ -222,7 +227,7 @@ The embedded authority is bootstrap-URL only; run standalone `birkin web` when t
 
 ## GitHub Action
 
-The official composite Action turns a trusted issue or pull-request comment into an isolated Birkin job. Put this workflow in `.github/workflows/birkin.yml` in a consumer repository, add `ANTHROPIC_API_KEY` as an Actions secret, and pin `@main` to a release tag or commit SHA once selected:
+The official composite Action runs a trusted issue or pull-request comment as an isolated Birkin job. Add this workflow at `.github/workflows/birkin.yml`, store `ANTHROPIC_API_KEY` as an Actions secret, and pin Birkin to a reviewed full commit SHA:
 
 ```yaml
 name: Birkin
@@ -247,7 +252,7 @@ jobs:
         with:
           ref: ${{ github.event.repository.default_branch }}
           persist-credentials: false
-      - uses: ashmoonori-afk/birkin@main
+      - uses: ashmoonori-afk/birkin@72b4f5887df581036ca76a3203e6c19d6dddf765
         with:
           github-token: ${{ secrets.GITHUB_TOKEN }}
           anthropic-api-key: ${{ secrets.ANTHROPIC_API_KEY }}
@@ -255,14 +260,14 @@ jobs:
           max-retries: "1"
 ```
 
-A trusted maintainer comments `/birkin <task>` on an issue or PR. Birkin edits a branch from the default branch, runs the configured test command, receives exact failure output for a bounded repair attempt, pushes, and opens a PR referencing the source. On a PR, `/birkin review <focus>` reads the diff with a tool-free model call and posts a structured review comment; it does not execute PR code.
+A trusted maintainer starts work with `/birkin <task>` on an issue or PR. Birkin branches from the default branch, edits files, runs the configured test command, and can use exact failure output for a bounded repair attempt before pushing and opening a linked PR. On an existing PR, `/birkin review <focus>` uses a tool-free model call to read the diff and post a structured review; it never executes the PR's code.
 
 > [!CAUTION]
 > The workflow intentionally uses `issue_comment`, not a secret-bearing fork checkout. It gates runs to `OWNER`, `MEMBER`, or `COLLABORATOR`, checks out only the trusted default branch, and declares read-only workflow permissions plus the three write scopes required by the job. Credentials are accepted only through the documented `github-token`, `anthropic-api-key`, and `openai-api-key` inputs. The driver removes them from agent tools and test subprocess environments before processing task or diff content. Never replace this with a secret-bearing untrusted-code checkout.
 
 ## Isolated execution
 
-Birkin can run a declared repository job in either a disposable **git worktree** or a **Docker container**. Both backends consume the same immutable `SandboxPolicy`, and the GitHub Action worker calls the same evaluator as local execution rather than maintaining a second remote policy.
+A declared repository job can run in a disposable **git worktree** or **Docker container**. Both use the same immutable `SandboxPolicy`; the GitHub Action worker reuses the local evaluator instead of carrying a separate remote policy.
 
 Check in `.birkin/sandbox.json` to make setup reproducible:
 
@@ -286,7 +291,7 @@ Policy or configuration violations raise typed errors and fail before delivery. 
 
 ## Browser QA
 
-Install the optional browser surface and its Chromium runtime; core Birkin does not import Playwright:
+Browser QA is optional. Install the browser extra and its Chromium runtime; core Birkin does not import Playwright:
 
 ```bash
 python -m pip install 'birkin[browser]'
@@ -305,11 +310,11 @@ A runnable ouroboros check against Birkin's own WebUI:
 4. Call `browser_evidence` and save its console plus request/response summaries with the screenshot. Finish with `browser_close` so Chromium and all contexts are released.
 5. As a negative proof, navigate to a host absent from the allowlist and retain the typed refusal. This request must not reach the network.
 
-This is real browser execution, not an HTML parser. Use `browser_fill`/`browser_press` for forms and `browser_execute` for focused page-state assertions; disable any action by name in `disabled_tools` when a surface should not expose it.
+These tools drive a real browser, not an HTML parser. Use `browser_fill`/`browser_press` for forms and `browser_execute` for focused page-state assertions. A surface can withhold any action by listing its name in `disabled_tools`.
 
 ## VS Code extension
 
-`vscode-extension/` is the official TypeScript extension. It binds to Birkin's existing local surfaces instead of running a second agent protocol:
+The official TypeScript extension in `vscode-extension/` connects to Birkin's existing local authorities; it does not introduce a second agent protocol:
 
 - sends the active selection, range, workspace, and open-file descriptors to the gateway;
 - requests a non-executing plan and requires an explicit **Execute Plan** decision;
@@ -343,7 +348,7 @@ Open the Command Palette and run **Birkin: Review Plan Before Execution**. The o
 
 ## Surface comparison
 
-All rows below describe surfaces shipped in this repository.
+Every row describes a surface shipped in this repository; `No` means that surface does not provide the capability.
 
 | Capability | CLI / REPL | Gateway | WebUI | VS Code |
 |---|:---:|:---:|:---:|:---:|
@@ -358,7 +363,7 @@ All rows below describe surfaces shipped in this repository.
 
 ## Architecture
 
-The model proposes; deterministic code owns persistence, policy, and authority.
+The model proposes. Runtime code owns scheduling and policy evaluation; Birkin keeps **memory in files, control flow in code, and authority inside explicit boundaries**.
 
 ```mermaid
 flowchart LR
@@ -397,14 +402,14 @@ skills/             bundled Markdown skills
 tests/              offline unit, integration, and end-to-end coverage
 ```
 
-State is file-backed under `BIRKIN_HOME` (normally `~/.birkin`). The workspace uses a per-process capability and honors `BIRKIN_HTTP_TOKEN` as an explicit bearer-capability override; the gateway also binds to loopback and can require that token. MCP uses newline-delimited JSON-RPC over stdio. The VS Code extension uses these existing authorities: gateway `/message` for turns and WebUI endpoints for approvals, status, editor context, and checkpoints.
+State stays in files under `BIRKIN_HOME` (normally `~/.birkin`). The workspace uses a per-process capability and accepts `BIRKIN_HTTP_TOKEN` as an explicit bearer-capability override; the loopback gateway can require the same token. MCP speaks newline-delimited JSON-RPC over stdio. The VS Code extension reuses these boundaries: gateway `/message` for turns, and WebUI endpoints for approvals, status, editor context, and checkpoints.
 
 </details>
 
 ## Approval console
 
-`birkin web` opens a responsive control surface for background agent runs and
-risky actions. It shows live run states (`running`, `blocked`,
+`birkin web` gives people one responsive control surface for background runs
+and consequential actions. It shows live run states (`running`, `blocked`,
 `waiting-approval`, and `done`), progress and results, related shell/cron
 proposals, action diffs, and execution receipts. A run can be steered, aborted,
 or resumed from its detail card; approval and rejection continue to use the
@@ -420,8 +425,8 @@ leaves the host.
 
 ## Checkpoints
 
-The WebUI workbench turns Birkin's external shadow-git snapshots into a tool-level
-timeline. Each entry records the tool, time, touched paths, result, and the
+The WebUI turns Birkin's external shadow-git snapshots into a tool-level
+recovery timeline. Each entry records the tool, time, touched paths, result, and the
 checkpoint hashes for its before and after state. Open any checkpoint to preview
 an aggregate patch or each file's patch before changing anything.
 
@@ -569,7 +574,7 @@ instead of retried blindly, preserving at-most-once delivery for each request.
 A bundle is a directory containing `birkin-plugin.json`, its entry-point files,
 and a detached `bundle.sig`. The strict manifest declares one exact semantic
 version, one or more activatable `skill` or `agent` kinds, and the
-permissions it needs using the same `network`, `network_allowlist`,
+permissions it discloses using the same `network`, `network_allowlist`,
 `env_allowlist`, and `write_paths` vocabulary as `SandboxPolicy`:
 
 ```jsonc
@@ -593,10 +598,18 @@ permissions it needs using the same `network`, `network_allowlist`,
 Run `birkin plugins inspect BUNDLE [--json]` to see the exact permission record
 before installation. `birkin plugins install BUNDLE --version 1.2.3` always
 prints that disclosure and requires interactive confirmation (or explicit
-`--yes`) unless all four permission fields are read-only/empty. Signed bundles
-also need a trusted shared key supplied as `--key KEY_ID=HEX`; missing,
-untrusted, or mismatched signatures fail closed. A publisher may deliberately
-set `"unsigned_allowed": true`, which makes only a missing signature acceptable.
+`--yes`) unless all four permission fields are read-only/empty. This is
+disclosure and consent, not runtime confinement. Agent entry modules and their
+factories execute as trusted Python inside the Birkin process with host
+authority. Install only code you trust.
+
+Signed bundle verification accepts a shared HMAC key through
+`--key KEY_ID=HEX`. That checks integrity for holders of the same secret; it
+does not establish publisher identity, and the current argv form can expose a
+long-lived key through shell history or process inspection. Do not treat it as
+a publisher-signature boundary. The bundle itself may set
+`"unsigned_allowed": true`, so inspect that field rather than assuming an
+unsigned bundle fails closed.
 
 Project pins live under `.birkin/registry/registry.lock`; team pins live under
 `~/.birkin/registry/team/registry.lock`. Resolution is deterministic: a project
@@ -605,6 +618,75 @@ differ. An exact version request that disagrees with the project pin is a
 conflict rather than a fallback to team scope. Existing pins change only with
 `--upgrade`. Skill entry points feed the existing `SkillManager`; agent entry
 points return `Tool` objects consumed by the existing native tool registry.
+
+## Future Roadmap: Native control shell
+
+> **Future work — not a current Birkin surface.** The mockup below describes a
+> direction for a native desktop client. It is not included in the CLI, WebUI,
+> VS Code extension, or current packages.
+
+<img src="./docs/assets/birkin-native-app-roadmap.png" alt="Future Birkin macOS native control shell with Sessions and Working Memory on the left, chat and terminal workspace in the center, and approvals, activity, Browser Aside, and Office surfaces on the right" width="920" />
+
+*Concept layout only. Panel labels and toggles do not define the canonical
+Working Memory schema, approval categories, or egress policy; those remain the
+contracts documented above.*
+
+The recommended macOS client is a **thin SwiftUI shell over the existing Python
+runtime**, not a second agent implementation. Birkin's Python core continues to
+own memory, tool execution, policy, approvals, audit records, and recovery. The
+native process presents those capabilities over a versioned local protocol:
+prefer a Unix domain socket on macOS, with authenticated private loopback as a
+fallback when a browser-compatible transport is useful.
+
+That boundary keeps the product identity intact:
+
+- **Persistence:** The shell reads projected session and Working
+  Memory state; it does not create a private native database as a second source
+  of truth.
+- **Execution:** Python continues to schedule work, enforce
+  budgets, run tools, and produce typed results. SwiftUI renders state and sends
+  explicit commands.
+- **Authority:** Approval decisions return to the
+  Python authority. UI state, window focus, and notification taps never become
+  proof that an action was authorized.
+
+The work should land in observable stages:
+
+1. **Read-only foundation:** sessions, run status, transcripts, and Working
+   Memory, with reconnect and protocol-version diagnostics.
+2. **Human control:** approvals, activity receipts, and local notifications.
+   The native shell can answer an approval; it cannot reinterpret policy.
+3. **Workspace surfaces:** Browser Aside, native Computer Use status and
+   consent, and Office workspace artifacts, all reusing their current isolation
+   and refusal contracts.
+4. **Desktop integration:** menu bar status, drag and drop into jailed import
+   paths, optional voice controls, and recovery after either process restarts.
+5. **Platform decision:** after the protocol and macOS shell are proven, choose
+   between a Windows-native client and a shared cross-platform shell based on
+   accessibility APIs, installer maintenance, and real usage—not code reuse
+   alone.
+
+### Trade-offs and non-goals
+
+A native shell can provide better accessibility, notifications, window
+lifecycle, drag and drop, and OS-level recovery than a browser tab. It also adds
+a second release artifact, transport compatibility work, signing/notarization,
+and platform-specific QA. The local protocol therefore needs explicit version
+negotiation, short-lived capabilities, bounded payloads, and a visible
+disconnected state.
+
+This roadmap does **not** propose:
+
+- a full Swift rewrite of Birkin;
+- moving memory ownership, policy evaluation, approvals, or audit authority
+  into the UI;
+- exposing the control protocol beyond a Unix socket or authenticated private
+  loopback by default;
+- attaching personal browser profiles or weakening Browser Aside, Computer
+  Use, or Office refusal boundaries for convenience;
+- storing provider tokens, debug dumps, or hidden execution state in the app;
+- treating the mockup or a completed phase as shipped before its package,
+  tests, and release artifacts exist.
 
 ## Configuration
 
@@ -837,7 +919,7 @@ npm run compile
 npm run test:e2e
 ```
 
-CI executes the Python suite on Ubuntu/Python 3.10, macOS/Python 3.13, and Windows/Python 3.13. The macOS and Windows jobs install a pinned Bun release, run native managed-shell acceptance, and execute their tracked sibling-surface smoke drivers. Extension unit tests use Vitest; the host QA target uses `@vscode/test-electron`.
+CI runs the general Python suite on Ubuntu/Python 3.10, macOS/Python 3.13, and Windows/Python 3.13. The macOS and Windows jobs also install a pinned Bun release, run the workflow's **Native macOS shell acceptance** or **Native Windows shell acceptance** step, and execute their tracked sibling-surface smoke drivers. Extension unit tests use Vitest; host QA uses `@vscode/test-electron`.
 
 ## License
 
