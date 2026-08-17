@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 import re
 import shutil
 import tempfile
@@ -303,9 +304,86 @@ def _guard_agent_written(
         f"{result.verdict}:\n{guard.format_report(result, path.parent.name)}")
 
 
-def _publish_skill_file(candidate: Path, target: Path) -> None:
+def _canonical_skill_target(
+    target: Path,
+    roots: list[Path],
+) -> tuple[Path, Path]:
+    absolute_target = target.absolute()
+    for root in roots:
+        absolute_root = root.absolute()
+        try:
+            relative = absolute_target.relative_to(absolute_root)
+        except ValueError:
+            continue
+        canonical_root = absolute_root.resolve()
+        return canonical_root, canonical_root / relative
+    raise SkillProposalError("skill improve target is outside configured roots")
+
+
+def _open_anchored_directory(root: Path, relative: Path) -> int:
+    flags = os.O_RDONLY
+    flags |= getattr(os, "O_DIRECTORY", 0)
+    flags |= getattr(os, "O_NOFOLLOW", 0)
+    descriptor = os.open(root, flags)
+    try:
+        for part in relative.parts:
+            if part in {"", ".", ".."}:
+                raise SkillProposalError(
+                    "skill improve target has an unsafe path"
+                )
+            child = os.open(
+                part,
+                flags,
+                dir_fd=descriptor,
+            )
+            os.close(descriptor)
+            descriptor = child
+        return descriptor
+    except BaseException:
+        os.close(descriptor)
+        raise
+
+
+def _publish_skill_file(
+    candidate: Path,
+    target: Path,
+    target_root: Path,
+) -> None:
     target.parent.mkdir(parents=True, exist_ok=True)
-    candidate.replace(target)
+    if os.open not in os.supports_dir_fd:
+        resolved_parent = target.parent.resolve(strict=True)
+        if not resolved_parent.is_relative_to(target_root):
+            raise SkillProposalError(
+                "skill improve target escaped its configured root"
+            )
+        candidate.replace(resolved_parent / target.name)
+        return
+    relative_parent = target.parent.relative_to(target_root)
+    source_fd = _open_anchored_directory(
+        candidate.parent.resolve(),
+        Path(),
+    )
+    target_fd = _open_anchored_directory(
+        target_root,
+        relative_parent,
+    )
+    try:
+        os.replace(
+            candidate.name,
+            target.name,
+            src_dir_fd=source_fd,
+            dst_dir_fd=target_fd,
+        )
+    except (NotImplementedError, TypeError):
+        resolved_parent = target.parent.resolve(strict=True)
+        if not resolved_parent.is_relative_to(target_root):
+            raise SkillProposalError(
+                "skill improve target escaped its configured root"
+            ) from None
+        candidate.replace(resolved_parent / target.name)
+    finally:
+        os.close(source_fd)
+        os.close(target_fd)
 
 
 def apply_skill_proposal(payload: dict[str, Any]) -> str:
@@ -327,6 +405,10 @@ def apply_skill_proposal(payload: dict[str, Any]) -> str:
                 "skill create proposal missing name/description/body")
         canonical = _slug(name)
         path = _user_skill_path(canonical, create=False)
+        target_root, path = _canonical_skill_target(
+            path,
+            [config.user_skills_dir()],
+        )
         try:
             with store.file_lock(_proposal_lock_path(canonical)):
                 if _skill_exists(canonical):
@@ -349,7 +431,7 @@ def apply_skill_proposal(payload: dict[str, Any]) -> str:
                         encoding="utf-8",
                     )
                     _guard_agent_written(candidate, f"skill {name!r}")
-                    _publish_skill_file(candidate, path)
+                    _publish_skill_file(candidate, path, target_root)
         except store.FileLockTimeout:
             raise SkillProposalError("skill store is busy") from None
         return f"Created skill {name!r} at {path}"
@@ -370,6 +452,15 @@ def apply_skill_proposal(payload: dict[str, Any]) -> str:
                     _user_skill_path(skill.name, create=False)
                     if skill.source == "bundled"
                     else skill.path
+                )
+                roots = (
+                    [config.user_skills_dir()]
+                    if skill.source == "bundled"
+                    else [directory for directory, _source in dirs]
+                )
+                target_root, target = _canonical_skill_target(
+                    target,
+                    roots,
                 )
                 if target.is_symlink() or target.parent.is_symlink():
                     raise SkillProposalError(
@@ -400,7 +491,11 @@ def apply_skill_proposal(payload: dict[str, Any]) -> str:
                         candidate,
                         f"skill {target_name!r}",
                     )
-                    _publish_skill_file(candidate, target)
+                    _publish_skill_file(
+                        candidate,
+                        target,
+                        target_root,
+                    )
         except store.FileLockTimeout:
             raise SkillProposalError("skill store is busy") from None
         return f"Appended learned note to {target_name!r}."

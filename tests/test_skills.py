@@ -1,3 +1,4 @@
+import os
 from pathlib import Path
 
 import pytest
@@ -177,6 +178,76 @@ def test_guarded_improve_rejects_skill_file_symlink_before_write(
         })
 
     assert external.read_text(encoding="utf-8") == "EXTERNAL ORIGINAL\n"
+
+
+@pytest.mark.parametrize("guard_enabled", [False, True])
+def test_improve_parent_swap_cannot_escape_skill_root(
+        monkeypatch,
+        tmp_path: Path,
+        guard_enabled: bool):
+    config.save_config({
+        **config.load_config(),
+        "skills_guard_agent_created": guard_enabled,
+    })
+    root = config.user_skills_dir()
+    category = root / "category"
+    victim = category / "victim"
+    victim.mkdir(parents=True)
+    target = victim / "SKILL.md"
+    target.write_text(
+        "---\n"
+        "name: nested-victim\n"
+        "description: nested victim\n"
+        "---\n\n"
+        "ORIGINAL\n",
+        encoding="utf-8",
+    )
+    external_victim = tmp_path / "external-victim"
+    external_target = external_victim / "SKILL.md"
+    external_victim.mkdir(parents=True)
+    external_target.write_text("EXTERNAL SENTINEL\n", encoding="utf-8")
+    saved_victim = category / "saved-victim"
+    original_replace = os.replace
+    swapped = False
+
+    def swap_parent_then_replace(
+            source,
+            destination,
+            *args,
+            **kwargs):
+        nonlocal swapped
+        if (
+            Path(source).name == "SKILL.md"
+            and Path(destination).name == "SKILL.md"
+            and not swapped
+        ):
+            original_replace(victim, saved_victim)
+            victim.symlink_to(
+                external_victim,
+                target_is_directory=True,
+            )
+            swapped = True
+        return original_replace(
+            source,
+            destination,
+            *args,
+            **kwargs,
+        )
+
+    monkeypatch.setattr(os, "replace", swap_parent_then_replace)
+
+    apply_skill_proposal({
+        "action": "improve",
+        "target": "nested-victim",
+        "addition": "SAFE LEARNED GUIDANCE",
+    })
+
+    assert external_target.read_text(
+        encoding="utf-8"
+    ) == "EXTERNAL SENTINEL\n"
+    assert "SAFE LEARNED GUIDANCE" in (
+        saved_victim / "SKILL.md"
+    ).read_text(encoding="utf-8")
 
 
 def test_get_case_insensitive():
