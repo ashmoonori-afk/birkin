@@ -128,7 +128,7 @@ class ClientContext:
         mapping = object_mapping(raw, "client_context")
         _strict_keys(mapping, {"surface", "view_id"}, "client_context")
         surface = mapping["surface"]
-        if surface not in {"terminal", "web", "vscode", "test"}:
+        if surface not in {"terminal", "web", "vscode", "test", "macos"}:
             raise ProtocolError("unsupported client surface")
         return cls(
             surface=str(surface),

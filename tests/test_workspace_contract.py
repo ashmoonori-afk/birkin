@@ -37,6 +37,24 @@ EXPECTED_PANEL_KEYS = (
 )
 
 
+def test_workspace_command_accepts_macos_client_surface() -> None:
+    command = WorkspaceCommand.parse(
+        {
+            "protocol_version": 1,
+            "command_id": "native-command-1",
+            "expected_cursor": 0,
+            "type": "chat.send",
+            "payload": {"text": "hello"},
+            "client_context": {
+                "surface": "macos",
+                "view_id": "window-main",
+            },
+        }
+    )
+
+    assert command.client_context.surface == "macos"
+
+
 def test_terminal_surface_parity(tmp_path: Path) -> None:
     service = WorkspaceService(
         root=tmp_path,
