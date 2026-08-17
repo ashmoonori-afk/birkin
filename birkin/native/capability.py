@@ -95,17 +95,21 @@ class BootstrapSecretStore:
                     "E_BOOTSTRAP_INVALID",
                     "loopback bootstrap secret is invalid",
                 )
-            now = self._now()
-            hard_expires_at = now + self._capability_max_age
-            capability = SessionCapability(
-                token=secrets.token_urlsafe(32),
-                expires_at=min(now + self._capability_ttl, hard_expires_at),
-                hard_expires_at=hard_expires_at,
-            )
-            with self._capability_lock:
-                self._capabilities[capability.token] = capability
+            capability = self.mint_session()
             self._write_record(self._new_bootstrap())
             return capability
+
+    def mint_session(self) -> SessionCapability:
+        now = self._now()
+        hard_expires_at = now + self._capability_max_age
+        capability = SessionCapability(
+            token=secrets.token_urlsafe(32),
+            expires_at=min(now + self._capability_ttl, hard_expires_at),
+            hard_expires_at=hard_expires_at,
+        )
+        with self._capability_lock:
+            self._capabilities[capability.token] = capability
+        return capability
 
     def authenticate_session(self, token: str) -> bool:
         with self._capability_lock:

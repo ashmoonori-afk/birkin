@@ -55,6 +55,7 @@ _READY_KEYS = {
 _SUBSCRIBE_KEYS = {
     "session_id",
     "after_cursor",
+    "known_instance_id",
     "session_capability",
     "surfaces",
 }

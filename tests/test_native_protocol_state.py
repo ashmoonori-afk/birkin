@@ -89,6 +89,7 @@ def test_server_rejects_subscribe_before_handshake() -> None:
         body={
             "session_id": "session-1",
             "after_cursor": 0,
+            "known_instance_id": None,
             "session_capability": "opaque",
             "surfaces": {},
         },
