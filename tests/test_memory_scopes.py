@@ -475,6 +475,45 @@ def test_direct_read_binds_content_to_provenance_snapshot(
     assert record["trust"] == "low"
 
 
+def test_memory_link_cannot_preserve_higher_provenance_than_caller() -> None:
+    cfg = {
+        **config.load_config(),
+        "memory_source_trust": {
+            "conversation": "low",
+            "signed-import": "high",
+        },
+    }
+    mem = VaultMemory(cfg)
+    mem.write_note(
+        "Trusted link target",
+        "trusted link marker",
+        source="signed-import",
+    )
+    tool = next(tool for tool in mem.tools() if tool.name == "memory_link")
+    ctx = ToolContext(
+        cfg=cfg,
+        client=None,
+        cwd=Path.cwd(),
+        record_source="conversation",
+    )
+
+    result = tool.fn(
+        {
+            "from": "Trusted link target",
+            "to": "ATTACKER PAYLOAD",
+        },
+        ctx,
+    )
+    record = mem.get_note_record("Trusted link target")
+
+    assert result.is_error is False
+    assert record is not None
+    assert "[[ATTACKER PAYLOAD]]" in record["content"]
+    assert record["record_source"] == "conversation"
+    assert record["trust"] == "low"
+    assert mem.search("ATTACKER PAYLOAD", min_trust="high") == []
+
+
 def test_protected_user_role_files_remain_in_legacy_user_scope():
     mem = _scoped(MemoryScope.USER)
     system = mem.vault / "system"

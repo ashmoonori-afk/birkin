@@ -655,7 +655,13 @@ class VaultMemory:
         out.sort(key=lambda t: -t[1])
         return out[:limit]
 
-    def add_link(self, from_title: str, to_title: str) -> bool:
+    def add_link(
+        self,
+        from_title: str,
+        to_title: str,
+        *,
+        source: str | None = None,
+    ) -> bool:
         with _note_lock(_slug(from_title)):
             record = self.get_note_record(from_title)
             if record is None:
@@ -671,7 +677,7 @@ class VaultMemory:
                 body += f"\n\n## Related\n[[{to_title}]]"
             # rewrite preserving frontmatter
             self.write_note(meta.get("title", from_title), body,
-                            scope=str(record["scope"]))
+                            scope=str(record["scope"]), source=source)
             return True
 
     # -- palace maintenance --------------------------------------------------
@@ -854,7 +860,11 @@ class VaultMemory:
 
         def memory_link(inp: dict[str, Any], ctx: ToolContext) -> ToolResult:
             try:
-                ok = self.add_link(inp.get("from", ""), inp.get("to", ""))
+                ok = self.add_link(
+                    inp.get("from", ""),
+                    inp.get("to", ""),
+                    source=ctx.record_source,
+                )
             except MemoryPolicyError as exc:
                 return ToolResult(f"link rejected ({type(exc).__name__}): {exc}",
                                   is_error=True)
