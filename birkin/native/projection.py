@@ -57,7 +57,7 @@ def _public_mapping(mapping: dict[str, object]) -> dict[str, object]:
         if normalized in _SENSITIVE_KEYS:
             projected[key] = "[REDACTED]"
         elif normalized in {"error", "message", "detail"} and isinstance(value, str):
-            projected[key] = _public_error(value)
+            projected[key] = public_error_text(value)
         else:
             projected[key] = _public_value(value)
     return projected
@@ -77,7 +77,9 @@ def _public_value(value: object) -> object:
     return value
 
 
-def _public_error(value: str) -> str:
+def public_error_text(value: str) -> str:
+    """Return bounded diagnostic text without traceback or secret lines."""
+
     lines: list[str] = []
     for line in value.splitlines():
         if line.startswith(("Traceback", "  File ")):
