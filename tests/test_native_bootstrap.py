@@ -7,8 +7,17 @@ from pathlib import Path
 
 import pytest
 
-from birkin.native.capability import BootstrapSecretStore
+from birkin.native.capability import BootstrapSecretStore, CapabilityScope
 from birkin.native.protocol import NativeProtocolError
+
+_SCOPE = CapabilityScope(
+    instance_id="test-instance",
+    connection_id="test-connection",
+    surface="test",
+    view_id="test",
+)
+def _authenticated(store: BootstrapSecretStore, token: str) -> bool:
+    return store.authenticate_session(token, scope=_SCOPE)
 
 
 class MutableClock:
@@ -25,14 +34,14 @@ def test_bootstrap_record_is_private_and_rotates_after_exchange(
     store = BootstrapSecretStore(tmp_path)
     first = store.issue()
 
-    capability = store.exchange(first.secret)
+    capability = store.exchange(first.secret, scope=_SCOPE)
     second = store.current()
 
     assert capability.token
     assert second.secret != first.secret
     assert stat.S_IMODE(store.endpoint_path.stat().st_mode) == 0o600
     with pytest.raises(NativeProtocolError) as exc_info:
-        _ = store.exchange(first.secret)
+        _ = store.exchange(first.secret, scope=_SCOPE)
     assert exc_info.value.code == "E_BOOTSTRAP_INVALID"
 
 
@@ -43,7 +52,7 @@ def test_bootstrap_secret_is_consumed_once_under_concurrency(
     record = store.issue()
 
     def exchange() -> str:
-        return store.exchange(record.secret).token
+        return store.exchange(record.secret, scope=_SCOPE).token
 
     successes: list[str] = []
     failures: list[str] = []
@@ -70,7 +79,7 @@ def test_expired_bootstrap_secret_fails_closed(tmp_path: Path) -> None:
     clock.now += timedelta(seconds=6)
 
     with pytest.raises(NativeProtocolError) as exc_info:
-        _ = store.exchange(record.secret)
+        _ = store.exchange(record.secret, scope=_SCOPE)
 
     assert exc_info.value.code == "E_BOOTSTRAP_EXPIRED"
 
@@ -80,10 +89,10 @@ def test_bootstrap_secret_is_rejected_after_ready_exchange(
 ) -> None:
     store = BootstrapSecretStore(tmp_path)
     record = store.issue()
-    capability = store.exchange(record.secret)
+    capability = store.exchange(record.secret, scope=_SCOPE)
 
-    assert store.authenticate_session(capability.token) is True
-    assert store.authenticate_session(record.secret) is False
+    assert _authenticated(store, capability.token) is True
+    assert _authenticated(store, record.secret) is False
 
 
 def test_session_capability_renewal_rotates_token_with_hard_ceiling(
@@ -97,15 +106,15 @@ def test_session_capability_renewal_rotates_token_with_hard_ceiling(
         now=clock,
     )
     bootstrap = store.issue()
-    first = store.exchange(bootstrap.secret)
+    first = store.exchange(bootstrap.secret, scope=_SCOPE)
     clock.now += timedelta(seconds=4)
 
     second = store.renew_session(first.token)
 
     assert second.token != first.token
     assert second.hard_expires_at == first.hard_expires_at
-    assert store.authenticate_session(first.token) is False
-    assert store.authenticate_session(second.token) is True
+    assert _authenticated(store, first.token) is False
+    assert _authenticated(store, second.token) is True
     assert second.expires_at == clock.now + timedelta(seconds=5)
 
     clock.now += timedelta(seconds=4)
@@ -122,10 +131,44 @@ def test_session_capability_can_be_revoked_without_disk_state(
     tmp_path: Path,
 ) -> None:
     store = BootstrapSecretStore(tmp_path)
-    capability = store.exchange(store.issue().secret)
+    capability = store.exchange(store.issue().secret, scope=_SCOPE)
 
     store.revoke_session(capability.token)
 
-    assert store.authenticate_session(capability.token) is False
+    assert _authenticated(store, capability.token) is False
     persisted = store.endpoint_path.read_text(encoding="utf-8")
     assert capability.token not in persisted
+
+
+def test_session_capability_is_bound_to_connection_scope(
+    tmp_path: Path,
+) -> None:
+    store = BootstrapSecretStore(tmp_path)
+    capability = store.exchange(
+        store.issue().secret,
+        scope=CapabilityScope(
+            instance_id="instance-1",
+            connection_id="connection-1",
+            surface="macos",
+            view_id="main",
+        ),
+    )
+
+    assert store.authenticate_session(
+        capability.token,
+        scope=capability.scope,
+    )
+    assert not store.authenticate_session(
+        capability.token,
+        scope=CapabilityScope(
+            instance_id="instance-1",
+            connection_id="connection-2",
+            surface="macos",
+            view_id="main",
+        ),
+    )
+    renewed = store.renew_session(capability.token)
+    assert renewed.scope.instance_id == "instance-1"
+    assert renewed.scope.connection_id == "connection-1"
+    assert renewed.scope.surface == "macos"
+    assert renewed.scope.view_id == "main"

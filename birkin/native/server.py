@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import secrets
 from typing import Protocol, final
 
 from birkin.native.auth import NativeConnectionAuth
@@ -46,7 +47,10 @@ class NativeBridgeServer:
     ) -> None:
         self._authority = authority
         self._capabilities = capabilities
-        self._auth = NativeConnectionAuth(capabilities)
+        self._auth = NativeConnectionAuth(
+            capabilities,
+            instance_id=instance_id,
+        )
         self._projection = NativeProjectionSession(
             authority,
             instance_id=instance_id,
@@ -68,6 +72,7 @@ class NativeBridgeServer:
     ) -> None:
         state = NativeConnectionState.server()
         issued_tokens: set[str] = set()
+        connection_id = secrets.token_urlsafe(16)
         with connection:
             try:
                 hello = connection.receive()
@@ -76,6 +81,7 @@ class NativeBridgeServer:
                     hello,
                     connection=connection,
                     transport=transport,
+                    connection_id=connection_id,
                 )
                 ready = self._messages.ready(
                     hello,
@@ -109,9 +115,10 @@ class NativeBridgeServer:
         while True:
             message = connection.receive()
             state.receive(message)
-            self._auth.require_capability(message.body, active_token)
+            self._auth.require_capability(message.body, capability)
             renewed = self._capabilities.renew_if_due(active_token)
             if renewed is not None:
+                capability = renewed
                 active_token = renewed.token
                 issued_tokens.add(active_token)
                 renewal = self._messages.capability_renewed(renewed)

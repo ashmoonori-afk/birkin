@@ -48,7 +48,8 @@ def test_disconnect_revokes_session_capability(tmp_path: Path) -> None:
     client.close()
     thread.join(timeout=2)
 
-    assert capabilities.authenticate_session(token) is False
+    assert token
+    assert capabilities.active_session_count() == 0
     assert errors == []
 
 

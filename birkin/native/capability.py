@@ -2,18 +2,22 @@
 
 from __future__ import annotations
 
-import json
-import os
 import secrets
-import tempfile
 import threading
 from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
-from typing import cast, final
+from typing import final
 
 from birkin import store
+from birkin.native.bootstrap import (
+    BootstrapRecord,
+    new_record,
+    prepare_private_root,
+    read_record,
+    write_record,
+)
 from birkin.native.protocol import NativeProtocolError
 
 Clock = Callable[[], datetime]
@@ -28,9 +32,11 @@ def _utc_now() -> datetime:
 
 @final
 @dataclass(frozen=True, slots=True)
-class BootstrapRecord:
-    secret: str
-    expires_at: datetime
+class CapabilityScope:
+    instance_id: str
+    connection_id: str
+    surface: str
+    view_id: str
 
 
 @final
@@ -39,6 +45,7 @@ class SessionCapability:
     token: str
     expires_at: datetime
     hard_expires_at: datetime
+    scope: CapabilityScope
 
 
 @final
@@ -69,22 +76,26 @@ class BootstrapSecretStore:
         self._now = now
         self._capabilities: dict[str, SessionCapability] = {}
         self._capability_lock = threading.Lock()
-        self.root.mkdir(parents=True, exist_ok=True, mode=0o700)
-        os.chmod(self.root, 0o700)
+        prepare_private_root(self.root)
 
     def issue(self) -> BootstrapRecord:
         with store.file_lock(self.lock_path):
-            record = self._new_bootstrap()
-            self._write_record(record)
+            record = new_record(self._now(), self._ttl)
+            write_record(self.endpoint_path, record)
             return record
 
     def current(self) -> BootstrapRecord:
         with store.file_lock(self.lock_path):
-            return self._read_record()
+            return read_record(self.endpoint_path)
 
-    def exchange(self, secret: str) -> SessionCapability:
+    def exchange(
+        self,
+        secret: str,
+        *,
+        scope: CapabilityScope,
+    ) -> SessionCapability:
         with store.file_lock(self.lock_path):
-            record = self._read_record()
+            record = read_record(self.endpoint_path)
             if self._now() >= record.expires_at:
                 raise NativeProtocolError(
                     "E_BOOTSTRAP_EXPIRED",
@@ -95,26 +106,39 @@ class BootstrapSecretStore:
                     "E_BOOTSTRAP_INVALID",
                     "loopback bootstrap secret is invalid",
                 )
-            capability = self.mint_session()
-            self._write_record(self._new_bootstrap())
+            capability = self.mint_session(scope=scope)
+            write_record(
+                self.endpoint_path,
+                new_record(self._now(), self._ttl),
+            )
             return capability
 
-    def mint_session(self) -> SessionCapability:
+    def mint_session(self, *, scope: CapabilityScope) -> SessionCapability:
         now = self._now()
         hard_expires_at = now + self._capability_max_age
         capability = SessionCapability(
             token=secrets.token_urlsafe(32),
             expires_at=min(now + self._capability_ttl, hard_expires_at),
             hard_expires_at=hard_expires_at,
+            scope=scope,
         )
         with self._capability_lock:
             self._capabilities[capability.token] = capability
         return capability
 
-    def authenticate_session(self, token: str) -> bool:
+    def authenticate_session(
+        self,
+        token: str,
+        *,
+        scope: CapabilityScope,
+    ) -> bool:
         with self._capability_lock:
             self._purge_expired()
-            return self._find_token(token) is not None
+            known = self._find_token(token)
+            return (
+                known is not None
+                and self._capabilities[known].scope == scope
+            )
 
     def renew_session(self, token: str) -> SessionCapability:
         with self._capability_lock:
@@ -151,6 +175,11 @@ class BootstrapSecretStore:
         with self._capability_lock:
             self._capabilities.clear()
 
+    def active_session_count(self) -> int:
+        with self._capability_lock:
+            self._purge_expired()
+            return len(self._capabilities)
+
     def _renew_known(self, known: str) -> SessionCapability:
         current = self._capabilities.pop(known)
         now = self._now()
@@ -158,50 +187,10 @@ class BootstrapSecretStore:
             token=secrets.token_urlsafe(32),
             expires_at=min(now + self._capability_ttl, current.hard_expires_at),
             hard_expires_at=current.hard_expires_at,
+            scope=current.scope,
         )
         self._capabilities[renewed.token] = renewed
         return renewed
-
-    def _new_bootstrap(self) -> BootstrapRecord:
-        return BootstrapRecord(
-            secret=secrets.token_urlsafe(32),
-            expires_at=self._now() + self._ttl,
-        )
-
-    def _read_record(self) -> BootstrapRecord:
-        try:
-            raw = cast(object, json.loads(self.endpoint_path.read_text("utf-8")))
-        except (OSError, json.JSONDecodeError) as exc:
-            raise NativeProtocolError(
-                "E_BOOTSTRAP_INVALID",
-                "loopback bootstrap record is unavailable",
-            ) from exc
-        if not isinstance(raw, dict):
-            raise NativeProtocolError(
-                "E_BOOTSTRAP_INVALID",
-                "loopback bootstrap record is malformed",
-            )
-        mapping = cast(dict[object, object], raw)
-        secret = mapping.get("bootstrap_secret")
-        expires_at = mapping.get("expires_at")
-        if not isinstance(secret, str) or not isinstance(expires_at, str):
-            raise NativeProtocolError(
-                "E_BOOTSTRAP_INVALID",
-                "loopback bootstrap record is malformed",
-            )
-        try:
-            expiry = datetime.fromisoformat(expires_at)
-        except ValueError as exc:
-            raise NativeProtocolError(
-                "E_BOOTSTRAP_INVALID",
-                "loopback bootstrap record has an invalid expiry",
-            ) from exc
-        if expiry.tzinfo is None:
-            raise NativeProtocolError(
-                "E_BOOTSTRAP_INVALID",
-                "loopback bootstrap expiry must be timezone-aware",
-            )
-        return BootstrapRecord(secret=secret, expires_at=expiry)
 
     def _purge_expired(self) -> None:
         now = self._now()
@@ -223,26 +212,3 @@ class BootstrapSecretStore:
             ),
             None,
         )
-
-    def _write_record(self, record: BootstrapRecord) -> None:
-        payload = {
-            "transport": "loopback",
-            "bootstrap_secret": record.secret,
-            "expires_at": record.expires_at.isoformat(),
-        }
-        descriptor, temporary = tempfile.mkstemp(
-            dir=self.root,
-            prefix=".endpoint-",
-            suffix=".json",
-        )
-        temporary_path = Path(temporary)
-        try:
-            os.fchmod(descriptor, 0o600)
-            with os.fdopen(descriptor, "w", encoding="utf-8") as handle:
-                json.dump(payload, handle, separators=(",", ":"))
-                handle.flush()
-                os.fsync(handle.fileno())
-            os.replace(temporary_path, self.endpoint_path)
-            os.chmod(self.endpoint_path, 0o600)
-        finally:
-            temporary_path.unlink(missing_ok=True)
