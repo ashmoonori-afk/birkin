@@ -123,6 +123,9 @@ class VaultMemory:
         self._provenance_path = (
             config.birkin_home() / "memory_provenance.json"
         )
+        self._provenance_namespace = hashlib.sha256(
+            str(self.vault.resolve()).encode("utf-8")
+        ).hexdigest()
 
     def _dex_for(self, scope: MemoryScope) -> Mnemosyne:
         dex = self._dexes.get(scope)
@@ -164,7 +167,8 @@ class VaultMemory:
         return None
 
     def _provenance_key(self, path: Path) -> str:
-        return path.resolve().relative_to(self.vault.resolve()).as_posix()
+        relative = path.resolve().relative_to(self.vault.resolve()).as_posix()
+        return f"{self._provenance_namespace}/{relative}"
 
     def _provenance_records(self) -> dict[str, dict[str, str]]:
         try:

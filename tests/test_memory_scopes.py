@@ -383,6 +383,45 @@ def test_expiry_archive_preserves_authenticated_provenance() -> None:
     assert record["trust"] == "high"
 
 
+def test_provenance_registration_is_scoped_to_one_vault(
+        tmp_path: Path,
+) -> None:
+    trust = {
+        "legacy": "low",
+        "signed-import": "high",
+    }
+    vault_a = tmp_path / "vault-a"
+    vault_b = tmp_path / "vault-b"
+    mem_a = VaultMemory({
+        **config.load_config(),
+        "vault_path": str(vault_a),
+        "memory_source_trust": trust,
+    })
+    mem_b = VaultMemory({
+        **config.load_config(),
+        "vault_path": str(vault_b),
+        "memory_source_trust": trust,
+    })
+    registered = mem_a.write_note(
+        "Boundary",
+        "cross vault provenance marker",
+        source="signed-import",
+    )
+    forged = vault_b / registered.relative_to(vault_a)
+    forged.parent.mkdir(parents=True)
+    forged.write_bytes(registered.read_bytes())
+
+    record = mem_b.get_note_record("Boundary")
+
+    assert record is not None
+    assert record["record_source"] == "legacy"
+    assert record["trust"] == "low"
+    assert mem_b.search(
+        "cross vault provenance marker",
+        min_trust="high",
+    ) == []
+
+
 def test_protected_user_role_files_remain_in_legacy_user_scope():
     mem = _scoped(MemoryScope.USER)
     system = mem.vault / "system"
