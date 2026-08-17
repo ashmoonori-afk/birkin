@@ -371,6 +371,10 @@ def apply_skill_proposal(payload: dict[str, Any]) -> str:
                     if skill.source == "bundled"
                     else skill.path
                 )
+                if target.is_symlink() or target.parent.is_symlink():
+                    raise SkillProposalError(
+                        "skill improve target must not be a symlink"
+                    )
                 target.parent.parent.mkdir(parents=True, exist_ok=True)
                 with tempfile.TemporaryDirectory(
                     dir=target.parent.parent,
@@ -384,6 +388,10 @@ def apply_skill_proposal(payload: dict[str, Any]) -> str:
                         symlinks=True,
                     )
                     candidate = candidate_dir / "SKILL.md"
+                    if candidate.is_symlink():
+                        raise SkillProposalError(
+                            "staged SKILL.md must not be a symlink"
+                        )
                     with candidate.open("a", encoding="utf-8") as fh:
                         fh.write(
                             f"\n\n## Learned ({_today()})\n\n{addition}\n"

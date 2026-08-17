@@ -152,6 +152,33 @@ def test_guarded_improve_keeps_live_skill_visible_during_publication(
     assert "Safe learned guidance." in path.read_text(encoding="utf-8")
 
 
+def test_guarded_improve_rejects_skill_file_symlink_before_write(
+        tmp_path: Path):
+    config.save_config({
+        **config.load_config(),
+        "skills_guard_agent_created": True,
+    })
+    path = _write_skill(
+        "symlinked-skill-file",
+        "original",
+        "ORIGINAL",
+        [],
+    )
+    external = tmp_path / "external-skill.md"
+    external.write_text("EXTERNAL ORIGINAL\n", encoding="utf-8")
+    path.unlink()
+    path.symlink_to(external)
+
+    with pytest.raises(SkillProposalError):
+        apply_skill_proposal({
+            "action": "improve",
+            "target": "symlinked-skill-file",
+            "addition": "UNTRUSTED ADDITION",
+        })
+
+    assert external.read_text(encoding="utf-8") == "EXTERNAL ORIGINAL\n"
+
+
 def test_get_case_insensitive():
     mgr = _mgr()
     assert mgr.get("WEB-RESEARCH") is not None
