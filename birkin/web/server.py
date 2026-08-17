@@ -692,8 +692,12 @@ class Handler(BaseHTTPRequestHandler):
             return host in _ALLOWED_HOSTS
         if not bool(config.load_config().get("web_remote_access", False)):
             return False
-        if self.path == f"/_bootstrap/{_TOKEN}":
-            return True
+        if self.path.startswith("/_bootstrap/"):
+            nonce = self.path.removeprefix("/_bootstrap/")
+            return secrets.compare_digest(
+                nonce,
+                _bootstrap_nonce(self.server),
+            )
         return self._capability_ok()
 
     def _header_capability_ok(self) -> bool:
@@ -883,6 +887,9 @@ class Handler(BaseHTTPRequestHandler):
                     ).consume_bootstrap(
                         nonce,
                         host=self.headers.get("Host", ""),
+                        allow_remote_host=(
+                            self.client_address[0] not in _LOOPBACK_PEERS
+                        ),
                     )
                 except BrowserRequestDenied as exc:
                     self._send_browser_denial(exc)

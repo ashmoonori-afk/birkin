@@ -35,7 +35,11 @@ def remote_srv():
     thread = threading.Thread(target=httpd.serve_forever, daemon=True)
     thread.start()
     try:
-        yield httpd.server_address[1], web_server._TOKEN
+        yield (
+            httpd.server_address[1],
+            web_server._TOKEN,
+            web_server.listener_bootstrap_nonce(httpd),
+        )
     finally:
         httpd.shutdown()
         httpd.server_close()
@@ -43,7 +47,7 @@ def remote_srv():
 
 def request(srv, method: str, path: str, payload=None, *, token=True,
             host="127.0.0.1"):
-    port, capability = srv
+    port, capability = srv[:2]
     headers = {"Host": host}
     if token:
         headers["X-Birkin-Token"] = capability
@@ -170,9 +174,27 @@ def test_remote_secret_bootstrap_mints_capability_cookie(
         remote_srv, monkeypatch):
     monkeypatch.setattr(web_server.config, "load_config", lambda: {
         **config.DEFAULT_CONFIG, "web_remote_access": True})
-    _, capability = remote_srv
+    _, _, bootstrap_nonce = remote_srv
 
     status, payload = request(
+        remote_srv,
+        "GET",
+        f"/_bootstrap/{bootstrap_nonce}",
+        token=False,
+        host="console.example",
+    )
+
+    assert status == 303
+    assert payload is None
+
+
+def test_remote_process_capability_is_not_a_bootstrap_url(
+        remote_srv, monkeypatch):
+    monkeypatch.setattr(web_server.config, "load_config", lambda: {
+        **config.DEFAULT_CONFIG, "web_remote_access": True})
+    _, capability, _ = remote_srv
+
+    status, _ = request(
         remote_srv,
         "GET",
         f"/_bootstrap/{capability}",
@@ -180,5 +202,4 @@ def test_remote_secret_bootstrap_mints_capability_cookie(
         host="console.example",
     )
 
-    assert status == 303
-    assert payload is None
+    assert status == 403

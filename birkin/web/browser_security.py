@@ -62,12 +62,18 @@ class BrowserRequestGuard:
         self._bootstrap_consumed = False
         self._lock = Lock()
 
-    def consume_bootstrap(self, nonce: str, *, host: str) -> str:
+    def consume_bootstrap(
+        self,
+        nonce: str,
+        *,
+        host: str,
+        allow_remote_host: bool = False,
+    ) -> str:
         with self._lock:
             if (
                 self._bootstrap_consumed
                 or self._clock() >= self._bootstrap_deadline
-                or host not in self._hosts
+                or (not allow_remote_host and host not in self._hosts)
                 or not secrets.compare_digest(
                     nonce,
                     self._bootstrap_nonce,
