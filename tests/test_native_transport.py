@@ -13,6 +13,8 @@ import pytest
 from birkin.native.protocol import MAX_FRAME_BYTES, NativeProtocolError
 from birkin.native.transport import NativeListener, receive_frame
 
+_HAS_POSIX_PEER_UID = hasattr(os, "geteuid")
+
 
 @pytest.fixture
 def uds_path() -> Iterator[Path]:
@@ -20,6 +22,10 @@ def uds_path() -> Iterator[Path]:
         yield Path(root) / "run" / "bridge.sock"
 
 
+@pytest.mark.skipif(
+    not _HAS_POSIX_PEER_UID,
+    reason="Unix peer credentials require a POSIX host",
+)
 def test_uds_listener_is_private_and_authenticates_same_user(
     uds_path: Path,
 ) -> None:
@@ -34,6 +40,10 @@ def test_uds_listener_is_private_and_authenticates_same_user(
     assert uds_path.exists() is False
 
 
+@pytest.mark.skipif(
+    not _HAS_POSIX_PEER_UID,
+    reason="Unix peer credentials require a POSIX host",
+)
 def test_uds_listener_rejects_mismatched_peer_uid(uds_path: Path) -> None:
     with NativeListener.uds(uds_path) as listener:
         with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as client:
