@@ -22,6 +22,7 @@ memory so the rest of birkin is unaffected.
 
 from __future__ import annotations
 
+import json
 import re
 import threading
 from datetime import date, datetime, timezone
@@ -48,6 +49,18 @@ from .skills import frontmatter
 
 VALID_TYPES = {"person", "project", "preference", "fact", "topic", "session"}
 VALID_POLARITIES = {"positive", "negative"}
+
+
+def _validated_date(field: str, value: str | None) -> str | None:
+    if value is None:
+        return None
+    try:
+        parsed = date.fromisoformat(value)
+    except ValueError as exc:
+        raise ValueError(f"{field} must be an ISO date (YYYY-MM-DD)") from exc
+    if parsed.isoformat() != value:
+        raise ValueError(f"{field} must be an ISO date (YYYY-MM-DD)")
+    return value
 
 
 class SignalScores(TypedDict):
@@ -241,6 +254,9 @@ class VaultMemory:
           :class:`VersionMismatchError` if it does not match the on-disk version.
         - **Evidence gate** — a brand-new note requires at least one ``source``.
         """
+        valid_at = _validated_date("valid_at", valid_at)
+        invalid_at = _validated_date("invalid_at", invalid_at)
+        expired_at = _validated_date("expired_at", expired_at)
         requested_type = note_type if note_type in VALID_TYPES else None
         # Serialize the read->check->write for this note so concurrent writers
         # can't both pass the version check and clobber each other (lost update),
@@ -651,7 +667,7 @@ class VaultMemory:
                     links=inp.get("links") or [],
                     confidence=(float(inp["confidence"])
                                 if inp.get("confidence") is not None else None),
-                    source=inp.get("source") or "conversation",
+                    source=getattr(ctx, "record_source", "conversation"),
                     append=bool(inp.get("append", False)),
                     ttl_days=(int(inp["ttl_days"])
                               if inp.get("ttl_days") is not None else None),
@@ -775,7 +791,6 @@ class VaultMemory:
                      "links": {"type": "array", "items": {"type": "string"},
                                "description": "Titles of related notes"},
                      "confidence": {"type": "number"},
-                     "source": {"type": "string"},
                      "append": {"type": "boolean"},
                      "ttl_days": {"type": "integer",
                                   "description": "auto-expire after N days"},
@@ -857,31 +872,48 @@ def _compose_frontmatter(*, title: str, note_type: str, created: str,
                          record_source: str = "legacy",
                          trust: str = "medium",
                          shared_read_only: bool = False) -> str:
-    src = ", ".join(f'"{s}"' for s in sources)
-    tg = ", ".join(str(t) for t in tags)
-    ttl_line = f"expires_at: {expires_at}\n" if expires_at else ""
+    def scalar(value: object) -> str:
+        text = str(value)
+        if (
+            text
+            and text == text.strip()
+            and re.fullmatch(r"[\w ./@+-]+", text)
+            and text.lower() not in {"true", "false", "null", "~"}
+        ):
+            return text
+        return json.dumps(text, ensure_ascii=False)
+
+    def inline_list(values: list[str]) -> str:
+        return "[" + ", ".join(scalar(value) for value in values) + "]"
+
+    src = inline_list(sources)
+    tg = inline_list(tags)
+    ttl_line = f"expires_at: {scalar(expires_at)}\n" if expires_at else ""
     temporal_lines = ""
     if valid_at:
-        temporal_lines += f"valid_at: {valid_at}\n"
+        temporal_lines += f"valid_at: {scalar(valid_at)}\n"
     if invalid_at:
-        temporal_lines += f"invalid_at: {invalid_at}\n"
+        temporal_lines += f"invalid_at: {scalar(invalid_at)}\n"
     if supersedes:
-        temporal_lines += "supersedes: [" + ", ".join(
-            f'"{value}"' for value in supersedes) + "]\n"
+        temporal_lines += (
+            "supersedes: "
+            + inline_list(supersedes)
+            + "\n"
+        )
     return (
         "---\n"
-        f"title: {title}\n"
-        f"type: {note_type}\n"
-        f"created: {created}\n"
-        f"updated: {updated}\n"
+        f"title: {scalar(title)}\n"
+        f"type: {scalar(note_type)}\n"
+        f"created: {scalar(created)}\n"
+        f"updated: {scalar(updated)}\n"
         f"confidence: {confidence}\n"
-        f"polarity: {polarity}\n"
+        f"polarity: {scalar(polarity)}\n"
         f"version: {int(version)}\n"
-        f"sources: [{src}]\n"
-        f"record_source: {record_source}\n"
-        f"trust: {trust}\n"
+        f"sources: {src}\n"
+        f"record_source: {scalar(record_source)}\n"
+        f"trust: {scalar(trust)}\n"
         f"shared_read_only: {'true' if shared_read_only else 'false'}\n"
-        f"tags: [{tg}]\n"
+        f"tags: {tg}\n"
         + ttl_line
         + temporal_lines
         + "---\n\n"

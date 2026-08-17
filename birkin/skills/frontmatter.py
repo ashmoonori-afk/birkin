@@ -52,7 +52,27 @@ def _indent(s: str) -> int:
 
 def _split_commas(s: str) -> list[str]:
     out, depth, buf = [], 0, []
+    quote = ""
+    escaped = False
     for ch in s:
+        if escaped:
+            buf.append(ch)
+            escaped = False
+            continue
+        if ch == "\\" and quote:
+            buf.append(ch)
+            escaped = True
+            continue
+        if ch in {'"', "'"}:
+            if quote == ch:
+                quote = ""
+            elif not quote:
+                quote = ch
+            buf.append(ch)
+            continue
+        if quote:
+            buf.append(ch)
+            continue
         if ch in "[{":
             depth += 1
         elif ch in "]}":
@@ -77,6 +97,12 @@ def _parse_value(s: str) -> Any:
     if len(s) >= 2 and s[0] == "'" and s[-1] == "'":
         return s[1:-1]
     if s.startswith("[") and s.endswith("]"):
+        try:
+            parsed = json.loads(s)
+        except json.JSONDecodeError:
+            parsed = None
+        if isinstance(parsed, list):
+            return parsed
         inner = s[1:-1].strip()
         return [_parse_value(x) for x in _split_commas(inner)] if inner else []
     low = s.lower()

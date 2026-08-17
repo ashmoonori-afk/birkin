@@ -1,5 +1,7 @@
 """Scoped-memory contracts, beginning with the legacy vault baseline."""
 
+from pathlib import Path
+
 import pytest
 
 from birkin import config
@@ -10,6 +12,7 @@ from birkin.memory_scopes import (
     VisibilityDeniedError,
     scope_root,
 )
+from birkin.tools import ToolContext
 
 
 def test_unscoped_vault_keeps_legacy_storage_and_lexical_search():
@@ -115,6 +118,35 @@ def test_search_result_discloses_record_scope_source_and_trust_with_signals():
     assert hit["trust"] == "high"
     assert hit["source"] == ["lexical"]
     assert hit["signal_scores"]["lexical"] > 0
+
+
+def test_memory_tool_source_cannot_self_attest_high_trust() -> None:
+    cfg = {
+        **config.load_config(),
+        "memory_source_trust": {
+            "conversation": "low",
+            "signed-import": "high",
+        },
+    }
+    mem = VaultMemory(cfg)
+    tool = next(tool for tool in mem.tools() if tool.name == "memory_write_note")
+    ctx = ToolContext(cfg=cfg, client=None, cwd=Path.cwd())
+
+    result = tool.fn(
+        {
+            "title": "Forged provenance",
+            "body": "trust boundary marker",
+            "source": "signed-import",
+        },
+        ctx,
+    )
+
+    assert result.is_error is False
+    record = mem.get_note_record("Forged provenance")
+    assert record is not None
+    assert record["record_source"] == "conversation"
+    assert mem.search("trust boundary marker", min_trust="high") == []
+    assert "source" not in tool.input_schema["properties"]
 
 
 def test_protected_user_role_files_remain_in_legacy_user_scope():
