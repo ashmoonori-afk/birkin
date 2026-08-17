@@ -22,6 +22,7 @@ memory so the rest of birkin is unaffected.
 
 from __future__ import annotations
 
+import hashlib
 import json
 import re
 import threading
@@ -91,6 +92,7 @@ class MemorySearchResult(TypedDict):
 # read->check->write to stop lost updates / interleaved corruption.
 _NOTE_LOCKS: dict[str, threading.RLock] = {}
 _NOTE_LOCKS_GUARD = threading.Lock()
+_PROVENANCE_LOCK = threading.RLock()
 
 
 def _note_lock(slug: str) -> threading.RLock:
@@ -118,6 +120,9 @@ class VaultMemory:
         self.policy = MemoryAccessPolicy.from_config(self.cfg)
         self._dexes: dict[MemoryScope, Mnemosyne] = {}
         self._embedding_backend = embedding_backend
+        self._provenance_path = (
+            config.birkin_home() / "memory_provenance.json"
+        )
 
     def _dex_for(self, scope: MemoryScope) -> Mnemosyne:
         dex = self._dexes.get(scope)
@@ -158,15 +163,64 @@ class VaultMemory:
             return root / rel
         return None
 
-    @staticmethod
-    def _record_source(meta: dict[str, Any]) -> str:
-        explicit = str(meta.get("record_source") or "")
-        raw_sources = meta.get("sources")
-        if explicit:
-            return explicit
-        if isinstance(raw_sources, list) and raw_sources:
-            return str(raw_sources[-1])
+    def _provenance_key(self, path: Path) -> str:
+        return path.resolve().relative_to(self.vault.resolve()).as_posix()
+
+    def _provenance_records(self) -> dict[str, dict[str, str]]:
+        try:
+            raw = json.loads(
+                self._provenance_path.read_text(encoding="utf-8")
+            )
+        except (FileNotFoundError, OSError, json.JSONDecodeError):
+            return {}
+        if not isinstance(raw, dict):
+            return {}
+        return {
+            str(key): {
+                "record_source": str(value.get("record_source") or ""),
+                "sha256": str(value.get("sha256") or ""),
+            }
+            for key, value in raw.items()
+            if isinstance(value, dict)
+        }
+
+    def _register_record_source(self, path: Path, source: str) -> None:
+        digest = hashlib.sha256(path.read_bytes()).hexdigest()
+        with _PROVENANCE_LOCK:
+            records = self._provenance_records()
+            records[self._provenance_key(path)] = {
+                "record_source": source,
+                "sha256": digest,
+            }
+            _atomic_write(
+                self._provenance_path,
+                json.dumps(records, indent=2, sort_keys=True) + "\n",
+            )
+
+    def _record_source(self, path: Path) -> str:
+        try:
+            digest = hashlib.sha256(path.read_bytes()).hexdigest()
+            key = self._provenance_key(path)
+        except (OSError, ValueError):
+            return "legacy"
+        with _PROVENANCE_LOCK:
+            record = self._provenance_records().get(key)
+        if (
+            record is not None
+            and record["sha256"] == digest
+            and record["record_source"]
+        ):
+            return record["record_source"]
         return "legacy"
+
+    def _entry_record_source(
+        self,
+        owner: MemoryScope,
+        entry: dict[str, Any],
+    ) -> str:
+        return self._record_source(
+            scope_root(self.vault, owner) / str(entry.get("rel") or "")
+        )
 
     def get_note_record(self, title: str, *, scope: str | MemoryScope | None = None
                         ) -> dict[str, Any] | None:
@@ -182,7 +236,7 @@ class VaultMemory:
             except OSError:
                 continue
             meta, _ = frontmatter.parse(text)
-            source = self._record_source(meta)
+            source = self._record_source(p)
             self._dex_for(owner).record_access(p.stem)
             return {"content": text, "scope": owner.value,
                     "record_source": source,
@@ -312,8 +366,8 @@ class VaultMemory:
                 raw_supersedes = meta.get("supersedes")
                 if isinstance(raw_supersedes, list):
                     existing_supersedes = [str(value) for value in raw_supersedes]
-                existing_source = self._record_source(meta)
                 existing_shared = bool(meta.get("shared_read_only", False))
+            existing_source = self._record_source(p)
 
             resolved_shared = (shared_read_only if shared_read_only is not None
                                else existing_shared)
@@ -383,6 +437,7 @@ class VaultMemory:
                 trust=self.policy.trust_for(record_source).value,
                 shared_read_only=resolved_shared)
             _atomic_write(p, fm + body + "\n")
+            self._register_record_source(p, record_source)
             owner_dex = self._dex_for(owner)
             owner_dex.note_written(p)
             owner_dex.record_access(_slug(title))   # writing = using
@@ -418,9 +473,13 @@ class VaultMemory:
                 if item not in entries:  # precedence order resolves duplicates
                     entries[item] = entry
                     owners[item] = owner
+        trusted_sources = {
+            item: self._entry_record_source(owners[item], entry)
+            for item, entry in entries.items()
+        }
         entries = {
             item: entry for item, entry in entries.items()
-            if self.policy.meets_trust(self._record_source(entry), minimum)
+            if self.policy.meets_trust(trusted_sources[item], minimum)
         }
         owners = {item: owner for item, owner in owners.items() if item in entries}
         lexical_raw: dict[str, float] = {}
@@ -512,9 +571,9 @@ class VaultMemory:
                         "source": sources,
                         "backend": backends,
                         "scope": owners[item].value,
-                        "record_source": self._record_source(entry),
+                        "record_source": trusted_sources[item],
                         "trust": self.policy.trust_for(
-                            self._record_source(entry)).value,
+                            trusted_sources[item]).value,
                         "shared_read_only": bool(
                             entry.get("shared_read_only", False))})
         return out
