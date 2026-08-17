@@ -84,3 +84,48 @@ def test_bootstrap_secret_is_rejected_after_ready_exchange(
 
     assert store.authenticate_session(capability.token) is True
     assert store.authenticate_session(record.secret) is False
+
+
+def test_session_capability_renewal_rotates_token_with_hard_ceiling(
+    tmp_path: Path,
+) -> None:
+    clock = MutableClock()
+    store = BootstrapSecretStore(
+        tmp_path,
+        capability_ttl=timedelta(seconds=5),
+        capability_max_age=timedelta(seconds=12),
+        now=clock,
+    )
+    bootstrap = store.issue()
+    first = store.exchange(bootstrap.secret)
+    clock.now += timedelta(seconds=4)
+
+    second = store.renew_session(first.token)
+
+    assert second.token != first.token
+    assert second.hard_expires_at == first.hard_expires_at
+    assert store.authenticate_session(first.token) is False
+    assert store.authenticate_session(second.token) is True
+    assert second.expires_at == clock.now + timedelta(seconds=5)
+
+    clock.now += timedelta(seconds=4)
+    third = store.renew_session(second.token)
+    assert third.expires_at == first.hard_expires_at
+
+    clock.now = first.hard_expires_at
+    with pytest.raises(NativeProtocolError) as exc_info:
+        _ = store.renew_session(third.token)
+    assert exc_info.value.code == "E_CAPABILITY_EXPIRED"
+
+
+def test_session_capability_can_be_revoked_without_disk_state(
+    tmp_path: Path,
+) -> None:
+    store = BootstrapSecretStore(tmp_path)
+    capability = store.exchange(store.issue().secret)
+
+    store.revoke_session(capability.token)
+
+    assert store.authenticate_session(capability.token) is False
+    persisted = store.endpoint_path.read_text(encoding="utf-8")
+    assert capability.token not in persisted
