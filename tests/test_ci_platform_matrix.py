@@ -23,7 +23,13 @@ def test_tests_workflow_covers_supported_operating_systems() -> None:
     assert workflow.count("python -m pytest") == 4
     assert "Native local protocol foundation" in workflow
     assert "tests/test_native_bridge_server.py" in workflow
+    assert "tests/test_native_bridge_errors.py" in workflow
+    assert "tests/test_native_bridge_capabilities.py" in workflow
+    assert "tests/test_native_bridge_streaming.py" in workflow
+    assert "tests/test_native_endpoint.py" in workflow
     assert "tests/test_native_import_direction.py" in workflow
+    assert "Native protocol evidence" in workflow
+    assert ".omo/evidence/native-protocol" in workflow
     assert "Native Windows shell acceptance" in workflow
     assert "Native macOS shell acceptance" in workflow
     assert "tests/test_generic_shell_paths.py" in workflow
