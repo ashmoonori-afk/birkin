@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import os
 import socket
 from pathlib import Path
 
@@ -13,6 +12,7 @@ from birkin.native.transport import receive_frame
 from birkin.workspace import WorkspaceCommand, WorkspaceService
 from tests.native_bridge_support import (
     handshake,
+    local_peer_uid,
     serve,
     server_with_source,
 )
@@ -41,7 +41,7 @@ def test_subscribed_connection_streams_new_workspace_events(
         bridge,
         server_socket,
         transport="uds",
-        peer_uid=os.geteuid(),
+        peer_uid=local_peer_uid(),
     )
     try:
         _ = handshake(client)
@@ -82,7 +82,7 @@ def test_silent_peer_is_closed_after_heartbeat_deadline(
         bridge,
         server_socket,
         transport="uds",
-        peer_uid=os.geteuid(),
+        peer_uid=local_peer_uid(),
     )
     try:
         _ = handshake(client)

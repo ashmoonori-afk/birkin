@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import os
 import socket
 from pathlib import Path
 
@@ -10,6 +9,7 @@ from tests.native_bridge_support import (
     command_body,
     envelope,
     handshake,
+    local_peer_uid,
     receive_kind,
     serve,
     server,
@@ -57,7 +57,7 @@ def test_malformed_workspace_command_returns_bounded_error(
         bridge,
         server_socket,
         transport="uds",
-        peer_uid=os.geteuid(),
+        peer_uid=local_peer_uid(),
     )
     try:
         token = handshake(client)
@@ -89,7 +89,7 @@ def test_stale_cursor_returns_current_cursor(tmp_path: Path) -> None:
         bridge,
         server_socket,
         transport="uds",
-        peer_uid=os.geteuid(),
+        peer_uid=local_peer_uid(),
     )
     try:
         token = handshake(client)
@@ -138,7 +138,7 @@ def test_command_id_payload_conflict_returns_error(tmp_path: Path) -> None:
         bridge,
         server_socket,
         transport="uds",
-        peer_uid=os.geteuid(),
+        peer_uid=local_peer_uid(),
     )
     try:
         token = handshake(client)
@@ -188,7 +188,7 @@ def test_unadvertised_known_command_is_journaled_as_failed(
         bridge,
         server_socket,
         transport="uds",
-        peer_uid=os.geteuid(),
+        peer_uid=local_peer_uid(),
     )
     try:
         token = handshake(client)

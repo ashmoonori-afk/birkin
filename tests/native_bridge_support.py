@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 import socket
 import threading
 from pathlib import Path
@@ -14,6 +15,14 @@ from birkin.native.protocol import (
 from birkin.native.server import NativeBridgeServer
 from birkin.native.transport import NativeConnection, receive_frame
 from birkin.workspace import WorkspaceService
+
+
+def local_peer_uid() -> int:
+    geteuid = getattr(os, "geteuid", None)
+    if not callable(geteuid):
+        return 0
+    value = geteuid()
+    return value if isinstance(value, int) else 0
 
 
 def envelope(

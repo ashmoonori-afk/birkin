@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import os
 import socket
 from pathlib import Path
 
@@ -11,7 +10,13 @@ from birkin.native.protocol import (
 from birkin.native.server import NativeBridgeServer
 from birkin.native.transport import receive_frame
 from birkin.workspace import WorkspaceService
-from tests.native_bridge_support import envelope, hello, serve, server
+from tests.native_bridge_support import (
+    envelope,
+    hello,
+    local_peer_uid,
+    serve,
+    server,
+)
 
 
 def test_uds_handshake_and_initial_snapshot(tmp_path: Path) -> None:
@@ -21,7 +26,7 @@ def test_uds_handshake_and_initial_snapshot(tmp_path: Path) -> None:
         bridge,
         server_socket,
         transport="uds",
-        peer_uid=os.geteuid(),
+        peer_uid=local_peer_uid(),
     )
     try:
         client.sendall(encode_frame(hello(bootstrap_secret=None)))
@@ -64,7 +69,7 @@ def test_subscribe_rejects_invalid_session_capability(tmp_path: Path) -> None:
         bridge,
         server_socket,
         transport="uds",
-        peer_uid=os.geteuid(),
+        peer_uid=local_peer_uid(),
     )
     try:
         client.sendall(encode_frame(hello(bootstrap_secret=None)))
@@ -100,7 +105,7 @@ def test_authenticated_command_returns_public_receipt(tmp_path: Path) -> None:
         bridge,
         server_socket,
         transport="uds",
-        peer_uid=os.geteuid(),
+        peer_uid=local_peer_uid(),
     )
     try:
         client.sendall(encode_frame(hello(bootstrap_secret=None)))
@@ -178,7 +183,7 @@ def test_ready_advertises_authority_handlers_not_caller_claims(
         bridge,
         server_socket,
         transport="uds",
-        peer_uid=os.geteuid(),
+        peer_uid=local_peer_uid(),
     )
     try:
         client.sendall(encode_frame(hello(bootstrap_secret=None)))

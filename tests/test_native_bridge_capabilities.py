@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import os
 import socket
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -13,6 +12,7 @@ from birkin.workspace import WorkspaceService
 from tests.native_bridge_support import (
     envelope,
     handshake,
+    local_peer_uid,
     serve,
     server,
 )
@@ -41,7 +41,7 @@ def test_disconnect_revokes_session_capability(tmp_path: Path) -> None:
         bridge,
         server_socket,
         transport="uds",
-        peer_uid=os.geteuid(),
+        peer_uid=local_peer_uid(),
     )
     token = handshake(client)
 
@@ -60,7 +60,7 @@ def test_ping_without_capability_fails_closed(tmp_path: Path) -> None:
         bridge,
         server_socket,
         transport="uds",
-        peer_uid=os.geteuid(),
+        peer_uid=local_peer_uid(),
     )
     try:
         _ = handshake(client)
@@ -107,7 +107,7 @@ def test_near_expiry_ping_renews_capability_in_band(tmp_path: Path) -> None:
         bridge,
         server_socket,
         transport="uds",
-        peer_uid=os.geteuid(),
+        peer_uid=local_peer_uid(),
     )
     try:
         token = handshake(client)
