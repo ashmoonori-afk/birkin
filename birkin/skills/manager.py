@@ -413,6 +413,44 @@ def _zero_open_descriptor(descriptor: int) -> None:
     os.fsync(descriptor)
 
 
+def _descriptor_path_is_target(
+    descriptor: int,
+    target_fd: int,
+    target_name: str,
+) -> bool:
+    try:
+        import fcntl
+        descriptor_path = fcntl.fcntl(
+            descriptor,
+            50,
+            bytes(1024),
+        )
+        target_path = fcntl.fcntl(
+            target_fd,
+            50,
+            bytes(1024),
+        )
+        descriptor_name = os.fsdecode(
+            descriptor_path.split(b"\0", 1)[0]
+        )
+        target_directory = os.fsdecode(
+            target_path.split(b"\0", 1)[0]
+        )
+    except (ImportError, OSError):
+        try:
+            descriptor_name = os.readlink(
+                f"/proc/self/fd/{descriptor}"
+            )
+            target_directory = os.readlink(
+                f"/proc/self/fd/{target_fd}"
+            )
+        except OSError:
+            return False
+    return Path(descriptor_name) == (
+        Path(target_directory) / target_name
+    )
+
+
 def _descriptor_is_target(
     descriptor: int,
     target_fd: int,
@@ -421,40 +459,11 @@ def _descriptor_is_target(
     try:
         descriptor_stat = os.fstat(descriptor)
     except OSError:
-        try:
-            import fcntl
-            descriptor_path = fcntl.fcntl(
-                descriptor,
-                50,
-                bytes(1024),
-            )
-            target_path = fcntl.fcntl(
-                target_fd,
-                50,
-                bytes(1024),
-            )
-            descriptor_name = os.fsdecode(
-                descriptor_path.split(b"\0", 1)[0]
-            )
-            target_directory = os.fsdecode(
-                target_path.split(b"\0", 1)[0]
-            )
-            return Path(descriptor_name) == (
-                Path(target_directory) / target_name
-            )
-        except (ImportError, OSError):
-            try:
-                descriptor_name = os.readlink(
-                    f"/proc/self/fd/{descriptor}"
-                )
-                target_directory = os.readlink(
-                    f"/proc/self/fd/{target_fd}"
-                )
-            except OSError:
-                return False
-            return Path(descriptor_name) == (
-                Path(target_directory) / target_name
-            )
+        return _descriptor_path_is_target(
+            descriptor,
+            target_fd,
+            target_name,
+        )
     try:
         target_stat = os.stat(
             target_name,
@@ -470,12 +479,20 @@ def _descriptor_is_target(
                 dir_fd=target_fd,
             )
         except OSError:
-            return False
+            return _descriptor_path_is_target(
+                descriptor,
+                target_fd,
+                target_name,
+            )
         try:
             try:
                 target_stat = os.fstat(target_descriptor)
             except OSError:
-                return False
+                return _descriptor_path_is_target(
+                    descriptor,
+                    target_fd,
+                    target_name,
+                )
         finally:
             os.close(target_descriptor)
     return (
