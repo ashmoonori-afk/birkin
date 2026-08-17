@@ -206,12 +206,16 @@ class VaultMemory:
                 json.dumps(records, indent=2, sort_keys=True) + "\n",
             )
 
-    def _record_source_with_digest(self, path: Path) -> tuple[str, str]:
+    def _record_source_snapshot(
+        self,
+        path: Path,
+    ) -> tuple[str, str, str]:
         try:
-            digest = hashlib.sha256(path.read_bytes()).hexdigest()
+            payload = path.read_bytes()
+            digest = hashlib.sha256(payload).hexdigest()
             key = self._provenance_key(path)
         except (OSError, ValueError):
-            return "legacy", ""
+            return "legacy", "", ""
         with _PROVENANCE_LOCK:
             record = self._provenance_records().get(key)
         if (
@@ -219,8 +223,14 @@ class VaultMemory:
             and record["sha256"] == digest
             and record["record_source"]
         ):
-            return record["record_source"], digest
-        return "legacy", digest
+            source = record["record_source"]
+        else:
+            source = "legacy"
+        return source, digest, payload.decode("utf-8", errors="replace")
+
+    def _record_source_with_digest(self, path: Path) -> tuple[str, str]:
+        source, digest, _ = self._record_source_snapshot(path)
+        return source, digest
 
     def _record_source(self, path: Path) -> str:
         return self._record_source_with_digest(path)[0]
@@ -233,6 +243,16 @@ class VaultMemory:
         return self._record_source(
             scope_root(self.vault, owner) / str(entry.get("rel") or "")
         )
+
+    def _entry_record_snapshot(
+        self,
+        owner: MemoryScope,
+        entry: dict[str, Any],
+    ) -> tuple[str, str]:
+        source, _, text = self._record_source_snapshot(
+            scope_root(self.vault, owner) / str(entry.get("rel") or "")
+        )
+        return source, text
 
     def get_note_record(self, title: str, *, scope: str | MemoryScope | None = None
                         ) -> dict[str, Any] | None:
@@ -491,9 +511,13 @@ class VaultMemory:
                 if item not in entries:  # precedence order resolves duplicates
                     entries[item] = entry
                     owners[item] = owner
-        trusted_sources = {
-            item: self._entry_record_source(owners[item], entry)
+        trusted_snapshots = {
+            item: self._entry_record_snapshot(owners[item], entry)
             for item, entry in entries.items()
+        }
+        trusted_sources = {
+            item: snapshot[0]
+            for item, snapshot in trusted_snapshots.items()
         }
         entries = {
             item: entry for item, entry in entries.items()
@@ -564,11 +588,9 @@ class VaultMemory:
             entry = entries[item]
             body = entry["summary"]
             try:
-                _, parsed = frontmatter.parse(
-                    (scope_root(self.vault, owners[item]) / entry["rel"]).read_text(
-                        encoding="utf-8", errors="replace"))
+                _, parsed = frontmatter.parse(trusted_snapshots[item][1])
                 body = parsed or body
-            except OSError:
+            except (KeyError, ValueError):
                 pass
             sources = [name for name in ("lexical", "vector", "entity")
                        if scores[name] > 0]

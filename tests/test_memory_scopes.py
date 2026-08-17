@@ -274,6 +274,50 @@ def test_rezone_preserves_authenticated_provenance() -> None:
     )
 
 
+def test_search_binds_high_trust_to_authenticated_byte_snapshot(
+        monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    cfg = {
+        **config.load_config(),
+        "memory_source_trust": {
+            "legacy": "low",
+            "signed-import": "high",
+        },
+    }
+    mem = VaultMemory(cfg)
+    path = mem.write_note(
+        "Snapshot note",
+        "trusted snapshot marker",
+        source="signed-import",
+    )
+    real_read_bytes = Path.read_bytes
+    replaced = False
+
+    def read_then_replace(candidate: Path) -> bytes:
+        nonlocal replaced
+        payload = real_read_bytes(candidate)
+        if candidate == path and not replaced:
+            replaced = True
+            candidate.write_text(
+                "ATTACKER snapshot marker\n",
+                encoding="utf-8",
+            )
+        return payload
+
+    monkeypatch.setattr(Path, "read_bytes", read_then_replace)
+
+    results = mem.search(
+        "snapshot marker",
+        min_trust="high",
+    )
+
+    assert results
+    assert results[0]["record_source"] == "signed-import"
+    assert results[0]["trust"] == "high"
+    assert "trusted snapshot marker" in results[0]["snippet"]
+    assert "ATTACKER" not in results[0]["snippet"]
+
+
 def test_protected_user_role_files_remain_in_legacy_user_scope():
     mem = _scoped(MemoryScope.USER)
     system = mem.vault / "system"
