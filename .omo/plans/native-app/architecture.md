@@ -400,3 +400,30 @@ The existing journal seals orphaned started commands as failed. The UI shows tha
 No Swift view depending on a new command or projection starts before its Python contract is GREEN.
 
 The v1 native control scope does not add UI handlers for checkpoint restore, task send/cancel, skill reload, or gateway restart. Existing records for those categories may be projected, but their control surfaces remain canonical CLI/WebUI behavior until separately planned.
+
+## 14. Renewed-audit architecture decisions
+
+This section supersedes conflicting earlier wording.
+
+### Protocol layering
+
+- Native envelope versioning is independent from workspace command versioning.
+- Raw loopback does not use HTTP Host or Origin fields.
+- UDS peer credentials authenticate initial hello; loopback uses a single-use bootstrap secret.
+- Post-ready frames use an in-memory session capability.
+
+### Integrity projection
+
+Workspace journal receipts store a digest of canonical command semantics. Public workspace/native serializers never emit that internal digest or raw terminal input. Seeded-secret tests cover journal files, receipts, snapshots, replay, Activity, diagnostics, and exports.
+
+### Control handlers
+
+Python adds strict handlers for Browser navigation/control/handoff, Computer Use consent/execution, Office consent/create/open, jailed import, terminal lease operations, and `memory.write`. Registered-handler advertisement remains the sole UI enablement source.
+
+### Terminal reconnect
+
+The PTY may remain alive for a bounded grace period after native disconnect, but the lease is revoked immediately and no input is accepted. Reconnect fetches read-only output/screen state, then explicitly reacquires a fresh lease. Python policy decides whether reacquisition needs a new shell approval.
+
+### Packaging
+
+Production packaging embeds a signed Python helper built from the same revision as the app. The helper remains the authority and uses the same modules as the CLI. Developer mode may locate an external Python bridge only after protocol and product version checks. V1 uses hardened runtime without App Sandbox because PTY, local socket, Accessibility, and Screen Recording integration require capabilities incompatible with the initial sandbox profile; the entitlement set remains minimal and is reviewed before release.

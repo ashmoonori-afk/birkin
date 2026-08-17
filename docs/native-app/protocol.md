@@ -120,3 +120,28 @@ The local capability is random, scoped to a bridge instance and connection, and 
 The one-shot loopback bootstrap secret is a separate, narrowly scoped disk bootstrap mechanism. It is not a provider credential or a session capability.
 
 It does not replace approval decisions, Computer Use consent, Browser control leases, Office active-content consent, or policy changes.
+
+## Strict codec additions
+
+The native envelope has an independent version from nested workspace commands. Initial `hello` uses native envelope version 1 so supported-version negotiation remains parseable.
+
+The raw private-loopback transport uses `bootstrap_secret` only for hello. It does not use HTTP Host or Origin. UDS hello is authenticated by same-user peer credentials. `session_capability` authenticates post-ready frames.
+
+The codec also publishes:
+
+| Code | Meaning |
+| --- | --- |
+| `E_ENVELOPE_KEYS` | invalid envelope key set |
+| `E_PROTOCOL` | unsupported protocol name |
+| `E_KIND` | unsupported message kind |
+| `E_IDENTIFIER` | malformed identifier |
+| `E_FRAME_INCOMPLETE` | incomplete frame |
+| `E_FRAME_TRAILING_DATA` | trailing frame bytes |
+| `E_INVALID_UTF8` | invalid UTF-8 |
+| `E_JSON` | invalid strict JSON |
+| `E_DUPLICATE_KEY` | duplicate JSON key |
+| `E_NONFINITE_NUMBER` | NaN or Infinity |
+| `E_DIRECTION` | wrong sender direction |
+| `E_CORRELATION` | invalid response correlation |
+| `E_DUPLICATE_FRAME_ID` | reused connection frame identifier |
+| `E_TERMINAL_LEASE` | invalid terminal lease |

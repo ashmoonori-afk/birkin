@@ -361,3 +361,19 @@ Never:
 - package hashes
 - README cross-check
 - PR mergeability
+
+## 18. Renewed-audit release amendments
+
+The stage map below supersedes earlier conflicting maps:
+
+| Stage | Required waves |
+| --- | --- |
+| Stage 0 | P1-P4 protocol/transport, P7W1T01-T02 read projection, P8W1 terminal Python contract, P10W1 surface transport, import-direction/diagnostics/CI/helper-packaging/sandbox/dependency-lock gates |
+| Stage 1 | P5 shell, P7W2T01-T02 read-only Working Memory UI, P9W2T05-T06 Activity projection, read-only Browser/Computer Use/Office projections |
+| Stage 2 | P6 session/conversation controls, attachment picker/import, P8W2 terminal UI, P9 approval controls and approval notifications |
+| Stage 3 | Working Memory mutation and Browser/Computer Use/Office command handlers and UI |
+| Stage 4 | menu bar, drag/drop affordance, optional voice, remaining notifications, recovery hardening, accessibility, visual QA, package/notarization |
+
+CI begins with Phase 1 Python protocol checks, adds Swift checks at Phase 4, and expands per wave. Production packaging embeds the signed same-revision Python helper. A dedicated gate records the no-App-Sandbox decision, minimal hardened-runtime entitlements, dependency locks, helper discovery, version mismatch, and update failure behavior.
+
+Atomic commits contain one verified RED→GREEN behavior pair and remain green. RED output is evidence in the ledger, not a standalone failing commit.

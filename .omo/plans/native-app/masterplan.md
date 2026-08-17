@@ -16,6 +16,12 @@ This plan is the synthesis of two independently authored plans and a two-way adv
 
 Both exact models first passed a real harmless authentication probe with the exact response `PROBE_OK`. Catalog visibility was not accepted as authentication proof.
 
+Availability policy revised by the user on 2026-08-17: a rate limit, authentication block, or temporary provider outage from either Claude model is non-blocking. Record the original error briefly and immediately continue the same complete planning, review, or implementation role with available GPT-5.6-sol. This fallback does not reduce scope or any phase-wave-task, TDD, atomic-commit, visual, E2E, CI, or PR gate.
+
+After the limit cleared, both exact models were probed again and returned `PROBE_OK` (`st_01a00e5c` Fable 5 and `st_01a00e5d` Opus 5). Earlier transient provider-start timeouts during cross-review and architecture review were retained as evidence; both original review roles later completed successfully.
+
+The renewed Opus 5 architecture audit `st_01a00e5f` later failed to deliver its verdict with `Provider stream start timed out after 30000ms` after 25 read-only tool calls. Per the revised policy, GPT-5.6-sol immediately replaced that audit. The direct `openai/gpt-5.6-sol` path `st_01a00e60` had no configured API key, so the same audit continued through the configured GPT-5.6-sol `deep` route as `st_01a00e61`. Both routing errors are evidence, not blockers.
+
 The synthesis rule is:
 
 1. Opus is normative for transport, protocol, schema, security, testing, packaging, and dependency order.
@@ -387,3 +393,18 @@ The project is complete only when:
 - the dedicated branch is pushed without force
 - a PR targeting `main` exists, required checks are green, and the PR is mergeable
 - main is not directly pushed and automatic merge remains disabled
+
+## 14. Renewed-audit amendments
+
+This section is normative and supersedes conflicting earlier wording.
+
+- `birkin-local-1` has its own `NATIVE_PROTOCOL_VERSION`; workspace commands retain the independent workspace `PROTOCOL_VERSION`.
+- Pre-negotiation `hello` uses native envelope version 1 so the body version set remains parseable. Every post-`ready` frame uses the selected native version.
+- The raw private-loopback transport authenticates `hello` with the one-shot bootstrap secret. It does not use HTTP Host or Origin semantics.
+- UDS peer credentials authenticate the initial `hello`; the session capability begins after `ready`.
+- Canonical command idempotency stores a cryptographic digest, never raw canonical payload text. Native projection uses an explicit public serializer that strips internal integrity fields and redacts bounded errors.
+- Browser Aside, Computer Use, Office consent, jailed import, Working Memory, and Terminal controls each require strict Python command schemas and GREEN registered handlers before their Swift controls can enable.
+- Terminal events return lease identifier, epoch, and expiry; every subsequent terminal mutation carries that lease proof.
+- One RED→GREEN behavior pair is the atomic commit unit. RED output is stored in the evidence ledger; repository commits remain green.
+- Stage 0 includes strict JSON, per-kind schemas, import-direction enforcement, bounded diagnostics, incremental CI, helper packaging, sandbox/entitlement decision, and dependency-lock verification.
+- The packaged application ships a signed Python helper built from the same source/version. Developer mode may attach an external bridge only after version compatibility succeeds.

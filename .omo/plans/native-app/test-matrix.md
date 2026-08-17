@@ -388,3 +388,40 @@ Each criterion records:
 - commit SHA
 
 Tracked content changes invalidate prior current-tree evidence and require recapture.
+
+## 19. Renewed-audit required coverage
+
+### Native codec
+
+- duplicate JSON keys
+- NaN and both infinities on decode and encode
+- independent native/workspace versions
+- future-version hello parseability and no-overlap response
+- depth boundary accepted and depth+1 rejected
+- invalid constructed envelope cannot encode
+- per-kind body, direction, state, correlation, and frame-id uniqueness
+
+### Local authentication
+
+- UDS hello with null bootstrap
+- bootstrap creation, expiry, atomic consume, concurrent reuse, rotation, stale replay, and post-ready rejection
+
+### Integrity and redaction
+
+- command digest contains no raw payload
+- seeded secret absent from journal, receipts, snapshot, replay, Activity, diagnostics, and export
+
+### Domain handlers
+
+- Browser lease and sequence replay
+- Computer Use grant binding and replay
+- Office consent and jail refusal
+- import picker and drag/drop use the same receipt path
+- terminal cross-session/cross-connection/stale/expired/revoked lease cases
+
+### Product states
+
+- approval expiry terminal event, notification withdrawal, Activity receipt
+- ephemeral unread marker is not persisted
+- voice capability is absent when dependency is unavailable
+- command palette exposes advertised commands only

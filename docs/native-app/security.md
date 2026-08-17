@@ -73,3 +73,7 @@ The terminal process tree is owned by Python. Swift sends bounded input and sign
 ## Diagnostics
 
 Diagnostics are bounded and redacted. They exclude tokens, raw request text, file contents, artifact bytes, terminal secret input, and tracebacks.
+
+Raw private loopback does not use HTTP Host or Origin. Its one-shot `bootstrap_secret` authenticates only hello; the post-ready `session_capability` is separate. UDS peer credentials authenticate initial hello.
+
+Command replay integrity stores a digest rather than plaintext canonical payloads. Public serializers remove integrity fields and raw terminal input before events, Activity, diagnostics, or exports leave Python.

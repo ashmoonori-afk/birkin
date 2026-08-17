@@ -536,3 +536,64 @@ No phase is complete until:
 - resources are cleaned up,
 - wave reviews passed,
 - the atomic commits are green.
+
+## 5. Renewed-audit correction waves
+
+The following tasks precede any dependent existing task. One RED→GREEN pair forms one green atomic commit; RED output is recorded in the ledger.
+
+### Wave A: Codec and negotiation
+
+| ID | D | Action | A | R | E |
+| --- | --- | --- | --- | --- | --- |
+| A01 | P1W1T08 | Add depth boundary and depth+1 tests | Correct RED observed | remove tests | RED log |
+| A02 | A01 | Decouple native version and implement hello negotiation rule | Tests GREEN | revert pair | GREEN log |
+| A03 | A02 | Add duplicate-key/non-finite/constructed-envelope tests | Correct RED observed | remove tests | RED log |
+| A04 | A03 | Harden strict JSON and revalidate all envelopes | Tests GREEN | revert pair | GREEN log |
+| A05 | A04 | Add per-kind/direction/correlation/id uniqueness tests | Correct RED observed | remove tests | RED log |
+| A06 | A05 | Implement typed message-state validators | Tests GREEN | revert pair | GREEN log |
+| A07 | A06 | Update internal/public error registries and golden vectors | Both registries match code | revert docs/vectors | review |
+
+### Wave B: Authentication and diagnostics
+
+| ID | D | Action | A | R | E |
+| --- | --- | --- | --- | --- | --- |
+| B01 | A06 | Add bootstrap lifecycle and UDS-null-bootstrap tests | Correct RED observed | remove tests | RED log |
+| B02 | B01 | Implement atomic one-shot bootstrap exchange | Tests GREEN | revert pair | GREEN log |
+| B03 | B02 | Remove Host/Origin from raw transport tests | Raw transport contract exact | revert change | test log |
+| B04 | A06 | Add import-direction and seeded diagnostic-redaction tests | Correct RED observed | remove tests | RED log |
+| B05 | B04 | Implement bounded public serializers and diagnostics | Tests GREEN | revert pair | GREEN log |
+| B06 | B05 | Add Phase 1 CI and evidence upload | CI contract GREEN | revert workflow | CI artifact |
+
+### Wave C: Command integrity
+
+| ID | D | Action | A | R | E |
+| --- | --- | --- | --- | --- | --- |
+| C01 | A06 | Add raw-payload fingerprint and seeded-secret tests | Correct RED observed | remove tests | RED log |
+| C02 | C01 | Store command semantic digest and strip public integrity fields | Tests GREEN | revert pair | GREEN log |
+| C03 | C02 | Run all workspace approval/activity replay suites | All GREEN | revert caused change | test log |
+
+### Wave D: Domain controls
+
+| ID | D | Action | A | R | E |
+| --- | --- | --- | --- | --- | --- |
+| D01 | C03 | Define Browser command schemas and RED handler tests | Correct RED observed | remove tests | RED log |
+| D02 | D01 | Implement advertised Browser handlers | Journey seam GREEN | revert pair | receipts |
+| D03 | C03 | Define Computer Use command schemas and RED handler tests | Correct RED observed | remove tests | RED log |
+| D04 | D03 | Implement advertised Computer Use handlers | Grant/replay GREEN | revert pair | receipts |
+| D05 | C03 | Define Office/import schemas and RED handler tests | Correct RED observed | remove tests | RED log |
+| D06 | D05 | Implement Office/import handlers | Jail/consent GREEN | revert pair | receipts |
+| D07 | C03 | Define terminal lease fields and adversarial tests | Correct RED observed | remove tests | RED log |
+| D08 | D07 | Implement terminal lease lifecycle and reconnect semantics | Tests GREEN | revert pair | receipts |
+
+### Wave E: Product and release gaps
+
+| ID | D | Action | A | R | E |
+| --- | --- | --- | --- | --- | --- |
+| E01 | P5 | Implement advertised-command palette with keyboard test | Palette GREEN | revert pair | UI log |
+| E02 | D06 | Add attachment picker on jailed import path | Picker journey GREEN | revert pair | action log |
+| E03 | P9 | Add approval expiry projection and UI tests | Expiry state GREEN | revert pair | receipt/screenshot |
+| E04 | P6 | Add ephemeral unread marker test and UI | No disk state | revert pair | container diff |
+| E05 | P3 | Advertise optional voice dependency capability | Absent/present tests GREEN | revert pair | ready frames |
+| E06 | P4 | Add signed-helper discovery/version tests | Correct RED observed | remove tests | RED log |
+| E07 | E06 | Implement same-revision helper packaging contract | Tests GREEN | revert pair | build artifact |
+| E08 | E07 | Add sandbox/entitlement threat review and dependency-lock gate | Review PASS | revert docs/config | reports |

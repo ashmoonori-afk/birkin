@@ -539,3 +539,12 @@ Allowed differences:
 - corrected template, Activity, Terminal, and policy controls
 
 Every intentional difference is documented with its canonical reason.
+
+## 20. Renewed-audit UX amendments
+
+- The command palette is a first-class keyboard-accessible surface listing only advertised commands.
+- Attachment picker and drag/drop share the Python jailed-import flow. The picker ships with Stage 2 conversation control; drag/drop desktop affordance completes in Stage 4.
+- Approval expiry renders `Expired`, withdraws the pending notification, and creates an Activity receipt. It is a normal terminal event, not an error.
+- Terminal disconnect revokes mutation immediately while bounded output may continue. Reconnect shows read-only output and explicitly reacquires a lease before input.
+- Session unread/completion markers are ephemeral presentation derived from the last visible native cursor and current Python events. They are never persisted.
+- Python advertises the optional voice feature only when the supported local transcription dependency is installed and healthy. Voice remains editable composer input and never auto-sends.

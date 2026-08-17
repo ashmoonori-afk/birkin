@@ -556,3 +556,82 @@ Errors:
 - personal browser profile attempt
 - jail escape import
 - raw Computer Use text or bytes in projection
+
+## 18. Renewed-audit protocol amendments
+
+This section is normative and supersedes conflicting earlier wording.
+
+### Independent versions
+
+- Native envelope version: `NATIVE_PROTOCOL_VERSION = 1`.
+- Workspace command version: `birkin.workspace.contracts.PROTOCOL_VERSION`.
+- `hello` always uses native envelope version 1 and carries supported native versions in its body.
+- The server parses hello before selecting a version, returns both version sets on no overlap, and closes.
+- Every post-ready frame must carry the selected native version.
+
+### Raw-loopback authentication
+
+The fallback is raw length-prefixed TCP, not HTTP or WebSocket. Host and Origin do not exist and are not security inputs.
+
+- UDS initial hello is authenticated by same-user peer credentials and carries no bootstrap secret.
+- Loopback initial hello carries the one-shot `bootstrap_secret`.
+- Bootstrap records are private, expiring, atomically consumed, rotated after success, and reject concurrent reuse or stale replay.
+- The bootstrap secret is rejected after ready.
+- The `session_capability` returned by ready authenticates every later frame.
+
+### Strict JSON and envelope state
+
+The codec rejects duplicate object keys, `NaN`, positive/negative Infinity, excess depth, invalid UTF-8, trailing bytes, extra keys, and invalid identifiers. Encoding rejects non-finite numbers.
+
+Per-kind validators define:
+
+- exact body keys and types
+- client/server direction
+- legal connection states
+- required response correlation
+- connection-unique frame identifiers
+
+### Integrity-safe events
+
+Command fingerprints persisted for idempotency are SHA-256 digests of canonical command semantics. Public serializers omit the digest and redact bounded error text. Raw terminal input is never stored in journal event payloads or projected events.
+
+### Browser commands
+
+- `browser.navigate`: session, workspace, URL, lease epoch, sequence
+- `browser.control.handoff`: session, workspace, current lease, target owner
+- `browser.close`: session, workspace, lease epoch, sequence
+
+### Computer Use commands
+
+- `computer_use.consent`: grant, session, intent digest, prior receipt, decision
+- `computer_use.execute`: grant, session, request digest, idempotency key
+
+### Office and import commands
+
+- `office.create`, `office.open`, `office.consent`
+- `import.file` returns content hash, jailed URI, metadata, and receipt
+
+### Terminal lease fields
+
+`terminal.opened` returns `terminal_id`, `lease_id`, `lease_epoch`, `expires_at`, and output sequence. `terminal.input`, `terminal.resize`, `terminal.signal`, and `terminal.close` carry `lease_id` and `lease_epoch`. Cross-session, cross-connection, expired, revoked, and stale leases fail closed.
+
+On disconnect the lease is revoked immediately. The PTY may remain read-only for a bounded grace period. Reconnect may fetch output state, then must explicitly reacquire a fresh lease before mutation.
+
+### Codec error additions
+
+| Code | Meaning | Disposition |
+| --- | --- | --- |
+| `E_ENVELOPE_KEYS` | envelope keys differ from schema | close |
+| `E_PROTOCOL` | protocol name is unsupported | close |
+| `E_KIND` | message kind is unsupported | close |
+| `E_IDENTIFIER` | identifier is malformed | close |
+| `E_FRAME_INCOMPLETE` | frame ended early | close |
+| `E_FRAME_TRAILING_DATA` | frame contains trailing bytes | close |
+| `E_INVALID_UTF8` | body is not UTF-8 | close |
+| `E_JSON` | body is not strict JSON | close |
+| `E_DUPLICATE_KEY` | JSON object repeats a key | close |
+| `E_NONFINITE_NUMBER` | JSON contains NaN or Infinity | close |
+| `E_DIRECTION` | kind came from the wrong endpoint | close |
+| `E_CORRELATION` | response correlation is missing or invalid | close |
+| `E_DUPLICATE_FRAME_ID` | frame id was reused on one connection | close |
+| `E_TERMINAL_LEASE` | terminal lease is absent, stale, or mismatched | no silent retry |

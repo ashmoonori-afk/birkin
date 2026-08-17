@@ -395,3 +395,15 @@ Release blocks on:
 - any unbounded protocol allocation
 - any consent or approval replay
 - any skipped security test
+
+## 19. Renewed-audit security amendments
+
+- Raw loopback uses a one-shot bootstrap secret; HTTP Host and Origin are not part of this transport.
+- UDS peer credentials authenticate initial hello. Session capabilities begin after ready.
+- Command idempotency persists SHA-256 digests, never plaintext canonical payloads.
+- Public serializers remove integrity fields and raw terminal input before workspace/native events leave Python.
+- Strict JSON rejects duplicate keys and non-finite numbers in both Python and Swift.
+- Terminal lease proof is required for every mutation and revoked on disconnect.
+- Browser lease epochs, Computer Use grants, Office consent, and import receipts remain separate Python authorities.
+- Production embeds a signed Python helper from the same revision; developer external-bridge mode is compatibility-gated.
+- V1 hardened-runtime entitlements and the deliberate no-App-Sandbox decision receive a dedicated threat review.
