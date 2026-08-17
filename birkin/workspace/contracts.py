@@ -58,6 +58,10 @@ class StaleCursor(ProtocolError):
         self.current_cursor = current_cursor
 
 
+class UnsupportedCommand(ProtocolError):
+    """A declared command has no registered authority handler."""
+
+
 def valid_identifier(value: object, label: str) -> str:
     if (
         not isinstance(value, str)

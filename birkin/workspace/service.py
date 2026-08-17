@@ -10,6 +10,7 @@ from typing import final
 from .contracts import (
     JsonValue,
     ProtocolError,
+    UnsupportedCommand,
     WorkspaceCommand,
 )
 from .journal import WorkspaceJournal
@@ -134,7 +135,7 @@ class WorkspaceService:
                     state="failed",
                     result_cursor=failed.cursor,
                 )
-                raise ProtocolError(f"no handler for {command.type}")
+                raise UnsupportedCommand(f"no handler for {command.type}")
             _ = self._append(
                 "command.started",
                 actor_id=receipt.actor_id,

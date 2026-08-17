@@ -54,22 +54,27 @@ def hello(*, bootstrap_secret: str | None) -> NativeEnvelope:
 def server(
     tmp_path: Path,
 ) -> tuple[NativeBridgeServer, BootstrapSecretStore]:
+    bridge, capabilities, _source = server_with_source(tmp_path)
+    return bridge, capabilities
+
+
+def server_with_source(
+    tmp_path: Path,
+) -> tuple[NativeBridgeServer, BootstrapSecretStore, WorkspaceService]:
     source = WorkspaceService(
         root=tmp_path / "workspace",
         session_id="session-1",
         handlers={"chat.send": lambda payload: {"reply": str(payload["text"])}},
     )
     capabilities = BootstrapSecretStore(tmp_path / "native")
-    return (
-        NativeBridgeServer(
-            source,
-            capabilities=capabilities,
-            instance_id="instance-1",
-            server_version="1.0.0",
-            command_types={"chat.send"},
-        ),
-        capabilities,
+    bridge = NativeBridgeServer(
+        source,
+        capabilities=capabilities,
+        instance_id="instance-1",
+        server_version="1.0.0",
+        command_types={"chat.send"},
     )
+    return bridge, capabilities, source
 
 
 def serve(

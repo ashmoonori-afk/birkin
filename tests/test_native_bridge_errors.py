@@ -12,6 +12,7 @@ from tests.native_bridge_support import (
     handshake,
     serve,
     server,
+    server_with_source,
 )
 
 
@@ -171,6 +172,56 @@ def test_command_id_payload_conflict_returns_error(tmp_path: Path) -> None:
         )
         error = receive_frame(client)
         assert error.body["code"] == "E_COMMAND_ID_CONFLICT"
+    finally:
+        client.close()
+        thread.join(timeout=2)
+    assert errors == []
+
+
+def test_unadvertised_known_command_is_journaled_as_failed(
+    tmp_path: Path,
+) -> None:
+    bridge, _capabilities, source = server_with_source(tmp_path)
+    server_socket, client = socket.socketpair()
+    thread, errors = serve(
+        bridge,
+        server_socket,
+        transport="uds",
+        peer_uid=os.geteuid(),
+    )
+    try:
+        token = handshake(client)
+        client.sendall(
+            encode_frame(
+                envelope(
+                    "command",
+                    frame_id="command-unsupported",
+                    body={
+                        "session_capability": token,
+                        "command": {
+                            "protocol_version": 1,
+                            "command_id": "unsupported-1",
+                            "expected_cursor": 0,
+                            "type": "session.create",
+                            "payload": {"session_id": "other"},
+                            "client_context": {
+                                "surface": "macos",
+                                "view_id": "main",
+                            },
+                        },
+                    },
+                )
+            )
+        )
+        error = receive_frame(client)
+        events = source.events()
+
+        assert error.body["code"] == "E_UNSUPPORTED_COMMAND"
+        assert any(
+            event.type == "command.failed"
+            and event.command_id == "unsupported-1"
+            for event in events
+        )
     finally:
         client.close()
         thread.join(timeout=2)

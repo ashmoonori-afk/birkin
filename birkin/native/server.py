@@ -196,11 +196,6 @@ class NativeBridgeServer:
         message: NativeEnvelope,
     ) -> None:
         command = WorkspaceCommand.parse(message.body.get("command"))
-        if command.type not in self._command_types:
-            raise NativeProtocolError(
-                "E_UNSUPPORTED_COMMAND",
-                "command is not advertised by this bridge",
-            )
         receipt = self._authority.submit(
             command,
             actor_id=f"macos:{command.client_context.view_id}",

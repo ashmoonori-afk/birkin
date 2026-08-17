@@ -18,6 +18,7 @@ from birkin.workspace.contracts import (
     CommandIdConflict,
     ProtocolError as WorkspaceProtocolError,
     StaleCursor,
+    UnsupportedCommand,
 )
 
 
@@ -92,7 +93,9 @@ class NativeMessageFactory:
         in_reply_to: str,
     ) -> NativeEnvelope:
         details: dict[str, object] | None = None
-        if isinstance(error, StaleCursor):
+        if isinstance(error, UnsupportedCommand):
+            code = "E_UNSUPPORTED_COMMAND"
+        elif isinstance(error, StaleCursor):
             code = "E_STALE_CURSOR"
             details = {"current_cursor": error.current_cursor}
         elif isinstance(error, CommandIdConflict):
