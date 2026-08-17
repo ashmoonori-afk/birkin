@@ -95,6 +95,9 @@ python -m pip install -e ".[full]"
 plane을 열고 `http://` 또는 `https://` URL을 입력한 뒤 Enter를 누르십시오.
 plane을 접어도 session과 storage는 유지되며, 인증된
 `DELETE /api/browser-aside/session` endpoint 또는 WebUI 종료 시 닫힙니다.
+Chromium 시작 중 navigation을 제출하면 open과 navigation path가 중복
+start를 경쟁하지 않고 동일한 in-flight session readiness operation을
+공유합니다.
 
 plane은 unified workspace의 shared semantic theme를 재사용하며 dark,
 light, high-contrast palette를 함께 지원합니다. compact status rail은

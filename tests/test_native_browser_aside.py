@@ -11,6 +11,55 @@ pytestmark = [
         reason="set BIRKIN_BROWSER_INTEGRATION=1 and install Playwright Chromium",
     ),
 ]
+
+
+def test_navigation_reuses_in_flight_session_start() -> None:
+    with SUPPORT.browser_harness() as harness:
+        _ = harness.page.evaluate(
+            """() => {
+              const originalFetch = window.fetch.bind(window);
+              let releaseSessionStart;
+              const sessionStartGate = new Promise((resolve) => {
+                releaseSessionStart = resolve;
+              });
+              window.__browserSessionStartRequests = 0;
+              window.__releaseBrowserSessionStart = releaseSessionStart;
+              window.fetch = (input, init = {}) => {
+                const url = typeof input === "string" ? input : input.url;
+                if (
+                  url === "/api/browser-aside/session" &&
+                  init.method === "POST"
+                ) {
+                  window.__browserSessionStartRequests += 1;
+                  return sessionStartGate.then(
+                    () => originalFetch(input, init)
+                  );
+                }
+                return originalFetch(input, init);
+              };
+            }"""
+        )
+
+        harness.page.locator("#browser-aside-toggle").click()
+        harness.page.locator("#browser-aside-url").fill(harness.fixture_url)
+        request_count = harness.page.evaluate(
+            """() => {
+              document.querySelector("#browser-aside-form").requestSubmit();
+              return window.__browserSessionStartRequests;
+            }"""
+        )
+        _ = harness.page.evaluate(
+            "() => window.__releaseBrowserSessionStart()"
+        )
+        canvas = harness.page.locator("#browser-aside-canvas")
+        harness.module.expect(canvas).to_have_attribute(
+            "data-frame-ready",
+            "true",
+        )
+
+        assert request_count == 1
+
+
 def test_open_navigate_and_capture_real_browser_frame() -> None:
     with SUPPORT.browser_harness() as harness:
         toggle = harness.page.locator("#browser-aside-toggle")

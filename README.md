@@ -95,7 +95,9 @@ isolated persistent Playwright Chromium context: there is no iframe, HTML
 projection, or mock browser. Open the plane, enter an `http://` or `https://`
 URL, and press Enter. Collapsing the plane preserves its session and storage;
 the authenticated `DELETE /api/browser-aside/session` endpoint or WebUI
-shutdown closes it.
+shutdown closes it. If navigation is submitted while Chromium is still
+starting, the open and navigation paths share the same in-flight session
+readiness operation instead of racing duplicate starts.
 
 The plane reuses the unified workspace's shared semantic theme, including its
 dark, light, and high-contrast palettes. Its compact status rail exposes
