@@ -4,13 +4,19 @@ import os
 import socket
 import stat
 import struct
+import threading
 from collections.abc import Iterator
 from pathlib import Path
 from tempfile import TemporaryDirectory, gettempdir
 
 import pytest
 
-from birkin.native.protocol import MAX_FRAME_BYTES, NativeProtocolError
+from birkin.native.protocol import (
+    MAX_FRAME_BYTES,
+    NativeEnvelope,
+    NativeProtocolError,
+    encode_frame,
+)
 from birkin.native.transport import NativeListener, receive_frame
 
 _HAS_POSIX_PEER_UID = hasattr(os, "geteuid")
@@ -75,6 +81,38 @@ def test_transport_rejects_oversized_frame_before_body_read() -> None:
             _ = receive_frame(server)
 
         assert exc_info.value.code == "E_FRAME_TOO_LARGE"
+    finally:
+        server.close()
+        client.close()
+
+
+def test_transport_accepts_exact_maximum_frame() -> None:
+    envelope = NativeEnvelope.parse(
+        {
+            "protocol": "birkin-local-1",
+            "protocol_version": 1,
+            "kind": "ping",
+            "id": "ping-max",
+            "in_reply_to": None,
+            "body": {"sent_at": "now"},
+        }
+    )
+    encoded = encode_frame(envelope)
+    body = encoded[4:] + b" " * (MAX_FRAME_BYTES - len(encoded[4:]))
+    server, client = socket.socketpair()
+    try:
+        sender = threading.Thread(
+            target=client.sendall,
+            args=(struct.pack(">I", len(body)) + body,),
+            daemon=True,
+        )
+        sender.start()
+
+        decoded = receive_frame(server)
+        sender.join(timeout=2)
+
+        assert decoded.id == "ping-max"
+        assert sender.is_alive() is False
     finally:
         server.close()
         client.close()
