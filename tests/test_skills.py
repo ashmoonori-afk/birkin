@@ -374,6 +374,59 @@ def test_windows_publication_failure_removes_internal_temp(
 
 
 @pytest.mark.skipif(
+    os.name != "nt",
+    reason="Windows handle-relative ambiguous success",
+)
+def test_windows_exception_after_committed_rename_preserves_target(
+        monkeypatch):
+    path = _write_skill(
+        "windows-committed-rename",
+        "windows committed rename",
+        "ORIGINAL",
+        [],
+    )
+    real_kernel32 = manager_module._windows_kernel32()
+
+    class RaisingRenameKernel:
+        def __getattr__(self, name):
+            return getattr(real_kernel32, name)
+
+        @staticmethod
+        def SetFileInformationByHandle(
+                handle,
+                information_class,
+                information,
+                size) -> int:
+            result = real_kernel32.SetFileInformationByHandle(
+                handle,
+                information_class,
+                information,
+                size,
+            )
+            if information_class == 3 and result:
+                raise OSError("injected exception after committed rename")
+            return result
+
+    monkeypatch.setattr(
+        manager_module,
+        "_windows_kernel32",
+        lambda: RaisingRenameKernel(),
+    )
+
+    with pytest.raises(OSError):
+        apply_skill_proposal({
+            "action": "improve",
+            "target": "windows-committed-rename",
+            "addition": "COMMITTED WINDOWS GUIDANCE",
+        })
+
+    assert "COMMITTED WINDOWS GUIDANCE" in path.read_text(
+        encoding="utf-8"
+    )
+    assert list(path.parent.glob(".birkin-publish-*.tmp")) == []
+
+
+@pytest.mark.skipif(
     os.name == "nt",
     reason="POSIX descriptor cleanup semantics",
 )
@@ -468,6 +521,111 @@ def test_partial_write_failure_zeroes_attacker_renamed_temp(
 
     assert path.read_bytes() == original
     assert moved_temp.read_bytes() == b""
+    moved_temp.unlink()
+
+
+@pytest.mark.skipif(
+    os.name == "nt",
+    reason="POSIX descriptor publication identity",
+)
+def test_exception_after_committed_replace_preserves_target(
+        monkeypatch):
+    path = _write_skill(
+        "committed-replace",
+        "committed replace",
+        "ORIGINAL",
+        [],
+    )
+    original_replace = os.replace
+
+    def replace_then_raise(
+            source,
+            destination,
+            *args,
+            **kwargs):
+        original_replace(
+            source,
+            destination,
+            *args,
+            **kwargs,
+        )
+        if Path(destination).name == "SKILL.md":
+            raise OSError("injected exception after committed replace")
+
+    monkeypatch.setattr(os, "replace", replace_then_raise)
+
+    with pytest.raises(OSError):
+        apply_skill_proposal({
+            "action": "improve",
+            "target": "committed-replace",
+            "addition": "COMMITTED POSIX GUIDANCE",
+        })
+
+    assert "COMMITTED POSIX GUIDANCE" in path.read_text(
+        encoding="utf-8"
+    )
+    assert list(path.parent.glob(".birkin-publish-*.tmp")) == []
+
+
+@pytest.mark.skipif(
+    os.name == "nt",
+    reason="POSIX descriptor overwrite fallback",
+)
+def test_truncate_failure_overwrites_attacker_renamed_temp(
+        monkeypatch):
+    path = _write_skill(
+        "truncate-fallback",
+        "truncate fallback",
+        "ORIGINAL",
+        [],
+    )
+    original = path.read_bytes()
+    moved_temp = path.parent / "attacker-moved-truncate.tmp"
+    original_replace = os.replace
+
+    def rename_temp_then_fail(
+            source,
+            destination,
+            *,
+            src_dir_fd=None,
+            dst_dir_fd=None):
+        if Path(destination).name == "SKILL.md":
+            os.rename(
+                source,
+                moved_temp.name,
+                src_dir_fd=src_dir_fd,
+                dst_dir_fd=dst_dir_fd,
+            )
+            raise OSError("injected replace failure")
+        original_replace(
+            source,
+            destination,
+            src_dir_fd=src_dir_fd,
+            dst_dir_fd=dst_dir_fd,
+        )
+
+    monkeypatch.setattr(os, "replace", rename_temp_then_fail)
+
+    def fail_ftruncate(*_args) -> None:
+        raise OSError("injected truncate failure")
+
+    monkeypatch.setattr(
+        os,
+        "ftruncate",
+        fail_ftruncate,
+    )
+
+    with pytest.raises(OSError):
+        apply_skill_proposal({
+            "action": "improve",
+            "target": "truncate-fallback",
+            "addition": "UNPUBLISHED FALLBACK PAYLOAD",
+        })
+
+    moved_bytes = moved_temp.read_bytes()
+    assert path.read_bytes() == original
+    assert moved_bytes
+    assert set(moved_bytes) == {0}
     moved_temp.unlink()
 
 

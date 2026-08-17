@@ -400,6 +400,42 @@ def _write_all(descriptor: int, payload: bytes) -> None:
         written += os.write(descriptor, payload[written:])
 
 
+def _zero_open_descriptor(descriptor: int) -> None:
+    try:
+        os.ftruncate(descriptor, 0)
+    except OSError:
+        remaining = os.fstat(descriptor).st_size
+        offset = 0
+        zeroes = bytes(min(remaining, 64 * 1024))
+        while offset < remaining:
+            chunk = zeroes[:min(len(zeroes), remaining - offset)]
+            offset += os.pwrite(descriptor, chunk, offset)
+    os.fsync(descriptor)
+
+
+def _descriptor_is_target(
+    descriptor: int,
+    target_fd: int,
+    target_name: str,
+) -> bool:
+    try:
+        target_stat = os.stat(
+            target_name,
+            dir_fd=target_fd,
+            follow_symlinks=False,
+        )
+    except FileNotFoundError:
+        return False
+    descriptor_stat = os.fstat(descriptor)
+    return (
+        descriptor_stat.st_dev,
+        descriptor_stat.st_ino,
+    ) == (
+        target_stat.st_dev,
+        target_stat.st_ino,
+    )
+
+
 def _publish_skill_bytes_posix(
     payload: bytes,
     target: Path,
@@ -436,8 +472,13 @@ def _publish_skill_bytes_posix(
             published = True
         finally:
             if not published:
-                os.ftruncate(temporary_fd, 0)
-                os.fsync(temporary_fd)
+                published = _descriptor_is_target(
+                    temporary_fd,
+                    target_fd,
+                    target.name,
+                )
+            if not published:
+                _zero_open_descriptor(temporary_fd)
     finally:
         if temporary_fd >= 0:
             os.close(temporary_fd)
@@ -451,6 +492,78 @@ def _publish_skill_bytes_posix(
 def _windows_kernel32() -> Any:
     import ctypes
     return ctypes.WinDLL("kernel32", use_last_error=True)
+
+
+def _zero_windows_handle(
+    kernel32: Any,
+    handle: Any,
+    length: int,
+) -> int:
+    import ctypes
+    from ctypes import wintypes
+
+    new_position = ctypes.c_longlong()
+    if not kernel32.SetFilePointerEx(
+        handle,
+        ctypes.c_longlong(0),
+        ctypes.byref(new_position),
+        0,
+    ):
+        return ctypes.get_last_error()
+    remaining = length
+    zeroes = bytes(min(remaining, 64 * 1024))
+    while remaining:
+        chunk = zeroes[:min(len(zeroes), remaining)]
+        buffer = ctypes.create_string_buffer(chunk)
+        written = wintypes.DWORD()
+        if not kernel32.WriteFile(
+            handle,
+            buffer,
+            len(chunk),
+            ctypes.byref(written),
+            None,
+        ):
+            return ctypes.get_last_error()
+        if written.value != len(chunk):
+            return 29
+        remaining -= written.value
+    if not kernel32.FlushFileBuffers(handle):
+        return ctypes.get_last_error()
+    return 0
+
+
+def _windows_handle_is_target(
+    kernel32: Any,
+    handle: Any,
+    target: Path,
+) -> bool:
+    import ctypes
+
+    length = kernel32.GetFinalPathNameByHandleW(
+        handle,
+        None,
+        0,
+        0,
+    )
+    if not length:
+        return False
+    buffer = ctypes.create_unicode_buffer(length + 1)
+    if not kernel32.GetFinalPathNameByHandleW(
+        handle,
+        buffer,
+        len(buffer),
+        0,
+    ):
+        return False
+
+    def normalize(path: str) -> str:
+        if path.startswith("\\\\?\\UNC\\"):
+            path = "\\\\" + path[8:]
+        elif path.startswith("\\\\?\\"):
+            path = path[4:]
+        return os.path.normcase(os.path.normpath(path))
+
+    return normalize(buffer.value) == normalize(str(target.absolute()))
 
 
 def _publish_skill_bytes_windows(
@@ -610,6 +723,12 @@ def _publish_skill_bytes_windows(
             cleanup_error = 0
             disposition_failed = False
             if not published:
+                published = _windows_handle_is_target(
+                    kernel32,
+                    wintypes.HANDLE(source_handle),
+                    target,
+                )
+            if not published:
                 class FileDispositionInfo(ctypes.Structure):
                     _fields_ = [("DeleteFile", wintypes.BOOLEAN)]
 
@@ -634,7 +753,11 @@ def _publish_skill_bytes_windows(
                         ctypes.byref(end_of_file),
                         ctypes.sizeof(end_of_file),
                     ):
-                        cleanup_error = ctypes.get_last_error()
+                        cleanup_error = _zero_windows_handle(
+                            kernel32,
+                            wintypes.HANDLE(source_handle),
+                            len(payload),
+                        )
                     elif not kernel32.FlushFileBuffers(
                         wintypes.HANDLE(source_handle)
                     ):
