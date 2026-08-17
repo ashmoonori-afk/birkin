@@ -98,6 +98,9 @@ python -m pip install -e ".[full]"
 같은 WebUI service가 실행 중인 동안에는 session과 storage가 유지되지만,
 process 재시작 뒤 복원까지 보장하지는 않습니다. 인증된
 `DELETE /api/browser-aside/session` endpoint나 WebUI 종료 시 context가 닫힙니다.
+Chromium 시작 중 navigation을 제출하면 open과 navigation path가 중복
+start를 경쟁하지 않고 동일한 in-flight session readiness operation을
+공유합니다.
 
 plane은 unified workspace의 shared semantic theme를 재사용하며 dark,
 light, high-contrast palette를 함께 지원합니다. compact status rail은
