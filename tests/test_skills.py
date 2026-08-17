@@ -441,6 +441,7 @@ def test_failed_publication_zeroes_attacker_renamed_temp(
     original = path.read_bytes()
     moved_temp = path.parent / "attacker-moved.tmp"
     original_replace = os.replace
+    original_stat = os.stat
 
     def rename_temp_then_fail(
             source,
@@ -467,6 +468,27 @@ def test_failed_publication_zeroes_attacker_renamed_temp(
         )
 
     monkeypatch.setattr(os, "replace", rename_temp_then_fail)
+
+    def fail_target_stat(
+            target_name,
+            *args,
+            dir_fd=None,
+            **kwargs):
+        if target_name == "SKILL.md" and dir_fd is not None:
+            raise OSError("injected target identity probe failure")
+        return original_stat(
+            target_name,
+            *args,
+            dir_fd=dir_fd,
+            **kwargs,
+        )
+
+    monkeypatch.setattr(os, "stat", fail_target_stat)
+
+    def fail_fstat(*_args) -> None:
+        raise OSError("injected descriptor identity probe failure")
+
+    monkeypatch.setattr(os, "fstat", fail_fstat)
 
     with pytest.raises(OSError):
         apply_skill_proposal({
@@ -537,6 +559,7 @@ def test_exception_after_committed_replace_preserves_target(
         [],
     )
     original_replace = os.replace
+    original_stat = os.stat
 
     def replace_then_raise(
             source,
@@ -553,6 +576,27 @@ def test_exception_after_committed_replace_preserves_target(
             raise OSError("injected exception after committed replace")
 
     monkeypatch.setattr(os, "replace", replace_then_raise)
+
+    def fail_target_stat(
+            target_name,
+            *args,
+            dir_fd=None,
+            **kwargs):
+        if target_name == "SKILL.md" and dir_fd is not None:
+            raise OSError("injected target identity probe failure")
+        return original_stat(
+            target_name,
+            *args,
+            dir_fd=dir_fd,
+            **kwargs,
+        )
+
+    monkeypatch.setattr(os, "stat", fail_target_stat)
+
+    def fail_fstat(*_args) -> None:
+        raise OSError("injected descriptor identity probe failure")
+
+    monkeypatch.setattr(os, "fstat", fail_fstat)
 
     with pytest.raises(OSError):
         apply_skill_proposal({

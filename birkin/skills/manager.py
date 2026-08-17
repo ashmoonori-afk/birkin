@@ -419,14 +419,65 @@ def _descriptor_is_target(
     target_name: str,
 ) -> bool:
     try:
+        descriptor_stat = os.fstat(descriptor)
+    except OSError:
+        try:
+            import fcntl
+            descriptor_path = fcntl.fcntl(
+                descriptor,
+                50,
+                bytes(1024),
+            )
+            target_path = fcntl.fcntl(
+                target_fd,
+                50,
+                bytes(1024),
+            )
+            descriptor_name = os.fsdecode(
+                descriptor_path.split(b"\0", 1)[0]
+            )
+            target_directory = os.fsdecode(
+                target_path.split(b"\0", 1)[0]
+            )
+            return Path(descriptor_name) == (
+                Path(target_directory) / target_name
+            )
+        except (ImportError, OSError):
+            try:
+                descriptor_name = os.readlink(
+                    f"/proc/self/fd/{descriptor}"
+                )
+                target_directory = os.readlink(
+                    f"/proc/self/fd/{target_fd}"
+                )
+            except OSError:
+                return False
+            return Path(descriptor_name) == (
+                Path(target_directory) / target_name
+            )
+    try:
         target_stat = os.stat(
             target_name,
             dir_fd=target_fd,
             follow_symlinks=False,
         )
-    except FileNotFoundError:
-        return False
-    descriptor_stat = os.fstat(descriptor)
+    except OSError:
+        flags = os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0)
+        try:
+            target_descriptor = os.open(
+                target_name,
+                flags,
+                dir_fd=target_fd,
+            )
+        except OSError:
+            return False
+        try:
+            try:
+                target_stat = os.fstat(target_descriptor)
+            except OSError:
+                return False
+        finally:
+            os.close(target_descriptor)
     return (
         descriptor_stat.st_dev,
         descriptor_stat.st_ino,
