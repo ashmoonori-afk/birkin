@@ -12,6 +12,8 @@ import threading
 from datetime import datetime, timedelta, timezone
 from importlib import import_module
 from pathlib import Path
+from time import monotonic
+from typing import Protocol
 
 import psutil
 
@@ -19,8 +21,13 @@ from birkin import approvals, proc, procreg
 from birkin.computer_use.approval_bridge import ApprovalBridge
 from birkin.computer_use.artifacts import ArtifactStore
 from birkin.computer_use.backends.linux import LinuxBackend
+from birkin.computer_use.models import ObservedApp
 from birkin.computer_use.service import ComputerUseService
 from birkin.computer_use.session_policy import SessionCapability
+
+
+class _AppDiscovery(Protocol):
+    def list_apps(self) -> tuple[ObservedApp, ...]: ...
 
 
 def _ready_pid(process: subprocess.Popen[str]) -> int:
@@ -68,6 +75,45 @@ def _await_atspi_application(pid: int) -> None:
         )
 
 
+def _await_x11_application(
+    backend: _AppDiscovery,
+    pid: int,
+) -> ObservedApp:
+    display_module = import_module("Xlib.display")
+    xlib = import_module("Xlib.X")
+    display = display_module.Display()
+    selector = selectors.DefaultSelector()
+    root = display.screen().root
+    client_list = display.intern_atom("_NET_CLIENT_LIST")
+    root.change_attributes(event_mask=xlib.PropertyChangeMask)
+    display.flush()
+    selector.register(display, selectors.EVENT_READ)
+    deadline = monotonic() + 20
+    try:
+        while True:
+            app = next(
+                (item for item in backend.list_apps() if item.pid == pid),
+                None,
+            )
+            if app is not None:
+                return app
+            remaining = deadline - monotonic()
+            if remaining <= 0 or not selector.select(remaining):
+                raise TimeoutError(
+                    "GTK fixture did not register with X11."
+                )
+            while display.pending_events():
+                event = display.next_event()
+                if (
+                    event.type == xlib.PropertyNotify
+                    and event.atom == client_list
+                ):
+                    break
+    finally:
+        selector.close()
+        display.close()
+
+
 def run(fixture: Path, evidence_root: Path) -> int:
     os.environ["BIRKIN_HOME"] = str(evidence_root / "linux" / "home")
     process = subprocess.Popen(
@@ -88,6 +134,7 @@ def run(fixture: Path, evidence_root: Path) -> int:
         pid = _ready_pid(process)
         _await_atspi_application(pid)
         backend = LinuxBackend()
+        _ = _await_x11_application(backend, pid)
         service = ComputerUseService(
             backend=backend,
             artifact_store=ArtifactStore(evidence_root / "linux" / "artifacts"),
@@ -114,7 +161,18 @@ def run(fixture: Path, evidence_root: Path) -> int:
             ),
         )
         apps = service.execute({"version": 1, "action": "list_apps"})
-        app = next(item for item in apps["apps"] if item["pid"] == pid)
+        app = next(
+            (
+                item
+                for item in apps["apps"]
+                if item["pid"] == pid
+            ),
+            None,
+        )
+        if app is None:
+            raise RuntimeError(
+                "GTK fixture disappeared after X11 registration."
+            )
         windows = service.execute(
             {
                 "version": 1,
