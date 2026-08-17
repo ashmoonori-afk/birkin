@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from typing import Protocol, final
 
+from birkin.native.auth import NativeConnectionAuth
 from birkin.native.capability import BootstrapSecretStore, SessionCapability
 from birkin.native.messages import (
     NativeMessageFactory,
@@ -11,8 +12,6 @@ from birkin.native.messages import (
     body_string,
 )
 from birkin.native.protocol import (
-    NATIVE_PROTOCOL_VERSION,
-    JSONValue,
     NativeEnvelope,
     NativeProtocolError,
 )
@@ -47,6 +46,7 @@ class NativeBridgeServer:
     ) -> None:
         self._authority = authority
         self._capabilities = capabilities
+        self._auth = NativeConnectionAuth(capabilities)
         self._projection = NativeProjectionSession(
             authority,
             instance_id=instance_id,
@@ -67,11 +67,12 @@ class NativeBridgeServer:
         transport: str,
     ) -> None:
         state = NativeConnectionState.server()
+        issued_tokens: set[str] = set()
         with connection:
             try:
                 hello = connection.receive()
                 state.receive(hello)
-                capability = self._authenticate_hello(
+                capability = self._auth.authenticate_hello(
                     hello,
                     connection=connection,
                     transport=transport,
@@ -83,36 +84,54 @@ class NativeBridgeServer:
                 )
                 state.send(ready)
                 connection.send(ready)
-                self._serve_messages(connection, state, capability)
+                issued_tokens.add(capability.token)
+                self._serve_messages(
+                    connection,
+                    state,
+                    capability,
+                    issued_tokens,
+                )
             except NativeProtocolError as exc:
                 if exc.code != "E_FRAME_INCOMPLETE":
                     connection.send(self._messages.error(exc))
+            finally:
+                for token in issued_tokens:
+                    self._capabilities.revoke_session(token)
 
     def _serve_messages(
         self,
         connection: NativeConnection,
         state: NativeConnectionState,
         capability: SessionCapability,
+        issued_tokens: set[str],
     ) -> None:
         active_token = capability.token
         while True:
             message = connection.receive()
             state.receive(message)
+            self._auth.require_capability(message.body, active_token)
+            renewed = self._capabilities.renew_if_due(active_token)
+            if renewed is not None:
+                active_token = renewed.token
+                issued_tokens.add(active_token)
+                renewal = self._messages.capability_renewed(renewed)
+                state.send(renewal)
+                connection.send(renewal)
             if message.kind == "goodbye":
                 return
             if message.kind == "ping":
+                pong_body: dict[str, object] = dict(message.body)
+                _ = pong_body.pop("session_capability", None)
                 response = self._messages.message(
                     "pong",
-                    body=dict(message.body),
+                    body=pong_body,
                     in_reply_to=message.id,
                 )
                 state.send(response)
                 connection.send(response)
             elif message.kind == "subscribe":
-                self._require_capability(message.body, active_token)
                 self._send_projection(connection, state, message)
             elif message.kind == "command":
-                self._require_capability(message.body, active_token)
                 try:
                     self._execute_command(connection, state, message)
                 except WorkspaceProtocolError as exc:
@@ -122,37 +141,6 @@ class NativeBridgeServer:
                         message,
                         exc,
                     )
-
-    def _authenticate_hello(
-        self,
-        hello: NativeEnvelope,
-        *,
-        connection: NativeConnection,
-        transport: str,
-    ) -> SessionCapability:
-        versions = hello.body["supported_protocol_versions"]
-        if (
-            not isinstance(versions, list)
-            or NATIVE_PROTOCOL_VERSION not in versions
-        ):
-            raise NativeProtocolError(
-                "E_PROTOCOL_VERSION",
-                "client and server share no native protocol version",
-            )
-        bootstrap = hello.body["bootstrap_secret"]
-        if transport == "uds":
-            if connection.peer_uid is None or bootstrap is not None:
-                raise NativeProtocolError(
-                    "E_PEER_UID_MISMATCH",
-                    "Unix socket hello requires same-user peer credentials",
-                )
-            return self._capabilities.mint_session()
-        if transport == "loopback" and isinstance(bootstrap, str):
-            return self._capabilities.exchange(bootstrap)
-        raise NativeProtocolError(
-            "E_BOOTSTRAP_INVALID",
-            "loopback hello requires a bootstrap secret",
-        )
 
     def _send_projection(
         self,
@@ -223,19 +211,3 @@ class NativeBridgeServer:
         )
         state.send(response)
         connection.send(response)
-
-    def _require_capability(
-        self,
-        body: dict[str, JSONValue],
-        active_token: str,
-    ) -> None:
-        token = body.get("session_capability")
-        if (
-            not isinstance(token, str)
-            or token != active_token
-            or not self._capabilities.authenticate_session(token)
-        ):
-            raise NativeProtocolError(
-                "E_CAPABILITY_INVALID",
-                "native session capability is invalid",
-            )

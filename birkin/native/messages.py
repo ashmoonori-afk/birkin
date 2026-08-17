@@ -66,6 +66,19 @@ class NativeMessageFactory:
             },
         )
 
+    def capability_renewed(
+        self,
+        capability: SessionCapability,
+    ) -> NativeEnvelope:
+        return self.message(
+            "capability.renewed",
+            body={
+                "token": capability.token,
+                "expires_at": capability.expires_at.isoformat(),
+                "hard_expires_at": capability.hard_expires_at.isoformat(),
+            },
+        )
+
     def error(
         self,
         error: NativeProtocolError,

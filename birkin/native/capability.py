@@ -125,18 +125,21 @@ class BootstrapSecretStore:
                     "E_CAPABILITY_EXPIRED",
                     "native session capability expired or is invalid",
                 )
-            current = self._capabilities.pop(known)
-            now = self._now()
-            renewed = SessionCapability(
-                token=secrets.token_urlsafe(32),
-                expires_at=min(
-                    now + self._capability_ttl,
-                    current.hard_expires_at,
-                ),
-                hard_expires_at=current.hard_expires_at,
-            )
-            self._capabilities[renewed.token] = renewed
-            return renewed
+            return self._renew_known(known)
+
+    def renew_if_due(self, token: str) -> SessionCapability | None:
+        with self._capability_lock:
+            self._purge_expired()
+            known = self._find_token(token)
+            if known is None:
+                raise NativeProtocolError(
+                    "E_CAPABILITY_EXPIRED",
+                    "native session capability expired or is invalid",
+                )
+            capability = self._capabilities[known]
+            if capability.expires_at - self._now() > self._capability_ttl / 3:
+                return None
+            return self._renew_known(known)
 
     def revoke_session(self, token: str) -> None:
         with self._capability_lock:
@@ -147,6 +150,17 @@ class BootstrapSecretStore:
     def revoke_all_sessions(self) -> None:
         with self._capability_lock:
             self._capabilities.clear()
+
+    def _renew_known(self, known: str) -> SessionCapability:
+        current = self._capabilities.pop(known)
+        now = self._now()
+        renewed = SessionCapability(
+            token=secrets.token_urlsafe(32),
+            expires_at=min(now + self._capability_ttl, current.hard_expires_at),
+            hard_expires_at=current.hard_expires_at,
+        )
+        self._capabilities[renewed.token] = renewed
+        return renewed
 
     def _new_bootstrap(self) -> BootstrapRecord:
         return BootstrapRecord(
