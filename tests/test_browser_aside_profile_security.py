@@ -3,7 +3,13 @@ from __future__ import annotations
 import importlib.util
 import os
 import stat
+from collections.abc import Generator
+from contextlib import contextmanager
 from pathlib import Path
+from queue import Queue
+from threading import Event as ThreadEvent
+from threading import Thread
+from typing import NoReturn
 
 import pytest
 
@@ -12,6 +18,7 @@ from birkin.browser_aside_errors import BrowserAsideError
 from birkin.browser_aside_orchestration import BrowserOrchestration
 from birkin.browser_aside_playwright import PersistentBrowserRuntime
 from birkin.browser_aside_policy import BrowserEgressPolicy
+from birkin.browser_aside_profiles import profile_owner_lock
 from birkin.browser_playwright import playwright_browser_available
 
 pytestmark = [
@@ -131,3 +138,89 @@ def test_profile_lock_rejects_overlap_and_recovers_after_close(
         profile=profile,
     )
     recovered.close()
+
+
+def test_start_failure_releases_profile_before_return(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from birkin import browser_aside_playwright as runtime_module
+
+    profile = tmp_path / "failed-start-profile"
+    constructor_returned = ThreadEvent()
+    allow_cleanup = ThreadEvent()
+    owner_exited = ThreadEvent()
+    errors: Queue[str] = Queue(maxsize=1)
+    real_event = ThreadEvent
+    real_profile_owner_lock = profile_owner_lock
+    event_count = 0
+
+    class ControlledReady:
+        def __init__(self) -> None:
+            self._event: ThreadEvent = real_event()
+
+        def is_set(self) -> bool:
+            return self._event.is_set()
+
+        def set(self) -> None:
+            self._event.set()
+            assert constructor_returned.wait(5)
+            assert allow_cleanup.wait(5)
+
+        def wait(self, timeout: float | None = None) -> bool:
+            return self._event.wait(timeout)
+
+    def event_factory() -> ThreadEvent | ControlledReady:
+        nonlocal event_count
+        event_count += 1
+        return ControlledReady() if event_count == 1 else real_event()
+
+    @contextmanager
+    def observed_profile_lock(path: Path) -> Generator[None]:
+        try:
+            with real_profile_owner_lock(path):
+                yield
+        finally:
+            owner_exited.set()
+
+    def fail_launch(*_args: object, **_kwargs: object) -> NoReturn:
+        raise BrowserAsideError(
+            "sentinel_startup_failure",
+            "Sentinel startup failure.",
+            503,
+        )
+
+    def start_runtime() -> None:
+        try:
+            _ = _runtime(
+                session_id="failed-start",
+                generation=1,
+                profile=profile,
+            )
+        except BrowserAsideError as exc:
+            errors.put(exc.code)
+        finally:
+            constructor_returned.set()
+
+    monkeypatch.setattr(runtime_module, "Event", event_factory)
+    monkeypatch.setattr(
+        runtime_module,
+        "profile_owner_lock",
+        observed_profile_lock,
+    )
+    monkeypatch.setattr(
+        runtime_module,
+        "launch_isolated_context",
+        fail_launch,
+    )
+    caller = Thread(target=start_runtime)
+    caller.start()
+    try:
+        assert errors.get(timeout=5) == "sentinel_startup_failure"
+        with real_profile_owner_lock(profile):
+            pass
+    finally:
+        allow_cleanup.set()
+        caller.join(timeout=5)
+        assert not caller.is_alive()
+        assert owner_exited.wait(5)

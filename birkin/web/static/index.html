@@ -612,6 +612,7 @@ sessionStorage.setItem("birkin-browser-client", browserClientId);
 let browserControlSequence = Number(
   sessionStorage.getItem("birkin-browser-control-sequence") || 0
 );
+let browserSessionStart = null;
 
 const state = {
   sessionId: null,
@@ -816,6 +817,21 @@ function scheduleBrowserFramePoll() {
   }, 750);
 }
 
+async function startBrowserSession() {
+  if (browserSessionStart === null) {
+    browserSessionStart = browserJSON(
+      "/api/browser-aside/session", "POST", {});
+  }
+  const request = browserSessionStart;
+  try {
+    return await request;
+  } finally {
+    if (browserSessionStart === request) {
+      browserSessionStart = null;
+    }
+  }
+}
+
 async function openBrowserAside() {
   const aside = byId("browser-aside");
   const toggle = byId("browser-aside-toggle");
@@ -825,8 +841,7 @@ async function openBrowserAside() {
   toggle.textContent = "브라우저 접기";
   setBrowserStatus("Chromium 시작 중", "loading");
   try {
-    const status = await browserJSON(
-      "/api/browser-aside/session", "POST", {});
+    const status = await startBrowserSession();
     setBrowserStatus(browserStatusLabel(status), "ready");
     await refreshBrowserFrame(status);
     scheduleBrowserFramePoll();
@@ -854,8 +869,7 @@ async function navigateBrowserAside() {
   if (!url) return;
   setBrowserStatus("페이지 이동 중", "loading");
   try {
-    const current = await browserJSON(
-      "/api/browser-aside/session", "POST", {});
+    const current = await startBrowserSession();
     browserControlSequence += 1;
     sessionStorage.setItem(
       "birkin-browser-control-sequence",

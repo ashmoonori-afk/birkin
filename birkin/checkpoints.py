@@ -272,7 +272,11 @@ class CheckpointManager:
         if self._too_big(workdir):
             raise CheckpointError(
                 f"workspace exceeds {_MAX_FILES} checkpointable files")
-        code, out = _run(["git", "add", "-A", "--", str(workdir)], env)
+        code, out = _run(
+            ["git", "add", "-A", "--", "."],
+            env,
+            cwd=str(workdir),
+        )
         if code != 0:
             raise CheckpointError(f"git add failed: {out.strip()}")
 
@@ -416,7 +420,11 @@ class CheckpointManager:
             return empty
         env = self._env(path)
         _run(["git", "read-tree", commit], env)
-        code, _ = _run(["git", "add", "-A", "--", str(path)], env)
+        code, _ = _run(
+            ["git", "add", "-A", "--", "."],
+            env,
+            cwd=str(path),
+        )
         if code != 0:
             return empty
         code, patch = _run(["git", "diff", "--cached", "--no-ext-diff", commit], env)
