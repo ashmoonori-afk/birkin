@@ -123,6 +123,35 @@ def test_guarded_create_scans_before_creating_live_skill(monkeypatch):
     assert not target.exists()
 
 
+def test_guarded_improve_keeps_live_skill_visible_during_publication(
+        monkeypatch):
+    cfg = {
+        **config.load_config(),
+        "skills_guard_agent_created": True,
+    }
+    config.save_config(cfg)
+    path = _write_skill("atomic-publication", "original", "ORIGINAL", [])
+    original_replace = Path.replace
+    missing_after_replace: list[bool] = []
+
+    def observe_replace(source: Path, target: Path) -> Path:
+        result = original_replace(source, target)
+        if source == path.parent:
+            missing_after_replace.append(not path.exists())
+        return result
+
+    monkeypatch.setattr(Path, "replace", observe_replace)
+
+    apply_skill_proposal({
+        "action": "improve",
+        "target": "atomic-publication",
+        "addition": "Safe learned guidance.",
+    })
+
+    assert missing_after_replace == []
+    assert "Safe learned guidance." in path.read_text(encoding="utf-8")
+
+
 def test_get_case_insensitive():
     mgr = _mgr()
     assert mgr.get("WEB-RESEARCH") is not None

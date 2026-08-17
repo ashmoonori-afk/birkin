@@ -303,20 +303,9 @@ def _guard_agent_written(
         f"{result.verdict}:\n{guard.format_report(result, path.parent.name)}")
 
 
-def _publish_skill_directory(
-    candidate: Path,
-    target: Path,
-    staging_root: Path,
-) -> None:
-    previous = staging_root / "previous"
-    if target.exists():
-        target.replace(previous)
-    try:
-        candidate.replace(target)
-    except OSError:
-        if previous.exists():
-            previous.replace(target)
-        raise
+def _publish_skill_file(candidate: Path, target: Path) -> None:
+    target.parent.mkdir(parents=True, exist_ok=True)
+    candidate.replace(target)
 
 
 def apply_skill_proposal(payload: dict[str, Any]) -> str:
@@ -360,11 +349,7 @@ def apply_skill_proposal(payload: dict[str, Any]) -> str:
                         encoding="utf-8",
                     )
                     _guard_agent_written(candidate, f"skill {name!r}")
-                    _publish_skill_directory(
-                        candidate_dir,
-                        path.parent,
-                        staging,
-                    )
+                    _publish_skill_file(candidate, path)
         except store.FileLockTimeout:
             raise SkillProposalError("skill store is busy") from None
         return f"Created skill {name!r} at {path}"
@@ -407,11 +392,7 @@ def apply_skill_proposal(payload: dict[str, Any]) -> str:
                         candidate,
                         f"skill {target_name!r}",
                     )
-                    _publish_skill_directory(
-                        candidate_dir,
-                        target.parent,
-                        staging,
-                    )
+                    _publish_skill_file(candidate, target)
         except store.FileLockTimeout:
             raise SkillProposalError("skill store is busy") from None
         return f"Appended learned note to {target_name!r}."
