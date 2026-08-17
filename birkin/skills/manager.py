@@ -28,6 +28,10 @@ class SkillProposalError(RuntimeError):
     pass
 
 
+class IndeterminatePublicationError(SkillProposalError):
+    pass
+
+
 class SkillManager:
     def __init__(self, dirs: list[tuple[Path, str]]):
         self._dirs = dirs
@@ -417,7 +421,7 @@ def _descriptor_path_is_target(
     descriptor: int,
     target_fd: int,
     target_name: str,
-) -> bool:
+) -> bool | None:
     try:
         import fcntl
         descriptor_path = fcntl.fcntl(
@@ -445,7 +449,7 @@ def _descriptor_path_is_target(
                 f"/proc/self/fd/{target_fd}"
             )
         except OSError:
-            return False
+            return None
     return Path(descriptor_name) == (
         Path(target_directory) / target_name
     )
@@ -455,7 +459,7 @@ def _descriptor_is_target(
     descriptor: int,
     target_fd: int,
     target_name: str,
-) -> bool:
+) -> bool | None:
     try:
         descriptor_stat = os.fstat(descriptor)
     except OSError:
@@ -470,6 +474,8 @@ def _descriptor_is_target(
             dir_fd=target_fd,
             follow_symlinks=False,
         )
+    except FileNotFoundError:
+        return False
     except OSError:
         flags = os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0)
         try:
@@ -478,6 +484,8 @@ def _descriptor_is_target(
                 flags,
                 dir_fd=target_fd,
             )
+        except FileNotFoundError:
+            return False
         except OSError:
             return _descriptor_path_is_target(
                 descriptor,
@@ -519,6 +527,7 @@ def _publish_skill_bytes_posix(
     temporary = f".birkin-publish-{secrets.token_hex(12)}.tmp"
     temporary_fd = -1
     published = False
+    indeterminate = False
     try:
         flags = os.O_WRONLY | os.O_CREAT | os.O_EXCL
         flags |= getattr(os, "O_NOFOLLOW", 0)
@@ -529,31 +538,50 @@ def _publish_skill_bytes_posix(
             dir_fd=target_fd,
         )
         try:
-            _write_all(temporary_fd, payload)
-            os.fsync(temporary_fd)
-            os.replace(
-                temporary,
-                target.name,
-                src_dir_fd=target_fd,
-                dst_dir_fd=target_fd,
-            )
-            published = True
-        finally:
-            if not published:
-                published = _descriptor_is_target(
-                    temporary_fd,
-                    target_fd,
+            rename_started = False
+            try:
+                _write_all(temporary_fd, payload)
+                os.fsync(temporary_fd)
+                rename_started = True
+                os.replace(
+                    temporary,
                     target.name,
+                    src_dir_fd=target_fd,
+                    dst_dir_fd=target_fd,
                 )
-            if not published:
+                published = True
+            except BaseException as error:
+                if rename_started:
+                    try:
+                        target_state = _descriptor_is_target(
+                            temporary_fd,
+                            target_fd,
+                            target.name,
+                        )
+                    except BaseException:
+                        target_state = None
+                    if target_state is True:
+                        published = True
+                    elif target_state is None:
+                        indeterminate = True
+                        digest = hashlib.sha256(payload).hexdigest()
+                        raise IndeterminatePublicationError(
+                            "skill publication outcome is indeterminate "
+                            f"(operation={temporary}, sha256={digest}); "
+                            "do not retry until the target is reconciled"
+                        ) from error
+                raise
+        finally:
+            if not published and not indeterminate:
                 _zero_open_descriptor(temporary_fd)
     finally:
         if temporary_fd >= 0:
             os.close(temporary_fd)
-        try:
-            os.unlink(temporary, dir_fd=target_fd)
-        except FileNotFoundError:
-            pass
+        if not indeterminate:
+            try:
+                os.unlink(temporary, dir_fd=target_fd)
+            except FileNotFoundError:
+                pass
         os.close(target_fd)
 
 
@@ -604,8 +632,9 @@ def _windows_handle_is_target(
     kernel32: Any,
     handle: Any,
     target: Path,
-) -> bool:
+) -> bool | None:
     import ctypes
+    from ctypes import wintypes
 
     length = kernel32.GetFinalPathNameByHandleW(
         handle,
@@ -613,17 +642,6 @@ def _windows_handle_is_target(
         0,
         0,
     )
-    if not length:
-        return False
-    buffer = ctypes.create_unicode_buffer(length + 1)
-    if not kernel32.GetFinalPathNameByHandleW(
-        handle,
-        buffer,
-        len(buffer),
-        0,
-    ):
-        return False
-
     def normalize(path: str) -> str:
         if path.startswith("\\\\?\\UNC\\"):
             path = "\\\\" + path[8:]
@@ -631,7 +649,41 @@ def _windows_handle_is_target(
             path = path[4:]
         return os.path.normcase(os.path.normpath(path))
 
-    return normalize(buffer.value) == normalize(str(target.absolute()))
+    if length:
+        buffer = ctypes.create_unicode_buffer(length + 1)
+        if kernel32.GetFinalPathNameByHandleW(
+            handle,
+            buffer,
+            len(buffer),
+            0,
+        ):
+            return normalize(buffer.value) == normalize(
+                str(target.absolute())
+            )
+
+    class FileNameInfo(ctypes.Structure):
+        _fields_ = [
+            ("FileNameLength", wintypes.DWORD),
+            ("FileName", wintypes.WCHAR * 1),
+        ]
+
+    filename_offset = FileNameInfo.FileName.offset
+    info_buffer = ctypes.create_string_buffer(
+        filename_offset + 64 * 1024
+    )
+    if not kernel32.GetFileInformationByHandleEx(
+        handle,
+        2,
+        info_buffer,
+        len(info_buffer),
+    ):
+        return None
+    info = FileNameInfo.from_buffer(info_buffer)
+    filename = bytes(info_buffer)[
+        filename_offset:filename_offset + info.FileNameLength
+    ].decode("utf-16-le")
+    _, target_tail = os.path.splitdrive(str(target.absolute()))
+    return normalize(filename) == normalize(target_tail)
 
 
 def _publish_skill_bytes_windows(
@@ -739,6 +791,8 @@ def _publish_skill_bytes_windows(
             temporary_attribute,
         )
         published = False
+        rename_started = False
+        indeterminate = False
         try:
             payload_buffer = ctypes.create_string_buffer(payload)
             written = wintypes.DWORD()
@@ -779,24 +833,33 @@ def _publish_skill_bytes_windows(
                 encoded_name,
                 len(encoded_name),
             )
+            rename_started = True
             if not kernel32.SetFileInformationByHandle(
                 wintypes.HANDLE(source_handle),
                 3,
                 buffer,
                 len(buffer),
             ):
+                rename_started = False
                 raise OSError(ctypes.get_last_error(), str(target))
             published = True
         finally:
             cleanup_error = 0
             disposition_failed = False
-            if not published:
-                published = _windows_handle_is_target(
-                    kernel32,
-                    wintypes.HANDLE(source_handle),
-                    target,
-                )
-            if not published:
+            if not published and rename_started:
+                try:
+                    target_state = _windows_handle_is_target(
+                        kernel32,
+                        wintypes.HANDLE(source_handle),
+                        target,
+                    )
+                except BaseException:
+                    target_state = None
+                if target_state is True:
+                    published = True
+                elif target_state is None:
+                    indeterminate = True
+            if not published and not indeterminate:
                 class FileDispositionInfo(ctypes.Structure):
                     _fields_ = [("DeleteFile", wintypes.BOOLEAN)]
 
@@ -831,11 +894,18 @@ def _publish_skill_bytes_windows(
                     ):
                         cleanup_error = ctypes.get_last_error()
             close_handle(wintypes.HANDLE(source_handle))
-            if disposition_failed:
+            if disposition_failed and not indeterminate:
                 if kernel32.DeleteFileW(str(temporary)):
                     cleanup_error = 0
                 elif ctypes.get_last_error() in {2, 3}:
                     cleanup_error = 0
+            if indeterminate:
+                digest = hashlib.sha256(payload).hexdigest()
+                raise IndeterminatePublicationError(
+                    "skill publication outcome is indeterminate "
+                    f"(operation={temporary.name}, sha256={digest}); "
+                    "do not retry until the target is reconciled"
+                )
             if cleanup_error:
                 raise OSError(cleanup_error, str(temporary))
     finally:

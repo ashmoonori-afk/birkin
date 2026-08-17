@@ -29,7 +29,7 @@ Agent runtimes are easy to demo and hard to trust. Birkin keeps the model useful
 | Memory disappears into a hosted service or vector database | Markdown notes, escaped YAML frontmatter, and wikilinks live in an Obsidian-compatible local vault; model-facing writes derive trust provenance from runtime context. |
 | A prompt is asked to enforce its own safety | Native tools pass through one registry; shell and scheduled actions use deterministic policy and the approval queue. |
 | “Multi-agent” means a model recursively spawning itself | Moirai provides Python-owned `agent`, `parallel`, and `pipeline` graph primitives with budget and spawn ceilings. |
-| Self-improvement silently mutates the runtime | Harness records typed proposals in a versioned ledger and supports rollback; skill sync and learned updates pass through the shared install policy before publication. |
+| Self-improvement silently mutates the runtime | Harness records typed proposals in a versioned ledger and supports rollback; skill sync and learned updates pass through the shared install policy before publication. An unresolved post-rename outcome raises an explicit indeterminate error and must not be retried blindly. |
 | A coding agent changes files before the user understands the plan | The official VS Code extension sends editor context, reviews a plan first, renders proposed diffs, resolves Birkin approvals, and restores checkpoints. |
 | A local tool becomes an opaque service | Runs, approvals, checkpoints, status, and configuration remain local and inspectable. |
 

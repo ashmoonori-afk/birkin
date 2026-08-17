@@ -7,6 +7,7 @@ from birkin import config, store
 from birkin.skills import build_manager, frontmatter
 from birkin.skills import manager as manager_module
 from birkin.skills.manager import (
+    IndeterminatePublicationError,
     SkillManager,
     SkillProposalError,
     _write_skill,
@@ -427,6 +428,81 @@ def test_windows_exception_after_committed_rename_preserves_target(
 
 
 @pytest.mark.skipif(
+    os.name != "nt",
+    reason="Windows indeterminate publication contract",
+)
+def test_windows_indeterminate_rename_preserves_committed_target(
+        monkeypatch):
+    path = _write_skill(
+        "windows-indeterminate-rename",
+        "windows indeterminate rename",
+        "ORIGINAL",
+        [],
+    )
+    real_kernel32 = manager_module._windows_kernel32()
+
+    class IndeterminateRenameKernel:
+        def __getattr__(self, name):
+            return getattr(real_kernel32, name)
+
+        @staticmethod
+        def GetFinalPathNameByHandleW(*_args) -> int:
+            return 0
+
+        @staticmethod
+        def GetFileInformationByHandleEx(
+                handle,
+                information_class,
+                information,
+                size) -> int:
+            if information_class == 2:
+                return 0
+            return real_kernel32.GetFileInformationByHandleEx(
+                handle,
+                information_class,
+                information,
+                size,
+            )
+
+        @staticmethod
+        def SetFileInformationByHandle(
+                handle,
+                information_class,
+                information,
+                size) -> int:
+            result = real_kernel32.SetFileInformationByHandle(
+                handle,
+                information_class,
+                information,
+                size,
+            )
+            if information_class == 3 and result:
+                raise OSError("injected ambiguous Windows rename")
+            return result
+
+    monkeypatch.setattr(
+        manager_module,
+        "_windows_kernel32",
+        lambda: IndeterminateRenameKernel(),
+    )
+
+    with pytest.raises(
+        IndeterminatePublicationError,
+        match="do not retry",
+    ):
+        apply_skill_proposal({
+            "action": "improve",
+            "target": "windows-indeterminate-rename",
+            "addition": "INDETERMINATE WINDOWS GUIDANCE",
+        })
+
+    assert "INDETERMINATE WINDOWS GUIDANCE" in path.read_text(
+        encoding="utf-8"
+    )
+    assert list(path.parent.glob(".birkin-publish-*.tmp")) == []
+
+
+@pytest.mark.skipif(
     os.name == "nt",
     reason="POSIX descriptor cleanup semantics",
 )
@@ -609,6 +685,75 @@ def test_exception_after_committed_replace_preserves_target(
         encoding="utf-8"
     )
     assert list(path.parent.glob(".birkin-publish-*.tmp")) == []
+
+
+@pytest.mark.skipif(
+    os.name == "nt",
+    reason="POSIX indeterminate publication contract",
+)
+@pytest.mark.parametrize("rename_commits", [False, True])
+def test_indeterminate_publication_never_destroys_open_object(
+        monkeypatch,
+        rename_commits: bool):
+    path = _write_skill(
+        "indeterminate-publication",
+        "indeterminate publication",
+        "ORIGINAL",
+        [],
+    )
+    original = path.read_bytes()
+    original_replace = os.replace
+    moved_temp = path.parent / "indeterminate-moved.tmp"
+
+    def ambiguous_replace(
+            source,
+            destination,
+            *,
+            src_dir_fd=None,
+            dst_dir_fd=None):
+        if rename_commits:
+            original_replace(
+                source,
+                destination,
+                src_dir_fd=src_dir_fd,
+                dst_dir_fd=dst_dir_fd,
+            )
+        else:
+            os.rename(
+                source,
+                moved_temp.name,
+                src_dir_fd=src_dir_fd,
+                dst_dir_fd=dst_dir_fd,
+            )
+        raise OSError("injected ambiguous rename outcome")
+
+    monkeypatch.setattr(os, "replace", ambiguous_replace)
+    monkeypatch.setattr(
+        manager_module,
+        "_descriptor_is_target",
+        lambda *_args: None,
+    )
+
+    with pytest.raises(
+        IndeterminatePublicationError,
+        match="do not retry",
+    ):
+        apply_skill_proposal({
+            "action": "improve",
+            "target": "indeterminate-publication",
+            "addition": "INDETERMINATE VERIFIED GUIDANCE",
+        })
+
+    if rename_commits:
+        assert "INDETERMINATE VERIFIED GUIDANCE" in path.read_text(
+            encoding="utf-8"
+        )
+    else:
+        assert path.read_bytes() == original
+        assert b"INDETERMINATE VERIFIED GUIDANCE" in (
+            moved_temp.read_bytes()
+        )
+        moved_temp.unlink()
 
 
 @pytest.mark.skipif(
