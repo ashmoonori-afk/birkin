@@ -118,7 +118,11 @@ def workspace_server(
     thread = threading.Thread(target=httpd.serve_forever, daemon=True)
     thread.start()
     try:
-        yield port, web_server.capability_token()
+        yield (
+            port,
+            web_server.capability_token(),
+            web_server.listener_bootstrap_nonce(httpd),
+        )
     finally:
         httpd.shutdown()
         httpd.server_close()
@@ -161,9 +165,9 @@ def _command(
 
 
 def test_workspace_routes_require_capability_before_lookup(
-    workspace_server: tuple[int, str],
+    workspace_server: tuple[int, str, str],
 ) -> None:
-    port, token = workspace_server
+    port, token, _ = workspace_server
     assert _request(port, "GET", "/api/workspace/sessions")[0] == 403
     assert _request(
         port,
@@ -180,9 +184,9 @@ def test_workspace_routes_require_capability_before_lookup(
 
 
 def test_create_session_snapshot_and_panel_parity(
-    workspace_server: tuple[int, str],
+    workspace_server: tuple[int, str, str],
 ) -> None:
-    port, token = workspace_server
+    port, token, _ = workspace_server
     session_id = _create_session(port, token)
     code, _, body = _request(
         port,
@@ -199,9 +203,9 @@ def test_create_session_snapshot_and_panel_parity(
 
 
 def test_chat_command_streams_ordered_events_and_deduplicates(
-    workspace_server: tuple[int, str],
+    workspace_server: tuple[int, str, str],
 ) -> None:
-    port, token = workspace_server
+    port, token, _ = workspace_server
     session_id = _create_session(port, token)
     command = _command(
         "browser-1:command-1",
@@ -251,9 +255,9 @@ def test_chat_command_streams_ordered_events_and_deduplicates(
 
 
 def test_interrupt_resume_and_actor_spoof_rejection(
-    workspace_server: tuple[int, str],
+    workspace_server: tuple[int, str, str],
 ) -> None:
-    port, token = workspace_server
+    port, token, _ = workspace_server
     session_id = _create_session(port, token)
     forged = _command(
         "browser-1:command-1",
@@ -332,14 +336,14 @@ def test_web_interrupt_signals_runtime_before_serial_submission(
     assert signaled == ["interrupt"]
 
 
-def _bootstrap_cookie(port: int, token: str) -> str:
+def _bootstrap_cookie(port: int, nonce: str) -> str:
     connection = http.client.HTTPConnection(
         "127.0.0.1", port, timeout=local_http_timeout()
     )
     connection.request(
         "GET",
-        f"/_bootstrap/{token}",
-        headers={"Host": "127.0.0.1"},
+        f"/_bootstrap/{nonce}",
+        headers={"Host": f"127.0.0.1:{port}"},
     )
     response = connection.getresponse()
     _ = response.read()
@@ -350,25 +354,25 @@ def _bootstrap_cookie(port: int, token: str) -> str:
 
 
 def test_bootstrap_capability_is_consumed_once(
-    workspace_server: tuple[int, str],
+    workspace_server: tuple[int, str, str],
 ) -> None:
-    port, token = workspace_server
-    _ = _bootstrap_cookie(port, token)
+    port, _, nonce = workspace_server
+    _ = _bootstrap_cookie(port, nonce)
 
     code, headers, _ = _request(
         port,
         "GET",
-        f"/_bootstrap/{token}",
+        f"/_bootstrap/{nonce}",
     )
-    assert code == 410
+    assert code == 403
     assert "Set-Cookie" not in headers
 
 
 def test_cookie_authenticated_post_requires_same_origin_json(
-    workspace_server: tuple[int, str],
+    workspace_server: tuple[int, str, str],
 ) -> None:
-    port, token = workspace_server
-    cookie = _bootstrap_cookie(port, token)
+    port, _, nonce = workspace_server
+    cookie = _bootstrap_cookie(port, nonce)
     payload = json.dumps({"session_id": "csrf"}).encode("utf-8")
 
     for origin, content_type, expected in (
@@ -404,10 +408,10 @@ def test_cookie_authenticated_post_requires_same_origin_json(
 
 
 def test_workspace_stream_limit_rejects_excess_subscriber(
-    workspace_server: tuple[int, str],
+    workspace_server: tuple[int, str, str],
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    port, token = workspace_server
+    port, token, _ = workspace_server
     session_id = _create_session(port, token)
     monkeypatch.setattr(
         web_server,
