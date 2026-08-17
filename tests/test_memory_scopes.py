@@ -514,6 +514,46 @@ def test_memory_link_cannot_preserve_higher_provenance_than_caller() -> None:
     assert mem.search("ATTACKER PAYLOAD", min_trust="high") == []
 
 
+def test_vault_symlink_retarget_cannot_reuse_pinned_provenance(
+        tmp_path: Path,
+) -> None:
+    vault_a = tmp_path / "vault-a"
+    vault_b = tmp_path / "vault-b"
+    vault_a.mkdir()
+    vault_b.mkdir()
+    active = tmp_path / "active-vault"
+    active.symlink_to(vault_a, target_is_directory=True)
+    mem = VaultMemory({
+        **config.load_config(),
+        "vault_path": str(active),
+        "memory_source_trust": {
+            "legacy": "low",
+            "signed-import": "high",
+        },
+    })
+    trusted = mem.write_note(
+        "Retargeted boundary",
+        "retargeted vault marker",
+        source="signed-import",
+    )
+    forged = vault_b / trusted.relative_to(active)
+    forged.parent.mkdir(parents=True)
+    forged.write_bytes(trusted.read_bytes())
+    active.unlink()
+    active.symlink_to(vault_b, target_is_directory=True)
+    mem.reindex()
+
+    record = mem.get_note_record("Retargeted boundary")
+
+    assert record is not None
+    assert record["record_source"] == "legacy"
+    assert record["trust"] == "low"
+    assert mem.search(
+        "retargeted vault marker",
+        min_trust="high",
+    ) == []
+
+
 def test_protected_user_role_files_remain_in_legacy_user_scope():
     mem = _scoped(MemoryScope.USER)
     system = mem.vault / "system"
