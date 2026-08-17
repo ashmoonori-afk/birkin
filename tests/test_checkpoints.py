@@ -5,6 +5,7 @@ from __future__ import annotations
 import shutil
 import subprocess
 from pathlib import Path
+from typing import Any
 
 import pytest
 
@@ -47,6 +48,59 @@ def test_snapshot_and_restore_round_trip(work):
     ok, _ = mgr.restore(work, entries[0]["hash"])
     assert ok
     assert (work / "main.py").read_text(encoding="utf-8") == "print('original')\n"
+
+
+def test_git_add_runs_from_worktree_with_local_pathspec(
+    work: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    real_run = subprocess.run
+    add_calls: list[tuple[list[str], str | None]] = []
+
+    def windows_sensitive_run(
+        argv: list[str],
+        **kwargs: Any,
+    ) -> subprocess.CompletedProcess[str]:
+        cwd = kwargs.get("cwd")
+        if argv[:3] == ["git", "add", "-A"]:
+            add_calls.append((argv, cwd))
+            if argv[-2:] != ["--", "."] or cwd != str(work):
+                raise subprocess.TimeoutExpired(argv, kwargs["timeout"])
+        return real_run(argv, **kwargs)
+
+    monkeypatch.setattr(
+        checkpoints.subprocess,
+        "run",
+        windows_sensitive_run,
+    )
+    manager = _mgr()
+    assert manager.ensure_checkpoint(work, "initial")
+
+    manager.new_turn()
+    (work / "main.py").write_text("changed\n", encoding="utf-8")
+    (work / "pyproject.toml").unlink()
+    (work / "added.txt").write_text("added\n", encoding="utf-8")
+    commit = manager.ensure_checkpoint(work, "changed")
+    assert commit
+
+    tree = real_run(
+        ["git", "ls-tree", "-r", "--name-only", commit],
+        env=manager._env(work),
+        capture_output=True,
+        text=True,
+        check=True,
+    ).stdout.splitlines()
+    assert set(tree) == {"added.txt", "main.py"}
+
+    (work / "main.py").write_text("preview\n", encoding="utf-8")
+    preview = manager.diff_preview(work, commit)
+    assert "preview" in preview["patch"]
+
+    assert add_calls == [
+        (["git", "add", "-A", "--", "."], str(work)),
+        (["git", "add", "-A", "--", "."], str(work)),
+        (["git", "add", "-A", "--", "."], str(work)),
+    ]
 
 
 def test_restore_reports_when_safety_snapshot_fails(work, monkeypatch):
