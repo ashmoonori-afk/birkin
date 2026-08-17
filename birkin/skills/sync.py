@@ -9,6 +9,7 @@ Standard library only.
 from __future__ import annotations
 
 import shutil
+import tempfile
 from pathlib import Path
 
 from .. import config
@@ -36,6 +37,7 @@ def sync_skills(source: Path, limit: int | None = None,
     if not source.is_dir():
         raise NotADirectoryError(source)
     dest_root = config.user_skills_dir() / "mirrors"
+    dest_root.mkdir(parents=True, exist_ok=True)
     synced: list[str] = []
     rejected: list[str] = []
     for skill_md in sorted(source.rglob("SKILL.md")):
@@ -43,23 +45,44 @@ def sync_skills(source: Path, limit: int | None = None,
         dest = dest_root / rel
         if dest.exists() and not force:
             continue
-        shutil.copytree(skill_md.parent, dest, dirs_exist_ok=True, ignore=_IGNORE)
-        _attribute(dest / "SKILL.md", skill_md.parent)
-        # A mirrored SKILL.md becomes instructions the agent follows, so
-        # scan it here too — this path used to copy third-party text in
-        # with nothing looking at it.
-        from . import guard
-        verdict = guard.scan_skill(dest, source="community")
-        if verdict.verdict == "dangerous":
-            shutil.rmtree(dest, ignore_errors=True)
-            rejected.append(rel.as_posix())
-            continue
+        with tempfile.TemporaryDirectory(
+            dir=dest_root,
+            prefix=".sync-",
+        ) as staging_root:
+            staging = Path(staging_root)
+            candidate = staging / "candidate"
+            shutil.copytree(
+                skill_md.parent,
+                candidate,
+                symlinks=True,
+                ignore=_IGNORE,
+            )
+            _attribute(candidate / "SKILL.md", skill_md.parent)
+            # Preserve links until after the policy decision so an escaping
+            # source symlink cannot become an ordinary trusted file.
+            from . import guard
+            verdict = guard.scan_skill(candidate, source="community")
+            if guard.should_allow_install(verdict) is not True:
+                rejected.append(rel.as_posix())
+                continue
+            dest.parent.mkdir(parents=True, exist_ok=True)
+            if dest.exists():
+                previous = staging / "previous"
+                dest.replace(previous)
+                try:
+                    candidate.replace(dest)
+                except OSError:
+                    previous.replace(dest)
+                    raise
+            else:
+                candidate.replace(dest)
         synced.append(rel.as_posix())
         if limit and len(synced) >= limit:
             break
     for name in rejected:
         print(f"[birkin] skipped {name}: the security scan flagged it "
-              f"as dangerous (run `birkin skills scan` to see why).")
+              f"and install policy rejected it "
+              f"(run `birkin skills scan` to see why).")
     return synced
 
 
