@@ -283,6 +283,12 @@ def api(
               '/api/browser-aside/status',
               {headers}
             ).then((response) => response.json());
+            window.__birkinTestSequence = Math.max(
+              window.__birkinTestSequence,
+              Number(sessionStorage.getItem(
+                'birkin-browser-control-sequence'
+              ) || 0),
+            );
             window.__birkinTestSequence += 1;
             sessionStorage.setItem(
               'birkin-browser-control-sequence',
