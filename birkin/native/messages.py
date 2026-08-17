@@ -20,6 +20,11 @@ from birkin.workspace.contracts import (
     StaleCursor,
     UnsupportedCommand,
 )
+from birkin.workspace.records import PANEL_KEYS
+
+_MAX_PAYLOAD_BYTES = 65_536
+_MAX_INFLIGHT_COMMANDS = 8
+_MAX_SUBSCRIPTIONS = 32
 
 
 @final
@@ -58,10 +63,15 @@ class NativeMessageFactory:
                 },
                 "limits": {
                     "max_frame_bytes": MAX_FRAME_BYTES,
+                    "max_payload_bytes": _MAX_PAYLOAD_BYTES,
                     "max_json_depth": MAX_JSON_DEPTH,
+                    "max_inflight_commands": _MAX_INFLIGHT_COMMANDS,
+                    "max_subscriptions": _MAX_SUBSCRIPTIONS,
                 },
                 "capabilities": {
                     "commands": sorted(self._command_types),
+                    "panels": list(PANEL_KEYS),
+                    "features": {},
                 },
             },
         )

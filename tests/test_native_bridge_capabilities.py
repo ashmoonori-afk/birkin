@@ -76,7 +76,7 @@ def test_ping_without_capability_fails_closed(tmp_path: Path) -> None:
         error = receive_frame(client)
 
         assert error.kind == "error"
-        assert error.body["code"] == "E_CAPABILITY_INVALID"
+        assert error.body["code"] == "E_BODY"
     finally:
         client.close()
         thread.join(timeout=2)

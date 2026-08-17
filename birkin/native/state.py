@@ -6,11 +6,10 @@ from dataclasses import dataclass, field
 from typing import final
 
 from birkin.native.protocol import (
-    NATIVE_PROTOCOL_VERSION,
-    JSONValue,
     NativeEnvelope,
     NativeProtocolError,
 )
+from birkin.native.schemas import validate_body
 
 _CLIENT_KINDS = {
     "hello",
@@ -34,31 +33,8 @@ _SERVER_KINDS = {
     "pong",
     "goodbye",
 }
-_HELLO_KEYS = {
-    "client",
-    "client_version",
-    "client_build",
-    "supported_protocol_versions",
-    "surface",
-    "view_id",
-    "bootstrap_secret",
-}
-_READY_KEYS = {
-    "protocol_version",
-    "server_version",
-    "instance_id",
-    "transport",
-    "capability",
-    "limits",
-    "capabilities",
-}
-_SUBSCRIBE_KEYS = {
-    "session_id",
-    "after_cursor",
-    "known_instance_id",
-    "session_capability",
-    "surfaces",
-}
+_MAX_PENDING_REQUESTS = 64
+_MAX_SEEN_FRAME_IDS = 1_024
 
 
 @final
@@ -90,9 +66,13 @@ class NativeConnectionState:
                 "message kind came from the wrong endpoint",
             )
         self._validate_phase(parsed, outbound=False)
-        _validate_body(parsed)
+        validate_body(
+            parsed,
+            client_origin=self.role == "server",
+        )
         self._validate_response(parsed, self._pending_sent)
         if parsed.kind in {"hello", "command", "ping"}:
+            self._ensure_pending_capacity(self._pending_received)
             self._pending_received[parsed.id] = parsed.kind
         self._advance(parsed.kind)
 
@@ -106,9 +86,13 @@ class NativeConnectionState:
                 "message kind came from the wrong endpoint",
             )
         self._validate_phase(parsed, outbound=True)
-        _validate_body(parsed)
+        validate_body(
+            parsed,
+            client_origin=self.role == "client",
+        )
         self._validate_response(parsed, self._pending_received)
         if parsed.kind in {"hello", "command", "ping"}:
+            self._ensure_pending_capacity(self._pending_sent)
             self._pending_sent[parsed.id] = parsed.kind
         self._advance(parsed.kind)
 
@@ -119,6 +103,19 @@ class NativeConnectionState:
                 "frame id was reused on this connection",
             )
         self._seen_ids.add(frame_id)
+        if len(self._seen_ids) > _MAX_SEEN_FRAME_IDS:
+            raise NativeProtocolError(
+                "E_FLOW_VIOLATION",
+                "connection retained too many frame identifiers",
+            )
+
+    @staticmethod
+    def _ensure_pending_capacity(pending: dict[str, str]) -> None:
+        if len(pending) >= _MAX_PENDING_REQUESTS:
+            raise NativeProtocolError(
+                "E_FLOW_VIOLATION",
+                "connection has too many pending requests",
+            )
 
     def _validate_phase(self, envelope: NativeEnvelope, *, outbound: bool) -> None:
         if self.phase == "hello_required":
@@ -200,55 +197,3 @@ class NativeConnectionState:
             self.phase = "subscribed"
         elif kind == "goodbye":
             self.phase = "closed"
-
-
-def _validate_body(envelope: NativeEnvelope) -> None:
-    if envelope.kind == "hello":
-        _validate_hello(envelope.body)
-    elif envelope.kind == "ready":
-        _exact_keys(envelope.body, _READY_KEYS)
-        version = envelope.body["protocol_version"]
-        if version != NATIVE_PROTOCOL_VERSION:
-            raise NativeProtocolError(
-                "E_PROTOCOL_VERSION",
-                "ready selected an unsupported native protocol version",
-            )
-    elif envelope.kind == "subscribe":
-        _exact_keys(envelope.body, _SUBSCRIBE_KEYS)
-        cursor = envelope.body["after_cursor"]
-        if isinstance(cursor, bool) or not isinstance(cursor, int) or cursor < 0:
-            raise NativeProtocolError(
-                "E_BODY",
-                "after_cursor must be a non-negative integer",
-            )
-
-
-def _validate_hello(body: dict[str, JSONValue]) -> None:
-    _exact_keys(body, _HELLO_KEYS)
-    for key in ("client", "client_version", "client_build", "surface", "view_id"):
-        if not isinstance(body[key], str):
-            raise NativeProtocolError("E_BODY", f"{key} must be a string")
-    versions = body["supported_protocol_versions"]
-    if (
-        not isinstance(versions, list)
-        or not versions
-        or any(isinstance(value, bool) or not isinstance(value, int) for value in versions)
-    ):
-        raise NativeProtocolError(
-            "E_BODY",
-            "supported_protocol_versions must contain integers",
-        )
-    bootstrap = body["bootstrap_secret"]
-    if bootstrap is not None and not isinstance(bootstrap, str):
-        raise NativeProtocolError(
-            "E_BODY",
-            "bootstrap_secret must be a string or null",
-        )
-
-
-def _exact_keys(body: dict[str, JSONValue], expected: set[str]) -> None:
-    if set(body) != expected:
-        raise NativeProtocolError(
-            "E_BODY",
-            "message body keys do not match the kind schema",
-        )
