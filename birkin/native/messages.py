@@ -14,6 +14,7 @@ from birkin.native.protocol import (
     NativeEnvelope,
     NativeProtocolError,
 )
+from birkin.native.projection import public_error_text
 from birkin.workspace.contracts import (
     CommandIdConflict,
     ProtocolError as WorkspaceProtocolError,
@@ -98,7 +99,7 @@ class NativeMessageFactory:
     ) -> NativeEnvelope:
         body: dict[str, object] = {
             "code": error.code,
-            "message": str(error)[:300],
+            "message": public_error_text(str(error)),
             "retryable": False,
         }
         if details is not None:

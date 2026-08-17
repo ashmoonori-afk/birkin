@@ -5,7 +5,10 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Protocol, final
 
-from birkin.native.projection import public_workspace_event
+from birkin.native.projection import (
+    public_native_mapping,
+    public_workspace_event,
+)
 from birkin.native.protocol import NativeProtocolError
 from birkin.workspace.records import WorkspaceEvent, WorkspaceSnapshot
 
@@ -63,7 +66,7 @@ class NativeProjectionSession:
         if reset_reason is not None:
             return ProjectionBatch(
                 instance_id=self.instance_id,
-                snapshot=snapshot.to_json(),
+                snapshot=public_native_mapping(snapshot.to_json()),
                 events=(),
                 reset_reason=reset_reason,
             )
@@ -71,7 +74,7 @@ class NativeProjectionSession:
         if not _cursors_are_contiguous(events, after_cursor=after_cursor):
             return ProjectionBatch(
                 instance_id=self.instance_id,
-                snapshot=snapshot.to_json(),
+                snapshot=public_native_mapping(snapshot.to_json()),
                 events=(),
                 reset_reason="cursor_gap",
             )

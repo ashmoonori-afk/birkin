@@ -2,8 +2,14 @@ from __future__ import annotations
 
 from typing import cast
 
-from birkin.native.projection import public_workspace_event
+from birkin.native.projection import (
+    public_error_text,
+    public_native_mapping,
+    public_workspace_event,
+)
 from birkin.workspace.records import WorkspaceEvent
+
+_SEEDED_SECRET = "Bearer SEEDED_PUBLIC_SECRET"
 
 
 def _event(event_type: str, payload: dict[str, object]) -> WorkspaceEvent:
@@ -88,3 +94,36 @@ def test_public_error_is_bounded_without_traceback_or_secret() -> None:
     assert len(error) <= 300
     assert "Traceback" not in error
     assert secret not in error
+
+
+def test_public_event_redacts_seeded_secret_in_ordinary_string() -> None:
+    projected = public_workspace_event(
+        _event(
+            "activity.recorded",
+            {"note": _SEEDED_SECRET},
+        )
+    )
+
+    assert _SEEDED_SECRET not in str(projected)
+    assert "[REDACTED]" in str(projected)
+
+
+def test_public_error_text_redacts_seeded_bearer_secret() -> None:
+    projected = public_error_text(f"request failed: {_SEEDED_SECRET}")
+
+    assert _SEEDED_SECRET not in projected
+    assert "[REDACTED]" in projected
+
+
+def test_public_snapshot_mapping_redacts_nested_seeded_secret() -> None:
+    projected = public_native_mapping(
+        {
+            "conversation": [
+                {"role": "assistant", "text": _SEEDED_SECRET},
+            ],
+            "status": {"connection": "connected"},
+        }
+    )
+
+    assert _SEEDED_SECRET not in str(projected)
+    assert "[REDACTED]" in str(projected)

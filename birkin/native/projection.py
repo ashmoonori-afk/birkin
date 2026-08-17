@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 from typing import cast
 
 from birkin.web.browser_security import browser_privacy_filter
@@ -29,6 +30,10 @@ _TERMINAL_INPUT_SAFE_KEYS = {
 }
 _MAX_ERROR_CHARS = 300
 _PRIVACY_FILTER = browser_privacy_filter()
+_SECRET_TEXT = re.compile(
+    r"(?i)\b(?:bearer\s+\S+|seeded[_-][A-Za-z0-9_-]+|"
+    + r"(?:sk|ghp|github_pat|xox[baprs])[-_][A-Za-z0-9_-]{8,})"
+)
 
 
 def public_workspace_event(event: WorkspaceEvent) -> dict[str, object]:
@@ -46,6 +51,14 @@ def public_workspace_event(event: WorkspaceEvent) -> dict[str, object]:
         return projected
     projected["payload"] = _public_mapping(event.payload)
     return projected
+
+
+def public_native_mapping(
+    mapping: dict[str, object],
+) -> dict[str, object]:
+    """Recursively redact a native-facing record at the process boundary."""
+
+    return _public_mapping(mapping)
 
 
 def _public_mapping(mapping: dict[str, object]) -> dict[str, object]:
@@ -74,6 +87,8 @@ def _public_value(value: object) -> object:
         return _public_mapping(string_mapping)
     if isinstance(value, list):
         return [_public_value(item) for item in cast(list[object], value)]
+    if isinstance(value, str):
+        return _public_text(value)
     return value
 
 
@@ -90,4 +105,10 @@ def public_error_text(value: str) -> str:
         else:
             lines.append(line)
     bounded = "\n".join(lines)
-    return _PRIVACY_FILTER.text(bounded, max_length=_MAX_ERROR_CHARS)
+    return _public_text(bounded)[:_MAX_ERROR_CHARS]
+
+
+def _public_text(value: str) -> str:
+    redacted = _SECRET_TEXT.sub("[REDACTED]", value)
+    projected = _PRIVACY_FILTER.observability({"text": redacted})["text"]
+    return projected if isinstance(projected, str) else "[REDACTED]"

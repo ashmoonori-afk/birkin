@@ -66,3 +66,21 @@ def test_diagnostics_export_is_private_without_capabilities(
     assert "capability" not in exported
     assert "bootstrap_secret" not in exported
     assert stat.S_IMODE(destination.stat().st_mode) == 0o600
+
+
+def test_diagnostics_export_redacts_seeded_bearer_secret(
+    tmp_path: Path,
+) -> None:
+    ring = DiagnosticRing(capacity=2)
+    _record(
+        ring,
+        attempt=1,
+        detail="request failed: Bearer SEEDED_PUBLIC_SECRET",
+    )
+    destination = tmp_path / "diagnostics.json"
+
+    ring.export(destination)
+
+    exported = destination.read_text(encoding="utf-8")
+    assert "SEEDED_PUBLIC_SECRET" not in exported
+    assert "[REDACTED]" in exported
