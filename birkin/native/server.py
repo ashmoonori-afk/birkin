@@ -20,6 +20,7 @@ from birkin.native.session import NativeProjectionSession, WorkspaceProjectionSo
 from birkin.native.state import NativeConnectionState
 from birkin.native.transport import NativeConnection
 from birkin.workspace import CommandReceipt, WorkspaceCommand
+from birkin.workspace.contracts import ProtocolError as WorkspaceProtocolError
 
 
 class WorkspaceAuthority(WorkspaceProjectionSource, Protocol):
@@ -112,7 +113,15 @@ class NativeBridgeServer:
                 self._send_projection(connection, state, message)
             elif message.kind == "command":
                 self._require_capability(message.body, active_token)
-                self._execute_command(connection, state, message)
+                try:
+                    self._execute_command(connection, state, message)
+                except WorkspaceProtocolError as exc:
+                    self._send_workspace_error(
+                        connection,
+                        state,
+                        message,
+                        exc,
+                    )
 
     def _authenticate_hello(
         self,
@@ -201,6 +210,20 @@ class NativeBridgeServer:
         response = self._messages.message(
             "receipt",
             body=body,
+            in_reply_to=message.id,
+        )
+        state.send(response)
+        connection.send(response)
+
+    def _send_workspace_error(
+        self,
+        connection: NativeConnection,
+        state: NativeConnectionState,
+        message: NativeEnvelope,
+        error: WorkspaceProtocolError,
+    ) -> None:
+        response = self._messages.workspace_error(
+            error,
             in_reply_to=message.id,
         )
         state.send(response)

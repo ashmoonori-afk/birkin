@@ -14,6 +14,11 @@ from birkin.native.protocol import (
     NativeEnvelope,
     NativeProtocolError,
 )
+from birkin.workspace.contracts import (
+    CommandIdConflict,
+    ProtocolError as WorkspaceProtocolError,
+    StaleCursor,
+)
 
 
 @final
@@ -60,14 +65,44 @@ class NativeMessageFactory:
             },
         )
 
-    def error(self, error: NativeProtocolError) -> NativeEnvelope:
+    def error(
+        self,
+        error: NativeProtocolError,
+        *,
+        in_reply_to: str | None = None,
+        details: dict[str, object] | None = None,
+    ) -> NativeEnvelope:
+        body: dict[str, object] = {
+            "code": error.code,
+            "message": str(error)[:300],
+            "retryable": False,
+        }
+        if details is not None:
+            body.update(details)
         return self.message(
             "error",
-            body={
-                "code": error.code,
-                "message": str(error)[:300],
-                "retryable": False,
-            },
+            body=body,
+            in_reply_to=in_reply_to,
+        )
+
+    def workspace_error(
+        self,
+        error: WorkspaceProtocolError,
+        *,
+        in_reply_to: str,
+    ) -> NativeEnvelope:
+        details: dict[str, object] | None = None
+        if isinstance(error, StaleCursor):
+            code = "E_STALE_CURSOR"
+            details = {"current_cursor": error.current_cursor}
+        elif isinstance(error, CommandIdConflict):
+            code = "E_COMMAND_ID_CONFLICT"
+        else:
+            code = "E_BODY"
+        return self.error(
+            NativeProtocolError(code, str(error)),
+            in_reply_to=in_reply_to,
+            details=details,
         )
 
     def message(
