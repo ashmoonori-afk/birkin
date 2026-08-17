@@ -9,9 +9,8 @@ from collections.abc import Mapping
 from dataclasses import dataclass
 from typing import TypeAlias, cast
 
-from birkin.workspace.contracts import PROTOCOL_VERSION
-
 NATIVE_PROTOCOL_NAME = "birkin-local-1"
+NATIVE_PROTOCOL_VERSION = 1
 MAX_FRAME_BYTES = 262_144
 MAX_JSON_DEPTH = 12
 
@@ -89,7 +88,7 @@ class NativeEnvelope:
                 "E_PROTOCOL_VERSION",
                 "protocol_version must be an integer",
             )
-        if version != PROTOCOL_VERSION:
+        if version != NATIVE_PROTOCOL_VERSION:
             raise NativeProtocolError(
                 "E_PROTOCOL_VERSION",
                 f"unsupported protocol_version {version}",

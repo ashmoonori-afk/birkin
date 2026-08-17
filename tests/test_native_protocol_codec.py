@@ -7,7 +7,9 @@ import pytest
 
 from birkin.native.protocol import (
     MAX_FRAME_BYTES,
+    MAX_JSON_DEPTH,
     NATIVE_PROTOCOL_NAME,
+    NATIVE_PROTOCOL_VERSION,
     NativeEnvelope,
     NativeProtocolError,
     decode_frame,
@@ -19,7 +21,7 @@ from birkin.workspace.contracts import PROTOCOL_VERSION
 def _envelope(**overrides: object) -> dict[str, object]:
     envelope: dict[str, object] = {
         "protocol": NATIVE_PROTOCOL_NAME,
-        "protocol_version": PROTOCOL_VERSION,
+        "protocol_version": NATIVE_PROTOCOL_VERSION,
         "kind": "hello",
         "id": "frame-1",
         "in_reply_to": None,
@@ -29,18 +31,74 @@ def _envelope(**overrides: object) -> dict[str, object]:
     return envelope
 
 
+def _nested_body(levels: int) -> dict[str, object]:
+    root: dict[str, object] = {}
+    current = root
+    for _ in range(levels):
+        child: dict[str, object] = {}
+        current["child"] = child
+        current = child
+    return root
+
+
 def test_native_frame_round_trips_strict_envelope() -> None:
     frame = encode_frame(_envelope())
 
     assert frame[:4] == struct.pack(">I", len(frame) - 4)
     assert decode_frame(frame) == NativeEnvelope(
         protocol=NATIVE_PROTOCOL_NAME,
-        protocol_version=PROTOCOL_VERSION,
+        protocol_version=NATIVE_PROTOCOL_VERSION,
         kind="hello",
         id="frame-1",
         in_reply_to=None,
         body={"client": "birkin-macos"},
     )
+
+
+def test_native_version_is_independent_from_workspace_command_version() -> None:
+    nested_command = {
+        "protocol_version": PROTOCOL_VERSION + 1,
+        "command_id": "future-workspace-command",
+    }
+
+    envelope = decode_frame(
+        encode_frame(_envelope(kind="command", body={"command": nested_command}))
+    )
+
+    assert envelope.protocol_version == NATIVE_PROTOCOL_VERSION
+    assert envelope.body["command"] == nested_command
+
+
+def test_future_native_version_offer_remains_parseable_in_hello() -> None:
+    envelope = decode_frame(
+        encode_frame(
+            _envelope(
+                body={
+                    "client": "birkin-macos",
+                    "supported_protocol_versions": [NATIVE_PROTOCOL_VERSION + 1],
+                }
+            )
+        )
+    )
+
+    assert envelope.body["supported_protocol_versions"] == [
+        NATIVE_PROTOCOL_VERSION + 1
+    ]
+
+
+def test_native_envelope_accepts_json_at_maximum_depth() -> None:
+    envelope = _envelope(body=_nested_body(MAX_JSON_DEPTH - 1))
+
+    assert decode_frame(encode_frame(envelope)).body == envelope["body"]
+
+
+def test_native_envelope_rejects_json_beyond_maximum_depth() -> None:
+    envelope = _envelope(body=_nested_body(MAX_JSON_DEPTH))
+
+    with pytest.raises(NativeProtocolError) as exc_info:
+        _ = encode_frame(envelope)
+
+    assert exc_info.value.code == "E_JSON_DEPTH"
 
 
 def test_native_frame_rejects_oversized_length_before_body_read() -> None:
