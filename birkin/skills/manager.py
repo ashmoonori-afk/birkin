@@ -280,7 +280,11 @@ class SkillManager:
         ]
 
 
-def _guard_agent_written(path: Path, what: str) -> None:
+def _guard_agent_written(
+    path: Path,
+    what: str,
+    previous: bytes | None = None,
+) -> None:
     """Scan a skill the agent just wrote, rolling the write back if it trips.
 
     Opt-in (``skills_guard_agent_created``) for the same reason hermes leaves
@@ -293,10 +297,13 @@ def _guard_agent_written(path: Path, what: str) -> None:
     result = guard.scan_skill(path.parent, source="agent-created")
     if guard.should_allow_install(result) is True:
         return
-    try:
-        path.unlink()
-    except OSError:
-        pass
+    if previous is None:
+        try:
+            path.unlink()
+        except OSError:
+            pass
+    else:
+        path.write_bytes(previous)
     raise SkillProposalError(
         f"{what} was rolled back — the security scan returned "
         f"{result.verdict}:\n{guard.format_report(result, path.parent.name)}")
@@ -344,11 +351,17 @@ def apply_skill_proposal(payload: dict[str, Any]) -> str:
                 if skill is None:
                     raise SkillProposalError(f"skill not found: {target_name}")
                 target = skill.path
+                previous = target.read_bytes() if skill.source != "bundled" else None
                 if skill.source == "bundled":
                     target = _user_skill_path(skill.name)
                     target.write_text(skill.full(), encoding="utf-8")
                 with target.open("a", encoding="utf-8") as fh:
                     fh.write(f"\n\n## Learned ({_today()})\n\n{addition}\n")
+                _guard_agent_written(
+                    target,
+                    f"skill {target_name!r}",
+                    previous=previous,
+                )
         except store.FileLockTimeout:
             raise SkillProposalError("skill store is busy") from None
         return f"Appended learned note to {target_name!r}."
