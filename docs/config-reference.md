@@ -158,6 +158,8 @@ Schema version: 1
 | `evidence_required` | `boolean` | `false` | Birkin setting `evidence_required`. |
 | `critique_agents` | `integer` | `3` | Birkin setting `critique_agents`. |
 | `boulder_max_iters` | `integer` | `100` | Birkin setting `boulder_max_iters`. |
+| `daedalus_dir` | `string` | `""` | Birkin setting `daedalus_dir`. |
+| `daedalus_max_files` | `integer` | `2000` | Birkin setting `daedalus_max_files`. |
 | `fs_jail` | `boolean` | `false` | Birkin setting `fs_jail`. |
 | `sandbox` | `object` | `{"backend": "worktree", "image": "", "setup": [], "env_allowlist": [], "network": "off", "network_allowlist": [], "write_paths": ["."]}` | Defaults for isolated worktree or Docker jobs; repositories may override them in .birkin/sandbox.json. |
 | `sandbox.backend` | `string` | `"worktree"` | Birkin setting `sandbox.backend`. |

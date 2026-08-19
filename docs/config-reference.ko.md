@@ -158,6 +158,8 @@ Schema version: 1
 | `evidence_required` | `boolean` | `false` | Birkin 설정 `evidence_required`. |
 | `critique_agents` | `integer` | `3` | Birkin 설정 `critique_agents`. |
 | `boulder_max_iters` | `integer` | `100` | Birkin 설정 `boulder_max_iters`. |
+| `daedalus_dir` | `string` | `""` | Birkin 설정 `daedalus_dir`. |
+| `daedalus_max_files` | `integer` | `2000` | Birkin 설정 `daedalus_max_files`. |
 | `fs_jail` | `boolean` | `false` | Birkin 설정 `fs_jail`. |
 | `sandbox` | `object` | `{"backend": "worktree", "image": "", "setup": [], "env_allowlist": [], "network": "off", "network_allowlist": [], "write_paths": ["."]}` | 격리된 worktree 또는 Docker 작업의 기본값이며 저장소의 .birkin/sandbox.json에서 재정의할 수 있습니다. |
 | `sandbox.backend` | `string` | `"worktree"` | Birkin 설정 `sandbox.backend`. |
