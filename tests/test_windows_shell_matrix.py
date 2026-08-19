@@ -31,7 +31,9 @@ def _run(
     *,
     environment: dict[str, str] | None = None,
     stdin: str | None = None,
-    timeout: int = 15,
+    # Cold process startup on a loaded CI runner outruns a 15s budget without
+    # anything being wrong; callers asserting timeout behaviour pass their own.
+    timeout: int = 60,
 ) -> subprocess.CompletedProcess[str]:
     return run_shell_command(
         ShellCommand(
