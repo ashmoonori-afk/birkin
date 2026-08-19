@@ -1,8 +1,0 @@
-[
-  {
-    "pid": 54082,
-    "reason": "fixture_not_visible_in_hosted_gui_session",
-    "result": "skipped",
-    "scenario_id": "app-window-discovery"
-  }
-]
