@@ -14,6 +14,7 @@ import pytest
 
 from birkin.web import server as web_server
 from birkin.workspace import WorkspaceHub
+from tests.local_http_support import local_http_timeout
 
 EXPECTED_PANEL_KEYS = (
     "tasks_runs",
@@ -46,7 +47,9 @@ def _request(
         encoded = json.dumps(body).encode("utf-8")
         headers["Content-Type"] = "application/json"
         headers["Content-Length"] = str(len(encoded))
-    conn = http.client.HTTPConnection("127.0.0.1", port, timeout=4)
+    conn = http.client.HTTPConnection(
+        "127.0.0.1", port, timeout=local_http_timeout()
+    )
     conn.request(method, path, body=encoded, headers=headers)
     response = conn.getresponse()
     payload = response.read()
@@ -330,7 +333,9 @@ def test_web_interrupt_signals_runtime_before_serial_submission(
 
 
 def _bootstrap_cookie(port: int, token: str) -> str:
-    connection = http.client.HTTPConnection("127.0.0.1", port, timeout=4)
+    connection = http.client.HTTPConnection(
+        "127.0.0.1", port, timeout=local_http_timeout()
+    )
     connection.request(
         "GET",
         f"/_bootstrap/{token}",
@@ -373,7 +378,7 @@ def test_cookie_authenticated_post_requires_same_origin_json(
         connection = http.client.HTTPConnection(
             "127.0.0.1",
             port,
-            timeout=4,
+            timeout=local_http_timeout(),
         )
         connection.request(
             "POST",
