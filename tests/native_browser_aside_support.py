@@ -21,6 +21,29 @@ FIRST_COLOR = (18, 52, 86)
 SECOND_COLOR = (22, 101, 52)
 WEBSOCKET_BLOCKED_COLOR = (24, 120, 70)
 
+# Playwright runs two separate clocks: ``page.set_default_timeout`` governs
+# actions, while auto-retrying assertions keep their own 5s budget that it does
+# not touch (https://playwright.dev/docs/test-timeouts). A loaded CI runner
+# needs more than 5s on both; ``BIRKIN_BROWSER_TEST_TIMEOUT_MS`` retunes them
+# together. Raising the bound never weakens an assertion — a state that never
+# arrives still fails, only later.
+_DEFAULT_WAIT_BUDGET_MS = 15_000.0
+_MAX_WAIT_BUDGET_MS = 120_000.0
+
+
+def wait_budget_ms() -> float:
+    """Milliseconds every Playwright wait in this suite is allowed to burn."""
+    raw = os.environ.get("BIRKIN_BROWSER_TEST_TIMEOUT_MS")
+    if raw is None:
+        return _DEFAULT_WAIT_BUDGET_MS
+    try:
+        budget = float(raw)
+    except ValueError:
+        return _DEFAULT_WAIT_BUDGET_MS
+    if not budget > 0:  # rejects zero, negatives, and NaN
+        return _DEFAULT_WAIT_BUDGET_MS
+    return min(budget, _MAX_WAIT_BUDGET_MS)
+
 
 class Locator(Protocol):
     def click(self) -> None: ...
@@ -93,10 +116,16 @@ class PlaywrightContext(Protocol):
     ) -> bool | None: ...
 
 
+class ExpectApi(Protocol):
+    def __call__(self, locator: Locator) -> Expectation: ...
+
+    def set_options(self, *, timeout: float) -> None: ...
+
+
 class PlaywrightModule(Protocol):
     def sync_playwright(self) -> PlaywrightContext: ...
 
-    def expect(self, locator: Locator) -> Expectation: ...
+    expect: ExpectApi
 
 
 def _quiet_log(
@@ -358,7 +387,8 @@ def browser_harness() -> Generator[BrowserHarness]:
                 page = browser.new_page(
                     viewport={"width": 1440, "height": 1000}
                 )
-                page.set_default_timeout(5_000)
+                page.set_default_timeout(wait_budget_ms())
+                module.expect.set_options(timeout=wait_budget_ms())
                 token = web_server.listener_bootstrap_nonce(
                     web_server_instance
                 )
