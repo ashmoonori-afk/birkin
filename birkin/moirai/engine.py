@@ -213,6 +213,9 @@ class MoiraiAPI:
         """Run an active goal verifier through Birkin's shell approval gate.
 
         With no active goal there is no verifier to update, so this is a no-op.
+        Each outcome is folded into the run's confidence signals (a failed
+        verifier counts as a tool error), so the run's overall shakiness is
+        visible to whoever collects them afterwards.
         """
         from dataclasses import replace
 
@@ -223,6 +226,7 @@ class MoiraiAPI:
         if state is None or not command:
             return None
         updated = goals.run_gate(replace(state, gate_cmd=command), self._run.cfg)
+        self._run.record_verify(updated.gate_last)
         return updated.gate_last
 
 
@@ -282,6 +286,12 @@ class Run:
         # real one and travel into the run's own result.
         self.failures: list[dict[str, Any]] = []
         self._fail_lock = threading.Lock()
+        # Confidence signals for the run (thinking frameworks, item 2):
+        # verifier failures and schema retries accumulate here so a caller
+        # can tier the run's output without re-walking the journal.
+        self._signal_lock = threading.Lock()
+        self._verify_failures = 0
+        self._schema_retries = 0
 
     # -- guards (Atropos) --------------------------------------------------
 
@@ -314,6 +324,35 @@ class Run:
                 "seq": int(seq), "role": role or "", "label": str(label),
                 "phase": phase, "reason": reason,
                 "error": error[:2000], "traceback": tb[:4000]})
+
+    def record_verify(self, gate_last: Optional[dict]) -> None:
+        """Fold one verifier outcome into the run's confidence signals."""
+        if not gate_last:
+            return
+        with self._signal_lock:
+            if not gate_last.get("ok"):
+                self._verify_failures += 1
+
+    def signals(self) -> Any:
+        """The run's confidence signals so far (see :mod:`birkin.confidence`).
+
+        Agent failures recorded in ``self.failures`` count as tool errors;
+        schema-miss failures additionally count as schema retries. Fail-open:
+        a caller that cannot build a score from this must treat the run as
+        standard, not crash.
+        """
+        from .. import confidence
+
+        with self._fail_lock:
+            failures = list(self.failures)
+        with self._signal_lock:
+            verify_failures = self._verify_failures
+        schema_retries = sum(
+            1 for failure in failures if failure.get("reason") == "schema")
+        return confidence.Signals(
+            tool_errors=len(failures) + verify_failures,
+            schema_retries=schema_retries,
+        )
 
     def set_phase(self, title: str) -> None:
         self._phase = title

@@ -16,8 +16,14 @@ from __future__ import annotations
 from html import escape
 from typing import Any, Optional
 
-from . import neurosis, persona, presets, prompts
+from . import cynefin, ishikawa, neurosis, persona, presets, prompts
 from .moirai import trigger as moirai_trigger
+
+_MINTO_GUIDANCE = (
+    "\n\nCONCLUSION-FIRST reporting (Minto pyramid): lead the final answer "
+    "with the conclusion or verdict on the first line, then the key reasons, "
+    "then the supporting evidence and details. Never bury the verdict under "
+    "build-up.")
 
 _PUBLIC_SYSTEM = (
     "You are birkin, a helpful and concise assistant. This turn comes from an "
@@ -113,11 +119,36 @@ def _session_notes(
         )
 
 
-def compose_turn_context(cfg: dict[str, Any]) -> str:
+def compose_turn_context(cfg: dict[str, Any], *,
+                         user_text: str = "") -> str:
     """Fresh mutable session state for warm CLI turns."""
-    return (
-        _session_notes(cfg, include_empty=True)
-    )
+    notes = _session_notes(cfg, include_empty=True)
+    if cfg.get("ishikawa_enabled", True):
+        try:
+            # Same extra slot as runtime's failure context: debugging turns
+            # see the fishbone nudge before the user request.
+            note = ishikawa.ishikawa_note()
+            if note:
+                notes += "\n\n" + note
+        except Exception:
+            pass  # nudge only — never break a turn
+    if user_text and cfg.get("cynefin_enabled", True):
+        try:
+            # Cynefin routing (design item 1): the turn's domain decides the
+            # execution-strategy nudge the model sees before the request.
+            note = cynefin.note_for(user_text)
+            if note:
+                notes += "\n\n" + note
+        except Exception:
+            pass  # nudge only — never break a turn
+    return notes
+
+
+def _minto_note(cfg: dict[str, Any]) -> str:
+    """Minto pyramid guidance for final answers (design Item 8)."""
+    if not cfg.get("minto_enabled", True):
+        return ""
+    return _MINTO_GUIDANCE
 
 
 def _persona(persona_text: Optional[str]) -> str:
@@ -154,6 +185,7 @@ def compose_main(cfg: dict[str, Any], *, skills_index: str = "",
         ) \
         + neurosis.auto_trigger_note(cfg) \
         + moirai_trigger.auto_trigger_note(cfg) \
+        + _minto_note(cfg) \
         + turn_state
     from . import ide
     return prompts.seal_research_policy(system) + ide.consume_context_note()
@@ -182,6 +214,7 @@ def compose_cli(cfg: dict[str, Any], *, memory_block: str = "",
         ) \
         + neurosis.auto_trigger_note(cfg) \
         + moirai_trigger.auto_trigger_note(cfg) \
+        + _minto_note(cfg) \
         + turn_state
     from . import ide
     return prompts.seal_research_policy(system) + ide.consume_context_note()

@@ -129,6 +129,12 @@ Schema version: 1
 | `harness_enabled` | `boolean` | `true` | Birkin 설정 `harness_enabled`. |
 | `harness_turn_interval` | `integer` | `12` | Birkin 설정 `harness_turn_interval`. |
 | `harness_cooldown_min` | `integer` | `15` | Birkin 설정 `harness_cooldown_min`. |
+| `ishikawa_enabled` | `boolean` | `true` | Birkin 설정 `ishikawa_enabled`. |
+| `minto_enabled` | `boolean` | `true` | Birkin 설정 `minto_enabled`. |
+| `confidence_strict_below` | `number` | `0.4` | Birkin 설정 `confidence_strict_below`. |
+| `confidence_fast_above` | `number` | `0.8` | Birkin 설정 `confidence_fast_above`. |
+| `cynefin_enabled` | `boolean` | `true` | Birkin 설정 `cynefin_enabled`. |
+| `evidence_gate_enabled` | `boolean` | `false` | Birkin 설정 `evidence_gate_enabled`. |
 | `harness_compact_review` | `boolean` | `true` | Birkin 설정 `harness_compact_review`. |
 | `harness_max_edits` | `integer` | `12` | Birkin 설정 `harness_max_edits`. |
 | `harness_prompt_budget` | `integer` | `20000` | Birkin 설정 `harness_prompt_budget`. |

@@ -9,7 +9,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
-from . import approvals, config, store
+from . import approvals, confidence, config, store
 
 _STATUSES = frozenset({"active", "paused", "done"})
 _SLUG_RE = re.compile(r"[\W_]+", re.UNICODE)
@@ -265,6 +265,33 @@ def done(*, session_id: str | None = None) -> GoalState | None:
     return _transition("done", session_id=session_id)
 
 
+def _tier_for(
+    signals: confidence.Signals | None,
+    cfg: dict[str, Any],
+) -> confidence.Tier:
+    """The confidence tier for a completion request; fail-open to standard."""
+    if signals is None:
+        return "standard"
+    try:
+        return confidence.tier_for(signals, cfg)
+    except Exception:
+        return "standard"
+
+
+def _confidence_note(
+    signals: confidence.Signals | None,
+    cfg: dict[str, Any],
+) -> dict[str, Any] | None:
+    """Score/tier summary for a gate run, or None when unknown or broken."""
+    if signals is None:
+        return None
+    try:
+        return {"score": round(confidence.score(signals), 4),
+                "tier": confidence.tier_for(signals, cfg)}
+    except Exception:
+        return None
+
+
 def _short_objective(objective: str) -> str:
     one_line = " ".join(objective.split())
     if len(one_line) <= _OBJECTIVE_DISPLAY:
@@ -308,19 +335,32 @@ def prompt_note(*, session_id: str | None = None) -> str:
             f"{body}\n")
 
 
-def request_completion(state: GoalState,
-                       cfg: dict[str, Any]) -> tuple[GoalState | None, str]:
+def request_completion(
+    state: GoalState,
+    cfg: dict[str, Any],
+    *,
+    signals: confidence.Signals | None = None,
+) -> tuple[GoalState | None, str]:
     """Complete ``state`` only when its verifier actually passed.
 
     Returns ``(goal, outcome)`` where outcome is ``done``, ``queued`` (the
     verifier is sitting in the approval queue and nothing has been verified yet)
     or ``failed``. Both non-``done`` outcomes leave the goal open: a goal whose
     gate never ran is not a goal that was met.
+
+    When ``signals`` is given, the confidence tier adjusts how hard the
+    verifier is pushed: a ``fast`` turn accepts an already-passing gate
+    without re-running it, a ``strict`` turn re-runs the verifier even over a
+    previous pass, and ``standard`` keeps the existing behavior (run once,
+    trust the fresh result). The tier never skips a gate that has never run.
     """
     if not (state.gate_cmd or "").strip():
         return done(session_id=state.session_id), "done"
+    tier = _tier_for(signals, cfg)
+    if tier == "fast" and (state.gate_last or {}).get("ok"):
+        return done(session_id=state.session_id), "done"
     queued = not approvals.is_auto("shell", cfg)
-    updated = run_gate(state, cfg)
+    updated = run_gate(state, cfg, signals=signals)
     if queued:
         return updated, "queued"
     if not (updated.gate_last or {}).get("ok"):
@@ -328,16 +368,29 @@ def request_completion(state: GoalState,
     return done(session_id=state.session_id), "done"
 
 
-def run_gate(state: GoalState, cfg: dict[str, Any]) -> GoalState:
+def run_gate(
+    state: GoalState,
+    cfg: dict[str, Any],
+    *,
+    signals: confidence.Signals | None = None,
+) -> GoalState:
     """Run or queue ``state``'s verifier through the shell approval pipeline.
 
     The command is never passed to subprocess here. Non-auto-approved shell
     actions are proposals; auto-approved actions use the approval executor that
     handles shell payloads everywhere else.
+
+    When ``signals`` is given, its confidence tier annotates the recorded
+    gate result (``gate_last["confidence"]``) so a later completion check can
+    see how shaky the turn that produced it was. The tier never changes what
+    runs: a verifier that is configured is always run or queued, because a
+    gate skipped on a hunch is not a gate. Anything wrong with the scoring
+    path itself is dropped — gate execution must not fail on telemetry.
     """
     command = (state.gate_cmd or "").strip()
     if not command:
         return state
+    confidence_note = _confidence_note(signals, cfg)
     if not approvals.is_auto("shell", cfg):
         approvals.propose(
             category="shell", title=f"goal verifier: {command[:60]}",
@@ -366,6 +419,8 @@ def run_gate(state: GoalState, cfg: dict[str, Any]) -> GoalState:
         ok = False
     gate_last = {"ok": ok, "output_tail": str(output)[-_GATE_OUTPUT_TAIL:],
                  "at": _now()}
+    if confidence_note:
+        gate_last["confidence"] = confidence_note
     with _domain_lock():
         path = _path(state.slug, state.session_id)
         with store.file_lock(path):

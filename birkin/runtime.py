@@ -240,7 +240,14 @@ class Session:
         )
         if not trusted:
             turn_cfg = {**turn_cfg, "session_goal_fallback": False}
-        current = promptgate.compose_turn_context(turn_cfg)
+        current = promptgate.compose_turn_context(
+            turn_cfg, user_text=text if trusted else "")
+        if trusted and turn_cfg.get("cynefin_enabled", True):
+            try:
+                from . import cynefin, ledger
+                ledger.event("cynefin", cynefin.classify(text))
+            except Exception:
+                pass  # observability only -- never break a turn
         if not preloaded and not current:
             return text
         sections: list[str] = []
@@ -477,6 +484,21 @@ class Session:
         except Exception as exc:
             print(f"[birkin] warning: could not update goal usage: {exc}",
                   file=sys.stderr, flush=True)
+        if self.cfg.get("evidence_gate_enabled", False):
+            try:
+                # Ladder-of-inference gate (design item 3): observe-only --
+                # score the reply's claims against this session's tool
+                # outputs and record the counts; never touch the reply.
+                from . import evidence_gate, ledger
+                outputs = evidence_gate.collect_tool_outputs(
+                    getattr(self.agent, "messages", []) or [])
+                report = evidence_gate.verify_reply(reply or "", outputs)
+                ledger.event(
+                    "evidence_gate",
+                    f"supported={report.supported_count} "
+                    f"unsupported={len(report.unsupported)}")
+            except Exception:
+                pass  # observe-only -- never break a turn
         if review_skills:
             self._schedule_skill_review(text, reply)
         if review_harness:

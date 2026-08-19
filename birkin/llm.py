@@ -131,6 +131,23 @@ _OVERFLOW_MARKERS = (
 )
 
 
+def _transport_for(provider: str) -> str:
+    """Map a provider id to its wire transport.
+
+    Returns "" for unknown provider ids (complete() raises LLMError), and
+    "openai_chat" only for the built-in openai provider. Named config
+    providers (``providers:``) get their transport from the entry via
+    ``_plain_client``.
+    """
+    if provider in ("anthropic", "claude-oauth"):
+        return "anthropic_messages"
+    if provider in ("claude-cli", "codex-cli", "local-cli"):
+        return "cli"
+    if provider == "openai":
+        return "openai_chat"
+    return ""
+
+
 def _looks_like_overflow(text: str) -> bool:
     low = (text or "").lower()
     return any(m in low for m in _OVERFLOW_MARKERS)
@@ -142,7 +159,8 @@ class LLMClient:
                  cli_access: str = "workspace", cli_command: list[str] | None = None,
                  cli_timeout: int = 300, oauth: bool = False,
                  cli_network_access: bool = False,
-                 egress_enforced: bool = False):
+                 egress_enforced: bool = False,
+                 transport: str = ""):
         self.provider = provider
         self.model = model
         self.api_key = api_key
@@ -155,6 +173,10 @@ class LLMClient:
         # paid x-api-key. Set for the "claude-oauth" provider. Keeps birkin's own
         # in-process tool loop (no `claude -p` subprocess, so no per-message hooks).
         self.oauth = oauth
+        # Effective wire transport for named (config ``providers:``) providers:
+        # "openai_chat" | "anthropic_messages" | "cli". Empty = derive from
+        # ``provider`` below.
+        self.transport = transport or _transport_for(provider)
         self.base_url = base_url.rstrip("/")
         self.max_tokens = max_tokens
         self.temperature = temperature
@@ -186,11 +208,11 @@ class LLMClient:
         stops between SSE events and a CLI subprocess is killed (Esc in the REPL).
         """
         model = model or self.model
-        if self.provider in ("anthropic", "claude-oauth"):
+        if self.transport == "anthropic_messages":
             return self._anthropic_complete(system, messages, tools, model, on_text, abort)
-        if self.provider == "openai":
+        if self.transport == "openai_chat":
             return self._openai_complete(system, messages, tools, model, on_text, abort)
-        if self.provider in ("claude-cli", "codex-cli", "local-cli"):
+        if self.transport == "cli":
             return self._cli_complete(system, messages, model, on_text, abort)
         raise LLMError(f"unknown provider: {self.provider!r}")
 
@@ -928,8 +950,18 @@ def _stringify(content: Any) -> str:
 
 
 def _plain_client(cfg: dict[str, Any], api_key: str) -> LLMClient:
-    from .config import OAUTH_PROVIDERS, resolve_base_url
+    from .config import OAUTH_PROVIDERS, _named_provider, resolve_base_url
     provider = cfg.get("provider", "anthropic")
+    # A hermes-style named provider from config ``providers:`` routes through
+    # the OpenAI-compatible transport unless the entry says otherwise. Keep
+    # the original provider id on the client (labels, failover) while the
+    # transport decision below uses the effective API kind.
+    named = _named_provider(cfg, provider)
+    transport = ""
+    if named:
+        # Named config providers default to the OpenAI-compatible transport
+        # unless the entry says otherwise.
+        transport = str(named.get("transport") or "openai_chat")
     egress_cfg = cfg.get("egress", {})
     egress_enforced = (
         isinstance(egress_cfg, dict)
@@ -950,6 +982,7 @@ def _plain_client(cfg: dict[str, Any], api_key: str) -> LLMClient:
         cli_command=cfg.get("cli_command", []),
         cli_timeout=int(cfg.get("cli_timeout", 300)),
         oauth=provider in OAUTH_PROVIDERS,
+        transport=transport,
     )
 
 

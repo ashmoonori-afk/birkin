@@ -38,7 +38,13 @@ _PROPOSAL_SYSTEM = (
     "You are birkin's harness refiner. You have no tools and must not edit "
     "anything. Turn the evidence below into ONE harness proposal covering only "
     "what the evidence actually supports. Never record secrets or one-off "
-    "trivia.\n\n"
+    "trivia.\n"
+    "Every proposal MUST also:\n"
+    "- INVERSION: name the proposal's failure mode -- how this edit makes a "
+    "future turn worse or gets misapplied.\n"
+    "- SECOND-ORDER: name the long-term cost -- what adopting this does to "
+    "the harness in 3 months.\n"
+    "Put both in the rationale.\n\n"
     "Return exactly one JSON object and no prose:\n"
     '{"summary": "one line", "rationale": "the evidence", '
     '"expectedOutcome": "what improves next time", "edits": ['

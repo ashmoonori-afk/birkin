@@ -129,6 +129,12 @@ Schema version: 1
 | `harness_enabled` | `boolean` | `true` | Birkin setting `harness_enabled`. |
 | `harness_turn_interval` | `integer` | `12` | Birkin setting `harness_turn_interval`. |
 | `harness_cooldown_min` | `integer` | `15` | Birkin setting `harness_cooldown_min`. |
+| `ishikawa_enabled` | `boolean` | `true` | Birkin setting `ishikawa_enabled`. |
+| `minto_enabled` | `boolean` | `true` | Birkin setting `minto_enabled`. |
+| `confidence_strict_below` | `number` | `0.4` | Birkin setting `confidence_strict_below`. |
+| `confidence_fast_above` | `number` | `0.8` | Birkin setting `confidence_fast_above`. |
+| `cynefin_enabled` | `boolean` | `true` | Birkin setting `cynefin_enabled`. |
+| `evidence_gate_enabled` | `boolean` | `false` | Birkin setting `evidence_gate_enabled`. |
 | `harness_compact_review` | `boolean` | `true` | Birkin setting `harness_compact_review`. |
 | `harness_max_edits` | `integer` | `12` | Birkin setting `harness_max_edits`. |
 | `harness_prompt_budget` | `integer` | `20000` | Birkin setting `harness_prompt_budget`. |

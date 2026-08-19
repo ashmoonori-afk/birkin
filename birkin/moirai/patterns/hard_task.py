@@ -116,7 +116,11 @@ def main(m):
                 dropped.append(str(followup))
 
     m.phase("Report")
-    lines = [f"# {task}", "", todo.render(), ""]
+    # Minto pyramid (design Item 8): verdict line first, then the key reason
+    # (the todo ledger's completion state), then the per-step evidence.
+    verdict = ("완료" if todo.is_complete
+               else f"미완료 — 남은 할 일 {todo.total - todo.done_count}건")
+    lines = [f"VERDICT: {verdict} — {task}", "", todo.render(), ""]
     lines.extend(notes)
     if dropped:
         lines.append("")

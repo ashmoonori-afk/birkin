@@ -22,7 +22,7 @@ from __future__ import annotations
 import threading
 from typing import Any, Callable, Optional, Protocol
 
-from . import compaction, parallel
+from . import compaction, ooda, parallel
 from .config import CLI_PROVIDERS
 from .llm import LLMClient, LLMError
 
@@ -111,6 +111,7 @@ class Agent:
                  skill_nudge_interval: int = 3, memory_nudge_interval: int = 6,
                  auto_compact: bool = True, context_window: int = 200_000,
                  parallel_tools: bool = True, parallel_workers: int = 8,
+                 ooda_enabled: bool = True, ooda_stall_repeats: int = 3,
                  hooks: Any = None):
         self.client = client
         self.system = system
@@ -159,12 +160,23 @@ class Agent:
         # hooks.HookBus | None — pre_llm_call context injection.
         self.hooks = hooks
 
+        # OODA stall detection: identical failing actions force a one-shot
+        # reorientation note instead of silently repeating.
+        self._ooda = ooda.OodaTracker(repeats=ooda_stall_repeats,
+                                      enabled=ooda_enabled)
+        self._ooda_pending_note = ""
+
     def reset(self) -> None:
         self.messages = []
         self._iters_since_skill = 0
         self._turns_since_memory = 0
         self._pending_nudge = ""
         self._compact_floor = 0
+        try:
+            self._ooda.reset()
+        except Exception:
+            pass
+        self._ooda_pending_note = ""
         with self._steer_lock:
             self._pending_steer = ""
 
@@ -226,6 +238,11 @@ class Agent:
             self._turns_since_memory += 1
             nudge = self._pending_nudge
             self._pending_nudge = ""
+            # A stall detected by the previous turn rides the same ephemeral
+            # extra_system channel — single-shot, never stored in history.
+            if self._ooda_pending_note:
+                note, self._ooda_pending_note = self._ooda_pending_note, ""
+                nudge = f"{nudge}\n\n{note}" if nudge else note
         else:
             nudge = ""
         if trusted and self.hooks is not None:
@@ -348,6 +365,10 @@ class Agent:
             if steer:
                 _append_user_text(self.messages, f"{_STEER_NOTE}\n{steer}")
                 self._emit("steer", {"text": steer})
+            self._check_ooda_stall()
+            if self._ooda_pending_note:
+                note, self._ooda_pending_note = self._ooda_pending_note, ""
+                system = f"{system}\n\n{note}"
             assistant = self._complete(system, tool_specs, on_text, abort)
             self.messages.append(
                 {"role": "assistant", "content": assistant["content"]})
@@ -449,10 +470,36 @@ class Agent:
         tool_input = tool_use.get("input", {}) or {}
         self._emit("tool_start", {"name": name, "input": tool_input, "id": tid})
         block = self._run_one(tool_use)
+        self._record_ooda(name, tool_input, not block["is_error"])
         self._emit("tool_end", {"name": name, "is_error": block["is_error"],
                                 "content": _visible_tool_content(block["content"]),
                                 "id": tid})
         return block
+
+    # -- OODA stall detection ------------------------------------------------
+
+    def _record_ooda(self, name: str, tool_input: dict[str, Any],
+                     ok: bool) -> None:
+        """Best-effort: tracking must never break a turn."""
+        try:
+            self._ooda.record(name, tool_input, ok)
+        except Exception:
+            pass
+
+    def _check_ooda_stall(self) -> None:
+        """Queue the reorient note and emit ``ooda_stall`` once per episode."""
+        try:
+            if not (self._ooda.stalled() and self._ooda.stall_info()):
+                return
+            note = self._ooda.reorient_note()
+            if not note:
+                return
+            info = self._ooda.stall_info()
+            self._ooda.acknowledge()
+            self._emit("ooda_stall", info)
+            self._ooda_pending_note = note
+        except Exception:
+            self._ooda_pending_note = ""
 
     def _run_parallel(self, calls: list[dict[str, Any]],
                       abort: Optional["AbortLike"]) -> list[dict[str, Any]]:
@@ -502,6 +549,8 @@ class Agent:
         out: list[dict[str, Any]] = []
         for i, tu in enumerate(calls):
             block = slots[i] or self._result_block(tu, "aborted", True)
+            self._record_ooda(tu.get("name", ""), tu.get("input", {}) or {},
+                              not block["is_error"])
             self._emit("tool_end", {"name": tu.get("name", ""),
                                     "is_error": block["is_error"],
                                     "content": _visible_tool_content(

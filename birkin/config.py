@@ -327,6 +327,32 @@ DEFAULT_CONFIG: dict[str, Any] = {
     # because a gate on every turn costs a model call per turn.
     "harness_turn_interval": 12,
     "harness_cooldown_min": 15,
+    # --- Thinking frameworks (design: .plans/thinking-frameworks.md) ---
+    # Prompt-only nudges; both default on and fail open. ishikawa: when the
+    # journal shows >= 2 recent failures sharing a tool, the warm-turn context
+    # carries a fishbone checklist forcing one hypothesis per cause category.
+    # minto: final answers lead with the verdict (CONCLUSION-FIRST), then key
+    # reasons, then evidence.
+    "ishikawa_enabled": True,
+    "minto_enabled": True,
+    # Confidence-based verification tiering (confidence.py). A turn's
+    # observable signals (tool errors, schema retries, steers, unsupported
+    # claims, budget overruns) score into [0, 1]; below confidence_strict_below
+    # the tier is "strict" (verifier must pass), at or above
+    # confidence_fast_above it is "fast" (an already-passing gate need not
+    # re-run), between them "standard" (unchanged behavior). Fail-open: bad
+    # values fall back to these defaults.
+    "confidence_strict_below": 0.4,
+    "confidence_fast_above": 0.8,
+    # Cynefin routing (cynefin.py): classify each trusted CLI turn into
+    # clear/complicated/complex/chaotic and append a short execution-strategy
+    # nudge to the warm-turn context. Prompt-only and fail-open.
+    "cynefin_enabled": True,
+    # Ladder-of-inference gate (evidence_gate.py): score the final reply's
+    # factual sentences against this session's tool outputs and log
+    # supported/unsupported counts to the ledger. Observe-only; default off
+    # until the signal earns trust.
+    "evidence_gate_enabled": False,
     # Also review at compaction time -- the moment older context is about to
     # be summarised away is the last chance to persist what it taught.
     "harness_compact_review": True,
@@ -705,10 +731,34 @@ def save_config(cfg: dict[str, Any]) -> Path:
     return path
 
 
+def _named_provider(cfg: dict[str, Any], provider: str) -> dict[str, Any] | None:
+    """Look up a hermes-style named provider from config ``providers:``.
+
+    Returns the provider entry (e.g. ``{"base_url": ..., "key_env": ...}``)
+    when ``provider`` matches a key or ``name`` in the ``providers`` dict,
+    else None.
+    """
+    providers = cfg.get("providers")
+    if not isinstance(providers, dict):
+        return None
+    entry = providers.get(provider)
+    if isinstance(entry, dict):
+        return entry
+    for key, cand in providers.items():
+        if isinstance(cand, dict) and str(cand.get("name") or "") == provider:
+            return cand
+    return None
+
+
 def resolve_base_url(cfg: dict[str, Any]) -> str:
     if cfg.get("base_url"):
         return str(cfg["base_url"]).rstrip("/")
     provider = cfg.get("provider", "anthropic")
+    entry = _named_provider(cfg, provider)
+    if entry:
+        url = entry.get("base_url") or entry.get("url") or entry.get("api") or ""
+        if url:
+            return str(url).rstrip("/")
     return PROVIDER_DEFAULT_BASE_URL.get(provider, PROVIDER_DEFAULT_BASE_URL["anthropic"])
 
 
@@ -728,5 +778,12 @@ def get_api_key(cfg: dict[str, Any]) -> str | None:
         return oauth.resolve_token()
     if provider in CLI_PROVIDERS:
         return "cli"
+    entry = _named_provider(cfg, provider)
+    if entry:
+        key_env = entry.get("key_env") or ""
+        if key_env:
+            return os.environ.get(key_env)
+        if entry.get("api_key"):
+            return str(entry["api_key"])
     env_name = PROVIDER_API_KEY_ENV.get(provider, "ANTHROPIC_API_KEY")
     return os.environ.get(env_name) or cfg.get("api_key")
