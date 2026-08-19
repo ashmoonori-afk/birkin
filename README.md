@@ -882,6 +882,8 @@ This roadmap does **not** propose:
   "evidence_required": false,
   "critique_agents": 3,
   "boulder_max_iters": 100,
+  "daedalus_dir": "",
+  "daedalus_max_files": 2000,
   "fs_jail": false,
   "sandbox": {
     "backend": "worktree",

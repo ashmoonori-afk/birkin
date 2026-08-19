@@ -17,8 +17,9 @@ WORKERS = (
     "harness",
     "odyssey",
     "osiris",
+    "daedalus",
 )
-NO_MODEL_WORKERS = ("mnemosyne",)
+NO_MODEL_WORKERS = ("mnemosyne", "daedalus")
 PERSISTENCE_OWNER = {"osiris": "boulder"}
 _HANDLERS = ("worker.resume.v1", "moirai.resume.v1")
 _MAX_BYTES = 16_384

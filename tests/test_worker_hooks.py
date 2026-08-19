@@ -144,8 +144,9 @@ def test_worker_hook_preserves_worker_authority_boundaries(
         "harness",
         "odyssey",
         "osiris",
+        "daedalus",
     )
-    assert contract["no_model"] == ("mnemosyne",)
+    assert contract["no_model"] == ("mnemosyne", "daedalus")
     assert contract["persistence_owner"] == {"osiris": "boulder"}
 
     for worker in contract["workers"]:
