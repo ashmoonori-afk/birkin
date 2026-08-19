@@ -937,6 +937,43 @@ def _cmd_neurosis(args: argparse.Namespace) -> int:
     return 0
 
 
+def _cmd_daedalus(args: argparse.Namespace) -> int:
+    """`birkin daedalus create|refresh|show|note|profile` — project doc maps."""
+    from . import config, daedalus
+    action = getattr(args, "daedalus_action", "")
+    if action == "profile":
+        print(json.dumps(daedalus.PROFILE, indent=2))
+        return 0
+    cfg = config.load_config()
+    root = Path(getattr(args, "root", None) or Path.cwd())
+    try:
+        if action == "create":
+            doc = daedalus.create(args.slug, root, cfg=cfg)
+            print(f"daedalus '{doc['slug']}' created at {doc['token']} "
+                  f"({len(doc['nodes'])} nodes)")
+        elif action == "refresh":
+            doc = daedalus.refresh(args.slug, root,
+                                   expected_token=args.expected_token, cfg=cfg)
+            print(f"daedalus '{doc['slug']}' refreshed to {doc['token']} "
+                  f"({len(doc['nodes'])} nodes)")
+        elif action == "note":
+            doc = daedalus.add_note(args.slug, args.text,
+                                    refs=tuple(args.ref or ()), cfg=cfg)
+            print(f"daedalus '{doc['slug']}' noted at {doc['token']}")
+        else:  # show
+            doc = daedalus.load(args.slug, cfg=cfg)
+            if doc is None:
+                print(f"error: no document '{args.slug}'; run "
+                      f"`birkin daedalus create {args.slug}` first",
+                      file=sys.stderr)
+                return 1
+            print(daedalus.render(doc))
+    except daedalus.DaedalusError as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 1
+    return 0
+
+
 def _cmd_mcp_serve(args: argparse.Namespace) -> int:
     """Run birkin as an MCP server over stdio (for `claude --mcp-config`)."""
     from . import mcp_server
@@ -1715,6 +1752,33 @@ def build_parser() -> argparse.ArgumentParser:
     nrp.add_argument("idea", nargs=argparse.REMAINDER,
                      help="the vague idea (optionally --quick|--standard|--deep)")
     nrp.set_defaults(func=_cmd_neurosis)
+
+    dae = sub.add_parser(
+        "daedalus",
+        help="evidence-linked project document maps: create / refresh / show / "
+             "note / profile")
+    dae_actions = dae.add_subparsers(dest="daedalus_action", required=True)
+    dae_create = dae_actions.add_parser(
+        "create", help="scan a project tree and write its first revision")
+    dae_refresh = dae_actions.add_parser(
+        "refresh", help="re-scan under a CAS token; human notes survive intact")
+    dae_show = dae_actions.add_parser(
+        "show", help="print the rendered document")
+    dae_note = dae_actions.add_parser(
+        "note", help="append a human note (refresh never rewrites it)")
+    dae_actions.add_parser("profile", help="print the worker profile as json")
+    for dae_parser in (dae_create, dae_refresh, dae_show, dae_note):
+        dae_parser.add_argument("slug", help="document slug")
+    for dae_parser in (dae_create, dae_refresh):
+        dae_parser.add_argument("--root", default=None,
+                                help="project root to scan (default: cwd)")
+    dae_refresh.add_argument("--expected-token", required=True,
+                             help="the token you last read, e.g. cas-2")
+    dae_note.add_argument("--text", required=True, help="the note text")
+    dae_note.add_argument("--ref", action="append", default=[],
+                          help="node id this note references (repeatable)")
+    for dae_parser in dae_actions.choices.values():
+        dae_parser.set_defaults(func=_cmd_daedalus)
 
     return p
 

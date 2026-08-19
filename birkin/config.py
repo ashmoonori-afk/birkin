@@ -403,6 +403,11 @@ DEFAULT_CONFIG: dict[str, Any] = {
     "critique_agents": 3,
     # #5 Boulder: resumable checkbox-plan execution caps. See boulder.py.
     "boulder_max_iters": 100,
+    # Daedalus: evidence-linked project document maps (typst-style structured
+    # output, visual-learning-style fact/inference nodes carrying repo-relative
+    # evidence). Empty dir -> ~/.birkin/daedalus; max_files bounds one scan.
+    "daedalus_dir": "",
+    "daedalus_max_files": 2000,
     # Opt-in path jail for the native file tools (write_file/edit_file/read_file):
     # when true, confine them to the workspace + ~/.birkin and reject absolute /
     # ".." escapes. Default False to preserve behavior. See tools/files.py.
