@@ -14,6 +14,10 @@ import birkin
 from birkin import approvals, store
 from birkin.web import server as web_server
 
+# Connect, send, and read back a full response on a loaded runner: 2s was a
+# coin flip, and losing it looked like a server bug rather than a busy host.
+_SOCKET_TIMEOUT = 15.0
+
 
 def _request(
     host_header: str,
@@ -364,7 +368,7 @@ def test_post_rejects_untrusted_request_without_reading_body(srv, monkeypatch):
             f"X-Birkin-Token: {request_token}\r\n"
             "Content-Length: 65536\r\n\r\n"
         ).encode()
-        with socket.create_connection(("127.0.0.1", port), timeout=2) as client:
+        with socket.create_connection(("127.0.0.1", port), timeout=_SOCKET_TIMEOUT) as client:
             client.sendall(request)
             response = b""
             while chunk := client.recv(4096):
@@ -384,7 +388,7 @@ def test_post_approvals_body_timeout_returns_408(srv, monkeypatch):
         "Content-Length: 2\r\n\r\n"
     ).encode()
 
-    with socket.create_connection(("127.0.0.1", port), timeout=2) as client:
+    with socket.create_connection(("127.0.0.1", port), timeout=_SOCKET_TIMEOUT) as client:
         client.sendall(request)
         response = b""
         while chunk := client.recv(4096):
@@ -412,7 +416,7 @@ def test_post_approvals_rejects_unsafe_content_lengths(srv, content_length, expe
         headers.append(f"Content-Length: {content_length}")
     request = ("\r\n".join(headers) + "\r\n\r\n").encode()
 
-    with socket.create_connection(("127.0.0.1", port), timeout=2) as client:
+    with socket.create_connection(("127.0.0.1", port), timeout=_SOCKET_TIMEOUT) as client:
         client.sendall(request)
         client.shutdown(socket.SHUT_WR)
         response = b""

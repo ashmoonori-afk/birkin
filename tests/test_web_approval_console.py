@@ -9,6 +9,7 @@ import pytest
 
 from birkin import agentruns, approvals, config, store
 from birkin.web import server as web_server
+from tests.local_http_support import local_http_timeout
 
 
 @pytest.fixture
@@ -33,7 +34,9 @@ def request(srv, method: str, path: str, payload=None, *, token=True,
     if payload is not None:
         body = json.dumps(payload).encode()
         headers["Content-Type"] = "application/json"
-    conn = http.client.HTTPConnection("127.0.0.1", port, timeout=3)
+    conn = http.client.HTTPConnection(
+        "127.0.0.1", port, timeout=local_http_timeout()
+    )
     conn.request(method, path, body=body, headers=headers)
     response = conn.getresponse()
     data = response.read()

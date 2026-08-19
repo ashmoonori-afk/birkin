@@ -406,3 +406,66 @@ def test_project_root_walks_up_to_the_marker(work):
     nested = work / "src" / "deep"
     nested.mkdir(parents=True)
     assert checkpoints.project_root_for(nested / "x.py") == work
+
+
+# -- the git subprocess budget ---------------------------------------------
+
+def _timeout_passed_to_git(monkeypatch: pytest.MonkeyPatch) -> float:
+    """Run one git call and report the timeout it handed to subprocess.run."""
+    seen: dict[str, Any] = {}
+
+    def capture(
+        argv: list[str],
+        **kwargs: Any,
+    ) -> subprocess.CompletedProcess[str]:
+        seen.update(kwargs)
+        return subprocess.CompletedProcess(argv, 0, "", "")
+
+    monkeypatch.setattr(checkpoints.subprocess, "run", capture)
+    code, _ = checkpoints._run(["git", "add", "-A", "--", "."], {})
+
+    assert code == 0
+    return seen["timeout"]
+
+
+def test_git_timeout_honours_the_environment_override(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # Given: a host that wants git kept on a short leash.
+    monkeypatch.setenv("BIRKIN_GIT_TIMEOUT", "7")
+
+    # Then: the override reaches the subprocess call.
+    assert _timeout_passed_to_git(monkeypatch) == 7.0
+
+
+def test_git_timeout_defaults_generously_when_unset(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # Given: no override — an AV-scanned worktree still has to finish.
+    monkeypatch.delenv("BIRKIN_GIT_TIMEOUT", raising=False)
+
+    assert _timeout_passed_to_git(monkeypatch) == 120.0
+
+
+@pytest.mark.parametrize("raw", ["abc", "", "0", "-5"])
+def test_git_timeout_ignores_unusable_overrides(
+    monkeypatch: pytest.MonkeyPatch,
+    raw: str,
+) -> None:
+    # Given: junk, nothing, or a value that would disable the snapshot.
+    monkeypatch.setenv("BIRKIN_GIT_TIMEOUT", raw)
+
+    # Then: the default stands rather than a hang or an instant failure.
+    assert _timeout_passed_to_git(monkeypatch) == 120.0
+
+
+@pytest.mark.parametrize(("raw", "expected"), [("1e9", 900.0), ("1", 5.0)])
+def test_git_timeout_clamps_extremes_into_the_sane_range(
+    monkeypatch: pytest.MonkeyPatch,
+    raw: str,
+    expected: float,
+) -> None:
+    # Given: an override far outside anything a git call should need.
+    monkeypatch.setenv("BIRKIN_GIT_TIMEOUT", raw)
+
+    assert _timeout_passed_to_git(monkeypatch) == expected

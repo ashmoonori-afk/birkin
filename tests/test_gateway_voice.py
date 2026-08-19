@@ -16,6 +16,7 @@ from birkin.cli import build_parser
 from birkin.gateway.channels.local_http import LocalHTTPChannel
 from birkin.gateway.core import Gateway as BirkinGateway
 from birkin.voice.audio import AudioData
+from tests.local_http_support import local_http_timeout
 from openai import OpenAIError
 
 
@@ -168,7 +169,9 @@ def test_local_http_rejects_non_string_text(text_value: object) -> None:
 def test_local_http_rejects_oversized_body() -> None:
     gateway = _Gateway()
     channel, thread = _start_channel(gateway)
-    connection = HTTPConnection("127.0.0.1", _bound_port(channel), timeout=2.0)
+    connection = HTTPConnection(
+        "127.0.0.1", _bound_port(channel), timeout=local_http_timeout()
+    )
     try:
         connection.putrequest("POST", "/message")
         connection.putheader("Content-Type", "application/json")

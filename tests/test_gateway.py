@@ -13,6 +13,7 @@ from birkin.gateway import core as gw_core
 from birkin.gateway.channels import build_channels, local_http
 from birkin.gateway.channels.local_http import LocalHTTPChannel
 from birkin.gateway.channels.telegram import verify_token
+from tests.local_http_support import local_http_timeout
 
 # ---------------- Gateway.handle ----------------
 
@@ -242,9 +243,10 @@ def http_channel():
 
 
 def _req(channel, method, path, host="127.0.0.1", body=None,
-         timeout=2.0):
+         timeout=None):
     conn = http.client.HTTPConnection(
-        "127.0.0.1", channel.port, timeout=timeout)
+        "127.0.0.1", channel.port,
+        timeout=local_http_timeout() if timeout is None else timeout)
     headers = {"Host": host}
     if body is not None:
         headers["Content-Type"] = "application/json"

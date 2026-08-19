@@ -13,6 +13,7 @@ from typing import cast
 import pytest
 
 from birkin.web import server as web_server
+from tests.local_http_support import local_http_timeout
 
 HTML_PATH = (
     Path(__file__).resolve().parents[1]
@@ -47,7 +48,9 @@ def _request(
     headers = {"Host": "127.0.0.1"}
     if token:
         headers["X-Birkin-Token"] = capability
-    connection = http.client.HTTPConnection("127.0.0.1", port, timeout=3)
+    connection = http.client.HTTPConnection(
+        "127.0.0.1", port, timeout=local_http_timeout()
+    )
     connection.request(method, path, headers=headers)
     response = connection.getresponse()
     result = response.status, dict(response.getheaders()), response.read()

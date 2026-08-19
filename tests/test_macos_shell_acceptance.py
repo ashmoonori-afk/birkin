@@ -24,7 +24,10 @@ def _command(parts: list[str]) -> str:
     return shlex.join(parts)
 
 
-def _run(command: str, cwd: Path, timeout: int = 10) -> ToolResult:
+# Cold process startup on a loaded CI runner routinely outruns a 10s budget -
+# a slow host, not a hung command. Callers that assert on timeout behaviour
+# itself pass their own short budget, so widening this default weakens nothing.
+def _run(command: str, cwd: Path, timeout: int = 60) -> ToolResult:
     tool = next(tool for tool in shell_mod.tools() if tool.name == "run_shell")
     context = ToolContext(cfg={}, client=None, cwd=cwd)
     return tool.fn({"command": command, "timeout": timeout}, context)
@@ -209,7 +212,7 @@ def test_interrupt_kills_real_shell_process_group(tmp_path: Path) -> None:
         [sys.executable, str(driver)],
         capture_output=True,
         text=True,
-        timeout=10,
+        timeout=60,
         check=False,
     )
     child_pid = int(pid_file.read_text(encoding="utf-8"))

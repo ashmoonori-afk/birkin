@@ -46,7 +46,12 @@ DEFAULT_EXCLUDES = [
 
 # A workspace bigger than this is not worth snapshotting per turn.
 _MAX_FILES = 50_000
-_GIT_TIMEOUT = 30
+# ``git add -A`` stats every tracked path, and a cold or antivirus-scanned
+# worktree legitimately needs more than 30 seconds for that — a slow host is
+# not a hung git. ``BIRKIN_GIT_TIMEOUT`` is the seam for tuning it per machine.
+_GIT_TIMEOUT = 120.0
+_GIT_TIMEOUT_MIN = 5.0
+_GIT_TIMEOUT_MAX = 900.0
 _DEFAULT_KEEP = 20
 
 
@@ -86,6 +91,20 @@ class RestoreOutcome:
         return (self.ok, self.message)[index]
 
 
+def _git_timeout() -> float:
+    """Seconds one git call may take, read fresh so the env stays live."""
+    raw = os.environ.get("BIRKIN_GIT_TIMEOUT")
+    if raw is None:
+        return _GIT_TIMEOUT
+    try:
+        seconds = float(raw)
+    except ValueError:
+        return _GIT_TIMEOUT
+    if not seconds > 0:  # rejects zero, negatives, and NaN
+        return _GIT_TIMEOUT
+    return min(max(seconds, _GIT_TIMEOUT_MIN), _GIT_TIMEOUT_MAX)
+
+
 def _run(argv: list[str], env: dict[str, str],
          cwd: Optional[str] = None) -> tuple[int, str]:
     kwargs: dict[str, Any] = {}
@@ -96,7 +115,7 @@ def _run(argv: list[str], env: dict[str, str],
     try:
         proc = subprocess.run(argv, env=env, cwd=cwd, capture_output=True,
                               text=True, errors="replace",
-                              timeout=_GIT_TIMEOUT, **kwargs)
+                              timeout=_git_timeout(), **kwargs)
     except (OSError, subprocess.SubprocessError) as exc:
         return 1, str(exc)
     return proc.returncode, (proc.stdout or "") + (proc.stderr or "")
