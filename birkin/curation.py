@@ -152,10 +152,9 @@ def _run_curation_pass_pinned(
             for n in catalog["notes"]}
     prompt = build_plan_prompt(catalog, untrusted=untrusted)
 
-    raw = complete(prompt) or ""
-    plan = extract_plan(raw)
-    gate = validate_clamp(plan, dex, snap, now=now)
-    accepted = _dense_zone_links(gate.accepted, snap)
+    move_note = memory.rezone
+    read_note = None
+    write_note = None
     if apply:
         memory = VaultMemory(
             {"vault_path": str(configured_vault)},
@@ -164,8 +163,6 @@ def _run_curation_pass_pinned(
         memory.pin_index(pinned_entries)
         dex = memory.dex
         move_note = memory.rezone
-        read_note = None
-        write_note = None
         if root_fd is not None:
             from .curation_anchor import AnchoredCuration
 
@@ -177,6 +174,12 @@ def _run_curation_pass_pinned(
             move_note = anchor.move
             read_note = anchor.read
             write_note = anchor.write
+
+    raw = complete(prompt) or ""
+    plan = extract_plan(raw)
+    gate = validate_clamp(plan, dex, snap, now=now)
+    accepted = _dense_zone_links(gate.accepted, snap)
+    if apply:
         if accepted:
             snapshot_vault(current_vault())
         effected = apply_plan(

@@ -161,6 +161,18 @@ class AnchoredCuration:
                 opened.st_dev,
                 opened.st_ino,
             ):
+                try:
+                    _rename_noreplace(
+                        destination_relative.name,
+                        relative.name,
+                        source_fd=destination_parent,
+                        destination_fd=source_parent,
+                    )
+                except OSError as rollback_error:
+                    raise OSError(
+                        "curation move identity changed and "
+                        "rollback failed"
+                    ) from rollback_error
                 raise OSError("curation move identity changed")
         finally:
             active_error = sys.exc_info()[1]

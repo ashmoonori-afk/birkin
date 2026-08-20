@@ -429,6 +429,138 @@ def test_run_pass_annotates_original_pinned_vault(
     ).read_text(encoding="utf-8")
 
 
+@pytest.mark.skipif(
+    os.name == "nt",
+    reason="POSIX catalog-to-mutation identity",
+)
+def test_run_pass_rejects_note_replaced_after_catalog(
+        tmp_path: Path,
+        monkeypatch,
+) -> None:
+    vault = tmp_path / "vault"
+    VaultMemory({"vault_path": str(vault)}).write_note(
+        "Budget plan",
+        "CATALOGUED ORIGINAL BYTES",
+        zone="inbox",
+    )
+    path = vault / "budget-plan.md"
+    catalogued = vault / "catalogued-original.md"
+    external = tmp_path / "external-prior.md"
+    external.write_text(
+        "---\ntitle: External prior\ntype: topic\n"
+        "zone: inbox\ntags: []\n---\n"
+        "EXTERNAL PRIOR BYTES\n",
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(
+        curation,
+        "snapshot_vault",
+        lambda *_args, **_kwargs: None,
+    )
+
+    def replace_note_then_complete(_prompt: str) -> str:
+        path.rename(catalogued)
+        external.rename(path)
+        return json.dumps({
+            "plan_version": 2,
+            "ops": [{
+                "op": "annotate",
+                "slug": "budget-plan",
+                "aliases": ["ATTACK-MUTATION"],
+            }],
+        })
+
+    outcome = curation.run_curation_pass(
+        vault,
+        replace_note_then_complete,
+        provider="test",
+        now=NOW,
+    )
+
+    assert outcome.effected
+    assert "error" in outcome.effected[0]
+    assert "ATTACK-MUTATION" not in catalogued.read_text(
+        encoding="utf-8"
+    )
+    assert "ATTACK-MUTATION" not in path.read_text(
+        encoding="utf-8"
+    )
+
+
+@pytest.mark.skipif(
+    os.name == "nt",
+    reason="POSIX anchored rezone source identity",
+)
+def test_run_pass_rolls_back_rezone_source_swap(
+        tmp_path: Path,
+        monkeypatch,
+) -> None:
+    from birkin import curation_anchor
+
+    vault = tmp_path / "vault"
+    VaultMemory({"vault_path": str(vault)}).write_note(
+        "Race victim",
+        "CATALOGUED ORIGINAL",
+        zone="inbox",
+    )
+    source = vault / "race-victim.md"
+    original_hold = vault / "catalogued-original.md"
+    destination = vault / "projects" / "race-victim.md"
+    real_rename = curation_anchor._rename_noreplace
+    rename_calls = 0
+
+    def swap_source_then_rename(
+            source_name,
+            destination_name,
+            *,
+            source_fd,
+            destination_fd):
+        nonlocal rename_calls
+        rename_calls += 1
+        if rename_calls == 1:
+            source.rename(original_hold)
+            source.write_text(
+                "---\ntitle: Attacker\ntype: topic\n"
+                "tags: []\n---\nATTACKER\n",
+                encoding="utf-8",
+            )
+        return real_rename(
+            source_name,
+            destination_name,
+            source_fd=source_fd,
+            destination_fd=destination_fd,
+        )
+
+    monkeypatch.setattr(
+        curation_anchor,
+        "_rename_noreplace",
+        swap_source_then_rename,
+    )
+
+    outcome = curation.run_curation_pass(
+        vault,
+        lambda _prompt: json.dumps({
+            "plan_version": 1,
+            "ops": [{
+                "op": "rezone",
+                "slug": "race-victim",
+                "zone": "projects",
+            }],
+        }),
+        provider="test",
+        now=NOW,
+    )
+
+    assert outcome.effected
+    assert "error" in outcome.effected[0]
+    assert rename_calls == 2
+    assert "ATTACKER" in source.read_text(encoding="utf-8")
+    assert "CATALOGUED ORIGINAL" in original_hold.read_text(
+        encoding="utf-8"
+    )
+    assert not destination.exists()
+
+
 def test_curation_rezone_never_uses_split_link_unlink(
         monkeypatch,
 ) -> None:
