@@ -139,3 +139,30 @@ def test_session_select_over_socket_emits_event_and_changes_projection(
         thread.join(timeout=2)  # type: ignore[union-attr]
         hub.close()
     assert errors == []
+
+
+def test_session_rename_over_socket_updates_canonical_summary(
+    tmp_path: Path,
+) -> None:
+    bridge, hub = _server(tmp_path)
+    client, token, thread, errors = _connect(bridge)
+    try:
+        _send(
+            client,
+            token,
+            "session.rename",
+            "rename-1",
+            0,
+            {"session_id": "session-1", "name": "Native plan"},
+        )
+        receipt = receive_kind(client, "receipt")
+        event = _receive_event_type(client, "session.renamed")
+
+        assert receipt.body["state"] == "completed"
+        assert event.body["payload"]["name"] == "Native plan"
+        assert hub.summaries()[0]["name"] == "Native plan"
+    finally:
+        client.close()
+        thread.join(timeout=2)  # type: ignore[union-attr]
+        hub.close()
+    assert errors == []
