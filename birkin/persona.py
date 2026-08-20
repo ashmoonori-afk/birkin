@@ -96,6 +96,26 @@ def write_soul(text: str) -> Path:
     return path
 
 
+def promote_guidance(guidance: str) -> Path:
+    """Append approved mask guidance into SOUL.md idempotently."""
+    content = guidance.strip()
+    path = soul_path()
+    if not content:
+        return path
+    existing = ""
+    if path.is_file():
+        try:
+            existing = path.read_text(encoding="utf-8")
+        except OSError:
+            existing = ""
+    if content in existing:
+        return path
+    prefix = existing.rstrip()
+    addition = "## Promoted guidance\n" + content
+    merged = f"{prefix}\n\n{addition}" if prefix else addition
+    return write_soul(merged)
+
+
 def seed_default(force: bool = False) -> bool:
     """Create SOUL.md with the default persona if it is missing.
 

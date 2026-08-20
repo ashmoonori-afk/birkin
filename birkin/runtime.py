@@ -28,6 +28,8 @@ from . import (
 )
 from .agent import Agent
 from .llm import LLMClient, LLMError, build_client
+from .profile_prompt import render_profile_blocks
+from .rolefiles import ProfileSnapshot, ProfileStore
 from .memory import Memory
 from .skills import SkillManager, build_manager
 from .tools import ToolContext, build_registry
@@ -38,6 +40,18 @@ if TYPE_CHECKING:
 
 class ConfigError(RuntimeError):
     pass
+
+
+def _profile_snapshot() -> ProfileSnapshot:
+    return ProfileStore(config.birkin_home(), {}).snapshot()
+
+
+def _profile_block() -> str:
+    return render_profile_blocks(_profile_snapshot())
+
+
+def _profile_revision() -> str:
+    return _profile_snapshot().revision
 
 
 def _harness_block(
@@ -89,6 +103,9 @@ class Session:
     # Per-session monotonic stamp of the last harness review.
     _harness_last: dict[str, float] = field(default_factory=dict)
     _checkpoint_session: list[str] = field(default_factory=list)
+    _warm_profile_revision: str = ""
+    _profile_notice_revisions: set[str] = field(default_factory=set)
+    profile_review_service: Any = None
 
     def refresh_system_prompt(
         self,
@@ -122,6 +139,7 @@ class Session:
             turn_cfg,
             skills_index=self.skills.index() if trusted else "",
             memory_block=self.memory.render() if trusted else "",
+            profile_block=_profile_block() if trusted else "",
             harness_block=_harness_block(turn_cfg, trusted=trusted),
             include_turn_state=trusted,
             persona_text=None if trusted else "")
@@ -179,6 +197,7 @@ class Session:
         self.agent.system = promptgate.compose_cli(
             turn_cfg,
             memory_block=self.memory.render() if trusted else "",
+            profile_block=_profile_block() if trusted else "",
             preloaded=preloaded or None, extra=extra,
             harness_block=_harness_block(turn_cfg, trusted=trusted),
             include_turn_state=trusted,
@@ -390,6 +409,7 @@ class Session:
     ) -> str:
         if self._warm is None:
             self._warm = self._build_warm()
+        self._emit_profile_notices(on_text, session_id=session_id)
         return self._warm.ask(
             self._prepare_cli_turn(
                 text,
@@ -409,8 +429,11 @@ class Session:
         extra = ("\n\n## birkin skills available\n"
                  "Read the referenced SKILL.md with your own file tools to "
                  "follow one when it fits the task.\n" + idx) if idx else ""
+        snapshot = _profile_snapshot()
+        self._warm_profile_revision = snapshot.revision
         system = promptgate.compose_cli(
             self.cfg, memory_block=self.memory.render(), extra=extra,
+            profile_block=render_profile_blocks(snapshot),
             harness_block=_harness_block(self.cfg),
             include_turn_state=False)
         if self.cfg.get("provider") == "codex-cli":
@@ -441,6 +464,28 @@ class Session:
                 pass
             self._warm = None
         self._warm_skill_state = {"revision": -1, "names": set()}
+        self._warm_profile_revision = ""
+        self._profile_notice_revisions.clear()
+
+    def _emit_profile_notices(
+        self,
+        on_text: Optional[Callable[[str], None]],
+        *,
+        session_id: str | None = None,
+    ) -> None:
+        current = _profile_revision()
+        if (self._warm_profile_revision
+                and current != self._warm_profile_revision
+                and current not in self._profile_notice_revisions):
+            self._profile_notice_revisions.add(current)
+            if on_text is not None:
+                on_text("profile updated - /new required")
+        service = getattr(self, "profile_review_service", None)
+        drain = getattr(service, "drain_notices", None) if service else None
+        if callable(drain):
+            for notice in drain(str(session_id or self.cfg.get("session_id") or "")):
+                if on_text is not None:
+                    on_text(str(notice))
 
     def _record_turn(
         self,
@@ -748,7 +793,7 @@ def build_session(cfg: Optional[dict[str, Any]] = None,
     registry = build_registry(ctx)
     system = promptgate.compose_main(
         cfg, skills_index=skills.index(), memory_block=memory.render(),
-        harness_block=_harness_block(cfg))
+        profile_block=_profile_block(), harness_block=_harness_block(cfg))
     agent = Agent(client=client, system=system, registry=registry,
                   max_turns=int(cfg.get("max_turns", 24)),
                   model=cfg.get("model"), on_event=on_event,
@@ -784,7 +829,7 @@ def build_dry_run_packet(text: str, cfg: Optional[dict[str, Any]] = None
     if provider in config.CLI_PROVIDERS:
         routed = skills.route(text, limit=3)
         system = promptgate.compose_cli(
-            cfg, memory_block=memory.render(),
+            cfg, memory_block=memory.render(), profile_block=_profile_block(),
             preloaded=[skills.render_skill(s) for s in routed] or None,
             harness_block=_harness_block(cfg))
         tool_names: list[str] = []
@@ -795,7 +840,7 @@ def build_dry_run_packet(text: str, cfg: Optional[dict[str, Any]] = None
                           memory=memory, max_depth=int(cfg.get("max_depth", 2)))
         system = promptgate.compose_main(
             cfg, skills_index=skills.index(), memory_block=memory.render(),
-            harness_block=_harness_block(cfg))
+            profile_block=_profile_block(), harness_block=_harness_block(cfg))
         tool_names = [t["name"] for t in build_registry(ctx).specs()]
         routed_names = []
 
