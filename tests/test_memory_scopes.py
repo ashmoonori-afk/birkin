@@ -408,6 +408,38 @@ def test_curation_rezone_preserves_authenticated_provenance() -> None:
     assert record["trust"] == "high"
 
 
+def test_direct_apply_plan_preserves_authenticated_provenance() -> None:
+    cfg = {
+        **config.load_config(),
+        "memory_source_trust": {
+            "legacy": "low",
+            "signed-import": "high",
+        },
+    }
+    mem = VaultMemory(cfg)
+    mem.write_note(
+        "Direct curated provenance",
+        "direct curation provenance marker",
+        source="signed-import",
+    )
+
+    effected = curation.apply_plan(
+        [{
+            "op": "rezone",
+            "slug": "direct-curated-provenance",
+            "zone": "projects",
+        }],
+        mem.vault,
+        mem.dex,
+    )
+    record = mem.get_note_record("Direct curated provenance")
+
+    assert effected
+    assert record is not None
+    assert record["record_source"] == "signed-import"
+    assert record["trust"] == "high"
+
+
 def test_expiry_archive_preserves_authenticated_provenance() -> None:
     cfg = {
         **config.load_config(),

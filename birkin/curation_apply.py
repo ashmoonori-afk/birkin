@@ -101,7 +101,11 @@ def apply_plan(accepted: list[dict], vault: Path,
                move_note: Callable[[str, str], Path] | None = None,
                ) -> list[dict]:
     effected: list[dict] = []
-    move = move_note or dex.rezone
+    if move_note is None:
+        from .memory import VaultMemory
+        move = VaultMemory({"vault_path": str(vault)}).rezone
+    else:
+        move = move_note
     for op in accepted:
         kind = op["op"]
         try:

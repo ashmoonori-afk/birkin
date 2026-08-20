@@ -16,8 +16,6 @@ from .curation_prompt import (
     extract_plan,
     mechanical_catalog,
 )
-from .mnemosyne import Mnemosyne
-
 
 def snapshot_vault(vault: Path, cfg: dict | None = None) -> str | None:
     """Checkpoint the vault before curation rewrites it.
@@ -41,8 +39,12 @@ def run_curation_pass(vault: Path, complete: Callable[[str], str], *,
                       provider: str = "?", model: str | None = None,
                       untrusted: str = "", apply: bool = True,
                       now: datetime | None = None) -> CurationOutcome:
+    from .memory import VaultMemory
+
     now = now or datetime.now(timezone.utc)
-    dex = Mnemosyne(vault)
+    memory = VaultMemory({"vault_path": str(vault)})
+    pinned_vault = memory.vault
+    dex = memory.dex
     dex.refresh()
     catalog = mechanical_catalog(dex, now=now)
     snap = {n["slug"]: {"zone": "" if n["zone"] == "inbox" else n["zone"],
@@ -57,12 +59,10 @@ def run_curation_pass(vault: Path, complete: Callable[[str], str], *,
     accepted = _dense_zone_links(gate.accepted, snap)
     if apply:
         if accepted:
-            snapshot_vault(vault)
-        from .memory import VaultMemory
-        memory = VaultMemory({"vault_path": str(vault)})
+            snapshot_vault(pinned_vault)
         effected = apply_plan(
             accepted,
-            vault,
+            pinned_vault,
             dex,
             move_note=memory.rezone,
         )

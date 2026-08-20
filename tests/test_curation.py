@@ -255,6 +255,60 @@ def test_apply_never_deletes():
     assert before == after            # same files exist, just relocated
 
 
+def test_run_pass_pins_vault_before_model_completion(
+        tmp_path: Path,
+        monkeypatch,
+) -> None:
+    vault_a = tmp_path / "vault-a"
+    vault_b = tmp_path / "vault-b"
+    VaultMemory({"vault_path": str(vault_a)}).write_note(
+        "Same slug",
+        "vault A",
+        zone="inbox",
+    )
+    VaultMemory({"vault_path": str(vault_b)}).write_note(
+        "Same slug",
+        "vault B",
+        zone="inbox",
+    )
+    configured_vault = tmp_path / "configured-vault"
+    configured_vault.symlink_to(vault_a, target_is_directory=True)
+    monkeypatch.setattr(
+        curation,
+        "snapshot_vault",
+        lambda *_args, **_kwargs: None,
+    )
+
+    def retarget_then_complete(_prompt: str) -> str:
+        configured_vault.unlink()
+        configured_vault.symlink_to(vault_b, target_is_directory=True)
+        return json.dumps({
+            "plan_version": 1,
+            "ops": [{
+                "op": "rezone",
+                "slug": "same-slug",
+                "zone": "projects",
+            }],
+        })
+
+    outcome = curation.run_curation_pass(
+        configured_vault,
+        retarget_then_complete,
+        provider="test",
+        now=NOW,
+    )
+
+    assert outcome.effected == [{
+        "op": "rezone",
+        "slug": "same-slug",
+        "zone": "projects",
+    }]
+    assert (vault_a / "projects" / "same-slug.md").is_file()
+    assert not (vault_a / "same-slug.md").exists()
+    assert (vault_b / "same-slug.md").is_file()
+    assert not (vault_b / "projects" / "same-slug.md").exists()
+
+
 # ---------------- sanitize + full driver ------------------------------------
 
 def test_sanitize_summary_redacts_canary_phrase():
