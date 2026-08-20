@@ -8,6 +8,7 @@ public struct NativeShellView: View {
     private let diagnosticsAction: () -> Void
     private let mutationAction: (ShellMutationControl) -> Void
     private let templateCommandAction: (NativeCommandRequest) -> Void
+    private let productSurfaceAction: (ProductSurfaceControl) -> Void
 
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
     @State private var selectedColumn: ShellColumnID
@@ -24,6 +25,7 @@ public struct NativeShellView: View {
         diagnosticsAction: @escaping () -> Void = {},
         mutationAction: @escaping (ShellMutationControl) -> Void = { _ in },
         templateCommandAction: @escaping (NativeCommandRequest) -> Void = { _ in },
+        productSurfaceAction: @escaping (ProductSurfaceControl) -> Void = { _ in },
         makeSessionID: @escaping () -> String = { UUID().uuidString.lowercased() }
     ) {
         self.store = store
@@ -32,6 +34,7 @@ public struct NativeShellView: View {
         self.diagnosticsAction = diagnosticsAction
         self.mutationAction = mutationAction
         self.templateCommandAction = templateCommandAction
+        self.productSurfaceAction = productSurfaceAction
         _selectedColumn = State(initialValue: initialColumn)
         _templateLauncher = StateObject(wrappedValue: TemplateLauncherModel(
             presets: Self.readySession(in: connectionState)?.sessionPresets ?? [],
@@ -164,6 +167,33 @@ public struct NativeShellView: View {
                 approvalCards(availability: availability)
             } else if section.id == .activity {
                 ActivityListView(items: activityItems, filter: activityFilter)
+            } else if section.id == .browserAside,
+                      let presentation = BrowserAsidePresentation(store: store) {
+                BrowserAsideView(
+                    presentation: presentation,
+                    canNavigate: availability.isEnabled && browserNavigateAdvertised,
+                    back: { productSurfaceAction(.browserBack) },
+                    forward: { productSurfaceAction(.browserForward) },
+                    reload: { productSurfaceAction(.browserReload) },
+                    navigate: { productSurfaceAction(.browserNavigate) }
+                )
+            } else if section.id == .computerUse,
+                      let presentation = ComputerUsePresentation(store: store, now: now) {
+                ComputerUseStatusView(
+                    presentation: presentation,
+                    canDecide: availability.isEnabled && approvalAnswerAdvertised,
+                    approve: { productSurfaceAction(.computerUseApproveOnce) },
+                    reject: { productSurfaceAction(.computerUseReject) }
+                )
+            } else if section.id == .office,
+                      let presentation = OfficePresentation(store: store) {
+                OfficeView(
+                    presentation: presentation,
+                    canCreate: availability.isEnabled && officeCreateAdvertised,
+                    canOpen: availability.isEnabled && officeOpenAdvertised,
+                    create: { productSurfaceAction(.officeNew) },
+                    open: { productSurfaceAction(.officeOpen) }
+                )
             } else if section.id == .terminal,
                       let terminal = store.projection?.terminals.first {
                 TerminalView(
@@ -381,6 +411,21 @@ public struct NativeShellView: View {
     private var approvalAnswerAdvertised: Bool {
         Self.readySession(in: connectionState)?
             .supportedCommands.contains("approval.answer") == true
+    }
+
+    private var browserNavigateAdvertised: Bool {
+        Self.readySession(in: connectionState)?
+            .supportedCommands.contains("browser.navigate") == true
+    }
+
+    private var officeCreateAdvertised: Bool {
+        Self.readySession(in: connectionState)?
+            .supportedCommands.contains("office.create") == true
+    }
+
+    private var officeOpenAdvertised: Bool {
+        Self.readySession(in: connectionState)?
+            .supportedCommands.contains("office.open") == true
     }
 
     private var terminalCreateAdvertised: Bool {

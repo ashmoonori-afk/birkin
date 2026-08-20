@@ -79,9 +79,9 @@ public struct ShellStructure: Equatable, Sendable {
             ShellColumn(id: .context, sections: [
                 Self.panel(.approvals, key: "approvals", projection: projection),
                 Self.panel(.activity, key: "activity_logs", projection: projection),
-                Self.unavailable(.browserAside, projection: projection),
-                Self.unavailable(.office, projection: projection),
-                Self.panel(.computerUse, key: "computer_use", projection: projection),
+                Self.surface(.browserAside, name: "browser_aside", store: store),
+                Self.surface(.office, name: "office", store: store),
+                Self.surface(.computerUse, name: "computer_use", store: store),
             ]),
         ]
     }
@@ -155,6 +155,21 @@ public struct ShellStructure: Equatable, Sendable {
             id: id,
             state: .unavailable("Not advertised by the Python projection.")
         )
+    }
+
+    private static func surface(
+        _ id: ShellSectionID,
+        name: String,
+        store: NativeProjectionStore
+    ) -> ShellSection {
+        guard store.projection != nil else { return waiting(id) }
+        guard store.surface(named: name) != nil else {
+            return ShellSection(
+                id: id,
+                state: .unavailable("Not advertised by the Python projection.")
+            )
+        }
+        return ShellSection(id: id, state: .content(itemCount: 1))
     }
 
     private static func waiting(_ id: ShellSectionID) -> ShellSection {
