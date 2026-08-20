@@ -151,6 +151,15 @@ class VaultMemory:
         """Mechanical engine for the actor's owning scope (legacy: user)."""
         return self._dex_for(self.policy.actor_scope)
 
+    def pin_index(
+        self,
+        entries: dict[str, dict[str, Any]],
+    ) -> None:
+        root = scope_root(self.vault, self.policy.actor_scope)
+        self._dexes[self.policy.actor_scope] = (
+            Mnemosyne.from_entries(root, entries)
+        )
+
     # -- low-level note IO -------------------------------------------------
 
     def _resolve_path(self, title: str, note_type: str = "topic",
@@ -180,8 +189,57 @@ class VaultMemory:
         return None
 
     def _provenance_key(self, path: Path) -> str:
-        relative = path.relative_to(self.vault).as_posix()
-        return f"{self._provenance_namespace}/{relative}"
+        return self._provenance_key_relative(
+            path.relative_to(self.vault)
+        )
+
+    def _provenance_key_relative(self, relative: Path) -> str:
+        return (
+            f"{self._provenance_namespace}/"
+            f"{relative.as_posix()}"
+        )
+
+    def _record_source_payload(
+        self,
+        relative: Path,
+        payload: bytes,
+    ) -> tuple[str, str]:
+        digest = hashlib.sha256(payload).hexdigest()
+        key = self._provenance_key_relative(relative)
+        with _PROVENANCE_LOCK:
+            record = self._provenance_records().get(key)
+        if (
+            record is not None
+            and record["sha256"] == digest
+            and record["record_source"]
+        ):
+            return record["record_source"], digest
+        return "legacy", digest
+
+    def _register_record_source_relative(
+        self,
+        relative: Path,
+        source: str,
+        *,
+        digest: str,
+        previous_relative: Path | None = None,
+    ) -> None:
+        with _PROVENANCE_LOCK, store.file_lock(self._provenance_path):
+            records = self._provenance_records()
+            if previous_relative is not None:
+                records.pop(
+                    self._provenance_key_relative(previous_relative),
+                    None,
+                )
+            if source != "legacy":
+                records[self._provenance_key_relative(relative)] = {
+                    "record_source": source,
+                    "sha256": digest,
+                }
+            _atomic_write(
+                self._provenance_path,
+                json.dumps(records, indent=2, sort_keys=True) + "\n",
+            )
 
     def _provenance_records(self) -> dict[str, dict[str, str]]:
         try:

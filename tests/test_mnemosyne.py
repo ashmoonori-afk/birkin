@@ -320,24 +320,34 @@ def test_rezone_refuses_existing_destination_collision(monkeypatch):
 
 
 def test_rezone_refuses_destination_created_after_precheck(monkeypatch):
+    from birkin.skills import bundle_publish
+
     m = _mem()
     m.write_note("Racing", "source body", note_type="fact")
     source = _vault() / "knowledge" / "racing.md"
     eng = _engine()
     target = _vault() / "finance" / "racing.md"
-    real_link = mnemosyne.os.link
-    real_replace = mnemosyne.os.replace
+    real_rename = bundle_publish._rename_noreplace
 
-    def create_then_link(old, new):
+    def create_then_rename(
+            source_name,
+            destination_name,
+            *,
+            source_fd,
+            destination_fd):
         target.write_text("racing destination", encoding="utf-8")
-        return real_link(old, new)
+        return real_rename(
+            source_name,
+            destination_name,
+            source_fd=source_fd,
+            destination_fd=destination_fd,
+        )
 
-    def create_then_replace(old, new):
-        target.write_text("racing destination", encoding="utf-8")
-        return real_replace(old, new)
-
-    monkeypatch.setattr(mnemosyne.os, "link", create_then_link)
-    monkeypatch.setattr(mnemosyne.os, "replace", create_then_replace)
+    monkeypatch.setattr(
+        bundle_publish,
+        "_rename_noreplace",
+        create_then_rename,
+    )
 
     with pytest.raises(FileExistsError):
         eng.rezone("racing", "finance")

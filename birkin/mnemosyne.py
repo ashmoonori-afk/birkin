@@ -366,10 +366,28 @@ class Mnemosyne:
     def __init__(self, vault: Path):
         self.vault = Path(vault)
         self._lock = threading.RLock()
+        self._pinned = False
         self._notes: dict[str, dict[str, Any]] | None = None
         self._dyn: dict[str, Any] | None = None
         self._postings: dict[str, dict[str, int]] = {}
         self._avgdl = 0.0
+
+    @classmethod
+    def from_entries(
+        cls,
+        vault: Path,
+        entries: dict[str, dict[str, Any]],
+    ) -> Mnemosyne:
+        dex = cls(vault)
+        dex._notes = {
+            slug: dict(entry)
+            for slug, entry in entries.items()
+        }
+        for slug, entry in dex._notes.items():
+            dex._add_postings(slug, entry.get("terms") or {})
+        dex._recompute_avgdl()
+        dex._pinned = True
+        return dex
 
     # -- persistence --------------------------------------------------------
 
@@ -492,6 +510,8 @@ class Mnemosyne:
         and keeps externally edited notes (e.g. in Obsidian) visible
         immediately — the M4 win is *no re-parsing*, not no statting."""
         with self._lock:
+            if self._pinned:
+                return
             if self._notes is None:
                 self._load()
             assert self._notes is not None

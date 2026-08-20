@@ -42,7 +42,7 @@ def snapshot_vault(vault: Path, cfg: dict | None = None) -> str | None:
 @contextmanager
 def _pinned_vault_locator(
     vault: Path,
-) -> Iterator[Callable[[], Path]]:
+) -> Iterator[tuple[Callable[[], Path], Path, int | None]]:
     canonical = Path(vault).expanduser().resolve()
     if os.name == "nt":
         from .skills.bundle_publish_windows_io import (
@@ -59,7 +59,7 @@ def _pinned_vault_locator(
             access=READ_ATTRIBUTES,
         )
         try:
-            yield lambda: canonical
+            yield (lambda: canonical), canonical, None
         finally:
             close(kernel32, handle)
         return
@@ -67,6 +67,11 @@ def _pinned_vault_locator(
     flags = os.O_RDONLY | getattr(os, "O_DIRECTORY", 0)
     flags |= getattr(os, "O_NOFOLLOW", 0)
     descriptor = os.open(canonical, flags)
+    fd_root = Path("/dev/fd")
+    if not fd_root.is_dir():
+        fd_root = Path("/proc/self/fd")
+    mutation_root = fd_root / str(descriptor)
+
     def current_path() -> Path:
         if sys.platform == "darwin":
             import fcntl
@@ -84,7 +89,7 @@ def _pinned_vault_locator(
         )
 
     try:
-        yield current_path
+        yield current_path, mutation_root, descriptor
     finally:
         active_error = sys.exc_info()[1]
         try:
@@ -98,10 +103,16 @@ def run_curation_pass(vault: Path, complete: Callable[[str], str], *,
                       provider: str = "?", model: str | None = None,
                       untrusted: str = "", apply: bool = True,
                       now: datetime | None = None) -> CurationOutcome:
-    with _pinned_vault_locator(vault) as current_vault:
+    with _pinned_vault_locator(vault) as (
+        current_vault,
+        mutation_root,
+        root_fd,
+    ):
         return _run_curation_pass_pinned(
             vault,
             current_vault,
+            mutation_root,
+            root_fd,
             complete,
             provider=provider,
             model=model,
@@ -114,6 +125,8 @@ def run_curation_pass(vault: Path, complete: Callable[[str], str], *,
 def _run_curation_pass_pinned(
     configured_vault: Path,
     current_vault: Callable[[], Path],
+    mutation_root: Path,
+    root_fd: int | None,
     complete: Callable[[str], str],
     *,
     provider: str,
@@ -131,6 +144,7 @@ def _run_curation_pass_pinned(
     )
     dex = memory.dex
     dex.refresh()
+    pinned_entries = dex.entries()
     catalog = mechanical_catalog(dex, now=now)
     snap = {n["slug"]: {"zone": "" if n["zone"] == "inbox" else n["zone"],
                         "type": n["type"], "polarity": n["polarity"],
@@ -143,22 +157,36 @@ def _run_curation_pass_pinned(
     gate = validate_clamp(plan, dex, snap, now=now)
     accepted = _dense_zone_links(gate.accepted, snap)
     if apply:
-        mutation_root = current_vault()
-        if mutation_root != memory.vault:
-            memory = VaultMemory(
-                {"vault_path": str(configured_vault)},
-                filesystem_root=mutation_root,
+        memory = VaultMemory(
+            {"vault_path": str(configured_vault)},
+            filesystem_root=mutation_root,
+        )
+        memory.pin_index(pinned_entries)
+        dex = memory.dex
+        move_note = memory.rezone
+        read_note = None
+        write_note = None
+        if root_fd is not None:
+            from .curation_anchor import AnchoredCuration
+
+            anchor = AnchoredCuration(
+                root_fd,
+                pinned_entries,
+                memory,
             )
-            dex = memory.dex
-            dex.refresh()
+            move_note = anchor.move
+            read_note = anchor.read
+            write_note = anchor.write
         if accepted:
-            snapshot_vault(memory.vault)
+            snapshot_vault(current_vault())
         effected = apply_plan(
             accepted,
             memory.vault,
             dex,
-            move_note=memory.rezone,
+            move_note=move_note,
             validate_vault=memory.assert_vault_identity,
+            read_note=read_note,
+            write_note=write_note,
         )
     else:
         effected = []        # --dry-run: propose and gate, change nothing
