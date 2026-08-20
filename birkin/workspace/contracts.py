@@ -41,6 +41,7 @@ _COMMAND_TYPES = {
     "browser.navigate",
     "office.create",
     "office.open",
+    "file.import",
     "skill.reload",
     "checkpoint.restore",
     "config.set",
