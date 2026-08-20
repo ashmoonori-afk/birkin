@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 from pathlib import Path, PurePosixPath
 from typing import Any
 
@@ -32,7 +33,7 @@ def _write_file(
     handle = open_handle(
         kernel32,
         path,
-        access=GENERIC_WRITE | READ_ATTRIBUTES,
+        access=GENERIC_WRITE | READ_ATTRIBUTES | DELETE,
         share=0,
         disposition=CREATE_NEW,
         directory=False,
@@ -106,3 +107,35 @@ def populate(
         handles.files.append(
             _write_file(kernel32, path, entry.payload)
         )
+
+
+def verify_populated(
+    candidate: Path,
+    snapshot: BundleSnapshot,
+) -> None:
+    expected_directories = {
+        relative.as_posix()
+        for relative in snapshot.directories
+    }
+    expected_files = {
+        entry.relative.as_posix()
+        for entry in snapshot.files
+    }
+    actual_directories: set[str] = set()
+    actual_files: set[str] = set()
+    pending = [candidate]
+    while pending:
+        parent = pending.pop()
+        for entry in os.scandir(parent):
+            path = Path(entry.path)
+            relative = path.relative_to(candidate).as_posix()
+            if entry.is_dir(follow_symlinks=False):
+                actual_directories.add(relative)
+                pending.append(path)
+            else:
+                actual_files.add(relative)
+    if (
+        actual_directories != expected_directories
+        or actual_files != expected_files
+    ):
+        raise OSError("Windows bundle candidate contents changed")

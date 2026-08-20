@@ -1253,6 +1253,58 @@ def test_windows_populated_nested_handle_blocks_swap(
 
 @pytest.mark.skipif(
     os.name != "nt",
+    reason="Windows untracked candidate preservation",
+)
+def test_windows_untracked_candidate_file_is_not_published_or_deleted(
+        tmp_path,
+        monkeypatch,
+) -> None:
+    from birkin import config
+    from birkin.skills import bundle_publish_windows, sync
+    from birkin.skills.manager import PublicationCleanupError
+
+    source = tmp_path / "upstream"
+    _skill(source, "Original.", name="candidate-extra")
+    real_populate = bundle_publish_windows.populate
+
+    def populate_then_inject_extra(
+            kernel32,
+            candidate,
+            candidate_handle,
+            snapshot,
+            handles) -> None:
+        real_populate(
+            kernel32,
+            candidate,
+            candidate_handle,
+            snapshot,
+            handles,
+        )
+        (candidate / "untracked.txt").write_text(
+            "UNRELATED",
+            encoding="utf-8",
+        )
+
+    monkeypatch.setattr(
+        bundle_publish_windows,
+        "populate",
+        populate_then_inject_extra,
+    )
+
+    with pytest.raises(PublicationCleanupError):
+        sync.sync_skills(source)
+
+    mirror_root = config.user_skills_dir() / "mirrors"
+    assert not (mirror_root / "candidate-extra").exists()
+    residues = list(mirror_root.glob(".birkin-sync-*"))
+    assert len(residues) == 1
+    assert (
+        residues[0] / "candidate" / "untracked.txt"
+    ).read_text(encoding="utf-8") == "UNRELATED"
+
+
+@pytest.mark.skipif(
+    os.name != "nt",
     reason="Windows candidate setup ownership",
 )
 def test_windows_candidate_open_failure_is_typed_and_releasable(
@@ -1435,16 +1487,19 @@ def test_windows_post_commit_cleanup_failure_is_typed(
         "New bundle.\n",
         encoding="utf-8",
     )
-    real_delete = bundle_publish_windows.delete_tree
+    real_delete = bundle_publish_windows.delete_tree_handles
+    cleanup_calls = 0
 
-    def fail_previous_cleanup(kernel32, path, handle) -> None:
-        if Path(path).name == "previous":
+    def fail_previous_cleanup(kernel32, handles) -> None:
+        nonlocal cleanup_calls
+        cleanup_calls += 1
+        if cleanup_calls == 1:
             raise OSError("injected Windows cleanup failure")
-        real_delete(kernel32, path, handle)
+        real_delete(kernel32, handles)
 
     monkeypatch.setattr(
         bundle_publish_windows,
-        "delete_tree",
+        "delete_tree_handles",
         fail_previous_cleanup,
     )
 

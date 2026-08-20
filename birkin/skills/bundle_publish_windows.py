@@ -18,22 +18,18 @@ from .bundle_publish_windows_io import (
     open_handle,
     rename,
 )
-from .bundle_publish_windows_file import populate
+from .bundle_publish_windows_file import populate, verify_populated
 from .bundle_publish_windows_native import create_directory_handle
 from .bundle_publish_windows_parent import locked_parent, missing
 from .bundle_publish_windows_tree import (
-    TreeHandles,
-    close_tree,
-    delete_tree_handles,
-    lock_existing_tree,
+    TreeHandles, close_tree, delete_tree_handles, lock_existing_tree,
 )
 from .manager import PublicationCleanupError
 
 
 def publish_windows(
     snapshot: BundleSnapshot, target: Path,
-    target_root: Path, replace: bool,
-) -> bool:
+    target_root: Path, replace: bool) -> bool:
     relative = target.relative_to(target_root)
     with locked_parent(
         target_root,
@@ -116,6 +112,7 @@ def publish_windows(
                 snapshot,
                 candidate_tree,
             )
+            verify_populated(candidate, snapshot)
             if previous_handle >= 0:
                 rename(
                     kernel32,
@@ -199,6 +196,9 @@ def publish_windows(
             elif candidate_handle >= 0:
                 try:
                     close_tree(kernel32, candidate_tree)
+                except OSError as error:
+                    cleanup_error = cleanup_error or error
+                try:
                     close(kernel32, candidate_handle)
                 except OSError as error:
                     cleanup_error = cleanup_error or error
