@@ -4,11 +4,14 @@
     "birkin.native.messages.NativeMessageFactory",
     "birkin.native.projection.public_native_mapping",
     "birkin.native.projection.public_workspace_event",
-    "birkin.workspace.snapshot.reduce_snapshot"
+    "birkin.workspace.snapshot.reduce_snapshot",
+    "birkin.workspace.working_memory.WorkingMemoryAuthority",
+    "birkin.workspace.working_memory.project_working_memory",
+    "birkin.goals.GoalState"
   ],
   "snapshot": {
-    "frame_base64": "AAAErnsicHJvdG9jb2wiOiJiaXJraW4tbG9jYWwtMSIsInByb3RvY29sX3ZlcnNpb24iOjEsImtpbmQiOiJzbmFwc2hvdCIsImlkIjoic2VydmVyLTEiLCJpbl9yZXBseV90byI6bnVsbCwiYm9keSI6eyJwcm90b2NvbF92ZXJzaW9uIjoxLCJzZXNzaW9uX2lkIjoic2Vzc2lvbi0xIiwiY3Vyc29yIjoyLCJwYW5lbHMiOlt7ImtleSI6InRhc2tzX3J1bnMiLCJpdGVtcyI6W119LHsia2V5IjoiYXBwcm92YWxzIiwiaXRlbXMiOltdfSx7ImtleSI6ImZpbGVzX2V2aWRlbmNlIiwiaXRlbXMiOltdfSx7ImtleSI6InNlc3Npb25zX2hpc3RvcnkiLCJpdGVtcyI6W3siaWQiOiJldmVudC0yIiwia2luZCI6ImFzc2lzdGFudF9tZXNzYWdlIiwidGV4dCI6IlNuYXBzaG90IHJlYWR5IiwiYWN0b3JfaWQiOiJtYWNvczp3aW5kb3ctbWFpbiIsImN1cnNvciI6Mn1dfSx7ImtleSI6ImFjdGl2aXR5X2xvZ3MiLCJpdGVtcyI6W119LHsia2V5IjoiY3JvbiIsIml0ZW1zIjpbXX0seyJrZXkiOiJtZW1vcnlfc2tpbGxzIiwiaXRlbXMiOltdfSx7ImtleSI6ImNoZWNrcG9pbnRzX3Jlc3RvcmUiLCJpdGVtcyI6W119LHsia2V5IjoiY29tcHV0ZXJfdXNlIiwiaXRlbXMiOltdfSx7ImtleSI6InNldHRpbmdzX3N0YXR1cyIsIml0ZW1zIjpbXX1dLCJjb252ZXJzYXRpb24iOlt7ImlkIjoiZXZlbnQtMSIsImtpbmQiOiJ1c2VyX21lc3NhZ2UiLCJ0ZXh0IjoiU2hpcCB0aGUgcmVkdWNlciIsImFjdG9yX2lkIjoibWFjb3M6d2luZG93LW1haW4iLCJjdXJzb3IiOjF9LHsiaWQiOiJldmVudC0yIiwia2luZCI6ImFzc2lzdGFudF9tZXNzYWdlIiwidGV4dCI6IlNuYXBzaG90IHJlYWR5IiwiYWN0b3JfaWQiOiJtYWNvczp3aW5kb3ctbWFpbiIsImN1cnNvciI6Mn1dLCJjb21wb3NlciI6eyJjYW5fc2VuZCI6dHJ1ZSwiY2FuX2ludGVycnVwdCI6ZmFsc2UsImNhbl9yZXN1bWUiOmZhbHNlfSwic3RhdHVzIjp7ImNvbm5lY3Rpb24iOiJjb25uZWN0ZWQifSwid29ya2luZ19tZW1vcnkiOnsicmV2aXNpb24iOjAsImdvYWwiOm51bGwsImZpZWxkcyI6eyJjb3JyZWN0aW9ucyI6W10sImNvbnN0cmFpbnRzIjpbXSwiZGVjaXNpb25zIjpbXSwiaW5jb21wbGV0ZSI6W10sImV2aWRlbmNlIjpbXSwibmV4dF9hY3Rpb25zIjpbXX0sImZpbGVzX2V2aWRlbmNlIjpbXX0sImluc3RhbmNlX2lkIjoiaW5zdGFuY2UtMSIsInJlc2V0X3JlYXNvbiI6ImluaXRpYWwifX0=",
-    "frame_byte_count": 1202,
+    "frame_base64": "AAAFwXsicHJvdG9jb2wiOiJiaXJraW4tbG9jYWwtMSIsInByb3RvY29sX3ZlcnNpb24iOjEsImtpbmQiOiJzbmFwc2hvdCIsImlkIjoic2VydmVyLTEiLCJpbl9yZXBseV90byI6bnVsbCwiYm9keSI6eyJwcm90b2NvbF92ZXJzaW9uIjoxLCJzZXNzaW9uX2lkIjoic2Vzc2lvbi0xIiwiY3Vyc29yIjoyLCJwYW5lbHMiOlt7ImtleSI6InRhc2tzX3J1bnMiLCJpdGVtcyI6W119LHsia2V5IjoiYXBwcm92YWxzIiwiaXRlbXMiOltdfSx7ImtleSI6ImZpbGVzX2V2aWRlbmNlIiwiaXRlbXMiOltdfSx7ImtleSI6InNlc3Npb25zX2hpc3RvcnkiLCJpdGVtcyI6W3siaWQiOiJldmVudC0yIiwia2luZCI6ImFzc2lzdGFudF9tZXNzYWdlIiwidGV4dCI6IlNuYXBzaG90IHJlYWR5IiwiYWN0b3JfaWQiOiJtYWNvczp3aW5kb3ctbWFpbiIsImN1cnNvciI6Mn1dfSx7ImtleSI6ImFjdGl2aXR5X2xvZ3MiLCJpdGVtcyI6W119LHsia2V5IjoiY3JvbiIsIml0ZW1zIjpbXX0seyJrZXkiOiJtZW1vcnlfc2tpbGxzIiwiaXRlbXMiOltdfSx7ImtleSI6ImNoZWNrcG9pbnRzX3Jlc3RvcmUiLCJpdGVtcyI6W119LHsia2V5IjoiY29tcHV0ZXJfdXNlIiwiaXRlbXMiOltdfSx7ImtleSI6InNldHRpbmdzX3N0YXR1cyIsIml0ZW1zIjpbXX1dLCJjb252ZXJzYXRpb24iOlt7ImlkIjoiZXZlbnQtMSIsImtpbmQiOiJ1c2VyX21lc3NhZ2UiLCJ0ZXh0IjoiU2hpcCB0aGUgcmVkdWNlciIsImFjdG9yX2lkIjoibWFjb3M6d2luZG93LW1haW4iLCJjdXJzb3IiOjF9LHsiaWQiOiJldmVudC0yIiwia2luZCI6ImFzc2lzdGFudF9tZXNzYWdlIiwidGV4dCI6IlNuYXBzaG90IHJlYWR5IiwiYWN0b3JfaWQiOiJtYWNvczp3aW5kb3ctbWFpbiIsImN1cnNvciI6Mn1dLCJjb21wb3NlciI6eyJjYW5fc2VuZCI6dHJ1ZSwiY2FuX2ludGVycnVwdCI6ZmFsc2UsImNhbl9yZXN1bWUiOmZhbHNlfSwic3RhdHVzIjp7ImNvbm5lY3Rpb24iOiJjb25uZWN0ZWQifSwid29ya2luZ19tZW1vcnkiOnsicmV2aXNpb24iOjEsImdvYWwiOnsic2x1ZyI6InNoaXAtbmF0aXZlLXdvcmtpbmctbWVtb3J5Iiwib2JqZWN0aXZlIjoiU2hpcCBuYXRpdmUgV29ya2luZyBNZW1vcnkiLCJ0b2tlbnNfdXNlZCI6MCwic3RhdHVzIjoiYWN0aXZlIn0sImZpZWxkcyI6eyJjb3JyZWN0aW9ucyI6WyJVc2UgY2Fub25pY2FsIHN0YXRlIl0sImNvbnN0cmFpbnRzIjpbIlN0YXkgb2ZmbGluZSJdLCJkZWNpc2lvbnMiOlsiRGVsZWdhdGUgdG8gUHl0aG9uIl0sImluY29tcGxldGUiOlsiUmVuZGVyIGZpdmUgcm93cyJdLCJldmlkZW5jZSI6WyJSRUQgY2FwdHVyZWQiXSwibmV4dF9hY3Rpb25zIjpbIlJ1biBHUkVFTiJdfSwiZmlsZXNfZXZpZGVuY2UiOlt7ImlkIjoiY2hlY2twb2ludC0xIiwic3VtbWFyeSI6IndvcmtzcGFjZS9tYWluLnB5Iiwia2luZCI6ImV2aWRlbmNlIn1dfSwiaW5zdGFuY2VfaWQiOiJpbnN0YW5jZS0xIiwicmVzZXRfcmVhc29uIjoiaW5pdGlhbCJ9fQ==",
+    "frame_byte_count": 1477,
     "kind": "snapshot",
     "expected_state": {
       "protocol_version": 1,
@@ -89,17 +92,40 @@
         "connection": "connected"
       },
       "working_memory": {
-        "revision": 0,
-        "goal": null,
-        "fields": {
-          "corrections": [],
-          "constraints": [],
-          "decisions": [],
-          "incomplete": [],
-          "evidence": [],
-          "next_actions": []
+        "revision": 1,
+        "goal": {
+          "slug": "ship-native-working-memory",
+          "objective": "Ship native Working Memory",
+          "tokens_used": 0,
+          "status": "active"
         },
-        "files_evidence": []
+        "fields": {
+          "corrections": [
+            "Use canonical state"
+          ],
+          "constraints": [
+            "Stay offline"
+          ],
+          "decisions": [
+            "Delegate to Python"
+          ],
+          "incomplete": [
+            "Render five rows"
+          ],
+          "evidence": [
+            "RED captured"
+          ],
+          "next_actions": [
+            "Run GREEN"
+          ]
+        },
+        "files_evidence": [
+          {
+            "id": "checkpoint-1",
+            "summary": "workspace/main.py",
+            "kind": "evidence"
+          }
+        ]
       }
     }
   },
@@ -197,17 +223,40 @@
           "connection": "connected"
         },
         "working_memory": {
-          "revision": 0,
-          "goal": null,
-          "fields": {
-            "corrections": [],
-            "constraints": [],
-            "decisions": [],
-            "incomplete": [],
-            "evidence": [],
-            "next_actions": []
+          "revision": 1,
+          "goal": {
+            "slug": "ship-native-working-memory",
+            "objective": "Ship native Working Memory",
+            "tokens_used": 0,
+            "status": "active"
           },
-          "files_evidence": []
+          "fields": {
+            "corrections": [
+              "Use canonical state"
+            ],
+            "constraints": [
+              "Stay offline"
+            ],
+            "decisions": [
+              "Delegate to Python"
+            ],
+            "incomplete": [
+              "Render five rows"
+            ],
+            "evidence": [
+              "RED captured"
+            ],
+            "next_actions": [
+              "Run GREEN"
+            ]
+          },
+          "files_evidence": [
+            {
+              "id": "checkpoint-1",
+              "summary": "workspace/main.py",
+              "kind": "evidence"
+            }
+          ]
         }
       }
     },
@@ -304,17 +353,40 @@
           "connection": "connected"
         },
         "working_memory": {
-          "revision": 0,
-          "goal": null,
-          "fields": {
-            "corrections": [],
-            "constraints": [],
-            "decisions": [],
-            "incomplete": [],
-            "evidence": [],
-            "next_actions": []
+          "revision": 1,
+          "goal": {
+            "slug": "ship-native-working-memory",
+            "objective": "Ship native Working Memory",
+            "tokens_used": 0,
+            "status": "active"
           },
-          "files_evidence": []
+          "fields": {
+            "corrections": [
+              "Use canonical state"
+            ],
+            "constraints": [
+              "Stay offline"
+            ],
+            "decisions": [
+              "Delegate to Python"
+            ],
+            "incomplete": [
+              "Render five rows"
+            ],
+            "evidence": [
+              "RED captured"
+            ],
+            "next_actions": [
+              "Run GREEN"
+            ]
+          },
+          "files_evidence": [
+            {
+              "id": "checkpoint-1",
+              "summary": "workspace/main.py",
+              "kind": "evidence"
+            }
+          ]
         }
       }
     },
@@ -418,17 +490,40 @@
           "connection": "connected"
         },
         "working_memory": {
-          "revision": 0,
-          "goal": null,
-          "fields": {
-            "corrections": [],
-            "constraints": [],
-            "decisions": [],
-            "incomplete": [],
-            "evidence": [],
-            "next_actions": []
+          "revision": 1,
+          "goal": {
+            "slug": "ship-native-working-memory",
+            "objective": "Ship native Working Memory",
+            "tokens_used": 0,
+            "status": "active"
           },
-          "files_evidence": []
+          "fields": {
+            "corrections": [
+              "Use canonical state"
+            ],
+            "constraints": [
+              "Stay offline"
+            ],
+            "decisions": [
+              "Delegate to Python"
+            ],
+            "incomplete": [
+              "Render five rows"
+            ],
+            "evidence": [
+              "RED captured"
+            ],
+            "next_actions": [
+              "Run GREEN"
+            ]
+          },
+          "files_evidence": [
+            {
+              "id": "checkpoint-1",
+              "summary": "workspace/main.py",
+              "kind": "evidence"
+            }
+          ]
         }
       }
     },
@@ -539,17 +634,40 @@
           "connection": "connected"
         },
         "working_memory": {
-          "revision": 0,
-          "goal": null,
-          "fields": {
-            "corrections": [],
-            "constraints": [],
-            "decisions": [],
-            "incomplete": [],
-            "evidence": [],
-            "next_actions": []
+          "revision": 1,
+          "goal": {
+            "slug": "ship-native-working-memory",
+            "objective": "Ship native Working Memory",
+            "tokens_used": 0,
+            "status": "active"
           },
-          "files_evidence": []
+          "fields": {
+            "corrections": [
+              "Use canonical state"
+            ],
+            "constraints": [
+              "Stay offline"
+            ],
+            "decisions": [
+              "Delegate to Python"
+            ],
+            "incomplete": [
+              "Render five rows"
+            ],
+            "evidence": [
+              "RED captured"
+            ],
+            "next_actions": [
+              "Run GREEN"
+            ]
+          },
+          "files_evidence": [
+            {
+              "id": "checkpoint-1",
+              "summary": "workspace/main.py",
+              "kind": "evidence"
+            }
+          ]
         }
       }
     },
@@ -660,17 +778,40 @@
           "connection": "connected"
         },
         "working_memory": {
-          "revision": 0,
-          "goal": null,
-          "fields": {
-            "corrections": [],
-            "constraints": [],
-            "decisions": [],
-            "incomplete": [],
-            "evidence": [],
-            "next_actions": []
+          "revision": 1,
+          "goal": {
+            "slug": "ship-native-working-memory",
+            "objective": "Ship native Working Memory",
+            "tokens_used": 0,
+            "status": "active"
           },
-          "files_evidence": []
+          "fields": {
+            "corrections": [
+              "Use canonical state"
+            ],
+            "constraints": [
+              "Stay offline"
+            ],
+            "decisions": [
+              "Delegate to Python"
+            ],
+            "incomplete": [
+              "Render five rows"
+            ],
+            "evidence": [
+              "RED captured"
+            ],
+            "next_actions": [
+              "Run GREEN"
+            ]
+          },
+          "files_evidence": [
+            {
+              "id": "checkpoint-1",
+              "summary": "workspace/main.py",
+              "kind": "evidence"
+            }
+          ]
         }
       }
     },
@@ -788,17 +929,40 @@
           "connection": "connected"
         },
         "working_memory": {
-          "revision": 0,
-          "goal": null,
-          "fields": {
-            "corrections": [],
-            "constraints": [],
-            "decisions": [],
-            "incomplete": [],
-            "evidence": [],
-            "next_actions": []
+          "revision": 1,
+          "goal": {
+            "slug": "ship-native-working-memory",
+            "objective": "Ship native Working Memory",
+            "tokens_used": 0,
+            "status": "active"
           },
-          "files_evidence": []
+          "fields": {
+            "corrections": [
+              "Use canonical state"
+            ],
+            "constraints": [
+              "Stay offline"
+            ],
+            "decisions": [
+              "Delegate to Python"
+            ],
+            "incomplete": [
+              "Render five rows"
+            ],
+            "evidence": [
+              "RED captured"
+            ],
+            "next_actions": [
+              "Run GREEN"
+            ]
+          },
+          "files_evidence": [
+            {
+              "id": "checkpoint-1",
+              "summary": "workspace/main.py",
+              "kind": "evidence"
+            }
+          ]
         }
       }
     },
@@ -916,17 +1080,40 @@
           "connection": "connected"
         },
         "working_memory": {
-          "revision": 0,
-          "goal": null,
-          "fields": {
-            "corrections": [],
-            "constraints": [],
-            "decisions": [],
-            "incomplete": [],
-            "evidence": [],
-            "next_actions": []
+          "revision": 1,
+          "goal": {
+            "slug": "ship-native-working-memory",
+            "objective": "Ship native Working Memory",
+            "tokens_used": 0,
+            "status": "active"
           },
-          "files_evidence": []
+          "fields": {
+            "corrections": [
+              "Use canonical state"
+            ],
+            "constraints": [
+              "Stay offline"
+            ],
+            "decisions": [
+              "Delegate to Python"
+            ],
+            "incomplete": [
+              "Render five rows"
+            ],
+            "evidence": [
+              "RED captured"
+            ],
+            "next_actions": [
+              "Run GREEN"
+            ]
+          },
+          "files_evidence": [
+            {
+              "id": "checkpoint-1",
+              "summary": "workspace/main.py",
+              "kind": "evidence"
+            }
+          ]
         }
       }
     }

@@ -9,14 +9,23 @@ from __future__ import annotations
 
 import base64
 import json
+import os
+import tempfile
+from dataclasses import replace
 from pathlib import Path
 
+from birkin import goals
 from birkin.native.messages import NativeMessageFactory
 from birkin.native.projection import public_native_mapping, public_workspace_event
 from birkin.native.protocol import NativeEnvelope, decode_frame, encode_frame
 from birkin.workspace.presets import SESSION_PRESETS
 from birkin.workspace.records import WorkspaceEvent
 from birkin.workspace.snapshot import reduce_snapshot
+from birkin.workspace.working_memory import (
+    WorkingMemoryAuthority,
+    WorkingMemoryMutation,
+    project_working_memory,
+)
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 FIXTURE_PATH = (
@@ -54,6 +63,43 @@ def frame_document(envelope: NativeEnvelope) -> dict[str, object]:
     }
 
 
+def canonical_working_memory() -> dict[str, object]:
+    """Build deterministic fixture data through the real Python authorities."""
+
+    previous_home = os.environ.get("BIRKIN_HOME")
+    with tempfile.TemporaryDirectory(prefix="birkin-native-vectors-") as root:
+        os.environ["BIRKIN_HOME"] = root
+        try:
+            _ = goals.set_goal("Ship native Working Memory", session_id="session-1")
+            authority = WorkingMemoryAuthority("session-1")
+            _ = authority.apply(WorkingMemoryMutation.parse({
+                "op": "merge",
+                "expected_revision": 0,
+                "fields": {
+                    "corrections": ["Use canonical state"],
+                    "constraints": ["Stay offline"],
+                    "decisions": ["Delegate to Python"],
+                    "incomplete": ["Render five rows"],
+                    "evidence": ["RED captured"],
+                    "next_actions": ["Run GREEN"],
+                },
+            }))
+            return project_working_memory(
+                "session-1",
+                ({
+                    "id": "checkpoint-1",
+                    "summary": "workspace/main.py",
+                    "path": "/private/workspace/main.py",
+                    "kind": "evidence",
+                },),
+            )
+        finally:
+            if previous_home is None:
+                del os.environ["BIRKIN_HOME"]
+            else:
+                os.environ["BIRKIN_HOME"] = previous_home
+
+
 def render_fixture() -> str:
     """Render snapshot and delta vectors through production projection code."""
 
@@ -81,8 +127,12 @@ def render_fixture() -> str:
         session_presets=SESSION_PRESETS,
     )
 
+    working_memory = canonical_working_memory()
     snapshot = public_native_mapping(
-        reduce_snapshot("session-1", tuple(base_events)).to_json()
+        replace(
+            reduce_snapshot("session-1", tuple(base_events)),
+            working_memory=working_memory,
+        ).to_json()
     )
     snapshot_body = dict(snapshot)
     snapshot_body.update({"instance_id": "instance-1", "reset_reason": "initial"})
@@ -98,7 +148,10 @@ def render_fixture() -> str:
                 **frame_document(message),
                 "cursor": delta.cursor,
                 "expected_state": public_native_mapping(
-                    reduce_snapshot("session-1", tuple(applied)).to_json()
+                    replace(
+                        reduce_snapshot("session-1", tuple(applied)),
+                        working_memory=working_memory,
+                    ).to_json()
                 ),
             }
         )
@@ -112,6 +165,9 @@ def render_fixture() -> str:
             "birkin.native.projection.public_native_mapping",
             "birkin.native.projection.public_workspace_event",
             "birkin.workspace.snapshot.reduce_snapshot",
+            "birkin.workspace.working_memory.WorkingMemoryAuthority",
+            "birkin.workspace.working_memory.project_working_memory",
+            "birkin.goals.GoalState",
         ],
         "snapshot": {
             **frame_document(snapshot_message),
