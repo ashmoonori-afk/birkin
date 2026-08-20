@@ -171,6 +171,7 @@ public struct TerminalView: View {
                 Text(terminal.state.uppercased()).font(.caption.bold())
                 Button("Interrupt", action: interrupt)
                     .disabled(!canMutate)
+                    .keyboardShortcut(".", modifiers: .command)
                     .accessibilityLabel("Interrupt Python terminal")
                 Button("Close") { confirmsClose = true }
                     .disabled(!canMutate)

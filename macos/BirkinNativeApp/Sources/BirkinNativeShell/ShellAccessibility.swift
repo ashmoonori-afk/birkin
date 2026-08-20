@@ -38,6 +38,59 @@ public struct ShellAccessibilityNode: Equatable, Identifiable, Sendable {
     }
 }
 
+public struct ShellKeyboardCommand: Equatable, Sendable {
+    public let shortcut: String
+    public let action: String
+
+    public init(shortcut: String, action: String) {
+        self.shortcut = shortcut
+        self.action = action
+    }
+}
+
+public enum ShellKeyboardJourney: Sendable {
+    case j1FirstAnswer
+    case j3TerminalAndFileChange
+}
+
+public enum ShellKeyboardModel {
+    public static let focusOrder = [
+        "sessions.new", "composer.draft", "composer.send", "conversation.stream",
+        "terminal.new", "terminal.input", "terminal.run", "terminal.output",
+        "approvals.approve", "activity.receipt",
+    ]
+
+    public static let commands = [
+        ShellKeyboardCommand(shortcut: "cmd+n", action: "sessions.new"),
+        ShellKeyboardCommand(shortcut: "cmd+return", action: "composer.send"),
+        ShellKeyboardCommand(shortcut: "cmd+.", action: "terminal.interrupt"),
+        ShellKeyboardCommand(shortcut: "cmd+shift+a", action: "approvals.oldest"),
+        ShellKeyboardCommand(shortcut: "escape", action: "overlay.dismiss"),
+        ShellKeyboardCommand(shortcut: "cmd+1", action: "panel.navigation"),
+        ShellKeyboardCommand(shortcut: "cmd+2", action: "panel.primary"),
+        ShellKeyboardCommand(shortcut: "cmd+3", action: "panel.context"),
+    ]
+
+    public static func journey(_ journey: ShellKeyboardJourney) -> [String] {
+        switch journey {
+        case .j1FirstAnswer:
+            return [
+                "focus:sessions.new", "key:cmd+n", "focus:composer.draft",
+                "edit:composer.draft", "key:cmd+return", "focus:conversation.stream",
+                "observe:stream-complete", "focus:activity.receipt", "press:activity.receipt",
+            ]
+        case .j3TerminalAndFileChange:
+            return [
+                "focus:terminal.new", "press:terminal.new", "focus:terminal.input",
+                "edit:terminal.input", "press:terminal.run", "focus:terminal.output",
+                "observe:terminal-output", "key:cmd+shift+a", "focus:approvals.approve",
+                "press:approvals.approve", "observe:file-diff", "focus:activity.receipt",
+                "press:activity.receipt",
+            ]
+        }
+    }
+}
+
 public enum ShellAccessibilityInventory {
     public static let nodes: [ShellAccessibilityNode] = [
         node("connection.status", "chrome", .status, "Connection status", value: "Connection state and transport", priority: 1000),

@@ -249,6 +249,7 @@ public struct NativeShellView: View {
                 let surfaceEnabled = isAdvertised(control)
                 Button(controlTitle(control)) { mutationAction(control) }
                     .disabled(!availability.isEnabled || !surfaceEnabled)
+                    .keyboardShortcut("n", modifiers: .command)
                     .accessibilityLabel(control == .newSession ? "New session" : controlTitle(control))
                 if !availability.isEnabled || !surfaceEnabled {
                     Text(availability.disabledReason ?? "Not advertised by Python.")
