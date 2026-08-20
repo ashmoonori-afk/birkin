@@ -18,6 +18,7 @@ from birkin.native.protocol import (
 from birkin.native.projection import public_error_text
 from birkin.workspace.contracts import (
     CommandIdConflict,
+    ConfigMutationRejected,
     ProtocolError as WorkspaceProtocolError,
     StaleCursor,
     UnsupportedCommand,
@@ -119,7 +120,9 @@ class NativeMessageFactory:
         in_reply_to: str,
     ) -> NativeEnvelope:
         details: dict[str, object] | None = None
-        if isinstance(error, UnsupportedCommand):
+        if isinstance(error, ConfigMutationRejected):
+            code = "E_CONFIG_REJECTED"
+        elif isinstance(error, UnsupportedCommand):
             code = "E_UNSUPPORTED_COMMAND"
         elif isinstance(error, StaleCursor):
             code = "E_STALE_CURSOR"

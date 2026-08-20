@@ -3,6 +3,7 @@ from __future__ import annotations
 import socket
 from pathlib import Path
 
+from birkin import config
 from birkin.native.capability import BootstrapSecretStore
 from birkin.native.protocol import encode_frame
 from birkin.native.server import NativeBridgeServer
@@ -28,11 +29,13 @@ def _server(tmp_path: Path) -> tuple[NativeBridgeServer, WorkspaceHub]:
     hub = WorkspaceHub(
         root=tmp_path / "workspace",
         handler_factory=handlers,
+        config_setter=config.set_config,
     )
     session, _ = hub.create("session-1")
     bridge = NativeBridgeServer(
         session.service,
         session_authority=hub,
+        config_authority=hub,
         capabilities=BootstrapSecretStore(tmp_path / "native"),
         instance_id="instance-1",
         server_version="1.0.0",
@@ -167,6 +170,48 @@ def test_session_compact_over_socket_returns_canonical_receipt(
         assert receipt.body["state"] == "completed"
         assert receipt.body["result_event_cursor"] == 4
         assert event.body["payload"]["compacted"] is True
+    finally:
+        client.close()
+        thread.join(timeout=2)  # type: ignore[union-attr]
+        hub.close()
+    assert errors == []
+
+
+def test_config_set_over_socket_emits_requested_and_effective_or_typed_rejection(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:  # type: ignore[no-untyped-def]
+    monkeypatch.setenv("BIRKIN_HOME", str(tmp_path / "home"))
+    bridge, hub = _server(tmp_path)
+    client, token, thread, errors = _connect(bridge)
+    try:
+        _send(client, token, "config.set", "config-valid", 0, {"key": "max_turns", "value": 12})
+        receipt = receive_kind(client, "receipt")
+        requested = _receive_event_type(client, "settings.requested")
+        effective = _receive_event_type(client, "settings.updated")
+
+        assert receipt.body["state"] == "completed"
+        assert requested.body["payload"] == {"key": "max_turns", "value": 12}
+        assert effective.body["payload"] == {"key": "max_turns", "value": 12}
+        assert config.load_config()["max_turns"] == 12
+
+        _send(
+            client,
+            token,
+            "config.set",
+            "config-invalid",
+            hub.snapshot().cursor,
+            {"key": "max_turns", "value": "many"},
+        )
+        error = receive_kind(client, "error")
+        rejected = _receive_event_type(client, "settings.rejected")
+
+        assert error.body["code"] == "E_CONFIG_REJECTED"
+        assert "invalid config" in str(error.body["message"])
+        assert "Traceback" not in str(error.body)
+        assert len(str(error.body)) < 600
+        assert "invalid config" in str(rejected.body["payload"]["reason"])
+        assert config.load_config()["max_turns"] == 12
     finally:
         client.close()
         thread.join(timeout=2)  # type: ignore[union-attr]
