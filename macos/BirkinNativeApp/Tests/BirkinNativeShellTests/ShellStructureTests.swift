@@ -84,6 +84,7 @@ struct ShellStructureTests {
                 "can_resume": .bool(false),
             ]),
             "status": .object(["connection": .string("connected")]),
+            "terminals": .array([]),
             "working_memory": .object([
                 "revision": .int(0),
                 "goal": .null,
