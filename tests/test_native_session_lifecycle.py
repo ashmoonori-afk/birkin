@@ -32,6 +32,7 @@ def _server(tmp_path: Path) -> tuple[NativeBridgeServer, WorkspaceHub]:
         emit: Callable[[str, dict[str, object]], WorkspaceEvent],
     ) -> Mapping[str, CommandHandler]:
         failed_text: str | None = None
+        active_run = True
 
         def compact(_payload: dict[str, object]) -> dict[str, object]:
             _ = emit(
@@ -49,6 +50,8 @@ def _server(tmp_path: Path) -> tuple[NativeBridgeServer, WorkspaceHub]:
             return {"reply": text}
 
         def steer(payload: dict[str, object]) -> dict[str, object]:
+            if not active_run:
+                raise RuntimeError("no active run")
             text = str(payload["text"])
             _ = emit("turn.steered", {"text": text})
             return {"steered": True}
