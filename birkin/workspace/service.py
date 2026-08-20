@@ -14,6 +14,7 @@ from .contracts import (
     UnsupportedCommand,
     WorkspaceCommand,
 )
+from .approval_projection import approval_items
 from .journal import WorkspaceJournal
 from .presets import SESSION_PRESETS, SessionPreset
 from .records import (
@@ -225,7 +226,14 @@ class WorkspaceService:
         files = next(
             panel.items for panel in snapshot.panels if panel.key == "files_evidence"
         )
+        panels = tuple(
+            replace(panel, items=approval_items())
+            if panel.key == "approvals"
+            else panel
+            for panel in snapshot.panels
+        )
         return replace(
             snapshot,
+            panels=panels,
             working_memory=project_working_memory(snapshot.session_id, files),
         )
