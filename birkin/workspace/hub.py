@@ -160,6 +160,7 @@ class WorkspaceHub:
         self._handlers = dict(handlers) if handlers is not None else None
         self._handler_factory = handler_factory
         self._sessions: dict[str, WorkspaceSession] = {}
+        self._session_names: dict[str, str] = {}
         self._selected_session_id: str | None = None
         self._event_listeners: list[Callable[[WorkspaceEvent], None]] = []
         self._lock = threading.RLock()
@@ -202,6 +203,7 @@ class WorkspaceHub:
             for listener in self._event_listeners:
                 _ = session.service.add_event_listener(listener)
             self._sessions[session_id] = session
+            self._session_names[session_id] = session_id
             if self._selected_session_id is None:
                 self._selected_session_id = session_id
             return session, True
@@ -256,6 +258,18 @@ class WorkspaceHub:
             session = self._selected_session()
         return session.service.submit(command, actor_id=actor_id)
 
+    def rename(
+        self,
+        command: WorkspaceCommand,
+        *,
+        actor_id: str,
+    ) -> CommandReceipt:
+        if command.type != "session.rename":
+            raise ProtocolError("session.rename command is required")
+        with self._lock:
+            session = self._selected_session()
+        return session.service.submit(command, actor_id=actor_id)
+
     def _selected_session(self) -> WorkspaceSession:
         session_id = self._selected_session_id
         if session_id is None or session_id not in self._sessions:
@@ -277,7 +291,28 @@ class WorkspaceHub:
                 self._selected_session_id = session_id
             return {"session_id": session_id}
 
-        return {"session.select": select}
+        def rename(payload: dict[str, object]) -> dict[str, object]:
+            session_id = payload.get("session_id")
+            name = payload.get("name")
+            if not isinstance(session_id, str) or not session_id:
+                raise ProtocolError("session_id is required")
+            if not isinstance(name, str) or not name.strip():
+                raise ProtocolError("session name is required")
+            cleaned = name.strip()
+            with self._lock:
+                if session_id not in self._sessions:
+                    raise ProtocolError("workspace session was not found")
+                self._session_names[session_id] = cleaned
+                _ = emit(
+                    "session.renamed",
+                    {"session_id": session_id, "name": cleaned},
+                )
+            return {"session_id": session_id, "name": cleaned}
+
+        return {
+            "session.select": select,
+            "session.rename": rename,
+        }
 
     def summaries(self) -> list[dict[str, object]]:
         with self._lock:
@@ -285,6 +320,7 @@ class WorkspaceHub:
         return [
             {
                 "session_id": session.session_id,
+                "name": self._session_names[session.session_id],
                 "cursor": session.snapshot().cursor,
             }
             for session in sessions
@@ -294,6 +330,7 @@ class WorkspaceHub:
         with self._lock:
             sessions = list(self._sessions.values())
             self._sessions.clear()
+            self._session_names.clear()
             self._selected_session_id = None
         for session in sessions:
             session.close()

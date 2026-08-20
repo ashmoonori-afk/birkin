@@ -42,3 +42,25 @@ def test_session_select_records_event_and_changes_snapshot(tmp_path: Path) -> No
         for event in first.events()
     )
     hub.close()
+
+
+def test_session_rename_updates_canonical_summaries(tmp_path: Path) -> None:
+    hub = WorkspaceHub(root=tmp_path, handlers={"chat.send": lambda _p: {}})
+    session, _ = hub.create("first")
+
+    receipt = hub.rename(
+        _command(
+            "session.rename",
+            "rename-1",
+            session.snapshot().cursor,
+            {"session_id": "first", "name": "Planning"},
+        ),
+        actor_id="macos:main",
+    )
+
+    assert receipt.state == "completed"
+    assert hub.summaries() == [
+        {"session_id": "first", "name": "Planning", "cursor": 4}
+    ]
+    assert any(event.type == "session.renamed" for event in session.events())
+    hub.close()
