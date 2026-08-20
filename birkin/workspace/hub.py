@@ -8,7 +8,9 @@ from pathlib import Path
 from queue import Empty, Queue
 from typing import final
 
-from .contracts import ProtocolError, WorkspaceCommand
+from birkin import config
+
+from .contracts import ConfigMutationRejected, ProtocolError, WorkspaceCommand
 from .records import CommandReceipt, WorkspaceEvent, WorkspaceSnapshot
 from .service import CommandHandler, WorkspaceService
 
@@ -151,6 +153,7 @@ class WorkspaceHub:
         root: Path,
         handlers: Mapping[str, CommandHandler] | None = None,
         handler_factory: HandlerFactory | None = None,
+        config_setter: Callable[[str, object], config.ConfigSetResult] | None = None,
     ) -> None:
         if handlers is None and handler_factory is None:
             raise ValueError("handlers or handler_factory is required")
@@ -159,6 +162,7 @@ class WorkspaceHub:
         self._root = root
         self._handlers = dict(handlers) if handlers is not None else None
         self._handler_factory = handler_factory
+        self._config_setter = config_setter
         self._sessions: dict[str, WorkspaceSession] = {}
         self._session_names: dict[str, str] = {}
         self._selected_session_id: str | None = None
@@ -246,6 +250,16 @@ class WorkspaceHub:
 
         return unsubscribe
 
+    def submit(
+        self,
+        command: WorkspaceCommand,
+        *,
+        actor_id: str,
+    ) -> CommandReceipt:
+        with self._lock:
+            session = self._selected_session()
+        return session.service.submit(command, actor_id=actor_id)
+
     def select(
         self,
         command: WorkspaceCommand,
@@ -278,9 +292,7 @@ class WorkspaceHub:
     ) -> CommandReceipt:
         if command.type != "session.compact":
             raise ProtocolError("session.compact command is required")
-        with self._lock:
-            session = self._selected_session()
-        return session.service.submit(command, actor_id=actor_id)
+        return self.submit(command, actor_id=actor_id)
 
     def _selected_session(self) -> WorkspaceSession:
         session_id = self._selected_session_id
@@ -292,6 +304,15 @@ class WorkspaceHub:
         self,
         emit: EventSink,
     ) -> Mapping[str, CommandHandler]:
+        def create(payload: dict[str, object]) -> dict[str, object]:
+            session_id = payload.get("session_id")
+            if not isinstance(session_id, str) or not session_id:
+                raise ProtocolError("session_id is required")
+            _session, created = self.create(session_id)
+            event_type = "session.created" if created else "session.selected"
+            _ = emit(event_type, {"session_id": session_id})
+            return {"session_id": session_id, "created": created}
+
         def select(payload: dict[str, object]) -> dict[str, object]:
             session_id = payload.get("session_id")
             if not isinstance(session_id, str) or not session_id:
@@ -321,10 +342,36 @@ class WorkspaceHub:
                 )
             return {"session_id": session_id, "name": cleaned}
 
-        return {
+        handlers: dict[str, CommandHandler] = {
+            "session.create": create,
             "session.select": select,
             "session.rename": rename,
         }
+        if self._config_setter is not None:
+            setter = self._config_setter
+
+            def set_config(payload: dict[str, object]) -> dict[str, object]:
+                key = payload.get("key")
+                if not isinstance(key, str) or not key:
+                    raise ProtocolError("config key is required")
+                value = payload.get("value")
+                _ = emit("settings.requested", {"key": key, "value": value})
+                result = setter(key, value)
+                if not result.accepted:
+                    reason = result.reason or "configuration was rejected"
+                    _ = emit(
+                        "settings.rejected",
+                        {"key": key, "reason": reason},
+                    )
+                    raise ConfigMutationRejected(reason)
+                _ = emit("settings.updated", result.effective)
+                return {
+                    "requested": result.requested,
+                    "effective": result.effective,
+                }
+
+            handlers["config.set"] = set_config
+        return handlers
 
     def summaries(self) -> list[dict[str, object]]:
         with self._lock:

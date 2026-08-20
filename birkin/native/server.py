@@ -25,7 +25,20 @@ from birkin.native.protocol import (
 from birkin.native.session import NativeProjectionSession, WorkspaceProjectionSource
 from birkin.native.state import NativeConnectionState
 from birkin.native.transport import NativeConnection
+from birkin.workspace import CommandReceipt, WorkspaceCommand
 from birkin.workspace.records import WorkspaceEvent
+
+
+class CommandAuthority(Protocol):
+    @property
+    def supported_commands(self) -> frozenset[str]: ...
+
+    def submit(
+        self,
+        command: WorkspaceCommand,
+        *,
+        actor_id: str,
+    ) -> CommandReceipt: ...
 
 
 class WorkspaceAuthority(
@@ -42,6 +55,45 @@ class WorkspaceAuthority(
     ) -> Callable[[], None]: ...
 
 @final
+class _CommandRouter:
+    def __init__(
+        self,
+        workspace: CommandAuthority,
+        session: CommandAuthority | None,
+        config: CommandAuthority | None,
+    ) -> None:
+        self._workspace = workspace
+        self._session = session
+        self._config = config
+
+    @property
+    def supported_commands(self) -> frozenset[str]:
+        commands = set(self._workspace.supported_commands)
+        if self._session is not None:
+            commands.update(
+                command
+                for command in self._session.supported_commands
+                if command.startswith("session.")
+            )
+        if self._config is not None and "config.set" in self._config.supported_commands:
+            commands.add("config.set")
+        return frozenset(commands)
+
+    def submit(
+        self,
+        command: WorkspaceCommand,
+        *,
+        actor_id: str,
+    ) -> CommandReceipt:
+        authority = self._workspace
+        if command.type.startswith("session.") and self._session is not None:
+            authority = self._session
+        elif command.type == "config.set" and self._config is not None:
+            authority = self._config
+        return authority.submit(command, actor_id=actor_id)
+
+
+@final
 class NativeBridgeServer:
     """Serve one authenticated thin-shell connection at a time."""
 
@@ -49,6 +101,8 @@ class NativeBridgeServer:
         self,
         authority: WorkspaceAuthority,
         *,
+        session_authority: WorkspaceAuthority | None = None,
+        config_authority: CommandAuthority | None = None,
         capabilities: BootstrapSecretStore,
         instance_id: str,
         server_version: str,
@@ -58,14 +112,20 @@ class NativeBridgeServer:
     ) -> None:
         if heartbeat_interval <= 0 or peer_timeout <= 0:
             raise ValueError("heartbeat intervals must be positive")
-        self._authority = authority
+        projection_authority = session_authority or authority
+        command_router = _CommandRouter(
+            authority,
+            session_authority,
+            config_authority,
+        )
+        self._authority = projection_authority
         self._capabilities = capabilities
         self._auth = NativeConnectionAuth(
             capabilities,
             instance_id=instance_id,
         )
         self._projection = NativeProjectionSession(
-            authority,
+            projection_authority,
             instance_id=instance_id,
         )
         self._instance_id = instance_id
@@ -73,9 +133,9 @@ class NativeBridgeServer:
         self._messages = NativeMessageFactory(
             instance_id=instance_id,
             server_version=server_version,
-            command_types=authority.supported_commands,
+            command_types=command_router.supported_commands,
         )
-        self._commands = NativeCommandExecutor(authority, self._messages)
+        self._commands = NativeCommandExecutor(command_router, self._messages)
         self._heartbeat_interval = heartbeat_interval
         self._peer_timeout = peer_timeout
         self._outbound_capacity = outbound_capacity

@@ -6,6 +6,7 @@ ordering, idempotency, or actor semantics.
 
 from .contracts import (
     CommandIdConflict,
+    ConfigMutationRejected,
     ProtocolError,
     StaleCursor,
     WorkspaceCommand,
@@ -22,6 +23,7 @@ from .terminal import render_terminal
 __all__ = [
     "CommandIdConflict",
     "CommandReceipt",
+    "ConfigMutationRejected",
     "ProtocolError",
     "StaleCursor",
     "WorkspaceCommand",

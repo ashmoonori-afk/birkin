@@ -62,6 +62,10 @@ class UnsupportedCommand(ProtocolError):
     """A declared command has no registered authority handler."""
 
 
+class ConfigMutationRejected(ProtocolError):
+    """A requested configuration value failed canonical validation."""
+
+
 def valid_identifier(value: object, label: str) -> str:
     if (
         not isinstance(value, str)
