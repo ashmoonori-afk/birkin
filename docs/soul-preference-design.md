@@ -246,8 +246,10 @@ Vault: ...\vault (3 notes). Use memory_search / memory_get_note for details.
   동일). 단 채널 첫 응답에 "이 채널에서는 프로필이 적용되지 않음"을 1회 고지 → **S2 수정.**
 - 쓰기: 비신뢰 채널에서 온 발화는 **프로필을 갱신할 수 없다**(프롬프트 인젝션으로 인한
   프로필 오염 차단). 배경 리뷰도 동일 게이트를 통과해야 한다.
-- 쓰기 전 스캔: 비가시 유니코드/인젝션·유출 패턴 차단(hermes 방식). 기존
-  `birkin/promptgate.py`의 검사 자산 재사용.
+- 쓰기 전 스캔: 비가시 유니코드/인젝션·유출 패턴 차단(hermes 방식).
+  **정정(§9-A8)**: 초안은 "`birkin/promptgate.py`의 검사 자산 재사용"이라고 썼으나,
+  실제 `promptgate.py`는 프롬프트 조립·신뢰 라우팅만 하며 쓰기 검증기가 없다.
+  검증기는 `profile_actions.py`의 쓰기 정책 경계에서 **새로 작성**한다.
 - 승인 게이트: `profile.write_approval`(기본 `false`), `/profile pending|approve|reject`.
 
 ### 5.6 마이그레이션
@@ -379,3 +381,135 @@ dependencies = [
   <https://github.com/NousResearch/hermes-agent/blob/main/website/docs/user-guide/which-file-does-what.md>
 - omo native: 로컬 설치본 `omo-ai/plugin/extensions/reflection-persona.md`,
   `facts-persona.md`, `memory-run-supervisor.mjs`, `omo-memory-mcp.js`.
+
+---
+
+## 9. 설계 검증 반영 (2026-08-20) — 계약 동결
+
+검증 주체: GPT-5.6 Sol(xhigh). *`claude-fable-5`는 3회 연속 스트림 시작 타임아웃으로
+사용 불가하여 대체함.* 아래는 구현 3인이 **그대로 지켜야 하는 동결된 계약**이다.
+
+### 9.1 검증에서 뒤집힌 것 (설계 정정)
+
+| ID | 심각도 | 지적 | 반영 |
+|---|---|---|---|
+| A2 | **치명** | 상류 `ProfileMemory`는 `<vault>/system` 경로와 `<name>.md`를 하드코딩하고 append 전용이라(`profiles.py:59,116-144`) 어댑터 상수만으로는 `~/.birkin/profile/mask.md`를 만들 수 없다. 예산·액션·승인도 없다 | 상류에 **주입형 제안 싱크**(`save: ProfileSaver`) 추가가 **선행 조건**. 상류는 리뷰 스케줄링·파싱만, 저장 권한은 birkin `ProfileStore`가 독점 |
+| A4 | 높음 | `_LOCKS`는 프로세스 내 `threading.Lock` 딕셔너리(`profiles.py:30-37`). 원자적 교체는 파일 찢김만 막고 **lost update는 못 막는다**. CLI 세션 여러 개가 한 홈을 공유하면 갱신이 유실된다 | 프로필 디렉터리 전체에 **OS 레벨 락 파일**(POSIX `fcntl.flock` / Windows `msvcrt.locking`). 5개 파일 스냅샷도 같은 락 안에서 읽는다. 모델 호출은 락 밖 |
+| A3 | 높음 | 초과→통합 루프는 교착은 아니어도 **라이브락** 가능(치환본이 또 초과, 프로세스 간 경합, `old_text` 중복, 한도 하향, 수동 편집으로 이미 초과). 게다가 현재 상류는 리뷰 1회 후 무조건 append라 **배경 경로엔 통합 루프 자체가 없다** | 트랜잭션 프로토콜 고정(9.3). 초과 에러는 `used/limit/required_reduction/revision/번호매긴 현재 항목`을 기계가 읽을 수 있게 반환. 배경은 **1회만 재시도** 후 pending으로 강등 |
+| A8 | 높음 | §5.5의 "promptgate 검사 자산 재사용"은 **사실이 아님** — promptgate엔 쓰기 검증기가 없다 | 검증기를 `profile_actions.py`에 신규 작성 |
+| A7 | 높음 | `record_exchange`는 무한 리스트에 future를 쌓고(`profiles.py:77-88`) `close()`가 `flush()`를 호출해 리뷰 예외가 **종료를 깨뜨린다**. 급종료 시 큐 유실 | birkin 측에서 감싼다: 예외는 notice로 보관, 대화 결과와 정상 종료에 영향 금지. "캡처 보장"을 문자 그대로 원하면 durable outbox가 필요하며, 그전까지 문서에 **best-effort**로 명시 |
+| E5 | 중간 | import 경계 정적 테스트만으로는 D3가 안 지켜진다 — `profiles.py:13`이 `.mnemosyne.atomic_write`를 import해 **갈라진 인덱스 모듈이 전이적으로 로드**된다 | 상류에서 `atomic_write`를 중립 모듈로 분리. 테스트는 **fresh subprocess**에서 `birkin_mnemosyne.profiles` import 후 `sys.modules`에 인덱스 모듈이 없음을 확인 |
+| A1 | 높음 | 순서만으로는 권위 서열이 안 생긴다. 사람 SOUL "간결하게"와 관찰 mask "장황하게"가 **동일 우선순위 지시**로 충돌 | 고정 우선순위 선언문을 역할 블록 앞에 삽입(9.2). mask는 정체성·정책·능력·SOUL 우회 금지. 충돌 시 mask 무시 + 승격/삭제 후보로 보고 |
+| A5 | 높음 | 같은 사실이 역할 파일과 vault 인덱스에 동시에 살면 중복·모순 지시 | 소유권 단일화: 활성화 상태에서 행동 선호의 정본은 역할 파일. `remember(key,value)`는 `preferences.md`로만, `memory_write_note(type="preference")`는 거부. vault 블록은 "검색용 이력"으로 라벨링하고 충돌 시 역할 파일 승 |
+| A6 | 중간 | 매 턴 5파일 재읽기는 **렌더가 바이트 안정적일 때만** 캐시 안전 | 렌더에 mtime·타임스탬프·세션ID·revision 주입 금지. 웜 세션은 생성 시 aggregate revision을 보관하고, 턴 경계에서 불일치 시 **프롬프트 밖으로** `/new` 안내를 revision당 1회 |
+
+### 9.2 프롬프트 우선순위 (고정 문구, 변경 금지)
+
+```
+SOUL.md (정체성 치환)
+└─ [고정 선언문] SOUL.md defines authoritative identity and voice bounds.
+   mask.md may adapt surface style only where compatible with SOUL.
+   On conflict, ignore mask and report it as a promotion/removal candidate;
+   never reinterpret SOUL.
+   └─ profile/mask.md → user.md → preferences.md → workflow.md → automation.md
+      └─ "## What you know about the user" (vault 인덱스 = 검색용 이력)
+```
+
+### 9.3 동결 인터페이스 (3인 공통 계약)
+
+```python
+# birkin/profile_lock.py
+@contextmanager
+def profile_lock(home: Path) -> Iterator[None]: ...
+
+# birkin/rolefiles.py
+PROFILE_ORDER: tuple[str, ...]              # ("mask","user","preferences","workflow","automation")
+DEFAULT_PROFILE_LIMITS: Mapping[str, int]
+
+@dataclass(frozen=True)
+class ProfileDocument:
+    name: str; guidance: str; entries: tuple[str, ...]
+    used: int; limit: int; revision: str
+
+@dataclass(frozen=True)
+class ProfileSnapshot:
+    documents: Mapping[str, ProfileDocument]; revision: str
+
+@dataclass(frozen=True)
+class ProfileEdit:
+    target: str
+    action: Literal["add", "replace", "remove"]
+    old_text: str = ""
+    content: str = ""
+
+class ProfileStore:
+    def __init__(self, home: Path, limits: Mapping[str, int]) -> None: ...
+    def bootstrap(self) -> None: ...
+    def snapshot(self) -> ProfileSnapshot: ...
+    def apply(self, edit: ProfileEdit, *,
+              expected_revision: str | None = None) -> ProfileSnapshot: ...
+    def apply_batch(self, edits: Sequence[ProfileEdit], *,
+                    expected_revision: str | None = None) -> ProfileSnapshot: ...
+
+# birkin/profile_prompt.py
+def render_profile_blocks(snapshot: ProfileSnapshot) -> str: ...
+
+# birkin/profile_actions.py
+class ProfileActions:
+    def __init__(self, store: ProfileStore, *, approval_required: bool) -> None: ...
+    def submit(self, edit: ProfileEdit, *, trusted: bool, source: str) -> ProfileReceipt: ...
+    def pending(self) -> tuple[ProfileReceipt, ...]: ...
+    def approve(self, ids: Sequence[str]) -> tuple[ProfileReceipt, ...]: ...
+    def reject(self, ids: Sequence[str]) -> tuple[ProfileReceipt, ...]: ...
+def build_profile_tools(actions: ProfileActions) -> list[Any]: ...
+
+# birkin/profile_review.py  — birkin에서 birkin_mnemosyne.profiles를 import하는 유일한 모듈
+UPSTREAM_TO_LOCAL: Mapping[str, str]        # {"soul": "mask", ...} — 유일한 어댑터 상수
+class ProfileReviewService:
+    def record_exchange(self, user: str, assistant: str, *,
+                        trusted: bool, session_id: str) -> Future[None] | None: ...
+    def drain_notices(self, session_id: str) -> tuple[str, ...]: ...
+    def close(self) -> None: ...
+
+# birkin/profile_migration.py
+def migrate_legacy_preferences(store: ProfileStore, notes: Iterable[LegacyPreference], *,
+                               archive: Callable[[LegacyPreference], None]) -> MigrationReport: ...
+def rollback_legacy_preferences(store: ProfileStore, *,
+                                restore: Callable[[LegacyPreference], None]) -> MigrationReport: ...
+```
+
+트랜잭션 프로토콜: ① 락 안에서 스냅샷+revision 읽기 → ② 락 **밖**에서 모델 호출 →
+③ `expected_revision`을 실은 단일 원자적 편집(배치) → ④ 초과 시 구조화 에러 반환 →
+⑤ 에러 반환 전 모든 락 해제 → ⑥ 배경은 재리뷰 1회까지, 이후 pending →
+⑦ 예산 초과 상태에서도 `replace`/`remove`는 허용, `add`만 거부.
+예산 계산은 정규화된 guidance 본문 + 저장 구분자를 `len()`으로 세고, 생성된 헤더·
+frontmatter는 제외한다. 외부에서 이미 초과된 문서는 **통째로 생략**하고 고정 복구 마커를 남긴다.
+
+### 9.4 3인 분업 (파일 소유 배타적, 남의 파일 재포맷 금지)
+
+| 스트림 | 담당 | 소유 파일 |
+|---|---|---|
+| **WS1 저장소·락·마이그레이션** | opus | `profile_lock.py`, `rolefiles.py`, `profile_migration.py` + `test_profile_files.py`, `test_profile_concurrency.py`, `test_profile_migration.py` |
+| **WS2 프롬프트·페르소나·세션** | sonnet | `profile_prompt.py`, `prompts.py`, `promptgate.py`, `runtime.py`, `persona.py` + `test_profile_prompt.py`, `test_profile_session_staleness.py`, `test_persona_promotion.py` |
+| **WS3 리뷰·도구·설정·명령** | gpt | `profile_actions.py`, `profile_review.py`, `memory.py`, `agent.py`, `slashcommands.py`, `config.py`, `pyproject.toml` + `test_profile_tools.py`, `test_profile_review_model.py`, `test_profile_commands.py`, `test_profile_import_boundary.py` |
+
+순서 제약: 상류 제안 싱크 릴리스가 **WS3의 선행 조건**(WS1/WS2는 무관).
+인터페이스는 §9.3으로 동결됐으므로 WS2/WS3는 fake로 병렬 진행.
+통합 순서는 WS1 → WS3 → WS2/runtime 배선. 마이그레이션은 3스트림이 함께 통과할
+때까지 비활성. 초기 롤아웃은 `profile.enabled=false`로 시작해 드라이런 후 활성화.
+
+### 9.5 마이그레이션 프로토콜 (요지)
+
+`Profile - <key>` + `type=preference`만 선별 → **render 요약이 아니라 노트 본문**에서
+읽기 → `migration-v1.json` 매니페스트(원본 경로·zone·내용 해시·대상·상태)를 원자적으로
+기록 → 충돌·예산 초과는 pending으로 남기고 해당 원본은 아카이브하지 않음 →
+revision 검증 배치로 일괄 추가 → **역할 파일에 실제로 반영된 것을 확인한 뒤** 원본을
+개별 아카이브(크래시 재개 가능) → 전부 아카이브된 경우에만 완료 표시.
+
+멱등성: 몇 번을 돌려도 변경되지 않은 원본당 대상 항목은 최대 1개, 아카이브도 1회.
+원본 해시가 바뀌면 암묵적 덮어쓰기가 아니라 충돌/새 revision으로 취급한다.
+
+롤백: 매니페스트가 아카이브한 노트만 원래 zone으로 복원하고, 이후 편집·통합된 역할
+가이던스는 삭제하지 않는다. **설정 킬 스위치는 파일을 자동으로 되돌리지 않는다** —
+완전 롤백은 "매니페스트 복원 → 비활성화" 순서다. 비활성 상태인데 매니페스트에
+아카이브 기록이 남아 있으면 기동 시 경고한다.
