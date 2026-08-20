@@ -29,6 +29,7 @@ from __future__ import annotations
 import hashlib
 import re
 import unicodedata
+from collections.abc import Mapping
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Optional
@@ -231,7 +232,7 @@ def _check_structure(root: Path) -> tuple[list[Finding], list[str]]:
     total = 0
     count = 0
     try:
-        entries = sorted(p for p in root.rglob("*") if p.is_file())
+        entries = sorted(root.rglob("*"))
     except OSError as exc:
         return findings, [str(exc)]
 
@@ -246,6 +247,8 @@ def _check_structure(root: Path) -> tuple[list[Finding], list[str]]:
                                         rel, 0, ""))
                 continue
         except (OSError, ValueError):
+            continue
+        if not path.is_file():
             continue
         count += 1
         try:
@@ -266,20 +269,52 @@ def _check_structure(root: Path) -> tuple[list[Finding], list[str]]:
     return findings, errors
 
 
-def content_hash(root: Path) -> str:
-    digest = hashlib.sha256()
-    for path in sorted(p for p in root.rglob("*") if p.is_file()):
-        digest.update(path.relative_to(root).as_posix().encode("utf-8"))
+def _bundle_files(root: Path) -> list[Path]:
+    canonical_root = root.resolve()
+    files: list[Path] = []
+    for path in sorted(root.rglob("*")):
         try:
-            digest.update(path.read_bytes())
+            if (
+                path.is_symlink()
+                or not path.resolve().is_relative_to(canonical_root)
+                or not path.is_file()
+            ):
+                continue
+        except (OSError, ValueError):
+            continue
+        files.append(path)
+    return files
+
+
+def content_hash(
+    root: Path,
+    file_overrides: Mapping[str, bytes] | None = None,
+) -> str:
+    digest = hashlib.sha256()
+    payloads = dict(file_overrides or {})
+    for path in _bundle_files(root):
+        relative = path.relative_to(root).as_posix()
+        if relative in payloads:
+            continue
+        try:
+            payloads[relative] = path.read_bytes()
         except OSError:
             pass
+    for relative, payload in sorted(payloads.items()):
+        digest.update(relative.encode("utf-8"))
+        digest.update(payload)
     return digest.hexdigest()[:16]
 
 
-def scan_skill(root: Any, source: str = "community") -> ScanResult:
+def scan_skill(
+    root: Any,
+    source: str = "community",
+    *,
+    file_overrides: Mapping[str, bytes] | None = None,
+) -> ScanResult:
     """Scan every readable file in a skill bundle."""
     root = Path(root)
+    overrides = dict(file_overrides or {})
     result = ScanResult(trust=trust_level(source))
     if not root.is_dir():
         result.errors.append(f"not a directory: {root}")
@@ -290,7 +325,43 @@ def scan_skill(root: Any, source: str = "community") -> ScanResult:
     result.findings.extend(structural)
     result.errors.extend(errors)
 
-    for path in sorted(p for p in root.rglob("*") if p.is_file()):
+    for relative, payload in sorted(overrides.items()):
+        path = Path(relative)
+        if path.suffix.lower() in BINARY_SUFFIXES:
+            result.findings.append(Finding(
+                "binary-file",
+                "high",
+                "binary",
+                "ships an executable binary",
+                relative,
+                0,
+                "",
+            ))
+        if len(payload) > MAX_FILE_BYTES:
+            result.findings.append(Finding(
+                "oversized-file",
+                "medium",
+                "structure",
+                f"file is {len(payload)} bytes",
+                relative,
+                0,
+                "",
+            ))
+        if path.suffix.lower() not in SCANNABLE_SUFFIXES:
+            continue
+        if len(payload) > MAX_FILE_BYTES:
+            continue
+        result.findings.extend(
+            scan_text(
+                payload.decode("utf-8", errors="replace"),
+                relative,
+            )
+        )
+
+    for path in _bundle_files(root):
+        relative = path.relative_to(root).as_posix()
+        if relative in overrides:
+            continue
         if path.suffix.lower() not in SCANNABLE_SUFFIXES:
             continue
         try:
@@ -299,8 +370,7 @@ def scan_skill(root: Any, source: str = "community") -> ScanResult:
             text = path.read_text(encoding="utf-8", errors="replace")
         except OSError:
             continue
-        result.findings.extend(
-            scan_text(text, path.relative_to(root).as_posix()))
+        result.findings.extend(scan_text(text, relative))
 
     severities = {f.severity for f in result.findings}
     if "critical" in severities or result.errors:
@@ -309,7 +379,10 @@ def scan_skill(root: Any, source: str = "community") -> ScanResult:
         result.verdict = "caution"
     else:
         result.verdict = "safe"
-    result.content_hash = content_hash(root)
+    result.content_hash = content_hash(
+        root,
+        file_overrides=overrides,
+    )
     return result
 
 

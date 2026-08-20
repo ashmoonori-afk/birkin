@@ -84,6 +84,7 @@ def _run_driver(url: str, evidence: Path) -> None:
 def main() -> int:
     parser = argparse.ArgumentParser()
     _ = parser.add_argument("--base-url")
+    _ = parser.add_argument("--bootstrap-nonce")
     _ = parser.add_argument(
         "--evidence-dir",
         type=Path,
@@ -96,8 +97,8 @@ def main() -> int:
     if base_value is not None and not isinstance(base_value, str):
         raise TypeError("base URL must be a string")
     if base_value:
-        token: object = os.environ.get("BIRKIN_HTTP_TOKEN")
-        if token is None:
+        nonce: object = args.bootstrap_nonce
+        if nonce is None:
             raw_record = cast(
                 object,
                 json.loads(
@@ -109,11 +110,11 @@ def main() -> int:
             if not isinstance(raw_record, dict):
                 raise RuntimeError("web discovery record is invalid")
             record = cast(dict[str, object], raw_record)
-            token = record.get("token")
-        if not isinstance(token, str):
-            raise RuntimeError("web discovery token is unavailable")
+            nonce = record.get("bootstrap_nonce")
+        if not isinstance(nonce, str):
+            raise RuntimeError("web listener bootstrap nonce is unavailable")
         base_url = base_value.rstrip("/")
-        url = f"{base_url}/_bootstrap/{token}"
+        url = f"{base_url}/_bootstrap/{nonce}"
         _run_driver(url, evidence)
         for name, expected in SCREENSHOTS.items():
             actual = _png_dimensions(evidence / name)

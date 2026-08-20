@@ -21,6 +21,7 @@ import os
 import re
 import secrets
 import signal
+import socket
 import threading
 import webbrowser
 from collections.abc import Mapping
@@ -94,6 +95,7 @@ _BOOTSTRAP_LOCK = threading.Lock()
 _BOOTSTRAPPED_SERVERS: WeakKeyDictionary[object, bool] = WeakKeyDictionary()
 _workspace_stream_slots = threading.BoundedSemaphore(32)
 _ALLOWED_HOSTS = {"127.0.0.1", "localhost"}
+_LOOPBACK_PEERS = {"127.0.0.1", "::1"}
 _workspace_root: Path | None = None
 _workspace_handlers: Mapping[str, CommandHandler] | None = None
 _workspace_hub: WorkspaceHub | None = None
@@ -685,15 +687,19 @@ class Handler(BaseHTTPRequestHandler):
         return True
 
     def _host_ok(self) -> bool:
+        peer = self.client_address[0]
         host = (self.headers.get("Host", "") or "").rsplit(":", 1)[0]
-        if host in _ALLOWED_HOSTS or host == "":
-            return True
+        if peer in _LOOPBACK_PEERS:
+            return host in _ALLOWED_HOSTS
         if not bool(config.load_config().get("web_remote_access", False)):
             return False
-        # Remote access is never a public dashboard. The secret bootstrap URL
-        # may mint the HttpOnly cookie; every other remote request must already
-        # carry that cookie or the existing X-Birkin-Token capability.
-        return self.path == f"/_bootstrap/{_TOKEN}" or self._capability_ok()
+        if self.path.startswith("/_bootstrap/"):
+            nonce = self.path.removeprefix("/_bootstrap/")
+            return secrets.compare_digest(
+                nonce,
+                _bootstrap_nonce(self.server),
+            )
+        return self._capability_ok()
 
     def _header_capability_ok(self) -> bool:
         token = self.headers.get("X-Birkin-Token", "")
@@ -865,34 +871,27 @@ class Handler(BaseHTTPRequestHandler):
             return
         if self.path.startswith("/_bootstrap/"):
             nonce = self.path.removeprefix("/_bootstrap/")
-            if secrets.compare_digest(nonce, _TOKEN):
-                if not _consume_bootstrap(self.server):
-                    self._send(
-                        410,
-                        b"bootstrap capability already consumed",
-                        "text/plain; charset=utf-8",
-                    )
-                    return
-                capability = _CAPABILITY_TOKEN
-            else:
-                try:
-                    capability = _browser_guard(
-                        self.server,
-                        cast(HTTPServer, self.server).server_port,
-                    ).consume_bootstrap(
-                        nonce,
-                        host=self.headers.get("Host", ""),
-                    )
-                except BrowserRequestDenied as exc:
-                    self._send_browser_denial(exc)
-                    return
-                if not _consume_bootstrap(self.server):
-                    self._send(
-                        410,
-                        b"bootstrap capability already consumed",
-                        "text/plain; charset=utf-8",
-                    )
-                    return
+            try:
+                capability = _browser_guard(
+                    self.server,
+                    cast(HTTPServer, self.server).server_port,
+                ).consume_bootstrap(
+                    nonce,
+                    host=self.headers.get("Host", ""),
+                    allow_remote_host=(
+                        self.client_address[0] not in _LOOPBACK_PEERS
+                    ),
+                )
+            except BrowserRequestDenied as exc:
+                self._send_browser_denial(exc)
+                return
+            if not _consume_bootstrap(self.server):
+                self._send(
+                    410,
+                    b"bootstrap capability already consumed",
+                    "text/plain; charset=utf-8",
+                )
+                return
             self._send(
                 303,
                 b"",
@@ -1359,16 +1358,26 @@ def run(port: int | None = None, *, open_browser: bool = True) -> int:
     session_path.parent.mkdir(parents=True, exist_ok=True)
     store._write_json(
         session_path,
-        {"port": actual_port, "token": _CAPABILITY_TOKEN},
+        {
+            "port": actual_port,
+            "token": _CAPABILITY_TOKEN,
+            "bootstrap_nonce": bootstrap_nonce,
+        },
     )
-    url = f"http://127.0.0.1:{actual_port}"
+    url_host = socket.getfqdn() if remote else "127.0.0.1"
+    url = f"http://{url_host}:{actual_port}"
     bootstrap_url = f"{url}/_bootstrap/{bootstrap_nonce}"
     print(f"birkin workspace running at {bootstrap_url}  (Ctrl-C to stop)")
-    if open_browser:
+    if open_browser and not remote:
         try:
             _ = webbrowser.open(bootstrap_url)
         except (OSError, webbrowser.Error):
             print("could not open the dashboard URL automatically")
+    elif open_browser:
+        print(
+            "automatic browser opening is disabled for remote access; "
+            "open the printed one-time URL on the remote device"
+        )
     previous_sigterm = signal.getsignal(signal.SIGTERM)
 
     def stop_on_sigterm(

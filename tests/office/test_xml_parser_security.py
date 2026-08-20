@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from io import BytesIO
 import zipfile
 from collections.abc import Callable
 from pathlib import Path
@@ -141,3 +142,65 @@ def test_streaming_xml_parser_rejects_entity_declarations() -> None:
 
     with pytest.raises(DefusedXmlException, match="DTD and entity"):
         _ = parser.close()
+
+
+def test_safe_xml_rejects_utf16_entity_declarations() -> None:
+    from birkin.office.safe_xml import DefusedXmlException, ElementTree
+
+    xml = (
+        '<?xml version="1.0" encoding="utf-16"?>'
+        '<!DOCTYPE r [<!ENTITY x "expanded">]><r>&x;</r>'
+    ).encode("utf-16")
+
+    with pytest.raises(DefusedXmlException):
+        _ = ElementTree.fromstring(xml)
+    with pytest.raises(DefusedXmlException):
+        _ = ElementTree.parse(BytesIO(xml))
+
+
+def test_safe_xml_element_tree_class_rejects_entity_declarations() -> None:
+    from birkin.office.safe_xml import DefusedXmlException, ElementTree
+
+    xml = (
+        '<?xml version="1.0" encoding="utf-16"?>'
+        '<!DOCTYPE r [<!ENTITY x "expanded">]><r>&x;</r>'
+    ).encode("utf-16")
+    tree = ElementTree.ElementTree()
+
+    with pytest.raises(DefusedXmlException):
+        _ = tree.parse(BytesIO(xml))
+
+
+def test_stdlib_fallback_honors_external_reference_flag(
+        monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from birkin.office import safe_xml
+
+    monkeypatch.setattr(safe_xml, "_DefusedXMLParser", None)
+    xml = b'<!DOCTYPE r SYSTEM "file:///etc/passwd"><r/>'
+
+    with pytest.raises(safe_xml.DefusedXmlException):
+        _ = safe_xml.fromstring(
+            xml,
+            forbid_dtd=False,
+            forbid_entities=False,
+            forbid_external=True,
+        )
+
+
+def test_safe_xml_allows_declaration_text_inside_comments() -> None:
+    from birkin.office.safe_xml import ElementTree
+
+    root = ElementTree.fromstring(
+        b"<r><!-- see <!DOCTYPE html> documentation --></r>"
+    )
+
+    assert root.tag == "r"
+
+
+def test_safe_xml_facade_does_not_expose_unguarded_parser_entrypoints() -> None:
+    from birkin.office.safe_xml import ElementTree
+
+    assert not hasattr(ElementTree, "XML")
+    assert not hasattr(ElementTree, "XMLID")
+    assert not hasattr(ElementTree, "iterparse")

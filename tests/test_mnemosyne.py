@@ -6,6 +6,7 @@ temp vault (isolated BIRKIN_HOME via conftest). No LLM anywhere.
 
 from __future__ import annotations
 
+import os
 from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 
@@ -320,24 +321,51 @@ def test_rezone_refuses_existing_destination_collision(monkeypatch):
 
 
 def test_rezone_refuses_destination_created_after_precheck(monkeypatch):
+    from birkin import note_move
+    from birkin.skills import bundle_publish
+
     m = _mem()
     m.write_note("Racing", "source body", note_type="fact")
     source = _vault() / "knowledge" / "racing.md"
     eng = _engine()
     target = _vault() / "finance" / "racing.md"
-    real_link = mnemosyne.os.link
-    real_replace = mnemosyne.os.replace
 
-    def create_then_link(old, new):
-        target.write_text("racing destination", encoding="utf-8")
-        return real_link(old, new)
+    # The move goes through a different no-replace primitive per platform, so
+    # the race has to be injected into whichever one this platform uses.
+    if os.name == "nt":
+        real_windows_rename = note_move.os.rename
 
-    def create_then_replace(old, new):
-        target.write_text("racing destination", encoding="utf-8")
-        return real_replace(old, new)
+        def create_then_rename_windows(source_name, destination_name):
+            target.write_text("racing destination", encoding="utf-8")
+            return real_windows_rename(source_name, destination_name)
 
-    monkeypatch.setattr(mnemosyne.os, "link", create_then_link)
-    monkeypatch.setattr(mnemosyne.os, "replace", create_then_replace)
+        monkeypatch.setattr(
+            note_move.os,
+            "rename",
+            create_then_rename_windows,
+        )
+    else:
+        real_rename = bundle_publish._rename_noreplace
+
+        def create_then_rename(
+                source_name,
+                destination_name,
+                *,
+                source_fd,
+                destination_fd):
+            target.write_text("racing destination", encoding="utf-8")
+            return real_rename(
+                source_name,
+                destination_name,
+                source_fd=source_fd,
+                destination_fd=destination_fd,
+            )
+
+        monkeypatch.setattr(
+            bundle_publish,
+            "_rename_noreplace",
+            create_then_rename,
+        )
 
     with pytest.raises(FileExistsError):
         eng.rezone("racing", "finance")

@@ -4,6 +4,8 @@ from pathlib import Path
 from typing import cast
 
 import pytest
+from packaging.specifiers import SpecifierSet
+from packaging.version import Version
 
 from birkin.office.adapters import adapter_provenance as publication
 from birkin.office.adapters import catalog
@@ -105,7 +107,7 @@ def test_inventory_has_typed_operation_and_provenance_evidence() -> None:
             }
 
 
-def test_required_office_packages_match_environment_manifest_and_notice() -> None:
+def test_required_office_packages_match_supported_environment_and_notice() -> None:
     inventory = adapter_inventory()
     manifest_packages = {
         package["name"].casefold(): package
@@ -117,7 +119,10 @@ def test_required_office_packages_match_environment_manifest_and_notice() -> Non
         REQUIRED_LOCKED_PACKAGES.items()
     ):
         package = manifest_packages[name]
-        assert package["version"] == version == installed_version(package["name"])
+        assert package["version"] == version
+        assert Version(installed_version(package["name"])) in SpecifierSet(
+            package["version_range"]
+        )
         assert package["artifact_url"] == artifact_url
         assert package["artifact_sha256"] == artifact_sha256
         assert package["license"] == license_name
@@ -125,6 +130,18 @@ def test_required_office_packages_match_environment_manifest_and_notice() -> Non
         assert package["selection"] == "conditional"
         assert f"## {package['name']}\n" in notice
         assert f"- Exact version: {version}\n" in notice
+
+
+@pytest.mark.locked_env
+def test_required_office_packages_match_locked_environment() -> None:
+    manifest_packages = {
+        package["name"].casefold(): package
+        for adapter in adapter_inventory()
+        for package in adapter["packages"]
+    }
+    for name, (version, _, _, _) in REQUIRED_LOCKED_PACKAGES.items():
+        package = manifest_packages[name]
+        assert installed_version(package["name"]) == version
 
 
 def test_publications_read_the_authoritative_catalog_api(

@@ -22,6 +22,7 @@ memory so the rest of birkin is unaffected.
 
 from __future__ import annotations
 
+import hashlib
 import json
 import re
 import threading
@@ -54,6 +55,18 @@ VALID_TYPES = {"person", "project", "preference", "fact", "topic", "session"}
 VALID_POLARITIES = {"positive", "negative"}
 
 
+def _validated_date(field: str, value: str | None) -> str | None:
+    if value is None:
+        return None
+    try:
+        parsed = date.fromisoformat(value)
+    except ValueError as exc:
+        raise ValueError(f"{field} must be an ISO date (YYYY-MM-DD)") from exc
+    if parsed.isoformat() != value:
+        raise ValueError(f"{field} must be an ISO date (YYYY-MM-DD)")
+    return value
+
+
 class SignalScores(TypedDict):
     lexical: float
     vector: float
@@ -82,6 +95,7 @@ class MemorySearchResult(TypedDict):
 # read->check->write to stop lost updates / interleaved corruption.
 _NOTE_LOCKS: dict[str, threading.RLock] = {}
 _NOTE_LOCKS_GUARD = threading.Lock()
+_PROVENANCE_LOCK = threading.RLock()
 
 
 def _note_lock(slug: str) -> threading.RLock:
@@ -103,12 +117,31 @@ def _now_iso() -> str:
 
 class VaultMemory:
     def __init__(self, cfg: dict[str, Any] | None = None, *,
-                 embedding_backend: Any | None = None):
+        embedding_backend: Any | None = None,
+        filesystem_root: Path | None = None):
         self.cfg = cfg or {}
-        self.vault = config.vault_dir(self.cfg)
+        canonical_vault = config.vault_dir(self.cfg).resolve()
+        self.vault = filesystem_root or canonical_vault
         self.policy = MemoryAccessPolicy.from_config(self.cfg)
         self._dexes: dict[MemoryScope, Mnemosyne] = {}
         self._embedding_backend = embedding_backend
+        self._provenance_path = (
+            config.birkin_home() / "memory_provenance.json"
+        )
+        self._canonical_vault = canonical_vault
+        vault_status = self.vault.stat()
+        self._vault_identity = (
+            vault_status.st_dev,
+            vault_status.st_ino,
+        )
+        self._provenance_namespace = hashlib.sha256(
+            str(self._canonical_vault).encode("utf-8")
+        ).hexdigest()
+
+    def assert_vault_identity(self) -> None:
+        status = self.vault.stat()
+        if (status.st_dev, status.st_ino) != self._vault_identity:
+            raise OSError("memory vault identity changed")
 
     def _dex_for(self, scope: MemoryScope) -> Mnemosyne:
         dex = self._dexes.get(scope)
@@ -120,6 +153,15 @@ class VaultMemory:
     def dex(self) -> Mnemosyne:
         """Mechanical engine for the actor's owning scope (legacy: user)."""
         return self._dex_for(self.policy.actor_scope)
+
+    def pin_index(
+        self,
+        entries: dict[str, dict[str, Any]],
+    ) -> None:
+        root = scope_root(self.vault, self.policy.actor_scope)
+        self._dexes[self.policy.actor_scope] = (
+            Mnemosyne.from_entries(root, entries)
+        )
 
     # -- low-level note IO -------------------------------------------------
 
@@ -149,15 +191,146 @@ class VaultMemory:
             return root / rel
         return None
 
-    @staticmethod
-    def _record_source(meta: dict[str, Any]) -> str:
-        explicit = str(meta.get("record_source") or "")
-        raw_sources = meta.get("sources")
-        if explicit:
-            return explicit
-        if isinstance(raw_sources, list) and raw_sources:
-            return str(raw_sources[-1])
-        return "legacy"
+    def _provenance_key(self, path: Path) -> str:
+        return self._provenance_key_relative(
+            path.relative_to(self.vault)
+        )
+
+    def _provenance_key_relative(self, relative: Path) -> str:
+        return (
+            f"{self._provenance_namespace}/"
+            f"{relative.as_posix()}"
+        )
+
+    def _record_source_payload(
+        self,
+        relative: Path,
+        payload: bytes,
+    ) -> tuple[str, str]:
+        digest = hashlib.sha256(payload).hexdigest()
+        key = self._provenance_key_relative(relative)
+        with _PROVENANCE_LOCK:
+            record = self._provenance_records().get(key)
+        if (
+            record is not None
+            and record["sha256"] == digest
+            and record["record_source"]
+        ):
+            return record["record_source"], digest
+        return "legacy", digest
+
+    def _register_record_source_relative(
+        self,
+        relative: Path,
+        source: str,
+        *,
+        digest: str,
+        previous_relative: Path | None = None,
+    ) -> None:
+        with _PROVENANCE_LOCK, store.file_lock(self._provenance_path):
+            records = self._provenance_records()
+            if previous_relative is not None:
+                records.pop(
+                    self._provenance_key_relative(previous_relative),
+                    None,
+                )
+            if source != "legacy":
+                records[self._provenance_key_relative(relative)] = {
+                    "record_source": source,
+                    "sha256": digest,
+                }
+            _atomic_write(
+                self._provenance_path,
+                json.dumps(records, indent=2, sort_keys=True) + "\n",
+            )
+
+    def _provenance_records(self) -> dict[str, dict[str, str]]:
+        try:
+            raw = json.loads(
+                self._provenance_path.read_text(encoding="utf-8")
+            )
+        except (FileNotFoundError, OSError, json.JSONDecodeError):
+            return {}
+        if not isinstance(raw, dict):
+            return {}
+        return {
+            str(key): {
+                "record_source": str(value.get("record_source") or ""),
+                "sha256": str(value.get("sha256") or ""),
+            }
+            for key, value in raw.items()
+            if isinstance(value, dict)
+        }
+
+    def _register_record_source(
+        self,
+        path: Path,
+        source: str,
+        *,
+        digest: str,
+        previous_path: Path | None = None,
+    ) -> None:
+        with _PROVENANCE_LOCK, store.file_lock(self._provenance_path):
+            records = self._provenance_records()
+            if previous_path is not None:
+                records.pop(self._provenance_key(previous_path), None)
+            if source != "legacy":
+                records[self._provenance_key(path)] = {
+                    "record_source": source,
+                    "sha256": digest,
+                }
+            _atomic_write(
+                self._provenance_path,
+                json.dumps(records, indent=2, sort_keys=True) + "\n",
+            )
+
+    def _record_source_snapshot(
+        self,
+        path: Path,
+    ) -> tuple[str, str, str]:
+        try:
+            payload = path.read_bytes()
+            digest = hashlib.sha256(payload).hexdigest()
+            key = self._provenance_key(path)
+        except (OSError, ValueError):
+            return "legacy", "", ""
+        with _PROVENANCE_LOCK:
+            record = self._provenance_records().get(key)
+        if (
+            record is not None
+            and record["sha256"] == digest
+            and record["record_source"]
+        ):
+            source = record["record_source"]
+        else:
+            source = "legacy"
+        return source, digest, payload.decode("utf-8", errors="replace")
+
+    def _record_source_with_digest(self, path: Path) -> tuple[str, str]:
+        source, digest, _ = self._record_source_snapshot(path)
+        return source, digest
+
+    def _record_source(self, path: Path) -> str:
+        return self._record_source_with_digest(path)[0]
+
+    def _entry_record_source(
+        self,
+        owner: MemoryScope,
+        entry: dict[str, Any],
+    ) -> str:
+        return self._record_source(
+            scope_root(self.vault, owner) / str(entry.get("rel") or "")
+        )
+
+    def _entry_record_snapshot(
+        self,
+        owner: MemoryScope,
+        entry: dict[str, Any],
+    ) -> tuple[str, str]:
+        source, _, text = self._record_source_snapshot(
+            scope_root(self.vault, owner) / str(entry.get("rel") or "")
+        )
+        return source, text
 
     def get_note_record(self, title: str, *, scope: str | MemoryScope | None = None
                         ) -> dict[str, Any] | None:
@@ -168,12 +341,10 @@ class VaultMemory:
             p = self._find_note(title, owner)
             if p is None:
                 continue
-            try:
-                text = p.read_text(encoding="utf-8", errors="replace")
-            except OSError:
+            source, _, text = self._record_source_snapshot(p)
+            if not text and not p.is_file():
                 continue
             meta, _ = frontmatter.parse(text)
-            source = self._record_source(meta)
             self._dex_for(owner).record_access(p.stem)
             return {"content": text, "scope": owner.value,
                     "record_source": source,
@@ -273,7 +444,7 @@ class VaultMemory:
         for note_slug, entry in self.dex.entries().items():
             if entry["zone"] != ARCHIVE_ZONE and _is_expired(entry):
                 try:
-                    self.dex.rezone(note_slug, ARCHIVE_ZONE)
+                    self.rezone(note_slug, ARCHIVE_ZONE)
                     archived += 1
                 except (OSError, ValueError):
                     pass
@@ -305,7 +476,11 @@ class VaultMemory:
           :class:`VersionMismatchError` if it does not match the on-disk version.
         - **Evidence gate** — a brand-new note requires at least one ``source``.
         """
+        valid_at = _validated_date("valid_at", valid_at)
+        invalid_at = _validated_date("invalid_at", invalid_at)
+        expired_at = _validated_date("expired_at", expired_at)
         requested_type = note_type if note_type in VALID_TYPES else None
+        self.assert_vault_identity()
         # Serialize the read->check->write for this note so concurrent writers
         # can't both pass the version check and clobber each other (lost update),
         # and so the file is never half-written under a reader. Path resolution
@@ -332,7 +507,9 @@ class VaultMemory:
             existing_source = "legacy"
             existing_shared = False
             if p.is_file():
-                old = p.read_text(encoding="utf-8", errors="replace")
+                existing_source, _, old = (
+                    self._record_source_snapshot(p)
+                )
                 meta, old_body = frontmatter.parse(old)
                 created = str(meta.get("created", created))
                 old_sources = meta.get("sources")
@@ -360,7 +537,6 @@ class VaultMemory:
                 raw_supersedes = meta.get("supersedes")
                 if isinstance(raw_supersedes, list):
                     existing_supersedes = [str(value) for value in raw_supersedes]
-                existing_source = self._record_source(meta)
                 existing_shared = bool(meta.get("shared_read_only", False))
 
             resolved_shared = (shared_read_only if shared_read_only is not None
@@ -430,7 +606,14 @@ class VaultMemory:
                 record_source=record_source,
                 trust=self.policy.trust_for(record_source).value,
                 shared_read_only=resolved_shared)
-            _atomic_write(p, fm + body + "\n")
+            note_text = fm + body + "\n"
+            digest = hashlib.sha256(note_text.encode("utf-8")).hexdigest()
+            _atomic_write(p, note_text)
+            self._register_record_source(
+                p,
+                record_source,
+                digest=digest,
+            )
             owner_dex = self._dex_for(owner)
             owner_dex.note_written(p)
             owner_dex.record_access(_slug(title))   # writing = using
@@ -466,9 +649,17 @@ class VaultMemory:
                 if item not in entries:  # precedence order resolves duplicates
                     entries[item] = entry
                     owners[item] = owner
+        trusted_snapshots = {
+            item: self._entry_record_snapshot(owners[item], entry)
+            for item, entry in entries.items()
+        }
+        trusted_sources = {
+            item: snapshot[0]
+            for item, snapshot in trusted_snapshots.items()
+        }
         entries = {
             item: entry for item, entry in entries.items()
-            if self.policy.meets_trust(self._record_source(entry), minimum)
+            if self.policy.meets_trust(trusted_sources[item], minimum)
         }
         owners = {item: owner for item, owner in owners.items() if item in entries}
         lexical_raw: dict[str, float] = {}
@@ -535,11 +726,9 @@ class VaultMemory:
             entry = entries[item]
             body = entry["summary"]
             try:
-                _, parsed = frontmatter.parse(
-                    (scope_root(self.vault, owners[item]) / entry["rel"]).read_text(
-                        encoding="utf-8", errors="replace"))
+                _, parsed = frontmatter.parse(trusted_snapshots[item][1])
                 body = parsed or body
-            except OSError:
+            except (KeyError, ValueError):
                 pass
             sources = [name for name in ("lexical", "vector", "entity")
                        if scores[name] > 0]
@@ -560,9 +749,9 @@ class VaultMemory:
                         "source": sources,
                         "backend": backends,
                         "scope": owners[item].value,
-                        "record_source": self._record_source(entry),
+                        "record_source": trusted_sources[item],
                         "trust": self.policy.trust_for(
-                            self._record_source(entry)).value,
+                            trusted_sources[item]).value,
                         "shared_read_only": bool(
                             entry.get("shared_read_only", False))})
         return out
@@ -602,7 +791,13 @@ class VaultMemory:
         out.sort(key=lambda t: -t[1])
         return out[:limit]
 
-    def add_link(self, from_title: str, to_title: str) -> bool:
+    def add_link(
+        self,
+        from_title: str,
+        to_title: str,
+        *,
+        source: str | None = None,
+    ) -> bool:
         with _note_lock(_slug(from_title)):
             record = self.get_note_record(from_title)
             if record is None:
@@ -618,15 +813,32 @@ class VaultMemory:
                 body += f"\n\n## Related\n[[{to_title}]]"
             # rewrite preserving frontmatter
             self.write_note(meta.get("title", from_title), body,
-                            scope=str(record["scope"]))
+                            scope=str(record["scope"]), source=source)
             return True
 
     # -- palace maintenance --------------------------------------------------
 
     def rezone(self, title: str, zone: str) -> Path:
         """Move a note to another zone (Morpheus's placement instrument)."""
-        with _note_lock(_slug(title)):
-            return self.dex.rezone(_slug(title), zone)
+        self.assert_vault_identity()
+        slug = _slug(title)
+        owner = self.policy.actor_scope
+        root = scope_root(self.vault, owner)
+        with _note_lock(slug), store.file_lock(
+            root / f".birkin-note-{slug}"
+        ):
+            current = self._find_note(title, owner)
+            if current is None:
+                return self.dex.rezone(slug, zone)
+            source, digest = self._record_source_with_digest(current)
+            moved = self.dex.rezone(slug, zone)
+            self._register_record_source(
+                moved,
+                source,
+                digest=digest,
+                previous_path=current,
+            )
+            return moved
 
     def reindex(self) -> dict[str, int]:
         """Force-rebuild the vault index; returns stats (``birkin reindex``)."""
@@ -725,7 +937,7 @@ class VaultMemory:
                     links=inp.get("links") or [],
                     confidence=(float(inp["confidence"])
                                 if inp.get("confidence") is not None else None),
-                    source=inp.get("source") or "conversation",
+                    source=getattr(ctx, "record_source", "conversation"),
                     append=bool(inp.get("append", False)),
                     ttl_days=(int(inp["ttl_days"])
                               if inp.get("ttl_days") is not None else None),
@@ -795,7 +1007,11 @@ class VaultMemory:
 
         def memory_link(inp: dict[str, Any], ctx: ToolContext) -> ToolResult:
             try:
-                ok = self.add_link(inp.get("from", ""), inp.get("to", ""))
+                ok = self.add_link(
+                    inp.get("from", ""),
+                    inp.get("to", ""),
+                    source=ctx.record_source,
+                )
             except MemoryPolicyError as exc:
                 return ToolResult(f"link rejected ({type(exc).__name__}): {exc}",
                                   is_error=True)
@@ -849,7 +1065,6 @@ class VaultMemory:
                      "links": {"type": "array", "items": {"type": "string"},
                                "description": "Titles of related notes"},
                      "confidence": {"type": "number"},
-                     "source": {"type": "string"},
                      "append": {"type": "boolean"},
                      "ttl_days": {"type": "integer",
                                   "description": "auto-expire after N days"},
@@ -935,31 +1150,48 @@ def _compose_frontmatter(*, title: str, note_type: str, created: str,
                          record_source: str = "legacy",
                          trust: str = "medium",
                          shared_read_only: bool = False) -> str:
-    src = ", ".join(f'"{s}"' for s in sources)
-    tg = ", ".join(str(t) for t in tags)
-    ttl_line = f"expires_at: {expires_at}\n" if expires_at else ""
+    def scalar(value: object) -> str:
+        text = str(value)
+        if (
+            text
+            and text == text.strip()
+            and re.fullmatch(r"[\w ./@+-]+", text)
+            and text.lower() not in {"true", "false", "null", "~"}
+        ):
+            return text
+        return json.dumps(text, ensure_ascii=False)
+
+    def inline_list(values: list[str]) -> str:
+        return "[" + ", ".join(scalar(value) for value in values) + "]"
+
+    src = inline_list(sources)
+    tg = inline_list(tags)
+    ttl_line = f"expires_at: {scalar(expires_at)}\n" if expires_at else ""
     temporal_lines = ""
     if valid_at:
-        temporal_lines += f"valid_at: {valid_at}\n"
+        temporal_lines += f"valid_at: {scalar(valid_at)}\n"
     if invalid_at:
-        temporal_lines += f"invalid_at: {invalid_at}\n"
+        temporal_lines += f"invalid_at: {scalar(invalid_at)}\n"
     if supersedes:
-        temporal_lines += "supersedes: [" + ", ".join(
-            f'"{value}"' for value in supersedes) + "]\n"
+        temporal_lines += (
+            "supersedes: "
+            + inline_list(supersedes)
+            + "\n"
+        )
     return (
         "---\n"
-        f"title: {title}\n"
-        f"type: {note_type}\n"
-        f"created: {created}\n"
-        f"updated: {updated}\n"
+        f"title: {scalar(title)}\n"
+        f"type: {scalar(note_type)}\n"
+        f"created: {scalar(created)}\n"
+        f"updated: {scalar(updated)}\n"
         f"confidence: {confidence}\n"
-        f"polarity: {polarity}\n"
+        f"polarity: {scalar(polarity)}\n"
         f"version: {int(version)}\n"
-        f"sources: [{src}]\n"
-        f"record_source: {record_source}\n"
-        f"trust: {trust}\n"
+        f"sources: {src}\n"
+        f"record_source: {scalar(record_source)}\n"
+        f"trust: {scalar(trust)}\n"
         f"shared_read_only: {'true' if shared_read_only else 'false'}\n"
-        f"tags: [{tg}]\n"
+        f"tags: {tg}\n"
         + ttl_line
         + temporal_lines
         + "---\n\n"

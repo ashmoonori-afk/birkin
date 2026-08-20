@@ -20,6 +20,7 @@ def _exercise_patch(
     digest = hashlib.sha256(source_bytes).hexdigest()
     drafts = tmp_path / "artifacts" / "drafts"
     real_open = os.open
+    native_binary_flag = getattr(os, "O_BINARY", 0)
     candidate_flags: list[int] = []
 
     if binary_flag is None:
@@ -41,7 +42,11 @@ def _exercise_patch(
             and flags & os.O_WRONLY
         ):
             candidate_flags.append(flags)
-        native_flags = flags if binary_flag is None else flags & ~binary_flag
+        native_flags = (
+            flags
+            if binary_flag is None
+            else (flags & ~binary_flag) | native_binary_flag
+        )
         if dir_fd is None:
             return real_open(path, native_flags, mode)
         return real_open(path, native_flags, mode, dir_fd=dir_fd)

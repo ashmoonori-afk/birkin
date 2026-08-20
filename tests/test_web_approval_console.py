@@ -24,9 +24,30 @@ def srv():
         httpd.server_close()
 
 
+@pytest.fixture
+def remote_srv():
+    class ForcedRemoteHTTPServer(HTTPServer):
+        def get_request(self):
+            request, address = super().get_request()
+            return request, ("198.51.100.23", address[1])
+
+    httpd = ForcedRemoteHTTPServer(("127.0.0.1", 0), web_server.Handler)
+    thread = threading.Thread(target=httpd.serve_forever, daemon=True)
+    thread.start()
+    try:
+        yield (
+            httpd.server_address[1],
+            web_server._TOKEN,
+            web_server.listener_bootstrap_nonce(httpd),
+        )
+    finally:
+        httpd.shutdown()
+        httpd.server_close()
+
+
 def request(srv, method: str, path: str, payload=None, *, token=True,
             host="127.0.0.1"):
-    port, capability = srv
+    port, capability = srv[:2]
     headers = {"Host": host}
     if token:
         headers["X-Birkin-Token"] = capability
@@ -132,12 +153,66 @@ def test_steer_abort_resume_state_machine(srv):
 
 
 def test_remote_access_is_opt_in_and_every_remote_request_is_authenticated(
-        srv, monkeypatch):
+        remote_srv, monkeypatch):
     monkeypatch.setattr(web_server.config, "load_config", lambda: {
         **config.DEFAULT_CONFIG, "web_remote_access": False})
-    assert request(srv, "GET", "/", token=False, host="console.example")[0] == 403
+    assert request(
+        remote_srv, "GET", "/", token=False, host="console.example"
+    )[0] == 403
 
     monkeypatch.setattr(web_server.config, "load_config", lambda: {
         **config.DEFAULT_CONFIG, "web_remote_access": True})
-    assert request(srv, "GET", "/", token=False, host="console.example")[0] == 403
-    assert request(srv, "GET", "/", token=True, host="console.example")[0] == 200
+    assert request(
+        remote_srv, "GET", "/", token=False, host="console.example"
+    )[0] == 403
+    assert request(
+        remote_srv, "GET", "/", token=True, host="console.example"
+    )[0] == 200
+
+
+def test_remote_secret_bootstrap_mints_capability_cookie(
+        remote_srv, monkeypatch):
+    monkeypatch.setattr(web_server.config, "load_config", lambda: {
+        **config.DEFAULT_CONFIG, "web_remote_access": True})
+    _, _, bootstrap_nonce = remote_srv
+
+    status, payload = request(
+        remote_srv,
+        "GET",
+        f"/_bootstrap/{bootstrap_nonce}",
+        token=False,
+        host="console.example",
+    )
+
+    assert status == 303
+    assert payload is None
+
+
+def test_remote_process_capability_is_not_a_bootstrap_url(
+        remote_srv, monkeypatch):
+    monkeypatch.setattr(web_server.config, "load_config", lambda: {
+        **config.DEFAULT_CONFIG, "web_remote_access": True})
+    _, capability, _ = remote_srv
+
+    status, _ = request(
+        remote_srv,
+        "GET",
+        f"/_bootstrap/{capability}",
+        token=False,
+        host="console.example",
+    )
+
+    assert status == 403
+
+
+def test_loopback_process_capability_is_not_a_bootstrap_url(srv):
+    _, capability = srv
+
+    status, _ = request(
+        srv,
+        "GET",
+        f"/_bootstrap/{capability}",
+        token=False,
+    )
+
+    assert status == 403

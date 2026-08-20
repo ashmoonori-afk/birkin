@@ -99,6 +99,8 @@ class ToolContext:
     # Stateful Computer Use service, initialized only for the opt-in desktop
     # group. Tests and native hosts may inject an implementation explicitly.
     computer_use_service: Any = None
+    # Trusted provenance for durable records created through model-facing tools.
+    record_source: str = "conversation"
 
 
 @dataclass

@@ -25,10 +25,10 @@
 
 | 문제 | Birkin의 해법 |
 |---|---|
-| 메모리가 호스팅 서비스나 벡터 데이터베이스 안으로 사라짐 | YAML frontmatter와 wikilink를 쓰는 마크다운 노트를 Obsidian 호환 로컬 볼트에 저장합니다. |
+| 메모리가 호스팅 서비스나 벡터 데이터베이스 안으로 사라짐 | Escaping된 YAML frontmatter와 wikilink를 쓰는 마크다운 노트를 Obsidian 호환 로컬 볼트에 저장하며, 모델이 쓰는 노트의 신뢰 출처는 runtime context에서 결정합니다. |
 | 프롬프트가 자기 자신의 안전을 강제해야 함 | 네이티브 도구는 하나의 registry를 지나며, shell과 예약 작업은 결정적 정책과 승인 큐를 통과합니다. |
 | “멀티에이전트”가 모델의 재귀적 자기 spawn을 뜻함 | Moirai가 budget·spawn 상한과 함께 파이썬 소유의 `agent`, `parallel`, `pipeline` 그래프 primitive를 제공합니다. |
-| 자기개선이 런타임을 몰래 변경함 | Harness가 타입화된 proposal을 버전 ledger에 기록하고 rollback을 지원합니다. |
+| 자기개선이 런타임을 몰래 변경함 | Harness가 타입화된 proposal을 버전 ledger에 기록하고 rollback을 지원하며, skill sync와 learned update는 게시 전에 공통 설치 정책을 통과합니다. 게시 결과를 확정할 수 없거나 안전한 정리에 실패하면 명시적 typed no-retry 오류를 내며, 정리 실패 오류는 잔여 파일 가능성을 알립니다. |
 | 코딩 에이전트가 사용자가 plan을 이해하기 전에 파일을 변경함 | 공식 VS Code extension이 editor context를 보내고, plan을 먼저 검토하며, 제안 diff를 표시하고, Birkin 승인을 처리하고, checkpoint를 복원합니다. |
 | 로컬 도구가 불투명한 서비스가 됨 | run, approval, checkpoint, status, config가 모두 로컬에서 확인 가능합니다. |
 
@@ -52,7 +52,7 @@ python -m pip install -e ".[memory-semantic]"  # 로컬 sentence-transformers �
 
 Markdown이 source of truth입니다. 선택 기능인 entity graph는 title, tag, `[[wikilink]]`에서 다시 만들며 lexical search에는 graph sidecar가 필요 없습니다. Temporal fact는 `valid_at`(사실이 된 시점), `invalid_at`(더 이상 사실이 아닌 시점), `expired_at`(잘못임을 알게 된 시점)을 구분하고 선택적으로 `supersedes` link를 둡니다. Search는 `as_of`, `since`, `until` date filter를 받습니다.
 
-메모리에는 `user`, `organization`, `project`, `agent`, `workflow`의 다섯 소유 범위가 있습니다. User 메모리는 기존 vault layout을 사용하고, 나머지는 `.birkin-scopes/<scope>` 아래에서 같은 zone을 유지합니다. 같은 key는 구체적인 순서대로 **workflow > agent > project > organization > user**에서 resolve됩니다. `memory_visible_scopes`는 읽을 수 없는 root를 fail closed로 차단합니다. `memory_source_trust`, `memory_default_trust`, query의 `min_trust`는 설정 가능한 source label을 기준으로 filter하며, 각 hit는 `scope`, `record_source`, `trust`를 표시합니다. 이 label은 인증된 provenance가 아니며 model-facing write가 source 값을 제공할 수 있습니다. 높은 trust label은 봉인된 ingestion path가 지정한 경우에만 신뢰 근거로 사용해야 합니다. Owner가 note를 `shared_read_only`로 지정하면 허용된 agent가 label이 붙은 block을 읽을 수 있지만, non-owner write는 typed policy error로 실패합니다.
+메모리에는 `user`, `organization`, `project`, `agent`, `workflow`의 다섯 소유 범위가 있습니다. User 메모리는 기존 vault layout을 사용하고, 나머지는 `.birkin-scopes/<scope>` 아래에서 같은 zone을 유지합니다. 같은 key는 구체적인 순서대로 **workflow > agent > project > organization > user**에서 resolve됩니다. `memory_visible_scopes`는 읽을 수 없는 root를 fail closed로 차단합니다. `memory_source_trust`, `memory_default_trust`, query의 `min_trust`는 설정 가능한 source label을 기준으로 filter하며, 각 hit는 `scope`, `record_source`, `trust`를 표시합니다. Runtime은 vault별 registry에서 provenance를 note의 정확한 snapshot에 결합합니다. Model-facing write는 source를 선택할 수 없으며, 신뢰된 runtime context가 source를 지정하고 model이 시작한 수정은 해당 caller source의 trust를 넘을 수 없습니다. 직접 filesystem 변경, cross-vault copy, snapshot 불일치는 `legacy`로 fail closed 처리됩니다. 높은 trust label은 봉인된 ingestion path가 지정한 경우에만 신뢰 근거로 사용해야 합니다. Owner가 note를 `shared_read_only`로 지정하면 허용된 agent가 label이 붙은 block을 읽을 수 있지만, non-owner write는 typed policy error로 실패합니다.
 
 저장소의 14-question LongMemEval fixture는 retrieval과 final answer를 나누어 보고합니다. 테스트한 네 configuration 모두 retrieval recall `1.000`, answer accuracy `0.857`이었고 query당 context token은 11.9-12.4였습니다. 두 수치의 차이로 context assembly의 한계를 확인할 수 있습니다. Category·cost table과 public dataset 실행 명령은 [benchmark 결과](./benchmarks/RESULTS.md)에 있습니다. 이 수치는 fixture 결과이지 public leaderboard 점수가 아닙니다.
 
@@ -201,6 +201,8 @@ Raw screenshot은 `BIRKIN_HOME/computer-use/artifacts` 아래 content-addressed 
 ## Office Work OS v2
 
 Birkin은 DOCX, XLSX, PPTX, PDF, HWPX에 대해 범위가 제한된 workflow를 등록합니다. 텍스트 추출, 텍스트 중심 생성, 계층형 검증/비교, 명시적 손실 예산을 사용하는 TXT 변환, semantic structured preview, copy-on-write package 수정 한 건을 지원합니다. PDF 변경은 거부합니다. HWPX blank authoring은 `office` extra의 정확히 pin된 `python-hwpx==6.1.0`을 사용하며, 신뢰된 template derivation도 계속 지원합니다.
+
+Office provenance는 검토된 artifact의 정확한 version과 지원 runtime range를 서로 다른 계약으로 유지합니다. 일반 환경은 선언된 range를 검증하고, locked Office CI는 설치된 정확한 version도 함께 검증합니다.
 
 <!-- office-support-matrix:start -->
 | Format ID | Read/inspect | Create | Extract | Validate | Compare | Text convert | Surgical mutation | Render/recalc/forms |
@@ -471,11 +473,17 @@ approval과 rejection은 `birkin review`와 동일한 file-backed authority를
 
 Server는 기본적으로 loopback에서만 동작합니다. Remote access가 의도된
 경우에만 `web_remote_access`를 `true`로 설정하십시오. 이 설정은 모든
-interface에 bind하지만 public route를 만들지는 않습니다. Remote device에서
-`birkin web`이 출력한 secret bootstrap URL을 여십시오. 이 URL은 process별
-capability를 HttpOnly, SameSite cookie로 교환하며, capability가 없는 모든
-remote request는 거부됩니다. Traffic이 host 밖으로 나가면 TLS 또는 신뢰할
-수 있는 private-network tunnel을 앞에 두십시오.
+interface에 bind하지만 public route를 만들지는 않습니다. Remote mode에서
+`birkin web`은 server hostname을 사용한 secret bootstrap URL을 출력하고,
+nonce가 one-time이므로 local browser에서 자동으로 열지 않습니다. 이 URL을
+remote device에서 여십시오. 해당 hostname을 remote device에서 해석할 수
+없다면 hostname 부분만 server의 신뢰할 수 있는 private-network address로
+바꾸십시오. 이 URL은 process별 capability를 HttpOnly, SameSite cookie로
+교환하며, capability가 없는 모든 remote request는 거부됩니다. Local/remote
+권한은 client가 제어하는 `Host` header가 아니라 TCP peer address에서
+결정되며, 정확한 one-time bootstrap URL만 인증되지 않은 remote 예외입니다.
+Traffic이 host 밖으로 나가면 TLS 또는 신뢰할 수 있는 private-network
+tunnel을 앞에 두십시오.
 
 ## Checkpoints
 

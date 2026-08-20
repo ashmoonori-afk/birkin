@@ -30,6 +30,11 @@ from typing import Any, Optional
 
 from .. import config
 from . import guard
+from .bundle_publish import (
+    BundleSnapshot,
+    publish_bundle,
+    snapshot_bundle,
+)
 
 API = "https://api.github.com"
 USER_AGENT = "birkin-skills-hub"
@@ -242,7 +247,8 @@ def quarantine_dir(name: str) -> Path:
 
 
 def install_from_quarantine(name: str, quarantine: Path,
-                            meta: dict[str, Any]) -> Path:
+                            meta: dict[str, Any],
+                            snapshot: BundleSnapshot) -> Path:
     """Move a scanned bundle into the live skills tree."""
     quarantine = Path(quarantine).resolve()
     if not quarantine.is_relative_to((hub_dir() / "quarantine").resolve()):
@@ -251,15 +257,33 @@ def install_from_quarantine(name: str, quarantine: Path,
         if path.is_symlink():
             raise HubError(f"refusing to install a link: {path}")
 
-    target = resolve_install_path(name)
-    if target.exists():
-        shutil.rmtree(target)
-    target.parent.mkdir(parents=True, exist_ok=True)
-    shutil.move(str(quarantine), str(target))
-    _record(name, {**meta, "install_path": str(target),
-                   "installed_at": time.strftime("%Y-%m-%dT%H:%M:%S")})
-    audit("INSTALL", name, meta.get("identifier", ""),
-          meta.get("verdict", "?"))
+    target_root = config.user_skills_dir().absolute()
+    target = target_root / "hub" / name
+    _ = publish_bundle(
+        snapshot,
+        target,
+        target_root=target_root,
+        replace=True,
+    )
+    try:
+        _record(name, {**meta, "install_path": str(target),
+                       "installed_at": time.strftime("%Y-%m-%dT%H:%M:%S")})
+        audit("INSTALL", name, meta.get("identifier", ""),
+              meta.get("verdict", "?"))
+    except OSError as record_error:
+        from .manager import PublicationCleanupError
+        raise PublicationCleanupError(
+            f"hub/{name}",
+            snapshot.digest(),
+        ) from record_error
+    try:
+        shutil.rmtree(quarantine)
+    except OSError as cleanup_error:
+        from .manager import PublicationCleanupError
+        raise PublicationCleanupError(
+            f"hub/{name}",
+            snapshot.digest(),
+        ) from cleanup_error
     return target
 
 
@@ -328,7 +352,12 @@ def install(identifier: str, *, force: bool = False,
         meta = source.fetch(identifier, quarantine)
         name = meta["name"] if valid_skill_name(meta["name"]) else name
 
-        result = guard.scan_skill(quarantine, source=identifier)
+        snapshot = snapshot_bundle(quarantine)
+        result = guard.scan_skill(
+            quarantine,
+            source=identifier,
+            file_overrides=snapshot.file_overrides(),
+        )
         report = guard.format_report(result, name)
         allowed = guard.should_allow_install(result, force=force)
 
@@ -347,11 +376,20 @@ def install(identifier: str, *, force: bool = False,
             audit("DECLINED", name, identifier, result.verdict)
             return False, f"{report}\n\nNot installed."
 
-        target = install_from_quarantine(name, quarantine, {
-            "identifier": identifier, "source": source.source_id(),
-            "verdict": result.verdict,
-            "trust": result.trust, "content_hash": result.content_hash,
-            "files": meta["files"], "description": meta["description"]})
+        target = install_from_quarantine(
+            name,
+            quarantine,
+            {
+                "identifier": identifier,
+                "source": source.source_id(),
+                "verdict": result.verdict,
+                "trust": result.trust,
+                "content_hash": result.content_hash,
+                "files": meta["files"],
+                "description": meta["description"],
+            },
+            snapshot,
+        )
         return True, f"{report}\n\nInstalled {name} -> {target}"
     except HubError as exc:
         if quarantine is not None:

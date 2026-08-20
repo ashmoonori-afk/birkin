@@ -35,6 +35,12 @@ def test_tests_workflow_covers_supported_operating_systems() -> None:
     assert 'python: "3.10"' in workflow
 
 
+def test_primary_ci_excludes_exact_lock_only_tests() -> None:
+    workflow = WORKFLOW.read_text(encoding="utf-8")
+
+    assert '-m "not live and not locked_env"' in workflow
+
+
 def test_optional_workflow_is_separate_and_utf8() -> None:
     workflow = (WORKFLOW.parent / "optional-tests.yml").read_text(encoding="utf-8")
     assert "PYTHONUTF8" in workflow

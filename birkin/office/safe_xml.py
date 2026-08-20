@@ -4,21 +4,51 @@ from __future__ import annotations
 
 import re
 from pathlib import Path
-from typing import BinaryIO
+from typing import Any, BinaryIO
 from xml.etree import ElementTree as _ET
 
-_FORBIDDEN_DECLARATION = re.compile(
-    rb"<!\s*(?:DOCTYPE|ENTITY)\b",
-    re.IGNORECASE,
-)
+_DefusedXmlExceptionType: type[Exception]
+try:
+    from defusedxml.common import (
+        DefusedXmlException as _ImportedDefusedXmlException,
+    )
+    from defusedxml.ElementTree import DefusedXMLParser as _DefusedXMLParser
+    _DefusedXmlExceptionType = _ImportedDefusedXmlException
+except ModuleNotFoundError:
+    _DefusedXmlExceptionType = Exception
+    _DefusedXMLParser = None
 
 
 class DefusedXmlException(ValueError):
     """Compatibility error raised for prohibited XML declarations."""
 
 
-def _guard(data: bytes) -> None:
-    if _FORBIDDEN_DECLARATION.search(data):
+_FORBIDDEN_DECLARATION = re.compile(
+    r"<!\s*(?:DOCTYPE|ENTITY)\b",
+    re.IGNORECASE,
+)
+_XML_COMMENT_OR_CDATA = re.compile(r"<!--.*?-->|<!\[CDATA\[.*?\]\]>", re.DOTALL)
+
+
+def _guard_text(data: bytes | str) -> None:
+    if isinstance(data, str):
+        text = data
+    elif data.startswith((b"\xff\xfe\x00\x00", b"\x00\x00\xfe\xff")):
+        text = data.decode("utf-32")
+    elif data.startswith((b"\xff\xfe", b"\xfe\xff")):
+        text = data.decode("utf-16")
+    elif data.startswith(b"\x00\x00\x00<"):
+        text = data.decode("utf-32-be")
+    elif data.startswith(b"<\x00\x00\x00"):
+        text = data.decode("utf-32-le")
+    elif data.startswith(b"\x00<"):
+        text = data.decode("utf-16-be")
+    elif data.startswith(b"<\x00"):
+        text = data.decode("utf-16-le")
+    else:
+        text = data.decode("latin-1")
+
+    if _FORBIDDEN_DECLARATION.search(_XML_COMMENT_OR_CDATA.sub("", text)):
         raise DefusedXmlException("DTD and entity declarations are forbidden")
 
 
@@ -29,10 +59,13 @@ def fromstring(
     forbid_entities: bool = True,
     forbid_external: bool = True,
 ) -> _ET.Element:
-    _ = forbid_dtd, forbid_entities, forbid_external
-    encoded = data.encode("utf-8") if isinstance(data, str) else data
-    _guard(encoded)
-    return _ET.fromstring(encoded)
+    parser = XMLParser(
+        forbid_dtd=forbid_dtd,
+        forbid_entities=forbid_entities,
+        forbid_external=forbid_external,
+    )
+    parser.feed(data)
+    return parser.close()
 
 
 def parse(
@@ -42,64 +75,119 @@ def parse(
     forbid_entities: bool = True,
     forbid_external: bool = True,
 ) -> _ET.ElementTree:
-    _ = forbid_dtd, forbid_entities, forbid_external
-    if hasattr(source, "read"):
-        payload = source.read()
-    else:
+    parser = XMLParser(
+        forbid_dtd=forbid_dtd,
+        forbid_entities=forbid_entities,
+        forbid_external=forbid_external,
+    )
+    if isinstance(source, (str, Path)):
         payload = Path(source).read_bytes()
-    encoded = payload.encode("utf-8") if isinstance(payload, str) else payload
-    _guard(encoded)
-    return _ET.ElementTree(_ET.fromstring(encoded))
+    else:
+        payload = source.read()
+    parser.feed(payload)
+    return _ET.ElementTree(parser.close())
 
 
 class _GuardedXMLParser:
-    def __init__(self, *args: object, **kwargs: object) -> None:
-        kwargs.pop("forbid_dtd", None)
-        kwargs.pop("forbid_entities", None)
-        kwargs.pop("forbid_external", None)
-        self._args = args
-        self._kwargs = kwargs
+    def __init__(
+        self,
+        *,
+        target: Any = None,
+        encoding: str | None = None,
+        forbid_dtd: bool = True,
+        forbid_entities: bool = True,
+        forbid_external: bool = True,
+    ) -> None:
+        self._target = target
+        self._encoding = encoding
+        self._forbid_dtd = forbid_dtd
+        self._forbid_entities = forbid_entities
+        self._forbid_external = forbid_external
+        self._forbid_declarations = (
+            forbid_dtd
+            or forbid_entities
+            or forbid_external
+        )
         self._chunks: list[bytes | str] = []
 
     def feed(self, data: bytes | str) -> None:
         self._chunks.append(data)
 
     def close(self) -> _ET.Element:
-        if any(isinstance(chunk, str) for chunk in self._chunks):
-            if not all(isinstance(chunk, str) for chunk in self._chunks):
+        text_chunks = [
+            chunk for chunk in self._chunks if isinstance(chunk, str)
+        ]
+        if text_chunks:
+            if len(text_chunks) != len(self._chunks):
                 raise TypeError("cannot mix text and bytes XML chunks")
-            payload: bytes | str = "".join(
-                str(chunk) for chunk in self._chunks
-            )
+            payload: bytes | str = "".join(text_chunks)
         else:
             payload = b"".join(
-                bytes(chunk) for chunk in self._chunks
+                chunk for chunk in self._chunks if isinstance(chunk, bytes)
             )
-        encoded = payload.encode("utf-8") if isinstance(payload, str) else payload
-        _guard(encoded)
-        parser = _ET.XMLParser(*self._args, **self._kwargs)
+        if _DefusedXMLParser is not None:
+            parser = _DefusedXMLParser(
+                target=self._target,
+                encoding=self._encoding,
+                forbid_dtd=self._forbid_dtd,
+                forbid_entities=self._forbid_entities,
+                forbid_external=self._forbid_external,
+            )
+            try:
+                parser.feed(payload)
+                return parser.close()
+            except _DefusedXmlExceptionType as exc:
+                raise DefusedXmlException(
+                    "DTD and entity declarations are forbidden"
+                ) from exc
+        if self._forbid_declarations:
+            _guard_text(payload)
+        parser = _ET.XMLParser(target=self._target, encoding=self._encoding)
         parser.feed(payload)
         return parser.close()
 
 
-def XMLParser(*args: object, **kwargs: object) -> _GuardedXMLParser:
+def XMLParser(
+    *,
+    target: Any = None,
+    encoding: str | None = None,
+    forbid_dtd: bool = True,
+    forbid_entities: bool = True,
+    forbid_external: bool = True,
+) -> _GuardedXMLParser:
     """Build a streaming parser that validates declarations before parsing."""
 
-    return _GuardedXMLParser(*args, **kwargs)
+    return _GuardedXMLParser(
+        target=target,
+        encoding=encoding,
+        forbid_dtd=forbid_dtd,
+        forbid_entities=forbid_entities,
+        forbid_external=forbid_external,
+    )
+
+
+class _GuardedElementTree(_ET.ElementTree):
+    def parse(
+        self,
+        source: str | Path | BinaryIO,
+        parser: Any = None,
+    ) -> _ET.Element:
+        if parser is not None:
+            raise TypeError("custom XML parsers are not supported")
+        root = parse(source).getroot()
+        self._setroot(root)
+        return root
 
 
 class _ElementTreeFacade:
     ParseError = _ET.ParseError
     Element = _ET.Element
-    ElementTree = _ET.ElementTree
+    ElementTree = _GuardedElementTree
     XMLParser = staticmethod(XMLParser)
     fromstring = staticmethod(fromstring)
     parse = staticmethod(parse)
     register_namespace = staticmethod(_ET.register_namespace)
     tostring = staticmethod(_ET.tostring)
-
-    def __getattr__(self, name: str) -> object:
-        return getattr(_ET, name)
 
 
 ElementTree = _ElementTreeFacade()

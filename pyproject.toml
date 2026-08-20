@@ -127,9 +127,10 @@ testpaths = ["tests"]
 norecursedirs = [".git", ".venv", "tmp"]
 # Offline runs skip the live suite by default; opt in with `BIRKIN_LIVE=1
 # pytest -m live` (and a real backend ??API key, or installed claude/codex CLI).
-addopts = "-q -m 'not live'"
+addopts = "-q -m 'not live and not locked_env'"
 markers = [
     "live: real LLM backend required (BIRKIN_LIVE=1 + API key or claude/codex CLI)",
+    "locked_env: exact dependency lock required (run after uv sync)",
     "docker_integration: opt-in test requiring BIRKIN_DOCKER_INTEGRATION=1 and a Docker daemon",
     "browser_integration: opt-in test requiring BIRKIN_BROWSER_INTEGRATION=1 and Playwright Chromium",
 ]

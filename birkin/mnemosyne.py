@@ -39,6 +39,7 @@ from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
 
+from .note_move import move_note_noreplace
 from .skills import frontmatter
 
 # -- constants (single tuning source; see design §8) -------------------------
@@ -91,7 +92,11 @@ def atomic_write(path: Path, text: str) -> None:
                                     prefix=path.name + ".", suffix=".tmp")
     tmp = Path(tmp_name)
     try:
-        with os.fdopen(fd, "w", encoding="utf-8") as fh:
+        # newline="" keeps the bytes on disk byte-identical to the UTF-8
+        # encoding of `text` on every platform. Without it Windows rewrites
+        # "\n" as "\r\n", so digests taken over the text no longer match the
+        # file that was written.
+        with os.fdopen(fd, "w", encoding="utf-8", newline="") as fh:
             fh.write(text)
         os.replace(tmp, path)
     except OSError:
@@ -365,10 +370,28 @@ class Mnemosyne:
     def __init__(self, vault: Path):
         self.vault = Path(vault)
         self._lock = threading.RLock()
+        self._pinned = False
         self._notes: dict[str, dict[str, Any]] | None = None
         self._dyn: dict[str, Any] | None = None
         self._postings: dict[str, dict[str, int]] = {}
         self._avgdl = 0.0
+
+    @classmethod
+    def from_entries(
+        cls,
+        vault: Path,
+        entries: dict[str, dict[str, Any]],
+    ) -> Mnemosyne:
+        dex = cls(vault)
+        dex._notes = {
+            slug: dict(entry)
+            for slug, entry in entries.items()
+        }
+        for slug, entry in dex._notes.items():
+            dex._add_postings(slug, entry.get("terms") or {})
+        dex._recompute_avgdl()
+        dex._pinned = True
+        return dex
 
     # -- persistence --------------------------------------------------------
 
@@ -491,6 +514,8 @@ class Mnemosyne:
         and keeps externally edited notes (e.g. in Obsidian) visible
         immediately — the M4 win is *no re-parsing*, not no statting."""
         with self._lock:
+            if self._pinned:
+                return
             if self._notes is None:
                 self._load()
             assert self._notes is not None
@@ -757,8 +782,7 @@ class Mnemosyne:
             new = new_dir / f"{s}.md"
             if old != new:
                 new_dir.mkdir(parents=True, exist_ok=True)
-                os.link(old, new)
-                old.unlink()
+                move_note_noreplace(old, new)
             rel = f"{z}/{s}.md" if z else f"{s}.md"
             try:
                 st = new.stat()

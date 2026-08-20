@@ -88,7 +88,10 @@ def test_write_note_uses_cross_process_lock(monkeypatch):
     m.write_note("Process Locked", "shared update", note_type="fact",
                  source="concurrency-test")
 
-    assert [path.name for path in seen] == [".birkin-note-process-locked"]
+    assert [path.name for path in seen] == [
+        ".birkin-note-process-locked",
+        "memory_provenance.json",
+    ]
 
 
 def test_write_note_replaces_explicit_metadata_on_update():
