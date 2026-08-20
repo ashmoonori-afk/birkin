@@ -3,8 +3,8 @@
 from __future__ import annotations
 
 import secrets
-from collections.abc import Callable
-from typing import Protocol, final
+from collections.abc import Callable, Mapping
+from typing import Protocol, cast, final
 
 from birkin.native.auth import NativeConnectionAuth
 from birkin.native.bridge_commands import (
@@ -13,6 +13,7 @@ from birkin.native.bridge_commands import (
 )
 from birkin.native.bridge_stream import NativeBridgeStream
 from birkin.native.capability import BootstrapSecretStore, SessionCapability
+from birkin.native.product_surfaces import SurfaceSnapshot
 from birkin.native.messages import (
     NativeMessageFactory,
     body_integer,
@@ -39,6 +40,16 @@ class CommandAuthority(Protocol):
         *,
         actor_id: str,
     ) -> CommandReceipt: ...
+
+
+class SurfaceProjectionAuthority(Protocol):
+    @property
+    def surface_names(self) -> tuple[str, ...]: ...
+
+    def snapshots(
+        self,
+        requested: Mapping[str, int],
+    ) -> tuple[SurfaceSnapshot, ...]: ...
 
 
 class WorkspaceAuthority(
@@ -113,6 +124,7 @@ class NativeBridgeServer:
         peer_timeout: float = 10.0,
         outbound_capacity: int = 512,
         on_disconnect: Callable[[], None] | None = None,
+        surface_authority: SurfaceProjectionAuthority | None = None,
     ) -> None:
         if heartbeat_interval <= 0 or peer_timeout <= 0:
             raise ValueError("heartbeat intervals must be positive")
@@ -123,6 +135,7 @@ class NativeBridgeServer:
             config_authority,
         )
         self._authority = projection_authority
+        self._surface_authority = surface_authority
         self._capabilities = capabilities
         self._auth = NativeConnectionAuth(
             capabilities,
@@ -139,6 +152,11 @@ class NativeBridgeServer:
             server_version=server_version,
             command_types=command_router.supported_commands,
             session_presets=projection_authority.session_presets,
+            surface_names=(
+                surface_authority.surface_names
+                if surface_authority is not None
+                else ()
+            ),
         )
         self._commands = NativeCommandExecutor(command_router, self._messages)
         self._heartbeat_interval = heartbeat_interval
@@ -292,8 +310,46 @@ class NativeBridgeServer:
             response = self._messages.message("snapshot", body=body)
             state.send(response)
             connection.send(response)
+        if self._surface_authority is not None:
+            requested = _surface_revisions(message.body.get("surfaces"))
+            try:
+                surface_snapshots = self._surface_authority.snapshots(requested)
+            except ValueError as exc:
+                raise NativeProtocolError("E_BODY", str(exc)) from exc
+            for surface in surface_snapshots:
+                payload = dict(surface.payload)
+                payload["_meta"] = {
+                    "full_snapshot": surface.full_snapshot,
+                    "reset_reason": surface.reset_reason,
+                }
+                response = self._messages.message(
+                    "surface_snapshot",
+                    body={
+                        "surface": surface.surface,
+                        "revision": surface.revision,
+                        "payload": payload,
+                    },
+                )
+                state.send(response)
+                connection.send(response)
         for event in batch.events:
             response = self._messages.message("event", body=event)
             state.send(response)
             connection.send(response)
         stream.activate(after_cursor=after_cursor)
+
+
+def _surface_revisions(value: object) -> dict[str, int]:
+    if not isinstance(value, dict):
+        raise NativeProtocolError("E_BODY", "surfaces must be an object")
+    unknown = cast(dict[object, object], value)
+    revisions: dict[str, int] = {}
+    for key, revision in unknown.items():
+        if not isinstance(key, str):
+            raise NativeProtocolError("E_BODY", "surface names must be strings")
+        if isinstance(revision, bool) or not isinstance(revision, int) or revision < 0:
+            raise NativeProtocolError(
+                "E_BODY", "surface revisions must be non-negative integers"
+            )
+        revisions[key] = revision
+    return revisions
