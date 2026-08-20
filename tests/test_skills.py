@@ -261,6 +261,61 @@ def test_improve_parent_swap_cannot_escape_skill_root(
     os.name != "nt",
     reason="Windows directory-handle sharing semantics",
 )
+@pytest.mark.parametrize(
+    "destination_name",
+    ["renamed.txt", "이름-변경.txt"],
+)
+def test_windows_handle_relative_rename_accepts_names(
+        tmp_path: Path,
+        destination_name: str,
+) -> None:
+    from birkin.skills.bundle_publish_windows_io import (
+        DELETE,
+        READ_ATTRIBUTES,
+        checked_directory,
+        close,
+        information,
+        open_handle,
+        rename,
+    )
+
+    kernel32 = manager_module._windows_kernel32()
+    source = tmp_path / "source.txt"
+    source.write_text("EXACT", encoding="utf-8")
+    parent = checked_directory(
+        kernel32,
+        tmp_path,
+        access=READ_ATTRIBUTES,
+    )
+    source_handle = open_handle(
+        kernel32,
+        source,
+        access=READ_ATTRIBUTES | DELETE,
+        directory=False,
+    )
+    try:
+        _, identity = information(kernel32, source_handle)
+        rename(
+            kernel32,
+            source_handle,
+            parent,
+            destination_name,
+        )
+        _, moved_identity = information(kernel32, source_handle)
+        assert moved_identity == identity
+        assert not source.exists()
+        assert (
+            tmp_path / destination_name
+        ).read_text(encoding="utf-8") == "EXACT"
+    finally:
+        close(kernel32, source_handle)
+        close(kernel32, parent)
+
+
+@pytest.mark.skipif(
+    os.name != "nt",
+    reason="Windows directory-handle sharing semantics",
+)
 def test_windows_improve_locks_parent_against_swap(
         monkeypatch,
         tmp_path: Path):

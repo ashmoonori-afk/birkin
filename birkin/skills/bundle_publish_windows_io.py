@@ -143,7 +143,9 @@ def rename(
 
     encoded = name.encode("utf-16-le")
     offset = FileRenameInfo.FileName.offset
-    buffer = ctypes.create_string_buffer(offset + len(encoded))
+    buffer = ctypes.create_string_buffer(
+        offset + len(encoded) + ctypes.sizeof(wintypes.WCHAR)
+    )
     info = FileRenameInfo.from_buffer(buffer)
     info.ReplaceIfExists = False
     info.RootDirectory = wintypes.HANDLE(parent_handle)

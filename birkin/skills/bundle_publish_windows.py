@@ -25,7 +25,8 @@ from .bundle_publish_windows_file import (
     create_directory,
     populate,
 )
-from .manager import PublicationCleanupError, _windows_kernel32
+from . import manager as _manager
+from .manager import PublicationCleanupError
 
 
 @contextmanager
@@ -33,7 +34,7 @@ def _locked_parent(
     target_root: Path,
     relative_parent: Path,
 ) -> Iterator[tuple[Path, int, Any]]:
-    kernel32 = _windows_kernel32()
+    kernel32 = _manager._windows_kernel32()
     handles: list[int] = []
     current = target_root
     try:

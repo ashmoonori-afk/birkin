@@ -698,6 +698,13 @@ def _zero_windows_handle(
         0,
     ):
         return ctypes.get_last_error()
+    set_end = kernel32.SetEndOfFile
+    set_end.argtypes = [wintypes.HANDLE]
+    set_end.restype = wintypes.BOOL
+    if set_end(handle):
+        if not kernel32.FlushFileBuffers(handle):
+            return ctypes.get_last_error()
+        return 0
     remaining = length
     zeroes = bytes(min(remaining, 64 * 1024))
     while remaining:
@@ -922,7 +929,9 @@ def _publish_skill_bytes_windows(
             encoded_name = target.name.encode("utf-16-le")
             filename_offset = FileRenameInfo.FileName.offset
             buffer = ctypes.create_string_buffer(
-                filename_offset + len(encoded_name)
+                filename_offset
+                + len(encoded_name)
+                + ctypes.sizeof(wintypes.WCHAR)
             )
             rename_info = FileRenameInfo.from_buffer(buffer)
             rename_info.ReplaceIfExists = True
