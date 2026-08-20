@@ -63,6 +63,10 @@ def test_session_rename_updates_canonical_summaries(tmp_path: Path) -> None:
         {"session_id": "first", "name": "Planning", "cursor": 4}
     ]
     assert any(event.type == "session.renamed" for event in session.events())
+    history = next(
+        panel for panel in session.snapshot().panels if panel.key == "sessions_history"
+    )
+    assert history.items[0]["name"] == "Planning"
     hub.close()
 
 

@@ -21,6 +21,10 @@ _PANEL_BY_EVENT = {
     "evidence.added": "files_evidence",
     "file.updated": "files_evidence",
     "session.updated": "sessions_history",
+    "session.created": "sessions_history",
+    "session.selected": "sessions_history",
+    "session.renamed": "sessions_history",
+    "session.compacted": "sessions_history",
     "activity.recorded": "activity_logs",
     "cron.updated": "cron",
     "memory.updated": "memory_skills",
@@ -99,6 +103,8 @@ def _panel_item(event: WorkspaceEvent) -> dict[str, object]:
         "snapshot_ref",
         "effect",
         "refusal_code",
+        "session_id",
+        "name",
     ):
         value = event.payload.get(field)
         if isinstance(value, str) and value:
