@@ -812,6 +812,11 @@ def _publish_skill_bytes_windows(
     close_handle = kernel32.CloseHandle
     invalid_handle = wintypes.HANDLE(-1).value
     file_read_attributes = 0x0080
+    # Windows exempts attribute-only opens from share-access checks, so an
+    # ancestor handle that requests nothing but FILE_READ_ATTRIBUTES does not
+    # actually reserve the directory. FILE_TRAVERSE is a real access right and
+    # makes the deny-delete share mode below bite.
+    file_traverse = 0x00000020
     delete_access = 0x00010000
     generic_write = 0x40000000
     share_read = 0x00000001
@@ -859,7 +864,7 @@ def _publish_skill_bytes_windows(
                     raise OSError(ctypes.get_last_error(), str(current))
             handle = open_handle(
                 current,
-                file_read_attributes,
+                file_read_attributes | file_traverse,
                 share_read | share_write,
                 open_existing,
                 backup_semantics | open_reparse_point,

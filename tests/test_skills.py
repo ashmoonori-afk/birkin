@@ -305,12 +305,14 @@ def test_windows_handle_relative_rename_accepts_names(
         _, moved_identity = information(kernel32, source_handle)
         assert moved_identity == identity
         assert not source.exists()
-        assert (
-            tmp_path / destination_name
-        ).read_text(encoding="utf-8") == "EXACT"
     finally:
         close(kernel32, source_handle)
         close(kernel32, parent)
+    # The handle above carries DELETE access, and Windows denies an ordinary
+    # read that does not share it, so the payload is asserted once released.
+    assert (
+        tmp_path / destination_name
+    ).read_text(encoding="utf-8") == "EXACT"
 
 
 @pytest.mark.skipif(
@@ -362,19 +364,21 @@ def test_windows_rename_follows_locked_parent_after_ancestor_move(
             parent_path,
             "published.txt",
         )
-        locked_destination = (
-            moved_container / "locked" / "published.txt"
-            if ancestor_moved
-            else parent_path / "published.txt"
-        )
-        assert locked_destination.read_text(
-            encoding="utf-8"
-        ) == "EXACT"
-        if ancestor_moved:
-            assert not (parent_path / "published.txt").exists()
     finally:
         close(kernel32, source_handle)
         close(kernel32, parent)
+    # Same DELETE-access sharing rule as above: read the published bytes only
+    # after the exact-object handles have been released.
+    locked_destination = (
+        moved_container / "locked" / "published.txt"
+        if ancestor_moved
+        else parent_path / "published.txt"
+    )
+    assert locked_destination.read_text(
+        encoding="utf-8"
+    ) == "EXACT"
+    if ancestor_moved:
+        assert not (parent_path / "published.txt").exists()
 
 
 @pytest.mark.skipif(

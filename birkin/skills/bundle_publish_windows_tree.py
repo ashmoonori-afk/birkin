@@ -13,6 +13,7 @@ from .bundle_publish_windows_io import (
     DIRECTORY_ATTRIBUTE,
     READ_ATTRIBUTES,
     REPARSE_ATTRIBUTE,
+    SHARE_READ_WRITE_DELETE,
     close,
     information,
     mark_delete,
@@ -48,10 +49,14 @@ def _lock_children(
         expected_identity = entry.inode()
         path = Path(entry.path)
         is_directory = entry.is_dir(follow_symlinks=False)
+        # Windows refuses to rename a directory while anything inside it is
+        # held open without delete sharing, so the locks that guard the
+        # existing tree have to allow it or the publish rename cannot run.
         handle = open_handle(
             kernel32,
             path,
             access=READ_ATTRIBUTES | DELETE,
+            share=SHARE_READ_WRITE_DELETE,
             directory=is_directory,
         )
         try:

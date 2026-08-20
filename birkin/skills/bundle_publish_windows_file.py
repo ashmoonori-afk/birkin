@@ -13,6 +13,8 @@ from .bundle_publish_windows_io import (
     GENERIC_WRITE,
     READ_ATTRIBUTES,
     REPARSE_ATTRIBUTE,
+    SHARE_DELETE,
+    SHARE_READ_WRITE_DELETE,
     close,
     information,
     open_handle,
@@ -30,11 +32,14 @@ def _write_file(
     import ctypes
     from ctypes import wintypes
 
+    # Delete sharing only: readers and writers still cannot touch the staged
+    # bytes, but the candidate directory stays renamable. Windows denies a
+    # directory rename outright when a file inside it is open without it.
     handle = open_handle(
         kernel32,
         path,
         access=GENERIC_WRITE | READ_ATTRIBUTES | DELETE,
-        share=0,
+        share=SHARE_DELETE,
         disposition=CREATE_NEW,
         directory=False,
     )
@@ -95,7 +100,7 @@ def populate(
             path.parent,
             path.name,
             access=READ_ATTRIBUTES | DELETE,
-            share=0x00000001 | 0x00000002,
+            share=SHARE_READ_WRITE_DELETE,
         )
         handles.directories.append(handle)
         attributes, _ = information(kernel32, handle)

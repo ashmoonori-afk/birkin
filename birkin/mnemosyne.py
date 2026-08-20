@@ -92,7 +92,11 @@ def atomic_write(path: Path, text: str) -> None:
                                     prefix=path.name + ".", suffix=".tmp")
     tmp = Path(tmp_name)
     try:
-        with os.fdopen(fd, "w", encoding="utf-8") as fh:
+        # newline="" keeps the bytes on disk byte-identical to the UTF-8
+        # encoding of `text` on every platform. Without it Windows rewrites
+        # "\n" as "\r\n", so digests taken over the text no longer match the
+        # file that was written.
+        with os.fdopen(fd, "w", encoding="utf-8", newline="") as fh:
             fh.write(text)
         os.replace(tmp, path)
     except OSError:
