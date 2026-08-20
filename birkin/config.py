@@ -51,6 +51,11 @@ DEFAULT_CONFIG: dict[str, Any] = {
     "fallback_model": "",
     "fallback_base_url": "",
     "fallback_cooldown": 300,
+    # Further hops after `fallback_provider`, tried in order when each earlier
+    # model is also down: [{"provider": ..., "model": ..., "base_url": ...}].
+    # Each hop keeps its own cooldown. Entries that are malformed or have no
+    # credentials are skipped with a warning instead of breaking the rest.
+    "fallback_chain": [],
     # More than one credential for the SAME provider. A rate-limited key
     # rotates to the next one here before failover switches provider and
     # model; each exhausted key cools down on its own timer. Empty = the
@@ -88,6 +93,11 @@ DEFAULT_CONFIG: dict[str, Any] = {
     # (see parallel.py). Writers stay sequential barriers. Set false to
     # restore strictly serial execution.
     "moirai_auto": False,
+    # Let a natural-language turn name a worker (see worker_call.py). The model
+    # only ever *proposes* the worker; the user still approves before it runs,
+    # so unlike `moirai_auto` this is on by default. Set false to keep workers
+    # reachable only from the CLI.
+    "worker_call_auto": True,
     "moirai_workers": 4,
     "moirai_max_agents": 100,
     "moirai_roles": {},
@@ -432,11 +442,22 @@ PROVIDER_DEFAULT_BASE_URL = {
     "anthropic": "https://api.anthropic.com",
     "claude-oauth": "https://api.anthropic.com",
     "openai": "https://api.openai.com",
+    # Gemini speaks OpenAI Chat Completions on a dedicated compatibility path.
+    "gemini": "https://generativelanguage.googleapis.com/v1beta/openai",
+    # NVIDIA NIM (build.nvidia.com) hosted inference, OpenAI-compatible.
+    "nvidia": "https://integrate.api.nvidia.com/v1",
+    # FreeLLMAPI is a SELF-HOSTED OpenAI-compatible proxy that stacks free
+    # provider tiers behind one key, so the default is its documented local
+    # port; a remote deployment sets base_url explicitly.
+    "freellmapi": "http://localhost:3001/v1",
 }
 
 PROVIDER_API_KEY_ENV = {
     "anthropic": "ANTHROPIC_API_KEY",
     "openai": "OPENAI_API_KEY",
+    "gemini": "GEMINI_API_KEY",
+    "nvidia": "NVIDIA_API_KEY",
+    "freellmapi": "FREELLMAPI_API_KEY",
 }
 
 # Providers backed by a locally-installed, separately-authenticated agent CLI.

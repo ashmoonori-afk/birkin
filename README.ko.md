@@ -211,7 +211,34 @@ Base install의 경계는 명확합니다. 다섯 format 모두 inspect, validat
 
 신뢰된 한국어·영어 자연어 요청은 production skill을 결정적으로 preload합니다. Word/DOCX는 `word-documents`, Excel/XLSX는 `spreadsheets`, PowerPoint/PPTX는 `presentations`, PDF는 `pdf-documents`, HWP/HWPX는 `korean-hwp-documents`, 일반 Office 작업은 `office-work-os`로 route합니다. Format intent와 artifact 신호가 충돌하면 inspect-first `office-documents`로 route합니다. 문서 내용은 untrusted data이므로 skill을 선택하거나 override할 수 없고, 모든 routed mutation은 copy-on-write를 유지합니다.
 
-[상세 지원 계약](./docs/office-support.md#office-work-os-v2), machine [`provenance_manifest.json`](./birkin/office/adapters/provenance_manifest.json), [`THIRD_PARTY_NOTICES.md`](./birkin/office/adapters/THIRD_PARTY_NOTICES.md)를 참고하십시오. 이 문서는 Birkin `0.4.230`, `catalog_revision: 4`, `inventory_sha256: a49ab813ee4cdea3d6f87e0e2bd063b1dde54058e5c8dd0af0cf32bec74cae95`를 대상으로 합니다.
+[상세 지원 계약](./docs/office-support.md#office-work-os-v2), machine [`provenance_manifest.json`](./birkin/office/adapters/provenance_manifest.json), [`THIRD_PARTY_NOTICES.md`](./birkin/office/adapters/THIRD_PARTY_NOTICES.md)를 참고하십시오. 이 문서는 Birkin `0.4.240`, `catalog_revision: 4`, `inventory_sha256: a49ab813ee4cdea3d6f87e0e2bd063b1dde54058e5c8dd0af0cf32bec74cae95`를 대상으로 합니다.
+
+### Office 작업 처음부터 끝까지
+
+위 계약이 "무엇이 허용되는가"라면, 아래는 실제 작업 순서입니다.
+
+1. 필요한 tier를 설치합니다. DOCX/XLSX/PPTX/HWPX 생성과 bounded package 수정은 `pip install -e ".[office]"`, PDF 추출과 deep reopen 추가는 `".[office-advanced]"`, 별도 docling path는 `".[office-docling]"`입니다.
+2. 원본을 jail 안에 둡니다. 모든 입력 경로는 이미 `BIRKIN_HOME` 아래에 있어야 하며, `BIRKIN_HOME=/workspace/.birkin`이면 먼저 `/workspace/.birkin/artifacts/incoming/`으로 복사합니다. 이 tree 밖의 absolute path는 조용히 읽히지 않고 거부됩니다.
+3. `list_document_adapters`로 사용 가능한 adapter를 확인하고, 무엇을 바꾸기 전에 `inspect_document`로 원본을 먼저 점검합니다.
+4. 등록된 호출로 읽고 씁니다. 출력은 `/workspace/.birkin/artifacts/drafts` 아래 basename-only 새 파일이며, 원본을 제자리에서 수정하지 않습니다.
+
+Word 파일에서 텍스트를 추출합니다.
+
+```json
+{"source":{"content_hash":"<source-sha256>","uri":"/workspace/.birkin/artifacts/incoming/source.docx"},"projection":"text","max_text_bytes":100000}
+```
+
+같은 파일을 명시적 손실 예산으로 TXT로 변환합니다.
+
+```json
+{"source":{"content_hash":"<source-sha256>","uri":"/workspace/.birkin/artifacts/incoming/source.docx"},"target_format":"txt","output_name":"source.txt","loss_budget":{"structure":10,"style_layout":10,"macro_active_content":0,"signature_encryption":0}}
+```
+
+chat에서는 이 이름들을 직접 부르지 않습니다. 신뢰된 한국어·영어 요청이 결정적으로 해당 skill로 route됩니다(Word는 `word-documents`, Excel은 `spreadsheets`, PowerPoint는 `presentations`, PDF는 `pdf-documents`, HWP/HWPX는 `korean-hwp-documents`, 일반 office 작업은 `office-work-os`). 신호가 충돌하면 inspect-first `office-documents`로 route합니다.
+
+누락이 아니라 설계로 거부하는 것들: PDF 변경, non-Latin 내장 PDF 생성(ASCII 전용이며 non-Latin 요청은 타입화된 capability refusal을 반환하고 ReportLab을 제안하지 않습니다), 그리고 외부 Office application·runtime·subprocess 변환 engine을 실행하는 모든 경로입니다. 승인된 선택 Python backend가 없으면 대체품을 조용히 고르지 않고 타입화된 오류를 반환합니다.
+
+전체 matrix는 [상세 지원 계약](./docs/office-support.md#office-work-os-v2)을 참고하십시오.
 
 ## 통합 chat workspace
 
@@ -219,7 +246,7 @@ Base install의 경계는 명확합니다. 다섯 format 모두 inspect, validat
 
 두 surface는 같은 순서 보장 command/event protocol과 durable journal을 사용합니다. Conversation message, task/run, approval, evidence, session, activity, cron, memory/skill, checkpoint, status는 별도 dashboard state가 아니라 canonical snapshot panel입니다. Surface가 기존 session ID로 다시 연결되면 journal이 conversation, panel data, command cursor를 replay합니다.
 
-- Terminal: 입력 후 Enter로 전송하고 Esc로 중단합니다. `/work`는 task/run에 focus하고 deprecated compatibility alias `/dash`는 activity/log에 focus합니다.
+- Terminal: 입력 후 Enter로 전송하고 Esc로 중단합니다. `/work`는 통합된 task/run workbench에 focus합니다. `/dash`는 기존 사용 습관을 위해 남겨 둔 deprecated alias로, `/work`와 동일한 workbench에 focus하고 deprecation 안내를 출력합니다.
 - Web: Ctrl+Enter로 전송하고 Esc로 중단합니다. Context button으로 9개 canonical panel을 열며 requester, target, impact, rejection result, risk, expiry, evidence를 검토한 뒤 명시적인 승인/거부 action을 사용합니다.
 - Theme: Studio Dark, Paper Light, High Contrast는 terminal truecolor/ANSI-256 rendering과 semantic role을 공유합니다. `NO_COLOR=1`에서도 terminal 기능은 유지됩니다.
 - Responsive behavior: desktop은 conversation과 context를 나란히 유지합니다. Mobile은 composer를 계속 보이는 상태로 두고 그 위에 opaque sheet를 열며 touch-size control과 명시적인 back action을 제공합니다.
@@ -540,40 +567,6 @@ snapshot을 복사할 수 있습니다.
 
 전체 interface는 `birkin --help` 또는 `birkin <command> --help`로 확인하십시오.
 
-### 실행 중인 OMO 세션 제어
-
-Birkin은 각 세션이 직접 소유한 extension을 통해 이미 열려 있는 OMO 세션을
-제어합니다. 대체 `omo --mode rpc` process를 열거나 OMO의
-`settings.json.lock`을 획득하거나 window title로 대상을 찾지 않습니다.
-
-신뢰된 Birkin chat 또는 gateway channel에서 extension을 한 번 설치합니다.
-
-```text
-/omo bridge install
-```
-
-이 명령은 `settings.json`을 수정하지 않고
-`birkin-omo-live-bridge.mjs`를 현재 OMO agent extension directory에
-복사합니다. 열려 있는 OMO 세션은 보통 새 extension을 자동으로 발견합니다.
-자동 reload되지 않으면 해당 세션에서 `/reload`를 실행하십시오. Extension을
-load하지 않은 세션은 안전을 위해 제어할 수 없습니다.
-
-이미 열려 있는 하나 이상의 세션에 전체 session ID로 prompt를 전달합니다.
-
-```text
-/omo send-to 019ffe4c-0ba9-7fa2-acab-176a22fc1fd3,019ffda0-c982-7ffe-badf-b952f457011e -- resume
-```
-
-Birkin은 대상별로 정확한 session ID와 request ID가 포함된 acknowledgement를
-한 줄씩 반환합니다. 어떤 prompt도 전달하기 전에 모든 대상을 먼저 resolve하고,
-한 요청 안의 중복 ID를 제거하며, 알 수 없거나 stale·unauthorized·ambiguous한
-live registration은 거부합니다. 과거 JSONL session은 live target으로 간주하지
-않습니다.
-
-각 live session은 loopback에서만 listen하며 random capability token이 들어 있는
-private registration을 게시합니다. Birkin은 token에 묶인 response, session ID,
-request ID, protocol version을 모두 검증합니다. Transport 실패는 자동 retry하지
-않고 그대로 보고하므로 요청별 at-most-once delivery를 유지합니다.
 ## Plugin registry
 
 Bundle은 `birkin-plugin.json`, entry-point file, detached `bundle.sig`를 담은
@@ -719,6 +712,7 @@ signing/notarization, platform별 QA가 필요합니다. 따라서 local protoco
   "fallback_model": "",
   "fallback_base_url": "",
   "fallback_cooldown": 300,
+  "fallback_chain": [],
   "api_keys": [],
   "a2a_enabled": false,
   "lsp_servers": {},
@@ -728,6 +722,7 @@ signing/notarization, platform별 QA가 필요합니다. 따라서 local protoco
   "redact_secrets": true,
   "repl_typed_line": "steer",
   "moirai_auto": false,
+  "worker_call_auto": true,
   "moirai_workers": 4,
   "moirai_max_agents": 100,
   "moirai_roles": {},
@@ -918,6 +913,39 @@ scheduler daemon 시작 시 pending Slack/Discord obligation을 replay합니다.
 자유 형식 shell 요청은 소유권이 있는 process tree 안에서 고정된 non-login platform shell(Windows의 `%SystemRoot%\System32\cmd.exe /d /s /c`, POSIX의 `/bin/bash -c`)을 사용합니다. Windows는 AutoRun을 비활성화하고 사용자 명령을 평가하기 전에 code page 65001을 선택하므로 네이티브 `cmd.exe` built-in과 UTF-8 runtime이 같은 stream capture 계약을 따릅니다. Birkin은 상속된 `PATH`를 보존하고 사용자 profile을 읽지 않은 채 알려진 runtime 디렉터리를 추가하며, UTF-8 stream과 쓰기 가능한 임시 디렉터리를 제공합니다. 네이티브 shell tool, 승인된 shell continuation, scheduler shell job, script monitor, lifecycle hook, GitHub Action test command, worktree setup command가 같은 managed runner를 공유합니다. Worktree setup의 payload 환경은 정책이 허용한 변수만 받고, 별도로 비밀이 아닌 `PATH`, system interpreter 변수, 격리된 `TMPDIR`/`TEMP`/`TMP` 같은 process 실행 요소만 받습니다. Docker setup shell text는 정책으로 제한된 container 안에 남습니다. Timeout, interrupt, Job Object/process-group 종료는 반환 전에 descendant를 제거하고 부분 stdout과 stderr를 보존합니다.
 
 모델이 호출하는 네이티브 shell tool에서는 PowerShell이 기본적으로 비활성화됩니다. `allow_powershell`을 의도적으로 `true`로 설정하거나 큐에 들어간 정확한 단일 operation을 승인해야 합니다. 다른 owner-controlled shell surface는 기존의 명시적 권한 경계를 유지합니다. Managed-shell 계약 이전에 저장된 lifecycle-hook 동의는 예전 discrete-argv 동의가 shell operator 권한으로 조용히 확대되지 않도록 한 번 다시 승인해야 합니다. 네이티브 macOS 및 Windows CI는 일반 명령, pipeline, redirection, quoting, Unicode 및 공백이 있는 작업 디렉터리, 환경/임시 디렉터리, exit 전달, runtime/package-manager 해석, descendant cleanup을 검증합니다.
+
+### Model provider와 fallback chain
+
+`anthropic`, `openai`, CLI agent, `claude-oauth`에 더해 OpenAI 호환 provider 세 개가 등록되어 있습니다. 각각 key만 있으면 되고 base URL은 이미 올바른 기본값을 가집니다.
+
+| Provider | Key env | 기본 base URL |
+| --- | --- | --- |
+| `gemini` | `GEMINI_API_KEY` | `https://generativelanguage.googleapis.com/v1beta/openai` |
+| `nvidia` | `NVIDIA_API_KEY` | `https://integrate.api.nvidia.com/v1` |
+| `freellmapi` | `FREELLMAPI_API_KEY` | `http://localhost:3001/v1` |
+
+여기서 `gemini`는 `gemini` CLI가 아니라 Gemini HTTP API의 OpenAI 호환 경로입니다. `nvidia`는 build.nvidia.com의 NVIDIA hosted NIM inference이며 preview model을 포함합니다. `freellmapi`는 여러 provider의 무료 tier를 하나의 key 뒤에 묶는 **self-hosted** proxy이므로 기본값이 문서화된 local port를 가리킵니다. 다른 곳에서 실행한다면 `base_url`을 지정하십시오.
+
+Memory curation(`birkin curate-memory --provider ...`)에서는 같은 세 provider를 `gemini-api`, `nvidia`, `freellmapi`로 사용합니다. 그곳의 `gemini`는 예전처럼 `gemini` CLI wrapper를 의미하므로 기존 설정은 그대로 동작합니다. credential이 없으면 예외를 던지지 않고 타입화된 `[provider-error] ...` 문자열을 반환합니다.
+
+`fallback_provider` / `fallback_model`은 여전히 fallback 하나를 의미하며 동작도 이전과 완전히 같습니다. `fallback_chain`은 그 뒤를 순서대로 잇습니다.
+
+```jsonc
+{
+  "provider": "claude-oauth",
+  "model": "claude-sonnet-4-6",
+  "fallback_provider": "anthropic",
+  "fallback_model": "claude-sonnet-4-6",
+  "fallback_chain": [
+    {"provider": "gemini", "model": "gemini-3.7-flash"},
+    {"provider": "nvidia", "model": "meta/llama-3.1-8b-instruct"},
+    {"provider": "freellmapi", "model": "auto"}
+  ],
+  "fallback_cooldown": 300
+}
+```
+
+auth, billing, rate-limit, server, network 실패가 나면 turn이 다음 model로 넘어가고 `fallback_cooldown`초 동안 그대로 머물다가 이전 model을 다시 확인합니다. 각 hop은 자신만의 독립적인 cooldown을 가집니다. 형식이 잘못되었거나 provider에 credential이 없는 chain 항목은 뒤쪽 hop을 망가뜨리지 않고 경고와 함께 건너뜁니다. chain 전체가 사용 불가하면 실패하는 대신 primary만으로 동작합니다. CLI provider는 실패를 오류가 아닌 응답 텍스트로 보고하므로 chain이 적용되지 않습니다.
 
 ## 개발
 

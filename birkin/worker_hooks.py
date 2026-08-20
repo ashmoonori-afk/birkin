@@ -20,6 +20,12 @@ WORKERS = (
     "daedalus",
 )
 NO_MODEL_WORKERS = ("mnemosyne", "daedalus")
+# Declared in the authority contract but not implemented as an importable
+# worker module. A reserved name still validates and still carries its
+# persistence mapping, so the boundary is fixed before any code claims it —
+# but nothing can resume it, and the hierarchy tests pin that on purpose so a
+# reserved name can never be mistaken for a reachable worker.
+RESERVED_WORKERS = ("osiris",)
 PERSISTENCE_OWNER = {"osiris": "boulder"}
 _HANDLERS = ("worker.resume.v1", "moirai.resume.v1")
 _MAX_BYTES = 16_384
@@ -50,6 +56,7 @@ def contract() -> dict[str, Any]:
     return {
         "workers": WORKERS,
         "no_model": NO_MODEL_WORKERS,
+        "reserved": RESERVED_WORKERS,
         "persistence_owner": dict(PERSISTENCE_OWNER),
     }
 

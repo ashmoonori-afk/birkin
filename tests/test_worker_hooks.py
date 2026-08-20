@@ -178,3 +178,50 @@ def test_worker_hook_preserves_worker_authority_boundaries(
         assert "unknown worker" in str(exc)
     else:
         raise AssertionError("unknown worker continuation was accepted")
+
+
+def test_every_declared_worker_resolves_to_an_implementation() -> None:
+    """The authority contract must not name workers that do not exist.
+
+    ``WORKERS`` is the machine-consumed authority boundary: ``validate`` accepts
+    a continuation for any name in it and ``dispatch`` emits a ``worker_resume``
+    event for that name. A declared worker with no implementation therefore
+    passes validation and then resumes nothing, so the contract has to stay
+    pinned to what is actually reachable.
+    """
+    import importlib
+
+    from birkin import worker_hooks
+
+    missing = []
+    for worker in worker_hooks.WORKERS:
+        if worker in worker_hooks.RESERVED_WORKERS:
+            continue
+        try:
+            importlib.import_module(f"birkin.{worker}")
+        except ImportError:
+            missing.append(worker)
+    assert missing == [], (
+        f"declared but unimplemented workers: {missing} — either implement "
+        f"them or list them in worker_hooks.RESERVED_WORKERS"
+    )
+
+
+def test_reserved_workers_own_no_persistence_they_cannot_write() -> None:
+    """A reserved (unimplemented) worker may still delegate persistence.
+
+    ``PERSISTENCE_OWNER`` maps a worker to the worker that owns its durable
+    state. For a reserved name the owner must be a real, implemented worker,
+    otherwise the mapping points at nothing on both sides.
+    """
+    import importlib
+
+    from birkin import worker_hooks
+
+    for worker, owner in worker_hooks.PERSISTENCE_OWNER.items():
+        assert worker in worker_hooks.WORKERS, f"{worker} is not a declared worker"
+        assert owner in worker_hooks.WORKERS, f"{owner} is not a declared worker"
+        assert owner not in worker_hooks.RESERVED_WORKERS, (
+            f"{worker} persistence is owned by reserved worker {owner}"
+        )
+        importlib.import_module(f"birkin.{owner}")

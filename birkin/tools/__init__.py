@@ -178,6 +178,11 @@ def build_tool_groups(ctx: ToolContext) -> dict[str, list[Tool]]:
     if (_config.birkin_home() / "companion" / "state.json").is_file():
         from . import companion_tool
         groups["companion"] = companion_tool.tools()
+    # Natural-language door to the workers. Proposal-only: the tool queues an
+    # approval, it never starts a worker.
+    if ctx.cfg.get("worker_call_auto", True):
+        from . import worker_tool
+        groups["worker"] = worker_tool.tools()
     # Subagents may spawn further subagents only until max_depth.
     if ctx.depth < ctx.max_depth:
         groups["subagent"] = subagent_tools()

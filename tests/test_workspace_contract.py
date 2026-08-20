@@ -281,7 +281,7 @@ def test_terminal_closes_embedded_server_on_initialization_failure(
     ("command", "panel", "notice"),
     [
         ("/work", "tasks_runs", "workbench"),
-        ("/dash", "activity_logs", "deprecated"),
+        ("/dash", "tasks_runs", "deprecated"),
     ],
 )
 def test_legacy_terminal_aliases_focus_workspace(

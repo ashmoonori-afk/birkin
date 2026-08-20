@@ -1647,8 +1647,8 @@ def build_parser() -> argparse.ArgumentParser:
         help="model-agnostic memory-vault curation (any provider proposes a "
              "plan; a deterministic executor applies only the safe ops)")
     cm.add_argument("--provider", default=None,
-                    help="claude | codex | api | gemini | local "
-                         "(default: config provider)")
+                    help="claude | codex | api | gemini | local | gemini-api "
+                         "| nvidia | freellmapi (default: config provider)")
     cm.add_argument("--model", default=None)
     cm.add_argument("--dry-run", action="store_true",
                     help="propose and gate the plan, print it, change nothing")

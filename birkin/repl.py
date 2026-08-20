@@ -43,7 +43,7 @@ def _banner(session: Session) -> None:
     except Exception:
         pass
     print(f" {DIM}{n} skill(s) · vault {session.memory.vault}{RESET}")
-    print(f" {YELLOW}/help{RESET} 명령 · {YELLOW}/dash{RESET} 미션 컨트롤 · "
+    print(f" {YELLOW}/help{RESET} 명령 · {YELLOW}/work{RESET} 워크벤치 · "
           f"{YELLOW}/status{RESET} 상태 · {YELLOW}?{RESET} 도움말 · "
           f"{YELLOW}Esc{RESET} 중단 · Ctrl-C 종료")
     print(f" {DIM}edit: Ctrl+←/→ word · Ctrl-W delete word · Ctrl-U/Ctrl-K clear "

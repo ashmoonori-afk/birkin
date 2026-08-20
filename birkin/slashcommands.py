@@ -90,14 +90,14 @@ def _last_user_text(messages: list[dict[str, Any]]) -> str:
 # source: any command not listed here falls into "기타" so nothing is hidden.
 _HELP_GROUPS: list[tuple[str, list[str]]] = [
     ("세션·대화", ["new", "retry", "undo", "rollback", "compact", "clear",
-                 "save", "load", "sessions", "status", "dash", "agents",
+                 "save", "load", "sessions", "status", "agents",
                  "attach", "send"]),
     ("모델", ["model", "models", "provider", "temp"]),
     ("기억", ["memory", "remember", "vault", "learn"]),
     ("스킬·도구", ["skills", "skill", "reload", "tools", "system", "mcp",
                  "details"]),
-    ("운영·승인", ["work", "goal", "review", "cron", "permission", "config",
-                 "morpheus", "update"]),
+    ("운영·승인", ["work", "dash", "goal", "review", "cron", "permission",
+                 "config", "morpheus", "update"]),
     ("페르소나·인터뷰", ["soul", "personality", "neurosis", "odyssey"]),
     ("게이트웨이", ["restart-gateway", "hard-restart"]),
     ("종료·도움", ["help", "quit"]),
@@ -437,9 +437,12 @@ def _status(session: Any, arg: str) -> None:
     print(statusline.render(session.cfg))
 
 
-@command("dash", "Deprecated focus alias for unified activity/logs.",
+@command("dash", "Deprecated alias for /work.",
          "/dash [--plain|--json]", aliases=["dashboard"])
 def dash_command(session: object, arg: str) -> None:
+    # Unified with /work: one workbench surface, not two. /dash stays only as a
+    # deprecated alias so existing muscle memory and scripts keep working, and
+    # it focuses the same panel /work does instead of a second, divergent view.
     a = arg.strip().lower()
     if a not in {"", "--plain", "--json"}:
         print("usage: /dash [--plain|--json]")
@@ -447,11 +450,11 @@ def dash_command(session: object, arg: str) -> None:
     focus = getattr(session, "workspace_focus", None)
     if callable(focus):
         callback = cast(Callable[[str], object], focus)
-        _ = callback("activity_logs")
+        _ = callback("tasks_runs")
         suffix = " Legacy format flag ignored." if a else ""
-        print(f"/dash is deprecated; focused unified activity/logs.{suffix}")
+        print(f"/dash is deprecated; use /work. Focused tasks/runs.{suffix}")
         return
-    print("/dash is deprecated; open `birkin chat` for the unified workspace.")
+    print("/dash is deprecated; use /work inside `birkin chat`.")
 
 
 @command("work", "Focus the unified tasks/runs workbench.",

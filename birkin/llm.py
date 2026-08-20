@@ -143,7 +143,9 @@ def _transport_for(provider: str) -> str:
         return "anthropic_messages"
     if provider in ("claude-cli", "codex-cli", "local-cli"):
         return "cli"
-    if provider == "openai":
+    if provider in ("openai", "gemini", "nvidia", "freellmapi"):
+        # gemini/nvidia/freellmapi all expose OpenAI Chat Completions; their
+        # differences are base_url + key env, both in birkin.config.
         return "openai_chat"
     return ""
 
@@ -1002,18 +1004,49 @@ def build_client(cfg: dict[str, Any], api_key: str) -> Any:
     return _maybe_wrap_failover(cfg, primary)
 
 
-def _maybe_wrap_failover(cfg: dict[str, Any], primary: Any) -> Any:
-    """Wrap ``primary`` in a FailoverClient when a usable fallback is set.
+def _fallback_specs(cfg: dict[str, Any]) -> list[tuple[str, str, str]]:
+    """Ordered ``(provider, model, base_url)`` fallbacks, best first.
 
-    Returns ``primary`` untouched — with a warning — whenever the fallback
-    cannot actually serve, so a misconfiguration degrades to today's behavior
-    instead of failing at the worst moment.
+    The legacy single fallback (``fallback_provider`` / ``fallback_model``)
+    stays the first hop so existing configs keep their exact behavior, and
+    ``fallback_chain`` extends past it. Entries the model layer cannot use —
+    not a mapping, missing provider or model — are dropped here rather than
+    exploding later, because a typo in one chain entry must not cost the daemon
+    every remaining fallback.
+    """
+    specs: list[tuple[str, str, str]] = []
+    provider = (cfg.get("fallback_provider") or "").strip()
+    model = (cfg.get("fallback_model") or "").strip()
+    if provider and model:
+        specs.append((provider, model, str(cfg.get("fallback_base_url") or "")))
+    raw = cfg.get("fallback_chain")
+    if isinstance(raw, list):
+        for entry in raw:
+            if not isinstance(entry, dict):
+                continue
+            entry_provider = str(entry.get("provider") or "").strip()
+            entry_model = str(entry.get("model") or "").strip()
+            if entry_provider and entry_model:
+                specs.append((entry_provider, entry_model,
+                              str(entry.get("base_url") or "")))
+    return specs
+
+
+def _maybe_wrap_failover(cfg: dict[str, Any], primary: Any) -> Any:
+    """Wrap ``primary`` in an ordered chain of FailoverClients.
+
+    The chain is a right-fold of the existing two-client wrapper: with models
+    A -> B -> C the result is ``Failover(A, Failover(B, C))``, so every hop
+    keeps its own independent cooldown and ``failover.py`` needs no changes.
+
+    Returns ``primary`` untouched — with a warning — whenever no fallback can
+    actually serve, so a misconfiguration degrades to today's behavior instead
+    of failing at the worst moment.
     """
     from .config import CLI_PROVIDERS, get_api_key
 
-    provider = (cfg.get("fallback_provider") or "").strip()
-    model = (cfg.get("fallback_model") or "").strip()
-    if not provider or not model:
+    specs = _fallback_specs(cfg)
+    if not specs:
         return primary
 
     if primary.provider in CLI_PROVIDERS:
@@ -1023,17 +1056,30 @@ def _maybe_wrap_failover(cfg: dict[str, Any], primary: Any) -> Any:
               f"{primary.provider!r} (CLI agents handle their own errors).",
               flush=True)
         return primary
-    if provider == primary.provider and model == primary.model:
-        return primary
 
-    fb_cfg = {**cfg, "provider": provider, "model": model,
-              "base_url": cfg.get("fallback_base_url", "")}
-    key = get_api_key(fb_cfg)
-    if not key:
-        print(f"[birkin] fallback {provider}/{model} has no credentials — "
-              f"running without a fallback.", flush=True)
+    clients: list[Any] = []
+    seen = {(primary.provider, primary.model)}
+    for provider, model, base_url in specs:
+        if (provider, model) in seen:
+            continue
+        fb_cfg = {**cfg, "provider": provider, "model": model,
+                  "base_url": base_url}
+        key = get_api_key(fb_cfg)
+        if not key:
+            print(f"[birkin] fallback {provider}/{model} has no credentials — "
+                  f"skipping it.", flush=True)
+            continue
+        seen.add((provider, model))
+        clients.append(_plain_client(fb_cfg, key))
+
+    if not clients:
+        print("[birkin] no usable fallback — running without a fallback.",
+              flush=True)
         return primary
 
     from .failover import FailoverClient
-    return FailoverClient(primary, _plain_client(fb_cfg, key),
-                          cooldown_s=float(cfg.get("fallback_cooldown", 300)))
+    cooldown = float(cfg.get("fallback_cooldown", 300))
+    chain = clients[-1]
+    for client in reversed(clients[:-1]):
+        chain = FailoverClient(client, chain, cooldown_s=cooldown)
+    return FailoverClient(primary, chain, cooldown_s=cooldown)
