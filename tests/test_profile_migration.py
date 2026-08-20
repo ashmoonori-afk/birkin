@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 from pathlib import Path
 
 import pytest
@@ -23,12 +24,19 @@ def test_migration_is_idempotent_across_repeated_runs(tmp_path: Path) -> None:
     notes = [note("language", "Korean replies"), note("tone", "concise")]
 
     first = migrate_legacy_preferences(store, notes, archive=archived.append)
+    manifest = tmp_path / "profile" / "migration-v1.json"
+    before = hashlib.sha256(manifest.read_bytes()).hexdigest()
     second = migrate_legacy_preferences(store, notes, archive=archived.append)
+    after = hashlib.sha256(manifest.read_bytes()).hexdigest()
 
     entries = store.snapshot().documents["preferences"].entries
     assert entries == ("language: Korean replies", "tone: concise")
     assert first.archived == 2
+    assert first.unchanged == 0
     assert second.archived == 0
+    assert second.migrated == 0
+    assert second.unchanged == 2
+    assert before == after
     assert len(archived) == 2
 
 
@@ -51,6 +59,7 @@ def test_crash_after_role_entry_written_resumes_archive(tmp_path: Path) -> None:
     assert "format: bullets first" in store.snapshot().documents["preferences"].entries
     report = migrate_legacy_preferences(store, [source], archive=crash_once)
     assert report.archived == 1
+    assert report.unchanged == 0
     assert archived == [source]
 
 

@@ -34,6 +34,7 @@ class MigrationReport:
     archived: int = 0
     pending: int = 0
     restored: int = 0
+    unchanged: int = 0
     completed: bool = False
 
 
@@ -47,7 +48,8 @@ def migrate_legacy_preferences(
     manifest = _load(_manifest_path(store))
     source_notes = [_coerce(note) for note in notes if _eligible(_coerce(note))]
     records = manifest.setdefault("sources", {})
-    considered = migrated = archived = pending = 0
+    considered = migrated = archived = pending = unchanged = 0
+    dirty = False
     for note in source_notes:
         considered += 1
         key = _source_key(note)
@@ -58,6 +60,7 @@ def migrate_legacy_preferences(
             record["status"] = "pending"
             record["reason"] = "source changed"
             pending += 1
+            dirty = True
             _save(store, manifest)
             continue
         if record is None:
@@ -73,14 +76,17 @@ def migrate_legacy_preferences(
                 "status": "pending",
             }
             records[key] = record
+            dirty = True
             _save(store, manifest)
         if record.get("status") in {"archived", "rolled_back"}:
+            unchanged += 1
             continue
         if not _present(store, entry):
             if _conflicts(store, note, entry):
                 record["status"] = "pending"
                 record["reason"] = "conflict"
                 pending += 1
+                dirty = True
                 _save(store, manifest)
                 continue
             try:
@@ -89,29 +95,36 @@ def migrate_legacy_preferences(
                 record["status"] = "pending"
                 record["reason"] = "budget"
                 pending += 1
+                dirty = True
                 _save(store, manifest)
                 continue
             migrated += 1
             record["status"] = "written"
+            dirty = True
             _save(store, manifest)
         if _present(store, entry):
             archive(note)
             archived += 1
             record["status"] = "archived"
+            dirty = True
             _save(store, manifest)
     total = len(records)
     completed = total > 0 and all(
         record.get("status") in {"archived", "rolled_back"}
         for record in records.values()
     )
-    manifest["completed"] = completed
-    _save(store, manifest)
+    if manifest.get("completed") != completed:
+        manifest["completed"] = completed
+        dirty = True
+    if dirty:
+        _save(store, manifest)
     pending = sum(1 for record in records.values() if record.get("status") == "pending")
     return MigrationReport(
         considered=considered,
         migrated=migrated,
         archived=archived,
         pending=pending,
+        unchanged=unchanged,
         completed=completed,
     )
 
