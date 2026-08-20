@@ -134,7 +134,19 @@ def rename(
     import ctypes
     from ctypes import wintypes
 
-    class FileRenameInfo(ctypes.Structure):
+    class StatusValue(ctypes.Union):
+        _fields_ = [
+            ("Status", ctypes.c_long),
+            ("Pointer", ctypes.c_void_p),
+        ]
+
+    class IoStatusBlock(ctypes.Structure):
+        _fields_ = [
+            ("value", StatusValue),
+            ("Information", ctypes.c_size_t),
+        ]
+
+    class FileRenameInformation(ctypes.Structure):
         _fields_ = [
             ("ReplaceIfExists", wintypes.BOOLEAN),
             ("RootDirectory", wintypes.HANDLE),
@@ -142,60 +154,46 @@ def rename(
             ("FileName", wintypes.WCHAR * 1),
         ]
 
-    length = kernel32.GetFinalPathNameByHandleW(
-        wintypes.HANDLE(parent_handle),
-        None,
-        0,
-        0,
-    )
-    if not length:
-        raise OSError(
-            ctypes.get_last_error() or 1,
-            str(parent_path),
-        )
-    parent_buffer = ctypes.create_unicode_buffer(length + 1)
-    if not kernel32.GetFinalPathNameByHandleW(
-        wintypes.HANDLE(parent_handle),
-        parent_buffer,
-        len(parent_buffer),
-        0,
-    ):
-        raise OSError(
-            ctypes.get_last_error() or 1,
-            str(parent_path),
-        )
-    destination = str(Path(parent_buffer.value) / name)
-    encoded = (destination + "\0").encode("utf-16-le")
-    offset = FileRenameInfo.FileName.offset
+    encoded = (name + "\0").encode("utf-16-le")
+    offset = FileRenameInformation.FileName.offset
     buffer = ctypes.create_string_buffer(
-        ctypes.sizeof(FileRenameInfo) + len(encoded)
+        ctypes.sizeof(FileRenameInformation) + len(encoded)
     )
-    info = FileRenameInfo.from_buffer(buffer)
+    info = FileRenameInformation.from_buffer(buffer)
     info.ReplaceIfExists = False
-    info.RootDirectory = None
-    info.FileNameLength = len(
-        destination.encode("utf-16-le")
-    )
+    info.RootDirectory = wintypes.HANDLE(parent_handle)
+    info.FileNameLength = len(name.encode("utf-16-le"))
     ctypes.memmove(
         ctypes.addressof(buffer) + offset,
         encoded,
         len(encoded),
     )
-    set_information = kernel32.SetFileInformationByHandle
+    ntdll = ctypes.WinDLL("ntdll")
+    set_information = ntdll.NtSetInformationFile
     set_information.argtypes = [
         wintypes.HANDLE,
-        wintypes.DWORD,
+        ctypes.POINTER(IoStatusBlock),
         wintypes.LPVOID,
         wintypes.DWORD,
+        wintypes.DWORD,
     ]
-    set_information.restype = wintypes.BOOL
-    if not set_information(
+    set_information.restype = ctypes.c_long
+    status_block = IoStatusBlock()
+    status = set_information(
         wintypes.HANDLE(source_handle),
-        3,
+        ctypes.byref(status_block),
         buffer,
         len(buffer),
-    ):
-        raise OSError(ctypes.get_last_error(), name)
+        10,
+    )
+    if status < 0:
+        convert_status = ntdll.RtlNtStatusToDosError
+        convert_status.argtypes = [ctypes.c_long]
+        convert_status.restype = wintypes.ULONG
+        raise OSError(
+            int(convert_status(status)) or 1,
+            str(parent_path / name),
+        )
 
 
 def mark_delete(kernel32: Any, handle: int) -> None:
