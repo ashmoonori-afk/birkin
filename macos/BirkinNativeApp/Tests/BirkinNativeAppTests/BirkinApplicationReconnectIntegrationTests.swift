@@ -43,10 +43,27 @@ struct BirkinApplicationReconnectIntegrationTests {
 
         try await withTimeout("wire receipt") { try await events.wait(for: "command-receipt") }
         try await withTimeout("projection update") {
-            try await events.wait(for: "projection-event type=message.assistant.completed")
+            try await events.wait(for: "projection-event type=command.completed")
         }
         #expect(runtime.store.projection?.conversation.count == before + 2)
         #expect(runtime.lastCommandError == nil)
+        #expect(ready.supportedCommands.contains("file.import"))
+
+        let dropped = root.appendingPathComponent("drop.txt")
+        try Data("drop through the app runtime".utf8).write(to: dropped)
+        runtime.submit(NativeCommandRequest(
+            frameID: "import-frame", commandID: "import-command",
+            expectedCursor: runtime.store.latestAppliedCursor ?? 0,
+            commandType: "file.import", payload: ["source_path": .string(dropped.path)],
+            sessionCapability: ready.sessionCapability, viewID: "composer-drop"
+        ))
+        try await withTimeout("import receipt") {
+            try await events.wait(for: "command-receipt id=import-frame")
+        }
+        let imports = root.appendingPathComponent("workspace-root/imports")
+        let imported = try FileManager.default.contentsOfDirectory(at: imports, includingPropertiesForKeys: nil)
+        #expect(imported.count == 1)
+        #expect(try Data(contentsOf: imported[0]) == Data("drop through the app runtime".utf8))
     }
 
     @MainActor
