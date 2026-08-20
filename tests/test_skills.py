@@ -299,6 +299,7 @@ def test_windows_handle_relative_rename_accepts_names(
             kernel32,
             source_handle,
             parent,
+            tmp_path,
             destination_name,
         )
         _, moved_identity = information(kernel32, source_handle)

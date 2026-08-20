@@ -926,17 +926,19 @@ def _publish_skill_bytes_windows(
                     ("FileName", wintypes.WCHAR * 1),
                 ]
 
-            encoded_name = target.name.encode("utf-16-le")
+            destination_name = str(target.absolute())
+            encoded_name = (
+                destination_name + "\0"
+            ).encode("utf-16-le")
             filename_offset = FileRenameInfo.FileName.offset
             buffer = ctypes.create_string_buffer(
-                filename_offset
+                ctypes.sizeof(FileRenameInfo)
                 + len(encoded_name)
-                + ctypes.sizeof(wintypes.WCHAR)
             )
             rename_info = FileRenameInfo.from_buffer(buffer)
             rename_info.ReplaceIfExists = True
-            rename_info.RootDirectory = wintypes.HANDLE(handles[-1])
-            rename_info.FileNameLength = len(encoded_name)
+            rename_info.RootDirectory = None
+            rename_info.FileNameLength = len(destination_name)
             ctypes.memmove(
                 ctypes.addressof(buffer) + filename_offset,
                 encoded_name,

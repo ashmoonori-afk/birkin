@@ -174,6 +174,7 @@ class WindowsAnchoredCuration:
                 self._kernel32,
                 handle,
                 destination_parent,
+                destination_path,
                 destination_relative.name,
             )
             moved = True
@@ -190,6 +191,7 @@ class WindowsAnchoredCuration:
                         self._kernel32,
                         handle,
                         source_parent,
+                        self._root / relative.parent,
                         relative.name,
                     )
                 except OSError as rollback_error:

@@ -128,6 +128,7 @@ def rename(
     kernel32: Any,
     source_handle: int,
     parent_handle: int,
+    parent_path: Path,
     name: str,
 ) -> None:
     import ctypes
@@ -141,15 +142,16 @@ def rename(
             ("FileName", wintypes.WCHAR * 1),
         ]
 
-    encoded = name.encode("utf-16-le")
+    destination = str((parent_path / name).absolute())
+    encoded = (destination + "\0").encode("utf-16-le")
     offset = FileRenameInfo.FileName.offset
     buffer = ctypes.create_string_buffer(
-        offset + len(encoded) + ctypes.sizeof(wintypes.WCHAR)
+        ctypes.sizeof(FileRenameInfo) + len(encoded)
     )
     info = FileRenameInfo.from_buffer(buffer)
     info.ReplaceIfExists = False
-    info.RootDirectory = wintypes.HANDLE(parent_handle)
-    info.FileNameLength = len(encoded)
+    info.RootDirectory = None
+    info.FileNameLength = len(destination)
     ctypes.memmove(
         ctypes.addressof(buffer) + offset,
         encoded,

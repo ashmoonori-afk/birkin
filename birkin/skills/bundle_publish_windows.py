@@ -147,6 +147,7 @@ def publish_windows(
                     kernel32,
                     previous_handle,
                     operation_handle,
+                    operation,
                     "previous",
                 )
                 previous_moved = True
@@ -155,6 +156,7 @@ def publish_windows(
                     kernel32,
                     candidate_handle,
                     parent_handle,
+                    parent,
                     relative.name,
                 )
                 published = True
@@ -165,6 +167,7 @@ def publish_windows(
                             kernel32,
                             previous_handle,
                             parent_handle,
+                            parent,
                             relative.name,
                         )
                         previous_moved = False
