@@ -205,4 +205,3 @@ def delete_tree(
     mark_delete(kernel32, handle)
     close(kernel32, handle)
 
-
