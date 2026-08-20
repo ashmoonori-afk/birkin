@@ -14,6 +14,7 @@ from .contracts import ConfigMutationRejected, ProtocolError, WorkspaceCommand
 from .presets import SESSION_PRESETS, SessionPreset
 from .records import CommandReceipt, WorkspaceEvent, WorkspaceSnapshot
 from .service import CommandHandler, WorkspaceService
+from .working_memory import memory_write_handler
 
 EventSink = Callable[[str, dict[str, object]], WorkspaceEvent]
 HandlerFactory = Callable[[str, EventSink], Mapping[str, CommandHandler]]
@@ -185,7 +186,7 @@ class WorkspaceHub:
                 ) -> Mapping[str, CommandHandler]:
                     return {
                         **factory(created_session_id, emit),
-                        **self._lifecycle_handlers(emit),
+                        **self._lifecycle_handlers(created_session_id, emit),
                     }
 
                 handler_factory: HandlerFactory | None = combined_factory
@@ -195,7 +196,10 @@ class WorkspaceHub:
                     _created_session_id: str,
                     emit: EventSink,
                 ) -> Mapping[str, CommandHandler]:
-                    return {**handlers, **self._lifecycle_handlers(emit)}
+                    return {
+                        **handlers,
+                        **self._lifecycle_handlers(_created_session_id, emit),
+                    }
 
                 handler_factory = static_factory
                 configured_handlers = None
@@ -307,6 +311,7 @@ class WorkspaceHub:
 
     def _lifecycle_handlers(
         self,
+        session_id: str,
         emit: EventSink,
     ) -> Mapping[str, CommandHandler]:
         def create(payload: dict[str, object]) -> dict[str, object]:
@@ -351,6 +356,7 @@ class WorkspaceHub:
             "session.create": create,
             "session.select": select,
             "session.rename": rename,
+            "memory.write": memory_write_handler(session_id, emit),
         }
         if self._config_setter is not None:
             setter = self._config_setter

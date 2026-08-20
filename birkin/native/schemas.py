@@ -42,6 +42,7 @@ _SNAPSHOT = {
     "conversation",
     "composer",
     "status",
+    "working_memory",
     "instance_id",
     "reset_reason",
 }

@@ -7,7 +7,7 @@ import pytest
 
 from birkin import goals, harness
 from birkin.native.session import NativeProjectionSession
-from birkin.workspace import ProtocolError, WorkspaceService
+from birkin.workspace import ProtocolError, WorkspaceCommand, WorkspaceHub, WorkspaceService
 from birkin.workspace.working_memory import WorkingMemoryAuthority, WorkingMemoryMutation
 
 
@@ -42,8 +42,6 @@ def test_native_projection_maps_goal_fields_files_and_revision(tmp_path: Path) -
         session_id=session_id,
         handlers={"memory.link": add_evidence},
     )
-    from birkin.workspace import WorkspaceCommand
-
     command = WorkspaceCommand.parse({
         "protocol_version": 1,
         "command_id": "evidence-1",
@@ -124,3 +122,36 @@ def test_merge_schema_is_strict_and_preview_does_not_persist() -> None:
     assert preview.effective["constraints"] == ["Stay offline"]
     assert preview.effective["revision"] == 1
     assert harness.working_state("preview-native")["revision"] == 0
+
+
+def test_memory_merge_delegates_requested_to_effective_transaction(tmp_path: Path) -> None:
+    hub = WorkspaceHub(root=tmp_path / "hub", handlers={})
+    session, _ = hub.create("merge-native")
+    command = WorkspaceCommand.parse({
+        "protocol_version": 1,
+        "command_id": "merge-1",
+        "expected_cursor": 0,
+        "type": "memory.write",
+        "payload": {
+            "op": "merge",
+            "expected_revision": 0,
+            "fields": {"constraints": ["Offline", "Offline"]},
+        },
+        "client_context": {"surface": "macos", "view_id": "main"},
+    })
+    try:
+        receipt = hub.submit(command, actor_id="macos:main")
+        events = session.events()
+        requested = next(event for event in events if event.type == "working_memory.requested")
+        updated = next(event for event in events if event.type == "working_memory.updated")
+
+        assert receipt.state == "completed"
+        assert cast(dict[str, object], requested.payload["fields"])["constraints"] == [
+            "Offline", "Offline"
+        ]
+        effective = cast(dict[str, object], requested.payload["effective"])
+        assert effective["constraints"] == ["Offline"]
+        assert updated.payload["working_memory"] == effective
+        assert hub.snapshot().working_memory["revision"] == 1
+    finally:
+        hub.close()

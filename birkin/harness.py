@@ -739,6 +739,7 @@ def update_working(
     incomplete: Iterable[str] = (),
     evidence: Iterable[str] = (),
     next_actions: Iterable[str] = (),
+    expected_revision: int | None = None,
     commit: Callable[[], Any] | None = None,
 ) -> dict[str, Any]:
     session = validate_working_session_id(session_id)
@@ -756,6 +757,11 @@ def update_working(
         with store.file_lock(path):
             state = load("local", session_id=session)
             current = state.get("working") or empty_working()
+            current_revision = int(current.get("revision") or 0)
+            if expected_revision is not None and current_revision != expected_revision:
+                raise ValueError(
+                    f"working memory revision conflict; current revision is {current_revision}"
+                )
             updated = _next_working(session, current, incoming)
             state["schema"] = 3
             state["working"] = updated
