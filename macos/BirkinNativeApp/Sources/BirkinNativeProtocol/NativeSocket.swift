@@ -1,7 +1,7 @@
 import Darwin
 import Foundation
 
-final class NativeSocket {
+final class NativeSocket: @unchecked Sendable {
     private var descriptor: Int32
 
     private init(descriptor: Int32) {

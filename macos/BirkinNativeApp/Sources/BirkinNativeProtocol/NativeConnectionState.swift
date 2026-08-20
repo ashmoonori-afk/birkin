@@ -100,6 +100,7 @@ public enum NativeConnectionAction: Equatable, Sendable {
     case udsUnavailable(reason: String)
     case negotiated(NativeReadySession)
     case instanceChanged(NativeReadySession)
+    case replayStarted(NativeReadySession)
     case replayCompleted
     case capabilityRenewed(token: String)
     case failed(reason: String)
@@ -129,7 +130,8 @@ public enum NativeConnectionReducer {
         case (.fallback(.negotiating), .negotiated(let session)):
             return .fallback(.ready(session))
         case (.negotiating, .instanceChanged(let session)),
-            (.fallback(.negotiating), .instanceChanged(let session)):
+            (.fallback(.negotiating), .instanceChanged(let session)),
+            (.ready, .replayStarted(let session)):
             return .replaying(session)
         case (.replaying(let session), .replayCompleted):
             return .ready(session)
@@ -194,6 +196,15 @@ public actor NativeTransportActor {
             state = NativeConnectionReducer.reduce(state, .negotiated(session))
         }
         lastInstanceID = session.instanceID
+    }
+
+    public func beginReplay(_ session: NativeReadySession) {
+        pendingReplayRequest = NativeReplayRequest(
+            afterCursor: 0,
+            knownInstanceID: nil,
+            replay: true
+        )
+        state = NativeConnectionReducer.reduce(state, .replayStarted(session))
     }
 
     public func replayCompleted() {
