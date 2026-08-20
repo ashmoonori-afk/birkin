@@ -106,6 +106,7 @@ public final class BirkinApplicationRuntime: ObservableObject {
             connectionGeneration += 1
             let generation = connectionGeneration
             listen(to: subscription.messages, generation: generation)
+            try renderConfiguredEvidence(session: subscription.session)
             if replaying {
                 emit(
                     "replayed session=session-1 cursor=\(store.latestAppliedCursor ?? -1)"
@@ -116,7 +117,6 @@ public final class BirkinApplicationRuntime: ObservableObject {
                         + "cursor=\(store.latestAppliedCursor ?? -1) "
                         + "conversation=\(store.projection?.conversation.count ?? 0)"
                 )
-                try renderConfiguredEvidence(session: subscription.session)
             }
             return true
         } catch {
