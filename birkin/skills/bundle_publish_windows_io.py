@@ -7,6 +7,7 @@ from pathlib import Path
 from typing import Any
 
 READ_ATTRIBUTES = 0x0080
+FILE_TRAVERSE = 0x0020
 GENERIC_WRITE = 0x40000000
 DELETE = 0x00010000
 SHARE_READ_WRITE = 0x00000001 | 0x00000002
@@ -134,69 +135,14 @@ def rename(
     parent_path: Path,
     name: str,
 ) -> None:
-    import ctypes
-    from ctypes import wintypes
+    from .bundle_publish_windows_native import rename_handle
 
-    class StatusValue(ctypes.Union):
-        _fields_ = [
-            ("Status", ctypes.c_long),
-            ("Pointer", ctypes.c_void_p),
-        ]
-
-    class IoStatusBlock(ctypes.Structure):
-        _fields_ = [
-            ("value", StatusValue),
-            ("Information", ctypes.c_size_t),
-        ]
-
-    class FileRenameInformation(ctypes.Structure):
-        _fields_ = [
-            ("ReplaceIfExists", wintypes.BOOLEAN),
-            ("RootDirectory", wintypes.HANDLE),
-            ("FileNameLength", wintypes.DWORD),
-            ("FileName", wintypes.WCHAR * 1),
-        ]
-
-    encoded = (name + "\0").encode("utf-16-le")
-    offset = FileRenameInformation.FileName.offset
-    buffer = ctypes.create_string_buffer(
-        ctypes.sizeof(FileRenameInformation) + len(encoded)
+    rename_handle(
+        source_handle,
+        parent_handle,
+        parent_path,
+        name,
     )
-    info = FileRenameInformation.from_buffer(buffer)
-    info.ReplaceIfExists = False
-    info.RootDirectory = wintypes.HANDLE(parent_handle)
-    info.FileNameLength = len(name.encode("utf-16-le"))
-    ctypes.memmove(
-        ctypes.addressof(buffer) + offset,
-        encoded,
-        len(encoded),
-    )
-    ntdll = ctypes.WinDLL("ntdll")
-    set_information = ntdll.NtSetInformationFile
-    set_information.argtypes = [
-        wintypes.HANDLE,
-        ctypes.POINTER(IoStatusBlock),
-        wintypes.LPVOID,
-        wintypes.DWORD,
-        wintypes.DWORD,
-    ]
-    set_information.restype = ctypes.c_long
-    status_block = IoStatusBlock()
-    status = set_information(
-        wintypes.HANDLE(source_handle),
-        ctypes.byref(status_block),
-        buffer,
-        len(buffer),
-        10,
-    )
-    if status < 0:
-        convert_status = ntdll.RtlNtStatusToDosError
-        convert_status.argtypes = [ctypes.c_long]
-        convert_status.restype = wintypes.ULONG
-        raise OSError(
-            int(convert_status(status)) or 1,
-            str(parent_path / name),
-        )
 
 
 def mark_delete(kernel32: Any, handle: int) -> None:

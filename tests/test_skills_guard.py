@@ -1132,28 +1132,28 @@ def test_windows_candidate_open_failure_is_typed_and_releasable(
 
     source = tmp_path / "upstream"
     _skill(source, "A clean helper.", name="setup-failure")
-    real_checked = bundle_publish_windows.checked_directory
+    real_create = bundle_publish_windows.create_directory_handle
 
     def fail_candidate_open(
-            kernel32,
-            path,
+            parent_handle,
+            parent_path,
+            name,
             *,
             access,
-            share=None):
-        if Path(path).name == "candidate":
+            share):
+        if name == "candidate":
             raise OSError("injected candidate handle failure")
-        if share is None:
-            return real_checked(kernel32, path, access=access)
-        return real_checked(
-            kernel32,
-            path,
+        return real_create(
+            parent_handle,
+            parent_path,
+            name,
             access=access,
             share=share,
         )
 
     monkeypatch.setattr(
         bundle_publish_windows,
-        "checked_directory",
+        "create_directory_handle",
         fail_candidate_open,
     )
 

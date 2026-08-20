@@ -4,72 +4,27 @@ from __future__ import annotations
 
 import os
 import sys
-from contextlib import contextmanager
 from pathlib import Path
-from typing import Any, Iterator
 
 from .bundle_publish import BundleSnapshot
 from .bundle_publish_windows_io import (
     DELETE,
+    FILE_TRAVERSE,
     READ_ATTRIBUTES,
-    REPARSE_ATTRIBUTE,
     SHARE_READ_WRITE_DELETE,
     checked_directory,
     close,
     delete_tree,
-    information,
     mark_delete,
     open_handle,
     rename,
 )
-from .bundle_publish_windows_file import (
-    create_directory,
-    populate,
+from .bundle_publish_windows_file import populate
+from .bundle_publish_windows_native import (
+    create_directory_handle,
 )
-from . import manager as _manager
+from .bundle_publish_windows_parent import locked_parent
 from .manager import PublicationCleanupError
-
-
-@contextmanager
-def _locked_parent(
-    target_root: Path,
-    relative_parent: Path,
-) -> Iterator[tuple[Path, int, Any]]:
-    kernel32 = _manager._windows_kernel32()
-    handles: list[int] = []
-    current = target_root
-    try:
-        for part in (None, *relative_parent.parts):
-            if part is not None:
-                current /= part
-                if not current.exists():
-                    create_directory(kernel32, current)
-            handle = open_handle(
-                kernel32,
-                current,
-                access=READ_ATTRIBUTES,
-            )
-            try:
-                attributes, _ = information(kernel32, handle)
-                if attributes & REPARSE_ATTRIBUTE:
-                    raise OSError(
-                        "skill mirror parent is a reparse point"
-                    )
-            except BaseException:
-                close(kernel32, handle)
-                raise
-            handles.append(handle)
-        yield current, handles[-1], kernel32
-    finally:
-        active_error = sys.exc_info()[1]
-        close_error: OSError | None = None
-        for handle in reversed(handles):
-            try:
-                close(kernel32, handle)
-            except OSError as error:
-                close_error = close_error or error
-        if active_error is None and close_error is not None:
-            raise close_error
 
 
 def _missing(error: OSError) -> bool:
@@ -86,7 +41,7 @@ def publish_windows(
     replace: bool,
 ) -> bool:
     relative = target.relative_to(target_root)
-    with _locked_parent(
+    with locked_parent(
         target_root,
         relative.parent,
     ) as (parent, parent_handle, kernel32):
@@ -112,24 +67,26 @@ def publish_windows(
         operation_created = False
         candidate = operation / "candidate"
         try:
-            create_directory(kernel32, operation)
-            operation_created = True
-            operation_handle = checked_directory(
-                kernel32,
-                operation,
+            operation_handle = create_directory_handle(
+                parent_handle,
+                parent,
+                operation.name,
                 access=READ_ATTRIBUTES | DELETE,
+                share=0x00000001 | 0x00000002,
             )
+            operation_created = True
             operation_parent_handle = checked_directory(
                 kernel32,
                 operation,
-                access=READ_ATTRIBUTES,
+                access=READ_ATTRIBUTES | FILE_TRAVERSE,
                 share=SHARE_READ_WRITE_DELETE,
             )
-            create_directory(kernel32, candidate)
-            candidate_handle = checked_directory(
-                kernel32,
-                candidate,
+            candidate_handle = create_directory_handle(
+                operation_parent_handle,
+                operation,
+                candidate.name,
                 access=READ_ATTRIBUTES | DELETE,
+                share=0x00000001 | 0x00000002,
             )
         except OSError as setup_error:
             if candidate_handle >= 0:

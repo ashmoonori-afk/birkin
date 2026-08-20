@@ -17,6 +17,7 @@ from .memory import VaultMemory
 from .skills.bundle_publish_windows_io import (
     DELETE,
     DIRECTORY_ATTRIBUTE,
+    FILE_TRAVERSE,
     READ_ATTRIBUTES,
     REPARSE_ATTRIBUTE,
     checked_directory,
@@ -162,13 +163,13 @@ class WindowsAnchoredCuration:
         try:
             source_parent = checked_directory(
                 self._kernel32,
-                self._root / relative.parent,
-                access=READ_ATTRIBUTES,
+            self._root / relative.parent,
+            access=READ_ATTRIBUTES | FILE_TRAVERSE,
             )
             destination_parent = checked_directory(
                 self._kernel32,
-                destination_path,
-                access=READ_ATTRIBUTES,
+            destination_path,
+            access=READ_ATTRIBUTES | FILE_TRAVERSE,
             )
             rename(
                 self._kernel32,
