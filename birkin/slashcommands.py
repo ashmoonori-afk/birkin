@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import json
 import shlex
+import sys
 from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Any, Callable, Optional, cast
@@ -92,11 +93,11 @@ _HELP_GROUPS: list[tuple[str, list[str]]] = [
     ("세션·대화", ["new", "retry", "undo", "rollback", "compact", "clear",
                  "save", "load", "sessions", "status", "agents",
                  "attach", "send"]),
-    ("모델", ["model", "models", "provider", "temp"]),
+    ("모델", ["model", "provider", "temp"]),
     ("기억", ["memory", "remember", "vault", "learn"]),
     ("스킬·도구", ["skills", "skill", "reload", "tools", "system", "mcp",
                  "details"]),
-    ("운영·승인", ["work", "dash", "goal", "review", "cron", "permission",
+    ("운영·승인", ["work", "goal", "review", "cron", "permission",
                  "config", "morpheus", "update"]),
     ("페르소나·인터뷰", ["soul", "personality", "neurosis", "odyssey"]),
     ("게이트웨이", ["restart-gateway", "hard-restart"]),
@@ -300,23 +301,29 @@ def _set_model(session: Any, arg: str) -> None:
     _warn_if_key_missing(session)
 
 
-@command("model", "Show the model, or set one: /model <number|name>.", "/model [name]")
+def _stdin_is_interactive() -> bool:
+    """True when a real terminal can drive the arrow-key picker."""
+    try:
+        return bool(sys.stdin.isatty())
+    except (AttributeError, ValueError):
+        return False
+
+
+@command("model", "Show the model, or pick/set one: /model [number|name].",
+         "/model [number|name]", aliases=["models"])
 def _model(session: Any, arg: str) -> None:
-    arg = arg.strip()
-    if arg:
-        _set_model(session, arg)
-    else:
-        print(session.cfg.get("model"))
-
-
-@command("models", "Pick a model (↑/↓, Enter), or /models <number|name>.",
-         "/models [number|name]")
-def _models(session: Any, arg: str) -> None:
-    from . import models as models_mod
+    # One command, both jobs: /model <name> sets directly, bare /model opens the
+    # picker. Without a terminal (gateway, telegram) there is nothing to drive
+    # the picker with, so a bare /model reports the current model instead of
+    # blocking the turn.
     arg = arg.strip()
     if arg:
         _set_model(session, arg)
         return
+    if not _stdin_is_interactive():
+        print(session.cfg.get("model"))
+        return
+    from . import models as models_mod
     chosen = models_mod.pick_interactive(session.cfg)   # arrow picker; applies to cfg
     if chosen is None:
         print(f"{DIM}(no change){RESET}")
@@ -435,26 +442,6 @@ def _config(session: Any, arg: str) -> None:
 def _status(session: Any, arg: str) -> None:
     from . import statusline
     print(statusline.render(session.cfg))
-
-
-@command("dash", "Deprecated alias for /work.",
-         "/dash [--plain|--json]", aliases=["dashboard"])
-def dash_command(session: object, arg: str) -> None:
-    # Unified with /work: one workbench surface, not two. /dash stays only as a
-    # deprecated alias so existing muscle memory and scripts keep working, and
-    # it focuses the same panel /work does instead of a second, divergent view.
-    a = arg.strip().lower()
-    if a not in {"", "--plain", "--json"}:
-        print("usage: /dash [--plain|--json]")
-        return
-    focus = getattr(session, "workspace_focus", None)
-    if callable(focus):
-        callback = cast(Callable[[str], object], focus)
-        _ = callback("tasks_runs")
-        suffix = " Legacy format flag ignored." if a else ""
-        print(f"/dash is deprecated; use /work. Focused tasks/runs.{suffix}")
-        return
-    print("/dash is deprecated; use /work inside `birkin chat`.")
 
 
 @command("work", "Focus the unified tasks/runs workbench.",
