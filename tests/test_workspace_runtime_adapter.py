@@ -32,6 +32,27 @@ class _RuntimeSession:
         return f"retried: {text}"
 
 
+def test_runtime_adapter_registers_product_surface_authority_and_commands(
+    tmp_path: Path,
+) -> None:
+    adapter = RuntimeWorkspaceAdapter(
+        "surface-session", _event, workspace_root=tmp_path / "workspace"
+    )
+
+    assert adapter.surface_authority.surface_names == (
+        "browser_aside", "computer_use", "office"
+    )
+    assert {
+        "browser.start", "browser.navigate", "office.create", "office.open"
+    }.issubset(adapter.handlers())
+    snapshots = adapter.surface_authority.snapshots({
+        "browser_aside": 0, "computer_use": 0, "office": 0
+    })
+    assert [snapshot.surface for snapshot in snapshots] == [
+        "browser_aside", "computer_use", "office"
+    ]
+
+
 def test_runtime_adapter_advertises_and_executes_jailed_file_import(
     tmp_path: Path,
 ) -> None:

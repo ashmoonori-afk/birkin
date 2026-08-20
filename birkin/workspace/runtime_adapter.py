@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+import time
 from collections.abc import Callable, Mapping
 from dataclasses import replace
 from datetime import datetime, timezone
@@ -10,10 +11,14 @@ from pathlib import Path
 from typing import cast, final
 
 from .. import config, transcripts, uistate, workbench
+from ..browser_aside_control import BrowserControlAuthority
+from ..browser_aside_service import BrowserAsideService
 from ..computer_use.events import ComputerEvent
 from ..computer_use.reducer import ComputerState, reduce_event
+from ..computer_use.runtime import UnavailableBackend
+from ..native.jailed_import import JailedImportAuthority
+from ..office.service import DocumentService
 from ..runtime import Session, build_session
-from birkin.native.jailed_import import JailedImportAuthority
 
 from . import approval_authority
 from .owned_terminal import TerminalAuthority
@@ -104,6 +109,24 @@ class RuntimeWorkspaceAdapter:
             config_loader=config.load_config,
         )
         self._jailed_import = JailedImportAuthority(self._workspace_root / "imports")
+        from ..native.product_surfaces import (
+            BrowserSurfaceAuthority,
+            ComputerUseSurfaceAuthority,
+            NativeProductSurfaceAuthority,
+            OfficeSurfaceAuthority,
+        )
+
+        self.surface_authority = NativeProductSurfaceAuthority(
+            browser=BrowserSurfaceAuthority(
+                BrowserAsideService(session_id), BrowserControlAuthority(time.monotonic)
+            ),
+            computer_use=ComputerUseSurfaceAuthority(
+                probe=UnavailableBackend().probe()
+            ),
+            office=OfficeSurfaceAuthority(
+                DocumentService(self._workspace_root / "office")
+            ),
+        )
         self._failed_intent_text: str | None = None
         self._run_id = (
             f"workspace-{datetime.now(timezone.utc):%Y%m%d-%H%M%S}-{os.getpid()}"
@@ -121,6 +144,7 @@ class RuntimeWorkspaceAdapter:
             "session.compact": self._session_compact,
             **self._terminal.handlers(),
             **self._jailed_import.handlers(),
+            **self.surface_authority.handlers(self._emit),
         }
 
     def close(self) -> None:
