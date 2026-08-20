@@ -114,16 +114,18 @@ def _now_iso() -> str:
 
 class VaultMemory:
     def __init__(self, cfg: dict[str, Any] | None = None, *,
-        embedding_backend: Any | None = None):
+        embedding_backend: Any | None = None,
+        filesystem_root: Path | None = None):
         self.cfg = cfg or {}
-        self.vault = config.vault_dir(self.cfg).resolve()
+        canonical_vault = config.vault_dir(self.cfg).resolve()
+        self.vault = filesystem_root or canonical_vault
         self.policy = MemoryAccessPolicy.from_config(self.cfg)
         self._dexes: dict[MemoryScope, Mnemosyne] = {}
         self._embedding_backend = embedding_backend
         self._provenance_path = (
             config.birkin_home() / "memory_provenance.json"
         )
-        self._canonical_vault = self.vault
+        self._canonical_vault = canonical_vault
         vault_status = self.vault.stat()
         self._vault_identity = (
             vault_status.st_dev,
@@ -178,9 +180,7 @@ class VaultMemory:
         return None
 
     def _provenance_key(self, path: Path) -> str:
-        relative = path.resolve().relative_to(
-            self._canonical_vault
-        ).as_posix()
+        relative = path.relative_to(self.vault).as_posix()
         return f"{self._provenance_namespace}/{relative}"
 
     def _provenance_records(self) -> dict[str, dict[str, str]]:

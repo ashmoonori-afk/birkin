@@ -1,8 +1,11 @@
 from __future__ import annotations
 
+import os
+import sys
+from contextlib import contextmanager
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Callable
+from typing import Callable, Iterator
 
 from .curation_apply import apply_plan
 from .curation_contract import (
@@ -16,6 +19,7 @@ from .curation_prompt import (
     extract_plan,
     mechanical_catalog,
 )
+
 
 def snapshot_vault(vault: Path, cfg: dict | None = None) -> str | None:
     """Checkpoint the vault before curation rewrites it.
@@ -35,15 +39,96 @@ def snapshot_vault(vault: Path, cfg: dict | None = None) -> str | None:
     return mgr.ensure_checkpoint(vault, reason="curate-memory")
 
 
+@contextmanager
+def _pinned_vault_locator(
+    vault: Path,
+) -> Iterator[Callable[[], Path]]:
+    canonical = Path(vault).expanduser().resolve()
+    if os.name == "nt":
+        from .skills.bundle_publish_windows_io import (
+            READ_ATTRIBUTES,
+            close,
+            open_handle,
+        )
+        from .skills.manager import _windows_kernel32
+
+        kernel32 = _windows_kernel32()
+        handle = open_handle(
+            kernel32,
+            canonical,
+            access=READ_ATTRIBUTES,
+        )
+        try:
+            yield lambda: canonical
+        finally:
+            close(kernel32, handle)
+        return
+
+    flags = os.O_RDONLY | getattr(os, "O_DIRECTORY", 0)
+    flags |= getattr(os, "O_NOFOLLOW", 0)
+    descriptor = os.open(canonical, flags)
+    def current_path() -> Path:
+        if sys.platform == "darwin":
+            import fcntl
+
+            encoded = fcntl.fcntl(
+                descriptor,
+                50,
+                b"\0" * 1024,
+            )
+            return Path(
+                encoded.split(b"\0", 1)[0].decode()
+            )
+        return Path(
+            os.readlink(f"/proc/self/fd/{descriptor}")
+        )
+
+    try:
+        yield current_path
+    finally:
+        active_error = sys.exc_info()[1]
+        try:
+            os.close(descriptor)
+        except OSError:
+            if active_error is None:
+                raise
+
+
 def run_curation_pass(vault: Path, complete: Callable[[str], str], *,
                       provider: str = "?", model: str | None = None,
                       untrusted: str = "", apply: bool = True,
                       now: datetime | None = None) -> CurationOutcome:
+    with _pinned_vault_locator(vault) as current_vault:
+        return _run_curation_pass_pinned(
+            vault,
+            current_vault,
+            complete,
+            provider=provider,
+            model=model,
+            untrusted=untrusted,
+            apply=apply,
+            now=now,
+        )
+
+
+def _run_curation_pass_pinned(
+    configured_vault: Path,
+    current_vault: Callable[[], Path],
+    complete: Callable[[str], str],
+    *,
+    provider: str,
+    model: str | None,
+    untrusted: str,
+    apply: bool,
+    now: datetime | None,
+) -> CurationOutcome:
     from .memory import VaultMemory
 
     now = now or datetime.now(timezone.utc)
-    memory = VaultMemory({"vault_path": str(vault)})
-    pinned_vault = memory.vault
+    memory = VaultMemory(
+        {"vault_path": str(configured_vault)},
+        filesystem_root=current_vault(),
+    )
     dex = memory.dex
     dex.refresh()
     catalog = mechanical_catalog(dex, now=now)
@@ -58,11 +143,19 @@ def run_curation_pass(vault: Path, complete: Callable[[str], str], *,
     gate = validate_clamp(plan, dex, snap, now=now)
     accepted = _dense_zone_links(gate.accepted, snap)
     if apply:
+        mutation_root = current_vault()
+        if mutation_root != memory.vault:
+            memory = VaultMemory(
+                {"vault_path": str(configured_vault)},
+                filesystem_root=mutation_root,
+            )
+            dex = memory.dex
+            dex.refresh()
         if accepted:
-            snapshot_vault(pinned_vault)
+            snapshot_vault(memory.vault)
         effected = apply_plan(
             accepted,
-            pinned_vault,
+            memory.vault,
             dex,
             move_note=memory.rezone,
             validate_vault=memory.assert_vault_identity,

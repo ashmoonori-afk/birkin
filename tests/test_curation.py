@@ -9,8 +9,11 @@ the "model" emits. The model is faked with a deterministic completer.
 from __future__ import annotations
 
 import json
+import os
 from datetime import datetime, timezone
 from pathlib import Path
+
+import pytest
 
 from birkin import config, curation, curation_contract, mnemosyne
 from birkin.memory import VaultMemory
@@ -309,7 +312,11 @@ def test_run_pass_pins_vault_before_model_completion(
     assert not (vault_b / "projects" / "same-slug.md").exists()
 
 
-def test_run_pass_rejects_replaced_pinned_vault(
+@pytest.mark.skipif(
+    os.name == "nt",
+    reason="POSIX descriptor-anchored curation",
+)
+def test_run_pass_mutates_original_pinned_vault(
         tmp_path: Path,
         monkeypatch,
 ) -> None:
@@ -352,12 +359,74 @@ def test_run_pass_rejects_replaced_pinned_vault(
         now=NOW,
     )
 
-    assert outcome.effected
-    assert "error" in outcome.effected[0]
-    assert (moved_original / "same-slug.md").is_file()
-    assert not (moved_original / "projects" / "same-slug.md").exists()
+    assert outcome.effected == [{
+        "op": "rezone",
+        "slug": "same-slug",
+        "zone": "projects",
+    }]
+    assert not (moved_original / "same-slug.md").exists()
+    assert (moved_original / "projects" / "same-slug.md").is_file()
     assert (vault / "same-slug.md").is_file()
     assert not (vault / "projects" / "same-slug.md").exists()
+
+
+@pytest.mark.skipif(
+    os.name == "nt",
+    reason="POSIX descriptor-anchored curation",
+)
+def test_run_pass_annotates_original_pinned_vault(
+        tmp_path: Path,
+        monkeypatch,
+) -> None:
+    vault = tmp_path / "vault"
+    replacement = tmp_path / "replacement"
+    VaultMemory({"vault_path": str(vault)}).write_note(
+        "Budget plan",
+        "original vault",
+        zone="inbox",
+    )
+    VaultMemory({"vault_path": str(replacement)}).write_note(
+        "Budget plan",
+        "replacement vault",
+        zone="inbox",
+    )
+    moved_original = tmp_path / "moved-original"
+    monkeypatch.setattr(
+        curation,
+        "snapshot_vault",
+        lambda *_args, **_kwargs: None,
+    )
+
+    def replace_then_complete(_prompt: str) -> str:
+        vault.rename(moved_original)
+        replacement.rename(vault)
+        return json.dumps({
+            "plan_version": 2,
+            "ops": [{
+                "op": "annotate",
+                "slug": "budget-plan",
+                "aliases": ["Pinned original"],
+            }],
+        })
+
+    outcome = curation.run_curation_pass(
+        vault,
+        replace_then_complete,
+        provider="test",
+        now=NOW,
+    )
+
+    assert outcome.effected == [{
+        "op": "annotate",
+        "slug": "budget-plan",
+        "fields": ["aliases"],
+    }]
+    assert "Pinned original" in (
+        moved_original / "budget-plan.md"
+    ).read_text(encoding="utf-8")
+    assert "Pinned original" not in (
+        vault / "budget-plan.md"
+    ).read_text(encoding="utf-8")
 
 
 # ---------------- sanitize + full driver ------------------------------------
