@@ -14,31 +14,25 @@ from .bundle_publish_windows_io import (
     SHARE_READ_WRITE_DELETE,
     checked_directory,
     close,
-    delete_tree,
     mark_delete,
     open_handle,
     rename,
 )
 from .bundle_publish_windows_file import populate
-from .bundle_publish_windows_native import (
-    create_directory_handle,
+from .bundle_publish_windows_native import create_directory_handle
+from .bundle_publish_windows_parent import locked_parent, missing
+from .bundle_publish_windows_tree import (
+    TreeHandles,
+    close_tree,
+    delete_tree_handles,
+    lock_existing_tree,
 )
-from .bundle_publish_windows_parent import locked_parent
 from .manager import PublicationCleanupError
 
 
-def _missing(error: OSError) -> bool:
-    return (
-        getattr(error, "winerror", None)
-        or getattr(error, "errno", None)
-    ) in (2, 3)
-
-
 def publish_windows(
-    snapshot: BundleSnapshot,
-    target: Path,
-    target_root: Path,
-    replace: bool,
+    snapshot: BundleSnapshot, target: Path,
+    target_root: Path, replace: bool,
 ) -> bool:
     relative = target.relative_to(target_root)
     with locked_parent(
@@ -53,7 +47,7 @@ def publish_windows(
                 access=READ_ATTRIBUTES | DELETE,
             )
         except OSError as error:
-            if not _missing(error):
+            if not missing(error):
                 raise
             previous_handle = -1
         if previous_handle >= 0 and not replace:
@@ -65,6 +59,8 @@ def publish_windows(
         operation_parent_handle = -1
         candidate_handle = -1
         operation_created = False
+        candidate_tree = TreeHandles()
+        previous_tree = TreeHandles()
         candidate = operation / "candidate"
         try:
             operation_handle = create_directory_handle(
@@ -108,11 +104,17 @@ def publish_windows(
         published = False
         preserve_operation = False
         try:
+            if previous_handle >= 0:
+                previous_tree = lock_existing_tree(
+                    kernel32,
+                    destination,
+                )
             populate(
                 kernel32,
                 candidate,
                 candidate_handle,
                 snapshot,
+                candidate_tree,
             )
             if previous_handle >= 0:
                 rename(
@@ -157,11 +159,12 @@ def publish_windows(
                 raise
             if previous_moved:
                 try:
-                    delete_tree(
+                    delete_tree_handles(
                         kernel32,
-                        operation / "previous",
-                        previous_handle,
+                        previous_tree,
                     )
+                    mark_delete(kernel32, previous_handle)
+                    close(kernel32, previous_handle)
                     previous_handle = -1
                     previous_moved = False
                 except OSError as cleanup_error:
@@ -176,21 +179,38 @@ def publish_windows(
             cleanup_error: OSError | None = None
             if not published and candidate_handle >= 0:
                 try:
-                    delete_tree(
+                    delete_tree_handles(
                         kernel32,
-                        candidate,
-                        candidate_handle,
+                        candidate_tree,
                     )
+                    mark_delete(kernel32, candidate_handle)
+                    close(kernel32, candidate_handle)
                     candidate_handle = -1
                 except OSError as error:
                     preserve_operation = True
                     cleanup_error = cleanup_error or error
+                    try:
+                        close(kernel32, candidate_handle)
+                    except OSError as close_error:
+                        cleanup_error = (
+                            cleanup_error or close_error
+                        )
+                    candidate_handle = -1
             elif candidate_handle >= 0:
                 try:
+                    close_tree(kernel32, candidate_tree)
                     close(kernel32, candidate_handle)
                 except OSError as error:
                     cleanup_error = cleanup_error or error
                 candidate_handle = -1
+            if (
+                previous_tree.files
+                or previous_tree.directories
+            ):
+                try:
+                    close_tree(kernel32, previous_tree)
+                except OSError as error:
+                    cleanup_error = cleanup_error or error
             if previous_handle >= 0:
                 try:
                     close(kernel32, previous_handle)

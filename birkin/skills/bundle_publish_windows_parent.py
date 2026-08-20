@@ -20,7 +20,7 @@ from .bundle_publish_windows_native import (
 )
 
 
-def _missing(error: OSError) -> bool:
+def missing(error: OSError) -> bool:
     return (
         getattr(error, "winerror", None)
         or getattr(error, "errno", None)
@@ -53,7 +53,7 @@ def locked_parent(
                     access=READ_ATTRIBUTES | FILE_TRAVERSE,
                 )
             except OSError as error:
-                if not _missing(error):
+                if not missing(error):
                     raise
                 handle = create_directory_handle(
                     handles[-1],

@@ -1106,7 +1106,8 @@ def test_windows_candidate_handle_blocks_reparse_swap(
             kernel32,
             candidate,
             candidate_handle,
-            snapshot) -> None:
+            snapshot,
+            handles) -> None:
         nonlocal blocked
         try:
             candidate.rename(candidate.with_name("moved-candidate"))
@@ -1117,6 +1118,7 @@ def test_windows_candidate_handle_blocks_reparse_swap(
             candidate,
             candidate_handle,
             snapshot,
+            handles,
         )
 
     monkeypatch.setattr(
@@ -1190,6 +1192,62 @@ def test_windows_nested_candidate_creation_blocks_swap(
     )
 
     assert sync.sync_skills(source) == ["locked-nested"]
+    assert blocked is True
+
+
+@pytest.mark.skipif(
+    os.name != "nt",
+    reason="Windows populated nested handle locking",
+)
+def test_windows_populated_nested_handle_blocks_swap(
+        tmp_path,
+        monkeypatch,
+) -> None:
+    from birkin.skills import bundle_publish_windows, sync
+
+    source = tmp_path / "upstream"
+    skill = _skill(
+        source,
+        "A clean helper.",
+        name="locked-populated",
+    )
+    assets = skill / "assets"
+    assets.mkdir()
+    (assets / "payload.txt").write_text(
+        "EXACT",
+        encoding="utf-8",
+    )
+    real_populate = bundle_publish_windows.populate
+    blocked = False
+
+    def populate_then_attempt_swap(
+            kernel32,
+            candidate,
+            candidate_handle,
+            snapshot,
+            handles) -> None:
+        nonlocal blocked
+        real_populate(
+            kernel32,
+            candidate,
+            candidate_handle,
+            snapshot,
+            handles,
+        )
+        try:
+            (candidate / "assets").rename(
+                candidate / "attacker-moved"
+            )
+        except OSError:
+            blocked = True
+
+    monkeypatch.setattr(
+        bundle_publish_windows,
+        "populate",
+        populate_then_attempt_swap,
+    )
+
+    assert sync.sync_skills(source) == ["locked-populated"]
     assert blocked is True
 
 
