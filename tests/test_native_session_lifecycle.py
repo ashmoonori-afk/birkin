@@ -118,3 +118,24 @@ def test_session_create_over_socket_emits_event_and_updates_projection(
         thread.join(timeout=2)  # type: ignore[union-attr]
         hub.close()
     assert errors == []
+
+
+def test_session_select_over_socket_emits_event_and_changes_projection(
+    tmp_path: Path,
+) -> None:
+    bridge, hub = _server(tmp_path)
+    _second, _ = hub.create("second")
+    client, token, thread, errors = _connect(bridge)
+    try:
+        _send(client, token, "session.select", "select-1", 0, {"session_id": "second"})
+        receipt = receive_kind(client, "receipt")
+        event = _receive_event_type(client, "session.selected")
+
+        assert receipt.body["state"] == "completed"
+        assert event.body["payload"] == {"session_id": "second"}
+        assert hub.snapshot().session_id == "second"
+    finally:
+        client.close()
+        thread.join(timeout=2)  # type: ignore[union-attr]
+        hub.close()
+    assert errors == []
