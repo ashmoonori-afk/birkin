@@ -57,6 +57,19 @@ struct ConversationControlsTests {
         #expect((composer.visibleReason?.count ?? 0) < 100)
     }
 
+    @Test("Korean marked text suppresses Cmd-Return until composition commits")
+    func koreanIMEGuard() {
+        #expect(!SendKeyPolicy.shouldSend(
+            commandPressed: true, returnPressed: true, hasMarkedText: true
+        ))
+        #expect(SendKeyPolicy.shouldSend(
+            commandPressed: true, returnPressed: true, hasMarkedText: false
+        ))
+        #expect(!SendKeyPolicy.shouldSend(
+            commandPressed: false, returnPressed: true, hasMarkedText: false
+        ))
+    }
+
     @Test("disconnected composer does not send")
     func composerHonorsMutationGate() {
         let session = readySession(commands: ["chat.send"])
