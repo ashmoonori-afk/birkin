@@ -31,4 +31,11 @@ def test_banner_shows_the_live_status_line(monkeypatch):
 
 def test_banner_advertises_the_new_surfaces(monkeypatch):
     out = _banner_output(monkeypatch)
-    assert "/dash" in out and "/status" in out
+    assert "/work" in out and "/status" in out
+
+
+def test_banner_does_not_advertise_the_deprecated_dash_alias(monkeypatch):
+    # /work and /dash are one surface now; the launch screen must point at the
+    # supported name so new users never learn the deprecated alias.
+    out = _banner_output(monkeypatch)
+    assert "/dash" not in out
