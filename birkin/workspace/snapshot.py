@@ -99,6 +99,8 @@ def _panel_item(event: WorkspaceEvent) -> dict[str, object]:
     }
     for field in (
         "requester",
+        "description",
+        "category",
         "target",
         "expected_impact",
         "rejection_result",
@@ -118,6 +120,10 @@ def _panel_item(event: WorkspaceEvent) -> dict[str, object]:
     for field in ("computer_sequence",):
         value = event.payload.get(field)
         if isinstance(value, int) and not isinstance(value, bool):
+            item[field] = value
+    for field in ("sealed", "decided"):
+        value = event.payload.get(field)
+        if isinstance(value, bool):
             item[field] = value
     focus_preserved = event.payload.get("focus_preserved")
     if isinstance(focus_preserved, bool):

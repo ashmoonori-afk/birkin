@@ -2329,12 +2329,226 @@
           }
         ]
       }
+    },
+    {
+      "frame_base64": "AAAB9XsicHJvdG9jb2wiOiJiaXJraW4tbG9jYWwtMSIsInByb3RvY29sX3ZlcnNpb24iOjEsImtpbmQiOiJldmVudCIsImlkIjoic2VydmVyLTE1IiwiaW5fcmVwbHlfdG8iOm51bGwsImJvZHkiOnsicHJvdG9jb2xfdmVyc2lvbiI6MSwic2Vzc2lvbl9pZCI6InNlc3Npb24tMSIsImN1cnNvciI6MTYsImV2ZW50X2lkIjoiZXZlbnQtMTYiLCJ0eXBlIjoiYXBwcm92YWwucmVxdWVzdGVkIiwidGltZXN0YW1wIjoiMjAyNi0wOC0yMFQxMjowMDoxNloiLCJhY3Rvcl9pZCI6Im1hY29zOndpbmRvdy1tYWluIiwiY29tbWFuZF9pZCI6ImNvbW1hbmQtMSIsInBheWxvYWQiOnsiYXBwcm92YWxfaWQiOiJhcHByb3ZhbC12ZWN0b3IiLCJzdW1tYXJ5IjoiV3JpdGUgbWFuaWZlc3QiLCJkZXNjcmlwdGlvbiI6IkRpZ2VzdC1ib3VuZCB3cml0ZSIsImNhdGVnb3J5Ijoib3BlcmF0aW9uIiwic3RhdHVzIjoicGVuZGluZyIsInJpc2siOiJoaWdoIiwic2VhbGVkIjp0cnVlLCJkZWNpZGVkIjpmYWxzZX19fQ==",
+      "frame_byte_count": 505,
+      "kind": "event",
+      "cursor": 16,
+      "expected_state": {
+        "protocol_version": 1,
+        "session_id": "session-1",
+        "cursor": 16,
+        "panels": [
+          {
+            "key": "tasks_runs",
+            "items": [
+              {
+                "id": "task-1",
+                "summary": "Canonical reducer",
+                "status": "running",
+                "cursor": 3,
+                "kind": "task",
+                "ui_state": "running"
+              }
+            ]
+          },
+          {
+            "key": "approvals",
+            "items": [
+              {
+                "id": "approval-vector",
+                "summary": "Write manifest",
+                "status": "pending",
+                "cursor": 16,
+                "kind": "approval",
+                "ui_state": "action_needed",
+                "description": "Digest-bound write",
+                "category": "operation",
+                "risk": "high",
+                "sealed": true,
+                "decided": false
+              }
+            ]
+          },
+          {
+            "key": "files_evidence",
+            "items": []
+          },
+          {
+            "key": "sessions_history",
+            "items": [
+              {
+                "id": "event-2",
+                "kind": "assistant_message",
+                "text": "Snapshot ready",
+                "actor_id": "macos:window-main",
+                "cursor": 2
+              },
+              {
+                "id": "event-8",
+                "kind": "assistant_message",
+                "text": "Events reduced",
+                "actor_id": "macos:window-main",
+                "cursor": 8
+              }
+            ]
+          },
+          {
+            "key": "activity_logs",
+            "items": [
+              {
+                "id": "event-9",
+                "summary": "command.completed",
+                "status": "completed",
+                "cursor": 9,
+                "kind": "receipt",
+                "ui_state": "pending"
+              },
+              {
+                "id": "event-14",
+                "summary": "Command completed",
+                "status": "recorded",
+                "cursor": 14,
+                "kind": "receipt",
+                "ui_state": "pending",
+                "receipt_ref": "receipt:command-1"
+              },
+              {
+                "id": "event-15",
+                "summary": "Interrupted receipt sealed",
+                "status": "warning",
+                "cursor": 15,
+                "kind": "integrity_warning",
+                "ui_state": "pending"
+              }
+            ]
+          },
+          {
+            "key": "cron",
+            "items": []
+          },
+          {
+            "key": "memory_skills",
+            "items": []
+          },
+          {
+            "key": "checkpoints_restore",
+            "items": []
+          },
+          {
+            "key": "computer_use",
+            "items": []
+          },
+          {
+            "key": "settings_status",
+            "items": []
+          }
+        ],
+        "conversation": [
+          {
+            "id": "event-1",
+            "kind": "user_message",
+            "text": "Ship the reducer",
+            "actor_id": "macos:window-main",
+            "cursor": 1
+          },
+          {
+            "id": "event-2",
+            "kind": "assistant_message",
+            "text": "Snapshot ready",
+            "actor_id": "macos:window-main",
+            "cursor": 2
+          },
+          {
+            "id": "event-5",
+            "kind": "user_message",
+            "text": "Continue in cursor order",
+            "actor_id": "macos:window-main",
+            "cursor": 5
+          },
+          {
+            "id": "event-8",
+            "kind": "assistant_message",
+            "text": "Events reduced",
+            "actor_id": "macos:window-main",
+            "cursor": 8
+          }
+        ],
+        "composer": {
+          "can_send": true,
+          "can_interrupt": false,
+          "can_resume": false
+        },
+        "status": {
+          "connection": "connected"
+        },
+        "working_memory": {
+          "revision": 1,
+          "goal": {
+            "slug": "ship-native-working-memory",
+            "objective": "Ship native Working Memory",
+            "tokens_used": 0,
+            "status": "active"
+          },
+          "fields": {
+            "corrections": [
+              "Use canonical state"
+            ],
+            "constraints": [
+              "Stay offline"
+            ],
+            "decisions": [
+              "Delegate to Python"
+            ],
+            "incomplete": [
+              "Render five rows"
+            ],
+            "evidence": [
+              "RED captured"
+            ],
+            "next_actions": [
+              "Run GREEN"
+            ]
+          },
+          "files_evidence": [
+            {
+              "id": "checkpoint-1",
+              "summary": "workspace/main.py",
+              "kind": "evidence"
+            }
+          ]
+        },
+        "approval_policy": {
+          "requested": {
+            "auto_approve": null
+          },
+          "effective": {
+            "auto_approve": []
+          },
+          "pending_requests": []
+        },
+        "terminals": [
+          {
+            "terminal_id": "terminal-vector",
+            "cwd": "/private/workspace",
+            "screen": "hello-native",
+            "output_sequence": 1,
+            "state": "exited",
+            "exit_status": 0,
+            "columns": 100,
+            "rows": 30,
+            "lease": null,
+            "read_only": true
+          }
+        ]
+      }
     }
   ],
   "gap_event": {
-    "frame_base64": "AAABVnsicHJvdG9jb2wiOiJiaXJraW4tbG9jYWwtMSIsInByb3RvY29sX3ZlcnNpb24iOjEsImtpbmQiOiJldmVudCIsImlkIjoic2VydmVyLTE1IiwiaW5fcmVwbHlfdG8iOm51bGwsImJvZHkiOnsicHJvdG9jb2xfdmVyc2lvbiI6MSwic2Vzc2lvbl9pZCI6InNlc3Npb24tMSIsImN1cnNvciI6MTcsImV2ZW50X2lkIjoiZXZlbnQtMTciLCJ0eXBlIjoibWVzc2FnZS51c2VyIiwidGltZXN0YW1wIjoiMjAyNi0wOC0yMFQxMjowMDoxN1oiLCJhY3Rvcl9pZCI6Im1hY29zOndpbmRvdy1tYWluIiwiY29tbWFuZF9pZCI6ImNvbW1hbmQtMSIsInBheWxvYWQiOnsidGV4dCI6Im11c3QgYmUgZGlzY2FyZGVkIn19fQ==",
+    "frame_base64": "AAABVnsicHJvdG9jb2wiOiJiaXJraW4tbG9jYWwtMSIsInByb3RvY29sX3ZlcnNpb24iOjEsImtpbmQiOiJldmVudCIsImlkIjoic2VydmVyLTE2IiwiaW5fcmVwbHlfdG8iOm51bGwsImJvZHkiOnsicHJvdG9jb2xfdmVyc2lvbiI6MSwic2Vzc2lvbl9pZCI6InNlc3Npb24tMSIsImN1cnNvciI6MTgsImV2ZW50X2lkIjoiZXZlbnQtMTgiLCJ0eXBlIjoibWVzc2FnZS51c2VyIiwidGltZXN0YW1wIjoiMjAyNi0wOC0yMFQxMjowMDoxOFoiLCJhY3Rvcl9pZCI6Im1hY29zOndpbmRvdy1tYWluIiwiY29tbWFuZF9pZCI6ImNvbW1hbmQtMSIsInBheWxvYWQiOnsidGV4dCI6Im11c3QgYmUgZGlzY2FyZGVkIn19fQ==",
     "frame_byte_count": 346,
     "kind": "event",
-    "cursor": 17
+    "cursor": 18
   }
 }

@@ -42,6 +42,28 @@ def test_snapshot_projects_pending_risk_and_sealed_approval(
     assert item["ui_state"] == "action_needed"
 
 
+def test_live_approval_event_preserves_risk_and_sealed_state() -> None:
+    event = WorkspaceEvent(
+        protocol_version=1, session_id="session-1", cursor=1,
+        event_id="approval-event", type="approval.requested",
+        timestamp="2026-08-20T00:00:00Z", actor_id="python",
+        command_id="command-1", payload={
+            "approval_id": "abc123def456", "summary": "Write manifest",
+            "description": "Digest-bound write", "category": "operation",
+            "status": "pending", "risk": "high", "sealed": True,
+            "decided": False,
+        },
+    )
+
+    snapshot = reduce_snapshot("session-1", (event,))
+    item = next(panel.items[0] for panel in snapshot.panels if panel.key == "approvals")
+
+    assert item["risk"] == "high"
+    assert item["sealed"] is True
+    assert item["decided"] is False
+    assert item["category"] == "operation"
+
+
 def test_two_surfaces_resolve_one_approval_with_answered_elsewhere_event(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

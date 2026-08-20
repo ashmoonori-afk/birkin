@@ -225,12 +225,17 @@ enum NativeProjectionReducer {
             "ui_state": .string(payload.string("ui_state") ?? defaultState),
         ]
         for field in [
-            "requester", "target", "expected_impact", "rejection_result",
+            "requester", "description", "category", "target", "expected_impact", "rejection_result",
             "related_evidence", "risk", "expires_at", "receipt_ref", "snapshot_ref",
             "effect", "refusal_code",
         ] {
             if let value = payload.string(field), !value.isEmpty {
                 try? item.append(key: field, value: .string(value))
+            }
+        }
+        for field in ["sealed", "decided"] {
+            if case .bool(let value) = payload[field] {
+                try? item.append(key: field, value: .bool(value))
             }
         }
         if case .int(let sequence) = payload["computer_sequence"] {

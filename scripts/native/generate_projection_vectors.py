@@ -148,6 +148,12 @@ def render_fixture() -> str:
         event(15, "integrity.warning", {
             "summary": "Interrupted receipt sealed", "status": "warning",
         }),
+        event(16, "approval.requested", {
+            "approval_id": "approval-vector", "summary": "Write manifest",
+            "description": "Digest-bound write", "category": "operation",
+            "status": "pending", "risk": "high", "sealed": True,
+            "decided": False,
+        }),
     ]
     factory = NativeMessageFactory(
         instance_id="instance-1",
@@ -185,7 +191,7 @@ def render_fixture() -> str:
             }
         )
 
-    gap = event(17, "message.user", {"text": "must be discarded"})
+    gap = event(18, "message.user", {"text": "must be discarded"})
     gap_message = factory.message("event", body=public_workspace_event(gap))
     document = {
         "generated_by": "scripts/native/generate_projection_vectors.py",
