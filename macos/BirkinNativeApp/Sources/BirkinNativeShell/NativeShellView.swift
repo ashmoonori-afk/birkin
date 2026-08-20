@@ -14,6 +14,7 @@ public struct NativeShellView: View {
     @StateObject private var templateLauncher: TemplateLauncherModel
     @StateObject private var conversationComposer: ConversationComposerModel
     @StateObject private var terminalControls: TerminalControlModel
+    @StateObject private var activityFilter: ActivityFilterModel
 
     public init(
         store: NativeProjectionStore,
@@ -38,6 +39,7 @@ public struct NativeShellView: View {
         ))
         _conversationComposer = StateObject(wrappedValue: ConversationComposerModel())
         _terminalControls = StateObject(wrappedValue: TerminalControlModel())
+        _activityFilter = StateObject(wrappedValue: ActivityFilterModel())
     }
 
     public var body: some View {
@@ -160,6 +162,8 @@ public struct NativeShellView: View {
                 }
             } else if section.id == .approvals {
                 approvalCards(availability: availability)
+            } else if section.id == .activity {
+                ActivityListView(items: activityItems, filter: activityFilter)
             } else if section.id == .terminal,
                       let terminal = store.projection?.terminals.first {
                 TerminalView(
@@ -251,6 +255,10 @@ public struct NativeShellView: View {
             .disabled(!availability.isEnabled || !isSessionCreateAdvertised)
             .accessibilityLabel("Launch \(preset.name) template")
         }
+    }
+
+    private var activityItems: [NativeJSONObject] {
+        store.projection?.panels.first(where: { $0.key == "activity_logs" })?.items ?? []
     }
 
     @ViewBuilder
