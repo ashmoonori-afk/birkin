@@ -57,7 +57,7 @@ public struct ConnectionStatusPill: View {
         .fixedSize(horizontal: false, vertical: true)
         Spacer(minLength: dynamicTypeSize.isAccessibilitySize ? 0 : 8)
         Button(presentation.diagnosticsLabel, action: diagnosticsAction)
-            .buttonStyle(.borderless)
+            .buttonStyle(DiagnosticsButtonStyle())
             .fixedSize(horizontal: false, vertical: true)
             .accessibilityHint("Opens bounded connection diagnostics")
     }
@@ -71,5 +71,16 @@ public struct ConnectionStatusPill: View {
         case .warning: .yellow
         case .failure: .red
         }
+    }
+}
+
+private struct DiagnosticsButtonStyle: ButtonStyle {
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .font(.caption.weight(.semibold))
+            .padding(.horizontal, 9)
+            .padding(.vertical, 6)
+            .background(.primary.opacity(configuration.isPressed ? 0.14 : 0.07))
+            .clipShape(Capsule())
     }
 }

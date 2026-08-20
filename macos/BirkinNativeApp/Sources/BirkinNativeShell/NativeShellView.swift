@@ -38,7 +38,11 @@ public struct NativeShellView: View {
             .padding(12)
             Divider()
             GeometryReader { geometry in
-                if dynamicTypeSize.isAccessibilitySize || geometry.size.width < 900 {
+                let layout = ShellLayoutPlan(
+                    windowWidth: geometry.size.width,
+                    dynamicTypeSize: dynamicTypeSize
+                )
+                if layout.mode == .panelNavigation {
                     adaptiveContent(structure, availability: availability)
                 } else {
                     threeColumnContent(structure, availability: availability)
@@ -66,21 +70,34 @@ public struct NativeShellView: View {
         availability: MutationAvailability
     ) -> some View {
         VStack(alignment: .leading, spacing: 0) {
-            HStack {
-                Text("Panel")
-                    .font(.headline)
-                Picker("Panel", selection: $selectedColumn) {
-                    ForEach(ShellColumnID.allCases, id: \.self) { column in
-                        Text(column.title).tag(column)
-                    }
-                }
-                .pickerStyle(.menu)
+            ViewThatFits(in: .horizontal) {
+                HStack(alignment: .center, spacing: 12) { panelSelector }
+                VStack(alignment: .leading, spacing: 8) { panelSelector }
             }
             .padding()
             Divider()
             if let column = structure.columns.first(where: { $0.id == selectedColumn }) {
                 columnView(column, availability: availability)
             }
+        }
+    }
+
+    @ViewBuilder
+    private var panelSelector: some View {
+        Text("Panel")
+            .font(.headline)
+            .fixedSize(horizontal: false, vertical: true)
+        ForEach(ShellColumnID.allCases, id: \.self) { column in
+            Button(column.title) { selectedColumn = column }
+                .buttonStyle(.plain)
+                .fontWeight(selectedColumn == column ? .bold : .regular)
+                .padding(.horizontal, 8)
+                .padding(.vertical, 5)
+                .background(
+                    selectedColumn == column ? Color.accentColor.opacity(0.12) : .clear,
+                    in: Capsule()
+                )
+                .fixedSize(horizontal: false, vertical: true)
         }
     }
 
