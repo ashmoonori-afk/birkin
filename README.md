@@ -213,13 +213,40 @@ Trusted Korean and English natural-language requests deterministically preload t
 
 See the [detailed support contract](./docs/office-support.md#office-work-os-v2), machine [`provenance_manifest.json`](./birkin/office/adapters/provenance_manifest.json), and [`THIRD_PARTY_NOTICES.md`](./birkin/office/adapters/THIRD_PARTY_NOTICES.md). This documentation targets Birkin `0.4.230`, `catalog_revision: 4`, `inventory_sha256: a49ab813ee4cdea3d6f87e0e2bd063b1dde54058e5c8dd0af0cf32bec74cae95`.
 
+### Doing office work end to end
+
+The contract above says what is allowed; this is the order you actually work in.
+
+1. Install the tier you need: `pip install -e ".[office]"` for DOCX/XLSX/PPTX/HWPX authoring and bounded package edits, `".[office-advanced]"` to add PDF extraction and deep reopen, `".[office-docling]"` for the separate docling path.
+2. Put the source inside the jail. Every input path must already live under `BIRKIN_HOME`; with `BIRKIN_HOME=/workspace/.birkin`, copy the file to `/workspace/.birkin/artifacts/incoming/` first. An absolute path outside that tree is rejected, not silently read.
+3. Ask what is available with `list_document_adapters`, then `inspect_document` the source before mutating anything.
+4. Read or write through the registered calls. Outputs are basename-only new files under `/workspace/.birkin/artifacts/drafts` — nothing is edited in place.
+
+Pull the text out of a Word file:
+
+```json
+{"source":{"content_hash":"<source-sha256>","uri":"/workspace/.birkin/artifacts/incoming/source.docx"},"projection":"text","max_text_bytes":100000}
+```
+
+Convert the same file to TXT under an explicit loss budget:
+
+```json
+{"source":{"content_hash":"<source-sha256>","uri":"/workspace/.birkin/artifacts/incoming/source.docx"},"target_format":"txt","output_name":"source.txt","loss_budget":{"structure":10,"style_layout":10,"macro_active_content":0,"signature_encryption":0}}
+```
+
+In chat you do not call these by name: a trusted Korean or English request routes deterministically to the matching skill (Word to `word-documents`, Excel to `spreadsheets`, PowerPoint to `presentations`, PDF to `pdf-documents`, HWP/HWPX to `korean-hwp-documents`, general office work to `office-work-os`), and conflicting signals route to inspect-first `office-documents`.
+
+What is refused, by design rather than by omission: PDF mutation, built-in PDF creation of anything non-Latin (ASCII only; a non-Latin request returns a typed capability refusal and never suggests ReportLab), and any path that would launch an external Office application, runtime, or subprocess conversion engine. A missing optional Python backend returns a typed error instead of quietly picking a substitute.
+
+See the [detailed support contract](./docs/office-support.md#office-work-os-v2) for the full matrix.
+
 ## Unified chat workspace
 
 `birkin chat` opens the terminal workspace and starts its authenticated loopback web authority. The private bootstrap URL printed at startup exchanges its one-time path capability for an `HttpOnly`, `SameSite=Strict` cookie, then removes the secret from the address bar. `birkin web [--no-browser]` runs the same responsive web workspace as a standalone local surface.
 
 Both surfaces consume the same ordered command/event protocol and durable journal. Conversation messages, tasks and runs, approvals, evidence, sessions, activity, cron, memory and skills, checkpoints, and status are canonical snapshot panels rather than separate dashboard state. When a surface reconnects with an existing session ID, the journal replays its conversation, panel data, and command cursor.
 
-- Terminal: type and press Enter to send, press Esc to interrupt, use `/work` to focus tasks/runs, and use the deprecated `/dash` compatibility alias to focus activity/logs.
+- Terminal: type and press Enter to send, press Esc to interrupt, and use `/work` to focus the unified tasks/runs workbench. `/dash` is a deprecated alias kept only for muscle memory: it focuses the same workbench `/work` does and prints a deprecation notice.
 - Web: press Ctrl+Enter to send, press Esc to interrupt, use the context button for the nine canonical panels, and use the explicit approve/reject actions after reviewing requester, target, impact, rejection result, risk, expiry, and evidence.
 - Themes: Studio Dark, Paper Light, and High Contrast share semantic roles with terminal truecolor/ANSI-256 rendering. `NO_COLOR=1` keeps the terminal usable without color.
 - Responsive behavior: desktop keeps conversation and context side by side; mobile uses an opaque sheet above a composer that remains visible, with touch-sized controls and an explicit back action.
@@ -539,40 +566,6 @@ the newest snapshots with `prune --keep N`, or copy a snapshot with
 
 Run `birkin --help` or `birkin <command> --help` for the complete interface.
 
-### Live OMO session control
-
-Birkin controls an already-open OMO session through an extension owned by that
-session. It does not open a replacement `omo --mode rpc` process, acquire
-OMO's `settings.json.lock`, or discover windows by title.
-
-From a trusted Birkin chat or gateway channel, install the extension once:
-
-```text
-/omo bridge install
-```
-
-This copies `birkin-omo-live-bridge.mjs` into the active OMO agent extension
-directory without editing `settings.json`. Open OMO sessions normally discover
-the new extension; run `/reload` in a session if it does not reload
-automatically. A session that has not loaded the extension is deliberately not
-controllable.
-
-Send one prompt to one or more already-open sessions by full, exact session ID:
-
-```text
-/omo send-to 019ffe4c-0ba9-7fa2-acab-176a22fc1fd3,019ffda0-c982-7ffe-badf-b952f457011e -- resume
-```
-
-Birkin returns one acknowledgement line per target with the exact session ID
-and request ID. It resolves every target before delivering any prompt, removes
-duplicate IDs within the request, and rejects unknown, stale, unauthorized, or
-ambiguous live registrations. Historical JSONL sessions are never treated as
-live targets.
-
-Each live session listens on loopback only and publishes a private registration
-containing a random capability token. Birkin validates the token-bound response,
-session ID, request ID, and protocol version. Transport failures are surfaced
-instead of retried blindly, preserving at-most-once delivery for each request.
 ## Plugin registry
 
 A bundle is a directory containing `birkin-plugin.json`, its entry-point files,
@@ -717,6 +710,7 @@ This roadmap does **not** propose:
   "fallback_model": "",
   "fallback_base_url": "",
   "fallback_cooldown": 300,
+  "fallback_chain": [],
   "api_keys": [],
   "a2a_enabled": false,
   "lsp_servers": {},
@@ -726,6 +720,7 @@ This roadmap does **not** propose:
   "redact_secrets": true,
   "repl_typed_line": "steer",
   "moirai_auto": false,
+  "worker_call_auto": true,
   "moirai_workers": 4,
   "moirai_max_agents": 100,
   "moirai_roles": {},
@@ -914,6 +909,37 @@ and replays pending Slack/Discord obligations when the scheduler daemon starts.
 Free-form shell requests use a fixed non-login platform shell (`%SystemRoot%\System32\cmd.exe /d /s /c` on Windows and `/bin/bash -c` on POSIX) inside an owned process tree. Windows disables AutoRun and selects code page 65001 before user command evaluation, so native `cmd.exe` built-ins and UTF-8 runtimes share the captured stream contract. Birkin preserves the inherited `PATH`, adds known runtime directories without sourcing user profiles, captures UTF-8 streams, and provides writable temporary directories. The same managed runner serves the native shell tool, approved shell continuations, scheduler shell jobs, script monitors, lifecycle hooks, GitHub Action test commands, and worktree setup commands. Worktree setup still exposes only policy-approved payload variables plus non-secret process mechanics such as `PATH`, system interpreter variables, and an isolated `TMPDIR`/`TEMP`/`TMP`; Docker setup shell text remains inside the policy-constrained container. Timeout, interrupt, and Job Object/process-group closure terminate descendants before returning and preserve partial stdout and stderr.
 
 PowerShell is disabled by default on the model-facing native shell tool: set `allow_powershell` to `true` deliberately, or approve one exact queued operation. Other owner-controlled shell surfaces retain their existing explicit authority boundaries. Lifecycle-hook consents recorded before the managed-shell contract require one-time reapproval so old discrete-argv consent cannot silently authorize shell operators. Native macOS and Windows CI exercise commands, pipelines, redirection, quoting, Unicode and spaced working directories, environment and temporary-directory behavior, exit propagation, runtime/package-manager resolution, and descendant cleanup.
+
+### Model providers and the fallback chain
+
+Alongside `anthropic`, `openai`, the CLI agents, and `claude-oauth`, three OpenAI-compatible providers are registered. Each one needs only its key; the base URL already defaults correctly.
+
+| Provider | Key env | Default base URL |
+| --- | --- | --- |
+| `gemini` | `GEMINI_API_KEY` | `https://generativelanguage.googleapis.com/v1beta/openai` |
+| `nvidia` | `NVIDIA_API_KEY` | `https://integrate.api.nvidia.com/v1` |
+| `freellmapi` | `FREELLMAPI_API_KEY` | `http://localhost:3001/v1` |
+
+`gemini` here is the Gemini HTTP API on its OpenAI compatibility path, not the `gemini` CLI. `nvidia` is NVIDIA's hosted NIM inference from build.nvidia.com, preview models included. `freellmapi` is a **self-hosted** proxy that stacks free provider tiers behind one key, so the default points at its documented local port — set `base_url` when you run it anywhere else.
+
+`fallback_provider` / `fallback_model` still describe one fallback and behave exactly as before. `fallback_chain` continues past it, in order:
+
+```jsonc
+{
+  "provider": "claude-oauth",
+  "model": "claude-sonnet-4-6",
+  "fallback_provider": "anthropic",
+  "fallback_model": "claude-sonnet-4-6",
+  "fallback_chain": [
+    {"provider": "gemini", "model": "gemini-3.7-flash"},
+    {"provider": "nvidia", "model": "meta/llama-3.1-8b-instruct"},
+    {"provider": "freellmapi", "model": "auto"}
+  ],
+  "fallback_cooldown": 300
+}
+```
+
+An auth, billing, rate-limit, server, or network failure moves the turn to the next model and parks there for `fallback_cooldown` seconds before the previous one is probed again; every hop holds its own independent cooldown. A chain entry that is malformed, or whose provider has no credentials, is skipped with a warning rather than breaking the hops behind it — and when nothing in the chain can serve, birkin runs on the primary alone instead of failing. Chains are ignored for CLI providers, which report their failures as reply text rather than errors.
 
 ## Development
 
