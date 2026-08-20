@@ -75,6 +75,39 @@ public final class WorkingMemoryEditorModel: ObservableObject {
         return true
     }
 
+    @discardableResult
+    public func submitClear(
+        availability: MutationAvailability,
+        expectedCursor: Int,
+        session: NativeReadySession,
+        submit: (NativeCommandRequest) -> Void
+    ) -> Bool {
+        guard availability.isEnabled else {
+            visibleReason = availability.disabledReason
+            return false
+        }
+        guard session.supportedCommands.contains("memory.write") else {
+            visibleReason = "Working Memory mutation is not advertised by Python."
+            return false
+        }
+        let commandID = "memory-clear-\(UUID().uuidString.lowercased())"
+        submit(NativeCommandRequest(
+            frameID: "frame-\(commandID)",
+            commandID: commandID,
+            expectedCursor: expectedCursor,
+            commandType: "memory.write",
+            payload: [
+                "op": .string("clear"),
+                "expected_revision": .int(authoritative.revision),
+            ],
+            sessionCapability: session.sessionCapability,
+            viewID: "working-memory"
+        ))
+        isAwaitingConfirmation = true
+        visibleReason = nil
+        return true
+    }
+
     public func confirm(_ projection: NativeWorkingMemoryProjection) {
         guard projection.revision > authoritative.revision else { return }
         authoritative = projection

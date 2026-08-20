@@ -88,7 +88,7 @@ struct WorkingMemoryTests {
 
     @MainActor
     @Test("clear scope and budget errors have bounded accessible copy")
-    func clearAndBudgetAccessibility() {
+    func clearAndBudgetAccessibility() throws {
         let clear = WorkingMemoryClearPresentation(sessionID: "session-1")
         #expect(clear.title == "Clear Working Memory for session-1?")
         #expect(clear.explanation.contains("corrections, constraints, decisions, incomplete items, evidence, and next actions"))
@@ -127,6 +127,16 @@ struct WorkingMemoryTests {
         )
         #expect(error.message.count == 300)
         #expect(error.accessibilityLabel.contains("20,000-character render budget"))
+        try writeEvidence(
+            WorkingMemoryClearConfirmationView(presentation: clear)
+                .frame(width: 440, height: 240),
+            named: "working-memory-clear-scope.png"
+        )
+        try writeEvidence(
+            WorkingMemoryCanonicalErrorView(presentation: error)
+                .frame(width: 560, height: 180),
+            named: "working-memory-budget-error.png"
+        )
     }
 
     @MainActor
@@ -179,6 +189,25 @@ struct WorkingMemoryTests {
             ],
             filesEvidence: []
         )
+    }
+
+    @MainActor
+    private func writeEvidence<Content: View>(
+        _ view: Content, named name: String
+    ) throws {
+        let renderer = ImageRenderer(content: view)
+        guard let image = renderer.nsImage,
+              let tiff = image.tiffRepresentation,
+              let bitmap = NSBitmapImageRep(data: tiff),
+              let png = bitmap.representation(using: .png, properties: [:])
+        else {
+            throw CocoaError(.fileWriteUnknown)
+        }
+        let output = evidenceDirectory().appendingPathComponent(name)
+        try FileManager.default.createDirectory(
+            at: output.deletingLastPathComponent(), withIntermediateDirectories: true
+        )
+        try png.write(to: output, options: .atomic)
     }
 
     private func evidenceDirectory() -> URL {

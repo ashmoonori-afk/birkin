@@ -148,8 +148,14 @@ public struct NativeShellView: View {
                 WorkingMemoryView(
                     presentation: WorkingMemoryPresentation(
                         projection: projection.workingMemory
-                    )
-                )
+                    ),
+                    clearPresentation: WorkingMemoryClearPresentation(
+                        sessionID: projection.sessionID
+                    ),
+                    canClear: availability.isEnabled && isWorkingMemoryAdvertised
+                ) {
+                    clearWorkingMemory(availability: availability)
+                }
             } else {
                 stateText(section.state)
             }
@@ -235,6 +241,31 @@ public struct NativeShellView: View {
             session: session,
             submit: templateCommandAction
         )
+    }
+
+    private func clearWorkingMemory(availability: MutationAvailability) {
+        guard availability.isEnabled,
+              let session = Self.readySession(in: connectionState),
+              isWorkingMemoryAdvertised,
+              let memory = store.projection?.workingMemory else { return }
+        let commandID = "memory-clear-\(UUID().uuidString.lowercased())"
+        templateCommandAction(NativeCommandRequest(
+            frameID: "frame-\(commandID)",
+            commandID: commandID,
+            expectedCursor: store.latestAppliedCursor ?? 0,
+            commandType: "memory.write",
+            payload: [
+                "op": .string("clear"),
+                "expected_revision": .int(memory.revision),
+            ],
+            sessionCapability: session.sessionCapability,
+            viewID: "working-memory"
+        ))
+    }
+
+    private var isWorkingMemoryAdvertised: Bool {
+        Self.readySession(in: connectionState)?
+            .supportedCommands.contains("memory.write") == true
     }
 
     private var isSessionCreateAdvertised: Bool {

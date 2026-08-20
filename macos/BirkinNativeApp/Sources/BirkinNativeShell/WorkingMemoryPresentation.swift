@@ -52,6 +52,22 @@ public struct WorkingMemoryPresentation: Equatable, Sendable {
 
 struct WorkingMemoryView: View {
     let presentation: WorkingMemoryPresentation
+    let clearPresentation: WorkingMemoryClearPresentation?
+    let canClear: Bool
+    let clearAction: () -> Void
+    @State private var showsClearConfirmation = false
+
+    init(
+        presentation: WorkingMemoryPresentation,
+        clearPresentation: WorkingMemoryClearPresentation? = nil,
+        canClear: Bool = false,
+        clearAction: @escaping () -> Void = {}
+    ) {
+        self.presentation = presentation
+        self.clearPresentation = clearPresentation
+        self.canClear = canClear
+        self.clearAction = clearAction
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
@@ -75,6 +91,30 @@ struct WorkingMemoryView: View {
             Text("Stored locally on this device")
                 .font(.caption)
                 .accessibilityLabel("Stored locally on this device. Python owns storage; the native app does not persist Working Memory.")
+            if let clearPresentation {
+                Button("Clear Working Memory") { showsClearConfirmation = true }
+                    .disabled(!canClear)
+                    .accessibilityLabel("Review session Working Memory clear scope")
+                    .sheet(isPresented: $showsClearConfirmation) {
+                        VStack(alignment: .leading, spacing: 16) {
+                            Text(clearPresentation.title).font(.headline)
+                            Text(clearPresentation.explanation)
+                            HStack {
+                                Button("Cancel") { showsClearConfirmation = false }
+                                Button("Clear") {
+                                    showsClearConfirmation = false
+                                    clearAction()
+                                }
+                                .keyboardShortcut(.defaultAction)
+                                .accessibilityLabel(
+                                    clearPresentation.confirmAccessibilityLabel
+                                )
+                            }
+                        }
+                        .padding(24)
+                        .frame(width: 440)
+                    }
+            }
         }
     }
 }
