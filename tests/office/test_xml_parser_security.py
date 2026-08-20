@@ -171,6 +171,23 @@ def test_safe_xml_element_tree_class_rejects_entity_declarations() -> None:
         _ = tree.parse(BytesIO(xml))
 
 
+def test_stdlib_fallback_honors_external_reference_flag(
+        monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from birkin.office import safe_xml
+
+    monkeypatch.setattr(safe_xml, "_DefusedXMLParser", None)
+    xml = b'<!DOCTYPE r SYSTEM "file:///etc/passwd"><r/>'
+
+    with pytest.raises(safe_xml.DefusedXmlException):
+        _ = safe_xml.fromstring(
+            xml,
+            forbid_dtd=False,
+            forbid_entities=False,
+            forbid_external=True,
+        )
+
+
 def test_safe_xml_allows_declaration_text_inside_comments() -> None:
     from birkin.office.safe_xml import ElementTree
 

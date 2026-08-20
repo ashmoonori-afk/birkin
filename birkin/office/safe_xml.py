@@ -103,7 +103,11 @@ class _GuardedXMLParser:
         self._forbid_dtd = forbid_dtd
         self._forbid_entities = forbid_entities
         self._forbid_external = forbid_external
-        self._forbid_declarations = forbid_dtd or forbid_entities
+        self._forbid_declarations = (
+            forbid_dtd
+            or forbid_entities
+            or forbid_external
+        )
         self._chunks: list[bytes | str] = []
 
     def feed(self, data: bytes | str) -> None:
