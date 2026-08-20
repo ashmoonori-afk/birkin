@@ -317,6 +317,9 @@ public final class BirkinApplicationRuntime: ObservableObject {
             }
             if let session = readySession {
                 try renderConfiguredEvidence(session: session)
+                if case .string(let surfaceName) = message.body["surface"] {
+                    emit("surface-rendered name=\(surfaceName)")
+                }
             }
             if case .replayRequired = store.status {
                 throw BirkinApplicationRuntimeError.replayRequired
