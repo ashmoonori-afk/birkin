@@ -57,6 +57,25 @@ def test_terminal_create_requires_shell_approval_before_lease(
     assert terminal.active_process_ids == ()
 
 
+def test_revoked_terminal_lease_cannot_be_replayed_as_empty_string(
+    tmp_path: Path,
+) -> None:
+    recorder = EventRecorder()
+    terminal = authority(tmp_path, recorder, {"auto_approve": ["shell"]})
+    opened = terminal.create({"actor_kind": "native_human", "cwd": str(tmp_path)})
+    terminal.revoke_leases()
+    try:
+        with pytest.raises(TerminalLeaseRequired, match="live terminal lease"):
+            terminal.input({
+                "terminal_id": opened["terminal_id"],
+                "lease": "",
+                "sequence": 1,
+                "data": "echo bypassed-revocation\n",
+            })
+    finally:
+        terminal.close_all()
+
+
 def test_terminal_create_refuses_missing_or_wrong_lease(tmp_path: Path) -> None:
     recorder = EventRecorder()
     terminal = authority(tmp_path, recorder, {"auto_approve": ["shell"]})

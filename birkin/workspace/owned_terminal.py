@@ -49,7 +49,7 @@ class _TerminalSession:
     master_fd: int
     cwd: Path
     shell: str
-    lease: str
+    lease: str | None
     lease_expires_at: float
     input_sequence: int = 0
     output_sequence: int = 0
@@ -305,7 +305,7 @@ class TerminalAuthority:
         with self._lock:
             sessions = tuple(self._sessions.values())
         for session in sessions:
-            session.lease = ""
+            session.lease = None
 
     def close_all(self) -> None:
         with self._lock:
@@ -353,7 +353,12 @@ class TerminalAuthority:
             if self._monotonic() >= session.lease_expires_at:
                 self._terminate(session, reason="lease_expired")
                 raise TerminalLeaseRequired("terminal lease expired")
-            if not isinstance(lease, str) or not secrets.compare_digest(lease, session.lease):
+            if (
+                not isinstance(lease, str)
+                or not lease
+                or session.lease is None
+                or not secrets.compare_digest(lease, session.lease)
+            ):
                 raise TerminalLeaseRequired("live terminal lease is required")
         return session
 
@@ -427,7 +432,7 @@ class TerminalAuthority:
             os.close(session.master_fd)
         except OSError:
             pass
-        session.lease = ""
+        session.lease = None
 
     def _emit_exit_if_needed(
         self, session: _TerminalSession, *, reason: str = "exited"
