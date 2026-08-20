@@ -13,6 +13,7 @@ public struct NativeShellView: View {
     @State private var selectedColumn: ShellColumnID
     @StateObject private var templateLauncher: TemplateLauncherModel
     @StateObject private var conversationComposer: ConversationComposerModel
+    @StateObject private var terminalControls: TerminalControlModel
 
     public init(
         store: NativeProjectionStore,
@@ -36,6 +37,7 @@ public struct NativeShellView: View {
             makeSessionID: makeSessionID
         ))
         _conversationComposer = StateObject(wrappedValue: ConversationComposerModel())
+        _terminalControls = StateObject(wrappedValue: TerminalControlModel())
     }
 
     public var body: some View {
@@ -156,6 +158,18 @@ public struct NativeShellView: View {
                 ) {
                     clearWorkingMemory(availability: availability)
                 }
+            } else if section.id == .terminal,
+                      let terminal = store.projection?.terminals.first {
+                TerminalView(
+                    terminal: terminal,
+                    canMutate: terminalMutationEnabled(availability)
+                ) { data in
+                    sendTerminalInput(data, terminal: terminal, availability: availability)
+                } interrupt: {
+                    interruptTerminal(terminal, availability: availability)
+                } close: {
+                    closeTerminal(terminal, availability: availability)
+                }
             } else {
                 stateText(section.state)
             }
@@ -169,6 +183,11 @@ public struct NativeShellView: View {
                 ) {
                     sendDraft(availability: availability)
                 }
+            }
+            if section.id == .terminal, store.projection?.terminals.isEmpty != false {
+                Button("New Terminal") { requestTerminal(availability: availability) }
+                    .disabled(!availability.isEnabled || !terminalCreateAdvertised)
+                    .accessibilityLabel("Request new Python terminal")
             }
             if let control = mutationControl(for: section.id) {
                 let surfaceEnabled = isAdvertised(control)
@@ -263,6 +282,74 @@ public struct NativeShellView: View {
         ))
     }
 
+    private func requestTerminal(availability: MutationAvailability) {
+        guard availability.isEnabled,
+              let session = Self.readySession(in: connectionState),
+              terminalCreateAdvertised else { return }
+        _ = terminalControls.requestTerminal(
+            expectedCursor: store.latestAppliedCursor ?? 0,
+            sessionCapability: session.sessionCapability,
+            submit: templateCommandAction
+        )
+    }
+
+    private func sendTerminalInput(
+        _ data: String,
+        terminal: NativeTerminalProjection,
+        availability: MutationAvailability
+    ) {
+        guard terminalMutationEnabled(availability),
+              let session = Self.readySession(in: connectionState) else { return }
+        _ = terminalControls.sendInput(
+            data, terminal: terminal,
+            expectedCursor: store.latestAppliedCursor ?? 0,
+            sessionCapability: session.sessionCapability,
+            submit: templateCommandAction
+        )
+    }
+
+    private func interruptTerminal(
+        _ terminal: NativeTerminalProjection,
+        availability: MutationAvailability
+    ) {
+        guard terminalMutationEnabled(availability),
+              let session = Self.readySession(in: connectionState) else { return }
+        _ = terminalControls.interrupt(
+            terminal: terminal, expectedCursor: store.latestAppliedCursor ?? 0,
+            sessionCapability: session.sessionCapability,
+            submit: templateCommandAction
+        )
+    }
+
+    private func closeTerminal(
+        _ terminal: NativeTerminalProjection,
+        availability: MutationAvailability
+    ) {
+        guard terminalMutationEnabled(availability),
+              let session = Self.readySession(in: connectionState) else { return }
+        _ = terminalControls.close(
+            terminal: terminal, confirmed: true,
+            expectedCursor: store.latestAppliedCursor ?? 0,
+            sessionCapability: session.sessionCapability,
+            submit: templateCommandAction
+        )
+    }
+
+    private var terminalCreateAdvertised: Bool {
+        Self.readySession(in: connectionState)?
+            .supportedCommands.contains("terminal.create") == true
+    }
+
+    private func terminalMutationEnabled(_ availability: MutationAvailability) -> Bool {
+        guard availability.isEnabled,
+              let commands = Self.readySession(in: connectionState)?.supportedCommands else {
+            return false
+        }
+        return commands.isSuperset(of: [
+            "terminal.input", "terminal.signal", "terminal.close",
+        ])
+    }
+
     private var isWorkingMemoryAdvertised: Bool {
         Self.readySession(in: connectionState)?
             .supportedCommands.contains("memory.write") == true
@@ -280,6 +367,16 @@ public struct NativeShellView: View {
             store.projection?.composer.canSend == true
                 && Self.readySession(in: connectionState)?
                     .supportedCommands.contains("chat.send") == true
+        case .newTerminal: terminalCreateAdvertised
+        case .terminalInput:
+            Self.readySession(in: connectionState)?
+                .supportedCommands.contains("terminal.input") == true
+        case .terminalInterrupt:
+            Self.readySession(in: connectionState)?
+                .supportedCommands.contains("terminal.signal") == true
+        case .terminalClose:
+            Self.readySession(in: connectionState)?
+                .supportedCommands.contains("terminal.close") == true
         }
     }
 
@@ -298,6 +395,10 @@ public struct NativeShellView: View {
         switch control {
         case .newSession: "New Session"
         case .sendMessage: "Send"
+        case .newTerminal: "New Terminal"
+        case .terminalInput: "Run"
+        case .terminalInterrupt: "Interrupt"
+        case .terminalClose: "Close"
         }
     }
 }

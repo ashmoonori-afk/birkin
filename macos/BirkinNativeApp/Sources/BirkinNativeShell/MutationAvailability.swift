@@ -4,6 +4,10 @@ import Foundation
 public enum ShellMutationControl: String, CaseIterable, Sendable {
     case newSession
     case sendMessage
+    case newTerminal
+    case terminalInput
+    case terminalInterrupt
+    case terminalClose
 }
 
 public struct MutationAvailability: Equatable, Sendable {

@@ -74,7 +74,7 @@ public struct ShellStructure: Equatable, Sendable {
             ShellColumn(id: .primary, sections: [
                 Self.conversation(projection),
                 Self.composer(projection),
-                Self.unavailable(.terminal, projection: projection),
+                Self.terminal(projection),
             ]),
             ShellColumn(id: .context, sections: [
                 Self.panel(.approvals, key: "approvals", projection: projection),
@@ -134,6 +134,16 @@ public struct ShellStructure: Equatable, Sendable {
     private static func composer(_ projection: NativeProjectionState?) -> ShellSection {
         guard projection != nil else { return waiting(.composer) }
         return ShellSection(id: .composer, state: .empty("Ready for an explicit message."))
+    }
+
+    private static func terminal(_ projection: NativeProjectionState?) -> ShellSection {
+        guard let projection else { return waiting(.terminal) }
+        return ShellSection(
+            id: .terminal,
+            state: projection.terminals.isEmpty
+                ? .empty("No Python terminal yet.")
+                : .content(itemCount: projection.terminals.count)
+        )
     }
 
     private static func unavailable(
