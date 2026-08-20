@@ -101,6 +101,21 @@ struct BirkinApplicationReconnectIntegrationTests {
         #expect(runtime.store.latestAppliedCursor == 5)
         #expect(events.contains("reconnect-attempt"))
         #expect(events.contains("replayed"))
+
+        let session: NativeReadySession? = switch runtime.connectionState {
+        case .ready(let value), .fallback(.ready(let value)): value
+        default: nil
+        }
+        let ready = try #require(session)
+        runtime.submit(NativeCommandRequest(
+            frameID: "post-reconnect-frame", commandID: "post-reconnect-command",
+            expectedCursor: runtime.store.latestAppliedCursor ?? 0,
+            commandType: "chat.send", payload: ["text": .string("Command after reconnect")],
+            sessionCapability: ready.sessionCapability, viewID: "composer"
+        ))
+        try await withTimeout("post reconnect receipt") {
+            try await events.wait(for: "command-receipt id=post-reconnect-frame")
+        }
     }
 }
 
