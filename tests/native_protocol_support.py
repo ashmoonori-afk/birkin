@@ -52,6 +52,7 @@ def ready(*, in_reply_to: str = "hello-1") -> NativeEnvelope:
             "protocol_version": NATIVE_PROTOCOL_VERSION,
             "server_version": "1.0.0",
             "instance_id": "instance-1",
+            "session_id": "session-1",
             "transport": "uds",
             "capability": {
                 "token": "opaque",
