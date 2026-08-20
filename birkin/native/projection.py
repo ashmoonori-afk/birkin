@@ -15,6 +15,7 @@ _SENSITIVE_KEYS = {
     "bootstrap_secret",
     "cookie",
     "credential",
+    "lease",
     "password",
     "provider_token",
     "secret",

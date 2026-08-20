@@ -109,21 +109,24 @@ def validate_body(
         _ = _non_negative_integer(body, "revision")
         _ = _mapping(body, "payload")
     elif kind == "receipt":
-        _exact(
-            body,
-            {
-                "protocol_version",
-                "command_id",
-                "session_id",
-                "actor_id",
-                "accepted_cursor",
-                "state",
-                "result_event_cursor",
-                "duplicate",
-                "outcome",
-            },
-        )
+        required = {
+            "protocol_version",
+            "command_id",
+            "session_id",
+            "actor_id",
+            "accepted_cursor",
+            "state",
+            "result_event_cursor",
+            "duplicate",
+            "outcome",
+        }
+        if not required.issubset(body) or not set(body).issubset(required | {"result"}):
+            raise NativeProtocolError(
+                "E_BODY", "message body keys do not match the kind schema"
+            )
         _ = _string(body, "outcome")
+        if "result" in body:
+            _ = _mapping(body, "result")
     elif kind == "error":
         _error(body)
     elif kind == "capability.renewed":

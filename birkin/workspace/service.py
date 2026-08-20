@@ -185,17 +185,21 @@ class WorkspaceService:
                 raise
             finally:
                 self._active_receipt = None
+            durable_result = result
+            if command.type == "terminal.create" and "lease" in result:
+                durable_result = {**result, "lease": "[REDACTED]"}
             completed = self._append(
                 "command.completed",
                 actor_id=receipt.actor_id,
                 command_id=command.command_id,
-                payload={"result": result},
+                payload={"result": durable_result},
             )
-            return self._journal.complete(
+            completed_receipt = self._journal.complete(
                 receipt,
                 state="completed",
                 result_cursor=completed.cursor,
             )
+            return replace(completed_receipt, transient_result=result)
 
     def cancel(
         self,

@@ -44,6 +44,8 @@ class NativeCommandExecutor:
                 actor_id=f"macos:{command.client_context.view_id}",
             )
             body = receipt.to_public_json()
+            if receipt.transient_result is not None and not receipt.duplicate:
+                body["result"] = receipt.transient_result
             body["outcome"] = (
                 "duplicate" if receipt.duplicate else "accepted"
             )

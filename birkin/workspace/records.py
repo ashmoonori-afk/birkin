@@ -89,6 +89,7 @@ class CommandReceipt:
     result_event_cursor: int | None
     fingerprint: str
     duplicate: bool = False
+    transient_result: dict[str, object] | None = None
 
     def as_duplicate(self) -> CommandReceipt:
         return replace(self, duplicate=True)

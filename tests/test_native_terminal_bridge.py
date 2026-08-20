@@ -10,6 +10,7 @@ import pytest
 from birkin.native.capability import BootstrapSecretStore
 from birkin.native.protocol import encode_frame
 from birkin.native.server import NativeBridgeServer
+from birkin.native.session import NativeProjectionSession
 from birkin.workspace.contracts import TerminalLeaseRequired
 from birkin.workspace.owned_terminal import TerminalAuthority
 from birkin.workspace.service import WorkspaceService
@@ -93,10 +94,19 @@ def test_full_native_bridge_real_pty_round_trip_and_invalid_signal(
         _send(client, token, source, "terminal.create", "create-terminal", {
             "actor_kind": "native_human", "cwd": str(tmp_path),
         })
-        assert receive_kind(client, "receipt").body["state"] == "completed"
+        create_receipt = receive_kind(client, "receipt")
+        assert create_receipt.body["state"] == "completed"
+        result = cast(dict[str, object], create_receipt.body["result"])
+        lease = str(result["lease"])
         opened = _event(client, "terminal.opened")
+        assert opened["lease"] == "[REDACTED]"
+        replay = NativeProjectionSession(
+            source, instance_id="instance-terminal"
+        ).subscribe(after_cursor=0, known_instance_id="instance-terminal")
+        replay_text = str(replay.events)
+        assert lease not in replay_text
+        assert "[REDACTED]" in replay_text
         terminal_id = str(opened["terminal_id"])
-        lease = str(opened["lease"])
         raw_pid = opened["pid"]
         assert isinstance(raw_pid, int)
         pid = raw_pid
