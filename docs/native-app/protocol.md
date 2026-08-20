@@ -1,147 +1,146 @@
 # Birkin Local Native Protocol
 
-Protocol: `birkin-local-1`
+Protocol: `birkin-local-1`, envelope version `1`
 
-Status: planned. Version 1 is not yet served by any released build.
+Status: shipped by the Python bridge and Swift protocol package.
 
-## Transport
+## Transport and framing
 
-Primary:
+The preferred macOS transport is a private UDS. Its path and parents may not
+traverse symlinks, its runtime directory is mode `0700`, the socket is mode
+`0600`, and the accepted peer UID must equal the bridge user's effective UID.
+The explicitly selected fallback binds only `127.0.0.1` and publishes a private
+mode-`0600` endpoint record containing a one-shot bootstrap secret. This is a
+raw framed socket protocol, not HTTP; it has no Host or Origin fields.
 
-- Unix domain socket
-- private runtime directory
-- same-user peer credentials
-- short-lived capability
-
-Fallback, used only after a declared Unix socket failure or explicit diagnostic configuration:
-
-- `127.0.0.1` only
-- pinned Host and Origin
-- private `0600` endpoint record with a dedicated one-shot bootstrap secret
-- the client reads the secret only at connect time
-- successful hello consumes and rotates it, then returns the normal short-lived in-memory capability
-
-No public bind or unauthenticated fallback is supported.
-
-The application visibly reports that fallback is active and why.
-
-## Framing
-
-Each frame is:
+Every frame is exactly:
 
 ```text
-4-byte big-endian unsigned body length
-UTF-8 JSON body
+4-byte big-endian unsigned JSON byte length
+that many bytes of UTF-8 JSON
 ```
 
-The frame size, command payload, JSON depth, subscriptions, in-flight commands, event queue, and diagnostics are bounded.
+The maximum JSON body is 262,144 bytes. Incomplete frames, trailing bytes,
+invalid UTF-8, duplicate object keys, non-finite numbers, unexpected envelope
+keys, and excessive nesting are refused. An envelope has exactly
+`protocol`, `protocol_version`, `kind`, `id`, `in_reply_to`, and object-valued
+`body`. Identifiers match `[A-Za-z0-9._:-]{1,128}`.
 
-## Negotiation
+A nested workspace command carries its own protocol version, stable command ID,
+expected cursor, type, payload, and client context. Its payload has a canonical
+65,536 bound and the advertised maximum JSON body depth is 12. `ready` also
+advertises maximum frame bytes, eight in-flight commands, and 32 subscriptions.
 
-The client sends `hello` with:
+## Message kinds
 
-- application and build version
-- supported protocol versions
-- `macos` surface identity
-- view identifier
-- fallback capability when required
+These are all registered envelope kinds in `birkin/native/protocol.py`:
 
-The server returns `ready` with:
+| Kind | Direction and purpose |
+| --- | --- |
+| `hello` | client -> server: negotiate and authenticate |
+| `ready` | server -> client: selected version, identity, limits, capability, commands, and surfaces |
+| `subscribe` | client -> server: session cursor, known instance, and surface revisions |
+| `snapshot` | server -> client: full canonical workspace projection |
+| `event` | server -> client: one cursor-bearing workspace event |
+| `surface_snapshot` | server -> client: full revisioned product-surface projection |
+| `surface_event` | server -> client: one revisioned product-surface event |
+| `command` | client -> server: strict nested workspace command |
+| `receipt` | server -> client: public canonical command result |
+| `error` | server -> client: bounded typed refusal |
+| `capability.renewed` | server -> client: replacement in-memory capability |
+| `stream.desynchronized` | server -> client: outbound stream lost continuity |
+| `ping`, `pong` | either permitted direction: liveness and correlation |
+| `goodbye` | client -> server: orderly authenticated close |
 
-- selected protocol version
-- server and instance identity
-- renewed capability
-- limits
-- registered command capabilities
-- negotiated surface capabilities
+The Python workspace command schema recognizes chat send/steer/interrupt/resume/
+retry; session create/select/rename/compact; task send/cancel; approval and
+question answers; cron create/pause/resume/remove; memory write/link; terminal
+create/input/resize/signal/close/snapshot; Browser start/navigate; Office
+create/open; jailed file import; skill reload; checkpoint restore; config set;
+and gateway restart. `ready.capabilities.commands` is the authoritative subset
+actually registered for a connection. Unsupported registered-schema commands
+are not simulated by Swift and return `E_UNSUPPORTED_COMMAND`.
 
-When the client and server share no protocol version, the server returns a terminal version-mismatch error listing both version sets and closes the connection. The protocol never silently downgrades.
+## Handshake and capability lifecycle
 
-## Workspace messages
+`hello` identifies the client version/build, supported protocol versions,
+`macos` surface, and view. A loopback hello must present the endpoint record's
+one-shot `bootstrap_secret`; successful exchange rotates the disk secret. UDS
+hello instead relies on the accepted same-user peer credential. There is no
+silent protocol downgrade.
 
-The protocol carries:
+`ready` returns the bridge `instance_id`, transport, negotiated limits and
+features, and a random session capability scoped to that instance, connection,
+surface, and view. Every post-ready client frame carries that capability. Swift
+keeps it in memory only. The default sliding lifetime is 15 minutes with an
+eight-hour hard connection ceiling. Near expiry the server sends
+`capability.renewed`; replacement revokes the previous token. Tokens are also
+revoked at disconnect, `goodbye`, expiry, or bridge teardown. A capability does
+not replace Python approval, terminal lease, Browser control, Computer Use, or
+Office consent authority.
 
-- `subscribe`
-- canonical workspace `snapshot`
-- canonical workspace `event`
-- strict workspace `command`
-- public command `receipt`
-- bounded `error`
-- `ping`, `pong`, and `goodbye`
+## Cursor, replay, and surface revisions
 
-Workspace commands retain the Python protocol version, command identifier, expected cursor, strict payload, and client context.
+A subscription sends `after_cursor`, `known_instance_id`, and known surface
+revisions. With no known instance, a changed instance, or a cursor ahead of
+Python, the server returns a full snapshot with reset reason `initial`,
+`instance_changed`, or `cursor_ahead`. For the same instance it replays events
+only when every cursor is contiguous. A gap produces a full snapshot with
+`cursor_gap`. Full reconnect snapshots clear terminal leases and mark terminals
+read-only until Python grants new authority.
 
-## Errors
+Swift applies only contiguous events. A projection gap requests canonical
+recovery rather than guessing. Product surfaces have independent revisions;
+Python returns full `surface_snapshot` records where a client's revision cannot
+be advanced safely. `stream.desynchronized` likewise requires replay from
+canonical state.
 
-| Code | Meaning | Retry disposition |
-| --- | --- | --- |
-| `E_PROTOCOL_VERSION` | no common protocol version | terminal |
-| `E_STATE` | invalid protocol transition | terminal |
-| `E_PEER_UID_MISMATCH` | wrong local user | terminal |
-| `E_CAPABILITY_INVALID` | malformed or unknown capability | one full handshake |
-| `E_CAPABILITY_EXPIRED` | normal capability expiry | full handshake |
-| `E_CAPABILITY_REVOKED` | restart or explicit revocation | full replay |
-| `E_FRAME_TOO_LARGE` | frame exceeds the advertised bound | terminal |
-| `E_PAYLOAD_TOO_LARGE` | command payload exceeds the canonical bound | terminal |
-| `E_JSON_DEPTH` | JSON nesting exceeds the canonical bound | terminal |
-| `E_STALE_CURSOR` | optimistic concurrency conflict | command-specific |
-| `E_COMMAND_ID_CONFLICT` | one identifier was reused with a changed payload | terminal |
-| `E_UNSUPPORTED_COMMAND` | no registered Python handler exists | terminal |
-| `E_SESSION_NOT_FOUND` | session identity is unknown | return to Sessions |
-| `E_SESSION_CLOSED` | session is closed | create or select another session |
-| `E_SURFACE_UNAVAILABLE` | negotiated surface capability is absent | terminal for that surface |
-| `E_SURFACE_REVISION` | surface event revision has a gap | request a full surface snapshot |
-| `E_FLOW_VIOLATION` | concurrency or slow-consumer bound was exceeded | reconnect |
-| `E_ALREADY_RUNNING` | a live bridge already owns the endpoint | attach to the live bridge |
-| `E_SOCKET_PATH_TOO_LONG` | the Unix socket path exceeds the platform bound | visibly use the allowed fallback |
+Command IDs make duplicate delivery idempotent. Reusing an ID with changed
+semantics returns `E_COMMAND_ID_CONFLICT`; an obsolete expected cursor returns
+`E_STALE_CURSOR` and its current cursor. The shell does not silently replay
+approval, configuration, terminal, Browser, Computer Use, or Office mutations.
 
-Errors are bounded and redacted. They never include tracebacks, tokens, raw request text, or file contents, and they retain canonical refusal codes where applicable.
+## Typed errors
 
-## Surface projections
-
-Browser Aside, Computer Use, Office, Working Memory, and Terminal use separately negotiated, revisioned surface snapshots and events constructed by Python.
-
-Projection payloads exclude provider tokens, raw binary artifacts, personal browser data, secret input, and hidden execution state.
-
-## Reconnect
-
-- cursor gaps require full workspace replay
-- surface revision gaps require a full surface snapshot
-- a changed Python instance invalidates capabilities and all native authority projections
-- duplicate command recovery uses the original command identifier
-- a changed payload with the same identifier is rejected
-
-Only `chat.interrupt` may automatically retry once after a stale cursor. Every other command refreshes state, preserves the draft, shows an inline conflict, and requires explicit re-submission. Approval, config, checkpoint, terminal signal, Browser control, Computer Use, and Office consent actions are never silently replayed.
-
-## Capabilities
-
-The local capability is random, scoped to a bridge instance and connection, and kept in Swift memory only. It carries a sliding time-to-live plus a hard per-connection ceiling, both advertised in `ready`. The server sends `capability.renewed` before expiry; the client swaps the token in memory without a connection-state change. A failed renewal triggers one full handshake. The capability is revoked on close, goodbye, expiry, explicit revoke, or bridge restart.
-
-The one-shot loopback bootstrap secret is a separate, narrowly scoped disk bootstrap mechanism. It is not a provider credential or a session capability.
-
-It does not replace approval decisions, Computer Use consent, Browser control leases, Office active-content consent, or policy changes.
-
-## Strict codec additions
-
-The native envelope has an independent version from nested workspace commands. Initial `hello` uses native envelope version 1 so supported-version negotiation remains parseable.
-
-The raw private-loopback transport uses `bootstrap_secret` only for hello. It does not use HTTP Host or Origin. UDS hello is authenticated by same-user peer credentials. `session_capability` authenticates post-ready frames.
-
-The codec also publishes:
+The shipped Python native boundary emits these codes:
 
 | Code | Meaning |
 | --- | --- |
-| `E_ENVELOPE_KEYS` | invalid envelope key set |
-| `E_PROTOCOL` | unsupported protocol name |
-| `E_KIND` | unsupported message kind |
-| `E_IDENTIFIER` | malformed identifier |
-| `E_FRAME_INCOMPLETE` | incomplete frame |
-| `E_FRAME_TRAILING_DATA` | trailing frame bytes |
-| `E_INVALID_UTF8` | invalid UTF-8 |
-| `E_JSON` | invalid strict JSON |
-| `E_DUPLICATE_KEY` | duplicate JSON key |
-| `E_NONFINITE_NUMBER` | NaN or Infinity |
-| `E_DIRECTION` | wrong sender direction |
-| `E_CORRELATION` | invalid response correlation |
-| `E_DUPLICATE_FRAME_ID` | reused connection frame identifier |
-| `E_TERMINAL_LEASE` | invalid terminal lease |
+| `E_ENVELOPE_KEYS` | envelope key set is not exact |
+| `E_PROTOCOL`, `E_PROTOCOL_VERSION` | protocol name or version is unsupported |
+| `E_KIND`, `E_IDENTIFIER`, `E_BODY` | kind, identifier, or typed body is invalid |
+| `E_JSON`, `E_JSON_DEPTH`, `E_DUPLICATE_KEY`, `E_NONFINITE_NUMBER` | strict JSON violation |
+| `E_INVALID_UTF8` | frame body is not UTF-8 |
+| `E_FRAME_TOO_LARGE`, `E_FRAME_INCOMPLETE`, `E_FRAME_TRAILING_DATA` | frame bound or completeness violation |
+| `E_DIRECTION`, `E_STATE`, `E_CORRELATION` | sender direction, state transition, or reply correlation is invalid |
+| `E_DUPLICATE_FRAME_ID`, `E_FLOW_VIOLATION` | connection ID reuse or bounded-flow violation |
+| `E_SOCKET_PATH`, `E_SOCKET_PATH_TOO_LONG`, `E_ALREADY_RUNNING`, `E_TRANSPORT` | local endpoint or transport refusal |
+| `E_PEER_UID_MISMATCH` | UDS peer is unavailable, invalid, or not the bridge user |
+| `E_BOOTSTRAP_INVALID`, `E_BOOTSTRAP_EXPIRED` | loopback one-shot secret is invalid or expired |
+| `E_CAPABILITY_INVALID`, `E_CAPABILITY_EXPIRED` | post-ready capability is wrong for the scope or no longer live |
+| `E_SESSION_NOT_FOUND` | requested workspace session is not served |
+| `E_STALE_CURSOR`, `E_COMMAND_ID_CONFLICT`, `E_UNSUPPORTED_COMMAND` | workspace concurrency, replay, or handler refusal |
+| `E_CONFIG_REJECTED` | canonical configuration validation rejected the mutation |
+| `E_WORKING_MEMORY_REVISION`, `E_WORKING_MEMORY_BUDGET` | Working Memory compare-and-swap or render-budget refusal |
+| `E_TERMINAL_APPROVAL_REQUIRED` | shell approval must resolve before a terminal lease is issued |
+| `E_TERMINAL_LEASE_REQUIRED` | terminal mutation lacks the current lease |
+| `E_TERMINAL_SEQUENCE` | terminal input is duplicated or out of order |
+| `E_TERMINAL_SIGNAL` | signal is outside the process-tree allowlist |
+
+Errors expose bounded public text, not tracebacks or raw secret-bearing payloads.
+The protocol and projection fixtures contain 21 Python-generated frame vectors,
+a canonical snapshot, 14 events, and a gap event, all decoded by Swift tests.
+
+## Swift strictness narrowings
+
+The Swift codec intentionally narrows Python's accepted JSON in two places:
+
+- A lone UTF-16 surrogate (`\uD800`-`\uDFFF` not forming a valid pair) is
+  refused as `E_JSON`, because Swift `String` cannot represent it.
+- An integer outside Swift's signed `Int64` range is refused as `E_JSON`, even
+  though Python integers are unbounded.
+
+Before envelope validation, the Swift parser also has a depth-128 recursion
+guard to bound parser stack use. Exceeding it is refused as `E_JSON_DEPTH`. This
+does not relax the wire contract: after parsing, the envelope `body` still has
+the shared maximum depth of 12.
