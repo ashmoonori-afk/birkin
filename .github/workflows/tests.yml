@@ -193,6 +193,13 @@ jobs:
         run: |
           set -o pipefail
           swift test --package-path macos/BirkinNativeApp 2>&1 | tee .omo/evidence/native-swift/swift-test.log
+      - name: Native Swift test evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: native-swift-test-evidence
+          path: .omo/evidence/native-swift
+          if-no-files-found: error
 
   windows-computer-use-native:
     name: Windows native Computer Use acceptance

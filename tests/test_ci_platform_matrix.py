@@ -62,6 +62,20 @@ def test_tests_workflow_has_bounded_native_swift_job() -> None:
     assert "swift test --package-path macos/BirkinNativeApp" in workflow
 
 
+def test_native_swift_job_uploads_test_evidence() -> None:
+    workflow = WORKFLOW.read_text(encoding="utf-8")
+
+    assert "name: Native Swift test evidence" in workflow
+    assert "if: always()" in workflow
+    upload_action = (
+        "actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4"
+    )
+    assert upload_action in workflow
+    assert "name: native-swift-test-evidence" in workflow
+    assert "path: .omo/evidence/native-swift" in workflow
+    assert "if-no-files-found: error" in workflow
+
+
 def test_optional_workflow_is_separate_and_utf8() -> None:
     workflow = (WORKFLOW.parent / "optional-tests.yml").read_text(encoding="utf-8")
     assert "PYTHONUTF8" in workflow
