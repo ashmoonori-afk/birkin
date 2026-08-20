@@ -50,6 +50,18 @@ def test_primary_ci_excludes_exact_lock_only_tests() -> None:
     assert '-m "not live and not locked_env"' in workflow
 
 
+def test_tests_workflow_has_bounded_native_swift_job() -> None:
+    workflow = WORKFLOW.read_text(encoding="utf-8")
+
+    assert "native-macos-swift:" in workflow
+    assert "name: Native macOS Swift build and test" in workflow
+    assert "runs-on: macos-latest" in workflow
+    assert "timeout-minutes: 20" in workflow
+    assert "Verify Swift 6 toolchain" in workflow
+    assert "swift --version | grep -E 'Swift version 6\\.'" in workflow
+    assert "swift test --package-path macos/BirkinNativeApp" in workflow
+
+
 def test_optional_workflow_is_separate_and_utf8() -> None:
     workflow = (WORKFLOW.parent / "optional-tests.yml").read_text(encoding="utf-8")
     assert "PYTHONUTF8" in workflow
