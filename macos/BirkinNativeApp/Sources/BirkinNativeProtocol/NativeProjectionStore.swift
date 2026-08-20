@@ -82,7 +82,8 @@ public final class NativeProjectionStore {
     ) throws -> NativeProjectionState {
         let expectedKeys: Set<String> = [
             "protocol_version", "session_id", "cursor", "panels", "conversation",
-            "composer", "status", "working_memory", "terminals", "instance_id", "reset_reason",
+            "composer", "status", "working_memory", "approval_policy", "terminals",
+            "instance_id", "reset_reason",
         ]
         guard Set(body.keys) == expectedKeys else {
             throw NativeProjectionError("projection snapshot keys do not match the contract")
@@ -120,6 +121,7 @@ public final class NativeProjectionStore {
             ),
             connection: try string(status["connection"], label: "connection"),
             workingMemory: workingMemory,
+            approvalPolicy: try object(body["approval_policy"], label: "approval_policy"),
             terminals: try objectArray(body["terminals"], label: "terminals").map(
                 decodeTerminal
             )

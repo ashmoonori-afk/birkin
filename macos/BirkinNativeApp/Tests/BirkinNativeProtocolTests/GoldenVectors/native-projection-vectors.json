@@ -10,8 +10,8 @@
     "birkin.goals.GoalState"
   ],
   "snapshot": {
-    "frame_base64": "AAAF0HsicHJvdG9jb2wiOiJiaXJraW4tbG9jYWwtMSIsInByb3RvY29sX3ZlcnNpb24iOjEsImtpbmQiOiJzbmFwc2hvdCIsImlkIjoic2VydmVyLTEiLCJpbl9yZXBseV90byI6bnVsbCwiYm9keSI6eyJwcm90b2NvbF92ZXJzaW9uIjoxLCJzZXNzaW9uX2lkIjoic2Vzc2lvbi0xIiwiY3Vyc29yIjoyLCJwYW5lbHMiOlt7ImtleSI6InRhc2tzX3J1bnMiLCJpdGVtcyI6W119LHsia2V5IjoiYXBwcm92YWxzIiwiaXRlbXMiOltdfSx7ImtleSI6ImZpbGVzX2V2aWRlbmNlIiwiaXRlbXMiOltdfSx7ImtleSI6InNlc3Npb25zX2hpc3RvcnkiLCJpdGVtcyI6W3siaWQiOiJldmVudC0yIiwia2luZCI6ImFzc2lzdGFudF9tZXNzYWdlIiwidGV4dCI6IlNuYXBzaG90IHJlYWR5IiwiYWN0b3JfaWQiOiJtYWNvczp3aW5kb3ctbWFpbiIsImN1cnNvciI6Mn1dfSx7ImtleSI6ImFjdGl2aXR5X2xvZ3MiLCJpdGVtcyI6W119LHsia2V5IjoiY3JvbiIsIml0ZW1zIjpbXX0seyJrZXkiOiJtZW1vcnlfc2tpbGxzIiwiaXRlbXMiOltdfSx7ImtleSI6ImNoZWNrcG9pbnRzX3Jlc3RvcmUiLCJpdGVtcyI6W119LHsia2V5IjoiY29tcHV0ZXJfdXNlIiwiaXRlbXMiOltdfSx7ImtleSI6InNldHRpbmdzX3N0YXR1cyIsIml0ZW1zIjpbXX1dLCJjb252ZXJzYXRpb24iOlt7ImlkIjoiZXZlbnQtMSIsImtpbmQiOiJ1c2VyX21lc3NhZ2UiLCJ0ZXh0IjoiU2hpcCB0aGUgcmVkdWNlciIsImFjdG9yX2lkIjoibWFjb3M6d2luZG93LW1haW4iLCJjdXJzb3IiOjF9LHsiaWQiOiJldmVudC0yIiwia2luZCI6ImFzc2lzdGFudF9tZXNzYWdlIiwidGV4dCI6IlNuYXBzaG90IHJlYWR5IiwiYWN0b3JfaWQiOiJtYWNvczp3aW5kb3ctbWFpbiIsImN1cnNvciI6Mn1dLCJjb21wb3NlciI6eyJjYW5fc2VuZCI6dHJ1ZSwiY2FuX2ludGVycnVwdCI6ZmFsc2UsImNhbl9yZXN1bWUiOmZhbHNlfSwic3RhdHVzIjp7ImNvbm5lY3Rpb24iOiJjb25uZWN0ZWQifSwid29ya2luZ19tZW1vcnkiOnsicmV2aXNpb24iOjEsImdvYWwiOnsic2x1ZyI6InNoaXAtbmF0aXZlLXdvcmtpbmctbWVtb3J5Iiwib2JqZWN0aXZlIjoiU2hpcCBuYXRpdmUgV29ya2luZyBNZW1vcnkiLCJ0b2tlbnNfdXNlZCI6MCwic3RhdHVzIjoiYWN0aXZlIn0sImZpZWxkcyI6eyJjb3JyZWN0aW9ucyI6WyJVc2UgY2Fub25pY2FsIHN0YXRlIl0sImNvbnN0cmFpbnRzIjpbIlN0YXkgb2ZmbGluZSJdLCJkZWNpc2lvbnMiOlsiRGVsZWdhdGUgdG8gUHl0aG9uIl0sImluY29tcGxldGUiOlsiUmVuZGVyIGZpdmUgcm93cyJdLCJldmlkZW5jZSI6WyJSRUQgY2FwdHVyZWQiXSwibmV4dF9hY3Rpb25zIjpbIlJ1biBHUkVFTiJdfSwiZmlsZXNfZXZpZGVuY2UiOlt7ImlkIjoiY2hlY2twb2ludC0xIiwic3VtbWFyeSI6IndvcmtzcGFjZS9tYWluLnB5Iiwia2luZCI6ImV2aWRlbmNlIn1dfSwidGVybWluYWxzIjpbXSwiaW5zdGFuY2VfaWQiOiJpbnN0YW5jZS0xIiwicmVzZXRfcmVhc29uIjoiaW5pdGlhbCJ9fQ==",
-    "frame_byte_count": 1492,
+    "frame_base64": "AAAGPHsicHJvdG9jb2wiOiJiaXJraW4tbG9jYWwtMSIsInByb3RvY29sX3ZlcnNpb24iOjEsImtpbmQiOiJzbmFwc2hvdCIsImlkIjoic2VydmVyLTEiLCJpbl9yZXBseV90byI6bnVsbCwiYm9keSI6eyJwcm90b2NvbF92ZXJzaW9uIjoxLCJzZXNzaW9uX2lkIjoic2Vzc2lvbi0xIiwiY3Vyc29yIjoyLCJwYW5lbHMiOlt7ImtleSI6InRhc2tzX3J1bnMiLCJpdGVtcyI6W119LHsia2V5IjoiYXBwcm92YWxzIiwiaXRlbXMiOltdfSx7ImtleSI6ImZpbGVzX2V2aWRlbmNlIiwiaXRlbXMiOltdfSx7ImtleSI6InNlc3Npb25zX2hpc3RvcnkiLCJpdGVtcyI6W3siaWQiOiJldmVudC0yIiwia2luZCI6ImFzc2lzdGFudF9tZXNzYWdlIiwidGV4dCI6IlNuYXBzaG90IHJlYWR5IiwiYWN0b3JfaWQiOiJtYWNvczp3aW5kb3ctbWFpbiIsImN1cnNvciI6Mn1dfSx7ImtleSI6ImFjdGl2aXR5X2xvZ3MiLCJpdGVtcyI6W119LHsia2V5IjoiY3JvbiIsIml0ZW1zIjpbXX0seyJrZXkiOiJtZW1vcnlfc2tpbGxzIiwiaXRlbXMiOltdfSx7ImtleSI6ImNoZWNrcG9pbnRzX3Jlc3RvcmUiLCJpdGVtcyI6W119LHsia2V5IjoiY29tcHV0ZXJfdXNlIiwiaXRlbXMiOltdfSx7ImtleSI6InNldHRpbmdzX3N0YXR1cyIsIml0ZW1zIjpbXX1dLCJjb252ZXJzYXRpb24iOlt7ImlkIjoiZXZlbnQtMSIsImtpbmQiOiJ1c2VyX21lc3NhZ2UiLCJ0ZXh0IjoiU2hpcCB0aGUgcmVkdWNlciIsImFjdG9yX2lkIjoibWFjb3M6d2luZG93LW1haW4iLCJjdXJzb3IiOjF9LHsiaWQiOiJldmVudC0yIiwia2luZCI6ImFzc2lzdGFudF9tZXNzYWdlIiwidGV4dCI6IlNuYXBzaG90IHJlYWR5IiwiYWN0b3JfaWQiOiJtYWNvczp3aW5kb3ctbWFpbiIsImN1cnNvciI6Mn1dLCJjb21wb3NlciI6eyJjYW5fc2VuZCI6dHJ1ZSwiY2FuX2ludGVycnVwdCI6ZmFsc2UsImNhbl9yZXN1bWUiOmZhbHNlfSwic3RhdHVzIjp7ImNvbm5lY3Rpb24iOiJjb25uZWN0ZWQifSwid29ya2luZ19tZW1vcnkiOnsicmV2aXNpb24iOjEsImdvYWwiOnsic2x1ZyI6InNoaXAtbmF0aXZlLXdvcmtpbmctbWVtb3J5Iiwib2JqZWN0aXZlIjoiU2hpcCBuYXRpdmUgV29ya2luZyBNZW1vcnkiLCJ0b2tlbnNfdXNlZCI6MCwic3RhdHVzIjoiYWN0aXZlIn0sImZpZWxkcyI6eyJjb3JyZWN0aW9ucyI6WyJVc2UgY2Fub25pY2FsIHN0YXRlIl0sImNvbnN0cmFpbnRzIjpbIlN0YXkgb2ZmbGluZSJdLCJkZWNpc2lvbnMiOlsiRGVsZWdhdGUgdG8gUHl0aG9uIl0sImluY29tcGxldGUiOlsiUmVuZGVyIGZpdmUgcm93cyJdLCJldmlkZW5jZSI6WyJSRUQgY2FwdHVyZWQiXSwibmV4dF9hY3Rpb25zIjpbIlJ1biBHUkVFTiJdfSwiZmlsZXNfZXZpZGVuY2UiOlt7ImlkIjoiY2hlY2twb2ludC0xIiwic3VtbWFyeSI6IndvcmtzcGFjZS9tYWluLnB5Iiwia2luZCI6ImV2aWRlbmNlIn1dfSwiYXBwcm92YWxfcG9saWN5Ijp7InJlcXVlc3RlZCI6eyJhdXRvX2FwcHJvdmUiOm51bGx9LCJlZmZlY3RpdmUiOnsiYXV0b19hcHByb3ZlIjpbXX0sInBlbmRpbmdfcmVxdWVzdHMiOltdfSwidGVybWluYWxzIjpbXSwiaW5zdGFuY2VfaWQiOiJpbnN0YW5jZS0xIiwicmVzZXRfcmVhc29uIjoiaW5pdGlhbCJ9fQ==",
+    "frame_byte_count": 1600,
     "kind": "snapshot",
     "expected_state": {
       "protocol_version": 1,
@@ -126,6 +126,15 @@
             "kind": "evidence"
           }
         ]
+      },
+      "approval_policy": {
+        "requested": {
+          "auto_approve": null
+        },
+        "effective": {
+          "auto_approve": []
+        },
+        "pending_requests": []
       },
       "terminals": []
     }
@@ -259,6 +268,15 @@
             }
           ]
         },
+        "approval_policy": {
+          "requested": {
+            "auto_approve": null
+          },
+          "effective": {
+            "auto_approve": []
+          },
+          "pending_requests": []
+        },
         "terminals": []
       }
     },
@@ -389,6 +407,15 @@
               "kind": "evidence"
             }
           ]
+        },
+        "approval_policy": {
+          "requested": {
+            "auto_approve": null
+          },
+          "effective": {
+            "auto_approve": []
+          },
+          "pending_requests": []
         },
         "terminals": []
       }
@@ -527,6 +554,15 @@
               "kind": "evidence"
             }
           ]
+        },
+        "approval_policy": {
+          "requested": {
+            "auto_approve": null
+          },
+          "effective": {
+            "auto_approve": []
+          },
+          "pending_requests": []
         },
         "terminals": []
       }
@@ -673,6 +709,15 @@
             }
           ]
         },
+        "approval_policy": {
+          "requested": {
+            "auto_approve": null
+          },
+          "effective": {
+            "auto_approve": []
+          },
+          "pending_requests": []
+        },
         "terminals": []
       }
     },
@@ -817,6 +862,15 @@
               "kind": "evidence"
             }
           ]
+        },
+        "approval_policy": {
+          "requested": {
+            "auto_approve": null
+          },
+          "effective": {
+            "auto_approve": []
+          },
+          "pending_requests": []
         },
         "terminals": []
       }
@@ -970,6 +1024,15 @@
             }
           ]
         },
+        "approval_policy": {
+          "requested": {
+            "auto_approve": null
+          },
+          "effective": {
+            "auto_approve": []
+          },
+          "pending_requests": []
+        },
         "terminals": []
       }
     },
@@ -1122,6 +1185,15 @@
             }
           ]
         },
+        "approval_policy": {
+          "requested": {
+            "auto_approve": null
+          },
+          "effective": {
+            "auto_approve": []
+          },
+          "pending_requests": []
+        },
         "terminals": []
       }
     },
@@ -1273,6 +1345,15 @@
               "kind": "evidence"
             }
           ]
+        },
+        "approval_policy": {
+          "requested": {
+            "auto_approve": null
+          },
+          "effective": {
+            "auto_approve": []
+          },
+          "pending_requests": []
         },
         "terminals": [
           {
@@ -1439,6 +1520,15 @@
             }
           ]
         },
+        "approval_policy": {
+          "requested": {
+            "auto_approve": null
+          },
+          "effective": {
+            "auto_approve": []
+          },
+          "pending_requests": []
+        },
         "terminals": [
           {
             "terminal_id": "terminal-vector",
@@ -1604,6 +1694,15 @@
             }
           ]
         },
+        "approval_policy": {
+          "requested": {
+            "auto_approve": null
+          },
+          "effective": {
+            "auto_approve": []
+          },
+          "pending_requests": []
+        },
         "terminals": [
           {
             "terminal_id": "terminal-vector",
@@ -1768,6 +1867,15 @@
               "kind": "evidence"
             }
           ]
+        },
+        "approval_policy": {
+          "requested": {
+            "auto_approve": null
+          },
+          "effective": {
+            "auto_approve": []
+          },
+          "pending_requests": []
         },
         "terminals": [
           {

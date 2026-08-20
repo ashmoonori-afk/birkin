@@ -2,9 +2,10 @@
 
 from __future__ import annotations
 
-from typing import Any
+import json
+from typing import Any, cast
 
-from birkin import approvals, risk, store
+from birkin import approvals, config, risk, store
 
 
 def approval_items() -> tuple[dict[str, object], ...]:
@@ -15,6 +16,28 @@ def approval_items() -> tuple[dict[str, object], ...]:
         records.extend(store.list_resolved(status))
     records.sort(key=lambda record: str(record.get("created") or ""))
     return tuple(_project(record) for record in records)
+
+
+def approval_policy() -> dict[str, object]:
+    """Project requested config separately from its validated effective value."""
+
+    requested: object = None
+    path = config.config_path()
+    if path.is_file():
+        try:
+            raw = cast(object, json.loads(path.read_text(encoding="utf-8")))
+            if isinstance(raw, dict):
+                requested = cast(dict[object, object], raw).get("auto_approve")
+        except (json.JSONDecodeError, OSError):
+            requested = None
+    effective = config.load_config().get("auto_approve") or []
+    return {
+        "requested": {"auto_approve": requested},
+        "effective": {"auto_approve": list(effective)},
+        "pending_requests": [
+            str(record.get("id")) for record in approvals.reviewable_pending()
+        ],
+    }
 
 
 def _project(record: dict[str, Any]) -> dict[str, object]:

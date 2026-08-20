@@ -18,6 +18,7 @@ public struct NativeProjectionState: Equatable, Sendable {
     public var composer: NativeProjectionComposer
     public let connection: String
     public var workingMemory: NativeWorkingMemoryProjection
+    public var approvalPolicy: NativeJSONObject
     public var terminals: [NativeTerminalProjection]
 
     var canonicalJSON: NativeJSONObject {
@@ -39,6 +40,7 @@ public struct NativeProjectionState: Equatable, Sendable {
             ]),
             "status": .object(["connection": .string(connection)]),
             "working_memory": .object(workingMemory.canonicalJSON),
+            "approval_policy": .object(approvalPolicy),
             "terminals": .array(terminals.map { .object($0.canonicalJSON) }),
         ]
     }

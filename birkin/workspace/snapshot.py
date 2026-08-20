@@ -258,5 +258,10 @@ def reduce_snapshot(
             },
             "files_evidence": list(panel_items["files_evidence"]),
         },
+        approval_policy={
+            "requested": {"auto_approve": None},
+            "effective": {"auto_approve": []},
+            "pending_requests": [],
+        },
         terminals=tuple(terminals.values()),
     )

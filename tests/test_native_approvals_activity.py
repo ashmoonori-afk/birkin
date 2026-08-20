@@ -1,12 +1,13 @@
 from __future__ import annotations
 
 from concurrent.futures import ThreadPoolExecutor
+import json
 from pathlib import Path
 from threading import Event, Lock
 
 import pytest
 
-from birkin import approvals, store
+from birkin import approvals, config, store
 from birkin.workspace.records import WorkspaceEvent
 from birkin.workspace.runtime_adapter import RuntimeWorkspaceAdapter
 from birkin.workspace.service import WorkspaceService
@@ -91,3 +92,23 @@ def test_two_surfaces_resolve_one_approval_with_answered_elsewhere_event(
     assert sorted(outcomes) == ["answered_elsewhere", "approved"]
     assert loser_result == {"outcome": "answered_elsewhere", "approval_id": record["id"]}
     assert winner_result["outcome"] == "approved"
+
+
+def test_snapshot_distinguishes_requested_effective_policy_and_pending_requests(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("BIRKIN_HOME", str(tmp_path / "home"))
+    config.config_path().write_text(
+        json.dumps({"auto_approve": "shell"}), encoding="utf-8"
+    )
+    record = store.add_pending(
+        pending_id="fed123abc456", category="shell", title="Pending shell",
+        description="Awaiting a human", payload={"command": "true"}, origin="test",
+    )
+    service = WorkspaceService(root=tmp_path / "journal", session_id="session-1", handlers={})
+
+    policy = service.snapshot().approval_policy
+
+    assert policy["requested"] == {"auto_approve": "shell"}
+    assert policy["effective"] == {"auto_approve": ["memory", "skill"]}
+    assert policy["pending_requests"] == [record["id"]]

@@ -14,7 +14,7 @@ from .contracts import (
     UnsupportedCommand,
     WorkspaceCommand,
 )
-from .approval_projection import approval_items
+from .approval_projection import approval_items, approval_policy
 from .journal import WorkspaceJournal
 from .presets import SESSION_PRESETS, SessionPreset
 from .records import (
@@ -236,4 +236,5 @@ class WorkspaceService:
             snapshot,
             panels=panels,
             working_memory=project_working_memory(snapshot.session_id, files),
+            approval_policy=approval_policy(),
         )
