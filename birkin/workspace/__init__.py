@@ -12,6 +12,7 @@ from .contracts import (
     WorkspaceCommand,
 )
 from .hub import WorkspaceHub, WorkspaceSession
+from .presets import SESSION_PRESETS, SessionPreset
 from .records import (
     CommandReceipt,
     WorkspaceEvent,
@@ -25,6 +26,8 @@ __all__ = [
     "CommandReceipt",
     "ConfigMutationRejected",
     "ProtocolError",
+    "SESSION_PRESETS",
+    "SessionPreset",
     "StaleCursor",
     "WorkspaceCommand",
     "WorkspaceEvent",

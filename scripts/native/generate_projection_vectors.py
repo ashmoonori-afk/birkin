@@ -14,6 +14,7 @@ from pathlib import Path
 from birkin.native.messages import NativeMessageFactory
 from birkin.native.projection import public_native_mapping, public_workspace_event
 from birkin.native.protocol import NativeEnvelope, decode_frame, encode_frame
+from birkin.workspace.presets import SESSION_PRESETS
 from birkin.workspace.records import WorkspaceEvent
 from birkin.workspace.snapshot import reduce_snapshot
 
@@ -75,6 +76,7 @@ def render_fixture() -> str:
         instance_id="instance-1",
         server_version="0.4.242",
         command_types=frozenset(),
+        session_presets=SESSION_PRESETS,
     )
 
     snapshot = public_native_mapping(
@@ -121,7 +123,7 @@ def render_fixture() -> str:
 
 def main() -> None:
     FIXTURE_PATH.parent.mkdir(parents=True, exist_ok=True)
-    FIXTURE_PATH.write_text(render_fixture(), encoding="utf-8")
+    _ = FIXTURE_PATH.write_text(render_fixture(), encoding="utf-8")
     print(f"wrote {FIXTURE_PATH.relative_to(REPO_ROOT)}")
 
 

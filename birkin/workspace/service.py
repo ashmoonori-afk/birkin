@@ -14,6 +14,7 @@ from .contracts import (
     WorkspaceCommand,
 )
 from .journal import WorkspaceJournal
+from .presets import SESSION_PRESETS, SessionPreset
 from .records import (
     CommandReceipt,
     WorkspaceEvent,
@@ -32,6 +33,10 @@ class WorkspaceService:
     @property
     def supported_commands(self) -> frozenset[str]:
         return frozenset(self._handlers)
+
+    @property
+    def session_presets(self) -> tuple[SessionPreset, ...]:
+        return SESSION_PRESETS
 
     def __init__(
         self,

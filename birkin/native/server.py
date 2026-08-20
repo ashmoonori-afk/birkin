@@ -25,7 +25,7 @@ from birkin.native.protocol import (
 from birkin.native.session import NativeProjectionSession, WorkspaceProjectionSource
 from birkin.native.state import NativeConnectionState
 from birkin.native.transport import NativeConnection
-from birkin.workspace import CommandReceipt, WorkspaceCommand
+from birkin.workspace import CommandReceipt, SessionPreset, WorkspaceCommand
 from birkin.workspace.records import WorkspaceEvent
 
 
@@ -48,6 +48,9 @@ class WorkspaceAuthority(
 ):
     @property
     def supported_commands(self) -> frozenset[str]: ...
+
+    @property
+    def session_presets(self) -> tuple[SessionPreset, ...]: ...
 
     def add_event_listener(
         self,
@@ -134,6 +137,7 @@ class NativeBridgeServer:
             instance_id=instance_id,
             server_version=server_version,
             command_types=command_router.supported_commands,
+            session_presets=projection_authority.session_presets,
         )
         self._commands = NativeCommandExecutor(command_router, self._messages)
         self._heartbeat_interval = heartbeat_interval

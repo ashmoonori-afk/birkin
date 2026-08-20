@@ -23,6 +23,7 @@ from birkin.workspace.contracts import (
     StaleCursor,
     UnsupportedCommand,
 )
+from birkin.workspace.presets import SessionPreset
 from birkin.workspace.records import PANEL_KEYS
 
 _MAX_PAYLOAD_BYTES = 65_536
@@ -38,10 +39,12 @@ class NativeMessageFactory:
         instance_id: str,
         server_version: str,
         command_types: frozenset[str],
+        session_presets: tuple[SessionPreset, ...],
     ) -> None:
         self._instance_id = instance_id
         self._server_version = server_version
         self._command_types = command_types
+        self._session_presets = session_presets
         self._next_id = 0
         self._id_lock = threading.Lock()
 
@@ -75,7 +78,11 @@ class NativeMessageFactory:
                 "capabilities": {
                     "commands": sorted(self._command_types),
                     "panels": list(PANEL_KEYS),
-                    "features": {},
+                    "features": {
+                        "session_presets": [
+                            preset.to_json() for preset in self._session_presets
+                        ]
+                    },
                 },
             },
         )

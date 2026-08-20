@@ -11,6 +11,7 @@ from typing import final
 from birkin import config
 
 from .contracts import ConfigMutationRejected, ProtocolError, WorkspaceCommand
+from .presets import SESSION_PRESETS, SessionPreset
 from .records import CommandReceipt, WorkspaceEvent, WorkspaceSnapshot
 from .service import CommandHandler, WorkspaceService
 
@@ -217,6 +218,10 @@ class WorkspaceHub:
         with self._lock:
             session = self._selected_session()
             return session.service.supported_commands
+
+    @property
+    def session_presets(self) -> tuple[SessionPreset, ...]:
+        return SESSION_PRESETS
 
     def get(self, session_id: str) -> WorkspaceSession | None:
         with self._lock:
