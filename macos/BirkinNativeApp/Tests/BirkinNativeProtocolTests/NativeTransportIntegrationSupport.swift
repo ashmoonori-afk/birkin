@@ -74,14 +74,16 @@ struct HarnessReadiness {
         )
     }
 
-    func finish() throws -> String {
+    func finish(removeRoot: Bool = true) throws -> String {
         guard exit.wait(timeout: .now() + 10) == .success else {
             process.terminate()
             throw HarnessError.exitTimeout
         }
         let tail = stdout.fileHandleForReading.readDataToEndOfFile()
         let receipt = String(decoding: tail, as: UTF8.self).trimmingCharacters(in: .whitespacesAndNewlines)
-        try FileManager.default.removeItem(at: root)
+        if removeRoot {
+            try FileManager.default.removeItem(at: root)
+        }
         return receipt
     }
 }
