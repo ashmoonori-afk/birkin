@@ -200,7 +200,9 @@ OAuth, no paid API key).
 ## Persona (2026-05-29) — editable voice, ported from the marketing tree
 
 - `birkin/persona.py` — user-owned `~/.birkin/SOUL.md` (warm default seeded on
-  setup) + `/personality warm|concise|mentor|direct` presets + `/soul` command.
+  setup) + the `/persona` command (alias `/soul`): bare shows the voice,
+  `/persona warm|concise|mentor|direct` applies a preset, `path` and `reset`
+  locate or restore it.
   Read fresh each turn (REPL) and injected into the persistent gateway session's
   system prompt, so edits/swaps apply with no restart. Default voice is warm and
   human (addresses the "replies aren't friendly" complaint). 295 tests pass.
