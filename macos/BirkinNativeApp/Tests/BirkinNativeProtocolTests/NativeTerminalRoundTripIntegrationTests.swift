@@ -1,10 +1,14 @@
+import AppKit
 import Foundation
+import SwiftUI
 import Testing
 
 @testable import BirkinNativeProtocol
+@testable import BirkinNativeShell
 
 @Suite("Real Swift to Python terminal round trip")
 struct NativeTerminalRoundTripIntegrationTests {
+    @MainActor
     @Test("Swift command reaches PTY and Python output reaches projection")
     func echoRoundTrip() throws {
         let harness = try HarnessReadiness.launch(transport: "uds", terminal: true)
@@ -87,6 +91,25 @@ struct NativeTerminalRoundTripIntegrationTests {
             at: durableEvidence.deletingLastPathComponent(), withIntermediateDirectories: true
         )
         try transcript.write(to: durableEvidence, atomically: true, encoding: .utf8)
+        let terminal = try #require(store.projection?.terminals.first)
+        let screenshotView = TerminalView(
+            terminal: NativeTerminalProjection(
+                terminalID: terminal.terminalID, cwd: terminal.cwd, screen: transcript,
+                outputSequence: terminal.outputSequence, state: terminal.state,
+                exitStatus: terminal.exitStatus, columns: terminal.columns, rows: terminal.rows,
+                lease: nil, readOnly: true
+            ),
+            canMutate: false, sendInput: { _ in }, interrupt: {}, close: {}
+        ).frame(width: 720, height: 420)
+        let renderer = ImageRenderer(content: screenshotView)
+        let image = try #require(renderer.nsImage)
+        let tiff = try #require(image.tiffRepresentation)
+        let bitmap = try #require(NSBitmapImageRep(data: tiff))
+        let png = try #require(bitmap.representation(using: .png, properties: [:]))
+        try png.write(
+            to: evidenceDirectory().appendingPathComponent("terminal-round-trip.png"),
+            options: .atomic
+        )
         print("SWIFT TERMINAL TRANSCRIPT \(transcript.debugDescription)")
 
         socket.close()

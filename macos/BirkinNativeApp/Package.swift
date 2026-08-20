@@ -19,7 +19,7 @@ let package = Package(
         ),
         .testTarget(
             name: "BirkinNativeProtocolTests",
-            dependencies: ["BirkinNativeProtocol"],
+            dependencies: ["BirkinNativeProtocol", "BirkinNativeShell"],
             resources: [.copy("GoldenVectors")]
         ),
         .testTarget(
