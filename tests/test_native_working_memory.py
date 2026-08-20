@@ -8,7 +8,12 @@ import pytest
 from birkin import goals, harness
 from birkin.native.session import NativeProjectionSession
 from birkin.workspace import ProtocolError, WorkspaceCommand, WorkspaceHub, WorkspaceService
-from birkin.workspace.working_memory import WorkingMemoryAuthority, WorkingMemoryMutation
+from birkin.workspace.working_memory import (
+    WorkingMemoryAuthority,
+    WorkingMemoryBudgetExceeded,
+    WorkingMemoryMutation,
+    WorkingMemoryRevisionConflict,
+)
 
 
 def test_native_projection_maps_goal_fields_files_and_revision(tmp_path: Path) -> None:
@@ -155,3 +160,43 @@ def test_memory_merge_delegates_requested_to_effective_transaction(tmp_path: Pat
         assert hub.snapshot().working_memory["revision"] == 1
     finally:
         hub.close()
+
+
+def test_clear_revision_conflict_and_budget_are_canonical() -> None:
+    authority = WorkingMemoryAuthority("clear-native")
+    merged = authority.apply(WorkingMemoryMutation.parse({
+        "op": "merge",
+        "expected_revision": 0,
+        "fields": {"decisions": ["Temporary"]},
+    }))
+    assert merged.effective["revision"] == 1
+
+    with pytest.raises(WorkingMemoryRevisionConflict) as stale:
+        authority.apply(WorkingMemoryMutation.parse({
+            "op": "clear", "expected_revision": 0,
+        }))
+    assert stale.value.current_revision == 1
+
+    with pytest.raises(ProtocolError):
+        WorkingMemoryMutation.parse({
+            "op": "clear", "expected_revision": 1, "fields": {},
+        })
+
+    cleared = authority.apply(WorkingMemoryMutation.parse({
+        "op": "clear", "expected_revision": 1,
+    }))
+    assert cleared.effective["revision"] == 2
+    assert all(not cleared.effective[field] for field in harness.WORKING_FIELDS)
+
+    with pytest.raises(WorkingMemoryBudgetExceeded) as overflow:
+        WorkingMemoryAuthority("budget-native").preview(WorkingMemoryMutation.parse({
+            "op": "merge",
+            "expected_revision": 0,
+            "fields": {
+                "evidence": [
+                    f"{index}:" + "x" * (harness.WORKING_MAX_ITEM - 8)
+                    for index in range(30)
+                ]
+            },
+        }))
+    assert overflow.value.limit == harness.WORKING_MAX_RENDER
