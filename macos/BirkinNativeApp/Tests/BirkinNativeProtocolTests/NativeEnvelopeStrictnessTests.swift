@@ -164,12 +164,14 @@ enum TestFrame {
     /// Length-prefix arbitrary JSON text exactly the way the Python codec does.
     static func make(json: String) -> Data {
         let body = Data(json.utf8)
-        var frame = Data()
-        frame.append(contentsOf: withUnsafeBytes(of: UInt32(body.count).bigEndian) {
-            Array($0)
-        })
+        var frame = header(declaring: body.count)
         frame.append(body)
         return frame
+    }
+
+    /// A bare four-byte big-endian length prefix.
+    static func header(declaring length: Int) -> Data {
+        Data(withUnsafeBytes(of: UInt32(length).bigEndian) { Array($0) })
     }
 
     /// A `ping` envelope whose body nests `levels` child objects.

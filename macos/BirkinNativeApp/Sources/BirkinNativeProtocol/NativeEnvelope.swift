@@ -37,7 +37,7 @@ public struct NativeEnvelope: Equatable, Sendable {
 
     /// Decode the envelope carried by one complete frame.
     public static func decode(frame: Data) throws(NativeProtocolError) -> NativeEnvelope {
-        try validate(json: try parseJSON(body: NativeFrameCodec.body(of: frame)))
+        try validate(json: try parseJSON(body: try NativeFrameCodec.body(of: frame)))
     }
 
     /// Decode the UTF-8 JSON body of a frame, before envelope validation.
