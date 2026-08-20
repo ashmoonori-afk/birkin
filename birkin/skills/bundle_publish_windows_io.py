@@ -103,6 +103,27 @@ def close(kernel32: Any, handle: int) -> None:
         raise OSError(ctypes.get_last_error() or 1)
 
 
+def checked_directory(
+    kernel32: Any,
+    path: Path,
+    *,
+    access: int,
+) -> int:
+    handle = open_handle(
+        kernel32,
+        path,
+        access=access,
+    )
+    try:
+        attributes, _ = information(kernel32, handle)
+        if attributes & REPARSE_ATTRIBUTE:
+            raise OSError("bundle directory is a reparse point")
+    except BaseException:
+        close(kernel32, handle)
+        raise
+    return handle
+
+
 def rename(
     kernel32: Any,
     source_handle: int,

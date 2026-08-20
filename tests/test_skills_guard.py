@@ -717,13 +717,15 @@ def test_failed_bundle_rollback_preserves_previous_bytes(
         "---\nname: rollback\ndescription: d\n---\n\nNew bundle.\n",
         encoding="utf-8",
     )
-    real_rename = os.rename
+    real_rename = bundle_publish._rename_noreplace
     publication_renames = 0
 
     def fail_publish_and_rollback(
             source_name,
             destination_name,
-            **kwargs):
+            *,
+            source_fd,
+            destination_fd):
         nonlocal publication_renames
         if source_name in {"candidate", "previous"}:
             publication_renames += 1
@@ -731,21 +733,24 @@ def test_failed_bundle_rollback_preserves_previous_bytes(
         return real_rename(
             source_name,
             destination_name,
-            **kwargs,
+            source_fd=source_fd,
+            destination_fd=destination_fd,
         )
 
     monkeypatch.setattr(
-        bundle_publish.os,
-        "rename",
+        bundle_publish,
+        "_rename_noreplace",
         fail_publish_and_rollback,
     )
 
     with pytest.raises(PublicationCleanupError):
         sync.sync_skills(source, force=True)
 
-    residues = list(
-        destination.parent.glob(".birkin-sync-*")
-    )
+    residues = [
+        path
+        for path in destination.parent.glob(".birkin-sync-*")
+        if (path / "previous").is_dir()
+    ]
     assert publication_renames == 2
     assert len(residues) == 1
     assert (residues[0] / "previous" / "SKILL.md").read_bytes() == original
@@ -755,12 +760,11 @@ def test_failed_bundle_rollback_preserves_previous_bytes(
     os.name == "nt",
     reason="POSIX operation identity cleanup",
 )
-def test_sync_cleanup_does_not_delete_replacement_operation(
+def test_sync_never_deletes_replacement_operation(
         tmp_path,
         monkeypatch):
     from birkin import config
     from birkin.skills import bundle_publish, sync
-    from birkin.skills.manager import PublicationCleanupError
 
     source = tmp_path / "upstream"
     _skill(
@@ -787,8 +791,7 @@ def test_sync_cleanup_does_not_delete_replacement_operation(
         replace_operation_then_populate,
     )
 
-    with pytest.raises(PublicationCleanupError):
-        sync.sync_skills(source)
+    assert sync.sync_skills(source) == ["category/safe"]
 
     replacement = next(category.glob(".birkin-sync-*"))
     assert (replacement / "sentinel.txt").read_bytes() == sentinel
@@ -799,12 +802,10 @@ def test_sync_cleanup_does_not_delete_replacement_operation(
     os.name == "nt",
     reason="POSIX committed cleanup classification",
 )
-def test_post_commit_bundle_cleanup_failure_is_typed(
-        tmp_path,
-        monkeypatch):
+def test_force_sync_preserves_hidden_previous_bundle(
+        tmp_path):
     from birkin import config
-    from birkin.skills import bundle_publish, sync
-    from birkin.skills.manager import PublicationCleanupError
+    from birkin.skills import sync
 
     source = tmp_path / "upstream"
     skill = _skill(source, "Old bundle.", name="cleanup")
@@ -818,25 +819,72 @@ def test_post_commit_bundle_cleanup_failure_is_typed(
         "---\nname: cleanup\ndescription: d\n---\n\nNew bundle.\n",
         encoding="utf-8",
     )
-    real_remove = bundle_publish._remove_posix
+    original = (destination / "SKILL.md").read_bytes()
 
-    def fail_previous_cleanup(parent_fd: int, name: str) -> None:
-        if name == "previous":
-            raise OSError("injected committed cleanup failure")
-        real_remove(parent_fd, name)
-
-    monkeypatch.setattr(
-        bundle_publish,
-        "_remove_posix",
-        fail_previous_cleanup,
-    )
-
-    with pytest.raises(PublicationCleanupError):
-        sync.sync_skills(source, force=True)
+    assert sync.sync_skills(source, force=True) == ["cleanup"]
 
     assert "New bundle." in (
         destination / "SKILL.md"
     ).read_text(encoding="utf-8")
+    residues = [
+        path
+        for path in destination.parent.glob(".birkin-sync-*")
+        if (path / "previous").is_dir()
+    ]
+    assert len(residues) == 1
+    assert (residues[0] / "previous" / "SKILL.md").read_bytes() == original
+
+
+@pytest.mark.skipif(
+    os.name == "nt",
+    reason="POSIX no-replace bundle rename",
+)
+def test_sync_does_not_replace_raced_destination(
+        tmp_path,
+        monkeypatch):
+    from birkin import config
+    from birkin.skills import bundle_publish, sync
+    from birkin.skills.manager import PublicationCleanupError
+
+    source = tmp_path / "upstream"
+    _skill(source, "A clean helper.", name="raced")
+    destination = (
+        config.user_skills_dir()
+        / "mirrors"
+        / "raced"
+    )
+    real_rename = bundle_publish._rename_noreplace
+    raced_inode: int | None = None
+
+    def create_destination_then_rename(
+            source_name,
+            destination_name,
+            *,
+            source_fd,
+            destination_fd):
+        nonlocal raced_inode
+        if source_name == "candidate":
+            destination.mkdir()
+            raced_inode = destination.stat().st_ino
+        return real_rename(
+            source_name,
+            destination_name,
+            source_fd=source_fd,
+            destination_fd=destination_fd,
+        )
+
+    monkeypatch.setattr(
+        bundle_publish,
+        "_rename_noreplace",
+        create_destination_then_rename,
+    )
+
+    with pytest.raises(PublicationCleanupError):
+        sync.sync_skills(source)
+
+    assert raced_inode is not None
+    assert destination.stat().st_ino == raced_inode
+    assert list(destination.iterdir()) == []
 
 
 @pytest.mark.skipif(
@@ -921,6 +969,72 @@ def test_windows_candidate_handle_blocks_reparse_swap(
 
     assert sync.sync_skills(source) == ["locked-candidate"]
     assert blocked is True
+
+
+@pytest.mark.skipif(
+    os.name != "nt",
+    reason="Windows candidate setup ownership",
+)
+def test_windows_candidate_open_failure_is_typed_and_releasable(
+        tmp_path,
+        monkeypatch):
+    from birkin import config
+    from birkin.skills import bundle_publish_windows, sync
+    from birkin.skills.manager import PublicationCleanupError
+
+    source = tmp_path / "upstream"
+    _skill(source, "A clean helper.", name="setup-failure")
+    real_checked = bundle_publish_windows.checked_directory
+
+    def fail_candidate_open(kernel32, path, *, access):
+        if Path(path).name == "candidate":
+            raise OSError("injected candidate handle failure")
+        return real_checked(kernel32, path, access=access)
+
+    monkeypatch.setattr(
+        bundle_publish_windows,
+        "checked_directory",
+        fail_candidate_open,
+    )
+
+    with pytest.raises(PublicationCleanupError):
+        sync.sync_skills(source)
+
+    skills_root = config.user_skills_dir()
+    moved_root = skills_root.with_name("moved-skills-root")
+    skills_root.rename(moved_root)
+    assert moved_root.is_dir()
+
+
+@pytest.mark.skipif(
+    os.name != "nt",
+    reason="Windows parent setup ownership",
+)
+def test_windows_parent_information_failure_closes_handle(
+        tmp_path,
+        monkeypatch):
+    from birkin import config
+    from birkin.skills import bundle_publish_windows, sync
+
+    source = tmp_path / "upstream"
+    _skill(source, "A clean helper.", name="parent-failure")
+
+    def fail_information(_kernel32, _handle):
+        raise OSError("injected parent information failure")
+
+    monkeypatch.setattr(
+        bundle_publish_windows,
+        "information",
+        fail_information,
+    )
+
+    with pytest.raises(OSError):
+        sync.sync_skills(source)
+
+    skills_root = config.user_skills_dir()
+    moved_root = skills_root.with_name("moved-skills-root")
+    skills_root.rename(moved_root)
+    assert moved_root.is_dir()
 
 
 @pytest.mark.skipif(

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import hashlib
+import errno
 import os
 import secrets
 import stat
@@ -116,35 +117,49 @@ def _populate_posix(root_fd: int, snapshot: BundleSnapshot) -> None:
             os.close(parent)
 
 
-def _remove_posix(parent_fd: int, name: str) -> None:
-    status = os.stat(name, dir_fd=parent_fd, follow_symlinks=False)
-    if not stat.S_ISDIR(status.st_mode):
-        os.unlink(name, dir_fd=parent_fd)
-        return
-    flags = os.O_RDONLY | getattr(os, "O_DIRECTORY", 0)
-    flags |= getattr(os, "O_NOFOLLOW", 0)
-    descriptor = os.open(name, flags, dir_fd=parent_fd)
-    try:
-        for entry in os.scandir(descriptor):
-            _remove_posix(descriptor, entry.name)
-    finally:
-        os.close(descriptor)
-    os.rmdir(name, dir_fd=parent_fd)
-
-
-def _remove_posix_identity(
-    parent_fd: int,
-    name: str,
-    identity: tuple[int, int],
+def _rename_noreplace(
+    source: str,
+    destination: str,
+    *,
+    source_fd: int,
+    destination_fd: int,
 ) -> None:
-    status = os.stat(
-        name,
-        dir_fd=parent_fd,
-        follow_symlinks=False,
-    )
-    if (status.st_dev, status.st_ino) != identity:
-        raise OSError("bundle operation identity changed")
-    _remove_posix(parent_fd, name)
+    import ctypes
+
+    libc = ctypes.CDLL(None, use_errno=True)
+    encoded_source = os.fsencode(source)
+    encoded_destination = os.fsencode(destination)
+    if sys.platform == "darwin":
+        rename = libc.renameatx_np
+        result = rename(
+            source_fd,
+            encoded_source,
+            destination_fd,
+            encoded_destination,
+            0x00000004,
+        )
+    elif sys.platform.startswith("linux"):
+        rename = getattr(libc, "renameat2", None)
+        if rename is None:
+            raise OSError(
+                errno.ENOTSUP,
+                "renameat2 is unavailable",
+            )
+        result = rename(
+            source_fd,
+            encoded_source,
+            destination_fd,
+            encoded_destination,
+            0x00000001,
+        )
+    else:
+        raise OSError(
+            errno.ENOTSUP,
+            "no-replace directory rename is unavailable",
+        )
+    if result != 0:
+        error = ctypes.get_errno()
+        raise OSError(error, os.strerror(error), destination)
 
 
 def _publish_posix(
@@ -157,8 +172,8 @@ def _publish_posix(
     parent_fd = -1
     operation = f".birkin-sync-{secrets.token_hex(12)}"
     moved_previous = False
-    operation_identity: tuple[int, int] | None = None
-    preserve_operation = False
+    completed = False
+    operation_created = False
     try:
         relative = target.relative_to(target_root)
         parent_fd = _open_descendant_directory(
@@ -178,14 +193,10 @@ def _publish_posix(
         if exists and not replace:
             return False
         os.mkdir(operation, 0o700, dir_fd=parent_fd)
+        operation_created = True
         operation_fd = _open_descendant_directory(
             parent_fd,
             Path(operation),
-        )
-        operation_status = os.fstat(operation_fd)
-        operation_identity = (
-            operation_status.st_dev,
-            operation_status.st_ino,
         )
         try:
             os.mkdir("candidate", 0o700, dir_fd=operation_fd)
@@ -198,46 +209,40 @@ def _publish_posix(
             finally:
                 os.close(candidate_fd)
             if exists:
-                os.rename(
+                _rename_noreplace(
                     relative.name,
                     "previous",
-                    src_dir_fd=parent_fd,
-                    dst_dir_fd=operation_fd,
+                    source_fd=parent_fd,
+                    destination_fd=operation_fd,
                 )
                 moved_previous = True
             try:
-                os.rename(
+                _rename_noreplace(
                     "candidate",
                     relative.name,
-                    src_dir_fd=operation_fd,
-                    dst_dir_fd=parent_fd,
+                    source_fd=operation_fd,
+                    destination_fd=parent_fd,
                 )
             except OSError:
                 if moved_previous:
                     try:
-                        os.rename(
+                        _rename_noreplace(
                             "previous",
                             relative.name,
-                            src_dir_fd=operation_fd,
-                            dst_dir_fd=parent_fd,
+                            source_fd=operation_fd,
+                            destination_fd=parent_fd,
                         )
                         moved_previous = False
                     except OSError as rollback_error:
-                        preserve_operation = True
                         raise PublicationCleanupError(
                             relative.as_posix(),
                             snapshot.digest(),
                         ) from rollback_error
-                raise
+                raise PublicationCleanupError(
+                    relative.as_posix(),
+                    snapshot.digest(),
+                )
             if moved_previous:
-                try:
-                    _remove_posix(operation_fd, "previous")
-                except OSError as cleanup_error:
-                    preserve_operation = True
-                    raise PublicationCleanupError(
-                        relative.as_posix(),
-                        snapshot.digest(),
-                    ) from cleanup_error
                 moved_previous = False
         finally:
             _close_preserving_active_error(operation_fd)
@@ -265,38 +270,10 @@ def _publish_posix(
                 )
         finally:
             _close_preserving_active_error(current_parent)
-        try:
-            _remove_posix_identity(
-                parent_fd,
-                operation,
-                operation_identity,
-            )
-            operation_identity = None
-        except OSError as cleanup_error:
-            preserve_operation = True
-            raise PublicationCleanupError(
-                relative.as_posix(),
-                snapshot.digest(),
-            ) from cleanup_error
+        completed = True
         return True
     finally:
         active_error = sys.exc_info()[1]
-        if (
-            parent_fd >= 0
-            and operation_identity is not None
-            and not preserve_operation
-        ):
-            try:
-                _remove_posix_identity(
-                    parent_fd,
-                    operation,
-                    operation_identity,
-                )
-            except FileNotFoundError:
-                pass
-            except OSError:
-                if active_error is None:
-                    raise
         close_error: OSError | None = None
         for descriptor in (parent_fd, root_fd):
             if descriptor < 0:
@@ -305,6 +282,17 @@ def _publish_posix(
                 _close_preserving_active_error(descriptor)
             except OSError as error:
                 close_error = close_error or error
+        if operation_created and not completed and not isinstance(
+            active_error,
+            (
+                IndeterminatePublicationError,
+                PublicationCleanupError,
+            ),
+        ):
+            raise PublicationCleanupError(
+                target.name,
+                snapshot.digest(),
+            ) from active_error
         if active_error is None and close_error is not None:
             raise close_error
 

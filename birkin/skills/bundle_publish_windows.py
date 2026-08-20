@@ -13,6 +13,7 @@ from .bundle_publish_windows_io import (
     DELETE,
     READ_ATTRIBUTES,
     REPARSE_ATTRIBUTE,
+    checked_directory,
     close,
     delete_tree,
     information,
@@ -46,12 +47,15 @@ def _locked_parent(
                 current,
                 access=READ_ATTRIBUTES,
             )
-            attributes, _ = information(kernel32, handle)
-            if attributes & REPARSE_ATTRIBUTE:
+            try:
+                attributes, _ = information(kernel32, handle)
+                if attributes & REPARSE_ATTRIBUTE:
+                    raise OSError(
+                        "skill mirror parent is a reparse point"
+                    )
+            except BaseException:
                 close(kernel32, handle)
-                raise OSError(
-                    "skill mirror parent is a reparse point"
-                )
+                raise
             handles.append(handle)
         yield current, handles[-1], kernel32
     finally:
@@ -100,23 +104,38 @@ def publish_windows(
             return False
 
         operation = parent / f".birkin-sync-{os.urandom(12).hex()}"
-        create_directory(kernel32, operation)
-        operation_handle = open_handle(
-            kernel32,
-            operation,
-            access=READ_ATTRIBUTES | DELETE,
-        )
+        operation_handle = -1
+        candidate_handle = -1
+        operation_created = False
         candidate = operation / "candidate"
         try:
+            create_directory(kernel32, operation)
+            operation_created = True
+            operation_handle = checked_directory(
+                kernel32,
+                operation,
+                access=READ_ATTRIBUTES | DELETE,
+            )
             create_directory(kernel32, candidate)
-        except OSError:
-            close(kernel32, operation_handle)
+            candidate_handle = checked_directory(
+                kernel32,
+                candidate,
+                access=READ_ATTRIBUTES | DELETE,
+            )
+        except OSError as setup_error:
+            if candidate_handle >= 0:
+                close(kernel32, candidate_handle)
+            if operation_handle >= 0:
+                close(kernel32, operation_handle)
+            if previous_handle >= 0:
+                close(kernel32, previous_handle)
+            if operation_created:
+                raise PublicationCleanupError(
+                    relative.as_posix(),
+                    snapshot.digest(),
+                    getattr(setup_error, "winerror", None),
+                ) from setup_error
             raise
-        candidate_handle = open_handle(
-            kernel32,
-            candidate,
-            access=READ_ATTRIBUTES | DELETE,
-        )
         previous_moved = False
         published = False
         preserve_operation = False
@@ -178,6 +197,7 @@ def publish_windows(
                     ) from cleanup_error
         finally:
             active_error = sys.exc_info()[1]
+            cleanup_error: OSError | None = None
             if not published and candidate_handle >= 0:
                 try:
                     delete_tree(
@@ -186,23 +206,44 @@ def publish_windows(
                         candidate_handle,
                     )
                     candidate_handle = -1
-                except OSError:
+                except OSError as error:
                     preserve_operation = True
+                    cleanup_error = cleanup_error or error
             elif candidate_handle >= 0:
-                close(kernel32, candidate_handle)
+                try:
+                    close(kernel32, candidate_handle)
+                except OSError as error:
+                    cleanup_error = cleanup_error or error
                 candidate_handle = -1
             if previous_handle >= 0:
-                close(kernel32, previous_handle)
+                try:
+                    close(kernel32, previous_handle)
+                except OSError as error:
+                    cleanup_error = cleanup_error or error
             if preserve_operation:
-                close(kernel32, operation_handle)
+                try:
+                    close(kernel32, operation_handle)
+                except OSError as error:
+                    cleanup_error = cleanup_error or error
             else:
                 try:
                     mark_delete(kernel32, operation_handle)
-                finally:
+                except OSError as error:
+                    cleanup_error = cleanup_error or error
+                try:
                     close(kernel32, operation_handle)
-            if active_error is None and preserve_operation:
+                except OSError as error:
+                    cleanup_error = cleanup_error or error
+            if (
+                (preserve_operation or cleanup_error is not None)
+                and not isinstance(
+                    active_error,
+                    PublicationCleanupError,
+                )
+            ):
                 raise PublicationCleanupError(
                     relative.as_posix(),
                     snapshot.digest(),
-                )
+                    getattr(cleanup_error, "winerror", None),
+                ) from cleanup_error
         return True
