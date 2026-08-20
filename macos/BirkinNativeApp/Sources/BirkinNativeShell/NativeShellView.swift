@@ -142,17 +142,29 @@ public struct NativeShellView: View {
                 .font(.title2.bold())
                 .fixedSize(horizontal: false, vertical: true)
                 .padding([.horizontal, .top])
-            VStack(alignment: .leading, spacing: 12) {
-                ForEach(column.sections, id: \.id) { section in
-                    sectionView(section, availability: availability)
+            if visualSettings.snapshotRendering {
+                columnSections(column, availability: availability)
+            } else {
+                ScrollView {
+                    columnSections(column, availability: availability)
                 }
             }
-            .padding()
-            Spacer(minLength: 0)
         }
         .accessibilityElement(children: .contain)
         .accessibilityLabel("\(column.id.title) column")
         .accessibilitySortPriority(column.id.accessibilitySortPriority)
+    }
+
+    private func columnSections(
+        _ column: ShellColumn,
+        availability: MutationAvailability
+    ) -> some View {
+        VStack(alignment: .leading, spacing: 12) {
+            ForEach(column.sections, id: \.id) { section in
+                sectionView(section, availability: availability)
+            }
+        }
+        .padding()
     }
 
     private func sectionView(
@@ -228,8 +240,20 @@ public struct NativeShellView: View {
                 templateLaunchers(availability: availability)
             }
             if section.id == .composer {
-                JailedDropZone(model: jailedDrop) { urls in
-                    importDroppedURLs(urls, availability: availability)
+                if visualSettings.snapshotRendering {
+                    Label("Drop a file to import", systemImage: "tray.and.arrow.down")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .padding(8)
+                        .overlay {
+                            RoundedRectangle(cornerRadius: 8)
+                                .stroke(.secondary.opacity(0.4), style: StrokeStyle(lineWidth: 1, dash: [4]))
+                        }
+                } else {
+                    JailedDropZone(model: jailedDrop) { urls in
+                        importDroppedURLs(urls, availability: availability)
+                    }
                 }
                 ConversationComposerView(
                     model: conversationComposer,

@@ -10,6 +10,7 @@ public struct ShellLayoutPlan: Equatable, Sendable {
     public let statusAllowsVerticalReflow: Bool
     public let columnHeaderLineLimit: Int?
     public let columnHeadersUseFixedVerticalSize: Bool
+    public let columnsScrollIndependently: Bool
 
     public init(windowWidth: CGFloat, dynamicTypeSize: DynamicTypeSize) {
         mode = dynamicTypeSize.isAccessibilitySize || windowWidth < 900
@@ -18,5 +19,6 @@ public struct ShellLayoutPlan: Equatable, Sendable {
         statusAllowsVerticalReflow = true
         columnHeaderLineLimit = nil
         columnHeadersUseFixedVerticalSize = true
+        columnsScrollIndependently = true
     }
 }

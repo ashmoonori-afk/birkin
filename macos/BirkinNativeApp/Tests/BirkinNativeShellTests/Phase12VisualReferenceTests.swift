@@ -90,6 +90,11 @@ struct Phase12VisualReferenceTests {
         let renderer = ImageRenderer(content:
             view.padding(20).frame(width: size.width, height: size.height)
                 .background(Color(nsColor: .windowBackgroundColor))
+                .environment(\.colorScheme, .dark)
+                .environment(
+                    \.shellVisualSettings,
+                    ShellVisualSettings(snapshotRendering: true)
+                )
         )
         renderer.scale = 1
         let image = try #require(renderer.nsImage)

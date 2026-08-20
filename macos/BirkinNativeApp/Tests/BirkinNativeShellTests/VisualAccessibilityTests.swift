@@ -33,6 +33,7 @@ struct VisualAccessibilityTests {
         let plan = ShellLayoutPlan(windowWidth: 960, dynamicTypeSize: .accessibility5)
         #expect(plan.mode == .panelNavigation)
         #expect(plan.statusAllowsVerticalReflow)
+        #expect(plan.columnsScrollIndependently)
 
         let base = NativeShellView(
             store: NativeProjectionStore(),

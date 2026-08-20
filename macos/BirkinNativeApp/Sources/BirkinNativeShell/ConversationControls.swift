@@ -176,6 +176,7 @@ public enum SendKeyPolicy {
 
 public struct ConversationComposerView: View {
     @ObservedObject private var model: ConversationComposerModel
+    @Environment(\.shellVisualSettings) private var visualSettings
     private let isSendEnabled: Bool
     private let send: () -> Void
 
@@ -193,10 +194,21 @@ public struct ConversationComposerView: View {
         VStack(alignment: .leading, spacing: 8) {
             Toggle("Code mode", isOn: $model.isCodeMode)
                 .accessibilityLabel("Code mode")
-            IMEAwareTextEditor(text: $model.draft, send: send)
-                .frame(minHeight: 72)
-                .font(model.isCodeMode ? .system(.body, design: .monospaced) : .body)
-                .accessibilityLabel(model.isCodeMode ? "Code message draft" : "Message draft")
+            Group {
+                if visualSettings.snapshotRendering {
+                    Text(model.draft.isEmpty ? "Ask Birkin anything…" : model.draft)
+                        .foregroundStyle(model.draft.isEmpty ? .secondary : .primary)
+                        .frame(maxWidth: .infinity, minHeight: 72, alignment: .topLeading)
+                        .padding(8)
+                        .background(.background, in: RoundedRectangle(cornerRadius: 6))
+                        .overlay { RoundedRectangle(cornerRadius: 6).stroke(.secondary.opacity(0.4)) }
+                } else {
+                    IMEAwareTextEditor(text: $model.draft, send: send)
+                        .frame(minHeight: 72)
+                }
+            }
+            .font(model.isCodeMode ? .system(.body, design: .monospaced) : .body)
+            .accessibilityLabel(model.isCodeMode ? "Code message draft" : "Message draft")
             HStack {
                 Text("\(model.draftByteCount) bytes")
                     .font(.caption.monospacedDigit())

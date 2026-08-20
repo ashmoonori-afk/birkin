@@ -5,10 +5,16 @@ import SwiftUI
 public struct ShellVisualSettings: Equatable, Sendable {
     public let increasedContrast: Bool
     public let reduceMotion: Bool
+    public let snapshotRendering: Bool
 
-    public init(increasedContrast: Bool = false, reduceMotion: Bool = false) {
+    public init(
+        increasedContrast: Bool = false,
+        reduceMotion: Bool = false,
+        snapshotRendering: Bool = false
+    ) {
         self.increasedContrast = increasedContrast
         self.reduceMotion = reduceMotion
+        self.snapshotRendering = snapshotRendering
     }
 }
 
