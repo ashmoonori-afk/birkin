@@ -1,9 +1,9 @@
 """Generate cross-language golden vectors with the real Python native codec.
 
-The macOS Swift package must decode exactly what Birkin's Python bridge emits,
-so the fixtures the Swift tests consume are produced here by
-``birkin.native.protocol.encode_frame`` itself rather than by a hand-written
-transcription of the wire format.
+The macOS Swift package must decode exactly what Birkin's Python bridge emits
+and re-encode byte-identical frames, so the fixtures the Swift tests consume are
+produced here by ``birkin.native.protocol.encode_frame`` itself rather than by a
+hand-written transcription of the wire format.
 
 Usage (from the repository root)::
 
@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import base64
 import json
+import sys
 from pathlib import Path
 
 from birkin.native.protocol import (
@@ -24,6 +25,10 @@ from birkin.native.protocol import (
     decode_frame,
     encode_frame,
 )
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+
+from native_vector_catalogue import build_vectors  # noqa: E402
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 FIXTURE_PATH = (
@@ -37,72 +42,19 @@ FIXTURE_PATH = (
 )
 
 
-def _envelope(
-    kind: str,
-    frame_id: str,
-    body: dict[str, object],
-    in_reply_to: str | None = None,
-) -> dict[str, object]:
-    return {
-        "protocol": NATIVE_PROTOCOL_NAME,
-        "protocol_version": NATIVE_PROTOCOL_VERSION,
-        "kind": kind,
-        "id": frame_id,
-        "in_reply_to": in_reply_to,
-        "body": body,
-    }
-
-
-def build_vectors() -> list[dict[str, object]]:
-    """Return every named envelope the Swift package is expected to handle."""
-
-    return [
-        {
-            "name": "hello",
-            "envelope": _envelope(
-                "hello",
-                "hello-1",
-                {
-                    "client": "birkin-macos",
-                    "client_version": "0.1.0",
-                    "supported_protocol_versions": [NATIVE_PROTOCOL_VERSION],
-                },
-            ),
-        },
-        {
-            "name": "ready",
-            "envelope": _envelope(
-                "ready",
-                "ready-1",
-                {
-                    "server": "birkin",
-                    "instance_id": "birkin-local",
-                    "capability": {
-                        "token": "cap-token-1",
-                        "expires_in_seconds": 900,
-                    },
-                    "surfaces": ["session", "conversation"],
-                },
-                in_reply_to="hello-1",
-            ),
-        },
-    ]
-
-
 def render_fixture() -> str:
     """Render the fixture document, checking every frame round-trips first."""
 
     vectors: list[dict[str, object]] = []
-    for vector in build_vectors():
-        envelope = vector["envelope"]
-        assert isinstance(envelope, dict)
+    for name, envelope in build_vectors():
         frame = encode_frame(envelope)
-        decoded = decode_frame(frame)
-        if decoded.to_dict() != envelope:
-            raise SystemExit(f"vector {vector['name']!r} does not round-trip")
+        if decode_frame(frame).to_dict() != envelope:
+            raise SystemExit(f"vector {name!r} does not round-trip in Python")
+        if encode_frame(decode_frame(frame)) != frame:
+            raise SystemExit(f"vector {name!r} does not re-encode identically")
         vectors.append(
             {
-                "name": vector["name"],
+                "name": name,
                 "kind": envelope["kind"],
                 "envelope": envelope,
                 "frame_base64": base64.b64encode(frame).decode("ascii"),

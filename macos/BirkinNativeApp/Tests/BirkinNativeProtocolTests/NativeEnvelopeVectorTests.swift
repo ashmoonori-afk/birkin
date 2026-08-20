@@ -30,19 +30,23 @@ struct NativeEnvelopeVectorTests {
         #expect(envelope.kind == .ready)
         #expect(envelope.id == "ready-1")
         #expect(envelope.inReplyTo == "hello-1")
-        #expect(envelope.body["server"] == .string("birkin"))
+        #expect(envelope.body["server_version"] == .string("0.4.242"))
         #expect(envelope.body["instance_id"] == .string("birkin-local"))
+        #expect(envelope.body["transport"] == .string("uds"))
         #expect(
             envelope.body["capability"]
                 == .object([
                     "token": .string("cap-token-1"),
-                    "expires_in_seconds": .int(900),
+                    "expires_at": .string("2026-08-20T12:00:00+00:00"),
+                    "hard_expires_at": .string("2026-08-20T18:00:00+00:00"),
                 ])
         )
-        #expect(
-            envelope.body["surfaces"]
-                == .array([.string("session"), .string("conversation")])
-        )
+        guard case .object(let limits) = envelope.body["limits"] else {
+            Issue.record("ready body is missing its limits object")
+            return
+        }
+        #expect(limits["max_frame_bytes"] == .int(NativeProtocol.maxFrameBytes))
+        #expect(limits["max_json_depth"] == .int(NativeProtocol.maxJSONDepth))
     }
 
     @Test("the fixture reports the Python protocol constants")
