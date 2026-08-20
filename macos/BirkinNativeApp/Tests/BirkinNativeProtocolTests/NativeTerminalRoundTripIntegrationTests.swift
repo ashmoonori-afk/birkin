@@ -45,11 +45,13 @@ struct NativeTerminalRoundTripIntegrationTests {
         try socket.send(NativeFrameCodec.encode(create.envelope))
         let createReceipt = try receiveKind(.receipt, socket: socket)
         let createCursor = try integer(createReceipt.body["result_event_cursor"])
+        let createResult = try object(createReceipt.body["result"])
+        let terminalID = try string(createResult["terminal_id"])
+        let lease = try string(createResult["lease"])
         let createEvents = try receiveEvents(through: createCursor, socket: socket, store: store)
         let opened = try #require(createEvents.first { $0.body.string("type") == "terminal.opened" })
         let openedPayload = try object(opened.body["payload"])
-        let terminalID = try string(openedPayload["terminal_id"])
-        let lease = try string(openedPayload["lease"])
+        #expect(try string(openedPayload["lease"]) == "[REDACTED]")
 
         let input = NativeCommandRequest(
             frameID: "terminal-input-frame", commandID: "terminal-input",
