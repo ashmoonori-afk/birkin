@@ -129,6 +129,24 @@ public final class ConversationComposerModel: ObservableObject {
     }
 }
 
+public enum ShellTextInputField: String, CaseIterable, Equatable, Sendable {
+    case composer
+    case codeEditor = "code-editor"
+    case sessionRename = "session-rename"
+    case workingMemoryEditor = "working-memory-editor"
+    case officeName = "office-name"
+    case terminal
+
+    fileprivate var acceptsSendCommand: Bool {
+        self == .composer || self == .codeEditor
+    }
+}
+
+public struct SendKeyResult: Equatable, Sendable {
+    public let shouldSend: Bool
+    public let text: String
+}
+
 public enum SendKeyPolicy {
     public static func shouldSend(
         commandPressed: Bool,
@@ -136,6 +154,23 @@ public enum SendKeyPolicy {
         hasMarkedText: Bool
     ) -> Bool {
         commandPressed && returnPressed && !hasMarkedText
+    }
+
+    public static func evaluate(
+        field: ShellTextInputField,
+        commandPressed: Bool,
+        returnPressed: Bool,
+        hasMarkedText: Bool,
+        text: String
+    ) -> SendKeyResult {
+        SendKeyResult(
+            shouldSend: field.acceptsSendCommand && shouldSend(
+                commandPressed: commandPressed,
+                returnPressed: returnPressed,
+                hasMarkedText: hasMarkedText
+            ),
+            text: text
+        )
     }
 }
 
