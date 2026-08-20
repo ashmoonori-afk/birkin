@@ -162,10 +162,23 @@ def XMLParser(
     )
 
 
+class _GuardedElementTree(_ET.ElementTree):
+    def parse(
+        self,
+        source: str | Path | BinaryIO,
+        parser: Any = None,
+    ) -> _ET.Element:
+        if parser is not None:
+            raise TypeError("custom XML parsers are not supported")
+        root = parse(source).getroot()
+        self._setroot(root)
+        return root
+
+
 class _ElementTreeFacade:
     ParseError = _ET.ParseError
     Element = _ET.Element
-    ElementTree = _ET.ElementTree
+    ElementTree = _GuardedElementTree
     XMLParser = staticmethod(XMLParser)
     fromstring = staticmethod(fromstring)
     parse = staticmethod(parse)

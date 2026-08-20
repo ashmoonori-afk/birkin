@@ -158,6 +158,19 @@ def test_safe_xml_rejects_utf16_entity_declarations() -> None:
         _ = ElementTree.parse(BytesIO(xml))
 
 
+def test_safe_xml_element_tree_class_rejects_entity_declarations() -> None:
+    from birkin.office.safe_xml import DefusedXmlException, ElementTree
+
+    xml = (
+        '<?xml version="1.0" encoding="utf-16"?>'
+        '<!DOCTYPE r [<!ENTITY x "expanded">]><r>&x;</r>'
+    ).encode("utf-16")
+    tree = ElementTree.ElementTree()
+
+    with pytest.raises(DefusedXmlException):
+        _ = tree.parse(BytesIO(xml))
+
+
 def test_safe_xml_allows_declaration_text_inside_comments() -> None:
     from birkin.office.safe_xml import ElementTree
 
