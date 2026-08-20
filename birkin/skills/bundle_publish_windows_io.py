@@ -142,7 +142,29 @@ def rename(
             ("FileName", wintypes.WCHAR * 1),
         ]
 
-    destination = str((parent_path / name).absolute())
+    length = kernel32.GetFinalPathNameByHandleW(
+        wintypes.HANDLE(parent_handle),
+        None,
+        0,
+        0,
+    )
+    if not length:
+        raise OSError(
+            ctypes.get_last_error() or 1,
+            str(parent_path),
+        )
+    parent_buffer = ctypes.create_unicode_buffer(length + 1)
+    if not kernel32.GetFinalPathNameByHandleW(
+        wintypes.HANDLE(parent_handle),
+        parent_buffer,
+        len(parent_buffer),
+        0,
+    ):
+        raise OSError(
+            ctypes.get_last_error() or 1,
+            str(parent_path),
+        )
+    destination = str(Path(parent_buffer.value) / name)
     encoded = (destination + "\0").encode("utf-16-le")
     offset = FileRenameInfo.FileName.offset
     buffer = ctypes.create_string_buffer(

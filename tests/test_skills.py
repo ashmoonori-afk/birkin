@@ -317,6 +317,70 @@ def test_windows_handle_relative_rename_accepts_names(
     os.name != "nt",
     reason="Windows directory-handle sharing semantics",
 )
+def test_windows_rename_follows_locked_parent_after_ancestor_move(
+        tmp_path: Path,
+) -> None:
+    from birkin.skills.bundle_publish_windows_io import (
+        DELETE,
+        READ_ATTRIBUTES,
+        checked_directory,
+        close,
+        open_handle,
+        rename,
+    )
+
+    kernel32 = manager_module._windows_kernel32()
+    container = tmp_path / "container"
+    parent_path = container / "locked"
+    parent_path.mkdir(parents=True)
+    source = tmp_path / "source.txt"
+    source.write_text("EXACT", encoding="utf-8")
+    parent = checked_directory(
+        kernel32,
+        parent_path,
+        access=READ_ATTRIBUTES,
+    )
+    source_handle = open_handle(
+        kernel32,
+        source,
+        access=READ_ATTRIBUTES | DELETE,
+        directory=False,
+    )
+    moved_container = tmp_path / "moved-container"
+    ancestor_moved = False
+    try:
+        try:
+            container.rename(moved_container)
+            ancestor_moved = True
+            parent_path.mkdir(parents=True)
+        except OSError:
+            pass
+        rename(
+            kernel32,
+            source_handle,
+            parent,
+            parent_path,
+            "published.txt",
+        )
+        locked_destination = (
+            moved_container / "locked" / "published.txt"
+            if ancestor_moved
+            else parent_path / "published.txt"
+        )
+        assert locked_destination.read_text(
+            encoding="utf-8"
+        ) == "EXACT"
+        if ancestor_moved:
+            assert not (parent_path / "published.txt").exists()
+    finally:
+        close(kernel32, source_handle)
+        close(kernel32, parent)
+
+
+@pytest.mark.skipif(
+    os.name != "nt",
+    reason="Windows directory-handle sharing semantics",
+)
 def test_windows_improve_locks_parent_against_swap(
         monkeypatch,
         tmp_path: Path):
@@ -684,12 +748,18 @@ def test_windows_indeterminate_rename_preserves_committed_target(
     real_kernel32 = manager_module._windows_kernel32()
 
     class IndeterminateRenameKernel:
+        renamed = False
+
         def __getattr__(self, name):
             return getattr(real_kernel32, name)
 
-        @staticmethod
-        def GetFinalPathNameByHandleW(*_args) -> int:
-            return 0
+        @classmethod
+        def GetFinalPathNameByHandleW(cls, *args) -> int:
+            if cls.renamed:
+                return 0
+            return real_kernel32.GetFinalPathNameByHandleW(
+                *args,
+            )
 
         @staticmethod
         def GetFileInformationByHandleEx(
@@ -706,8 +776,9 @@ def test_windows_indeterminate_rename_preserves_committed_target(
                 size,
             )
 
-        @staticmethod
+        @classmethod
         def SetFileInformationByHandle(
+                cls,
                 handle,
                 information_class,
                 information,
@@ -719,6 +790,7 @@ def test_windows_indeterminate_rename_preserves_committed_target(
                 size,
             )
             if information_class == 3 and result:
+                cls.renamed = True
                 raise OSError("injected ambiguous Windows rename")
             return result
 
