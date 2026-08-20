@@ -7,7 +7,7 @@ from typing import Any
 
 import pytest
 
-from birkin import store
+from birkin import approvals, store
 from birkin.workspace.contracts import (
     TerminalApprovalRequired,
     TerminalLeaseRequired,
@@ -71,6 +71,33 @@ def test_revoked_terminal_lease_cannot_be_replayed_as_empty_string(
                 "lease": "",
                 "sequence": 1,
                 "data": "echo bypassed-revocation\n",
+            })
+    finally:
+        terminal.close_all()
+
+
+def test_terminal_approval_can_mint_only_one_lease(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("BIRKIN_HOME", str(tmp_path / "home"))
+    recorder = EventRecorder()
+    terminal = authority(tmp_path, recorder, {"auto_approve": []})
+    with pytest.raises(TerminalApprovalRequired) as caught:
+        terminal.create({"actor_kind": "native_human", "cwd": str(tmp_path)})
+    assert approvals.approve(caught.value.approval_id)["ok"] is True
+
+    first = terminal.create({
+        "actor_kind": "native_human",
+        "cwd": str(tmp_path),
+        "approval_id": caught.value.approval_id,
+    })
+    try:
+        assert first["lease"]
+        with pytest.raises(TerminalApprovalRequired):
+            terminal.create({
+                "actor_kind": "native_human",
+                "cwd": str(tmp_path),
+                "approval_id": caught.value.approval_id,
             })
     finally:
         terminal.close_all()

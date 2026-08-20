@@ -18,7 +18,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, final
 
-from birkin import approvals, store
+from birkin import approvals, config, store
 
 from .approval_projection import approval_item
 from .contracts import (
@@ -314,20 +314,31 @@ class TerminalAuthority:
             self._terminate(session, reason="authority_closed", emit_exit=False)
 
     def _approved(self, approval_id: str, *, cwd: Path, shell: str) -> bool:
-        record = store.get_pending(approval_id)
-        if not isinstance(record, dict) or record.get("status") != "approved":
+        if not store.valid_pending_id(approval_id):
             return False
-        payload = record.get("payload")
-        return bool(
-            record.get("category") == "shell"
-            and isinstance(payload, dict)
-            and payload.get("terminal_lease_only") is True
-            and payload.get("command") == "/usr/bin/true"
-            and payload.get("shell") == shell
-            and payload.get("cwd") == str(cwd)
-            and payload.get("session_id") == self._session_id
-            and payload.get("actor_kind") == "native_human"
-        )
+        expected_payload = {
+            "command": "/usr/bin/true",
+            "shell": shell,
+            "cwd": str(cwd),
+            "terminal_lease_only": True,
+            "session_id": self._session_id,
+            "actor_kind": "native_human",
+        }
+        approval_path = config.pending_dir() / f"{approval_id}.json"
+        try:
+            with store.file_lock(approval_path):
+                record = store.get_pending(approval_id)
+                if (
+                    not isinstance(record, dict)
+                    or record.get("status") != "approved"
+                    or record.get("category") != "shell"
+                    or record.get("payload") != expected_payload
+                ):
+                    return False
+                _ = store.resolve_pending(approval_id, "consumed")
+        except store.FileLockTimeout:
+            return False
+        return True
 
     def _cwd(self, value: object) -> Path:
         if not isinstance(value, str):
