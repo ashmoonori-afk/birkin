@@ -66,7 +66,7 @@ class NativeProjectionSession:
         if reset_reason is not None:
             return ProjectionBatch(
                 instance_id=self.instance_id,
-                snapshot=public_native_mapping(snapshot.to_json()),
+                snapshot=_reconnect_snapshot(snapshot),
                 events=(),
                 reset_reason=reset_reason,
             )
@@ -74,7 +74,7 @@ class NativeProjectionSession:
         if not _cursors_are_contiguous(events, after_cursor=after_cursor):
             return ProjectionBatch(
                 instance_id=self.instance_id,
-                snapshot=public_native_mapping(snapshot.to_json()),
+                snapshot=_reconnect_snapshot(snapshot),
                 events=(),
                 reset_reason="cursor_gap",
             )
@@ -99,6 +99,17 @@ class NativeProjectionSession:
         if after_cursor > current_cursor:
             return "cursor_ahead"
         return None
+
+
+def _reconnect_snapshot(snapshot: WorkspaceSnapshot) -> dict[str, object]:
+    public = public_native_mapping(snapshot.to_json())
+    terminals = public.get("terminals")
+    if isinstance(terminals, list):
+        for terminal in terminals:
+            if isinstance(terminal, dict):
+                terminal["lease"] = None
+                terminal["read_only"] = True
+    return public
 
 
 def _cursors_are_contiguous(

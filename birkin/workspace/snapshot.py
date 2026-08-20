@@ -127,6 +127,7 @@ def reduce_snapshot(
     panel_items: dict[str, list[dict[str, object]]] = {key: [] for key in PANEL_KEYS}
     active_commands: set[str] = set()
     interrupted = False
+    terminals: dict[str, dict[str, object]] = {}
     for event in events:
         if event.type == "command.started":
             active_commands.add(event.command_id)
@@ -176,6 +177,56 @@ def reduce_snapshot(
                 conversation.append(message)
             panel_items["sessions_history"].append(message)
 
+        terminal_id = event.payload.get("terminal_id")
+        if isinstance(terminal_id, str):
+            terminal = terminals.setdefault(
+                terminal_id,
+                {
+                    "terminal_id": terminal_id,
+                    "cwd": "",
+                    "screen": "",
+                    "output_sequence": 0,
+                    "state": "unavailable",
+                    "exit_status": None,
+                    "columns": 80,
+                    "rows": 24,
+                    "lease": None,
+                    "read_only": True,
+                },
+            )
+            if event.type == "terminal.opened":
+                terminal.update({
+                    "cwd": str(event.payload.get("cwd") or ""),
+                    "state": "running",
+                    "exit_status": None,
+                    "lease": (
+                        event.payload.get("lease")
+                        if isinstance(event.payload.get("lease"), str)
+                        else None
+                    ),
+                    "read_only": False,
+                })
+            elif event.type == "terminal.output":
+                data = event.payload.get("data")
+                sequence = event.payload.get("sequence")
+                if isinstance(data, str):
+                    screen = (str(terminal["screen"]) + data).encode("utf-8")
+                    terminal["screen"] = screen[-65_536:].decode(
+                        "utf-8", errors="replace"
+                    )
+                if isinstance(sequence, int) and not isinstance(sequence, bool):
+                    terminal["output_sequence"] = sequence
+            elif event.type == "terminal.resized":
+                for key in ("columns", "rows"):
+                    value = event.payload.get(key)
+                    if isinstance(value, int) and not isinstance(value, bool):
+                        terminal[key] = value
+            elif event.type == "terminal.exited":
+                terminal["state"] = "exited"
+                terminal["exit_status"] = event.payload.get("exit_status")
+                terminal["lease"] = None
+                terminal["read_only"] = True
+
         panel_key = _PANEL_BY_EVENT.get(event.type)
         if panel_key is not None:
             panel_items[panel_key].append(_panel_item(event))
@@ -207,4 +258,5 @@ def reduce_snapshot(
             },
             "files_evidence": list(panel_items["files_evidence"]),
         },
+        terminals=tuple(terminals.values()),
     )

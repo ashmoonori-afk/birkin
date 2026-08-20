@@ -62,11 +62,81 @@ enum NativeProjectionReducer {
         if event.type == "working_memory.updated" {
             applyWorkingMemory(event.payload, state: &state)
         }
+        applyTerminal(event, state: &state)
 
         state.cursor = event.cursor
         state.composer.canSend = activeCommands.isEmpty
         state.composer.canInterrupt = !activeCommands.isEmpty
         state.composer.canResume = interrupted && activeCommands.isEmpty
+    }
+
+    private static func applyTerminal(
+        _ event: NativeProjectionEvent,
+        state: inout NativeProjectionState
+    ) {
+        guard let terminalID = event.payload.string("terminal_id") else { return }
+        if event.type == "terminal.opened" {
+            let lease = event.payload.string("lease")
+            let terminal = NativeTerminalProjection(
+                terminalID: terminalID,
+                cwd: event.payload.string("cwd") ?? "",
+                screen: "",
+                outputSequence: 0,
+                state: "running",
+                exitStatus: nil,
+                columns: 80,
+                rows: 24,
+                lease: lease,
+                readOnly: lease == nil
+            )
+            if let index = state.terminals.firstIndex(where: { $0.terminalID == terminalID }) {
+                state.terminals[index] = terminal
+            } else {
+                state.terminals.append(terminal)
+            }
+            return
+        }
+        guard let index = state.terminals.firstIndex(
+            where: { $0.terminalID == terminalID }
+        ) else { return }
+        switch event.type {
+        case "terminal.output":
+            guard case .int(let sequence) = event.payload["sequence"],
+                  sequence == state.terminals[index].outputSequence + 1,
+                  let data = event.payload.string("data") else { return }
+            state.terminals[index].screen = boundedScreen(
+                state.terminals[index].screen + data
+            )
+            state.terminals[index].outputSequence = sequence
+        case "terminal.resized":
+            if case .int(let columns) = event.payload["columns"] {
+                state.terminals[index].columns = columns
+            }
+            if case .int(let rows) = event.payload["rows"] {
+                state.terminals[index].rows = rows
+            }
+        case "terminal.exited":
+            state.terminals[index].state = "exited"
+            state.terminals[index].lease = nil
+            state.terminals[index].readOnly = true
+            if case .int(let status) = event.payload["exit_status"] {
+                state.terminals[index].exitStatus = status
+            }
+        case "terminal.failed":
+            state.terminals[index].state = "failed"
+            state.terminals[index].lease = nil
+            state.terminals[index].readOnly = true
+        default: break
+        }
+    }
+
+    private static func boundedScreen(_ value: String) -> String {
+        guard value.utf8.count > 65_536 else { return value }
+        var bounded = value
+        while bounded.utf8.count > 65_536 {
+            bounded.removeFirst()
+        }
+        return bounded
     }
 
     private static func applyWorkingMemory(

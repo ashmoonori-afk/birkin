@@ -119,6 +119,29 @@ def render_fixture() -> str:
         event(7, "message.assistant.delta", {"text": "reduced"}),
         event(8, "message.assistant.completed", {"text": "Events reduced"}),
         event(9, "command.completed", {"command_type": "chat.send"}),
+        event(10, "terminal.opened", {
+            "terminal_id": "terminal-vector",
+            "session_id": "session-1",
+            "actor_kind": "native_human",
+            "cwd": "/private/workspace",
+            "shell": "/bin/sh",
+            "pid": 4242,
+            "lease": "vector-lease",
+            "lease_expires_in": 60.0,
+            "approval_id": "approval-vector",
+            "state": "running",
+        }),
+        event(11, "terminal.output", {
+            "terminal_id": "terminal-vector",
+            "sequence": 1,
+            "data": "hello-native\r\n",
+        }),
+        event(12, "terminal.resized", {
+            "terminal_id": "terminal-vector", "columns": 100, "rows": 30,
+        }),
+        event(13, "terminal.exited", {
+            "terminal_id": "terminal-vector", "exit_status": 0, "reason": "closed",
+        }),
     ]
     factory = NativeMessageFactory(
         instance_id="instance-1",
@@ -156,7 +179,7 @@ def render_fixture() -> str:
             }
         )
 
-    gap = event(11, "message.user", {"text": "must be discarded"})
+    gap = event(15, "message.user", {"text": "must be discarded"})
     gap_message = factory.message("event", body=public_workspace_event(gap))
     document = {
         "generated_by": "scripts/native/generate_projection_vectors.py",

@@ -168,6 +168,7 @@ class WorkspaceSnapshot:
     composer: ComposerState
     status: WorkspaceStatus
     working_memory: dict[str, object]
+    terminals: tuple[dict[str, object], ...]
 
     def to_json(self) -> dict[str, object]:
         return {
@@ -185,4 +186,5 @@ class WorkspaceSnapshot:
             },
             "status": {"connection": self.status.connection},
             "working_memory": self.working_memory,
+            "terminals": list(self.terminals),
         }

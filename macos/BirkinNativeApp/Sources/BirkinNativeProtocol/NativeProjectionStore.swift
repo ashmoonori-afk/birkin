@@ -82,7 +82,7 @@ public final class NativeProjectionStore {
     ) throws -> NativeProjectionState {
         let expectedKeys: Set<String> = [
             "protocol_version", "session_id", "cursor", "panels", "conversation",
-            "composer", "status", "working_memory", "instance_id", "reset_reason",
+            "composer", "status", "working_memory", "terminals", "instance_id", "reset_reason",
         ]
         guard Set(body.keys) == expectedKeys else {
             throw NativeProjectionError("projection snapshot keys do not match the contract")
@@ -119,7 +119,46 @@ public final class NativeProjectionStore {
                 canResume: try boolean(composer["can_resume"], label: "can_resume")
             ),
             connection: try string(status["connection"], label: "connection"),
-            workingMemory: workingMemory
+            workingMemory: workingMemory,
+            terminals: try objectArray(body["terminals"], label: "terminals").map(
+                decodeTerminal
+            )
+        )
+    }
+
+    private static func decodeTerminal(
+        _ value: NativeJSONObject
+    ) throws -> NativeTerminalProjection {
+        let keys: Set<String> = [
+            "terminal_id", "cwd", "screen", "output_sequence", "state",
+            "exit_status", "columns", "rows", "lease", "read_only",
+        ]
+        guard Set(value.keys) == keys else {
+            throw NativeProjectionError("terminal projection keys do not match the contract")
+        }
+        let exitStatus: Int?
+        switch value["exit_status"] {
+        case .int(let value): exitStatus = value
+        case .null: exitStatus = nil
+        default: throw NativeProjectionError("terminal exit_status must be an integer or null")
+        }
+        let lease: String?
+        switch value["lease"] {
+        case .string(let value): lease = value
+        case .null: lease = nil
+        default: throw NativeProjectionError("terminal lease must be a string or null")
+        }
+        return NativeTerminalProjection(
+            terminalID: try string(value["terminal_id"], label: "terminal_id"),
+            cwd: try string(value["cwd"], label: "terminal cwd"),
+            screen: try string(value["screen"], label: "terminal screen"),
+            outputSequence: try integer(value["output_sequence"], label: "output_sequence"),
+            state: try string(value["state"], label: "terminal state"),
+            exitStatus: exitStatus,
+            columns: try integer(value["columns"], label: "terminal columns"),
+            rows: try integer(value["rows"], label: "terminal rows"),
+            lease: lease,
+            readOnly: try boolean(value["read_only"], label: "terminal read_only")
         )
     }
 

@@ -10,8 +10,8 @@
     "birkin.goals.GoalState"
   ],
   "snapshot": {
-    "frame_base64": "AAAFwXsicHJvdG9jb2wiOiJiaXJraW4tbG9jYWwtMSIsInByb3RvY29sX3ZlcnNpb24iOjEsImtpbmQiOiJzbmFwc2hvdCIsImlkIjoic2VydmVyLTEiLCJpbl9yZXBseV90byI6bnVsbCwiYm9keSI6eyJwcm90b2NvbF92ZXJzaW9uIjoxLCJzZXNzaW9uX2lkIjoic2Vzc2lvbi0xIiwiY3Vyc29yIjoyLCJwYW5lbHMiOlt7ImtleSI6InRhc2tzX3J1bnMiLCJpdGVtcyI6W119LHsia2V5IjoiYXBwcm92YWxzIiwiaXRlbXMiOltdfSx7ImtleSI6ImZpbGVzX2V2aWRlbmNlIiwiaXRlbXMiOltdfSx7ImtleSI6InNlc3Npb25zX2hpc3RvcnkiLCJpdGVtcyI6W3siaWQiOiJldmVudC0yIiwia2luZCI6ImFzc2lzdGFudF9tZXNzYWdlIiwidGV4dCI6IlNuYXBzaG90IHJlYWR5IiwiYWN0b3JfaWQiOiJtYWNvczp3aW5kb3ctbWFpbiIsImN1cnNvciI6Mn1dfSx7ImtleSI6ImFjdGl2aXR5X2xvZ3MiLCJpdGVtcyI6W119LHsia2V5IjoiY3JvbiIsIml0ZW1zIjpbXX0seyJrZXkiOiJtZW1vcnlfc2tpbGxzIiwiaXRlbXMiOltdfSx7ImtleSI6ImNoZWNrcG9pbnRzX3Jlc3RvcmUiLCJpdGVtcyI6W119LHsia2V5IjoiY29tcHV0ZXJfdXNlIiwiaXRlbXMiOltdfSx7ImtleSI6InNldHRpbmdzX3N0YXR1cyIsIml0ZW1zIjpbXX1dLCJjb252ZXJzYXRpb24iOlt7ImlkIjoiZXZlbnQtMSIsImtpbmQiOiJ1c2VyX21lc3NhZ2UiLCJ0ZXh0IjoiU2hpcCB0aGUgcmVkdWNlciIsImFjdG9yX2lkIjoibWFjb3M6d2luZG93LW1haW4iLCJjdXJzb3IiOjF9LHsiaWQiOiJldmVudC0yIiwia2luZCI6ImFzc2lzdGFudF9tZXNzYWdlIiwidGV4dCI6IlNuYXBzaG90IHJlYWR5IiwiYWN0b3JfaWQiOiJtYWNvczp3aW5kb3ctbWFpbiIsImN1cnNvciI6Mn1dLCJjb21wb3NlciI6eyJjYW5fc2VuZCI6dHJ1ZSwiY2FuX2ludGVycnVwdCI6ZmFsc2UsImNhbl9yZXN1bWUiOmZhbHNlfSwic3RhdHVzIjp7ImNvbm5lY3Rpb24iOiJjb25uZWN0ZWQifSwid29ya2luZ19tZW1vcnkiOnsicmV2aXNpb24iOjEsImdvYWwiOnsic2x1ZyI6InNoaXAtbmF0aXZlLXdvcmtpbmctbWVtb3J5Iiwib2JqZWN0aXZlIjoiU2hpcCBuYXRpdmUgV29ya2luZyBNZW1vcnkiLCJ0b2tlbnNfdXNlZCI6MCwic3RhdHVzIjoiYWN0aXZlIn0sImZpZWxkcyI6eyJjb3JyZWN0aW9ucyI6WyJVc2UgY2Fub25pY2FsIHN0YXRlIl0sImNvbnN0cmFpbnRzIjpbIlN0YXkgb2ZmbGluZSJdLCJkZWNpc2lvbnMiOlsiRGVsZWdhdGUgdG8gUHl0aG9uIl0sImluY29tcGxldGUiOlsiUmVuZGVyIGZpdmUgcm93cyJdLCJldmlkZW5jZSI6WyJSRUQgY2FwdHVyZWQiXSwibmV4dF9hY3Rpb25zIjpbIlJ1biBHUkVFTiJdfSwiZmlsZXNfZXZpZGVuY2UiOlt7ImlkIjoiY2hlY2twb2ludC0xIiwic3VtbWFyeSI6IndvcmtzcGFjZS9tYWluLnB5Iiwia2luZCI6ImV2aWRlbmNlIn1dfSwiaW5zdGFuY2VfaWQiOiJpbnN0YW5jZS0xIiwicmVzZXRfcmVhc29uIjoiaW5pdGlhbCJ9fQ==",
-    "frame_byte_count": 1477,
+    "frame_base64": "AAAF0HsicHJvdG9jb2wiOiJiaXJraW4tbG9jYWwtMSIsInByb3RvY29sX3ZlcnNpb24iOjEsImtpbmQiOiJzbmFwc2hvdCIsImlkIjoic2VydmVyLTEiLCJpbl9yZXBseV90byI6bnVsbCwiYm9keSI6eyJwcm90b2NvbF92ZXJzaW9uIjoxLCJzZXNzaW9uX2lkIjoic2Vzc2lvbi0xIiwiY3Vyc29yIjoyLCJwYW5lbHMiOlt7ImtleSI6InRhc2tzX3J1bnMiLCJpdGVtcyI6W119LHsia2V5IjoiYXBwcm92YWxzIiwiaXRlbXMiOltdfSx7ImtleSI6ImZpbGVzX2V2aWRlbmNlIiwiaXRlbXMiOltdfSx7ImtleSI6InNlc3Npb25zX2hpc3RvcnkiLCJpdGVtcyI6W3siaWQiOiJldmVudC0yIiwia2luZCI6ImFzc2lzdGFudF9tZXNzYWdlIiwidGV4dCI6IlNuYXBzaG90IHJlYWR5IiwiYWN0b3JfaWQiOiJtYWNvczp3aW5kb3ctbWFpbiIsImN1cnNvciI6Mn1dfSx7ImtleSI6ImFjdGl2aXR5X2xvZ3MiLCJpdGVtcyI6W119LHsia2V5IjoiY3JvbiIsIml0ZW1zIjpbXX0seyJrZXkiOiJtZW1vcnlfc2tpbGxzIiwiaXRlbXMiOltdfSx7ImtleSI6ImNoZWNrcG9pbnRzX3Jlc3RvcmUiLCJpdGVtcyI6W119LHsia2V5IjoiY29tcHV0ZXJfdXNlIiwiaXRlbXMiOltdfSx7ImtleSI6InNldHRpbmdzX3N0YXR1cyIsIml0ZW1zIjpbXX1dLCJjb252ZXJzYXRpb24iOlt7ImlkIjoiZXZlbnQtMSIsImtpbmQiOiJ1c2VyX21lc3NhZ2UiLCJ0ZXh0IjoiU2hpcCB0aGUgcmVkdWNlciIsImFjdG9yX2lkIjoibWFjb3M6d2luZG93LW1haW4iLCJjdXJzb3IiOjF9LHsiaWQiOiJldmVudC0yIiwia2luZCI6ImFzc2lzdGFudF9tZXNzYWdlIiwidGV4dCI6IlNuYXBzaG90IHJlYWR5IiwiYWN0b3JfaWQiOiJtYWNvczp3aW5kb3ctbWFpbiIsImN1cnNvciI6Mn1dLCJjb21wb3NlciI6eyJjYW5fc2VuZCI6dHJ1ZSwiY2FuX2ludGVycnVwdCI6ZmFsc2UsImNhbl9yZXN1bWUiOmZhbHNlfSwic3RhdHVzIjp7ImNvbm5lY3Rpb24iOiJjb25uZWN0ZWQifSwid29ya2luZ19tZW1vcnkiOnsicmV2aXNpb24iOjEsImdvYWwiOnsic2x1ZyI6InNoaXAtbmF0aXZlLXdvcmtpbmctbWVtb3J5Iiwib2JqZWN0aXZlIjoiU2hpcCBuYXRpdmUgV29ya2luZyBNZW1vcnkiLCJ0b2tlbnNfdXNlZCI6MCwic3RhdHVzIjoiYWN0aXZlIn0sImZpZWxkcyI6eyJjb3JyZWN0aW9ucyI6WyJVc2UgY2Fub25pY2FsIHN0YXRlIl0sImNvbnN0cmFpbnRzIjpbIlN0YXkgb2ZmbGluZSJdLCJkZWNpc2lvbnMiOlsiRGVsZWdhdGUgdG8gUHl0aG9uIl0sImluY29tcGxldGUiOlsiUmVuZGVyIGZpdmUgcm93cyJdLCJldmlkZW5jZSI6WyJSRUQgY2FwdHVyZWQiXSwibmV4dF9hY3Rpb25zIjpbIlJ1biBHUkVFTiJdfSwiZmlsZXNfZXZpZGVuY2UiOlt7ImlkIjoiY2hlY2twb2ludC0xIiwic3VtbWFyeSI6IndvcmtzcGFjZS9tYWluLnB5Iiwia2luZCI6ImV2aWRlbmNlIn1dfSwidGVybWluYWxzIjpbXSwiaW5zdGFuY2VfaWQiOiJpbnN0YW5jZS0xIiwicmVzZXRfcmVhc29uIjoiaW5pdGlhbCJ9fQ==",
+    "frame_byte_count": 1492,
     "kind": "snapshot",
     "expected_state": {
       "protocol_version": 1,
@@ -126,7 +126,8 @@
             "kind": "evidence"
           }
         ]
-      }
+      },
+      "terminals": []
     }
   },
   "events": [
@@ -257,7 +258,8 @@
               "kind": "evidence"
             }
           ]
-        }
+        },
+        "terminals": []
       }
     },
     {
@@ -387,7 +389,8 @@
               "kind": "evidence"
             }
           ]
-        }
+        },
+        "terminals": []
       }
     },
     {
@@ -524,7 +527,8 @@
               "kind": "evidence"
             }
           ]
-        }
+        },
+        "terminals": []
       }
     },
     {
@@ -668,7 +672,8 @@
               "kind": "evidence"
             }
           ]
-        }
+        },
+        "terminals": []
       }
     },
     {
@@ -812,7 +817,8 @@
               "kind": "evidence"
             }
           ]
-        }
+        },
+        "terminals": []
       }
     },
     {
@@ -963,7 +969,8 @@
               "kind": "evidence"
             }
           ]
-        }
+        },
+        "terminals": []
       }
     },
     {
@@ -1114,14 +1121,675 @@
               "kind": "evidence"
             }
           ]
-        }
+        },
+        "terminals": []
+      }
+    },
+    {
+      "frame_base64": "AAACK3sicHJvdG9jb2wiOiJiaXJraW4tbG9jYWwtMSIsInByb3RvY29sX3ZlcnNpb24iOjEsImtpbmQiOiJldmVudCIsImlkIjoic2VydmVyLTkiLCJpbl9yZXBseV90byI6bnVsbCwiYm9keSI6eyJwcm90b2NvbF92ZXJzaW9uIjoxLCJzZXNzaW9uX2lkIjoic2Vzc2lvbi0xIiwiY3Vyc29yIjoxMCwiZXZlbnRfaWQiOiJldmVudC0xMCIsInR5cGUiOiJ0ZXJtaW5hbC5vcGVuZWQiLCJ0aW1lc3RhbXAiOiIyMDI2LTA4LTIwVDEyOjAwOjEwWiIsImFjdG9yX2lkIjoibWFjb3M6d2luZG93LW1haW4iLCJjb21tYW5kX2lkIjoiY29tbWFuZC0xIiwicGF5bG9hZCI6eyJ0ZXJtaW5hbF9pZCI6InRlcm1pbmFsLXZlY3RvciIsInNlc3Npb25faWQiOiJzZXNzaW9uLTEiLCJhY3Rvcl9raW5kIjoibmF0aXZlX2h1bWFuIiwiY3dkIjoiL3ByaXZhdGUvd29ya3NwYWNlIiwic2hlbGwiOiIvYmluL3NoIiwicGlkIjo0MjQyLCJsZWFzZSI6InZlY3Rvci1sZWFzZSIsImxlYXNlX2V4cGlyZXNfaW4iOjYwLjAsImFwcHJvdmFsX2lkIjoiYXBwcm92YWwtdmVjdG9yIiwic3RhdGUiOiJydW5uaW5nIn19fQ==",
+      "frame_byte_count": 559,
+      "kind": "event",
+      "cursor": 10,
+      "expected_state": {
+        "protocol_version": 1,
+        "session_id": "session-1",
+        "cursor": 10,
+        "panels": [
+          {
+            "key": "tasks_runs",
+            "items": [
+              {
+                "id": "task-1",
+                "summary": "Canonical reducer",
+                "status": "running",
+                "cursor": 3,
+                "kind": "task",
+                "ui_state": "running"
+              }
+            ]
+          },
+          {
+            "key": "approvals",
+            "items": []
+          },
+          {
+            "key": "files_evidence",
+            "items": []
+          },
+          {
+            "key": "sessions_history",
+            "items": [
+              {
+                "id": "event-2",
+                "kind": "assistant_message",
+                "text": "Snapshot ready",
+                "actor_id": "macos:window-main",
+                "cursor": 2
+              },
+              {
+                "id": "event-8",
+                "kind": "assistant_message",
+                "text": "Events reduced",
+                "actor_id": "macos:window-main",
+                "cursor": 8
+              }
+            ]
+          },
+          {
+            "key": "activity_logs",
+            "items": []
+          },
+          {
+            "key": "cron",
+            "items": []
+          },
+          {
+            "key": "memory_skills",
+            "items": []
+          },
+          {
+            "key": "checkpoints_restore",
+            "items": []
+          },
+          {
+            "key": "computer_use",
+            "items": []
+          },
+          {
+            "key": "settings_status",
+            "items": []
+          }
+        ],
+        "conversation": [
+          {
+            "id": "event-1",
+            "kind": "user_message",
+            "text": "Ship the reducer",
+            "actor_id": "macos:window-main",
+            "cursor": 1
+          },
+          {
+            "id": "event-2",
+            "kind": "assistant_message",
+            "text": "Snapshot ready",
+            "actor_id": "macos:window-main",
+            "cursor": 2
+          },
+          {
+            "id": "event-5",
+            "kind": "user_message",
+            "text": "Continue in cursor order",
+            "actor_id": "macos:window-main",
+            "cursor": 5
+          },
+          {
+            "id": "event-8",
+            "kind": "assistant_message",
+            "text": "Events reduced",
+            "actor_id": "macos:window-main",
+            "cursor": 8
+          }
+        ],
+        "composer": {
+          "can_send": true,
+          "can_interrupt": false,
+          "can_resume": false
+        },
+        "status": {
+          "connection": "connected"
+        },
+        "working_memory": {
+          "revision": 1,
+          "goal": {
+            "slug": "ship-native-working-memory",
+            "objective": "Ship native Working Memory",
+            "tokens_used": 0,
+            "status": "active"
+          },
+          "fields": {
+            "corrections": [
+              "Use canonical state"
+            ],
+            "constraints": [
+              "Stay offline"
+            ],
+            "decisions": [
+              "Delegate to Python"
+            ],
+            "incomplete": [
+              "Render five rows"
+            ],
+            "evidence": [
+              "RED captured"
+            ],
+            "next_actions": [
+              "Run GREEN"
+            ]
+          },
+          "files_evidence": [
+            {
+              "id": "checkpoint-1",
+              "summary": "workspace/main.py",
+              "kind": "evidence"
+            }
+          ]
+        },
+        "terminals": [
+          {
+            "terminal_id": "terminal-vector",
+            "cwd": "/private/workspace",
+            "screen": "",
+            "output_sequence": 0,
+            "state": "running",
+            "exit_status": null,
+            "columns": 80,
+            "rows": 24,
+            "lease": "vector-lease",
+            "read_only": false
+          }
+        ]
+      }
+    },
+    {
+      "frame_base64": "AAABgXsicHJvdG9jb2wiOiJiaXJraW4tbG9jYWwtMSIsInByb3RvY29sX3ZlcnNpb24iOjEsImtpbmQiOiJldmVudCIsImlkIjoic2VydmVyLTEwIiwiaW5fcmVwbHlfdG8iOm51bGwsImJvZHkiOnsicHJvdG9jb2xfdmVyc2lvbiI6MSwic2Vzc2lvbl9pZCI6InNlc3Npb24tMSIsImN1cnNvciI6MTEsImV2ZW50X2lkIjoiZXZlbnQtMTEiLCJ0eXBlIjoidGVybWluYWwub3V0cHV0IiwidGltZXN0YW1wIjoiMjAyNi0wOC0yMFQxMjowMDoxMVoiLCJhY3Rvcl9pZCI6Im1hY29zOndpbmRvdy1tYWluIiwiY29tbWFuZF9pZCI6ImNvbW1hbmQtMSIsInBheWxvYWQiOnsidGVybWluYWxfaWQiOiJ0ZXJtaW5hbC12ZWN0b3IiLCJzZXF1ZW5jZSI6MSwiZGF0YSI6ImhlbGxvLW5hdGl2ZSJ9fX0=",
+      "frame_byte_count": 389,
+      "kind": "event",
+      "cursor": 11,
+      "expected_state": {
+        "protocol_version": 1,
+        "session_id": "session-1",
+        "cursor": 11,
+        "panels": [
+          {
+            "key": "tasks_runs",
+            "items": [
+              {
+                "id": "task-1",
+                "summary": "Canonical reducer",
+                "status": "running",
+                "cursor": 3,
+                "kind": "task",
+                "ui_state": "running"
+              }
+            ]
+          },
+          {
+            "key": "approvals",
+            "items": []
+          },
+          {
+            "key": "files_evidence",
+            "items": []
+          },
+          {
+            "key": "sessions_history",
+            "items": [
+              {
+                "id": "event-2",
+                "kind": "assistant_message",
+                "text": "Snapshot ready",
+                "actor_id": "macos:window-main",
+                "cursor": 2
+              },
+              {
+                "id": "event-8",
+                "kind": "assistant_message",
+                "text": "Events reduced",
+                "actor_id": "macos:window-main",
+                "cursor": 8
+              }
+            ]
+          },
+          {
+            "key": "activity_logs",
+            "items": []
+          },
+          {
+            "key": "cron",
+            "items": []
+          },
+          {
+            "key": "memory_skills",
+            "items": []
+          },
+          {
+            "key": "checkpoints_restore",
+            "items": []
+          },
+          {
+            "key": "computer_use",
+            "items": []
+          },
+          {
+            "key": "settings_status",
+            "items": []
+          }
+        ],
+        "conversation": [
+          {
+            "id": "event-1",
+            "kind": "user_message",
+            "text": "Ship the reducer",
+            "actor_id": "macos:window-main",
+            "cursor": 1
+          },
+          {
+            "id": "event-2",
+            "kind": "assistant_message",
+            "text": "Snapshot ready",
+            "actor_id": "macos:window-main",
+            "cursor": 2
+          },
+          {
+            "id": "event-5",
+            "kind": "user_message",
+            "text": "Continue in cursor order",
+            "actor_id": "macos:window-main",
+            "cursor": 5
+          },
+          {
+            "id": "event-8",
+            "kind": "assistant_message",
+            "text": "Events reduced",
+            "actor_id": "macos:window-main",
+            "cursor": 8
+          }
+        ],
+        "composer": {
+          "can_send": true,
+          "can_interrupt": false,
+          "can_resume": false
+        },
+        "status": {
+          "connection": "connected"
+        },
+        "working_memory": {
+          "revision": 1,
+          "goal": {
+            "slug": "ship-native-working-memory",
+            "objective": "Ship native Working Memory",
+            "tokens_used": 0,
+            "status": "active"
+          },
+          "fields": {
+            "corrections": [
+              "Use canonical state"
+            ],
+            "constraints": [
+              "Stay offline"
+            ],
+            "decisions": [
+              "Delegate to Python"
+            ],
+            "incomplete": [
+              "Render five rows"
+            ],
+            "evidence": [
+              "RED captured"
+            ],
+            "next_actions": [
+              "Run GREEN"
+            ]
+          },
+          "files_evidence": [
+            {
+              "id": "checkpoint-1",
+              "summary": "workspace/main.py",
+              "kind": "evidence"
+            }
+          ]
+        },
+        "terminals": [
+          {
+            "terminal_id": "terminal-vector",
+            "cwd": "/private/workspace",
+            "screen": "hello-native",
+            "output_sequence": 1,
+            "state": "running",
+            "exit_status": null,
+            "columns": 80,
+            "rows": 24,
+            "lease": "vector-lease",
+            "read_only": false
+          }
+        ]
+      }
+    },
+    {
+      "frame_base64": "AAABd3sicHJvdG9jb2wiOiJiaXJraW4tbG9jYWwtMSIsInByb3RvY29sX3ZlcnNpb24iOjEsImtpbmQiOiJldmVudCIsImlkIjoic2VydmVyLTExIiwiaW5fcmVwbHlfdG8iOm51bGwsImJvZHkiOnsicHJvdG9jb2xfdmVyc2lvbiI6MSwic2Vzc2lvbl9pZCI6InNlc3Npb24tMSIsImN1cnNvciI6MTIsImV2ZW50X2lkIjoiZXZlbnQtMTIiLCJ0eXBlIjoidGVybWluYWwucmVzaXplZCIsInRpbWVzdGFtcCI6IjIwMjYtMDgtMjBUMTI6MDA6MTJaIiwiYWN0b3JfaWQiOiJtYWNvczp3aW5kb3ctbWFpbiIsImNvbW1hbmRfaWQiOiJjb21tYW5kLTEiLCJwYXlsb2FkIjp7InRlcm1pbmFsX2lkIjoidGVybWluYWwtdmVjdG9yIiwiY29sdW1ucyI6MTAwLCJyb3dzIjozMH19fQ==",
+      "frame_byte_count": 379,
+      "kind": "event",
+      "cursor": 12,
+      "expected_state": {
+        "protocol_version": 1,
+        "session_id": "session-1",
+        "cursor": 12,
+        "panels": [
+          {
+            "key": "tasks_runs",
+            "items": [
+              {
+                "id": "task-1",
+                "summary": "Canonical reducer",
+                "status": "running",
+                "cursor": 3,
+                "kind": "task",
+                "ui_state": "running"
+              }
+            ]
+          },
+          {
+            "key": "approvals",
+            "items": []
+          },
+          {
+            "key": "files_evidence",
+            "items": []
+          },
+          {
+            "key": "sessions_history",
+            "items": [
+              {
+                "id": "event-2",
+                "kind": "assistant_message",
+                "text": "Snapshot ready",
+                "actor_id": "macos:window-main",
+                "cursor": 2
+              },
+              {
+                "id": "event-8",
+                "kind": "assistant_message",
+                "text": "Events reduced",
+                "actor_id": "macos:window-main",
+                "cursor": 8
+              }
+            ]
+          },
+          {
+            "key": "activity_logs",
+            "items": []
+          },
+          {
+            "key": "cron",
+            "items": []
+          },
+          {
+            "key": "memory_skills",
+            "items": []
+          },
+          {
+            "key": "checkpoints_restore",
+            "items": []
+          },
+          {
+            "key": "computer_use",
+            "items": []
+          },
+          {
+            "key": "settings_status",
+            "items": []
+          }
+        ],
+        "conversation": [
+          {
+            "id": "event-1",
+            "kind": "user_message",
+            "text": "Ship the reducer",
+            "actor_id": "macos:window-main",
+            "cursor": 1
+          },
+          {
+            "id": "event-2",
+            "kind": "assistant_message",
+            "text": "Snapshot ready",
+            "actor_id": "macos:window-main",
+            "cursor": 2
+          },
+          {
+            "id": "event-5",
+            "kind": "user_message",
+            "text": "Continue in cursor order",
+            "actor_id": "macos:window-main",
+            "cursor": 5
+          },
+          {
+            "id": "event-8",
+            "kind": "assistant_message",
+            "text": "Events reduced",
+            "actor_id": "macos:window-main",
+            "cursor": 8
+          }
+        ],
+        "composer": {
+          "can_send": true,
+          "can_interrupt": false,
+          "can_resume": false
+        },
+        "status": {
+          "connection": "connected"
+        },
+        "working_memory": {
+          "revision": 1,
+          "goal": {
+            "slug": "ship-native-working-memory",
+            "objective": "Ship native Working Memory",
+            "tokens_used": 0,
+            "status": "active"
+          },
+          "fields": {
+            "corrections": [
+              "Use canonical state"
+            ],
+            "constraints": [
+              "Stay offline"
+            ],
+            "decisions": [
+              "Delegate to Python"
+            ],
+            "incomplete": [
+              "Render five rows"
+            ],
+            "evidence": [
+              "RED captured"
+            ],
+            "next_actions": [
+              "Run GREEN"
+            ]
+          },
+          "files_evidence": [
+            {
+              "id": "checkpoint-1",
+              "summary": "workspace/main.py",
+              "kind": "evidence"
+            }
+          ]
+        },
+        "terminals": [
+          {
+            "terminal_id": "terminal-vector",
+            "cwd": "/private/workspace",
+            "screen": "hello-native",
+            "output_sequence": 1,
+            "state": "running",
+            "exit_status": null,
+            "columns": 100,
+            "rows": 30,
+            "lease": "vector-lease",
+            "read_only": false
+          }
+        ]
+      }
+    },
+    {
+      "frame_base64": "AAABgHsicHJvdG9jb2wiOiJiaXJraW4tbG9jYWwtMSIsInByb3RvY29sX3ZlcnNpb24iOjEsImtpbmQiOiJldmVudCIsImlkIjoic2VydmVyLTEyIiwiaW5fcmVwbHlfdG8iOm51bGwsImJvZHkiOnsicHJvdG9jb2xfdmVyc2lvbiI6MSwic2Vzc2lvbl9pZCI6InNlc3Npb24tMSIsImN1cnNvciI6MTMsImV2ZW50X2lkIjoiZXZlbnQtMTMiLCJ0eXBlIjoidGVybWluYWwuZXhpdGVkIiwidGltZXN0YW1wIjoiMjAyNi0wOC0yMFQxMjowMDoxM1oiLCJhY3Rvcl9pZCI6Im1hY29zOndpbmRvdy1tYWluIiwiY29tbWFuZF9pZCI6ImNvbW1hbmQtMSIsInBheWxvYWQiOnsidGVybWluYWxfaWQiOiJ0ZXJtaW5hbC12ZWN0b3IiLCJleGl0X3N0YXR1cyI6MCwicmVhc29uIjoiY2xvc2VkIn19fQ==",
+      "frame_byte_count": 388,
+      "kind": "event",
+      "cursor": 13,
+      "expected_state": {
+        "protocol_version": 1,
+        "session_id": "session-1",
+        "cursor": 13,
+        "panels": [
+          {
+            "key": "tasks_runs",
+            "items": [
+              {
+                "id": "task-1",
+                "summary": "Canonical reducer",
+                "status": "running",
+                "cursor": 3,
+                "kind": "task",
+                "ui_state": "running"
+              }
+            ]
+          },
+          {
+            "key": "approvals",
+            "items": []
+          },
+          {
+            "key": "files_evidence",
+            "items": []
+          },
+          {
+            "key": "sessions_history",
+            "items": [
+              {
+                "id": "event-2",
+                "kind": "assistant_message",
+                "text": "Snapshot ready",
+                "actor_id": "macos:window-main",
+                "cursor": 2
+              },
+              {
+                "id": "event-8",
+                "kind": "assistant_message",
+                "text": "Events reduced",
+                "actor_id": "macos:window-main",
+                "cursor": 8
+              }
+            ]
+          },
+          {
+            "key": "activity_logs",
+            "items": []
+          },
+          {
+            "key": "cron",
+            "items": []
+          },
+          {
+            "key": "memory_skills",
+            "items": []
+          },
+          {
+            "key": "checkpoints_restore",
+            "items": []
+          },
+          {
+            "key": "computer_use",
+            "items": []
+          },
+          {
+            "key": "settings_status",
+            "items": []
+          }
+        ],
+        "conversation": [
+          {
+            "id": "event-1",
+            "kind": "user_message",
+            "text": "Ship the reducer",
+            "actor_id": "macos:window-main",
+            "cursor": 1
+          },
+          {
+            "id": "event-2",
+            "kind": "assistant_message",
+            "text": "Snapshot ready",
+            "actor_id": "macos:window-main",
+            "cursor": 2
+          },
+          {
+            "id": "event-5",
+            "kind": "user_message",
+            "text": "Continue in cursor order",
+            "actor_id": "macos:window-main",
+            "cursor": 5
+          },
+          {
+            "id": "event-8",
+            "kind": "assistant_message",
+            "text": "Events reduced",
+            "actor_id": "macos:window-main",
+            "cursor": 8
+          }
+        ],
+        "composer": {
+          "can_send": true,
+          "can_interrupt": false,
+          "can_resume": false
+        },
+        "status": {
+          "connection": "connected"
+        },
+        "working_memory": {
+          "revision": 1,
+          "goal": {
+            "slug": "ship-native-working-memory",
+            "objective": "Ship native Working Memory",
+            "tokens_used": 0,
+            "status": "active"
+          },
+          "fields": {
+            "corrections": [
+              "Use canonical state"
+            ],
+            "constraints": [
+              "Stay offline"
+            ],
+            "decisions": [
+              "Delegate to Python"
+            ],
+            "incomplete": [
+              "Render five rows"
+            ],
+            "evidence": [
+              "RED captured"
+            ],
+            "next_actions": [
+              "Run GREEN"
+            ]
+          },
+          "files_evidence": [
+            {
+              "id": "checkpoint-1",
+              "summary": "workspace/main.py",
+              "kind": "evidence"
+            }
+          ]
+        },
+        "terminals": [
+          {
+            "terminal_id": "terminal-vector",
+            "cwd": "/private/workspace",
+            "screen": "hello-native",
+            "output_sequence": 1,
+            "state": "exited",
+            "exit_status": 0,
+            "columns": 100,
+            "rows": 30,
+            "lease": null,
+            "read_only": true
+          }
+        ]
       }
     }
   ],
   "gap_event": {
-    "frame_base64": "AAABVXsicHJvdG9jb2wiOiJiaXJraW4tbG9jYWwtMSIsInByb3RvY29sX3ZlcnNpb24iOjEsImtpbmQiOiJldmVudCIsImlkIjoic2VydmVyLTkiLCJpbl9yZXBseV90byI6bnVsbCwiYm9keSI6eyJwcm90b2NvbF92ZXJzaW9uIjoxLCJzZXNzaW9uX2lkIjoic2Vzc2lvbi0xIiwiY3Vyc29yIjoxMSwiZXZlbnRfaWQiOiJldmVudC0xMSIsInR5cGUiOiJtZXNzYWdlLnVzZXIiLCJ0aW1lc3RhbXAiOiIyMDI2LTA4LTIwVDEyOjAwOjExWiIsImFjdG9yX2lkIjoibWFjb3M6d2luZG93LW1haW4iLCJjb21tYW5kX2lkIjoiY29tbWFuZC0xIiwicGF5bG9hZCI6eyJ0ZXh0IjoibXVzdCBiZSBkaXNjYXJkZWQifX19",
-    "frame_byte_count": 345,
+    "frame_base64": "AAABVnsicHJvdG9jb2wiOiJiaXJraW4tbG9jYWwtMSIsInByb3RvY29sX3ZlcnNpb24iOjEsImtpbmQiOiJldmVudCIsImlkIjoic2VydmVyLTEzIiwiaW5fcmVwbHlfdG8iOm51bGwsImJvZHkiOnsicHJvdG9jb2xfdmVyc2lvbiI6MSwic2Vzc2lvbl9pZCI6InNlc3Npb24tMSIsImN1cnNvciI6MTUsImV2ZW50X2lkIjoiZXZlbnQtMTUiLCJ0eXBlIjoibWVzc2FnZS51c2VyIiwidGltZXN0YW1wIjoiMjAyNi0wOC0yMFQxMjowMDoxNVoiLCJhY3Rvcl9pZCI6Im1hY29zOndpbmRvdy1tYWluIiwiY29tbWFuZF9pZCI6ImNvbW1hbmQtMSIsInBheWxvYWQiOnsidGV4dCI6Im11c3QgYmUgZGlzY2FyZGVkIn19fQ==",
+    "frame_byte_count": 346,
     "kind": "event",
-    "cursor": 11
+    "cursor": 15
   }
 }
