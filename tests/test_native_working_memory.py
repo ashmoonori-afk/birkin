@@ -3,9 +3,12 @@ from __future__ import annotations
 from pathlib import Path
 from typing import cast
 
+import pytest
+
 from birkin import goals, harness
 from birkin.native.session import NativeProjectionSession
-from birkin.workspace import WorkspaceService
+from birkin.workspace import ProtocolError, WorkspaceService
+from birkin.workspace.working_memory import WorkingMemoryAuthority, WorkingMemoryMutation
 
 
 def test_native_projection_maps_goal_fields_files_and_revision(tmp_path: Path) -> None:
@@ -87,3 +90,37 @@ def test_native_projection_maps_goal_fields_files_and_revision(tmp_path: Path) -
     rendered = str(batch.snapshot)
     assert "SEEDED_PUBLIC_SECRET" not in rendered
     assert "/Users/private" not in rendered
+
+
+def test_merge_schema_is_strict_and_preview_does_not_persist() -> None:
+    malformed = [
+        None,
+        {"op": "merge", "expected_revision": 0},
+        {"op": "merge", "expected_revision": 0, "fields": {}, "extra": True},
+        {"op": "merge", "expected_revision": True, "fields": {}},
+        {"op": "merge", "expected_revision": 0, "fields": {"goal": ["no"]}},
+        {"op": "merge", "expected_revision": 0, "fields": {"constraints": "no"}},
+        {"op": "merge", "expected_revision": 0, "fields": {"constraints": [1]}},
+    ]
+    for payload in malformed:
+        with pytest.raises(ProtocolError):
+            WorkingMemoryMutation.parse(payload)
+
+    authority = WorkingMemoryAuthority("preview-native")
+    mutation = WorkingMemoryMutation.parse({
+        "op": "merge",
+        "expected_revision": 0,
+        "fields": {
+            "constraints": ["Stay offline", "Stay offline"],
+            "decisions": ["Use Python authority"],
+        },
+    })
+    preview = authority.preview(mutation)
+
+    assert preview.requested == {
+        "constraints": ["Stay offline", "Stay offline"],
+        "decisions": ["Use Python authority"],
+    }
+    assert preview.effective["constraints"] == ["Stay offline"]
+    assert preview.effective["revision"] == 1
+    assert harness.working_state("preview-native")["revision"] == 0
