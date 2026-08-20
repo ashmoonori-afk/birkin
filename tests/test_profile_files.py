@@ -29,6 +29,15 @@ def test_bootstrap_creates_exactly_five_profile_files(tmp_path: Path) -> None:
         assert text.endswith("## Guidance\n")
 
 
+def test_snapshot_missing_profile_directory_is_empty_and_creates_nothing(tmp_path: Path) -> None:
+    s = store(tmp_path)
+
+    snapshot = s.snapshot()
+
+    assert snapshot.documents == {}
+    assert not (tmp_path / "profile").exists()
+
+
 def test_add_replace_remove_and_duplicate_noop(tmp_path: Path) -> None:
     s = store(tmp_path)
     first = s.apply(ProfileEdit("preferences", "add", content="Use concise replies"))

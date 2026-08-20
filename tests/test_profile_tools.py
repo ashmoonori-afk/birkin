@@ -35,7 +35,7 @@ def test_remember_key_value_routes_to_vault_when_disabled():
     result = reg.execute("remember", {"key": "tone", "value": "concise"})
     assert not result.is_error
     assert any(note["type"] == "preference" for note in mem.list_notes())
-    assert not ProfileStore(config.birkin_home(), {}).snapshot().documents["preferences"].entries
+    assert not (config.birkin_home() / "profile").exists()
 
 
 def test_free_form_remember_still_writes_vault_fact():

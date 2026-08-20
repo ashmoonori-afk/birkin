@@ -31,6 +31,7 @@ def _session(tmp_path: Path, monkeypatch):
         "checkpoints": False,
         "repl_warm_session": True,
         "self_improve": False,
+        "profile": {**config.DEFAULT_CONFIG["profile"], "enabled": True},
     }
     config.save_config(cfg)
     monkeypatch.setattr(runtime, "_profile_snapshot", lambda: _snapshot("rev-a", "INITIAL-PROFILE"))
@@ -74,7 +75,7 @@ def test_revision_change_emits_once_per_unseen_revision(tmp_path, monkeypatch) -
     revisions = ["rev-a"]
     s._warm = FakeWarm()
     s._warm_profile_revision = "rev-a"
-    monkeypatch.setattr(runtime, "_profile_revision", lambda: revisions[-1])
+    monkeypatch.setattr(runtime, "_profile_revision", lambda cfg: revisions[-1])
     notices: list[str] = []
 
     assert s._warm_ask("first", notices.append) == "reply"
@@ -111,7 +112,7 @@ def test_review_service_notices_are_drained_when_present(tmp_path, monkeypatch) 
     s._warm = FakeWarm()
     s._warm_profile_revision = "rev-a"
     s.profile_review_service = ReviewService()
-    monkeypatch.setattr(runtime, "_profile_revision", lambda: "rev-a")
+    monkeypatch.setattr(runtime, "_profile_revision", lambda cfg: "rev-a")
     notices: list[str] = []
 
     s._warm_ask("hello", notices.append, session_id="session-x")

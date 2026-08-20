@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from birkin import promptgate, prompts
+from birkin import config, promptgate, prompts
 from birkin.profile_prompt import PRECEDENCE_DECLARATION, render_profile_blocks
 from birkin.rolefiles import ProfileDocument, ProfileSnapshot
 
@@ -95,3 +95,27 @@ def test_untrusted_builders_receive_no_profile_content() -> None:
     assert "PRIVATE-PROFILE-SENTINEL" in trusted_main
     assert "PRIVATE-PROFILE-SENTINEL" in trusted_cli
     assert "PRIVATE-PROFILE-SENTINEL" not in public
+
+
+def test_disabled_prompt_build_creates_no_profile_directory_or_block() -> None:
+    from birkin import runtime
+
+    cfg = {**config.DEFAULT_CONFIG, "profile": {**config.DEFAULT_CONFIG["profile"], "enabled": False}}
+
+    packet = runtime.build_dry_run_packet("hello", cfg)
+
+    assert "SOUL.md defines authoritative identity" not in packet["system"]
+    assert not (config.birkin_home() / "profile").exists()
+
+
+def test_enabled_prompt_build_bootstraps_profile_files() -> None:
+    from birkin import runtime
+    from birkin.rolefiles import PROFILE_ORDER
+
+    cfg = {**config.DEFAULT_CONFIG, "profile": {**config.DEFAULT_CONFIG["profile"], "enabled": True}}
+
+    packet = runtime.build_dry_run_packet("hello", cfg)
+
+    assert "SOUL.md defines authoritative identity" not in packet["system"]
+    files = sorted(path.name for path in (config.birkin_home() / "profile").glob("*.md"))
+    assert files == [f"{name}.md" for name in sorted(PROFILE_ORDER)]

@@ -60,7 +60,6 @@ class ProfileBudgetExceeded(RuntimeError):
     revision: str
     entries: tuple[tuple[int, str], ...]
 
-
 class ProfileRevisionError(RuntimeError):
     """The supplied optimistic revision no longer matches disk."""
 
@@ -87,6 +86,8 @@ class ProfileStore:
 
     def snapshot(self) -> ProfileSnapshot:
         """Return a lock-consistent snapshot of all profile documents."""
+        if not self.root.exists():
+            return ProfileSnapshot(documents={}, revision=_hash(""))
         with profile_lock(self.home):
             return self._snapshot_unlocked()
 
@@ -144,7 +145,8 @@ class ProfileStore:
             return self._snapshot_unlocked()
 
     def _snapshot_unlocked(self) -> ProfileSnapshot:
-        self.root.mkdir(parents=True, exist_ok=True)
+        if not self.root.exists():
+            return ProfileSnapshot(documents={}, revision=_hash(""))
         documents = {name: self._read_document(name) for name in PROFILE_ORDER}
         revision = _hash("\n".join(documents[name].revision for name in PROFILE_ORDER))
         return ProfileSnapshot(documents=documents, revision=revision)
