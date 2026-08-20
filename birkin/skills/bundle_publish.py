@@ -12,6 +12,7 @@ from pathlib import Path, PurePosixPath
 
 from .manager import (
     IndeterminatePublicationError,
+    PublicationCleanupError,
     _close_preserving_active_error,
     _open_descendant_directory,
     _open_directory_tree,
@@ -131,6 +132,21 @@ def _remove_posix(parent_fd: int, name: str) -> None:
     os.rmdir(name, dir_fd=parent_fd)
 
 
+def _remove_posix_identity(
+    parent_fd: int,
+    name: str,
+    identity: tuple[int, int],
+) -> None:
+    status = os.stat(
+        name,
+        dir_fd=parent_fd,
+        follow_symlinks=False,
+    )
+    if (status.st_dev, status.st_ino) != identity:
+        raise OSError("bundle operation identity changed")
+    _remove_posix(parent_fd, name)
+
+
 def _publish_posix(
     snapshot: BundleSnapshot,
     target: Path,
@@ -141,6 +157,8 @@ def _publish_posix(
     parent_fd = -1
     operation = f".birkin-sync-{secrets.token_hex(12)}"
     moved_previous = False
+    operation_identity: tuple[int, int] | None = None
+    preserve_operation = False
     try:
         relative = target.relative_to(target_root)
         parent_fd = _open_descendant_directory(
@@ -163,6 +181,11 @@ def _publish_posix(
         operation_fd = _open_descendant_directory(
             parent_fd,
             Path(operation),
+        )
+        operation_status = os.fstat(operation_fd)
+        operation_identity = (
+            operation_status.st_dev,
+            operation_status.st_ino,
         )
         try:
             os.mkdir("candidate", 0o700, dir_fd=operation_fd)
@@ -191,19 +214,33 @@ def _publish_posix(
                 )
             except OSError:
                 if moved_previous:
-                    os.rename(
-                        "previous",
-                        relative.name,
-                        src_dir_fd=operation_fd,
-                        dst_dir_fd=parent_fd,
-                    )
-                    moved_previous = False
+                    try:
+                        os.rename(
+                            "previous",
+                            relative.name,
+                            src_dir_fd=operation_fd,
+                            dst_dir_fd=parent_fd,
+                        )
+                        moved_previous = False
+                    except OSError as rollback_error:
+                        preserve_operation = True
+                        raise PublicationCleanupError(
+                            relative.as_posix(),
+                            snapshot.digest(),
+                        ) from rollback_error
                 raise
             if moved_previous:
-                _remove_posix(operation_fd, "previous")
+                try:
+                    _remove_posix(operation_fd, "previous")
+                except OSError as cleanup_error:
+                    preserve_operation = True
+                    raise PublicationCleanupError(
+                        relative.as_posix(),
+                        snapshot.digest(),
+                    ) from cleanup_error
                 moved_previous = False
         finally:
-            os.close(operation_fd)
+            _close_preserving_active_error(operation_fd)
         try:
             current_parent = _open_descendant_directory(
                 root_fd,
@@ -227,21 +264,49 @@ def _publish_posix(
                     snapshot.digest(),
                 )
         finally:
-            os.close(current_parent)
-        os.rmdir(operation, dir_fd=parent_fd)
+            _close_preserving_active_error(current_parent)
+        try:
+            _remove_posix_identity(
+                parent_fd,
+                operation,
+                operation_identity,
+            )
+            operation_identity = None
+        except OSError as cleanup_error:
+            preserve_operation = True
+            raise PublicationCleanupError(
+                relative.as_posix(),
+                snapshot.digest(),
+            ) from cleanup_error
         return True
     finally:
         active_error = sys.exc_info()[1]
-        if parent_fd >= 0:
+        if (
+            parent_fd >= 0
+            and operation_identity is not None
+            and not preserve_operation
+        ):
             try:
-                _remove_posix(parent_fd, operation)
+                _remove_posix_identity(
+                    parent_fd,
+                    operation,
+                    operation_identity,
+                )
             except FileNotFoundError:
                 pass
             except OSError:
                 if active_error is None:
                     raise
-            _close_preserving_active_error(parent_fd)
-        _close_preserving_active_error(root_fd)
+        close_error: OSError | None = None
+        for descriptor in (parent_fd, root_fd):
+            if descriptor < 0:
+                continue
+            try:
+                _close_preserving_active_error(descriptor)
+            except OSError as error:
+                close_error = close_error or error
+        if active_error is None and close_error is not None:
+            raise close_error
 
 
 def publish_bundle(
