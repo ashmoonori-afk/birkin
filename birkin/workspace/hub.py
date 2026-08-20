@@ -160,25 +160,124 @@ class WorkspaceHub:
         self._handlers = dict(handlers) if handlers is not None else None
         self._handler_factory = handler_factory
         self._sessions: dict[str, WorkspaceSession] = {}
-        self._lock = threading.Lock()
+        self._selected_session_id: str | None = None
+        self._event_listeners: list[Callable[[WorkspaceEvent], None]] = []
+        self._lock = threading.RLock()
 
     def create(self, session_id: str) -> tuple[WorkspaceSession, bool]:
         with self._lock:
             existing = self._sessions.get(session_id)
             if existing is not None:
                 return existing, False
+            handlers = dict(self._handlers or {})
+            if self._handler_factory is not None:
+                factory = self._handler_factory
+
+                def combined_factory(
+                    created_session_id: str,
+                    emit: EventSink,
+                ) -> Mapping[str, CommandHandler]:
+                    return {
+                        **factory(created_session_id, emit),
+                        **self._lifecycle_handlers(emit),
+                    }
+
+                handler_factory: HandlerFactory | None = combined_factory
+                configured_handlers: Mapping[str, CommandHandler] | None = None
+            else:
+                def static_factory(
+                    _created_session_id: str,
+                    emit: EventSink,
+                ) -> Mapping[str, CommandHandler]:
+                    return {**handlers, **self._lifecycle_handlers(emit)}
+
+                handler_factory = static_factory
+                configured_handlers = None
             session = WorkspaceSession(
                 root=self._root,
                 session_id=session_id,
-                handlers=self._handlers,
-                handler_factory=self._handler_factory,
+                handlers=configured_handlers,
+                handler_factory=handler_factory,
             )
+            for listener in self._event_listeners:
+                _ = session.service.add_event_listener(listener)
             self._sessions[session_id] = session
+            if self._selected_session_id is None:
+                self._selected_session_id = session_id
             return session, True
+
+    @property
+    def supported_commands(self) -> frozenset[str]:
+        with self._lock:
+            session = self._selected_session()
+            return session.service.supported_commands
 
     def get(self, session_id: str) -> WorkspaceSession | None:
         with self._lock:
             return self._sessions.get(session_id)
+
+    def snapshot(self) -> WorkspaceSnapshot:
+        with self._lock:
+            return self._selected_session().snapshot()
+
+    def events(self, *, after: int = 0) -> tuple[WorkspaceEvent, ...]:
+        with self._lock:
+            return self._selected_session().events(after=after)
+
+    def add_event_listener(
+        self,
+        listener: Callable[[WorkspaceEvent], None],
+    ) -> Callable[[], None]:
+        with self._lock:
+            self._event_listeners.append(listener)
+            sessions = list(self._sessions.values())
+        unsubscribers = [
+            session.service.add_event_listener(listener) for session in sessions
+        ]
+
+        def unsubscribe() -> None:
+            for remove in unsubscribers:
+                remove()
+            with self._lock:
+                if listener in self._event_listeners:
+                    self._event_listeners.remove(listener)
+
+        return unsubscribe
+
+    def select(
+        self,
+        command: WorkspaceCommand,
+        *,
+        actor_id: str,
+    ) -> CommandReceipt:
+        if command.type != "session.select":
+            raise ProtocolError("session.select command is required")
+        with self._lock:
+            session = self._selected_session()
+        return session.service.submit(command, actor_id=actor_id)
+
+    def _selected_session(self) -> WorkspaceSession:
+        session_id = self._selected_session_id
+        if session_id is None or session_id not in self._sessions:
+            raise ProtocolError("no workspace session is selected")
+        return self._sessions[session_id]
+
+    def _lifecycle_handlers(
+        self,
+        emit: EventSink,
+    ) -> Mapping[str, CommandHandler]:
+        def select(payload: dict[str, object]) -> dict[str, object]:
+            session_id = payload.get("session_id")
+            if not isinstance(session_id, str) or not session_id:
+                raise ProtocolError("session_id is required")
+            with self._lock:
+                if session_id not in self._sessions:
+                    raise ProtocolError("workspace session was not found")
+                _ = emit("session.selected", {"session_id": session_id})
+                self._selected_session_id = session_id
+            return {"session_id": session_id}
+
+        return {"session.select": select}
 
     def summaries(self) -> list[dict[str, object]]:
         with self._lock:
@@ -195,5 +294,6 @@ class WorkspaceHub:
         with self._lock:
             sessions = list(self._sessions.values())
             self._sessions.clear()
+            self._selected_session_id = None
         for session in sessions:
             session.close()
