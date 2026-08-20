@@ -24,9 +24,9 @@ def _invoke(tool_input: dict[str, Any], ctx: ToolContext) -> ToolResult:
         return ToolResult(f"Cannot invoke that worker: {exc}", is_error=True)
 
     status = approvals.propose(
-        category="operation",
+        category=call.category,
         title=call.title(),
-        description=f"{call.task}\n\nRuns: {' '.join(call.argv())}",
+        description=f"{call.task}\n\nRuns: {call.command()}",
         payload=call.payload(),
         cfg=ctx.cfg,
         origin=call.worker)

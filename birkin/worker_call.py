@@ -21,6 +21,7 @@ invokable, and neither is any other reserved name.
 from __future__ import annotations
 
 import re
+import sys
 from dataclasses import dataclass
 from typing import Any
 
@@ -57,19 +58,31 @@ class WorkerCall:
     worker: str
     task: str
 
+    # The approval category whose executor can actually run this. NOT
+    # ``operation``: that category is a digest-bound replay of a native tool
+    # call, so a worker payload sent there is rejected the moment a human
+    # approves it. ``shell`` is the category that runs a command, and it is
+    # already the strictest gate in the system.
+    category = "shell"
+
     @property
-    def command(self) -> str:
+    def subcommand(self) -> str:
         return WORKER_COMMANDS[self.worker][0]
 
-    def argv(self) -> list[str]:
-        return ["birkin", self.command]
+    def command(self) -> str:
+        """The exact command a human is approving.
+
+        Built only from birkin's own allowlist and the running interpreter —
+        the user's free text never reaches it, so there is nothing to inject.
+        """
+        return f'"{sys.executable}" -m birkin {self.subcommand}'
 
     def title(self) -> str:
         return f"run worker {self.worker}"
 
     def payload(self) -> dict[str, Any]:
-        return {"worker": self.worker, "command": self.command,
-                "argv": self.argv(), "task": self.task}
+        return {"command": self.command(), "timeout": 3600,
+                "worker": self.worker, "task": self.task}
 
 
 def invokable_workers() -> tuple[str, ...]:

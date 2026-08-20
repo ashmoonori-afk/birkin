@@ -47,8 +47,9 @@ def test_resolve_accepts_a_real_worker_and_maps_it_to_its_command() -> None:
     call = worker_call.resolve("morpheus", "  tidy   the skills ")
     assert call.worker == "morpheus"
     assert call.task == "tidy the skills"          # whitespace collapsed
-    assert call.argv() == ["birkin", "morpheus"]
-    assert call.payload()["command"] == "morpheus"
+    assert call.subcommand == "morpheus"
+    assert call.command().endswith("-m birkin morpheus")
+    assert call.category == "shell"
 
 
 def test_resolve_refuses_an_unknown_worker() -> None:
@@ -99,7 +100,8 @@ def test_the_tool_queues_an_approval_instead_of_running_anything(
     assert not result.is_error
     assert "approval" in result.content.lower()
     assert seen["origin"] == "morpheus"
-    assert seen["payload"]["argv"] == ["birkin", "morpheus"]
+    assert seen["category"] == "shell"
+    assert seen["payload"]["command"].endswith("-m birkin morpheus")
     # Proposal-only: the tool must never claim it already ran.
     assert "queued" in result.content.lower()
 
@@ -129,3 +131,34 @@ def test_the_tool_can_be_switched_off(tmp_path, monkeypatch) -> None:
     groups = tools_pkg.build_tool_groups(ctx)
     names = [t.name for group in groups.values() for t in group]
     assert "worker_invoke" not in names
+
+
+def test_an_approved_worker_call_actually_runs_the_worker(tmp_path, monkeypatch) -> None:
+    """Queueing is only half the job — approving it must really start the worker.
+
+    The approval categories are not interchangeable: ``operation`` is a
+    digest-bound replay of a native tool call, so a worker payload sent there
+    is rejected the moment a human approves it. This pins the category whose
+    executor can actually run the worker's command.
+    """
+    monkeypatch.setenv("BIRKIN_HOME", str(tmp_path))
+    from birkin import approvals
+
+    ran: dict = {}
+
+    def fake_run_shell_command(command):
+        ran["command"] = command.command
+        return types.SimpleNamespace(stdout="done", stderr="", returncode=0)
+
+    monkeypatch.setattr(approvals, "run_shell_command", fake_run_shell_command)
+
+    call = worker_call.resolve("morpheus", "자기개선 한 번 돌려줘")
+    result = approvals.execute_action(call.category, call.payload(), {})
+
+    assert "morpheus" in ran.get("command", ""), (
+        f"approving the worker call did not run it: {result}"
+    )
+    # The command is built from birkin's own allowlist; the user's free text
+    # must never be spliced into it.
+    assert "자기개선" not in ran["command"]
+    assert "[exit 0]" in result
