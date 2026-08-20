@@ -1,14 +1,20 @@
 from __future__ import annotations
 
 import socket
+from collections.abc import Callable, Mapping
 from pathlib import Path
+from threading import Thread
+from typing import cast
+
+import pytest
 
 from birkin import config
 from birkin.native.capability import BootstrapSecretStore
-from birkin.native.protocol import encode_frame
+from birkin.native.protocol import NativeEnvelope, encode_frame
 from birkin.native.server import NativeBridgeServer
 from birkin.native.transport import receive_frame
-from birkin.workspace import WorkspaceHub
+from birkin.workspace import WorkspaceEvent, WorkspaceHub
+from birkin.workspace.service import CommandHandler
 from tests.native_bridge_support import (
     envelope,
     handshake,
@@ -21,7 +27,10 @@ from tests.native_bridge_support import (
 
 
 def _server(tmp_path: Path) -> tuple[NativeBridgeServer, WorkspaceHub]:
-    def handlers(session_id: str, emit):  # type: ignore[no-untyped-def]
+    def handlers(
+        session_id: str,
+        emit: Callable[[str, dict[str, object]], WorkspaceEvent],
+    ) -> Mapping[str, CommandHandler]:
         def compact(_payload: dict[str, object]) -> dict[str, object]:
             _ = emit(
                 "session.compacted",
@@ -29,10 +38,10 @@ def _server(tmp_path: Path) -> tuple[NativeBridgeServer, WorkspaceHub]:
             )
             return {"compacted": True}
 
-        return {
-            "chat.send": lambda payload: {"reply": payload["text"]},
-            "session.compact": compact,
-        }
+        def chat(payload: dict[str, object]) -> dict[str, object]:
+            return {"reply": payload["text"]}
+
+        return {"chat.send": chat, "session.compact": compact}
 
     hub = WorkspaceHub(
         root=tmp_path / "workspace",
@@ -53,7 +62,7 @@ def _server(tmp_path: Path) -> tuple[NativeBridgeServer, WorkspaceHub]:
 
 def _connect(
     bridge: NativeBridgeServer,
-) -> tuple[socket.socket, str, object, list[BaseException]]:
+) -> tuple[socket.socket, str, Thread, list[BaseException]]:
     server_socket, client = socket.socketpair()
     thread, errors = serve(
         bridge,
@@ -92,7 +101,7 @@ def _send(
     command_type: str,
     command_id: str,
     cursor: int,
-    payload: dict[str, object],
+    payload: Mapping[str, object],
 ) -> None:
     client.sendall(
         encode_frame(
@@ -106,7 +115,7 @@ def _send(
                         "command_id": command_id,
                         "expected_cursor": cursor,
                         "type": command_type,
-                        "payload": payload,
+                        "payload": dict(payload),
                         "client_context": {"surface": "macos", "view_id": "main"},
                     },
                 },
@@ -115,7 +124,10 @@ def _send(
     )
 
 
-def _receive_event_type(client: socket.socket, event_type: str):  # type: ignore[no-untyped-def]
+def _receive_event_type(
+    client: socket.socket,
+    event_type: str,
+) -> NativeEnvelope:
     for _ in range(8):
         event = receive_kind(client, "event")
         if event.body["type"] == event_type:
@@ -147,8 +159,8 @@ def _advertised_commands(bridge: NativeBridgeServer) -> set[str]:
 
 def test_advertised_handlers_equal_wired_authority_in_both_configurations(
     tmp_path: Path,
-    monkeypatch,
-) -> None:  # type: ignore[no-untyped-def]
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     legacy, _capabilities, source = server_with_source(tmp_path / "legacy")
     assert _advertised_commands(legacy) == set(source.supported_commands)
 
@@ -163,7 +175,7 @@ def test_advertised_handlers_equal_wired_authority_in_both_configurations(
 def test_unwired_lifecycle_and_config_commands_are_journaled_refusals(
     tmp_path: Path,
 ) -> None:
-    payloads = {
+    payloads: dict[str, dict[str, object]] = {
         "session.create": {"session_id": "second"},
         "session.select": {"session_id": "second"},
         "session.rename": {"session_id": "session-1", "name": "Plan"},
@@ -245,7 +257,8 @@ def test_session_compact_over_socket_returns_canonical_receipt(
 
         assert receipt.body["state"] == "completed"
         assert receipt.body["result_event_cursor"] == 4
-        assert event.body["payload"]["compacted"] is True
+        payload = cast(dict[str, object], event.body["payload"])
+        assert payload["compacted"] is True
     finally:
         client.close()
         thread.join(timeout=2)  # type: ignore[union-attr]
@@ -255,8 +268,8 @@ def test_session_compact_over_socket_returns_canonical_receipt(
 
 def test_config_set_over_socket_emits_requested_and_effective_or_typed_rejection(
     tmp_path: Path,
-    monkeypatch,
-) -> None:  # type: ignore[no-untyped-def]
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     monkeypatch.setenv("BIRKIN_HOME", str(tmp_path / "home"))
     bridge, hub = _server(tmp_path)
     client, token, thread, errors = _connect(bridge)
@@ -286,7 +299,8 @@ def test_config_set_over_socket_emits_requested_and_effective_or_typed_rejection
         assert "invalid config" in str(error.body["message"])
         assert "Traceback" not in str(error.body)
         assert len(str(error.body)) < 600
-        assert "invalid config" in str(rejected.body["payload"]["reason"])
+        rejected_payload = cast(dict[str, object], rejected.body["payload"])
+        assert "invalid config" in str(rejected_payload["reason"])
         assert config.load_config()["max_turns"] == 12
     finally:
         client.close()
@@ -313,7 +327,8 @@ def test_session_rename_over_socket_updates_canonical_summary(
         event = _receive_event_type(client, "session.renamed")
 
         assert receipt.body["state"] == "completed"
-        assert event.body["payload"]["name"] == "Native plan"
+        payload = cast(dict[str, object], event.body["payload"])
+        assert payload["name"] == "Native plan"
         assert hub.summaries()[0]["name"] == "Native plan"
     finally:
         client.close()
