@@ -99,6 +99,7 @@ def _write_anchors(vault: Path, dex: Mnemosyne, s: str,
 def apply_plan(accepted: list[dict], vault: Path,
                dex: Mnemosyne, *,
                move_note: Callable[[str, str], Path] | None = None,
+               validate_vault: Callable[[], None] | None = None,
                ) -> list[dict]:
     effected: list[dict] = []
     if move_note is None:
@@ -109,6 +110,8 @@ def apply_plan(accepted: list[dict], vault: Path,
     for op in accepted:
         kind = op["op"]
         try:
+            if validate_vault is not None:
+                validate_vault()
             if kind == "rezone":
                 move(op["slug"], op["zone"])
                 dex.refresh()

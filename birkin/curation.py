@@ -65,6 +65,7 @@ def run_curation_pass(vault: Path, complete: Callable[[str], str], *,
             pinned_vault,
             dex,
             move_note=memory.rezone,
+            validate_vault=memory.assert_vault_identity,
         )
     else:
         effected = []        # --dry-run: propose and gate, change nothing

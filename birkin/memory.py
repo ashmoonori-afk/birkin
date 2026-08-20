@@ -124,9 +124,19 @@ class VaultMemory:
             config.birkin_home() / "memory_provenance.json"
         )
         self._canonical_vault = self.vault
+        vault_status = self.vault.stat()
+        self._vault_identity = (
+            vault_status.st_dev,
+            vault_status.st_ino,
+        )
         self._provenance_namespace = hashlib.sha256(
             str(self._canonical_vault).encode("utf-8")
         ).hexdigest()
+
+    def assert_vault_identity(self) -> None:
+        status = self.vault.stat()
+        if (status.st_dev, status.st_ino) != self._vault_identity:
+            raise OSError("memory vault identity changed")
 
     def _dex_for(self, scope: MemoryScope) -> Mnemosyne:
         dex = self._dexes.get(scope)
@@ -349,6 +359,7 @@ class VaultMemory:
         invalid_at = _validated_date("invalid_at", invalid_at)
         expired_at = _validated_date("expired_at", expired_at)
         requested_type = note_type if note_type in VALID_TYPES else None
+        self.assert_vault_identity()
         # Serialize the read->check->write for this note so concurrent writers
         # can't both pass the version check and clobber each other (lost update),
         # and so the file is never half-written under a reader. Path resolution
@@ -688,6 +699,7 @@ class VaultMemory:
 
     def rezone(self, title: str, zone: str) -> Path:
         """Move a note to another zone (Morpheus's placement instrument)."""
+        self.assert_vault_identity()
         slug = _slug(title)
         owner = self.policy.actor_scope
         root = scope_root(self.vault, owner)

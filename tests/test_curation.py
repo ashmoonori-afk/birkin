@@ -309,6 +309,57 @@ def test_run_pass_pins_vault_before_model_completion(
     assert not (vault_b / "projects" / "same-slug.md").exists()
 
 
+def test_run_pass_rejects_replaced_pinned_vault(
+        tmp_path: Path,
+        monkeypatch,
+) -> None:
+    vault = tmp_path / "vault"
+    replacement = tmp_path / "replacement"
+    original = VaultMemory({"vault_path": str(vault)})
+    original.write_note(
+        "Same slug",
+        "original vault",
+        zone="inbox",
+    )
+    VaultMemory({"vault_path": str(replacement)}).write_note(
+        "Same slug",
+        "replacement vault",
+        zone="inbox",
+    )
+    moved_original = tmp_path / "moved-original"
+    monkeypatch.setattr(
+        curation,
+        "snapshot_vault",
+        lambda *_args, **_kwargs: None,
+    )
+
+    def replace_then_complete(_prompt: str) -> str:
+        vault.rename(moved_original)
+        replacement.rename(vault)
+        return json.dumps({
+            "plan_version": 1,
+            "ops": [{
+                "op": "rezone",
+                "slug": "same-slug",
+                "zone": "projects",
+            }],
+        })
+
+    outcome = curation.run_curation_pass(
+        vault,
+        replace_then_complete,
+        provider="test",
+        now=NOW,
+    )
+
+    assert outcome.effected
+    assert "error" in outcome.effected[0]
+    assert (moved_original / "same-slug.md").is_file()
+    assert not (moved_original / "projects" / "same-slug.md").exists()
+    assert (vault / "same-slug.md").is_file()
+    assert not (vault / "projects" / "same-slug.md").exists()
+
+
 # ---------------- sanitize + full driver ------------------------------------
 
 def test_sanitize_summary_redacts_canary_phrase():
