@@ -1,79 +1,104 @@
 # Native Application Security Boundary
 
-Status: planned trust-boundary contract. Not yet implemented.
+Status: shipped trust boundary for the local macOS client.
 
 ## Authority
 
-Python alone decides:
+Python alone decides whether an operation is allowed, whether approval or
+consent is required, how it executes, and which audit and recovery records are
+canonical. SwiftUI renders projected state and submits typed intent. A toggle,
+focused window, menu command, notification tap, voice transcript, or local
+process observation is never authorization.
 
-- whether an operation is allowed
-- whether approval or consent is required
-- how an operation executes
-- what audit and recovery state is recorded
+## Local endpoint authentication
 
-SwiftUI never treats a toggle, focus state, menu command, notification tap, or local process state as authorization.
+### Unix domain socket
 
-## Local authentication
+The bridge creates its runtime directory as `0700` and socket as `0600`. Before
+binding, it refuses a socket path or parent that is a symbolic link. On accept it
+reads platform peer credentials (`getpeereid`, `SO_PEERCRED`, or
+`LOCAL_PEERCRED`) and rejects an unavailable, malformed, or different UID. This
+prevents filesystem access alone from being treated as client identity.
 
-Unix socket connections require private filesystem modes, same-user peer credentials, and a short-lived capability.
+### Private loopback
 
-Private-loopback fallback requires Host and Origin pinning plus the capability from the first frame.
+The fallback is explicit and binds only `127.0.0.1`. Its private endpoint record
+is `0600` and contains a random, two-minute, one-shot bootstrap secret. The
+first `hello` exchanges that secret and rotates the record immediately. The raw
+socket protocol is not HTTP and does not claim Host or Origin enforcement.
 
-Session capabilities live in memory only. They expire on a sliding TTL, are renewed in-band, and are revoked on close, expiry, explicit revoke, or restart.
+Both transports receive a random session capability scoped to bridge instance,
+connection, surface, and view. Capabilities exist only in Python and Swift
+memory, use a 15-minute sliding expiry with an eight-hour hard ceiling, rotate
+in band, and are revoked on disconnect, expiry, or bridge teardown. Bootstrap
+secrets and session capabilities cannot approve product actions.
 
-The private-loopback endpoint record contains a separate one-shot bootstrap secret in a `0600` file. It is consumed and rotated during hello and exchanged for the in-memory session capability. It is not a provider credential and cannot authorize product actions.
+## Strict and bounded input
 
-## Input bounds
+The boundary refuses oversized or incomplete frames, payloads over 65,536,
+invalid UTF-8 or strict JSON, duplicate keys, non-finite numbers, excessive
+nesting, unexpected keys, invalid direction/state/correlation, stale cursors,
+changed command replays, excess concurrency, and slow-consumer desynchronization.
+Public errors are typed and bounded.
 
-The bridge rejects:
+## Redacted projection and diagnostics
 
-- oversized frames and payloads
-- excessive nesting
-- malformed UTF-8 and JSON
-- unexpected keys
-- invalid protocol transitions
-- unsupported command handlers
-- stale cursors and mutated command replays
-- slow consumers and excess concurrency
+Redaction happens in Python before records cross the process boundary. Recursive
+projection replaces keys such as tokens, credentials, cookies, authorization,
+passwords, bootstrap secrets, and session capabilities. It removes replay
+fingerprints, strips traceback/file lines, recognizes common bearer and provider
+token forms, caps public text, and replaces terminal input with terminal ID,
+sequence, and `redacted: true`.
 
-## Persistence
+Swift capabilities are memory-only. Native diagnostics are bounded and do not
+persist raw frames. Desktop notifications use fixed copy and opaque item IDs;
+untrusted canonical content does not enter notification title, body, or deep
+link. Approval notifications contain no decision actions. Their route opens the
+in-app canonical approval view, so a notification remains navigation rather
+than authority.
 
-The macOS application may persist presentation preferences only.
+## File, product, and process boundaries
 
-It must not persist:
+- **Jailed imports:** drag-and-drop intent carries only a source path to Python.
+  Python opens with `O_NOFOLLOW` where available, requires a regular file,
+  copies bytes into a private jail under a generated name, and returns only a
+  reference and SHA-256/byte-count receipt. Caller-selected destinations and
+  source paths do not cross the canonical result boundary.
+- **Browser Aside:** Python exposes a private per-session Browser authority and
+  revisioned redacted projection; the shell does not attach personal profiles
+  or invent a control lease.
+- **Computer Use:** status is distinct from consent. Foreground mutation remains
+  behind Python's exact identity, policy, and one-shot authority.
+- **Office:** create/open commands retain Python path identity, jail, provenance,
+  and active-content checks. Swift receives projected document references and
+  receipts, not unrestricted file authority.
+- **Owned Terminal:** Python owns the PTY and process tree. Approval precedes the
+  lease; every input/resize/signal/close mutation requires current authority,
+  and only allowlisted signals are accepted. Secret input is not projected.
+- **Bridge supervision:** Swift terminates or restarts only children it spawned.
+  An externally discovered bridge is attached without ownership and is left
+  running at app shutdown. Restart loops are bounded.
 
-- provider credentials
-- protocol capabilities
-- session or conversation content
-- Working Memory or goals
-- approvals or receipts
-- Browser frames or profiles
-- Computer Use artifacts
-- Office document content
-- pending command payloads
+## Approval races
 
-## Domain boundaries
+An approval decision is resolved once by the Python approval authority. If
+another UI or worker wins the race, the native response is normalized to
+`answered_elsewhere`; Swift cannot overwrite the decision or infer success from
+its own button state. A failed authority decision is separately reported as
+`rejected_by_authority` with bounded text.
 
-### Browser Aside
+## Persistence and packaging
 
-Only private per-session profiles and audited control leases are exposed. Personal browser profiles are not supported.
+The native client may persist presentation preferences only. It does not persist
+provider credentials, protocol capabilities, sessions, Working Memory,
+approvals, receipts, Browser data, Computer Use artifacts, Office contents,
+terminal input, or pending command payloads.
 
-### Computer Use
-
-Status checks do not prompt. Foreground actions require a separate one-shot grant bound to the session, intent, prior receipt, and expiry.
-
-### Office
-
-Create and open operations use Python path identity, jail enforcement, provenance, and active-content consent.
-
-### Terminal
-
-The terminal process tree is owned by Python. Swift sends bounded input and signal commands and renders redacted output projections.
-
-## Diagnostics
-
-Diagnostics are bounded and redacted. They exclude tokens, raw request text, file contents, artifact bytes, terminal secret input, and tracebacks.
-
-Raw private loopback does not use HTTP Host or Origin. Its one-shot `bootstrap_secret` authenticates only hello; the post-ready `session_capability` is separate. UDS peer credentials authenticate initial hello.
-
-Command replay integrity stores a digest rather than plaintext canonical payloads. Public serializers remove integrity fields and raw terminal input before events, Activity, diagnostics, or exports leave Python.
+The repository package is signed but intentionally not App Sandbox-enabled:
+PTYs, private local sockets, Accessibility, and Screen Recording need facilities
+outside the initial sandbox profile. This is not a weakening of Python policy
+or macOS privacy controls. Local authentication, typed command gates, explicit
+approval/consent, jailed imports, redaction, and OS permissions remain the
+security boundary. Developer ID hardened-runtime signing and notarization apply
+only when release credentials are available; the credential-free build is an
+ad-hoc development artifact.
