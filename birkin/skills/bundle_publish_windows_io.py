@@ -10,6 +10,7 @@ READ_ATTRIBUTES = 0x0080
 GENERIC_WRITE = 0x40000000
 DELETE = 0x00010000
 SHARE_READ_WRITE = 0x00000001 | 0x00000002
+SHARE_READ_WRITE_DELETE = SHARE_READ_WRITE | 0x00000004
 OPEN_EXISTING = 3
 CREATE_NEW = 1
 BACKUP_SEMANTICS = 0x02000000
@@ -108,11 +109,13 @@ def checked_directory(
     path: Path,
     *,
     access: int,
+    share: int = SHARE_READ_WRITE,
 ) -> int:
     handle = open_handle(
         kernel32,
         path,
         access=access,
+        share=share,
     )
     try:
         attributes, _ = information(kernel32, handle)

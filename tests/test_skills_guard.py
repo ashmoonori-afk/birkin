@@ -1002,6 +1002,37 @@ def test_windows_sync_never_uses_path_replace(
 
 @pytest.mark.skipif(
     os.name != "nt",
+    reason="Windows destination parent sharing",
+)
+def test_windows_sync_replaces_existing_bundle(
+        tmp_path,
+) -> None:
+    from birkin import config
+    from birkin.skills import sync
+
+    source = tmp_path / "upstream"
+    skill = _skill(source, "Original.", name="replace-handles")
+    assert sync.sync_skills(source) == ["replace-handles"]
+    (skill / "SKILL.md").write_text(
+        "---\nname: replace-handles\ndescription: d\n---\n\n"
+        "Updated.\n",
+        encoding="utf-8",
+    )
+
+    assert sync.sync_skills(source, force=True) == [
+        "replace-handles"
+    ]
+    published = (
+        config.user_skills_dir()
+        / "mirrors"
+        / "replace-handles"
+        / "SKILL.md"
+    )
+    assert "Updated." in published.read_text(encoding="utf-8")
+
+
+@pytest.mark.skipif(
+    os.name != "nt",
     reason="Windows candidate handle locking",
 )
 def test_windows_candidate_handle_blocks_reparse_swap(
@@ -1047,10 +1078,22 @@ def test_windows_candidate_open_failure_is_typed_and_releasable(
     _skill(source, "A clean helper.", name="setup-failure")
     real_checked = bundle_publish_windows.checked_directory
 
-    def fail_candidate_open(kernel32, path, *, access):
+    def fail_candidate_open(
+            kernel32,
+            path,
+            *,
+            access,
+            share=None):
         if Path(path).name == "candidate":
             raise OSError("injected candidate handle failure")
-        return real_checked(kernel32, path, access=access)
+        if share is None:
+            return real_checked(kernel32, path, access=access)
+        return real_checked(
+            kernel32,
+            path,
+            access=access,
+            share=share,
+        )
 
     monkeypatch.setattr(
         bundle_publish_windows,

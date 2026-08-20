@@ -13,6 +13,7 @@ from .bundle_publish_windows_io import (
     DELETE,
     READ_ATTRIBUTES,
     REPARSE_ATTRIBUTE,
+    SHARE_READ_WRITE_DELETE,
     checked_directory,
     close,
     delete_tree,
@@ -106,12 +107,19 @@ def publish_windows(
 
         operation = parent / f".birkin-sync-{os.urandom(12).hex()}"
         operation_handle = -1
+        operation_parent_handle = -1
         candidate_handle = -1
         operation_created = False
         candidate = operation / "candidate"
         try:
             create_directory(kernel32, operation)
             operation_created = True
+            operation_parent_handle = checked_directory(
+                kernel32,
+                operation,
+                access=READ_ATTRIBUTES,
+                share=SHARE_READ_WRITE_DELETE,
+            )
             operation_handle = checked_directory(
                 kernel32,
                 operation,
@@ -128,6 +136,8 @@ def publish_windows(
                 close(kernel32, candidate_handle)
             if operation_handle >= 0:
                 close(kernel32, operation_handle)
+            if operation_parent_handle >= 0:
+                close(kernel32, operation_parent_handle)
             if previous_handle >= 0:
                 close(kernel32, previous_handle)
             if operation_created:
@@ -146,7 +156,7 @@ def publish_windows(
                 rename(
                     kernel32,
                     previous_handle,
-                    operation_handle,
+                    operation_parent_handle,
                     operation,
                     "previous",
                 )
@@ -222,6 +232,11 @@ def publish_windows(
             if previous_handle >= 0:
                 try:
                     close(kernel32, previous_handle)
+                except OSError as error:
+                    cleanup_error = cleanup_error or error
+            if operation_parent_handle >= 0:
+                try:
+                    close(kernel32, operation_parent_handle)
                 except OSError as error:
                     cleanup_error = cleanup_error or error
             if preserve_operation:
