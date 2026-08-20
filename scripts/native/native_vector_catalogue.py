@@ -70,6 +70,7 @@ def build_vectors() -> list[tuple[str, dict[str, object]]]:
                     "protocol_version": NATIVE_PROTOCOL_VERSION,
                     "server_version": "0.4.242",
                     "instance_id": "birkin-local",
+                    "session_id": "session-1",
                     "transport": "uds",
                     "capability": {
                         "token": "cap-token-1",
