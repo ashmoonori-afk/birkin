@@ -129,23 +129,36 @@ def test_approval_answer_event_carries_execution_receipt(
             payload=payload,
         )
 
-    def approve(_approval_id: str) -> str:
-        return "exit 0: approved"
+    def decide(
+        approval_id: str, *, decision: str, reason: str = ""
+    ) -> dict[str, object]:
+        assert decision == "approve"
+        assert reason == ""
+        return {
+            "outcome": "approved",
+            "approval_id": approval_id,
+            "receipt": "exit 0: approved",
+        }
 
-    monkeypatch.setattr(approvals, "approve", approve)
+    monkeypatch.setattr(approvals, "decide", decide)
     adapter = RuntimeWorkspaceAdapter("receipt-session", emit)
 
     result = adapter.handlers()["approval.answer"](
         {"approval_id": "abc123def456", "decision": "approve"}
     )
 
-    assert result == {"result": "exit 0: approved"}
+    assert result == {
+        "outcome": "approved",
+        "approval_id": "abc123def456",
+        "receipt": "exit 0: approved",
+    }
     assert emitted == [
         (
             "approval.answered",
             {
                 "approval_id": "abc123def456",
                 "decision": "approve",
+                "outcome": "approved",
                 "receipt": "exit 0: approved",
             },
         )

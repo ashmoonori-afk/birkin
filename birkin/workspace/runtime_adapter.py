@@ -337,23 +337,21 @@ class RuntimeWorkspaceAdapter:
         decision = payload.get("decision")
         if not isinstance(approval_id, str):
             raise TypeError("approval_id is required")
-        if decision == "approve":
-            result = approvals.approve(approval_id)
-        elif decision == "reject":
-            result = approvals.reject(
-                approval_id,
-                reason=str(payload.get("reason") or ""),
-            )
-        else:
-            raise ValueError("decision must be approve or reject")
+        result = approvals.decide(
+            approval_id,
+            decision=str(decision),
+            reason=str(payload.get("reason") or ""),
+        )
         event_payload: dict[str, object] = {
             "approval_id": approval_id,
             "decision": str(decision),
+            "outcome": str(result["outcome"]),
         }
-        if decision == "approve":
-            event_payload["receipt"] = str(result)
+        receipt = result.get("receipt")
+        if isinstance(receipt, str):
+            event_payload["receipt"] = receipt
         _ = self._emit("approval.answered", event_payload)
-        return {"result": str(result)}
+        return {str(key): value for key, value in result.items()}
 
     def _question_answer(
         self,
