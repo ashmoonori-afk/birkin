@@ -17,6 +17,8 @@ extension NativeTransportActor {
               wireTransport == transport.rawValue,
               case .string(let instanceID) = inbound.body["instance_id"],
               case .string(let serverVersion) = inbound.body["server_version"],
+              case .string(let currentSessionID) = inbound.body["session_id"],
+              !currentSessionID.isEmpty,
               case .object(let capability) = inbound.body["capability"],
               case .string(let token) = capability["token"],
               case .string(let expiresAt) = capability["expires_at"],
@@ -39,6 +41,17 @@ extension NativeTransportActor {
             }
             return command
         }
+        let surfaces: Set<String>
+        if case .array(let surfaceValues) = features["surfaces"] {
+            surfaces = Set(try surfaceValues.map { value in
+                guard case .string(let surface) = value else {
+                    throw NativeTransportError("ready surfaces must contain strings")
+                }
+                return surface
+            })
+        } else {
+            surfaces = []
+        }
         let voiceInputAvailable: Bool
         if case .bool(let advertised) = features["voice_input"] {
             voiceInputAvailable = advertised
@@ -58,11 +71,13 @@ extension NativeTransportActor {
             session: NativeReadySession(
                 instanceID: instanceID,
                 serverVersion: serverVersion,
+                currentSessionID: currentSessionID,
                 sessionCapability: token,
                 capabilityExpiresAt: expiry,
                 capabilityHardExpiresAt: hardExpiry,
                 supportedCommands: Set(commands),
                 sessionPresets: presets,
+                supportedSurfaces: surfaces,
                 maxPayloadBytes: maxPayloadBytes,
                 voiceInputAvailable: voiceInputAvailable
             )

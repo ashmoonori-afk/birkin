@@ -3,6 +3,7 @@ import Foundation
 
 final class NativeSocket: @unchecked Sendable {
     private var descriptor: Int32
+    private let sendLock = NSLock()
 
     private init(descriptor: Int32) {
         self.descriptor = descriptor
@@ -80,6 +81,8 @@ final class NativeSocket: @unchecked Sendable {
     }
 
     func send(_ data: Data) throws {
+        sendLock.lock()
+        defer { sendLock.unlock() }
         try data.withUnsafeBytes { raw in
             var sent = 0
             while sent < raw.count {

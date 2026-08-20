@@ -5,17 +5,20 @@ public struct NativeProjectionSubscription: Sendable {
     public let session: NativeReadySession
     public let snapshot: NativeEnvelope
     public let messages: AsyncThrowingStream<NativeEnvelope, any Error>
+    public let submit: @Sendable (NativeCommandRequest) throws -> Void
     public let replaying: Bool
 
     public init(
         session: NativeReadySession,
         snapshot: NativeEnvelope,
         messages: AsyncThrowingStream<NativeEnvelope, any Error>,
+        submit: @escaping @Sendable (NativeCommandRequest) throws -> Void,
         replaying: Bool
     ) {
         self.session = session
         self.snapshot = snapshot
         self.messages = messages
+        self.submit = submit
         self.replaying = replaying
     }
 }
@@ -26,7 +29,8 @@ extension NativeTransportActor {
     public func openProjectionSubscriptionUDS(
         socketPath: String,
         hello: NativeHello,
-        sessionID: String,
+        sessionID: String? = nil,
+        surfaceRevisions: [String: Int]? = nil,
         replaying: Bool
     ) throws -> NativeProjectionSubscription {
         apply(.connect)
@@ -43,15 +47,22 @@ extension NativeTransportActor {
             if replaying {
                 beginReplay(transcript.session)
             }
+            let requestedSurfaces = surfaceRevisions ?? Dictionary(
+                uniqueKeysWithValues: transcript.session.supportedSurfaces.map { ($0, 0) }
+            )
+            var surfaceBody: NativeJSONObject = [:]
+            for (name, revision) in requestedSurfaces.sorted(by: { $0.key < $1.key }) {
+                try surfaceBody.append(key: name, value: .int(revision))
+            }
             let subscribe = NativeEnvelope(
                 kind: .subscribe,
                 id: "app-subscribe-\(UUID().uuidString)",
                 body: [
-                    "session_id": .string(sessionID),
+                    "session_id": .string(sessionID ?? transcript.session.currentSessionID),
                     "after_cursor": .int(0),
                     "known_instance_id": .null,
                     "session_capability": .string(transcript.session.sessionCapability),
-                    "surfaces": .object([:]),
+                    "surfaces": .object(surfaceBody),
                 ]
             )
             try socket.send(NativeFrameCodec.encode(subscribe))
@@ -86,6 +97,9 @@ extension NativeTransportActor {
                 session: transcript.session,
                 snapshot: snapshot,
                 messages: messages,
+                submit: { request in
+                    try socket.send(NativeFrameCodec.encode(request.envelope))
+                },
                 replaying: replaying
             )
         } catch {

@@ -28,32 +28,38 @@ public struct NativeReplayRequest: Equatable, Sendable {
 public struct NativeReadySession: Equatable, Sendable {
     public let instanceID: String
     public let serverVersion: String
+    public let currentSessionID: String
     public let sessionCapability: String
     public let capabilityExpiresAt: Date?
     public let capabilityHardExpiresAt: Date?
     public let supportedCommands: Set<String>
     public let sessionPresets: [NativeSessionPreset]
+    public let supportedSurfaces: Set<String>
     public let maxPayloadBytes: Int
     public let voiceInputAvailable: Bool
 
     public init(
         instanceID: String,
         serverVersion: String,
+        currentSessionID: String = "",
         sessionCapability: String,
         capabilityExpiresAt: Date? = nil,
         capabilityHardExpiresAt: Date? = nil,
         supportedCommands: Set<String> = [],
         sessionPresets: [NativeSessionPreset] = [],
+        supportedSurfaces: Set<String> = [],
         maxPayloadBytes: Int = NativePayloadSizing.defaultMaxPayloadBytes,
         voiceInputAvailable: Bool = false
     ) {
         self.instanceID = instanceID
         self.serverVersion = serverVersion
+        self.currentSessionID = currentSessionID
         self.sessionCapability = sessionCapability
         self.capabilityExpiresAt = capabilityExpiresAt
         self.capabilityHardExpiresAt = capabilityHardExpiresAt
         self.supportedCommands = supportedCommands
         self.sessionPresets = sessionPresets
+        self.supportedSurfaces = supportedSurfaces
         self.maxPayloadBytes = maxPayloadBytes
         self.voiceInputAvailable = voiceInputAvailable
     }
@@ -68,9 +74,11 @@ public struct NativeReadySession: Equatable, Sendable {
     public static func == (lhs: Self, rhs: Self) -> Bool {
         lhs.instanceID == rhs.instanceID
             && lhs.serverVersion == rhs.serverVersion
+            && lhs.currentSessionID == rhs.currentSessionID
             && lhs.sessionCapability == rhs.sessionCapability
             && lhs.supportedCommands == rhs.supportedCommands
             && lhs.sessionPresets == rhs.sessionPresets
+            && lhs.supportedSurfaces == rhs.supportedSurfaces
             && lhs.maxPayloadBytes == rhs.maxPayloadBytes
             && lhs.voiceInputAvailable == rhs.voiceInputAvailable
     }
@@ -265,11 +273,13 @@ private extension NativeReadySession {
         NativeReadySession(
             instanceID: instanceID,
             serverVersion: serverVersion,
+            currentSessionID: currentSessionID,
             sessionCapability: token,
             capabilityExpiresAt: expiresAt ?? capabilityExpiresAt,
             capabilityHardExpiresAt: hardExpiresAt ?? capabilityHardExpiresAt,
             supportedCommands: supportedCommands,
             sessionPresets: sessionPresets,
+            supportedSurfaces: supportedSurfaces,
             maxPayloadBytes: maxPayloadBytes,
             voiceInputAvailable: voiceInputAvailable
         )

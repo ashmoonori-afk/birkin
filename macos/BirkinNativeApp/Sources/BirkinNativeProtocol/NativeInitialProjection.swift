@@ -16,7 +16,8 @@ extension NativeTransportActor {
     public func loadInitialProjectionUDS(
         socketPath: String,
         hello: NativeHello,
-        sessionID: String
+        sessionID: String? = nil,
+        surfaceRevisions: [String: Int]? = nil
     ) throws -> NativeInitialProjection {
         apply(.connect)
         do {
@@ -30,15 +31,22 @@ extension NativeTransportActor {
                 as: .uds
             )
             acceptNegotiated(transcript.session)
+            let requestedSurfaces = surfaceRevisions ?? Dictionary(
+                uniqueKeysWithValues: transcript.session.supportedSurfaces.map { ($0, 0) }
+            )
+            var surfaceBody: NativeJSONObject = [:]
+            for (name, revision) in requestedSurfaces.sorted(by: { $0.key < $1.key }) {
+                try surfaceBody.append(key: name, value: .int(revision))
+            }
             let subscribe = NativeEnvelope(
                 kind: .subscribe,
                 id: "app-subscribe-\(UUID().uuidString)",
                 body: [
-                    "session_id": .string(sessionID),
+                    "session_id": .string(sessionID ?? transcript.session.currentSessionID),
                     "after_cursor": .int(0),
                     "known_instance_id": .null,
                     "session_capability": .string(transcript.session.sessionCapability),
-                    "surfaces": .object([:]),
+                    "surfaces": .object(surfaceBody),
                 ]
             )
             try socket.send(NativeFrameCodec.encode(subscribe))
