@@ -1041,6 +1041,7 @@ def test_windows_operation_cleanup_handle_blocks_setup_swap(
 ) -> None:
     from birkin.skills import bundle_publish_windows, sync
     from birkin.skills.bundle_publish_windows_io import (
+        FILE_TRAVERSE,
         READ_ATTRIBUTES,
         SHARE_READ_WRITE_DELETE,
     )
@@ -1059,7 +1060,7 @@ def test_windows_operation_cleanup_handle_blocks_setup_swap(
         nonlocal blocked
         if (
             Path(path).name.startswith(".birkin-sync-")
-            and access == READ_ATTRIBUTES
+            and access == READ_ATTRIBUTES | FILE_TRAVERSE
             and share == SHARE_READ_WRITE_DELETE
         ):
             try:
@@ -1101,13 +1102,22 @@ def test_windows_candidate_handle_blocks_reparse_swap(
     real_populate = bundle_publish_windows.populate
     blocked = False
 
-    def attempt_swap(kernel32, candidate, snapshot) -> None:
+    def attempt_swap(
+            kernel32,
+            candidate,
+            candidate_handle,
+            snapshot) -> None:
         nonlocal blocked
         try:
             candidate.rename(candidate.with_name("moved-candidate"))
         except OSError:
             blocked = True
-        real_populate(kernel32, candidate, snapshot)
+        real_populate(
+            kernel32,
+            candidate,
+            candidate_handle,
+            snapshot,
+        )
 
     monkeypatch.setattr(
         bundle_publish_windows,
@@ -1116,6 +1126,70 @@ def test_windows_candidate_handle_blocks_reparse_swap(
     )
 
     assert sync.sync_skills(source) == ["locked-candidate"]
+    assert blocked is True
+
+
+@pytest.mark.skipif(
+    os.name != "nt",
+    reason="Windows nested candidate handle locking",
+)
+def test_windows_nested_candidate_creation_blocks_swap(
+        tmp_path,
+        monkeypatch,
+) -> None:
+    from birkin.skills import (
+        bundle_publish_windows_file,
+        sync,
+    )
+
+    source = tmp_path / "upstream"
+    skill = _skill(
+        source,
+        "A clean helper.",
+        name="locked-nested",
+    )
+    assets = skill / "assets"
+    assets.mkdir()
+    (assets / "payload.txt").write_text(
+        "EXACT",
+        encoding="utf-8",
+    )
+    real_create = (
+        bundle_publish_windows_file.create_directory_handle
+    )
+    blocked = False
+
+    def create_then_attempt_swap(
+            parent_handle,
+            parent_path,
+            name,
+            *,
+            access,
+            share):
+        nonlocal blocked
+        handle = real_create(
+            parent_handle,
+            parent_path,
+            name,
+            access=access,
+            share=share,
+        )
+        if name == "assets":
+            try:
+                (parent_path / name).rename(
+                    parent_path / "attacker-moved"
+                )
+            except OSError:
+                blocked = True
+        return handle
+
+    monkeypatch.setattr(
+        bundle_publish_windows_file,
+        "create_directory_handle",
+        create_then_attempt_swap,
+    )
+
+    assert sync.sync_skills(source) == ["locked-nested"]
     assert blocked is True
 
 
@@ -1174,18 +1248,37 @@ def test_windows_parent_information_failure_closes_handle(
         tmp_path,
         monkeypatch):
     from birkin import config
-    from birkin.skills import bundle_publish_windows, sync
+    from birkin.skills import bundle_publish_windows_parent, sync
 
     source = tmp_path / "upstream"
     _skill(source, "A clean helper.", name="parent-failure")
 
-    def fail_information(_kernel32, _handle):
-        raise OSError("injected parent information failure")
+    real_checked = bundle_publish_windows_parent.checked_directory
+    checked_calls = 0
+
+    def fail_descendant_open(
+            kernel32,
+            path,
+            *,
+            access,
+            share=None):
+        nonlocal checked_calls
+        checked_calls += 1
+        if checked_calls == 2:
+            raise OSError("injected parent information failure")
+        if share is None:
+            return real_checked(kernel32, path, access=access)
+        return real_checked(
+            kernel32,
+            path,
+            access=access,
+            share=share,
+        )
 
     monkeypatch.setattr(
-        bundle_publish_windows,
-        "information",
-        fail_information,
+        bundle_publish_windows_parent,
+        "checked_directory",
+        fail_descendant_open,
     )
 
     with pytest.raises(OSError):

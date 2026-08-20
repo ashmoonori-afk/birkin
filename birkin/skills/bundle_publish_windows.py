@@ -108,7 +108,12 @@ def publish_windows(
         published = False
         preserve_operation = False
         try:
-            populate(kernel32, candidate, snapshot)
+            populate(
+                kernel32,
+                candidate,
+                candidate_handle,
+                snapshot,
+            )
             if previous_handle >= 0:
                 rename(
                     kernel32,

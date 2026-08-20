@@ -3,12 +3,13 @@
 from __future__ import annotations
 
 import sys
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 from typing import Any
 
 from .bundle_publish import BundleSnapshot
 from .bundle_publish_windows_io import (
     CREATE_NEW,
+    DELETE,
     GENERIC_WRITE,
     READ_ATTRIBUTES,
     REPARSE_ATTRIBUTE,
@@ -16,18 +17,9 @@ from .bundle_publish_windows_io import (
     information,
     open_handle,
 )
-
-
-def create_directory(kernel32: Any, path: Path) -> None:
-    import ctypes
-    from ctypes import wintypes
-
-    create = kernel32.CreateDirectoryW
-    create.argtypes = [wintypes.LPCWSTR, wintypes.LPVOID]
-    create.restype = wintypes.BOOL
-    if not create(str(path), None):
-        raise OSError(ctypes.get_last_error(), str(path))
-
+from .bundle_publish_windows_native import (
+    create_directory_handle,
+)
 
 def _write_file(
     kernel32: Any,
@@ -82,31 +74,38 @@ def _write_file(
 def populate(
     kernel32: Any,
     candidate: Path,
+    candidate_handle: int,
     snapshot: BundleSnapshot,
 ) -> None:
-    directory_handles: list[int] = []
+    directory_handles: dict[PurePosixPath, int] = {}
     try:
         for relative in snapshot.directories:
             path = candidate / Path(relative.as_posix())
-            path.mkdir(parents=True)
-            handle = open_handle(
-                kernel32,
-                path,
-                access=READ_ATTRIBUTES,
+            parent = relative.parent
+            parent_handle = (
+                candidate_handle
+                if parent == PurePosixPath(".")
+                else directory_handles[parent]
+            )
+            handle = create_directory_handle(
+                parent_handle,
+                path.parent,
+                path.name,
+                access=READ_ATTRIBUTES | DELETE,
+                share=0x00000001 | 0x00000002,
             )
             attributes, _ = information(kernel32, handle)
             if attributes & REPARSE_ATTRIBUTE:
                 close(kernel32, handle)
                 raise OSError("bundle directory is a reparse point")
-            directory_handles.append(handle)
+            directory_handles[relative] = handle
         for entry in snapshot.files:
             path = candidate / Path(entry.relative.as_posix())
-            path.parent.mkdir(parents=True, exist_ok=True)
             _write_file(kernel32, path, entry.payload)
     finally:
         active_error = sys.exc_info()[1]
         close_error: OSError | None = None
-        for handle in reversed(directory_handles):
+        for handle in reversed(tuple(directory_handles.values())):
             try:
                 close(kernel32, handle)
             except OSError as error:
