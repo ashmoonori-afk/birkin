@@ -381,6 +381,50 @@ def test_hub_publishes_the_exact_scanned_snapshot(monkeypatch):
     assert "Ignore all previous instructions" not in installed
 
 
+def test_hub_post_commit_quarantine_cleanup_failure_is_typed(
+        monkeypatch):
+    from birkin.skills.manager import PublicationCleanupError
+
+    _fake_github(monkeypatch, {
+        "SKILL.md": (
+            "---\nname: tidy\ndescription: d\n---\n\n"
+            "Read and format.\n"
+        ),
+    })
+    real_rmtree = hub.shutil.rmtree
+
+    def fail_committed_quarantine_cleanup(
+            path,
+            *args,
+            **kwargs):
+        candidate = Path(path)
+        if (
+            "quarantine" in candidate.parts
+            and hub.resolve_install_path("tidy").exists()
+        ):
+            raise OSError("injected quarantine cleanup failure")
+        return real_rmtree(path, *args, **kwargs)
+
+    monkeypatch.setattr(
+        hub.shutil,
+        "rmtree",
+        fail_committed_quarantine_cleanup,
+    )
+
+    with pytest.raises(PublicationCleanupError) as raised:
+        hub.install(
+            "anthropics/skills/tidy",
+            confirm=lambda _report: True,
+        )
+
+    assert raised.value.retry_safe is False
+    assert raised.value.residue_possible is True
+    assert (
+        hub.resolve_install_path("tidy") / "SKILL.md"
+    ).is_file()
+    assert "tidy" in hub.load_lock()
+
+
 def test_support_files_are_fetched_alongside(monkeypatch):
     _fake_github(monkeypatch, {
         "SKILL.md": "---\nname: tidy\ndescription: d\n---\n\nSee scripts/go.sh\n",
