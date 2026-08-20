@@ -87,6 +87,49 @@ struct WorkingMemoryTests {
     }
 
     @MainActor
+    @Test("clear scope and budget errors have bounded accessible copy")
+    func clearAndBudgetAccessibility() {
+        let clear = WorkingMemoryClearPresentation(sessionID: "session-1")
+        #expect(clear.title == "Clear Working Memory for session-1?")
+        #expect(clear.explanation.contains("corrections, constraints, decisions, incomplete items, evidence, and next actions"))
+        #expect(clear.explanation.contains("does not clear vault memory, workspace files, or audit history"))
+        #expect(clear.confirmAccessibilityLabel == "Clear session Working Memory only")
+
+        let model = WorkingMemoryEditorModel(
+            authoritative: projection(revision: 7, constraints: ["Offline"])
+        )
+        let session = NativeReadySession(
+            instanceID: "instance-1", serverVersion: "1.0",
+            sessionCapability: "token",
+            capabilityExpiresAt: Date(timeIntervalSince1970: 2_000),
+            capabilityHardExpiresAt: Date(timeIntervalSince1970: 3_000),
+            supportedCommands: ["memory.write"]
+        )
+        var requests: [NativeCommandRequest] = []
+        #expect(model.submitClear(
+            availability: MutationAvailability(
+                state: .ready(session), now: Date(timeIntervalSince1970: 1_000)
+            ),
+            expectedCursor: 14,
+            session: session,
+            submit: { requests.append($0) }
+        ))
+        #expect(requests.first?.payload == [
+            "op": .string("clear"), "expected_revision": .int(7),
+        ])
+        #expect(model.authoritative.revision == 7)
+        #expect(model.isAwaitingConfirmation)
+
+        let longMessage = "working memory exceeds 20000 rendered characters "
+            + String(repeating: "x", count: 500)
+        let error = WorkingMemoryCanonicalErrorPresentation(
+            code: "E_WORKING_MEMORY_BUDGET", message: longMessage
+        )
+        #expect(error.message.count == 300)
+        #expect(error.accessibilityLabel.contains("20,000-character render budget"))
+    }
+
+    @MainActor
     @Test("five-row Working Memory renders screenshot evidence")
     func screenshotEvidence() throws {
         let projection = NativeWorkingMemoryProjection(
