@@ -166,7 +166,7 @@ def compose_public(*, trusted_session_state: str = "") -> str:
 def compose_main(cfg: dict[str, Any], *, skills_index: str = "",
                  memory_block: str = "", role: str = "main", extra: str = "",
                  persona_text: Optional[str] = None,
-                 harness_block: str = "",
+                 profile_block: str = "", harness_block: str = "",
                  include_turn_state: bool = True) -> str:
     """System prompt for the native agent loop (API providers). Persona + tool
     guidance + skills + memory, then the neurosis auto-trigger note."""
@@ -178,7 +178,7 @@ def compose_main(cfg: dict[str, Any], *, skills_index: str = "",
     system = _filter_tool_guidance(prompts.build_system_prompt(
         skills_index=skills_index, memory_block=memory_block, role=role,
         extra=extra, persona=_persona(persona_text),
-        harness_block=harness_block
+        profile_block=profile_block, harness_block=harness_block
     ), cfg) + presets.role_overlay(cfg.get("model"), cfg) \
         + presets.tool_policy_overlay(
             cfg.get("model"), cfg, surface="native"
@@ -194,13 +194,14 @@ def compose_main(cfg: dict[str, Any], *, skills_index: str = "",
 def compose_cli(cfg: dict[str, Any], *, memory_block: str = "",
                 preloaded: Optional[list[str]] = None, extra: str = "",
                 persona_text: Optional[str] = None,
-                harness_block: str = "",
+                profile_block: str = "", harness_block: str = "",
                 include_turn_state: bool = True) -> str:
     """System prompt for CLI-agent backends (Claude Code / Codex). ``extra`` is
     appended before the neurosis note (e.g. the gateway's skills-index block)."""
     sysp = _filter_tool_guidance(prompts.build_cli_system(
         memory_block=memory_block, preloaded=preloaded,
-        persona=_persona(persona_text), harness_block=harness_block), cfg)
+        persona=_persona(persona_text), profile_block=profile_block,
+        harness_block=harness_block), cfg)
     if extra:
         sysp += extra
     turn_state = (

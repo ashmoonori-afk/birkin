@@ -14,6 +14,16 @@ else:
 
 _ROOT = Path(__file__).resolve().parent.parent
 
+# The core install stays deliberately small. `birkin-mnemosyne` is the one
+# git-sourced runtime dependency (role-profile review), and it is pinned to an
+# immutable commit so a moved tag cannot silently change what ships.
+_CORE_DEPENDENCIES = [
+    "psutil>=6",
+    "typing-extensions>=4.12",
+    "birkin-mnemosyne @ git+https://github.com/ashmoonori-afk"
+    "/birkin-mnemosyne@36814c13b44260a0c1ada53d142b2940fff134df",
+]
+
 
 class _Project(TypedDict):
     version: str
@@ -41,10 +51,7 @@ def test_package_versions_match() -> None:
 
 
 def test_core_install_has_only_required_runtime_dependencies() -> None:
-    assert _project()["dependencies"] == [
-        "psutil>=6",
-        "typing-extensions>=4.12",
-    ]
+    assert _project()["dependencies"] == _CORE_DEPENDENCIES
 
 
 def test_feature_extras_are_split_and_full_is_their_union() -> None:
@@ -84,10 +91,7 @@ def test_feature_extras_are_split_and_full_is_their_union() -> None:
 
 def test_p3_extras_are_optional_and_core_ci_installs_no_new_p3_distributions() -> None:
     extras = _project()["optional_dependencies"]
-    assert _project()["dependencies"] == [
-        "psutil>=6",
-        "typing-extensions>=4.12",
-    ]
+    assert _project()["dependencies"] == _CORE_DEPENDENCIES
     assert {"office", "office-advanced", "office-docling", "research", "work"} <= extras.keys()
     forbidden = {"jsonschema", "rfc8785", "defusedxml", "lxml", "python-docx", "python-pptx", "pypdf", "pypdfium2", "docling"}
     assert not any(req.split("[",1)[0].split(">",1)[0] in forbidden for req in extras["dev"])

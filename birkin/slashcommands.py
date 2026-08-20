@@ -96,7 +96,7 @@ _HELP_GROUPS: list[tuple[str, list[str]]] = [
     ("스킬·도구", ["skills", "tools", "system", "mcp", "details"]),
     ("운영·승인", ["work", "goal", "review", "cron", "permission",
                  "config", "morpheus", "update"]),
-    ("페르소나·인터뷰", ["persona", "neurosis", "odyssey"]),
+    ("페르소나·인터뷰", ["persona", "profile", "neurosis", "odyssey"]),
     ("게이트웨이", ["restart"]),
     ("종료·도움", ["help", "quit"]),
 ]
@@ -831,10 +831,70 @@ def _quit(session: Any, arg: str) -> str:
 
 # -- shared with repl ------------------------------------------------------
 
-# -- persona ---------------------------------------------------------------
+# -- profile / persona -----------------------------------------------------
 
-@command("persona", "Show birkin's persona, or switch it to a preset.",
-         "/persona [warm|concise|mentor|direct|path|reset]", aliases=["soul"])
+
+def _profile_actions(session: Any):
+    mem = getattr(session, "memory", None)
+    if mem is not None and hasattr(mem, "profile_actions"):
+        return mem.profile_actions()
+    from .profile_actions import ProfileActions
+    from .rolefiles import ProfileStore
+    profile = session.cfg.get("profile", {}) if isinstance(session.cfg, dict) else {}
+    limits = profile.get("limits", {}) if isinstance(profile, dict) else {}
+    return ProfileActions(ProfileStore(config.birkin_home(), limits),
+                          approval_required=bool(profile.get("write_approval", False)))
+
+
+@command("profile", "Review, approve, migrate, or roll back role-profile writes.",
+         "/profile pending|approve <ids>|reject <ids>|migrate|rollback")
+def _profile(session: Any, arg: str) -> None:
+    parts = shlex.split(arg)
+    if not parts:
+        print("usage: /profile pending|approve <ids>|reject <ids>|migrate|rollback")
+        return
+    action = parts[0].lower()
+    actions = _profile_actions(session)
+    if action == "pending":
+        pending = actions.pending()
+        if not pending:
+            print(f"{DIM}No pending profile proposals.{RESET}")
+            return
+        for item in pending:
+            print(json.dumps(item.payload(), sort_keys=True))
+        return
+    if action in {"approve", "reject"}:
+        ids = parts[1:]
+        if not ids:
+            print(f"usage: /profile {action} <id> [id ...]")
+            return
+        receipts = actions.approve(ids) if action == "approve" else actions.reject(ids)
+        for item in receipts:
+            print(json.dumps(item.payload(), sort_keys=True))
+        return
+    if action == "migrate":
+        from .profile_migration import migrate_legacy_preferences
+        report = migrate_legacy_preferences(
+            actions.store,
+            session.memory.legacy_preferences(),
+            archive=session.memory.archive_legacy_preference,
+        )
+        print(json.dumps(report.__dict__, sort_keys=True))
+        return
+    if action == "rollback":
+        from .profile_migration import rollback_legacy_preferences
+        report = rollback_legacy_preferences(
+            actions.store,
+            restore=session.memory.restore_legacy_preference,
+            archived=session.memory.archived_legacy_preference,
+        )
+        print(json.dumps(report.__dict__, sort_keys=True))
+        return
+    print("usage: /profile pending|approve <ids>|reject <ids>|migrate|rollback")
+
+
+@command("persona", "Show birkin's persona, switch preset, or promote mask guidance.",
+         "/persona [warm|concise|mentor|direct|path|reset|promote]", aliases=["soul"])
 def _persona(session: Any, arg: str) -> None:
     # One command for the whole persona surface: showing it, locating its file,
     # resetting it, and switching presets were three names for one concern.
@@ -846,6 +906,19 @@ def _persona(session: Any, arg: str) -> None:
     if name == "reset":
         persona.seed_default(force=True)
         print(f"{GREEN}Persona reset to the default warm voice.{RESET}")
+        return
+    if name == "promote":
+        promote = getattr(persona, "promote_guidance", None)
+        if not callable(promote):
+            print(f"{DIM}/persona promote is unavailable until persona support is loaded.{RESET}")
+            return
+        try:
+            guidance = "\n".join(_profile_actions(session).store.snapshot().documents["mask"].entries)
+        except Exception as exc:
+            print(f"{RED}Could not read profile/mask.md: {exc}{RESET}")
+            return
+        promote(guidance)
+        print(f"{GREEN}Promoted mask guidance into SOUL.md.{RESET}")
         return
     if not name:
         text = persona.read_soul()

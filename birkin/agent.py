@@ -27,7 +27,7 @@ from .config import CLI_PROVIDERS
 from .llm import LLMClient, LLMError
 
 SKILL_TOOLS = {"create_skill", "improve_skill"}
-MEMORY_TOOLS = {"remember", "memory_write_note", "memory_link"}
+MEMORY_TOOLS = {"remember", "memory_write_note", "memory_link", "profile_write"}
 
 _SKILL_NUDGE = (
     "[birkin self-improvement] You've done several tool steps without saving a "
@@ -112,7 +112,7 @@ class Agent:
                  auto_compact: bool = True, context_window: int = 200_000,
                  parallel_tools: bool = True, parallel_workers: int = 8,
                  ooda_enabled: bool = True, ooda_stall_repeats: int = 3,
-                 hooks: Any = None):
+                 hooks: Any = None, profile_review_service: Any = None):
         self.client = client
         self.system = system
         self.registry = registry
@@ -159,6 +159,7 @@ class Agent:
         self.parallel_workers = max(1, int(parallel_workers))
         # hooks.HookBus | None — pre_llm_call context injection.
         self.hooks = hooks
+        self.profile_review_service = profile_review_service
 
         # OODA stall detection: identical failing actions force a one-shot
         # reorientation note instead of silently repeating.
@@ -212,7 +213,7 @@ class Agent:
             on_text: Callable[[str], None] | None = None,
             abort: AbortLike | None = None,
             blocked_tools: frozenset[str] | None = None,
-            trusted: bool = True) -> str:
+            trusted: bool = True, session_id: str = "default") -> str:
         """Send a user message and run the loop until the assistant stops
         calling tools (or the turn guard trips). Returns the final text.
 
@@ -265,7 +266,15 @@ class Agent:
         self._persist_lineage = trusted
         self._trusted_turn = trusted
         try:
-            return self._loop(on_text, extra_system=nudge, abort=abort)
+            result = self._loop(on_text, extra_system=nudge, abort=abort)
+            service = getattr(self, "profile_review_service", None)
+            record = getattr(service, "record_exchange", None) if service else None
+            if callable(record):
+                try:
+                    record(user_text, result, trusted=trusted, session_id=session_id)
+                except Exception:
+                    pass
+            return result
         finally:
             self._blocked_tools = previous_blocked
             self._persist_lineage = previous_persist_lineage

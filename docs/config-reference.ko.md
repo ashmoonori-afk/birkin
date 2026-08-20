@@ -92,6 +92,20 @@ Schema version: 1
 | `autosave_max_turns` | `integer` | `40` | Birkin 설정 `autosave_max_turns`. |
 | `autosave_retention_days` | `integer` | `30` | Birkin 설정 `autosave_retention_days`. |
 | `autosave_max_files` | `integer` | `500` | Birkin 설정 `autosave_max_files`. |
+| `profile` | `object` | `{"enabled": false, "write_approval": false, "limits": {"user": 1375, "preferences": 1375, "mask": 800, "workflow": 1000, "automation": 800}, "background_review": {"enabled": false, "provider": null, "model": null, "digest_recent_turns": 6}}` | Birkin 설정 `profile`. |
+| `profile.enabled` | `boolean` | `false` | Birkin 설정 `profile.enabled`. |
+| `profile.write_approval` | `boolean` | `false` | Birkin 설정 `profile.write_approval`. |
+| `profile.limits` | `object` | `{"user": 1375, "preferences": 1375, "mask": 800, "workflow": 1000, "automation": 800}` | Birkin 설정 `profile.limits`. |
+| `profile.limits.user` | `integer` | `1375` | Birkin 설정 `profile.limits.user`. |
+| `profile.limits.preferences` | `integer` | `1375` | Birkin 설정 `profile.limits.preferences`. |
+| `profile.limits.mask` | `integer` | `800` | Birkin 설정 `profile.limits.mask`. |
+| `profile.limits.workflow` | `integer` | `1000` | Birkin 설정 `profile.limits.workflow`. |
+| `profile.limits.automation` | `integer` | `800` | Birkin 설정 `profile.limits.automation`. |
+| `profile.background_review` | `object` | `{"enabled": false, "provider": null, "model": null, "digest_recent_turns": 6}` | Birkin 설정 `profile.background_review`. |
+| `profile.background_review.enabled` | `boolean` | `false` | Birkin 설정 `profile.background_review.enabled`. |
+| `profile.background_review.provider` | `any` | `null` | Birkin 설정 `profile.background_review.provider`. |
+| `profile.background_review.model` | `any` | `null` | Birkin 설정 `profile.background_review.model`. |
+| `profile.background_review.digest_recent_turns` | `integer` | `6` | Birkin 설정 `profile.background_review.digest_recent_turns`. |
 | `neurosis_threshold` | `any` | `null` | Birkin 설정 `neurosis_threshold`. |
 | `neurosis_auto` | `boolean` | `true` | Birkin 설정 `neurosis_auto`. |
 | `channels` | `object` | `{"http": {"enabled": true}, "telegram": {"enabled": false, "token": "", "allowed_chat_ids": [], "stream": true}, "slack": {"enabled": false, "webhook_url": "", "allowed_channel_ids": []}, "discord": {"enabled": false, "webhook_url": "", "allowed_channel_ids": []}}` | Birkin 설정 `channels`. |

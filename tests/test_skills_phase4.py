@@ -71,11 +71,25 @@ def test_sync_mirrors_skill_with_bundled_script(tmp_path):
     assert sync.sync_skills(src) == []
 
 
-def test_workspace_prompt_files_composed(tmp_path, monkeypatch):
+def test_workspace_prompt_files_composed(tmp_path, monkeypatch, capsys):
     from birkin import prompts
     monkeypatch.chdir(tmp_path)
-    (tmp_path / "SOUL.md").write_text("Be kind and concise.", encoding="utf-8")
+    soul = tmp_path / "SOUL.md"
+    soul.write_text("Be kind and concise.", encoding="utf-8")
+    (tmp_path / "AGENTS.md").write_text("Use workspace guidance.", encoding="utf-8")
+    (tmp_path / "TOOLS.md").write_text("Use workspace tools.", encoding="utf-8")
+
     block = prompts.workspace_prompt_block()
-    assert "## SOUL.md" in block and "Be kind and concise." in block
+    captured = capsys.readouterr()
+
+    assert "## AGENTS.md\nUse workspace guidance." in block
+    assert "## TOOLS.md\nUse workspace tools." in block
+    assert "## SOUL.md" not in block
+    assert "Be kind and concise." not in block
+    assert "workspace SOUL.md is deprecated" in captured.err
+    assert soul.read_text(encoding="utf-8") == "Be kind and concise."
+
     sysp = prompts.build_system_prompt(skills_index="- x: y")
-    assert "## SOUL.md" in sysp
+    assert "## AGENTS.md\nUse workspace guidance." in sysp
+    assert "## TOOLS.md\nUse workspace tools." in sysp
+    assert "## SOUL.md" not in sysp

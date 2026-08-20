@@ -49,9 +49,13 @@ def test_runtime_dependencies_and_desktop_extra_are_declared():
     except ModuleNotFoundError:                      # py3.10
         pytest.skip("tomllib needs Python 3.11+")
     data = tomllib.loads((ROOT / "pyproject.toml").read_text(encoding="utf-8"))
+    # `birkin-mnemosyne` is git-sourced and pinned to an immutable commit, so a
+    # moved tag cannot change the runtime surface without updating this list.
     assert data["project"]["dependencies"] == [
         "psutil>=6",
         "typing-extensions>=4.12",
+        "birkin-mnemosyne @ git+https://github.com/ashmoonori-afk"
+        "/birkin-mnemosyne@36814c13b44260a0c1ada53d142b2940fff134df",
     ]
     dependencies = data["project"]["optional-dependencies"]["desktop"]
     names = {

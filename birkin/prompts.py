@@ -8,15 +8,31 @@ skill's full text.
 
 from __future__ import annotations
 
+import sys
 from pathlib import Path
 from typing import Optional
 
 # Optional layered prompt files composed from the workspace (cwd), if present —
 # identity/policy/tool notes, like hermes' SOUL/AGENTS/TOOLS.
-_WORKSPACE_PROMPT_FILES = ("SOUL.md", "AGENTS.md", "TOOLS.md")
+_WORKSPACE_PROMPT_FILES = ("AGENTS.md", "TOOLS.md")
+_DEPRECATED_WORKSPACE_SOUL_NOTICES: set[Path] = set()
+
+
+def _notice_deprecated_workspace_soul() -> None:
+    path = (Path.cwd() / "SOUL.md").resolve()
+    if path in _DEPRECATED_WORKSPACE_SOUL_NOTICES or not path.is_file():
+        return
+    _DEPRECATED_WORKSPACE_SOUL_NOTICES.add(path)
+    print(
+        "[birkin] workspace SOUL.md is deprecated; use AGENTS.md for "
+        "workspace instructions or ~/.birkin/SOUL.md for persona.",
+        file=sys.stderr,
+        flush=True,
+    )
 
 
 def workspace_prompt_block() -> str:
+    _notice_deprecated_workspace_soul()
     parts: list[str] = []
     for name in _WORKSPACE_PROMPT_FILES:
         path = Path.cwd() / name
@@ -112,11 +128,14 @@ def seal_research_policy(system_prompt: str) -> str:
 def build_system_prompt(*, skills_index: str = "", memory_block: str = "",
                         role: str = "main", extra: str = "",
                         preloaded: Optional[list[tuple[str, str]]] = None,
-                        persona: str = "", harness_block: str = "") -> str:
+                        persona: str = "", profile_block: str = "",
+                        harness_block: str = "") -> str:
     # The user's SOUL.md persona (when set) replaces the default identity slot;
     # everything else (tool guidance, skills, memory) is appended as usual.
     identity = persona.strip() if persona and persona.strip() else _IDENTITY
     parts: list[str] = [identity]
+    if profile_block:
+        parts.append(profile_block)
 
     if role == "subagent":
         parts.append(
@@ -192,7 +211,8 @@ def cli_mcp_block() -> str:
 
 def build_cli_system(*, memory_block: str = "",
                      preloaded: Optional[list[str]] = None,
-                     persona: str = "", harness_block: str = "") -> str:
+                     persona: str = "", profile_block: str = "",
+                     harness_block: str = "") -> str:
     """A concise prompt for CLI-agent backends (Claude Code / Codex).
 
     These backends run their own tool loop, so instead of birkin's tool-loop
@@ -207,6 +227,8 @@ def build_cli_system(*, memory_block: str = "",
     runs kept reporting they had no tools while holding twelve of them."""
     identity = persona.strip() if persona and persona.strip() else _CLI_IDENTITY
     parts: list[str] = [identity]
+    if profile_block:
+        parts.append(profile_block)
     workspace = workspace_prompt_block()
     if workspace:
         parts.append(workspace)
