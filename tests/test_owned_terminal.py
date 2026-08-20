@@ -77,7 +77,9 @@ def test_real_pty_echo_resize_snapshot_signal_and_close(
     opened = terminal.create({"actor_kind": "native_human", "cwd": str(tmp_path)})
     terminal_id = str(opened["terminal_id"])
     lease = str(opened["lease"])
-    pid = int(opened["pid"])
+    raw_pid = opened["pid"]
+    assert isinstance(raw_pid, int)
+    pid = raw_pid
     try:
         result = terminal.input({
             "terminal_id": terminal_id,
@@ -141,7 +143,9 @@ def test_lease_expiry_revokes_input_and_process_tree(tmp_path: Path) -> None:
         lease_ttl=1.0,
     )
     opened = terminal.create({"actor_kind": "native_human", "cwd": str(tmp_path)})
-    pid = int(opened["pid"])
+    raw_pid = opened["pid"]
+    assert isinstance(raw_pid, int)
+    pid = raw_pid
     now[0] = 102.0
 
     with pytest.raises(TerminalLeaseRequired, match="expired"):

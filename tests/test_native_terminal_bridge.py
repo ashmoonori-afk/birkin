@@ -97,7 +97,9 @@ def test_full_native_bridge_real_pty_round_trip_and_invalid_signal(
         opened = _event(client, "terminal.opened")
         terminal_id = str(opened["terminal_id"])
         lease = str(opened["lease"])
-        pid = int(opened["pid"])
+        raw_pid = opened["pid"]
+        assert isinstance(raw_pid, int)
+        pid = raw_pid
 
         _send(client, token, source, "terminal.input", "input-terminal", {
             "terminal_id": terminal_id,

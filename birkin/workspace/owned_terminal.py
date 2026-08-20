@@ -117,7 +117,8 @@ class TerminalAuthority:
                 title="Native terminal shell access",
                 description="Allow a Python-owned interactive shell for the native human.",
                 payload={
-                    "command": shell,
+                    "command": "/usr/bin/true",
+                    "shell": shell,
                     "cwd": str(cwd),
                     "terminal_lease_only": True,
                     "session_id": self._session_id,
@@ -313,7 +314,8 @@ class TerminalAuthority:
             record.get("category") == "shell"
             and isinstance(payload, dict)
             and payload.get("terminal_lease_only") is True
-            and payload.get("command") == shell
+            and payload.get("command") == "/usr/bin/true"
+            and payload.get("shell") == shell
             and payload.get("cwd") == str(cwd)
             and payload.get("session_id") == self._session_id
             and payload.get("actor_kind") == "native_human"
