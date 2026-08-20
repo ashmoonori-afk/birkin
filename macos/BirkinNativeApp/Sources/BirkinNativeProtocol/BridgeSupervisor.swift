@@ -27,6 +27,7 @@ public final class OwnedBridgeSupervisor {
     private let clock: () -> Date
     private let spawn: () throws -> any SupervisedBridgeProcess
     private var owned: (any SupervisedBridgeProcess)?
+    private var crashTimes: [Date] = []
     private let diagnosticCapacity: Int
 
     public init(
@@ -49,10 +50,9 @@ public final class OwnedBridgeSupervisor {
     @discardableResult
     public func startOwnedIfNeeded() -> Bool {
         switch state {
-        case .attachedExternal, .runningOwned: return false
-        case .idle, .stopped: break
+        case .attachedExternal, .runningOwned, .stopped: return false
+        case .idle: return launchOwned()
         }
-        return launchOwned()
     }
 
     public func observeExit(pid: Int32, status: Int32) {
@@ -61,7 +61,21 @@ public final class OwnedBridgeSupervisor {
             return
         }
         owned = nil
+        let time = clock()
+        crashTimes = crashTimes.filter {
+            let age = time.timeIntervalSince($0)
+            return age >= 0 && age < 60
+        }
+        crashTimes.append(time)
         record("owned_bridge_exited", "Owned bridge exited with status \(status).")
+        if crashTimes.count >= 5 {
+            state = .stopped(reason: "crash_loop")
+            record(
+                "restart_ceiling_reached",
+                "Bridge stopped after five crashes within sixty seconds."
+            )
+            return
+        }
         _ = launchOwned()
     }
 

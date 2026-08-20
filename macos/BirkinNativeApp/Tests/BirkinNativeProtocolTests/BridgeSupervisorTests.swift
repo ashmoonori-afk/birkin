@@ -27,6 +27,52 @@ struct BridgeSupervisorTests {
         #expect(supervisor.diagnostics.contains { $0.code == "external_bridge_untouched" })
     }
 
+    @Test("five crashes in sixty seconds stop restart and expose bounded diagnostics")
+    func fiveInSixtyCeiling() {
+        var now = Date(timeIntervalSince1970: 5_000)
+        var spawnCount = 0
+        let supervisor = OwnedBridgeSupervisor(
+            diagnosticCapacity: 4,
+            clock: { now },
+            spawn: {
+                defer { spawnCount += 1 }
+                return FakeBridgeProcess(pid: Int32(400 + spawnCount))
+            }
+        )
+        #expect(supervisor.startOwnedIfNeeded())
+
+        for offset in 0..<5 {
+            now = Date(timeIntervalSince1970: 5_000 + Double(offset * 10))
+            supervisor.observeExit(pid: Int32(400 + offset), status: 9)
+        }
+
+        #expect(spawnCount == 5)
+        #expect(supervisor.state == .stopped(reason: "crash_loop"))
+        #expect(supervisor.diagnostics.count == 4)
+        #expect(supervisor.diagnostics.last?.code == "restart_ceiling_reached")
+        #expect(supervisor.diagnostics.allSatisfy { $0.message.count <= 160 })
+    }
+
+    @Test("crashes outside sixty second window do not trip ceiling")
+    func crashWindowExpires() {
+        var now = Date(timeIntervalSince1970: 8_000)
+        var spawnCount = 0
+        let supervisor = OwnedBridgeSupervisor(
+            clock: { now },
+            spawn: {
+                defer { spawnCount += 1 }
+                return FakeBridgeProcess(pid: Int32(500 + spawnCount))
+            }
+        )
+        #expect(supervisor.startOwnedIfNeeded())
+        for offset in 0..<6 {
+            now = Date(timeIntervalSince1970: 8_000 + Double(offset * 61))
+            supervisor.observeExit(pid: Int32(500 + offset), status: 9)
+        }
+        #expect(spawnCount == 7)
+        #expect(supervisor.state == .runningOwned(pid: 506))
+    }
+
     @Test("owned crashed bridge restarts and shutdown terminates only current child")
     func ownedRestartAndShutdown() throws {
         var children: [FakeBridgeProcess] = []
