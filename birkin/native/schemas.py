@@ -43,6 +43,7 @@ _SNAPSHOT = {
     "composer",
     "status",
     "working_memory",
+    "approval_policy",
     "terminals",
     "instance_id",
     "reset_reason",

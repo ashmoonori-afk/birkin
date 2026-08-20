@@ -107,10 +107,14 @@ def test_two_surfaces_resolve_one_approval_with_answered_elsewhere_event(
         assert executing.wait(timeout=2), "approval execution did not start"
         loser = pool.submit(handler, {"approval_id": record["id"], "decision": "approve"})
         loser_result = loser.result(timeout=2)
-        release.set()
+        _ = release.set()
         winner_result = winner.result(timeout=2)
 
-    outcomes = [payload["outcome"] for kind, payload in emitted if kind == "approval.answered"]
+    outcomes = [
+        str(payload["outcome"])
+        for kind, payload in emitted
+        if kind == "approval.answered"
+    ]
     assert executions == 1
     assert sorted(outcomes) == ["answered_elsewhere", "approved"]
     assert loser_result == {"outcome": "answered_elsewhere", "approval_id": record["id"]}
@@ -121,7 +125,7 @@ def test_snapshot_distinguishes_requested_effective_policy_and_pending_requests(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     monkeypatch.setenv("BIRKIN_HOME", str(tmp_path / "home"))
-    config.config_path().write_text(
+    _ = config.config_path().write_text(
         json.dumps({"auto_approve": "shell"}), encoding="utf-8"
     )
     record = store.add_pending(

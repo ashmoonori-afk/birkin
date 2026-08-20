@@ -85,6 +85,11 @@ struct ShellStructureTests {
             ]),
             "status": .object(["connection": .string("connected")]),
             "terminals": .array([]),
+            "approval_policy": .object([
+                "requested": .object(["auto_approve": .null]),
+                "effective": .object(["auto_approve": .array([])]),
+                "pending_requests": .array([]),
+            ]),
             "working_memory": .object([
                 "revision": .int(0),
                 "goal": .null,
