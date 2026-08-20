@@ -192,8 +192,12 @@ public struct ConversationComposerView: View {
 
     public var body: some View {
         VStack(alignment: .leading, spacing: 8) {
-            Toggle("Code mode", isOn: $model.isCodeMode)
-                .accessibilityLabel("Code mode")
+            if visualSettings.snapshotRendering {
+                Label("Code mode: \(model.isCodeMode ? "On" : "Off")", systemImage: "chevron.left.forwardslash.chevron.right")
+            } else {
+                Toggle("Code mode", isOn: $model.isCodeMode)
+                    .accessibilityLabel("Code mode")
+            }
             Group {
                 if visualSettings.snapshotRendering {
                     Text(model.draft.isEmpty ? "Ask Birkin anything…" : model.draft)
