@@ -13,7 +13,7 @@ from birkin.native.capability import BootstrapSecretStore
 from birkin.native.protocol import NativeEnvelope, encode_frame
 from birkin.native.server import NativeBridgeServer
 from birkin.native.transport import receive_frame
-from birkin.workspace import WorkspaceEvent, WorkspaceHub
+from birkin.workspace import WorkspaceCommand, WorkspaceEvent, WorkspaceHub
 from birkin.workspace.service import CommandHandler
 from tests.native_bridge_support import (
     envelope,
@@ -31,6 +31,8 @@ def _server(tmp_path: Path) -> tuple[NativeBridgeServer, WorkspaceHub]:
         session_id: str,
         emit: Callable[[str, dict[str, object]], WorkspaceEvent],
     ) -> Mapping[str, CommandHandler]:
+        failed_text: str | None = None
+
         def compact(_payload: dict[str, object]) -> dict[str, object]:
             _ = emit(
                 "session.compacted",
@@ -39,9 +41,30 @@ def _server(tmp_path: Path) -> tuple[NativeBridgeServer, WorkspaceHub]:
             return {"compacted": True}
 
         def chat(payload: dict[str, object]) -> dict[str, object]:
-            return {"reply": payload["text"]}
+            nonlocal failed_text
+            text = str(payload["text"])
+            if text == "fail once" and failed_text is None:
+                failed_text = text
+                raise RuntimeError("intent failed")
+            return {"reply": text}
 
-        return {"chat.send": chat, "session.compact": compact}
+        def steer(payload: dict[str, object]) -> dict[str, object]:
+            text = str(payload["text"])
+            _ = emit("turn.steered", {"text": text})
+            return {"steered": True}
+
+        def retry(_payload: dict[str, object]) -> dict[str, object]:
+            if failed_text is None:
+                raise RuntimeError("no failed intent to retry")
+            _ = emit("message.user", {"text": failed_text})
+            return {"reply": failed_text}
+
+        return {
+            "chat.send": chat,
+            "chat.steer": steer,
+            "chat.retry": retry,
+            "session.compact": compact,
+        }
 
     hub = WorkspaceHub(
         root=tmp_path / "workspace",
@@ -241,6 +264,73 @@ def test_session_select_over_socket_emits_event_and_changes_projection(
     finally:
         client.close()
         thread.join(timeout=2)  # type: ignore[union-attr]
+        hub.close()
+    assert errors == []
+
+
+def test_chat_steer_over_socket_emits_real_event_receipt(
+    tmp_path: Path,
+) -> None:
+    bridge, hub = _server(tmp_path)
+    server_socket, client = socket.socketpair()
+    thread, errors = serve(
+        bridge, server_socket, transport="uds", peer_uid=local_peer_uid()
+    )
+    try:
+        token = handshake(client)
+        _send(client, token, "chat.steer", "steer-1", 0, {"text": "check tests"})
+        receipt = receive_kind(client, "receipt")
+        event = next(event for event in hub.events() if event.type == "turn.steered")
+
+        assert receipt.body["state"] == "completed"
+        assert receipt.body["command_id"] == "steer-1"
+        assert event.command_id == "steer-1"
+        assert event.payload == {"text": "check tests"}
+    finally:
+        client.close()
+        thread.join(timeout=2)
+        hub.close()
+    assert errors == []
+
+
+def test_chat_retry_over_socket_creates_new_intent_and_preserves_failure(
+    tmp_path: Path,
+) -> None:
+    bridge, hub = _server(tmp_path)
+    server_socket, client = socket.socketpair()
+    thread, errors = serve(
+        bridge, server_socket, transport="uds", peer_uid=local_peer_uid()
+    )
+    failed_command = WorkspaceCommand.parse({
+        "protocol_version": 1,
+        "command_id": "failed-intent",
+        "expected_cursor": 0,
+        "type": "chat.send",
+        "payload": {"text": "fail once"},
+        "client_context": {"surface": "test", "view_id": "setup"},
+    })
+    with pytest.raises(RuntimeError, match="intent failed"):
+        hub.submit(failed_command, actor_id="test:setup")
+    try:
+        token = handshake(client)
+        failed = next(event for event in hub.events() if event.type == "command.failed")
+        assert failed.command_id == "failed-intent"
+
+        _send(client, token, "chat.retry", "retry-intent", hub.snapshot().cursor, {})
+        receipt = receive_kind(client, "receipt")
+        retried = next(event for event in hub.events() if event.type == "message.user")
+
+        assert receipt.body["state"] == "completed"
+        assert receipt.body["command_id"] == "retry-intent"
+        assert retried.command_id == "retry-intent"
+        assert retried.payload == {"text": "fail once"}
+        assert any(
+            event.type == "command.failed" and event.command_id == "failed-intent"
+            for event in hub.events()
+        )
+    finally:
+        client.close()
+        thread.join(timeout=2)
         hub.close()
     assert errors == []
 
