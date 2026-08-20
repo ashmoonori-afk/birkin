@@ -5,6 +5,24 @@ public enum NativeTransportKind: String, Equatable, Sendable {
 }
 
 /// Authenticated values retained only for the lifetime of one connection.
+public struct NativeProjectionCheckpoint: Equatable, Sendable {
+    public let instanceID: String
+    public let cursor: Int
+    public let values: [String: NativeJSONValue]
+}
+
+public struct NativeReplayRequest: Equatable, Sendable {
+    public let afterCursor: Int
+    public let knownInstanceID: String?
+    public let replay: Bool
+
+    public init(afterCursor: Int, knownInstanceID: String?, replay: Bool) {
+        self.afterCursor = afterCursor
+        self.knownInstanceID = knownInstanceID
+        self.replay = replay
+    }
+}
+
 public struct NativeReadySession: Equatable, Sendable {
     public let instanceID: String
     public let serverVersion: String
@@ -30,6 +48,7 @@ public enum NativeConnectionState: Equatable, Sendable {
     case connecting
     case negotiating(NativeTransportKind)
     case ready(NativeReadySession)
+    case replaying(NativeReadySession)
     case fallback(NativeLoopbackFallbackState)
     case failed(reason: String)
 }
@@ -39,6 +58,8 @@ public enum NativeConnectionAction: Equatable, Sendable {
     case socketConnected(NativeTransportKind)
     case udsUnavailable(reason: String)
     case negotiated(NativeReadySession)
+    case instanceChanged(NativeReadySession)
+    case replayCompleted
     case failed(reason: String)
     case disconnect
 }
@@ -65,8 +86,14 @@ public enum NativeConnectionReducer {
             return .ready(session)
         case (.fallback(.negotiating), .negotiated(let session)):
             return .fallback(.ready(session))
+        case (.negotiating, .instanceChanged(let session)),
+            (.fallback(.negotiating), .instanceChanged(let session)):
+            return .replaying(session)
+        case (.replaying(let session), .replayCompleted):
+            return .ready(session)
         case (.connecting, .failed(let reason)),
             (.negotiating, .failed(let reason)),
+            (.replaying, .failed(let reason)),
             (.fallback, .failed(let reason)):
             return .failed(reason: reason)
         default:
@@ -78,12 +105,53 @@ public enum NativeConnectionReducer {
 /// Actor boundary for serialized transport lifecycle changes.
 public actor NativeTransportActor {
     public private(set) var state: NativeConnectionState
+    public private(set) var heldProjection: NativeProjectionCheckpoint?
+    public private(set) var pendingReplayRequest: NativeReplayRequest?
+    private var lastInstanceID: String?
 
     public init(state: NativeConnectionState = .disconnected) {
         self.state = state
+        self.heldProjection = nil
+        self.pendingReplayRequest = nil
+        switch state {
+        case .ready(let session), .replaying(let session), .fallback(.ready(let session)):
+            self.lastInstanceID = session.instanceID
+        default:
+            self.lastInstanceID = nil
+        }
     }
 
     public func apply(_ action: NativeConnectionAction) {
         state = NativeConnectionReducer.reduce(state, action)
+    }
+
+    public func retainProjection(cursor: Int, values: [String: NativeJSONValue]) {
+        guard let lastInstanceID else { return }
+        heldProjection = NativeProjectionCheckpoint(
+            instanceID: lastInstanceID,
+            cursor: cursor,
+            values: values
+        )
+    }
+
+    public func acceptNegotiated(_ session: NativeReadySession) {
+        if let lastInstanceID, lastInstanceID != session.instanceID {
+            heldProjection = nil
+            pendingReplayRequest = NativeReplayRequest(
+                afterCursor: 0,
+                knownInstanceID: nil,
+                replay: true
+            )
+            state = NativeConnectionReducer.reduce(state, .instanceChanged(session))
+        } else {
+            pendingReplayRequest = nil
+            state = NativeConnectionReducer.reduce(state, .negotiated(session))
+        }
+        lastInstanceID = session.instanceID
+    }
+
+    public func replayCompleted() {
+        state = NativeConnectionReducer.reduce(state, .replayCompleted)
+        pendingReplayRequest = nil
     }
 }

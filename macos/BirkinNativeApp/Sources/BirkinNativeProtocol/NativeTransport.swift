@@ -84,7 +84,7 @@ extension NativeTransportActor {
             defer { socket.close() }
             apply(.socketConnected(.uds))
             let transcript = try negotiate(socket: socket, hello: hello, secret: nil, as: .uds)
-            apply(.negotiated(transcript.session))
+            acceptNegotiated(transcript.session)
             return transcript
         } catch {
             apply(.failed(reason: String(describing: error)))
@@ -103,7 +103,7 @@ extension NativeTransportActor {
             defer { socket.close() }
             apply(.socketConnected(.uds))
             let transcript = try negotiate(socket: socket, hello: hello, secret: nil, as: .uds)
-            apply(.negotiated(transcript.session))
+            acceptNegotiated(transcript.session)
             return transcript
         } catch {
             apply(.udsUnavailable(reason: String(describing: error)))
@@ -134,7 +134,7 @@ extension NativeTransportActor {
             else {
                 throw NativeTransportError("ready identity does not match discovery")
             }
-            apply(.negotiated(transcript.session))
+            acceptNegotiated(transcript.session)
             return transcript
         } catch {
             apply(.failed(reason: String(describing: error)))
