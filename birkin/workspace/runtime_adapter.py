@@ -89,6 +89,7 @@ class RuntimeWorkspaceAdapter:
         self._emit = emit
         self._session: Session | None = None
         self._computer_state = ComputerState()
+        self._failed_intent_text: str | None = None
         self._run_id = (
             f"workspace-{datetime.now(timezone.utc):%Y%m%d-%H%M%S}-{os.getpid()}"
         )
@@ -96,6 +97,8 @@ class RuntimeWorkspaceAdapter:
     def handlers(self) -> Mapping[str, CommandHandler]:
         return {
             "chat.send": self._chat_send,
+            "chat.steer": self._chat_steer,
+            "chat.retry": self._chat_retry,
             "chat.interrupt": self._chat_interrupt,
             "chat.resume": self._chat_resume,
             "approval.answer": self._approval_answer,
@@ -244,12 +247,11 @@ class RuntimeWorkspaceAdapter:
             value = event.payload.get(key)
             if isinstance(value, str):
                 safe[key] = value
-        focus = event.payload.get("focus")
-        if isinstance(focus, dict) and isinstance(
-            focus.get("preserved"),
-            bool,
-        ):
-            safe["focus_preserved"] = focus["preserved"]
+        raw_focus = event.payload.get("focus")
+        if isinstance(raw_focus, dict):
+            focus = cast(dict[str, object], raw_focus)
+            if isinstance(focus.get("preserved"), bool):
+                safe["focus_preserved"] = focus["preserved"]
         _ = self._emit("computer.updated", safe)
 
     def _chat_send(self, payload: dict[str, object]) -> dict[str, object]:
@@ -264,7 +266,11 @@ class RuntimeWorkspaceAdapter:
             _ = self._emit("message.assistant.delta", {"text": piece})
 
         session = self._get_session()
-        reply = session.ask(text, on_text=on_text)
+        try:
+            reply = session.ask(text, on_text=on_text)
+        except Exception:
+            self._failed_intent_text = text
+            raise
         final = reply or "".join(pieces)
         _ = self._emit("message.assistant.completed", {"text": final})
         _ = transcripts.append_turn(
@@ -274,7 +280,24 @@ class RuntimeWorkspaceAdapter:
             final,
             cfg=session.cfg,
         )
+        self._failed_intent_text = None
         return {"reply": final}
+
+    def _chat_steer(self, payload: dict[str, object]) -> dict[str, object]:
+        text = payload.get("text")
+        if not isinstance(text, str) or not text.strip():
+            raise ValueError("steer text must be non-empty")
+        cleaned = text.strip()
+        if not self._get_session().steer(cleaned):
+            raise ValueError("active runtime cannot be steered")
+        _ = self._emit("turn.steered", {"text": cleaned})
+        return {"steered": True}
+
+    def _chat_retry(self, _payload: dict[str, object]) -> dict[str, object]:
+        text = self._failed_intent_text
+        if text is None:
+            raise ValueError("no failed intent to retry")
+        return self._chat_send({"text": text})
 
     def _session_compact(
         self,

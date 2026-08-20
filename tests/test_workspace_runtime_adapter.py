@@ -1,10 +1,110 @@
 from __future__ import annotations
 
+from collections.abc import Callable
+from typing import cast, final
+
 import pytest
 
 from birkin import approvals, uistate
+from birkin.runtime import Session
 from birkin.workspace import WorkspaceEvent
 from birkin.workspace.runtime_adapter import RuntimeWorkspaceAdapter
+
+
+@final
+class _RuntimeSession:
+    def __init__(self) -> None:
+        self.cfg: dict[str, object] = {}
+        self.steers: list[str] = []
+        self.ask_count: int = 0
+
+    def steer(self, text: str) -> bool:
+        self.steers.append(text)
+        return True
+
+    def ask(self, text: str, *, on_text: object) -> str:
+        del on_text
+        self.ask_count += 1
+        if self.ask_count == 1:
+            raise RuntimeError("provider failed")
+        return f"retried: {text}"
+
+
+def test_steer_delegates_to_runtime_and_emits_canonical_event(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    emitted: list[tuple[str, dict[str, object]]] = []
+
+    def emit(event_type: str, payload: dict[str, object]) -> WorkspaceEvent:
+        emitted.append((event_type, payload))
+        return _event(event_type, payload)
+
+    runtime = _RuntimeSession()
+
+    def build(
+        _cfg: dict[str, object],
+        on_event: Callable[[str, dict[str, object]], None] | None = None,
+    ) -> Session:
+        del on_event
+        return cast(Session, cast(object, runtime))
+
+    monkeypatch.setattr("birkin.workspace.runtime_adapter.build_session", build)
+    adapter = RuntimeWorkspaceAdapter("steer-session", emit)
+
+    result = adapter.handlers()["chat.steer"]({"text": "  check tests  "})
+
+    assert result == {"steered": True}
+    assert runtime.steers == ["check tests"]
+    assert emitted == [("turn.steered", {"text": "check tests"})]
+
+
+def test_retry_replays_failed_text_as_a_new_handler_invocation(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    emitted: list[tuple[str, dict[str, object]]] = []
+
+    def emit(event_type: str, payload: dict[str, object]) -> WorkspaceEvent:
+        emitted.append((event_type, payload))
+        return _event(event_type, payload)
+
+    runtime = _RuntimeSession()
+
+    def build(
+        _cfg: dict[str, object],
+        on_event: Callable[[str, dict[str, object]], None] | None = None,
+    ) -> Session:
+        del on_event
+        return cast(Session, cast(object, runtime))
+
+    monkeypatch.setattr("birkin.workspace.runtime_adapter.build_session", build)
+    adapter = RuntimeWorkspaceAdapter("retry-session", emit)
+    handlers = adapter.handlers()
+
+    with pytest.raises(RuntimeError, match="provider failed"):
+        _ = handlers["chat.send"]({"text": "original intent"})
+    result = handlers["chat.retry"]({})
+
+    assert runtime.ask_count == 2
+    assert result == {"reply": "retried: original intent"}
+    assert emitted == [
+        ("message.user", {"text": "original intent"}),
+        ("message.user", {"text": "original intent"}),
+        ("message.assistant.completed", {"text": "retried: original intent"}),
+    ]
+
+
+def _event(event_type: str, payload: dict[str, object]) -> WorkspaceEvent:
+    return WorkspaceEvent(
+        protocol_version=1,
+        session_id="test-session",
+        cursor=1,
+        event_id="event-1",
+        type=event_type,
+        timestamp="2026-08-20T00:00:00Z",
+        actor_id="test:runtime",
+        command_id="command-1",
+        payload=payload,
+    )
 
 
 def test_approval_answer_event_carries_execution_receipt(
