@@ -9,7 +9,15 @@ from birkin.native.protocol import encode_frame
 from birkin.native.server import NativeBridgeServer
 from birkin.native.transport import receive_frame
 from birkin.workspace import WorkspaceHub
-from tests.native_bridge_support import envelope, hello, local_peer_uid, receive_kind, serve
+from tests.native_bridge_support import (
+    envelope,
+    handshake,
+    hello,
+    local_peer_uid,
+    receive_kind,
+    serve,
+    server_with_source,
+)
 
 
 def _server(tmp_path: Path) -> tuple[NativeBridgeServer, WorkspaceHub]:
@@ -113,6 +121,74 @@ def _receive_event_type(client: socket.socket, event_type: str):  # type: ignore
         if event.body["type"] == event_type:
             return event
     raise AssertionError(f"did not receive event {event_type}")
+
+
+def _advertised_commands(bridge: NativeBridgeServer) -> set[str]:
+    server_socket, client = socket.socketpair()
+    thread, errors = serve(
+        bridge,
+        server_socket,
+        transport="uds",
+        peer_uid=local_peer_uid(),
+    )
+    try:
+        client.sendall(encode_frame(hello(bootstrap_secret=None)))
+        ready = receive_frame(client)
+        capabilities = ready.body["capabilities"]
+        assert isinstance(capabilities, dict)
+        commands = capabilities["commands"]
+        assert isinstance(commands, list)
+        return {str(command) for command in commands}
+    finally:
+        client.close()
+        thread.join(timeout=2)
+        assert errors == []
+
+
+def test_advertised_handlers_equal_wired_authority_in_both_configurations(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:  # type: ignore[no-untyped-def]
+    legacy, _capabilities, source = server_with_source(tmp_path / "legacy")
+    assert _advertised_commands(legacy) == set(source.supported_commands)
+
+    monkeypatch.setenv("BIRKIN_HOME", str(tmp_path / "home"))
+    enhanced, hub = _server(tmp_path / "enhanced")
+    try:
+        assert _advertised_commands(enhanced) == set(hub.supported_commands)
+    finally:
+        hub.close()
+
+
+def test_unwired_lifecycle_and_config_commands_are_journaled_refusals(
+    tmp_path: Path,
+) -> None:
+    payloads = {
+        "session.create": {"session_id": "second"},
+        "session.select": {"session_id": "second"},
+        "session.rename": {"session_id": "session-1", "name": "Plan"},
+        "session.compact": {},
+        "config.set": {"key": "max_turns", "value": 12},
+    }
+    for index, (command_type, payload) in enumerate(payloads.items()):
+        bridge, _capabilities, source = server_with_source(tmp_path / str(index))
+        server_socket, client = socket.socketpair()
+        thread, errors = serve(
+            bridge,
+            server_socket,
+            transport="uds",
+            peer_uid=local_peer_uid(),
+        )
+        try:
+            token = handshake(client)
+            _send(client, token, command_type, f"unsupported-{index}", 0, payload)
+            error = receive_kind(client, "error")
+            assert error.body["code"] == "E_UNSUPPORTED_COMMAND"
+            assert source.events()[-1].type == "command.failed"
+        finally:
+            client.close()
+            thread.join(timeout=2)
+        assert errors == []
 
 
 def test_session_create_over_socket_emits_event_and_updates_projection(
