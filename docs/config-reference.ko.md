@@ -21,6 +21,7 @@ Schema version: 1
 | `fallback_model` | `string` | `""` | Birkin 설정 `fallback_model`. |
 | `fallback_base_url` | `string` | `""` | Birkin 설정 `fallback_base_url`. |
 | `fallback_cooldown` | `integer` | `300` | Birkin 설정 `fallback_cooldown`. |
+| `fallback_chain` | `array` | `[]` | Birkin 설정 `fallback_chain`. |
 | `api_keys` | `array` | `[]` | Birkin 설정 `api_keys`. |
 | `a2a_enabled` | `boolean` | `false` | Birkin 설정 `a2a_enabled`. |
 | `lsp_servers` | `object` | `{}` | Birkin 설정 `lsp_servers`. |
@@ -30,6 +31,7 @@ Schema version: 1
 | `redact_secrets` | `boolean` | `true` | Birkin 설정 `redact_secrets`. |
 | `repl_typed_line` | `string` | `"steer"` | Birkin 설정 `repl_typed_line`. |
 | `moirai_auto` | `boolean` | `false` | Birkin 설정 `moirai_auto`. |
+| `worker_call_auto` | `boolean` | `true` | Birkin 설정 `worker_call_auto`. |
 | `moirai_workers` | `integer` | `4` | Birkin 설정 `moirai_workers`. |
 | `moirai_max_agents` | `integer` | `100` | Birkin 설정 `moirai_max_agents`. |
 | `moirai_roles` | `object` | `{}` | Birkin 설정 `moirai_roles`. |

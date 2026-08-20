@@ -21,6 +21,7 @@ Schema version: 1
 | `fallback_model` | `string` | `""` | Birkin setting `fallback_model`. |
 | `fallback_base_url` | `string` | `""` | Birkin setting `fallback_base_url`. |
 | `fallback_cooldown` | `integer` | `300` | Birkin setting `fallback_cooldown`. |
+| `fallback_chain` | `array` | `[]` | Birkin setting `fallback_chain`. |
 | `api_keys` | `array` | `[]` | Birkin setting `api_keys`. |
 | `a2a_enabled` | `boolean` | `false` | Birkin setting `a2a_enabled`. |
 | `lsp_servers` | `object` | `{}` | Birkin setting `lsp_servers`. |
@@ -30,6 +31,7 @@ Schema version: 1
 | `redact_secrets` | `boolean` | `true` | Birkin setting `redact_secrets`. |
 | `repl_typed_line` | `string` | `"steer"` | Birkin setting `repl_typed_line`. |
 | `moirai_auto` | `boolean` | `false` | Birkin setting `moirai_auto`. |
+| `worker_call_auto` | `boolean` | `true` | Birkin setting `worker_call_auto`. |
 | `moirai_workers` | `integer` | `4` | Birkin setting `moirai_workers`. |
 | `moirai_max_agents` | `integer` | `100` | Birkin setting `moirai_max_agents`. |
 | `moirai_roles` | `object` | `{}` | Birkin setting `moirai_roles`. |
