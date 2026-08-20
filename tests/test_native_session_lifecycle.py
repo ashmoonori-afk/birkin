@@ -402,6 +402,92 @@ def test_config_set_over_socket_emits_requested_and_effective_or_typed_rejection
     assert errors == []
 
 
+def test_working_memory_merge_clear_and_typed_errors_over_socket(
+    tmp_path: Path,
+) -> None:
+    bridge, hub = _server(tmp_path)
+    client, token, thread, errors = _connect(bridge)
+    try:
+        _send(
+            client,
+            token,
+            "memory.write",
+            "memory-merge",
+            0,
+            {
+                "op": "merge",
+                "expected_revision": 0,
+                "fields": {"constraints": ["Offline", "Offline"]},
+            },
+        )
+        merge_receipt = receive_kind(client, "receipt")
+        requested = _receive_event_type(client, "working_memory.requested")
+        updated = _receive_event_type(client, "working_memory.updated")
+        requested_payload = cast(dict[str, object], requested.body["payload"])
+        effective = cast(dict[str, object], requested_payload["effective"])
+        assert merge_receipt.body["state"] == "completed"
+        assert effective["constraints"] == ["Offline"]
+        assert cast(dict[str, object], updated.body["payload"])["working_memory"] == effective
+
+        _send(
+            client,
+            token,
+            "memory.write",
+            "memory-clear",
+            hub.snapshot().cursor,
+            {"op": "clear", "expected_revision": 1},
+        )
+        clear_receipt = receive_kind(client, "receipt")
+        _ = _receive_event_type(client, "working_memory.requested")
+        cleared = _receive_event_type(client, "working_memory.updated")
+        clear_state = cast(
+            dict[str, object],
+            cast(dict[str, object], cleared.body["payload"])["working_memory"],
+        )
+        assert clear_receipt.body["state"] == "completed"
+        assert clear_state["revision"] == 2
+
+        _send(
+            client,
+            token,
+            "memory.write",
+            "memory-stale",
+            hub.snapshot().cursor,
+            {"op": "clear", "expected_revision": 1},
+        )
+        stale = receive_kind(client, "error")
+        assert stale.body["code"] == "E_WORKING_MEMORY_REVISION"
+        assert stale.body["current_revision"] == 2
+        assert "Traceback" not in str(stale.body)
+
+        _send(
+            client,
+            token,
+            "memory.write",
+            "memory-budget",
+            hub.snapshot().cursor,
+            {
+                "op": "merge",
+                "expected_revision": 2,
+                "fields": {
+                    "evidence": [
+                        f"{index}:" + "x" * 1992 for index in range(11)
+                    ]
+                },
+            },
+        )
+        budget = receive_kind(client, "error")
+        assert budget.body["code"] == "E_WORKING_MEMORY_BUDGET"
+        assert budget.body["limit"] == 20_000
+        assert "Traceback" not in str(budget.body)
+        assert len(str(budget.body)) < 600
+    finally:
+        client.close()
+        thread.join(timeout=2)  # type: ignore[union-attr]
+        hub.close()
+    assert errors == []
+
+
 def test_session_rename_over_socket_updates_canonical_summary(
     tmp_path: Path,
 ) -> None:

@@ -66,6 +66,28 @@ class ConfigMutationRejected(ProtocolError):
     """A requested configuration value failed canonical validation."""
 
 
+class WorkingMemoryRevisionConflict(ProtocolError):
+    """A Working Memory mutation targeted an obsolete revision."""
+
+    current_revision: int
+
+    def __init__(self, current_revision: int) -> None:
+        super().__init__(
+            f"working memory revision conflict; current revision is {current_revision}"
+        )
+        self.current_revision = current_revision
+
+
+class WorkingMemoryBudgetExceeded(ProtocolError):
+    """A Working Memory mutation exceeded the canonical render budget."""
+
+    limit: int
+
+    def __init__(self, limit: int) -> None:
+        super().__init__(f"working memory exceeds {limit} rendered characters")
+        self.limit = limit
+
+
 def valid_identifier(value: object, label: str) -> str:
     if (
         not isinstance(value, str)

@@ -7,7 +7,12 @@ from dataclasses import dataclass
 from typing import cast, final
 
 from birkin import goals, harness
-from birkin.workspace.contracts import ProtocolError, object_mapping
+from birkin.workspace.contracts import (
+    ProtocolError,
+    WorkingMemoryBudgetExceeded,
+    WorkingMemoryRevisionConflict,
+    object_mapping,
+)
 
 _PRIVATE_EVIDENCE_KEYS = frozenset({"path", "absolute_path", "source_path"})
 _FIELD_KEYS = frozenset(harness.WORKING_FIELDS)
@@ -23,23 +28,35 @@ class WorkingMemoryMutation:
     @classmethod
     def parse(cls, raw: object) -> WorkingMemoryMutation:
         payload = object_mapping(raw, "memory.write payload")
-        if payload.get("op") != "merge":
-            raise ProtocolError("memory.write op must be merge")
-        if set(payload) != {"op", "expected_revision", "fields"}:
-            raise ProtocolError("merge payload keys must be op, expected_revision, fields")
+        op = payload.get("op")
+        if op not in {"merge", "clear"}:
+            raise ProtocolError("memory.write op must be merge or clear")
+        expected_keys = (
+            {"op", "expected_revision", "fields"}
+            if op == "merge"
+            else {"op", "expected_revision"}
+        )
+        if set(payload) != expected_keys:
+            raise ProtocolError(f"{op} payload keys do not match the contract")
         revision = payload["expected_revision"]
         if isinstance(revision, bool) or not isinstance(revision, int) or revision < 0:
             raise ProtocolError("expected_revision must be a non-negative integer")
+        if op == "clear":
+            return cls(op="clear", expected_revision=revision, fields={})
         raw_fields = object_mapping(payload["fields"], "memory.write fields")
         if not set(raw_fields) <= _FIELD_KEYS:
             raise ProtocolError("memory.write fields contain unknown keys")
         fields: dict[str, list[str]] = {}
         for key, value in raw_fields.items():
             if not isinstance(value, list):
-                raise ProtocolError(f"memory.write field {key} must be an array of strings")
+                raise ProtocolError(
+                    f"memory.write field {key} must be an array of strings"
+                )
             items = cast(list[object], value)
             if not all(isinstance(item, str) for item in items):
-                raise ProtocolError(f"memory.write field {key} must be an array of strings")
+                raise ProtocolError(
+                    f"memory.write field {key} must be an array of strings"
+                )
             fields[key] = cast(list[str], items)
         return cls(op="merge", expected_revision=revision, fields=fields)
 
@@ -60,26 +77,57 @@ class WorkingMemoryAuthority:
         current = harness.working_state(self._session_id)
         revision = int(current.get("revision") or 0)
         if revision != mutation.expected_revision:
-            raise ProtocolError(
-                f"working memory revision conflict; current revision is {revision}"
-            )
-        complete = {field: mutation.fields.get(field, []) for field in harness.WORKING_FIELDS}
-        effective = harness.preview_working_update(self._session_id, **complete)
+            raise WorkingMemoryRevisionConflict(revision)
+        if mutation.op == "clear":
+            effective = harness.empty_working()
+            effective["revision"] = revision + 1
+            return WorkingMemoryPreview(requested={}, effective=effective)
+        complete = {
+            field: mutation.fields.get(field, []) for field in harness.WORKING_FIELDS
+        }
+        try:
+            effective = harness.preview_working_update(self._session_id, **complete)
+        except ValueError as error:
+            if "exceeds" in str(error):
+                raise WorkingMemoryBudgetExceeded(harness.WORKING_MAX_RENDER) from error
+            raise ProtocolError(str(error)) from error
         return WorkingMemoryPreview(requested=mutation.fields, effective=effective)
 
     def apply(self, mutation: WorkingMemoryMutation) -> WorkingMemoryPreview:
         preview = self.preview(mutation)
-        complete = {field: mutation.fields.get(field, []) for field in harness.WORKING_FIELDS}
-        effective = harness.update_working(
-            self._session_id,
-            corrections=complete["corrections"],
-            constraints=complete["constraints"],
-            decisions=complete["decisions"],
-            incomplete=complete["incomplete"],
-            evidence=complete["evidence"],
-            next_actions=complete["next_actions"],
-            expected_revision=mutation.expected_revision,
-        )
+        if mutation.op == "clear":
+            try:
+                effective = harness.clear_working_revisioned(
+                    self._session_id,
+                    expected_revision=mutation.expected_revision,
+                )
+            except ValueError as error:
+                current = int(
+                    harness.working_state(self._session_id).get("revision") or 0
+                )
+                raise WorkingMemoryRevisionConflict(current) from error
+            return WorkingMemoryPreview(requested={}, effective=effective)
+        complete = {
+            field: mutation.fields.get(field, []) for field in harness.WORKING_FIELDS
+        }
+        try:
+            effective = harness.update_working(
+                self._session_id,
+                corrections=complete["corrections"],
+                constraints=complete["constraints"],
+                decisions=complete["decisions"],
+                incomplete=complete["incomplete"],
+                evidence=complete["evidence"],
+                next_actions=complete["next_actions"],
+                expected_revision=mutation.expected_revision,
+            )
+        except ValueError as error:
+            current = int(harness.working_state(self._session_id).get("revision") or 0)
+            if current != mutation.expected_revision:
+                raise WorkingMemoryRevisionConflict(current) from error
+            if "exceeds" in str(error):
+                raise WorkingMemoryBudgetExceeded(harness.WORKING_MAX_RENDER) from error
+            raise ProtocolError(str(error)) from error
         return WorkingMemoryPreview(requested=preview.requested, effective=effective)
 
 
@@ -94,8 +142,12 @@ def memory_write_handler(
         preview = authority.preview(mutation)
         _ = emit(
             "working_memory.requested",
-            {"op": mutation.op, "expected_revision": mutation.expected_revision,
-             "fields": preview.requested, "effective": preview.effective},
+            {
+                "op": mutation.op,
+                "expected_revision": mutation.expected_revision,
+                "fields": preview.requested,
+                "effective": preview.effective,
+            },
         )
         result = authority.apply(mutation)
         _ = emit("working_memory.updated", {"working_memory": result.effective})

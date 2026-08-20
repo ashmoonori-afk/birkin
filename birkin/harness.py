@@ -776,6 +776,33 @@ def update_working(
     return copy.deepcopy(updated)
 
 
+def clear_working_revisioned(
+    session_id: str,
+    *,
+    expected_revision: int,
+) -> dict[str, Any]:
+    """Clear session Working Memory while preserving monotonic revision identity."""
+    session = validate_working_session_id(session_id)
+    path = state_path("local", session_id=session)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with working_transaction(session):
+        with store.file_lock(path):
+            state = load("local", session_id=session)
+            current = state.get("working") or empty_working()
+            current_revision = int(current.get("revision") or 0)
+            if current_revision != expected_revision:
+                raise ValueError(
+                    f"working memory revision conflict; current revision is {current_revision}"
+                )
+            updated = empty_working()
+            updated["revision"] = current_revision + 1
+            updated["updated_at"] = _now()
+            state["schema"] = 3
+            state["working"] = updated
+            store._write_json(path, state)
+    return copy.deepcopy(updated)
+
+
 def clear_working(
     session_id: str,
     *,

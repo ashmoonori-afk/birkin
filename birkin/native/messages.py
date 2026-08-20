@@ -22,6 +22,8 @@ from birkin.workspace.contracts import (
     ProtocolError as WorkspaceProtocolError,
     StaleCursor,
     UnsupportedCommand,
+    WorkingMemoryBudgetExceeded,
+    WorkingMemoryRevisionConflict,
 )
 from birkin.workspace.presets import SessionPreset
 from birkin.workspace.records import PANEL_KEYS
@@ -127,7 +129,13 @@ class NativeMessageFactory:
         in_reply_to: str,
     ) -> NativeEnvelope:
         details: dict[str, object] | None = None
-        if isinstance(error, ConfigMutationRejected):
+        if isinstance(error, WorkingMemoryRevisionConflict):
+            code = "E_WORKING_MEMORY_REVISION"
+            details = {"current_revision": error.current_revision}
+        elif isinstance(error, WorkingMemoryBudgetExceeded):
+            code = "E_WORKING_MEMORY_BUDGET"
+            details = {"limit": error.limit}
+        elif isinstance(error, ConfigMutationRejected):
             code = "E_CONFIG_REJECTED"
         elif isinstance(error, UnsupportedCommand):
             code = "E_UNSUPPORTED_COMMAND"

@@ -184,7 +184,12 @@ def _validate_ready(body: dict[str, JSONValue]) -> None:
 
 def _error(body: dict[str, JSONValue]) -> None:
     required = {"code", "message", "retryable"}
-    allowed = required | {"current_cursor", "server_protocol_versions"}
+    allowed = required | {
+        "current_cursor",
+        "current_revision",
+        "limit",
+        "server_protocol_versions",
+    }
     if not required.issubset(body) or not set(body).issubset(allowed):
         raise NativeProtocolError(
             "E_BODY",
@@ -194,6 +199,9 @@ def _error(body: dict[str, JSONValue]) -> None:
     _ = _string(body, "message")
     if not isinstance(body["retryable"], bool):
         raise NativeProtocolError("E_BODY", "retryable must be a boolean")
+    for key in ("current_cursor", "current_revision", "limit"):
+        if key in body:
+            _ = _non_negative_integer(body, key)
 
 
 def _mapping(
