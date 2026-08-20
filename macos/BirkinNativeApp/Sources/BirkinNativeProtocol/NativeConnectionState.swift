@@ -60,6 +60,7 @@ public enum NativeConnectionAction: Equatable, Sendable {
     case negotiated(NativeReadySession)
     case instanceChanged(NativeReadySession)
     case replayCompleted
+    case capabilityRenewed(token: String)
     case failed(reason: String)
     case disconnect
 }
@@ -91,6 +92,10 @@ public enum NativeConnectionReducer {
             return .replaying(session)
         case (.replaying(let session), .replayCompleted):
             return .ready(session)
+        case (.ready(let session), .capabilityRenewed(let token)):
+            return .ready(session.replacingCapability(with: token))
+        case (.fallback(.ready(let session)), .capabilityRenewed(let token)):
+            return .fallback(.ready(session.replacingCapability(with: token)))
         case (.connecting, .failed(let reason)),
             (.negotiating, .failed(let reason)),
             (.replaying, .failed(let reason)),
@@ -153,5 +158,25 @@ public actor NativeTransportActor {
     public func replayCompleted() {
         state = NativeConnectionReducer.reduce(state, .replayCompleted)
         pendingReplayRequest = nil
+    }
+
+    public func acceptCapabilityRenewal(_ envelope: NativeEnvelope) throws {
+        guard envelope.kind == .capabilityRenewed,
+              case .string(let token) = envelope.body["token"],
+              !token.isEmpty
+        else {
+            throw NativeTransportError("capability renewal is missing its token")
+        }
+        state = NativeConnectionReducer.reduce(state, .capabilityRenewed(token: token))
+    }
+}
+
+private extension NativeReadySession {
+    func replacingCapability(with token: String) -> NativeReadySession {
+        NativeReadySession(
+            instanceID: instanceID,
+            serverVersion: serverVersion,
+            sessionCapability: token
+        )
     }
 }
