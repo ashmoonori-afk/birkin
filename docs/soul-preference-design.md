@@ -403,17 +403,26 @@ dependencies = [
 | A5 | 높음 | 같은 사실이 역할 파일과 vault 인덱스에 동시에 살면 중복·모순 지시 | 소유권 단일화: 활성화 상태에서 행동 선호의 정본은 역할 파일. `remember(key,value)`는 `preferences.md`로만, `memory_write_note(type="preference")`는 거부. vault 블록은 "검색용 이력"으로 라벨링하고 충돌 시 역할 파일 승 |
 | A6 | 중간 | 매 턴 5파일 재읽기는 **렌더가 바이트 안정적일 때만** 캐시 안전 | 렌더에 mtime·타임스탬프·세션ID·revision 주입 금지. 웜 세션은 생성 시 aggregate revision을 보관하고, 턴 경계에서 불일치 시 **프롬프트 밖으로** `/new` 안내를 revision당 1회 |
 
-### 9.2 프롬프트 우선순위 (고정 문구, 변경 금지)
+### 9.2 프롬프트 우선순위
+
+**주입 순서** (아래 트리는 설명용 다이어그램이며 프롬프트에 넣지 않는다):
 
 ```
 SOUL.md (정체성 치환)
-└─ [고정 선언문] SOUL.md defines authoritative identity and voice bounds.
-   mask.md may adapt surface style only where compatible with SOUL.
-   On conflict, ignore mask and report it as a promotion/removal candidate;
-   never reinterpret SOUL.
+└─ [고정 선언문]  ← 아래 영문 3문장만 주입
    └─ profile/mask.md → user.md → preferences.md → workflow.md → automation.md
       └─ "## What you know about the user" (vault 인덱스 = 검색용 이력)
 ```
+
+**고정 선언문 — 이 영문 텍스트만 역할 블록 앞에 그대로 주입한다. 변경 금지:**
+
+```text
+SOUL.md defines authoritative identity and voice bounds. mask.md may adapt
+surface style only where compatible with SOUL. On conflict, ignore mask and
+report it as a promotion/removal candidate; never reinterpret SOUL.
+```
+
+프롬프트에는 다이어그램·한국어 설명·파일 경로 나열을 넣지 않는다.
 
 ### 9.3 동결 인터페이스 (3인 공통 계약)
 
