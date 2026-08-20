@@ -14,6 +14,7 @@ public struct NativeShellView: View {
     @State private var selectedColumn: ShellColumnID
     @StateObject private var templateLauncher: TemplateLauncherModel
     @StateObject private var conversationComposer: ConversationComposerModel
+    @StateObject private var jailedDrop: JailedDropModel
     @StateObject private var terminalControls: TerminalControlModel
     @StateObject private var activityFilter: ActivityFilterModel
 
@@ -41,6 +42,7 @@ public struct NativeShellView: View {
             makeSessionID: makeSessionID
         ))
         _conversationComposer = StateObject(wrappedValue: ConversationComposerModel())
+        _jailedDrop = StateObject(wrappedValue: JailedDropModel())
         _terminalControls = StateObject(wrappedValue: TerminalControlModel())
         _activityFilter = StateObject(wrappedValue: ActivityFilterModel())
     }
@@ -213,6 +215,9 @@ public struct NativeShellView: View {
                 templateLaunchers(availability: availability)
             }
             if section.id == .composer {
+                JailedDropZone(model: jailedDrop) { urls in
+                    importDroppedURLs(urls, availability: availability)
+                }
                 ConversationComposerView(
                     model: conversationComposer,
                     isSendEnabled: availability.isEnabled && isAdvertised(.sendMessage)
@@ -320,6 +325,20 @@ public struct NativeShellView: View {
             commandAdvertised: approvalAnswerAdvertised,
             expectedCursor: store.latestAppliedCursor ?? 0,
             sessionCapability: session.sessionCapability,
+            submit: templateCommandAction
+        )
+    }
+
+    private func importDroppedURLs(
+        _ urls: [URL],
+        availability: MutationAvailability
+    ) {
+        guard let session = Self.readySession(in: connectionState) else { return }
+        _ = jailedDrop.accept(
+            urls: urls,
+            availability: availability,
+            expectedCursor: store.latestAppliedCursor ?? 0,
+            session: session,
             submit: templateCommandAction
         )
     }
