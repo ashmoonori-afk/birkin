@@ -5,7 +5,11 @@ from collections.abc import Callable
 from pathlib import Path
 
 from . import mnemosyne
-from .curation_contract import ANNOTATE_FIELDS, ANNOTATE_MAX_ITEMS
+from .curation_contract import (
+    ANNOTATE_FIELDS,
+    ANNOTATE_MAX_ITEMS,
+    CurationResidueError,
+)
 from .mnemosyne import Mnemosyne
 from .skills import frontmatter
 
@@ -226,6 +230,14 @@ def apply_plan(accepted: list[dict], vault: Path,
                 )
                 if ok:
                     effected.append({"op": "supersede", "stale": st, "by": by})
-        except (ValueError, OSError) as exc:
+        except OSError as exc:
+            record = {"op": kind, "error": str(exc)}
+            if isinstance(exc, CurationResidueError):
+                record.update({
+                    "residue": True,
+                    "retryable": False,
+                })
+            effected.append(record)
+        except ValueError as exc:
             effected.append({"op": kind, "error": str(exc)})
     return effected

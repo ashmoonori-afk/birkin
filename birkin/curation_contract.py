@@ -31,6 +31,10 @@ _FORBIDDEN_RE = re.compile(r"\s*".join(FORBIDDEN_PHRASE_TOKENS),
 _ZERO_WIDTH = dict.fromkeys(map(ord, "\u200b\u200c\u200d\ufeff"), None)
 
 
+class CurationResidueError(OSError):
+    """A move failed after publication; retrying could compound residue."""
+
+
 @dataclass
 class OpResult:
     op: dict[str, Any]

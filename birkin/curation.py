@@ -155,6 +155,7 @@ def _run_curation_pass_pinned(
     move_note = memory.rezone
     read_note = None
     write_note = None
+    windows_anchor = None
     if apply:
         memory = VaultMemory(
             {"vault_path": str(configured_vault)},
@@ -174,32 +175,50 @@ def _run_curation_pass_pinned(
             move_note = anchor.move
             read_note = anchor.read
             write_note = anchor.write
+        elif os.name == "nt":
+            from .curation_anchor_windows import (
+                WindowsAnchoredCuration,
+            )
 
-    raw = complete(prompt) or ""
-    plan = extract_plan(raw)
-    gate = validate_clamp(plan, dex, snap, now=now)
-    accepted = _dense_zone_links(gate.accepted, snap)
-    if apply:
-        if accepted:
-            snapshot_vault(current_vault())
-        effected = apply_plan(
-            accepted,
-            memory.vault,
-            dex,
-            move_note=move_note,
-            validate_vault=memory.assert_vault_identity,
-            read_note=read_note,
-            write_note=write_note,
+            windows_anchor = WindowsAnchoredCuration(
+                current_vault(),
+                pinned_entries,
+                memory,
+            )
+            move_note = windows_anchor.move
+            read_note = windows_anchor.read
+            write_note = windows_anchor.write
+
+    try:
+        raw = complete(prompt) or ""
+        plan = extract_plan(raw)
+        gate = validate_clamp(plan, dex, snap, now=now)
+        accepted = _dense_zone_links(gate.accepted, snap)
+        if apply:
+            if accepted:
+                snapshot_vault(current_vault())
+            effected = apply_plan(
+                accepted,
+                memory.vault,
+                dex,
+                move_note=move_note,
+                validate_vault=memory.assert_vault_identity,
+                read_note=read_note,
+                write_note=write_note,
+            )
+        else:
+            effected = []        # --dry-run: propose and gate, change nothing
+        return CurationOutcome(
+            provider=provider, model=model,
+            accepted=[sanitize_model_record(o) for o in accepted],
+            dropped=[{"op": sanitize_model_record(d.op),
+                      "reason": sanitize_summary(d.reason)}
+                     for d in gate.dropped],
+            effected=effected, archive_cap=gate.archive_cap,
+            summary=sanitize_summary(plan.get("summary", "")),
+            raw_text=sanitize_summary(raw)[:4000],
+            plan_ops=len(plan.get("ops", [])),
         )
-    else:
-        effected = []        # --dry-run: propose and gate, change nothing
-    return CurationOutcome(
-        provider=provider, model=model,
-        accepted=[sanitize_model_record(o) for o in accepted],
-        dropped=[{"op": sanitize_model_record(d.op),
-                  "reason": sanitize_summary(d.reason)}
-                 for d in gate.dropped],
-        effected=effected, archive_cap=gate.archive_cap,
-        summary=sanitize_summary(plan.get("summary", "")),
-        raw_text=sanitize_summary(raw)[:4000],
-        plan_ops=len(plan.get("ops", [])))
+    finally:
+        if windows_anchor is not None:
+            windows_anchor.close()

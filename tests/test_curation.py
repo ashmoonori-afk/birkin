@@ -429,10 +429,6 @@ def test_run_pass_annotates_original_pinned_vault(
     ).read_text(encoding="utf-8")
 
 
-@pytest.mark.skipif(
-    os.name == "nt",
-    reason="POSIX catalog-to-mutation identity",
-)
 def test_run_pass_rejects_note_replaced_after_catalog(
         tmp_path: Path,
         monkeypatch,
@@ -470,13 +466,28 @@ def test_run_pass_rejects_note_replaced_after_catalog(
             }],
         })
 
+    if os.name == "nt":
+        with pytest.raises(OSError):
+            curation.run_curation_pass(
+                vault,
+                replace_note_then_complete,
+                provider="test",
+                now=NOW,
+            )
+        assert "CATALOGUED ORIGINAL BYTES" in path.read_text(
+            encoding="utf-8"
+        )
+        assert "EXTERNAL PRIOR BYTES" in external.read_text(
+            encoding="utf-8"
+        )
+        return
+
     outcome = curation.run_curation_pass(
         vault,
         replace_note_then_complete,
         provider="test",
         now=NOW,
     )
-
     assert outcome.effected
     assert "error" in outcome.effected[0]
     assert "ATTACK-MUTATION" not in catalogued.read_text(
@@ -553,12 +564,144 @@ def test_run_pass_rolls_back_rezone_source_swap(
 
     assert outcome.effected
     assert "error" in outcome.effected[0]
-    assert rename_calls == 2
-    assert "ATTACKER" in source.read_text(encoding="utf-8")
+    assert outcome.effected[0]["residue"] is True
+    assert outcome.effected[0]["retryable"] is False
+    assert rename_calls == 1
+    assert not source.exists()
     assert "CATALOGUED ORIGINAL" in original_hold.read_text(
         encoding="utf-8"
     )
-    assert not destination.exists()
+    assert "ATTACKER" in destination.read_text(encoding="utf-8")
+
+
+@pytest.mark.skipif(
+    os.name == "nt" or not Path("/dev/fd").is_dir(),
+    reason="POSIX descriptor accounting",
+)
+def test_rezone_setup_failure_closes_all_descriptors(
+        tmp_path: Path,
+) -> None:
+    vault = tmp_path / "vault"
+    VaultMemory({"vault_path": str(vault)}).write_note(
+        "Descriptor victim",
+        "ORIGINAL",
+        zone="inbox",
+    )
+    (vault / "projects").write_text("not a directory")
+    before = len(list(Path("/dev/fd").iterdir()))
+
+    for _ in range(3):
+        outcome = curation.run_curation_pass(
+            vault,
+            lambda _prompt: json.dumps({
+                "plan_version": 1,
+                "ops": [{
+                    "op": "rezone",
+                    "slug": "descriptor-victim",
+                    "zone": "projects",
+                }],
+            }),
+            provider="test",
+            now=NOW,
+        )
+        assert "error" in outcome.effected[0]
+        assert len(list(Path("/dev/fd").iterdir())) == before
+
+
+@pytest.mark.skipif(
+    os.name == "nt",
+    reason="POSIX post-publication descriptor verification",
+)
+def test_rezone_does_not_path_stat_after_publication(
+        tmp_path: Path,
+        monkeypatch,
+) -> None:
+    from birkin import curation_anchor
+
+    vault = tmp_path / "vault"
+    VaultMemory({"vault_path": str(vault)}).write_note(
+        "Stat victim",
+        "ORIGINAL",
+        zone="inbox",
+    )
+    renamed = False
+    real_rename = curation_anchor._rename_noreplace
+    real_stat = curation_anchor.os.stat
+
+    def mark_renamed(*args, **kwargs):
+        nonlocal renamed
+        result = real_rename(*args, **kwargs)
+        renamed = True
+        return result
+
+    def fail_post_rename_stat(*args, **kwargs):
+        if renamed and kwargs.get("dir_fd") is not None:
+            raise OSError(5, "post-rename path stat forbidden")
+        return real_stat(*args, **kwargs)
+
+    monkeypatch.setattr(
+        curation_anchor,
+        "_rename_noreplace",
+        mark_renamed,
+    )
+    monkeypatch.setattr(
+        curation_anchor.os,
+        "stat",
+        fail_post_rename_stat,
+    )
+
+    outcome = curation.run_curation_pass(
+        vault,
+        lambda _prompt: json.dumps({
+            "plan_version": 1,
+            "ops": [{
+                "op": "rezone",
+                "slug": "stat-victim",
+                "zone": "projects",
+            }],
+        }),
+        provider="test",
+        now=NOW,
+    )
+
+    assert outcome.effected == [{
+        "op": "rezone",
+        "slug": "stat-victim",
+        "zone": "projects",
+    }]
+    assert (
+        vault / "projects" / "stat-victim.md"
+    ).read_text(encoding="utf-8").endswith("ORIGINAL\n")
+
+
+def test_run_pass_rejects_catalogued_note_with_external_hardlink(
+        tmp_path: Path,
+) -> None:
+    vault = tmp_path / "vault"
+    VaultMemory({"vault_path": str(vault)}).write_note(
+        "Shared inode",
+        "ORIGINAL",
+        zone="inbox",
+    )
+    os.link(vault / "shared-inode.md", tmp_path / "external.md")
+
+    with pytest.raises(
+        OSError,
+        match="multiple hard links",
+    ):
+        curation.run_curation_pass(
+            vault,
+            lambda _prompt: json.dumps({
+                "plan_version": 2,
+                "ops": [{
+                    "op": "annotate",
+                    "slug": "shared-inode",
+                    "aliases": ["ATTACK"],
+                }],
+            }),
+            provider="test",
+            now=NOW,
+        )
 
 
 def test_curation_rezone_never_uses_split_link_unlink(
