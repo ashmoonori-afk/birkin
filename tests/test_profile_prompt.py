@@ -74,6 +74,11 @@ def test_rendering_is_byte_identical_and_leaks_no_metadata() -> None:
     second = render_profile_blocks(snapshot)
 
     assert first.encode("utf-8") == second.encode("utf-8")
+    assert PRECEDENCE_DECLARATION in first
+    assert "└" not in first
+    assert "─" not in first
+    assert "→" not in first
+    assert not any("\uac00" <= char <= "\ud7a3" for char in first)
     assert "aggregate-revision-sentinel" not in first
     assert "preferences-revision-sentinel" not in first
     assert "timestamp" not in first.lower()

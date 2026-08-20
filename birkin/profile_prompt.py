@@ -4,13 +4,9 @@ from __future__ import annotations
 
 from .rolefiles import PROFILE_ORDER, ProfileSnapshot
 
-PRECEDENCE_DECLARATION = """SOUL.md (정체성 치환)
-└─ [고정 선언문] SOUL.md defines authoritative identity and voice bounds.
-   mask.md may adapt surface style only where compatible with SOUL.
-   On conflict, ignore mask and report it as a promotion/removal candidate;
-   never reinterpret SOUL.
-   └─ profile/mask.md → user.md → preferences.md → workflow.md → automation.md
-      └─ "## What you know about the user" (vault 인덱스 = 검색용 이력)"""
+PRECEDENCE_DECLARATION = """SOUL.md defines authoritative identity and voice bounds. mask.md may adapt
+surface style only where compatible with SOUL. On conflict, ignore mask and
+report it as a promotion/removal candidate; never reinterpret SOUL."""
 
 _REPAIR_MARKER = "[profile block omitted: document exceeds its character budget; use /profile to repair]"
 _TITLES = {
