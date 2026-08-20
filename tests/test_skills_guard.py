@@ -118,6 +118,48 @@ def test_scan_does_not_read_file_symlink_targets(
     assert followed == []
 
 
+def test_snapshot_structure_flags_disappeared_binary(
+        tmp_path):
+    from birkin.skills.bundle_publish import snapshot_bundle
+
+    bundle = _skill(tmp_path, "safe")
+    binary = bundle / "tool.exe"
+    binary.write_bytes(b"MZ\x00\x00")
+    snapshot = snapshot_bundle(bundle)
+    binary.unlink()
+
+    result = guard.scan_skill(
+        bundle,
+        file_overrides=snapshot.file_overrides(),
+    )
+
+    assert any(
+        finding.pattern_id == "binary-file"
+        and finding.file == "tool.exe"
+        for finding in result.findings
+    )
+
+
+def test_bundle_manifest_digest_has_unambiguous_framing() -> None:
+    from pathlib import PurePosixPath
+
+    from birkin.skills.bundle_publish import BundleSnapshot
+
+    first = BundleSnapshot(
+        (
+            PurePosixPath("a"),
+            PurePosixPath("db"),
+        ),
+        (),
+    )
+    second = BundleSnapshot(
+        (PurePosixPath("addb"),),
+        (),
+    )
+
+    assert first.digest() != second.digest()
+
+
 def test_oversized_bundle_is_an_error(tmp_path):
     d = _skill(tmp_path, "ok")
     (d / "big.txt").write_text("x" * (guard.MAX_TOTAL_BYTES + 10), encoding="utf-8")
@@ -448,6 +490,47 @@ def test_sync_rejects_destination_parent_symlink(
 
     assert sentinel.read_text(encoding="utf-8") == "EXTERNAL-SENTINEL"
     assert not (external / "safe").exists()
+
+
+def test_sync_rejects_configured_skills_root_symlink(
+        tmp_path):
+    from birkin.skills import sync
+
+    source = tmp_path / "upstream"
+    _skill(source, "A clean helper.", name="safe")
+    home = Path(os.environ["BIRKIN_HOME"])
+    external = tmp_path / "external-root"
+    external.mkdir()
+    home.mkdir()
+    (home / "skills").symlink_to(
+        external,
+        target_is_directory=True,
+    )
+
+    with pytest.raises(OSError):
+        sync.sync_skills(source)
+
+    assert not (external / "mirrors" / "safe").exists()
+
+
+def test_sync_rejects_skill_link_before_attribution(
+        tmp_path):
+    from birkin.skills import sync
+
+    source = tmp_path / "upstream"
+    skill = source / "linked-skill"
+    skill.mkdir(parents=True)
+    external = tmp_path / "external-skill.md"
+    original = (
+        "---\nname: external\ndescription: sentinel\n---\n\n"
+        "EXTERNAL-SENTINEL\n"
+    ).encode()
+    external.write_bytes(original)
+    (skill / "SKILL.md").symlink_to(external)
+
+    assert sync.sync_skills(source) == []
+
+    assert external.read_bytes() == original
 
 
 @pytest.mark.skipif(

@@ -41,7 +41,7 @@ def sync_skills(source: Path, limit: int | None = None,
     source = Path(source)
     if not source.is_dir():
         raise NotADirectoryError(source)
-    target_root = config.user_skills_dir().resolve()
+    target_root = config.user_skills_dir().absolute()
     synced: list[str] = []
     rejected: list[str] = []
     for skill_md in sorted(source.rglob("SKILL.md")):
@@ -57,7 +57,11 @@ def sync_skills(source: Path, limit: int | None = None,
                 symlinks=True,
                 ignore=_IGNORE,
             )
-            _attribute(candidate / "SKILL.md", skill_md.parent)
+            candidate_skill = candidate / "SKILL.md"
+            if candidate_skill.is_symlink():
+                rejected.append(rel.as_posix())
+                continue
+            _attribute(candidate_skill, skill_md.parent)
             # Preserve links until after the policy decision so an escaping
             # source symlink cannot become an ordinary trusted file.
             from . import guard

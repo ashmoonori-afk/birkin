@@ -43,14 +43,19 @@ class BundleSnapshot:
 
     def digest(self) -> str:
         digest = hashlib.sha256()
+
+        def update(payload: bytes) -> None:
+            digest.update(len(payload).to_bytes(8, "big"))
+            digest.update(payload)
+
         for directory in self.directories:
             digest.update(b"d")
-            digest.update(directory.as_posix().encode("utf-8"))
+            update(directory.as_posix().encode("utf-8"))
         for entry in self.files:
             digest.update(b"f")
-            digest.update(entry.relative.as_posix().encode("utf-8"))
-            digest.update(entry.mode.to_bytes(4, "big"))
-            digest.update(entry.payload)
+            update(entry.relative.as_posix().encode("utf-8"))
+            update(entry.mode.to_bytes(4, "big"))
+            update(entry.payload)
         return digest.hexdigest()
 
 

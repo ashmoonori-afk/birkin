@@ -327,6 +327,26 @@ def scan_skill(
 
     for relative, payload in sorted(overrides.items()):
         path = Path(relative)
+        if path.suffix.lower() in BINARY_SUFFIXES:
+            result.findings.append(Finding(
+                "binary-file",
+                "high",
+                "binary",
+                "ships an executable binary",
+                relative,
+                0,
+                "",
+            ))
+        if len(payload) > MAX_FILE_BYTES:
+            result.findings.append(Finding(
+                "oversized-file",
+                "medium",
+                "structure",
+                f"file is {len(payload)} bytes",
+                relative,
+                0,
+                "",
+            ))
         if path.suffix.lower() not in SCANNABLE_SUFFIXES:
             continue
         if len(payload) > MAX_FILE_BYTES:
