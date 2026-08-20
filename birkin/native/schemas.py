@@ -43,6 +43,7 @@ _SNAPSHOT = {
     "composer",
     "status",
     "working_memory",
+    "terminals",
     "instance_id",
     "reset_reason",
 }
@@ -188,6 +189,7 @@ def _error(body: dict[str, JSONValue]) -> None:
         "current_cursor",
         "current_revision",
         "limit",
+        "approval_id",
         "server_protocol_versions",
     }
     if not required.issubset(body) or not set(body).issubset(allowed):
@@ -202,6 +204,8 @@ def _error(body: dict[str, JSONValue]) -> None:
     for key in ("current_cursor", "current_revision", "limit"):
         if key in body:
             _ = _non_negative_integer(body, key)
+    if "approval_id" in body:
+        _ = _string(body, "approval_id")
 
 
 def _mapping(
