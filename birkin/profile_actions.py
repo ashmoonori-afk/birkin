@@ -24,13 +24,18 @@ from .tools import Tool, ToolContext, ToolResult
 Status = Literal["applied", "pending", "rejected", "error"]
 
 _BIDI = {"RLO", "LRO", "RLE", "LRE", "PDF", "RLI", "LRI", "FSI", "PDI"}
+# Best-effort rejects for common credential shapes; not a secret-scanning guarantee.
 _SECRET_PATTERNS = (
     re.compile(r"\bsk-[A-Za-z0-9_-]{16,}\b"),
     re.compile(r"\b(?:api[_-]?key|secret|token|password)\s*[:=]\s*\S{8,}", re.I),
-    re.compile(r"-----BEGIN [A-Z ]*PRIVATE KEY-----"),
+    re.compile(r"-----BEGIN [A-Z0-9 ]*PRIVATE KEY-----"),
+    re.compile(r"\b(?:ghp|gho|ghu|ghs|ghr)_[A-Za-z0-9_]{16,}\b"),
+    re.compile(r"\bgithub_pat_[A-Za-z0-9_]{16,}\b"),
+    re.compile(r"\b(?:AKIA|ASIA)[A-Z0-9]{16}\b"),
+    re.compile(r"\bxox[abprs]-[A-Za-z0-9-]{10,}\b"),
+    re.compile(r"\bAIza[A-Za-z0-9_-]{35}\b"),
     re.compile(r"\b[A-Za-z0-9+/]{32,}={0,2}\b"),
 )
-
 
 @dataclass(frozen=True)
 class ProfileReceipt:
@@ -197,20 +202,26 @@ class ProfileActions:
 
     def _save(self, items: Sequence[ProfileReceipt]) -> None:
         self._path.parent.mkdir(parents=True, exist_ok=True)
+        if os.name == "posix":
+            os.chmod(self._path.parent, 0o700)
+        # Windows ACLs are not set here; os.chmod only exposes a read-only bit.
         payload = {"version": 1, "pending": [item.payload() for item in items]}
         fd, tmp = tempfile.mkstemp(prefix=".pending-v1.", dir=str(self._path.parent))
+        if os.name == "posix":
+            os.fchmod(fd, 0o600)
         try:
             with os.fdopen(fd, "w", encoding="utf-8", newline="") as handle:
                 json.dump(payload, handle, indent=2, sort_keys=True)
                 handle.write("\n")
             os.replace(tmp, self._path)
+            if os.name == "posix":
+                os.chmod(self._path, 0o600)
         except BaseException:
             try:
                 os.unlink(tmp)
             except OSError:
                 pass
             raise
-
 
 def build_profile_tools(actions: ProfileActions) -> list[Any]:
     """Build the foreground profile_write tool."""

@@ -1,6 +1,10 @@
 from __future__ import annotations
 
 import json
+import os
+import sys
+
+import pytest
 
 from birkin import config
 from birkin.memory import VaultMemory
@@ -52,6 +56,43 @@ def test_memory_write_note_preference_refused_while_enabled():
     result = reg.execute("memory_write_note", {"title": "P", "body": "b", "type": "preference"})
     assert result.is_error
     assert "profile_write" in str(result.content)
+
+
+@pytest.mark.parametrize("secret", [
+    "ghp_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "gho_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "ghu_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "ghs_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "ghr_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "github_pat_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "AKIAAAAAAAAAAAAAAAAA",
+    "ASIAAAAAAAAAAAAAAAAA",
+    "xoxb-1234567890-ABCDEFGHIJ",
+    "xoxp-1234567890-ABCDEFGHIJ",
+    "xoxa-1234567890-ABCDEFGHIJ",
+    "xoxr-1234567890-ABCDEFGHIJ",
+    "xoxs-1234567890-ABCDEFGHIJ",
+    "AIzaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"[:-1],
+    "-----BEGIN RSA PRIVATE KEY-----",
+])
+def test_new_credential_shapes_are_rejected_and_not_staged(secret: str):
+    actions = ProfileActions(ProfileStore(config.birkin_home(), {}), approval_required=True)
+    receipt = actions.submit(ProfileEdit("preferences", "add", content=secret), trusted=True, source="test")
+    assert receipt.status == "error"
+    assert receipt.error and receipt.error["type"] == "invalid"
+    assert actions.pending() == ()
+
+
+def test_pending_queue_permissions_are_owner_only_on_posix():
+    if sys.platform == "win32":
+        pytest.skip("Windows ACLs are not set by os.chmod; only POSIX mode is asserted")
+    actions = ProfileActions(ProfileStore(config.birkin_home(), {}), approval_required=True)
+    receipt = actions.submit(ProfileEdit("preferences", "add", content="tone: concise"), trusted=True, source="test")
+    assert receipt.status == "pending"
+    root = config.birkin_home() / "profile"
+    path = root / "pending-v1.json"
+    assert (os.stat(root).st_mode & 0o777) == 0o700
+    assert (os.stat(path).st_mode & 0o777) == 0o600
 
 
 def test_untrusted_writes_rejected():
