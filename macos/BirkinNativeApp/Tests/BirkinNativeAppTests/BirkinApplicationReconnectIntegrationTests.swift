@@ -8,6 +8,48 @@ import BirkinNativeProtocol
 @Suite("Packaged application runtime reconnect")
 struct BirkinApplicationReconnectIntegrationTests {
     @MainActor
+    @Test("UI command submission reaches the bridge and updates projection state")
+    func submitsUICommandOverLiveTransport() async throws {
+        let root = URL(fileURLWithPath: "/private/tmp/birkin-app-command-\(UUID().uuidString)")
+        let harness = try AppHarness.launch(root: root)
+        let socketPath = try #require(harness.socketPath)
+        let events = RuntimeEventRecorder()
+        let runtime = BirkinApplicationRuntime(socketPath: socketPath, emit: { events.record($0) })
+        defer {
+            runtime.stop()
+            harness.terminate()
+            try? FileManager.default.removeItem(at: root)
+        }
+
+        await runtime.start()
+        try await withTimeout("office surface") { try await events.wait(for: "surface-applied name=office") }
+        let session: NativeReadySession? = switch runtime.connectionState {
+        case .ready(let value), .fallback(.ready(let value)): value
+        default: nil
+        }
+        let ready = try #require(session)
+        #expect(ready.currentSessionID == "runtime-advertised-session")
+        #expect(runtime.store.projection?.sessionID == "runtime-advertised-session")
+        #expect(runtime.store.surface(named: "browser_aside") != nil)
+        #expect(runtime.store.surface(named: "computer_use") != nil)
+        #expect(runtime.store.surface(named: "office") != nil)
+        let before = runtime.store.projection?.conversation.count ?? 0
+        runtime.submit(NativeCommandRequest(
+            frameID: "ui-chat-frame", commandID: "ui-chat-command",
+            expectedCursor: runtime.store.latestAppliedCursor ?? 0,
+            commandType: "chat.send", payload: ["text": .string("Sent from the SwiftUI shell")],
+            sessionCapability: ready.sessionCapability, viewID: "composer"
+        ))
+
+        try await withTimeout("wire receipt") { try await events.wait(for: "command-receipt") }
+        try await withTimeout("projection update") {
+            try await events.wait(for: "projection-event type=message.assistant.completed")
+        }
+        #expect(runtime.store.projection?.conversation.count == before + 2)
+        #expect(runtime.lastCommandError == nil)
+    }
+
+    @MainActor
     @Test("bridge loss reconnects and replays through the executable runtime")
     func reconnectsAfterBridgeRestart() async throws {
         let root = URL(fileURLWithPath: "/private/tmp/birkin-app-reconnect-\(UUID().uuidString)")
@@ -130,6 +172,7 @@ private final class AppHarness: @unchecked Sendable {
         process.arguments = [
             "scripts/native/swift_transport_harness.py", "--transport", "uds",
             "--root", root.path, "--j1-fixture",
+            "--session-id", "runtime-advertised-session",
         ]
         process.currentDirectoryURL = repository
         process.standardOutput = stdout

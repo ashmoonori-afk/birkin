@@ -5,6 +5,7 @@ public struct NativeShellView: View {
     private let store: NativeProjectionStore
     private let connectionState: NativeConnectionState
     private let now: Date
+    private let commandError: String?
     private let diagnosticsAction: () -> Void
     private let mutationAction: (ShellMutationControl) -> Void
     private let templateCommandAction: (NativeCommandRequest) -> Void
@@ -26,6 +27,7 @@ public struct NativeShellView: View {
         connectionState: NativeConnectionState,
         now: Date = Date(),
         initialColumn: ShellColumnID = .navigation,
+        commandError: String? = nil,
         diagnosticsAction: @escaping () -> Void = {},
         mutationAction: @escaping (ShellMutationControl) -> Void = { _ in },
         templateCommandAction: @escaping (NativeCommandRequest) -> Void = { _ in },
@@ -36,6 +38,7 @@ public struct NativeShellView: View {
         self.store = store
         self.connectionState = connectionState
         self.now = now
+        self.commandError = commandError
         self.diagnosticsAction = diagnosticsAction
         self.mutationAction = mutationAction
         self.templateCommandAction = templateCommandAction
@@ -62,6 +65,15 @@ public struct NativeShellView: View {
                 diagnosticsAction: diagnosticsAction
             )
             .padding(12)
+            if let commandError {
+                Text(commandError)
+                    .font(.caption)
+                    .foregroundStyle(.red)
+                    .lineLimit(3)
+                    .padding(.horizontal, 12)
+                    .padding(.bottom, 8)
+                    .accessibilityLabel("Command error: \(commandError)")
+            }
             Divider()
             GeometryReader { geometry in
                 let layout = ShellLayoutPlan(
