@@ -7,7 +7,6 @@ import pytest
 
 from birkin import config, slashcommands as sc
 from birkin.memory import VaultMemory
-from birkin.profile_actions import ProfileActions
 from birkin.rolefiles import ProfileEdit, ProfileStore
 
 

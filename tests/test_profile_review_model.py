@@ -1,7 +1,5 @@
 from __future__ import annotations
 
-import pytest
-
 from birkin import config
 from birkin.profile_actions import ProfileActions
 from birkin.profile_review import build_profile_review

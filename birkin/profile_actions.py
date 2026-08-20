@@ -9,7 +9,6 @@ import tempfile
 import unicodedata
 import uuid
 from dataclasses import asdict, dataclass
-from pathlib import Path
 from typing import Any, Literal, Sequence
 
 from .rolefiles import (
