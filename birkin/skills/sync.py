@@ -13,6 +13,11 @@ import tempfile
 from pathlib import Path
 
 from .. import config
+from .bundle_publish import (
+    UnsafeBundleError,
+    publish_bundle,
+    snapshot_bundle,
+)
 
 _ATTRIB = "_Mirrored by `birkin skills sync`"
 _IGNORE = shutil.ignore_patterns("__pycache__", "*.pyc", ".git", "node_modules")
@@ -36,17 +41,12 @@ def sync_skills(source: Path, limit: int | None = None,
     source = Path(source)
     if not source.is_dir():
         raise NotADirectoryError(source)
-    dest_root = config.user_skills_dir() / "mirrors"
-    dest_root.mkdir(parents=True, exist_ok=True)
+    target_root = config.user_skills_dir().resolve()
     synced: list[str] = []
     rejected: list[str] = []
     for skill_md in sorted(source.rglob("SKILL.md")):
         rel = skill_md.parent.relative_to(source)
-        dest = dest_root / rel
-        if dest.exists() and not force:
-            continue
         with tempfile.TemporaryDirectory(
-            dir=dest_root,
             prefix=".sync-",
         ) as staging_root:
             staging = Path(staging_root)
@@ -61,21 +61,27 @@ def sync_skills(source: Path, limit: int | None = None,
             # Preserve links until after the policy decision so an escaping
             # source symlink cannot become an ordinary trusted file.
             from . import guard
-            verdict = guard.scan_skill(candidate, source="community")
+            try:
+                snapshot = snapshot_bundle(candidate)
+            except UnsafeBundleError:
+                rejected.append(rel.as_posix())
+                continue
+            verdict = guard.scan_skill(
+                candidate,
+                source="community",
+                file_overrides=snapshot.file_overrides(),
+            )
             if guard.should_allow_install(verdict) is not True:
                 rejected.append(rel.as_posix())
                 continue
-            dest.parent.mkdir(parents=True, exist_ok=True)
-            if dest.exists():
-                previous = staging / "previous"
-                dest.replace(previous)
-                try:
-                    candidate.replace(dest)
-                except OSError:
-                    previous.replace(dest)
-                    raise
-            else:
-                candidate.replace(dest)
+            installed = publish_bundle(
+                snapshot,
+                target_root / "mirrors" / rel,
+                target_root=target_root,
+                replace=force,
+            )
+            if not installed:
+                continue
         synced.append(rel.as_posix())
         if limit and len(synced) >= limit:
             break

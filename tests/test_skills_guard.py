@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 from pathlib import Path
 
 import pytest
@@ -418,6 +419,117 @@ def test_sync_rejects_source_directory_symlink_that_escapes_skill(tmp_path):
     assert not (
         config.user_skills_dir() / "mirrors" / "linked-dir"
     ).exists()
+
+
+def test_sync_rejects_destination_parent_symlink(
+        tmp_path):
+    from birkin import config
+    from birkin.skills import sync
+
+    source = tmp_path / "upstream"
+    _skill(
+        source / "category",
+        "A clean helper.",
+        name="safe",
+    )
+    external = tmp_path / "external"
+    external.mkdir()
+    sentinel = external / "sentinel.txt"
+    sentinel.write_text("EXTERNAL-SENTINEL", encoding="utf-8")
+    mirrors = config.user_skills_dir() / "mirrors"
+    mirrors.mkdir(parents=True)
+    (mirrors / "category").symlink_to(
+        external,
+        target_is_directory=True,
+    )
+
+    with pytest.raises(OSError):
+        sync.sync_skills(source)
+
+    assert sentinel.read_text(encoding="utf-8") == "EXTERNAL-SENTINEL"
+    assert not (external / "safe").exists()
+
+
+@pytest.mark.skipif(
+    os.name == "nt",
+    reason="POSIX sync parent descriptor identity",
+)
+def test_sync_parent_swap_cannot_redirect_publication(
+        tmp_path,
+        monkeypatch):
+    from birkin import config
+    from birkin.skills import bundle_publish, sync
+    from birkin.skills.manager import IndeterminatePublicationError
+
+    source = tmp_path / "upstream"
+    _skill(
+        source / "category",
+        "A clean helper.",
+        name="safe",
+    )
+    mirrors = config.user_skills_dir() / "mirrors"
+    category = mirrors / "category"
+    moved_category = mirrors / "moved-category"
+    external = tmp_path / "external"
+    external.mkdir()
+    sentinel = external / "sentinel.txt"
+    sentinel.write_text("EXTERNAL-SENTINEL", encoding="utf-8")
+    real_populate = bundle_publish._populate_posix
+
+    def swap_parent_then_populate(root_fd, snapshot) -> None:
+        category.rename(moved_category)
+        category.symlink_to(external, target_is_directory=True)
+        real_populate(root_fd, snapshot)
+
+    monkeypatch.setattr(
+        bundle_publish,
+        "_populate_posix",
+        swap_parent_then_populate,
+    )
+
+    with pytest.raises(IndeterminatePublicationError):
+        sync.sync_skills(source)
+
+    assert sentinel.read_text(encoding="utf-8") == "EXTERNAL-SENTINEL"
+    assert not (external / "safe").exists()
+    assert (moved_category / "safe" / "SKILL.md").is_file()
+
+
+def test_forced_sync_replaces_complete_bundle(tmp_path):
+    from birkin import config
+    from birkin.skills import sync
+
+    source = tmp_path / "upstream"
+    skill = _skill(
+        source,
+        "First version.",
+        name="complete",
+        **{"scripts__run__helper.py": "print('first')\n"},
+    )
+
+    assert sync.sync_skills(source) == ["complete"]
+    destination = (
+        config.user_skills_dir()
+        / "mirrors"
+        / "complete"
+    )
+    assert (
+        destination / "scripts" / "run" / "helper.py"
+    ).read_text(encoding="utf-8") == "print('first')\n"
+    (destination / "stale.txt").write_text(
+        "stale",
+        encoding="utf-8",
+    )
+    (skill / "scripts" / "run" / "helper.py").write_text(
+        "print('second')\n",
+        encoding="utf-8",
+    )
+
+    assert sync.sync_skills(source, force=True) == ["complete"]
+    assert (
+        destination / "scripts" / "run" / "helper.py"
+    ).read_text(encoding="utf-8") == "print('second')\n"
+    assert not (destination / "stale.txt").exists()
 
 
 def test_rejected_forced_sync_preserves_existing_mirror(tmp_path):
