@@ -21,6 +21,7 @@ import os
 import re
 import secrets
 import signal
+import socket
 import threading
 import webbrowser
 from collections.abc import Mapping
@@ -1363,14 +1364,20 @@ def run(port: int | None = None, *, open_browser: bool = True) -> int:
             "bootstrap_nonce": bootstrap_nonce,
         },
     )
-    url = f"http://127.0.0.1:{actual_port}"
+    url_host = socket.getfqdn() if remote else "127.0.0.1"
+    url = f"http://{url_host}:{actual_port}"
     bootstrap_url = f"{url}/_bootstrap/{bootstrap_nonce}"
     print(f"birkin workspace running at {bootstrap_url}  (Ctrl-C to stop)")
-    if open_browser:
+    if open_browser and not remote:
         try:
             _ = webbrowser.open(bootstrap_url)
         except (OSError, webbrowser.Error):
             print("could not open the dashboard URL automatically")
+    elif open_browser:
+        print(
+            "automatic browser opening is disabled for remote access; "
+            "open the printed one-time URL on the remote device"
+        )
     previous_sigterm = signal.getsignal(signal.SIGTERM)
 
     def stop_on_sigterm(

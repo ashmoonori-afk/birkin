@@ -200,6 +200,43 @@ def test_run_prints_secret_bootstrap_url_for_no_browser(monkeypatch, capsys):
     assert "http://127.0.0.1:8765/_bootstrap/" in output
 
 
+def test_remote_run_prints_remote_bootstrap_without_consuming_it(
+        monkeypatch,
+        capsys):
+    class StoppingServer:
+        def __init__(self, address, handler):
+            self.server_address = address
+
+        def serve_forever(self):
+            raise KeyboardInterrupt
+
+        def server_close(self):
+            pass
+
+    opened: list[str] = []
+    cfg = {
+        **web_server.config.load_config(),
+        "web_remote_access": True,
+    }
+    monkeypatch.setattr(web_server.config, "load_config", lambda: cfg)
+    monkeypatch.setattr(web_server, "HTTPServer", StoppingServer)
+    monkeypatch.setattr(socket, "getfqdn", lambda: "birkin-host.example")
+    monkeypatch.setattr(
+        web_server.webbrowser,
+        "open",
+        lambda url: opened.append(url),
+    )
+
+    assert web_server.run(port=8765, open_browser=True) == 0
+
+    output = capsys.readouterr().out
+    assert (
+        "http://birkin-host.example:8765/_bootstrap/"
+        in output
+    )
+    assert opened == []
+
+
 def test_api_status_marks_skill_discovery_unavailable(srv, monkeypatch):
     def fail(_cfg):
         raise OSError("private discovery detail")

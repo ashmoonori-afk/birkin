@@ -450,10 +450,13 @@ same file-backed authority as `birkin review`.
 
 The server remains loopback-only by default. Set `web_remote_access` to `true`
 only when remote access is intentional; this binds on all interfaces but does
-**not** create a public route. Open the secret bootstrap URL printed by
-`birkin web` on the remote device. It exchanges the per-process capability for
-an HttpOnly, SameSite cookie, and every remote request without that capability
-is rejected. Local versus remote authority is derived from the TCP peer address,
+**not** create a public route. In remote mode, `birkin web` prints a secret
+bootstrap URL using the server hostname and does not open it locally, because
+the nonce is one-time. Open that URL on the remote device; if the hostname is
+not resolvable there, replace only the hostname with the server's trusted
+private-network address. The URL exchanges the per-process capability for an
+HttpOnly, SameSite cookie, and every remote request without that capability is
+rejected. Local versus remote authority is derived from the TCP peer address,
 not the client-controlled `Host` header; the exact one-time bootstrap URL is the
 only unauthenticated remote exception. Put TLS or a trusted private-network
 tunnel in front when traffic leaves the host.

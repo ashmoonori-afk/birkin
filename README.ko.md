@@ -450,13 +450,17 @@ approval과 rejection은 `birkin review`와 동일한 file-backed authority를
 
 Server는 기본적으로 loopback에서만 동작합니다. Remote access가 의도된
 경우에만 `web_remote_access`를 `true`로 설정하십시오. 이 설정은 모든
-interface에 bind하지만 public route를 만들지는 않습니다. Remote device에서
-`birkin web`이 출력한 secret bootstrap URL을 여십시오. 이 URL은 process별
-capability를 HttpOnly, SameSite cookie로 교환하며, capability가 없는 모든
-remote request는 거부됩니다. Local/remote 권한은 client가 제어하는 `Host`
-header가 아니라 TCP peer address에서 결정되며, 정확한 one-time bootstrap
-URL만 인증되지 않은 remote 예외입니다. Traffic이 host 밖으로 나가면 TLS
-또는 신뢰할 수 있는 private-network tunnel을 앞에 두십시오.
+interface에 bind하지만 public route를 만들지는 않습니다. Remote mode에서
+`birkin web`은 server hostname을 사용한 secret bootstrap URL을 출력하고,
+nonce가 one-time이므로 local browser에서 자동으로 열지 않습니다. 이 URL을
+remote device에서 여십시오. 해당 hostname을 remote device에서 해석할 수
+없다면 hostname 부분만 server의 신뢰할 수 있는 private-network address로
+바꾸십시오. 이 URL은 process별 capability를 HttpOnly, SameSite cookie로
+교환하며, capability가 없는 모든 remote request는 거부됩니다. Local/remote
+권한은 client가 제어하는 `Host` header가 아니라 TCP peer address에서
+결정되며, 정확한 one-time bootstrap URL만 인증되지 않은 remote 예외입니다.
+Traffic이 host 밖으로 나가면 TLS 또는 신뢰할 수 있는 private-network
+tunnel을 앞에 두십시오.
 
 ## Checkpoints
 
