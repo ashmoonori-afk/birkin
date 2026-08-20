@@ -112,6 +112,7 @@ class NativeBridgeServer:
         heartbeat_interval: float = 30.0,
         peer_timeout: float = 10.0,
         outbound_capacity: int = 512,
+        on_disconnect: Callable[[], None] | None = None,
     ) -> None:
         if heartbeat_interval <= 0 or peer_timeout <= 0:
             raise ValueError("heartbeat intervals must be positive")
@@ -143,6 +144,7 @@ class NativeBridgeServer:
         self._heartbeat_interval = heartbeat_interval
         self._peer_timeout = peer_timeout
         self._outbound_capacity = outbound_capacity
+        self._on_disconnect = on_disconnect
 
     def serve_connection(
         self,
@@ -202,6 +204,8 @@ class NativeBridgeServer:
                     stream.stop()
                 for token in issued_tokens:
                     self._capabilities.revoke_session(token)
+                if self._on_disconnect is not None:
+                    self._on_disconnect()
 
     def _serve_messages(
         self,

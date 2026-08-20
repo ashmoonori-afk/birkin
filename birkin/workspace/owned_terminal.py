@@ -302,7 +302,7 @@ class TerminalAuthority:
         with self._lock:
             sessions = tuple(self._sessions.values())
         for session in sessions:
-            self._terminate(session, reason="authority_closed")
+            self._terminate(session, reason="authority_closed", emit_exit=False)
 
     def _approved(self, approval_id: str, *, cwd: Path, shell: str) -> bool:
         record = store.get_pending(approval_id)
@@ -391,7 +391,13 @@ class TerminalAuthority:
             },
         )
 
-    def _terminate(self, session: _TerminalSession, *, reason: str) -> None:
+    def _terminate(
+        self,
+        session: _TerminalSession,
+        *,
+        reason: str,
+        emit_exit: bool = True,
+    ) -> None:
         if session.process.poll() is None:
             try:
                 os.killpg(session.process.pid, signal.SIGTERM)
@@ -405,7 +411,8 @@ class TerminalAuthority:
                 except ProcessLookupError:
                     pass
                 _ = session.process.wait(timeout=2)
-        self._emit_exit_if_needed(session, reason=reason)
+        if emit_exit:
+            self._emit_exit_if_needed(session, reason=reason)
         try:
             os.close(session.master_fd)
         except OSError:

@@ -10,6 +10,7 @@ import pytest
 from birkin.native.capability import BootstrapSecretStore
 from birkin.native.protocol import encode_frame
 from birkin.native.server import NativeBridgeServer
+from birkin.workspace.contracts import TerminalLeaseRequired
 from birkin.workspace.owned_terminal import TerminalAuthority
 from birkin.workspace.service import WorkspaceService
 from tests.native_bridge_support import (
@@ -72,6 +73,7 @@ def _bridge(
         capabilities=BootstrapSecretStore(tmp_path / "native"),
         instance_id="instance-terminal",
         server_version="1.0.0",
+        on_disconnect=terminal.revoke_leases,
     )
     return bridge, source, terminal
 
@@ -128,6 +130,39 @@ def test_full_native_bridge_real_pty_round_trip_and_invalid_signal(
     if pid:
         with pytest.raises(ProcessLookupError):
             os.kill(pid, 0)
+
+
+def test_disconnect_revokes_terminal_mutation_lease(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("BIRKIN_HOME", str(tmp_path / "home"))
+    bridge, source, terminal = _bridge(tmp_path, {"auto_approve": ["shell"]})
+    server_socket, client = socket.socketpair()
+    thread, errors = serve(
+        bridge, server_socket, transport="uds", peer_uid=local_peer_uid()
+    )
+    opened: dict[str, object] = {}
+    try:
+        token = handshake(client)
+        _send(client, token, source, "terminal.create", "disconnect-terminal", {
+            "actor_kind": "native_human", "cwd": str(tmp_path),
+        })
+        assert receive_kind(client, "receipt").body["state"] == "completed"
+        opened = _event(client, "terminal.opened")
+        client.close()
+        thread.join(timeout=2)
+        with pytest.raises(TerminalLeaseRequired):
+            terminal.input({
+                "terminal_id": opened["terminal_id"],
+                "lease": opened["lease"],
+                "sequence": 1,
+                "data": "echo refused\\n",
+            })
+    finally:
+        terminal.close_all()
+        client.close()
+        thread.join(timeout=2)
+    assert errors == []
 
 
 def test_bridge_refuses_terminal_lease_until_shell_approval(
