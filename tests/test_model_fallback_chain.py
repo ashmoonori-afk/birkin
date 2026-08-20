@@ -201,3 +201,38 @@ def test_base_url_resolution_prefers_explicit_config(monkeypatch):
     assert config.resolve_base_url(
         {"provider": "nvidia", "base_url": "http://127.0.0.1:9/v1/"}
     ) == "http://127.0.0.1:9/v1"
+
+
+# -- item 7: the new providers through the curation registry --------------
+# birkin/providers.py is the *curation* registry (a model is a pure text
+# generator there). Registering a provider in the LLM layer does not make it
+# reachable from curation, so the three new providers are wired here too.
+
+@pytest.mark.parametrize("provider", ["gemini-api", "nvidia", "freellmapi"])
+def test_new_providers_resolve_through_the_curation_registry(
+    monkeypatch, provider,
+):
+    from birkin import providers
+
+    for env in ("GEMINI_API_KEY", "NVIDIA_API_KEY", "FREELLMAPI_API_KEY"):
+        monkeypatch.delenv(env, raising=False)
+    complete = providers.get_completer(provider, cfg={})
+    reply = complete("say hi")
+    # No credentials must degrade to the in-band typed error the curation
+    # executor understands, never an exception.
+    assert reply.startswith("[provider-error]"), reply
+    assert provider.split("-")[0] in reply
+
+
+def test_the_cli_gemini_provider_still_means_the_cli():
+    """`gemini` stayed the CLI wrapper; the HTTP API is `gemini-api`."""
+    from birkin import providers
+
+    assert providers.get_completer("gemini") is not None
+
+
+def test_an_unknown_curation_provider_still_raises():
+    from birkin import providers
+
+    with pytest.raises(ValueError, match="unknown curation provider"):
+        providers.get_completer("definitely-not-a-provider")

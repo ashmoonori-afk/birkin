@@ -922,6 +922,8 @@ Alongside `anthropic`, `openai`, the CLI agents, and `claude-oauth`, three OpenA
 
 `gemini` here is the Gemini HTTP API on its OpenAI compatibility path, not the `gemini` CLI. `nvidia` is NVIDIA's hosted NIM inference from build.nvidia.com, preview models included. `freellmapi` is a **self-hosted** proxy that stacks free provider tiers behind one key, so the default points at its documented local port — set `base_url` when you run it anywhere else.
 
+Memory curation (`birkin curate-memory --provider ...`) reaches the same three as `gemini-api`, `nvidia`, and `freellmapi`. The plain `gemini` name there still means the `gemini` CLI wrapper it always did, so existing configs keep running what they ran; without credentials each returns a typed `[provider-error] ...` string instead of raising.
+
 `fallback_provider` / `fallback_model` still describe one fallback and behave exactly as before. `fallback_chain` continues past it, in order:
 
 ```jsonc

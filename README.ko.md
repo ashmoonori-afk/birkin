@@ -926,6 +926,8 @@ scheduler daemon 시작 시 pending Slack/Discord obligation을 replay합니다.
 
 여기서 `gemini`는 `gemini` CLI가 아니라 Gemini HTTP API의 OpenAI 호환 경로입니다. `nvidia`는 build.nvidia.com의 NVIDIA hosted NIM inference이며 preview model을 포함합니다. `freellmapi`는 여러 provider의 무료 tier를 하나의 key 뒤에 묶는 **self-hosted** proxy이므로 기본값이 문서화된 local port를 가리킵니다. 다른 곳에서 실행한다면 `base_url`을 지정하십시오.
 
+Memory curation(`birkin curate-memory --provider ...`)에서는 같은 세 provider를 `gemini-api`, `nvidia`, `freellmapi`로 사용합니다. 그곳의 `gemini`는 예전처럼 `gemini` CLI wrapper를 의미하므로 기존 설정은 그대로 동작합니다. credential이 없으면 예외를 던지지 않고 타입화된 `[provider-error] ...` 문자열을 반환합니다.
+
 `fallback_provider` / `fallback_model`은 여전히 fallback 하나를 의미하며 동작도 이전과 완전히 같습니다. `fallback_chain`은 그 뒤를 순서대로 잇습니다.
 
 ```jsonc

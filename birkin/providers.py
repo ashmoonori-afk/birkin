@@ -309,6 +309,54 @@ def gemini_completer(model: Optional[str] = None,
     return _generic_cli_completer("gemini", ["-p", "-"], model, "-m", timeout)
 
 
+# OpenAI-compatible HTTP providers. Their base_url and key env live in
+# birkin.config, so adding one here is a name plus a lookup. ``gemini`` above
+# stays the CLI wrapper it has always been — the HTTP API is ``gemini-api``,
+# and conflating them would silently change what existing configs run.
+HTTP_API_PROVIDERS = {
+    "gemini-api": "gemini",
+    "nvidia": "nvidia",
+    "freellmapi": "freellmapi",
+}
+
+
+def http_api_completer(provider: str, cfg: Optional[dict] = None,
+                       model: Optional[str] = None) -> Completer:
+    """An OpenAI-compatible HTTP provider through the shared LLMClient.
+
+    A missing key is reported in band like every other adapter here: curation
+    treats a provider failure as text to score, never as an exception to
+    unwind, so the caller sees ``[provider-error] ...`` and moves on.
+    """
+    from .config import PROVIDER_API_KEY_ENV, get_api_key
+
+    llm_provider = HTTP_API_PROVIDERS[provider]
+    provider_cfg = {**(cfg or {}), "provider": llm_provider}
+    if model:
+        provider_cfg["model"] = model
+
+    def complete(prompt: str) -> str:
+        key = get_api_key(provider_cfg)
+        if not key:
+            env = PROVIDER_API_KEY_ENV.get(llm_provider, "")
+            return (f"[provider-error] {provider}: no credentials"
+                    + (f" — set {env}" if env else ""))
+        from .llm import LLMError, build_client
+        try:
+            client = build_client(provider_cfg, key)
+            resp = client.complete(
+                system="You output only what the user asks for.",
+                messages=[{"role": "user",
+                           "content": [{"type": "text", "text": prompt}]}],
+                tools=[], model=provider_cfg.get("model"))
+        except LLMError as exc:
+            return f"[provider-error] {provider}: {str(exc)[:300]}"
+        parts = [b.get("text", "") for b in resp.get("content", [])
+                 if b.get("type") == "text"]
+        return "\n".join(parts)
+    return complete
+
+
 def local_completer(model: Optional[str] = None,
                     timeout: int = _CLI_TIMEOUT) -> Completer:
     """Best-effort local model via `ollama run <model>` (prompt on stdin)."""
@@ -349,5 +397,10 @@ def get_completer(provider: str, *, model: Optional[str] = None,
         return gemini_completer(model, timeout)
     if p in ("local", "ollama"):
         return local_completer(model, timeout)
-    raise ValueError(f"unknown curation provider {provider!r} "
-                     "(want: claude | codex | api | gemini | local)")
+    if provider in HTTP_API_PROVIDERS:
+        # Matched on the full name: `gemini-api` must not be reduced to
+        # `gemini` by the ``-cli`` suffix stripping above.
+        return http_api_completer(provider, cfg, model)
+    raise ValueError(
+        f"unknown curation provider {provider!r} (want: claude | codex | api "
+        f"| gemini | local | {' | '.join(sorted(HTTP_API_PROVIDERS))})")
