@@ -32,6 +32,31 @@ struct ConversationControlsTests {
         #expect(composer.draft.isEmpty)
     }
 
+    @Test("oversized code-mode payload is blocked before transport")
+    func oversizedCodePayloadIsBlocked() {
+        let session = readySession(commands: ["chat.send"])
+        let availability = MutationAvailability(
+            state: .ready(session), now: Date(timeIntervalSince1970: 1_000)
+        )
+        let composer = ConversationComposerModel(draft: String(repeating: "x", count: 65_526))
+        composer.isCodeMode = true
+        var requests: [NativeCommandRequest] = []
+
+        let sent = composer.send(
+            availability: availability,
+            canSend: true,
+            expectedCursor: 12,
+            session: session,
+            submit: { requests.append($0) }
+        )
+
+        #expect(!sent)
+        #expect(requests.isEmpty)
+        #expect(composer.draftByteCount == 65_537)
+        #expect(composer.visibleReason == "Payload is 65537 bytes; the limit is 65536 bytes.")
+        #expect((composer.visibleReason?.count ?? 0) < 100)
+    }
+
     @Test("disconnected composer does not send")
     func composerHonorsMutationGate() {
         let session = readySession(commands: ["chat.send"])
