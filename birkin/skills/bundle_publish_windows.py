@@ -14,6 +14,7 @@ from .bundle_publish_windows_io import (
     SHARE_READ_WRITE_DELETE,
     checked_directory,
     close,
+    delete_tree,
     mark_delete,
     open_handle,
     rename,
@@ -100,11 +101,6 @@ def publish_windows(
         published = False
         preserve_operation = False
         try:
-            if previous_handle >= 0:
-                previous_tree = lock_existing_tree(
-                    kernel32,
-                    destination,
-                )
             populate(
                 kernel32,
                 candidate,
@@ -113,6 +109,13 @@ def publish_windows(
                 candidate_tree,
             )
             verify_populated(candidate, snapshot)
+            # Windows fails a directory rename outright while that directory
+            # still contains open files ([MS-FSA] FileRenameInformation), so
+            # the staged handles are released once the tree has been verified
+            # against the snapshot. The same rule applies to the bundle being
+            # replaced, which is why its tree is locked only after it has been
+            # moved aside rather than before.
+            close_tree(kernel32, candidate_tree)
             if previous_handle >= 0:
                 rename(
                     kernel32,
@@ -156,6 +159,10 @@ def publish_windows(
                 raise
             if previous_moved:
                 try:
+                    previous_tree = lock_existing_tree(
+                        kernel32,
+                        operation / "previous",
+                    )
                     delete_tree_handles(
                         kernel32,
                         previous_tree,
@@ -180,8 +187,14 @@ def publish_windows(
                         kernel32,
                         candidate_tree,
                     )
-                    mark_delete(kernel32, candidate_handle)
-                    close(kernel32, candidate_handle)
+                    # The staged handles may already be released, so the
+                    # candidate is removed by walking it rather than by
+                    # marking a directory that still holds entries.
+                    delete_tree(
+                        kernel32,
+                        candidate,
+                        candidate_handle,
+                    )
                     candidate_handle = -1
                 except OSError as error:
                     preserve_operation = True
