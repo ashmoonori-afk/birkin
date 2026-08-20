@@ -12,6 +12,7 @@ public struct NativeShellView: View {
     private let voiceInputAction: () -> Void
 
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
+    @Environment(\.shellVisualSettings) private var visualSettings
     @State private var selectedColumn: ShellColumnID
     @StateObject private var templateLauncher: TemplateLauncherModel
     @StateObject private var conversationComposer: ConversationComposerModel
@@ -75,6 +76,10 @@ public struct NativeShellView: View {
             }
         }
         .background(Color(nsColor: .windowBackgroundColor))
+        .contrast(visualSettings.increasedContrast ? 1.25 : 1)
+        .transaction { transaction in
+            if visualSettings.reduceMotion { transaction.disablesAnimations = true }
+        }
     }
 
     private func threeColumnContent(

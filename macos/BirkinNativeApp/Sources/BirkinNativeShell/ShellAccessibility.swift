@@ -1,4 +1,48 @@
+import BirkinNativeProtocol
 import Foundation
+import SwiftUI
+
+public struct ShellVisualSettings: Equatable, Sendable {
+    public let increasedContrast: Bool
+    public let reduceMotion: Bool
+
+    public init(increasedContrast: Bool = false, reduceMotion: Bool = false) {
+        self.increasedContrast = increasedContrast
+        self.reduceMotion = reduceMotion
+    }
+}
+
+private struct ShellVisualSettingsKey: EnvironmentKey {
+    static let defaultValue = ShellVisualSettings()
+}
+
+public extension EnvironmentValues {
+    var shellVisualSettings: ShellVisualSettings {
+        get { self[ShellVisualSettingsKey.self] }
+        set { self[ShellVisualSettingsKey.self] = newValue }
+    }
+}
+
+public struct StatusAccessibilityIndicator: Equatable, Sendable {
+    public let text: String
+    public let symbolName: String
+}
+
+public enum VisualAccessibilityContract {
+    public static func statusIndicator(
+        for state: NativeConnectionState
+    ) -> StatusAccessibilityIndicator {
+        let presentation = ConnectionPresentation(state: state)
+        return StatusAccessibilityIndicator(
+            text: presentation.title,
+            symbolName: presentation.symbolName
+        )
+    }
+
+    public static func animationsEnabled(reduceMotion: Bool) -> Bool {
+        !reduceMotion
+    }
+}
 
 public enum ShellAccessibilityRole: String, Equatable, Sendable {
     case landmark
