@@ -701,56 +701,52 @@ conflict가 됩니다. 기존 pin은 `--upgrade`로만 변경됩니다. Skill en
 기존 `SkillManager`에, agent entry point가 반환한 `Tool`은 기존 native tool
 registry에 연결됩니다.
 
-## Future Roadmap: 네이티브 control shell
+## 네이티브 macOS control shell
 
-> **향후 계획이며 현재 Birkin 기능이 아닙니다.** 아래 목업은 네이티브
-> 데스크톱 클라이언트의 권장 방향을 보여줍니다. 현재 CLI, WebUI, VS Code
-> extension, 배포 package에는 포함되지 않습니다.
+> **이 저장소에 구현되어 있습니다.** Birkin은 이제 네이티브 macOS
+> SwiftUI client와 universal signed `Birkin.app` build pipeline을
+> 포함합니다. 이 앱은 별도의 local control surface이며 CLI, WebUI, VS Code
+> extension을 대체하지 않습니다. Credential 없이 만든 app은 ad-hoc signed
+> development artifact이지 notarized public download가 아닙니다.
 
-<img src="./docs/assets/birkin-native-app-roadmap.png" alt="왼쪽에 session과 Working Memory, 중앙에 chat과 terminal workspace, 오른쪽에 approval, activity, Browser Aside, Office surface를 배치한 향후 Birkin macOS 네이티브 control shell" width="920" />
+<img src="./docs/assets/birkin-native-app-roadmap.png" alt="왼쪽에 session과 Working Memory, 중앙에 chat과 terminal workspace, 오른쪽에 approval, activity, Browser Aside, Office surface를 배치한 Birkin macOS 네이티브 control shell" width="920" />
 
-이 앱의 interface contract: [`docs/native-app/`](./docs/native-app/README.md).
+Architecture, protocol, security contract: [`docs/native-app/`](./docs/native-app/README.md).
 
-*이 이미지는 개념적인 화면 배치만 보여줍니다. 패널 이름과 토글은 정식
-Working Memory 구조, 승인 분류, 외부 통신 정책을 정의하지 않으며 실제
-동작은 앞에서 설명한 운영 경계를 따릅니다.*
+Birkin macOS client는 별도의 agent 구현이 아니라 **기존 Python runtime
+위에 얹는 얇은 SwiftUI shell**입니다. Memory, tool 실행, policy, approval,
+audit record, recovery의 권한은 Python에 남습니다. 두 process는 version이
+명시된 local `birkin-local-1` protocol로만 통신합니다. 같은 user의 private
+Unix domain socket을 우선 사용하고, 명시적으로 선택할 때 인증된
+`127.0.0.1` loopback을 사용할 수 있습니다.
 
-권장하는 macOS 앱은 별도의 agent 구현이 아니라 **기존 Python runtime
-위에 얹는 얇은 SwiftUI shell**입니다. 메모리, tool 실행, policy, approval,
-audit record, recovery의 권한은 계속 Birkin Python core가 가집니다.
-네이티브 process는 version이 명시된 local protocol로 이 기능을
-표시합니다. macOS에서는 Unix domain socket을 우선 사용하고,
-browser-compatible transport가 필요할 때만 인증된 private loopback을
-fallback으로 둡니다.
+구현된 경계는 의도적으로 다음 원칙을 지킵니다.
 
-이 경계는 Birkin의 정체성을 그대로 지킵니다.
+- **영속 상태:** Swift는 ephemeral session과 Working Memory projection을
+  표시하며 native database를 만들거나 capability와 execution state를
+  저장하지 않습니다.
+- **실행과 권한:** Python이 budget을 적용하고 tool을 실행하며 terminal
+  process tree를 소유하고 approval을 처리합니다. Swift는 typed command를
+  보낼 뿐 UI state, focus, menu, voice input, notification tap이 action을
+  승인하지 않습니다.
+- **복구:** Cursor replay, gap 또는 instance 변경 뒤 full snapshot,
+  capability renewal, app-owned bridge의 bounded restart로 stale projection을
+  권한으로 취급하지 않고 local state를 복구합니다.
+- **Workspace:** Shell은 session, streaming conversation, Working Memory
+  merge/clear, owned Terminal, approval, Activity, Browser Aside, Computer Use
+  상태/동의, Office create/open projection을 표시합니다.
+- **Desktop integration:** Navigation-only menu, redacted notification과 deep
+  link, jailed file import, 선택적 voice gate, keyboard와 VoiceOver path,
+  visual accessibility setting이 Python의 refusal boundary를 유지합니다.
+- **Packaging:** Build는 universal `com.birkin.native` app을 만들고 inside-out
+  순서로 sign합니다. PTY, local socket, Accessibility, Screen Recording이
+  초기 sandbox profile 밖에 있어 App Sandbox는 비활성화하지만 Python
+  policy, consent gate, local authentication, macOS privacy permission은 계속
+  적용됩니다.
 
-- **영속 상태:** Shell은 session과 Working Memory의 projection을
-  읽으며, 별도 native database를 두 번째 source of truth로 만들지 않습니다.
-- **실행:** 작업 예약, budget 적용, tool 실행,
-  typed result 생성은 Python이 맡고 SwiftUI는 상태를 표시하고 명시적인
-  command를 보냅니다.
-- **권한:** Approval 결정은 Python authority로
-  돌아갑니다. UI 상태, window focus, notification tap은 action이
-  승인됐다는 증거가 될 수 없습니다.
-
-다음 단계는 각각 독립적으로 관찰 가능한 결과를 내야 합니다.
-
-1. **읽기 전용 기반:** session, run status, transcript, Working Memory를
-   표시하고 reconnect와 protocol version 진단을 제공합니다.
-2. **사람의 제어:** approval, activity receipt, local notification을
-   제공합니다. Native shell은 approval에 답할 수 있지만 policy를
-   재해석하지 않습니다.
-3. **Workspace surface:** Browser Aside, native Computer Use 상태와 동의,
-   Office workspace artifact를 연결하되 기존 격리와 refusal contract를
-   그대로 사용합니다.
-4. **Desktop integration:** menu bar status, jailed import path로 제한한
-   drag and drop, 선택적 voice control, 두 프로세스 중 하나가 재시작되어도
-   복구할 수 있는 lifecycle을 추가합니다.
-5. **Platform 결정:** protocol과 macOS shell이 검증된 뒤 accessibility
-   API, installer 유지보수, 실제 사용량을 기준으로 Windows native
-   client와 공통 cross-platform shell 중 하나를 선택합니다. 코드 재사용률만
-   보고 결정하지 않습니다.
+향후 Windows-native client와 공통 cross-platform shell 중 무엇을 택할지는
+아직 열려 있으며, 코드 재사용률만이 아니라 accessibility API, installer
+유지보수, 실제 사용량을 기준으로 결정합니다.
 
 ### 절충점과 비목표
 
@@ -760,7 +756,7 @@ lifecycle, drag and drop, OS 수준 recovery를 더 자연스럽게 제공할 �
 signing/notarization, platform별 QA가 필요합니다. 따라서 local protocol은
 명시적인 version negotiation, 수명이 짧은 capability, bounded payload,
 눈에 보이는 disconnected state를 가져야 합니다.
-이 roadmap은 다음을 제안하지 않습니다.
+이 native design은 다음을 제안하지 않습니다.
 
 - Birkin 전체를 Swift로 다시 작성하는 일
 - memory ownership, policy evaluation, approval, audit authority를 UI로
@@ -770,8 +766,7 @@ signing/notarization, platform별 QA가 필요합니다. 따라서 local protoco
 - 편의를 위해 개인 browser profile을 연결하거나 Browser Aside,
   Computer Use, Office의 refusal boundary를 약화하는 일
 - app 안에 provider token, debug dump, 숨은 execution state를 저장하는 일
-- package, test, release artifact가 나오기 전에 목업이나 완료된 단계를
-  실제 출시 기능으로 표현하는 일
+- ad-hoc development build를 notarized release로 표현하는 일
 
 ## 설정
 
