@@ -1,8 +1,8 @@
 # Birkin Native macOS Application
 
-Status: planned contract. The macOS application is not yet released. This document defines the interface it will expose, not current behavior.
+Status: shipped repository contract. The repository builds a universal signed macOS application; credential-free builds are ad-hoc development artifacts rather than notarized public downloads.
 
-Birkin's planned macOS application is a SwiftUI control surface over the existing Python runtime.
+Birkin's macOS application is a SwiftUI control surface over the existing Python runtime.
 
 Python remains authoritative for:
 
@@ -23,4 +23,4 @@ Stable public contracts:
 - [Local protocol](protocol.md)
 - [Security boundary](security.md)
 
-The illustration in [`../assets/birkin-native-app-roadmap.png`](../assets/birkin-native-app-roadmap.png) shows the intended product hierarchy. Python contracts define the actual policy categories and data schemas.
+The illustration in [`../assets/birkin-native-app-roadmap.png`](../assets/birkin-native-app-roadmap.png) shows the shipped product hierarchy. Python contracts define the actual policy categories and data schemas.
