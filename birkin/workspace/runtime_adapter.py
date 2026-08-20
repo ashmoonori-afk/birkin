@@ -100,6 +100,7 @@ class RuntimeWorkspaceAdapter:
             "chat.resume": self._chat_resume,
             "approval.answer": self._approval_answer,
             "question.answer": self._question_answer,
+            "session.compact": self._session_compact,
         }
 
     def close(self) -> None:
@@ -144,6 +145,10 @@ class RuntimeWorkspaceAdapter:
 
     def interrupt_now(self) -> None:
         self._get_session().abort.set()
+
+    def compact(self) -> bool:
+        """Compact through the runtime's canonical agent entry point."""
+        return self._get_session().agent.compact_now("manual")
 
     def _get_session(self) -> Session:
         if self._session is None:
@@ -270,6 +275,17 @@ class RuntimeWorkspaceAdapter:
             cfg=session.cfg,
         )
         return {"reply": final}
+
+    def _session_compact(
+        self,
+        _payload: dict[str, object],
+    ) -> dict[str, object]:
+        compacted = self.compact()
+        _ = self._emit(
+            "session.compacted",
+            {"session_id": self._session_id, "compacted": compacted},
+        )
+        return {"compacted": compacted}
 
     def _chat_interrupt(self, _payload: dict[str, object]) -> dict[str, object]:
         session = self._get_session()

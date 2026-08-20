@@ -270,6 +270,18 @@ class WorkspaceHub:
             session = self._selected_session()
         return session.service.submit(command, actor_id=actor_id)
 
+    def compact(
+        self,
+        command: WorkspaceCommand,
+        *,
+        actor_id: str,
+    ) -> CommandReceipt:
+        if command.type != "session.compact":
+            raise ProtocolError("session.compact command is required")
+        with self._lock:
+            session = self._selected_session()
+        return session.service.submit(command, actor_id=actor_id)
+
     def _selected_session(self) -> WorkspaceSession:
         session_id = self._selected_session_id
         if session_id is None or session_id not in self._sessions:

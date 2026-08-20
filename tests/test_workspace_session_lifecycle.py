@@ -64,3 +64,29 @@ def test_session_rename_updates_canonical_summaries(tmp_path: Path) -> None:
     ]
     assert any(event.type == "session.renamed" for event in session.events())
     hub.close()
+
+
+def test_session_compact_returns_canonical_receipt(tmp_path: Path) -> None:
+    compacted: list[str] = []
+
+    def factory(session_id: str, emit):  # type: ignore[no-untyped-def]
+        def compact(_payload: dict[str, object]) -> dict[str, object]:
+            compacted.append(session_id)
+            _ = emit("session.compacted", {"session_id": session_id})
+            return {"compacted": True}
+
+        return {"session.compact": compact}
+
+    hub = WorkspaceHub(root=tmp_path, handler_factory=factory)
+    session, _ = hub.create("first")
+
+    receipt = hub.compact(
+        _command("session.compact", "compact-1", 0, {}),
+        actor_id="macos:main",
+    )
+
+    assert receipt.state == "completed"
+    assert receipt.result_event_cursor == 4
+    assert compacted == ["first"]
+    assert any(event.type == "session.compacted" for event in session.events())
+    hub.close()
