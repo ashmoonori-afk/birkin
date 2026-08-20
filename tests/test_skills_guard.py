@@ -1130,6 +1130,7 @@ def test_windows_failed_rollback_preserves_previous_bundle(
             kernel32,
             source_handle,
             parent_handle,
+            parent_path,
             name) -> None:
         nonlocal target_renames
         if name == "windows-rollback":
@@ -1139,6 +1140,7 @@ def test_windows_failed_rollback_preserves_previous_bundle(
             kernel32,
             source_handle,
             parent_handle,
+            parent_path,
             name,
         )
 

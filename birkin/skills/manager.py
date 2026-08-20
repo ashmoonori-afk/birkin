@@ -938,7 +938,9 @@ def _publish_skill_bytes_windows(
             rename_info = FileRenameInfo.from_buffer(buffer)
             rename_info.ReplaceIfExists = True
             rename_info.RootDirectory = None
-            rename_info.FileNameLength = len(destination_name)
+            rename_info.FileNameLength = len(
+                destination_name.encode("utf-16-le")
+            )
             ctypes.memmove(
                 ctypes.addressof(buffer) + filename_offset,
                 encoded_name,

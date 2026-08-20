@@ -151,7 +151,9 @@ def rename(
     info = FileRenameInfo.from_buffer(buffer)
     info.ReplaceIfExists = False
     info.RootDirectory = None
-    info.FileNameLength = len(destination)
+    info.FileNameLength = len(
+        destination.encode("utf-16-le")
+    )
     ctypes.memmove(
         ctypes.addressof(buffer) + offset,
         encoded,
