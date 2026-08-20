@@ -1,3 +1,5 @@
+import Foundation
+
 /// The local transport selected for a native bridge connection.
 public enum NativeTransportKind: String, Equatable, Sendable {
     case uds
@@ -27,11 +29,34 @@ public struct NativeReadySession: Equatable, Sendable {
     public let instanceID: String
     public let serverVersion: String
     public let sessionCapability: String
+    public let capabilityExpiresAt: Date?
+    public let capabilityHardExpiresAt: Date?
 
-    public init(instanceID: String, serverVersion: String, sessionCapability: String) {
+    public init(
+        instanceID: String,
+        serverVersion: String,
+        sessionCapability: String,
+        capabilityExpiresAt: Date? = nil,
+        capabilityHardExpiresAt: Date? = nil
+    ) {
         self.instanceID = instanceID
         self.serverVersion = serverVersion
         self.sessionCapability = sessionCapability
+        self.capabilityExpiresAt = capabilityExpiresAt
+        self.capabilityHardExpiresAt = capabilityHardExpiresAt
+    }
+
+    public func hasLiveCapability(at date: Date) -> Bool {
+        guard !sessionCapability.isEmpty,
+              let capabilityExpiresAt,
+              let capabilityHardExpiresAt else { return false }
+        return date < capabilityExpiresAt && date < capabilityHardExpiresAt
+    }
+
+    public static func == (lhs: Self, rhs: Self) -> Bool {
+        lhs.instanceID == rhs.instanceID
+            && lhs.serverVersion == rhs.serverVersion
+            && lhs.sessionCapability == rhs.sessionCapability
     }
 }
 
@@ -163,20 +188,59 @@ public actor NativeTransportActor {
     public func acceptCapabilityRenewal(_ envelope: NativeEnvelope) throws {
         guard envelope.kind == .capabilityRenewed,
               case .string(let token) = envelope.body["token"],
-              !token.isEmpty
+              case .string(let expiresAt) = envelope.body["expires_at"],
+              case .string(let hardExpiresAt) = envelope.body["hard_expires_at"],
+              !token.isEmpty,
+              let expiry = NativeProtocolDate.parse(expiresAt),
+              let hardExpiry = NativeProtocolDate.parse(hardExpiresAt)
         else {
-            throw NativeTransportError("capability renewal is missing its token")
+            throw NativeTransportError("capability renewal is missing valid lease fields")
         }
-        state = NativeConnectionReducer.reduce(state, .capabilityRenewed(token: token))
+        state = state.replacingCapability(
+            token: token,
+            expiresAt: expiry,
+            hardExpiresAt: hardExpiry
+        )
+    }
+}
+
+private extension NativeConnectionState {
+    func replacingCapability(
+        token: String,
+        expiresAt: Date,
+        hardExpiresAt: Date
+    ) -> NativeConnectionState {
+        switch self {
+        case .ready(let session):
+            return .ready(session.replacingCapability(
+                with: token,
+                expiresAt: expiresAt,
+                hardExpiresAt: hardExpiresAt
+            ))
+        case .fallback(.ready(let session)):
+            return .fallback(.ready(session.replacingCapability(
+                with: token,
+                expiresAt: expiresAt,
+                hardExpiresAt: hardExpiresAt
+            )))
+        default:
+            return self
+        }
     }
 }
 
 private extension NativeReadySession {
-    func replacingCapability(with token: String) -> NativeReadySession {
+    func replacingCapability(
+        with token: String,
+        expiresAt: Date? = nil,
+        hardExpiresAt: Date? = nil
+    ) -> NativeReadySession {
         NativeReadySession(
             instanceID: instanceID,
             serverVersion: serverVersion,
-            sessionCapability: token
+            sessionCapability: token,
+            capabilityExpiresAt: expiresAt ?? capabilityExpiresAt,
+            capabilityHardExpiresAt: hardExpiresAt ?? capabilityHardExpiresAt
         )
     }
 }
