@@ -1033,6 +1033,62 @@ def test_windows_sync_replaces_existing_bundle(
 
 @pytest.mark.skipif(
     os.name != "nt",
+    reason="Windows operation setup locking",
+)
+def test_windows_operation_cleanup_handle_blocks_setup_swap(
+        tmp_path,
+        monkeypatch,
+) -> None:
+    from birkin.skills import bundle_publish_windows, sync
+    from birkin.skills.bundle_publish_windows_io import (
+        READ_ATTRIBUTES,
+        SHARE_READ_WRITE_DELETE,
+    )
+
+    source = tmp_path / "upstream"
+    _skill(source, "Original.", name="setup-lock")
+    real_checked = bundle_publish_windows.checked_directory
+    blocked = False
+
+    def attempt_swap(
+            kernel32,
+            path,
+            *,
+            access,
+            share=None):
+        nonlocal blocked
+        if (
+            Path(path).name.startswith(".birkin-sync-")
+            and access == READ_ATTRIBUTES
+            and share == SHARE_READ_WRITE_DELETE
+        ):
+            try:
+                Path(path).rename(
+                    Path(path).with_name("attacker-moved")
+                )
+            except OSError:
+                blocked = True
+        if share is None:
+            return real_checked(kernel32, path, access=access)
+        return real_checked(
+            kernel32,
+            path,
+            access=access,
+            share=share,
+        )
+
+    monkeypatch.setattr(
+        bundle_publish_windows,
+        "checked_directory",
+        attempt_swap,
+    )
+
+    assert sync.sync_skills(source) == ["setup-lock"]
+    assert blocked is True
+
+
+@pytest.mark.skipif(
+    os.name != "nt",
     reason="Windows candidate handle locking",
 )
 def test_windows_candidate_handle_blocks_reparse_swap(

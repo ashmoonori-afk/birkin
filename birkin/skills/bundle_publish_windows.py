@@ -114,16 +114,16 @@ def publish_windows(
         try:
             create_directory(kernel32, operation)
             operation_created = True
+            operation_handle = checked_directory(
+                kernel32,
+                operation,
+                access=READ_ATTRIBUTES | DELETE,
+            )
             operation_parent_handle = checked_directory(
                 kernel32,
                 operation,
                 access=READ_ATTRIBUTES,
                 share=SHARE_READ_WRITE_DELETE,
-            )
-            operation_handle = checked_directory(
-                kernel32,
-                operation,
-                access=READ_ATTRIBUTES | DELETE,
             )
             create_directory(kernel32, candidate)
             candidate_handle = checked_directory(
