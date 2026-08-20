@@ -34,6 +34,7 @@ class MigrationReport:
     archived: int = 0
     pending: int = 0
     restored: int = 0
+    unrestorable: int = 0
     unchanged: int = 0
     completed: bool = False
 
@@ -56,6 +57,9 @@ def migrate_legacy_preferences(
         entry = _entry(note)
         digest = _hash(note.body)
         record = records.get(key)
+        if record is not None:
+            record.pop("body", None)
+            record.pop("entry", None)
         if record and record.get("hash") != digest:
             record["status"] = "pending"
             record["reason"] = "source changed"
@@ -67,12 +71,10 @@ def migrate_legacy_preferences(
             record = {
                 "path": note.path,
                 "title": note.title,
-                "body": note.body,
                 "zone": note.zone,
                 "type": note.type,
                 "hash": digest,
                 "target": "preferences",
-                "entry": entry,
                 "status": "pending",
             }
             records[key] = record
@@ -133,29 +135,50 @@ def rollback_legacy_preferences(
     store: ProfileStore,
     *,
     restore: Callable[[LegacyPreference], None],
+    archived: Callable[[LegacyPreference], LegacyPreference | None] | None = None,
 ) -> MigrationReport:
-    """Restore only notes archived by this migration manifest."""
+    """Restore archived notes without using the manifest as a shadow backup."""
     manifest = _load(_manifest_path(store))
-    restored = 0
+    restored = unrestorable = unchanged = 0
     for record in manifest.get("sources", {}).values():
-        if record.get("status") != "archived":
+        status = record.get("status")
+        if status == "rolled_back":
+            unchanged += 1
             continue
-        note = LegacyPreference(
+        if status != "archived":
+            continue
+        identity = LegacyPreference(
             path=str(record["path"]),
             title=str(record.get("title", _title(str(record["path"])))),
-            body=str(record.get("body", "")),
+            body="",
             zone=str(record.get("zone", "identity")),
             type=str(record.get("type", "preference")),
         )
-        restore(note)
+        source = archived(identity) if archived is not None else None
+        if source is None or _hash(source.body) != str(record.get("hash", "")):
+            unrestorable += 1
+            record["status"] = "unrestorable"
+            continue
+        restore(LegacyPreference(
+            path=identity.path,
+            title=identity.title,
+            body=source.body,
+            zone=identity.zone,
+            type=identity.type,
+        ))
         restored += 1
         record["status"] = "rolled_back"
     manifest["completed"] = all(
-        record.get("status") in {"rolled_back", "pending"}
+        record.get("status") in {"rolled_back", "pending", "unrestorable"}
         for record in manifest.get("sources", {}).values()
     )
     _save(store, manifest)
-    return MigrationReport(restored=restored, completed=bool(manifest.get("completed")))
+    return MigrationReport(
+        restored=restored,
+        unrestorable=unrestorable,
+        unchanged=unchanged,
+        completed=bool(manifest.get("completed")),
+    )
 
 
 def _eligible(note: LegacyPreference) -> bool:

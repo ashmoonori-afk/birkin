@@ -886,6 +886,7 @@ def _profile(session: Any, arg: str) -> None:
         report = rollback_legacy_preferences(
             actions.store,
             restore=session.memory.restore_legacy_preference,
+            archived=session.memory.archived_legacy_preference,
         )
         print(json.dumps(report.__dict__, sort_keys=True))
         return

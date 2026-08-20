@@ -240,6 +240,27 @@ class VaultMemory:
     def archive_legacy_preference(self, note: LegacyPreference) -> None:
         self.dex.rezone(Path(note.path).stem, ARCHIVE_ZONE)
 
+    def archived_legacy_preference(self, note: LegacyPreference) -> LegacyPreference | None:
+        slug = Path(note.path).stem
+        root = scope_root(self.vault, self.policy.actor_scope)
+        rel = self.dex.resolve_rel(slug)
+        if not rel:
+            return None
+        path = root / rel
+        try:
+            text = path.read_text(encoding="utf-8", errors="replace")
+        except OSError:
+            return None
+        meta, body = frontmatter.parse(text)
+        if str(meta.get("type") or note.type) != note.type:
+            return None
+        if str(meta.get("title") or note.title) != note.title:
+            return None
+        return LegacyPreference(
+            path=str(path), title=note.title, body=body,
+            zone=ARCHIVE_ZONE, type=note.type,
+        )
+
     def restore_legacy_preference(self, note: LegacyPreference) -> None:
         self.write_note(note.title, note.body, note_type=note.type, zone=note.zone)
 

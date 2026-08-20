@@ -30,6 +30,9 @@ def test_migration_is_idempotent_across_repeated_runs(tmp_path: Path) -> None:
     after = hashlib.sha256(manifest.read_bytes()).hexdigest()
 
     entries = store.snapshot().documents["preferences"].entries
+    manifest_data = manifest.read_text(encoding="utf-8")
+    assert '"body"' not in manifest_data
+    assert "Korean replies" not in manifest_data
     assert entries == ("language: Korean replies", "tone: concise")
     assert first.archived == 2
     assert first.unchanged == 0
@@ -86,11 +89,40 @@ def test_rollback_restores_only_archived_notes_and_is_repeat_noop(tmp_path: Path
     restored: list[LegacyPreference] = []
 
     migrate_legacy_preferences(store, [archived_note, pending_note], archive=archived.append)
-    first = rollback_legacy_preferences(store, restore=restored.append)
-    second = rollback_legacy_preferences(store, restore=restored.append)
+    archived_by_title = {item.title: item for item in archived}
+    first = rollback_legacy_preferences(
+        store,
+        restore=restored.append,
+        archived=lambda item: archived_by_title.get(item.title),
+    )
+    second = rollback_legacy_preferences(
+        store,
+        restore=restored.append,
+        archived=lambda item: archived_by_title.get(item.title),
+    )
 
     assert archived == [archived_note]
     assert restored == [archived_note]
     assert first.restored == 1
     assert second.restored == 0
+    assert second.unchanged == 1
     assert "language: Korean replies" in store.snapshot().documents["preferences"].entries
+
+
+def test_rollback_reports_deleted_archive_as_unrestorable_without_restore(tmp_path: Path) -> None:
+    store = ProfileStore(tmp_path, {})
+    archived_note = note("language", "Korean replies")
+    archived: list[LegacyPreference] = []
+    restored: list[LegacyPreference] = []
+
+    migrate_legacy_preferences(store, [archived_note], archive=archived.append)
+    first = rollback_legacy_preferences(store, restore=restored.append, archived=lambda _item: None)
+    second = rollback_legacy_preferences(store, restore=restored.append, archived=lambda _item: None)
+
+    assert archived == [archived_note]
+    assert restored == []
+    assert first.unrestorable == 1
+    assert first.restored == 0
+    assert second.restored == 0
+    assert second.unrestorable == 0
+    assert second.unchanged == 0
