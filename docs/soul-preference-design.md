@@ -179,33 +179,33 @@ Vault: ...\vault (3 notes). Use memory_search / memory_get_note for details.
   profile/                # 에이전트 소유. 항상 컨텍스트.
     user.md               # 사용자 특성 (이름/역할/환경)
     preferences.md        # 선호 (형식/언어/금지사항)
-    style.md              # 관찰된 대화 스타일  ← mnemosyne의 soul.md 대응
+    mask.md              # 관찰된 대화 스타일  ← mnemosyne의 soul.md 대응
     workflow.md           # 작업 진행 방식
     automation.md         # 자동화 지침
   memory/                 # 현행 vault. 인덱스/검색 계층(변경 없음).
 ```
 
-핵심 결정: **mnemosyne의 `system/soul.md`를 그대로 옮기지 않고 `profile/style.md`로
+핵심 결정: **mnemosyne의 `system/soul.md`를 그대로 옮기지 않고 `profile/mask.md`로
 이름을 바꾼다.** 이유 — birkin에는 이미 사람이 소유한 `SOUL.md`가 있고, hermes 문서가
-경고하는 "두 개의 목소리 파일" 혼동을 그대로 수입하게 된다. `style.md`는 에이전트가
+경고하는 "두 개의 목소리 파일" 혼동을 그대로 수입하게 된다. `mask.md`는 에이전트가
 관찰한 스타일 요청만 담고 SOUL.md **다음** 슬롯에 주입하며, `/persona promote`로
 사용자가 승인 시 SOUL.md에 병합한다.
 
 > **결정 D1(2026-08-20, 확정): 분리.** mnemosyne의 `system/soul.md`는 birkin에서
-> `profile/style.md`로 이름을 바꿔 이식한다. `SOUL.md`(사람 소유)와
-> `profile/style.md`(에이전트 소유)의 경계는 hermes의 SOUL/USER 분리와 동일하며,
+> `profile/mask.md`로 이름을 바꿔 이식한다. `SOUL.md`(사람 소유)와
+> `profile/mask.md`(에이전트 소유)의 경계는 hermes의 SOUL/USER 분리와 동일하며,
 > 승격은 `/persona promote`로만 일어난다(에이전트는 `SOUL.md`를 쓰지 않는다).
-> mnemosyne 쪽 파일명은 그대로 두고, birkin의 어댑터에서 `soul → style`로 매핑한다.
+> mnemosyne 쪽 파일명은 그대로 두고, birkin의 어댑터에서 `soul → mask`로 매핑한다.
 
 ### 5.2 주입 (프롬프트 계약)
 
-- 순서: `SOUL.md`(정체성 치환) → `profile/style.md` → `profile/user.md` →
+- 순서: `SOUL.md`(정체성 치환) → `profile/mask.md` → `profile/user.md` →
   `profile/preferences.md` → `profile/workflow.md` → `profile/automation.md` →
   기존 `## What you know about the user`(vault 인덱스) → 작업공간 파일.
 - 역할 파일은 **본문 그대로**, 항목 구분자는 개행 `- ` 리스트(mnemosyne `## Guidance`
   포맷과 호환).
 - 각 블록 헤더에 사용률 표기: `### Preferences [42% — 578/1375 chars]`.
-- 예산(설정 가능, 기본값): `user 1,375` / `preferences 1,375` / `style 800` /
+- 예산(설정 가능, 기본값): `user 1,375` / `preferences 1,375` / `mask 800` /
   `workflow 1,000` / `automation 800`자. 합계 ≈ 5.3KB(~1.9K 토큰).
 - 빈 파일은 블록 자체를 생략(토큰 낭비 방지).
 
@@ -265,7 +265,7 @@ Vault: ...\vault (3 notes). Use memory_search / memory_get_note for details.
 "profile": {
   "enabled": true,
   "write_approval": false,
-  "limits": { "user": 1375, "preferences": 1375, "style": 800,
+  "limits": { "user": 1375, "preferences": 1375, "mask": 800,
               "workflow": 1000, "automation": 800 },
   "background_review": {
     "enabled": true,
@@ -357,7 +357,7 @@ dependencies = [
 
 | ID | 결정 | 반영 위치 |
 |---|---|---|
-| **D1** | **분리** — mnemosyne의 `soul.md`는 birkin에서 `profile/style.md`로 이식. `SOUL.md`는 사람 소유로 유지하고 에이전트는 쓰지 않는다. 승격은 `/persona promote` | §5.1 |
+| **D1** | **분리** — mnemosyne의 `soul.md`는 birkin에서 `profile/mask.md`로 이식. `SOUL.md`는 사람 소유로 유지하고 에이전트는 쓰지 않는다. 승격은 `/persona promote` | §5.1 |
 | **D2** | **보조 모델** — 백그라운드 리뷰는 별도 저가 모델로 실행하고 다이제스트를 재생. 미설정 시 리뷰를 끈다(메인 모델 폴백 없음) | §5.3, §5.7 |
 | **D3** | **의존성 추가** — `ProfileMemory`를 벤더링하지 않고 `birkin-mnemosyne`를 의존성으로 추가. import 경계는 `birkin_mnemosyne.profiles`로 한정 | §5.8 |
 
