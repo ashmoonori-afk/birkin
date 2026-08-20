@@ -239,6 +239,18 @@ DEFAULT_CONFIG: dict[str, Any] = {
     "autosave_max_turns": 40,          # per-file cap (turns); keeps files small
     "autosave_retention_days": 30,     # delete auto__* older than this
     "autosave_max_files": 500,         # hard cap on auto__* file count
+    "profile": {
+        "enabled": False,
+        "write_approval": False,
+        "limits": {"user": 1375, "preferences": 1375, "mask": 800,
+                   "workflow": 1000, "automation": 800},
+        "background_review": {
+            "enabled": False,
+            "provider": None,
+            "model": None,
+            "digest_recent_turns": 6,
+        },
+    },
     # neurosis deep-interview ambiguity threshold (null -> resolution preset or
     # the 0.05 default; or use /neurosis --quick|--standard|--deep). Lower is
     # stricter. See skills/planning/neurosis and birkin/neurosis.py.
@@ -643,6 +655,37 @@ def _resolve_secrets(cfg: dict[str, Any]) -> None:
     _secrets.apply_all(cfg)
 
 
+def _validate_profile_config(cfg: dict[str, Any]) -> None:
+    profile = cfg.get("profile")
+    if not isinstance(profile, dict):
+        raise ValueError("profile must be an object")
+    if not isinstance(profile.get("enabled"), bool):
+        raise ValueError("profile.enabled must be boolean")
+    if not isinstance(profile.get("write_approval"), bool):
+        raise ValueError("profile.write_approval must be boolean")
+    limits = profile.get("limits")
+    required = {"user", "preferences", "mask", "workflow", "automation"}
+    if not isinstance(limits, dict) or set(limits) != required:
+        raise ValueError("profile.limits must contain user, preferences, mask, workflow, automation")
+    for name, value in limits.items():
+        if not isinstance(value, int) or value <= 0:
+            raise ValueError(f"profile.limits.{name} must be a positive integer")
+    review = profile.get("background_review")
+    if not isinstance(review, dict):
+        raise ValueError("profile.background_review must be an object")
+    if not isinstance(review.get("enabled"), bool):
+        raise ValueError("profile.background_review.enabled must be boolean")
+    for key in ("provider", "model"):
+        value = review.get(key)
+        if value is not None and not isinstance(value, str):
+            raise ValueError(f"profile.background_review.{key} must be string or null")
+        if isinstance(value, str) and not value.strip():
+            raise ValueError(f"profile.background_review.{key} must not be empty")
+    turns = review.get("digest_recent_turns")
+    if not isinstance(turns, int) or turns < 0:
+        raise ValueError("profile.background_review.digest_recent_turns must be a non-negative integer")
+
+
 def load_config() -> Config:
     """Load config merged over defaults. Missing file -> defaults.
 
@@ -682,6 +725,7 @@ def load_config() -> Config:
         cfg["cli_access"] = "workspace"
     if not isinstance(cfg.get("cli_network_access"), bool):
         cfg["cli_network_access"] = DEFAULT_CONFIG["cli_network_access"]
+    _validate_profile_config(cfg)
     _resolve_secrets(cfg)
     return cfg
 
