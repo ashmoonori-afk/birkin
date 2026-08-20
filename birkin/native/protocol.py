@@ -176,6 +176,8 @@ def decode_frame(frame: bytes) -> NativeEnvelope:
                 parse_constant=_reject_nonfinite,
             ),
         )
+    except RecursionError as exc:
+        raise NativeProtocolError("E_JSON_DEPTH", "JSON exceeds maximum depth") from exc
     except json.JSONDecodeError as exc:
         raise NativeProtocolError("E_JSON", "frame body is not valid JSON") from exc
     return NativeEnvelope.parse(raw)
