@@ -1,107 +1,76 @@
-"""Windows namespace locking for complete skill-bundle publication."""
+"""Handle-relative Windows publication for complete skill bundles."""
 
 from __future__ import annotations
 
 import os
-import shutil
 import sys
-import tempfile
 from contextlib import contextmanager
 from pathlib import Path
-from typing import Iterator
+from typing import Any, Iterator
 
 from .bundle_publish import BundleSnapshot
-from .manager import _windows_kernel32
+from .bundle_publish_windows_io import (
+    DELETE,
+    READ_ATTRIBUTES,
+    REPARSE_ATTRIBUTE,
+    close,
+    delete_tree,
+    information,
+    mark_delete,
+    open_handle,
+    rename,
+)
+from .bundle_publish_windows_file import (
+    create_directory,
+    populate,
+)
+from .manager import PublicationCleanupError, _windows_kernel32
 
 
 @contextmanager
 def _locked_parent(
     target_root: Path,
     relative_parent: Path,
-) -> Iterator[Path]:
-    import ctypes
-    from ctypes import wintypes
-
+) -> Iterator[tuple[Path, int, Any]]:
     kernel32 = _windows_kernel32()
-    create_file = kernel32.CreateFileW
-    create_file.argtypes = [
-        wintypes.LPCWSTR,
-        wintypes.DWORD,
-        wintypes.DWORD,
-        wintypes.LPVOID,
-        wintypes.DWORD,
-        wintypes.DWORD,
-        wintypes.HANDLE,
-    ]
-    create_file.restype = wintypes.HANDLE
     handles: list[int] = []
     current = target_root
-
-    class FileAttributeTagInfo(ctypes.Structure):
-        _fields_ = [
-            ("FileAttributes", wintypes.DWORD),
-            ("ReparseTag", wintypes.DWORD),
-        ]
-
     try:
         for part in (None, *relative_parent.parts):
             if part is not None:
                 current /= part
                 if not current.exists():
-                    if not kernel32.CreateDirectoryW(str(current), None):
-                        raise OSError(
-                            ctypes.get_last_error(),
-                            str(current),
-                        )
-            handle = create_file(
-                str(current),
-                0x0080,
-                0x00000001 | 0x00000002,
-                None,
-                3,
-                0x02000000 | 0x00200000,
-                None,
+                    create_directory(kernel32, current)
+            handle = open_handle(
+                kernel32,
+                current,
+                access=READ_ATTRIBUTES,
             )
-            if handle == wintypes.HANDLE(-1).value:
-                raise OSError(ctypes.get_last_error(), str(current))
-            info = FileAttributeTagInfo()
-            if not kernel32.GetFileInformationByHandleEx(
-                handle,
-                9,
-                ctypes.byref(info),
-                ctypes.sizeof(info),
-            ):
-                kernel32.CloseHandle(handle)
-                raise OSError(ctypes.get_last_error(), str(current))
-            if info.FileAttributes & 0x00000400:
-                kernel32.CloseHandle(handle)
+            attributes, _ = information(kernel32, handle)
+            if attributes & REPARSE_ATTRIBUTE:
+                close(kernel32, handle)
                 raise OSError(
                     "skill mirror parent is a reparse point"
                 )
-            handles.append(int(handle))
-        yield current
+            handles.append(handle)
+        yield current, handles[-1], kernel32
     finally:
         active_error = sys.exc_info()[1]
-        close_error = 0
+        close_error: OSError | None = None
         for handle in reversed(handles):
-            if not kernel32.CloseHandle(wintypes.HANDLE(handle)):
-                close_error = (
-                    close_error
-                    or ctypes.get_last_error()
-                    or 1
-                )
-        if close_error and active_error is None:
-            raise OSError(close_error, str(current))
+            try:
+                close(kernel32, handle)
+            except OSError as error:
+                close_error = close_error or error
+        if active_error is None and close_error is not None:
+            raise close_error
 
 
-def _populate(root: Path, snapshot: BundleSnapshot) -> None:
-    for relative in snapshot.directories:
-        (root / Path(relative.as_posix())).mkdir(parents=True)
-    for entry in snapshot.files:
-        path = root / Path(entry.relative.as_posix())
-        path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_bytes(entry.payload)
-        path.chmod(entry.mode)
+def _missing(error: OSError) -> bool:
+    return (
+        getattr(error, "winerror", None)
+        or getattr(error, "errno", None)
+    ) in (2, 3)
 
 
 def publish_windows(
@@ -111,28 +80,129 @@ def publish_windows(
     replace: bool,
 ) -> bool:
     relative = target.relative_to(target_root)
-    with _locked_parent(target_root, relative.parent) as parent:
+    with _locked_parent(
+        target_root,
+        relative.parent,
+    ) as (parent, parent_handle, kernel32):
         destination = parent / relative.name
-        if os.path.lexists(destination) and not replace:
-            return False
-        operation = Path(
-            tempfile.mkdtemp(prefix=".birkin-sync-", dir=parent)
-        )
-        previous = operation / "previous"
-        candidate = operation / "candidate"
-        candidate.mkdir()
         try:
-            _populate(candidate, snapshot)
-            if os.path.lexists(destination):
-                destination.replace(previous)
-            try:
-                candidate.replace(destination)
-            except OSError:
-                if previous.exists():
-                    previous.replace(destination)
+            previous_handle = open_handle(
+                kernel32,
+                destination,
+                access=READ_ATTRIBUTES | DELETE,
+            )
+        except OSError as error:
+            if not _missing(error):
                 raise
-            if previous.exists():
-                shutil.rmtree(previous)
-            return True
+            previous_handle = -1
+        if previous_handle >= 0 and not replace:
+            close(kernel32, previous_handle)
+            return False
+
+        operation = parent / f".birkin-sync-{os.urandom(12).hex()}"
+        create_directory(kernel32, operation)
+        operation_handle = open_handle(
+            kernel32,
+            operation,
+            access=READ_ATTRIBUTES | DELETE,
+        )
+        candidate = operation / "candidate"
+        try:
+            create_directory(kernel32, candidate)
+        except OSError:
+            close(kernel32, operation_handle)
+            raise
+        candidate_handle = open_handle(
+            kernel32,
+            candidate,
+            access=READ_ATTRIBUTES | DELETE,
+        )
+        previous_moved = False
+        published = False
+        preserve_operation = False
+        try:
+            populate(kernel32, candidate, snapshot)
+            if previous_handle >= 0:
+                rename(
+                    kernel32,
+                    previous_handle,
+                    operation_handle,
+                    "previous",
+                )
+                previous_moved = True
+            try:
+                rename(
+                    kernel32,
+                    candidate_handle,
+                    parent_handle,
+                    relative.name,
+                )
+                published = True
+            except OSError:
+                if previous_moved:
+                    try:
+                        rename(
+                            kernel32,
+                            previous_handle,
+                            parent_handle,
+                            relative.name,
+                        )
+                        previous_moved = False
+                    except OSError as rollback_error:
+                        preserve_operation = True
+                        raise PublicationCleanupError(
+                            relative.as_posix(),
+                            snapshot.digest(),
+                            getattr(
+                                rollback_error,
+                                "winerror",
+                                None,
+                            ),
+                        ) from rollback_error
+                raise
+            if previous_moved:
+                try:
+                    delete_tree(
+                        kernel32,
+                        operation / "previous",
+                        previous_handle,
+                    )
+                    previous_handle = -1
+                    previous_moved = False
+                except OSError as cleanup_error:
+                    preserve_operation = True
+                    raise PublicationCleanupError(
+                        relative.as_posix(),
+                        snapshot.digest(),
+                        getattr(cleanup_error, "winerror", None),
+                    ) from cleanup_error
         finally:
-            shutil.rmtree(operation, ignore_errors=True)
+            active_error = sys.exc_info()[1]
+            if not published and candidate_handle >= 0:
+                try:
+                    delete_tree(
+                        kernel32,
+                        candidate,
+                        candidate_handle,
+                    )
+                    candidate_handle = -1
+                except OSError:
+                    preserve_operation = True
+            elif candidate_handle >= 0:
+                close(kernel32, candidate_handle)
+                candidate_handle = -1
+            if previous_handle >= 0:
+                close(kernel32, previous_handle)
+            if preserve_operation:
+                close(kernel32, operation_handle)
+            else:
+                try:
+                    mark_delete(kernel32, operation_handle)
+                finally:
+                    close(kernel32, operation_handle)
+            if active_error is None and preserve_operation:
+                raise PublicationCleanupError(
+                    relative.as_posix(),
+                    snapshot.digest(),
+                )
+        return True

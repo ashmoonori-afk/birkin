@@ -827,6 +827,164 @@ def test_bundle_root_closes_after_parent_close_failure(
     assert len(close_calls) == 4
 
 
+@pytest.mark.skipif(
+    os.name != "nt",
+    reason="Windows handle-relative bundle publication",
+)
+def test_windows_sync_never_uses_path_replace(
+        tmp_path,
+        monkeypatch):
+    from birkin.skills import sync
+
+    source = tmp_path / "upstream"
+    _skill(source, "A clean helper.", name="handles")
+
+    def reject_path_replace(*_args, **_kwargs):
+        raise AssertionError("Windows bundle publication used Path.replace")
+
+    monkeypatch.setattr(Path, "replace", reject_path_replace)
+
+    assert sync.sync_skills(source) == ["handles"]
+
+
+@pytest.mark.skipif(
+    os.name != "nt",
+    reason="Windows candidate handle locking",
+)
+def test_windows_candidate_handle_blocks_reparse_swap(
+        tmp_path,
+        monkeypatch):
+    from birkin.skills import bundle_publish_windows, sync
+
+    source = tmp_path / "upstream"
+    _skill(source, "A clean helper.", name="locked-candidate")
+    real_populate = bundle_publish_windows.populate
+    blocked = False
+
+    def attempt_swap(kernel32, candidate, snapshot) -> None:
+        nonlocal blocked
+        try:
+            candidate.rename(candidate.with_name("moved-candidate"))
+        except OSError:
+            blocked = True
+        real_populate(kernel32, candidate, snapshot)
+
+    monkeypatch.setattr(
+        bundle_publish_windows,
+        "populate",
+        attempt_swap,
+    )
+
+    assert sync.sync_skills(source) == ["locked-candidate"]
+    assert blocked is True
+
+
+@pytest.mark.skipif(
+    os.name != "nt",
+    reason="Windows handle-relative rollback preservation",
+)
+def test_windows_failed_rollback_preserves_previous_bundle(
+        tmp_path,
+        monkeypatch):
+    from birkin import config
+    from birkin.skills import bundle_publish_windows, sync
+    from birkin.skills.manager import PublicationCleanupError
+
+    source = tmp_path / "upstream"
+    skill = _skill(source, "Old bundle.", name="windows-rollback")
+    assert sync.sync_skills(source) == ["windows-rollback"]
+    destination = (
+        config.user_skills_dir()
+        / "mirrors"
+        / "windows-rollback"
+    )
+    original = (destination / "SKILL.md").read_bytes()
+    (skill / "SKILL.md").write_text(
+        "---\nname: windows-rollback\ndescription: d\n---\n\n"
+        "New bundle.\n",
+        encoding="utf-8",
+    )
+    real_rename = bundle_publish_windows.rename
+    target_renames = 0
+
+    def fail_publish_and_rollback(
+            kernel32,
+            source_handle,
+            parent_handle,
+            name) -> None:
+        nonlocal target_renames
+        if name == "windows-rollback":
+            target_renames += 1
+            raise OSError("injected Windows rename failure")
+        real_rename(
+            kernel32,
+            source_handle,
+            parent_handle,
+            name,
+        )
+
+    monkeypatch.setattr(
+        bundle_publish_windows,
+        "rename",
+        fail_publish_and_rollback,
+    )
+
+    with pytest.raises(PublicationCleanupError):
+        sync.sync_skills(source, force=True)
+
+    residues = list(
+        destination.parent.glob(".birkin-sync-*")
+    )
+    assert target_renames == 2
+    assert len(residues) == 1
+    assert (residues[0] / "previous" / "SKILL.md").read_bytes() == original
+
+
+@pytest.mark.skipif(
+    os.name != "nt",
+    reason="Windows committed cleanup classification",
+)
+def test_windows_post_commit_cleanup_failure_is_typed(
+        tmp_path,
+        monkeypatch):
+    from birkin import config
+    from birkin.skills import bundle_publish_windows, sync
+    from birkin.skills.manager import PublicationCleanupError
+
+    source = tmp_path / "upstream"
+    skill = _skill(source, "Old bundle.", name="windows-cleanup")
+    assert sync.sync_skills(source) == ["windows-cleanup"]
+    destination = (
+        config.user_skills_dir()
+        / "mirrors"
+        / "windows-cleanup"
+    )
+    (skill / "SKILL.md").write_text(
+        "---\nname: windows-cleanup\ndescription: d\n---\n\n"
+        "New bundle.\n",
+        encoding="utf-8",
+    )
+    real_delete = bundle_publish_windows.delete_tree
+
+    def fail_previous_cleanup(kernel32, path, handle) -> None:
+        if Path(path).name == "previous":
+            raise OSError("injected Windows cleanup failure")
+        real_delete(kernel32, path, handle)
+
+    monkeypatch.setattr(
+        bundle_publish_windows,
+        "delete_tree",
+        fail_previous_cleanup,
+    )
+
+    with pytest.raises(PublicationCleanupError):
+        sync.sync_skills(source, force=True)
+
+    assert "New bundle." in (
+        destination / "SKILL.md"
+    ).read_text(encoding="utf-8")
+
+
 def test_rejected_forced_sync_preserves_existing_mirror(tmp_path):
     from birkin import config
     from birkin.skills import sync
