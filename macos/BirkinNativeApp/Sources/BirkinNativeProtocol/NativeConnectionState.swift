@@ -31,19 +31,25 @@ public struct NativeReadySession: Equatable, Sendable {
     public let sessionCapability: String
     public let capabilityExpiresAt: Date?
     public let capabilityHardExpiresAt: Date?
+    public let supportedCommands: Set<String>
+    public let sessionPresets: [NativeSessionPreset]
 
     public init(
         instanceID: String,
         serverVersion: String,
         sessionCapability: String,
         capabilityExpiresAt: Date? = nil,
-        capabilityHardExpiresAt: Date? = nil
+        capabilityHardExpiresAt: Date? = nil,
+        supportedCommands: Set<String> = [],
+        sessionPresets: [NativeSessionPreset] = []
     ) {
         self.instanceID = instanceID
         self.serverVersion = serverVersion
         self.sessionCapability = sessionCapability
         self.capabilityExpiresAt = capabilityExpiresAt
         self.capabilityHardExpiresAt = capabilityHardExpiresAt
+        self.supportedCommands = supportedCommands
+        self.sessionPresets = sessionPresets
     }
 
     public func hasLiveCapability(at date: Date) -> Bool {
@@ -57,6 +63,8 @@ public struct NativeReadySession: Equatable, Sendable {
         lhs.instanceID == rhs.instanceID
             && lhs.serverVersion == rhs.serverVersion
             && lhs.sessionCapability == rhs.sessionCapability
+            && lhs.supportedCommands == rhs.supportedCommands
+            && lhs.sessionPresets == rhs.sessionPresets
     }
 }
 
@@ -240,7 +248,9 @@ private extension NativeReadySession {
             serverVersion: serverVersion,
             sessionCapability: token,
             capabilityExpiresAt: expiresAt ?? capabilityExpiresAt,
-            capabilityHardExpiresAt: hardExpiresAt ?? capabilityHardExpiresAt
+            capabilityHardExpiresAt: hardExpiresAt ?? capabilityHardExpiresAt,
+            supportedCommands: supportedCommands,
+            sessionPresets: sessionPresets
         )
     }
 }

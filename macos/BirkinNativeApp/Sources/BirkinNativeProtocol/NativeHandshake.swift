@@ -21,11 +21,27 @@ extension NativeTransportActor {
               case .string(let token) = capability["token"],
               case .string(let expiresAt) = capability["expires_at"],
               case .string(let hardExpiresAt) = capability["hard_expires_at"],
+              case .object(let capabilities) = inbound.body["capabilities"],
+              case .array(let commandValues) = capabilities["commands"],
+              case .object(let features) = capabilities["features"],
+              case .array(let presetValues) = features["session_presets"],
               let expiry = NativeProtocolDate.parse(expiresAt),
               let hardExpiry = NativeProtocolDate.parse(hardExpiresAt)
         else {
             throw NativeTransportError("ready body is missing transport session fields")
         }
+        let commands = try commandValues.map { value in
+            guard case .string(let command) = value else {
+                throw NativeTransportError("ready command advertisement must contain strings")
+            }
+            return command
+        }
+        let presets = try presetValues.map { value in
+            guard case .object(let preset) = value else {
+                throw NativeTransportError("ready session presets must contain objects")
+            }
+            return try NativeSessionPreset.decode(preset)
+        }.sorted { $0.order < $1.order }
         return NativeHandshakeTranscript(
             hello: outbound,
             ready: inbound,
@@ -35,7 +51,9 @@ extension NativeTransportActor {
                 serverVersion: serverVersion,
                 sessionCapability: token,
                 capabilityExpiresAt: expiry,
-                capabilityHardExpiresAt: hardExpiry
+                capabilityHardExpiresAt: hardExpiry,
+                supportedCommands: Set(commands),
+                sessionPresets: presets
             )
         )
     }

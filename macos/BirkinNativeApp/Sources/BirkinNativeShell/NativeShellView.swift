@@ -7,9 +7,11 @@ public struct NativeShellView: View {
     private let now: Date
     private let diagnosticsAction: () -> Void
     private let mutationAction: (ShellMutationControl) -> Void
+    private let templateCommandAction: (NativeCommandRequest) -> Void
 
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
     @State private var selectedColumn: ShellColumnID
+    @StateObject private var templateLauncher: TemplateLauncherModel
 
     public init(
         store: NativeProjectionStore,
@@ -17,14 +19,21 @@ public struct NativeShellView: View {
         now: Date = Date(),
         initialColumn: ShellColumnID = .navigation,
         diagnosticsAction: @escaping () -> Void = {},
-        mutationAction: @escaping (ShellMutationControl) -> Void = { _ in }
+        mutationAction: @escaping (ShellMutationControl) -> Void = { _ in },
+        templateCommandAction: @escaping (NativeCommandRequest) -> Void = { _ in },
+        makeSessionID: @escaping () -> String = { UUID().uuidString.lowercased() }
     ) {
         self.store = store
         self.connectionState = connectionState
         self.now = now
         self.diagnosticsAction = diagnosticsAction
         self.mutationAction = mutationAction
+        self.templateCommandAction = templateCommandAction
         _selectedColumn = State(initialValue: initialColumn)
+        _templateLauncher = StateObject(wrappedValue: TemplateLauncherModel(
+            presets: Self.readySession(in: connectionState)?.sessionPresets ?? [],
+            makeSessionID: makeSessionID
+        ))
     }
 
     public var body: some View {
@@ -131,6 +140,14 @@ public struct NativeShellView: View {
                 .font(.headline)
                 .fixedSize(horizontal: false, vertical: true)
             stateText(section.state)
+            if section.id == .sessions {
+                templateLaunchers(availability: availability)
+            }
+            if section.id == .composer {
+                TextEditor(text: $templateLauncher.draft)
+                    .frame(minHeight: 72)
+                    .accessibilityLabel("Editable message draft")
+            }
             if let control = mutationControl(for: section.id) {
                 let surfaceEnabled = isAdvertised(control)
                 Button(controlTitle(control)) { mutationAction(control) }
@@ -169,10 +186,52 @@ public struct NativeShellView: View {
         }
     }
 
+    @ViewBuilder
+    private func templateLaunchers(availability: MutationAvailability) -> some View {
+        ForEach(templateLauncher.presets) { preset in
+            Button {
+                guard let session = Self.readySession(in: connectionState) else { return }
+                templateLauncher.launch(
+                    preset,
+                    expectedCursor: store.latestAppliedCursor ?? 0,
+                    sessionCapability: session.sessionCapability,
+                    submit: templateCommandAction
+                )
+            } label: {
+                HStack {
+                    Image(systemName: templateLauncher.selectedPresetID == preset.id
+                        ? "largecircle.fill.circle" : "circle")
+                    Text(preset.name)
+                }
+            }
+            .disabled(!availability.isEnabled || !isSessionCreateAdvertised)
+            .accessibilityLabel("Launch \(preset.name) template")
+        }
+    }
+
+    private var isSessionCreateAdvertised: Bool {
+        Self.readySession(in: connectionState)?
+            .supportedCommands.contains("session.create") == true
+    }
+
     private func isAdvertised(_ control: ShellMutationControl) -> Bool {
         switch control {
-        case .newSession: false
-        case .sendMessage: store.projection?.composer.canSend == true
+        case .newSession: isSessionCreateAdvertised
+        case .sendMessage:
+            store.projection?.composer.canSend == true
+                && Self.readySession(in: connectionState)?
+                    .supportedCommands.contains("chat.send") == true
+        }
+    }
+
+    private static func readySession(
+        in state: NativeConnectionState
+    ) -> NativeReadySession? {
+        switch state {
+        case .ready(let session), .fallback(.ready(let session)):
+            session
+        default:
+            nil
         }
     }
 
