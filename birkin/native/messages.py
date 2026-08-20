@@ -47,12 +47,14 @@ class NativeMessageFactory:
         command_types: frozenset[str],
         session_presets: tuple[SessionPreset, ...],
         surface_names: tuple[str, ...] = (),
+        voice_input_available: bool = False,
     ) -> None:
         self._instance_id = instance_id
         self._server_version = server_version
         self._command_types = command_types
         self._session_presets = session_presets
         self._surface_names = surface_names
+        self._voice_input_available = voice_input_available
         self._next_id = 0
         self._id_lock = threading.Lock()
 
@@ -91,6 +93,7 @@ class NativeMessageFactory:
                             preset.to_json() for preset in self._session_presets
                         ],
                         "surfaces": list(self._surface_names),
+                        "voice_input": self._voice_input_available,
                     },
                 },
             },

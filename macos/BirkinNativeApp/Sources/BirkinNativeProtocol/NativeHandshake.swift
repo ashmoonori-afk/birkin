@@ -39,6 +39,12 @@ extension NativeTransportActor {
             }
             return command
         }
+        let voiceInputAvailable: Bool
+        if case .bool(let advertised) = features["voice_input"] {
+            voiceInputAvailable = advertised
+        } else {
+            voiceInputAvailable = false
+        }
         let presets = try presetValues.map { value in
             guard case .object(let preset) = value else {
                 throw NativeTransportError("ready session presets must contain objects")
@@ -57,7 +63,8 @@ extension NativeTransportActor {
                 capabilityHardExpiresAt: hardExpiry,
                 supportedCommands: Set(commands),
                 sessionPresets: presets,
-                maxPayloadBytes: maxPayloadBytes
+                maxPayloadBytes: maxPayloadBytes,
+                voiceInputAvailable: voiceInputAvailable
             )
         )
     }

@@ -9,12 +9,14 @@ public struct NativeShellView: View {
     private let mutationAction: (ShellMutationControl) -> Void
     private let templateCommandAction: (NativeCommandRequest) -> Void
     private let productSurfaceAction: (ProductSurfaceControl) -> Void
+    private let voiceInputAction: () -> Void
 
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
     @State private var selectedColumn: ShellColumnID
     @StateObject private var templateLauncher: TemplateLauncherModel
     @StateObject private var conversationComposer: ConversationComposerModel
     @StateObject private var jailedDrop: JailedDropModel
+    @StateObject private var voiceInput: VoiceInputModel
     @StateObject private var terminalControls: TerminalControlModel
     @StateObject private var activityFilter: ActivityFilterModel
 
@@ -27,6 +29,7 @@ public struct NativeShellView: View {
         mutationAction: @escaping (ShellMutationControl) -> Void = { _ in },
         templateCommandAction: @escaping (NativeCommandRequest) -> Void = { _ in },
         productSurfaceAction: @escaping (ProductSurfaceControl) -> Void = { _ in },
+        voiceInputAction: @escaping () -> Void = {},
         makeSessionID: @escaping () -> String = { UUID().uuidString.lowercased() }
     ) {
         self.store = store
@@ -36,6 +39,7 @@ public struct NativeShellView: View {
         self.mutationAction = mutationAction
         self.templateCommandAction = templateCommandAction
         self.productSurfaceAction = productSurfaceAction
+        self.voiceInputAction = voiceInputAction
         _selectedColumn = State(initialValue: initialColumn)
         _templateLauncher = StateObject(wrappedValue: TemplateLauncherModel(
             presets: Self.readySession(in: connectionState)?.sessionPresets ?? [],
@@ -43,6 +47,7 @@ public struct NativeShellView: View {
         ))
         _conversationComposer = StateObject(wrappedValue: ConversationComposerModel())
         _jailedDrop = StateObject(wrappedValue: JailedDropModel())
+        _voiceInput = StateObject(wrappedValue: VoiceInputModel())
         _terminalControls = StateObject(wrappedValue: TerminalControlModel())
         _activityFilter = StateObject(wrappedValue: ActivityFilterModel())
     }
@@ -223,6 +228,13 @@ public struct NativeShellView: View {
                     isSendEnabled: availability.isEnabled && isAdvertised(.sendMessage)
                 ) {
                     sendDraft(availability: availability)
+                }
+                if let session = Self.readySession(in: connectionState) {
+                    VoiceInputControl(
+                        model: voiceInput,
+                        session: session,
+                        beginCapture: voiceInputAction
+                    )
                 }
             }
             if section.id == .terminal, store.projection?.terminals.isEmpty != false {

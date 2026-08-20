@@ -34,6 +34,7 @@ public struct NativeReadySession: Equatable, Sendable {
     public let supportedCommands: Set<String>
     public let sessionPresets: [NativeSessionPreset]
     public let maxPayloadBytes: Int
+    public let voiceInputAvailable: Bool
 
     public init(
         instanceID: String,
@@ -43,7 +44,8 @@ public struct NativeReadySession: Equatable, Sendable {
         capabilityHardExpiresAt: Date? = nil,
         supportedCommands: Set<String> = [],
         sessionPresets: [NativeSessionPreset] = [],
-        maxPayloadBytes: Int = NativePayloadSizing.defaultMaxPayloadBytes
+        maxPayloadBytes: Int = NativePayloadSizing.defaultMaxPayloadBytes,
+        voiceInputAvailable: Bool = false
     ) {
         self.instanceID = instanceID
         self.serverVersion = serverVersion
@@ -53,6 +55,7 @@ public struct NativeReadySession: Equatable, Sendable {
         self.supportedCommands = supportedCommands
         self.sessionPresets = sessionPresets
         self.maxPayloadBytes = maxPayloadBytes
+        self.voiceInputAvailable = voiceInputAvailable
     }
 
     public func hasLiveCapability(at date: Date) -> Bool {
@@ -69,6 +72,7 @@ public struct NativeReadySession: Equatable, Sendable {
             && lhs.supportedCommands == rhs.supportedCommands
             && lhs.sessionPresets == rhs.sessionPresets
             && lhs.maxPayloadBytes == rhs.maxPayloadBytes
+            && lhs.voiceInputAvailable == rhs.voiceInputAvailable
     }
 }
 
@@ -255,7 +259,8 @@ private extension NativeReadySession {
             capabilityHardExpiresAt: hardExpiresAt ?? capabilityHardExpiresAt,
             supportedCommands: supportedCommands,
             sessionPresets: sessionPresets,
-            maxPayloadBytes: maxPayloadBytes
+            maxPayloadBytes: maxPayloadBytes,
+            voiceInputAvailable: voiceInputAvailable
         )
     }
 }

@@ -125,6 +125,7 @@ class NativeBridgeServer:
         outbound_capacity: int = 512,
         on_disconnect: Callable[[], None] | None = None,
         surface_authority: SurfaceProjectionAuthority | None = None,
+        voice_input_available: bool = False,
     ) -> None:
         if heartbeat_interval <= 0 or peer_timeout <= 0:
             raise ValueError("heartbeat intervals must be positive")
@@ -157,6 +158,7 @@ class NativeBridgeServer:
                 if surface_authority is not None
                 else ()
             ),
+            voice_input_available=voice_input_available,
         )
         self._commands = NativeCommandExecutor(command_router, self._messages)
         self._heartbeat_interval = heartbeat_interval
