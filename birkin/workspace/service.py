@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import threading
+from dataclasses import replace
 from collections.abc import Callable, Mapping
 from pathlib import Path
 from typing import final
@@ -21,6 +22,7 @@ from .records import (
     WorkspaceSnapshot,
 )
 from .snapshot import reduce_snapshot
+from .working_memory import project_working_memory
 
 CommandHandler = Callable[[dict[str, JsonValue]], dict[str, JsonValue]]
 EventListener = Callable[[WorkspaceEvent], None]
@@ -216,7 +218,14 @@ class WorkspaceService:
         return self._journal.events(after=after)
 
     def snapshot(self) -> WorkspaceSnapshot:
-        return reduce_snapshot(
+        snapshot = reduce_snapshot(
             self._journal.session_id,
             self._journal.events(),
+        )
+        files = next(
+            panel.items for panel in snapshot.panels if panel.key == "files_evidence"
+        )
+        return replace(
+            snapshot,
+            working_memory=project_working_memory(snapshot.session_id, files),
         )

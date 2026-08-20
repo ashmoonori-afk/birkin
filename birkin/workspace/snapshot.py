@@ -194,4 +194,17 @@ def reduce_snapshot(
             can_resume=interrupted and not active_commands,
         ),
         status=WorkspaceStatus(connection="connected"),
+        working_memory={
+            "revision": 0,
+            "goal": None,
+            "fields": {
+                "corrections": [],
+                "constraints": [],
+                "decisions": [],
+                "incomplete": [],
+                "evidence": [],
+                "next_actions": [],
+            },
+            "files_evidence": list(panel_items["files_evidence"]),
+        },
     )

@@ -81,10 +81,9 @@ def test_native_projection_maps_goal_fields_files_and_revision(tmp_path: Path) -
                 "cursor": 3,
                 "kind": "evidence",
                 "ui_state": "succeeded",
-                "path": "/Users/private/workspace/main.py",
-                "authorization": "[REDACTED]",
             }
         ],
     }
     rendered = str(batch.snapshot)
     assert "SEEDED_PUBLIC_SECRET" not in rendered
+    assert "/Users/private" not in rendered

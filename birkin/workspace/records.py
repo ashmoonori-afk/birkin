@@ -167,6 +167,7 @@ class WorkspaceSnapshot:
     conversation: tuple[dict[str, object], ...]
     composer: ComposerState
     status: WorkspaceStatus
+    working_memory: dict[str, object]
 
     def to_json(self) -> dict[str, object]:
         return {
@@ -183,4 +184,5 @@ class WorkspaceSnapshot:
                 "can_resume": self.composer.can_resume,
             },
             "status": {"connection": self.status.connection},
+            "working_memory": self.working_memory,
         }
