@@ -48,6 +48,11 @@ def test_terminal_create_requires_shell_approval_before_lease(
     assert pending is not None
     assert pending["category"] == "shell"
     assert pending["status"] == "pending"
+    requested = next(payload for kind, payload in recorder.events if kind == "approval.requested")
+    assert requested["approval_id"] == pending["id"]
+    assert requested["risk"] == "high"
+    assert requested["sealed"] is False
+    assert requested["decided"] is False
     assert not any(kind == "terminal.opened" for kind, _ in recorder.events)
     assert terminal.active_process_ids == ()
 

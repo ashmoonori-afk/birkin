@@ -20,6 +20,7 @@ from typing import Any, final
 
 from birkin import approvals, store
 
+from .approval_projection import approval_item
 from .contracts import (
     ProtocolError,
     TerminalApprovalRequired,
@@ -129,6 +130,13 @@ class TerminalAuthority:
             )
             approval_id = str(proposal["id"])
             if not proposal.get("auto"):
+                pending = store.get_pending(approval_id)
+                if pending is not None:
+                    projected = approval_item(pending)
+                    _ = self._emit(
+                        "approval.requested",
+                        {"approval_id": approval_id, **projected},
+                    )
                 raise TerminalApprovalRequired(approval_id)
         if not isinstance(approval_id, str) or not self._approved(
             approval_id, cwd=cwd, shell=shell

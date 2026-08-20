@@ -15,7 +15,7 @@ def approval_items() -> tuple[dict[str, object], ...]:
     for status in ("approved", "rejected", "error", "expired"):
         records.extend(store.list_resolved(status))
     records.sort(key=lambda record: str(record.get("created") or ""))
-    return tuple(_project(record) for record in records)
+    return tuple(approval_item(record) for record in records)
 
 
 def approval_policy() -> dict[str, object]:
@@ -40,7 +40,7 @@ def approval_policy() -> dict[str, object]:
     }
 
 
-def _project(record: dict[str, Any]) -> dict[str, object]:
+def approval_item(record: dict[str, Any]) -> dict[str, object]:
     status = str(record.get("status") or "pending")
     category = str(record.get("category") or "")
     payload = record.get("payload")
