@@ -12,6 +12,14 @@ public enum ShellColumnID: String, CaseIterable, Equatable, Sendable {
         case .context: "Context"
         }
     }
+
+    public var accessibilitySortPriority: Double {
+        switch self {
+        case .navigation: 3
+        case .primary: 2
+        case .context: 1
+        }
+    }
 }
 
 public enum ShellSectionID: String, CaseIterable, Equatable, Sendable {

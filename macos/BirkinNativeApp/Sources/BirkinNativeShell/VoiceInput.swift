@@ -70,6 +70,8 @@ public struct VoiceInputControl: View {
                     systemImage: model.isListening ? "waveform" : "mic"
                 )
             }
+            .accessibilityLabel("Start voice input")
+            .accessibilityValue(model.isListening ? "Listening" : "Idle")
             .accessibilityHint("Transcription is inserted into the editable draft and is not sent")
         }
     }

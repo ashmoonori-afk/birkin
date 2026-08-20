@@ -192,9 +192,13 @@ public struct TerminalView: View {
                     .onSubmit { submitInput() }
                     .disabled(!canMutate)
                     .accessibilityLabel("Terminal input")
-                Button("Run", action: submitInput).disabled(!canMutate || input.isEmpty)
+                Button("Run", action: submitInput)
+                    .disabled(!canMutate || input.isEmpty)
+                    .accessibilityLabel("Run terminal input")
             }
         }
+        .accessibilityElement(children: .contain)
+        .accessibilityLabel("Python terminal")
         .confirmationDialog(
             "Close this Python-owned terminal?",
             isPresented: $confirmsClose,

@@ -27,7 +27,8 @@ public struct ConnectionStatusPill: View {
                 .strokeBorder(tint.opacity(0.7), lineWidth: 1)
         }
         .accessibilityElement(children: .combine)
-        .accessibilityLabel(
+        .accessibilityLabel("Connection status")
+        .accessibilityValue(
             "\(presentation.title), \(presentation.transportLabel), \(presentation.detail)"
         )
     }
@@ -59,6 +60,7 @@ public struct ConnectionStatusPill: View {
         Button(presentation.diagnosticsLabel, action: diagnosticsAction)
             .buttonStyle(DiagnosticsButtonStyle())
             .fixedSize(horizontal: false, vertical: true)
+            .accessibilityLabel("Show connection diagnostics")
             .accessibilityHint("Opens bounded connection diagnostics")
     }
 

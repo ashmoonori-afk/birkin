@@ -92,7 +92,10 @@ public struct ApprovalCardView: View {
             }
             HStack {
                 Button("Reject", role: .destructive, action: reject)
-                Button("Approve", action: approve).buttonStyle(.borderedProminent)
+                    .accessibilityLabel("Reject approval")
+                Button("Approve", action: approve)
+                    .buttonStyle(.borderedProminent)
+                    .accessibilityLabel("Approve request")
             }.disabled(!canDecide || presentation.isDecided)
         }
         .padding(14)

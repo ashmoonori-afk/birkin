@@ -33,6 +33,7 @@ public struct ActivityListView: View {
     public var body: some View {
         VStack(alignment: .leading, spacing: 8) {
             Toggle("Hide read", isOn: $filter.hideRead)
+                .accessibilityLabel("Hide read activity")
                 .accessibilityHint("Filters this view only and is not saved")
             ForEach(Array(filter.visible(items).enumerated()), id: \.offset) { _, item in
                 Button {
@@ -50,6 +51,7 @@ public struct ActivityListView: View {
                     }
                 }
                 .buttonStyle(.plain)
+                .accessibilityLabel("Activity receipt")
             }
         }
     }

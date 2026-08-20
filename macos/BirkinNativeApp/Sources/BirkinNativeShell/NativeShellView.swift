@@ -115,6 +115,8 @@ public struct NativeShellView: View {
         ForEach(ShellColumnID.allCases, id: \.self) { column in
             Button(column.title) { selectedColumn = column }
                 .buttonStyle(.plain)
+                .accessibilityLabel("Show \(column.title) panel")
+                .accessibilityAddTraits(selectedColumn == column ? .isSelected : [])
                 .fontWeight(selectedColumn == column ? .bold : .regular)
                 .padding(.horizontal, 8)
                 .padding(.vertical, 5)
@@ -145,6 +147,7 @@ public struct NativeShellView: View {
         }
         .accessibilityElement(children: .contain)
         .accessibilityLabel("\(column.id.title) column")
+        .accessibilitySortPriority(column.id.accessibilitySortPriority)
     }
 
     private func sectionView(
@@ -246,6 +249,7 @@ public struct NativeShellView: View {
                 let surfaceEnabled = isAdvertised(control)
                 Button(controlTitle(control)) { mutationAction(control) }
                     .disabled(!availability.isEnabled || !surfaceEnabled)
+                    .accessibilityLabel(control == .newSession ? "New session" : controlTitle(control))
                 if !availability.isEnabled || !surfaceEnabled {
                     Text(availability.disabledReason ?? "Not advertised by Python.")
                         .font(.caption)
@@ -257,6 +261,8 @@ public struct NativeShellView: View {
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(12)
         .background(.quaternary.opacity(0.45), in: RoundedRectangle(cornerRadius: 10))
+        .accessibilityElement(children: .contain)
+        .accessibilityLabel(section.id.title)
     }
 
     private func stateText(_ state: ShellSectionState) -> some View {

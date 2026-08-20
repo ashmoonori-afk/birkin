@@ -157,6 +157,7 @@ public struct ConversationComposerView: View {
     public var body: some View {
         VStack(alignment: .leading, spacing: 8) {
             Toggle("Code mode", isOn: $model.isCodeMode)
+                .accessibilityLabel("Code mode")
             IMEAwareTextEditor(text: $model.draft, send: send)
                 .frame(minHeight: 72)
                 .font(model.isCodeMode ? .system(.body, design: .monospaced) : .body)
@@ -168,6 +169,7 @@ public struct ConversationComposerView: View {
                 Spacer()
                 Button("Send", action: send)
                     .keyboardShortcut(.return, modifiers: .command)
+                    .accessibilityLabel("Send message")
                     .disabled(!isSendEnabled)
             }
             if let reason = model.visibleReason {

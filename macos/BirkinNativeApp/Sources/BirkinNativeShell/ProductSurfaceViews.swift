@@ -40,9 +40,13 @@ public struct BrowserAsideView: View {
         VStack(alignment: .leading, spacing: 8) {
             HStack {
                 Button(action: back) { Image(systemName: "chevron.backward") }
+                    .accessibilityLabel("Browser back")
                 Button(action: forward) { Image(systemName: "chevron.forward") }
+                    .accessibilityLabel("Browser forward")
                 Button(action: reload) { Image(systemName: "arrow.clockwise") }
+                    .accessibilityLabel("Reload browser")
                 Button("Navigate", action: navigate)
+                    .accessibilityLabel("Navigate browser")
             }
             .disabled(!canNavigate)
             Text(presentation.displayURL.isEmpty ? "No page loaded" : presentation.displayURL)
@@ -100,7 +104,9 @@ public struct ComputerUseStatusView: View {
                 }
                 HStack {
                     Button("Approve once", action: approve)
+                        .accessibilityLabel("Approve Computer Use once")
                     Button("Reject", action: reject)
+                        .accessibilityLabel("Reject Computer Use")
                 }
                 .disabled(!canDecide || state != "proposed")
             } else {
@@ -108,6 +114,8 @@ public struct ComputerUseStatusView: View {
                     .foregroundStyle(.secondary)
             }
         }
+        .accessibilityElement(children: .contain)
+        .accessibilityLabel("Computer Use consent")
     }
 }
 
@@ -136,8 +144,12 @@ public struct OfficeView: View {
         VStack(alignment: .leading, spacing: 7) {
             Text("Formats: \(presentation.formats.joined(separator: ", "))")
             HStack {
-                Button("New", action: create).disabled(!canCreate)
-                Button("Open", action: open).disabled(!canOpen)
+                Button("New", action: create)
+                    .disabled(!canCreate)
+                    .accessibilityLabel("Create jailed document")
+                Button("Open", action: open)
+                    .disabled(!canOpen)
+                    .accessibilityLabel("Open jailed document")
             }
             Text("\(presentation.documents.count) jailed document(s) · \(presentation.receipts.count) receipt(s)")
                 .font(.caption).foregroundStyle(.secondary)
