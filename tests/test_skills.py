@@ -446,6 +446,122 @@ def test_windows_source_close_failure_is_typed(
 
 @pytest.mark.skipif(
     os.name != "nt",
+    reason="Windows disposition fallback cleanup contract",
+)
+def test_windows_zero_fallback_preserves_disposition_failure(
+        monkeypatch):
+    import ctypes
+
+    path = _write_skill(
+        "windows-zero-fallback",
+        "windows zero fallback",
+        "ORIGINAL",
+        [],
+    )
+    original = path.read_bytes()
+    real_kernel32 = manager_module._windows_kernel32()
+
+    class FailingDispositionKernel:
+        def __getattr__(self, name):
+            return getattr(real_kernel32, name)
+
+        @staticmethod
+        def SetFileInformationByHandle(
+                handle,
+                information_class,
+                information,
+                size) -> int:
+            if information_class == 3:
+                ctypes.set_last_error(5)
+                return 0
+            if information_class == 4:
+                ctypes.set_last_error(32)
+                return 0
+            if information_class == 6:
+                ctypes.set_last_error(87)
+                return 0
+            return real_kernel32.SetFileInformationByHandle(
+                handle,
+                information_class,
+                information,
+                size,
+            )
+
+    monkeypatch.setattr(
+        manager_module,
+        "_windows_kernel32",
+        lambda: FailingDispositionKernel(),
+    )
+
+    with pytest.raises(PublicationCleanupError) as raised:
+        apply_skill_proposal({
+            "action": "improve",
+            "target": "windows-zero-fallback",
+            "addition": "SHOULD NOT PUBLISH",
+        })
+
+    residues = list(path.parent.glob(".birkin-publish-*.tmp"))
+    assert raised.value.cleanup_error_code == 32
+    assert raised.value.residue_possible is True
+    assert path.read_bytes() == original
+    assert len(residues) == 1
+    assert residues[0].read_bytes() == b""
+    residues[0].unlink()
+
+
+@pytest.mark.skipif(
+    os.name != "nt",
+    reason="Windows ancestor handle close contract",
+)
+def test_windows_ancestor_close_failure_is_observed(
+        monkeypatch):
+    import ctypes
+
+    path = _write_skill(
+        "windows-ancestor-close",
+        "windows ancestor close",
+        "ORIGINAL",
+        [],
+    )
+    real_kernel32 = manager_module._windows_kernel32()
+
+    class FailingAncestorCloseKernel:
+        close_count = 0
+
+        def __getattr__(self, name):
+            return getattr(real_kernel32, name)
+
+        def CloseHandle(self, handle) -> int:
+            self.close_count += 1
+            result = real_kernel32.CloseHandle(handle)
+            if self.close_count == 2:
+                ctypes.set_last_error(6)
+                return 0
+            return result
+
+    kernel = FailingAncestorCloseKernel()
+    monkeypatch.setattr(
+        manager_module,
+        "_windows_kernel32",
+        lambda: kernel,
+    )
+
+    with pytest.raises(OSError):
+        apply_skill_proposal({
+            "action": "improve",
+            "target": "windows-ancestor-close",
+            "addition": "PUBLISHED BEFORE CLOSE FAILURE",
+        })
+
+    assert kernel.close_count >= 2
+    assert "PUBLISHED BEFORE CLOSE FAILURE" in path.read_text(
+        encoding="utf-8"
+    )
+    assert list(path.parent.glob(".birkin-publish-*.tmp")) == []
+
+
+@pytest.mark.skipif(
+    os.name != "nt",
     reason="Windows handle-relative ambiguous success",
 )
 def test_windows_exception_after_committed_rename_preserves_target(
@@ -1138,6 +1254,210 @@ def test_close_failure_preserves_typed_cleanup_error(
 
     assert raised.value.retry_safe is False
     assert raised.value.residue_possible is True
+
+
+@pytest.mark.skipif(
+    os.name == "nt",
+    reason="POSIX abort pathname cleanup contract",
+)
+def test_posix_abort_never_uses_pathname_cleanup(
+        monkeypatch):
+    path = _write_skill(
+        "no-pathname-cleanup",
+        "no pathname cleanup",
+        "ORIGINAL",
+        [],
+    )
+    original = path.read_bytes()
+    original_write_all = manager_module._write_all
+    original_stat = os.stat
+    original_unlink = os.unlink
+    publication_stats: list[str] = []
+    publication_unlinks: list[str] = []
+
+    def write_then_fail(
+            descriptor: int,
+            payload: bytes) -> None:
+        original_write_all(descriptor, payload)
+        raise OSError("injected pre-rename failure")
+
+    def observe_stat(
+            target_name,
+            *args,
+            dir_fd=None,
+            **kwargs):
+        if (
+            str(target_name).startswith(".birkin-publish-")
+            and dir_fd is not None
+        ):
+            publication_stats.append(str(target_name))
+        return original_stat(
+            target_name,
+            *args,
+            dir_fd=dir_fd,
+            **kwargs,
+        )
+
+    def observe_unlink(
+            target_name,
+            *args,
+            dir_fd=None,
+            **kwargs):
+        if (
+            str(target_name).startswith(".birkin-publish-")
+            and dir_fd is not None
+        ):
+            publication_unlinks.append(str(target_name))
+        return original_unlink(
+            target_name,
+            *args,
+            dir_fd=dir_fd,
+            **kwargs,
+        )
+
+    monkeypatch.setattr(
+        manager_module,
+        "_write_all",
+        write_then_fail,
+    )
+    monkeypatch.setattr(os, "stat", observe_stat)
+    monkeypatch.setattr(os, "unlink", observe_unlink)
+
+    with pytest.raises(PublicationCleanupError):
+        apply_skill_proposal({
+            "action": "improve",
+            "target": "no-pathname-cleanup",
+            "addition": "UNPUBLISHED PAYLOAD",
+        })
+
+    residues = list(path.parent.glob(".birkin-publish-*.tmp"))
+    assert publication_stats == []
+    assert publication_unlinks == []
+    assert path.read_bytes() == original
+    assert len(residues) == 1
+    assert residues[0].read_bytes() == b""
+    original_unlink(residues[0])
+
+
+@pytest.mark.skipif(
+    os.name == "nt",
+    reason="POSIX temporary creation contract",
+)
+def test_posix_temp_open_failure_reports_no_residue(
+        monkeypatch):
+    path = _write_skill(
+        "temp-open-failure",
+        "temp open failure",
+        "ORIGINAL",
+        [],
+    )
+    original = path.read_bytes()
+    original_open = os.open
+
+    def fail_publication_open(
+            target_name,
+            flags,
+            mode=0o777,
+            *,
+            dir_fd=None):
+        if (
+            str(target_name).startswith(".birkin-publish-")
+            and dir_fd is not None
+        ):
+            raise FileExistsError("injected temp open failure")
+        return original_open(
+            target_name,
+            flags,
+            mode,
+            dir_fd=dir_fd,
+        )
+
+    monkeypatch.setattr(os, "open", fail_publication_open)
+
+    with pytest.raises(FileExistsError):
+        apply_skill_proposal({
+            "action": "improve",
+            "target": "temp-open-failure",
+            "addition": "SHOULD NOT CREATE TEMP",
+        })
+
+    assert path.read_bytes() == original
+    assert list(path.parent.glob(".birkin-publish-*.tmp")) == []
+
+
+@pytest.mark.skipif(
+    os.name == "nt",
+    reason="POSIX indeterminate close precedence",
+)
+def test_posix_indeterminate_survives_temp_close_failure(
+        monkeypatch):
+    path = _write_skill(
+        "indeterminate-close-failure",
+        "indeterminate close failure",
+        "ORIGINAL",
+        [],
+    )
+    original = path.read_bytes()
+    moved_temp = path.parent / "indeterminate-close-moved.tmp"
+    original_write_all = manager_module._write_all
+    original_replace = os.replace
+    original_close = os.close
+    publication_fds: set[int] = set()
+
+    def capture_publication_fd(
+            descriptor: int,
+            payload: bytes) -> None:
+        publication_fds.add(descriptor)
+        original_write_all(descriptor, payload)
+
+    def move_then_fail(
+            source,
+            destination,
+            *,
+            src_dir_fd=None,
+            dst_dir_fd=None):
+        if (
+            Path(destination).name == "SKILL.md"
+            and Path(source).name.startswith(".birkin-publish-")
+        ):
+            os.rename(
+                source,
+                moved_temp.name,
+                src_dir_fd=src_dir_fd,
+                dst_dir_fd=dst_dir_fd,
+            )
+            raise OSError("injected ambiguous rename")
+        return original_replace(
+            source,
+            destination,
+            src_dir_fd=src_dir_fd,
+            dst_dir_fd=dst_dir_fd,
+        )
+
+    def close_then_fail(descriptor: int) -> None:
+        original_close(descriptor)
+        if descriptor in publication_fds:
+            publication_fds.remove(descriptor)
+            raise OSError("injected temp close failure")
+
+    monkeypatch.setattr(
+        manager_module,
+        "_write_all",
+        capture_publication_fd,
+    )
+    monkeypatch.setattr(os, "replace", move_then_fail)
+    monkeypatch.setattr(os, "close", close_then_fail)
+
+    with pytest.raises(IndeterminatePublicationError):
+        apply_skill_proposal({
+            "action": "improve",
+            "target": "indeterminate-close-failure",
+            "addition": "INDETERMINATE PAYLOAD",
+        })
+
+    assert path.read_bytes() == original
+    assert b"INDETERMINATE PAYLOAD" in moved_temp.read_bytes()
+    moved_temp.unlink()
 
 
 @pytest.mark.parametrize("guard_enabled", [False, True])
