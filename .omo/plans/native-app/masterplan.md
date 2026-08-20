@@ -1,7 +1,7 @@
 # Birkin Native macOS Application Masterplan
 
 Status: implementation contract
-Base: `origin/main` at `79a0b2300cadf836f87641f7dae321b7bf043e90`
+Base: `origin/main` at `79a0b2300cadf836f87641f7dae321b7bf043e90` (original); revised baseline `0ac1312` / v0.4.242 on 2026-08-20 — see `plan-revision-20260820.md`
 Branch: `feat/native-app-implementation-20260817`
 Target: production macOS SwiftUI thin shell over the existing Python authority
 

@@ -263,7 +263,7 @@ Wave integration:
 
 ## 12. Branch and PR
 
-- base: `79a0b230`
+- base: `79a0b230` (original); revised baseline `0ac1312` / v0.4.242 (2026-08-20)
 - branch: `feat/native-app-implementation-20260817`
 - normal push only
 - PR target: `main`
