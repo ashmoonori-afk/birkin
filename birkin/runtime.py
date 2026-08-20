@@ -28,7 +28,9 @@ from . import (
 )
 from .agent import Agent
 from .llm import LLMClient, LLMError, build_client
+from .profile_actions import ProfileActions
 from .profile_prompt import render_profile_blocks
+from .profile_review import build_profile_review
 from .rolefiles import ProfileSnapshot, ProfileStore
 from .memory import Memory
 from .skills import SkillManager, build_manager
@@ -544,6 +546,18 @@ class Session:
         except Exception as exc:
             print(f"[birkin] warning: could not update goal usage: {exc}",
                   file=sys.stderr, flush=True)
+        service = getattr(self, "profile_review_service", None)
+        record = getattr(service, "record_exchange", None) if service else None
+        if callable(record):
+            try:
+                record(
+                    text,
+                    reply or "",
+                    trusted=review_harness,
+                    session_id=str(session_id or self.cfg.get("session_id") or "default"),
+                )
+            except Exception:
+                pass
         if self.cfg.get("evidence_gate_enabled", False):
             try:
                 # Ladder-of-inference gate (design item 3): observe-only --
@@ -763,6 +777,40 @@ def failure_context(limit: int = 5) -> str:
     return "\n".join(lines)
 
 
+def _build_profile_review_service(cfg: dict[str, Any]) -> Any:
+    profile = cfg.get("profile") if isinstance(cfg.get("profile"), dict) else {}
+    review = profile.get("background_review", {}) if isinstance(profile, dict) else {}
+    if not (_profiles_enabled(cfg) and isinstance(review, dict)):
+        return None
+    provider = review.get("provider")
+    model = review.get("model")
+    if not provider or not model:
+        return None
+    aux_cfg = {**cfg, "provider": provider, "model": model}
+    aux_key = config.get_api_key(aux_cfg) or ""
+    aux_client = build_client(aux_cfg, aux_key)
+
+    def complete(prompt: str) -> str:
+        message = aux_client.complete(
+            system="You review completed turns for durable role-profile updates.",
+            messages=[{"role": "user", "content": [{"type": "text", "text": prompt}]}],
+            tools=[],
+            model=str(model),
+        )
+        blocks = message.get("content", []) if isinstance(message, dict) else []
+        return "".join(
+            str(block.get("text", ""))
+            for block in blocks
+            if isinstance(block, dict) and block.get("type") == "text"
+        )
+
+    actions = ProfileActions(
+        ProfileStore(config.birkin_home(), profile.get("limits", {})),
+        approval_required=bool(profile.get("write_approval", False)),
+    )
+    return build_profile_review(cfg, actions, complete)
+
+
 def build_session(cfg: Optional[dict[str, Any]] = None,
                   on_event: Optional[Callable[[str, dict[str, Any]], None]] = None
                   ) -> Session:
@@ -806,6 +854,7 @@ def build_session(cfg: Optional[dict[str, Any]] = None,
         tree_budget=budget.TreeBudget(cfg),
         checkpoints=checkpoint_mgr, hooks=hook_bus)
     registry = build_registry(ctx)
+    profile_review_service = _build_profile_review_service(cfg)
     system = promptgate.compose_main(
         cfg, skills_index=skills.index(), memory_block=memory.render(),
         profile_block=_profile_block(cfg), harness_block=_harness_block(cfg))
@@ -828,6 +877,7 @@ def build_session(cfg: Optional[dict[str, Any]] = None,
         ctx=ctx,
         agent=agent,
         _checkpoint_session=checkpoint_session,
+        profile_review_service=profile_review_service,
     )
 
 
