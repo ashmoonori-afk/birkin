@@ -15,6 +15,8 @@ import copy
 import json
 import os
 import uuid
+import warnings
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
@@ -789,6 +791,46 @@ def _prune(cfg: dict[str, Any], defaults: dict[str, Any]) -> dict[str, Any]:
             continue
         out[key] = value
     return out
+
+
+@dataclass(frozen=True)
+class ConfigSetResult:
+    accepted: bool
+    requested: dict[str, Any]
+    effective: dict[str, Any]
+    reason: str | None = None
+
+
+def set_config(key: str, value: Any) -> ConfigSetResult:
+    """Validate and atomically persist one configuration setting."""
+    if not key:
+        raise ValueError("config key must be non-empty")
+    current = load_config()
+    requested = {"key": key, "value": copy.deepcopy(value)}
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter("always", RuntimeWarning)
+        normalized = normalize_overrides({key: value}, DEFAULT_CONFIG)
+    if key not in normalized:
+        reason = (
+            str(caught[0].message)
+            if caught
+            else f"invalid config at $.{key}"
+        )
+        return ConfigSetResult(
+            accepted=False,
+            requested=requested,
+            effective={"key": key, "value": copy.deepcopy(current.get(key))},
+            reason=reason,
+        )
+    candidate = copy.deepcopy(current)
+    candidate[key] = normalized[key]
+    _ = save_config(candidate)
+    effective = load_config().get(key)
+    return ConfigSetResult(
+        accepted=True,
+        requested=requested,
+        effective={"key": key, "value": copy.deepcopy(effective)},
+    )
 
 
 def save_config(cfg: dict[str, Any]) -> Path:
