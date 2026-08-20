@@ -59,11 +59,33 @@ enum NativeProjectionReducer {
         if let panelKey = panelByEvent[event.type] {
             append(panelItem(event), toPanel: panelKey, state: &state)
         }
+        if event.type == "working_memory.updated" {
+            applyWorkingMemory(event.payload, state: &state)
+        }
 
         state.cursor = event.cursor
         state.composer.canSend = activeCommands.isEmpty
         state.composer.canInterrupt = !activeCommands.isEmpty
         state.composer.canResume = interrupted && activeCommands.isEmpty
+    }
+
+    private static func applyWorkingMemory(
+        _ payload: NativeJSONObject,
+        state: inout NativeProjectionState
+    ) {
+        guard case .object(let effective) = payload["working_memory"],
+              case .int(let revision) = effective["revision"] else { return }
+        var fields = state.workingMemory.fields
+        for key in fields.keys {
+            guard case .array(let values) = effective[key] else { continue }
+            let strings = values.compactMap { value -> String? in
+                guard case .string(let text) = value else { return nil }
+                return text
+            }
+            fields[key] = strings
+        }
+        state.workingMemory.revision = revision
+        state.workingMemory.fields = fields
     }
 
     private static func appendAssistantDelta(

@@ -69,7 +69,7 @@ public struct ShellStructure: Equatable, Sendable {
             ShellColumn(id: .navigation, sections: [
                 Self.panel(.sessions, key: "sessions_history", projection: projection),
                 Self.unavailable(.templates, projection: projection),
-                Self.unavailable(.workingMemory, projection: projection),
+                Self.workingMemory(projection),
             ]),
             ShellColumn(id: .primary, sections: [
                 Self.conversation(projection),
@@ -103,6 +103,21 @@ public struct ShellStructure: Equatable, Sendable {
             state: panel.items.isEmpty
                 ? .empty("No \(id.title.lowercased()) yet.")
                 : .content(itemCount: panel.items.count)
+        )
+    }
+
+    private static func workingMemory(
+        _ projection: NativeProjectionState?
+    ) -> ShellSection {
+        guard let projection else { return waiting(.workingMemory) }
+        let memory = projection.workingMemory
+        let count = memory.fields.values.reduce(0) { $0 + $1.count }
+            + memory.filesEvidence.count + (memory.goal == nil ? 0 : 1)
+        return ShellSection(
+            id: .workingMemory,
+            state: count == 0
+                ? .empty("No working memory yet.")
+                : .content(itemCount: count)
         )
     }
 

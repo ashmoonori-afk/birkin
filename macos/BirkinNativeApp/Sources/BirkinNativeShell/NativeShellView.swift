@@ -144,6 +144,12 @@ public struct NativeShellView: View {
             if section.id == .conversation, let projection = store.projection {
                 MessageStreamView(projection: projection)
                     .frame(minHeight: 180)
+            } else if section.id == .workingMemory, let projection = store.projection {
+                WorkingMemoryView(
+                    presentation: WorkingMemoryPresentation(
+                        projection: projection.workingMemory
+                    )
+                )
             } else {
                 stateText(section.state)
             }

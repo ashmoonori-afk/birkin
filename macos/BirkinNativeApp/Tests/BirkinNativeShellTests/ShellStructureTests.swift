@@ -84,6 +84,16 @@ struct ShellStructureTests {
                 "can_resume": .bool(false),
             ]),
             "status": .object(["connection": .string("connected")]),
+            "working_memory": .object([
+                "revision": .int(0),
+                "goal": .null,
+                "fields": .object([
+                    "corrections": .array([]), "constraints": .array([]),
+                    "decisions": .array([]), "incomplete": .array([]),
+                    "evidence": .array([]), "next_actions": .array([]),
+                ]),
+                "files_evidence": .array([]),
+            ]),
             "instance_id": .string("instance-1"),
             "reset_reason": .string("initial"),
         ])

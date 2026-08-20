@@ -17,6 +17,7 @@ public struct NativeProjectionState: Equatable, Sendable {
     public var conversation: [NativeJSONObject]
     public var composer: NativeProjectionComposer
     public let connection: String
+    public var workingMemory: NativeWorkingMemoryProjection
 
     var canonicalJSON: NativeJSONObject {
         [
@@ -36,6 +37,7 @@ public struct NativeProjectionState: Equatable, Sendable {
                 "can_resume": .bool(composer.canResume),
             ]),
             "status": .object(["connection": .string(connection)]),
+            "working_memory": .object(workingMemory.canonicalJSON),
         ]
     }
 }

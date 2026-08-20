@@ -82,7 +82,7 @@ public final class NativeProjectionStore {
     ) throws -> NativeProjectionState {
         let expectedKeys: Set<String> = [
             "protocol_version", "session_id", "cursor", "panels", "conversation",
-            "composer", "status", "instance_id", "reset_reason",
+            "composer", "status", "working_memory", "instance_id", "reset_reason",
         ]
         guard Set(body.keys) == expectedKeys else {
             throw NativeProjectionError("projection snapshot keys do not match the contract")
@@ -104,6 +104,9 @@ public final class NativeProjectionStore {
         guard Set(status.keys) == ["connection"] else {
             throw NativeProjectionError("projection status keys do not match the contract")
         }
+        let workingMemory = try decodeWorkingMemory(
+            try object(body["working_memory"], label: "working_memory")
+        )
         return NativeProjectionState(
             protocolVersion: try integer(body["protocol_version"], label: "protocol_version"),
             sessionID: try string(body["session_id"], label: "session_id"),
@@ -115,8 +118,57 @@ public final class NativeProjectionStore {
                 canInterrupt: try boolean(composer["can_interrupt"], label: "can_interrupt"),
                 canResume: try boolean(composer["can_resume"], label: "can_resume")
             ),
-            connection: try string(status["connection"], label: "connection")
+            connection: try string(status["connection"], label: "connection"),
+            workingMemory: workingMemory
         )
+    }
+
+    private static func decodeWorkingMemory(
+        _ value: NativeJSONObject
+    ) throws -> NativeWorkingMemoryProjection {
+        guard Set(value.keys) == ["revision", "goal", "fields", "files_evidence"] else {
+            throw NativeProjectionError("working_memory keys do not match the contract")
+        }
+        let fieldsObject = try object(value["fields"], label: "working_memory fields")
+        let requiredFields: Set<String> = [
+            "corrections", "constraints", "decisions", "incomplete", "evidence",
+            "next_actions",
+        ]
+        guard Set(fieldsObject.keys) == requiredFields else {
+            throw NativeProjectionError("working_memory fields do not match the contract")
+        }
+        var fields: [String: [String]] = [:]
+        for key in requiredFields {
+            fields[key] = try stringArray(fieldsObject[key], label: key)
+        }
+        var goal: NativeWorkingMemoryGoal?
+        if value["goal"] != .null {
+            let object = try object(value["goal"], label: "working_memory goal")
+            guard Set(object.keys) == ["slug", "objective", "tokens_used", "status"] else {
+                throw NativeProjectionError("working_memory goal keys do not match the contract")
+            }
+            goal = NativeWorkingMemoryGoal(
+                slug: try string(object["slug"], label: "goal slug"),
+                objective: try string(object["objective"], label: "goal objective"),
+                tokensUsed: try integer(object["tokens_used"], label: "goal tokens_used"),
+                status: try string(object["status"], label: "goal status")
+            )
+        }
+        return NativeWorkingMemoryProjection(
+            revision: try integer(value["revision"], label: "working_memory revision"),
+            goal: goal,
+            fields: fields,
+            filesEvidence: try objectArray(value["files_evidence"], label: "files_evidence")
+        )
+    }
+
+    private static func stringArray(
+        _ value: NativeJSONValue?, label: String
+    ) throws -> [String] {
+        guard case .array(let values) = value else {
+            throw NativeProjectionError("\(label) must be an array")
+        }
+        return try values.map { try string($0, label: "\(label) item") }
     }
 
     static func object(
