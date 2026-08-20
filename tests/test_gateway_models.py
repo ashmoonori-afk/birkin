@@ -188,7 +188,7 @@ def test_repl_models_select_rewires_provider_live(tmp_path, monkeypatch):
         models.Model("claude-sonnet-5", "anthropic", "api"),
     ])
     sess, reloaded = _fake_repl_session({"provider": "codex-cli", "model": "gpt-5.5"})
-    slashcommands._models(sess, "opus")            # name -> the claude-cli entry
+    slashcommands._model(sess, "opus")            # name -> the claude-cli entry
     assert sess.cfg["provider"] == "claude-cli"    # provider rewired (fix)
     assert sess.cfg["model"] == "opus"
     assert reloaded["n"] == 1                       # live client rebuilt
@@ -202,7 +202,7 @@ def test_repl_models_select_by_number(tmp_path, monkeypatch):
         models.Model("claude-code (opus)", "claude-cli", "", param="opus"),  # #2
     ])
     sess, reloaded = _fake_repl_session({"provider": "claude-cli", "model": "sonnet"})
-    slashcommands._models(sess, "1")               # pick #1 -> anthropic API model
+    slashcommands._model(sess, "1")               # pick #1 -> anthropic API model
     assert sess.cfg["provider"] == "anthropic"
     assert sess.cfg["model"] == "claude-sonnet-5"
     assert reloaded["n"] == 1

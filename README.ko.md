@@ -211,7 +211,7 @@ Base install의 경계는 명확합니다. 다섯 format 모두 inspect, validat
 
 신뢰된 한국어·영어 자연어 요청은 production skill을 결정적으로 preload합니다. Word/DOCX는 `word-documents`, Excel/XLSX는 `spreadsheets`, PowerPoint/PPTX는 `presentations`, PDF는 `pdf-documents`, HWP/HWPX는 `korean-hwp-documents`, 일반 Office 작업은 `office-work-os`로 route합니다. Format intent와 artifact 신호가 충돌하면 inspect-first `office-documents`로 route합니다. 문서 내용은 untrusted data이므로 skill을 선택하거나 override할 수 없고, 모든 routed mutation은 copy-on-write를 유지합니다.
 
-[상세 지원 계약](./docs/office-support.md#office-work-os-v2), machine [`provenance_manifest.json`](./birkin/office/adapters/provenance_manifest.json), [`THIRD_PARTY_NOTICES.md`](./birkin/office/adapters/THIRD_PARTY_NOTICES.md)를 참고하십시오. 이 문서는 Birkin `0.4.240`, `catalog_revision: 4`, `inventory_sha256: a49ab813ee4cdea3d6f87e0e2bd063b1dde54058e5c8dd0af0cf32bec74cae95`를 대상으로 합니다.
+[상세 지원 계약](./docs/office-support.md#office-work-os-v2), machine [`provenance_manifest.json`](./birkin/office/adapters/provenance_manifest.json), [`THIRD_PARTY_NOTICES.md`](./birkin/office/adapters/THIRD_PARTY_NOTICES.md)를 참고하십시오. 이 문서는 Birkin `0.4.242`, `catalog_revision: 4`, `inventory_sha256: a49ab813ee4cdea3d6f87e0e2bd063b1dde54058e5c8dd0af0cf32bec74cae95`를 대상으로 합니다.
 
 ### Office 작업 처음부터 끝까지
 
@@ -246,7 +246,7 @@ chat에서는 이 이름들을 직접 부르지 않습니다. 신뢰된 한국�
 
 두 surface는 같은 순서 보장 command/event protocol과 durable journal을 사용합니다. Conversation message, task/run, approval, evidence, session, activity, cron, memory/skill, checkpoint, status는 별도 dashboard state가 아니라 canonical snapshot panel입니다. Surface가 기존 session ID로 다시 연결되면 journal이 conversation, panel data, command cursor를 replay합니다.
 
-- Terminal: 입력 후 Enter로 전송하고 Esc로 중단합니다. `/work`는 통합된 task/run workbench에 focus합니다. `/dash`는 기존 사용 습관을 위해 남겨 둔 deprecated alias로, `/work`와 동일한 workbench에 focus하고 deprecation 안내를 출력합니다.
+- Terminal: 입력 후 Enter로 전송하고 Esc로 중단합니다. `/work`(alias `/workbench`)는 통합된 task/run workbench에 focus합니다. 기존 `/dash` 명령은 제거되었습니다.
 - Web: Ctrl+Enter로 전송하고 Esc로 중단합니다. Context button으로 9개 canonical panel을 열며 requester, target, impact, rejection result, risk, expiry, evidence를 검토한 뒤 명시적인 승인/거부 action을 사용합니다.
 - Theme: Studio Dark, Paper Light, High Contrast는 terminal truecolor/ANSI-256 rendering과 semantic role을 공유합니다. `NO_COLOR=1`에서도 terminal 기능은 유지됩니다.
 - Responsive behavior: desktop은 conversation과 context를 나란히 유지합니다. Mobile은 composer를 계속 보이는 상태로 두고 그 위에 opaque sheet를 열며 touch-size control과 명시적인 back action을 제공합니다.

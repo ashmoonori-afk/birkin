@@ -169,7 +169,26 @@ def test_clamp_scrolls_the_window(snap):
     assert state["top"] <= 30 < state["top"] + 10
 
 
-def test_dash_command_registered():
+def test_the_dash_module_backs_work_without_its_own_command():
+    """``/dash`` is gone; ``dash.py`` stays because ``workbench`` reads it."""
     import birkin.repl  # noqa: F401
-    from birkin import slashcommands
-    assert "dash" in slashcommands._REGISTRY
+    from birkin import slashcommands, workbench
+    assert "dash" not in slashcommands._REGISTRY
+    assert "work" in slashcommands._REGISTRY
+
+    # workbench.snapshot builds on dash.snapshot, so deleting the module would
+    # break /work even though its command is gone. Prove the call path with a
+    # sentinel instead of stubbing every backend pane.
+    class _Reached(Exception):
+        pass
+
+    def _sentinel(_session):
+        raise _Reached
+
+    real = dash.snapshot
+    try:
+        dash.snapshot = _sentinel
+        with pytest.raises(_Reached):
+            workbench.snapshot(types.SimpleNamespace(cfg={}))
+    finally:
+        dash.snapshot = real
