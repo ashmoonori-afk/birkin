@@ -30,6 +30,11 @@ public final class NativeProjectionStore {
             guard let current = surfaces[name], revision == current.revision + 1 else {
                 surfaces[name] = nil
                 requestedSurfaceRevisions[name] = 0
+                status = .replayRequired(NativeReplayRequest(
+                    afterCursor: 0,
+                    knownInstanceID: nil,
+                    replay: true
+                ))
                 return
             }
         }

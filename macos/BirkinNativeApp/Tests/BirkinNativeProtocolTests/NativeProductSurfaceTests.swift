@@ -11,6 +11,9 @@ final class NativeProductSurfaceTests: XCTestCase {
 
         XCTAssertNil(store.surface(named: "browser_aside"))
         XCTAssertEqual(store.requestedSurfaceRevisions["browser_aside"], 0)
+        XCTAssertEqual(store.status, .replayRequired(NativeReplayRequest(
+            afterCursor: 0, knownInstanceID: nil, replay: true
+        )))
     }
 
     func testTypedBrowserComputerUseAndOfficePresentations() throws {
