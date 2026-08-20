@@ -9,13 +9,22 @@ let package = Package(
     platforms: [.macOS(.v13)],
     products: [
         .library(name: "BirkinNativeProtocol", targets: ["BirkinNativeProtocol"]),
+        .library(name: "BirkinNativeShell", targets: ["BirkinNativeShell"]),
     ],
     targets: [
         .target(name: "BirkinNativeProtocol"),
+        .target(
+            name: "BirkinNativeShell",
+            dependencies: ["BirkinNativeProtocol"]
+        ),
         .testTarget(
             name: "BirkinNativeProtocolTests",
             dependencies: ["BirkinNativeProtocol"],
             resources: [.copy("GoldenVectors")]
+        ),
+        .testTarget(
+            name: "BirkinNativeShellTests",
+            dependencies: ["BirkinNativeShell", "BirkinNativeProtocol"]
         ),
     ]
 )
