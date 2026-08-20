@@ -11,6 +11,7 @@ from birkin import approvals, config, store
 from birkin.workspace.records import WorkspaceEvent
 from birkin.workspace.runtime_adapter import RuntimeWorkspaceAdapter
 from birkin.workspace.service import WorkspaceService
+from birkin.workspace.snapshot import reduce_snapshot
 
 
 def _approval_items(service: WorkspaceService) -> list[dict[str, object]]:
@@ -112,3 +113,38 @@ def test_snapshot_distinguishes_requested_effective_policy_and_pending_requests(
     assert policy["requested"] == {"auto_approve": "shell"}
     assert policy["effective"] == {"auto_approve": ["memory", "skill"]}
     assert policy["pending_requests"] == [record["id"]]
+
+
+def test_activity_projection_appends_receipts_and_integrity_warnings() -> None:
+    events = (
+        WorkspaceEvent(
+            protocol_version=1, session_id="session-1", cursor=1,
+            event_id="receipt-1", type="receipt.recorded",
+            timestamp="2026-08-20T00:00:00Z", actor_id="python",
+            command_id="command-1",
+            payload={"receipt_ref": "receipt:command-1", "summary": "Command completed"},
+        ),
+        WorkspaceEvent(
+            protocol_version=1, session_id="session-1", cursor=2,
+            event_id="warning-1", type="integrity.warning",
+            timestamp="2026-08-20T00:00:01Z", actor_id="python",
+            command_id="command-2",
+            payload={"summary": "Interrupted receipt sealed", "status": "warning"},
+        ),
+        WorkspaceEvent(
+            protocol_version=1, session_id="session-1", cursor=3,
+            event_id="receipt-2", type="receipt.recorded",
+            timestamp="2026-08-20T00:00:02Z", actor_id="python",
+            command_id="command-3",
+            payload={"receipt_ref": "receipt:command-3", "summary": "Second command completed"},
+        ),
+    )
+
+    snapshot = reduce_snapshot("session-1", events)
+    activity = next(panel.items for panel in snapshot.panels if panel.key == "activity_logs")
+
+    assert [item["id"] for item in activity] == ["receipt-1", "warning-1", "receipt-2"]
+    assert [item["kind"] for item in activity] == [
+        "receipt", "integrity_warning", "receipt",
+    ]
+    assert [item["cursor"] for item in activity] == [1, 2, 3]

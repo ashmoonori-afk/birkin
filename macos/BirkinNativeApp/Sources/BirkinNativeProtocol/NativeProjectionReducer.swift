@@ -16,6 +16,8 @@ enum NativeProjectionReducer {
         "question.requested": "approvals", "question.answered": "approvals",
         "evidence.added": "files_evidence", "file.updated": "files_evidence",
         "session.updated": "sessions_history", "activity.recorded": "activity_logs",
+        "receipt.recorded": "activity_logs", "integrity.warning": "activity_logs",
+        "command.completed": "activity_logs",
         "cron.updated": "cron", "memory.updated": "memory_skills",
         "skill.updated": "memory_skills", "checkpoint.created": "checkpoints_restore",
         "checkpoint.restored": "checkpoints_restore", "computer.updated": "computer_use",
@@ -213,7 +215,8 @@ enum NativeProjectionReducer {
             "approval.answered": "approval", "question.requested": "question",
             "question.answered": "question", "evidence.added": "evidence",
             "checkpoint.created": "checkpoint", "checkpoint.restored": "checkpoint",
-            "computer.updated": "computer_use",
+            "computer.updated": "computer_use", "receipt.recorded": "receipt",
+            "command.completed": "receipt", "integrity.warning": "integrity_warning",
         ][event.type] ?? "activity"
         let defaultState = defaultUIState(event.type, decision: decision, payload: payload)
         var item: NativeJSONObject = [

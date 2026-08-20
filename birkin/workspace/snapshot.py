@@ -26,6 +26,9 @@ _PANEL_BY_EVENT = {
     "session.renamed": "sessions_history",
     "session.compacted": "sessions_history",
     "activity.recorded": "activity_logs",
+    "receipt.recorded": "activity_logs",
+    "integrity.warning": "activity_logs",
+    "command.completed": "activity_logs",
     "cron.updated": "cron",
     "memory.updated": "memory_skills",
     "skill.updated": "memory_skills",
@@ -53,6 +56,9 @@ def _panel_item(event: WorkspaceEvent) -> dict[str, object]:
         "checkpoint.created": "checkpoint",
         "checkpoint.restored": "checkpoint",
         "computer.updated": "computer_use",
+        "receipt.recorded": "receipt",
+        "command.completed": "receipt",
+        "integrity.warning": "integrity_warning",
     }.get(event.type, "activity")
     decision = event.payload.get("decision")
     default_state = {
