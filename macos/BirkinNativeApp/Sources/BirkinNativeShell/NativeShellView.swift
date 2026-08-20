@@ -158,6 +158,8 @@ public struct NativeShellView: View {
                 ) {
                     clearWorkingMemory(availability: availability)
                 }
+            } else if section.id == .approvals {
+                approvalCards(availability: availability)
             } else if section.id == .terminal,
                       let terminal = store.projection?.terminals.first {
                 TerminalView(
@@ -251,6 +253,39 @@ public struct NativeShellView: View {
         }
     }
 
+    @ViewBuilder
+    private func approvalCards(availability: MutationAvailability) -> some View {
+        let items = store.projection?.panels.first(where: { $0.key == "approvals" })?.items ?? []
+        let cards = items.compactMap(ApprovalCardPresentation.init)
+        if cards.isEmpty {
+            Text("No approvals yet.").font(.subheadline).foregroundStyle(.secondary)
+        } else {
+            ForEach(cards) { card in
+                ApprovalCardView(
+                    presentation: card,
+                    canDecide: availability.isEnabled && approvalAnswerAdvertised,
+                    approve: { submitApproval(card, decision: .approve, availability: availability) },
+                    reject: { submitApproval(card, decision: .reject, availability: availability) }
+                )
+            }
+        }
+    }
+
+    private func submitApproval(
+        _ card: ApprovalCardPresentation,
+        decision: ApprovalDecision,
+        availability: MutationAvailability
+    ) {
+        guard let session = Self.readySession(in: connectionState) else { return }
+        _ = card.submit(
+            decision, availability: availability,
+            commandAdvertised: approvalAnswerAdvertised,
+            expectedCursor: store.latestAppliedCursor ?? 0,
+            sessionCapability: session.sessionCapability,
+            submit: templateCommandAction
+        )
+    }
+
     private func sendDraft(availability: MutationAvailability) {
         guard let session = Self.readySession(in: connectionState) else { return }
         _ = conversationComposer.send(
@@ -333,6 +368,11 @@ public struct NativeShellView: View {
             sessionCapability: session.sessionCapability,
             submit: templateCommandAction
         )
+    }
+
+    private var approvalAnswerAdvertised: Bool {
+        Self.readySession(in: connectionState)?
+            .supportedCommands.contains("approval.answer") == true
     }
 
     private var terminalCreateAdvertised: Bool {
