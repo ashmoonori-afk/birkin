@@ -22,6 +22,7 @@ _READY = {
     "protocol_version",
     "server_version",
     "instance_id",
+    "session_id",
     "transport",
     "capability",
     "limits",

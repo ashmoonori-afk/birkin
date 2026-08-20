@@ -151,6 +151,7 @@ class NativeBridgeServer:
         self._messages = NativeMessageFactory(
             instance_id=instance_id,
             server_version=server_version,
+            session_id=projection_authority.snapshot().session_id,
             command_types=command_router.supported_commands,
             session_presets=projection_authority.session_presets,
             surface_names=(

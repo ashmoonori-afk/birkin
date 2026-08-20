@@ -44,6 +44,7 @@ class NativeMessageFactory:
         *,
         instance_id: str,
         server_version: str,
+        session_id: str,
         command_types: frozenset[str],
         session_presets: tuple[SessionPreset, ...],
         surface_names: tuple[str, ...] = (),
@@ -51,6 +52,7 @@ class NativeMessageFactory:
     ) -> None:
         self._instance_id = instance_id
         self._server_version = server_version
+        self._session_id = session_id
         self._command_types = command_types
         self._session_presets = session_presets
         self._surface_names = surface_names
@@ -72,6 +74,7 @@ class NativeMessageFactory:
                 "protocol_version": NATIVE_PROTOCOL_VERSION,
                 "server_version": self._server_version,
                 "instance_id": self._instance_id,
+                "session_id": self._session_id,
                 "transport": transport,
                 "capability": {
                     "token": capability.token,

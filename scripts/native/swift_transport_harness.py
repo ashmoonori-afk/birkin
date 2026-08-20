@@ -12,6 +12,7 @@ from birkin.native.capability import BootstrapSecretStore
 from birkin.native.endpoint import NativeBridgeEndpoint
 from birkin.native.server import NativeBridgeServer
 from birkin.workspace import TerminalAuthority, WorkspaceCommand, WorkspaceService
+from birkin.workspace.runtime_adapter import RuntimeWorkspaceAdapter
 
 
 def main() -> None:
@@ -21,16 +22,19 @@ def main() -> None:
     parser.add_argument("--terminal", action="store_true")
     parser.add_argument("--j1-fixture", action="store_true")
     parser.add_argument("--connections", type=int, default=1)
+    parser.add_argument("--session-id", default="session-1")
     args = parser.parse_args()
     if args.connections < 1 or args.connections > 8:
         parser.error("--connections must be between 1 and 8")
 
+    session_id = args.session_id
     source = WorkspaceService(
         root=args.root / "workspace",
-        session_id="session-1",
+        session_id=session_id,
         handlers={},
     )
     terminal: TerminalAuthority | None = None
+    adapter: RuntimeWorkspaceAdapter | None = None
     if args.j1_fixture:
         if args.terminal:
             parser.error("--j1-fixture and --terminal cannot be combined")
@@ -46,7 +50,12 @@ def main() -> None:
             )
             return {"fixture": "j1"}
 
-        source.set_handlers({"chat.send": answer_first_message})
+        adapter = RuntimeWorkspaceAdapter(
+            session_id, source.emit, workspace_root=args.root / "workspace-root"
+        )
+        handlers = dict(adapter.handlers())
+        handlers["chat.send"] = answer_first_message
+        source.set_handlers(handlers)
         source.submit(
             WorkspaceCommand.parse({
                 "protocol_version": 1,
@@ -61,19 +70,31 @@ def main() -> None:
     if args.terminal:
         os.environ["BIRKIN_HOME"] = str(args.root / "home")
         terminal = TerminalAuthority(
-            session_id="session-1",
+            session_id=session_id,
             workspace_root=args.root,
             emit=source.emit,
             config_loader=lambda: {"auto_approve": ["shell"]},
         )
         source.set_handlers(terminal.handlers())
+    if not args.j1_fixture and not args.terminal:
+        adapter = RuntimeWorkspaceAdapter(
+            session_id, source.emit, workspace_root=args.root / "workspace-root"
+        )
+        source.set_handlers(adapter.handlers())
     capabilities = BootstrapSecretStore(args.root / "native")
     bridge = NativeBridgeServer(
         source,
         capabilities=capabilities,
         instance_id="swift-integration-instance",
         server_version="1.0.0",
-        on_disconnect=terminal.revoke_leases if terminal is not None else None,
+        on_disconnect=(
+            terminal.revoke_leases
+            if terminal is not None
+            else adapter.revoke_terminal_leases
+            if adapter is not None
+            else None
+        ),
+        surface_authority=adapter.surface_authority if adapter is not None else None,
     )
     socket_path = args.root / "bridge.sock"
     endpoint = (
@@ -104,6 +125,8 @@ def main() -> None:
         endpoint.close()
         if terminal is not None:
             terminal.close_all()
+        if adapter is not None:
+            adapter.close()
         print(
             json.dumps(
                 {

@@ -147,6 +147,9 @@ class RuntimeWorkspaceAdapter:
             **self.surface_authority.handlers(self._emit),
         }
 
+    def revoke_terminal_leases(self) -> None:
+        self._terminal.revoke_leases()
+
     def close(self) -> None:
         self._terminal.close_all()
         if self._session is not None:
