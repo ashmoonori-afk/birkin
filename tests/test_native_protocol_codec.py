@@ -153,6 +153,41 @@ def test_native_frame_rejects_nonfinite_json_numbers(constant: str) -> None:
     assert exc_info.value.code == "E_NONFINITE_NUMBER"
 
 
+def test_native_frame_rejects_unpaired_surrogate_on_ingress() -> None:
+    text = (
+        '{"protocol":"birkin-local-1","protocol_version":1,'
+        '"kind":"ping","id":"surrogate","in_reply_to":null,'
+        '"body":{"value":"\\ud800"}}'
+    )
+    body = text.encode()
+
+    with pytest.raises(NativeProtocolError) as exc_info:
+        _ = decode_frame(struct.pack(">I", len(body)) + body)
+
+    assert exc_info.value.code == "E_JSON"
+
+
+def test_native_frame_rejects_integer_outside_int64_on_ingress() -> None:
+    text = (
+        '{"protocol":"birkin-local-1","protocol_version":1,'
+        '"kind":"ping","id":"wide-integer","in_reply_to":null,'
+        f'"body":{{"value":{2**70}}}}}'
+    )
+    body = text.encode()
+
+    with pytest.raises(NativeProtocolError) as exc_info:
+        _ = decode_frame(struct.pack(">I", len(body)) + body)
+
+    assert exc_info.value.code == "E_JSON"
+
+
+def test_native_frame_reports_invalid_unicode_during_encode_accurately() -> None:
+    with pytest.raises(NativeProtocolError) as exc_info:
+        _ = encode_frame(_envelope(body={"value": "\ud800"}))
+
+    assert exc_info.value.code == "E_JSON"
+
+
 def test_native_frame_rejects_nonfinite_number_during_encode() -> None:
     with pytest.raises(NativeProtocolError) as exc_info:
         _ = encode_frame(_envelope(body={"value": float("nan")}))

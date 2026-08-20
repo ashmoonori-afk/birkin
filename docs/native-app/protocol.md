@@ -131,14 +131,13 @@ Errors expose bounded public text, not tracebacks or raw secret-bearing payloads
 The protocol and projection fixtures contain 21 Python-generated frame vectors,
 a canonical snapshot, 14 events, and a gap event, all decoded by Swift tests.
 
-## Swift strictness narrowings
+## Cross-language JSON narrowings
 
-The Swift codec intentionally narrows Python's accepted JSON in two places:
+The Python and Swift codecs both narrow generic JSON in two places:
 
 - A lone UTF-16 surrogate (`\uD800`-`\uDFFF` not forming a valid pair) is
   refused as `E_JSON`, because Swift `String` cannot represent it.
-- An integer outside Swift's signed `Int64` range is refused as `E_JSON`, even
-  though Python integers are unbounded.
+- An integer outside the signed `Int64` range is refused as `E_JSON`.
 
 Before envelope validation, the Swift parser also has a depth-128 recursion
 guard to bound parser stack use. Exceeding it is refused as `E_JSON_DEPTH`. This
