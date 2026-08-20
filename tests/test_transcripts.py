@@ -388,7 +388,7 @@ def test_save_rejects_reserved_auto_name(tmp_path, monkeypatch, capsys):
     monkeypatch.setenv("BIRKIN_HOME", str(tmp_path))
     from birkin import slashcommands
     sess = types.SimpleNamespace(agent=types.SimpleNamespace(messages=[]))
-    slashcommands._save(sess, "auto__sneaky")
+    slashcommands._sessions(sess, "save auto__sneaky")
     assert "reserved" in capsys.readouterr().out.lower()
     assert not (tmp_path / "sessions" / "auto__sneaky.json").exists()
 

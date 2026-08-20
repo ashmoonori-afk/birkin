@@ -12,7 +12,6 @@ from __future__ import annotations
 
 import json
 import shlex
-import sys
 from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Any, Callable, Optional, cast
@@ -91,16 +90,14 @@ def _last_user_text(messages: list[dict[str, Any]]) -> str:
 # source: any command not listed here falls into "기타" so nothing is hidden.
 _HELP_GROUPS: list[tuple[str, list[str]]] = [
     ("세션·대화", ["new", "retry", "undo", "rollback", "compact", "clear",
-                 "save", "load", "sessions", "status", "agents",
-                 "attach", "send"]),
+                 "sessions", "status", "agents", "attach", "send"]),
     ("모델", ["model", "provider", "temp"]),
-    ("기억", ["memory", "remember", "vault", "learn"]),
-    ("스킬·도구", ["skills", "skill", "reload", "tools", "system", "mcp",
-                 "details"]),
+    ("기억", ["memory", "learn"]),
+    ("스킬·도구", ["skills", "tools", "system", "mcp", "details"]),
     ("운영·승인", ["work", "goal", "review", "cron", "permission",
                  "config", "morpheus", "update"]),
-    ("페르소나·인터뷰", ["soul", "personality", "neurosis", "odyssey"]),
-    ("게이트웨이", ["restart-gateway", "hard-restart"]),
+    ("페르소나·인터뷰", ["persona", "neurosis", "odyssey"]),
+    ("게이트웨이", ["restart"]),
     ("종료·도움", ["help", "quit"]),
 ]
 
@@ -301,27 +298,16 @@ def _set_model(session: Any, arg: str) -> None:
     _warn_if_key_missing(session)
 
 
-def _stdin_is_interactive() -> bool:
-    """True when a real terminal can drive the arrow-key picker."""
-    try:
-        return bool(sys.stdin.isatty())
-    except (AttributeError, ValueError):
-        return False
-
-
-@command("model", "Show the model, or pick/set one: /model [number|name].",
+@command("model", "Pick a model (↑/↓, Enter), or set one: /model <number|name>.",
          "/model [number|name]", aliases=["models"])
 def _model(session: Any, arg: str) -> None:
-    # One command, both jobs: /model <name> sets directly, bare /model opens the
-    # picker. Without a terminal (gateway, telegram) there is nothing to drive
-    # the picker with, so a bare /model reports the current model instead of
-    # blocking the turn.
+    # Two modes only, matching hermes: a bare /model picks, /model <name> sets.
+    # There is deliberately no "print the current model" mode — the status line
+    # already carries it. Without a terminal (gateway, telegram) menu.select
+    # degrades to a printed list and returns None, so nothing blocks.
     arg = arg.strip()
     if arg:
         _set_model(session, arg)
-        return
-    if not _stdin_is_interactive():
-        print(session.cfg.get("model"))
         return
     from . import models as models_mod
     chosen = models_mod.pick_interactive(session.cfg)   # arrow picker; applies to cfg
@@ -360,23 +346,19 @@ def _temp(session: Any, arg: str) -> None:
 
 # -- skills ----------------------------------------------------------------
 
-@command("skills", "List loaded skills.", "/skills")
+@command("skills", "List skills, show one (/skills <name>), or /skills reload.",
+         "/skills [name|reload]")
 def _skills(session: Any, arg: str) -> None:
-    if arg:
-        return _skill(session, arg)
-    print(session.skills.index())
-
-
-@command("skill", "Show a skill in full.", "/skill <name>")
-def _skill(session: Any, arg: str) -> None:
-    sk = session.skills.get(arg)
-    print(f"\n{sk.full()}\n" if sk else f"{RED}No skill {arg!r}.{RESET}")
-
-
-@command("reload", "Reload skills from disk.", "/reload")
-def _reload(session: Any, arg: str) -> None:
-    session.skills.reload()
-    print(f"{DIM}Reloaded {len(session.skills.skills)} skill(s).{RESET}")
+    name = arg.strip()
+    if not name:
+        print(session.skills.index())
+        return
+    if name.lower() == "reload":
+        session.skills.reload()
+        print(f"{DIM}Reloaded {len(session.skills.skills)} skill(s).{RESET}")
+        return
+    sk = session.skills.get(name)
+    print(f"\n{sk.full()}\n" if sk else f"{RED}No skill {name!r}.{RESET}")
 
 
 @command("learn", "Reflect on this session and save skills/memory.", "/learn")
@@ -390,29 +372,28 @@ def _learn(session: Any, arg: str) -> None:
 
 # -- memory ----------------------------------------------------------------
 
-@command("memory", "Search the Obsidian memory vault.", "/memory <query>", aliases=["recall"])
+@command("memory", "Search memory; /memory save <text>; /memory where.",
+         "/memory [query|save <text>|where]", aliases=["recall"])
 def _memory(session: Any, arg: str) -> None:
-    if not arg:
-        print(f"{DIM}Vault: {session.memory.vault} "
-              f"({len(session.memory.list_notes())} notes){RESET}")
+    # One command for the vault: searching, saving, and locating it were three
+    # names for one concern. A bare /memory reports where the vault is, which is
+    # what the old /vault did.
+    verb, _, rest = arg.strip().partition(" ")
+    rest = rest.strip()
+    if verb.lower() == "save":
+        if not rest:
+            print(f"{RED}Give something to remember: /memory save <text>.{RESET}")
+            return
+        session.memory.write_note(rest[:60], rest, note_type="fact", source="repl")
+        print(f"{GREEN}Noted.{RESET}")
         return
-    for r in session.memory.search(arg):
+    if not arg.strip() or (verb.lower() == "where" and not rest):
+        notes = session.memory.list_notes()
+        print(f"{session.memory.vault}\n{len(notes)} note(s). "
+              f"Open in Obsidian to browse the graph.")
+        return
+    for r in session.memory.search(arg.strip()):
         print(f"  {CYAN}[[{r['title']}]]{RESET}: {r['snippet']}")
-
-
-@command("remember", "Save a durable fact to memory.", "/remember <text>")
-def _remember(session: Any, arg: str) -> None:
-    if not arg:
-        print(f"{RED}Give something to remember.{RESET}")
-        return
-    session.memory.write_note(arg[:60], arg, note_type="fact", source="repl")
-    print(f"{GREEN}Noted.{RESET}")
-
-
-@command("vault", "Show the memory vault location and size.", "/vault")
-def _vault(session: Any, arg: str) -> None:
-    notes = session.memory.list_notes()
-    print(f"{session.memory.vault}\n{len(notes)} note(s). Open in Obsidian to browse the graph.")
 
 
 # -- inspect ---------------------------------------------------------------
@@ -700,7 +681,6 @@ def _permission(session: Any, arg: str) -> None:
 
 # -- session persistence ---------------------------------------------------
 
-@command("save", "Save the current conversation.", "/save [name]")
 def _save(session: Any, arg: str) -> None:
     name = arg or datetime.now().strftime("%Y%m%d-%H%M%S")
     if transcripts.is_auto(name):
@@ -713,7 +693,6 @@ def _save(session: Any, arg: str) -> None:
     print(f"{DIM}Saved to {path}{RESET}")
 
 
-@command("load", "Load a saved conversation.", "/load <name>")
 def _load(session: Any, arg: str) -> None:
     if not arg:
         print(f"{RED}Give a session name (see /sessions).{RESET}")
@@ -726,11 +705,19 @@ def _load(session: Any, arg: str) -> None:
     print(f"{DIM}Loaded {arg} ({len(session.agent.messages)} messages).{RESET}")
 
 
-@command("sessions", "List or search saved conversations.",
-         "/sessions [query] [--since 30d] [--from telegram] [--model name]")
+@command("sessions", "List/search conversations; /sessions save|load <name>.",
+         "/sessions [query] [--since 30d] [--from telegram] [--model name] "
+         "| save [name] | load <name>")
 def _sessions(session: Any, arg: str) -> None:
     # Hide reserved auto__* transcripts (auto-saved for memory extraction); they
-    # are not meant for manual /load and would flood this list.
+    # are not meant for manual loading and would flood this list.
+    verb, _, rest = arg.strip().partition(" ")
+    if verb.lower() == "save":
+        _save(session, rest.strip())
+        return
+    if verb.lower() == "load":
+        _load(session, rest.strip())
+        return
     if arg.strip():
         _sessions_search(arg)
         return
@@ -811,18 +798,18 @@ def _gateway_post(cfg: dict, text: str) -> str:
         return f"{RED}Gateway not reachable ({exc}). Is `birkin gateway` running?{RESET}"
 
 
-@command("restart-gateway", "Soft-restart the gateway (reload config/persona/memory).",
-         "/restart-gateway", aliases=["restart"])
-def _restart_gateway(session: Any, arg: str) -> None:
-    reply = _gateway_post(session.cfg, "/restart-gateway")
-    print(reply)
-
-
-@command("hard-restart", "Hard-restart the gateway (picks up code changes too).",
-         "/hard-restart", aliases=["restart-hard"])
-def _hard_restart(session: Any, arg: str) -> None:
-    reply = _gateway_post(session.cfg, "/hard-restart")
-    print(reply)
+@command("restart", "Restart the gateway; --hard also picks up code changes.",
+         "/restart [--hard]")
+def _restart(session: Any, arg: str) -> None:
+    # The wire strings stay as they are: the gateway matches them against its
+    # own synonym table (gateway/core.py), which is a separate contract from
+    # this REPL command's name.
+    a = arg.strip().lower()
+    if a not in ("", "--hard", "hard"):
+        print("usage: /restart [--hard]")
+        return
+    wire = "/hard-restart" if a else "/restart-gateway"
+    print(_gateway_post(session.cfg, wire))
 
 
 # -- system / maintenance --------------------------------------------------
@@ -846,39 +833,33 @@ def _quit(session: Any, arg: str) -> str:
 
 # -- persona ---------------------------------------------------------------
 
-@command("soul", "Show birkin's persona (or its file path).", "/soul [path|reset]",
-         aliases=["persona"])
-def _soul(session: Any, arg: str) -> None:
+@command("persona", "Show birkin's persona, or switch it to a preset.",
+         "/persona [warm|concise|mentor|direct|path|reset]", aliases=["soul"])
+def _persona(session: Any, arg: str) -> None:
+    # One command for the whole persona surface: showing it, locating its file,
+    # resetting it, and switching presets were three names for one concern.
     from . import persona
-    a = arg.strip().lower()
-    if a == "path":
+    name = arg.strip().lower()
+    if name == "path":
         print(persona.soul_path())
         return
-    if a == "reset":
+    if name == "reset":
         persona.seed_default(force=True)
         print(f"{GREEN}Persona reset to the default warm voice.{RESET}")
         return
-    text = persona.read_soul()
-    if not text:
-        print(f"{DIM}No SOUL.md set — using the built-in default voice. "
-              f"Create {persona.soul_path()} or use /personality.{RESET}")
-    else:
-        print(f"{DIM}{persona.soul_path()}{RESET}\n{text}")
-
-
-@command("personality", "Switch persona to a built-in preset.",
-         "/personality [warm|concise|mentor|direct]")
-def _personality(session: Any, arg: str) -> None:
-    from . import persona
-    name = arg.strip().lower()
     if not name:
-        cur = persona.read_soul()
+        text = persona.read_soul()
         print(f"Presets: {', '.join(persona.PRESETS)}")
-        print(f"{DIM}Current persona:\n{cur or '(built-in default)'}{RESET}")
+        if not text:
+            print(f"{DIM}No SOUL.md set — using the built-in default voice. "
+                  f"Create {persona.soul_path()} or run /persona <preset>.{RESET}")
+        else:
+            print(f"{DIM}{persona.soul_path()}{RESET}\n{text}")
         return
     preset = persona.PRESETS.get(name)
     if not preset:
-        print(f"{RED}Unknown preset {name!r}. Choose: {', '.join(persona.PRESETS)}.{RESET}")
+        print(f"{RED}Unknown preset {name!r}. Choose: "
+              f"{', '.join(persona.PRESETS)}, or use path|reset.{RESET}")
         return
     persona.write_soul(preset)
     print(f"{GREEN}Persona set to '{name}'. Applies immediately (incl. gateway).{RESET}")
