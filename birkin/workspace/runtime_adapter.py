@@ -9,10 +9,11 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import cast, final
 
-from .. import approvals, config, transcripts, uistate, workbench
+from .. import config, transcripts, uistate, workbench
 from ..computer_use.events import ComputerEvent
 from ..computer_use.reducer import ComputerState, reduce_event
 from ..runtime import Session, build_session
+from . import approval_authority
 from .owned_terminal import TerminalAuthority
 from .records import PanelSummary, WorkspaceEvent, WorkspaceSnapshot
 from .service import CommandHandler
@@ -337,7 +338,7 @@ class RuntimeWorkspaceAdapter:
         decision = payload.get("decision")
         if not isinstance(approval_id, str):
             raise TypeError("approval_id is required")
-        result = approvals.decide(
+        result = approval_authority.decide(
             approval_id,
             decision=str(decision),
             reason=str(payload.get("reason") or ""),

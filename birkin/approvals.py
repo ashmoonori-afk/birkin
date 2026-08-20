@@ -489,45 +489,6 @@ def approve(aid: str, on_event: Any = None) -> dict[str, Any]:
     return execute_claimed(aid, on_event=on_event)
 
 
-def decide(
-    aid: str,
-    *,
-    decision: str,
-    reason: str = "",
-    on_event: Any = None,
-) -> dict[str, Any]:
-    """Resolve an approval once, normalizing a multi-surface losing answer.
-
-    The store claim remains the sole execution gate. A surface that loses the
-    claim receives canonical state rather than an authority exception or an
-    unbounded executor error.
-    """
-    if decision == "approve":
-        result = approve(aid, on_event=on_event)
-        decided_status = "approved"
-    elif decision == "reject":
-        result = reject(aid, reason=reason)
-        decided_status = "rejected"
-    else:
-        raise ValueError("decision must be approve or reject")
-    if result.get("ok"):
-        response: dict[str, Any] = {
-            "outcome": decided_status,
-            "approval_id": aid,
-        }
-        if "result" in result:
-            response["receipt"] = str(result["result"])
-        return response
-    current = store.get_pending(aid)
-    if current is not None and current.get("status") != "pending":
-        return {"outcome": "answered_elsewhere", "approval_id": aid}
-    return {
-        "outcome": "rejected_by_authority",
-        "approval_id": aid,
-        "error": str(result.get("error") or "approval could not be resolved")[:300],
-    }
-
-
 def reject(aid: str, reason: str = "") -> dict[str, Any]:
     if not store.valid_pending_id(aid):
         return {"ok": False}

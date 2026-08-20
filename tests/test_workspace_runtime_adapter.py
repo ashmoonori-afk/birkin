@@ -5,7 +5,8 @@ from typing import cast, final
 
 import pytest
 
-from birkin import approvals, uistate
+from birkin import uistate
+from birkin.workspace import approval_authority
 from birkin.runtime import Session
 from birkin.workspace import WorkspaceEvent
 from birkin.workspace.runtime_adapter import RuntimeWorkspaceAdapter
@@ -140,7 +141,7 @@ def test_approval_answer_event_carries_execution_receipt(
             "receipt": "exit 0: approved",
         }
 
-    monkeypatch.setattr(approvals, "decide", decide)
+    monkeypatch.setattr(approval_authority, "decide", decide)
     adapter = RuntimeWorkspaceAdapter("receipt-session", emit)
 
     result = adapter.handlers()["approval.answer"](
