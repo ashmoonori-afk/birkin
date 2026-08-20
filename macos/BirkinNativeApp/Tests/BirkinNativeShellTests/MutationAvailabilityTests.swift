@@ -29,14 +29,6 @@ struct MutationAvailabilityTests {
         }
     }
 
-    @Test("every shell mutation control uses the connection gate")
-    func everyMutationControlIsGated() {
-        let availability = MutationAvailability(state: .disconnected, now: now)
-        let controls = ShellMutationControl.allCases
-        #expect(!controls.isEmpty)
-        #expect(controls.allSatisfy { availability.allows($0) == false })
-    }
-
     private func session(expiresIn interval: TimeInterval) -> NativeReadySession {
         NativeReadySession(
             instanceID: "instance-1",

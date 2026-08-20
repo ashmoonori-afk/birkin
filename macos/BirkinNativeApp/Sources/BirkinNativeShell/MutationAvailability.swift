@@ -38,8 +38,4 @@ public struct MutationAvailability: Equatable, Sendable {
             disabledReason = "Connection is not ready."
         }
     }
-
-    public func allows(_ control: ShellMutationControl) -> Bool {
-        isEnabled
-    }
 }
