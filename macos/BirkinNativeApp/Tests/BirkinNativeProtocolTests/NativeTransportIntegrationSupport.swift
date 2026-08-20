@@ -29,23 +29,27 @@ struct HarnessReadiness {
 
     static func launch(
         transport: String,
-        terminal: Bool = false
+        terminal: Bool = false,
+        connections: Int = 1,
+        root suppliedRoot: URL? = nil
     ) throws -> HarnessReadiness {
         let package = URL(fileURLWithPath: #filePath)
             .deletingLastPathComponent()
             .deletingLastPathComponent()
             .deletingLastPathComponent()
         let repository = package.deletingLastPathComponent().deletingLastPathComponent()
-        let root = URL(fileURLWithPath: "/private/tmp/birkin-swift-\(UUID().uuidString)")
+        let root = suppliedRoot
+            ?? URL(fileURLWithPath: "/private/tmp/birkin-swift-\(UUID().uuidString)")
         try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
 
         let process = Process()
         let stdout = Pipe()
         let exit = DispatchSemaphore(value: 0)
-        process.executableURL = URL(fileURLWithPath: "/usr/bin/env")
+        process.executableURL = repository.appendingPathComponent(".venv/bin/python3")
         process.arguments = [
-            "uv", "run", "python", "scripts/native/swift_transport_harness.py",
+            "scripts/native/swift_transport_harness.py",
             "--transport", transport, "--root", root.path,
+            "--connections", String(connections),
         ] + (terminal ? ["--terminal"] : [])
         process.currentDirectoryURL = repository
         process.standardOutput = stdout

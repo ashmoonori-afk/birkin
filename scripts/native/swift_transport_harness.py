@@ -19,7 +19,10 @@ def main() -> None:
     parser.add_argument("--transport", choices=("uds", "loopback"), required=True)
     parser.add_argument("--root", type=Path, required=True)
     parser.add_argument("--terminal", action="store_true")
+    parser.add_argument("--connections", type=int, default=1)
     args = parser.parse_args()
+    if args.connections < 1 or args.connections > 8:
+        parser.error("--connections must be between 1 and 8")
 
     source = WorkspaceService(
         root=args.root / "workspace",
@@ -67,7 +70,8 @@ def main() -> None:
         else:
             readiness["discovery_path"] = str(capabilities.endpoint_path)
         print(json.dumps(readiness, separators=(",", ":")), flush=True)
-        endpoint.serve_once()
+        for _ in range(args.connections):
+            endpoint.serve_once()
     finally:
         endpoint.close()
         if terminal is not None:
