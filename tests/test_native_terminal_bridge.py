@@ -170,6 +170,25 @@ def test_disconnect_revokes_terminal_mutation_lease(
                 "sequence": 1,
                 "data": "echo refused\\n",
             })
+
+        second_server, second_client = socket.socketpair()
+        second_thread, second_errors = serve(
+            bridge, second_server, transport="uds", peer_uid=local_peer_uid()
+        )
+        try:
+            second_token = handshake(second_client)
+            _send(second_client, second_token, source, "terminal.input", "empty-lease", {
+                "terminal_id": opened["terminal_id"],
+                "lease": "",
+                "sequence": 1,
+                "data": "echo client-b-bypass\\n",
+            })
+            refused = receive_kind(second_client, "error")
+            assert refused.body["code"] == "E_TERMINAL_LEASE_REQUIRED"
+        finally:
+            second_client.close()
+            second_thread.join(timeout=2)
+        assert second_errors == []
     finally:
         terminal.close_all()
         client.close()
