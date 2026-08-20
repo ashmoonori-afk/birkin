@@ -1,6 +1,7 @@
 # SOUL / PREFERENCE 역할 파일 — 현황 실측과 설계안
 
-작성: 2026-08-20 · 브랜치 `design/memory-role-files-20260820` · 상태: **설계안(미구현)**
+작성: 2026-08-20 · 브랜치 `design/memory-role-files-20260820`
+상태: **설계 확정(미구현)** — 열린 분기 D1/D2/D3 결정 완료(§7), 선행 조건 3건 미해소
 
 목적: birkin이 "말투(soul)"와 "사용자 선호(preference)"를 실제로 제대로 구현하고
 있는지 코드로 확인하고, 안 되는 부분의 원인을 규명한 뒤, hermes-agent와 omo native의
@@ -190,9 +191,11 @@ Vault: ...\vault (3 notes). Use memory_search / memory_get_note for details.
 관찰한 스타일 요청만 담고 SOUL.md **다음** 슬롯에 주입하며, `/persona promote`로
 사용자가 승인 시 SOUL.md에 병합한다.
 
-> 대안 A(미채택): mnemosyne 스펙 그대로 5종(`soul.md` 포함) 이식 — 저장소 간 이름이
-> 일치한다는 장점이 있으나 SOUL.md와 우선순위 충돌을 사용자에게 설명해야 한다.
-> **이 항목은 사용자 확인이 필요한 유일한 설계 분기다(§7).**
+> **결정 D1(2026-08-20, 확정): 분리.** mnemosyne의 `system/soul.md`는 birkin에서
+> `profile/style.md`로 이름을 바꿔 이식한다. `SOUL.md`(사람 소유)와
+> `profile/style.md`(에이전트 소유)의 경계는 hermes의 SOUL/USER 분리와 동일하며,
+> 승격은 `/persona promote`로만 일어난다(에이전트는 `SOUL.md`를 쓰지 않는다).
+> mnemosyne 쪽 파일명은 그대로 두고, birkin의 어댑터에서 `soul → style`로 매핑한다.
 
 ### 5.2 주입 (프롬프트 계약)
 
@@ -211,11 +214,20 @@ Vault: ...\vault (3 notes). Use memory_search / memory_get_note for details.
 1. **전경(도구)**: `remember(key, value)` → 노트 대신 `profile/preferences.md`에
    추가/치환. `profile_write(target, action, old_text, content)` 도구를 신설하고
    hermes식 `add|replace|remove` + 부분 문자열 매칭을 채택.
-2. **배경(리뷰)**: `birkin_mnemosyne.profiles.ProfileMemory`를 `birkin/profiles.py`로
-   포팅. 턴 종료 후 `record_exchange(user, assistant)`를 큐잉하고 1-worker 스레드에서
-   JSON 계약(`{"profiles": {...}}`)으로 검토·기록. 실패는 대화에 영향 없음.
-   리뷰 프롬프트는 omo `reflection-persona.md`의 필터(지속성/중복/일반화/절대날짜)를
-   압축해 사용.
+2. **배경(리뷰)**: `birkin_mnemosyne.profiles.ProfileMemory`를 **의존성으로 가져다
+   쓴다**(결정 D3, §5.10). 턴 종료 후 `record_exchange(user, assistant)`를 큐잉하고
+   1-worker 스레드에서 JSON 계약(`{"profiles": {...}}`)으로 검토·기록. 실패는 대화에
+   영향 없음. 리뷰 프롬프트는 omo `reflection-persona.md`의 필터(지속성/중복/일반화/
+   절대날짜)를 압축해 사용.
+
+   > **결정 D2(2026-08-20, 확정): 보조 모델.** 리뷰는 메인 대화 모델이 아니라
+   > 별도 저가 모델로 돌린다(`profile.background_review.{provider,model}`).
+   > 결과: 리뷰가 메인 모델의 프리픽스 캐시를 재사용할 수 없으므로 전체 트랜스크립트
+   > 재생은 낭비다 — hermes와 동일하게 **다이제스트 재생**(최근 N턴 원문 + 이전 요약)을
+   > `ProfileReviewer` 입력으로 넘긴다. `ProfileExchange(user, assistant)` 계약은
+   > 그대로 두고, 다이제스트 구성은 birkin 쪽 어댑터 책임으로 한다.
+   > 보조 모델 미설정 시에는 리뷰를 **끈다**(메인 모델로 조용히 폴백하지 않는다 —
+   > 비용이 사용자 모르게 늘어나는 것을 막기 위함).
 3. **한도 초과**: 조용히 자르지 않고 도구 에러 + 현재 항목 목록 반환 → 같은 턴에서
    통합 후 재시도(hermes 방식). **결함 P1 수정.**
 4. **중복**: 동일 라인은 무시(mnemosyne 현행 동작 유지).
@@ -252,14 +264,55 @@ Vault: ...\vault (3 notes). Use memory_search / memory_get_note for details.
 ```jsonc
 "profile": {
   "enabled": true,
-  "background_review": true,
   "write_approval": false,
   "limits": { "user": 1375, "preferences": 1375, "style": 800,
-              "workflow": 1000, "automation": 800 }
+              "workflow": 1000, "automation": 800 },
+  "background_review": {
+    "enabled": true,
+    "provider": null,        // 필수. 미설정이면 리뷰를 끈다(메인 모델 폴백 없음).
+    "model": null,           // 예: 저가 flash급 모델
+    "digest_recent_turns": 6 // 이전 턴은 요약으로 압축해 재생
+  }
 }
 ```
 
-### 5.8 검증 계획 (구현 시 착수 순서)
+### 5.8 코드 조달 및 의존성 경계 (결정 D3)
+
+> **결정 D3(2026-08-20, 확정): 의존성 추가.** `ProfileMemory`를 벤더링 복사하지 않고
+> `birkin-mnemosyne` 패키지를 의존성으로 추가한다.
+
+조사 결과 다음 선행 조건이 확인되었고, **구현 전에 모두 해소되어야 한다**:
+
+| # | 사실 (실측) | 필요한 조치 |
+|---|---|---|
+| C1 | `birkin-mnemosyne`는 PyPI에 없음 (`/pypi/.../json` → 404). GitHub 저장소는 존재 (200) | PyPI 배포, 또는 git URL 의존성 사용 |
+| C2 | `ProfileMemory`를 추가한 커밋 `0305da5`가 **origin에 push되지 않음** (`main...origin/main [ahead 1]`) | 먼저 push + 버전 태그(예: `v0.2.0`) |
+| C3 | `profiles.py:11`이 `from typing import Self` 사용 — `typing.Self`는 **Python 3.11+**인데 두 패키지 모두 `requires-python = ">=3.10"` | mnemosyne 쪽에서 `typing_extensions.Self`로 교체(birkin은 이미 `typing-extensions>=4.12` 의존) 또는 `requires-python`을 3.11로 상향 |
+
+C1은 git URL 의존성으로 해결 가능하다 — `birkin` 자체가 PyPI에 배포되지 않고
+(`/pypi/birkin/json` → 404, publish 워크플로 없음) 소스 설치 방식이라,
+PyPI가 금지하는 direct URL dependency 제약에 걸리지 않는다:
+
+```toml
+dependencies = [
+  "psutil>=6",
+  "typing-extensions>=4.12",
+  "birkin-mnemosyne @ git+https://github.com/ashmoonori-afk/birkin-mnemosyne@v0.2.0",
+]
+```
+
+**의존성 경계 (필수 제약).** birkin의 벤더링 `birkin/mnemosyne.py`(780줄)와 패키지의
+`birkin_mnemosyne/mnemosyne.py`(676줄)는 이미 갈라져 있다 — `INDEX_VERSION` 3 vs 1,
+`INDEX_FILE` `.birkin-index.json` vs `.mnemosyne-index.json`, birkin에만 있는
+시간 사전확률(`TIME_PRIOR_LAMBDA`, `temporal_target`)과 `STRENGTH_STEP`.
+**두 인덱스 구현이 한 프로세스에서 같은 vault를 만지면 인덱스가 깨진다.**
+
+따라서 birkin이 import해도 되는 것은 `birkin_mnemosyne.profiles`뿐이다
+(`profiles.py`의 외부 의존은 `atomic_write` 하나이며 두 구현에서 동일).
+`birkin_mnemosyne.mnemosyne` / `Mnemosyne` / `curation*`은 **import 금지**이며,
+이를 `tests/test_profile_import_boundary.py`로 강제한다(모듈 소스 정적 검사).
+
+### 5.9 검증 계획 (구현 시 착수 순서)
 
 1. `tests/test_profile_files.py` — bootstrap(5파일 생성 + frontmatter),
    한도 초과 시 **에러이며 기존 항목 무손실**, 중복 라인 무시, 동시 쓰기 락,
@@ -270,9 +323,15 @@ Vault: ...\vault (3 notes). Use memory_search / memory_get_note for details.
    원본 아카이브, 재실행 멱등.
 4. 회귀: `tests/test_persona.py`, `tests/test_memory_zones.py`,
    `tests/test_memory_transparency.py` 무변경 통과.
-5. 수동: `/persona`, `/profile`, `--help`, 잘못된 인자 1건 (AGENTS.md 커밋 게이트 준수).
+5. `tests/test_profile_import_boundary.py` — birkin 코드가 `birkin_mnemosyne.profiles`
+   외의 심볼(특히 `Mnemosyne`, `curation*`)을 import하지 않음을 정적으로 검증(§5.8).
+6. `tests/test_profile_review_model.py` — 보조 모델 미설정 시 리뷰가 **꺼지고**
+   메인 모델로 폴백하지 않음, 다이제스트가 `digest_recent_turns`를 지킴,
+   리뷰 실패가 대화 턴을 깨지 않음.
+7. 수동: `/persona`, `/persona promote`, `/profile`, `--help`, 잘못된 인자 1건
+   (AGENTS.md 커밋 게이트 준수).
 
-### 5.9 비목표
+### 5.10 비목표
 
 - vault 검색/랭킹 알고리즘 변경 없음. 역할 파일은 **인덱스 위의 얇은 계층**이다.
 - 외부 메모리 프로바이더 연동 없음.
@@ -294,15 +353,21 @@ Vault: ...\vault (3 notes). Use memory_search / memory_get_note for details.
 
 ---
 
-## 7. 확인이 필요한 결정 (구현 착수 전)
+## 7. 결정 사항 (2026-08-20 확정)
 
-1. **`style.md` vs `soul.md`** — §5.1 권장안(이름 분리 + `/persona promote`)으로 갈지,
-   mnemosyne 스펙대로 `soul.md`를 그대로 쓸지.
-2. **백그라운드 리뷰 모델** — 메인 모델 재생(캐시 친화)인지, 저가 보조 모델인지
-   (hermes는 다른 모델 사용 시 대화 다이제스트를 재생해 비용 3~5배 절감).
-3. **코드 조달 방식** — `birkin_mnemosyne`를 의존성으로 추가할지, 기존 벤더링 관례대로
-   `birkin/profiles.py`로 포팅할지. 현재 birkin은 `mnemosyne.py`/`curation*.py`를
-   벤더링하고 있어 **포팅이 일관적**이다.
+| ID | 결정 | 반영 위치 |
+|---|---|---|
+| **D1** | **분리** — mnemosyne의 `soul.md`는 birkin에서 `profile/style.md`로 이식. `SOUL.md`는 사람 소유로 유지하고 에이전트는 쓰지 않는다. 승격은 `/persona promote` | §5.1 |
+| **D2** | **보조 모델** — 백그라운드 리뷰는 별도 저가 모델로 실행하고 다이제스트를 재생. 미설정 시 리뷰를 끈다(메인 모델 폴백 없음) | §5.3, §5.7 |
+| **D3** | **의존성 추가** — `ProfileMemory`를 벤더링하지 않고 `birkin-mnemosyne`를 의존성으로 추가. import 경계는 `birkin_mnemosyne.profiles`로 한정 | §5.8 |
+
+### 구현 착수 전 선행 조건 (D3에서 파생, 모두 미해소)
+
+1. mnemosyne 커밋 `0305da5`를 origin에 push하고 버전 태그를 붙일 것 (현재 `ahead 1`).
+2. `profiles.py`의 `from typing import Self`를 `typing_extensions.Self`로 교체하거나
+   `requires-python`을 `>=3.11`로 올릴 것 — 현재 선언(`>=3.10`)에서는 3.10 설치가
+   import 시점에 깨진다.
+3. PyPI 배포 또는 git URL 의존성 중 하나를 확정할 것 (§5.8 C1 — 후자로 진행 가능).
 
 ## 8. 출처
 
