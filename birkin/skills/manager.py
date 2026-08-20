@@ -320,6 +320,7 @@ class SkillManager:
 def _guard_agent_written(
     path: Path,
     what: str,
+    payload: bytes,
 ) -> None:
     """Scan a staged skill before publishing it.
 
@@ -330,7 +331,11 @@ def _guard_agent_written(
     if not config.load_config().get("skills_guard_agent_created"):
         return
     from . import guard
-    result = guard.scan_skill(path.parent, source="agent-created")
+    result = guard.scan_skill(
+        path.parent,
+        source="agent-created",
+        file_overrides={path.name: payload},
+    )
     if guard.should_allow_install(result) is True:
         return
     raise SkillProposalError(
@@ -413,7 +418,7 @@ def _verified_candidate_bytes(candidate: Path, what: str) -> bytes:
     if candidate.is_symlink():
         raise SkillProposalError("staged SKILL.md must not be a symlink")
     before = candidate.read_bytes()
-    _guard_agent_written(candidate, what)
+    _guard_agent_written(candidate, what, before)
     if candidate.is_symlink():
         raise SkillProposalError("staged SKILL.md must not be a symlink")
     after = candidate.read_bytes()
@@ -425,6 +430,17 @@ def _verified_candidate_bytes(candidate: Path, what: str) -> bytes:
             "staged SKILL.md changed during security review"
         )
     return after
+
+
+def _close_preserving_active_error(descriptor: int) -> None:
+    import sys
+
+    active_error = sys.exc_info()[1]
+    try:
+        os.close(descriptor)
+    except OSError:
+        if active_error is None:
+            raise
 
 
 def _write_all(descriptor: int, payload: bytes) -> None:
@@ -1097,7 +1113,7 @@ def apply_skill_proposal(payload: dict[str, Any]) -> str:
                         )
                 finally:
                     if root_fd is not None:
-                        os.close(root_fd)
+                        _close_preserving_active_error(root_fd)
         except store.FileLockTimeout:
             raise SkillProposalError("skill store is busy") from None
         return f"Created skill {name!r} at {path}"
@@ -1169,7 +1185,7 @@ def apply_skill_proposal(payload: dict[str, Any]) -> str:
                         )
                 finally:
                     if root_fd is not None:
-                        os.close(root_fd)
+                        _close_preserving_active_error(root_fd)
         except store.FileLockTimeout:
             raise SkillProposalError("skill store is busy") from None
         return f"Appended learned note to {target_name!r}."
