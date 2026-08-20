@@ -429,6 +429,38 @@ def test_run_pass_annotates_original_pinned_vault(
     ).read_text(encoding="utf-8")
 
 
+def test_curation_rezone_never_uses_split_link_unlink(
+        monkeypatch,
+) -> None:
+    vault = _seed_vault()
+
+    def reject_split_move(*_args, **_kwargs):
+        raise AssertionError("rezone used split link/unlink")
+
+    monkeypatch.setattr(os, "link", reject_split_move)
+
+    outcome = curation.run_curation_pass(
+        vault,
+        lambda _prompt: json.dumps({
+            "plan_version": 1,
+            "ops": [{
+                "op": "rezone",
+                "slug": "budget-plan",
+                "zone": "projects",
+            }],
+        }),
+        provider="test",
+        now=NOW,
+    )
+
+    assert outcome.effected == [{
+        "op": "rezone",
+        "slug": "budget-plan",
+        "zone": "projects",
+    }]
+    assert (vault / "projects" / "budget-plan.md").is_file()
+
+
 # ---------------- sanitize + full driver ------------------------------------
 
 def test_sanitize_summary_redacts_canary_phrase():

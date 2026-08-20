@@ -39,6 +39,7 @@ from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
 
+from .note_move import move_note_noreplace
 from .skills import frontmatter
 
 # -- constants (single tuning source; see design §8) -------------------------
@@ -757,8 +758,7 @@ class Mnemosyne:
             new = new_dir / f"{s}.md"
             if old != new:
                 new_dir.mkdir(parents=True, exist_ok=True)
-                os.link(old, new)
-                old.unlink()
+                move_note_noreplace(old, new)
             rel = f"{z}/{s}.md" if z else f"{s}.md"
             try:
                 st = new.stat()
