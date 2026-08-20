@@ -3,12 +3,41 @@
 public final class NativeProjectionStore {
     public private(set) var projection: NativeProjectionState?
     public private(set) var status: NativeProjectionStoreStatus = .empty
+    public private(set) var requestedSurfaceRevisions: [String: Int] = [:]
+    private var surfaces: [String: NativeSurfaceProjection] = [:]
     private var activeCommands: Set<String> = []
     private var interrupted = false
 
     public init() {}
 
     public var latestAppliedCursor: Int? { projection?.cursor }
+
+    public func surface(named name: String) -> NativeSurfaceProjection? {
+        surfaces[name]
+    }
+
+    public func apply(surface envelope: NativeEnvelope) throws {
+        guard envelope.kind == .surfaceSnapshot || envelope.kind == .surfaceEvent else {
+            throw NativeProjectionError("surface projection requires a surface envelope")
+        }
+        guard Set(envelope.body.keys) == ["surface", "revision", "payload"] else {
+            throw NativeProjectionError("surface projection keys do not match the contract")
+        }
+        let name = try Self.string(envelope.body["surface"], label: "surface")
+        let revision = try Self.integer(envelope.body["revision"], label: "surface revision")
+        let payload = try Self.object(envelope.body["payload"], label: "surface payload")
+        if envelope.kind == .surfaceEvent {
+            guard let current = surfaces[name], revision == current.revision + 1 else {
+                surfaces[name] = nil
+                requestedSurfaceRevisions[name] = 0
+                return
+            }
+        }
+        surfaces[name] = NativeSurfaceProjection(
+            name: name, revision: revision, payload: payload
+        )
+        requestedSurfaceRevisions[name] = revision
+    }
 
     public func apply(snapshot envelope: NativeEnvelope) throws {
         guard envelope.kind == .snapshot else {
