@@ -55,6 +55,24 @@ public struct NativeTransportError: Error, Equatable, CustomStringConvertible, S
     }
 }
 
+private struct NativeDiscoveryRecord: Decodable {
+    let transport: String
+    let host: String
+    let port: UInt16
+    let instanceID: String
+    let serverVersion: String
+    let protocolVersions: [Int]
+    let bootstrapSecret: String
+
+    enum CodingKeys: String, CodingKey {
+        case transport, host, port
+        case instanceID = "instance_id"
+        case serverVersion = "server_version"
+        case protocolVersions = "protocol_versions"
+        case bootstrapSecret = "bootstrap_secret"
+    }
+}
+
 extension NativeTransportActor {
     public func connectUDS(
         socketPath: String,
@@ -66,6 +84,56 @@ extension NativeTransportActor {
             defer { socket.close() }
             apply(.socketConnected(.uds))
             let transcript = try negotiate(socket: socket, hello: hello, secret: nil, as: .uds)
+            apply(.negotiated(transcript.session))
+            return transcript
+        } catch {
+            apply(.failed(reason: String(describing: error)))
+            throw error
+        }
+    }
+
+    public func connectWithFallback(
+        udsSocketPath: String,
+        discoveryPath: String,
+        hello: NativeHello
+    ) throws -> NativeHandshakeTranscript {
+        apply(.connect)
+        do {
+            let socket = try NativeSocket.connectUDS(path: udsSocketPath)
+            defer { socket.close() }
+            apply(.socketConnected(.uds))
+            let transcript = try negotiate(socket: socket, hello: hello, secret: nil, as: .uds)
+            apply(.negotiated(transcript.session))
+            return transcript
+        } catch {
+            apply(.udsUnavailable(reason: String(describing: error)))
+        }
+
+        do {
+            let record = try JSONDecoder().decode(
+                NativeDiscoveryRecord.self,
+                from: Data(contentsOf: URL(fileURLWithPath: discoveryPath))
+            )
+            guard record.transport == NativeTransportKind.loopback.rawValue,
+                  record.host == "127.0.0.1",
+                  record.protocolVersions.contains(NativeProtocol.version)
+            else {
+                throw NativeTransportError("loopback discovery record is unsupported")
+            }
+            let socket = try NativeSocket.connectLoopback(host: record.host, port: record.port)
+            defer { socket.close() }
+            apply(.socketConnected(.loopback))
+            let transcript = try negotiate(
+                socket: socket,
+                hello: hello,
+                secret: record.bootstrapSecret,
+                as: .loopback
+            )
+            guard transcript.session.instanceID == record.instanceID,
+                  transcript.session.serverVersion == record.serverVersion
+            else {
+                throw NativeTransportError("ready identity does not match discovery")
+            }
             apply(.negotiated(transcript.session))
             return transcript
         } catch {
@@ -140,6 +208,39 @@ private final class NativeSocket {
                 }
             }
             guard result == 0 else { throw systemError("connect Unix socket") }
+            return socket
+        } catch {
+            socket.close()
+            throw error
+        }
+    }
+
+    static func connectLoopback(host: String, port: UInt16) throws -> NativeSocket {
+        guard host == "127.0.0.1" else {
+            throw NativeTransportError("loopback host must be 127.0.0.1")
+        }
+        let descriptor = Darwin.socket(AF_INET, SOCK_STREAM, 0)
+        guard descriptor >= 0 else { throw systemError("socket") }
+        let socket = NativeSocket(descriptor: descriptor)
+        do {
+            try socket.configureTimeouts()
+            var address = sockaddr_in()
+            address.sin_len = UInt8(MemoryLayout<sockaddr_in>.size)
+            address.sin_family = sa_family_t(AF_INET)
+            address.sin_port = port.bigEndian
+            guard inet_pton(AF_INET, host, &address.sin_addr) == 1 else {
+                throw NativeTransportError("loopback address is invalid")
+            }
+            let result = withUnsafePointer(to: &address) { pointer in
+                pointer.withMemoryRebound(to: sockaddr.self, capacity: 1) {
+                    Darwin.connect(
+                        descriptor,
+                        $0,
+                        socklen_t(MemoryLayout<sockaddr_in>.size)
+                    )
+                }
+            }
+            guard result == 0 else { throw systemError("connect loopback socket") }
             return socket
         } catch {
             socket.close()
