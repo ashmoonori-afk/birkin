@@ -17,21 +17,7 @@ public enum NativeProtocol {
     public static let maxJSONDepth = 12
 
     /// Every message kind the protocol registers.
-    public static let kinds: Set<String> = [
-        "hello",
-        "ready",
-        "subscribe",
-        "snapshot",
-        "event",
-        "surface_snapshot",
-        "surface_event",
-        "command",
-        "receipt",
-        "error",
-        "capability.renewed",
-        "stream.desynchronized",
-        "ping",
-        "pong",
-        "goodbye",
-    ]
+    public static let kinds: Set<String> = Set(
+        NativeMessageKind.allCases.map(\.rawValue)
+    )
 }

@@ -1,0 +1,57 @@
+{
+  "generated_by": "scripts/native/generate_golden_vectors.py",
+  "source_module": "birkin.native.protocol",
+  "protocol": {
+    "name": "birkin-local-1",
+    "version": 1,
+    "max_frame_bytes": 262144,
+    "max_json_depth": 12
+  },
+  "vectors": [
+    {
+      "name": "hello",
+      "kind": "hello",
+      "envelope": {
+        "protocol": "birkin-local-1",
+        "protocol_version": 1,
+        "kind": "hello",
+        "id": "hello-1",
+        "in_reply_to": null,
+        "body": {
+          "client": "birkin-macos",
+          "client_version": "0.1.0",
+          "supported_protocol_versions": [
+            1
+          ]
+        }
+      },
+      "frame_base64": "AAAAv3sicHJvdG9jb2wiOiJiaXJraW4tbG9jYWwtMSIsInByb3RvY29sX3ZlcnNpb24iOjEsImtpbmQiOiJoZWxsbyIsImlkIjoiaGVsbG8tMSIsImluX3JlcGx5X3RvIjpudWxsLCJib2R5Ijp7ImNsaWVudCI6ImJpcmtpbi1tYWNvcyIsImNsaWVudF92ZXJzaW9uIjoiMC4xLjAiLCJzdXBwb3J0ZWRfcHJvdG9jb2xfdmVyc2lvbnMiOlsxXX19",
+      "frame_byte_count": 195
+    },
+    {
+      "name": "ready",
+      "kind": "ready",
+      "envelope": {
+        "protocol": "birkin-local-1",
+        "protocol_version": 1,
+        "kind": "ready",
+        "id": "ready-1",
+        "in_reply_to": "hello-1",
+        "body": {
+          "server": "birkin",
+          "instance_id": "birkin-local",
+          "capability": {
+            "token": "cap-token-1",
+            "expires_in_seconds": 900
+          },
+          "surfaces": [
+            "session",
+            "conversation"
+          ]
+        }
+      },
+      "frame_base64": "AAABBHsicHJvdG9jb2wiOiJiaXJraW4tbG9jYWwtMSIsInByb3RvY29sX3ZlcnNpb24iOjEsImtpbmQiOiJyZWFkeSIsImlkIjoicmVhZHktMSIsImluX3JlcGx5X3RvIjoiaGVsbG8tMSIsImJvZHkiOnsic2VydmVyIjoiYmlya2luIiwiaW5zdGFuY2VfaWQiOiJiaXJraW4tbG9jYWwiLCJjYXBhYmlsaXR5Ijp7InRva2VuIjoiY2FwLXRva2VuLTEiLCJleHBpcmVzX2luX3NlY29uZHMiOjkwMH0sInN1cmZhY2VzIjpbInNlc3Npb24iLCJjb252ZXJzYXRpb24iXX19",
+      "frame_byte_count": 264
+    }
+  ]
+}
