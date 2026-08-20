@@ -56,6 +56,29 @@ Markdown이 source of truth입니다. 선택 기능인 entity graph는 title, ta
 
 저장소의 14-question LongMemEval fixture는 retrieval과 final answer를 나누어 보고합니다. 테스트한 네 configuration 모두 retrieval recall `1.000`, answer accuracy `0.857`이었고 query당 context token은 11.9-12.4였습니다. 두 수치의 차이로 context assembly의 한계를 확인할 수 있습니다. Category·cost table과 public dataset 실행 명령은 [benchmark 결과](./benchmarks/RESULTS.md)에 있습니다. 이 수치는 fixture 결과이지 public leaderboard 점수가 아닙니다.
 
+### Role profile file (기본 비활성)
+
+Role profile 계층은 opt-in입니다. `profile.enabled`의 기본값은 `false`이며, 꺼져 있는 동안 Birkin은 `BIRKIN_HOME/profile` 아래에 아무 파일도 만들지 않습니다. `~/.birkin/config.json`에서 켭니다.
+
+```json
+{
+  "profile": {
+    "enabled": true,
+    "write_approval": false,
+    "limits": {"user": 1375, "preferences": 1375, "mask": 800, "workflow": 1000, "automation": 800},
+    "background_review": {"enabled": false, "provider": null, "model": null, "digest_recent_turns": 6}
+  }
+}
+```
+
+켜면 Birkin은 `mask.md`, `user.md`, `preferences.md`, `workflow.md`, `automation.md` 다섯 Markdown 파일을 소유합니다. 비어 있지 않은 guidance entry는 이 순서대로 system prompt에 들어가며, 각 파일은 고정 글자 budget과 `### Preferences [8% - 110/1375 chars]` 같은 usage header를 가집니다. Budget을 넘는 write는 조용히 자르지 않고 `used`, `limit`, `required_reduction`, `revision`, 번호가 붙은 현재 entry를 담은 structured error를 반환하며 파일은 그대로 둡니다. `SOUL.md`는 사람이 작성하는 voice의 권위입니다. Profile block 앞에는 `mask.md`가 SOUL과 맞는 surface style만 조정할 수 있고 SOUL을 재해석하면 안 된다는 고정 precedence 문장이 들어갑니다. Agent-owned profile write path는 `SOUL.md`를 쓰지 않으며, `/persona promote`만 `mask.md` guidance를 `SOUL.md`에 idempotent하게 append합니다.
+
+`profile.write_approval`이 true이면 profile write는 `/profile pending`, `/profile approve <id>`, `/profile reject <id>`로 검토할 때까지 대기합니다. `/profile migrate`는 기존 `Profile - <key>` preference note를 `preferences.md`로 옮기고, `/profile rollback`은 해당 migration이 archive한 note를 복원합니다. 반복 실행은 no-op입니다. Profile이 켜져 있으면 `remember(key, value)`는 `preferences.md`로 가고, 자유 형식 `remember(note=...)`는 계속 vault fact를 씁니다. `memory_write_note(type="preference")`는 `profile_write`를 쓰라는 오류로 거부됩니다.
+
+선택적인 background review는 best effort 추출이지 보장된 저장이 아닙니다. `profile.background_review.enabled`가 true이고 별도 auxiliary model용 `provider`와 `model`이 모두 설정된 경우에만 실행되며, main chat model로 fallback하지 않습니다. Durable outbox가 없으므로 process가 죽으면 queue에 있던 review 작업은 사라질 수 있습니다.
+
+Workspace `SOUL.md`는 deprecated되었고 더 이상 주입되지 않습니다. Project instruction은 workspace `AGENTS.md`에, persona는 `~/.birkin/SOUL.md`에 두십시오. Birkin은 cwd `SOUL.md`를 발견하면 deprecation notice를 출력합니다.
+
 ## 빠른 시작
 
 Birkin은 Python 3.10 이상이 필요합니다. 기본값은 로컬에서 인증한 Codex CLI이며, `birkin setup`에서 Claude CLI나 API provider를 선택할 수 있습니다.
@@ -793,6 +816,23 @@ signing/notarization, platform별 QA가 필요합니다. 따라서 local protoco
   "autosave_max_turns": 40,
   "autosave_retention_days": 30,
   "autosave_max_files": 500,
+  "profile": {
+    "enabled": false,
+    "write_approval": false,
+    "limits": {
+      "user": 1375,
+      "preferences": 1375,
+      "mask": 800,
+      "workflow": 1000,
+      "automation": 800
+    },
+    "background_review": {
+      "enabled": false,
+      "provider": null,
+      "model": null,
+      "digest_recent_turns": 6
+    }
+  },
   "neurosis_threshold": null,
   "neurosis_auto": true,
   "channels": {

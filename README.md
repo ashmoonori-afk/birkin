@@ -57,6 +57,29 @@ Memory ownership has five scopes: `user`, `organization`, `project`, `agent`, an
 
 The committed 14-question LongMemEval fixture reports retrieval and final answers separately. All four tested configurations reached `1.000` retrieval recall and `0.857` answer accuracy, using 11.9-12.4 context tokens per query. The difference makes the context-assembly gap visible. See [the category and cost tables](./benchmarks/RESULTS.md) and the exact public-dataset command. These are fixture results, not public leaderboard scores.
 
+### Role profile files (dark by default)
+
+The role-profile layer is opt-in: `profile.enabled` defaults to `false`, and Birkin creates nothing under `BIRKIN_HOME/profile` while it is disabled. Enable it in `~/.birkin/config.json`:
+
+```json
+{
+  "profile": {
+    "enabled": true,
+    "write_approval": false,
+    "limits": {"user": 1375, "preferences": 1375, "mask": 800, "workflow": 1000, "automation": 800},
+    "background_review": {"enabled": false, "provider": null, "model": null, "digest_recent_turns": 6}
+  }
+}
+```
+
+When enabled, Birkin owns five Markdown files: `mask.md`, `user.md`, `preferences.md`, `workflow.md`, and `automation.md`. Non-empty guidance entries are injected into the system prompt in that order with fixed character budgets and usage headers such as `### Preferences [8% - 110/1375 chars]`; an over-budget write returns a structured error with `used`, `limit`, `required_reduction`, `revision`, and numbered current entries, and leaves the file unchanged. `SOUL.md` remains the human-authored authority for voice: profile blocks are preceded by a fixed precedence rule that says `mask.md` may only adapt surface style and must never reinterpret SOUL. The agent-owned profile write path does not write `SOUL.md`; `/persona promote` is the explicit path that appends `mask.md` guidance into `SOUL.md` idempotently.
+
+If `profile.write_approval` is true, profile writes are staged until reviewed with `/profile pending`, `/profile approve <id>`, or `/profile reject <id>`. `/profile migrate` moves legacy `Profile - <key>` preference notes into `preferences.md`, and `/profile rollback` restores notes archived by that migration; repeat runs are no-ops. With profiles enabled, `remember(key, value)` writes `preferences.md`, free-form `remember(note=...)` still writes a vault fact, and `memory_write_note(type="preference")` is refused in favor of `profile_write`.
+
+Optional background review is best effort, not guaranteed capture. It runs only when `profile.background_review.enabled` is true and both `provider` and `model` are set for a separate auxiliary model; it never falls back to the main chat model. There is no durable outbox, so queued review work can be lost if the process dies.
+
+Workspace `SOUL.md` is deprecated and no longer injected. Use workspace `AGENTS.md` for project instructions and `~/.birkin/SOUL.md` for persona; Birkin prints a deprecation notice when it finds a cwd `SOUL.md`.
+
 ## Quick Start
 
 Birkin requires Python 3.10 or newer. It defaults to a locally authenticated Codex CLI; `birkin setup` can select Claude CLI or an API-backed provider instead.
@@ -791,6 +814,23 @@ This roadmap does **not** propose:
   "autosave_max_turns": 40,
   "autosave_retention_days": 30,
   "autosave_max_files": 500,
+  "profile": {
+    "enabled": false,
+    "write_approval": false,
+    "limits": {
+      "user": 1375,
+      "preferences": 1375,
+      "mask": 800,
+      "workflow": 1000,
+      "automation": 800
+    },
+    "background_review": {
+      "enabled": false,
+      "provider": null,
+      "model": null,
+      "digest_recent_turns": 6
+    }
+  },
   "neurosis_threshold": null,
   "neurosis_auto": true,
   "channels": {
