@@ -148,6 +148,20 @@ def reduce_snapshot(
                     "cursor": event.cursor,
                 }
             )
+        elif event.type == "message.assistant.delta" and isinstance(text, str):
+            if conversation and conversation[-1].get("kind") == "assistant_stream":
+                conversation[-1]["text"] = str(conversation[-1]["text"]) + text
+                conversation[-1]["cursor"] = event.cursor
+            else:
+                conversation.append(
+                    {
+                        "id": event.event_id,
+                        "kind": "assistant_stream",
+                        "text": text,
+                        "actor_id": event.actor_id,
+                        "cursor": event.cursor,
+                    }
+                )
         elif event.type == "message.assistant.completed" and isinstance(text, str):
             message: dict[str, object] = {
                 "id": event.event_id,
@@ -156,7 +170,10 @@ def reduce_snapshot(
                 "actor_id": event.actor_id,
                 "cursor": event.cursor,
             }
-            conversation.append(message)
+            if conversation and conversation[-1].get("kind") == "assistant_stream":
+                conversation[-1] = message
+            else:
+                conversation.append(message)
             panel_items["sessions_history"].append(message)
 
         panel_key = _PANEL_BY_EVENT.get(event.type)

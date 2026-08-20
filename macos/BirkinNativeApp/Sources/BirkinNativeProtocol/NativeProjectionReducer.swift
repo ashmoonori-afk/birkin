@@ -43,10 +43,17 @@ enum NativeProjectionReducer {
 
         if event.type == "message.user", let text = event.payload.string("text") {
             state.conversation.append(message(event: event, kind: "user_message", text: text))
+        } else if event.type == "message.assistant.delta",
+                  let text = event.payload.string("text") {
+            appendAssistantDelta(text, event: event, state: &state)
         } else if event.type == "message.assistant.completed",
                   let text = event.payload.string("text") {
             let value = message(event: event, kind: "assistant_message", text: text)
-            state.conversation.append(value)
+            if state.conversation.last?.string("kind") == "assistant_stream" {
+                state.conversation[state.conversation.count - 1] = value
+            } else {
+                state.conversation.append(value)
+            }
             append(value, toPanel: "sessions_history", state: &state)
         }
         if let panelKey = panelByEvent[event.type] {
@@ -57,6 +64,28 @@ enum NativeProjectionReducer {
         state.composer.canSend = activeCommands.isEmpty
         state.composer.canInterrupt = !activeCommands.isEmpty
         state.composer.canResume = interrupted && activeCommands.isEmpty
+    }
+
+    private static func appendAssistantDelta(
+        _ text: String,
+        event: NativeProjectionEvent,
+        state: inout NativeProjectionState
+    ) {
+        if let last = state.conversation.last,
+           last.string("kind") == "assistant_stream",
+           let current = last.string("text") {
+            state.conversation[state.conversation.count - 1] = [
+                "id": last["id"]!,
+                "kind": .string("assistant_stream"),
+                "text": .string(current + text),
+                "actor_id": last["actor_id"]!,
+                "cursor": .int(event.cursor),
+            ]
+        } else {
+            state.conversation.append(
+                message(event: event, kind: "assistant_stream", text: text)
+            )
+        }
     }
 
     private static func message(

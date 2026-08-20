@@ -31,6 +31,6 @@ struct NativeProjectionEventTests {
         }
 
         #expect(first.projection == second.projection)
-        #expect(first.latestAppliedCursor == 7)
+        #expect(first.latestAppliedCursor == 9)
     }
 }

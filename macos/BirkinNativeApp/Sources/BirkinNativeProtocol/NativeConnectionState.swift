@@ -33,6 +33,7 @@ public struct NativeReadySession: Equatable, Sendable {
     public let capabilityHardExpiresAt: Date?
     public let supportedCommands: Set<String>
     public let sessionPresets: [NativeSessionPreset]
+    public let maxPayloadBytes: Int
 
     public init(
         instanceID: String,
@@ -41,7 +42,8 @@ public struct NativeReadySession: Equatable, Sendable {
         capabilityExpiresAt: Date? = nil,
         capabilityHardExpiresAt: Date? = nil,
         supportedCommands: Set<String> = [],
-        sessionPresets: [NativeSessionPreset] = []
+        sessionPresets: [NativeSessionPreset] = [],
+        maxPayloadBytes: Int = NativePayloadSizing.defaultMaxPayloadBytes
     ) {
         self.instanceID = instanceID
         self.serverVersion = serverVersion
@@ -50,6 +52,7 @@ public struct NativeReadySession: Equatable, Sendable {
         self.capabilityHardExpiresAt = capabilityHardExpiresAt
         self.supportedCommands = supportedCommands
         self.sessionPresets = sessionPresets
+        self.maxPayloadBytes = maxPayloadBytes
     }
 
     public func hasLiveCapability(at date: Date) -> Bool {
@@ -65,6 +68,7 @@ public struct NativeReadySession: Equatable, Sendable {
             && lhs.sessionCapability == rhs.sessionCapability
             && lhs.supportedCommands == rhs.supportedCommands
             && lhs.sessionPresets == rhs.sessionPresets
+            && lhs.maxPayloadBytes == rhs.maxPayloadBytes
     }
 }
 
@@ -250,7 +254,8 @@ private extension NativeReadySession {
             capabilityExpiresAt: expiresAt ?? capabilityExpiresAt,
             capabilityHardExpiresAt: hardExpiresAt ?? capabilityHardExpiresAt,
             supportedCommands: supportedCommands,
-            sessionPresets: sessionPresets
+            sessionPresets: sessionPresets,
+            maxPayloadBytes: maxPayloadBytes
         )
     }
 }

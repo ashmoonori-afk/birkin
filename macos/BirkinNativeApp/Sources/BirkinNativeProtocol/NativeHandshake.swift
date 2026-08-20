@@ -21,6 +21,9 @@ extension NativeTransportActor {
               case .string(let token) = capability["token"],
               case .string(let expiresAt) = capability["expires_at"],
               case .string(let hardExpiresAt) = capability["hard_expires_at"],
+              case .object(let limits) = inbound.body["limits"],
+              case .int(let maxPayloadBytes) = limits["max_payload_bytes"],
+              maxPayloadBytes > 0,
               case .object(let capabilities) = inbound.body["capabilities"],
               case .array(let commandValues) = capabilities["commands"],
               case .object(let features) = capabilities["features"],
@@ -53,7 +56,8 @@ extension NativeTransportActor {
                 capabilityExpiresAt: expiry,
                 capabilityHardExpiresAt: hardExpiry,
                 supportedCommands: Set(commands),
-                sessionPresets: presets
+                sessionPresets: presets,
+                maxPayloadBytes: maxPayloadBytes
             )
         )
     }

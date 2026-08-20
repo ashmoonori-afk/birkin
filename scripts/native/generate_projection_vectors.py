@@ -69,8 +69,10 @@ def render_fixture() -> str:
         ),
         event(4, "command.started", {"command_type": "chat.send"}),
         event(5, "message.user", {"text": "Continue in cursor order"}),
-        event(6, "message.assistant.completed", {"text": "Events reduced"}),
-        event(7, "command.completed", {"command_type": "chat.send"}),
+        event(6, "message.assistant.delta", {"text": "Events "}),
+        event(7, "message.assistant.delta", {"text": "reduced"}),
+        event(8, "message.assistant.completed", {"text": "Events reduced"}),
+        event(9, "command.completed", {"command_type": "chat.send"}),
     ]
     factory = NativeMessageFactory(
         instance_id="instance-1",
@@ -101,7 +103,7 @@ def render_fixture() -> str:
             }
         )
 
-    gap = event(9, "message.user", {"text": "must be discarded"})
+    gap = event(11, "message.user", {"text": "must be discarded"})
     gap_message = factory.message("event", body=public_workspace_event(gap))
     document = {
         "generated_by": "scripts/native/generate_projection_vectors.py",

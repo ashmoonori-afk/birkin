@@ -12,6 +12,7 @@ public struct NativeShellView: View {
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
     @State private var selectedColumn: ShellColumnID
     @StateObject private var templateLauncher: TemplateLauncherModel
+    @StateObject private var conversationComposer: ConversationComposerModel
 
     public init(
         store: NativeProjectionStore,
@@ -34,6 +35,7 @@ public struct NativeShellView: View {
             presets: Self.readySession(in: connectionState)?.sessionPresets ?? [],
             makeSessionID: makeSessionID
         ))
+        _conversationComposer = StateObject(wrappedValue: ConversationComposerModel())
     }
 
     public var body: some View {
@@ -139,14 +141,22 @@ public struct NativeShellView: View {
             Text(section.id.title)
                 .font(.headline)
                 .fixedSize(horizontal: false, vertical: true)
-            stateText(section.state)
+            if section.id == .conversation, let projection = store.projection {
+                MessageStreamView(projection: projection)
+                    .frame(minHeight: 180)
+            } else {
+                stateText(section.state)
+            }
             if section.id == .sessions {
                 templateLaunchers(availability: availability)
             }
             if section.id == .composer {
-                TextEditor(text: $templateLauncher.draft)
-                    .frame(minHeight: 72)
-                    .accessibilityLabel("Editable message draft")
+                ConversationComposerView(
+                    model: conversationComposer,
+                    isSendEnabled: availability.isEnabled && isAdvertised(.sendMessage)
+                ) {
+                    sendDraft(availability: availability)
+                }
             }
             if let control = mutationControl(for: section.id) {
                 let surfaceEnabled = isAdvertised(control)
@@ -181,7 +191,7 @@ public struct NativeShellView: View {
     private func mutationControl(for section: ShellSectionID) -> ShellMutationControl? {
         switch section {
         case .sessions: .newSession
-        case .composer: .sendMessage
+        case .composer: nil
         default: nil
         }
     }
@@ -197,6 +207,7 @@ public struct NativeShellView: View {
                     sessionCapability: session.sessionCapability,
                     submit: templateCommandAction
                 )
+                conversationComposer.draft = templateLauncher.draft
             } label: {
                 HStack {
                     Image(systemName: templateLauncher.selectedPresetID == preset.id
@@ -207,6 +218,17 @@ public struct NativeShellView: View {
             .disabled(!availability.isEnabled || !isSessionCreateAdvertised)
             .accessibilityLabel("Launch \(preset.name) template")
         }
+    }
+
+    private func sendDraft(availability: MutationAvailability) {
+        guard let session = Self.readySession(in: connectionState) else { return }
+        _ = conversationComposer.send(
+            availability: availability,
+            canSend: store.projection?.composer.canSend == true,
+            expectedCursor: store.latestAppliedCursor ?? 0,
+            session: session,
+            submit: templateCommandAction
+        )
     }
 
     private var isSessionCreateAdvertised: Bool {
