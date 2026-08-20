@@ -91,6 +91,32 @@ public enum ShellKeyboardModel {
     }
 }
 
+public enum ShellVoiceOverJourney: Sendable {
+    case j2ResearchApproval
+    case j6ComputerUseConsent
+}
+
+public enum ShellVoiceOverModel {
+    public static func journey(_ journey: ShellVoiceOverJourney) -> [ShellAccessibilityNode]? {
+        let ids: [String]
+        switch journey {
+        case .j2ResearchApproval:
+            ids = [
+                "sessions.research", "composer.draft", "composer.send", "approvals.card",
+                "approvals.approve", "activity.receipt", "working-memory.landmark",
+            ]
+        case .j6ComputerUseConsent:
+            ids = [
+                "computer-use.landmark", "computer-use.approve", "computer-use.reject",
+                "activity.receipt",
+            ]
+        }
+        let indexed = Dictionary(uniqueKeysWithValues: ShellAccessibilityInventory.nodes.map { ($0.id, $0) })
+        let nodes = ids.compactMap { indexed[$0] }
+        return nodes.count == ids.count ? nodes : nil
+    }
+}
+
 public enum ShellAccessibilityInventory {
     public static let nodes: [ShellAccessibilityNode] = [
         node("connection.status", "chrome", .status, "Connection status", value: "Connection state and transport", priority: 1000),
