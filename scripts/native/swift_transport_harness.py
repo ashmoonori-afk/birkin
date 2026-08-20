@@ -11,7 +11,7 @@ from pathlib import Path
 from birkin.native.capability import BootstrapSecretStore
 from birkin.native.endpoint import NativeBridgeEndpoint
 from birkin.native.server import NativeBridgeServer
-from birkin.workspace import TerminalAuthority, WorkspaceService
+from birkin.workspace import TerminalAuthority, WorkspaceCommand, WorkspaceService
 
 
 def main() -> None:
@@ -19,6 +19,7 @@ def main() -> None:
     parser.add_argument("--transport", choices=("uds", "loopback"), required=True)
     parser.add_argument("--root", type=Path, required=True)
     parser.add_argument("--terminal", action="store_true")
+    parser.add_argument("--j1-fixture", action="store_true")
     parser.add_argument("--connections", type=int, default=1)
     args = parser.parse_args()
     if args.connections < 1 or args.connections > 8:
@@ -30,6 +31,33 @@ def main() -> None:
         handlers={},
     )
     terminal: TerminalAuthority | None = None
+    if args.j1_fixture:
+        if args.terminal:
+            parser.error("--j1-fixture and --terminal cannot be combined")
+
+        def answer_first_message(payload: dict[str, object]) -> dict[str, object]:
+            text = payload.get("text")
+            if not isinstance(text, str):
+                raise ValueError("J1 fixture requires message text")
+            source.emit("message.user", {"text": text})
+            source.emit(
+                "message.assistant.completed",
+                {"text": "The native packaged app is connected to Python authority."},
+            )
+            return {"fixture": "j1"}
+
+        source.set_handlers({"chat.send": answer_first_message})
+        source.submit(
+            WorkspaceCommand.parse({
+                "protocol_version": 1,
+                "command_id": "phase13-j1",
+                "expected_cursor": 0,
+                "type": "chat.send",
+                "payload": {"text": "Render the first native answer"},
+                "client_context": {"surface": "test", "view_id": "phase13"},
+            }),
+            actor_id="test:phase13",
+        )
     if args.terminal:
         os.environ["BIRKIN_HOME"] = str(args.root / "home")
         terminal = TerminalAuthority(
