@@ -265,10 +265,17 @@ def install_from_quarantine(name: str, quarantine: Path,
         target_root=target_root,
         replace=True,
     )
-    _record(name, {**meta, "install_path": str(target),
-                   "installed_at": time.strftime("%Y-%m-%dT%H:%M:%S")})
-    audit("INSTALL", name, meta.get("identifier", ""),
-          meta.get("verdict", "?"))
+    try:
+        _record(name, {**meta, "install_path": str(target),
+                       "installed_at": time.strftime("%Y-%m-%dT%H:%M:%S")})
+        audit("INSTALL", name, meta.get("identifier", ""),
+              meta.get("verdict", "?"))
+    except OSError as record_error:
+        from .manager import PublicationCleanupError
+        raise PublicationCleanupError(
+            f"hub/{name}",
+            snapshot.digest(),
+        ) from record_error
     try:
         shutil.rmtree(quarantine)
     except OSError as cleanup_error:

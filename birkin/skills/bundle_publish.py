@@ -2,14 +2,18 @@
 
 from __future__ import annotations
 
-import hashlib
 import errno
 import os
 import secrets
-import stat
 import sys
-from dataclasses import dataclass
-from pathlib import Path, PurePosixPath
+from pathlib import Path
+
+from .bundle_snapshot import (
+    BundleFile,
+    BundleSnapshot,
+    UnsafeBundleError,
+    snapshot_bundle,
+)
 
 from .manager import (
     IndeterminatePublicationError,
@@ -20,68 +24,13 @@ from .manager import (
     _write_all,
 )
 
-
-class UnsafeBundleError(ValueError):
-    """The staged bundle cannot be represented without following a link."""
-
-
-@dataclass(frozen=True, slots=True)
-class BundleFile:
-    relative: PurePosixPath
-    payload: bytes
-    mode: int
-
-
-@dataclass(frozen=True, slots=True)
-class BundleSnapshot:
-    directories: tuple[PurePosixPath, ...]
-    files: tuple[BundleFile, ...]
-
-    def file_overrides(self) -> dict[str, bytes]:
-        return {
-            entry.relative.as_posix(): entry.payload
-            for entry in self.files
-        }
-
-    def digest(self) -> str:
-        digest = hashlib.sha256()
-
-        def update(payload: bytes) -> None:
-            digest.update(len(payload).to_bytes(8, "big"))
-            digest.update(payload)
-
-        for directory in self.directories:
-            digest.update(b"d")
-            update(directory.as_posix().encode("utf-8"))
-        for entry in self.files:
-            digest.update(b"f")
-            update(entry.relative.as_posix().encode("utf-8"))
-            update(entry.mode.to_bytes(4, "big"))
-            update(entry.payload)
-        return digest.hexdigest()
-
-
-def snapshot_bundle(root: Path) -> BundleSnapshot:
-    directories: list[PurePosixPath] = []
-    files: list[BundleFile] = []
-    for path in sorted(root.rglob("*")):
-        relative = PurePosixPath(path.relative_to(root).as_posix())
-        if path.is_symlink():
-            raise UnsafeBundleError(relative.as_posix())
-        if path.is_dir():
-            directories.append(relative)
-            continue
-        if not path.is_file():
-            raise UnsafeBundleError(relative.as_posix())
-        status = path.stat()
-        files.append(
-            BundleFile(
-                relative=relative,
-                payload=path.read_bytes(),
-                mode=stat.S_IMODE(status.st_mode),
-            )
-        )
-    return BundleSnapshot(tuple(directories), tuple(files))
+__all__ = [
+    "BundleFile",
+    "BundleSnapshot",
+    "UnsafeBundleError",
+    "publish_bundle",
+    "snapshot_bundle",
+]
 
 
 def _populate_posix(root_fd: int, snapshot: BundleSnapshot) -> None:

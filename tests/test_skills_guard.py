@@ -160,6 +160,35 @@ def test_bundle_manifest_digest_has_unambiguous_framing() -> None:
     assert first.digest() != second.digest()
 
 
+@pytest.mark.skipif(
+    os.name == "nt",
+    reason="POSIX nofollow bundle snapshot",
+)
+def test_bundle_snapshot_does_not_follow_raced_file_link(
+        tmp_path,
+        monkeypatch):
+    from birkin.skills.bundle_publish import snapshot_bundle
+
+    bundle = _skill(tmp_path, "ORIGINAL SNAPSHOT")
+    candidate = bundle / "SKILL.md"
+    external = tmp_path / "external.txt"
+    external.write_bytes(b"EXTERNAL SECRET BYTES\n")
+    real_read_bytes = Path.read_bytes
+
+    def swap_before_path_read(path: Path) -> bytes:
+        if path == candidate:
+            path.unlink()
+            path.symlink_to(external)
+        return real_read_bytes(path)
+
+    monkeypatch.setattr(Path, "read_bytes", swap_before_path_read)
+
+    snapshot = snapshot_bundle(bundle)
+
+    assert b"ORIGINAL SNAPSHOT" in snapshot.files[0].payload
+    assert b"EXTERNAL SECRET BYTES" not in snapshot.files[0].payload
+
+
 def test_oversized_bundle_is_an_error(tmp_path):
     d = _skill(tmp_path, "ok")
     (d / "big.txt").write_text("x" * (guard.MAX_TOTAL_BYTES + 10), encoding="utf-8")
@@ -423,6 +452,38 @@ def test_hub_post_commit_quarantine_cleanup_failure_is_typed(
         hub.resolve_install_path("tidy") / "SKILL.md"
     ).is_file()
     assert "tidy" in hub.load_lock()
+
+
+def test_hub_post_commit_record_failure_is_typed(
+        monkeypatch):
+    from birkin.skills.manager import PublicationCleanupError
+
+    _fake_github(monkeypatch, {
+        "SKILL.md": (
+            "---\nname: tidy\ndescription: d\n---\n\n"
+            "Read and format.\n"
+        ),
+    })
+
+    def fail_record(*_args, **_kwargs) -> None:
+        raise OSError("injected lock record failure")
+
+    monkeypatch.setattr(hub, "_record", fail_record)
+
+    with pytest.raises(PublicationCleanupError) as raised:
+        hub.install(
+            "anthropics/skills/tidy",
+            confirm=lambda _report: True,
+        )
+
+    assert raised.value.retry_safe is False
+    assert raised.value.residue_possible is True
+    assert (
+        hub.resolve_install_path("tidy") / "SKILL.md"
+    ).is_file()
+    assert (
+        hub.hub_dir() / "quarantine" / "tidy"
+    ).is_dir()
 
 
 def test_support_files_are_fetched_alongside(monkeypatch):
