@@ -10,10 +10,9 @@ from pathlib import Path
 from typing import Any
 
 from .curation_contract import CurationResidueError
+from .curation_move import move_anchored
 from .memory import VaultMemory
-from .skills.bundle_publish import _rename_noreplace
 from .skills.manager import (
-    _close_preserving_active_error,
     _open_descendant_directory,
     _write_all,
 )
@@ -97,9 +96,20 @@ class AnchoredCuration:
             chunks.append(chunk)
         return b"".join(chunks)
 
+    @staticmethod
+    def _overwrite_descriptor(
+        descriptor: int,
+        payload: bytes,
+    ) -> None:
+        os.ftruncate(descriptor, 0)
+        os.lseek(descriptor, 0, os.SEEK_SET)
+        _write_all(descriptor, payload)
+        os.fsync(descriptor)
+
     def write(self, slug: str, text: str) -> Path:
         descriptor = self._open_note(slug, os.O_RDWR)
         relative = self._relative(slug)
+        written = False
         try:
             previous = self._read_descriptor(descriptor)
             source, _ = self._memory._record_source_payload(
@@ -107,17 +117,71 @@ class AnchoredCuration:
                 previous,
             )
             payload = text.encode("utf-8")
-            os.ftruncate(descriptor, 0)
-            os.lseek(descriptor, 0, os.SEEK_SET)
-            _write_all(descriptor, payload)
-            os.fsync(descriptor)
+            if os.fstat(descriptor).st_nlink != 1:
+                raise OSError(
+                    "curation note gained an external hard link"
+                )
+            try:
+                self._overwrite_descriptor(descriptor, payload)
+            except OSError:
+                try:
+                    self._overwrite_descriptor(
+                        descriptor,
+                        previous,
+                    )
+                except OSError as restore_error:
+                    raise CurationResidueError(
+                        "curation note restoration failed"
+                    ) from restore_error
+                raise
+            try:
+                linked = os.fstat(descriptor).st_nlink != 1
+            except OSError:
+                try:
+                    self._overwrite_descriptor(
+                        descriptor,
+                        previous,
+                    )
+                except OSError as restore_error:
+                    raise CurationResidueError(
+                        "curation post-write restoration failed"
+                    ) from restore_error
+                raise
+            if linked:
+                try:
+                    self._overwrite_descriptor(
+                        descriptor,
+                        previous,
+                    )
+                except OSError as restore_error:
+                    raise CurationResidueError(
+                        "curation hard-link restoration failed"
+                    ) from restore_error
+                raise OSError(
+                    "curation note gained an external hard link"
+                )
+            written = True
         finally:
-            os.close(descriptor)
-        self._memory._register_record_source_relative(
-            relative,
-            source,
-            digest=hashlib.sha256(payload).hexdigest(),
-        )
+            active_error = sys.exc_info()[1]
+            try:
+                os.close(descriptor)
+            except OSError as close_error:
+                if active_error is None and written:
+                    raise CurationResidueError(
+                        "curation note close failed after write"
+                    ) from close_error
+                if active_error is None:
+                    raise
+        try:
+            self._memory._register_record_source_relative(
+                relative,
+                source,
+                digest=hashlib.sha256(payload).hexdigest(),
+            )
+        except OSError as provenance_error:
+            raise CurationResidueError(
+                "curation provenance failed after write"
+            ) from provenance_error
         return self._memory.vault / relative
 
     def move(self, slug: str, zone: str) -> Path:
@@ -128,126 +192,47 @@ class AnchoredCuration:
         if destination_relative == relative:
             return self._memory.vault / relative
 
-        source = -1
-        source_parent = -1
-        destination_parent = -1
-        destination = -1
+        source = self._open_note(slug, os.O_RDONLY)
         moved = False
         try:
-            source = self._open_note(slug, os.O_RDONLY)
             payload = self._read_descriptor(source)
             record_source, digest = self._memory._record_source_payload(
                 relative,
                 payload,
             )
-            source_parent = _open_descendant_directory(
+            move_anchored(
                 self._root_fd,
-                relative.parent,
-            )
-            destination_parent = _open_descendant_directory(
-                self._root_fd,
-                destination_relative.parent,
-                create=True,
-            )
-            opened = os.fstat(source)
-            named = os.stat(
-                relative.name,
-                dir_fd=source_parent,
-                follow_symlinks=False,
-            )
-            if (named.st_dev, named.st_ino) != (
-                opened.st_dev,
-                opened.st_ino,
-            ):
-                raise OSError("curation move identity changed")
-            _rename_noreplace(
-                relative.name,
-                destination_relative.name,
-                source_fd=source_parent,
-                destination_fd=destination_parent,
+                relative,
+                destination_relative,
+                source,
             )
             moved = True
-            destination = os.open(
-                destination_relative.name,
-                os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0),
-                dir_fd=destination_parent,
-            )
-            published = os.fstat(destination)
-            if (
-                not stat.S_ISREG(published.st_mode)
-                or published.st_nlink != 1
-                or (published.st_dev, published.st_ino) != (
-                opened.st_dev,
-                opened.st_ino,
-                )
-            ):
-                raise CurationResidueError(
-                    "curation move identity changed after publication"
-                )
-        except CurationResidueError:
-            raise
-        except OSError as error:
-            if moved and destination < 0:
-                raise CurationResidueError(
-                    "curation move verification failed after publication"
-                ) from error
-            if moved:
-                try:
-                    published = os.fstat(destination)
-                    opened = os.fstat(source)
-                except OSError as verification_error:
-                    raise CurationResidueError(
-                        "curation move verification failed after "
-                        "publication"
-                    ) from verification_error
-                if (published.st_dev, published.st_ino) == (
-                    opened.st_dev,
-                    opened.st_ino,
-                ):
-                    try:
-                        _rename_noreplace(
-                            destination_relative.name,
-                            relative.name,
-                            source_fd=destination_parent,
-                            destination_fd=source_parent,
-                        )
-                    except OSError as rollback_error:
-                        raise CurationResidueError(
-                            "curation move rollback failed"
-                        ) from rollback_error
-                else:
-                    raise CurationResidueError(
-                        "curation move identity changed after "
-                        "publication"
-                    ) from error
-            raise
         finally:
             active_error = sys.exc_info()[1]
-            close_error: OSError | None = None
-            for descriptor in (
-                destination,
-                source,
-                destination_parent,
-                source_parent,
-            ):
-                if descriptor < 0:
-                    continue
-                try:
-                    _close_preserving_active_error(descriptor)
-                except OSError as error:
-                    close_error = close_error or error
-            if active_error is None and close_error is not None:
-                raise close_error
+            try:
+                os.close(source)
+            except OSError as close_error:
+                if active_error is None and moved:
+                    raise CurationResidueError(
+                        "curation source close failed after publication"
+                    ) from close_error
+                if active_error is None:
+                    raise
 
         self._entries[slug]["rel"] = (
             destination_relative.as_posix()
         )
         self._entries[slug]["zone"] = destination_zone
         destination_path = self._memory.vault / destination_relative
-        self._memory._register_record_source_relative(
-            destination_relative,
-            record_source,
-            digest=digest,
-            previous_relative=relative,
-        )
+        try:
+            self._memory._register_record_source_relative(
+                destination_relative,
+                record_source,
+                digest=digest,
+                previous_relative=relative,
+            )
+        except OSError as provenance_error:
+            raise CurationResidueError(
+                "curation provenance failed after move"
+            ) from provenance_error
         return destination_path

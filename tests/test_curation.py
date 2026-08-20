@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import json
 import os
+import stat
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -506,7 +507,7 @@ def test_run_pass_rolls_back_rezone_source_swap(
         tmp_path: Path,
         monkeypatch,
 ) -> None:
-    from birkin import curation_anchor
+    from birkin import curation_move
 
     vault = tmp_path / "vault"
     VaultMemory({"vault_path": str(vault)}).write_note(
@@ -517,7 +518,7 @@ def test_run_pass_rolls_back_rezone_source_swap(
     source = vault / "race-victim.md"
     original_hold = vault / "catalogued-original.md"
     destination = vault / "projects" / "race-victim.md"
-    real_rename = curation_anchor._rename_noreplace
+    real_rename = curation_move._rename_noreplace
     rename_calls = 0
 
     def swap_source_then_rename(
@@ -543,7 +544,7 @@ def test_run_pass_rolls_back_rezone_source_swap(
         )
 
     monkeypatch.setattr(
-        curation_anchor,
+        curation_move,
         "_rename_noreplace",
         swap_source_then_rename,
     )
@@ -616,7 +617,7 @@ def test_rezone_does_not_path_stat_after_publication(
         tmp_path: Path,
         monkeypatch,
 ) -> None:
-    from birkin import curation_anchor
+    from birkin import curation_move
 
     vault = tmp_path / "vault"
     VaultMemory({"vault_path": str(vault)}).write_note(
@@ -625,8 +626,8 @@ def test_rezone_does_not_path_stat_after_publication(
         zone="inbox",
     )
     renamed = False
-    real_rename = curation_anchor._rename_noreplace
-    real_stat = curation_anchor.os.stat
+    real_rename = curation_move._rename_noreplace
+    real_stat = curation_move.os.stat
 
     def mark_renamed(*args, **kwargs):
         nonlocal renamed
@@ -640,12 +641,12 @@ def test_rezone_does_not_path_stat_after_publication(
         return real_stat(*args, **kwargs)
 
     monkeypatch.setattr(
-        curation_anchor,
+        curation_move,
         "_rename_noreplace",
         mark_renamed,
     )
     monkeypatch.setattr(
-        curation_anchor.os,
+        curation_move.os,
         "stat",
         fail_post_rename_stat,
     )
@@ -672,6 +673,497 @@ def test_rezone_does_not_path_stat_after_publication(
     assert (
         vault / "projects" / "stat-victim.md"
     ).read_text(encoding="utf-8").endswith("ORIGINAL\n")
+
+
+@pytest.mark.skipif(
+    os.name == "nt",
+    reason="POSIX ambiguous rename result",
+)
+def test_rezone_verifies_committed_rename_after_eio(
+        tmp_path: Path,
+        monkeypatch,
+) -> None:
+    from birkin import curation_move
+
+    vault = tmp_path / "vault"
+    VaultMemory({"vault_path": str(vault)}).write_note(
+        "Ambiguous victim",
+        "ORIGINAL",
+        zone="inbox",
+    )
+    real_rename = curation_move._rename_noreplace
+    rename_calls = 0
+
+    def commit_then_raise(*args, **kwargs):
+        nonlocal rename_calls
+        rename_calls += 1
+        real_rename(*args, **kwargs)
+        raise OSError(5, "ambiguous post-publication EIO")
+
+    monkeypatch.setattr(
+        curation_move,
+        "_rename_noreplace",
+        commit_then_raise,
+    )
+
+    outcome = curation.run_curation_pass(
+        vault,
+        lambda _prompt: json.dumps({
+            "plan_version": 1,
+            "ops": [{
+                "op": "rezone",
+                "slug": "ambiguous-victim",
+                "zone": "projects",
+            }],
+        }),
+        provider="test",
+        now=NOW,
+    )
+
+    assert rename_calls == 1
+    assert outcome.effected == [{
+        "op": "rezone",
+        "slug": "ambiguous-victim",
+        "zone": "projects",
+    }]
+    assert not (vault / "ambiguous-victim.md").exists()
+    assert (
+        vault / "projects" / "ambiguous-victim.md"
+    ).read_text(encoding="utf-8").endswith("ORIGINAL\n")
+
+
+@pytest.mark.skipif(
+    os.name == "nt",
+    reason="POSIX hard-link write race",
+)
+def test_annotate_rechecks_hardlinks_immediately_before_write(
+        tmp_path: Path,
+        monkeypatch,
+) -> None:
+    from birkin import curation_anchor
+
+    vault = tmp_path / "vault"
+    VaultMemory({"vault_path": str(vault)}).write_note(
+        "Alias victim",
+        "ORIGINAL",
+        zone="inbox",
+    )
+    source = vault / "alias-victim.md"
+    external = tmp_path / "external.md"
+    original = source.read_bytes()
+    real_ftruncate = curation_anchor.os.ftruncate
+    truncate_calls = 0
+
+    def add_hardlink_during_write(descriptor, length):
+        nonlocal truncate_calls
+        truncate_calls += 1
+        if truncate_calls == 1:
+            os.link(source, external)
+        return real_ftruncate(descriptor, length)
+
+    monkeypatch.setattr(
+        curation_anchor.os,
+        "ftruncate",
+        add_hardlink_during_write,
+    )
+
+    outcome = curation.run_curation_pass(
+        vault,
+        lambda _prompt: json.dumps({
+            "plan_version": 2,
+            "ops": [{
+                "op": "annotate",
+                "slug": "alias-victim",
+                "aliases": ["ATTACK"],
+            }],
+        }),
+        provider="test",
+        now=NOW,
+    )
+
+    assert "error" in outcome.effected[0]
+    assert truncate_calls == 2
+    assert source.read_bytes() == original
+    assert external.read_bytes() == original
+
+
+@pytest.mark.skipif(
+    os.name == "nt",
+    reason="POSIX restoration error precedence",
+)
+def test_annotate_preserves_residue_error_over_close_failure(
+        tmp_path: Path,
+        monkeypatch,
+) -> None:
+    from birkin import curation_anchor
+
+    vault = tmp_path / "vault"
+    VaultMemory({"vault_path": str(vault)}).write_note(
+        "Restore victim",
+        "ORIGINAL",
+        zone="inbox",
+    )
+    real_overwrite = curation_anchor.AnchoredCuration._overwrite_descriptor
+    real_close = curation_anchor.os.close
+    overwrite_calls = 0
+    restoration_failed = False
+
+    def fail_write_and_restore(descriptor, payload):
+        nonlocal overwrite_calls, restoration_failed
+        overwrite_calls += 1
+        if overwrite_calls == 1:
+            real_overwrite(descriptor, b"PARTIAL")
+            raise OSError(5, "write failed")
+        restoration_failed = True
+        raise OSError(5, "restore failed")
+
+    def fail_regular_close(descriptor):
+        if restoration_failed and stat.S_ISREG(
+            os.fstat(descriptor).st_mode
+        ):
+            raise OSError(5, "close masks residue")
+        return real_close(descriptor)
+
+    monkeypatch.setattr(
+        curation_anchor.AnchoredCuration,
+        "_overwrite_descriptor",
+        staticmethod(fail_write_and_restore),
+    )
+    monkeypatch.setattr(
+        curation_anchor.os,
+        "close",
+        fail_regular_close,
+    )
+
+    outcome = curation.run_curation_pass(
+        vault,
+        lambda _prompt: json.dumps({
+            "plan_version": 2,
+            "ops": [{
+                "op": "annotate",
+                "slug": "restore-victim",
+                "aliases": ["ATTACK"],
+            }],
+        }),
+        provider="test",
+        now=NOW,
+    )
+
+    assert outcome.effected[0]["residue"] is True
+    assert outcome.effected[0]["retryable"] is False
+    assert "restoration failed" in outcome.effected[0]["error"]
+
+
+@pytest.mark.skipif(
+    os.name == "nt",
+    reason="POSIX post-write verification",
+)
+def test_annotate_restores_after_post_write_fstat_failure(
+        tmp_path: Path,
+        monkeypatch,
+) -> None:
+    from birkin import curation_anchor
+
+    vault = tmp_path / "vault"
+    VaultMemory({"vault_path": str(vault)}).write_note(
+        "Verify victim",
+        "ORIGINAL",
+        zone="inbox",
+    )
+    source = vault / "verify-victim.md"
+    original = source.read_bytes()
+    real_overwrite = curation_anchor.AnchoredCuration._overwrite_descriptor
+    real_fstat = curation_anchor.os.fstat
+    write_completed = False
+    injected = False
+
+    def track_write(descriptor, payload):
+        nonlocal write_completed
+        real_overwrite(descriptor, payload)
+        write_completed = True
+
+    def fail_first_post_write_fstat(descriptor):
+        nonlocal injected
+        if write_completed and not injected:
+            injected = True
+            raise OSError(5, "post-write fstat failed")
+        return real_fstat(descriptor)
+
+    monkeypatch.setattr(
+        curation_anchor.AnchoredCuration,
+        "_overwrite_descriptor",
+        staticmethod(track_write),
+    )
+    monkeypatch.setattr(
+        curation_anchor.os,
+        "fstat",
+        fail_first_post_write_fstat,
+    )
+
+    outcome = curation.run_curation_pass(
+        vault,
+        lambda _prompt: json.dumps({
+            "plan_version": 2,
+            "ops": [{
+                "op": "annotate",
+                "slug": "verify-victim",
+                "aliases": ["ATTACK"],
+            }],
+        }),
+        provider="test",
+        now=NOW,
+    )
+
+    assert "error" in outcome.effected[0]
+    assert injected is True
+    assert source.read_bytes() == original
+
+
+@pytest.mark.skipif(
+    os.name == "nt",
+    reason="POSIX post-move provenance residue",
+)
+def test_rezone_types_provenance_failure_after_move(
+        tmp_path: Path,
+        monkeypatch,
+) -> None:
+    vault = tmp_path / "vault"
+    VaultMemory({"vault_path": str(vault)}).write_note(
+        "Provenance victim",
+        "ORIGINAL",
+        zone="inbox",
+    )
+
+    def fail_provenance(*_args, **_kwargs):
+        raise OSError(28, "forced provenance failure")
+
+    monkeypatch.setattr(
+        VaultMemory,
+        "_register_record_source_relative",
+        fail_provenance,
+    )
+
+    outcome = curation.run_curation_pass(
+        vault,
+        lambda _prompt: json.dumps({
+            "plan_version": 1,
+            "ops": [{
+                "op": "rezone",
+                "slug": "provenance-victim",
+                "zone": "projects",
+            }],
+        }),
+        provider="test",
+        now=NOW,
+    )
+
+    assert outcome.effected[0]["residue"] is True
+    assert outcome.effected[0]["retryable"] is False
+    assert not (vault / "provenance-victim.md").exists()
+    assert (vault / "projects" / "provenance-victim.md").exists()
+
+
+@pytest.mark.skipif(
+    os.name == "nt" or not Path("/dev/fd").is_dir(),
+    reason="POSIX ambiguous verification descriptor cleanup",
+)
+def test_ambiguous_move_fstat_failure_closes_destination(
+        tmp_path: Path,
+        monkeypatch,
+) -> None:
+    from birkin import curation_move
+
+    vault = tmp_path / "vault"
+    VaultMemory({"vault_path": str(vault)}).write_note(
+        "Leak victim",
+        "ORIGINAL",
+        zone="inbox",
+    )
+    real_rename = curation_move._rename_noreplace
+    real_fstat = curation_move.os.fstat
+    renamed = False
+    injected = False
+
+    def commit_then_raise(*args, **kwargs):
+        nonlocal renamed
+        real_rename(*args, **kwargs)
+        renamed = True
+        raise OSError(5, "ambiguous rename")
+
+    def fail_destination_fstat(descriptor):
+        nonlocal injected
+        if renamed and not injected:
+            injected = True
+            raise OSError(5, "destination fstat failed")
+        return real_fstat(descriptor)
+
+    monkeypatch.setattr(
+        curation_move,
+        "_rename_noreplace",
+        commit_then_raise,
+    )
+    monkeypatch.setattr(
+        curation_move.os,
+        "fstat",
+        fail_destination_fstat,
+    )
+    before = len(list(Path("/dev/fd").iterdir()))
+
+    outcome = curation.run_curation_pass(
+        vault,
+        lambda _prompt: json.dumps({
+            "plan_version": 1,
+            "ops": [{
+                "op": "rezone",
+                "slug": "leak-victim",
+                "zone": "projects",
+            }],
+        }),
+        provider="test",
+        now=NOW,
+    )
+
+    assert outcome.effected[0]["residue"] is True
+    assert outcome.effected[0]["retryable"] is False
+    assert injected is True
+    assert len(list(Path("/dev/fd").iterdir())) == before
+
+
+@pytest.mark.skipif(
+    os.name == "nt",
+    reason="POSIX move residue error precedence",
+)
+def test_move_preserves_residue_error_over_source_close(
+        tmp_path: Path,
+        monkeypatch,
+) -> None:
+    from birkin import curation_anchor
+    from birkin.curation_contract import CurationResidueError
+
+    vault = tmp_path / "vault"
+    VaultMemory({"vault_path": str(vault)}).write_note(
+        "Move close victim",
+        "ORIGINAL",
+        zone="inbox",
+    )
+    real_close = curation_anchor.os.close
+    move_failed = False
+
+    def fail_move(*_args, **_kwargs):
+        nonlocal move_failed
+        move_failed = True
+        raise CurationResidueError("indeterminate move")
+
+    def fail_source_close(descriptor):
+        if move_failed and stat.S_ISREG(
+            os.fstat(descriptor).st_mode
+        ):
+            raise OSError(5, "source close failed")
+        return real_close(descriptor)
+
+    monkeypatch.setattr(
+        curation_anchor,
+        "move_anchored",
+        fail_move,
+    )
+    monkeypatch.setattr(
+        curation_anchor.os,
+        "close",
+        fail_source_close,
+    )
+
+    outcome = curation.run_curation_pass(
+        vault,
+        lambda _prompt: json.dumps({
+            "plan_version": 1,
+            "ops": [{
+                "op": "rezone",
+                "slug": "move-close-victim",
+                "zone": "projects",
+            }],
+        }),
+        provider="test",
+        now=NOW,
+    )
+
+    assert outcome.effected[0]["residue"] is True
+    assert outcome.effected[0]["retryable"] is False
+    assert "indeterminate move" in outcome.effected[0]["error"]
+
+
+@pytest.mark.skipif(
+    os.name == "nt",
+    reason="POSIX ambiguous destination close precedence",
+)
+def test_ambiguous_mismatch_preserves_residue_over_close(
+        tmp_path: Path,
+        monkeypatch,
+) -> None:
+    from birkin import curation_move
+
+    vault = tmp_path / "vault"
+    VaultMemory({"vault_path": str(vault)}).write_note(
+        "Mismatch victim",
+        "ORIGINAL",
+        zone="inbox",
+    )
+    destination = vault / "projects" / "mismatch-victim.md"
+    original_hold = vault / "catalogued-original.md"
+    attacker = tmp_path / "attacker.md"
+    attacker.write_text("ATTACKER", encoding="utf-8")
+    attacker_inode = attacker.stat().st_ino
+    real_rename = curation_move._rename_noreplace
+    real_close = curation_move.os.close
+    mismatch_ready = False
+
+    def substitute_after_rename(*args, **kwargs):
+        nonlocal mismatch_ready
+        real_rename(*args, **kwargs)
+        destination.rename(original_hold)
+        attacker.rename(destination)
+        mismatch_ready = True
+        raise OSError(5, "ambiguous rename")
+
+    def fail_attacker_close(descriptor):
+        if (
+            mismatch_ready
+            and os.fstat(descriptor).st_ino == attacker_inode
+        ):
+            raise OSError(5, "verification close failed")
+        return real_close(descriptor)
+
+    monkeypatch.setattr(
+        curation_move,
+        "_rename_noreplace",
+        substitute_after_rename,
+    )
+    monkeypatch.setattr(
+        curation_move.os,
+        "close",
+        fail_attacker_close,
+    )
+
+    outcome = curation.run_curation_pass(
+        vault,
+        lambda _prompt: json.dumps({
+            "plan_version": 1,
+            "ops": [{
+                "op": "rezone",
+                "slug": "mismatch-victim",
+                "zone": "projects",
+            }],
+        }),
+        provider="test",
+        now=NOW,
+    )
+
+    assert outcome.effected[0]["residue"] is True
+    assert outcome.effected[0]["retryable"] is False
+    assert "indeterminate" in outcome.effected[0]["error"]
+    assert original_hold.read_text(
+        encoding="utf-8"
+    ).endswith("ORIGINAL\n")
+    assert destination.read_text(encoding="utf-8") == "ATTACKER"
 
 
 def test_run_pass_rejects_catalogued_note_with_external_hardlink(
@@ -702,6 +1194,128 @@ def test_run_pass_rejects_catalogued_note_with_external_hardlink(
             provider="test",
             now=NOW,
         )
+
+
+@pytest.mark.skipif(
+    os.name != "nt",
+    reason="Windows pinned-note close residue",
+)
+def test_windows_anchor_close_failure_is_typed_outcome(
+        tmp_path: Path,
+        monkeypatch,
+) -> None:
+    from birkin.curation_anchor_windows import (
+        WindowsAnchoredCuration,
+    )
+
+    vault = tmp_path / "vault"
+    VaultMemory({"vault_path": str(vault)}).write_note(
+        "Windows close victim",
+        "ORIGINAL",
+        zone="inbox",
+    )
+    real_close = WindowsAnchoredCuration.close
+
+    def close_then_raise(self):
+        real_close(self)
+        raise OSError(5, "pinned-note close failed")
+
+    monkeypatch.setattr(
+        WindowsAnchoredCuration,
+        "close",
+        close_then_raise,
+    )
+
+    outcome = curation.run_curation_pass(
+        vault,
+        lambda _prompt: json.dumps({
+            "plan_version": 2,
+            "ops": [{
+                "op": "annotate",
+                "slug": "windows-close-victim",
+                "aliases": ["SAFE"],
+            }],
+        }),
+        provider="test",
+        now=NOW,
+    )
+
+    assert outcome.effected[-1]["op"] == "close"
+    assert outcome.effected[-1]["residue"] is True
+    assert outcome.effected[-1]["retryable"] is False
+
+
+@pytest.mark.skipif(
+    os.name != "nt",
+    reason="Windows move parent-close residue",
+)
+def test_windows_move_parent_close_failure_is_typed(
+        tmp_path: Path,
+        monkeypatch,
+) -> None:
+    from birkin import curation_anchor_windows
+    from birkin.skills.bundle_publish_windows_io import (
+        DIRECTORY_ATTRIBUTE,
+    )
+
+    vault = tmp_path / "vault"
+    VaultMemory({"vault_path": str(vault)}).write_note(
+        "Windows move victim",
+        "ORIGINAL",
+        zone="inbox",
+    )
+    real_rename = curation_anchor_windows.rename
+    real_close = curation_anchor_windows.close
+    moved = False
+    failed = False
+
+    def track_rename(*args, **kwargs):
+        nonlocal moved
+        result = real_rename(*args, **kwargs)
+        moved = True
+        return result
+
+    def close_parent_then_raise(kernel32, handle):
+        nonlocal failed
+        attributes, _ = curation_anchor_windows.information(
+            kernel32,
+            handle,
+        )
+        real_close(kernel32, handle)
+        if moved and not failed and attributes & DIRECTORY_ATTRIBUTE:
+            failed = True
+            raise OSError(5, "destination-parent close failed")
+
+    monkeypatch.setattr(
+        curation_anchor_windows,
+        "rename",
+        track_rename,
+    )
+    monkeypatch.setattr(
+        curation_anchor_windows,
+        "close",
+        close_parent_then_raise,
+    )
+
+    outcome = curation.run_curation_pass(
+        vault,
+        lambda _prompt: json.dumps({
+            "plan_version": 1,
+            "ops": [{
+                "op": "rezone",
+                "slug": "windows-move-victim",
+                "zone": "projects",
+            }],
+        }),
+        provider="test",
+        now=NOW,
+    )
+
+    assert outcome.effected[0]["residue"] is True
+    assert outcome.effected[0]["retryable"] is False
+    assert failed is True
+    assert not (vault / "windows-move-victim.md").exists()
+    assert (vault / "projects" / "windows-move-victim.md").exists()
 
 
 def test_curation_rezone_never_uses_split_link_unlink(

@@ -189,6 +189,7 @@ def _run_curation_pass_pinned(
             read_note = windows_anchor.read
             write_note = windows_anchor.write
 
+    outcome: CurationOutcome | None = None
     try:
         raw = complete(prompt) or ""
         plan = extract_plan(raw)
@@ -208,7 +209,7 @@ def _run_curation_pass_pinned(
             )
         else:
             effected = []        # --dry-run: propose and gate, change nothing
-        return CurationOutcome(
+        outcome = CurationOutcome(
             provider=provider, model=model,
             accepted=[sanitize_model_record(o) for o in accepted],
             dropped=[{"op": sanitize_model_record(d.op),
@@ -221,4 +222,19 @@ def _run_curation_pass_pinned(
         )
     finally:
         if windows_anchor is not None:
-            windows_anchor.close()
+            active_error = sys.exc_info()[1]
+            try:
+                windows_anchor.close()
+            except OSError as close_error:
+                if active_error is None and outcome is not None:
+                    outcome.effected.append({
+                        "op": "close",
+                        "error": str(close_error),
+                        "residue": True,
+                        "retryable": False,
+                    })
+                elif active_error is None:
+                    raise
+    if outcome is None:
+        raise RuntimeError("curation outcome was not produced")
+    return outcome

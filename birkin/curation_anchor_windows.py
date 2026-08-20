@@ -110,12 +110,31 @@ class WindowsAnchoredCuration:
             previous,
         )
         payload = text.encode("utf-8")
-        self._write(handle, payload)
-        self._memory._register_record_source_relative(
-            relative,
-            source,
-            digest=hashlib.sha256(payload).hexdigest(),
-        )
+        try:
+            self._write(handle, payload)
+            self._validate(handle)
+        except OSError:
+            try:
+                write_handle(
+                    self._kernel32,
+                    handle,
+                    previous,
+                )
+            except OSError as restore_error:
+                raise CurationResidueError(
+                    "Windows curation note restoration failed"
+                ) from restore_error
+            raise
+        try:
+            self._memory._register_record_source_relative(
+                relative,
+                source,
+                digest=hashlib.sha256(payload).hexdigest(),
+            )
+        except OSError as provenance_error:
+            raise CurationResidueError(
+                "Windows curation provenance failed after write"
+            ) from provenance_error
         return self._memory.vault / relative
 
     def move(self, slug: str, zone: str) -> Path:
@@ -192,6 +211,11 @@ class WindowsAnchoredCuration:
                 except OSError as error:
                     close_error = close_error or error
             if active_error is None and close_error is not None:
+                if moved:
+                    raise CurationResidueError(
+                        "Windows curation parent close failed "
+                        "after move"
+                    ) from close_error
                 raise close_error
         self._entries[slug]["rel"] = destination_relative.as_posix()
         self._entries[slug]["zone"] = destination_zone
