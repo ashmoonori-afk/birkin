@@ -3,6 +3,8 @@ from __future__ import annotations
 import json
 import types
 
+import pytest
+
 from birkin import config, slashcommands as sc
 from birkin.memory import VaultMemory
 from birkin.profile_actions import ProfileActions
@@ -48,6 +50,15 @@ def test_approval_revalidates_stale_revision_and_refuses(capsys):
     assert payload["status"] == "error"
     assert payload["error"]["type"] == "stale_revision"
     assert "first" not in ProfileStore(config.birkin_home(), {}).snapshot().documents["preferences"].entries
+
+
+def test_malformed_profile_enabled_is_rejected():
+    (config.birkin_home() / "config.json").write_text(
+        json.dumps({"profile": {"enabled": "yes"}}), encoding="utf-8"
+    )
+
+    with pytest.raises(ValueError, match="profile.enabled must be boolean"):
+        config.load_config()
 
 
 def test_persona_promote_is_idempotent(capsys):

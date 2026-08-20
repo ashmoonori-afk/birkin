@@ -659,31 +659,49 @@ def _validate_profile_config(cfg: dict[str, Any]) -> None:
     profile = cfg.get("profile")
     if not isinstance(profile, dict):
         raise ValueError("profile must be an object")
-    if not isinstance(profile.get("enabled"), bool):
+    _validate_profile_fields(profile, partial=False)
+
+
+def _validate_raw_profile_config(raw: dict[str, Any]) -> None:
+    if "profile" not in raw:
+        return
+    profile = raw.get("profile")
+    if not isinstance(profile, dict):
+        raise ValueError("profile must be an object")
+    _validate_profile_fields(profile, partial=True)
+
+
+def _validate_profile_fields(profile: dict[str, Any], *, partial: bool) -> None:
+    if (not partial or "enabled" in profile) and not isinstance(profile.get("enabled"), bool):
         raise ValueError("profile.enabled must be boolean")
-    if not isinstance(profile.get("write_approval"), bool):
+    if (not partial or "write_approval" in profile) and not isinstance(profile.get("write_approval"), bool):
         raise ValueError("profile.write_approval must be boolean")
     limits = profile.get("limits")
     required = {"user", "preferences", "mask", "workflow", "automation"}
-    if not isinstance(limits, dict) or set(limits) != required:
-        raise ValueError("profile.limits must contain user, preferences, mask, workflow, automation")
-    for name, value in limits.items():
-        if not isinstance(value, int) or value <= 0:
-            raise ValueError(f"profile.limits.{name} must be a positive integer")
+    if not partial or "limits" in profile:
+        if not isinstance(limits, dict) or set(limits) != required:
+            raise ValueError("profile.limits must contain user, preferences, mask, workflow, automation")
+        for name, value in limits.items():
+            if not isinstance(value, int) or value <= 0:
+                raise ValueError(f"profile.limits.{name} must be a positive integer")
     review = profile.get("background_review")
-    if not isinstance(review, dict):
-        raise ValueError("profile.background_review must be an object")
-    if not isinstance(review.get("enabled"), bool):
-        raise ValueError("profile.background_review.enabled must be boolean")
-    for key in ("provider", "model"):
-        value = review.get(key)
-        if value is not None and not isinstance(value, str):
-            raise ValueError(f"profile.background_review.{key} must be string or null")
-        if isinstance(value, str) and not value.strip():
-            raise ValueError(f"profile.background_review.{key} must not be empty")
-    turns = review.get("digest_recent_turns")
-    if not isinstance(turns, int) or turns < 0:
-        raise ValueError("profile.background_review.digest_recent_turns must be a non-negative integer")
+    if not partial or "background_review" in profile:
+        if not isinstance(review, dict):
+            raise ValueError("profile.background_review must be an object")
+        if (not partial or "enabled" in review) and not isinstance(review.get("enabled"), bool):
+            raise ValueError("profile.background_review.enabled must be boolean")
+        for key in ("provider", "model"):
+            if partial and key not in review:
+                continue
+            value = review.get(key)
+            if value is not None and not isinstance(value, str):
+                raise ValueError(f"profile.background_review.{key} must be string or null")
+            if isinstance(value, str) and not value.strip():
+                raise ValueError(f"profile.background_review.{key} must not be empty")
+        if not partial or "digest_recent_turns" in review:
+            turns = review.get("digest_recent_turns")
+            if not isinstance(turns, int) or turns < 0:
+                raise ValueError("profile.background_review.digest_recent_turns must be a non-negative integer")
 
 
 def load_config() -> Config:
@@ -707,6 +725,7 @@ def load_config() -> Config:
         try:
             raw = json.loads(path.read_text(encoding="utf-8"))
             if isinstance(raw, dict):
+                _validate_raw_profile_config(raw)
                 saved = normalize_overrides(raw, DEFAULT_CONFIG)
                 cfg = merge_config(DEFAULT_CONFIG, saved)
         except (json.JSONDecodeError, OSError) as exc:
