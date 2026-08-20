@@ -22,6 +22,7 @@ memory so the rest of birkin is unaffected.
 
 from __future__ import annotations
 
+import json
 import re
 import threading
 from datetime import date, datetime, timezone
@@ -33,6 +34,9 @@ from .mnemosyne import (ARCHIVE_ZONE, IDENTITY_ZONE, TYPE_ZONE, Mnemosyne,
                         _entry_expired, tokenize)
 from .mnemosyne import atomic_write as _atomic_write
 from .mnemosyne import slug as _slug
+from .profile_actions import ProfileActions, validate_profile_text
+from .profile_migration import LegacyPreference
+from .rolefiles import ProfileEdit, ProfileStore
 from .memory_scopes import (
     MemoryAccessPolicy,
     MemoryOperation,
@@ -199,6 +203,66 @@ class VaultMemory:
                 "path": scope_root(self.vault, self.policy.actor_scope) / entry["rel"],
             })
         return notes
+
+    def profiles_enabled(self) -> bool:
+        profile = self.cfg.get("profile")
+        return isinstance(profile, dict) and profile.get("enabled") is True
+
+    def profile_actions(self) -> ProfileActions:
+        profile = self.cfg.get("profile") if isinstance(self.cfg.get("profile"), dict) else {}
+        limits = profile.get("limits", {}) if isinstance(profile, dict) else {}
+        return ProfileActions(
+            ProfileStore(config.birkin_home(), limits),
+            approval_required=bool(profile.get("write_approval", False)) if isinstance(profile, dict) else False,
+        )
+
+    def legacy_preferences(self) -> list[LegacyPreference]:
+        notes: list[LegacyPreference] = []
+        root = scope_root(self.vault, self.policy.actor_scope)
+        for entry in self.dex.entries().values():
+            path = root / entry["rel"]
+            try:
+                text = path.read_text(encoding="utf-8", errors="replace")
+            except OSError:
+                continue
+            meta, body = frontmatter.parse(text)
+            try:
+                safe_body = validate_profile_text(body)
+            except ValueError:
+                continue
+            notes.append(LegacyPreference(
+                path=str(path), title=str(meta.get("title") or entry["title"]),
+                body=safe_body, zone=str(entry.get("zone") or ""),
+                type=str(meta.get("type") or entry.get("type") or "topic"),
+            ))
+        return notes
+
+    def archive_legacy_preference(self, note: LegacyPreference) -> None:
+        self.dex.rezone(Path(note.path).stem, ARCHIVE_ZONE)
+
+    def archived_legacy_preference(self, note: LegacyPreference) -> LegacyPreference | None:
+        slug = Path(note.path).stem
+        root = scope_root(self.vault, self.policy.actor_scope)
+        rel = self.dex.resolve_rel(slug)
+        if not rel:
+            return None
+        path = root / rel
+        try:
+            text = path.read_text(encoding="utf-8", errors="replace")
+        except OSError:
+            return None
+        meta, body = frontmatter.parse(text)
+        if str(meta.get("type") or note.type) != note.type:
+            return None
+        if str(meta.get("title") or note.title) != note.title:
+            return None
+        return LegacyPreference(
+            path=str(path), title=note.title, body=body,
+            zone=ARCHIVE_ZONE, type=note.type,
+        )
+
+    def restore_legacy_preference(self, note: LegacyPreference) -> None:
+        self.write_note(note.title, note.body, note_type=note.type, zone=note.zone)
 
     def purge_expired(self) -> int:
         """Archive notes whose ``expires_at`` is in the past; return the count.
@@ -595,8 +659,8 @@ class VaultMemory:
         order = ([IDENTITY_ZONE] if IDENTITY_ZONE in by_zone else []) \
             + mid + ([""] if "" in by_zone else [])
         total = sum(len(v) for v in by_zone.values())
-        lines = [f"Vault: {self.vault} ({total} notes). "
-                 f"Use memory_search / memory_get_note for details."]
+        lines = [f"Vault searchable historical context: {self.vault} ({total} notes). "
+                 f"Use memory_search / memory_get_note for details; role profile files win on conflicts."]
         left = limit
         for z in order:
             if left <= 0:
@@ -625,6 +689,12 @@ class VaultMemory:
             note = inp.get("note")
             key, value = inp.get("key"), inp.get("value")
             if key and value:
+                if self.profiles_enabled():
+                    receipt = self.profile_actions().submit(
+                        ProfileEdit("preferences", "add", content=f"{key}: {value}"),
+                        trusted=True, source="remember")
+                    return ToolResult(json.dumps(receipt.payload(), sort_keys=True),
+                                      is_error=receipt.status == "error")
                 self.write_note(f"Profile - {key}", f"{key}: {value}",
                                 note_type="preference", confidence=0.9,
                                 source="conversation")
@@ -642,6 +712,10 @@ class VaultMemory:
             if not (title and body):
                 return ToolResult("memory_write_note needs title and body.",
                                   is_error=True)
+            if self.profiles_enabled() and str(inp.get("type") or "") == "preference":
+                return ToolResult(
+                    "memory_write_note(type='preference') is disabled while profiles are enabled; use profile_write.",
+                    is_error=True)
             try:
                 p = self.write_note(
                     title, body,
@@ -753,7 +827,7 @@ class VaultMemory:
                 return ToolResult(f"rezone failed: {exc}", is_error=True)
             return ToolResult(f"Moved [[{title}]] to zone '{zone}' ({p}).")
 
-        return [
+        tools = [
             Tool(name="remember",
                  description="Quickly persist a durable fact about the user or "
                              "project. Use key+value for stable attributes, or "
@@ -841,6 +915,10 @@ class VaultMemory:
                      "required": ["title", "zone"]},
                  fn=memory_rezone),
         ]
+        if self.profiles_enabled():
+            from .profile_actions import build_profile_tools
+            tools.extend(build_profile_tools(self.profile_actions()))
+        return tools
 
 
 # -- module helpers --------------------------------------------------------
