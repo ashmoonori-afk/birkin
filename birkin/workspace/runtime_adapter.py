@@ -13,6 +13,8 @@ from .. import config, transcripts, uistate, workbench
 from ..computer_use.events import ComputerEvent
 from ..computer_use.reducer import ComputerState, reduce_event
 from ..runtime import Session, build_session
+from birkin.native.jailed_import import JailedImportAuthority
+
 from . import approval_authority
 from .owned_terminal import TerminalAuthority
 from .records import PanelSummary, WorkspaceEvent, WorkspaceSnapshot
@@ -87,17 +89,21 @@ class RuntimeWorkspaceAdapter:
         self,
         session_id: str,
         emit: EventSink,
+        *,
+        workspace_root: Path | None = None,
     ) -> None:
         self._session_id = session_id
         self._emit = emit
+        self._workspace_root = (workspace_root or Path.cwd()).expanduser().resolve()
         self._session: Session | None = None
         self._computer_state = ComputerState()
         self._terminal = TerminalAuthority(
             session_id=session_id,
-            workspace_root=Path.cwd(),
+            workspace_root=self._workspace_root,
             emit=emit,
             config_loader=config.load_config,
         )
+        self._jailed_import = JailedImportAuthority(self._workspace_root / "imports")
         self._failed_intent_text: str | None = None
         self._run_id = (
             f"workspace-{datetime.now(timezone.utc):%Y%m%d-%H%M%S}-{os.getpid()}"
@@ -114,6 +120,7 @@ class RuntimeWorkspaceAdapter:
             "question.answer": self._question_answer,
             "session.compact": self._session_compact,
             **self._terminal.handlers(),
+            **self._jailed_import.handlers(),
         }
 
     def close(self) -> None:

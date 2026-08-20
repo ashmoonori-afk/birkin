@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from collections.abc import Callable
+from pathlib import Path
 from typing import cast, final
 
 import pytest
@@ -29,6 +30,30 @@ class _RuntimeSession:
         if self.ask_count == 1:
             raise RuntimeError("provider failed")
         return f"retried: {text}"
+
+
+def test_runtime_adapter_advertises_and_executes_jailed_file_import(
+    tmp_path: Path,
+) -> None:
+    emitted: list[tuple[str, dict[str, object]]] = []
+
+    def emit(event_type: str, payload: dict[str, object]) -> WorkspaceEvent:
+        emitted.append((event_type, payload))
+        return _event(event_type, payload)
+
+    dropped = tmp_path / "outside" / "drop.txt"
+    dropped.parent.mkdir()
+    dropped.write_text("drop through production adapter", encoding="utf-8")
+    adapter = RuntimeWorkspaceAdapter(
+        "import-session", emit, workspace_root=tmp_path / "workspace"
+    )
+
+    handler = adapter.handlers()["file.import"]
+    result = handler({"source_path": str(dropped)})
+
+    reference = cast(dict[str, object], result["reference"])
+    imported = tmp_path / "workspace" / "imports" / str(reference["jail_name"])
+    assert imported.read_text(encoding="utf-8") == "drop through production adapter"
 
 
 def test_steer_delegates_to_runtime_and_emits_canonical_event(
