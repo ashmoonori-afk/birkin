@@ -7,7 +7,7 @@ from typing import Any
 
 import pytest
 
-from birkin import approvals, store
+from birkin import store
 from birkin.workspace.contracts import (
     TerminalApprovalRequired,
     TerminalLeaseRequired,

@@ -21,6 +21,10 @@ from birkin.workspace.contracts import (
     ConfigMutationRejected,
     ProtocolError as WorkspaceProtocolError,
     StaleCursor,
+    TerminalApprovalRequired,
+    TerminalLeaseRequired,
+    TerminalSequenceRejected,
+    TerminalSignalRejected,
     UnsupportedCommand,
     WorkingMemoryBudgetExceeded,
     WorkingMemoryRevisionConflict,
@@ -137,6 +141,15 @@ class NativeMessageFactory:
             details = {"limit": error.limit}
         elif isinstance(error, ConfigMutationRejected):
             code = "E_CONFIG_REJECTED"
+        elif isinstance(error, TerminalApprovalRequired):
+            code = "E_TERMINAL_APPROVAL_REQUIRED"
+            details = {"approval_id": error.approval_id}
+        elif isinstance(error, TerminalLeaseRequired):
+            code = "E_TERMINAL_LEASE_REQUIRED"
+        elif isinstance(error, TerminalSignalRejected):
+            code = "E_TERMINAL_SIGNAL"
+        elif isinstance(error, TerminalSequenceRejected):
+            code = "E_TERMINAL_SEQUENCE"
         elif isinstance(error, UnsupportedCommand):
             code = "E_UNSUPPORTED_COMMAND"
         elif isinstance(error, StaleCursor):

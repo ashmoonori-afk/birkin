@@ -9,9 +9,14 @@ from .contracts import (
     ConfigMutationRejected,
     ProtocolError,
     StaleCursor,
+    TerminalApprovalRequired,
+    TerminalLeaseRequired,
+    TerminalSequenceRejected,
+    TerminalSignalRejected,
     WorkspaceCommand,
 )
 from .hub import WorkspaceHub, WorkspaceSession
+from .owned_terminal import TerminalAuthority
 from .presets import SESSION_PRESETS, SessionPreset
 from .records import (
     CommandReceipt,
@@ -29,6 +34,11 @@ __all__ = [
     "SESSION_PRESETS",
     "SessionPreset",
     "StaleCursor",
+    "TerminalApprovalRequired",
+    "TerminalAuthority",
+    "TerminalLeaseRequired",
+    "TerminalSequenceRejected",
+    "TerminalSignalRejected",
     "WorkspaceCommand",
     "WorkspaceEvent",
     "WorkspaceHub",

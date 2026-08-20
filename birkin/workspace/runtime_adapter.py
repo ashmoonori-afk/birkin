@@ -6,12 +6,14 @@ import os
 from collections.abc import Callable, Mapping
 from dataclasses import replace
 from datetime import datetime, timezone
+from pathlib import Path
 from typing import cast, final
 
 from .. import approvals, config, transcripts, uistate, workbench
 from ..computer_use.events import ComputerEvent
 from ..computer_use.reducer import ComputerState, reduce_event
 from ..runtime import Session, build_session
+from .owned_terminal import TerminalAuthority
 from .records import PanelSummary, WorkspaceEvent, WorkspaceSnapshot
 from .service import CommandHandler
 
@@ -89,6 +91,12 @@ class RuntimeWorkspaceAdapter:
         self._emit = emit
         self._session: Session | None = None
         self._computer_state = ComputerState()
+        self._terminal = TerminalAuthority(
+            session_id=session_id,
+            workspace_root=Path.cwd(),
+            emit=emit,
+            config_loader=config.load_config,
+        )
         self._failed_intent_text: str | None = None
         self._run_id = (
             f"workspace-{datetime.now(timezone.utc):%Y%m%d-%H%M%S}-{os.getpid()}"
@@ -104,9 +112,11 @@ class RuntimeWorkspaceAdapter:
             "approval.answer": self._approval_answer,
             "question.answer": self._question_answer,
             "session.compact": self._session_compact,
+            **self._terminal.handlers(),
         }
 
     def close(self) -> None:
+        self._terminal.close_all()
         if self._session is not None:
             self._session.abort.set()
             self._session.close()

@@ -31,6 +31,12 @@ _COMMAND_TYPES = {
     "cron.remove",
     "memory.write",
     "memory.link",
+    "terminal.create",
+    "terminal.input",
+    "terminal.resize",
+    "terminal.signal",
+    "terminal.close",
+    "terminal.snapshot",
     "skill.reload",
     "checkpoint.restore",
     "config.set",
@@ -86,6 +92,28 @@ class WorkingMemoryBudgetExceeded(ProtocolError):
     def __init__(self, limit: int) -> None:
         super().__init__(f"working memory exceeds {limit} rendered characters")
         self.limit = limit
+
+
+class TerminalApprovalRequired(ProtocolError):
+    """Canonical shell approval must resolve before a terminal lease exists."""
+
+    approval_id: str
+
+    def __init__(self, approval_id: str) -> None:
+        super().__init__(f"shell approval {approval_id} is required before terminal lease")
+        self.approval_id = approval_id
+
+
+class TerminalLeaseRequired(ProtocolError):
+    """A terminal mutation did not carry its current live lease proof."""
+
+
+class TerminalSignalRejected(ProtocolError):
+    """A terminal signal is outside the canonical process-tree allowlist."""
+
+
+class TerminalSequenceRejected(ProtocolError):
+    """Terminal input was duplicated or delivered out of order."""
 
 
 def valid_identifier(value: object, label: str) -> str:

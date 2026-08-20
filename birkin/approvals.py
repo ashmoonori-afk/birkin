@@ -264,6 +264,8 @@ def execute_action(category: str, payload: dict[str, Any],
         command = str(payload.get("command") or "")
         if not command:
             return "No command to run."
+        if payload.get("terminal_lease_only") is True:
+            return "Terminal shell access approved; no command executed."
         cwd = Path(str(payload.get("cwd") or Path.cwd())).expanduser().resolve()
         if not cwd.is_dir():
             return f"Working directory does not exist: {cwd}"
