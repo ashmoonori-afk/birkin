@@ -2,6 +2,7 @@
 /// This type deliberately has no persistence dependency or serialization API.
 public final class NativeProjectionStore {
     public private(set) var projection: NativeProjectionState?
+    public private(set) var status: NativeProjectionStoreStatus = .empty
     private var activeCommands: Set<String> = []
     private var interrupted = false
 
@@ -15,6 +16,7 @@ public final class NativeProjectionStore {
         }
         let decoded = try Self.decodeSnapshot(envelope.body)
         projection = decoded
+        status = .current
         activeCommands = decoded.composer.canInterrupt ? ["__snapshot_active__"] : []
         interrupted = decoded.composer.canResume
     }
@@ -33,6 +35,17 @@ public final class NativeProjectionStore {
         }
         guard event.cursor > current.cursor else {
             throw NativeProjectionError("projection event cursor is not increasing")
+        }
+        guard event.cursor == current.cursor + 1 else {
+            projection = nil
+            activeCommands = []
+            interrupted = false
+            status = .replayRequired(NativeReplayRequest(
+                afterCursor: 0,
+                knownInstanceID: nil,
+                replay: true
+            ))
+            return
         }
         NativeProjectionReducer.reduce(
             &current,

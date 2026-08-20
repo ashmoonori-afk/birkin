@@ -40,6 +40,12 @@ public struct NativeProjectionState: Equatable, Sendable {
     }
 }
 
+public enum NativeProjectionStoreStatus: Equatable, Sendable {
+    case empty
+    case current
+    case replayRequired(NativeReplayRequest)
+}
+
 public struct NativeProjectionError: Error, Equatable, Sendable, CustomStringConvertible {
     public let reason: String
     public var description: String { reason }
