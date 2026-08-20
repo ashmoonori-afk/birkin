@@ -227,7 +227,7 @@ class WorkspaceService:
             panel.items for panel in snapshot.panels if panel.key == "files_evidence"
         )
         panels = tuple(
-            replace(panel, items=approval_items())
+            replace(panel, items=approval_items(panel.items))
             if panel.key == "approvals"
             else panel
             for panel in snapshot.panels

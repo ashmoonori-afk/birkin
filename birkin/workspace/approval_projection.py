@@ -8,14 +8,20 @@ from typing import Any, cast
 from birkin import approvals, config, risk, store
 
 
-def approval_items() -> tuple[dict[str, object], ...]:
-    """Return native-safe approval summaries without deciding policy."""
+def approval_items(
+    durable_items: tuple[dict[str, object], ...] = (),
+) -> tuple[dict[str, object], ...]:
+    """Compose durable approval events with canonical authority records."""
 
     records: list[dict[str, Any]] = list(approvals.reviewable_pending())
     for status in ("approved", "rejected", "error", "expired"):
         records.extend(store.list_resolved(status))
     records.sort(key=lambda record: str(record.get("created") or ""))
-    return tuple(approval_item(record) for record in records)
+    canonical = tuple(approval_item(record) for record in records)
+    canonical_ids = {str(item["id"]) for item in canonical}
+    return tuple(
+        item for item in durable_items if str(item.get("id") or "") not in canonical_ids
+    ) + canonical
 
 
 def approval_policy() -> dict[str, object]:
