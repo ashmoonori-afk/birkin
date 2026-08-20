@@ -14,7 +14,6 @@ from .bundle_publish_windows_io import (
     SHARE_READ_WRITE_DELETE,
     checked_directory,
     close,
-    delete_tree,
     mark_delete,
     open_handle,
     rename,
@@ -187,14 +186,11 @@ def publish_windows(
                         kernel32,
                         candidate_tree,
                     )
-                    # The staged handles may already be released, so the
-                    # candidate is removed by walking it rather than by
-                    # marking a directory that still holds entries.
-                    delete_tree(
-                        kernel32,
-                        candidate,
-                        candidate_handle,
-                    )
+                    # A candidate that still holds entries refuses to be
+                    # marked, which is what preserves an untracked file for
+                    # inspection instead of deleting it with the bundle.
+                    mark_delete(kernel32, candidate_handle)
+                    close(kernel32, candidate_handle)
                     candidate_handle = -1
                 except OSError as error:
                     preserve_operation = True
