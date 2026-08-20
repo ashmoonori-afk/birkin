@@ -12,9 +12,22 @@ from tests.native_bridge_support import envelope, hello, local_peer_uid, receive
 
 
 def _server(tmp_path: Path) -> tuple[NativeBridgeServer, WorkspaceHub]:
+    def handlers(session_id: str, emit):  # type: ignore[no-untyped-def]
+        def compact(_payload: dict[str, object]) -> dict[str, object]:
+            _ = emit(
+                "session.compacted",
+                {"session_id": session_id, "compacted": True},
+            )
+            return {"compacted": True}
+
+        return {
+            "chat.send": lambda payload: {"reply": payload["text"]},
+            "session.compact": compact,
+        }
+
     hub = WorkspaceHub(
         root=tmp_path / "workspace",
-        handlers={"chat.send": lambda payload: {"reply": payload["text"]}},
+        handler_factory=handlers,
     )
     session, _ = hub.create("session-1")
     bridge = NativeBridgeServer(
@@ -134,6 +147,26 @@ def test_session_select_over_socket_emits_event_and_changes_projection(
         assert receipt.body["state"] == "completed"
         assert event.body["payload"] == {"session_id": "second"}
         assert hub.snapshot().session_id == "second"
+    finally:
+        client.close()
+        thread.join(timeout=2)  # type: ignore[union-attr]
+        hub.close()
+    assert errors == []
+
+
+def test_session_compact_over_socket_returns_canonical_receipt(
+    tmp_path: Path,
+) -> None:
+    bridge, hub = _server(tmp_path)
+    client, token, thread, errors = _connect(bridge)
+    try:
+        _send(client, token, "session.compact", "compact-1", 0, {})
+        receipt = receive_kind(client, "receipt")
+        event = _receive_event_type(client, "session.compacted")
+
+        assert receipt.body["state"] == "completed"
+        assert receipt.body["result_event_cursor"] == 4
+        assert event.body["payload"]["compacted"] is True
     finally:
         client.close()
         thread.join(timeout=2)  # type: ignore[union-attr]
