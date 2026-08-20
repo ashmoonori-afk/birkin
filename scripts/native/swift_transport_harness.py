@@ -5,18 +5,20 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 from pathlib import Path
 
 from birkin.native.capability import BootstrapSecretStore
 from birkin.native.endpoint import NativeBridgeEndpoint
 from birkin.native.server import NativeBridgeServer
-from birkin.workspace import WorkspaceService
+from birkin.workspace import TerminalAuthority, WorkspaceService
 
 
 def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--transport", choices=("uds", "loopback"), required=True)
     parser.add_argument("--root", type=Path, required=True)
+    parser.add_argument("--terminal", action="store_true")
     args = parser.parse_args()
 
     source = WorkspaceService(
@@ -24,12 +26,23 @@ def main() -> None:
         session_id="session-1",
         handlers={},
     )
+    terminal: TerminalAuthority | None = None
+    if args.terminal:
+        os.environ["BIRKIN_HOME"] = str(args.root / "home")
+        terminal = TerminalAuthority(
+            session_id="session-1",
+            workspace_root=args.root,
+            emit=source.emit,
+            config_loader=lambda: {"auto_approve": ["shell"]},
+        )
+        source.set_handlers(terminal.handlers())
     capabilities = BootstrapSecretStore(args.root / "native")
     bridge = NativeBridgeServer(
         source,
         capabilities=capabilities,
         instance_id="swift-integration-instance",
         server_version="1.0.0",
+        on_disconnect=terminal.revoke_leases if terminal is not None else None,
     )
     socket_path = args.root / "bridge.sock"
     endpoint = (
@@ -57,6 +70,8 @@ def main() -> None:
         endpoint.serve_once()
     finally:
         endpoint.close()
+        if terminal is not None:
+            terminal.close_all()
         print(
             json.dumps(
                 {

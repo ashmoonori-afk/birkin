@@ -27,7 +27,10 @@ struct HarnessReadiness {
     let record: [String: Any]
     let exit: DispatchSemaphore
 
-    static func launch(transport: String) throws -> HarnessReadiness {
+    static func launch(
+        transport: String,
+        terminal: Bool = false
+    ) throws -> HarnessReadiness {
         let package = URL(fileURLWithPath: #filePath)
             .deletingLastPathComponent()
             .deletingLastPathComponent()
@@ -43,7 +46,7 @@ struct HarnessReadiness {
         process.arguments = [
             "uv", "run", "python", "scripts/native/swift_transport_harness.py",
             "--transport", transport, "--root", root.path,
-        ]
+        ] + (terminal ? ["--terminal"] : [])
         process.currentDirectoryURL = repository
         process.standardOutput = stdout
         process.standardError = FileHandle.standardError
