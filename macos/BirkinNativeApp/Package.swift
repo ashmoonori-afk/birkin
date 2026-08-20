@@ -1,6 +1,5 @@
 // swift-tools-version: 6.0
-// The macOS native app package. Wave 4.1 ships the protocol library and its
-// tests only; the application target arrives in a later wave.
+// The macOS native app package and release executable.
 
 import PackageDescription
 
@@ -10,12 +9,17 @@ let package = Package(
     products: [
         .library(name: "BirkinNativeProtocol", targets: ["BirkinNativeProtocol"]),
         .library(name: "BirkinNativeShell", targets: ["BirkinNativeShell"]),
+        .executable(name: "BirkinNativeApp", targets: ["BirkinNativeApp"]),
     ],
     targets: [
         .target(name: "BirkinNativeProtocol"),
         .target(
             name: "BirkinNativeShell",
             dependencies: ["BirkinNativeProtocol"]
+        ),
+        .executableTarget(
+            name: "BirkinNativeApp",
+            dependencies: ["BirkinNativeProtocol", "BirkinNativeShell"]
         ),
         .testTarget(
             name: "BirkinNativeProtocolTests",
@@ -25,6 +29,10 @@ let package = Package(
         .testTarget(
             name: "BirkinNativeShellTests",
             dependencies: ["BirkinNativeShell", "BirkinNativeProtocol"]
+        ),
+        .testTarget(
+            name: "BirkinNativeAppTests",
+            dependencies: ["BirkinNativeApp"]
         ),
     ]
 )
