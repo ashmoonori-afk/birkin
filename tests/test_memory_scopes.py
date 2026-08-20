@@ -248,6 +248,55 @@ def test_concurrent_replacement_cannot_be_registered_as_trusted(
     assert mem.search("ATTACKER RACE PAYLOAD", min_trust="high") == []
 
 
+def test_existing_note_update_binds_content_to_provenance_snapshot(
+        monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    cfg = {
+        **config.load_config(),
+        "memory_source_trust": {
+            "legacy": "low",
+            "signed-import": "high",
+        },
+    }
+    mem = VaultMemory(cfg)
+    path = mem.write_note(
+        "Update snapshot",
+        "trusted update marker",
+        source="signed-import",
+    )
+    trusted_payload = path.read_bytes()
+    path.write_text(
+        "ATTACKER update marker\n",
+        encoding="utf-8",
+    )
+    real_record_source = mem._record_source
+
+    def restore_then_authenticate(candidate: Path) -> str:
+        path.write_bytes(trusted_payload)
+        return real_record_source(candidate)
+
+    monkeypatch.setattr(
+        mem,
+        "_record_source",
+        restore_then_authenticate,
+    )
+
+    mem.write_note(
+        "Update snapshot",
+        "caller addition",
+        append=True,
+    )
+    record = mem.get_note_record("Update snapshot")
+
+    assert record is not None
+    assert record["record_source"] == "legacy"
+    assert record["trust"] == "low"
+    assert mem.search(
+        "ATTACKER update marker",
+        min_trust="high",
+    ) == []
+
+
 def test_rezone_preserves_authenticated_provenance() -> None:
     cfg = {
         **config.load_config(),

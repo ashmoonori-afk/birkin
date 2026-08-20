@@ -375,7 +375,9 @@ class VaultMemory:
             existing_source = "legacy"
             existing_shared = False
             if p.is_file():
-                old = p.read_text(encoding="utf-8", errors="replace")
+                existing_source, _, old = (
+                    self._record_source_snapshot(p)
+                )
                 meta, old_body = frontmatter.parse(old)
                 created = str(meta.get("created", created))
                 old_sources = meta.get("sources")
@@ -404,7 +406,6 @@ class VaultMemory:
                 if isinstance(raw_supersedes, list):
                     existing_supersedes = [str(value) for value in raw_supersedes]
                 existing_shared = bool(meta.get("shared_read_only", False))
-            existing_source = self._record_source(p)
 
             resolved_shared = (shared_read_only if shared_read_only is not None
                                else existing_shared)
