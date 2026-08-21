@@ -2,50 +2,50 @@ import BirkinNativeProtocol
 import SwiftUI
 
 public enum ProductSurfaceControl: Equatable, Sendable {
-    case browserBack
-    case browserForward
-    case browserReload
-    case browserNavigate
+    case browserNavigate(url: String)
     case computerUseApproveOnce
     case computerUseReject
     case officeNew
     case officeOpen
+
+    /// The Browser commands this shell can actually submit. Python registers
+    /// no history handler, so the shell shows no back, forward, or reload
+    /// affordance instead of aliasing them onto the current address.
+    public static let browserCommandTypes = ["browser.navigate"]
 }
 
 public struct BrowserAsideView: View {
     public let presentation: BrowserAsidePresentation
     public let canNavigate: Bool
-    public let back: () -> Void
-    public let forward: () -> Void
-    public let reload: () -> Void
-    public let navigate: () -> Void
+    public let navigate: (String) -> Void
+
+    @State private var address = ""
 
     public init(
         presentation: BrowserAsidePresentation,
         canNavigate: Bool,
-        back: @escaping () -> Void = {},
-        forward: @escaping () -> Void = {},
-        reload: @escaping () -> Void = {},
-        navigate: @escaping () -> Void = {}
+        navigate: @escaping (String) -> Void = { _ in }
     ) {
         self.presentation = presentation
         self.canNavigate = canNavigate
-        self.back = back
-        self.forward = forward
-        self.reload = reload
         self.navigate = navigate
+    }
+
+    private func submit() {
+        let trimmed = address.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return }
+        navigate(trimmed)
     }
 
     public var body: some View {
         VStack(alignment: .leading, spacing: 8) {
             HStack {
-                Button(action: back) { Image(systemName: "chevron.backward") }
-                    .accessibilityLabel("Browser back")
-                Button(action: forward) { Image(systemName: "chevron.forward") }
-                    .accessibilityLabel("Browser forward")
-                Button(action: reload) { Image(systemName: "arrow.clockwise") }
-                    .accessibilityLabel("Reload browser")
-                Button("Navigate", action: navigate)
+                TextField("Address", text: $address)
+                    .textFieldStyle(.roundedBorder)
+                    .onSubmit { submit() }
+                    .accessibilityLabel("Browser address")
+                Button("Navigate", action: submit)
+                    .disabled(address.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
                     .accessibilityLabel("Navigate browser")
             }
             .disabled(!canNavigate)

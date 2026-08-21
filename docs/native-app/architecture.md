@@ -49,6 +49,16 @@ Capabilities and authoritative workspace data stay in memory. Swift may retain
 presentation preferences, but it does not create a second session database or
 persist capabilities, approvals, receipts, terminal input, or product data.
 
+### Browser control scope
+
+Python registers `browser.start` and `browser.navigate` and no history handler,
+so the Browser panel offers an address field and a navigate action only. Back,
+forward, and reload are deliberately absent rather than aliased onto
+`browser.navigate` with the current address, which would claim history
+authority the runtime does not have. Navigation carries the projected profile
+generation and runtime revision, so a stale panel is refused by Python instead
+of silently retargeted.
+
 ## Projection and command flow
 
 1. Swift connects locally and sends `hello`.

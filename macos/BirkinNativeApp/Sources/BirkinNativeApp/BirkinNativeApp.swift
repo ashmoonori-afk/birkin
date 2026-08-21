@@ -265,22 +265,14 @@ public final class BirkinApplicationRuntime: ObservableObject {
             return
         }
         switch control {
-        case .browserBack, .browserForward, .browserReload, .browserNavigate:
-            guard let surface = store.surface(named: "browser_aside"),
-                  case .object(let profile) = surface.payload["profile"],
-                  case .int(let generation) = profile["generation"],
-                  case .object(let runtime) = surface.payload["runtime"],
-                  case .int(let revision) = runtime["revision"],
-                  case .object(let navigation) = surface.payload["navigation"],
-                  case .string(let url) = navigation["display_url"] else {
-                lastCommandError = "Browser surface identity is unavailable."
+        case .browserNavigate(let url):
+            guard let request = BrowserCommandFactory.navigate(
+                to: url, store: store, session: session
+            ) else {
+                lastCommandError = "Browser navigation needs an address and a live private profile."
                 return
             }
-            submit(request(
-                commandType: "browser.navigate",
-                payload: ["url": .string(url), "generation": .int(generation), "revision": .int(revision)],
-                session: session, viewID: "browser-aside"
-            ))
+            submit(request)
         case .computerUseApproveOnce, .computerUseReject:
             guard let surface = store.surface(named: "computer_use"),
                   case .object(let consent) = surface.payload["consent"],

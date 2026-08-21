@@ -212,10 +212,7 @@ public struct NativeShellView: View {
                 BrowserAsideView(
                     presentation: presentation,
                     canNavigate: availability.isEnabled && browserNavigateAdvertised,
-                    back: { productSurfaceAction(.browserBack) },
-                    forward: { productSurfaceAction(.browserForward) },
-                    reload: { productSurfaceAction(.browserReload) },
-                    navigate: { productSurfaceAction(.browserNavigate) }
+                    navigate: { productSurfaceAction(.browserNavigate(url: $0)) }
                 )
             } else if section.id == .computerUse,
                       let presentation = ComputerUsePresentation(store: store, now: now) {
