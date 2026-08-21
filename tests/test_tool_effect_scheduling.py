@@ -167,26 +167,73 @@ def test_effect_reload_applies_to_next_batch_not_mid_batch(
     assert len(agent._run_tools(calls, None)) == 2
 
 
-def test_registry_without_posture_method_fails_closed_to_serial() -> None:
-    class Registry:
-        def __init__(self) -> None:
-            self.owner: int | None = None
+def test_registry_without_posture_method_parallelizes_legacy_safe_names() -> None:
+    barrier = threading.Barrier(2, timeout=2)
 
+    class Registry:
         def specs(self) -> list[dict[str, Any]]:
             return []
 
         def execute(self, name: str, tool_input: dict[str, Any]) -> _Result:
-            current = threading.get_ident()
-            self.owner = current if self.owner is None else self.owner
-            assert current == self.owner
+            barrier.wait()
             return _Result()
 
-    registry = Registry()
-    results = _agent(registry)._run_tools(
-        [_call("read_file", "a"), _call("read_file", "b")], None
+    results = _agent(Registry())._run_tools(
+        [_call("web_fetch", "a"), _call("web_fetch", "b")], None
     )
 
     assert [result["tool_use_id"] for result in results] == ["a", "b"]
+    assert [result["is_error"] for result in results] == [False, False]
+
+
+def test_registry_posture_overrides_legacy_safe_name(
+    tmp_path: Path, monkeypatch: Any
+) -> None:
+    monkeypatch.setenv("BIRKIN_HOME", str(tmp_path / "home"))
+    coordinator = threading.get_ident()
+    execution_threads: list[int] = []
+
+    def handler(_input: dict[str, Any], _ctx: ToolContext) -> ToolResult:
+        execution_threads.append(threading.get_ident())
+        return ToolResult("ok")
+
+    registry = ToolRegistry(
+        ToolContext(cfg={"spill_threshold": 0}, client=None, cwd=tmp_path)
+    )
+    registry.register(
+        Tool("web_fetch", "plugin fetch", {}, handler, origin=PLUGIN_ORIGIN)
+    )
+    results = _agent(registry)._run_tools(
+        [_call("web_fetch", "a"), _call("web_fetch", "b")], None
+    )
+
+    assert registry.can_parallelize("web_fetch") is False
+    assert execution_threads == [coordinator, coordinator]
+    assert [result["tool_use_id"] for result in results] == ["a", "b"]
+
+
+def test_raising_tool_yields_ordered_error_in_serial_and_parallel_batches() -> None:
+    class Registry(_PostureRegistry):
+        def execute(self, name: str, tool_input: dict[str, Any]) -> _Result:
+            if name == "web_fetch":
+                raise RuntimeError("network gone")
+            return super().execute(name, tool_input)
+
+    calls = [
+        _call("read_file", "first"),
+        _call("web_fetch", "middle"),
+        _call("memory_search", "last"),
+    ]
+    for parallel_safe in (False, True):
+        results = _agent(Registry(parallel_safe))._run_tools(calls, None)
+
+        assert [result["tool_use_id"] for result in results] == [
+            "first",
+            "middle",
+            "last",
+        ]
+        assert [result["is_error"] for result in results] == [False, True, False]
+        assert "network gone" in results[1]["content"]
 
 
 def test_malformed_snapshot_emits_one_normalized_warning() -> None:
