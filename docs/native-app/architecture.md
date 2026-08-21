@@ -86,17 +86,50 @@ ownership, and shutdown leaves that external process untouched. App-owned
 crashes are restarted with a ceiling of five exits in sixty seconds; reaching
 the ceiling produces a bounded stopped state instead of a crash loop.
 
-The packaged executable also supports attachment to a supplied live UDS
-endpoint through `BIRKIN_NATIVE_SOCKET`, which is the exercised package path.
+A frozen one-file helper announces the serving child PID rather than its
+extraction parent. Swift supervises that announced PID, so crash recovery cannot
+leave an orphan owning the socket. `BIRKIN_NATIVE_SOCKET` remains an explicit
+user-managed attachment path; the production package journey exercises the
+embedded helper with bridge overrides absent.
+
+## Packaged QA seam
+
+`BIRKIN_NATIVE_JOURNEY=1` opts the packaged executable into scripted release
+QA; normal launches do not create a runner. The runner invokes the same Swift
+control closures as the visible shell and waits on canonical app events. It has
+no test transport, direct wire path, or alternate Python authority. Python
+still decides every policy, approval, consent, terminal lease, product action,
+and import.
+
+The release harness removes bridge overrides and runs under an empty `HOME` and
+sanitized `PATH`. A real existing-account provider probe must succeed through
+the selected frozen helper and bundled browser tree. A separate composer action
+must then receive the exact provider success marker before the remaining
+product and reconnect journey can pass. Receipts, contentful screenshots, and
+cleanup are machine-verified for both the clean app and mounted DMG.
 
 ## Packaging decision
 
-`scripts/native/package_macos_app.sh` builds a universal (`arm64` and `x86_64`)
-SwiftPM release binary, assembles `Birkin.app` with bundle identifier
-`com.birkin.native`, and signs inside-out. It uses a Developer ID identity and
-hardened runtime when credentials are available; otherwise it produces an
-ad-hoc-signed development artifact. Notarization is therefore deferred when
-credentials are absent.
+`scripts/native/package_macos_app.sh` refuses a dirty source tree, then builds a
+universal (`arm64` and `x86_64`) SwiftPM release binary and
+architecture-specific frozen Python helpers. It also expands checksum-pinned
+Chromium headless-shell and FFmpeg archives into signed browser trees.
+`bridge-helper.json` records the clean revision and exact package version,
+helper executable hashes, and browser tree hashes and byte sizes. The enclosing
+app signature seals that manifest. Swift requires its generated version to
+match the manifest, selects one architecture, and verifies the helper. The
+bridge handshake independently requires the same exact product version, so a
+developer override cannot bypass compatibility. Frozen Python verifies the
+matching browser tree and sets Playwright only to that bundle path. The
+resulting `com.birkin.native` app does not consult host Python, a repository, a
+virtual environment, or a browser cache.
+
+Signing is inside-out. When a Developer ID identity is available the script
+uses it with hardened runtime and a timestamp. Otherwise it produces an
+ad-hoc-signed development artifact with no hardened-runtime option or
+entitlements. The script does not notarize either output; notarization,
+stapling, and Gatekeeper assessment are separate credentialed public-release
+gates.
 
 App Sandbox is intentionally disabled in this package. The shipped architecture
 uses PTYs, private local sockets, Accessibility, and Screen Recording facilities

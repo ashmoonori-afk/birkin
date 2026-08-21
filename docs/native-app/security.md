@@ -99,6 +99,29 @@ PTYs, private local sockets, Accessibility, and Screen Recording need facilities
 outside the initial sandbox profile. This is not a weakening of Python policy
 or macOS privacy controls. Local authentication, typed command gates, explicit
 approval/consent, jailed imports, redaction, and OS permissions remain the
-security boundary. Developer ID hardened-runtime signing and notarization apply
-only when release credentials are available; the credential-free build is an
-ad-hoc development artifact.
+security boundary.
+
+Packaging refuses dirty source. The app-signature-sealed manifest records the
+clean revision and exact product version with architecture-specific helper and
+browser hashes. Swift requires that manifest version to equal its generated
+version and refuses a missing, wrong-architecture, symlinked, or changed helper.
+Every embedded or external bridge must independently return the same exact
+`ready.server_version`. Frozen Python removes any inherited Playwright path,
+accepts only its bundled browser tree for the selected architecture, and
+refuses missing, malformed, wrong-architecture, symlinked, wrong-size, or
+changed browser bytes with bounded remediation text.
+
+`BIRKIN_NATIVE_JOURNEY=1` is an explicit, disabled-by-default release-QA seam.
+It can drive real provider and product actions, so only the release harness
+should set it. It invokes the same packaged-app controls and bridge as the UI;
+it grants no protocol capability, approval, consent, terminal lease, Browser,
+Computer Use, Office, or import authority. The acceptance verifier requires
+separate real-provider probe and chat-success markers and rejects known
+provider-error or fixture text before accepting journey evidence.
+
+Browser executable code and helper code are signed before the enclosing app.
+With a Developer ID identity, the packaging script uses hardened runtime and a
+timestamp. Without one, it signs ad hoc with no hardened-runtime option or
+entitlements. The script does not notarize the artifact. Notarization,
+stapling, and Gatekeeper assessment are separate credentialed public-release
+gates; the credential-free build is not a notarized public download.

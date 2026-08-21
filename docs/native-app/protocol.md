@@ -78,15 +78,23 @@ silent protocol downgrade.
 
 `ready` returns the bridge `instance_id`, the `session_id` the bridge serves,
 the transport, negotiated limits and features, and a random session capability
-scoped to that instance, connection, surface, and view. The body carries
-exactly `protocol_version`, `server_version`, `instance_id`, `session_id`,
-`transport`, `capability`, `limits`, and `capabilities`; `session_id` is
-required, and the client subscribes to that session rather than guessing one. Every post-ready client frame carries that capability. Swift
-keeps it in memory only. The default sliding lifetime is 15 minutes with an
-eight-hour hard connection ceiling. Near expiry the server sends
-`capability.renewed`; replacement revokes the previous token. Tokens are also
-revoked at disconnect, `goodbye`, expiry, or bridge teardown. A capability does
-not replace Python approval, terminal lease, Browser control, Computer Use, or
+scoped to that instance, connection, surface, and view. Swift requires
+`server_version` to equal its generated app package version exactly,
+independently of the wire protocol version. This gate applies to embedded and
+external bridges; protocol negotiation cannot downgrade or bypass it. The body
+carries exactly `protocol_version`, `server_version`, `instance_id`,
+`session_id`, `transport`, `capability`, `limits`, and `capabilities`.
+`session_id` is required, and the client subscribes to that session rather than
+guessing one.
+
+Every post-ready client frame carries the capability. Swift keeps it in memory
+only. The default sliding lifetime is 15 minutes with an eight-hour hard
+connection ceiling. Near expiry the server sends `capability.renewed`;
+replacement revokes the previous token. Tokens are also revoked at disconnect,
+`goodbye`, expiry, or bridge teardown. Python emits a 30-second heartbeat on an
+idle subscription. Swift treats bounded idle receive timeouts as transient
+rather than reconnecting before a heartbeat can arrive. A capability does not
+replace Python approval, terminal lease, Browser control, Computer Use, or
 Office consent authority.
 
 ## Cursor, replay, and surface revisions

@@ -405,5 +405,8 @@ Release blocks on:
 - Strict JSON rejects duplicate keys and non-finite numbers in both Python and Swift.
 - Terminal lease proof is required for every mutation and revoked on disconnect.
 - Browser lease epochs, Computer Use grants, Office consent, and import receipts remain separate Python authorities.
-- Production embeds a signed Python helper from the same revision; developer external-bridge mode is compatibility-gated.
-- V1 hardened-runtime entitlements and the deliberate no-App-Sandbox decision receive a dedicated threat review.
+- Production packaging refuses a dirty source tree and embeds signed Python helpers built with the universal app plus checksum-pinned browser runtimes for both architectures. Helper selection is architecture/hash-gated; browser selection is architecture/hash/size-gated and never falls back to host Python or browser caches.
+- The app requires the sealed manifest package version and every bridge `ready.server_version` to equal its generated product version exactly. A developer bridge override cannot bypass this gate.
+- `BIRKIN_NATIVE_JOURNEY=1` is disabled by default. Release QA drives the same app controls and Python authorities, requires separate real-provider probe and chat-success markers, and grants no policy, approval, consent, terminal, Browser, Computer Use, Office, or import authority.
+- Nested code is signed inside-out. Developer ID credentials enable hardened runtime; the credential-free artifact is ad-hoc signed with no hardened-runtime option or entitlements and is not notarized. Notarization, stapling, and Gatekeeper assessment remain public-release gates.
+- V1 signing mode, entitlements, and the deliberate no-App-Sandbox decision receive a dedicated threat review.

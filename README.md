@@ -740,11 +740,29 @@ The shipped boundary is deliberate:
 - **Desktop integration:** navigation-only menus, redacted notifications and
   deep links, jailed file import, optional voice gating, keyboard and VoiceOver
   paths, and visual accessibility settings retain Python's refusal boundaries.
-- **Packaging:** the build produces a universal `com.birkin.native` app and
-  signs it inside-out. App Sandbox is disabled because PTYs, local sockets,
-  Accessibility, and Screen Recording are outside the initial sandbox profile;
-  Python policy, consent gates, local authentication, and macOS privacy
-  permissions remain enforced.
+- **Packaging:** the build refuses a dirty tree, produces a universal
+  `com.birkin.native` app, and signs it inside-out. Both `arm64` and `x86_64`
+  ship a frozen Python helper built with the app plus checksum-pinned Playwright
+  Chromium and FFmpeg runtimes. The sealed manifest records the clean revision;
+  its package version and the bridge `ready.server_version` must both exactly
+  match the generated app version. A developer bridge override cannot bypass
+  that handshake. The app selects and verifies only its architecture; neither
+  the bridge nor Browser Aside consults a host Python, repository, virtual
+  environment, or Playwright cache.
+- **Release QA:** the disabled-by-default `BIRKIN_NATIVE_JOURNEY=1` seam drives
+  the same controls as the packaged UI, with no test transport or direct wire
+  client. Under an empty `HOME`, sanitized `PATH`, and absent bridge overrides,
+  acceptance requires a real existing-account provider probe and a separate
+  provider-backed chat success marker before the full product and reconnect
+  journey passes. Python policy, approval, consent, and lease gates still apply.
+- **Signing:** with a Developer ID identity the packaging script enables
+  hardened runtime. Without one it produces an ad-hoc-signed development
+  artifact with no hardened-runtime option or entitlements. The script does not
+  notarize that artifact; notarization, stapling, and Gatekeeper assessment are
+  separate credentialed public-release gates. App Sandbox remains disabled
+  because PTYs, local sockets, Accessibility, and Screen Recording are outside
+  the initial profile, while Python policy, local authentication, and macOS
+  privacy permissions remain enforced.
 
 A future platform decision—Windows-native versus a shared cross-platform
 shell—remains open and will be based on accessibility APIs, installer

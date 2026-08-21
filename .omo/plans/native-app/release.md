@@ -374,6 +374,10 @@ The stage map below supersedes earlier conflicting maps:
 | Stage 3 | Working Memory mutation and Browser/Computer Use/Office command handlers and UI |
 | Stage 4 | menu bar, drag/drop affordance, optional voice, remaining notifications, recovery hardening, accessibility, visual QA, package/notarization |
 
-CI begins with Phase 1 Python protocol checks, adds Swift checks at Phase 4, and expands per wave. Production packaging embeds the signed same-revision Python helper. A dedicated gate records the no-App-Sandbox decision, minimal hardened-runtime entitlements, dependency locks, helper discovery, version mismatch, and update failure behavior.
+CI begins with Phase 1 Python protocol checks, adds Swift checks at Phase 4, and expands per wave. Production packaging refuses dirty source and embeds signed helpers built with the universal app plus checksum-pinned browser runtimes for arm64 and x86_64. The helper manifest records the clean revision; its package version and every bridge `ready.server_version` must exactly equal the generated app version, including for a developer override.
+
+A dedicated clean-PATH/empty-HOME gate enables the otherwise disabled `BIRKIN_NATIVE_JOURNEY=1` seam and drives the packaged app through the same control closures as the UI. It accepts neither fixture text nor provider errors: a real existing-account provider probe and a separate provider-backed chat must return their exact success markers before the named Browser, Office, Memory, import, terminal, restart/replay, and post-reconnect steps pass. The gate also records dependency locks, helper/browser discovery and integrity, exact product-version mismatch, mounted-DMG launch, signing mode, screenshots, and resource cleanup.
+
+The packaging script signs nested code inside-out. With a Developer ID identity it enables hardened runtime; without one it emits an ad-hoc-signed development artifact with `entitlements=none` and no hardened-runtime option. Notarization, stapling, and Gatekeeper assessment remain separate credentialed public-release gates and are not claimed for the credential-free artifact.
 
 Atomic commits contain one verified RED→GREEN behavior pair and remain green. RED output is evidence in the ledger, not a standalone failing commit.

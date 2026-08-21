@@ -744,11 +744,29 @@ Unix domain socket을 우선 사용하고, 명시적으로 선택할 때 인증�
 - **Desktop integration:** Navigation-only menu, redacted notification과 deep
   link, jailed file import, 선택적 voice gate, keyboard와 VoiceOver path,
   visual accessibility setting이 Python의 refusal boundary를 유지합니다.
-- **Packaging:** Build는 universal `com.birkin.native` app을 만들고 inside-out
-  순서로 sign합니다. PTY, local socket, Accessibility, Screen Recording이
-  초기 sandbox profile 밖에 있어 App Sandbox는 비활성화하지만 Python
-  policy, consent gate, local authentication, macOS privacy permission은 계속
-  적용됩니다.
+- **Packaging:** Build는 dirty tree를 거부하고 universal
+  `com.birkin.native` app을 만든 뒤 inside-out 순서로 sign합니다. `arm64`와
+  `x86_64` 모두 app과 함께 build한 frozen Python helper와 checksum이 고정된
+  Playwright Chromium·FFmpeg runtime을 포함합니다. Seal된 manifest는
+  clean revision을 기록하며 package version과 bridge의
+  `ready.server_version`은 generated app version과 정확히 같아야 합니다.
+  Developer bridge override도 이 handshake를 우회할 수 없습니다. App은 현재
+  architecture만 선택해 검증하며 bridge와 Browser Aside는 host Python,
+  repository, virtual environment, Playwright cache를 참조하지 않습니다.
+- **Release QA:** 기본으로 비활성화된 `BIRKIN_NATIVE_JOURNEY=1` seam은 test
+  transport나 direct wire client 없이 packaged UI와 같은 control을
+  구동합니다. 빈 `HOME`, 정리된 `PATH`, bridge override가 없는 환경에서 실제
+  existing-account provider probe와 별도의 provider-backed chat success
+  marker가 확인되어야 전체 product와 reconnect journey를 통과합니다. Python
+  policy, approval, consent, lease gate는 그대로 적용됩니다.
+- **Signing:** Developer ID identity가 있으면 packaging script가 hardened
+  runtime을 활성화합니다. Identity가 없으면 hardened-runtime option과
+  entitlement가 없는 ad-hoc-signed development artifact를 만듭니다. 이
+  script는 해당 artifact를 notarize하지 않으며 notarization, stapling,
+  Gatekeeper 평가는 credential이 필요한 별도의 public-release gate입니다.
+  PTY, local socket, Accessibility, Screen Recording이 초기 sandbox profile
+  밖에 있어 App Sandbox는 계속 비활성화하지만 Python policy, local
+  authentication, macOS privacy permission은 적용됩니다.
 
 향후 Windows-native client와 공통 cross-platform shell 중 무엇을 택할지는
 아직 열려 있으며, 코드 재사용률만이 아니라 accessibility API, installer
