@@ -579,24 +579,34 @@ private enum BirkinApplicationRuntimeError: Error {
 @MainActor
 enum BirkinApplicationHost {
     static let journey = PackagedJourneyConfiguration.discovered()
-    static let journeyEvents = JourneyEventLog()
-    static let runtime = BirkinApplicationRuntime(emit: { message in
-        BirkinApplicationRuntime.standardEvent(message)
-        Task { @MainActor in journeyEvents.record(message) }
-    })
+    /// Exists only for a QA run. A production launch keeps no journey log at
+    /// all, so it cannot accumulate one line of it.
+    static let journeyEvents: JourneyEventLog? =
+        journey == nil ? nil : JourneyEventLog()
+    static let runtime: BirkinApplicationRuntime = {
+        // Captured once: a production launch has no log, so it never even
+        // schedules the work that would append to one.
+        let events = journeyEvents
+        return BirkinApplicationRuntime(emit: { message in
+            BirkinApplicationRuntime.standardEvent(message)
+            guard let events else { return }
+            Task { @MainActor in events.record(message) }
+        })
+    }()
 }
 
 /// Runs the app-owned bridge lifecycle across the real application lifecycle.
 @MainActor
 private final class BirkinApplicationDelegate: NSObject, NSApplicationDelegate {
     func applicationDidFinishLaunching(_ notification: Notification) {
-        guard let journey = BirkinApplicationHost.journey else { return }
+        guard let journey = BirkinApplicationHost.journey,
+              let events = BirkinApplicationHost.journeyEvents else { return }
         Task { @MainActor in
             await BirkinApplicationHost.runtime.start()
             await PackagedJourneyRunner(
                 configuration: journey,
                 runtime: BirkinApplicationHost.runtime,
-                events: BirkinApplicationHost.journeyEvents
+                events: events
             ).run()
         }
     }

@@ -41,55 +41,106 @@ struct JourneyStep: Encodable {
 }
 
 /// Awaits application events by prefix without polling or sleeping.
+///
+/// Only a QA run owns one of these. Retention is bounded, while monotonic
+/// counts for the journey's fixed wait patterns preserve absolute occurrences
+/// after matching evidence leaves the retained window.
 final class JourneyEventLog: @unchecked Sendable {
+    /// The ceiling on retained lines for one QA run.
+    static let retainedLineLimit = 2048
+
+    private struct MatchSeries: Hashable {
+        let prefixes: [String]
+
+        init(_ prefixes: [String]) {
+            self.prefixes = prefixes.sorted()
+        }
+
+        func matches(_ line: String) -> Bool {
+            prefixes.contains { line.hasPrefix($0) }
+        }
+    }
+
     private struct Waiter {
         let id: UUID
-        let prefixes: [String]
+        let series: MatchSeries
         let occurrence: Int
         let continuation: CheckedContinuation<Void, Error>
     }
 
     private let lock = NSLock()
     private var lines: [String] = []
+    private var occurrences: [MatchSeries: Int] = [:]
     private var waiters: [Waiter] = []
 
     func record(_ line: String) {
         let ready: [CheckedContinuation<Void, Error>] = lock.withLock {
             lines.append(line)
-            let satisfied = waiters.filter { $0.occurrence <= count(of: $0.prefixes) }
-            waiters.removeAll { waiter in satisfied.contains { $0.id == waiter.id } }
-            return satisfied.map(\.continuation)
+            if lines.count > Self.retainedLineLimit {
+                lines.removeFirst(lines.count - Self.retainedLineLimit)
+            }
+            for series in Array(occurrences.keys) where series.matches(line) {
+                occurrences[series, default: 0] += 1
+            }
+            var resumed: [CheckedContinuation<Void, Error>] = []
+            var pending: [Waiter] = []
+            for waiter in waiters {
+                if occurrences[waiter.series, default: 0] >= waiter.occurrence {
+                    resumed.append(waiter.continuation)
+                } else {
+                    pending.append(waiter)
+                }
+            }
+            waiters = pending
+            return resumed
         }
         ready.forEach { $0.resume() }
     }
 
     func recorded() -> [String] { lock.withLock { lines } }
 
-    private func count(of prefixes: [String]) -> Int {
-        lines.filter { line in prefixes.contains { line.hasPrefix($0) } }.count
+    private func count(of series: MatchSeries) -> Int {
+        lines.filter(series.matches).count
     }
 
     func wait(forAnyOf prefixes: [String], occurrence: Int) async throws {
         try await wait(for: prefixes, occurrence: occurrence)
     }
 
-    func wait(for prefix: String, occurrence: Int = 1) async throws {
-        try await wait(for: [prefix], occurrence: occurrence)
+    func wait(
+        for prefix: String,
+        occurrence: Int = 1,
+        onRegistered: @Sendable () -> Void = {}
+    ) async throws {
+        try await wait(
+            for: [prefix], occurrence: occurrence, onRegistered: onRegistered
+        )
     }
 
-    private func wait(for prefixes: [String], occurrence: Int) async throws {
+    private func wait(
+        for prefixes: [String],
+        occurrence: Int,
+        onRegistered: @Sendable () -> Void = {}
+    ) async throws {
         let id = UUID()
+        let series = MatchSeries(prefixes)
         try await withTaskCancellationHandler {
             try await withCheckedThrowingContinuation { continuation in
                 let satisfied: Bool = lock.withLock {
-                    if count(of: prefixes) >= occurrence { return true }
+                    let seen = occurrences[series] ?? count(of: series)
+                    occurrences[series] = seen
+                    if seen >= occurrence { return true }
                     waiters.append(Waiter(
-                        id: id, prefixes: prefixes, occurrence: occurrence,
+                        id: id, series: series, occurrence: occurrence,
                         continuation: continuation
                     ))
                     return false
                 }
-                if satisfied { continuation.resume() }
+                if satisfied {
+                    continuation.resume()
+                } else {
+                    onRegistered()
+                }
             }
         } onCancel: {
             let cancelled = lock.withLock { () -> Waiter? in
