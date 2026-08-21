@@ -13,7 +13,7 @@ private func importSession(of runtime: BirkinApplicationRuntime) -> NativeReadyS
     }
 }
 
-@Suite("Packaged application jailed import")
+@Suite("Packaged application jailed import", .serialized)
 struct BirkinApplicationImportTests {
     @MainActor
     @Test("a jailed import receipt produces a composer reference chip")

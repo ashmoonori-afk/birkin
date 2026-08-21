@@ -8,6 +8,7 @@ and identifiers at their bound.
 
 from __future__ import annotations
 
+from birkin import __version__
 from birkin.native.protocol import (
     MAX_FRAME_BYTES,
     MAX_JSON_DEPTH,
@@ -68,7 +69,7 @@ def build_vectors() -> list[tuple[str, dict[str, object]]]:
                 "ready-1",
                 {
                     "protocol_version": NATIVE_PROTOCOL_VERSION,
-                    "server_version": "0.4.242",
+                    "server_version": __version__,
                     "instance_id": "birkin-local",
                     "session_id": "session-1",
                     "transport": "uds",

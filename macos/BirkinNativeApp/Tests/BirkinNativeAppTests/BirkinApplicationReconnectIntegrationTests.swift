@@ -5,7 +5,7 @@ import Testing
 @testable import BirkinNativeApp
 import BirkinNativeProtocol
 
-@Suite("Packaged application runtime reconnect")
+@Suite("Packaged application runtime reconnect", .serialized)
 struct BirkinApplicationReconnectIntegrationTests {
     @MainActor
     @Test("UI command submission reaches the bridge and updates projection state")

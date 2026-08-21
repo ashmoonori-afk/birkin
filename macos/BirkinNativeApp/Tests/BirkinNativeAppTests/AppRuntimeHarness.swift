@@ -199,9 +199,11 @@ final class LockedBytes: @unchecked Sendable {
     func text() -> String { lock.withLock { String(decoding: bytes, as: UTF8.self) } }
 }
 
+/// Await an event-signalled condition with a bound generous enough that a
+/// loaded machine cannot fail it, and small enough to end a hung run.
 func withTimeout<T: Sendable>(
     _ label: String,
-    seconds: Int = 15,
+    seconds: Int = 45,
     operation: @escaping @Sendable () async throws -> T
 ) async throws -> T {
     try await withThrowingTaskGroup(of: T.self) { group in

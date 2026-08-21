@@ -30,7 +30,7 @@ struct NativeEnvelopeVectorTests {
         #expect(envelope.kind == .ready)
         #expect(envelope.id == "ready-1")
         #expect(envelope.inReplyTo == "hello-1")
-        #expect(envelope.body["server_version"] == .string("0.4.242"))
+        #expect(envelope.body["server_version"] == .string(BirkinVersion.package))
         #expect(envelope.body["instance_id"] == .string("birkin-local"))
         #expect(envelope.body["transport"] == .string("uds"))
         #expect(

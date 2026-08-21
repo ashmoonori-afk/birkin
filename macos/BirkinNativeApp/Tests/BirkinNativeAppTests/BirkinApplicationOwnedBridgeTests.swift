@@ -5,7 +5,7 @@ import Testing
 @testable import BirkinNativeApp
 import BirkinNativeProtocol
 
-@Suite("Packaged application owned bridge")
+@Suite("Packaged application owned bridge", .serialized)
 struct BirkinApplicationOwnedBridgeTests {
     private static func configuration(root: URL) -> OwnedBridgeConfiguration {
         OwnedBridgeConfiguration(
@@ -23,7 +23,7 @@ struct BirkinApplicationOwnedBridgeTests {
     @Test("the application starts, uses, restarts, and stops its own bridge")
     func ownsItsBridgeLifecycle() async throws {
         // A Unix socket path is platform bounded, so this root stays short.
-        let root = URL(fileURLWithPath: "/private/tmp/bk-owned-\(Int.random(in: 1000...9999))")
+        let root = URL(fileURLWithPath: "/private/tmp/bk-owned-\(UUID().uuidString)")
         let events = RuntimeEventRecorder()
         let runtime = BirkinApplicationRuntime(
             socketPath: nil,
@@ -66,7 +66,7 @@ struct BirkinApplicationOwnedBridgeTests {
     @MainActor
     @Test("an externally provided endpoint is used without starting a bridge")
     func externalEndpointIsNeverOwned() async throws {
-        let root = URL(fileURLWithPath: "/private/tmp/bk-external-\(Int.random(in: 1000...9999))")
+        let root = URL(fileURLWithPath: "/private/tmp/bk-external-\(UUID().uuidString)")
         let harness = try AppHarness.launch(root: root)
         let socketPath = try #require(harness.socketPath)
         let events = RuntimeEventRecorder()

@@ -15,6 +15,7 @@ from dataclasses import replace
 from pathlib import Path
 
 from birkin import goals
+from birkin import __version__
 from birkin.native.messages import NativeMessageFactory
 from birkin.native.projection import public_native_mapping, public_workspace_event
 from birkin.native.protocol import NativeEnvelope, decode_frame, encode_frame
@@ -157,7 +158,7 @@ def render_fixture() -> str:
     ]
     factory = NativeMessageFactory(
         instance_id="instance-1",
-        server_version="0.4.242",
+        server_version=__version__,
         command_types=frozenset(),
         session_presets=SESSION_PRESETS,
     )

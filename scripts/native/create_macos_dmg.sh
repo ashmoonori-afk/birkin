@@ -4,7 +4,13 @@ set -euo pipefail
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 output_root="${1:-$repo_root/.omo/evidence/native-shell/phase13/dist}"
 app="$output_root/Birkin.app"
-dmg="$output_root/Birkin-0.4.242.dmg"
+# The package manifest is the single source of the shipped version.
+version="$(awk -F'"' '/^version = /{print $2; exit}' "$repo_root/pyproject.toml")"
+if [[ -z "$version" ]]; then
+  echo "could not read the project version from pyproject.toml" >&2
+  exit 1
+fi
+dmg="$output_root/Birkin-$version.dmg"
 manifest="$repo_root/.omo/evidence/native-shell/phase13/artifact-manifest.sha256"
 build_manifest="$repo_root/.omo/evidence/native-shell/phase13/build-manifest.txt"
 

@@ -13,7 +13,7 @@ private func readySession(of runtime: BirkinApplicationRuntime) -> NativeReadySe
     }
 }
 
-@Suite("Packaged application terminal lease")
+@Suite("Packaged application terminal lease", .serialized)
 struct BirkinApplicationTerminalLeaseTests {
     @MainActor
     @Test("the create receipt installs an ephemeral lease that drives mutation")
