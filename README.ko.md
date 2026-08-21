@@ -582,6 +582,7 @@ snapshot을 복사할 수 있습니다.
 | `birkin model` / `birkin models` | Model 확인 또는 선택. |
 | `birkin skills` | Skill 목록·조회·sync·validate·관리. |
 | `birkin plugins` | 권한 확인, 정확한 signed bundle version 설치, pin resolution. |
+| `birkin plugins effects` | Plugin tool effect를 조회하거나 bundle digest에 묶인 inspect grant를 관리. |
 | `birkin daemon` | Morpheus + cron scheduler 실행 또는 설치. |
 | `birkin morpheus [--dry-run]` | 예약 자기개선 routine 즉시 실행. |
 | `birkin harness` | 개선 ledger 조회·refine·export·rollback. |
@@ -647,6 +648,58 @@ Project pin은 `.birkin/registry/registry.lock`, team pin은
 conflict가 됩니다. 기존 pin은 `--upgrade`로만 변경됩니다. Skill entry point는
 기존 `SkillManager`에, agent entry point가 반환한 `Tool`은 기존 native tool
 registry에 연결됩니다.
+
+## Plugin tool effects
+
+모든 plugin tool에는 plugin 이름, version, bundle digest로 구성된 검증된
+origin이 붙습니다. Native tool과 이름이 충돌하면 native handler가 계속 활성
+상태로 남습니다. 따라서 `read_file`을 export하는 plugin은 native handler를
+대체하지 못하고 native의 `inspect`/parallel posture도 물려받지 못합니다.
+일치하는 검토 grant가 없는 설치된 plugin tool은 `change` + `serial`로 실행됩니다.
+
+설치된 inventory는 다음 명령으로 확인합니다.
+
+```bash
+birkin plugins effects list
+birkin plugins effects list --json
+```
+
+`list`가 기본 action이므로 `birkin plugins effects`만 실행해도 같은 결과가
+나옵니다. 각 행에는 effect, schedule, 판단 근거가 표시됩니다.
+
+```text
+plugin-agent@1.0.0/plugin_echo  change  serial  default:no-grant
+summary  inspect=0  change=1  stale=0
+```
+
+Attestation 파일이 없어도 정상입니다. 모든 plugin tool은 검토되지 않은 것으로
+처리되고, `list`는 0으로 종료하며 파일을 새로 만들지 않습니다.
+
+정확히 설치된 tool identity의 상태는 다음 명령으로 관리합니다.
+
+```bash
+birkin plugins effects set plugin-agent plugin_echo inspect \
+  --reason "reviewed handler; no writes" --parallel-safe
+birkin plugins effects set plugin-agent plugin_echo change
+birkin plugins effects prune
+birkin plugins effects reset --yes
+```
+
+`inspect`에는 검토 이유를 지정해야 합니다. `--parallel-safe`는 별도
+opt-in이므로 생략하면 inspect tool도 serial로 유지됩니다. `change`로 설정하면
+일치하는 inspect grant가 삭제됩니다. Grant는 plugin, version, bundle digest,
+tool 네 필드에 모두 묶입니다. Bundle의 바이트가 하나라도 바뀌면 digest가 달라져
+이전 grant는 stale이 되고, 설치된 tool은 `change` + `serial`로 돌아갑니다.
+`prune`은 stale grant를 삭제합니다.
+
+Attestation 파일은 `%BIRKIN_HOME%/tool-effects.json`에 있으며 기본 경로는
+`~/.birkin/tool-effects.json`입니다. 파일을 파싱할 수 없으면 `list`는 구문
+오류를 구체적으로 표시하고 grant를 하나도 적용하지 않으며, 모든 plugin tool을
+`change` + `serial`로 표시한 뒤 1로 종료합니다. `set`과 `prune`도 1로 종료하며
+파싱하지 못한 바이트를 덮어쓰지 않습니다. `reset`에는 `--yes`가 필요하고,
+생략하면 기존 바이트는 바뀌지 않습니다. 파일이 있으면 `reset --yes`는 교체 전에
+이전 바이트를 `tool-effects.json.previous`로 복사한 뒤 비어 있는 유효한 파일을
+기록합니다.
 
 ## Future Roadmap: 네이티브 control shell
 
