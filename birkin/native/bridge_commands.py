@@ -131,16 +131,20 @@ class NativeCommandCoordinator:
             if self._cleanup_pending or lane in self._active:
                 return False
             self._active[lane] = execution
-        threading.Thread(
-            target=self._run,
-            args=(execution, message, lane),
-            name=(
-                "birkin-native-command"
-                if lane == _NORMAL_LANE
-                else f"birkin-native-command-{lane.replace('.', '-')}"
-            ),
-            daemon=True,
-        ).start()
+        try:
+            threading.Thread(
+                target=self._run,
+                args=(execution, message, lane),
+                name=(
+                    "birkin-native-command"
+                    if lane == _NORMAL_LANE
+                    else f"birkin-native-command-{lane.replace('.', '-')}"
+                ),
+                daemon=True,
+            ).start()
+        except BaseException:
+            self._finish(execution, lane)
+            raise
         return True
 
     def disconnect(self) -> None:
@@ -164,10 +168,11 @@ class NativeCommandCoordinator:
         message: NativeEnvelope,
         lane: str,
     ) -> None:
-        suspended = lane == _NORMAL_LANE
-        if suspended:
-            execution.stream.suspend()
+        suspended = False
         try:
+            if lane == _NORMAL_LANE:
+                execution.stream.suspend()
+                suspended = True
             self._executor.execute(
                 execution.connection,
                 execution.state,
@@ -177,12 +182,21 @@ class NativeCommandCoordinator:
         except (NativeProtocolError, OSError):
             execution.connection.interrupt()
         finally:
-            if suspended:
-                execution.stream.resume()
-            with self._lock:
-                if self._active.get(lane) is execution:
-                    del self._active[lane]
-                if self._cleanup_pending and not self._active:
-                    self._cleanup_pending = False
-                    if self._cleanup is not None:
-                        self._cleanup()
+            try:
+                if suspended:
+                    execution.stream.resume()
+            finally:
+                self._finish(execution, lane)
+
+    def _finish(
+        self,
+        execution: NativeCommandExecution,
+        lane: str,
+    ) -> None:
+        with self._lock:
+            if self._active.get(lane) is execution:
+                del self._active[lane]
+            if self._cleanup_pending and not self._active:
+                self._cleanup_pending = False
+                if self._cleanup is not None:
+                    self._cleanup()
