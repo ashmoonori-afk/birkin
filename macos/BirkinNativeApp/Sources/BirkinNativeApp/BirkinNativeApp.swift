@@ -248,6 +248,9 @@ public final class BirkinApplicationRuntime: ObservableObject {
         }
     }
 
+    /// Emit one scripted-QA line on the same channel the shell uses.
+    func emitJourney(_ message: String) { emit(message) }
+
     public func showDiagnostics() {
         emit("diagnostics state=\(String(describing: connectionState))")
     }
@@ -313,7 +316,13 @@ public final class BirkinApplicationRuntime: ObservableObject {
                 commandType: "office.create",
                 payload: [
                     "format": .string("docx"),
-                    "content": .object(["title": .string("Birkin document"), "paragraphs": .array([])]),
+                    // The canonical document service accepts only the keys its
+                    // adapter declares; a title key is refused for docx.
+                    "content": .object([
+                        "paragraphs": .array([
+                            .string("Created from the Birkin macOS shell."),
+                        ]),
+                    ]),
                     "output_name": .string("birkin-document.docx"),
                 ],
                 session: session, viewID: "office"
@@ -480,7 +489,12 @@ public final class BirkinApplicationRuntime: ObservableObject {
     @discardableResult
     private func renderConfiguredEvidence(session: NativeReadySession) throws -> Bool {
         guard let screenshotPath else { return false }
-        let url = URL(fileURLWithPath: screenshotPath)
+        return try renderEvidence(to: URL(fileURLWithPath: screenshotPath), session: session)
+    }
+
+    /// Render the live shell to an explicit destination.
+    @discardableResult
+    func renderEvidence(to url: URL, session: NativeReadySession) throws -> Bool {
         let view = NativeShellView(
             store: store,
             connectionState: .ready(session),
@@ -558,14 +572,37 @@ private enum BirkinApplicationRuntimeError: Error {
     case bridgeClosed
 }
 
-/// Terminates the app-owned bridge when macOS quits the application.
+/// The application's single runtime and its optional scripted QA journey.
+///
+/// Both the delegate and the window read this, so the journey never depends on
+/// a window being presented.
+@MainActor
+enum BirkinApplicationHost {
+    static let journey = PackagedJourneyConfiguration.discovered()
+    static let journeyEvents = JourneyEventLog()
+    static let runtime = BirkinApplicationRuntime(emit: { message in
+        BirkinApplicationRuntime.standardEvent(message)
+        Task { @MainActor in journeyEvents.record(message) }
+    })
+}
+
+/// Runs the app-owned bridge lifecycle across the real application lifecycle.
 @MainActor
 private final class BirkinApplicationDelegate: NSObject, NSApplicationDelegate {
-    static let shared = BirkinApplicationDelegate()
-    var runtime: BirkinApplicationRuntime?
+    func applicationDidFinishLaunching(_ notification: Notification) {
+        guard let journey = BirkinApplicationHost.journey else { return }
+        Task { @MainActor in
+            await BirkinApplicationHost.runtime.start()
+            await PackagedJourneyRunner(
+                configuration: journey,
+                runtime: BirkinApplicationHost.runtime,
+                events: BirkinApplicationHost.journeyEvents
+            ).run()
+        }
+    }
 
     func applicationWillTerminate(_ notification: Notification) {
-        runtime?.stop()
+        BirkinApplicationHost.runtime.stop()
     }
 
     func applicationShouldTerminateAfterLastWindowClosed(
@@ -576,7 +613,7 @@ private final class BirkinApplicationDelegate: NSObject, NSApplicationDelegate {
 }
 
 private struct BirkinRootView: View {
-    @StateObject private var runtime = BirkinApplicationRuntime()
+    @ObservedObject private var runtime = BirkinApplicationHost.runtime
 
     var body: some View {
         NativeShellView(
@@ -592,7 +629,7 @@ private struct BirkinRootView: View {
         )
         .frame(minWidth: 960, minHeight: 640)
             .task {
-                BirkinApplicationDelegate.shared.runtime = runtime
+                guard BirkinApplicationHost.journey == nil else { return }
                 await runtime.start()
             }
     }
