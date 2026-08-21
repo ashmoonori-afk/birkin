@@ -362,6 +362,12 @@ def _cmd_native_bridge(args: argparse.Namespace) -> int:
     ))
 
 
+def _cmd_native_provider_probe(args: argparse.Namespace) -> int:
+    from .native.provider_probe import emit_probe
+
+    return emit_probe(provider=args.provider, model=args.model, output=args.output)
+
+
 def _cmd_setup(args: argparse.Namespace) -> int:
     from .onboarding import run
     return run()
@@ -1353,6 +1359,14 @@ def build_parser() -> argparse.ArgumentParser:
         help="bridge state directory (default: $BIRKIN_HOME/native-bridge)",
     )
     nb_serve.set_defaults(func=_cmd_native_bridge)
+    nb_probe = nb_sub.add_parser(
+        "provider-probe",
+        help="run one existing-account provider completion for release evidence",
+    )
+    nb_probe.add_argument("--provider", default="codex-cli", choices=("codex-cli",))
+    nb_probe.add_argument("--model", default="default")
+    nb_probe.add_argument("--output", type=Path)
+    nb_probe.set_defaults(func=_cmd_native_provider_probe)
 
     sub.add_parser("setup", help="guided onboarding wizard").set_defaults(func=_cmd_setup)
     sub.add_parser("onboard", help="alias for setup (first-run wizard)").set_defaults(func=_cmd_setup)

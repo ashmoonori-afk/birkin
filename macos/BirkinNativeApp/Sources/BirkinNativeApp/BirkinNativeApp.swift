@@ -122,7 +122,9 @@ public final class BirkinApplicationRuntime: ObservableObject {
             emit("bridge-launch-failed reason=\(supervisor.state)")
             return
         }
-        emit("bridge-started kind=owned")
+        if case .runningOwned(let pid) = supervisor.state {
+            emit("bridge-started kind=owned pid=\(pid) executable=\(ownedBridge.executable)")
+        }
     }
 
     private func ownedBridgeExited(pid: Int32, status: Int32) {

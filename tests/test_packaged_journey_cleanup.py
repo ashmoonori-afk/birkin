@@ -47,8 +47,23 @@ def test_forced_failure_and_signal_cleanup_every_resource(
     assert report["app_running"] == "no"
     assert report["browser_running"] == "no"
     assert report["bridge_processes"] == "0"
+    assert report["bridge_overrides"] == "absent"
     assert report["socket_exists"] == "no"
     assert not Path(report["root"]).exists()
     browser_pid = int(report["browser_pid"])
     with pytest.raises(ProcessLookupError):
         os.kill(browser_pid, 0)
+
+
+def test_journey_uses_only_the_packaged_bridge_helper() -> None:
+    script = SCRIPT.read_text(encoding="utf-8")
+
+    assert ".venv" not in script
+    for variable in (
+        "BIRKIN_NATIVE_BRIDGE_COMMAND",
+        "BIRKIN_NATIVE_BRIDGE_ARGUMENTS",
+        "BIRKIN_NATIVE_BRIDGE_OPTIONS",
+    ):
+        assert f"export {variable}" not in script
+        assert f"unset {variable}" in script
+    assert "native-bridge provider-probe" in script

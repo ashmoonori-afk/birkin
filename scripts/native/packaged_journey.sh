@@ -5,6 +5,15 @@ set -euo pipefail
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 evidence="${1:-$repo_root/.omo/evidence/native-shell/phase16}"
 dist="${2:-$evidence/dist}"
+case "$(uname -m)" in
+  arm64) helper_architecture=arm64 ;;
+  x86_64) helper_architecture=x86_64 ;;
+  *) echo "unsupported packaged journey architecture" >&2; exit 2 ;;
+esac
+bridge_helper="$dist/Birkin.app/Contents/Helpers/$helper_architecture/birkin-native-bridge"
+unset BIRKIN_NATIVE_BRIDGE_COMMAND
+unset BIRKIN_NATIVE_BRIDGE_ARGUMENTS
+unset BIRKIN_NATIVE_BRIDGE_OPTIONS
 # A Unix socket path is platform bounded, so the runtime root stays short.
 root="$(mktemp -d /private/tmp/bk-journey-XXXXXX)"
 browser_pid=""
@@ -12,7 +21,7 @@ browser_started_pid="0"
 app_pid=""
 app_started_pid="0"
 cleanup_started=0
-bridge_pattern="native-bridge serve --transport uds --root $root/bridge"
+bridge_pattern="$bridge_helper native-bridge serve --transport uds"
 
 stop_app() {
   if [[ -n "$app_pid" ]] && kill -0 "$app_pid" 2>/dev/null; then
@@ -68,7 +77,8 @@ cleanup() {
     echo "browser_pid=$browser_started_pid"
     echo "browser_running=$browser_running"
     echo "bridge_processes=$bridge_processes"
-    echo "socket_exists=$([[ -e "$root/bridge/bridge.sock" ]] && echo yes || echo no)"
+    echo "bridge_overrides=absent"
+    echo "socket_exists=$([[ -e "$root/home/native-bridge/bridge.sock" ]] && echo yes || echo no)"
     echo "exit_status=$status"
   } > "$evidence/packaged-journey-cleanup.txt"
   exit "$status"
@@ -78,12 +88,12 @@ trap 'exit 129' HUP
 trap 'exit 130' INT
 trap 'exit 143' TERM
 
-mkdir -p "$evidence" "$root/home" "$root/bridge"
+mkdir -p "$evidence" "$root/home" "$root/workspace"
 printf '{"provider":"codex-cli","model":"default","auto_approve":[],"self_improve":false,"checkpoints":false}' > "$root/home/config.json"
 
 browser_ready="$root/browser-ready"
 mkfifo "$browser_ready"
-"$repo_root/.venv/bin/python3" -u - > "$browser_ready" <<'PY' &
+/usr/bin/python3 -u - > "$browser_ready" <<'PY' &
 import http.server
 
 class Handler(http.server.BaseHTTPRequestHandler):
@@ -120,22 +130,33 @@ case "${BIRKIN_NATIVE_JOURNEY_FORCE_FAILURE:-}" in
   *) echo "unknown forced failure mode" >&2; exit 96 ;;
 esac
 
+[[ -x "$bridge_helper" ]] || {
+  echo "packaged bridge helper is missing: $bridge_helper" >&2
+  exit 1
+}
 export BIRKIN_HOME="$root/home"
-export BIRKIN_NATIVE_BRIDGE_COMMAND="$repo_root/.venv/bin/python3"
-export BIRKIN_NATIVE_BRIDGE_ARGUMENTS="-m birkin"
-export BIRKIN_NATIVE_BRIDGE_OPTIONS="--root $root/bridge --session-id packaged-journey"
 export BIRKIN_NATIVE_JOURNEY=1
 export BIRKIN_NATIVE_JOURNEY_EVIDENCE="$evidence"
-export BIRKIN_NATIVE_JOURNEY_WORKSPACE="$root/bridge"
+export BIRKIN_NATIVE_JOURNEY_WORKSPACE="$root/workspace"
 export BIRKIN_NATIVE_JOURNEY_BROWSER_URL="$browser_url"
 export BIRKIN_NATIVE_SCREENSHOT="$evidence/packaged-journey-shell.png"
 export BIRKIN_BROWSER_INTEGRATION=1
 export BIRKIN_BROWSER_PRIVATE_NETWORK_RULES="[{\"host\":\"127.0.0.1\",\"cidr\":\"127.0.0.1/32\",\"port\":$browser_port}]"
 unset BIRKIN_NATIVE_SOCKET
 
+(
+  cd "$root/workspace"
+  "$bridge_helper" native-bridge provider-probe \
+    --provider codex-cli --model default \
+    --output "$evidence/provider-probe.json"
+) > "$evidence/provider-probe.log" 2>&1
+
+launch_cwd="$PWD"
+cd "$root/workspace"
 "$dist/Birkin.app/Contents/MacOS/BirkinNativeApp" \
   > "$evidence/packaged-journey-events.log" 2>&1 &
 app_pid=$!
+cd "$launch_cwd"
 app_started_pid="$app_pid"
 set +e
 wait "$app_pid"
@@ -144,67 +165,10 @@ set -e
 app_pid=""
 stop_browser_fixture
 
-"$repo_root/.venv/bin/python3" - "$evidence" <<'VERIFY'
-import hashlib, json, sys
-from pathlib import Path
-
-evidence = Path(sys.argv[1])
-receipts = json.loads((evidence / "packaged-journey-receipts.json").read_text())
-required = {
-    "connected", "session-create", "chat-send-stream",
-    "terminal-approval-requested", "terminal-approval-approved",
-    "terminal-create-lease", "terminal-input-output", "activity-receipts",
-    "terminal-replay-refusal", "browser-start-live",
-    "browser-navigate-live",
-    "office-create-live", "office-open-live", "computer-use-status",
-    "jailed-import-chip", "owned-bridge-restart-replay", "post-reconnect-command",
-}
-names = {step["name"] for step in receipts["steps"]}
-missing = required - names
-if missing:
-    raise SystemExit(f"missing journey steps: {sorted(missing)}")
-failed = [step["name"] for step in receipts["steps"] if not step["succeeded"]]
-if failed:
-    raise SystemExit(f"failed journey steps: {failed}")
-steps = {step["name"]: step for step in receipts["steps"]}
-provider_marker = "provider_completion=PACKAGED_PROVIDER_COMPLETION_OK"
-if provider_marker not in steps["chat-send-stream"]["detail"]:
-    raise SystemExit("chat step has no successful provider completion")
-encoded_receipts = json.dumps(receipts, sort_keys=True).lower()
-for forbidden in (
-    "401 unauthorized", "refresh_token_reused", "codex produced no message",
-    "the native packaged app is connected to python authority",
-):
-    if forbidden in encoded_receipts:
-        raise SystemExit(f"non-provider chat evidence survived: {forbidden}")
-if not any(name in names for name in ("working-memory-clear", "working-memory-gated")):
-    raise SystemExit("no Working Memory step was recorded")
-digests = {}
-critical_names = {"chat-send-stream", "terminal-input-output", "jailed-import-chip"}
-critical_digests = {}
-for step in receipts["steps"]:
-    shot = step["screenshot"]
-    if not shot:
-        if step["name"] in critical_names:
-            raise SystemExit(f"critical step has no screenshot: {step['name']}")
-        continue
-    data = (evidence / shot).read_bytes()
-    if len(data) < 4000:
-        raise SystemExit(f"{shot} is not a contentful screenshot")
-    digest = hashlib.sha256(data).hexdigest()
-    digests.setdefault(digest, []).append(shot)
-    if step["name"] in critical_names:
-        critical_digests[step["name"]] = digest
-if set(critical_digests) != critical_names:
-    raise SystemExit(f"missing critical screenshot digests: {critical_digests}")
-if len(set(critical_digests.values())) != len(critical_names):
-    raise SystemExit(f"critical screenshots are not distinct: {critical_digests}")
-if len(digests) < 3:
-    raise SystemExit(f"journey screenshots are not distinct: {digests}")
-print(f"journey_steps={len(receipts['steps'])} screenshots={sum(len(v) for v in digests.values())} distinct_screenshots={len(digests)}")
-VERIFY
+/usr/bin/python3 "$repo_root/scripts/native/verify_packaged_journey.py" \
+  "$evidence" "$bridge_helper" "$root/workspace"
 
 echo "journey_exit=$status"
-echo "bridge_processes=$(pgrep -f "native-bridge serve --transport uds --root $root/bridge" | wc -l | tr -d ' ')"
-echo "socket_exists=$([[ -e "$root/bridge/bridge.sock" ]] && echo yes || echo no)"
+echo "bridge_processes=$(pgrep -f "$bridge_pattern" | wc -l | tr -d ' ')"
+echo "socket_exists=$([[ -e "$root/home/native-bridge/bridge.sock" ]] && echo yes || echo no)"
 exit "$status"
