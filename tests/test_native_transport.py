@@ -17,7 +17,11 @@ from birkin.native.protocol import (
     NativeProtocolError,
     encode_frame,
 )
-from birkin.native.transport import NativeListener, receive_frame
+from birkin.native.transport import (
+    NativeConnection,
+    NativeListener,
+    receive_frame,
+)
 
 _HAS_POSIX_PEER_UID = hasattr(os, "geteuid")
 _TEMP_ROOT = str(Path(gettempdir()).resolve())
@@ -116,6 +120,31 @@ def test_transport_accepts_exact_maximum_frame() -> None:
     finally:
         server.close()
         client.close()
+
+
+def test_a_peer_that_stops_reading_cannot_wedge_a_send() -> None:
+    """Given a peer that never reads, When the socket buffers fill, Then the
+    send fails on its deadline instead of holding the send gate forever."""
+    writer, silent_peer = socket.socketpair()
+    writer.setsockopt(socket.SOL_SOCKET, socket.SO_SNDBUF, 4096)
+    silent_peer.setsockopt(socket.SOL_SOCKET, socket.SO_RCVBUF, 4096)
+    connection = NativeConnection(writer, None, send_timeout=0.25)
+    frame = NativeEnvelope.parse({
+        "protocol": "birkin-local-1",
+        "protocol_version": 1,
+        "kind": "event",
+        "id": "wedge-1",
+        "in_reply_to": None,
+        "body": {"text": "x" * 200_000},
+    })
+    try:
+        with pytest.raises(NativeProtocolError) as wedged:
+            for _ in range(50):
+                connection.send(frame)
+        assert wedged.value.code == "E_SEND_TIMEOUT"
+    finally:
+        connection.close()
+        silent_peer.close()
 
 
 def test_uds_listener_rejects_overlong_socket_path(tmp_path: Path) -> None:
