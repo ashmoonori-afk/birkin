@@ -105,12 +105,14 @@ public enum ShellKeyboardJourney: Sendable {
 
 public enum ShellKeyboardModel {
     public static let focusOrder = [
+        "command-palette.open", "command-palette.search", "command-palette.results",
         "sessions.new", "composer.draft", "composer.send", "conversation.stream",
         "terminal.new", "terminal.input", "terminal.run", "terminal.output",
         "approvals.approve", "activity.receipt",
     ]
 
     public static let commands = [
+        ShellKeyboardCommand(shortcut: "cmd+k", action: "command-palette.open"),
         ShellKeyboardCommand(shortcut: "cmd+n", action: "sessions.new"),
         ShellKeyboardCommand(shortcut: "cmd+return", action: "composer.send"),
         ShellKeyboardCommand(shortcut: "cmd+.", action: "terminal.interrupt"),
@@ -171,6 +173,9 @@ public enum ShellAccessibilityInventory {
     public static let nodes: [ShellAccessibilityNode] = [
         node("connection.status", "chrome", .status, "Connection status", value: "Connection state and transport", priority: 1000),
         node("connection.diagnostics", "chrome", .button, "Show connection diagnostics", actions: ["press"], priority: 990),
+        node("command-palette.open", "chrome", .button, "Open command palette", actions: ["press"], priority: 980),
+        node("command-palette.search", "command-palette", .textField, "Command palette search", actions: ["edit"], priority: 970),
+        node("command-palette.results", "command-palette", .landmark, "Advertised commands", priority: 960),
         node("navigation.column", "navigation", .landmark, "Navigation column", priority: 900),
         node("navigation.sessions", "sessions", .landmark, "Sessions", priority: 890),
         node("sessions.new", "sessions", .button, "New session", actions: ["press"], priority: 880),
@@ -203,9 +208,6 @@ public enum ShellAccessibilityInventory {
         node("activity.hide-read", "activity", .toggle, "Hide read activity", value: "On or off", actions: ["toggle"], priority: 440),
         node("activity.receipt", "activity", .button, "Activity receipt", actions: ["press"], priority: 430),
         node("browser.landmark", "browser", .landmark, "Browser Aside private workspace", priority: 420),
-        node("browser.back", "browser", .button, "Browser back", actions: ["press"], priority: 410),
-        node("browser.forward", "browser", .button, "Browser forward", actions: ["press"], priority: 400),
-        node("browser.reload", "browser", .button, "Reload browser", actions: ["press"], priority: 390),
         node("browser.navigate", "browser", .button, "Navigate browser", actions: ["press"], priority: 380),
         node("computer-use.landmark", "computer-use", .landmark, "Computer Use consent", priority: 370),
         node("computer-use.approve", "computer-use", .button, "Approve Computer Use once", actions: ["press"], priority: 360),

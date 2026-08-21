@@ -21,7 +21,7 @@ struct AccessibilityAuditTests {
         #expect(landmarks == [
             "navigation", "sessions", "working-memory", "primary", "conversation",
             "terminal", "context", "approvals", "activity", "browser",
-            "computer-use", "office",
+            "computer-use", "office", "command-palette",
         ])
     }
 }

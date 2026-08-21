@@ -33,7 +33,7 @@ struct KeyboardJourneyTests {
         let inventoryIDs = Set(ShellAccessibilityInventory.nodes.map(\.id))
         #expect(ShellKeyboardModel.focusOrder.allSatisfy(inventoryIDs.contains))
         #expect(Set(ShellKeyboardModel.commands.map(\.shortcut)) == [
-            "cmd+n", "cmd+return", "cmd+.", "cmd+shift+a", "escape",
+            "cmd+k", "cmd+n", "cmd+return", "cmd+.", "cmd+shift+a", "escape",
             "cmd+1", "cmd+2", "cmd+3",
         ])
         #expect(Set(ShellKeyboardModel.commands.map(\.action)).count == ShellKeyboardModel.commands.count)

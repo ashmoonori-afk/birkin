@@ -15,6 +15,7 @@ public struct NativeShellView: View {
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
     @Environment(\.shellVisualSettings) private var visualSettings
     @State private var selectedColumn: ShellColumnID
+    @State private var showsCommandPalette = false
     @StateObject private var templateLauncher: TemplateLauncherModel
     @StateObject private var conversationComposer: ConversationComposerModel
     @StateObject private var jailedDrop: JailedDropModel
@@ -61,10 +62,20 @@ public struct NativeShellView: View {
         let structure = ShellStructure(store: store)
         let availability = MutationAvailability(state: connectionState, now: now)
         VStack(spacing: 0) {
-            ConnectionStatusPill(
-                presentation: ConnectionPresentation(state: connectionState),
-                diagnosticsAction: diagnosticsAction
-            )
+            HStack {
+                ConnectionStatusPill(
+                    presentation: ConnectionPresentation(state: connectionState),
+                    diagnosticsAction: diagnosticsAction
+                )
+                Spacer()
+                Button {
+                    showsCommandPalette = true
+                } label: {
+                    Label("Commands", systemImage: "command")
+                }
+                .keyboardShortcut("k", modifiers: .command)
+                .accessibilityLabel("Open command palette")
+            }
             .padding(12)
             if let commandError {
                 Text(commandError)
@@ -92,6 +103,14 @@ public struct NativeShellView: View {
         .contrast(visualSettings.increasedContrast ? 1.25 : 1)
         .transaction { transaction in
             if visualSettings.reduceMotion { transaction.disablesAnimations = true }
+        }
+        .sheet(isPresented: $showsCommandPalette) {
+            CommandPaletteView(model: CommandPaletteModel(
+                advertisedCommands: Self.readySession(in: connectionState)?
+                    .supportedCommands ?? []
+            )) { item in
+                selectPaletteCommand(item.commandType)
+            }
         }
     }
 
@@ -316,6 +335,14 @@ public struct NativeShellView: View {
         .font(.subheadline)
         .foregroundStyle(.secondary)
         .fixedSize(horizontal: false, vertical: true)
+    }
+
+    private func selectPaletteCommand(_ commandType: String) {
+        switch commandType.split(separator: ".").first {
+        case "session", "memory": selectedColumn = .navigation
+        case "chat", "terminal", "file": selectedColumn = .primary
+        default: selectedColumn = .context
+        }
     }
 
     private func mutationControl(for section: ShellSectionID) -> ShellMutationControl? {
