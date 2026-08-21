@@ -36,6 +36,8 @@ class NativeBridgeStream:
         self._active = threading.Event()
         self._send_gate = threading.RLock()
         self._delivery_suspended = threading.Event()
+        self._suspension_lock = threading.Lock()
+        self._suspensions = 0
         self._stopped = threading.Event()
         self._pong = threading.Event()
         self._failure: BaseException | None = None
@@ -85,12 +87,17 @@ class NativeBridgeStream:
         drained batch can never overtake a snapshot or a command receipt.
         Heartbeats remain live while synchronous command work owns the gate.
         """
-        self._delivery_suspended.set()
+        with self._suspension_lock:
+            self._suspensions += 1
+            self._delivery_suspended.set()
         _ = self._send_gate.acquire()
 
     def resume(self) -> None:
-        self._delivery_suspended.clear()
         self._send_gate.release()
+        with self._suspension_lock:
+            self._suspensions -= 1
+            if self._suspensions == 0:
+                self._delivery_suspended.clear()
 
     def stop(self) -> None:
         self._stopped.set()
@@ -108,22 +115,21 @@ class NativeBridgeStream:
                     timeout=self._heartbeat_interval
                 )
                 if not acquired:
-                    if self._delivery_suspended.is_set():
-                        self._send_heartbeat()
-                    continue
-                try:
-                    if self._stopped.is_set():
-                        return
-                    events = self._queue.drain()
-                    if events:
-                        self._send_events(events)
+                    if not self._delivery_suspended.is_set():
                         continue
                     self._send_heartbeat()
-                finally:
-                    self._send_gate.release()
+                else:
+                    try:
+                        if self._stopped.is_set():
+                            return
+                        events = self._queue.drain()
+                        if events:
+                            self._send_events(events)
+                            continue
+                        self._send_heartbeat()
+                    finally:
+                        self._send_gate.release()
                 if not self._pong.wait(self._peer_timeout):
-                    if self._delivery_suspended.is_set():
-                        continue
                     self._connection.interrupt()
                     return
         except BaseException as exc:

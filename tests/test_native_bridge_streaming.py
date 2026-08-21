@@ -71,7 +71,7 @@ def test_blocked_command_keeps_heartbeat_live_until_ordered_receipt(
 
     def blocked_chat(payload: dict[str, object]) -> dict[str, object]:
         entered.set()
-        if not release.wait(timeout=2):
+        if not release.wait(timeout=10):
             raise AssertionError("test did not release blocked command")
         return {"reply": str(payload["text"])}
 
@@ -85,7 +85,7 @@ def test_blocked_command_keeps_heartbeat_live_until_ordered_receipt(
         capabilities=BootstrapSecretStore(tmp_path / "native"),
         instance_id="instance-1",
         server_version="1.0.0",
-        heartbeat_interval=0.05,
+        heartbeat_interval=0.005,
         peer_timeout=0.5,
     )
     server_socket, client = socket.socketpair()
@@ -110,18 +110,19 @@ def test_blocked_command_keeps_heartbeat_live_until_ordered_receipt(
         )))
         assert entered.wait(timeout=1)
 
-        ping = receive_frame(client)
-        assert ping.kind == "ping"
-        pong_body: dict[str, object] = {
-            key: value for key, value in ping.body.items()
-        }
-        pong_body["session_capability"] = token
-        client.sendall(encode_frame(envelope(
-            "pong",
-            frame_id="blocked-command-pong",
-            in_reply_to=ping.id,
-            body=pong_body,
-        )))
+        for index in range(70):
+            ping = receive_frame(client)
+            assert ping.kind == "ping", ping.body
+            pong_body: dict[str, object] = {
+                key: value for key, value in ping.body.items()
+            }
+            pong_body["session_capability"] = token
+            client.sendall(encode_frame(envelope(
+                "pong",
+                frame_id=f"blocked-command-pong-{index}",
+                in_reply_to=ping.id,
+                body=pong_body,
+            )))
         release.set()
 
         command_frames: list[NativeEnvelope] = []
@@ -151,6 +152,63 @@ def test_blocked_command_keeps_heartbeat_live_until_ordered_receipt(
         assert command_frames[0].kind == "receipt"
         assert command_frames[0].in_reply_to == "blocked-command-frame"
         assert command_frames[-1].body["command_id"] == "blocked-command"
+    finally:
+        release.set()
+        client.close()
+        thread.join(timeout=2)
+    assert errors == []
+
+
+def test_peer_loss_terminates_connection_while_command_is_blocked(
+    tmp_path: Path,
+) -> None:
+    entered = threading.Event()
+    release = threading.Event()
+
+    def blocked_chat(payload: dict[str, object]) -> dict[str, object]:
+        entered.set()
+        if not release.wait(timeout=2):
+            raise AssertionError("test did not release blocked command")
+        return {"reply": str(payload["text"])}
+
+    source = WorkspaceService(
+        root=tmp_path / "workspace",
+        session_id="session-1",
+        handlers={"chat.send": blocked_chat},
+    )
+    bridge = NativeBridgeServer(
+        source,
+        capabilities=BootstrapSecretStore(tmp_path / "native"),
+        instance_id="instance-1",
+        server_version="1.0.0",
+        heartbeat_interval=0.05,
+        peer_timeout=0.05,
+    )
+    server_socket, client = socket.socketpair()
+    thread, errors = serve(
+        bridge,
+        server_socket,
+        transport="uds",
+        peer_uid=local_peer_uid(),
+    )
+    try:
+        token = handshake(client)
+        client.sendall(encode_frame(envelope(
+            "command",
+            frame_id="disconnected-command-frame",
+            body=command_body(
+                token,
+                command_id="disconnected-command",
+                cursor=0,
+                text="wait for peer loss",
+            ),
+        )))
+        assert entered.wait(timeout=1)
+
+        client.close()
+        thread.join(timeout=3)
+
+        assert not thread.is_alive()
     finally:
         release.set()
         client.close()
