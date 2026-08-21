@@ -76,9 +76,12 @@ one-shot `bootstrap_secret`; successful exchange rotates the disk secret. UDS
 hello instead relies on the accepted same-user peer credential. There is no
 silent protocol downgrade.
 
-`ready` returns the bridge `instance_id`, transport, negotiated limits and
-features, and a random session capability scoped to that instance, connection,
-surface, and view. Every post-ready client frame carries that capability. Swift
+`ready` returns the bridge `instance_id`, the `session_id` the bridge serves,
+the transport, negotiated limits and features, and a random session capability
+scoped to that instance, connection, surface, and view. The body carries
+exactly `protocol_version`, `server_version`, `instance_id`, `session_id`,
+`transport`, `capability`, `limits`, and `capabilities`; `session_id` is
+required, and the client subscribes to that session rather than guessing one. Every post-ready client frame carries that capability. Swift
 keeps it in memory only. The default sliding lifetime is 15 minutes with an
 eight-hour hard connection ceiling. Near expiry the server sends
 `capability.renewed`; replacement revokes the previous token. Tokens are also
