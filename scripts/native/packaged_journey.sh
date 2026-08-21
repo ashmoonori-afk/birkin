@@ -99,14 +99,25 @@ if failed:
 if not any(name in names for name in ("working-memory-clear", "working-memory-gated")):
     raise SystemExit("no Working Memory step was recorded")
 digests = {}
+critical_names = {"chat-send-stream", "terminal-input-output", "jailed-import-chip"}
+critical_digests = {}
 for step in receipts["steps"]:
     shot = step["screenshot"]
     if not shot:
+        if step["name"] in critical_names:
+            raise SystemExit(f"critical step has no screenshot: {step['name']}")
         continue
     data = (evidence / shot).read_bytes()
     if len(data) < 4000:
         raise SystemExit(f"{shot} is not a contentful screenshot")
-    digests.setdefault(hashlib.sha256(data).hexdigest(), []).append(shot)
+    digest = hashlib.sha256(data).hexdigest()
+    digests.setdefault(digest, []).append(shot)
+    if step["name"] in critical_names:
+        critical_digests[step["name"]] = digest
+if set(critical_digests) != critical_names:
+    raise SystemExit(f"missing critical screenshot digests: {critical_digests}")
+if len(set(critical_digests.values())) != len(critical_names):
+    raise SystemExit(f"critical screenshots are not distinct: {critical_digests}")
 if len(digests) < 3:
     raise SystemExit(f"journey screenshots are not distinct: {digests}")
 print(f"journey_steps={len(receipts['steps'])} screenshots={sum(len(v) for v in digests.values())} distinct_screenshots={len(digests)}")

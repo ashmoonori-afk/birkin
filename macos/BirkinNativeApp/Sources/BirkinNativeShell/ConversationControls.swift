@@ -43,33 +43,43 @@ public struct MessageStreamModel: Equatable, Sendable {
 
 public struct MessageStreamView: View {
     private let model: MessageStreamModel
+    @Environment(\.shellVisualSettings) private var visualSettings
 
     public init(projection: NativeProjectionState) {
         model = MessageStreamModel(projection: projection)
     }
 
     public var body: some View {
-        ScrollView {
-            LazyVStack(alignment: .leading, spacing: 12) {
-                ForEach(model.messages) { message in
-                    VStack(alignment: .leading, spacing: 4) {
-                        Text(message.role == .user ? "You" : "Birkin")
-                            .font(.caption.bold())
-                            .foregroundStyle(.secondary)
-                        Text(message.text)
-                            .textSelection(.enabled)
-                        if message.state == .streaming {
-                            ProgressView().controlSize(.small)
-                                .accessibilityLabel("Assistant response streaming")
-                        }
-                    }
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .padding(10)
-                    .background(.quaternary.opacity(0.35), in: RoundedRectangle(cornerRadius: 8))
+        Group {
+            if visualSettings.snapshotRendering {
+                VStack(alignment: .leading, spacing: 8) { messageRows }
+            } else {
+                ScrollView {
+                    LazyVStack(alignment: .leading, spacing: 12) { messageRows }
                 }
             }
         }
         .accessibilityLabel("Conversation message stream")
+    }
+
+    @ViewBuilder
+    private var messageRows: some View {
+        ForEach(model.messages) { message in
+            VStack(alignment: .leading, spacing: 4) {
+                Text(message.role == .user ? "You" : "Birkin")
+                    .font(.caption.bold())
+                    .foregroundStyle(.secondary)
+                Text(message.text)
+                    .textSelection(.enabled)
+                if message.state == .streaming {
+                    ProgressView().controlSize(.small)
+                        .accessibilityLabel("Assistant response streaming")
+                }
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(10)
+            .background(.quaternary.opacity(0.35), in: RoundedRectangle(cornerRadius: 8))
+        }
     }
 }
 

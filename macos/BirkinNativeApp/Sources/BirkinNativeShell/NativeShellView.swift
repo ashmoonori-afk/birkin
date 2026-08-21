@@ -291,41 +291,48 @@ public struct NativeShellView: View {
                 templateLaunchers(availability: availability)
             }
             if section.id == .composer {
-                Button {
-                    showsAttachmentPicker = true
-                } label: {
-                    Label("Attach File", systemImage: "paperclip")
-                }
-                .disabled(!availability.isEnabled || !isFileImportAdvertised)
-                .keyboardShortcut("o", modifiers: [.command, .shift])
-                .accessibilityLabel("Choose a file to import into the workspace jail")
                 if visualSettings.snapshotRendering {
-                    Label("Drop a file to import", systemImage: "tray.and.arrow.down")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        .padding(8)
-                        .overlay {
-                            RoundedRectangle(cornerRadius: 8)
-                                .stroke(.secondary.opacity(0.4), style: StrokeStyle(lineWidth: 1, dash: [4]))
-                        }
+                    if let reference = jailedDrop.reference {
+                        ImportedReferenceChip(reference: reference)
+                    } else {
+                        Label("Drop a file to import", systemImage: "tray.and.arrow.down")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .padding(8)
+                            .overlay {
+                                RoundedRectangle(cornerRadius: 8)
+                                    .stroke(
+                                        .secondary.opacity(0.4),
+                                        style: StrokeStyle(lineWidth: 1, dash: [4])
+                                    )
+                            }
+                    }
                 } else {
+                    Button {
+                        showsAttachmentPicker = true
+                    } label: {
+                        Label("Attach File", systemImage: "paperclip")
+                    }
+                    .disabled(!availability.isEnabled || !isFileImportAdvertised)
+                    .keyboardShortcut("o", modifiers: [.command, .shift])
+                    .accessibilityLabel("Choose a file to import into the workspace jail")
                     JailedDropZone(model: jailedDrop) { urls in
                         importDroppedURLs(urls, availability: availability)
                     }
-                }
-                ConversationComposerView(
-                    model: conversationComposer,
-                    isSendEnabled: availability.isEnabled && isChatSendAdvertised
-                ) {
-                    sendDraft(availability: availability)
-                }
-                if let session = Self.readySession(in: connectionState) {
-                    VoiceInputControl(
-                        model: voiceInput,
-                        session: session,
-                        beginCapture: voiceInputAction
-                    )
+                    ConversationComposerView(
+                        model: conversationComposer,
+                        isSendEnabled: availability.isEnabled && isChatSendAdvertised
+                    ) {
+                        sendDraft(availability: availability)
+                    }
+                    if let session = Self.readySession(in: connectionState) {
+                        VoiceInputControl(
+                            model: voiceInput,
+                            session: session,
+                            beginCapture: voiceInputAction
+                        )
+                    }
                 }
             }
             if section.id == .terminal, store.projection?.terminals.isEmpty != false {

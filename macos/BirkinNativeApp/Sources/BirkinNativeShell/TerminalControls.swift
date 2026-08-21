@@ -143,6 +143,7 @@ public struct TerminalView: View {
     private let interrupt: () -> Void
     private let close: () -> Void
 
+    @Environment(\.shellVisualSettings) private var visualSettings
     @State private var input = ""
     @State private var confirmsClose = false
 
@@ -177,25 +178,22 @@ public struct TerminalView: View {
                     .disabled(!canMutate)
                     .accessibilityLabel("Close Python terminal")
             }
-            ScrollView([.vertical, .horizontal]) {
-                Text(terminal.screen.isEmpty ? "Terminal ready." : terminal.screen)
-                    .font(.system(.body, design: .monospaced))
-                    .textSelection(.enabled)
-                    .frame(maxWidth: .infinity, alignment: .topLeading)
-                    .padding(8)
-            }
-            .background(Color.black.opacity(0.86), in: RoundedRectangle(cornerRadius: 6))
-            .foregroundStyle(Color.green)
-            .accessibilityLabel("Terminal text snapshot")
-            HStack {
-                TextField("Terminal input", text: $input)
-                    .textFieldStyle(.roundedBorder)
-                    .onSubmit { submitInput() }
-                    .disabled(!canMutate)
-                    .accessibilityLabel("Terminal input")
-                Button("Run", action: submitInput)
-                    .disabled(!canMutate || input.isEmpty)
-                    .accessibilityLabel("Run terminal input")
+            if visualSettings.snapshotRendering {
+                terminalText
+                    .frame(minHeight: 72, maxHeight: 120, alignment: .topLeading)
+                    .clipped()
+            } else {
+                ScrollView([.vertical, .horizontal]) { terminalText }
+                HStack {
+                    TextField("Terminal input", text: $input)
+                        .textFieldStyle(.roundedBorder)
+                        .onSubmit { submitInput() }
+                        .disabled(!canMutate)
+                        .accessibilityLabel("Terminal input")
+                    Button("Run", action: submitInput)
+                        .disabled(!canMutate || input.isEmpty)
+                        .accessibilityLabel("Run terminal input")
+                }
             }
         }
         .accessibilityElement(children: .contain)
@@ -210,6 +208,17 @@ public struct TerminalView: View {
         } message: {
             Text("The Python process tree will be terminated and cannot be resurrected.")
         }
+    }
+
+    private var terminalText: some View {
+        Text(terminal.screen.isEmpty ? "Terminal ready." : terminal.screen)
+            .font(.system(.body, design: .monospaced))
+            .textSelection(.enabled)
+            .frame(maxWidth: .infinity, alignment: .topLeading)
+            .padding(8)
+            .background(Color.black.opacity(0.86), in: RoundedRectangle(cornerRadius: 6))
+            .foregroundStyle(Color.green)
+            .accessibilityLabel("Terminal text snapshot")
     }
 
     private func submitInput() {
