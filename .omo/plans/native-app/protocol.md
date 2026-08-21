@@ -166,7 +166,7 @@ The `macos` surface is an additive workspace contract value.
       "max_frame_bytes": 262144,
       "max_payload_bytes": 65536,
       "max_json_depth": 12,
-      "max_inflight_commands": 8,
+      "max_inflight_commands": 1,
       "max_subscriptions": 32
     },
     "capabilities": {
@@ -203,6 +203,10 @@ Capability renewal:
 
 - server sends `capability.renewed`
 - client atomically swaps the in-memory token
+- the immediately previous token remains authentication-only for at most 5 seconds
+- overlap cannot outlive the predecessor's sliding or hard expiry
+- overlap retains the exact instance, connection, surface, and view scope
+- the predecessor cannot renew, and any older predecessor is revoked
 - UI remains ready without a connection-state flicker
 - a failed renewal triggers one full handshake
 
@@ -317,6 +321,13 @@ Terminal success is determined only by later canonical completion or failure eve
 - `chat.interrupt`: refresh and retry once with the same intent identifier
 - all other commands: refresh, preserve the draft, display inline conflict, require explicit re-submit
 - never silently replay approval, config, checkpoint, terminal signal, Browser control, Computer Use, or Office consent actions
+
+### 9.5 Command admission
+
+- `ready.limits.max_inflight_commands` is `1` for normal mutations server-wide
+- `chat.interrupt`, `chat.steer`, and `chat.resume` each use one separate bounded control lane
+- another command in an occupied lane returns correlated `E_FLOW_VIOLATION`
+- disconnect fences new admissions and defers cleanup until every admitted lane finishes
 
 ## 10. Surface projections
 

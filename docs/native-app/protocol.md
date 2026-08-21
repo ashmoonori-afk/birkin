@@ -29,7 +29,10 @@ keys, and excessive nesting are refused. An envelope has exactly
 A nested workspace command carries its own protocol version, stable command ID,
 expected cursor, type, payload, and client context. Its payload has a canonical
 65,536 bound and the advertised maximum JSON body depth is 12. `ready` also
-advertises maximum frame bytes, eight in-flight commands, and 32 subscriptions.
+advertises maximum frame bytes, one normal in-flight command server-wide, and
+32 subscriptions. `chat.interrupt`, `chat.steer`, and `chat.resume` each have
+one separate bounded control lane so turn controls remain responsive. A second
+command in an occupied lane is refused with `E_FLOW_VIOLATION`.
 
 Frame identifiers must be unique inside a bounded replay window: each endpoint
 remembers the most recent 1,024 identifiers it sent or received on that
@@ -90,12 +93,16 @@ guessing one.
 Every post-ready client frame carries the capability. Swift keeps it in memory
 only. The default sliding lifetime is 15 minutes with an eight-hour hard
 connection ceiling. Near expiry the server sends `capability.renewed`;
-replacement revokes the previous token. Tokens are also revoked at disconnect,
-`goodbye`, expiry, or bridge teardown. Python emits a 30-second heartbeat on an
-idle subscription. Swift treats bounded idle receive timeouts as transient
-rather than reconnecting before a heartbeat can arrive. A capability does not
-replace Python approval, terminal lease, Browser control, Computer Use, or
-Office consent authority.
+Swift atomically replaces its current token. The immediately previous token
+remains authentication-only for at most five seconds so already queued frames
+can finish. That overlap is capped by the predecessor's original sliding and
+hard expiries, retains the exact instance, connection, surface, and view scope,
+and cannot be renewed. Any older predecessor is revoked. Tokens are also
+revoked at disconnect, `goodbye`, expiry, or bridge teardown. Python emits a
+30-second heartbeat on an idle subscription. Swift treats bounded idle receive
+timeouts as transient rather than reconnecting before a heartbeat can arrive.
+A capability does not replace Python approval, terminal lease, Browser control,
+Computer Use, or Office consent authority.
 
 ## Cursor, replay, and surface revisions
 
