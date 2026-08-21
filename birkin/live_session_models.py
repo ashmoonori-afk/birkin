@@ -53,7 +53,6 @@ class LiveAgentProcess:
 
 @dataclass(frozen=True, slots=True)
 class RefusalCounts:
-    username: int
     name: int
     cmdline: int
     cwd: int
@@ -63,7 +62,6 @@ class RefusalCounts:
         if any(
             count < 0
             for count in (
-                self.username,
                 self.name,
                 self.cmdline,
                 self.cwd,
@@ -74,17 +72,10 @@ class RefusalCounts:
 
     @property
     def total(self) -> int:
-        return (
-            self.username
-            + self.name
-            + self.cmdline
-            + self.cwd
-            + self.open_files
-        )
+        return self.name + self.cmdline + self.cwd + self.open_files
 
     def nonzero(self) -> tuple[tuple[ProcessField, int], ...]:
         counts = (
-            (ProcessField.USERNAME, self.username),
             (ProcessField.NAME, self.name),
             (ProcessField.CMDLINE, self.cmdline),
             (ProcessField.CWD, self.cwd),
@@ -97,6 +88,7 @@ class RefusalCounts:
 class ScanCounters:
     enumerated: int
     own_user: int
+    unidentified: int
     cmdline_ok: int
     open_files_ok: int
     disappeared: int
@@ -108,6 +100,7 @@ class ScanCounters:
             for count in (
                 self.enumerated,
                 self.own_user,
+                self.unidentified,
                 self.cmdline_ok,
                 self.open_files_ok,
                 self.disappeared,

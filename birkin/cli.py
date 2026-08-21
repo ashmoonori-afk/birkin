@@ -903,6 +903,27 @@ def _cmd_sessions(args: argparse.Namespace) -> int:
     return 0 if written or not failed else 1
 
 
+def _cmd_live_sessions(args: argparse.Namespace) -> int:
+    """Print the ephemeral inventory of current-user agent sessions."""
+    import psutil
+
+    from .live_process_source import PsutilProcessSource
+    from .live_session_render import render_live_inventory
+    from .live_sessions import group_live_sessions, scan_live_sessions
+
+    try:
+        scan = scan_live_sessions(PsutilProcessSource())
+    except (OSError, psutil.Error) as exc:
+        print(
+            f"live sessions: process enumeration failed: {exc}",
+            file=sys.stderr,
+        )
+        return 1
+    inventory = group_live_sessions(scan)
+    print(render_live_inventory(inventory))
+    return 0
+
+
 def _cmd_odyssey(args: argparse.Namespace) -> int:
     """Seed an odyssey goal cycle; the cycle is driven via /odyssey in chat."""
     from . import config, odyssey
@@ -1743,6 +1764,10 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="file the export in the vault's journal zone",
     )
+    live_sessions = sess.add_parser(
+        "live",
+        help="inspect live agent sessions grouped by observed cwd",
+    )
     ses.set_defaults(
         func=_cmd_sessions,
         name=[],
@@ -1750,6 +1775,7 @@ def build_parser() -> argparse.ArgumentParser:
         vault=False,
     )
     export_session.set_defaults(func=_cmd_sessions)
+    live_sessions.set_defaults(func=_cmd_live_sessions)
 
     ody = sub.add_parser(
         "odyssey",
