@@ -46,8 +46,6 @@ def _banner(session: Session) -> None:
     print(f" {YELLOW}/help{RESET} 명령 · {YELLOW}/work{RESET} 워크벤치 · "
           f"{YELLOW}/status{RESET} 상태 · {YELLOW}?{RESET} 도움말 · "
           f"{YELLOW}Esc{RESET} 중단 · Ctrl-C 종료")
-    print(f" {DIM}edit: Ctrl+←/→ word · Ctrl-W delete word · Ctrl-U/Ctrl-K clear "
-          f"to start/end · ↑/↓ history{RESET}")
 
 
 def run(cfg: dict[str, Any] | None = None) -> int:

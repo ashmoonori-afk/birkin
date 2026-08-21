@@ -365,13 +365,11 @@ def test_terminal_render_keeps_chat_primary_at_every_width() -> None:
         assert "terminal-chat-sentinel 한글" in text
         assert "paste-sentinel 붙여넣기" in text
         assert "◆ action · Approve workspace action" in text
-        assert all(cell_width(line) <= size[0] for line in lines)
-        if size[0] < 80:
-            assert "Attention Queue" in text
-        elif size[0] < 120:
-            assert "Bench · Conversation" in text
-        else:
-            assert "Ledger (34) │ Bench" in text
+        assert lines[0].startswith("Birkin · ")
+        assert any("[approvals]" in line for line in lines)
+        assert any("message > " in line for line in lines)
+        assert lines[-1].strip().startswith("Tab")
+        assert all(cell_width(line) == size[0] for line in lines)
 
 
 def test_terminal_turn_routes_through_shared_workspace_session(

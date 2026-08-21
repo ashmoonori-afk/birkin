@@ -117,6 +117,7 @@ def _help(session: Any, arg: str) -> None:
 
     print(f"{BOLD}Slash commands{RESET} {DIM}(/help <name> 으로 상세 · "
           f"? 로 다시 열기){RESET}")
+    print(f" {DIM}edit: Ctrl-W delete word · Ctrl-U/Ctrl-K clear to start/end{RESET}")
     grouped: set[str] = set()
 
     def _row(name: str) -> None:

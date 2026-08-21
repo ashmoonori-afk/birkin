@@ -236,7 +236,7 @@ Optional local Python tiers add fidelity without changing that boundary. Install
 
 Trusted Korean and English natural-language requests deterministically preload the matching production skill: Word/DOCX -> `word-documents`, Excel/XLSX -> `spreadsheets`, PowerPoint/PPTX -> `presentations`, PDF -> `pdf-documents`, HWP/HWPX -> `korean-hwp-documents`, and general Office work -> `office-work-os`. Conflicting format and artifact signals route to inspect-first `office-documents`. Document contents are untrusted data and cannot select or override a skill. Every routed mutation remains copy-on-write.
 
-See the [detailed support contract](./docs/office-support.md#office-work-os-v2), machine [`provenance_manifest.json`](./birkin/office/adapters/provenance_manifest.json), and [`THIRD_PARTY_NOTICES.md`](./birkin/office/adapters/THIRD_PARTY_NOTICES.md). This documentation targets Birkin `0.4.266`, `catalog_revision: 4`, `inventory_sha256: a49ab813ee4cdea3d6f87e0e2bd063b1dde54058e5c8dd0af0cf32bec74cae95`.
+See the [detailed support contract](./docs/office-support.md#office-work-os-v2), machine [`provenance_manifest.json`](./birkin/office/adapters/provenance_manifest.json), and [`THIRD_PARTY_NOTICES.md`](./birkin/office/adapters/THIRD_PARTY_NOTICES.md). This documentation targets Birkin `0.4.269`, `catalog_revision: 4`, `inventory_sha256: a49ab813ee4cdea3d6f87e0e2bd063b1dde54058e5c8dd0af0cf32bec74cae95`.
 
 ### Doing office work end to end
 
@@ -580,7 +580,6 @@ the newest snapshots with `prune --keep N`, or copy a snapshot with
 | `birkin model` / `birkin models` | Inspect or select the model. |
 | `birkin skills` | List, inspect, sync, validate, or manage skills. |
 | `birkin plugins` | Inspect permissions, install exact signed bundle versions, or resolve pins. |
-| `birkin plugins effects` | List plugin tool effects or manage digest-bound inspect grants. |
 | `birkin daemon` | Run or install the Morpheus + cron scheduler. |
 | `birkin morpheus [--dry-run]` | Run the scheduled self-improvement routine now. |
 | `birkin harness` | Show, refine, export, or roll back the improvement ledger. |
@@ -646,56 +645,6 @@ differ. An exact version request that disagrees with the project pin is a
 conflict rather than a fallback to team scope. Existing pins change only with
 `--upgrade`. Skill entry points feed the existing `SkillManager`; agent entry
 points return `Tool` objects consumed by the existing native tool registry.
-
-## Plugin tool effects
-
-Every plugin tool carries a verified origin: plugin name, version, and bundle
-digest. On a native-name collision the native handler stays active, so a
-plugin exporting `read_file` can neither replace the native handler nor inherit
-its `inspect`/parallel posture. An installed plugin tool without a matching
-review grant runs as `change` + `serial`.
-
-Inspect the installed inventory with:
-
-```bash
-birkin plugins effects list
-birkin plugins effects list --json
-```
-
-`list` is the default action, so `birkin plugins effects` is equivalent. Each
-row reports the effect, schedule, and decision basis:
-
-```text
-plugin-agent@1.0.0/plugin_echo  change  serial  default:no-grant
-summary  inspect=0  change=1  stale=0
-```
-
-A missing attestation file is normal. Every plugin tool is treated as
-unreviewed, `list` exits 0, and no file is created.
-
-Manage the exact installed tool identity with:
-
-```bash
-birkin plugins effects set plugin-agent plugin_echo inspect \
-  --reason "reviewed handler; no writes" --parallel-safe
-birkin plugins effects set plugin-agent plugin_echo change
-birkin plugins effects prune
-birkin plugins effects reset --yes
-```
-
-`inspect` requires a reason. `--parallel-safe` is a separate opt-in; omit it to
-keep an inspected tool serial. Setting `change` removes its matching inspect
-grant. Grants bind all four fields: plugin, version, bundle digest, and tool.
-Changing any bundle byte changes the digest, leaves the old grant stale, and
-returns the installed tool to `change` + `serial`; `prune` removes stale grants.
-
-The attestation file is `%BIRKIN_HOME%/tool-effects.json`, defaulting to
-`~/.birkin/tool-effects.json`. If it cannot be parsed, `list` names the parse
-error, exposes no grants, reports every plugin tool as `change` + `serial`, and
-exits 1. `set` and `prune` also exit 1 and refuse to overwrite bytes they could
-not parse. `reset` requires `--yes`; without it, the bytes remain unchanged.
-When a file exists, `reset --yes` copies its previous bytes to
-`tool-effects.json.previous` before replacing it with an empty valid file.
 
 ## Future Roadmap: Native control shell
 
