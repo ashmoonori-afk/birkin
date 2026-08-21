@@ -89,3 +89,20 @@ def test_disk_image_name_is_derived_not_pinned() -> None:
 
     assert "pyproject.toml" in script
     assert not _SEMVER.search(script), "the disk image name pins a version"
+
+
+def test_disk_image_manifests_follow_the_requested_output_root() -> None:
+    """Given the packaging script, When it records artifact manifests, Then it
+    writes them beside the requested distribution root instead of a fixed
+    evidence phase directory."""
+    script = DMG_SCRIPT.read_text(encoding="utf-8")
+
+    pinned = [
+        line
+        for line in script.splitlines()
+        if re.match(r"\s*(build_)?manifest=", line) and "$output_root" not in line
+    ]
+
+    assert pinned == [], f"manifest paths do not follow the output root: {pinned}"
+    assert 'manifest="$output_root' in script
+    assert 'build_manifest="$output_root' in script

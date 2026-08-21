@@ -11,8 +11,9 @@ if [[ -z "$version" ]]; then
   exit 1
 fi
 dmg="$output_root/Birkin-$version.dmg"
-manifest="$repo_root/.omo/evidence/native-shell/phase13/artifact-manifest.sha256"
-build_manifest="$repo_root/.omo/evidence/native-shell/phase13/build-manifest.txt"
+# Manifests describe this distribution, so they live beside it.
+manifest="$output_root/artifact-manifest.sha256"
+build_manifest="$output_root/build-manifest.txt"
 
 cd "$repo_root"
 if [[ ! -d "$app" ]]; then
