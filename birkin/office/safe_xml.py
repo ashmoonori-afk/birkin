@@ -23,14 +23,22 @@ class DefusedXmlException(ValueError):
     """Compatibility error raised for prohibited XML declarations."""
 
 
-_FORBIDDEN_DECLARATION = re.compile(
-    r"<!\s*(?:DOCTYPE|ENTITY)\b",
-    re.IGNORECASE,
+_DTD_DECLARATION = re.compile(r"<!\s*DOCTYPE\b", re.IGNORECASE)
+_ENTITY_DECLARATION = re.compile(r"<!\s*ENTITY\b", re.IGNORECASE)
+_EXTERNAL_DECLARATION = re.compile(
+    r"<!\s*(?:DOCTYPE|ENTITY)\b[^>]*\b(?:SYSTEM|PUBLIC)\b",
+    re.IGNORECASE | re.DOTALL,
 )
 _XML_COMMENT_OR_CDATA = re.compile(r"<!--.*?-->|<!\[CDATA\[.*?\]\]>", re.DOTALL)
 
 
-def _guard_text(data: bytes | str) -> None:
+def _guard_text(
+    data: bytes | str,
+    *,
+    forbid_dtd: bool,
+    forbid_entities: bool,
+    forbid_external: bool,
+) -> None:
     if isinstance(data, str):
         text = data
     elif data.startswith((b"\xff\xfe\x00\x00", b"\x00\x00\xfe\xff")):
@@ -48,7 +56,15 @@ def _guard_text(data: bytes | str) -> None:
     else:
         text = data.decode("latin-1")
 
-    if _FORBIDDEN_DECLARATION.search(_XML_COMMENT_OR_CDATA.sub("", text)):
+    guarded = _XML_COMMENT_OR_CDATA.sub("", text)
+    if (
+        forbid_dtd
+        and _DTD_DECLARATION.search(guarded)
+        or forbid_entities
+        and _ENTITY_DECLARATION.search(guarded)
+        or forbid_external
+        and _EXTERNAL_DECLARATION.search(guarded)
+    ):
         raise DefusedXmlException("DTD and entity declarations are forbidden")
 
 
@@ -141,7 +157,12 @@ class _GuardedXMLParser:
                     "DTD and entity declarations are forbidden"
                 ) from exc
         if self._forbid_declarations:
-            _guard_text(payload)
+            _guard_text(
+                payload,
+                forbid_dtd=self._forbid_dtd,
+                forbid_entities=self._forbid_entities,
+                forbid_external=self._forbid_external,
+            )
         parser = _ET.XMLParser(target=self._target, encoding=self._encoding)
         parser.feed(payload)
         return parser.close()
