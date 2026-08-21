@@ -7,6 +7,13 @@ from collections import deque
 from typing import final
 
 
+def _event_cursor(event: dict[str, object]) -> int | None:
+    cursor = event.get("cursor")
+    if isinstance(cursor, bool) or not isinstance(cursor, int):
+        return None
+    return cursor
+
+
 @final
 class BoundedEventBuffer:
     """Never silently drops projection events under backpressure."""
@@ -33,30 +40,56 @@ class BoundedEventBuffer:
             self._events.append(dict(event))
             return True
 
+    def mark_delivered(self, *, cursor: int) -> None:
+        """Record a cursor already delivered outside this buffer.
+
+        Subscription replay writes canonical events straight to the socket, so
+        the buffer must forget anything the replay already covered instead of
+        sending it a second time.
+        """
+        if isinstance(cursor, bool) or cursor < 0:
+            raise ValueError("cursor must be a non-negative integer")
+        with self._lock:
+            self._last_delivered_cursor = max(self._last_delivered_cursor, cursor)
+            while self._events:
+                buffered = _event_cursor(self._events[0])
+                if buffered is None or buffered > self._last_delivered_cursor:
+                    break
+                _ = self._events.popleft()
+
     def drain(self) -> tuple[dict[str, object], ...]:
         with self._lock:
             if self._marker_pending:
                 self._marker_pending = False
-                return (
-                    {
-                        "kind": "stream.desynchronized",
-                        "body": {
-                            "resume_after": self._last_delivered_cursor,
-                        },
-                    },
-                )
+                return (self._desynchronized_notice(),)
             if self._desynchronized or not self._events:
                 return ()
-            events = tuple(self._events)
-            self._events.clear()
-            for event in events:
-                cursor = event.get("cursor")
-                if isinstance(cursor, int) and not isinstance(cursor, bool):
-                    self._last_delivered_cursor = max(
-                        self._last_delivered_cursor,
-                        cursor,
-                    )
-            return events
+            delivered: list[dict[str, object]] = []
+            while self._events:
+                cursor = _event_cursor(self._events[0])
+                if cursor is None:
+                    delivered.append(self._events.popleft())
+                    continue
+                if cursor <= self._last_delivered_cursor:
+                    _ = self._events.popleft()
+                    continue
+                if cursor != self._last_delivered_cursor + 1:
+                    self._events.clear()
+                    self._desynchronized = True
+                    self._marker_pending = True
+                    break
+                delivered.append(self._events.popleft())
+                self._last_delivered_cursor = cursor
+            if not delivered and self._marker_pending:
+                self._marker_pending = False
+                return (self._desynchronized_notice(),)
+            return tuple(delivered)
+
+    def _desynchronized_notice(self) -> dict[str, object]:
+        return {
+            "kind": "stream.desynchronized",
+            "body": {"resume_after": self._last_delivered_cursor},
+        }
 
     def has_pending(self) -> bool:
         with self._lock:
@@ -86,18 +119,19 @@ class NativeEventQueue:
         with self._condition:
             self._condition.notify_all()
 
-    def wait_and_drain(
-        self,
-        *,
-        timeout: float,
-    ) -> tuple[dict[str, object], ...]:
+    def wait_for_pending(self, *, timeout: float) -> None:
         with self._condition:
             if not self._closed and not self._buffer.has_pending():
                 _ = self._condition.wait(timeout)
+
+    def drain(self) -> tuple[dict[str, object], ...]:
         return self._buffer.drain()
 
     def resubscribe(self, *, after_cursor: int) -> None:
         self._buffer.resubscribe(after_cursor=after_cursor)
+
+    def mark_delivered(self, *, cursor: int) -> None:
+        self._buffer.mark_delivered(cursor=cursor)
 
     def close(self) -> None:
         with self._condition:

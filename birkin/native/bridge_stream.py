@@ -33,8 +33,7 @@ class NativeBridgeStream:
         self._peer_timeout = peer_timeout
         self._queue = NativeEventQueue(capacity=capacity)
         self._active = threading.Event()
-        self._send_allowed = threading.Event()
-        self._send_allowed.set()
+        self._send_gate = threading.RLock()
         self._stopped = threading.Event()
         self._pong = threading.Event()
         self._failure: BaseException | None = None
@@ -55,6 +54,9 @@ class NativeBridgeStream:
         self._queue.resubscribe(after_cursor=after_cursor)
         self._active.set()
 
+    def mark_delivered(self, *, cursor: int) -> None:
+        self._queue.mark_delivered(cursor=cursor)
+
     def publish(self, event: WorkspaceEvent) -> None:
         if self._active.is_set():
             self._queue.publish(public_workspace_event(event))
@@ -63,41 +65,44 @@ class NativeBridgeStream:
         self._pong.set()
 
     def suspend(self) -> None:
-        self._send_allowed.clear()
+        """Hold the wire until the caller has written its own frames.
+
+        Acquiring the gate also waits out any send already in flight, so a
+        drained batch can never overtake a snapshot or a command receipt.
+        """
+        _ = self._send_gate.acquire()
 
     def resume(self) -> None:
-        self._send_allowed.set()
+        self._send_gate.release()
 
     def stop(self) -> None:
         self._stopped.set()
         self._pong.set()
-        self._send_allowed.set()
         self._queue.close()
         self._thread.join(timeout=2)
 
     def _run(self) -> None:
         try:
             while not self._stopped.is_set():
-                events = self._queue.wait_and_drain(
-                    timeout=self._heartbeat_interval,
-                )
+                self._queue.wait_for_pending(timeout=self._heartbeat_interval)
                 if self._stopped.is_set():
                     return
-                if events:
-                    _ = self._send_allowed.wait()
+                with self._send_gate:
                     if self._stopped.is_set():
                         return
-                    self._send_events(events)
-                    continue
-                self._pong.clear()
-                ping = self._messages.message(
-                    "ping",
-                    body={
-                        "sent_at": datetime.now(timezone.utc).isoformat(),
-                    },
-                )
-                self._state.send(ping)
-                self._connection.send(ping)
+                    events = self._queue.drain()
+                    if events:
+                        self._send_events(events)
+                        continue
+                    self._pong.clear()
+                    ping = self._messages.message(
+                        "ping",
+                        body={
+                            "sent_at": datetime.now(timezone.utc).isoformat(),
+                        },
+                    )
+                    self._state.send(ping)
+                    self._connection.send(ping)
                 if not self._pong.wait(self._peer_timeout):
                     self._connection.interrupt()
                     return

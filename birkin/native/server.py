@@ -302,14 +302,51 @@ class NativeBridgeServer:
                 "E_BODY",
                 "known_instance_id must be a string or null",
             )
+        stream.suspend()
+        try:
+            self._deliver_projection(
+                connection,
+                state,
+                message,
+                stream,
+                after_cursor=after_cursor,
+                known_instance_id=known_instance,
+            )
+        finally:
+            stream.resume()
+
+    def _deliver_projection(
+        self,
+        connection: NativeConnection,
+        state: NativeConnectionState,
+        message: NativeEnvelope,
+        stream: NativeBridgeStream,
+        *,
+        after_cursor: int,
+        known_instance_id: str | None,
+    ) -> None:
+        """Buffer live events first, then write the canonical catch-up frames.
+
+        Activation precedes the projection read so an event published while
+        this subscription is being computed is buffered instead of dropped.
+        The delivered cursor is recorded afterwards so the buffer never repeats
+        an event the replay already wrote.
+        """
+        stream.activate(after_cursor=after_cursor)
         batch = self._projection.subscribe(
             after_cursor=after_cursor,
-            known_instance_id=known_instance,
+            known_instance_id=known_instance_id,
         )
+        delivered_cursor = after_cursor
         if batch.snapshot is not None:
             body = dict(batch.snapshot)
             body["instance_id"] = batch.instance_id
             body["reset_reason"] = batch.reset_reason
+            snapshot_cursor = body["cursor"]
+            if isinstance(snapshot_cursor, int) and not isinstance(
+                snapshot_cursor, bool
+            ):
+                delivered_cursor = max(delivered_cursor, snapshot_cursor)
             response = self._messages.message("snapshot", body=body)
             state.send(response)
             connection.send(response)
@@ -336,10 +373,13 @@ class NativeBridgeServer:
                 state.send(response)
                 connection.send(response)
         for event in batch.events:
+            cursor = event.get("cursor")
+            if isinstance(cursor, int) and not isinstance(cursor, bool):
+                delivered_cursor = max(delivered_cursor, cursor)
             response = self._messages.message("event", body=event)
             state.send(response)
             connection.send(response)
-        stream.activate(after_cursor=after_cursor)
+        stream.mark_delivered(cursor=delivered_cursor)
 
 
 def _surface_revisions(value: object) -> dict[str, int]:
