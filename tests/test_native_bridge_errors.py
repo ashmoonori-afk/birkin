@@ -3,12 +3,16 @@ from __future__ import annotations
 import socket
 from pathlib import Path
 
+from birkin.native.capability import BootstrapSecretStore
 from birkin.native.protocol import encode_frame
+from birkin.native.server import NativeBridgeServer
 from birkin.native.transport import receive_frame
+from birkin.workspace import WorkspaceService
 from tests.native_bridge_support import (
     command_body,
     envelope,
     handshake,
+    hello,
     local_peer_uid,
     receive_kind,
     serve,
@@ -226,4 +230,69 @@ def test_unadvertised_known_command_is_journaled_as_failed(
     finally:
         client.close()
         thread.join(timeout=2)
+    assert errors == []
+
+
+def test_handler_failure_returns_a_typed_refusal_and_keeps_the_connection(
+    tmp_path: Path,
+) -> None:
+    """Given a command whose canonical handler raises a non-protocol error,
+    When it is submitted, Then the client receives a typed refusal and the
+    connection still serves the next command."""
+
+    def explode(_payload: dict[str, object]) -> dict[str, object]:
+        raise RuntimeError("canonical handler exploded")
+
+    source = WorkspaceService(
+        root=tmp_path / "workspace",
+        session_id="session-1",
+        handlers={
+            "chat.send": explode,
+            "chat.steer": lambda payload: {"steered": str(payload["text"])},
+        },
+    )
+    bridge = NativeBridgeServer(
+        source,
+        capabilities=BootstrapSecretStore(tmp_path / "native"),
+        instance_id="instance-1",
+        server_version="1.0.0",
+    )
+    server_socket, client = socket.socketpair()
+    client.settimeout(10)
+    thread, errors = serve(
+        bridge, server_socket, transport="uds", peer_uid=local_peer_uid()
+    )
+    try:
+        client.sendall(encode_frame(hello(bootstrap_secret=None)))
+        ready = receive_frame(client)
+        capability = ready.body["capability"]
+        assert isinstance(capability, dict)
+        token = capability["token"]
+        assert isinstance(token, str)
+        client.sendall(encode_frame(envelope(
+            "subscribe", frame_id="subscribe-1", body={
+                "session_id": "session-1", "after_cursor": 0,
+                "known_instance_id": None, "session_capability": token,
+                "surfaces": {},
+            },
+        )))
+        assert receive_frame(client).kind == "snapshot"
+
+        client.sendall(encode_frame(envelope(
+            "command", frame_id="frame-explode",
+            body=command_body(token, command_id="explode", cursor=0, text="boom"),
+        )))
+        refusal = receive_kind(client, "error")
+        assert refusal.body["code"] == "E_COMMAND_FAILED"
+        assert refusal.in_reply_to == "frame-explode"
+
+        client.sendall(encode_frame(envelope(
+            "ping", frame_id="frame-alive",
+            body={"session_capability": token, "sent_at": "2026-08-21T00:00:00Z"},
+        )))
+        assert receive_kind(client, "pong").in_reply_to == "frame-alive"
+    finally:
+        client.close()
+        server_socket.close()
+        thread.join(timeout=5)
     assert errors == []

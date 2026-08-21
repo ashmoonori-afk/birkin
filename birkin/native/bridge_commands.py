@@ -5,7 +5,7 @@ from __future__ import annotations
 from typing import Protocol, final
 
 from birkin.native.messages import NativeMessageFactory
-from birkin.native.protocol import NativeEnvelope
+from birkin.native.protocol import NativeEnvelope, NativeProtocolError
 from birkin.native.state import NativeConnectionState
 from birkin.native.transport import NativeConnection
 from birkin.workspace import CommandReceipt, WorkspaceCommand
@@ -57,6 +57,14 @@ class NativeCommandExecutor:
         except WorkspaceProtocolError as error:
             response = self._messages.workspace_error(
                 error,
+                in_reply_to=message.id,
+            )
+        except Exception as error:  # noqa: BLE001 - command boundary
+            # A canonical handler failure is already journaled as
+            # command.failed. It refuses this command; it must never take the
+            # connection down with it.
+            response = self._messages.error(
+                NativeProtocolError("E_COMMAND_FAILED", str(error)),
                 in_reply_to=message.id,
             )
         state.send(response)
