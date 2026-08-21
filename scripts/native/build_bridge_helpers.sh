@@ -106,6 +106,7 @@ build_architecture() {
     --name birkin-native-bridge
     --distpath "$stage/dist" --workpath "$stage/work" --specpath "$stage/spec"
     --collect-submodules birkin --collect-data birkin --collect-all playwright
+    --collect-all docx --collect-all hwpx --collect-all openpyxl --collect-all pptx
   )
   if [[ -n "${BIRKIN_SIGN_IDENTITY:-}" ]]; then
     pyinstaller_args+=(--codesign-identity "$BIRKIN_SIGN_IDENTITY")

@@ -141,7 +141,10 @@ def test_package_and_dmg_manifests_publish_helper_identity() -> None:
     assert "Contents/Helpers/arm64/birkin-native-bridge" in dmg_script
     assert "Contents/Helpers/x86_64/birkin-native-bridge" in dmg_script
     assert "Contents/Resources/bridge-helper.json" in dmg_script
-    assert "--collect-all playwright" in BUILD_SCRIPT.read_text(encoding="utf-8")
+    builder = BUILD_SCRIPT.read_text(encoding="utf-8")
+    assert "--collect-all playwright" in builder
+    for module in ("docx", "hwpx", "openpyxl", "pptx"):
+        assert f"--collect-all {module}" in builder
     assert "build_browser_runtimes.sh" in package_script
     assert "BrowserRuntimes/arm64" in package_script
     assert "BrowserRuntimes/x86_64" in package_script
