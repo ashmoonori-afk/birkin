@@ -236,7 +236,7 @@ Base install의 경계는 명확합니다. 다섯 format 모두 inspect, validat
 
 신뢰된 한국어·영어 자연어 요청은 production skill을 결정적으로 preload합니다. Word/DOCX는 `word-documents`, Excel/XLSX는 `spreadsheets`, PowerPoint/PPTX는 `presentations`, PDF는 `pdf-documents`, HWP/HWPX는 `korean-hwp-documents`, 일반 Office 작업은 `office-work-os`로 route합니다. Format intent와 artifact 신호가 충돌하면 inspect-first `office-documents`로 route합니다. 문서 내용은 untrusted data이므로 skill을 선택하거나 override할 수 없고, 모든 routed mutation은 copy-on-write를 유지합니다.
 
-[상세 지원 계약](./docs/office-support.md#office-work-os-v2), machine [`provenance_manifest.json`](./birkin/office/adapters/provenance_manifest.json), [`THIRD_PARTY_NOTICES.md`](./birkin/office/adapters/THIRD_PARTY_NOTICES.md)를 참고하십시오. 이 문서는 Birkin `0.4.266`, `catalog_revision: 4`, `inventory_sha256: a49ab813ee4cdea3d6f87e0e2bd063b1dde54058e5c8dd0af0cf32bec74cae95`를 대상으로 합니다.
+[상세 지원 계약](./docs/office-support.md#office-work-os-v2), machine [`provenance_manifest.json`](./birkin/office/adapters/provenance_manifest.json), [`THIRD_PARTY_NOTICES.md`](./birkin/office/adapters/THIRD_PARTY_NOTICES.md)를 참고하십시오. 이 문서는 Birkin `0.4.269`, `catalog_revision: 4`, `inventory_sha256: a49ab813ee4cdea3d6f87e0e2bd063b1dde54058e5c8dd0af0cf32bec74cae95`를 대상으로 합니다.
 
 ### Office 작업 처음부터 끝까지
 
@@ -591,6 +591,7 @@ snapshot을 복사할 수 있습니다.
 | `birkin cron` | 예약 job 목록 또는 삭제. |
 | `birkin companion` | Opt-in 약속, 체크인, 알림 정책 관리. 고정 UTC fallback offset은 -1440분 초과 1440분 미만이어야 함. |
 | `birkin sessions` / `birkin sessions export NAME [--vault]` | 저장된 대화 목록 또는 export. |
+| `birkin sessions live` | 각 process가 보고한 작업 디렉터리별로 실행 중인 agent session 조회. |
 | `birkin lineage` | 신뢰된 compaction snapshot 목록·복구·prune·export. |
 | `birkin worker-hook-qa` | Side effect 없는 worker continuation QA driver의 deprecated compatibility alias. |
 | `birkin working-memory` | 구조화된 현재 작업 상태 조회·갱신·삭제. |
@@ -598,6 +599,58 @@ snapshot을 복사할 수 있습니다.
 | `birkin voice` | 선택적 voice daemon 설정·제어. |
 
 전체 interface는 `birkin --help` 또는 `birkin <command> --help`로 확인하십시오.
+
+## 실행 중인 세션과 검증된 실행 파일 탐색
+
+`birkin sessions live`는 저장된 transcript에서 추정하지 않고 현재 process
+table을 읽습니다. 현재 사용자의 process에서 read가 거부된 scan은 다음 형식으로
+출력되며 값과 표시되는 process는 실행할 때마다 달라집니다.
+
+```text
+ACTIVE AGENT PROJECTS: <count>
+
+PROJECT: <process가 보고한 cwd>
+  PID <pid> <실행 파일>
+    cmdline: <전체 command line>
+    session: <session-id>
+      file: <열린 session file>
+
+SCAN: enumerated=<n> own-user=<n> unidentified=<n> cmdline_ok=<n> open_files_ok=<n> disappeared=<n>
+REFUSALS: name=<n> cmdline=<n> cwd=<n> open_files=<n>
+LIMITATION: access is denied: cwd=<0이 아닌 n> open_files=<0이 아닌 n>
+```
+
+다른 process 속성보다 먼저 소유자를 확인합니다. 다른 사용자가 소유한 process는
+더 살펴보지 않고 제외합니다. 소유자를 확인할 수 없는 process는
+`unidentified`에 따로 더하며 refusal이나 권한 오류 문구를 만들지 않습니다.
+표시되는 각 session은 해당 session file을 열고 있는 PID에 1:1로 연결하며
+디렉터리에서 추정하지 않습니다. Project는 각 process가 보고한 작업 디렉터리를
+기준으로 묶습니다.
+
+`REFUSALS`는 현재 사용자 소유임을 확인한 뒤 시도한 read만 집계합니다.
+`LIMITATION:` line은 그 process에서 발생한 0이 아닌 refusal만으로 만들며,
+refusal이 하나도 없으면 line 자체를 출력하지 않습니다.
+`birkin sessions --help`에는 `export`와 `live`가 표시됩니다. 다음 두 잘못된
+command는 scan 전에 exit 2로 끝납니다. `birkin sessions live unexpected`는
+`unrecognized arguments: unexpected`를 보고하고, `birkin sessions unknown`은
+`invalid choice: 'unknown' (choose from export, live)`를 보고합니다.
+
+Skill prerequisite에 필요한 command는 직접 실행해서 검증한 뒤 선택합니다.
+Birkin은 PATH candidate를 모두 열거하고 순서대로 probe한 뒤, 실제로 실행되어
+요청한 출력을 반환하는 candidate만 받아들입니다. 응답하지 못한 candidate는
+`NON_FUNCTIONAL_SHIM`으로 기록하고 다음 candidate를 계속 시도하므로, 앞에 있는
+shim이 뒤의 실제 interpreter를 가리지 못합니다. 사용할 수 있는 command를 찾지
+못하면 "설치되지 않았다"고 단정하는 대신 정확한 path와 관찰한 probe 결과를
+보고합니다.
+
+PATH에서 WindowsApps가 Python 3.12보다 앞에 있을 때 확인한 해석 결과는 다음과
+같습니다.
+
+```text
+shutil.which("python") -> C:\Users\<사용자>\AppData\Local\Microsoft\WindowsApps\python.EXE
+probe C:\Users\<사용자>\AppData\Local\Microsoft\WindowsApps\python.EXE -> NON_FUNCTIONAL_SHIM (exit 9009, stdout "", stderr "Python ")
+selected -> C:\Users\<사용자>\AppData\Local\Programs\Python\Python312\python.EXE
+```
 
 ## Plugin registry
 
