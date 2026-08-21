@@ -416,3 +416,11 @@ def test_event_type_table_pin() -> None:
         "progress.updated",
         "progress.updated",
     ]
+def test_runtime_adapter_registers_the_working_memory_command(tmp_path: Path) -> None:
+    """Given the production runtime adapter, When its handlers are read, Then
+    Working Memory mutation is registered so the shell can advertise it."""
+    adapter = RuntimeWorkspaceAdapter(
+        "memory-session", _event, workspace_root=tmp_path / "workspace"
+    )
+
+    assert "memory.write" in adapter.handlers()

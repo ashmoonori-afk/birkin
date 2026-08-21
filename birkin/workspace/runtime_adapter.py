@@ -23,6 +23,7 @@ from ..runtime import Session, build_session
 from . import approval_authority
 from .owned_terminal import TerminalAuthority
 from .records import PanelSummary, WorkspaceEvent, WorkspaceSnapshot
+from .working_memory import memory_write_handler
 from .service import CommandHandler
 
 EventSink = Callable[[str, dict[str, object]], WorkspaceEvent]
@@ -142,6 +143,7 @@ class RuntimeWorkspaceAdapter:
             "approval.answer": self._approval_answer,
             "question.answer": self._question_answer,
             "session.compact": self._session_compact,
+            "memory.write": memory_write_handler(self._session_id, self._emit),
             **self._terminal.handlers(),
             **self._jailed_import.handlers(),
             **self.surface_authority.handlers(self._emit),
