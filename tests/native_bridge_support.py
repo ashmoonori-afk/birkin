@@ -148,8 +148,7 @@ def handshake(
             )
         )
     )
-    snapshot = receive_frame(client)
-    assert snapshot.kind == "snapshot"
+    _ = receive_kind(client, "snapshot")
     return token
 
 

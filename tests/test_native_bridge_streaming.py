@@ -11,6 +11,7 @@ from birkin.native.protocol import NativeEnvelope, NativeProtocolError, encode_f
 from birkin.native.server import NativeBridgeServer
 from birkin.native.transport import receive_frame
 from birkin.workspace import WorkspaceCommand, WorkspaceService
+from tests import native_bridge_support
 from tests.native_bridge_support import (
     command_body,
     envelope,
@@ -57,6 +58,30 @@ def test_subscribed_connection_streams_new_workspace_events(
 
         assert event.kind == "event"
         assert event.body["cursor"] == 1
+    finally:
+        client.close()
+        thread.join(timeout=2)
+    assert errors == []
+
+
+def test_handshake_accepts_interleaved_ping_before_snapshot(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    bridge, _capabilities, _source = server_with_source(tmp_path)
+    server_socket, client = socket.socketpair()
+    thread, errors = serve(bridge, server_socket, transport="uds", peer_uid=local_peer_uid())
+    responses = iter(
+        (None, envelope("ping", frame_id="heartbeat-1", body={}), None)
+    )
+
+    def receive_with_interleaved_ping(connection: socket.socket) -> NativeEnvelope:
+        response = next(responses)
+        return receive_frame(connection) if response is None else response
+
+    monkeypatch.setattr(native_bridge_support, "receive_frame", receive_with_interleaved_ping)
+    try:
+        assert handshake(client)
     finally:
         client.close()
         thread.join(timeout=2)
