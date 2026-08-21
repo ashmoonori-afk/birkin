@@ -106,7 +106,8 @@ public enum ShellKeyboardJourney: Sendable {
 public enum ShellKeyboardModel {
     public static let focusOrder = [
         "command-palette.open", "command-palette.search", "command-palette.results",
-        "sessions.new", "composer.draft", "composer.send", "conversation.stream",
+        "sessions.new", "composer.draft", "composer.attach", "composer.send",
+        "conversation.stream",
         "terminal.new", "terminal.input", "terminal.run", "terminal.output",
         "approvals.approve", "activity.receipt",
     ]
@@ -117,6 +118,7 @@ public enum ShellKeyboardModel {
         ShellKeyboardCommand(shortcut: "cmd+return", action: "composer.send"),
         ShellKeyboardCommand(shortcut: "cmd+.", action: "terminal.interrupt"),
         ShellKeyboardCommand(shortcut: "cmd+shift+a", action: "approvals.oldest"),
+        ShellKeyboardCommand(shortcut: "cmd+shift+o", action: "composer.attach"),
         ShellKeyboardCommand(shortcut: "escape", action: "overlay.dismiss"),
         ShellKeyboardCommand(shortcut: "cmd+1", action: "panel.navigation"),
         ShellKeyboardCommand(shortcut: "cmd+2", action: "panel.primary"),
@@ -189,6 +191,7 @@ public enum ShellAccessibilityInventory {
         node("conversation.stream", "conversation", .landmark, "Conversation message stream", priority: 690),
         node("composer.code-mode", "composer", .toggle, "Code mode", value: "On or off", actions: ["toggle"], priority: 680),
         node("composer.draft", "composer", .textArea, "Message draft", value: "Editable text", actions: ["edit"], priority: 670),
+        node("composer.attach", "composer", .button, "Choose a file to import into the workspace jail", actions: ["press"], priority: 665),
         node("composer.import", "composer", .button, "Import file into workspace jail", actions: ["press", "drop"], priority: 660),
         node("composer.voice", "composer", .button, "Start voice input", actions: ["press"], priority: 650),
         node("composer.send", "composer", .button, "Send message", actions: ["press"], priority: 640),

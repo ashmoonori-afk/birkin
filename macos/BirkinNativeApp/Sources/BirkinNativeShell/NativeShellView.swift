@@ -1,5 +1,6 @@
 import BirkinNativeProtocol
 import SwiftUI
+import UniformTypeIdentifiers
 
 public struct NativeShellView: View {
     private let store: NativeProjectionStore
@@ -15,6 +16,7 @@ public struct NativeShellView: View {
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
     @Environment(\.shellVisualSettings) private var visualSettings
     @State private var selectedColumn: ShellColumnID
+    @State private var showsAttachmentPicker = false
     @State private var showsCommandPalette = false
     @StateObject private var templateLauncher: TemplateLauncherModel
     @StateObject private var conversationComposer: ConversationComposerModel
@@ -110,6 +112,24 @@ public struct NativeShellView: View {
                     .supportedCommands ?? []
             )) { item in
                 selectPaletteCommand(item.commandType)
+            }
+        }
+        .fileImporter(
+            isPresented: $showsAttachmentPicker,
+            allowedContentTypes: [.data],
+            allowsMultipleSelection: false
+        ) { result in
+            switch result {
+            case .success(let urls):
+                importDroppedURLs(
+                    urls,
+                    availability: MutationAvailability(state: connectionState, now: now)
+                )
+            case .failure(let error):
+                let cocoaError = error as NSError
+                guard cocoaError.domain != NSCocoaErrorDomain
+                        || cocoaError.code != NSUserCancelledError else { return }
+                jailedDrop.refuse(reason: "The selected file could not be opened.")
             }
         }
     }
@@ -269,6 +289,14 @@ public struct NativeShellView: View {
                 templateLaunchers(availability: availability)
             }
             if section.id == .composer {
+                Button {
+                    showsAttachmentPicker = true
+                } label: {
+                    Label("Attach File", systemImage: "paperclip")
+                }
+                .disabled(!availability.isEnabled || !isFileImportAdvertised)
+                .keyboardShortcut("o", modifiers: [.command, .shift])
+                .accessibilityLabel("Choose a file to import into the workspace jail")
                 if visualSettings.snapshotRendering {
                     Label("Drop a file to import", systemImage: "tray.and.arrow.down")
                         .font(.caption)
@@ -545,6 +573,11 @@ public struct NativeShellView: View {
         return commands.isSuperset(of: [
             "terminal.input", "terminal.signal", "terminal.close",
         ])
+    }
+
+    private var isFileImportAdvertised: Bool {
+        Self.readySession(in: connectionState)?
+            .supportedCommands.contains("file.import") == true
     }
 
     private var isWorkingMemoryAdvertised: Bool {

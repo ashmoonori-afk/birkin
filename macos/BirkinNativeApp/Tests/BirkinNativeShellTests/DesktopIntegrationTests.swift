@@ -76,6 +76,22 @@ struct DesktopDropTests {
         #expect(png.count > 2_000)
     }
 
+    @Test("the attachment picker is keyboard reachable through jailed import")
+    func attachmentPickerInventory() throws {
+        // Given: the complete native accessibility and keyboard inventories.
+        let node = try #require(ShellAccessibilityInventory.nodes.first {
+            $0.id == "composer.attach"
+        })
+
+        // When / Then: the picker is a pressable composer action with its own
+        // shortcut, while file.import remains Python's eventual authority.
+        #expect(node.role == .button)
+        #expect(node.actions == ["press"])
+        #expect(ShellKeyboardModel.commands.contains {
+            $0.shortcut == "cmd+shift+o" && $0.action == "composer.attach"
+        })
+    }
+
     @Test("non-file and unavailable drops are refused without transport")
     func refusal() {
         let session = readySession(commands: ["file.import"])
