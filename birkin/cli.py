@@ -204,6 +204,14 @@ def _cmd_plugins(args: argparse.Namespace) -> int:
         return 1
 
 
+def _cmd_plugin_effects(args: argparse.Namespace) -> int:
+    from . import tool_effect_cli
+    effect_args = list(args.effect_args)
+    if args.effect_json:
+        effect_args.append("--json")
+    return tool_effect_cli.run(effect_args)
+
+
 def _cmd_skills(args: argparse.Namespace) -> int:
     from . import config
     from .skills import build_manager
@@ -1255,6 +1263,11 @@ def build_parser() -> argparse.ArgumentParser:
     resolvep = pps.add_parser("resolve", help="show the effective project/team pin")
     resolvep.add_argument("name")
     resolvep.add_argument("--version", help="require this exact installed version")
+    effectsp = pps.add_parser("effects", help="manage plugin tool effect attestations")
+    effectsp.add_argument("--json", dest="effect_json", action="store_true",
+                          help=argparse.SUPPRESS)
+    effectsp.add_argument("effect_args", nargs=argparse.REMAINDER)
+    effectsp.set_defaults(func=_cmd_plugin_effects)
     for plugin_parser in (inspectp, installp, resolvep):
         plugin_parser.add_argument("--json", action="store_true", help="machine-readable JSON")
         plugin_parser.add_argument(
