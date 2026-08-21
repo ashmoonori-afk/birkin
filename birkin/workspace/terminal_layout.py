@@ -29,7 +29,6 @@ def wrap_cells(text: str, width: int) -> list[str]:
 
 
 def compose_layout(
-    width: int,
     *,
     header: str,
     border: str,
@@ -37,44 +36,17 @@ def compose_layout(
     tabs: str,
     panel: list[str],
     composer: str,
-    pulse: str,
     hints: str,
-    wide_label: str,
-    bench_label: str,
-    queue_label: str,
+    rows: int,
 ) -> list[str]:
-    if width >= 120:
-        return [
-            header,
-            wide_label,
-            border,
-            *conversation,
-            border,
-            tabs,
-            *panel,
-            composer,
-            hints,
-        ]
-    if width >= 80:
-        return [
-            pulse,
-            header,
-            bench_label,
-            *conversation,
-            border,
-            tabs,
-            *panel,
-            composer,
-            hints,
-        ]
-    return [
-        pulse,
-        queue_label,
-        tabs,
-        *panel,
-        border,
-        bench_label,
-        *conversation,
-        composer,
-        hints,
-    ]
+    trailing_chrome = [border, tabs, *panel, composer, hints]
+    chrome = [header, border, *trailing_chrome]
+    row_budget = max(0, rows)
+    if row_budget < len(chrome):
+        return chrome[-row_budget:] if row_budget else []
+
+    conversation_budget = row_budget - len(chrome)
+    visible_conversation = (
+        conversation[-conversation_budget:] if conversation_budget else []
+    )
+    return [header, border, *visible_conversation, *trailing_chrome]
