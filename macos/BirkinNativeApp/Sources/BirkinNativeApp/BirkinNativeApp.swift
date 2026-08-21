@@ -106,7 +106,10 @@ public final class BirkinApplicationRuntime: ObservableObject {
     /// Start the bridge this application owns and adopt the endpoint it
     /// announces. An externally managed bridge is never touched.
     private func startOwnedBridge() {
-        guard let ownedBridge else { return }
+        guard let ownedBridge else {
+            emit("bridge-unavailable \(OwnedBridgeConfiguration.discoveryDiagnostic())")
+            return
+        }
         let supervisor = OwnedBridgeSupervisor(spawn: { [weak self] in
             let launched = try OwnedBridgeLauncher.launch(ownedBridge) { pid, status in
                 Task { @MainActor in self?.ownedBridgeExited(pid: pid, status: status) }

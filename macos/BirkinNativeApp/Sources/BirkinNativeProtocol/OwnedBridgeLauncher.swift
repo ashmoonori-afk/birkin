@@ -27,28 +27,6 @@ public struct OwnedBridgeConfiguration: Equatable, Sendable {
         self.readinessTimeout = readinessTimeout
     }
 
-    /// The bridge command this installation ships, or nil when none is found.
-    public static func discovered(
-        in environment: [String: String] = ProcessInfo.processInfo.environment
-    ) -> OwnedBridgeConfiguration? {
-        if let command = environment[commandEnvironmentKey], !command.isEmpty {
-            let arguments = environment[argumentsEnvironmentKey]?
-                .split(separator: " ")
-                .map(String.init) ?? []
-            let options = environment[optionsEnvironmentKey]?
-                .split(separator: " ")
-                .map(String.init) ?? []
-            return OwnedBridgeConfiguration(
-                executable: command, leadingArguments: arguments, serveOptions: options
-            )
-        }
-        guard let bundled = Bundle.main.url(forAuxiliaryExecutable: "birkin"),
-              FileManager.default.isExecutableFile(atPath: bundled.path) else {
-            return nil
-        }
-        return OwnedBridgeConfiguration(executable: bundled.path)
-    }
-
     var argumentList: [String] {
         leadingArguments + ["native-bridge", "serve", "--transport", "uds"] + serveOptions
     }
