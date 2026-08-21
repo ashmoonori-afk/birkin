@@ -148,3 +148,4 @@ def test_package_and_dmg_manifests_publish_helper_identity() -> None:
     assert "build_browser_runtimes.sh" in package_script
     assert "BrowserRuntimes/arm64" in package_script
     assert "BrowserRuntimes/x86_64" in package_script
+    assert 'image_size_kib="$((app_size_kib + 262144))"' in dmg_script

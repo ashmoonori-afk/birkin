@@ -69,7 +69,10 @@ if [[ "$helper_source_state" != "clean" && "${BIRKIN_ALLOW_DIRTY_PACKAGE:-0}" !=
   exit 1
 fi
 rm -f "$dmg"
-hdiutil create -volname Birkin -srcfolder "$app" -ov -format UDZO "$dmg"
+app_size_kib="$(du -sk "$app" | awk '{print $1}')"
+image_size_kib="$((app_size_kib + 262144))"
+hdiutil create -volname Birkin -srcfolder "$app" \
+  -size "${image_size_kib}k" -fs HFS+ -ov -format UDZO "$dmg"
 dmg_hash="$(shasum -a 256 "$dmg" | awk '{print $1}')"
 {
   echo "$binary_hash  Birkin.app/Contents/MacOS/BirkinNativeApp"
