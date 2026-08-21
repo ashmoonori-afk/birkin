@@ -452,8 +452,12 @@ class Agent:
                 f"Tool {name!r} is unavailable for this untrusted turn.",
                 True,
             )
-        res = self.registry.execute(name, tool_use.get("input", {}) or {})
-        return self._result_block(tool_use, res.content, res.is_error)
+        try:
+            res = self.registry.execute(name, tool_use.get("input", {}) or {})
+            return self._result_block(tool_use, res.content, res.is_error)
+        except Exception as exc:
+            return self._result_block(
+                tool_use, f"Tool {name!r} failed: {exc}", True)
 
     def _run_tools(self, tool_uses: list[dict[str, Any]],
                    abort: Optional["AbortLike"]) -> list[dict[str, Any]]:
@@ -462,11 +466,22 @@ class Agent:
         Exactly one tool_result per tool_use, always: a missing or duplicated
         one makes the next API call fail outright.
         """
+        refresh = getattr(self.registry, "refresh_effects", None)
+        snapshot = refresh() if callable(refresh) else None
+        if getattr(snapshot, "state", None) == "invalid":
+            diagnostic = str(getattr(snapshot, "diagnostic", "")).strip().rstrip(".")
+            message = "Tool effect file error"
+            if diagnostic:
+                message += f": {diagnostic}"
+            self._emit("warning", {"message": message + "."})
+
+        classify = getattr(self.registry, "can_parallelize", None)
+        can_parallelize = classify if callable(classify) else None
         if not self.parallel_tools or len(tool_uses) < 2:
             return [self._execute_with_events(tu) for tu in tool_uses]
 
         results: list[dict[str, Any]] = []
-        for kind, calls in parallel.plan_segments(tool_uses):
+        for kind, calls in parallel.plan_segments(tool_uses, can_parallelize):
             if kind == "parallel":
                 results.extend(self._run_parallel(calls, abort))
             else:
@@ -538,8 +553,8 @@ class Agent:
                     i = futures[fut]
                     try:
                         slots[i] = fut.result()
-                    except Exception as exc:   # registry.execute catches its
-                        slots[i] = self._result_block(  # own; this is a guard
+                    except Exception as exc:   # _run_one normalizes tool errors;
+                        slots[i] = self._result_block(  # this guards the executor
                             calls[i], f"Tool failed: {exc}", True)
                 if pending and self._aborted(abort):
                     for fut in pending:

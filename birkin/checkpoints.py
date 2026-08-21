@@ -31,6 +31,7 @@ from typing import Any, Callable, Optional, Sequence, TypedDict
 
 from . import config
 from .checkpoints_timeline import TimelineError, TimelineStore, now
+from .tool_effects import NATIVE_TOOL_ORIGIN, ToolEffect, ToolOrigin
 
 # Never snapshot these — noise, build output, or secrets that have no business
 # being copied into ~/.birkin.
@@ -620,14 +621,24 @@ class CheckpointManager:
         )
         return out.strip() if code == 0 else ""
 
-    def begin_tool(self, workdir: Any, tool: str,
-                   tool_input: dict[str, Any]) -> None:
+    def begin_tool(
+        self,
+        workdir: Any,
+        tool: str,
+        tool_input: dict[str, Any],
+        *,
+        origin: ToolOrigin = NATIVE_TOOL_ORIGIN,
+        effect: ToolEffect = ToolEffect.CHANGE,
+    ) -> None:
         """Open one timeline event and capture its before file/task state."""
         workspace = Path(workdir).resolve()
-        mutating = (
-            tool in {"write_file", "edit_file", "run_shell"}
-            and not bool(tool_input.get("_read_only"))
-        )
+        if origin.kind == "native":
+            mutating = (
+                tool in {"write_file", "edit_file", "run_shell"}
+                and not bool(tool_input.get("_read_only"))
+            )
+        else:
+            mutating = effect is ToolEffect.CHANGE
         before = ""
         if mutating:
             before = self.ensure_checkpoint(workspace, f"before {tool}") or self._head(workspace)
@@ -766,27 +777,22 @@ def project_root_for(path: Path) -> Path:
     return current
 
 
-def preflight(ctx: Any, tool_name: str, tool_input: dict[str, Any]) -> None:
+def preflight(
+    ctx: Any,
+    tool_name: str,
+    tool_input: dict[str, Any],
+    *,
+    origin: ToolOrigin = NATIVE_TOOL_ORIGIN,
+    effect: ToolEffect = ToolEffect.CHANGE,
+) -> None:
     """Open a per-tool timeline event, checkpointing mutating tools first."""
     manager = getattr(ctx, "checkpoints", None)
     if manager is None or not getattr(manager, "enabled", False):
         return
     workspace = Path(ctx.cwd).resolve()
-    if not hasattr(manager, "begin_tool"):
-        # Compatibility for lightweight integration adapters implementing the
-        # original manager protocol.
-        if tool_name in ("write_file", "edit_file"):
-            raw = (tool_input or {}).get("path", "")
-            if not raw:
-                return
-            target = Path(str(raw)).expanduser()
-            if not target.is_absolute():
-                target = workspace / target
-            commit = manager.ensure_checkpoint(project_root_for(target), f"before {tool_name}")
-            if commit and getattr(ctx, "emit", None):
-                ctx.emit("checkpoint", {"before": tool_name})
-        return
-    if tool_name in ("write_file", "edit_file"):
+    if origin.kind == "plugin":
+        workspace = project_root_for(workspace)
+    elif tool_name in ("write_file", "edit_file"):
         raw = (tool_input or {}).get("path", "")
         if not raw:
             return
@@ -797,14 +803,42 @@ def preflight(ctx: Any, tool_name: str, tool_input: dict[str, Any]) -> None:
     elif tool_name == "run_shell":
         command = (tool_input or {}).get("command", "")
         from .shellguard import detect
-        # Benign shell calls still appear in the timeline, but do not create
-        # snapshots merely by being observed.
+        # Benign native shell calls still appear in the timeline, but do not
+        # create snapshots merely by being observed.
         if not command or detect(str(command))[0] is None:
-            manager.begin_tool(workspace, tool_name, {**tool_input, "_read_only": True})
+            if hasattr(manager, "begin_tool"):
+                manager.begin_tool(
+                    workspace,
+                    tool_name,
+                    {**tool_input, "_read_only": True},
+                    origin=origin,
+                    effect=effect,
+                )
             return
         workspace = Path((tool_input or {}).get("cwd") or ctx.cwd).resolve()
+
+    if not hasattr(manager, "begin_tool"):
+        # Compatibility for lightweight integration adapters implementing the
+        # original manager protocol.
+        mutating = (
+            effect is ToolEffect.CHANGE
+            if origin.kind == "plugin"
+            else tool_name in ("write_file", "edit_file")
+        )
+        if mutating:
+            commit = manager.ensure_checkpoint(workspace, f"before {tool_name}")
+            if commit and getattr(ctx, "emit", None):
+                ctx.emit("checkpoint", {"before": tool_name})
+        return
+
     before = manager._head(workspace)
-    manager.begin_tool(workspace, tool_name, tool_input or {})
+    manager.begin_tool(
+        workspace,
+        tool_name,
+        tool_input or {},
+        origin=origin,
+        effect=effect,
+    )
     if manager._head(workspace) != before and getattr(ctx, "emit", None):
         ctx.emit("checkpoint", {"before": tool_name})
 
