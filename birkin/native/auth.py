@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import secrets
 from typing import final
 
 from birkin.native.capability import (
@@ -74,13 +73,9 @@ class NativeConnectionAuth:
         capability: SessionCapability,
     ) -> None:
         token = body.get("session_capability")
-        if (
-            not isinstance(token, str)
-            or not secrets.compare_digest(token, capability.token)
-            or not self._capabilities.authenticate_session(
-                token,
-                scope=capability.scope,
-            )
+        if not isinstance(token, str) or not self._capabilities.authenticate_session(
+            token,
+            scope=capability.scope,
         ):
             raise NativeProtocolError(
                 "E_CAPABILITY_INVALID",

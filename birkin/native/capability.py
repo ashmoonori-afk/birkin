@@ -5,7 +5,6 @@ from __future__ import annotations
 import secrets
 import threading
 from collections.abc import Callable
-from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import final
@@ -18,34 +17,21 @@ from birkin.native.bootstrap import (
     read_record,
     write_record,
 )
+from birkin.native.capability_types import (
+    CapabilityScope as CapabilityScope,
+    SessionCapability as SessionCapability,
+)
 from birkin.native.protocol import NativeProtocolError
 
 Clock = Callable[[], datetime]
 _DEFAULT_BOOTSTRAP_TTL = timedelta(minutes=2)
 _DEFAULT_CAPABILITY_TTL = timedelta(minutes=15)
 _DEFAULT_CAPABILITY_MAX_AGE = timedelta(hours=8)
+_CAPABILITY_RENEWAL_OVERLAP = timedelta(seconds=5)
 
 
 def _utc_now() -> datetime:
     return datetime.now(timezone.utc)
-
-
-@final
-@dataclass(frozen=True, slots=True)
-class CapabilityScope:
-    instance_id: str
-    connection_id: str
-    surface: str
-    view_id: str
-
-
-@final
-@dataclass(frozen=True, slots=True)
-class SessionCapability:
-    token: str
-    expires_at: datetime
-    hard_expires_at: datetime
-    scope: CapabilityScope
 
 
 @final
@@ -75,6 +61,7 @@ class BootstrapSecretStore:
         self._capability_max_age = capability_max_age
         self._now = now
         self._capabilities: dict[str, SessionCapability] = {}
+        self._overlapping_capabilities: dict[str, SessionCapability] = {}
         self._capability_lock = threading.Lock()
         self._endpoint_metadata: dict[str, object] | None = None
         prepare_private_root(self.root)
@@ -163,16 +150,19 @@ class BootstrapSecretStore:
     ) -> bool:
         with self._capability_lock:
             self._purge_expired()
-            known = self._find_token(token)
+            known = self._find_token(token, self._capabilities)
+            if known is not None:
+                return self._capabilities[known].scope == scope
+            overlapping = self._find_token(token, self._overlapping_capabilities)
             return (
-                known is not None
-                and self._capabilities[known].scope == scope
+                overlapping is not None
+                and self._overlapping_capabilities[overlapping].scope == scope
             )
 
     def renew_session(self, token: str) -> SessionCapability:
         with self._capability_lock:
             self._purge_expired()
-            known = self._find_token(token)
+            known = self._find_token(token, self._capabilities)
             if known is None:
                 raise NativeProtocolError(
                     "E_CAPABILITY_EXPIRED",
@@ -183,7 +173,7 @@ class BootstrapSecretStore:
     def renew_if_due(self, token: str) -> SessionCapability | None:
         with self._capability_lock:
             self._purge_expired()
-            known = self._find_token(token)
+            known = self._find_token(token, self._capabilities)
             if known is None:
                 raise NativeProtocolError(
                     "E_CAPABILITY_EXPIRED",
@@ -196,22 +186,44 @@ class BootstrapSecretStore:
 
     def revoke_session(self, token: str) -> None:
         with self._capability_lock:
-            known = self._find_token(token)
+            known = self._find_token(token, self._capabilities)
             if known is not None:
                 del self._capabilities[known]
+                return
+            overlapping = self._find_token(token, self._overlapping_capabilities)
+            if overlapping is not None:
+                del self._overlapping_capabilities[overlapping]
 
     def revoke_all_sessions(self) -> None:
         with self._capability_lock:
             self._capabilities.clear()
+            self._overlapping_capabilities.clear()
 
     def active_session_count(self) -> int:
         with self._capability_lock:
             self._purge_expired()
-            return len(self._capabilities)
+            return len(self._capabilities) + len(self._overlapping_capabilities)
 
     def _renew_known(self, known: str) -> SessionCapability:
         current = self._capabilities.pop(known)
         now = self._now()
+        previous = [
+            token
+            for token, capability in self._overlapping_capabilities.items()
+            if capability.scope == current.scope
+        ]
+        for token in previous:
+            del self._overlapping_capabilities[token]
+        self._overlapping_capabilities[current.token] = SessionCapability(
+            token=current.token,
+            expires_at=min(
+                current.expires_at,
+                current.hard_expires_at,
+                now + _CAPABILITY_RENEWAL_OVERLAP,
+            ),
+            hard_expires_at=current.hard_expires_at,
+            scope=current.scope,
+        )
         renewed = SessionCapability(
             token=secrets.token_urlsafe(32),
             expires_at=min(now + self._capability_ttl, current.hard_expires_at),
@@ -223,20 +235,28 @@ class BootstrapSecretStore:
 
     def _purge_expired(self) -> None:
         now = self._now()
-        expired = [
-            token
-            for token, capability in self._capabilities.items()
-            if now >= capability.expires_at
-            or now >= capability.hard_expires_at
-        ]
-        for token in expired:
-            del self._capabilities[token]
+        for capabilities in (
+            self._capabilities,
+            self._overlapping_capabilities,
+        ):
+            expired = [
+                token
+                for token, capability in capabilities.items()
+                if now >= capability.expires_at
+                or now >= capability.hard_expires_at
+            ]
+            for token in expired:
+                del capabilities[token]
 
-    def _find_token(self, token: str) -> str | None:
+    def _find_token(
+        self,
+        token: str,
+        capabilities: dict[str, SessionCapability],
+    ) -> str | None:
         return next(
             (
                 known
-                for known in self._capabilities
+                for known in capabilities
                 if secrets.compare_digest(token, known)
             ),
             None,

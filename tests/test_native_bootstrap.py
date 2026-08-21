@@ -113,7 +113,7 @@ def test_session_capability_renewal_rotates_token_with_hard_ceiling(
 
     assert second.token != first.token
     assert second.hard_expires_at == first.hard_expires_at
-    assert _authenticated(store, first.token) is False
+    assert _authenticated(store, first.token) is True
     assert _authenticated(store, second.token) is True
     assert second.expires_at == clock.now + timedelta(seconds=5)
 
@@ -172,3 +172,81 @@ def test_session_capability_is_bound_to_connection_scope(
     assert renewed.scope.connection_id == "connection-1"
     assert renewed.scope.surface == "macos"
     assert renewed.scope.view_id == "main"
+
+
+def test_renewal_overlap_preserves_exact_scope_for_both_tokens(
+    tmp_path: Path,
+) -> None:
+    clock = MutableClock()
+    store = BootstrapSecretStore(
+        tmp_path,
+        capability_ttl=timedelta(seconds=30),
+        capability_max_age=timedelta(seconds=90),
+        now=clock,
+    )
+    first = store.mint_session(scope=CapabilityScope(
+        instance_id="instance-1",
+        connection_id="connection-1",
+        surface="macos",
+        view_id="main",
+    ))
+
+    second = store.renew_session(first.token)
+
+    assert second.scope == first.scope
+    for token in (first.token, second.token):
+        assert store.authenticate_session(token, scope=first.scope)
+        for wrong_scope in (
+            CapabilityScope("instance-2", "connection-1", "macos", "main"),
+            CapabilityScope("instance-1", "connection-2", "macos", "main"),
+            CapabilityScope("instance-1", "connection-1", "web", "main"),
+            CapabilityScope("instance-1", "connection-1", "macos", "admin"),
+        ):
+            assert not store.authenticate_session(token, scope=wrong_scope)
+
+
+def test_renewal_overlap_retires_previous_and_refuses_invalid_tokens(
+    tmp_path: Path,
+) -> None:
+    clock = MutableClock()
+    store = BootstrapSecretStore(
+        tmp_path,
+        capability_ttl=timedelta(seconds=30),
+        capability_max_age=timedelta(seconds=90),
+        now=clock,
+    )
+    first = store.mint_session(scope=_SCOPE)
+    second = store.renew_session(first.token)
+    store.revoke_session(first.token)
+
+    assert not _authenticated(store, first.token)
+    assert _authenticated(store, second.token)
+    assert not _authenticated(store, "unauthenticated-token")
+
+    third = store.renew_session(second.token)
+    clock.now += timedelta(seconds=5)
+
+    assert not _authenticated(store, second.token)
+    assert _authenticated(store, third.token)
+
+    clock.now = third.expires_at
+    assert not _authenticated(store, third.token)
+
+
+def test_renewal_overlap_keeps_only_current_and_immediate_predecessor(
+    tmp_path: Path,
+) -> None:
+    store = BootstrapSecretStore(
+        tmp_path,
+        capability_ttl=timedelta(seconds=30),
+        capability_max_age=timedelta(seconds=90),
+    )
+    first = store.mint_session(scope=_SCOPE)
+    second = store.renew_session(first.token)
+
+    third = store.renew_session(second.token)
+
+    assert not _authenticated(store, first.token)
+    assert _authenticated(store, second.token)
+    assert _authenticated(store, third.token)
+    assert store.active_session_count() == 2
