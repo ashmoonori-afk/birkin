@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import errno
 import json
 import os
 import signal
@@ -12,7 +13,7 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
 from types import FrameType
-from typing import final
+from typing import Protocol, final
 
 from birkin import __version__, config
 from birkin.native.capability import BootstrapSecretStore
@@ -25,6 +26,23 @@ Announce = Callable[[str], None]
 
 DEFAULT_SESSION_ID = "native-app"
 _SUPPORTED_TRANSPORTS = ("uds", "loopback")
+
+# Losing the listener is the one socket failure serving cannot survive: there
+# is nothing left to accept on. Every other socket error belongs to a single
+# connection or to momentary kernel pressure.
+_LISTENER_LOST_ERRNOS = frozenset({errno.EBADF, errno.EINVAL, errno.ENOTSOCK})
+
+# A ceiling on consecutive failures, so an unrecoverable listener that reports
+# a recoverable errno ends the process instead of spinning on it forever.
+MAX_CONSECUTIVE_ACCEPT_FAILURES = 64
+
+
+class ServingEndpoint(Protocol):
+    """The accept-and-serve surface one bridge lifecycle needs."""
+
+    def serve_once(self) -> None: ...
+
+    def close(self) -> None: ...
 
 
 @final
@@ -63,13 +81,14 @@ def _write_line(line: str) -> None:
 
 
 @final
-class _BridgeProcess:
+class BridgeProcess:
     """One serving lifecycle: compose, announce, accept, and clean up."""
 
     def __init__(self, options: NativeServeOptions, announce: Announce) -> None:
         self._options = options
         self._announce = announce
         self._stopping = threading.Event()
+        self._accept_failures = 0
         self._instance_id = uuid.uuid4().hex
         options.root.mkdir(parents=True, exist_ok=True)
         self._service = WorkspaceService(
@@ -122,9 +141,18 @@ class _BridgeProcess:
             record["discovery_path"] = str(self._capabilities.endpoint_path)
         return record
 
-    def stop(self, endpoint: NativeBridgeEndpoint) -> None:
+    @property
+    def accept_failures(self) -> int:
+        """Consecutive socket failures since a connection was last served."""
+        return self._accept_failures
+
+    def stop(self, endpoint: ServingEndpoint) -> None:
         self._stopping.set()
         endpoint.close()
+
+    def close(self) -> None:
+        """Release the workspace resources this lifecycle owns."""
+        self._adapter.close()
 
     def run(self) -> int:
         endpoint = self._open()
@@ -132,11 +160,11 @@ class _BridgeProcess:
         try:
             _emit(self._announce, self._listening())
             while not self._stopping.is_set():
-                self._serve_one(endpoint)
+                self.serve_one(endpoint)
         finally:
             restore()
             endpoint.close()
-            self._adapter.close()
+            self.close()
             _emit(self._announce, {
                 "event": "stopped",
                 "socket_exists": self._socket_path.exists(),
@@ -144,7 +172,7 @@ class _BridgeProcess:
             })
         return 0
 
-    def _serve_one(self, endpoint: NativeBridgeEndpoint) -> None:
+    def serve_one(self, endpoint: ServingEndpoint) -> None:
         """Serve one client, surviving anything that client can provoke.
 
         This is the process boundary: a refusal must end the connection, never
@@ -152,9 +180,11 @@ class _BridgeProcess:
         """
         try:
             endpoint.serve_once()
-        except OSError:
-            if not self._stopping.is_set():
-                raise
+        except OSError as exc:
+            if self._stopping.is_set():
+                return
+            self._absorb_socket_error(exc)
+            return
         except Exception as exc:  # noqa: BLE001 - service boundary
             if self._stopping.is_set():
                 return
@@ -162,6 +192,27 @@ class _BridgeProcess:
                 "event": "connection_failed",
                 "error": f"{type(exc).__name__}: {exc}"[:200],
             })
+        self._accept_failures = 0
+
+    def _absorb_socket_error(self, exc: OSError) -> None:
+        """Keep serving a per-connection socket failure; stop when the
+        listener itself is gone.
+
+        A loaded kernel aborts individual accepts and a client may reset its
+        own connection at any moment. Neither is a reason to end the bridge the
+        packaged application depends on, and ending it would also spend that
+        application's restart budget.
+        """
+        if exc.errno in _LISTENER_LOST_ERRNOS:
+            raise exc
+        self._accept_failures += 1
+        if self._accept_failures > MAX_CONSECUTIVE_ACCEPT_FAILURES:
+            raise exc
+        _emit(self._announce, {
+            "event": "accept_failed",
+            "error": f"OSError({exc.errno}): {exc.strerror}"[:200],
+            "consecutive_failures": self._accept_failures,
+        })
 
 
 def _install_signal_handlers(stop: Callable[[], None]) -> Callable[[], None]:
@@ -186,7 +237,7 @@ def serve_bridge(
     announce: Announce = _write_line,
 ) -> int:
     """Serve the authenticated local bridge until the process is stopped."""
-    return _BridgeProcess(options, announce).run()
+    return BridgeProcess(options, announce).run()
 
 
 def main(argv: list[str] | None = None) -> int:
