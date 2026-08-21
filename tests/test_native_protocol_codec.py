@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import struct
+import sys
 
 import pytest
 
@@ -16,6 +17,24 @@ from birkin.native.protocol import (
     encode_frame,
 )
 from birkin.workspace.contracts import PROTOCOL_VERSION
+
+
+def test_huge_integer_literal_is_refused_as_a_bounded_json_error() -> None:
+    """Given a frame body carrying an integer literal beyond CPython's digit
+    limit, When the frame is decoded, Then it is refused as a bounded E_JSON
+    protocol error rather than an unmapped interpreter failure."""
+    digits = "9" * (sys.get_int_max_str_digits() + 1)
+    body = (
+        f'{{"protocol":"{NATIVE_PROTOCOL_NAME}",'
+        f'"protocol_version":{NATIVE_PROTOCOL_VERSION},'
+        '"kind":"ping","id":"frame-1","in_reply_to":null,'
+        f'"body":{{"n":{digits}}}}}'
+    ).encode()
+    frame = struct.pack(">I", len(body)) + body
+
+    with pytest.raises(NativeProtocolError) as refusal:
+        _ = decode_frame(frame)
+    assert refusal.value.code == "E_JSON"
 
 
 def _envelope(**overrides: object) -> dict[str, object]:

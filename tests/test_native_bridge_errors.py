@@ -1,10 +1,16 @@
 from __future__ import annotations
 
 import socket
+import struct
+import sys
 from pathlib import Path
 
 from birkin.native.capability import BootstrapSecretStore
-from birkin.native.protocol import encode_frame
+from birkin.native.protocol import (
+    NATIVE_PROTOCOL_NAME,
+    NATIVE_PROTOCOL_VERSION,
+    encode_frame,
+)
 from birkin.native.server import NativeBridgeServer
 from birkin.native.transport import receive_frame
 from birkin.workspace import WorkspaceService
@@ -49,6 +55,40 @@ def test_loopback_rejects_invalid_bootstrap_secret(tmp_path: Path) -> None:
     finally:
         client.close()
         thread.join(timeout=2)
+    assert errors == []
+
+
+def test_huge_integer_frame_is_refused_without_failing_the_bridge(
+    tmp_path: Path,
+) -> None:
+    """Given an authenticated connection, When a frame carries an integer
+    literal past CPython's digit limit, Then the bridge answers a bounded
+    E_JSON refusal and the serving thread records no unmapped failure."""
+    bridge, _capabilities = server(tmp_path)
+    server_socket, client = socket.socketpair()
+    client.settimeout(10)
+    thread, errors = serve(
+        bridge,
+        server_socket,
+        transport="uds",
+        peer_uid=local_peer_uid(),
+    )
+    try:
+        client.sendall(encode_frame(hello(bootstrap_secret=None)))
+        _ = receive_kind(client, "ready")
+        digits = "9" * (sys.get_int_max_str_digits() + 1)
+        body = (
+            f'{{"protocol":"{NATIVE_PROTOCOL_NAME}",'
+            f'"protocol_version":{NATIVE_PROTOCOL_VERSION},'
+            '"kind":"ping","id":"huge-1","in_reply_to":null,'
+            f'"body":{{"n":{digits}}}}}'
+        ).encode()
+        client.sendall(struct.pack(">I", len(body)) + body)
+        error = receive_kind(client, "error")
+        assert error.body["code"] == "E_JSON"
+    finally:
+        client.close()
+        thread.join(timeout=5)
     assert errors == []
 
 

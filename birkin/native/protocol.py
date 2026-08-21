@@ -185,7 +185,14 @@ def decode_frame(frame: bytes) -> NativeEnvelope:
         )
     except RecursionError as exc:
         raise NativeProtocolError("E_JSON_DEPTH", "JSON exceeds maximum depth") from exc
-    except json.JSONDecodeError as exc:
+    except NativeProtocolError:
+        # The strict hooks raise this, and it is itself a ValueError. Let its
+        # exact code through instead of flattening it into E_JSON below.
+        raise
+    except ValueError as exc:
+        # Covers JSONDecodeError and the bare ValueError CPython raises for an
+        # integer literal past int_max_str_digits. Both mean the same thing at
+        # this boundary: this body is not decodable, refuse the frame.
         raise NativeProtocolError("E_JSON", "frame body is not valid JSON") from exc
     return NativeEnvelope.parse(raw)
 
