@@ -137,7 +137,7 @@ esac
 export BIRKIN_HOME="$root/home"
 export BIRKIN_NATIVE_JOURNEY=1
 export BIRKIN_NATIVE_JOURNEY_EVIDENCE="$evidence"
-export BIRKIN_NATIVE_JOURNEY_WORKSPACE="$root/workspace"
+export BIRKIN_NATIVE_JOURNEY_WORKSPACE="$root/home/native-bridge"
 export BIRKIN_NATIVE_JOURNEY_BROWSER_URL="$browser_url"
 export BIRKIN_NATIVE_SCREENSHOT="$evidence/packaged-journey-shell.png"
 export BIRKIN_BROWSER_INTEGRATION=1
