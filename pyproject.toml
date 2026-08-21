@@ -107,6 +107,7 @@ dev = [
     "bandit>=1.8",
     "build>=1.2",
     "ruff>=0.12",
+    "pexpect>=4.9,<5",
 ]
 
 [project.scripts]
