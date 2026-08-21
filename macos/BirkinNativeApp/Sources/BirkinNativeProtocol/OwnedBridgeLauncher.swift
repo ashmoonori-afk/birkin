@@ -55,18 +55,21 @@ public enum OwnedBridgeLauncher {
         process.arguments = configuration.argumentList
         process.standardOutput = output
         process.standardError = FileHandle.standardError
-        process.terminationHandler = { finished in
-            onExit(finished.processIdentifier, finished.terminationStatus)
-        }
         try process.run()
         do {
-            let socketPath = try readEndpoint(
+            let readiness = try readEndpoint(
                 from: output.fileHandleForReading,
                 timeout: configuration.readinessTimeout
             )
+            process.terminationHandler = { finished in
+                onExit(readiness.pid, finished.terminationStatus)
+            }
             return LaunchedBridge(
-                process: FoundationBridgeProcess(process: process),
-                socketPath: socketPath
+                process: FoundationBridgeProcess(
+                    process: process,
+                    supervisedPID: readiness.pid
+                ),
+                socketPath: readiness.socketPath
             )
         } catch {
             process.terminationHandler = nil
@@ -78,7 +81,7 @@ public enum OwnedBridgeLauncher {
     private static func readEndpoint(
         from handle: FileHandle,
         timeout: TimeInterval
-    ) throws -> String {
+    ) throws -> BridgeReadiness {
         let bytes = ReadinessBuffer()
         let ready = DispatchSemaphore(value: 0)
         DispatchQueue.global().async {
@@ -96,11 +99,18 @@ public enum OwnedBridgeLauncher {
               let record = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
               record["event"] as? String == "listening",
               let socketPath = record["socket_path"] as? String,
-              !socketPath.isEmpty else {
+              !socketPath.isEmpty,
+              let rawPID = record["pid"] as? Int,
+              rawPID > 0, rawPID <= Int(Int32.max) else {
             throw OwnedBridgeLaunchError.malformedReadiness
         }
-        return socketPath
+        return BridgeReadiness(socketPath: socketPath, pid: Int32(rawPID))
     }
+}
+
+private struct BridgeReadiness: Sendable {
+    let socketPath: String
+    let pid: Int32
 }
 
 private final class ReadinessBuffer: @unchecked Sendable {

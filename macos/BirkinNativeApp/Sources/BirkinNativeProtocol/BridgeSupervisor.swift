@@ -1,3 +1,4 @@
+import Darwin
 import Foundation
 
 public protocol SupervisedBridgeProcess: AnyObject {
@@ -125,12 +126,21 @@ public final class OwnedBridgeSupervisor {
 
 public final class FoundationBridgeProcess: SupervisedBridgeProcess {
     private let process: Process
+    private let supervisedPID: Int32
 
-    public var pid: Int32 { process.processIdentifier }
+    public var pid: Int32 { supervisedPID }
 
-    public init(process: Process) { self.process = process }
+    public init(process: Process, supervisedPID: Int32? = nil) {
+        self.process = process
+        self.supervisedPID = supervisedPID ?? process.processIdentifier
+    }
 
     public func terminate() {
-        if process.isRunning { process.terminate() }
+        guard process.isRunning else { return }
+        if supervisedPID == process.processIdentifier {
+            process.terminate()
+        } else if kill(supervisedPID, SIGTERM) != 0 {
+            process.terminate()
+        }
     }
 }
