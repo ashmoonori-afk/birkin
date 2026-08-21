@@ -8,6 +8,9 @@ from dataclasses import dataclass
 from typing import final
 
 from birkin.native.product_surface_authorities import (
+    BrowserAsideProjectionSource as BrowserAsideProjectionSource,
+)
+from birkin.native.product_surface_authorities import (
     BrowserSurfaceAuthority as BrowserSurfaceAuthority,
 )
 from birkin.native.product_surface_authorities import (

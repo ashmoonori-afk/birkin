@@ -13,7 +13,11 @@ from birkin.computer_use.capability_types import (
     PermissionState,
     PlatformProbe,
 )
+from birkin.native.product_surface_authorities import (
+    BrowserAsideProjectionSource as CanonicalBrowserAsideProjectionSource,
+)
 from birkin.native.product_surfaces import (
+    BrowserAsideProjectionSource,
     BrowserSurfaceAuthority,
     ComputerUseSurfaceAuthority,
     NativeProductSurfaceAuthority,
@@ -21,6 +25,10 @@ from birkin.native.product_surfaces import (
 )
 from birkin.office.errors import DocumentError
 from birkin.office.service import DocumentService
+
+
+def test_browser_aside_projection_source_import_is_compatible() -> None:
+    assert BrowserAsideProjectionSource is CanonicalBrowserAsideProjectionSource
 
 
 def _object(value: object) -> dict[str, object]:
