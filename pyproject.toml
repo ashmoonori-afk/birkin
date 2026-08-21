@@ -138,9 +138,13 @@ markers = [
 [tool.basedpyright]
 extraPaths = ["scripts/native"]
 include = [
+    "birkin/native",
     "birkin/workspace",
     "birkin/workspace_terminal.py",
     "script/qa/workspace_*.py",
+    "scripts/native",
+    "tests/native_*.py",
+    "tests/test_native_*.py",
     "tests/test_workspace_*.py",
 ]
 exclude = [".venv", "build", "dist"]

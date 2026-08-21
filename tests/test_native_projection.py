@@ -156,6 +156,9 @@ def test_reduced_snapshot_treats_a_redacted_lease_as_no_lease() -> None:
 
     snapshot = reduce_snapshot("session-1", (opened,))
 
-    terminal = snapshot.to_json()["terminals"][0]
+    terminals = snapshot.to_json()["terminals"]
+    assert isinstance(terminals, list)
+    terminal = terminals[0]
+    assert isinstance(terminal, dict)
     assert terminal["lease"] is None
     assert terminal["read_only"] is True

@@ -106,3 +106,24 @@ def test_disk_image_manifests_follow_the_requested_output_root() -> None:
     assert pinned == [], f"manifest paths do not follow the output root: {pinned}"
     assert 'manifest="$output_root' in script
     assert 'build_manifest="$output_root' in script
+
+
+def test_static_type_checking_covers_the_native_surface() -> None:
+    """Given the project type-checker configuration, When its scope is read,
+    Then the native bridge, its scripts, and its tests are all inside it, so
+    the native surface cannot regress unchecked."""
+    with (REPOSITORY / "pyproject.toml").open("rb") as handle:
+        manifest = tomllib.load(handle)
+    tools = manifest["tool"]
+    assert isinstance(tools, dict)
+    basedpyright = tools["basedpyright"]
+    assert isinstance(basedpyright, dict)
+    include = basedpyright["include"]
+    assert isinstance(include, list)
+    for required in (
+        "birkin/native",
+        "scripts/native",
+        "tests/native_*.py",
+        "tests/test_native_*.py",
+    ):
+        assert required in include

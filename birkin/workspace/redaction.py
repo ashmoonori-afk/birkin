@@ -24,7 +24,7 @@ SENSITIVE_KEYS = frozenset({
 
 SECRET_TEXT = re.compile(
     r"(?i)\b(?:bearer\s+\S+|seeded[_-][A-Za-z0-9_-]+|"
-    r"(?:sk|ghp|github_pat|xox[baprs])[-_][A-Za-z0-9_-]{8,})"
+    + r"(?:sk|ghp|github_pat|xox[baprs])[-_][A-Za-z0-9_-]{8,})"
 )
 
 

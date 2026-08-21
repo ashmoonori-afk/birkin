@@ -26,9 +26,9 @@ from birkin.native.protocol import (
     encode_frame,
 )
 
-sys.path.insert(0, str(Path(__file__).resolve().parent))
+sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
-from native_vector_catalogue import build_vectors  # noqa: E402
+from scripts.native.native_vector_catalogue import build_vectors  # noqa: E402
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 FIXTURE_PATH = (
