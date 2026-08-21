@@ -124,12 +124,13 @@ class NativeBridgeServer:
         server_version: str,
         heartbeat_interval: float = 30.0,
         peer_timeout: float = 10.0,
+        hello_timeout: float = 10.0,
         outbound_capacity: int = 512,
         on_disconnect: Callable[[], None] | None = None,
         surface_authority: SurfaceProjectionAuthority | None = None,
         voice_input_available: bool = False,
     ) -> None:
-        if heartbeat_interval <= 0 or peer_timeout <= 0:
+        if heartbeat_interval <= 0 or peer_timeout <= 0 or hello_timeout <= 0:
             raise ValueError("heartbeat intervals must be positive")
         projection_authority = session_authority or authority
         command_router = _CommandRouter(
@@ -166,6 +167,7 @@ class NativeBridgeServer:
         self._commands = NativeCommandExecutor(command_router, self._messages)
         self._heartbeat_interval = heartbeat_interval
         self._peer_timeout = peer_timeout
+        self._hello_timeout = hello_timeout
         self._outbound_capacity = outbound_capacity
         self._on_disconnect = on_disconnect
 
@@ -182,6 +184,9 @@ class NativeBridgeServer:
         unsubscribe: Callable[[], None] | None = None
         with connection:
             try:
+                # Accepting is serial, so an authenticated-but-silent client
+                # would otherwise hold every other client out of the bridge.
+                connection.set_read_deadline(self._hello_timeout)
                 hello = connection.receive()
                 state.receive(hello)
                 capability = self._auth.authenticate_hello(
@@ -197,6 +202,9 @@ class NativeBridgeServer:
                 )
                 state.send(ready)
                 connection.send(ready)
+                # Cleared before the writer thread starts: from here the
+                # heartbeat, not a read deadline, supervises liveness.
+                connection.set_read_deadline(None)
                 issued_tokens.add(capability.token)
                 stream = NativeBridgeStream(
                     connection,

@@ -48,6 +48,15 @@ class NativeConnection:
     def close(self) -> None:
         self.socket.close()
 
+    def set_read_deadline(self, seconds: float | None) -> None:
+        """Bound how long a read may block, or restore blocking reads.
+
+        The deadline is a socket-wide setting, so this is only safe while the
+        connection is still single-threaded. Clear it before starting the
+        writer thread.
+        """
+        self.socket.settimeout(seconds)
+
     def receive(self) -> NativeEnvelope:
         return receive_frame(self.socket)
 

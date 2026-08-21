@@ -3,16 +3,21 @@
 from __future__ import annotations
 
 import errno
+import socket
 from pathlib import Path
 from typing import final
 
 import pytest
 
+from birkin.native.capability import BootstrapSecretStore
 from birkin.native.serve import (
     MAX_CONSECUTIVE_ACCEPT_FAILURES,
-    NativeServeOptions,
     BridgeProcess,
+    NativeServeOptions,
 )
+from birkin.native.server import NativeBridgeServer
+from birkin.workspace import WorkspaceService
+from tests.native_bridge_support import local_peer_uid, serve
 
 
 @final
@@ -104,6 +109,36 @@ def test_relentless_accept_failure_stops_the_bridge(tmp_path: Path) -> None:
         assert spent.value.errno == errno.ECONNABORTED
     finally:
         process.close()
+
+
+def test_a_silent_client_cannot_hold_the_accept_loop(tmp_path: Path) -> None:
+    """Given a client that connects and never says hello, When the pre-hello
+    deadline passes, Then the bridge releases the connection instead of
+    holding the serial accept loop against every other client."""
+    source = WorkspaceService(
+        root=tmp_path / "workspace", session_id="session-1", handlers={}
+    )
+    bridge = NativeBridgeServer(
+        source,
+        capabilities=BootstrapSecretStore(tmp_path / "native"),
+        instance_id="instance-1",
+        server_version="1.0.0",
+        hello_timeout=0.25,
+    )
+    server_socket, client = socket.socketpair()
+    thread, errors = serve(
+        bridge,
+        server_socket,
+        transport="uds",
+        peer_uid=local_peer_uid(),
+    )
+    try:
+        thread.join(timeout=30)
+        assert not thread.is_alive()
+    finally:
+        client.close()
+        thread.join(timeout=5)
+    assert errors == []
 
 
 def test_lost_listener_stops_the_bridge(tmp_path: Path) -> None:
