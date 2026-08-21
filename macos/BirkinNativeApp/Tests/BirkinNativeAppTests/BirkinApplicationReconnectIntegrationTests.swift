@@ -107,6 +107,7 @@ struct BirkinApplicationReconnectIntegrationTests {
         default: nil
         }
         let ready = try #require(session)
+        #expect(runtime.store.projection?.composer.canSend == true)
         runtime.submit(NativeCommandRequest(
             frameID: "post-reconnect-frame", commandID: "post-reconnect-command",
             expectedCursor: runtime.store.latestAppliedCursor ?? 0,
@@ -116,5 +117,11 @@ struct BirkinApplicationReconnectIntegrationTests {
         try await withTimeout("post reconnect receipt") {
             try await events.wait(for: "command-receipt id=post-reconnect-frame")
         }
+        try await withTimeout("post reconnect outcome") {
+            try await events.wait(for: "projection-event type=command.completed")
+        }
+        #expect(events.contains(
+            "projection-event type=command.completed command_id=post-reconnect-command"
+        ))
     }
 }

@@ -381,7 +381,16 @@ public final class BirkinApplicationRuntime: ObservableObject {
             } else {
                 eventType = "unknown"
             }
-            emit("projection-event type=\(eventType) cursor=\(store.latestAppliedCursor ?? -1)")
+            let commandCorrelation: String
+            if case .string(let commandID) = message.body["command_id"] {
+                commandCorrelation = " command_id=\(commandID)"
+            } else {
+                commandCorrelation = ""
+            }
+            emit(
+                "projection-event type=\(eventType)\(commandCorrelation) "
+                    + "cursor=\(store.latestAppliedCursor ?? -1)"
+            )
         case .snapshot:
             try store.apply(snapshot: message)
         case .surfaceEvent, .surfaceSnapshot:
