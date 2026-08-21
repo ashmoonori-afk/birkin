@@ -13,7 +13,8 @@ struct BridgeSupervisorRecoveryIntegrationTests {
         let supervisor = OwnedBridgeSupervisor(
             spawn: {
                 let harness = try HarnessReadiness.launch(
-                    transport: "uds", root: root
+                    transport: "uds",
+                    options: HarnessLaunchOptions(root: root)
                 )
                 harnesses.append(harness)
                 return FoundationBridgeProcess(process: harness.process)

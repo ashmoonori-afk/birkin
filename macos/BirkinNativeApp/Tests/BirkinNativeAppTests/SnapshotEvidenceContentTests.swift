@@ -61,7 +61,7 @@ struct SnapshotEvidenceContentTests {
     private func readySession() -> NativeReadySession {
         let now = Date()
         return NativeReadySession(
-            instanceID: "snapshot-instance", serverVersion: BirkinVersion.package,
+            instanceID: "snapshot-instance", serverVersion: BirkinVersion.packageVersion,
             currentSessionID: "snapshot-session", sessionCapability: "snapshot-capability",
             capabilityExpiresAt: now.addingTimeInterval(60),
             capabilityHardExpiresAt: now.addingTimeInterval(120),

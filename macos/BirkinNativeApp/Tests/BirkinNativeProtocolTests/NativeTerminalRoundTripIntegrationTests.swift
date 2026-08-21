@@ -11,7 +11,10 @@ struct NativeTerminalRoundTripIntegrationTests {
     @MainActor
     @Test("Swift command reaches PTY and Python output reaches projection")
     func echoRoundTrip() throws {
-        let harness = try HarnessReadiness.launch(transport: "uds", terminal: true)
+        let harness = try HarnessReadiness.launch(
+            transport: "uds",
+            options: HarnessLaunchOptions(terminal: true)
+        )
         guard let socketPath = harness.record["socket_path"] as? String else {
             throw HarnessError.malformedReadiness
         }

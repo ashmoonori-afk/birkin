@@ -20,6 +20,22 @@ final class LockedLine: @unchecked Sendable {
     }
 }
 
+struct HarnessLaunchOptions {
+    let terminal: Bool
+    let serverVersion: String?
+    let root: URL?
+
+    init(
+        terminal: Bool = false,
+        serverVersion: String? = nil,
+        root: URL? = nil
+    ) {
+        self.terminal = terminal
+        self.serverVersion = serverVersion
+        self.root = root
+    }
+}
+
 struct HarnessReadiness {
     let process: Process
     let stdout: Pipe
@@ -29,16 +45,14 @@ struct HarnessReadiness {
 
     static func launch(
         transport: String,
-        terminal: Bool = false,
-        connections: Int = 1,
-        root suppliedRoot: URL? = nil
+        options: HarnessLaunchOptions = HarnessLaunchOptions()
     ) throws -> HarnessReadiness {
         let package = URL(fileURLWithPath: #filePath)
             .deletingLastPathComponent()
             .deletingLastPathComponent()
             .deletingLastPathComponent()
         let repository = package.deletingLastPathComponent().deletingLastPathComponent()
-        let root = suppliedRoot
+        let root = options.root
             ?? URL(fileURLWithPath: "/private/tmp/birkin-swift-\(UUID().uuidString)")
         try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
 
@@ -49,9 +63,15 @@ struct HarnessReadiness {
         process.arguments = [
             "scripts/native/swift_transport_harness.py",
             "--transport", transport, "--root", root.path,
-            "--connections", String(connections),
-        ] + (terminal ? ["--terminal"] : [])
+            "--connections", "1",
+        ] + (options.terminal ? ["--terminal"] : [])
         process.currentDirectoryURL = repository
+        process.environment = ProcessInfo.processInfo.environment.merging(
+            options.serverVersion.map {
+                ["BIRKIN_TEST_NATIVE_SERVER_VERSION": $0]
+            } ?? [:],
+            uniquingKeysWith: { _, override in override }
+        )
         process.standardOutput = stdout
         process.standardError = FileHandle.standardError
         process.terminationHandler = { _ in exit.signal() }

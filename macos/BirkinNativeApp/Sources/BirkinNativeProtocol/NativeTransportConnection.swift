@@ -10,7 +10,11 @@ extension NativeTransportActor {
             let socket = try NativeSocket.connectUDS(path: socketPath)
             defer { socket.close() }
             apply(.socketConnected(.uds))
-            let transcript = try negotiate(socket: socket, hello: hello, secret: nil, as: .uds)
+            let transcript = try negotiate(
+                socket: socket,
+                hello: hello,
+                authentication: .uds
+            )
             acceptNegotiated(transcript.session)
             return transcript
         } catch {
@@ -29,7 +33,11 @@ extension NativeTransportActor {
             let socket = try NativeSocket.connectUDS(path: udsSocketPath)
             defer { socket.close() }
             apply(.socketConnected(.uds))
-            let transcript = try negotiate(socket: socket, hello: hello, secret: nil, as: .uds)
+            let transcript = try negotiate(
+                socket: socket,
+                hello: hello,
+                authentication: .uds
+            )
             acceptNegotiated(transcript.session)
             return transcript
         } catch {
@@ -53,8 +61,7 @@ extension NativeTransportActor {
             let transcript = try negotiate(
                 socket: socket,
                 hello: hello,
-                secret: record.bootstrapSecret,
-                as: .loopback
+                authentication: .loopback(secret: record.bootstrapSecret)
             )
             guard transcript.session.instanceID == record.instanceID,
                   transcript.session.serverVersion == record.serverVersion

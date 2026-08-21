@@ -1,20 +1,28 @@
 import Foundation
 
+enum NativeHandshakeAuthentication {
+    case uds
+    case loopback(secret: String)
+}
+
 extension NativeTransportActor {
     func negotiate(
         socket: NativeSocket,
         hello: NativeHello,
-        secret: String?,
-        as transport: NativeTransportKind
+        authentication: NativeHandshakeAuthentication
     ) throws -> NativeHandshakeTranscript {
-        let outbound = hello.envelope(bootstrapSecret: secret)
+        let endpoint: (secret: String?, transport: NativeTransportKind) = switch authentication {
+        case .uds: (nil, .uds)
+        case .loopback(let secret): (secret, .loopback)
+        }
+        let outbound = hello.envelope(bootstrapSecret: endpoint.secret)
         try socket.send(NativeFrameCodec.encode(outbound))
         let inbound = try NativeFrameCodec.decode(frame: socket.receiveFrame())
         guard inbound.kind == .ready, inbound.inReplyTo == outbound.id else {
             throw NativeTransportError("server did not return correlated ready")
         }
         guard case .string(let wireTransport) = inbound.body["transport"],
-              wireTransport == transport.rawValue,
+              wireTransport == endpoint.transport.rawValue,
               case .string(let instanceID) = inbound.body["instance_id"],
               case .string(let serverVersion) = inbound.body["server_version"],
               case .string(let currentSessionID) = inbound.body["session_id"],
@@ -34,6 +42,12 @@ extension NativeTransportActor {
               let hardExpiry = NativeProtocolDate.parse(hardExpiresAt)
         else {
             throw NativeTransportError("ready body is missing transport session fields")
+        }
+        guard serverVersion == BirkinVersion.packageVersion else {
+            throw NativeProductVersionError(
+                expected: BirkinVersion.packageVersion,
+                actual: serverVersion
+            )
         }
         let commands = try commandValues.map { value in
             guard case .string(let command) = value else {
@@ -67,7 +81,7 @@ extension NativeTransportActor {
         return NativeHandshakeTranscript(
             hello: outbound,
             ready: inbound,
-            transport: transport,
+            transport: endpoint.transport,
             session: NativeReadySession(
                 instanceID: instanceID,
                 serverVersion: serverVersion,

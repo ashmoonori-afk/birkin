@@ -9,7 +9,7 @@ struct BirkinNativeAppSmokeTests {
     @Test("release identity and initial window are configured")
     func releaseIdentity() {
         #expect(BirkinApplicationConfiguration.bundleIdentifier == "com.birkin.native")
-        #expect(BirkinApplicationConfiguration.version == BirkinVersion.package)
+        #expect(BirkinApplicationConfiguration.version == BirkinVersion.packageVersion)
         #expect(BirkinApplicationConfiguration.build == "1")
         #expect(BirkinApplicationConfiguration.windowTitle == "Birkin")
     }

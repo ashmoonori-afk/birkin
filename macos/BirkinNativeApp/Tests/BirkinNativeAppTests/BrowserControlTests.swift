@@ -9,7 +9,7 @@ import BirkinNativeShell
 struct BrowserControlTests {
     private static let session = NativeReadySession(
         instanceID: "instance-1",
-        serverVersion: BirkinVersion.package,
+        serverVersion: BirkinVersion.packageVersion,
         currentSessionID: "session-1",
         sessionCapability: "capability-token",
         supportedCommands: ["browser.start", "browser.navigate"]

@@ -8,6 +8,7 @@ import json
 import os
 from pathlib import Path
 
+from birkin import __version__
 from birkin.native.capability import BootstrapSecretStore
 from birkin.native.endpoint import NativeBridgeEndpoint
 from birkin.native.server import NativeBridgeServer
@@ -28,6 +29,7 @@ def main() -> None:
         parser.error("--connections must be between 1 and 8")
 
     session_id = args.session_id
+    server_version = os.environ.get("BIRKIN_TEST_NATIVE_SERVER_VERSION", __version__)
     source = WorkspaceService(
         root=args.root / "workspace",
         session_id=session_id,
@@ -86,7 +88,7 @@ def main() -> None:
         source,
         capabilities=capabilities,
         instance_id="swift-integration-instance",
-        server_version="1.0.0",
+        server_version=server_version,
         on_disconnect=(
             terminal.revoke_leases
             if terminal is not None
@@ -104,7 +106,7 @@ def main() -> None:
             bridge,
             capabilities=capabilities,
             instance_id="swift-integration-instance",
-            server_version="1.0.0",
+            server_version=server_version,
         )
     )
     try:

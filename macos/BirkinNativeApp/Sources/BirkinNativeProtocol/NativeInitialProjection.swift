@@ -27,8 +27,7 @@ extension NativeTransportActor {
             let transcript = try negotiate(
                 socket: socket,
                 hello: hello,
-                secret: nil,
-                as: .uds
+                authentication: .uds
             )
             acceptNegotiated(transcript.session)
             let requestedSurfaces = surfaceRevisions ?? Dictionary(

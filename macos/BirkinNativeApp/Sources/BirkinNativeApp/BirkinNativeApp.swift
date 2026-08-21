@@ -5,7 +5,7 @@ import SwiftUI
 
 public enum BirkinApplicationConfiguration {
     public static let bundleIdentifier = "com.birkin.native"
-    public static let version = BirkinVersion.package
+    public static let version = BirkinVersion.packageVersion
     public static let build = "1"
     public static let windowTitle = "Birkin"
     public static let socketEnvironmentKey = "BIRKIN_NATIVE_SOCKET"
