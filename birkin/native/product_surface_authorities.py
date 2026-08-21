@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Callable, Mapping
 from datetime import datetime, timezone
-from typing import Protocol, cast, final
+from typing import Final, Protocol, cast, final
 
 from birkin.browser_aside_control import BrowserControlAuthority
 from birkin.browser_aside_service import BrowserAsideService
@@ -12,6 +12,9 @@ from birkin.computer_use.capability_types import PlatformProbe
 from birkin.computer_use.doctor import doctor_report
 from birkin.office.errors import DocumentError
 from birkin.office.service import DocumentService
+
+# Keep each Office history tail small enough for the 262,144-byte native frame.
+MAX_OFFICE_SNAPSHOT_ITEMS: Final = 8
 
 
 class BrowserAsideProjectionSource(Protocol):
@@ -219,9 +222,14 @@ class OfficeSurfaceAuthority:
             format=format_name, content=content, output_name=output_name
         )
         artifact = dict(result["draft_artifact"])
-        self._documents[cast(str, artifact["artifact_id"])] = artifact
+        artifact_id = cast(str, artifact["artifact_id"])
+        if artifact_id not in self._documents and len(self._documents) == MAX_OFFICE_SNAPSHOT_ITEMS:
+            del self._documents[next(iter(self._documents))]
+        self._documents[artifact_id] = artifact
         receipt = dict(result["receipt"])
         self._receipts.append(receipt)
+        if len(self._receipts) > MAX_OFFICE_SNAPSHOT_ITEMS:
+            del self._receipts[0]
         self._refusal = None
         return {"document": artifact, "receipt": receipt}
 
@@ -238,11 +246,15 @@ class OfficeSurfaceAuthority:
             raise
         artifact_id = artifact.get("artifact_id")
         if isinstance(artifact_id, str):
+            if artifact_id not in self._documents and len(self._documents) == MAX_OFFICE_SNAPSHOT_ITEMS:
+                del self._documents[next(iter(self._documents))]
             self._documents[artifact_id] = dict(artifact)
         receipt = {
             "operation": "document_open",
             "source_sha256": artifact.get("content_hash"),
         }
         self._receipts.append(receipt)
+        if len(self._receipts) > MAX_OFFICE_SNAPSHOT_ITEMS:
+            del self._receipts[0]
         self._refusal = None
         return {"document": inspection, "receipt": receipt}
