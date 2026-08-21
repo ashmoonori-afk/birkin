@@ -7,9 +7,15 @@ from typing import cast, final
 import pytest
 
 from birkin import uistate
+from birkin.computer_use.capability_types import (
+    DisplayServer,
+    PermissionState,
+    PlatformProbe,
+)
+from birkin.computer_use.runtime import UnavailableBackend
 from birkin.workspace import approval_authority
 from birkin.runtime import Session
-from birkin.workspace import WorkspaceEvent
+from birkin.workspace import WorkspaceEvent, runtime_adapter
 from birkin.workspace.runtime_adapter import RuntimeWorkspaceAdapter
 
 
@@ -51,6 +57,68 @@ def test_runtime_adapter_registers_product_surface_authority_and_commands(
     assert [snapshot.surface for snapshot in snapshots] == [
         "browser_aside", "computer_use", "office"
     ]
+
+
+@final
+class _GrantedBackend:
+    """A platform backend that reports both permissions already granted."""
+
+    backend_id = "test-granted"
+
+    def probe(self) -> PlatformProbe:
+        return PlatformProbe(
+            platform="darwin",
+            display_server=DisplayServer.QUARTZ,
+            interactive=True,
+            accessibility=PermissionState.GRANTED,
+            screen_capture=PermissionState.GRANTED,
+            responsible_process="birkin-test",
+        )
+
+
+def test_computer_use_surface_projects_the_selected_backend_capability(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    """Given a platform backend reporting granted permissions, When the runtime
+    adapter composes product surfaces, Then Computer Use projects that grant."""
+    monkeypatch.setattr(
+        runtime_adapter, "default_backend", lambda: _GrantedBackend()
+    )
+    adapter = RuntimeWorkspaceAdapter(
+        "capability-session", _event, workspace_root=tmp_path / "workspace"
+    )
+
+    status = cast(
+        dict[str, object], adapter.surface_authority.computer_use.snapshot()["status"]
+    )
+
+    permissions = cast(dict[str, object], status["permissions"])
+    assert permissions["accessibility"] == "granted"
+    assert permissions["screen_capture"] == "granted"
+    assert status["permission_prompted"] is False
+
+
+def test_computer_use_surface_projects_an_unavailable_backend(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    """Given no supported platform backend, When the runtime adapter composes
+    product surfaces, Then Computer Use projects undetermined permissions."""
+    monkeypatch.setattr(
+        runtime_adapter, "default_backend", lambda: UnavailableBackend()
+    )
+    adapter = RuntimeWorkspaceAdapter(
+        "capability-session", _event, workspace_root=tmp_path / "workspace"
+    )
+
+    status = cast(
+        dict[str, object], adapter.surface_authority.computer_use.snapshot()["status"]
+    )
+
+    permissions = cast(dict[str, object], status["permissions"])
+    assert permissions["accessibility"] == "unknown"
+    assert status["permission_prompted"] is False
 
 
 def test_runtime_adapter_advertises_and_executes_jailed_file_import(

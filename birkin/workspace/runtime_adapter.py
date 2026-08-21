@@ -15,7 +15,7 @@ from ..browser_aside_control import BrowserControlAuthority
 from ..browser_aside_service import BrowserAsideService
 from ..computer_use.events import ComputerEvent
 from ..computer_use.reducer import ComputerState, reduce_event
-from ..computer_use.runtime import UnavailableBackend
+from ..computer_use.runtime import default_backend
 from ..native.jailed_import import JailedImportAuthority
 from ..office.service import DocumentService
 from ..runtime import Session, build_session
@@ -121,7 +121,7 @@ class RuntimeWorkspaceAdapter:
                 BrowserAsideService(session_id), BrowserControlAuthority(time.monotonic)
             ),
             computer_use=ComputerUseSurfaceAuthority(
-                probe=UnavailableBackend().probe()
+                probe=default_backend().probe()
             ),
             office=OfficeSurfaceAuthority(
                 DocumentService(self._workspace_root / "office")
