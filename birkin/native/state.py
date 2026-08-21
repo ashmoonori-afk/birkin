@@ -35,7 +35,7 @@ _SERVER_KINDS = {
     "goodbye",
 }
 _MAX_PENDING_REQUESTS = 64
-_MAX_SEEN_FRAME_IDS = 1_024
+MAX_TRACKED_FRAME_IDS = 1_024
 
 
 @final
@@ -45,7 +45,7 @@ class NativeConnectionState:
 
     role: str
     phase: str = "hello_required"
-    _seen_ids: set[str] = field(default_factory=set)
+    _seen_ids: dict[str, None] = field(default_factory=dict)
     _pending_received: dict[str, str] = field(default_factory=dict)
     _pending_sent: dict[str, str] = field(default_factory=dict)
     _lock: threading.RLock = field(
@@ -108,17 +108,21 @@ class NativeConnectionState:
             self._advance(parsed.kind)
 
     def _claim_id(self, frame_id: str) -> None:
+        """Refuse replays inside the bounded window, then evict the oldest id.
+
+        The window keeps the most recent ``MAX_TRACKED_FRAME_IDS`` identifiers
+        so a long-lived stream never exhausts memory and never fails a
+        healthy connection for having been alive too long.
+        """
         if frame_id in self._seen_ids:
             raise NativeProtocolError(
                 "E_DUPLICATE_FRAME_ID",
-                "frame id was reused on this connection",
+                "frame id was reused inside the connection replay window",
             )
-        self._seen_ids.add(frame_id)
-        if len(self._seen_ids) > _MAX_SEEN_FRAME_IDS:
-            raise NativeProtocolError(
-                "E_FLOW_VIOLATION",
-                "connection retained too many frame identifiers",
-            )
+        self._seen_ids[frame_id] = None
+        while len(self._seen_ids) > MAX_TRACKED_FRAME_IDS:
+            oldest = next(iter(self._seen_ids))
+            del self._seen_ids[oldest]
 
     @staticmethod
     def _ensure_pending_capacity(pending: dict[str, str]) -> None:

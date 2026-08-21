@@ -31,6 +31,13 @@ expected cursor, type, payload, and client context. Its payload has a canonical
 65,536 bound and the advertised maximum JSON body depth is 12. `ready` also
 advertises maximum frame bytes, eight in-flight commands, and 32 subscriptions.
 
+Frame identifiers must be unique inside a bounded replay window: each endpoint
+remembers the most recent 1,024 identifiers it sent or received on that
+connection. Reusing an identifier still inside that window is refused as
+`E_DUPLICATE_FRAME_ID`. Older identifiers are evicted, so a long-lived
+streaming connection processes an unbounded number of frames with bounded
+memory and is never torn down for age alone.
+
 ## Message kinds
 
 These are all registered envelope kinds in `birkin/native/protocol.py`:

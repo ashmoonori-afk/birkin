@@ -3,13 +3,36 @@ from __future__ import annotations
 import pytest
 
 from birkin.native.protocol import NativeEnvelope, NativeProtocolError
-from birkin.native.state import NativeConnectionState
+from birkin.native.state import MAX_TRACKED_FRAME_IDS, NativeConnectionState
 from tests.native_protocol_support import (
     hello,
     message,
     ready,
     subscribed_state,
 )
+
+
+def _exchange_heartbeat(state: NativeConnectionState, index: int) -> None:
+    """Drive one client ping and its correlated server pong."""
+    frame_id = f"heartbeat-ping-{index}"
+    state.receive(
+        message(
+            "ping",
+            frame_id=frame_id,
+            body={
+                "session_capability": "opaque",
+                "sent_at": "2026-08-17T00:00:00Z",
+            },
+        )
+    )
+    state.send(
+        message(
+            "pong",
+            frame_id=f"heartbeat-pong-{index}",
+            in_reply_to=frame_id,
+            body={"sent_at": "2026-08-17T00:00:00Z"},
+        )
+    )
 
 
 def test_server_connection_accepts_correlated_handshake() -> None:
@@ -59,6 +82,60 @@ def test_connection_rejects_duplicate_frame_identifier() -> None:
         state.receive(hello_frame)
 
     assert exc_info.value.code == "E_DUPLICATE_FRAME_ID"
+
+
+def test_long_lived_stream_survives_more_frames_than_the_replay_window() -> None:
+    """Given a subscribed connection, When far more distinct frames than the
+    replay window flow over it, Then no frame is refused."""
+    state = subscribed_state()
+
+    for index in range(5_000):
+        _exchange_heartbeat(state, index)
+
+    assert state.phase == "subscribed"
+
+
+def test_recent_frame_identifier_reuse_is_still_refused() -> None:
+    """Given a stream shorter than the replay window, When an already-seen
+    frame id returns, Then the connection refuses it as a duplicate."""
+    state = subscribed_state()
+    for index in range(MAX_TRACKED_FRAME_IDS // 2):
+        _exchange_heartbeat(state, index)
+
+    with pytest.raises(NativeProtocolError) as exc_info:
+        state.receive(
+            message(
+                "ping",
+                frame_id="heartbeat-ping-0",
+                body={
+                    "session_capability": "opaque",
+                    "sent_at": "2026-08-17T00:00:00Z",
+                },
+            )
+        )
+
+    assert exc_info.value.code == "E_DUPLICATE_FRAME_ID"
+
+
+def test_frame_identifiers_beyond_the_replay_window_are_evicted() -> None:
+    """Given more frames than the replay window, When the oldest identifier
+    returns, Then it is accepted because the window no longer covers it."""
+    state = subscribed_state()
+    for index in range(MAX_TRACKED_FRAME_IDS):
+        _exchange_heartbeat(state, index)
+
+    state.receive(
+        message(
+            "ping",
+            frame_id="heartbeat-ping-0",
+            body={
+                "session_capability": "opaque",
+                "sent_at": "2026-08-17T00:00:00Z",
+            },
+        )
+    )
+
+    assert state.phase == "subscribed"
 
 
 def test_ready_requires_correlation_to_received_hello() -> None:
