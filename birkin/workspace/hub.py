@@ -269,6 +269,16 @@ class WorkspaceHub:
             session = self._selected_session()
         return session.service.submit(command, actor_id=actor_id)
 
+    def submit_control(
+        self,
+        command: WorkspaceCommand,
+        *,
+        actor_id: str,
+    ) -> CommandReceipt:
+        with self._lock:
+            session = self._selected_session()
+        return session.service.submit_control(command, actor_id=actor_id)
+
     def select(
         self,
         command: WorkspaceCommand,

@@ -11,6 +11,12 @@ from typing import cast, final
 
 PROTOCOL_VERSION = 1
 _ID = re.compile(r"[A-Za-z0-9._:-]{1,128}")
+CONTROL_COMMAND_TYPES = frozenset({
+    "chat.interrupt",
+    "chat.resume",
+    "chat.steer",
+})
+
 _COMMAND_TYPES = {
     "chat.send",
     "chat.steer",

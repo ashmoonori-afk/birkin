@@ -14,7 +14,12 @@ from birkin.native.protocol import NativeEnvelope, NativeProtocolError
 from birkin.native.state import NativeConnectionState
 from birkin.native.transport import NativeConnection
 from birkin.workspace import CommandReceipt, WorkspaceCommand
-from birkin.workspace.contracts import ProtocolError as WorkspaceProtocolError
+from birkin.workspace.contracts import (
+    CONTROL_COMMAND_TYPES,
+    ProtocolError as WorkspaceProtocolError,
+)
+
+_NORMAL_LANE = "normal"
 
 
 @final
@@ -103,7 +108,7 @@ class NativeCommandExecutor:
 
 @final
 class NativeCommandCoordinator:
-    """Admit at most one server-wide command and fence disconnect cleanup."""
+    """Admit one normal mutation plus one worker per explicit turn control."""
 
     def __init__(
         self,
@@ -113,7 +118,7 @@ class NativeCommandCoordinator:
         self._executor = executor
         self._cleanup = cleanup
         self._lock = threading.Lock()
-        self._active: NativeCommandExecution | None = None
+        self._active: dict[str, NativeCommandExecution] = {}
         self._cleanup_pending = False
 
     def submit(
@@ -121,31 +126,47 @@ class NativeCommandCoordinator:
         execution: NativeCommandExecution,
         message: NativeEnvelope,
     ) -> bool:
+        lane = self._lane(message)
         with self._lock:
-            if self._active is not None:
+            if self._cleanup_pending or lane in self._active:
                 return False
-            self._active = execution
+            self._active[lane] = execution
         threading.Thread(
             target=self._run,
-            args=(execution, message),
-            name="birkin-native-command",
+            args=(execution, message, lane),
+            name=(
+                "birkin-native-command"
+                if lane == _NORMAL_LANE
+                else f"birkin-native-command-{lane.replace('.', '-')}"
+            ),
             daemon=True,
         ).start()
         return True
 
     def disconnect(self) -> None:
         with self._lock:
-            if self._active is not None:
+            if self._active:
                 self._cleanup_pending = True
             elif self._cleanup is not None:
                 self._cleanup()
+
+    @staticmethod
+    def _lane(message: NativeEnvelope) -> str:
+        try:
+            command = WorkspaceCommand.parse(message.body.get("command"))
+        except WorkspaceProtocolError:
+            return _NORMAL_LANE
+        return command.type if command.type in CONTROL_COMMAND_TYPES else _NORMAL_LANE
 
     def _run(
         self,
         execution: NativeCommandExecution,
         message: NativeEnvelope,
+        lane: str,
     ) -> None:
-        execution.stream.suspend()
+        suspended = lane == _NORMAL_LANE
+        if suspended:
+            execution.stream.suspend()
         try:
             self._executor.execute(
                 execution.connection,
@@ -156,11 +177,12 @@ class NativeCommandCoordinator:
         except (NativeProtocolError, OSError):
             execution.connection.interrupt()
         finally:
-            execution.stream.resume()
+            if suspended:
+                execution.stream.resume()
             with self._lock:
-                if self._active is execution:
-                    self._active = None
-                if self._cleanup_pending:
+                if self._active.get(lane) is execution:
+                    del self._active[lane]
+                if self._cleanup_pending and not self._active:
                     self._cleanup_pending = False
                     if self._cleanup is not None:
                         self._cleanup()

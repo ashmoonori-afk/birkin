@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from pathlib import Path
+import threading
 from typing import cast, final
 
 import pytest
@@ -36,6 +37,27 @@ class _RuntimeSession:
         if self.ask_count == 1:
             raise RuntimeError("provider failed")
         return f"retried: {text}"
+
+
+@final
+class _ActiveRuntimeSession:
+    def __init__(self, started: threading.Event, release: threading.Event) -> None:
+        self.cfg: dict[str, object] = {}
+        self.abort = threading.Event()
+        self.steers: list[str] = []
+        self._started = started
+        self._release = release
+
+    def ask(self, text: str, *, on_text: object) -> str:
+        del on_text
+        self._started.set()
+        if not self._release.wait(timeout=10):
+            raise AssertionError("test did not release active runtime")
+        return text
+
+    def steer(self, text: str) -> bool:
+        self.steers.append(text)
+        return True
 
 
 def test_runtime_adapter_registers_product_surface_authority_and_commands(
@@ -132,7 +154,7 @@ def test_runtime_adapter_advertises_and_executes_jailed_file_import(
 
     dropped = tmp_path / "outside" / "drop.txt"
     dropped.parent.mkdir()
-    dropped.write_text("drop through production adapter", encoding="utf-8")
+    _ = dropped.write_text("drop through production adapter", encoding="utf-8")
     adapter = RuntimeWorkspaceAdapter(
         "import-session", emit, workspace_root=tmp_path / "workspace"
     )
@@ -171,6 +193,48 @@ def test_steer_delegates_to_runtime_and_emits_canonical_event(
     assert result == {"steered": True}
     assert runtime.steers == ["check tests"]
     assert emitted == [("turn.steered", {"text": "check tests"})]
+
+
+def test_turn_controls_mutate_the_active_runtime_without_waiting_for_ask(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    started = threading.Event()
+    release = threading.Event()
+    runtime = _ActiveRuntimeSession(started, release)
+
+    def build(
+        _cfg: dict[str, object],
+        on_event: Callable[[str, dict[str, object]], None] | None = None,
+    ) -> Session:
+        del on_event
+        return cast(Session, cast(object, runtime))
+
+    monkeypatch.setattr("birkin.workspace.runtime_adapter.build_session", build)
+    adapter = RuntimeWorkspaceAdapter("control-session", _event)
+    handlers = adapter.handlers()
+    errors: list[BaseException] = []
+
+    def send() -> None:
+        try:
+            _ = handlers["chat.send"]({"text": "work"})
+        except BaseException as exc:
+            errors.append(exc)
+
+    thread = threading.Thread(target=send)
+    thread.start()
+    try:
+        assert started.wait(timeout=1)
+        assert handlers["chat.interrupt"]({}) == {"interrupted": True}
+        assert runtime.abort.is_set()
+        assert handlers["chat.steer"]({"text": "redirect"}) == {"steered": True}
+        assert runtime.steers == ["redirect"]
+        assert handlers["chat.resume"]({}) == {"resumed": True}
+        assert not runtime.abort.is_set()
+    finally:
+        release.set()
+        thread.join(timeout=2)
+    assert not thread.is_alive()
+    assert errors == []
 
 
 def test_retry_replays_failed_text_as_a_new_handler_invocation(

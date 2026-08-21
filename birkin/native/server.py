@@ -5,7 +5,7 @@ from __future__ import annotations
 import secrets
 import threading
 from collections.abc import Callable, Mapping
-from typing import Protocol, cast, final
+from typing import Protocol, cast, final, runtime_checkable
 
 from birkin.native.auth import NativeConnectionAuth
 from birkin.native.bridge_commands import (
@@ -30,6 +30,7 @@ from birkin.native.session import NativeProjectionSession, WorkspaceProjectionSo
 from birkin.native.state import NativeConnectionState
 from birkin.native.transport import NativeConnection
 from birkin.workspace import CommandReceipt, SessionPreset, WorkspaceCommand
+from birkin.workspace.contracts import CONTROL_COMMAND_TYPES
 from birkin.workspace.records import WorkspaceEvent
 
 
@@ -38,6 +39,16 @@ class CommandAuthority(Protocol):
     def supported_commands(self) -> frozenset[str]: ...
 
     def submit(
+        self,
+        command: WorkspaceCommand,
+        *,
+        actor_id: str,
+    ) -> CommandReceipt: ...
+
+
+@runtime_checkable
+class ControlCommandAuthority(Protocol):
+    def submit_control(
         self,
         command: WorkspaceCommand,
         *,
@@ -104,6 +115,10 @@ class _CommandRouter:
         *,
         actor_id: str,
     ) -> CommandReceipt:
+        if command.type in CONTROL_COMMAND_TYPES and isinstance(
+            self._workspace, ControlCommandAuthority
+        ):
+            return self._workspace.submit_control(command, actor_id=actor_id)
         authority = self._workspace
         if command.type.startswith("session.") and self._session is not None:
             authority = self._session
