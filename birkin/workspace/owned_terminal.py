@@ -264,9 +264,16 @@ class TerminalAuthority:
             )
         self._write_all(session.master_fd, encoded)
         session.input_sequence = sequence
+        # Keystrokes are never durable: this journal outlives the session, and
+        # what a human types at a terminal includes what they type at a
+        # password prompt. The sequence identity is what replay needs.
         _ = self._emit(
             "terminal.input",
-            {"terminal_id": session.terminal_id, "sequence": sequence, "data": data},
+            {
+                "terminal_id": session.terminal_id,
+                "sequence": sequence,
+                "redacted": True,
+            },
         )
         output = self._read_output(session, timeout=1.0)
         if output:
