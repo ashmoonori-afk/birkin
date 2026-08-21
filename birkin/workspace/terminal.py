@@ -78,23 +78,82 @@ def _conversation_lines(snapshot: Mapping[str, object], width: int) -> list[str]
     return lines or [_line("No displayable messages.", width)]
 
 
+def _active_panel_label(
+    snapshot: Mapping[str, object],
+    view: Mapping[str, object],
+) -> str:
+    active = view.get("active_panel")
+    for raw in _sequence(snapshot.get("panels")):
+        panel = _mapping(raw)
+        if panel.get("key") == active:
+            label = panel.get("label")
+            value = label if isinstance(label, str) else str(active)
+            return value.replace("_", " ").title()
+    return str(active or "Workspace").replace("_", " ").title()
+
+
+def _header_line(
+    snapshot: Mapping[str, object],
+    view: Mapping[str, object],
+    width: int,
+    connection: str,
+) -> str:
+    left = f"Birkin · {_active_panel_label(snapshot, view)}"
+    cursor = snapshot.get("cursor")
+    right = connection
+    if type(cursor) is int:
+        right = f"{right} · ledger {cursor}"
+    if ui.cell_width(left) + ui.cell_width(right) + 1 > width:
+        return _line(left, width)
+    gap = width - ui.cell_width(left) - ui.cell_width(right)
+    return f"{left}{' ' * gap}{right}"
+
+
 def _panel_line(
     snapshot: Mapping[str, object],
     view: Mapping[str, object],
     width: int,
 ) -> str:
-    panels = _sequence(snapshot.get("panels"))
     active = view.get("active_panel")
-    parts: list[str] = []
-    for raw in panels:
+    tokens: list[str] = []
+    active_index: int | None = None
+    for raw in _sequence(snapshot.get("panels")):
         panel = _mapping(raw)
         key = panel.get("key")
         if not isinstance(key, str):
             continue
-        label = panel.get("label")
-        name = label if isinstance(label, str) else key
-        parts.append(f"[{name}]" if key == active else name)
-    return _line("  ".join(parts), width)
+        if key == active:
+            active_index = len(tokens)
+            tokens.append(f"[{key}]")
+        else:
+            tokens.append(key)
+
+    separator = " · "
+    selected = list(range(len(tokens)))
+
+    def content() -> str:
+        body = separator.join(tokens[index] for index in selected)
+        omitted = len(tokens) - len(selected)
+        if not omitted:
+            return body
+        suffix = f"+{omitted}"
+        return f"{body}{separator}{suffix}" if body else suffix
+
+    while ui.cell_width(content()) > width and selected:
+        removable = [index for index in selected if index != active_index]
+        if not removable:
+            break
+        remove_index = removable[-1] if selected[-1] != active_index else removable[0]
+        selected.remove(remove_index)
+
+    value = content()
+    if ui.cell_width(value) > width:
+        omitted = len(tokens) - len(selected)
+        suffix = f"{separator}+{omitted}" if omitted else ""
+        token_budget = max(0, width - ui.cell_width(suffix))
+        token = ui.fit(tokens[selected[0]], token_budget) if selected else ""
+        value = f"{token}{suffix}"
+    return ui.pad(value, width)
 
 
 def _active_panel_lines(
@@ -112,31 +171,18 @@ def _active_panel_lines(
         panel = _mapping(raw)
         if panel.get("key") != active:
             continue
-        label = panel.get("label")
-        heading = (
-            label if isinstance(label, str) else str(active).replace("_", " ").title()
-        )
-        lines = [
-            _paint(
-                "accent",
-                _line(f"Panel · {heading}", width),
-                color=color,
-                ansi_256=ansi_256,
-                palette=palette,
-            )
-        ]
+        lines: list[str] = []
         items = _sequence(panel.get("items"))
         if not items:
-            lines.append(
+            return [
                 _paint(
-                    "muted",
+                    "dim",
                     _line("  No items.", width),
                     color=color,
                     ansi_256=ansi_256,
                     palette=palette,
                 )
-            )
-            return lines
+            ]
         for raw_item in items[:4]:
             item = _mapping(raw_item)
             state = str(item.get("ui_state") or "unknown")
@@ -213,9 +259,19 @@ def render_terminal(
 
     status = _mapping(snapshot.get("status"))
     connection = str(status.get("connection") or "unknown")
+    hints = (
+        "Tab panels · ↑/↓ items · Enter open · Esc back"
+        if width >= 80
+        else "Tab · ↑/↓ · Enter · Esc"
+    )
     frame = compose_layout(
-        width,
-        header=painted("accent", "Birkin Workspace · Conversation"),
+        header=_paint(
+            "accent",
+            _header_line(snapshot, view, width, connection),
+            color=color,
+            ansi_256=ansi_256,
+            palette=palette,
+        ),
         border=painted("border_muted", "─" * width),
         conversation=[
             painted("text", line) for line in _conversation_lines(snapshot, width)
@@ -230,16 +286,7 @@ def render_terminal(
             palette=palette,
         ),
         composer=painted("text", _composer_line(snapshot, width)),
-        pulse=painted("info", f"Pulse · {connection}"),
-        hints=painted(
-            "dim",
-            "keys · Tab panels · ↑/↓ items · Enter open · Esc back",
-        ),
-        wide_label=painted(
-            "muted",
-            "Ledger (34) │ Bench · Conversation │ Pulse · " + connection,
-        ),
-        bench_label=painted("muted", "Bench · Conversation"),
-        queue_label=painted("warning", "Attention Queue"),
+        hints=painted("dim", hints),
+        rows=max(1, rows),
     )
-    return tuple(frame[-max(1, rows) :])
+    return tuple(frame)
