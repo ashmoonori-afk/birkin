@@ -121,6 +121,16 @@ class TerminalSequenceRejected(ProtocolError):
     """Terminal input was duplicated or delivered out of order."""
 
 
+class TerminalUnsupported(ProtocolError):
+    """This platform cannot provide the requested terminal capability."""
+
+    capability: str
+
+    def __init__(self, capability: str, reason: str) -> None:
+        super().__init__(f"{capability} capability is unavailable: {reason}")
+        self.capability = capability
+
+
 def valid_identifier(value: object, label: str) -> str:
     if (
         not isinstance(value, str)

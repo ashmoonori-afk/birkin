@@ -25,6 +25,7 @@ from birkin.workspace.contracts import (
     TerminalLeaseRequired,
     TerminalSequenceRejected,
     TerminalSignalRejected,
+    TerminalUnsupported,
     UnsupportedCommand,
     WorkingMemoryBudgetExceeded,
     WorkingMemoryRevisionConflict,
@@ -159,6 +160,9 @@ class NativeMessageFactory:
             code = "E_TERMINAL_SIGNAL"
         elif isinstance(error, TerminalSequenceRejected):
             code = "E_TERMINAL_SEQUENCE"
+        elif isinstance(error, TerminalUnsupported):
+            code = "E_TERMINAL_UNSUPPORTED"
+            details = {"capability": error.capability}
         elif isinstance(error, UnsupportedCommand):
             code = "E_UNSUPPORTED_COMMAND"
         elif isinstance(error, StaleCursor):

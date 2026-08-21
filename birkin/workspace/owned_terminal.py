@@ -2,15 +2,12 @@
 
 from __future__ import annotations
 
-import fcntl
 import os
-import pty
 import secrets
 import select
 import signal
 import struct
 import subprocess
-import termios
 import threading
 import time
 from collections.abc import Callable, Mapping
@@ -27,6 +24,7 @@ from .contracts import (
     TerminalLeaseRequired,
     TerminalSequenceRejected,
     TerminalSignalRejected,
+    TerminalUnsupported,
 )
 from .service import CommandHandler
 
@@ -35,11 +33,54 @@ TerminalEventSink = Callable[[str, dict[str, object]], object]
 _MAX_INPUT_BYTES = 4_096
 _MAX_OUTPUT_BYTES = 16_384
 _MAX_SCREEN_BYTES = 65_536
-_ALLOWED_SIGNALS = {
-    "INT": signal.SIGINT,
-    "TERM": signal.SIGTERM,
-    "HUP": signal.SIGHUP,
-}
+_SIGNAL_NAMES = ("INT", "TERM", "HUP")
+
+
+@final
+@dataclass(frozen=True, slots=True)
+class PtySupport:
+    """The Unix pseudo-terminal operations an owned process tree needs."""
+
+    open_pty: Callable[[], tuple[int, int]]
+    set_nonblocking: Callable[[int], None]
+    set_window_size: Callable[[int, int, int], None]
+
+
+def load_pty_support() -> PtySupport:
+    """Bind the Unix PTY primitives, or refuse with a typed capability error."""
+    try:
+        import fcntl
+        import pty
+        import termios
+    except ModuleNotFoundError as exc:
+        raise TerminalUnsupported(
+            "terminal",
+            "this platform does not provide Unix pseudo-terminals",
+        ) from exc
+
+    def set_nonblocking(descriptor: int) -> None:
+        flags = fcntl.fcntl(descriptor, fcntl.F_GETFL)
+        _ = fcntl.fcntl(descriptor, fcntl.F_SETFL, flags | os.O_NONBLOCK)
+
+    def set_window_size(descriptor: int, columns: int, rows: int) -> None:
+        packed = struct.pack("HHHH", rows, columns, 0, 0)
+        _ = fcntl.ioctl(descriptor, termios.TIOCSWINSZ, packed)
+
+    return PtySupport(
+        open_pty=pty.openpty,
+        set_nonblocking=set_nonblocking,
+        set_window_size=set_window_size,
+    )
+
+
+def allowed_signals() -> dict[str, signal.Signals]:
+    """Project only the process-tree signals this platform actually defines."""
+    table: dict[str, signal.Signals] = {}
+    for name in _SIGNAL_NAMES:
+        value = getattr(signal, f"SIG{name}", None)
+        if isinstance(value, signal.Signals):
+            table[name] = value
+    return table
 
 
 @dataclass(slots=True)
@@ -47,6 +88,7 @@ class _TerminalSession:
     terminal_id: str
     process: subprocess.Popen[bytes]
     master_fd: int
+    pty: PtySupport
     cwd: Path
     shell: str
     lease: str | None
@@ -106,6 +148,7 @@ class TerminalAuthority:
         }
 
     def create(self, payload: dict[str, object]) -> dict[str, object]:
+        pty = load_pty_support()
         self._keys(payload, required={"actor_kind", "cwd"}, optional={"approval_id"})
         if payload["actor_kind"] != "native_human":
             raise ProtocolError("terminal actor_kind must be native_human")
@@ -143,7 +186,7 @@ class TerminalAuthority:
         ):
             raise TerminalApprovalRequired(str(approval_id))
 
-        master_fd, slave_fd = pty.openpty()
+        master_fd, slave_fd = pty.open_pty()
         environment = {
             "HOME": os.environ.get("HOME", str(cwd)),
             "LANG": os.environ.get("LANG", "en_US.UTF-8"),
@@ -165,14 +208,14 @@ class TerminalAuthority:
             )
         finally:
             os.close(slave_fd)
-        flags = fcntl.fcntl(master_fd, fcntl.F_GETFL)
-        _ = fcntl.fcntl(master_fd, fcntl.F_SETFL, flags | os.O_NONBLOCK)
+        pty.set_nonblocking(master_fd)
         terminal_id = f"terminal-{secrets.token_hex(12)}"
         lease = secrets.token_urlsafe(32)
         session = _TerminalSession(
             terminal_id=terminal_id,
             process=process,
             master_fd=master_fd,
+            pty=pty,
             cwd=cwd,
             shell=shell,
             lease=lease,
@@ -244,8 +287,7 @@ class TerminalAuthority:
         session = self._live_session(payload, require_lease=True)
         columns = self._dimension(payload["columns"], "columns")
         rows = self._dimension(payload["rows"], "rows")
-        packed = struct.pack("HHHH", rows, columns, 0, 0)
-        _ = fcntl.ioctl(session.master_fd, termios.TIOCSWINSZ, packed)
+        session.pty.set_window_size(session.master_fd, columns, rows)
         result: dict[str, object] = {
             "terminal_id": session.terminal_id,
             "columns": columns,
@@ -261,10 +303,11 @@ class TerminalAuthority:
             optional=set(),
         )
         session = self._live_session(payload, require_lease=True)
+        signals = allowed_signals()
         signal_name = payload["signal"]
-        if not isinstance(signal_name, str) or signal_name not in _ALLOWED_SIGNALS:
+        if not isinstance(signal_name, str) or signal_name not in signals:
             raise TerminalSignalRejected("terminal signal must be INT, TERM, or HUP")
-        os.killpg(session.process.pid, _ALLOWED_SIGNALS[signal_name])
+        os.killpg(session.process.pid, signals[signal_name])
         result: dict[str, object] = {
             "terminal_id": session.terminal_id,
             "signal": signal_name,
