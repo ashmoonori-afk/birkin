@@ -2,6 +2,7 @@ import BirkinNativeProtocol
 import SwiftUI
 
 public enum ProductSurfaceControl: Equatable, Sendable {
+    case browserStart
     case browserNavigate(url: String)
     case computerUseApproveOnce
     case computerUseReject
@@ -11,34 +12,39 @@ public enum ProductSurfaceControl: Equatable, Sendable {
     /// The Browser commands this shell can actually submit. Python registers
     /// no history handler, so the shell shows no back, forward, or reload
     /// affordance instead of aliasing them onto the current address.
-    public static let browserCommandTypes = ["browser.navigate"]
+    public static let browserCommandTypes = ["browser.start", "browser.navigate"]
 }
 
 public struct BrowserAsideView: View {
     public let presentation: BrowserAsidePresentation
-    public let canNavigate: Bool
-    public let navigate: (String) -> Void
+    public let start: (() -> Void)?
+    public let navigate: ((String) -> Void)?
 
     @State private var address = ""
 
     public init(
         presentation: BrowserAsidePresentation,
-        canNavigate: Bool,
-        navigate: @escaping (String) -> Void = { _ in }
+        start: (() -> Void)? = nil,
+        navigate: ((String) -> Void)? = nil
     ) {
         self.presentation = presentation
-        self.canNavigate = canNavigate
+        self.start = start
         self.navigate = navigate
     }
 
     private func submit() {
         let trimmed = address.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return }
-        navigate(trimmed)
+        navigate?(trimmed)
     }
 
     public var body: some View {
         VStack(alignment: .leading, spacing: 8) {
+            if !presentation.isLive {
+                Button("Start Private Browser") { start?() }
+                    .disabled(start == nil)
+                    .accessibilityLabel("Start private Browser Aside")
+            }
             HStack {
                 TextField("Address", text: $address)
                     .textFieldStyle(.roundedBorder)
@@ -48,7 +54,7 @@ public struct BrowserAsideView: View {
                     .disabled(address.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
                     .accessibilityLabel("Navigate browser")
             }
-            .disabled(!canNavigate)
+            .disabled(navigate == nil || !presentation.isLive)
             Text(presentation.displayURL.isEmpty ? "No page loaded" : presentation.displayURL)
                 .lineLimit(1)
             Text("Private profile \(presentation.profileGeneration) · \(presentation.ownerKind) · frame \(presentation.frameRevision)")

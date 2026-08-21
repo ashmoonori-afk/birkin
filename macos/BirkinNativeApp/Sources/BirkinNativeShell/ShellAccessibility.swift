@@ -211,6 +211,7 @@ public enum ShellAccessibilityInventory {
         node("activity.hide-read", "activity", .toggle, "Hide read activity", value: "On or off", actions: ["toggle"], priority: 440),
         node("activity.receipt", "activity", .button, "Activity receipt", actions: ["press"], priority: 430),
         node("browser.landmark", "browser", .landmark, "Browser Aside private workspace", priority: 420),
+        node("browser.start", "browser", .button, "Start private Browser Aside", actions: ["press"], priority: 410),
         node("browser.navigate", "browser", .button, "Navigate browser", actions: ["press"], priority: 380),
         node("computer-use.landmark", "computer-use", .landmark, "Computer Use consent", priority: 370),
         node("computer-use.approve", "computer-use", .button, "Approve Computer Use once", actions: ["press"], priority: 360),

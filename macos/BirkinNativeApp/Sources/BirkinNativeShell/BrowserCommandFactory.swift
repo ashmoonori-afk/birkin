@@ -7,6 +7,22 @@ import Foundation
 /// and runtime revision come from the current Python projection, so a stale
 /// projection produces a refusal from Python instead of a silent retarget.
 public enum BrowserCommandFactory {
+    public static func start(
+        store: NativeProjectionStore,
+        session: NativeReadySession
+    ) -> NativeCommandRequest {
+        let identifier = "browser-\(UUID().uuidString.lowercased())"
+        return NativeCommandRequest(
+            frameID: "frame-\(identifier)",
+            commandID: identifier,
+            expectedCursor: store.latestAppliedCursor ?? 0,
+            commandType: "browser.start",
+            payload: [:],
+            sessionCapability: session.sessionCapability,
+            viewID: "browser-aside"
+        )
+    }
+
     public static func navigate(
         to address: String,
         store: NativeProjectionStore,

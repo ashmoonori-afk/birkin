@@ -65,7 +65,7 @@ struct Phase12VisualReferenceTests {
         try snapshot(
             BrowserAsideView(
                 presentation: try #require(BrowserAsidePresentation(store: store)),
-                canNavigate: true
+                navigate: { _ in }
             ),
             named: "browser.png", size: NSSize(width: 680, height: 320)
         )

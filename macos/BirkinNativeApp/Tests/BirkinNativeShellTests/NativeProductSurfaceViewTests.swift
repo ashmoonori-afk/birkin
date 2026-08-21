@@ -22,7 +22,7 @@ final class NativeProductSurfaceViewTests: XCTestCase {
             "refusal": .null,
         ]))
         let presentation = try XCTUnwrap(BrowserAsidePresentation(store: store))
-        let view = BrowserAsideView(presentation: presentation, canNavigate: true)
+        let view = BrowserAsideView(presentation: presentation, navigate: { _ in })
             .frame(width: 620, height: 260).padding().background(Color(nsColor: .windowBackgroundColor))
         try snapshot(view, named: "browser-aside-local-page.png")
     }

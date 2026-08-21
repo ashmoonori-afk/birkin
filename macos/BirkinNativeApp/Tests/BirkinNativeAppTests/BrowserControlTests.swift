@@ -12,7 +12,7 @@ struct BrowserControlTests {
         serverVersion: BirkinVersion.package,
         currentSessionID: "session-1",
         sessionCapability: "capability-token",
-        supportedCommands: ["browser.navigate"]
+        supportedCommands: ["browser.start", "browser.navigate"]
     )
 
     private static func store(displayURL: String) throws -> NativeProjectionStore {
@@ -46,6 +46,21 @@ struct BrowserControlTests {
             ]
         ))
         return store
+    }
+
+    @MainActor
+    @Test("starting the private browser sends Python a complete empty intent")
+    func startCarriesNoInventedProfile() throws {
+        // Given: the authenticated session and current canonical cursor.
+        let store = try Self.store(displayURL: "")
+
+        // When: the app requests the advertised Browser start operation.
+        let request = BrowserCommandFactory.start(store: store, session: Self.session)
+
+        // Then: Python receives only the registered command and no profile path.
+        #expect(request.commandType == "browser.start")
+        #expect(request.payload.isEmpty)
+        #expect(request.expectedCursor == store.latestAppliedCursor ?? 0)
     }
 
     @MainActor
@@ -86,6 +101,6 @@ struct BrowserControlTests {
     func onlyRegisteredBrowserCommandsAreOffered() {
         let offered = Set(ProductSurfaceControl.browserCommandTypes)
 
-        #expect(offered == ["browser.navigate"])
+        #expect(offered == ["browser.start", "browser.navigate"])
     }
 }

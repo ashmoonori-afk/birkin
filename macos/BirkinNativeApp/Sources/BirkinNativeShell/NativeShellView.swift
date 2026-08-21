@@ -250,8 +250,10 @@ public struct NativeShellView: View {
                       let presentation = BrowserAsidePresentation(store: store) {
                 BrowserAsideView(
                     presentation: presentation,
-                    canNavigate: availability.isEnabled && browserNavigateAdvertised,
-                    navigate: { productSurfaceAction(.browserNavigate(url: $0)) }
+                    start: availability.isEnabled && browserStartAdvertised
+                        ? { productSurfaceAction(.browserStart) } : nil,
+                    navigate: availability.isEnabled && browserNavigateAdvertised
+                        ? { productSurfaceAction(.browserNavigate(url: $0)) } : nil
                 )
             } else if section.id == .computerUse,
                       let presentation = ComputerUsePresentation(store: store, now: now) {
@@ -543,6 +545,11 @@ public struct NativeShellView: View {
     private var approvalAnswerAdvertised: Bool {
         Self.readySession(in: connectionState)?
             .supportedCommands.contains("approval.answer") == true
+    }
+
+    private var browserStartAdvertised: Bool {
+        Self.readySession(in: connectionState)?
+            .supportedCommands.contains("browser.start") == true
     }
 
     private var browserNavigateAdvertised: Bool {

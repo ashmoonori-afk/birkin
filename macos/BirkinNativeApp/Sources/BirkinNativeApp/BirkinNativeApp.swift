@@ -288,6 +288,8 @@ public final class BirkinApplicationRuntime: ObservableObject {
             return
         }
         switch control {
+        case .browserStart:
+            submit(BrowserCommandFactory.start(store: store, session: session))
         case .browserNavigate(let url):
             guard let request = BrowserCommandFactory.navigate(
                 to: url, store: store, session: session
