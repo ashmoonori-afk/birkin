@@ -98,4 +98,4 @@ def test_package_and_dmg_manifests_publish_helper_identity() -> None:
     assert "Contents/Helpers/arm64/birkin-native-bridge" in dmg_script
     assert "Contents/Helpers/x86_64/birkin-native-bridge" in dmg_script
     assert "Contents/Resources/bridge-helper.json" in dmg_script
-    assert "--collect-data playwright" in BUILD_SCRIPT.read_text(encoding="utf-8")
+    assert "--collect-all playwright" in BUILD_SCRIPT.read_text(encoding="utf-8")
