@@ -3,8 +3,11 @@
 from __future__ import annotations
 
 from collections.abc import Iterable
-from dataclasses import dataclass, field
+from dataclasses import FrozenInstanceError, dataclass, field
 from enum import Enum
+from typing import ClassVar
+
+from typing_extensions import override
 
 from .artifact_serialization import canonical_json, sanitize_data
 
@@ -32,8 +35,11 @@ class DocumentErrorCode(str, Enum):
     INTERNAL_ERROR = "INTERNAL_ERROR"
 
 
-@dataclass(frozen=True)
+# This payload is selectively immutable because BaseException owns mutable traceback state.
+@dataclass
 class DocumentError(Exception):
+    """Typed failure with immutable payload fields and writable exception state."""
+
     code: DocumentErrorCode
     stage: str
     message: str
@@ -41,6 +47,24 @@ class DocumentError(Exception):
     artifact_sha256: str | None = None
     locator: dict[str, object] | None = None
     details: dict[str, object] = field(default_factory=dict)
+
+    _IMMUTABLE_FIELDS: ClassVar[frozenset[str]] = frozenset(
+        {
+            "code",
+            "stage",
+            "message",
+            "retryable",
+            "artifact_sha256",
+            "locator",
+            "details",
+        }
+    )
+
+    @override
+    def __setattr__(self, name: str, value: object) -> None:
+        if name in self._IMMUTABLE_FIELDS and name in self.__dict__:
+            raise FrozenInstanceError(f"cannot assign to field {name!r}")
+        super().__setattr__(name, value)
 
     def envelope(self, *, secrets: Iterable[str] = ()) -> dict[str, object]:
         error = {

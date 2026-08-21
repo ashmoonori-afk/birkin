@@ -2,6 +2,9 @@ from __future__ import annotations
 
 import hashlib
 import zipfile
+from collections.abc import Generator, Mapping
+from contextlib import contextmanager
+from dataclasses import FrozenInstanceError
 from pathlib import Path
 from typing import cast
 
@@ -9,6 +12,7 @@ import pytest
 
 from birkin.office.errors import DocumentError, DocumentErrorCode
 from birkin.office.service import DocumentService
+from birkin.office.service_workspace import DocumentWorkspace
 from tests.office.fixture_builders import build_docx_template
 from tests.office.korean_fixtures import build_pdf
 
@@ -45,6 +49,47 @@ def _encrypted_hwpx(path: Path) -> Path:
         archive.writestr("Contents/content.hpf", content)
         archive.writestr("Contents/section0.xml", bytes(16))
     return path
+
+
+def test_service_preserves_typed_error_across_generator_context_manager(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    source = _encrypted_hwpx(tmp_path / "protected.hwpx")
+    service = DocumentService(tmp_path)
+    artifact = _artifact(source)
+    snapshot = DocumentWorkspace.artifact_snapshot
+
+    @contextmanager
+    def forwarding_snapshot(
+        workspace: DocumentWorkspace,
+        ref: Mapping[str, object],
+    ) -> Generator[Path, None, None]:
+        with snapshot(workspace, ref) as path:
+            yield path
+
+    monkeypatch.setattr(DocumentWorkspace, "artifact_snapshot", forwarding_snapshot)
+
+    with pytest.raises(DocumentError) as caught:
+        _ = service.validate_artifact(artifact)
+
+    assert caught.value.code is DocumentErrorCode.CAPABILITY_UNAVAILABLE
+    assert caught.value.message == (
+        "encrypted HWPX content requires an approved decryptor and exact credential "
+        "flow; neither is registered"
+    )
+    assert caught.value.retryable is False
+
+
+def test_document_error_payload_fields_remain_immutable() -> None:
+    error = DocumentError(
+        DocumentErrorCode.PERMISSION_DENIED,
+        "inspect",
+        "bounded refusal",
+    )
+
+    with pytest.raises(FrozenInstanceError):
+        error.message = "mutated"
 
 
 def test_fill_template_consumes_verified_template_and_binds_plan_identity(
