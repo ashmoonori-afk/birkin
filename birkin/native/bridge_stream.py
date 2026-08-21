@@ -7,6 +7,7 @@ from datetime import datetime, timezone
 from typing import cast, final
 
 from birkin.native.messages import NativeMessageFactory
+from birkin.native.product_surfaces import SurfaceSnapshot
 from birkin.native.projection import public_workspace_event
 from birkin.native.state import NativeConnectionState
 from birkin.native.stream import NativeEventQueue
@@ -60,6 +61,18 @@ class NativeBridgeStream:
     def publish(self, event: WorkspaceEvent) -> None:
         if self._active.is_set():
             self._queue.publish(public_workspace_event(event))
+
+    def publish_surface(self, snapshot: SurfaceSnapshot) -> None:
+        """Queue one revisioned product-surface frame behind its event."""
+        if self._active.is_set():
+            self._queue.publish({
+                "kind": "surface_event",
+                "body": {
+                    "surface": snapshot.surface,
+                    "revision": snapshot.revision,
+                    "payload": snapshot.payload,
+                },
+            })
 
     def acknowledge_pong(self) -> None:
         self._pong.set()
@@ -116,17 +129,14 @@ class NativeBridgeStream:
     ) -> None:
         for item in events:
             marker = item.get("kind")
-            if marker == "stream.desynchronized":
+            if isinstance(marker, str):
                 raw_body = item.get("body")
                 body = (
                     cast(dict[str, object], raw_body)
                     if isinstance(raw_body, dict)
                     else {}
                 )
-                envelope = self._messages.message(
-                    "stream.desynchronized",
-                    body=body,
-                )
+                envelope = self._messages.message(marker, body=body)
             else:
                 envelope = self._messages.message("event", body=item)
             self._state.send(envelope)

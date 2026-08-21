@@ -6,7 +6,7 @@ import json
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from datetime import datetime, timezone
-from typing import cast, final
+from typing import Protocol, cast, final
 
 from birkin.browser_aside_control import BrowserControlAuthority
 from birkin.browser_aside_service import BrowserAsideService
@@ -18,6 +18,33 @@ from birkin.office.service import DocumentService
 
 SurfaceEventSink = Callable[[str, dict[str, object]], object]
 SurfaceHandler = Callable[[dict[str, object]], dict[str, object]]
+
+SURFACE_EVENT_SOURCES: Mapping[str, str] = {
+    "browser.updated": "browser_aside",
+    "office.updated": "office",
+    "computer.updated": "computer_use",
+}
+
+
+class BrowserAsideProjectionSource(Protocol):
+    """The canonical Browser Aside operations a native projection needs."""
+
+    def status(self) -> dict[str, object]: ...
+
+    def start(
+        self,
+        *,
+        actor_id: str = ...,
+        control_epoch: int = ...,
+    ) -> tuple[dict[str, object], bool]: ...
+
+    def navigate(
+        self,
+        url: str,
+        *,
+        expected_generation: int,
+        expected_revision: int,
+    ) -> dict[str, object]: ...
 
 
 def _exact(payload: Mapping[str, object], keys: set[str], operation: str) -> None:
@@ -40,7 +67,7 @@ class BrowserSurfaceAuthority:
 
     def __init__(
         self,
-        service: BrowserAsideService,
+        service: BrowserAsideProjectionSource,
         control: BrowserControlAuthority,
         *,
         now: Callable[[], datetime] | None = None,
@@ -269,6 +296,19 @@ class NativeProductSurfaceAuthority:
             self._canonical[surface] = canonical
             self._revisions[surface] += 1
         return public
+
+    def live_snapshot(self, surface: str) -> SurfaceSnapshot:
+        """Project one surface at its current revision for live delivery."""
+        if surface not in self._revisions:
+            raise ValueError(f"unsupported native surface: {surface}")
+        payload = self._payload(surface)
+        return SurfaceSnapshot(
+            surface=surface,
+            revision=self._revisions[surface],
+            payload=payload,
+            full_snapshot=False,
+            reset_reason="live",
+        )
 
     def snapshots(self, requested: Mapping[str, int]) -> tuple[SurfaceSnapshot, ...]:
         unknown = set(requested) - set(self.surface_names)

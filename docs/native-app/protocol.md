@@ -102,6 +102,14 @@ Python returns full `surface_snapshot` records where a client's revision cannot
 be advanced safely. `stream.desynchronized` likewise requires replay from
 canonical state.
 
+Product surfaces also update live. After a canonical `browser.updated`,
+`office.updated`, or `computer.updated` workspace event, the bridge queues a
+`surface_event` for that surface behind the event itself, so ordering, cursor
+semantics, and redaction are preserved and the client renders the new state
+without resubscribing. Its `revision` is the surface's next monotonic
+revision; a client that cannot advance contiguously asks for a full surface
+snapshot instead of guessing.
+
 Command IDs make duplicate delivery idempotent. Reusing an ID with changed
 semantics returns `E_COMMAND_ID_CONFLICT`; an obsolete expected cursor returns
 `E_STALE_CURSOR` and its current cursor. The shell does not silently replay

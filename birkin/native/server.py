@@ -13,7 +13,7 @@ from birkin.native.bridge_commands import (
 )
 from birkin.native.bridge_stream import NativeBridgeStream
 from birkin.native.capability import BootstrapSecretStore, SessionCapability
-from birkin.native.product_surfaces import SurfaceSnapshot
+from birkin.native.product_surfaces import SURFACE_EVENT_SOURCES, SurfaceSnapshot
 from birkin.native.messages import (
     NativeMessageFactory,
     body_integer,
@@ -50,6 +50,8 @@ class SurfaceProjectionAuthority(Protocol):
         self,
         requested: Mapping[str, int],
     ) -> tuple[SurfaceSnapshot, ...]: ...
+
+    def live_snapshot(self, surface: str) -> SurfaceSnapshot: ...
 
 
 class WorkspaceAuthority(
@@ -205,7 +207,7 @@ class NativeBridgeServer:
                     capacity=self._outbound_capacity,
                 )
                 unsubscribe = self._authority.add_event_listener(
-                    stream.publish,
+                    lambda event: self._publish(stream, event),
                 )
                 stream.start()
                 self._serve_messages(
@@ -227,6 +229,18 @@ class NativeBridgeServer:
                     self._capabilities.revoke_session(token)
                 if self._on_disconnect is not None:
                     self._on_disconnect()
+
+    def _publish(
+        self,
+        stream: NativeBridgeStream,
+        event: WorkspaceEvent,
+    ) -> None:
+        """Follow every canonical event with its product-surface projection."""
+        stream.publish(event)
+        surface = SURFACE_EVENT_SOURCES.get(event.type)
+        if surface is None or self._surface_authority is None:
+            return
+        stream.publish_surface(self._surface_authority.live_snapshot(surface))
 
     def _serve_messages(
         self,
