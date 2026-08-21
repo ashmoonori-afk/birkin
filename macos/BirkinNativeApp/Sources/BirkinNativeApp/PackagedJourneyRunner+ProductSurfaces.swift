@@ -2,20 +2,7 @@ import BirkinNativeShell
 
 extension PackagedJourneyRunner {
     func driveProductSurfaces() async throws {
-        let browserBefore = runtime.store.surface(named: "browser_aside")?.revision ?? 0
-        runtime.submit(ProductSurfaceControl.browserNavigate(
-            url: "http://127.0.0.1:8123/packaged-journey"
-        ))
-        try await nextOutcome("browser.navigate")
-        let browserAfter = runtime.store.surface(named: "browser_aside")?.revision ?? 0
-        let refusal = runtime.lastCommandError
-        guard browserAfter > browserBefore || refusal != nil else {
-            throw JourneyError.refused("browser command produced neither surface nor refusal")
-        }
-        record(
-            "browser-navigate-live",
-            "revision=\(browserBefore)->\(browserAfter) refusal=\(refusal == nil ? "none" : "canonical")"
-        )
+        try await driveBrowser()
 
         runtime.submit(ProductSurfaceControl.officeNew)
         try await nextOutcome("office.create")

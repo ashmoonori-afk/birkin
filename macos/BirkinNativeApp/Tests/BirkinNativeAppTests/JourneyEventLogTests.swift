@@ -18,6 +18,7 @@ struct JourneyEventLogTests {
             PackagedJourneyConfiguration.enabledKey: "1",
             PackagedJourneyConfiguration.evidenceKey: "/tmp/evidence",
             PackagedJourneyConfiguration.workspaceKey: "/tmp/workspace",
+            PackagedJourneyConfiguration.browserURLKey: "http://127.0.0.1:8123/",
         ])
         #expect(configuration != nil)
     }

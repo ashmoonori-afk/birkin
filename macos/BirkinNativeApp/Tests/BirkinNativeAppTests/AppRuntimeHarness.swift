@@ -121,7 +121,8 @@ final class AppHarness: @unchecked Sendable {
         root: URL,
         mode: String = "--j1-fixture",
         sessionID: String = "runtime-advertised-session",
-        connections: Int = 1
+        connections: Int = 1,
+        environment: [String: String] = [:]
     ) throws -> AppHarness {
         let repository = Self.repository
         try FileManager.default.createDirectory(
@@ -137,6 +138,9 @@ final class AppHarness: @unchecked Sendable {
             "--session-id", sessionID,
         ]
         process.currentDirectoryURL = repository
+        process.environment = ProcessInfo.processInfo.environment.merging(
+            environment, uniquingKeysWith: { _, override in override }
+        )
         process.standardOutput = stdout
         process.standardError = FileHandle.standardError
         try process.run()

@@ -13,21 +13,33 @@ public struct PackagedJourneyConfiguration: Sendable {
     public static let enabledKey = "BIRKIN_NATIVE_JOURNEY"
     public static let evidenceKey = "BIRKIN_NATIVE_JOURNEY_EVIDENCE"
     public static let workspaceKey = "BIRKIN_NATIVE_JOURNEY_WORKSPACE"
+    public static let browserURLKey = "BIRKIN_NATIVE_JOURNEY_BROWSER_URL"
 
     public let evidenceRoot: URL
     public let workspaceRoot: URL
+    public let browserURL: URL
+
+    public init(evidenceRoot: URL, workspaceRoot: URL, browserURL: URL) {
+        self.evidenceRoot = evidenceRoot
+        self.workspaceRoot = workspaceRoot
+        self.browserURL = browserURL
+    }
 
     public static func discovered(
         in environment: [String: String] = ProcessInfo.processInfo.environment
     ) -> PackagedJourneyConfiguration? {
         guard environment[enabledKey] == "1",
               let evidence = environment[evidenceKey], !evidence.isEmpty,
-              let workspace = environment[workspaceKey], !workspace.isEmpty else {
+              let workspace = environment[workspaceKey], !workspace.isEmpty,
+              let browserAddress = environment[browserURLKey],
+              let browserURL = URL(string: browserAddress),
+              ["http", "https"].contains(browserURL.scheme?.lowercased()) else {
             return nil
         }
         return PackagedJourneyConfiguration(
             evidenceRoot: URL(fileURLWithPath: evidence),
-            workspaceRoot: URL(fileURLWithPath: workspace)
+            workspaceRoot: URL(fileURLWithPath: workspace),
+            browserURL: browserURL
         )
     }
 }
