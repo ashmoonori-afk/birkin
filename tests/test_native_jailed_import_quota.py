@@ -52,13 +52,15 @@ def test_concurrent_imports_cannot_oversubscribe_aggregate_quota(
     # Given: concurrent calls race for capacity that admits only one.
     source = tmp_path / "source.bin"
     _ = source.write_bytes(b"race")
-    authority = JailedImportAuthority(tmp_path / "jail")
+    jail = tmp_path / "jail"
+    first_authority = JailedImportAuthority(jail)
+    second_authority = JailedImportAuthority(jail)
     _ = _seed_owned_file(
-        authority.jail,
+        jail,
         MAX_JAIL_BYTES - len(b"race"),
         serial=1,
     )
-    contender_count = 8
+    contender_count = 2
     source_stat_barrier = threading.Barrier(contender_count)
     original_fstat = os.fstat
 
@@ -70,17 +72,20 @@ def test_concurrent_imports_cannot_oversubscribe_aggregate_quota(
 
     monkeypatch.setattr(os, "fstat", synchronize_source_stats)
 
-    def attempt_import() -> str:
-        try:
-            _ = authority.import_file({"source_path": str(source)})
-        except ProtocolError:
-            return "refused"
-        return "imported"
-
     # When: all calls pass source inspection together.
     with ThreadPoolExecutor(max_workers=contender_count) as executor:
-        futures = [executor.submit(attempt_import) for _ in range(contender_count)]
-        outcomes = [future.result(timeout=10) for future in futures]
+        futures = [
+            executor.submit(authority.import_file, {"source_path": str(source)})
+            for authority in (first_authority, second_authority)
+        ]
+        outcomes: list[str] = []
+        for future in futures:
+            try:
+                _ = future.result(timeout=10)
+            except ProtocolError:
+                outcomes.append("refused")
+            else:
+                outcomes.append("imported")
 
     # Then: atomic admission permits exactly one.
     assert outcomes.count("imported") == 1
@@ -196,6 +201,50 @@ def test_over_limit_refusal_is_bounded_typed_and_leaves_jail_unchanged(
     assert str(refusal.value) == "import jail exceeds aggregate byte limit"
     assert len(str(refusal.value)) < 128
     assert [(path.name, path.stat().st_size) for path in authority.jail.iterdir()] == before
+
+
+def test_stale_canonical_partial_file_consumes_aggregate_quota(tmp_path: Path) -> None:
+    # Given: a stale canonical partial occupies all but fewer bytes than the source.
+    source = tmp_path / "source.bin"
+    payload = b"charged"
+    _ = source.write_bytes(payload)
+    authority = JailedImportAuthority(tmp_path / "jail")
+    stale_partial = authority.jail / f".partial-{'a' * 32}"
+    with stale_partial.open("wb") as stream:
+        _ = stream.truncate(MAX_JAIL_BYTES - len(payload) + 1)
+
+    # When: the source is admitted against the shared aggregate quota.
+    with pytest.raises(ProtocolError, match="aggregate byte limit"):
+        _ = authority.import_file({"source_path": str(source)})
+
+    # Then: the stale partial remains and its bytes block oversubscription.
+    assert stale_partial.stat().st_size == MAX_JAIL_BYTES - len(payload) + 1
+
+
+def test_aggregate_accounting_does_not_follow_or_delete_partial_symlinks_or_dotfiles(
+    tmp_path: Path,
+) -> None:
+    # Given: a canonical-looking partial symlink and an unrelated dotfile in the jail.
+    external = tmp_path / "external.bin"
+    with external.open("wb") as stream:
+        _ = stream.truncate(MAX_JAIL_BYTES)
+    source = tmp_path / "source.bin"
+    _ = source.write_bytes(b"safe")
+    authority = JailedImportAuthority(tmp_path / "jail")
+    partial_symlink = authority.jail / f".partial-{'f' * 32}"
+    unrelated_dotfile = authority.jail / ".keep"
+    _ = partial_symlink.symlink_to(external)
+    _ = unrelated_dotfile.write_bytes(b"unrelated")
+
+    # When: a regular source is imported.
+    result = authority.import_file({"source_path": str(source)})
+
+    # Then: neither non-owned entry is charged, followed, or deleted.
+    receipt = result["receipt"]
+    assert isinstance(receipt, dict)
+    assert receipt["byte_count"] == len(b"safe")
+    assert partial_symlink.is_symlink()
+    assert unrelated_dotfile.read_bytes() == b"unrelated"
 
 
 def test_aggregate_accounting_ignores_owned_name_symlinks(tmp_path: Path) -> None:
