@@ -2,6 +2,9 @@ import Darwin
 import Foundation
 
 final class NativeSocket: @unchecked Sendable {
+    static let receiveTimeoutSeconds = 10
+    static let maximumConsecutiveIdleTimeouts = 4
+
     private var descriptor: Int32
     private let sendLock = NSLock()
 
@@ -112,6 +115,7 @@ final class NativeSocket: @unchecked Sendable {
     private func receive(count: Int) throws -> Data {
         var result = Data(count: count)
         var received = 0
+        var idleTimeouts = 0
         try result.withUnsafeMutableBytes { raw in
             while received < count {
                 let amount = Darwin.recv(
@@ -120,18 +124,37 @@ final class NativeSocket: @unchecked Sendable {
                     count - received,
                     0
                 )
-                guard amount > 0 else {
-                    if amount == 0 { throw NativeTransportError("connection closed during frame") }
-                    throw Self.systemError("receive")
+                if amount < 0 {
+                    let code = errno
+                    idleTimeouts += 1
+                    if Self.shouldRetryReceive(
+                        error: code,
+                        consecutiveTimeouts: idleTimeouts
+                    ) {
+                        continue
+                    }
+                    throw Self.systemError("receive", code: code)
                 }
+                guard amount > 0 else {
+                    throw NativeTransportError("connection closed during frame")
+                }
+                idleTimeouts = 0
                 received += amount
             }
         }
         return result
     }
 
+    static func shouldRetryReceive(
+        error: Int32,
+        consecutiveTimeouts: Int
+    ) -> Bool {
+        (error == EAGAIN || error == EWOULDBLOCK)
+            && consecutiveTimeouts <= maximumConsecutiveIdleTimeouts
+    }
+
     private func configureTimeouts() throws {
-        var timeout = timeval(tv_sec: 10, tv_usec: 0)
+        var timeout = timeval(tv_sec: Self.receiveTimeoutSeconds, tv_usec: 0)
         let size = socklen_t(MemoryLayout<timeval>.size)
         guard setsockopt(descriptor, SOL_SOCKET, SO_RCVTIMEO, &timeout, size) == 0,
               setsockopt(descriptor, SOL_SOCKET, SO_SNDTIMEO, &timeout, size) == 0
@@ -150,7 +173,10 @@ final class NativeSocket: @unchecked Sendable {
         }
     }
 
-    private static func systemError(_ operation: String) -> NativeTransportError {
-        NativeTransportError("\(operation) failed: \(String(cString: strerror(errno)))")
+    private static func systemError(
+        _ operation: String,
+        code: Int32 = errno
+    ) -> NativeTransportError {
+        NativeTransportError("\(operation) failed: \(String(cString: strerror(code)))")
     }
 }
