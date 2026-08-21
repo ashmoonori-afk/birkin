@@ -1,10 +1,12 @@
-"""Nothing typed at a terminal becomes durable in the clear."""
+"""Nothing typed at a terminal or raised by a handler is durable in the clear."""
 
 from __future__ import annotations
 
 import json
 from pathlib import Path
 from typing import cast
+
+import pytest
 
 from birkin.workspace import CommandReceipt, WorkspaceCommand, WorkspaceService
 from birkin.workspace.owned_terminal import TerminalAuthority
@@ -102,3 +104,39 @@ def test_terminal_keystrokes_never_reach_the_durable_journal(
     assert payload["redacted"] is True
     assert payload["terminal_id"] == opened["terminal_id"]
     assert payload["sequence"] == 1
+
+
+def test_a_failing_handler_never_journals_its_raw_exception_text(
+    tmp_path: Path,
+) -> None:
+    """Given a handler that fails with a credential in its message, When the
+    failure is journaled, Then the durable record carries bounded public text
+    and never the credential itself."""
+    secret = "sk-live-abcdefghijklmnopqrst"
+
+    def explode(_payload: dict[str, object]) -> dict[str, object]:
+        raise RuntimeError(f"upstream rejected authorization={secret}")
+
+    service = WorkspaceService(
+        root=tmp_path / "workspace",
+        session_id="session-1",
+        handlers={"chat.send": explode},
+    )
+    with pytest.raises(RuntimeError):
+        _ = _submit(
+            service,
+            command_id="explode",
+            command_type="chat.send",
+            payload={"text": "hello"},
+        )
+
+    failed = [
+        event
+        for event in _journal_events(tmp_path / "workspace", "session-1")
+        if event["type"] == "command.failed"
+    ]
+    assert len(failed) == 1
+    error = _payload(failed[0])["error"]
+    assert isinstance(error, str)
+    assert error != ""
+    assert secret not in error

@@ -2,27 +2,19 @@
 
 from __future__ import annotations
 
-import re
 from typing import cast
 
 from birkin.web.browser_security import browser_privacy_filter
 from birkin.workspace.contracts import REDACTION_MARKER
 from birkin.workspace.records import WorkspaceEvent
+from birkin.workspace.redaction import (
+    MAX_ERROR_CHARS,
+    SENSITIVE_KEYS,
+    bounded_error_text,
+    redact_secrets,
+)
 
-_SENSITIVE_KEYS = {
-    "api_key",
-    "auth",
-    "authorization",
-    "bootstrap_secret",
-    "cookie",
-    "credential",
-    "lease",
-    "password",
-    "provider_token",
-    "secret",
-    "session_capability",
-    "token",
-}
+_SENSITIVE_KEYS = SENSITIVE_KEYS
 _INTERNAL_KEYS = {
     "fingerprint",
 }
@@ -30,13 +22,8 @@ _TERMINAL_INPUT_SAFE_KEYS = {
     "sequence",
     "terminal_id",
 }
-_MAX_ERROR_CHARS = 300
 _MAX_PUBLIC_TEXT = 20_000
 _PRIVACY_FILTER = browser_privacy_filter()
-_SECRET_TEXT = re.compile(
-    r"(?i)\b(?:bearer\s+\S+|seeded[_-][A-Za-z0-9_-]+|"
-    + r"(?:sk|ghp|github_pat|xox[baprs])[-_][A-Za-z0-9_-]{8,})"
-)
 
 
 def public_workspace_event(event: WorkspaceEvent) -> dict[str, object]:
@@ -100,19 +87,11 @@ def _public_value(value: object) -> object:
 def public_error_text(value: str) -> str:
     """Return bounded diagnostic text without traceback or secret lines."""
 
-    lines: list[str] = []
-    for line in value.splitlines():
-        if line.startswith(("Traceback", "  File ")):
-            continue
-        normalized = line.casefold()
-        if any(f"{key}=" in normalized for key in _SENSITIVE_KEYS):
-            lines.append("[REDACTED]")
-        else:
-            lines.append(line)
-    bounded = "\n".join(lines)
-    return _public_text(bounded)[:_MAX_ERROR_CHARS]
+    return _public_text(bounded_error_text(value))[:MAX_ERROR_CHARS]
 
 
 def _public_text(value: str) -> str:
-    redacted = _SECRET_TEXT.sub("[REDACTED]", value)
-    return _PRIVACY_FILTER.text(redacted, max_length=_MAX_PUBLIC_TEXT)
+    return _PRIVACY_FILTER.text(
+        redact_secrets(value),
+        max_length=_MAX_PUBLIC_TEXT,
+    )

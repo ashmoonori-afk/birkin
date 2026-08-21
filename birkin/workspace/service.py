@@ -18,6 +18,7 @@ from .contracts import (
 from .approval_projection import approval_items, approval_policy
 from .journal import WorkspaceJournal
 from .presets import SESSION_PRESETS, SessionPreset
+from .redaction import bounded_error_text
 from .records import (
     CommandReceipt,
     WorkspaceEvent,
@@ -176,7 +177,7 @@ class WorkspaceService:
                     "command.failed",
                     actor_id=receipt.actor_id,
                     command_id=command.command_id,
-                    payload={"error": str(exc)[:300]},
+                    payload={"error": bounded_error_text(str(exc))},
                 )
                 _ = self._journal.complete(
                     receipt,
