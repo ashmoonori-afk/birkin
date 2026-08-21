@@ -38,6 +38,60 @@ public struct NativeProjectionSubscription: Sendable {
             body: body
         )
     }
+
+    static func controlResponse(
+        for envelope: NativeEnvelope,
+        capability: NativeProjectionCapability
+    ) throws -> NativeEnvelope? {
+        if envelope.kind == .capabilityRenewed {
+            try capability.acceptRenewal(envelope)
+            return nil
+        }
+        guard envelope.kind == .ping else { return nil }
+        return try pong(
+            for: envelope,
+            sessionCapability: capability.current()
+        )
+    }
+}
+
+final class NativeProjectionCapability: @unchecked Sendable {
+    private let lock = NSLock()
+    private var token: String
+
+    init(_ token: String) {
+        self.token = token
+    }
+
+    func current() -> String {
+        lock.withLock { token }
+    }
+
+    func authenticate(_ request: NativeCommandRequest) -> NativeCommandRequest {
+        NativeCommandRequest(
+            frameID: request.frameID,
+            commandID: request.commandID,
+            expectedCursor: request.expectedCursor,
+            commandType: request.commandType,
+            payload: request.payload,
+            sessionCapability: current(),
+            viewID: request.viewID
+        )
+    }
+
+    func acceptRenewal(_ envelope: NativeEnvelope) throws {
+        guard envelope.kind == .capabilityRenewed,
+              case .string(let replacement) = envelope.body["token"],
+              case .string(let expiresAt) = envelope.body["expires_at"],
+              case .string(let hardExpiresAt) = envelope.body["hard_expires_at"],
+              !replacement.isEmpty,
+              NativeProtocolDate.parse(expiresAt) != nil,
+              NativeProtocolDate.parse(hardExpiresAt) != nil
+        else {
+            throw NativeTransportError("capability renewal is missing valid lease fields")
+        }
+        lock.withLock { token = replacement }
+    }
 }
 
 extension NativeTransportActor {
@@ -86,6 +140,9 @@ extension NativeTransportActor {
                 socket: socket,
                 sessionCapability: transcript.session.sessionCapability
             )
+            let capability = NativeProjectionCapability(
+                transcript.session.sessionCapability
+            )
             let messages = AsyncThrowingStream<NativeEnvelope, any Error> { continuation in
                 continuation.onTermination = { _ in socket.close() }
                 Task.detached {
@@ -95,13 +152,11 @@ extension NativeTransportActor {
                             let envelope = try NativeFrameCodec.decode(
                                 frame: socket.receiveFrame()
                             )
-                            if envelope.kind == .ping {
-                                try socket.send(NativeFrameCodec.encode(
-                                    try NativeProjectionSubscription.pong(
-                                        for: envelope,
-                                        sessionCapability: transcript.session.sessionCapability
-                                    )
-                                ))
+                            if let response = try NativeProjectionSubscription.controlResponse(
+                                for: envelope,
+                                capability: capability
+                            ) {
+                                try socket.send(NativeFrameCodec.encode(response))
                             } else {
                                 continuation.yield(envelope)
                             }
@@ -117,7 +172,9 @@ extension NativeTransportActor {
                 snapshot: snapshot,
                 messages: messages,
                 submit: { request in
-                    try socket.send(NativeFrameCodec.encode(request.envelope))
+                    try socket.send(NativeFrameCodec.encode(
+                        capability.authenticate(request).envelope
+                    ))
                 },
                 replaying: replaying
             )

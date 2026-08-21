@@ -1,15 +1,67 @@
 import Darwin
 import Foundation
 
+final class NativeSocketDescriptorOwnership: @unchecked Sendable {
+    final class Lease {
+        let descriptor: Int32
+
+        fileprivate init(descriptor: Int32) {
+            self.descriptor = descriptor
+        }
+
+        deinit {
+            _ = Darwin.close(descriptor)
+        }
+    }
+
+    private let lock = NSLock()
+    private var descriptor: Int32
+
+    init(descriptor: Int32) {
+        self.descriptor = descriptor
+    }
+
+    func lease() throws -> Lease {
+        try lock.withLock {
+            guard descriptor >= 0 else {
+                throw NativeTransportError("socket is closed")
+            }
+            let duplicate = fcntl(descriptor, F_DUPFD_CLOEXEC, 0)
+            guard duplicate >= 0 else {
+                throw Self.systemError("duplicate socket")
+            }
+            return Lease(descriptor: duplicate)
+        }
+    }
+
+    func close() {
+        let ownedDescriptor = lock.withLock { () -> Int32 in
+            let ownedDescriptor = descriptor
+            descriptor = -1
+            return ownedDescriptor
+        }
+        guard ownedDescriptor >= 0 else { return }
+        _ = Darwin.shutdown(ownedDescriptor, SHUT_RDWR)
+        _ = Darwin.close(ownedDescriptor)
+    }
+
+    private static func systemError(
+        _ operation: String,
+        code: Int32 = errno
+    ) -> NativeTransportError {
+        NativeTransportError("\(operation) failed: \(String(cString: strerror(code)))")
+    }
+}
+
 final class NativeSocket: @unchecked Sendable {
     static let receiveTimeoutSeconds = 10
     static let maximumConsecutiveIdleTimeouts = 4
 
-    private var descriptor: Int32
+    private let descriptorOwnership: NativeSocketDescriptorOwnership
     private let sendLock = NSLock()
 
     private init(descriptor: Int32) {
-        self.descriptor = descriptor
+        descriptorOwnership = NativeSocketDescriptorOwnership(descriptor: descriptor)
     }
 
     static func connectUDS(path: String) throws -> NativeSocket {
@@ -78,19 +130,18 @@ final class NativeSocket: @unchecked Sendable {
     }
 
     func close() {
-        guard descriptor >= 0 else { return }
-        _ = Darwin.close(descriptor)
-        descriptor = -1
+        descriptorOwnership.close()
     }
 
     func send(_ data: Data) throws {
         sendLock.lock()
         defer { sendLock.unlock() }
+        let lease = try descriptorOwnership.lease()
         try data.withUnsafeBytes { raw in
             var sent = 0
             while sent < raw.count {
                 let count = Darwin.send(
-                    descriptor,
+                    lease.descriptor,
                     raw.baseAddress!.advanced(by: sent),
                     raw.count - sent,
                     0
@@ -102,17 +153,18 @@ final class NativeSocket: @unchecked Sendable {
     }
 
     func receiveFrame() throws -> Data {
-        let header = try receive(count: 4)
+        let lease = try descriptorOwnership.lease()
+        let header = try receive(count: 4, descriptor: lease.descriptor)
         let declared = header.reduce(0) { $0 << 8 | Int($1) }
         guard declared <= NativeProtocol.maxFrameBytes else {
             throw NativeTransportError("native frame exceeds limit")
         }
         var frame = header
-        frame.append(try receive(count: declared))
+        frame.append(try receive(count: declared, descriptor: lease.descriptor))
         return frame
     }
 
-    private func receive(count: Int) throws -> Data {
+    private func receive(count: Int, descriptor: Int32) throws -> Data {
         var result = Data(count: count)
         var received = 0
         var idleTimeouts = 0
@@ -154,16 +206,17 @@ final class NativeSocket: @unchecked Sendable {
     }
 
     private func configureTimeouts() throws {
+        let lease = try descriptorOwnership.lease()
         var timeout = timeval(tv_sec: Self.receiveTimeoutSeconds, tv_usec: 0)
         let size = socklen_t(MemoryLayout<timeval>.size)
-        guard setsockopt(descriptor, SOL_SOCKET, SO_RCVTIMEO, &timeout, size) == 0,
-              setsockopt(descriptor, SOL_SOCKET, SO_SNDTIMEO, &timeout, size) == 0
+        guard setsockopt(lease.descriptor, SOL_SOCKET, SO_RCVTIMEO, &timeout, size) == 0,
+              setsockopt(lease.descriptor, SOL_SOCKET, SO_SNDTIMEO, &timeout, size) == 0
         else {
             throw Self.systemError("configure socket timeout")
         }
         var enabled: Int32 = 1
         guard setsockopt(
-            descriptor,
+            lease.descriptor,
             SOL_SOCKET,
             SO_NOSIGPIPE,
             &enabled,
