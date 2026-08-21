@@ -9,7 +9,7 @@ import signal
 import sys
 import threading
 import uuid
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from pathlib import Path
 from types import FrameType
@@ -18,9 +18,11 @@ from typing import Protocol, final
 from birkin import __version__, config
 from birkin.native.capability import BootstrapSecretStore
 from birkin.native.endpoint import NativeBridgeEndpoint
+from birkin.native.product_surfaces import SurfaceSnapshot
 from birkin.native.server import NativeBridgeServer
+from birkin.workspace.hub import EventSink, WorkspaceHub
 from birkin.workspace.runtime_adapter import RuntimeWorkspaceAdapter
-from birkin.workspace.service import WorkspaceService
+from birkin.workspace.service import CommandHandler
 
 Announce = Callable[[str], None]
 
@@ -43,6 +45,39 @@ class ServingEndpoint(Protocol):
     def serve_once(self) -> None: ...
 
     def close(self) -> None: ...
+
+
+@final
+class _SelectedSurfaceAuthority:
+    """Project the product surfaces belonging to the selected session.
+
+    Surfaces are per-session state, so the bridge must follow the hub's
+    selection rather than bind to whichever session happened to start first.
+    """
+
+    def __init__(
+        self,
+        hub: WorkspaceHub,
+        adapters: Mapping[str, RuntimeWorkspaceAdapter],
+    ) -> None:
+        self._hub = hub
+        self._adapters = adapters
+
+    def _current(self) -> RuntimeWorkspaceAdapter:
+        return self._adapters[self._hub.snapshot().session_id]
+
+    @property
+    def surface_names(self) -> tuple[str, ...]:
+        return self._current().surface_authority.surface_names
+
+    def snapshots(
+        self,
+        requested: Mapping[str, int],
+    ) -> tuple[SurfaceSnapshot, ...]:
+        return self._current().surface_authority.snapshots(requested)
+
+    def live_snapshot(self, surface: str) -> SurfaceSnapshot | None:
+        return self._current().surface_authority.live_snapshot(surface)
 
 
 @final
@@ -91,27 +126,43 @@ class BridgeProcess:
         self._accept_failures = 0
         self._instance_id = uuid.uuid4().hex
         options.root.mkdir(parents=True, exist_ok=True)
-        self._service = WorkspaceService(
+        self._adapters: dict[str, RuntimeWorkspaceAdapter] = {}
+        self._hub = WorkspaceHub(
             root=options.root / "workspace",
-            session_id=options.session_id,
-            handlers={},
+            handler_factory=self._session_handlers,
         )
-        self._adapter = RuntimeWorkspaceAdapter(
-            options.session_id,
-            self._service.emit,
-            workspace_root=options.root,
-        )
-        self._service.set_handlers(self._adapter.handlers())
+        _session, _created = self._hub.create(options.session_id)
         self._capabilities = BootstrapSecretStore(options.root / "native")
         self._socket_path = options.root / "bridge.sock"
         self._bridge = NativeBridgeServer(
-            self._service,
+            self._hub,
+            session_authority=self._hub,
             capabilities=self._capabilities,
             instance_id=self._instance_id,
             server_version=__version__,
-            on_disconnect=self._adapter.revoke_terminal_leases,
-            surface_authority=self._adapter.surface_authority,
+            on_disconnect=self._revoke_terminal_leases,
+            surface_authority=_SelectedSurfaceAuthority(
+                self._hub, self._adapters
+            ),
         )
+
+    def _session_handlers(
+        self,
+        session_id: str,
+        emit: EventSink,
+    ) -> Mapping[str, CommandHandler]:
+        """Give every session its own runtime, so a created session is real."""
+        adapter = RuntimeWorkspaceAdapter(
+            session_id,
+            emit,
+            workspace_root=self._options.root,
+        )
+        self._adapters[session_id] = adapter
+        return adapter.handlers()
+
+    def _revoke_terminal_leases(self) -> None:
+        for adapter in list(self._adapters.values()):
+            adapter.revoke_terminal_leases()
 
     def _open(self) -> NativeBridgeEndpoint:
         if self._options.transport == "uds":
@@ -152,7 +203,8 @@ class BridgeProcess:
 
     def close(self) -> None:
         """Release the workspace resources this lifecycle owns."""
-        self._adapter.close()
+        for adapter in list(self._adapters.values()):
+            adapter.close()
 
     def run(self) -> int:
         endpoint = self._open()
