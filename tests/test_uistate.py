@@ -9,6 +9,8 @@ from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
 
+import pytest
+
 from birkin import uistate
 
 
@@ -230,3 +232,39 @@ def test_schema_is_json_serializable_and_stable():
     a = json.dumps(uistate.schema(), sort_keys=True, ensure_ascii=False)
     b = json.dumps(uistate.schema(), sort_keys=True, ensure_ascii=False)
     assert a == b
+
+
+# -- mapping: runtime events ------------------------------------------------
+
+def test_from_runtime_tool_end_error_is_failed() -> None:
+    view = uistate.from_runtime("tool_end", is_error=True)
+
+    assert view.state == "failed"
+    assert view.raw == "tool_end"
+    assert view.domain == "runtime"
+
+
+@pytest.mark.parametrize(
+    ("event", "is_error"),
+    [
+        (event, is_error)
+        for event in (
+            "tool_start",
+            "tool_end",
+            "subagent.start",
+            "subagent.done",
+            "compact",
+            "steer",
+            "no_such_event",
+        )
+        for is_error in (False, True)
+    ],
+)
+def test_from_runtime_totality(event: str, is_error: bool) -> None:
+    view = uistate.from_runtime(event, is_error=is_error)
+
+    assert view.state in uistate.UI_STATES
+    if event == "no_such_event" and not is_error:
+        assert view.state == "unknown"
+    if is_error:
+        assert view.state == "failed"
