@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from .contracts import REDACTION_MARKER
 from .records import (
     PANEL_KEYS,
     ComposerState,
@@ -131,6 +132,13 @@ def _panel_item(event: WorkspaceEvent) -> dict[str, object]:
     return item
 
 
+def _live_lease(value: object) -> str | None:
+    """A redacted or empty lease is the absence of authority, not a lease."""
+    if not isinstance(value, str) or not value or value == REDACTION_MARKER:
+        return None
+    return value
+
+
 def reduce_snapshot(
     session_id: str,
     events: tuple[WorkspaceEvent, ...],
@@ -211,12 +219,8 @@ def reduce_snapshot(
                     "cwd": str(event.payload.get("cwd") or ""),
                     "state": "running",
                     "exit_status": None,
-                    "lease": (
-                        event.payload.get("lease")
-                        if isinstance(event.payload.get("lease"), str)
-                        else None
-                    ),
-                    "read_only": False,
+                    "lease": _live_lease(event.payload.get("lease")),
+                    "read_only": _live_lease(event.payload.get("lease")) is None,
                 })
             elif event.type == "terminal.output":
                 data = event.payload.get("data")

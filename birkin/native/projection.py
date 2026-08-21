@@ -6,6 +6,7 @@ import re
 from typing import cast
 
 from birkin.web.browser_security import browser_privacy_filter
+from birkin.workspace.contracts import REDACTION_MARKER
 from birkin.workspace.records import WorkspaceEvent
 
 _SENSITIVE_KEYS = {
@@ -70,7 +71,9 @@ def _public_mapping(mapping: dict[str, object]) -> dict[str, object]:
         if normalized in _INTERNAL_KEYS:
             continue
         if normalized in _SENSITIVE_KEYS:
-            projected[key] = "[REDACTED]"
+            # An absent secret stays absent: null means "no authority here",
+            # while the marker means "authority exists and is withheld".
+            projected[key] = None if value is None else REDACTION_MARKER
         elif normalized in {"error", "message", "detail"} and isinstance(value, str):
             projected[key] = public_error_text(value)
         else:

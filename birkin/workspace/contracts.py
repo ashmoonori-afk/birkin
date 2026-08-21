@@ -50,6 +50,10 @@ _COMMAND_TYPES = {
 
 JsonValue = object
 
+# Written wherever a public projection must not carry a secret. It is proof a
+# value was withheld, never a usable value.
+REDACTION_MARKER = "[REDACTED]"
+
 
 class ProtocolError(ValueError):
     """A workspace payload violates the protocol boundary."""

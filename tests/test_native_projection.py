@@ -127,3 +127,35 @@ def test_public_snapshot_mapping_redacts_nested_seeded_secret() -> None:
 
     assert _SEEDED_SECRET not in str(projected)
     assert "[REDACTED]" in str(projected)
+
+
+def test_reduced_snapshot_treats_a_redacted_lease_as_no_lease() -> None:
+    """Given a journal event whose lease was redacted, When the canonical
+    snapshot is reduced, Then the terminal carries no lease and stays
+    read-only."""
+    from birkin.workspace.contracts import REDACTION_MARKER
+    from birkin.workspace.records import WorkspaceEvent
+    from birkin.workspace.snapshot import reduce_snapshot
+
+    opened = WorkspaceEvent(
+        protocol_version=1,
+        session_id="session-1",
+        cursor=1,
+        event_id="event-1",
+        type="terminal.opened",
+        timestamp="2026-08-20T12:00:00Z",
+        actor_id="macos:main",
+        command_id="command-1",
+        payload={
+            "terminal_id": "terminal-1",
+            "cwd": "/private/workspace",
+            "lease": REDACTION_MARKER,
+            "state": "running",
+        },
+    )
+
+    snapshot = reduce_snapshot("session-1", (opened,))
+
+    terminal = snapshot.to_json()["terminals"][0]
+    assert terminal["lease"] is None
+    assert terminal["read_only"] is True

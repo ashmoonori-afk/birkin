@@ -159,6 +159,7 @@ def render_fixture() -> str:
     factory = NativeMessageFactory(
         instance_id="instance-1",
         server_version=__version__,
+        session_id="session-1",
         command_types=frozenset(),
         session_presets=SESSION_PRESETS,
     )
@@ -166,7 +167,9 @@ def render_fixture() -> str:
     working_memory = canonical_working_memory()
     snapshot = public_native_mapping(
         replace(
-            reduce_snapshot("session-1", tuple(base_events)),
+            reduce_snapshot(
+                "session-1", tuple(_as_client_sees(item) for item in base_events)
+            ),
             working_memory=working_memory,
         ).to_json()
     )
@@ -185,7 +188,10 @@ def render_fixture() -> str:
                 "cursor": delta.cursor,
                 "expected_state": public_native_mapping(
                     replace(
-                        reduce_snapshot("session-1", tuple(applied)),
+                        reduce_snapshot(
+                            "session-1",
+                            tuple(_as_client_sees(item) for item in applied),
+                        ),
                         working_memory=working_memory,
                     ).to_json()
                 ),
@@ -213,6 +219,15 @@ def render_fixture() -> str:
         "gap_event": {**frame_document(gap_message), "cursor": gap.cursor},
     }
     return json.dumps(document, ensure_ascii=False, indent=2) + "\n"
+
+
+
+def _as_client_sees(event: WorkspaceEvent) -> WorkspaceEvent:
+    """The event a client actually reduces: the public, redacted projection."""
+    public = public_workspace_event(event)
+    payload = public["payload"]
+    assert isinstance(payload, dict)
+    return replace(event, payload=payload)
 
 
 def main() -> None:

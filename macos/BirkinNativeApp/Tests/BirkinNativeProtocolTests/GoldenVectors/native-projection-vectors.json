@@ -1207,8 +1207,8 @@
       }
     },
     {
-      "frame_base64": "AAACK3sicHJvdG9jb2wiOiJiaXJraW4tbG9jYWwtMSIsInByb3RvY29sX3ZlcnNpb24iOjEsImtpbmQiOiJldmVudCIsImlkIjoic2VydmVyLTkiLCJpbl9yZXBseV90byI6bnVsbCwiYm9keSI6eyJwcm90b2NvbF92ZXJzaW9uIjoxLCJzZXNzaW9uX2lkIjoic2Vzc2lvbi0xIiwiY3Vyc29yIjoxMCwiZXZlbnRfaWQiOiJldmVudC0xMCIsInR5cGUiOiJ0ZXJtaW5hbC5vcGVuZWQiLCJ0aW1lc3RhbXAiOiIyMDI2LTA4LTIwVDEyOjAwOjEwWiIsImFjdG9yX2lkIjoibWFjb3M6d2luZG93LW1haW4iLCJjb21tYW5kX2lkIjoiY29tbWFuZC0xIiwicGF5bG9hZCI6eyJ0ZXJtaW5hbF9pZCI6InRlcm1pbmFsLXZlY3RvciIsInNlc3Npb25faWQiOiJzZXNzaW9uLTEiLCJhY3Rvcl9raW5kIjoibmF0aXZlX2h1bWFuIiwiY3dkIjoiL3ByaXZhdGUvd29ya3NwYWNlIiwic2hlbGwiOiIvYmluL3NoIiwicGlkIjo0MjQyLCJsZWFzZSI6InZlY3Rvci1sZWFzZSIsImxlYXNlX2V4cGlyZXNfaW4iOjYwLjAsImFwcHJvdmFsX2lkIjoiYXBwcm92YWwtdmVjdG9yIiwic3RhdGUiOiJydW5uaW5nIn19fQ==",
-      "frame_byte_count": 559,
+      "frame_base64": "AAACKXsicHJvdG9jb2wiOiJiaXJraW4tbG9jYWwtMSIsInByb3RvY29sX3ZlcnNpb24iOjEsImtpbmQiOiJldmVudCIsImlkIjoic2VydmVyLTkiLCJpbl9yZXBseV90byI6bnVsbCwiYm9keSI6eyJwcm90b2NvbF92ZXJzaW9uIjoxLCJzZXNzaW9uX2lkIjoic2Vzc2lvbi0xIiwiY3Vyc29yIjoxMCwiZXZlbnRfaWQiOiJldmVudC0xMCIsInR5cGUiOiJ0ZXJtaW5hbC5vcGVuZWQiLCJ0aW1lc3RhbXAiOiIyMDI2LTA4LTIwVDEyOjAwOjEwWiIsImFjdG9yX2lkIjoibWFjb3M6d2luZG93LW1haW4iLCJjb21tYW5kX2lkIjoiY29tbWFuZC0xIiwicGF5bG9hZCI6eyJ0ZXJtaW5hbF9pZCI6InRlcm1pbmFsLXZlY3RvciIsInNlc3Npb25faWQiOiJzZXNzaW9uLTEiLCJhY3Rvcl9raW5kIjoibmF0aXZlX2h1bWFuIiwiY3dkIjoiL3ByaXZhdGUvd29ya3NwYWNlIiwic2hlbGwiOiIvYmluL3NoIiwicGlkIjo0MjQyLCJsZWFzZSI6IltSRURBQ1RFRF0iLCJsZWFzZV9leHBpcmVzX2luIjo2MC4wLCJhcHByb3ZhbF9pZCI6ImFwcHJvdmFsLXZlY3RvciIsInN0YXRlIjoicnVubmluZyJ9fX0=",
+      "frame_byte_count": 557,
       "kind": "event",
       "cursor": 10,
       "expected_state": {
@@ -1383,8 +1383,8 @@
             "exit_status": null,
             "columns": 80,
             "rows": 24,
-            "lease": "vector-lease",
-            "read_only": false
+            "lease": null,
+            "read_only": true
           }
         ]
       }
@@ -1566,8 +1566,8 @@
             "exit_status": null,
             "columns": 80,
             "rows": 24,
-            "lease": "vector-lease",
-            "read_only": false
+            "lease": null,
+            "read_only": true
           }
         ]
       }
@@ -1749,8 +1749,8 @@
             "exit_status": null,
             "columns": 100,
             "rows": 30,
-            "lease": "vector-lease",
-            "read_only": false
+            "lease": null,
+            "read_only": true
           }
         ]
       }

@@ -9,6 +9,7 @@ from pathlib import Path
 from typing import final
 
 from .contracts import (
+    REDACTION_MARKER,
     JsonValue,
     ProtocolError,
     UnsupportedCommand,
@@ -187,7 +188,7 @@ class WorkspaceService:
                 self._active_receipt = None
             durable_result = result
             if command.type == "terminal.create" and "lease" in result:
-                durable_result = {**result, "lease": "[REDACTED]"}
+                durable_result = {**result, "lease": REDACTION_MARKER}
             completed = self._append(
                 "command.completed",
                 actor_id=receipt.actor_id,

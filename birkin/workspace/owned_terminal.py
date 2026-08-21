@@ -19,6 +19,7 @@ from birkin import approvals, config, store
 
 from .approval_projection import approval_item
 from .contracts import (
+    REDACTION_MARKER,
     ProtocolError,
     TerminalApprovalRequired,
     TerminalLeaseRequired,
@@ -235,7 +236,7 @@ class TerminalAuthority:
             "approval_id": approval_id,
             "state": "running",
         }
-        _ = self._emit("terminal.opened", {**opened, "lease": "[REDACTED]"})
+        _ = self._emit("terminal.opened", {**opened, "lease": REDACTION_MARKER})
         initial = self._read_output(session, timeout=0.1)
         if initial:
             self._output_event(session, initial)
