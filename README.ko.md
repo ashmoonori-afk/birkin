@@ -576,6 +576,7 @@ snapshot을 복사할 수 있습니다.
 | `birkin chat` | 기본 terminal chat workspace와 private loopback web authority 실행. |
 | `birkin gateway` | Loopback HTTP와 설정된 message channel을 실행하고, 중단 후 답변 재전송을 단일 owner가 배타적으로 claim하도록 보장. |
 | `birkin web [--no-browser]` | 독립 인증 chat workspace와 control API 실행. |
+| `birkin native-bridge serve` | macOS 앱이 연결하는 인증된 local bridge 실행. |
 | `birkin review` | 결과가 생기는 대기 action 승인 또는 거절. |
 | `birkin permission` | Approval category와 CLI access 확인·변경. |
 | `birkin tools` | Canonical registry inventory에서 네이티브 tool 목록·활성화·비활성화. |
@@ -729,6 +730,11 @@ Unix domain socket을 우선 사용하고, 명시적으로 선택할 때 인증�
   process tree를 소유하고 approval을 처리합니다. Swift는 typed command를
   보낼 뿐 UI state, focus, menu, voice input, notification tap이 action을
   승인하지 않습니다.
+- **Bridge lifecycle:** App은 배포된 `birkin native-bridge serve` 명령으로
+  자체 Python bridge를 시작하고, 그 명령이 알리는 endpoint를 기다리며,
+  60초 안에 최대 다섯 번까지 재시작하고, 종료할 때 함께 정리합니다.
+  `BIRKIN_NATIVE_SOCKET`을 설정하면 이미 실행 중인 사용자 관리 bridge에
+  연결하며, 이 경우 app은 그 bridge를 종료하지 않습니다.
 - **복구:** Cursor replay, gap 또는 instance 변경 뒤 full snapshot,
   capability renewal, app-owned bridge의 bounded restart로 stale projection을
   권한으로 취급하지 않고 local state를 복구합니다.

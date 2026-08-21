@@ -574,6 +574,7 @@ the newest snapshots with `prune --keep N`, or copy a snapshot with
 | `birkin chat` | Default terminal chat workspace plus private loopback web authority. |
 | `birkin gateway` | Run loopback HTTP and configured message channels with crash-durable, exclusively claimed reply redelivery. |
 | `birkin web [--no-browser]` | Run the standalone authenticated chat workspace and control API. |
+| `birkin native-bridge serve` | Serve the authenticated local bridge the macOS application connects to. |
 | `birkin review` | Approve or reject pending consequential actions. |
 | `birkin permission` | Inspect or change approval categories and CLI access. |
 | `birkin tools` | List, enable, or disable native tools from the canonical registry inventory. |
@@ -725,6 +726,11 @@ The shipped boundary is deliberate:
 - **Execution and authority:** Python enforces budgets, runs tools, owns terminal
   process trees, and resolves approvals. Swift sends typed commands; UI state,
   focus, menus, voice input, and notification taps never authorize an action.
+- **Bridge lifecycle:** the app starts its own Python bridge with the shipped
+  `birkin native-bridge serve` command, waits for the endpoint that command
+  announces, restarts it at most five times in sixty seconds, and terminates it
+  on exit. Setting `BIRKIN_NATIVE_SOCKET` attaches an already running,
+  user-managed bridge instead, which the app never terminates.
 - **Recovery:** cursor replay, full snapshots after gaps or instance changes,
   capability renewal, and bounded app-owned bridge restart recover local state
   without treating stale projections as authority.

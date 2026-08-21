@@ -352,6 +352,16 @@ def _cmd_web(args: argparse.Namespace) -> int:
     return run(port=args.port, open_browser=not args.no_browser)
 
 
+def _cmd_native_bridge(args: argparse.Namespace) -> int:
+    from .native.serve import NativeServeOptions, serve_bridge
+
+    return serve_bridge(NativeServeOptions.resolve(
+        transport=args.transport,
+        session_id=args.session_id,
+        root=args.root,
+    ))
+
+
 def _cmd_setup(args: argparse.Namespace) -> int:
     from .onboarding import run
     return run()
@@ -1315,6 +1325,34 @@ def build_parser() -> argparse.ArgumentParser:
     wp.add_argument("--port", type=int, default=None)
     wp.add_argument("--no-browser", action="store_true")
     wp.set_defaults(func=_cmd_web)
+
+    nbp = sub.add_parser(
+        "native-bridge",
+        help="serve the local bridge the macOS application connects to",
+    )
+    nb_sub = nbp.add_subparsers(dest="native_bridge_action", required=True)
+    nb_serve = nb_sub.add_parser(
+        "serve",
+        help="serve one authenticated local endpoint until stopped",
+    )
+    nb_serve.add_argument(
+        "--transport",
+        choices=("uds", "loopback"),
+        default="uds",
+        help="private Unix socket (default) or private loopback fallback",
+    )
+    nb_serve.add_argument(
+        "--session-id",
+        default=None,
+        help="workspace session to serve (default: native-app)",
+    )
+    nb_serve.add_argument(
+        "--root",
+        type=Path,
+        default=None,
+        help="bridge state directory (default: $BIRKIN_HOME/native-bridge)",
+    )
+    nb_serve.set_defaults(func=_cmd_native_bridge)
 
     sub.add_parser("setup", help="guided onboarding wizard").set_defaults(func=_cmd_setup)
     sub.add_parser("onboard", help="alias for setup (first-run wizard)").set_defaults(func=_cmd_setup)

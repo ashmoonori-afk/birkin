@@ -21,7 +21,9 @@ public final class BirkinApplicationRuntime: ObservableObject {
     @Published public private(set) var connectionState: NativeConnectionState = .disconnected
     @Published public private(set) var lastCommandError: String?
 
-    private let socketPath: String?
+    private var socketPath: String?
+    private let ownedBridge: OwnedBridgeConfiguration?
+    private var supervisor: OwnedBridgeSupervisor?
     private let screenshotPath: String?
     private let reconnectClock: any NativeReconnectClock
     private let randomUnit: NativeReconnectScheduler.RandomUnit
@@ -41,6 +43,7 @@ public final class BirkinApplicationRuntime: ObservableObject {
         screenshotPath: String? = ProcessInfo.processInfo.environment[
             BirkinApplicationConfiguration.screenshotEnvironmentKey
         ],
+        ownedBridge: OwnedBridgeConfiguration? = OwnedBridgeConfiguration.discovered(),
         reconnectClock: any NativeReconnectClock = NativeContinuousReconnectClock(),
         randomUnit: @escaping NativeReconnectScheduler.RandomUnit = {
             Double.random(in: 0...1)
@@ -48,6 +51,7 @@ public final class BirkinApplicationRuntime: ObservableObject {
         emit: @escaping @Sendable (String) -> Void = BirkinApplicationRuntime.standardEvent
     ) {
         self.socketPath = socketPath
+        self.ownedBridge = ownedBridge
         self.screenshotPath = screenshotPath
         self.reconnectClock = reconnectClock
         self.randomUnit = randomUnit
@@ -57,6 +61,11 @@ public final class BirkinApplicationRuntime: ObservableObject {
     public func start() async {
         guard !started else { return }
         started = true
+        if socketPath == nil {
+            startOwnedBridge()
+        } else {
+            emit("bridge-attached kind=external")
+        }
         guard socketPath != nil else {
             emit("disconnected reason=no-endpoint")
             return
@@ -74,8 +83,39 @@ public final class BirkinApplicationRuntime: ObservableObject {
         }
     }
 
+    /// Start the bridge this application owns and adopt the endpoint it
+    /// announces. An externally managed bridge is never touched.
+    private func startOwnedBridge() {
+        guard let ownedBridge else { return }
+        let supervisor = OwnedBridgeSupervisor(spawn: { [weak self] in
+            let launched = try OwnedBridgeLauncher.launch(ownedBridge) { pid, status in
+                Task { @MainActor in self?.ownedBridgeExited(pid: pid, status: status) }
+            }
+            self?.socketPath = launched.socketPath
+            return launched.process
+        })
+        self.supervisor = supervisor
+        guard supervisor.startOwnedIfNeeded() else {
+            emit("bridge-launch-failed reason=\(supervisor.state)")
+            return
+        }
+        emit("bridge-started kind=owned")
+    }
+
+    private func ownedBridgeExited(pid: Int32, status: Int32) {
+        guard let supervisor, started else { return }
+        supervisor.observeExit(pid: pid, status: status)
+        switch supervisor.state {
+        case .runningOwned: emit("bridge-restarted kind=owned")
+        case .stopped(let reason): emit("bridge-stopped reason=\(reason)")
+        case .attachedExternal, .idle: break
+        }
+    }
+
     public func stop() {
         started = false
+        supervisor?.shutdown()
+        supervisor = nil
         connectionGeneration += 1
         listener?.cancel()
         listener = nil
@@ -177,6 +217,14 @@ public final class BirkinApplicationRuntime: ObservableObject {
                     self?.lastCommandError = String(describing: error).prefix(300).description
                 }
             }
+        }
+    }
+
+    /// The process id of the bridge this application owns, if any.
+    public var ownedBridgeProcessIdentifier: Int32? {
+        switch supervisor?.state {
+        case .runningOwned(let pid): pid
+        default: nil
         }
     }
 
