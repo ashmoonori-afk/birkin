@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import socket
+from collections.abc import Mapping
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import cast, final
@@ -20,6 +21,7 @@ from birkin.native.product_surfaces import (
     ComputerUseSurfaceAuthority,
     NativeProductSurfaceAuthority,
     OfficeSurfaceAuthority,
+    SurfaceSnapshot,
 )
 from birkin.native.protocol import NativeEnvelope, encode_frame
 from birkin.native.server import NativeBridgeServer
@@ -254,6 +256,81 @@ def _live_product(tmp_path: Path, browser: _FakeBrowserRuntime) -> (
         ),
         office=OfficeSurfaceAuthority(DocumentService(tmp_path / "office")),
     )
+
+
+@final
+class _FailingSurfaceProjection:
+    """A surface projection that fails the way a serialization bug would."""
+
+    def __init__(self, inner: NativeProductSurfaceAuthority) -> None:
+        self._inner = inner
+
+    @property
+    def surface_names(self) -> tuple[str, ...]:
+        return self._inner.surface_names
+
+    def snapshots(
+        self,
+        requested: Mapping[str, int],
+    ) -> tuple[SurfaceSnapshot, ...]:
+        return self._inner.snapshots(requested)
+
+    def live_snapshot(self, surface: str) -> SurfaceSnapshot | None:
+        raise RuntimeError(f"surface projection failed for {surface}")
+
+
+def test_surface_projection_failure_keeps_the_canonical_command_accepted(
+    tmp_path: Path,
+) -> None:
+    """Given a surface projection that raises, When a canonical command
+    commits, Then the shell still receives an accepted receipt for it."""
+    product = _product(tmp_path)
+    source = WorkspaceService(
+        root=tmp_path / "workspace", session_id="session-1", handlers={}
+    )
+    source.set_handlers(product.handlers(source.emit))
+    bridge = NativeBridgeServer(
+        source,
+        capabilities=BootstrapSecretStore(tmp_path / "native"),
+        instance_id="instance-1", server_version="1.0.0",
+        surface_authority=_FailingSurfaceProjection(product),
+    )
+    server_socket, client = socket.socketpair()
+    client.settimeout(10)
+    thread, errors = serve(
+        bridge, server_socket, transport="uds", peer_uid=local_peer_uid()
+    )
+    try:
+        client.sendall(encode_frame(hello(bootstrap_secret=None)))
+        ready = receive_frame(client)
+        capability = ready.body["capability"]
+        assert isinstance(capability, dict)
+        token = capability["token"]
+        assert isinstance(token, str)
+        client.sendall(encode_frame(envelope(
+            "subscribe", frame_id="subscribe-isolated", body={
+                "session_id": "session-1", "after_cursor": 0,
+                "known_instance_id": None, "session_capability": token,
+                "surfaces": {"office": 0},
+            }
+        )))
+        assert receive_frame(client).kind == "snapshot"
+        assert receive_frame(client).kind == "surface_snapshot"
+
+        _send_product_command(
+            client, token=token, command_id="office-create-isolated", cursor=0,
+            command_type="office.create", payload={
+                "format": "docx",
+                "content": {"paragraphs": ["Isolated"]},
+                "output_name": "isolated.docx",
+            },
+        )
+        receipt = _receive_kind(client, "receipt")
+        assert receipt.body["outcome"] == "accepted"
+    finally:
+        client.close()
+        thread.join(timeout=5)
+    assert errors == []
 
 
 def test_unchanged_surface_payload_publishes_no_live_frame(tmp_path: Path) -> None:

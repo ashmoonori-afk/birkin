@@ -235,12 +235,26 @@ class NativeBridgeServer:
         stream: NativeBridgeStream,
         event: WorkspaceEvent,
     ) -> None:
-        """Follow every canonical event with its product-surface projection."""
+        """Follow every canonical event with its product-surface projection.
+
+        This runs inside the canonical event listener, so it executes while the
+        command that produced the event is still being submitted. A derived
+        projection must never decide the fate of that command: the command has
+        already committed and been journaled, and raising here would report a
+        succeeded command to the shell as failed.
+        """
         stream.publish(event)
         surface = SURFACE_EVENT_SOURCES.get(event.type)
         if surface is None or self._surface_authority is None:
             return
-        snapshot = self._surface_authority.live_snapshot(surface)
+        try:
+            snapshot = self._surface_authority.live_snapshot(surface)
+        except Exception:  # noqa: BLE001 - derived projection boundary
+            # Dropping the frame is safe rather than lossy: a surface revision
+            # only advances on a fully projected payload, so the next
+            # successful projection still arrives as the exact next revision
+            # the shell requires.
+            return
         if snapshot is not None:
             stream.publish_surface(snapshot)
 
