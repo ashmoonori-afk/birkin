@@ -23,7 +23,7 @@ cleanup() {
 trap cleanup EXIT
 
 mkdir -p "$evidence" "$root/home" "$root/bridge"
-printf '{"auto_approve": ["shell"]}' > "$root/home/config.json"
+printf '{}' > "$root/home/config.json"
 
 browser_ready="$root/browser-ready"
 mkfifo "$browser_ready"
@@ -83,8 +83,10 @@ from pathlib import Path
 evidence = Path(sys.argv[1])
 receipts = json.loads((evidence / "packaged-journey-receipts.json").read_text())
 required = {
-    "connected", "session-create", "chat-send-stream", "terminal-create-lease",
-    "terminal-input-output", "activity-receipts", "browser-start-live",
+    "connected", "session-create", "chat-send-stream",
+    "terminal-approval-requested", "terminal-approval-approved",
+    "terminal-create-lease", "terminal-input-output", "activity-receipts",
+    "terminal-replay-refusal", "browser-start-live",
     "browser-navigate-live",
     "office-create-live", "office-open-live", "computer-use-status",
     "jailed-import-chip", "owned-bridge-restart-replay", "post-reconnect-command",

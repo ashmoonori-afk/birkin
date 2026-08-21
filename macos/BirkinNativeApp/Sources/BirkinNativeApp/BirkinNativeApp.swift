@@ -438,7 +438,23 @@ public final class BirkinApplicationRuntime: ObservableObject {
             case .terminalCreate, .other: break
             }
             lastCommandError = String(messageText.prefix(300))
-            emit("command-error message=\(lastCommandError ?? "Command was refused.")")
+            let errorCode: String
+            if case .string(let value) = message.body["code"] {
+                errorCode = value
+            } else {
+                errorCode = "E_COMMAND"
+            }
+            let approvalCorrelation: String
+            if case .string(let approvalID) = message.body["approval_id"] {
+                approvalCorrelation = " approval_id=\(approvalID)"
+            } else {
+                approvalCorrelation = ""
+            }
+            emit(
+                "command-error id=\(message.inReplyTo ?? message.id) code=\(errorCode)"
+                    + "\(approvalCorrelation) "
+                    + "message=\(lastCommandError ?? "Command was refused.")"
+            )
         case .streamDesynchronized:
             throw BirkinApplicationRuntimeError.replayRequired
         case .goodbye:

@@ -1,5 +1,6 @@
 import Darwin
 import BirkinNativeProtocol
+import BirkinNativeShell
 
 extension PackagedJourneyRunner {
     func driveRecovery() async throws {
@@ -18,6 +19,32 @@ extension PackagedJourneyRunner {
             throw JourneyError.refused("bridge pid did not change")
         }
         record("owned-bridge-restart-replay", "pid=\(pid)->\(restarted)")
+
+        let replayedTerminal = try require(
+            runtime.store.projection?.terminals.first,
+            "terminal missing from replay"
+        )
+        guard replayedTerminal.readOnly, replayedTerminal.lease == nil else {
+            throw JourneyError.refused("replayed terminal retained mutation authority")
+        }
+        var replayInputSubmitted = false
+        let replayInputAccepted = terminal.sendInput(
+            "printf replay-bypass\n",
+            terminal: replayedTerminal,
+            expectedCursor: cursor,
+            sessionCapability: try require(session, "session lost").sessionCapability,
+            submit: {
+                replayInputSubmitted = true
+                self.runtime.submit($0)
+            }
+        )
+        guard !replayInputAccepted, !replayInputSubmitted else {
+            throw JourneyError.refused("replayed terminal accepted stale input")
+        }
+        record(
+            "terminal-replay-refusal",
+            "terminal=\(replayedTerminal.terminalID) read_only=true"
+        )
 
         composer.draft = "Command after reconnect"
         var submitted: NativeCommandRequest?
