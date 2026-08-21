@@ -8,7 +8,7 @@ from dataclasses import replace
 from datetime import datetime, timezone
 from typing import cast, final
 
-from .. import approvals, config, transcripts, workbench
+from .. import approvals, config, transcripts, uistate, workbench
 from ..computer_use.events import ComputerEvent
 from ..computer_use.reducer import ComputerState, reduce_event
 from ..runtime import Session, build_session
@@ -171,6 +171,10 @@ class RuntimeWorkspaceAdapter:
         safe: dict[str, object] = {
             "runtime_event": event,
             "summary": str(payload.get("name") or payload.get("summary") or "")[:300],
+            "state": uistate.from_runtime(
+                event,
+                is_error=bool(payload.get("is_error", False)),
+            ).state,
         }
         _ = self._emit(event_type, safe)
 
