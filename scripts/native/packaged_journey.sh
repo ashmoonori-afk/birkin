@@ -79,7 +79,7 @@ trap 'exit 130' INT
 trap 'exit 143' TERM
 
 mkdir -p "$evidence" "$root/home" "$root/bridge"
-printf '{}' > "$root/home/config.json"
+printf '{"provider":"codex-cli","model":"default","auto_approve":[],"self_improve":false,"checkpoints":false}' > "$root/home/config.json"
 
 browser_ready="$root/browser-ready"
 mkfifo "$browser_ready"
@@ -166,6 +166,17 @@ if missing:
 failed = [step["name"] for step in receipts["steps"] if not step["succeeded"]]
 if failed:
     raise SystemExit(f"failed journey steps: {failed}")
+steps = {step["name"]: step for step in receipts["steps"]}
+provider_marker = "provider_completion=PACKAGED_PROVIDER_COMPLETION_OK"
+if provider_marker not in steps["chat-send-stream"]["detail"]:
+    raise SystemExit("chat step has no successful provider completion")
+encoded_receipts = json.dumps(receipts, sort_keys=True).lower()
+for forbidden in (
+    "401 unauthorized", "refresh_token_reused", "codex produced no message",
+    "the native packaged app is connected to python authority",
+):
+    if forbidden in encoded_receipts:
+        raise SystemExit(f"non-provider chat evidence survived: {forbidden}")
 if not any(name in names for name in ("working-memory-clear", "working-memory-gated")):
     raise SystemExit("no Working Memory step was recorded")
 digests = {}
