@@ -8,7 +8,7 @@ from dataclasses import replace
 from datetime import datetime, timezone
 from typing import cast, final
 
-from .. import approvals, config, transcripts, workbench
+from .. import approvals, config, transcripts, uistate, workbench
 from ..computer_use.events import ComputerEvent
 from ..computer_use.reducer import ComputerState, reduce_event
 from ..runtime import Session, build_session
@@ -160,6 +160,7 @@ class RuntimeWorkspaceAdapter:
         if event == "computer_use":
             self._computer_event(payload)
             return
+        is_error = bool(payload.get("is_error", False))
         event_type = {
             "tool_start": "tool.started",
             "tool_end": "tool.completed",
@@ -168,9 +169,12 @@ class RuntimeWorkspaceAdapter:
             "compact": "progress.updated",
             "steer": "progress.updated",
         }.get(event, "progress.updated")
+        if event == "tool_end" and is_error:
+            event_type = "tool.failed"
         safe: dict[str, object] = {
             "runtime_event": event,
             "summary": str(payload.get("name") or payload.get("summary") or "")[:300],
+            "state": uistate.from_runtime(event, is_error=is_error).state,
         }
         _ = self._emit(event_type, safe)
 

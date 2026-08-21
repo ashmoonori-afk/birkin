@@ -180,6 +180,33 @@ def from_moirai(status: str) -> StateView:
     return _view(_MOIRAI, str(status), "moirai")
 
 
+# -- runtime events ---------------------------------------------------------
+
+_RUNTIME: dict[str, str] = {
+    "tool_start": "running",
+    "tool_end": "completed",
+    "subagent.start": "running",
+    "subagent.done": "completed",
+    "compact": "running",
+    "steer": "running",
+}
+
+
+def from_runtime(event: str, *, is_error: bool = False) -> StateView:
+    """Map a runtime event, treating every producer-reported error as failed.
+
+    An aborted tool arrives as ``is_error=True`` with content ``"aborted"`` and
+    is deliberately reported as ``failed``, matching :func:`from_moirai`, which
+    maps ``"aborted"`` to ``"failed"``. Distinguishing an abort would require
+    sniffing the free-form content string, which a genuine tool could
+    legitimately return. If abort visibility is needed later, the correct fix
+    is producer-side in ``birkin/agent.py``, not here.
+    """
+    if is_error:
+        return StateView("failed", event, "runtime")
+    return _view(_RUNTIME, event, "runtime")
+
+
 # -- schema export ----------------------------------------------------------
 
 def schema() -> dict[str, Any]:
