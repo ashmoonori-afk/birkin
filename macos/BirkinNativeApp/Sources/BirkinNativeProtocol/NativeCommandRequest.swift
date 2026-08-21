@@ -26,6 +26,18 @@ public struct NativeCommandRequest: Equatable, Sendable {
     }
 
     public var envelope: NativeEnvelope {
+        envelope(
+            sessionCapability: sessionCapability,
+            surface: "macos",
+            viewID: viewID
+        )
+    }
+
+    func envelope(
+        sessionCapability: String,
+        surface: String,
+        viewID: String
+    ) -> NativeEnvelope {
         NativeEnvelope(kind: .command, id: frameID, body: [
             "session_capability": .string(sessionCapability),
             "command": .object([
@@ -35,7 +47,7 @@ public struct NativeCommandRequest: Equatable, Sendable {
                 "type": .string(commandType),
                 "payload": .object(payload),
                 "client_context": .object([
-                    "surface": .string("macos"),
+                    "surface": .string(surface),
                     "view_id": .string(viewID),
                 ]),
             ]),

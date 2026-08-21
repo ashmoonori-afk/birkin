@@ -6,7 +6,11 @@ import Testing
 struct NativeProjectionHeartbeatTests {
     @Test("live renewal authenticates every later heartbeat with the replacement token")
     func renewedAuthenticatedPongs() throws {
-        let capability = NativeProjectionCapability("initial-token")
+        let capability = NativeProjectionCapability(
+            "initial-token",
+            surface: "macos",
+            viewID: "main"
+        )
         let renewal = NativeEnvelope(
             kind: .capabilityRenewed,
             id: "capability-renewal",
@@ -27,9 +31,16 @@ struct NativeProjectionHeartbeatTests {
             commandType: "conversation.send",
             payload: [:],
             sessionCapability: "initial-token",
-            viewID: "main"
+            viewID: "caller-local"
         )
-        #expect(capability.authenticate(staleCommand).sessionCapability == "replacement-token")
+        let authenticated = capability.commandEnvelope(for: staleCommand)
+        #expect(
+            authenticated.body["session_capability"]
+                == .string("replacement-token")
+        )
+        let renewedContext = try commandContext(authenticated)
+        #expect(renewedContext["surface"] == .string("macos"))
+        #expect(renewedContext["view_id"] == .string("main"))
 
         for pingID in ["server-ping-1", "server-ping-2"] {
             let ping = NativeEnvelope(
@@ -45,6 +56,34 @@ struct NativeProjectionHeartbeatTests {
             #expect(pong.inReplyTo == pingID)
             #expect(pong.body["session_capability"] == .string("replacement-token"))
         }
+    }
+
+    @Test("caller-local command identity cannot replace negotiated wire scope")
+    func immutableCommandScope() throws {
+        let capability = NativeProjectionCapability(
+            "connection-token",
+            surface: "negotiated-surface",
+            viewID: "negotiated-view"
+        )
+        let request = NativeCommandRequest(
+            frameID: "command-frame",
+            commandID: "command-1",
+            expectedCursor: 1,
+            commandType: "conversation.send",
+            payload: [:],
+            sessionCapability: "caller-token",
+            viewID: "caller-spoof-must-stay-local"
+        )
+
+        let callerContext = try commandContext(request.envelope)
+        let wire = capability.commandEnvelope(for: request)
+        let wireContext = try commandContext(wire)
+
+        #expect(request.viewID == "caller-spoof-must-stay-local")
+        #expect(callerContext["view_id"] == .string(request.viewID))
+        #expect(wire.body["session_capability"] == .string("connection-token"))
+        #expect(wireContext["surface"] == .string("negotiated-surface"))
+        #expect(wireContext["view_id"] == .string("negotiated-view"))
     }
 
     @Test("pong authenticates the live projection session")
@@ -67,4 +106,13 @@ struct NativeProjectionHeartbeatTests {
             "session_capability": .string("memory-only-session-token"),
         ])
     }
+}
+
+private func commandContext(_ envelope: NativeEnvelope) throws -> NativeJSONObject {
+    guard case .object(let command) = envelope.body["command"],
+          case .object(let context) = command["client_context"]
+    else {
+        throw NativeTransportError("command envelope has no client context")
+    }
+    return context
 }

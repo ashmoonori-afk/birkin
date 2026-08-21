@@ -67,6 +67,46 @@ struct BirkinApplicationReconnectIntegrationTests {
     }
 
     @MainActor
+    @Test("production sender binds caller-local view to negotiated connection scope")
+    func productionSenderUsesNegotiatedScope() async throws {
+        let root = URL(fileURLWithPath: "/private/tmp/birkin-app-scope-\(UUID().uuidString)")
+        let harness = try AppHarness.launch(root: root)
+        let socketPath = try #require(harness.socketPath)
+        let events = RuntimeEventRecorder()
+        let runtime = BirkinApplicationRuntime(
+            socketPath: socketPath,
+            emit: { events.record($0) }
+        )
+        defer {
+            runtime.stop()
+            harness.terminate()
+            try? FileManager.default.removeItem(at: root)
+        }
+
+        await runtime.start()
+        let session: NativeReadySession? = switch runtime.connectionState {
+        case .ready(let value), .fallback(.ready(let value)): value
+        default: nil
+        }
+        let ready = try #require(session)
+        runtime.submit(NativeCommandRequest(
+            frameID: "scope-frame", commandID: "scope-command",
+            expectedCursor: runtime.store.latestAppliedCursor ?? 0,
+            commandType: "chat.send", payload: ["text": .string("Scoped command")],
+            sessionCapability: ready.sessionCapability,
+            viewID: "caller-spoof-must-not-cross-wire"
+        ))
+
+        try await withTimeout("scope response") {
+            try await events.wait(for: "command-")
+        }
+        #expect(events.contains("command-receipt id=scope-frame"))
+        #expect(!events.contains(
+            "command-error id=scope-frame code=E_CAPABILITY_SCOPE"
+        ))
+    }
+
+    @MainActor
     @Test("bridge loss reconnects and replays through the executable runtime")
     func reconnectsAfterBridgeRestart() async throws {
         let root = URL(fileURLWithPath: "/private/tmp/birkin-app-reconnect-\(UUID().uuidString)")

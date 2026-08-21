@@ -58,24 +58,24 @@ public struct NativeProjectionSubscription: Sendable {
 final class NativeProjectionCapability: @unchecked Sendable {
     private let lock = NSLock()
     private var token: String
+    private let surface: String
+    private let viewID: String
 
-    init(_ token: String) {
+    init(_ token: String, surface: String, viewID: String) {
         self.token = token
+        self.surface = surface
+        self.viewID = viewID
     }
 
     func current() -> String {
         lock.withLock { token }
     }
 
-    func authenticate(_ request: NativeCommandRequest) -> NativeCommandRequest {
-        NativeCommandRequest(
-            frameID: request.frameID,
-            commandID: request.commandID,
-            expectedCursor: request.expectedCursor,
-            commandType: request.commandType,
-            payload: request.payload,
+    func commandEnvelope(for request: NativeCommandRequest) -> NativeEnvelope {
+        request.envelope(
             sessionCapability: current(),
-            viewID: request.viewID
+            surface: surface,
+            viewID: viewID
         )
     }
 
@@ -141,7 +141,9 @@ extension NativeTransportActor {
                 sessionCapability: transcript.session.sessionCapability
             )
             let capability = NativeProjectionCapability(
-                transcript.session.sessionCapability
+                transcript.session.sessionCapability,
+                surface: hello.surface,
+                viewID: hello.viewID
             )
             let messages = AsyncThrowingStream<NativeEnvelope, any Error> { continuation in
                 continuation.onTermination = { _ in socket.close() }
@@ -173,7 +175,7 @@ extension NativeTransportActor {
                 messages: messages,
                 submit: { request in
                     try socket.send(NativeFrameCodec.encode(
-                        capability.authenticate(request).envelope
+                        capability.commandEnvelope(for: request)
                     ))
                 },
                 replaying: replaying

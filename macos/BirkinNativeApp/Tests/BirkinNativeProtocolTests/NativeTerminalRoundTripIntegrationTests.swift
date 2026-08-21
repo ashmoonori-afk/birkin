@@ -24,6 +24,11 @@ struct NativeTerminalRoundTripIntegrationTests {
         let ready = try receive(socket)
         let capability = try object(ready.body["capability"])
         let token = try string(capability["token"])
+        let connectionCapability = NativeProjectionCapability(
+            token,
+            surface: integrationHello.surface,
+            viewID: integrationHello.viewID
+        )
         let subscribe = NativeEnvelope(kind: .subscribe, id: "terminal-subscribe", body: [
             "session_id": .string("session-1"),
             "after_cursor": .int(0),
@@ -45,7 +50,9 @@ struct NativeTerminalRoundTripIntegrationTests {
             ],
             sessionCapability: token, viewID: "terminal-integration"
         )
-        try socket.send(NativeFrameCodec.encode(create.envelope))
+        try socket.send(NativeFrameCodec.encode(
+            connectionCapability.commandEnvelope(for: create)
+        ))
         let createReceipt = try receiveKind(.receipt, socket: socket)
         let createCursor = try integer(createReceipt.body["result_event_cursor"])
         let createResult = try object(createReceipt.body["result"])
@@ -65,7 +72,9 @@ struct NativeTerminalRoundTripIntegrationTests {
             ],
             sessionCapability: token, viewID: "terminal-integration"
         )
-        try socket.send(NativeFrameCodec.encode(input.envelope))
+        try socket.send(NativeFrameCodec.encode(
+            connectionCapability.commandEnvelope(for: input)
+        ))
         let inputReceipt = try receiveKind(.receipt, socket: socket)
         let inputCursor = try integer(inputReceipt.body["result_event_cursor"])
         let inputEvents = try receiveEvents(through: inputCursor, socket: socket, store: store)
@@ -81,7 +90,9 @@ struct NativeTerminalRoundTripIntegrationTests {
             payload: ["terminal_id": .string(terminalID), "lease": .string(lease)],
             sessionCapability: token, viewID: "terminal-integration"
         )
-        try socket.send(NativeFrameCodec.encode(close.envelope))
+        try socket.send(NativeFrameCodec.encode(
+            connectionCapability.commandEnvelope(for: close)
+        ))
         let closeReceipt = try receiveKind(.receipt, socket: socket)
         let closeCursor = try integer(closeReceipt.body["result_event_cursor"])
         _ = try receiveEvents(through: closeCursor, socket: socket, store: store)
