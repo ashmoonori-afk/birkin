@@ -2,8 +2,12 @@
 
 from __future__ import annotations
 
+import threading
+from collections.abc import Callable
+from dataclasses import dataclass
 from typing import Protocol, final
 
+from birkin.native.bridge_stream import NativeBridgeStream
 from birkin.native.capability import CapabilityScope
 from birkin.native.messages import NativeMessageFactory
 from birkin.native.protocol import NativeEnvelope, NativeProtocolError
@@ -11,6 +15,17 @@ from birkin.native.state import NativeConnectionState
 from birkin.native.transport import NativeConnection
 from birkin.workspace import CommandReceipt, WorkspaceCommand
 from birkin.workspace.contracts import ProtocolError as WorkspaceProtocolError
+
+
+@final
+@dataclass(frozen=True, slots=True)
+class NativeCommandExecution:
+    """Resources owned by one admitted command connection."""
+
+    connection: NativeConnection
+    state: NativeConnectionState
+    stream: NativeBridgeStream
+    scope: CapabilityScope
 
 
 class WorkspaceCommandAuthority(Protocol):
@@ -84,3 +99,68 @@ class NativeCommandExecutor:
             )
         state.send(response)
         connection.send(response)
+
+
+@final
+class NativeCommandCoordinator:
+    """Admit at most one server-wide command and fence disconnect cleanup."""
+
+    def __init__(
+        self,
+        executor: NativeCommandExecutor,
+        cleanup: Callable[[], None] | None,
+    ) -> None:
+        self._executor = executor
+        self._cleanup = cleanup
+        self._lock = threading.Lock()
+        self._active: NativeCommandExecution | None = None
+        self._cleanup_pending = False
+
+    def submit(
+        self,
+        execution: NativeCommandExecution,
+        message: NativeEnvelope,
+    ) -> bool:
+        with self._lock:
+            if self._active is not None:
+                return False
+            self._active = execution
+        threading.Thread(
+            target=self._run,
+            args=(execution, message),
+            name="birkin-native-command",
+            daemon=True,
+        ).start()
+        return True
+
+    def disconnect(self) -> None:
+        with self._lock:
+            if self._active is not None:
+                self._cleanup_pending = True
+            elif self._cleanup is not None:
+                self._cleanup()
+
+    def _run(
+        self,
+        execution: NativeCommandExecution,
+        message: NativeEnvelope,
+    ) -> None:
+        execution.stream.suspend()
+        try:
+            self._executor.execute(
+                execution.connection,
+                execution.state,
+                message,
+                execution.scope,
+            )
+        except (NativeProtocolError, OSError):
+            execution.connection.interrupt()
+        finally:
+            execution.stream.resume()
+            with self._lock:
+                if self._active is execution:
+                    self._active = None
+                if self._cleanup_pending:
+                    self._cleanup_pending = False
+                    if self._cleanup is not None:
+                        self._cleanup()

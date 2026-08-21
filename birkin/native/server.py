@@ -5,11 +5,12 @@ from __future__ import annotations
 import secrets
 import threading
 from collections.abc import Callable, Mapping
-from queue import Full, Queue
 from typing import Protocol, cast, final
 
 from birkin.native.auth import NativeConnectionAuth
 from birkin.native.bridge_commands import (
+    NativeCommandCoordinator,
+    NativeCommandExecution,
     NativeCommandExecutor,
     WorkspaceCommandAuthority,
 )
@@ -166,7 +167,15 @@ class NativeBridgeServer:
             ),
             voice_input_available=voice_input_available,
         )
-        self._commands = NativeCommandExecutor(command_router, self._messages)
+        self._commands = NativeCommandCoordinator(
+            NativeCommandExecutor(command_router, self._messages),
+            on_disconnect,
+        )
+        self._stream_lock = threading.Lock()
+        self._active_stream: NativeBridgeStream | None = None
+        self._listener_unsubscribe = self._authority.add_event_listener(
+            self._publish_active
+        )
         self._heartbeat_interval = heartbeat_interval
         self._peer_timeout = peer_timeout
         self._hello_timeout = hello_timeout
@@ -183,10 +192,7 @@ class NativeBridgeServer:
         issued_tokens: set[str] = set()
         connection_id = secrets.token_urlsafe(16)
         stream: NativeBridgeStream | None = None
-        unsubscribe: Callable[[], None] | None = None
-        listener_active = threading.Event()
-        command_queue: Queue[NativeEnvelope | None] | None = None
-        commands_stopped = threading.Event()
+        command_execution: NativeCommandExecution | None = None
         with connection:
             try:
                 # Accepting is serial, so an authenticated-but-silent client
@@ -219,71 +225,44 @@ class NativeBridgeServer:
                     peer_timeout=self._peer_timeout,
                     capacity=self._outbound_capacity,
                 )
-                listener_active.set()
-                unsubscribe = self._authority.add_event_listener(
-                    lambda event: (
-                        self._publish(stream, event)
-                        if listener_active.is_set()
-                        else None
-                    ),
-                )
+                with self._stream_lock:
+                    self._active_stream = stream
                 stream.start()
-                command_queue = Queue(maxsize=1)
-
-                def execute_commands() -> None:
-                    while not commands_stopped.is_set():
-                        command_message = command_queue.get()
-                        if command_message is None or commands_stopped.is_set():
-                            return
-                        stream.suspend()
-                        try:
-                            self._commands.execute(
-                                connection,
-                                state,
-                                command_message,
-                                capability.scope,
-                            )
-                        except (NativeProtocolError, OSError):
-                            connection.interrupt()
-                        finally:
-                            stream.resume()
-
-                threading.Thread(
-                    target=execute_commands,
-                    name="birkin-native-command",
-                    daemon=True,
-                ).start()
+                command_execution = NativeCommandExecution(
+                    connection=connection,
+                    state=state,
+                    stream=stream,
+                    scope=capability.scope,
+                )
                 self._serve_messages(
                     connection,
                     state,
                     capability,
                     issued_tokens,
                     stream,
-                    command_queue,
+                    command_execution,
                 )
             except NativeProtocolError as exc:
                 if exc.code != "E_FRAME_INCOMPLETE":
                     connection.send(self._messages.error(exc))
             finally:
-                commands_stopped.set()
-                if command_queue is not None:
-                    try:
-                        command_queue.put_nowait(None)
-                    except Full:
-                        pass
-                listener_active.clear()
-                if unsubscribe is not None:
-                    threading.Thread(
-                        target=unsubscribe,
-                        name="birkin-native-unsubscribe",
-                        daemon=True,
-                    ).start()
                 if stream is not None:
+                    with self._stream_lock:
+                        if self._active_stream is stream:
+                            self._active_stream = None
                     stream.stop()
                 for token in issued_tokens:
                     self._capabilities.revoke_session(token)
-                if self._on_disconnect is not None:
+                if command_execution is not None:
+                    self._commands.disconnect()
+                elif self._on_disconnect is not None:
                     self._on_disconnect()
+
+    def _publish_active(self, event: WorkspaceEvent) -> None:
+        with self._stream_lock:
+            stream = self._active_stream
+        if stream is not None:
+            self._publish(stream, event)
 
     def _publish(
         self,
@@ -320,7 +299,7 @@ class NativeBridgeServer:
         capability: SessionCapability,
         issued_tokens: set[str],
         stream: NativeBridgeStream,
-        command_queue: Queue[NativeEnvelope | None],
+        command_execution: NativeCommandExecution,
     ) -> None:
         active_token = capability.token
         while True:
@@ -357,19 +336,19 @@ class NativeBridgeServer:
                     message,
                     stream,
                 )
-            elif message.kind == "command":
-                try:
-                    command_queue.put_nowait(message)
-                except Full:
-                    refusal = self._messages.error(
-                        NativeProtocolError(
-                            "E_FLOW_VIOLATION",
-                            "connection already has a queued command",
-                        ),
-                        in_reply_to=message.id,
-                    )
-                    state.send(refusal)
-                    connection.send(refusal)
+            elif message.kind == "command" and not self._commands.submit(
+                command_execution,
+                message,
+            ):
+                refusal = self._messages.error(
+                    NativeProtocolError(
+                        "E_FLOW_VIOLATION",
+                        "server already has an active command",
+                    ),
+                    in_reply_to=message.id,
+                )
+                state.send(refusal)
+                connection.send(refusal)
 
     def _send_projection(
         self,

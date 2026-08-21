@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import threading
-from typing import final
+from typing import Final, final
 
 from birkin.native.capability import SessionCapability
 from birkin.native.protocol import (
@@ -34,7 +34,7 @@ from birkin.workspace.presets import SessionPreset
 from birkin.workspace.records import PANEL_KEYS
 
 _MAX_PAYLOAD_BYTES = 65_536
-_MAX_INFLIGHT_COMMANDS = 8
+MAX_INFLIGHT_COMMANDS: Final = 1
 _MAX_SUBSCRIPTIONS = 32
 
 
@@ -86,7 +86,7 @@ class NativeMessageFactory:
                     "max_frame_bytes": MAX_FRAME_BYTES,
                     "max_payload_bytes": _MAX_PAYLOAD_BYTES,
                     "max_json_depth": MAX_JSON_DEPTH,
-                    "max_inflight_commands": _MAX_INFLIGHT_COMMANDS,
+                    "max_inflight_commands": MAX_INFLIGHT_COMMANDS,
                     "max_subscriptions": _MAX_SUBSCRIPTIONS,
                 },
                 "capabilities": {
