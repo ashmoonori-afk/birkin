@@ -57,16 +57,23 @@ class ToolRegistry:
             EffectSnapshot("missing", ()))
         self._tools: dict[str, _RegisteredTool] = {}
         self._blocked: dict[str, str] = {}
+        self._plugin_collisions: set[str] = set()
 
     def register(self, tool: Tool) -> None:
         origin = tool.origin
         registered = self._tools.get(tool.name)
-        if (
-            registered is not None
-            and registered.origin.kind == "native"
-            and origin.kind == "plugin"
-        ):
+        if origin.kind == "plugin" and tool.name in self._plugin_collisions:
             return
+        if registered is not None:
+            if registered.origin.kind == "native":
+                if origin.kind == "native":
+                    raise ValueError(
+                        f"native tool already registered: {tool.name}")
+                return
+            if origin.kind == "plugin":
+                del self._tools[tool.name]
+                self._plugin_collisions.add(tool.name)
+                return
         self._tools[tool.name] = _RegisteredTool(
             tool, origin, self._effects.decision_for(origin, tool.name))
 
@@ -130,7 +137,13 @@ class ToolRegistry:
         if self.ctx.checkpoints is not None:
             from .. import checkpoints
             try:
-                checkpoints.preflight(self.ctx, name, tool_input or {})
+                checkpoints.preflight(
+                    self.ctx,
+                    name,
+                    tool_input or {},
+                    origin=registered.origin,
+                    effect=registered.decision.effect,
+                )
             except Exception as exc:
                 return ToolResult(
                     f"Checkpoint failed before {name!r}: {exc}",
