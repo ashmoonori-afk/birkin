@@ -236,7 +236,7 @@ Optional local Python tiers add fidelity without changing that boundary. Install
 
 Trusted Korean and English natural-language requests deterministically preload the matching production skill: Word/DOCX -> `word-documents`, Excel/XLSX -> `spreadsheets`, PowerPoint/PPTX -> `presentations`, PDF -> `pdf-documents`, HWP/HWPX -> `korean-hwp-documents`, and general Office work -> `office-work-os`. Conflicting format and artifact signals route to inspect-first `office-documents`. Document contents are untrusted data and cannot select or override a skill. Every routed mutation remains copy-on-write.
 
-See the [detailed support contract](./docs/office-support.md#office-work-os-v2), machine [`provenance_manifest.json`](./birkin/office/adapters/provenance_manifest.json), and [`THIRD_PARTY_NOTICES.md`](./birkin/office/adapters/THIRD_PARTY_NOTICES.md). This documentation targets Birkin `0.4.272`, `catalog_revision: 4`, `inventory_sha256: a49ab813ee4cdea3d6f87e0e2bd063b1dde54058e5c8dd0af0cf32bec74cae95`.
+See the [detailed support contract](./docs/office-support.md#office-work-os-v2), machine [`provenance_manifest.json`](./birkin/office/adapters/provenance_manifest.json), and [`THIRD_PARTY_NOTICES.md`](./birkin/office/adapters/THIRD_PARTY_NOTICES.md). This documentation targets Birkin `0.4.273`, `catalog_revision: 4`, `inventory_sha256: a49ab813ee4cdea3d6f87e0e2bd063b1dde54058e5c8dd0af0cf32bec74cae95`.
 
 ### Doing office work end to end
 
@@ -588,6 +588,7 @@ the newest snapshots with `prune --keep N`, or copy a snapshot with
 | `birkin cron` | List or remove scheduled jobs. |
 | `birkin companion` | Manage opt-in commitments, check-ins, and notification policy. Fixed UTC fallback offsets must be strictly between -1440 and 1440 minutes. |
 | `birkin sessions` / `birkin sessions export NAME [--vault]` | List or export saved conversations. |
+| `birkin sessions live` | Inspect live agent sessions grouped by each process's reported working directory. |
 | `birkin lineage` | List, recover, prune, or export trusted compaction snapshots. |
 | `birkin worker-hook-qa` | Deprecated compatibility alias for the side-effect-free worker continuation QA driver. |
 | `birkin working-memory` | Inspect, update, or clear structured current-task state. |
@@ -595,6 +596,57 @@ the newest snapshots with `prune --keep N`, or copy a snapshot with
 | `birkin voice` | Configure or control the optional voice daemon. |
 
 Run `birkin --help` or `birkin <command> --help` for the complete interface.
+
+## Live sessions and executable resolution
+
+`birkin sessions live` reads the live process table instead of guessing from
+saved transcripts. A scan with current-user read refusals has this shape; the
+values and reported processes vary:
+
+```text
+ACTIVE AGENT PROJECTS: <count>
+
+PROJECT: <process-reported cwd>
+  PID <pid> <executable>
+    cmdline: <full command line>
+    session: <session-id>
+      file: <open session file>
+
+SCAN: enumerated=<n> own-user=<n> unidentified=<n> cmdline_ok=<n> open_files_ok=<n> disappeared=<n>
+REFUSALS: name=<n> cmdline=<n> cwd=<n> open_files=<n>
+LIMITATION: access is denied: cwd=<nonzero n> open_files=<nonzero n>
+```
+
+Ownership is established before any other process attribute is read. Processes
+owned by other users are discarded without further inspection. A process whose
+owner cannot be established increments `unidentified`; it does not add a
+refusal or produce a permission complaint. Each displayed session is bound 1:1
+to the PID holding its session file open, rather than inferred from a directory.
+Projects are grouped by the working directory reported by each process.
+
+`REFUSALS` counts only reads attempted after current-user ownership was
+established. The `LIMITATION:` line is assembled from the nonzero refusals on
+those processes and is omitted entirely when there are none.
+`birkin sessions --help` lists `export` and `live`. Both malformed commands
+below exit 2 before scanning: `birkin sessions live unexpected` reports
+`unrecognized arguments: unexpected`; `birkin sessions unknown` reports
+`invalid choice: 'unknown' (choose from export, live)`.
+
+Skill prerequisite commands use execution-proven resolution. Birkin enumerates
+all PATH candidates, probes them in order, and accepts a candidate only when it
+runs and returns the requested output. A candidate that cannot answer is
+recorded as a `NON_FUNCTIONAL_SHIM` and resolution continues, so a shim before
+a real interpreter does not hide it. A failed resolution names the exact path
+and observed probe result instead of claiming that the command is "not
+installed."
+
+With WindowsApps ahead of Python 3.12 on PATH, the verified resolution is:
+
+```text
+shutil.which("python") -> C:\Users\<user>\AppData\Local\Microsoft\WindowsApps\python.EXE
+probe C:\Users\<user>\AppData\Local\Microsoft\WindowsApps\python.EXE -> NON_FUNCTIONAL_SHIM (exit 9009, stdout "", stderr "Python ")
+selected -> C:\Users\<user>\AppData\Local\Programs\Python\Python312\python.EXE
+```
 
 ## Plugin registry
 

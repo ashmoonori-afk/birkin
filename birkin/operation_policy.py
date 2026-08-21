@@ -53,6 +53,17 @@ class ApprovalRequiredError(RuntimeError):
         return self.detail
 
 
+def is_permission_denial(value: object) -> bool:
+    """Return whether a native value contains a known permission denial."""
+    normalized = str(value).casefold()
+    return any(marker in normalized for marker in _PERMISSION_MARKERS)
+
+
+def permission_denial_summary() -> str:
+    """Return the canonical summary for an observed permission denial."""
+    return _PERMISSION_MARKERS[0]
+
+
 def permission_block(exc: OSError) -> ApprovalRequiredError | None:
     """Convert OS permission failures into an approval-eligible block."""
     if isinstance(exc, PermissionError) or exc.errno in {
@@ -61,7 +72,7 @@ def permission_block(exc: OSError) -> ApprovalRequiredError | None:
         errno.EROFS,
     }:
         return ApprovalRequiredError("os_permission", str(exc))
-    if any(marker in str(exc).casefold() for marker in _PERMISSION_MARKERS):
+    if is_permission_denial(exc):
         return ApprovalRequiredError("os_permission", str(exc))
     return None
 
@@ -86,7 +97,7 @@ def diagnostic_block(
         return None
     command_name = _command_name(command)
     if (
-        any(marker in normalized for marker in _PERMISSION_MARKERS)
+        is_permission_denial(normalized)
         and any(marker in normalized for marker in _TEMP_MARKERS)
         and command_name in _TEMP_COMMANDS
     ):

@@ -9,12 +9,12 @@ is loaded lazily when the agent actually needs it.
 from __future__ import annotations
 
 import os
-import shutil
 import sys
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
+from ..executable_resolution import CommandResolution, ExecutableResolver
 from . import frontmatter
 
 
@@ -32,6 +32,11 @@ class Skill:
     source: str  # "bundled" | "user" | "extra"
     meta: dict[str, Any] = field(default_factory=dict)
     _body: str | None = field(default=None, repr=False)
+    _resolver: ExecutableResolver = field(
+        default_factory=ExecutableResolver,
+        repr=False,
+        compare=False,
+    )
 
     @property
     def directory(self) -> Path:
@@ -58,24 +63,41 @@ class Skill:
     def full(self) -> str:
         return self.path.read_text(encoding="utf-8", errors="replace")
 
-    @property
-    def eligible(self) -> bool:
-        """False if the skill's frontmatter ``prerequisites`` aren't met on this
-        machine (required commands missing, or wrong platform). Eligible skills
-        are the ones shown in the index."""
+    def _platform_matches(self) -> bool:
         pre = self.meta.get("prerequisites")
         if not isinstance(pre, dict):
             pre = {}
-        for cmd in pre.get("commands") or []:
-            if shutil.which(str(cmd)) is None:
-                return False
         declared = self.meta.get("platforms")
         if not isinstance(declared, list):
             declared = pre.get("platforms") or []
         platforms = [str(p).lower() for p in declared]
-        if platforms and _current_platform() not in platforms:
+        return not platforms or _current_platform() in platforms
+
+    def _command_resolutions(self) -> tuple[CommandResolution, ...]:
+        pre = self.meta.get("prerequisites")
+        if not isinstance(pre, dict):
+            return ()
+        return tuple(
+            self._resolver.resolve(str(command))
+            for command in pre.get("commands") or []
+        )
+
+    @property
+    def prerequisite_diagnostics(self) -> tuple[CommandResolution, ...]:
+        """Return typed failures for required command execution probes."""
+        if not self._platform_matches():
+            return ()
+        return tuple(
+            result for result in self._command_resolutions()
+            if not result.usable
+        )
+
+    @property
+    def eligible(self) -> bool:
+        """Whether platform and execution-probed prerequisites are satisfied."""
+        if not self._platform_matches():
             return False
-        return True
+        return all(result.usable for result in self._command_resolutions())
 
 
 def _load_skill(skill_md: Path, source: str) -> Skill | None:
