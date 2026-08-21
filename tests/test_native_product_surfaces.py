@@ -256,6 +256,25 @@ def _live_product(tmp_path: Path, browser: _FakeBrowserRuntime) -> (
     )
 
 
+def test_unchanged_surface_payload_publishes_no_live_frame(tmp_path: Path) -> None:
+    """Given a surface already published at a revision, When its canonical
+    payload has not changed, Then no live frame is produced, and a later real
+    change produces exactly the next revision."""
+    product = _product(tmp_path)
+
+    first = product.live_snapshot("computer_use")
+    assert first is not None
+    assert first.revision == 1
+
+    assert product.live_snapshot("computer_use") is None
+    assert product.live_snapshot("computer_use") is None
+
+    product.computer_use.record_receipt("receipt:1", verdict="allowed")
+    changed = product.live_snapshot("computer_use")
+    assert changed is not None
+    assert changed.revision == first.revision + 1
+
+
 def test_product_mutations_push_live_surface_events_without_resubscribe(
     tmp_path: Path,
 ) -> None:

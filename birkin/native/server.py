@@ -51,7 +51,7 @@ class SurfaceProjectionAuthority(Protocol):
         requested: Mapping[str, int],
     ) -> tuple[SurfaceSnapshot, ...]: ...
 
-    def live_snapshot(self, surface: str) -> SurfaceSnapshot: ...
+    def live_snapshot(self, surface: str) -> SurfaceSnapshot | None: ...
 
 
 class WorkspaceAuthority(
@@ -240,7 +240,9 @@ class NativeBridgeServer:
         surface = SURFACE_EVENT_SOURCES.get(event.type)
         if surface is None or self._surface_authority is None:
             return
-        stream.publish_surface(self._surface_authority.live_snapshot(surface))
+        snapshot = self._surface_authority.live_snapshot(surface)
+        if snapshot is not None:
+            stream.publish_surface(snapshot)
 
     def _serve_messages(
         self,

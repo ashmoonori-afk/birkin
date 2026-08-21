@@ -297,14 +297,24 @@ class NativeProductSurfaceAuthority:
             self._revisions[surface] += 1
         return public
 
-    def live_snapshot(self, surface: str) -> SurfaceSnapshot:
-        """Project one surface at its current revision for live delivery."""
+    def live_snapshot(self, surface: str) -> SurfaceSnapshot | None:
+        """Project one surface for live delivery, or nothing when unchanged.
+
+        The shell advances a surface only on the exact next revision, so an
+        event that leaves the canonical payload identical must publish no
+        frame at all. Re-sending the current revision would read as a gap and
+        force the shell to drop the surface and resubscribe.
+        """
         if surface not in self._revisions:
             raise ValueError(f"unsupported native surface: {surface}")
+        published = self._revisions[surface]
         payload = self._payload(surface)
+        revision = self._revisions[surface]
+        if revision == published:
+            return None
         return SurfaceSnapshot(
             surface=surface,
-            revision=self._revisions[surface],
+            revision=revision,
             payload=payload,
             full_snapshot=False,
             reset_reason="live",
