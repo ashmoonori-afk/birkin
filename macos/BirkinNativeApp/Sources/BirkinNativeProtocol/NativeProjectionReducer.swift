@@ -78,7 +78,7 @@ enum NativeProjectionReducer {
     ) {
         guard let terminalID = event.payload.string("terminal_id") else { return }
         if event.type == "terminal.opened" {
-            let lease = event.payload.string("lease")
+            let lease = NativeRedaction.liveValue(event.payload.string("lease"))
             let terminal = NativeTerminalProjection(
                 terminalID: terminalID,
                 cwd: event.payload.string("cwd") ?? "",

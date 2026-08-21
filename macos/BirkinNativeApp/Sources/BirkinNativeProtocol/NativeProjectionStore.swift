@@ -7,10 +7,43 @@ public final class NativeProjectionStore {
     private var surfaces: [String: NativeSurfaceProjection] = [:]
     private var activeCommands: Set<String> = []
     private var interrupted = false
+    /// Terminal leases live only here, only for this connection. Python
+    /// redacts them everywhere it persists or replays, so a lease reaches the
+    /// shell exactly once: in the direct receipt for the command that created
+    /// the terminal.
+    private var ephemeralTerminalLeases: [String: String] = [:]
 
     public init() {}
 
     public var latestAppliedCursor: Int? { projection?.cursor }
+
+    /// Install the live lease a terminal create receipt returned.
+    public func installTerminalLease(_ lease: String, forTerminal terminalID: String) {
+        guard !terminalID.isEmpty,
+              let live = NativeRedaction.liveValue(lease) else { return }
+        ephemeralTerminalLeases[terminalID] = live
+        applyEphemeralTerminalLeases()
+    }
+
+    /// The lease this connection holds for a terminal, if any.
+    public func terminalLease(for terminalID: String) -> String? {
+        ephemeralTerminalLeases[terminalID]
+    }
+
+    private func applyEphemeralTerminalLeases() {
+        guard var current = projection else { return }
+        for index in current.terminals.indices {
+            let terminal = current.terminals[index]
+            guard let lease = ephemeralTerminalLeases[terminal.terminalID] else { continue }
+            guard terminal.state == "running" else {
+                ephemeralTerminalLeases[terminal.terminalID] = nil
+                continue
+            }
+            current.terminals[index].lease = lease
+            current.terminals[index].readOnly = false
+        }
+        projection = current
+    }
 
     public func surface(named name: String) -> NativeSurfaceProjection? {
         surfaces[name]
@@ -49,6 +82,9 @@ public final class NativeProjectionStore {
             throw NativeProjectionError("projection snapshot requires a snapshot envelope")
         }
         let decoded = try Self.decodeSnapshot(envelope.body)
+        // A full snapshot is Python re-asserting authority: every lease this
+        // connection held is revoked until Python grants a new one.
+        ephemeralTerminalLeases.removeAll()
         projection = decoded
         status = .current
         activeCommands = decoded.composer.canInterrupt ? ["__snapshot_active__"] : []
@@ -88,6 +124,7 @@ public final class NativeProjectionStore {
             interrupted: &interrupted
         )
         projection = current
+        applyEphemeralTerminalLeases()
     }
 
     private static func decodeEvent(_ body: NativeJSONObject) throws -> NativeProjectionEvent {
@@ -180,7 +217,7 @@ public final class NativeProjectionStore {
         }
         let lease: String?
         switch value["lease"] {
-        case .string(let value): lease = value
+        case .string(let value): lease = NativeRedaction.liveValue(value)
         case .null: lease = nil
         default: throw NativeProjectionError("terminal lease must be a string or null")
         }

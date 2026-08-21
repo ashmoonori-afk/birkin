@@ -29,6 +29,7 @@ public final class BirkinApplicationRuntime: ObservableObject {
     private var commandSubmitter: (@Sendable (NativeCommandRequest) throws -> Void)?
     private var started = false
     private var connectionGeneration = 0
+    private var correlatedCommands: [String: CorrelatedCommand] = [:]
 
     public init(
         socketPath: String? = ProcessInfo.processInfo.environment[
@@ -76,6 +77,7 @@ public final class BirkinApplicationRuntime: ObservableObject {
         listener?.cancel()
         listener = nil
         commandSubmitter = nil
+        correlatedCommands.removeAll()
         connectionState = .disconnected
         Task { await transport.apply(.disconnect) }
     }
@@ -163,6 +165,7 @@ public final class BirkinApplicationRuntime: ObservableObject {
             return
         }
         lastCommandError = nil
+        correlate(request)
         Task.detached { [weak self] in
             do {
                 try commandSubmitter(request)
@@ -326,6 +329,10 @@ public final class BirkinApplicationRuntime: ObservableObject {
             connectionState = await transport.state
         case .receipt:
             lastCommandError = nil
+            switch resolveCorrelation(of: message) {
+            case .terminalCreate: installTerminalLease(from: message)
+            case .other: break
+            }
             emit("command-receipt id=\(message.inReplyTo ?? message.id)")
         case .error:
             let messageText: String
@@ -334,6 +341,7 @@ public final class BirkinApplicationRuntime: ObservableObject {
             } else {
                 messageText = "Command was refused."
             }
+            _ = resolveCorrelation(of: message)
             lastCommandError = String(messageText.prefix(300))
             emit("command-error message=\(lastCommandError ?? "Command was refused.")")
         case .streamDesynchronized:
@@ -345,8 +353,35 @@ public final class BirkinApplicationRuntime: ObservableObject {
         }
     }
 
+    /// Remember which command a frame belongs to so its receipt can be typed.
+    ///
+    /// Correlation is bounded: entries are removed when the receipt or refusal
+    /// arrives, and the whole table is dropped when the connection ends.
+    private func correlate(_ request: NativeCommandRequest) {
+        let kind = CorrelatedCommand(commandType: request.commandType)
+        guard kind != .other else { return }
+        correlatedCommands[request.frameID] = kind
+    }
+
+    private func resolveCorrelation(of message: NativeEnvelope) -> CorrelatedCommand {
+        guard let reply = message.inReplyTo,
+              let kind = correlatedCommands.removeValue(forKey: reply) else {
+            return .other
+        }
+        return kind
+    }
+
+    private func installTerminalLease(from message: NativeEnvelope) {
+        guard case .object(let result) = message.body["result"],
+              case .string(let terminalID) = result["terminal_id"],
+              case .string(let lease) = result["lease"] else { return }
+        store.installTerminalLease(lease, forTerminal: terminalID)
+        emit("terminal-lease-installed terminal=\(terminalID)")
+    }
+
     private func connectionLost(reason: String, generation: Int) async {
         guard started, generation == connectionGeneration else { return }
+        correlatedCommands.removeAll()
         commandSubmitter = nil
         await transport.apply(.disconnect)
         emit("disconnected reason=\(reason)")
@@ -388,6 +423,20 @@ public final class BirkinApplicationRuntime: ObservableObject {
     nonisolated public static func standardEvent(_ message: String) {
         let line = Data("BIRKIN_APP_EVENT \(message)\n".utf8)
         try? FileHandle.standardOutput.write(contentsOf: line)
+    }
+}
+
+/// A submitted command whose receipt carries state only this connection may
+/// hold. Everything else is `.other`: its receipt needs no client action.
+enum CorrelatedCommand: Equatable {
+    case terminalCreate
+    case other
+
+    init(commandType: String) {
+        switch commandType {
+        case "terminal.create": self = .terminalCreate
+        default: self = .other
+        }
     }
 }
 
