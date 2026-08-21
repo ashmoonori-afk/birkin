@@ -5,6 +5,9 @@ set -euo pipefail
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 evidence="${1:-$repo_root/.omo/evidence/native-shell/phase16}"
 dist="${2:-$evidence/dist}"
+operator_home="${HOME:?HOME must identify the existing-account credential owner}"
+operator_codex_home="${CODEX_HOME:-$operator_home/.codex}"
+clean_path="/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin"
 case "$(uname -m)" in
   arm64) helper_architecture=arm64 ;;
   x86_64) helper_architecture=x86_64 ;;
@@ -78,6 +81,9 @@ cleanup() {
     echo "browser_running=$browser_running"
     echo "bridge_processes=$bridge_processes"
     echo "bridge_overrides=absent"
+    echo "home=$HOME"
+    echo "home_exists=$([[ -e "$HOME" ]] && echo yes || echo no)"
+    echo "search_path=$PATH"
     echo "socket_exists=$([[ -e "$root/home/native-bridge/bridge.sock" ]] && echo yes || echo no)"
     echo "exit_status=$status"
   } > "$evidence/packaged-journey-cleanup.txt"
@@ -88,8 +94,11 @@ trap 'exit 129' HUP
 trap 'exit 130' INT
 trap 'exit 143' TERM
 
-mkdir -p "$evidence" "$root/home" "$root/workspace"
+mkdir -p "$evidence" "$root/home" "$root/workspace" "$root/empty-home"
 printf '{"provider":"codex-cli","model":"default","auto_approve":[],"self_improve":false,"checkpoints":false}' > "$root/home/config.json"
+export HOME="$root/empty-home"
+export CODEX_HOME="$operator_codex_home"
+export PATH="$clean_path"
 
 browser_ready="$root/browser-ready"
 mkfifo "$browser_ready"

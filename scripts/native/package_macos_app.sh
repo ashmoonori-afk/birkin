@@ -45,6 +45,8 @@ swift build --package-path "$package_root" -c release --arch arm64 --arch x86_64
 cp "$binary" "$app/Contents/MacOS/BirkinNativeApp"
 chmod 0755 "$app/Contents/MacOS/BirkinNativeApp"
 scripts/native/build_bridge_helpers.sh "$app/Contents/Helpers"
+scripts/native/build_browser_runtimes.sh \
+  "$app/Contents/Resources/BrowserRuntimes"
 printf 'APPL????' > "$app/Contents/PkgInfo"
 cat > "$app/Contents/Info.plist" <<PLIST
 <?xml version="1.0" encoding="UTF-8"?>
@@ -69,6 +71,13 @@ plutil -lint "$app/Contents/Info.plist"
 
 arm_helper="$app/Contents/Helpers/arm64/birkin-native-bridge"
 x86_helper="$app/Contents/Helpers/x86_64/birkin-native-bridge"
+browser_code_paths=()
+while IFS= read -r candidate; do
+  if file "$candidate" | grep -q 'Mach-O'; then
+    codesign "${sign_args[@]}" "$candidate"
+    browser_code_paths+=("$candidate")
+  fi
+done < <(find "$app/Contents/Resources/BrowserRuntimes" -type f | LC_ALL=C sort)
 codesign "${sign_args[@]}" "$arm_helper"
 codesign "${sign_args[@]}" "$x86_helper"
 arm_helper_hash="$(shasum -a 256 "$arm_helper" | awk '{print $1}')"
@@ -78,6 +87,17 @@ python_build="$(plutil -extract python.build raw -o - scripts/native/bridge_help
 dependency_lock_hash="$(shasum -a 256 uv.lock | awk '{print $1}')"
 build_lock_hash="$(shasum -a 256 scripts/native/bridge_helper_build.lock | awk '{print $1}')"
 inputs_hash="$(shasum -a 256 scripts/native/bridge_helper_inputs.json | awk '{print $1}')"
+browser_playwright="$(plutil -extract browser.playwright_version raw -o - scripts/native/bridge_helper_inputs.json)"
+browser_chromium="$(plutil -extract browser.chromium_revision raw -o - scripts/native/bridge_helper_inputs.json)"
+browser_ffmpeg="$(plutil -extract browser.ffmpeg_revision raw -o - scripts/native/bridge_helper_inputs.json)"
+arm_browser_root="$app/Contents/Resources/BrowserRuntimes/arm64"
+x86_browser_root="$app/Contents/Resources/BrowserRuntimes/x86_64"
+arm_browser_identity="$(uv run python -m birkin.bundled_browser "$arm_browser_root")"
+x86_browser_identity="$(uv run python -m birkin.bundled_browser "$x86_browser_root")"
+arm_browser_hash="$(printf '%s' "$arm_browser_identity" | plutil -extract sha256 raw -o - -)"
+x86_browser_hash="$(printf '%s' "$x86_browser_identity" | plutil -extract sha256 raw -o - -)"
+arm_browser_size="$(printf '%s' "$arm_browser_identity" | plutil -extract size_bytes raw -o - -)"
+x86_browser_size="$(printf '%s' "$x86_browser_identity" | plutil -extract size_bytes raw -o - -)"
 cat > "$app/Contents/Resources/bridge-helper.json" <<JSON
 {
   "schema": 1,
@@ -92,6 +112,10 @@ cat > "$app/Contents/Resources/bridge-helper.json" <<JSON
   "helpers": [
     {"architecture":"arm64","path":"arm64/birkin-native-bridge","sha256":"$arm_helper_hash"},
     {"architecture":"x86_64","path":"x86_64/birkin-native-bridge","sha256":"$x86_helper_hash"}
+  ],
+  "browser_runtimes": [
+    {"architecture":"arm64","path":"BrowserRuntimes/arm64","sha256":"$arm_browser_hash","size_bytes":$arm_browser_size,"playwright_version":"$browser_playwright","chromium_revision":"$browser_chromium","ffmpeg_revision":"$browser_ffmpeg","headless_executable":"chromium_headless_shell-$browser_chromium/chrome-headless-shell-mac-arm64/chrome-headless-shell","ffmpeg_executable":"ffmpeg-$browser_ffmpeg/ffmpeg-mac"},
+    {"architecture":"x86_64","path":"BrowserRuntimes/x86_64","sha256":"$x86_browser_hash","size_bytes":$x86_browser_size,"playwright_version":"$browser_playwright","chromium_revision":"$browser_chromium","ffmpeg_revision":"$browser_ffmpeg","headless_executable":"chromium_headless_shell-$browser_chromium/chrome-headless-shell-mac-x64/chrome-headless-shell","ffmpeg_executable":"ffmpeg-$browser_ffmpeg/ffmpeg-mac"}
   ]
 }
 JSON
@@ -102,6 +126,9 @@ codesign "${sign_args[@]}" "$app/Contents/MacOS/BirkinNativeApp"
 codesign "${sign_args[@]}" "$app"
 codesign --verify --strict --verbose=2 "$arm_helper"
 codesign --verify --strict --verbose=2 "$x86_helper"
+for candidate in "${browser_code_paths[@]}"; do
+  codesign --verify --strict --verbose=2 "$candidate"
+done
 codesign --verify --deep --strict --verbose=2 "$app"
 
 {
@@ -121,6 +148,14 @@ codesign --verify --deep --strict --verbose=2 "$app"
   echo "helper_dependency_lock_sha256=$dependency_lock_hash"
   echo "helper_build_lock_sha256=$build_lock_hash"
   echo "helper_inputs_sha256=$inputs_hash"
+  echo "browser_architectures=arm64 x86_64"
+  echo "browser_playwright_version=$browser_playwright"
+  echo "browser_chromium_revision=$browser_chromium"
+  echo "browser_ffmpeg_revision=$browser_ffmpeg"
+  echo "browser_arm64_sha256=$arm_browser_hash"
+  echo "browser_arm64_size_bytes=$arm_browser_size"
+  echo "browser_x86_64_sha256=$x86_browser_hash"
+  echo "browser_x86_64_size_bytes=$x86_browser_size"
   echo "signing_mode=$signing_mode"
   echo "identity=${identity:--}"
   echo "app_sandbox=disabled"

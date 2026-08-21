@@ -55,9 +55,12 @@ def test_probe_accepts_only_exact_provider_marker(monkeypatch, tmp_path) -> None
     assert record["route"] == "cli"
     assert record["cwd"] == str(Path.cwd())
     assert record["artifact_paths"] == {
+        "browser_runtime": "not-frozen",
         "probe": str(output.resolve()),
         "runtime_executable": str(Path(sys.executable).resolve()),
     }
+    assert record["home"] == str(Path.home().resolve())
+    assert record["search_path"]
     assert "reply" not in record
     assert session.closed is True
 

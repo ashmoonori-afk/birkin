@@ -5,11 +5,13 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import os
 import sys
 from pathlib import Path
 from typing import Any
 
 from birkin import config
+from birkin.bundled_browser import ensure_bundled_browser
 from birkin.runtime import build_session
 
 MARKER = "NATIVE_PROVIDER_PROBE_OK"
@@ -37,12 +39,14 @@ def run_probe(
     })
     reply = ""
     error_type: str | None = None
+    browser_runtime: Path | None = None
     resolved_provider = provider
     resolved_model = model
     route = "cli" if provider in config.CLI_PROVIDERS else "unknown"
     cwd = Path.cwd().resolve()
     session = None
     try:
+        browser_runtime = ensure_bundled_browser()
         session = build_session(cfg)
         resolved_provider = str(getattr(session.client, "provider", provider))
         resolved_model = str(getattr(session.client, "model", model))
@@ -61,13 +65,18 @@ def run_probe(
     succeeded = error_type is None and reply == MARKER
     record: dict[str, object] = {
         "artifact_paths": {
+            "browser_runtime": (
+                str(browser_runtime) if browser_runtime is not None else "not-frozen"
+            ),
             "probe": str(artifact_path.resolve()) if artifact_path else "stdout",
             "runtime_executable": str(Path(sys.executable).resolve()),
         },
         "cwd": str(cwd),
+        "home": str(Path.home().resolve()),
         "marker": MARKER,
         "model": resolved_model,
         "provider": resolved_provider,
+        "search_path": os.environ.get("PATH", ""),
         "reply_bytes": len(reply.encode()),
         "reply_sha256": hashlib.sha256(reply.encode()).hexdigest(),
         "route": route,

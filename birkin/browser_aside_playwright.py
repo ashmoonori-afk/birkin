@@ -15,6 +15,7 @@ from birkin.browser_aside_engine import (
     PlaywrightManager,
 )
 from birkin.browser_aside_errors import BrowserAsideError
+from birkin.bundled_browser import BundledBrowserRuntimeError
 from birkin.browser_aside_owner import BrowserOwnerLoop, fail_pending
 from birkin.browser_aside_playwright_support import (
     BrowserCommand,
@@ -163,6 +164,14 @@ class PersistentBrowserRuntime:
     def _run(self) -> None:
         try:
             api = load_sync_api()
+        except BundledBrowserRuntimeError as error:
+            self._startup_error = BrowserAsideError(
+                error.code.value,
+                str(error),
+                503,
+            )
+            self._ready.set()
+            return
         except ImportError:
             self._startup_error = BrowserAsideError(
                 "browser_unavailable",

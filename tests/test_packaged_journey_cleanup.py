@@ -48,6 +48,8 @@ def test_forced_failure_and_signal_cleanup_every_resource(
     assert report["browser_running"] == "no"
     assert report["bridge_processes"] == "0"
     assert report["bridge_overrides"] == "absent"
+    assert report["home_exists"] == "no"
+    assert report["search_path"] == "/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin"
     assert report["socket_exists"] == "no"
     assert not Path(report["root"]).exists()
     browser_pid = int(report["browser_pid"])
@@ -67,3 +69,5 @@ def test_journey_uses_only_the_packaged_bridge_helper() -> None:
         assert f"export {variable}" not in script
         assert f"unset {variable}" in script
     assert "native-bridge provider-probe" in script
+    assert 'export HOME="$root/empty-home"' in script
+    assert "Library/Caches/ms-playwright" not in script

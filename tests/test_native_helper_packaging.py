@@ -11,6 +11,7 @@ REPOSITORY = Path(__file__).resolve().parent.parent
 INPUTS = REPOSITORY / "scripts/native/bridge_helper_inputs.json"
 BUILD_LOCK = REPOSITORY / "scripts/native/bridge_helper_build.lock"
 BUILD_SCRIPT = REPOSITORY / "scripts/native/build_bridge_helpers.sh"
+BROWSER_BUILD_SCRIPT = REPOSITORY / "scripts/native/build_browser_runtimes.sh"
 PACKAGE_SCRIPT = REPOSITORY / "scripts/native/package_macos_app.sh"
 DMG_SCRIPT = REPOSITORY / "scripts/native/create_macos_dmg.sh"
 _SHA256 = re.compile(r"[0-9a-f]{64}")
@@ -33,6 +34,22 @@ def test_helper_build_inputs_pin_both_macos_architectures() -> None:
             "https://github.com/astral-sh/python-build-standalone/releases/download/"
         )
         assert _SHA256.fullmatch(artifact["sha256"])
+
+
+def test_browser_build_inputs_pin_both_macos_architectures() -> None:
+    descriptor = json.loads(INPUTS.read_text(encoding="utf-8"))
+    browser = descriptor["browser"]
+
+    assert browser["playwright_version"] == "1.62.0"
+    assert browser["chromium_revision"] == "1234"
+    assert browser["ffmpeg_revision"] == "1011"
+    assert set(browser["artifacts"]) == {"arm64", "x86_64"}
+    for artifacts in browser["artifacts"].values():
+        assert set(artifacts) == {"headless_shell", "ffmpeg"}
+        for artifact in artifacts.values():
+            assert artifact["url"].startswith("https://cdn.playwright.dev/")
+            assert _SHA256.fullmatch(artifact["sha256"])
+            assert artifact["size_bytes"] > 1_000_000
 
 
 def test_helper_build_toolchain_is_version_and_hash_locked() -> None:
@@ -72,6 +89,24 @@ def test_helper_builder_verifies_inputs_without_downloading() -> None:
     }
 
 
+def test_browser_builder_verifies_inputs_without_downloading() -> None:
+    result = subprocess.run(
+        ["bash", str(BROWSER_BUILD_SCRIPT), "--verify-inputs"],
+        cwd=REPOSITORY,
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert json.loads(result.stdout) == {
+        "architectures": ["arm64", "x86_64"],
+        "chromium_revision": "1234",
+        "ffmpeg_revision": "1011",
+        "playwright_version": "1.62.0",
+    }
+
+
 def test_package_and_dmg_manifests_publish_helper_identity() -> None:
     # Given the application and disk-image release scripts.
     package_script = PACKAGE_SCRIPT.read_text(encoding="utf-8")
@@ -89,6 +124,14 @@ def test_package_and_dmg_manifests_publish_helper_identity() -> None:
         "helper_source_revision",
         "helper_source_state",
         "helper_inputs_sha256",
+        "browser_architectures",
+        "browser_playwright_version",
+        "browser_chromium_revision",
+        "browser_ffmpeg_revision",
+        "browser_arm64_sha256",
+        "browser_arm64_size_bytes",
+        "browser_x86_64_sha256",
+        "browser_x86_64_size_bytes",
     }
 
     # Then both release manifests carry the same helper identity and hashes.
@@ -99,3 +142,6 @@ def test_package_and_dmg_manifests_publish_helper_identity() -> None:
     assert "Contents/Helpers/x86_64/birkin-native-bridge" in dmg_script
     assert "Contents/Resources/bridge-helper.json" in dmg_script
     assert "--collect-all playwright" in BUILD_SCRIPT.read_text(encoding="utf-8")
+    assert "build_browser_runtimes.sh" in package_script
+    assert "BrowserRuntimes/arm64" in package_script
+    assert "BrowserRuntimes/x86_64" in package_script
