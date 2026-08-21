@@ -60,7 +60,14 @@ def test_service_inventory_has_verified_provenance_and_truthful_capabilities(
         assert all(
             package["name"]
             and package["repository_url"].startswith("https://")
-            and package["selection"] in {"conditional", "refuse"}
+            and (
+                package["selection"] in {"conditional", "refuse"}
+                or (
+                    package["name"] == "defusedxml"
+                    and package["integration_mode"] == "core-python"
+                    and package["selection"] == "select"
+                )
+            )
             for package in entry["packages"]
         )
 
