@@ -66,6 +66,12 @@ class DocumentError(Exception):
             raise FrozenInstanceError(f"cannot assign to field {name!r}")
         super().__setattr__(name, value)
 
+    @override
+    def __delattr__(self, name: str) -> None:
+        if name in self._IMMUTABLE_FIELDS:
+            raise FrozenInstanceError(f"cannot delete field {name!r}")
+        super().__delattr__(name)
+
     def envelope(self, *, secrets: Iterable[str] = ()) -> dict[str, object]:
         error = {
             "code": self.code.value,
