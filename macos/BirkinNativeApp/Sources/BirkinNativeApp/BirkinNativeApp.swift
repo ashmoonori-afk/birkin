@@ -357,10 +357,11 @@ public final class BirkinApplicationRuntime: ObservableObject {
             try store.apply(surface: message)
             if case .string(let surfaceName) = message.body["surface"] {
                 emit("surface-applied name=\(surfaceName)")
-            }
-            if let session = readySession {
-                try renderConfiguredEvidence(session: session)
-                if case .string(let surfaceName) = message.body["surface"] {
+                // Only claim a rendered panel when that panel is projected and
+                // the produced image actually carries content.
+                if let session = readySession,
+                   store.surface(named: surfaceName) != nil,
+                   try renderConfiguredEvidence(session: session) {
                     emit("surface-rendered name=\(surfaceName)")
                 }
             }
@@ -450,11 +451,27 @@ public final class BirkinApplicationRuntime: ObservableObject {
         await scheduler.disconnected()
     }
 
-    private func renderConfiguredEvidence(session: NativeReadySession) throws {
-        guard let screenshotPath else { return }
+    /// Render the live shell to the configured evidence path.
+    ///
+    /// `ImageRenderer` cannot lay out a scrolling container, so the shell is
+    /// rendered in its snapshot mode, where every panel draws its content
+    /// inline. Returns whether the produced image actually carries content
+    /// rather than an empty background.
+    @discardableResult
+    private func renderConfiguredEvidence(session: NativeReadySession) throws -> Bool {
+        guard let screenshotPath else { return false }
         let url = URL(fileURLWithPath: screenshotPath)
-        let view = NativeShellView(store: store, connectionState: .ready(session))
-            .frame(width: 1280, height: 800)
+        let view = NativeShellView(
+            store: store,
+            connectionState: .ready(session),
+            jailedDrop: jailedDrop
+        )
+        .frame(width: 1280, height: 800)
+        .background(Color(nsColor: .windowBackgroundColor))
+        .environment(\.colorScheme, .dark)
+        .environment(
+            \.shellVisualSettings, ShellVisualSettings(snapshotRendering: true)
+        )
         let renderer = ImageRenderer(content: view)
         renderer.proposedSize = ProposedViewSize(width: 1280, height: 800)
         renderer.scale = 1
@@ -469,6 +486,25 @@ public final class BirkinApplicationRuntime: ObservableObject {
             at: url.deletingLastPathComponent(), withIntermediateDirectories: true
         )
         try png.write(to: url, options: .atomic)
+        return Self.carriesContent(bitmap)
+    }
+
+    /// True when the rendered bitmap holds more than a flat background.
+    private static func carriesContent(_ bitmap: NSBitmapImageRep) -> Bool {
+        var seen = Set<UInt32>()
+        let stepX = max(1, bitmap.pixelsWide / 96)
+        let stepY = max(1, bitmap.pixelsHigh / 96)
+        for y in stride(from: 0, to: bitmap.pixelsHigh, by: stepY) {
+            for x in stride(from: 0, to: bitmap.pixelsWide, by: stepX) {
+                guard let colour = bitmap.colorAt(x: x, y: y) else { continue }
+                let red = UInt32(colour.redComponent * 255)
+                let green = UInt32(colour.greenComponent * 255)
+                let blue = UInt32(colour.blueComponent * 255)
+                seen.insert(red << 16 | green << 8 | blue)
+                if seen.count >= 8 { return true }
+            }
+        }
+        return false
     }
 
     private func emit(_ message: String) {
