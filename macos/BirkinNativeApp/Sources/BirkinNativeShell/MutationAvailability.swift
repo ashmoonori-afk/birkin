@@ -1,13 +1,13 @@
 import BirkinNativeProtocol
 import Foundation
 
+/// A shell control that submits a canonical command on its own.
+///
+/// Conversation, terminal, approval, and product-surface controls each carry
+/// their own payload-bearing model, so they are not represented here: a case
+/// in this enum must always be able to build a complete command.
 public enum ShellMutationControl: String, CaseIterable, Sendable {
     case newSession
-    case sendMessage
-    case newTerminal
-    case terminalInput
-    case terminalInterrupt
-    case terminalClose
 }
 
 public struct MutationAvailability: Equatable, Sendable {

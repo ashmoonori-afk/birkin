@@ -183,29 +183,26 @@ public final class BirkinApplicationRuntime: ObservableObject {
             lastCommandError = "Command transport is not ready."
             return
         }
+        submit(command(for: control, session: session))
+    }
+
+    func command(
+        for control: ShellMutationControl,
+        session: NativeReadySession
+    ) -> NativeCommandRequest {
         let commandType: String
         let payload: NativeJSONObject
         switch control {
         case .newSession:
             commandType = "session.create"
             payload = ["session_id": .string(UUID().uuidString.lowercased())]
-        case .sendMessage:
-            commandType = "chat.send"
-            payload = ["text": .string("")]
-        case .newTerminal:
-            commandType = "terminal.create"
-            payload = ["actor_kind": .string("native_human"), "cwd": .string(FileManager.default.currentDirectoryPath)]
-        case .terminalInput:
-            commandType = "terminal.input"
-            payload = [:]
-        case .terminalInterrupt:
-            commandType = "terminal.signal"
-            payload = [:]
-        case .terminalClose:
-            commandType = "terminal.close"
-            payload = [:]
         }
-        submit(request(commandType: commandType, payload: payload, session: session, viewID: "shell-control"))
+        return request(
+            commandType: commandType,
+            payload: payload,
+            session: session,
+            viewID: "shell-control"
+        )
     }
 
     public func submit(_ control: ProductSurfaceControl) {

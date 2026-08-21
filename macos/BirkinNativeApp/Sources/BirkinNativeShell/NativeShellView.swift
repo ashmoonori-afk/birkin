@@ -269,7 +269,7 @@ public struct NativeShellView: View {
                 }
                 ConversationComposerView(
                     model: conversationComposer,
-                    isSendEnabled: availability.isEnabled && isAdvertised(.sendMessage)
+                    isSendEnabled: availability.isEnabled && isChatSendAdvertised
                 ) {
                     sendDraft(availability: availability)
                 }
@@ -291,7 +291,7 @@ public struct NativeShellView: View {
                 Button(controlTitle(control)) { mutationAction(control) }
                     .disabled(!availability.isEnabled || !surfaceEnabled)
                     .keyboardShortcut("n", modifiers: .command)
-                    .accessibilityLabel(control == .newSession ? "New session" : controlTitle(control))
+                    .accessibilityLabel(controlTitle(control))
                 if !availability.isEnabled || !surfaceEnabled {
                     Text(availability.disabledReason ?? "Not advertised by Python.")
                         .font(.caption)
@@ -532,23 +532,15 @@ public struct NativeShellView: View {
             .supportedCommands.contains("session.create") == true
     }
 
+    private var isChatSendAdvertised: Bool {
+        store.projection?.composer.canSend == true
+            && Self.readySession(in: connectionState)?
+                .supportedCommands.contains("chat.send") == true
+    }
+
     private func isAdvertised(_ control: ShellMutationControl) -> Bool {
         switch control {
         case .newSession: isSessionCreateAdvertised
-        case .sendMessage:
-            store.projection?.composer.canSend == true
-                && Self.readySession(in: connectionState)?
-                    .supportedCommands.contains("chat.send") == true
-        case .newTerminal: terminalCreateAdvertised
-        case .terminalInput:
-            Self.readySession(in: connectionState)?
-                .supportedCommands.contains("terminal.input") == true
-        case .terminalInterrupt:
-            Self.readySession(in: connectionState)?
-                .supportedCommands.contains("terminal.signal") == true
-        case .terminalClose:
-            Self.readySession(in: connectionState)?
-                .supportedCommands.contains("terminal.close") == true
         }
     }
 
@@ -566,11 +558,6 @@ public struct NativeShellView: View {
     private func controlTitle(_ control: ShellMutationControl) -> String {
         switch control {
         case .newSession: "New Session"
-        case .sendMessage: "Send"
-        case .newTerminal: "New Terminal"
-        case .terminalInput: "Run"
-        case .terminalInterrupt: "Interrupt"
-        case .terminalClose: "Close"
         }
     }
 }
