@@ -15,7 +15,7 @@ and every writer closes the run around it.
 
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, Callable
 
 # Tools that only read and hold no cross-call state.
 #
@@ -37,21 +37,38 @@ PARALLEL_SAFE_TOOLS = frozenset({
 _MIN_PARALLEL = 2
 
 
+def _legacy_can_parallelize(name: str) -> bool:
+    return name in PARALLEL_SAFE_TOOLS
+
+
 def is_safe(tool_use: dict[str, Any]) -> bool:
     return (tool_use.get("name", "") in PARALLEL_SAFE_TOOLS
             and isinstance(tool_use.get("input", {}) or {}, dict))
 
 
-def plan_segments(tool_uses: list[dict[str, Any]]
-                  ) -> list[tuple[str, list[dict[str, Any]]]]:
+def plan_segments(
+    tool_uses: list[dict[str, Any]],
+    can_parallelize: Callable[[str], bool] | None = None,
+) -> list[tuple[str, list[dict[str, Any]]]]:
     """Split a batch into contiguous ``("parallel"|"sequential", calls)`` runs.
+
+    ``can_parallelize`` is the trusted classification source when supplied.
+    The fallback preserves historic native-name behavior for direct callers
+    and registries that predate tool posture classification.
 
     Emission order is preserved: a run only ever groups calls that were already
     adjacent, so a write between two reads still separates them.
     """
+    classify = (can_parallelize if callable(can_parallelize)
+                else _legacy_can_parallelize)
     segments: list[tuple[str, list[dict[str, Any]]]] = []
     for call in tool_uses:
-        kind = "parallel" if is_safe(call) else "sequential"
+        tool_input = call.get("input", {}) or {}
+        eligible = (
+            isinstance(tool_input, dict)
+            and classify(str(call.get("name", "")))
+        )
+        kind = "parallel" if eligible else "sequential"
         if segments and segments[-1][0] == kind:
             segments[-1][1].append(call)
         else:
