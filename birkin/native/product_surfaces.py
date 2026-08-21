@@ -125,6 +125,14 @@ class BrowserSurfaceAuthority:
             "refusal": self._refusal,
         }
 
+    def close(self) -> dict[str, object]:
+        """Stop the private browser this surface owns.
+
+        Safe to call when nothing was ever started; the canonical service
+        reports that rather than raising.
+        """
+        return self._service.close()
+
     def start(self, payload: dict[str, object]) -> dict[str, object]:
         if "profile_path" in payload or "profile" in payload:
             raise ValueError("Browser Aside only permits its private workspace profile")

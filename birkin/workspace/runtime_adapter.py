@@ -153,10 +153,20 @@ class RuntimeWorkspaceAdapter:
         self._terminal.revoke_leases()
 
     def close(self) -> None:
-        self._terminal.close_all()
-        if self._session is not None:
-            self._session.abort.set()
-            self._session.close()
+        """Release everything this session owns, whatever fails on the way.
+
+        The private browser is a real child process, so leaving it running
+        when the bridge stops would strand it with no owner.
+        """
+        try:
+            self._terminal.close_all()
+        finally:
+            try:
+                _ = self.surface_authority.browser.close()
+            finally:
+                if self._session is not None:
+                    self._session.abort.set()
+                    self._session.close()
             self._session = None
 
     def runtime_session(self) -> Session:
