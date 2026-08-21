@@ -35,6 +35,7 @@ public final class BirkinApplicationRuntime: ObservableObject {
     private var started = false
     private var connectionGeneration = 0
     private var correlatedCommands: [String: CorrelatedCommand] = [:]
+    private var terminationSources: [DispatchSourceSignal] = []
 
     public init(
         socketPath: String? = ProcessInfo.processInfo.environment[
@@ -62,6 +63,7 @@ public final class BirkinApplicationRuntime: ObservableObject {
         guard !started else { return }
         started = true
         if socketPath == nil {
+            observeTermination()
             startOwnedBridge()
         } else {
             emit("bridge-attached kind=external")
@@ -80,6 +82,24 @@ public final class BirkinApplicationRuntime: ObservableObject {
         )
         if !(await connect(replaying: false)) {
             await scheduleReconnect(reason: "initial connection failed")
+        }
+    }
+
+    /// Terminate the bridge this application owns even when the process is
+    /// asked to quit by a signal rather than by the user interface.
+    private func observeTermination() {
+        guard terminationSources.isEmpty else { return }
+        for number in [SIGTERM, SIGINT] {
+            signal(number, SIG_IGN)
+            let source = DispatchSource.makeSignalSource(signal: number, queue: .main)
+            source.setEventHandler { [weak self] in
+                MainActor.assumeIsolated {
+                    self?.stop()
+                    exit(0)
+                }
+            }
+            source.resume()
+            terminationSources.append(source)
         }
     }
 
@@ -538,6 +558,23 @@ private enum BirkinApplicationRuntimeError: Error {
     case bridgeClosed
 }
 
+/// Terminates the app-owned bridge when macOS quits the application.
+@MainActor
+private final class BirkinApplicationDelegate: NSObject, NSApplicationDelegate {
+    static let shared = BirkinApplicationDelegate()
+    var runtime: BirkinApplicationRuntime?
+
+    func applicationWillTerminate(_ notification: Notification) {
+        runtime?.stop()
+    }
+
+    func applicationShouldTerminateAfterLastWindowClosed(
+        _ sender: NSApplication
+    ) -> Bool {
+        true
+    }
+}
+
 private struct BirkinRootView: View {
     @StateObject private var runtime = BirkinApplicationRuntime()
 
@@ -554,12 +591,17 @@ private struct BirkinRootView: View {
             jailedDrop: runtime.jailedDrop
         )
         .frame(minWidth: 960, minHeight: 640)
-            .task { await runtime.start() }
+            .task {
+                BirkinApplicationDelegate.shared.runtime = runtime
+                await runtime.start()
+            }
     }
 }
 
 @main
 struct BirkinNativeApplication: App {
+    @NSApplicationDelegateAdaptor(BirkinApplicationDelegate.self) private var delegate
+
     var body: some Scene {
         WindowGroup(BirkinApplicationConfiguration.windowTitle) {
             BirkinRootView()
