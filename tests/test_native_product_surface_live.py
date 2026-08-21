@@ -156,7 +156,9 @@ def test_product_mutations_push_live_surface_events_without_resubscribe(
         bridge, server_socket, transport="uds", peer_uid=local_peer_uid()
     )
     try:
-        client.sendall(encode_frame(hello(bootstrap_secret=None)))
+        client.sendall(
+            encode_frame(hello(bootstrap_secret=None, view_id="office"))
+        )
         ready = receive_frame(client)
         capability = ready.body["capability"]
         assert isinstance(capability, dict)

@@ -44,7 +44,12 @@ def envelope(
     )
 
 
-def hello(*, bootstrap_secret: str | None) -> NativeEnvelope:
+def hello(
+    *,
+    bootstrap_secret: str | None,
+    surface: str = "macos",
+    view_id: str = "main",
+) -> NativeEnvelope:
     return envelope(
         "hello",
         frame_id="hello-1",
@@ -53,8 +58,8 @@ def hello(*, bootstrap_secret: str | None) -> NativeEnvelope:
             "client_version": "1.0.0",
             "client_build": "100",
             "supported_protocol_versions": [NATIVE_PROTOCOL_VERSION],
-            "surface": "macos",
-            "view_id": "main",
+            "surface": surface,
+            "view_id": view_id,
             "bootstrap_secret": bootstrap_secret,
         },
     )
@@ -108,8 +113,21 @@ def serve(
     return thread, errors
 
 
-def handshake(client: socket.socket) -> str:
-    client.sendall(encode_frame(hello(bootstrap_secret=None)))
+def handshake(
+    client: socket.socket,
+    *,
+    surface: str = "macos",
+    view_id: str = "main",
+) -> str:
+    client.sendall(
+        encode_frame(
+            hello(
+                bootstrap_secret=None,
+                surface=surface,
+                view_id=view_id,
+            )
+        )
+    )
     ready = receive_frame(client)
     capability = ready.body["capability"]
     assert isinstance(capability, dict)

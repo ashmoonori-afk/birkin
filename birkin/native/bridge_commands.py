@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from typing import Protocol, final
 
+from birkin.native.capability import CapabilityScope
 from birkin.native.messages import NativeMessageFactory
 from birkin.native.protocol import NativeEnvelope, NativeProtocolError
 from birkin.native.state import NativeConnectionState
@@ -36,12 +37,21 @@ class NativeCommandExecutor:
         connection: NativeConnection,
         state: NativeConnectionState,
         message: NativeEnvelope,
+        scope: CapabilityScope,
     ) -> None:
         try:
             command = WorkspaceCommand.parse(message.body.get("command"))
+            if (
+                command.client_context.surface != scope.surface
+                or command.client_context.view_id != scope.view_id
+            ):
+                raise NativeProtocolError(
+                    "E_CAPABILITY_SCOPE",
+                    "command context is outside the connection capability scope",
+                )
             receipt = self._authority.submit(
                 command,
-                actor_id=f"macos:{command.client_context.view_id}",
+                actor_id=f"{scope.surface}:{scope.view_id}",
             )
             body = receipt.to_public_json()
             if receipt.transient_result is not None and not receipt.duplicate:
@@ -52,6 +62,11 @@ class NativeCommandExecutor:
             response = self._messages.message(
                 "receipt",
                 body=body,
+                in_reply_to=message.id,
+            )
+        except NativeProtocolError as error:
+            response = self._messages.error(
+                error,
                 in_reply_to=message.id,
             )
         except WorkspaceProtocolError as error:

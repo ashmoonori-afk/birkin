@@ -158,7 +158,7 @@ def test_real_bridge_advertises_import_and_emits_canonical_copy_receipt(
         bridge, server_socket, transport="uds", peer_uid=local_peer_uid()
     )
     try:
-        token = handshake(client)
+        token = handshake(client, view_id="composer")
         client.sendall(encode_frame(envelope(
             "command",
             frame_id="frame-import",

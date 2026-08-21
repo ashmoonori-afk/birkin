@@ -241,6 +241,7 @@ class NativeBridgeServer:
                                 connection,
                                 state,
                                 command_message,
+                                capability.scope,
                             )
                         except (NativeProtocolError, OSError):
                             connection.interrupt()

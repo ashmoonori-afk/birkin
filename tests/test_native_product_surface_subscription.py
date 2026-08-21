@@ -114,7 +114,9 @@ def test_surface_projection_failure_keeps_the_canonical_command_accepted(
         bridge, server_socket, transport="uds", peer_uid=local_peer_uid()
     )
     try:
-        client.sendall(encode_frame(hello(bootstrap_secret=None)))
+        client.sendall(
+            encode_frame(hello(bootstrap_secret=None, view_id="office"))
+        )
         ready = receive_frame(client)
         capability = ready.body["capability"]
         assert isinstance(capability, dict)
@@ -197,7 +199,9 @@ def test_real_socket_subscribe_emits_negotiated_surface_snapshots(tmp_path: Path
         bridge, server_socket, transport="uds", peer_uid=local_peer_uid()
     )
     try:
-        client.sendall(encode_frame(hello(bootstrap_secret=None)))
+        client.sendall(
+            encode_frame(hello(bootstrap_secret=None, view_id="office"))
+        )
         ready = receive_frame(client)
         capability = ready.body["capability"]
         assert isinstance(capability, dict)

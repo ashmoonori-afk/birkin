@@ -194,7 +194,9 @@ def test_served_bridge_creates_selects_and_serves_a_new_session() -> None:
         client.settimeout(30)
         client.connect(socket_path)
         try:
-            client.sendall(encode_frame(hello(bootstrap_secret=None)))
+            client.sendall(
+                encode_frame(hello(bootstrap_secret=None, view_id="sessions"))
+            )
             ready = receive_frame(client)
             capabilities = ready.body["capabilities"]
             assert isinstance(capabilities, dict)

@@ -90,7 +90,7 @@ def test_full_native_bridge_real_pty_round_trip_and_invalid_signal(
     )
     pid = 0
     try:
-        token = handshake(client)
+        token = handshake(client, view_id="terminal")
         _send(client, token, source, "terminal.create", "create-terminal", {
             "actor_kind": "native_human", "cwd": str(tmp_path),
         })
@@ -155,7 +155,7 @@ def test_disconnect_revokes_terminal_mutation_lease(
     )
     opened: dict[str, object] = {}
     try:
-        token = handshake(client)
+        token = handshake(client, view_id="terminal")
         _send(client, token, source, "terminal.create", "disconnect-terminal", {
             "actor_kind": "native_human", "cwd": str(tmp_path),
         })
@@ -176,7 +176,7 @@ def test_disconnect_revokes_terminal_mutation_lease(
             bridge, second_server, transport="uds", peer_uid=local_peer_uid()
         )
         try:
-            second_token = handshake(second_client)
+            second_token = handshake(second_client, view_id="terminal")
             _send(second_client, second_token, source, "terminal.input", "empty-lease", {
                 "terminal_id": opened["terminal_id"],
                 "lease": "",
@@ -206,7 +206,7 @@ def test_bridge_refuses_terminal_lease_until_shell_approval(
         bridge, server_socket, transport="uds", peer_uid=local_peer_uid()
     )
     try:
-        token = handshake(client)
+        token = handshake(client, view_id="terminal")
         _send(client, token, source, "terminal.create", "approval-terminal", {
             "actor_kind": "native_human", "cwd": str(tmp_path),
         })
