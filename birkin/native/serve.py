@@ -194,3 +194,7 @@ def main(argv: list[str] | None = None) -> int:
     from birkin.cli import main as cli_main
 
     return cli_main(["native-bridge", "serve", *(argv or sys.argv[1:])])
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

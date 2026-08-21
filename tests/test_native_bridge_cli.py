@@ -64,6 +64,39 @@ def test_native_bridge_rejects_an_unsupported_transport() -> None:
     assert exit_info.value.code == 2
 
 
+def test_module_entry_point_serves_the_bridge_cli() -> None:
+    """Given the bundled helper invoked as a module, When it is asked for
+    help, Then it serves the bridge CLI instead of exiting silently."""
+    result = subprocess.run(
+        [sys.executable, "-m", "birkin.native.serve", "--help"],
+        capture_output=True,
+        text=True,
+        timeout=120,
+        check=False,
+    )
+    assert result.returncode == 0
+    assert "--transport" in result.stdout
+
+
+def test_module_entry_point_rejects_an_unsupported_transport() -> None:
+    """Given the bundled helper invoked as a module, When the transport is
+    unsupported, Then it exits non-zero instead of reporting success."""
+    result = subprocess.run(
+        [
+            sys.executable,
+            "-m",
+            "birkin.native.serve",
+            "--transport",
+            "carrier-pigeon",
+        ],
+        capture_output=True,
+        text=True,
+        timeout=120,
+        check=False,
+    )
+    assert result.returncode != 0
+
+
 def test_native_bridge_serves_a_real_connection_and_cleans_up() -> None:
     """Given the shipped CLI bridge, When a client completes a handshake and
     the bridge is asked to stop, Then it announced a live endpoint, served the
