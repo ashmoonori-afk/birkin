@@ -13,41 +13,120 @@ case "$(uname -m)" in
   x86_64) helper_architecture=x86_64 ;;
   *) echo "unsupported packaged journey architecture" >&2; exit 2 ;;
 esac
+case "$(uname -s)" in
+  Darwin) process_event_backend=kqueue ;;
+  Linux) process_event_backend=pidfd ;;
+  *) echo "packaged journey cleanup requires Darwin kqueue or Linux pidfd" >&2; exit 2 ;;
+esac
 bridge_helper="$dist/Birkin.app/Contents/Helpers/$helper_architecture/birkin-native-bridge"
 unset BIRKIN_NATIVE_BRIDGE_COMMAND
 unset BIRKIN_NATIVE_BRIDGE_ARGUMENTS
 unset BIRKIN_NATIVE_BRIDGE_OPTIONS
 # A Unix socket path is platform bounded, so the runtime root stays short.
 root="$(mktemp -d /private/tmp/bk-journey-XXXXXX)"
-browser_pid=""
-browser_started_pid="0"
-app_pid=""
-app_started_pid="0"
+browser_pid="" browser_started_pid="0" browser_group_id=""
+app_pid="" app_started_pid="0" app_group_id=""
 cleanup_started=0
 bridge_pattern="$bridge_helper native-bridge serve --transport uds"
 
+terminate_process_group() {
+  local group_id="$1"
+  [[ -n "$group_id" ]] || return 0
+  /usr/bin/python3 - "$group_id" "$process_event_backend" <<'PY'
+import errno, os, select, signal, subprocess, sys, time
+
+process_group = int(sys.argv[1])
+backend = sys.argv[2]
+
+def subscribe(pid: int):
+    if backend == "kqueue":
+        watcher = select.kqueue()
+        event = select.kevent(pid, filter=select.KQ_FILTER_PROC,
+            flags=select.KQ_EV_ADD | select.KQ_EV_ENABLE | select.KQ_EV_ONESHOT,
+            fflags=select.KQ_NOTE_EXIT)
+        watcher.control([event], 0, 0)
+        return watcher
+    descriptor = os.pidfd_open(pid)
+    watcher = select.poll()
+    watcher.register(descriptor, select.POLLIN)
+    return descriptor, watcher
+
+
+def await_exits(pending: set[int], timeout: float) -> set[int]:
+    deadline, remaining = time.monotonic() + timeout, set()
+    for pid in pending:
+        wait = max(0.0, deadline - time.monotonic())
+        watcher = watches[pid]
+        observed = (bool(watcher.control(None, 1, wait)) if backend == "kqueue"
+                    else bool(watcher[1].poll(max(0, int(wait * 1000)))))
+        if not observed:
+            remaining.add(pid)
+    return remaining
+
+
+if backend == "pidfd" and not hasattr(os, "pidfd_open"):
+    raise RuntimeError("Linux cleanup requires os.pidfd_open")
+output = subprocess.run(
+    ["/bin/ps", "-axo", "pid=,pgid="], check=True, capture_output=True, text=True
+).stdout
+pids = {int(fields[0]) for line in output.splitlines()
+        if len(fields := line.split()) == 2 and int(fields[1]) == process_group}
+watches = {}
+for pid in pids:
+    try:
+        watches[pid] = subscribe(pid)
+    except OSError as error:
+        if error.errno != errno.ESRCH:
+            raise
+pending = set(watches)
+try:
+    for signum in (signal.SIGTERM, signal.SIGKILL):
+        if not pending:
+            break
+        try:
+            os.killpg(process_group, signum)
+        except ProcessLookupError:
+            pass
+        pending = await_exits(pending, 5.0)
+    raise SystemExit(1 if pending else 0)
+finally:
+    for watcher in watches.values():
+        watcher.close() if backend == "kqueue" else os.close(watcher[0])
+PY
+}
+
 stop_app() {
-  if [[ -n "$app_pid" ]] && kill -0 "$app_pid" 2>/dev/null; then
-    kill -TERM "$app_pid" 2>/dev/null || true
+  terminate_process_group "$app_group_id"
+  local cleanup_status=$?
+  if [[ -n "$app_pid" ]]; then
     wait "$app_pid" 2>/dev/null || true
   fi
   app_pid=""
+  app_group_id=""
+  return "$cleanup_status"
 }
 stop_browser_fixture() {
-  if [[ -n "$browser_pid" ]] && kill -0 "$browser_pid" 2>/dev/null; then
-    kill -TERM "$browser_pid" 2>/dev/null || true
+  terminate_process_group "$browser_group_id"
+  local cleanup_status=$?
+  if [[ -n "$browser_pid" ]]; then
     wait "$browser_pid" 2>/dev/null || true
   fi
   browser_pid=""
+  browser_group_id=""
+  return "$cleanup_status"
 }
-stop_orphaned_bridge() {
-  local pids
-  pids="$(pgrep -f "$bridge_pattern" 2>/dev/null || true)"
-  if [[ -n "$pids" ]]; then
-    kill -TERM $pids 2>/dev/null || true
-    pids="$(pgrep -f "$bridge_pattern" 2>/dev/null || true)"
-    [[ -z "$pids" ]] || kill -KILL $pids 2>/dev/null || true
-  fi
+stop_owned_bridges() {
+  local pid group_id groups="" cleanup_status=0
+  while IFS= read -r pid; do
+    group_id="$(/bin/ps -o pgid= -p "$pid" 2>/dev/null | tr -d ' ')"
+    [[ -n "$group_id" ]] || continue
+    case " $groups " in
+      *" $group_id "*) continue ;;
+    esac
+    groups="$groups $group_id"
+    terminate_process_group "$group_id" || cleanup_status=1
+  done < <(pgrep -f "$bridge_pattern" 2>/dev/null || true)
+  return "$cleanup_status"
 }
 cleanup() {
   local status=$?
@@ -57,10 +136,14 @@ cleanup() {
   cleanup_started=1
   trap - EXIT HUP INT TERM
   set +e
-  stop_app
-  stop_browser_fixture
-  stop_orphaned_bridge
+  local cleanup_status=0
+  stop_app || cleanup_status=1
+  stop_owned_bridges || cleanup_status=1
+  stop_browser_fixture || cleanup_status=1
   rm -rf "$root"
+  if [[ "$cleanup_status" -ne 0 ]]; then
+    status=1
+  fi
 
   local app_running=no browser_running=no bridge_processes
   if [[ "$app_started_pid" != "0" ]] && kill -0 "$app_started_pid" 2>/dev/null; then
@@ -80,6 +163,7 @@ cleanup() {
     echo "browser_pid=$browser_started_pid"
     echo "browser_running=$browser_running"
     echo "bridge_processes=$bridge_processes"
+    echo "process_event_backend=$process_event_backend"
     echo "bridge_overrides=absent"
     echo "home=$HOME"
     echo "home_exists=$([[ -e "$HOME" ]] && echo yes || echo no)"
@@ -104,6 +188,9 @@ browser_ready="$root/browser-ready"
 mkfifo "$browser_ready"
 /usr/bin/python3 -u - > "$browser_ready" <<'PY' &
 import http.server
+import os
+
+os.setsid()
 
 class Handler(http.server.BaseHTTPRequestHandler):
     def do_GET(self):
@@ -123,6 +210,7 @@ server.serve_forever()
 PY
 browser_pid=$!
 browser_started_pid="$browser_pid"
+browser_group_id="$browser_pid"
 IFS= read -r browser_url < "$browser_ready"
 rm -f "$browser_ready"
 browser_authority="${browser_url#http://}"
@@ -162,16 +250,20 @@ unset BIRKIN_NATIVE_SOCKET
 
 launch_cwd="$PWD"
 cd "$root/workspace"
-"$dist/Birkin.app/Contents/MacOS/BirkinNativeApp" \
+/usr/bin/python3 -c \
+  'import os, sys; os.setsid(); os.execv(sys.argv[1], sys.argv[1:])' \
+  "$dist/Birkin.app/Contents/MacOS/BirkinNativeApp" \
   > "$evidence/packaged-journey-events.log" 2>&1 &
 app_pid=$!
 cd "$launch_cwd"
 app_started_pid="$app_pid"
+app_group_id="$app_pid"
 set +e
 wait "$app_pid"
 status=$?
 set -e
-app_pid=""
+stop_app
+stop_owned_bridges
 stop_browser_fixture
 
 /usr/bin/python3 "$repo_root/scripts/native/verify_packaged_journey.py" \
