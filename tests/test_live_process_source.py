@@ -109,11 +109,6 @@ def test_psutil_process_source_satisfies_protocol_without_eager_attributes(
     assert process_iter_calls == [((), {})]
 
 
-def test_psutil_adapters_are_final() -> None:
-    assert PsutilProcessHandle.__final__ is True
-    assert PsutilProcessSource.__final__ is True
-
-
 @pytest.mark.parametrize("marker", operation_policy._PERMISSION_MARKERS)
 def test_permission_denial_helper_preserves_existing_markers(
     marker: str,

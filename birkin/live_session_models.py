@@ -23,7 +23,8 @@ class ReadFailure(Enum):
     PROCESS_GONE = "process_gone"
 
 
-@dataclass(frozen=True, slots=True)
+# Omit slots: Python 3.10 breaks subscripted construction of frozen Generic dataclasses.
+@dataclass(frozen=True)
 class Observation(Generic[T]):
     value: T | None
     failure: ReadFailure | None
