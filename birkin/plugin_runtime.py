@@ -4,11 +4,13 @@ from __future__ import annotations
 
 import importlib.util
 import sys
+from dataclasses import replace
 from pathlib import Path
 
 from .plugin_install import InstalledPlugin, PluginInstaller
 from .plugin_manifest import PluginKind, load_manifest
 from .plugin_signature import bundle_digest
+from .tool_effects import ToolOrigin
 from .tools._types import Tool
 
 
@@ -49,6 +51,8 @@ def load_agent_tools(project_root: Path, team_root: Path) -> list[Tool]:
     loaded: list[Tool] = []
     for plugin in _verified_plugins(project_root, team_root):
         manifest = load_manifest(plugin.path / "birkin-plugin.json")
+        origin = ToolOrigin(
+            "plugin", manifest.name, manifest.version, plugin.digest)
         source = f"plugin:{plugin.name}@{plugin.version}"
         for raw in manifest.entry_points.get(PluginKind.AGENT, ()):
             file_part, separator, symbol = raw.partition(":")
@@ -73,5 +77,6 @@ def load_agent_tools(project_root: Path, team_root: Path) -> list[Tool]:
                 isinstance(tool, Tool) for tool in candidates
             ):
                 raise PluginActivationError(f"{source} must return Tool or a Tool sequence")
-            loaded.extend(candidates)
+            loaded.extend(
+                replace(tool, origin=origin) for tool in candidates)
     return loaded

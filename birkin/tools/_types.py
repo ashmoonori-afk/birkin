@@ -14,6 +14,8 @@ from typing import (
     TypedDict,
 )
 
+from ..tool_effects import NATIVE_TOOL_ORIGIN, ToolOrigin
+
 
 class TextContentBlock(TypedDict):
     type: Literal["text"]
@@ -109,3 +111,4 @@ class Tool:
     description: str
     input_schema: dict[str, Any]
     fn: Callable[[ToolInput, ToolContext], ToolResult]
+    origin: ToolOrigin = NATIVE_TOOL_ORIGIN

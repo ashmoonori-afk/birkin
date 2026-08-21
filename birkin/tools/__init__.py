@@ -14,6 +14,7 @@ the agent can recover.
 
 from __future__ import annotations
 
+from dataclasses import dataclass, replace
 from typing import Any, Optional
 
 from ..operation_approval import queue_operation
@@ -21,6 +22,14 @@ from ..operation_policy import (
     ApprovalRequiredError,
     diagnostic_block,
     permission_block,
+)
+from ..tool_attestations import ToolAttestationStore
+from ..tool_effects import (
+    EffectDecision,
+    EffectLookup,
+    EffectSnapshot,
+    SnapshotEffectLookup,
+    ToolOrigin,
 )
 from ._types import (
     ImageContentBlock as ImageContentBlock,
@@ -34,14 +43,56 @@ from ._types import (
 )
 
 
+@dataclass(frozen=True, slots=True)
+class _RegisteredTool:
+    tool: Tool
+    origin: ToolOrigin
+    decision: EffectDecision
+
+
 class ToolRegistry:
     def __init__(self, ctx: ToolContext):
         self.ctx = ctx
-        self._tools: dict[str, Tool] = {}
+        self._effects: EffectLookup = SnapshotEffectLookup(
+            EffectSnapshot("missing", ()))
+        self._tools: dict[str, _RegisteredTool] = {}
         self._blocked: dict[str, str] = {}
+        self._plugin_collisions: set[str] = set()
 
     def register(self, tool: Tool) -> None:
-        self._tools[tool.name] = tool
+        origin = tool.origin
+        registered = self._tools.get(tool.name)
+        if origin.kind == "plugin" and tool.name in self._plugin_collisions:
+            return
+        if registered is not None:
+            if registered.origin.kind == "native":
+                if origin.kind == "native":
+                    raise ValueError(
+                        f"native tool already registered: {tool.name}")
+                return
+            if origin.kind == "plugin":
+                del self._tools[tool.name]
+                self._plugin_collisions.add(tool.name)
+                return
+        self._tools[tool.name] = _RegisteredTool(
+            tool, origin, self._effects.decision_for(origin, tool.name))
+
+    def refresh_effects(self) -> EffectSnapshot:
+        snapshot = ToolAttestationStore().load()
+        effects = SnapshotEffectLookup(snapshot)
+        self._effects = effects
+        self._tools = {
+            name: replace(
+                registered,
+                decision=effects.decision_for(registered.origin, name),
+            )
+            for name, registered in self._tools.items()
+        }
+        return snapshot
+
+    def can_parallelize(self, name: str) -> bool:
+        registered = self._tools.get(name)
+        return registered is not None and registered.decision.parallel_safe
 
     def register_blocked(self, tool: Tool, reason: str) -> None:
         self._blocked[tool.name] = reason
@@ -50,12 +101,18 @@ class ToolRegistry:
         return list(self._tools)
 
     def specs(self) -> list[dict[str, Any]]:
-        return [{"name": t.name, "description": t.description,
-                 "input_schema": t.input_schema} for t in self._tools.values()]
+        return [
+            {
+                "name": registered.tool.name,
+                "description": registered.tool.description,
+                "input_schema": registered.tool.input_schema,
+            }
+            for registered in self._tools.values()
+        ]
 
     def execute(self, name: str, tool_input: dict[str, Any]) -> ToolResult:
-        tool = self._tools.get(name)
-        if tool is None:
+        registered = self._tools.get(name)
+        if registered is None:
             reason = self._blocked.get(name)
             if reason is not None:
                 return queue_operation(
@@ -65,6 +122,7 @@ class ToolRegistry:
                     ApprovalRequiredError("tool_policy", reason),
                 )
             return ToolResult(f"Unknown tool: {name!r}", is_error=True)
+        tool = registered.tool
         if self.ctx.hooks is not None:
             # A blocking hook's message becomes the tool result, so the
             # model sees why it was refused and can choose another path.
@@ -79,7 +137,13 @@ class ToolRegistry:
         if self.ctx.checkpoints is not None:
             from .. import checkpoints
             try:
-                checkpoints.preflight(self.ctx, name, tool_input or {})
+                checkpoints.preflight(
+                    self.ctx,
+                    name,
+                    tool_input or {},
+                    origin=registered.origin,
+                    effect=registered.decision.effect,
+                )
             except Exception as exc:
                 return ToolResult(
                     f"Checkpoint failed before {name!r}: {exc}",
