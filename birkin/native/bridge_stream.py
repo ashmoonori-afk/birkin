@@ -35,6 +35,7 @@ class NativeBridgeStream:
         self._queue = NativeEventQueue(capacity=capacity)
         self._active = threading.Event()
         self._send_gate = threading.RLock()
+        self._delivery_suspended = threading.Event()
         self._stopped = threading.Event()
         self._pong = threading.Event()
         self._failure: BaseException | None = None
@@ -78,14 +79,17 @@ class NativeBridgeStream:
         self._pong.set()
 
     def suspend(self) -> None:
-        """Hold the wire until the caller has written its own frames.
+        """Hold queued delivery until the caller has written its own frames.
 
         Acquiring the gate also waits out any send already in flight, so a
         drained batch can never overtake a snapshot or a command receipt.
+        Heartbeats remain live while synchronous command work owns the gate.
         """
+        self._delivery_suspended.set()
         _ = self._send_gate.acquire()
 
     def resume(self) -> None:
+        self._delivery_suspended.clear()
         self._send_gate.release()
 
     def stop(self) -> None:
@@ -100,28 +104,42 @@ class NativeBridgeStream:
                 self._queue.wait_for_pending(timeout=self._heartbeat_interval)
                 if self._stopped.is_set():
                     return
-                with self._send_gate:
+                acquired = self._send_gate.acquire(
+                    timeout=self._heartbeat_interval
+                )
+                if not acquired:
+                    if self._delivery_suspended.is_set():
+                        self._send_heartbeat()
+                    continue
+                try:
                     if self._stopped.is_set():
                         return
                     events = self._queue.drain()
                     if events:
                         self._send_events(events)
                         continue
-                    self._pong.clear()
-                    ping = self._messages.message(
-                        "ping",
-                        body={
-                            "sent_at": datetime.now(timezone.utc).isoformat(),
-                        },
-                    )
-                    self._state.send(ping)
-                    self._connection.send(ping)
+                    self._send_heartbeat()
+                finally:
+                    self._send_gate.release()
                 if not self._pong.wait(self._peer_timeout):
+                    if self._delivery_suspended.is_set():
+                        continue
                     self._connection.interrupt()
                     return
         except BaseException as exc:
             self._failure = exc
             self._connection.interrupt()
+
+    def _send_heartbeat(self) -> None:
+        self._pong.clear()
+        ping = self._messages.message(
+            "ping",
+            body={
+                "sent_at": datetime.now(timezone.utc).isoformat(),
+            },
+        )
+        self._state.send(ping)
+        self._connection.send(ping)
 
     def _send_events(
         self,

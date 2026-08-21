@@ -21,6 +21,23 @@ public struct NativeProjectionSubscription: Sendable {
         self.submit = submit
         self.replaying = replaying
     }
+
+    static func pong(
+        for ping: NativeEnvelope,
+        sessionCapability: String
+    ) throws -> NativeEnvelope {
+        var body = ping.body
+        try body.append(
+            key: "session_capability",
+            value: .string(sessionCapability)
+        )
+        return NativeEnvelope(
+            kind: .pong,
+            id: "app-pong-\(UUID().uuidString)",
+            inReplyTo: ping.id,
+            body: body
+        )
+    }
 }
 
 extension NativeTransportActor {
@@ -65,7 +82,10 @@ extension NativeTransportActor {
                 ]
             )
             try socket.send(NativeFrameCodec.encode(subscribe))
-            let snapshot = try receiveSnapshot(socket: socket)
+            let snapshot = try receiveSnapshot(
+                socket: socket,
+                sessionCapability: transcript.session.sessionCapability
+            )
             let messages = AsyncThrowingStream<NativeEnvelope, any Error> { continuation in
                 continuation.onTermination = { _ in socket.close() }
                 Task.detached {
@@ -76,12 +96,12 @@ extension NativeTransportActor {
                                 frame: socket.receiveFrame()
                             )
                             if envelope.kind == .ping {
-                                try socket.send(NativeFrameCodec.encode(NativeEnvelope(
-                                    kind: .pong,
-                                    id: "app-pong-\(UUID().uuidString)",
-                                    inReplyTo: envelope.id,
-                                    body: envelope.body
-                                )))
+                                try socket.send(NativeFrameCodec.encode(
+                                    try NativeProjectionSubscription.pong(
+                                        for: envelope,
+                                        sessionCapability: transcript.session.sessionCapability
+                                    )
+                                ))
                             } else {
                                 continuation.yield(envelope)
                             }
@@ -107,17 +127,20 @@ extension NativeTransportActor {
         }
     }
 
-    private func receiveSnapshot(socket: NativeSocket) throws -> NativeEnvelope {
+    private func receiveSnapshot(
+        socket: NativeSocket,
+        sessionCapability: String
+    ) throws -> NativeEnvelope {
         while true {
             let envelope = try NativeFrameCodec.decode(frame: socket.receiveFrame())
             if envelope.kind == .snapshot { return envelope }
             if envelope.kind == .ping {
-                try socket.send(NativeFrameCodec.encode(NativeEnvelope(
-                    kind: .pong,
-                    id: "app-pong-\(UUID().uuidString)",
-                    inReplyTo: envelope.id,
-                    body: envelope.body
-                )))
+                try socket.send(NativeFrameCodec.encode(
+                    try NativeProjectionSubscription.pong(
+                        for: envelope,
+                        sessionCapability: sessionCapability
+                    )
+                ))
                 continue
             }
             throw NativeTransportError("projection subscription did not return a snapshot")

@@ -1,16 +1,19 @@
 from __future__ import annotations
 
 import socket
+import threading
 from pathlib import Path
 
 import pytest
 
 from birkin.native.capability import BootstrapSecretStore
-from birkin.native.protocol import NativeProtocolError
+from birkin.native.protocol import NativeEnvelope, NativeProtocolError, encode_frame
 from birkin.native.server import NativeBridgeServer
 from birkin.native.transport import receive_frame
 from birkin.workspace import WorkspaceCommand, WorkspaceService
 from tests.native_bridge_support import (
+    command_body,
+    envelope,
     handshake,
     local_peer_uid,
     serve,
@@ -55,6 +58,101 @@ def test_subscribed_connection_streams_new_workspace_events(
         assert event.kind == "event"
         assert event.body["cursor"] == 1
     finally:
+        client.close()
+        thread.join(timeout=2)
+    assert errors == []
+
+
+def test_blocked_command_keeps_heartbeat_live_until_ordered_receipt(
+    tmp_path: Path,
+) -> None:
+    entered = threading.Event()
+    release = threading.Event()
+
+    def blocked_chat(payload: dict[str, object]) -> dict[str, object]:
+        entered.set()
+        if not release.wait(timeout=2):
+            raise AssertionError("test did not release blocked command")
+        return {"reply": str(payload["text"])}
+
+    source = WorkspaceService(
+        root=tmp_path / "workspace",
+        session_id="session-1",
+        handlers={"chat.send": blocked_chat},
+    )
+    bridge = NativeBridgeServer(
+        source,
+        capabilities=BootstrapSecretStore(tmp_path / "native"),
+        instance_id="instance-1",
+        server_version="1.0.0",
+        heartbeat_interval=0.05,
+        peer_timeout=0.5,
+    )
+    server_socket, client = socket.socketpair()
+    client.settimeout(1)
+    thread, errors = serve(
+        bridge,
+        server_socket,
+        transport="uds",
+        peer_uid=local_peer_uid(),
+    )
+    try:
+        token = handshake(client)
+        client.sendall(encode_frame(envelope(
+            "command",
+            frame_id="blocked-command-frame",
+            body=command_body(
+                token,
+                command_id="blocked-command",
+                cursor=0,
+                text="wait for release",
+            ),
+        )))
+        assert entered.wait(timeout=1)
+
+        ping = receive_frame(client)
+        assert ping.kind == "ping"
+        pong_body: dict[str, object] = {
+            key: value for key, value in ping.body.items()
+        }
+        pong_body["session_capability"] = token
+        client.sendall(encode_frame(envelope(
+            "pong",
+            frame_id="blocked-command-pong",
+            in_reply_to=ping.id,
+            body=pong_body,
+        )))
+        release.set()
+
+        command_frames: list[NativeEnvelope] = []
+        for index in range(16):
+            frame = receive_frame(client)
+            if frame.kind == "ping":
+                pong_body = {
+                    key: value for key, value in frame.body.items()
+                }
+                pong_body["session_capability"] = token
+                client.sendall(encode_frame(envelope(
+                    "pong",
+                    frame_id=f"blocked-command-pong-{index}",
+                    in_reply_to=frame.id,
+                    body=pong_body,
+                )))
+                continue
+            command_frames.append(frame)
+            if (
+                frame.kind == "event"
+                and frame.body.get("type") == "command.completed"
+            ):
+                break
+        else:
+            raise AssertionError("command completion was not delivered")
+
+        assert command_frames[0].kind == "receipt"
+        assert command_frames[0].in_reply_to == "blocked-command-frame"
+        assert command_frames[-1].body["command_id"] == "blocked-command"
+    finally:
+        release.set()
         client.close()
         thread.join(timeout=2)
     assert errors == []
