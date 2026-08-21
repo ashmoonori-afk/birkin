@@ -15,6 +15,9 @@ public enum BirkinApplicationConfiguration {
 @MainActor
 public final class BirkinApplicationRuntime: ObservableObject {
     public let store = NativeProjectionStore()
+    /// Jailed drag-and-drop state. The runtime owns it because only the
+    /// command receipt carries Python's canonical import reference.
+    public let jailedDrop = JailedDropModel()
     @Published public private(set) var connectionState: NativeConnectionState = .disconnected
     @Published public private(set) var lastCommandError: String?
 
@@ -331,6 +334,7 @@ public final class BirkinApplicationRuntime: ObservableObject {
             lastCommandError = nil
             switch resolveCorrelation(of: message) {
             case .terminalCreate: installTerminalLease(from: message)
+            case .fileImport: applyImportResult(from: message)
             case .other: break
             }
             emit("command-receipt id=\(message.inReplyTo ?? message.id)")
@@ -341,7 +345,10 @@ public final class BirkinApplicationRuntime: ObservableObject {
             } else {
                 messageText = "Command was refused."
             }
-            _ = resolveCorrelation(of: message)
+            switch resolveCorrelation(of: message) {
+            case .fileImport: jailedDrop.refuse(reason: messageText)
+            case .terminalCreate, .other: break
+            }
             lastCommandError = String(messageText.prefix(300))
             emit("command-error message=\(lastCommandError ?? "Command was refused.")")
         case .streamDesynchronized:
@@ -377,6 +384,14 @@ public final class BirkinApplicationRuntime: ObservableObject {
               case .string(let lease) = result["lease"] else { return }
         store.installTerminalLease(lease, forTerminal: terminalID)
         emit("terminal-lease-installed terminal=\(terminalID)")
+    }
+
+    private func applyImportResult(from message: NativeEnvelope) {
+        guard case .object(let result) = message.body["result"] else {
+            jailedDrop.refuse(reason: "Python returned no jailed import reference.")
+            return
+        }
+        jailedDrop.applyCanonicalResult(result)
     }
 
     private func connectionLost(reason: String, generation: Int) async {
@@ -430,11 +445,13 @@ public final class BirkinApplicationRuntime: ObservableObject {
 /// hold. Everything else is `.other`: its receipt needs no client action.
 enum CorrelatedCommand: Equatable {
     case terminalCreate
+    case fileImport
     case other
 
     init(commandType: String) {
         switch commandType {
         case "terminal.create": self = .terminalCreate
+        case "file.import": self = .fileImport
         default: self = .other
         }
     }
@@ -457,7 +474,8 @@ private struct BirkinRootView: View {
             mutationAction: runtime.submit,
             templateCommandAction: runtime.submit,
             productSurfaceAction: runtime.submit,
-            voiceInputAction: runtime.beginVoiceInput
+            voiceInputAction: runtime.beginVoiceInput,
+            jailedDrop: runtime.jailedDrop
         )
         .frame(minWidth: 960, minHeight: 640)
             .task { await runtime.start() }

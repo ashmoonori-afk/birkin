@@ -79,6 +79,12 @@ public final class JailedDropModel: ObservableObject {
         return true
     }
 
+    /// Show Python's bounded refusal for an import that never completed.
+    public func refuse(reason: String) {
+        reference = nil
+        state = .refused(reason: String(reason.prefix(300)))
+    }
+
     public func applyCanonicalResult(_ result: NativeJSONObject) {
         guard case .object(let receipt) = result["receipt"],
               case .bool(true) = receipt["copied"],

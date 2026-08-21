@@ -33,6 +33,7 @@ public struct NativeShellView: View {
         templateCommandAction: @escaping (NativeCommandRequest) -> Void = { _ in },
         productSurfaceAction: @escaping (ProductSurfaceControl) -> Void = { _ in },
         voiceInputAction: @escaping () -> Void = {},
+        jailedDrop: JailedDropModel = JailedDropModel(),
         makeSessionID: @escaping () -> String = { UUID().uuidString.lowercased() }
     ) {
         self.store = store
@@ -50,7 +51,7 @@ public struct NativeShellView: View {
             makeSessionID: makeSessionID
         ))
         _conversationComposer = StateObject(wrappedValue: ConversationComposerModel())
-        _jailedDrop = StateObject(wrappedValue: JailedDropModel())
+        _jailedDrop = StateObject(wrappedValue: jailedDrop)
         _voiceInput = StateObject(wrappedValue: VoiceInputModel())
         _terminalControls = StateObject(wrappedValue: TerminalControlModel())
         _activityFilter = StateObject(wrappedValue: ActivityFilterModel())
