@@ -7,9 +7,10 @@ from pathlib import Path
 
 import pytest
 
+from birkin import checkpoints
 from birkin.plugin_install import PluginInstaller, Scope
 from birkin.plugin_runtime import load_agent_tools
-from birkin.tool_effects import NATIVE_TOOL_ORIGIN, ToolOrigin
+from birkin.tool_effects import NATIVE_TOOL_ORIGIN, ToolEffect, ToolOrigin
 from birkin.tools import Tool, ToolContext, ToolRegistry, ToolResult
 
 
@@ -119,3 +120,75 @@ def test_plugin_named_read_file_cannot_replace_native_tool(tmp_path: Path) -> No
         assert registry.names() == ["read_file"]
         assert registry.execute("read_file", {}).content == "native"
         assert registry.can_parallelize("read_file") is True
+
+
+def test_two_plugins_with_same_tool_name_are_both_excluded(
+    tmp_path: Path,
+) -> None:
+    project = tmp_path / "project-registry"
+    team = tmp_path / "team-registry"
+    installer = PluginInstaller(project, team)
+    for plugin in ("plugin-alpha", "plugin-beta"):
+        installer.install(
+            _agent_bundle(
+                tmp_path / plugin,
+                plugin=plugin,
+                tool_name="shared_tool",
+            ),
+            Scope.PROJECT,
+            "1.2.3",
+        )
+    plugin_tools = load_agent_tools(project, team)
+    registry = ToolRegistry(ToolContext(cfg={}, client=None, cwd=tmp_path))
+
+    for tool in plugin_tools:
+        registry.register(tool)
+
+    assert registry.names() == []
+    assert registry.specs() == []
+    assert registry.execute("shared_tool", {}).is_error is True
+    assert registry.can_parallelize("shared_tool") is False
+
+
+def test_checkpoint_preflight_receives_captured_origin_and_effect(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    project = tmp_path / "project-registry"
+    team = tmp_path / "team-registry"
+    PluginInstaller(project, team).install(
+        _agent_bundle(tmp_path / "bundle"), Scope.PROJECT, "1.2.3")
+    [tool] = load_agent_tools(project, team)
+    captured: list[tuple[ToolOrigin, ToolEffect]] = []
+
+    def preflight(
+        _ctx: ToolContext,
+        _name: str,
+        _tool_input: dict[str, object],
+        *,
+        origin: ToolOrigin,
+        effect: ToolEffect,
+    ) -> None:
+        captured.append((origin, effect))
+
+    def postflight(
+        _ctx: ToolContext,
+        _name: str,
+        *,
+        failed: bool,
+    ) -> None:
+        assert failed is False
+
+    monkeypatch.setattr(checkpoints, "preflight", preflight)
+    monkeypatch.setattr(checkpoints, "postflight", postflight)
+    context = ToolContext(
+        cfg={}, client=None, cwd=tmp_path, checkpoints=object())
+    registry = ToolRegistry(context)
+    registry.register(tool)
+    trusted_origin = tool.origin
+
+    tool.origin = NATIVE_TOOL_ORIGIN
+    result = registry.execute("plugin_echo", {})
+
+    assert result.content == "plugin"
+    assert captured == [(trusted_origin, ToolEffect.CHANGE)]

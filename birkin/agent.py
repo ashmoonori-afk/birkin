@@ -462,11 +462,22 @@ class Agent:
         Exactly one tool_result per tool_use, always: a missing or duplicated
         one makes the next API call fail outright.
         """
+        refresh = getattr(self.registry, "refresh_effects", None)
+        snapshot = refresh() if callable(refresh) else None
+        if getattr(snapshot, "state", None) == "invalid":
+            diagnostic = str(getattr(snapshot, "diagnostic", "")).strip().rstrip(".")
+            message = "Tool effect file error"
+            if diagnostic:
+                message += f": {diagnostic}"
+            self._emit("warning", {"message": message + "."})
+
+        classify = getattr(self.registry, "can_parallelize", None)
+        can_parallelize = classify if callable(classify) else lambda _name: False
         if not self.parallel_tools or len(tool_uses) < 2:
             return [self._execute_with_events(tu) for tu in tool_uses]
 
         results: list[dict[str, Any]] = []
-        for kind, calls in parallel.plan_segments(tool_uses):
+        for kind, calls in parallel.plan_segments(tool_uses, can_parallelize):
             if kind == "parallel":
                 results.extend(self._run_parallel(calls, abort))
             else:
