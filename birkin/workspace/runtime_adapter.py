@@ -160,6 +160,7 @@ class RuntimeWorkspaceAdapter:
         if event == "computer_use":
             self._computer_event(payload)
             return
+        is_error = bool(payload.get("is_error", False))
         event_type = {
             "tool_start": "tool.started",
             "tool_end": "tool.completed",
@@ -168,13 +169,12 @@ class RuntimeWorkspaceAdapter:
             "compact": "progress.updated",
             "steer": "progress.updated",
         }.get(event, "progress.updated")
+        if event == "tool_end" and is_error:
+            event_type = "tool.failed"
         safe: dict[str, object] = {
             "runtime_event": event,
             "summary": str(payload.get("name") or payload.get("summary") or "")[:300],
-            "state": uistate.from_runtime(
-                event,
-                is_error=bool(payload.get("is_error", False)),
-            ).state,
+            "state": uistate.from_runtime(event, is_error=is_error).state,
         }
         _ = self._emit(event_type, safe)
 

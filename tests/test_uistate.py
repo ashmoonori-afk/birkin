@@ -245,6 +245,21 @@ def test_from_runtime_tool_end_error_is_failed() -> None:
 
 
 @pytest.mark.parametrize(
+    ("event", "expected"),
+    [
+        ("tool_start", "running"),
+        ("tool_end", "completed"),
+        ("subagent.start", "running"),
+        ("subagent.done", "completed"),
+        ("compact", "running"),
+        ("steer", "running"),
+    ],
+)
+def test_from_runtime_non_error_mapping_is_exact(event: str, expected: str) -> None:
+    assert uistate.from_runtime(event).state == expected
+
+
+@pytest.mark.parametrize(
     ("event", "is_error"),
     [
         (event, is_error)

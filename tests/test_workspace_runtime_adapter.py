@@ -92,7 +92,7 @@ def test_tool_end_error_distinguishable_from_success() -> None:
 
     assert [event_type for event_type, _payload in emitted] == [
         "tool.completed",
-        "tool.completed",
+        "tool.failed",
     ]
     assert emitted[0][1]["state"] == "completed"
     assert emitted[1][1]["state"] == "failed"
@@ -107,7 +107,7 @@ def test_aborted_tool_maps_failed() -> None:
         {"content": "aborted", "is_error": True},
     )
 
-    assert emitted[0][0] == "tool.completed"
+    assert emitted[0][0] == "tool.failed"
     assert emitted[0][1]["state"] == "failed"
 
 
@@ -131,10 +131,42 @@ def test_all_emitted_states_in_uistate_vocabulary() -> None:
         assert payload["state"] in uistate.UI_STATES
 
 
+@pytest.mark.parametrize(
+    ("payload", "expected_event_type", "expected_state"),
+    [
+        ({}, "tool.completed", "completed"),
+        ({"is_error": None}, "tool.completed", "completed"),
+        ({"is_error": 0}, "tool.completed", "completed"),
+        ({"is_error": ""}, "tool.completed", "completed"),
+        ({"is_error": False}, "tool.completed", "completed"),
+        ({"is_error": True}, "tool.failed", "failed"),
+        ({"is_error": 1}, "tool.failed", "failed"),
+        ({"is_error": "false"}, "tool.failed", "failed"),
+        ({"is_error": ["error"]}, "tool.failed", "failed"),
+    ],
+)
+def test_tool_end_is_error_uses_truthiness(
+    payload: dict[str, object],
+    expected_event_type: str,
+    expected_state: str,
+) -> None:
+    adapter, emitted = _runtime_adapter()
+
+    adapter._runtime_event("tool_end", payload)
+
+    assert emitted[0][0] == expected_event_type
+    assert emitted[0][1]["state"] == expected_state
+
+
 def test_event_type_table_pin() -> None:
+    """Reverse the earlier pin after tool.failed consumer support was verified.
+
+    Support exists in snapshot.py, workspace_terminal.py, and index.html.
+    """
     adapter, emitted = _runtime_adapter()
     runtime_events = (
         ("tool_start", {}),
+        ("tool_end", {}),
         ("tool_end", {"is_error": True}),
         ("subagent.start", {}),
         ("subagent.done", {}),
@@ -149,6 +181,7 @@ def test_event_type_table_pin() -> None:
     assert [event_type for event_type, _payload in emitted] == [
         "tool.started",
         "tool.completed",
+        "tool.failed",
         "task.updated",
         "task.updated",
         "progress.updated",
