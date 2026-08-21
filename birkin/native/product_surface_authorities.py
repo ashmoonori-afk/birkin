@@ -13,7 +13,7 @@ from birkin.computer_use.doctor import doctor_report
 from birkin.office.errors import DocumentError
 from birkin.office.service import DocumentService
 
-# Keep each Office history tail small enough for the 262,144-byte native frame.
+# Retain at most eight verified Office records per 262,144-byte native frame.
 MAX_OFFICE_SNAPSHOT_ITEMS: Final = 8
 
 
@@ -201,7 +201,7 @@ class OfficeSurfaceAuthority:
     def __init__(self, service: DocumentService) -> None:
         self.service = service
         self._documents: dict[str, dict[str, object]] = {}
-        self._receipts: list[dict[str, object]] = []
+        self._receipts: list[Mapping[str, object]] = []
         self._refusal: dict[str, object] | None = None
 
     def snapshot(self) -> dict[str, object]:
@@ -244,14 +244,22 @@ class OfficeSurfaceAuthority:
                 "message": "Document path is outside the Office jail or changed.",
             }
             raise
-        artifact_id = artifact.get("artifact_id")
-        if isinstance(artifact_id, str):
-            if artifact_id not in self._documents and len(self._documents) == MAX_OFFICE_SNAPSHOT_ITEMS:
-                del self._documents[next(iter(self._documents))]
-            self._documents[artifact_id] = dict(artifact)
+        source = cast(dict[str, object], inspection["source"])
+        metadata = cast(dict[str, object], inspection["metadata"])
+        content_hash = cast(str, source["sha256"])
+        if content_hash not in self._documents and len(self._documents) == MAX_OFFICE_SNAPSHOT_ITEMS:
+            del self._documents[next(iter(self._documents))]
+        self._documents[content_hash] = {
+            "artifact_id": content_hash,
+            "content_hash": content_hash,
+            "media_type": metadata["media_type"],
+            "uri": artifact["uri"],
+            "sensitivity": "unknown",
+            "acl_fingerprint": "",
+        }
         receipt = {
             "operation": "document_open",
-            "source_sha256": artifact.get("content_hash"),
+            "source_sha256": content_hash,
         }
         self._receipts.append(receipt)
         if len(self._receipts) > MAX_OFFICE_SNAPSHOT_ITEMS:
