@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import errno
 import hashlib
+import os
 import socket
 from pathlib import Path
 from typing import cast
@@ -8,7 +10,7 @@ from typing import cast
 import pytest
 
 from birkin.native.capability import BootstrapSecretStore
-from birkin.native.jailed_import import JailedImportAuthority
+from birkin.native.jailed_import import MAX_IMPORT_BYTES, JailedImportAuthority
 from birkin.native.protocol import encode_frame
 from birkin.native.server import NativeBridgeServer
 from birkin.native.transport import receive_frame
@@ -47,6 +49,64 @@ def test_import_copies_external_file_and_returns_only_canonical_jail_identity(
     assert "source_path" not in encoded
     assert receipt["operation"] == "file.import"
     assert receipt["copied"] is True
+
+
+def test_import_refuses_regular_file_exceeding_canonical_byte_limit(
+    tmp_path: Path,
+) -> None:
+    source = tmp_path / "outside" / "oversized.bin"
+    _ = source.parent.mkdir()
+    with source.open("wb") as stream:
+        _ = stream.truncate(MAX_IMPORT_BYTES + 1)
+    authority = JailedImportAuthority(tmp_path / "jail")
+
+    with pytest.raises(ProtocolError, match="exceeds byte limit"):
+        _ = authority.import_file({"source_path": str(source)})
+
+    assert list(authority.jail.iterdir()) == []
+
+
+def test_import_removes_partial_destination_when_storage_write_fails(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    source = tmp_path / "outside" / "write-error.bin"
+    _ = source.parent.mkdir()
+    _ = source.write_bytes(b"partial destination")
+    authority = JailedImportAuthority(tmp_path / "jail")
+    original_write = os.write
+    write_attempts = 0
+
+    def write_partial_chunk_then_fail(fd: int, data: memoryview) -> int:
+        nonlocal write_attempts
+        write_attempts += 1
+        if write_attempts == 1:
+            return original_write(fd, data[:1])
+        raise OSError(errno.ENOSPC, "No space left on device")
+
+    monkeypatch.setattr(os, "write", write_partial_chunk_then_fail)
+
+    with pytest.raises(OSError, match="No space left on device"):
+        _ = authority.import_file({"source_path": str(source)})
+
+    assert list(authority.jail.iterdir()) == []
+
+
+def test_import_accepts_regular_file_at_canonical_byte_limit(tmp_path: Path) -> None:
+    source = tmp_path / "outside" / "exact-limit.bin"
+    _ = source.parent.mkdir()
+    with source.open("wb") as stream:
+        _ = stream.truncate(MAX_IMPORT_BYTES)
+    authority = JailedImportAuthority(tmp_path / "jail")
+
+    result = authority.import_file({"source_path": str(source)})
+
+    reference = result["reference"]
+    receipt = result["receipt"]
+    assert isinstance(reference, dict)
+    assert isinstance(receipt, dict)
+    assert reference["byte_count"] == MAX_IMPORT_BYTES
+    assert receipt["byte_count"] == MAX_IMPORT_BYTES
 
 
 def test_import_refuses_direct_destination_and_non_file_sources(tmp_path: Path) -> None:
