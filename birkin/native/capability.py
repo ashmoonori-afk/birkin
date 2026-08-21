@@ -116,7 +116,9 @@ class BootstrapSecretStore:
                     "E_BOOTSTRAP_EXPIRED",
                     "loopback bootstrap secret expired",
                 )
-            if not secrets.compare_digest(secret, record.secret):
+            if not secret.isascii() or not secrets.compare_digest(
+                secret, record.secret
+            ):
                 raise NativeProtocolError(
                     "E_BOOTSTRAP_INVALID",
                     "loopback bootstrap secret is invalid",
@@ -253,6 +255,8 @@ class BootstrapSecretStore:
         token: str,
         capabilities: dict[str, SessionCapability],
     ) -> str | None:
+        if not token.isascii():
+            return None
         return next(
             (
                 known
