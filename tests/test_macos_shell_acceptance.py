@@ -182,7 +182,14 @@ def test_timeout_kills_background_descendant_after_shell_exits(
     assert _process_running(child_pid) is False
 
 
-def test_interrupt_kills_real_shell_process_group(tmp_path: Path) -> None:
+def _write_interrupt_driver(tmp_path: Path) -> tuple[Path, Path]:
+    """Write a driver that interrupts its own managed shell.
+
+    The driver installs Python's default SIGINT handler before running. A
+    process launched in the background inherits SIGINT as ignored, and CPython
+    keeps that inherited ignore, so without this the driver would assert on its
+    launcher's signal disposition instead of on the shell contract.
+    """
     pid_file = tmp_path / "interrupt-child.pid"
     shell_command = (
         f"{_command([sys.executable, '-c', 'import time; time.sleep(30)'])} & "
@@ -192,8 +199,10 @@ def test_interrupt_kills_real_shell_process_group(tmp_path: Path) -> None:
     )
     driver = tmp_path / "interrupt-driver.py"
     _ = driver.write_text(
-        "from birkin.proc import ShellCommand, run_shell_command, shell_env\n"
+        "import signal\n"
+        + "from birkin.proc import ShellCommand, run_shell_command, shell_env\n"
         + "from pathlib import Path\n"
+        + "signal.signal(signal.SIGINT, signal.default_int_handler)\n"
         + "try:\n"
         + "    run_shell_command(ShellCommand(\n"
         + f"        command={shell_command!r},\n"
@@ -207,9 +216,41 @@ def test_interrupt_kills_real_shell_process_group(tmp_path: Path) -> None:
         + "    raise SystemExit('expected KeyboardInterrupt')\n",
         encoding="utf-8",
     )
+    return driver, pid_file
+
+
+def test_interrupt_kills_real_shell_process_group(tmp_path: Path) -> None:
+    driver, pid_file = _write_interrupt_driver(tmp_path)
 
     result = subprocess.run(
         [sys.executable, str(driver)],
+        capture_output=True,
+        text=True,
+        timeout=60,
+        check=False,
+    )
+    child_pid = int(pid_file.read_text(encoding="utf-8"))
+
+    assert result.returncode == 0, result.stderr
+    assert "interrupt-cleaned" in result.stdout
+    assert _process_running(child_pid) is False
+
+
+def test_interrupt_cleanup_survives_a_launcher_that_ignores_sigint(
+    tmp_path: Path,
+) -> None:
+    """Given a launcher that ignores SIGINT, as every background shell job does,
+    When the managed shell is interrupted, Then the process group is still
+    killed and the interrupt is still observed."""
+    driver, pid_file = _write_interrupt_driver(tmp_path)
+    launcher = (
+        "import os, signal, sys\n"
+        "signal.signal(signal.SIGINT, signal.SIG_IGN)\n"
+        f"os.execv({sys.executable!r}, [{sys.executable!r}, {str(driver)!r}])\n"
+    )
+
+    result = subprocess.run(
+        [sys.executable, "-c", launcher],
         capture_output=True,
         text=True,
         timeout=60,
