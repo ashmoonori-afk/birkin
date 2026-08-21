@@ -33,7 +33,7 @@ from pathlib import Path
 evidence = Path(sys.argv[1])
 receipts = json.loads((evidence / "packaged-journey-receipts.json").read_text())
 required = {
-    "connected", "chat-send-stream", "terminal-create-lease",
+    "connected", "session-create", "chat-send-stream", "terminal-create-lease",
     "terminal-input-output", "activity-receipts", "browser-navigate-live",
     "office-create-live", "office-open-live", "computer-use-status",
     "jailed-import-chip", "owned-bridge-restart-replay", "post-reconnect-command",
@@ -47,8 +47,6 @@ if failed:
     raise SystemExit(f"failed journey steps: {failed}")
 if not any(name in names for name in ("working-memory-clear", "working-memory-gated")):
     raise SystemExit("no Working Memory step was recorded")
-if not any(name in names for name in ("session-create", "session-select")):
-    raise SystemExit("no session step was recorded")
 digests = {}
 for step in receipts["steps"]:
     shot = step["screenshot"]

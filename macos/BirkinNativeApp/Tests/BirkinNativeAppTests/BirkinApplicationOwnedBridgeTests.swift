@@ -4,6 +4,7 @@ import Testing
 
 @testable import BirkinNativeApp
 import BirkinNativeProtocol
+import BirkinNativeShell
 
 @Suite("Packaged application owned bridge", .serialized)
 struct BirkinApplicationOwnedBridgeTests {
@@ -61,6 +62,59 @@ struct BirkinApplicationOwnedBridgeTests {
                 try await Task.sleep(for: .milliseconds(20))
             }
         }
+    }
+
+    @MainActor
+    @Test("New Session creates the advertised canonical Python session")
+    func createsCanonicalSession() async throws {
+        let root = URL(fileURLWithPath: "/private/tmp/bk-session-\(UUID().uuidString)")
+        let events = RuntimeEventRecorder()
+        let runtime = BirkinApplicationRuntime(
+            socketPath: nil,
+            ownedBridge: Self.configuration(root: root),
+            emit: { events.record($0) }
+        )
+        defer {
+            runtime.stop()
+            try? FileManager.default.removeItem(at: root)
+        }
+
+        try await withTimeout("owned bridge start", seconds: 60) { await runtime.start() }
+        let session: NativeReadySession? = switch runtime.connectionState {
+        case .ready(let value), .fallback(.ready(let value)): value
+        default: nil
+        }
+        let ready = try #require(session)
+        #expect(ready.supportedCommands.contains("session.create"))
+        let request = runtime.command(for: .newSession, session: ready)
+        guard case .string(let createdSessionID) = request.payload["session_id"] else {
+            Issue.record("session.create did not carry a session_id")
+            return
+        }
+
+        runtime.submit(request)
+        try await withTimeout("session create receipt") {
+            try await events.wait(for: "command-receipt id=\(request.frameID)")
+        }
+        try await withTimeout("session created event") {
+            try await events.wait(for: "projection-event type=session.created")
+        }
+        #expect(events.contains(
+            "projection-event type=session.created command_id=\(request.commandID) "
+                + "subject_session_id=\(createdSessionID)"
+        ))
+        try await withTimeout("session create outcome") {
+            try await events.wait(
+                for: "projection-event type=command.completed command_id=\(request.commandID)"
+            )
+        }
+
+        var isDirectory: ObjCBool = false
+        let createdPath = root.appendingPathComponent("workspace/\(createdSessionID)").path
+        #expect(FileManager.default.fileExists(
+            atPath: createdPath, isDirectory: &isDirectory
+        ))
+        #expect(isDirectory.boolValue)
     }
 
     @MainActor

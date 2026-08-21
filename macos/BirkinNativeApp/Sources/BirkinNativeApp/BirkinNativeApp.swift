@@ -387,9 +387,16 @@ public final class BirkinApplicationRuntime: ObservableObject {
             } else {
                 commandCorrelation = ""
             }
+            let subjectCorrelation: String
+            if case .object(let payload) = message.body["payload"],
+               case .string(let subjectSessionID) = payload["session_id"] {
+                subjectCorrelation = " subject_session_id=\(subjectSessionID)"
+            } else {
+                subjectCorrelation = ""
+            }
             emit(
-                "projection-event type=\(eventType)\(commandCorrelation) "
-                    + "cursor=\(store.latestAppliedCursor ?? -1)"
+                "projection-event type=\(eventType)\(commandCorrelation)"
+                    + "\(subjectCorrelation) cursor=\(store.latestAppliedCursor ?? -1)"
             )
         case .snapshot:
             try store.apply(snapshot: message)
