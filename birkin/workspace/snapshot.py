@@ -199,15 +199,19 @@ def reduce_snapshot(
 
         text = event.payload.get("text")
         if event.type == "message.user" and isinstance(text, str):
-            conversation.append(
-                {
-                    "id": event.event_id,
-                    "kind": "user_message",
-                    "text": text,
-                    "actor_id": event.actor_id,
-                    "cursor": event.cursor,
-                }
-            )
+            message: dict[str, object] = {
+                "id": event.event_id,
+                "kind": "user_message",
+                "text": text,
+                "actor_id": event.actor_id,
+                "cursor": event.cursor,
+            }
+            attachments = event.payload.get("attachments")
+            if isinstance(attachments, list):
+                message["attachments"] = [
+                    dict(item) for item in attachments if isinstance(item, dict)
+                ]
+            conversation.append(message)
         elif event.type == "message.assistant.delta" and isinstance(text, str):
             if conversation and conversation[-1].get("kind") == "assistant_stream":
                 conversation[-1]["text"] = str(conversation[-1]["text"]) + text

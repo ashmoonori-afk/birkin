@@ -45,6 +45,11 @@ struct DesktopDropTests {
         #expect(model.reference?.importID == "import-1")
         #expect(model.reference?.composerToken == "[[workspace-import:import-1]]")
         #expect(model.reference?.composerToken.contains("/Users/example") == false)
+        model.refuse(reason: "send refused")
+        #expect(model.reference?.importID == "import-1")
+        model.clearAfterAcceptedSend(importIDs: ["import-1"])
+        #expect(model.reference == nil)
+        #expect(model.state == .idle)
     }
 
     @Test("imported reference chip renders screenshot evidence")

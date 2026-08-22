@@ -6,6 +6,37 @@ import XCTest
 
 @MainActor
 final class NativeProductSurfaceViewTests: XCTestCase {
+    func testGrantAndOfficeFactoriesCarryCurrentWorkflowIdentity() throws {
+        let store = NativeProjectionStore()
+        try store.apply(surface: envelope("computer_use", payload: [
+            "status": .object(["permission_prompted": .bool(false)]),
+            "consent": .object([
+                "grant_id": .string("cu_grant_fixture_123456"),
+                "state": .string("proposed"), "one_shot": .bool(true),
+                "application_ref": .string("app:fixture"), "window_ref": .string("window:fixture"),
+            ]),
+            "receipts": .array([]),
+        ]))
+        let session = NativeReadySession(
+            instanceID: "instance-1", serverVersion: "1.0.0", currentSessionID: "session-1",
+            sessionCapability: "capability", supportedCommands: []
+        )
+        let consent = try XCTUnwrap(ComputerUsePresentation(store: store))
+        let answer = try XCTUnwrap(ComputerUseCommandFactory.answer(
+            decision: "approve", presentation: consent, store: store, session: session
+        ))
+        XCTAssertEqual(answer.commandType, "computer.answer")
+        XCTAssertEqual(answer.payload["grant_id"], .string("cu_grant_fixture_123456"))
+
+        let form = OfficeFormState(
+            format: "docx", outputName: "notes.docx",
+            content: ["paragraphs": .array([.string("Notes")])]
+        )
+        let create = try XCTUnwrap(OfficeCommandFactory.create(form: form, store: store, session: session))
+        XCTAssertEqual(create.commandType, "office.create")
+        XCTAssertEqual(create.payload["output_name"], .string("notes.docx"))
+    }
+
     func testBrowserToolbarStatusAndFrameRenderAgainstRealLocalPage() throws {
         let page = try LocalPage()
         defer { page.close() }
@@ -17,12 +48,24 @@ final class NativeProductSurfaceViewTests: XCTestCase {
             "profile": .object(["kind": .string("private_workspace"), "generation": .int(4)]),
             "runtime": .object(["live": .bool(true)]),
             "control": .object(["owner_kind": .string("human"), "epoch": .int(1), "expires_at": .string("2026-08-20T12:01:00+00:00")]),
-            "navigation": .object(["display_url": .string(page.url.absoluteString)]),
-            "frame": .object(["ref": .string("frame:4:1"), "revision": .int(1)]),
+            "navigation": .object([
+                "display_url": .string(page.url.absoluteString), "loading": .bool(false),
+                "history": .object([
+                    "can_go_back": .bool(true), "can_go_forward": .bool(false),
+                    "entries": .array([.string(page.url.absoluteString)]), "index": .int(0),
+                ]),
+            ]),
+            "frame": .object([
+                "ref": .string("frame:4:1"), "revision": .int(1),
+                "digest": .string("hmac-sha256:local-page"),
+                "media_type": .string("image/png"), "max_bytes": .int(8388608),
+            ]),
             "refusal": .null,
         ]))
         let presentation = try XCTUnwrap(BrowserAsidePresentation(store: store))
-        let view = BrowserAsideView(presentation: presentation, navigate: { _ in })
+        let view = BrowserAsideView(
+            presentation: presentation, navigate: { _ in }, back: {}, forward: {}, reload: {}, close: {}
+        )
             .frame(width: 620, height: 260).padding().background(Color(nsColor: .windowBackgroundColor))
         try snapshot(view, named: "browser-aside-local-page.png")
     }
@@ -31,22 +74,40 @@ final class NativeProductSurfaceViewTests: XCTestCase {
         let store = NativeProjectionStore()
         try store.apply(surface: envelope("office", payload: [
             "inventory": .array([.object(["format": .string("docx")]), .object(["format": .string("pdf")])]),
-            "documents": .array([.object(["artifact_id": .string("document:phase10")])]),
+            "form": .object([
+                "format": .string("docx"), "output_name": .string("phase10.docx"),
+                "content": .object(["paragraphs": .array([.string("Phase 10")])]),
+            ]),
+            "selected_artifact_id": .string("document:phase10"),
+            "documents": .array([.object([
+                "artifact_id": .string("document:phase10"),
+                "active_content": .array([]),
+                "provenance": .object(["content_hash": .string("sha256:phase10")]),
+            ])]),
             "receipts": .array([.object(["operation": .string("document_create")]), .object(["operation": .string("document_open")])]),
             "refusal": .object(["code": .string("path_refused")]),
         ]))
         let presentation = try XCTUnwrap(OfficePresentation(store: store))
         let view = OfficeView(
-            presentation: presentation, canCreate: true, canOpen: true
-        ).frame(width: 620, height: 220).padding().background(Color(nsColor: .windowBackgroundColor))
+            presentation: presentation, canCreate: true, canOpen: true,
+            createForm: { _ in }, open: {}, select: { _ in }
+        ).frame(width: 620, height: 260).padding().background(Color(nsColor: .windowBackgroundColor))
         try snapshot(view, named: "office-new-open-refusal.png")
     }
 
     func testConsentCountdownActionsProduceEvidence() throws {
         let store = NativeProjectionStore()
         try store.apply(surface: envelope("computer_use", payload: [
-            "status": .object(["permission_prompted": .bool(false)]),
+            "status": .object([
+                "permission_prompted": .bool(false),
+                "permissions": .object([
+                    "accessibility": .string("granted"), "screen_capture": .string("denied"),
+                ]),
+                "backend": .object(["state": .string("available")]),
+                "binding": .object(["state": .string("bound")]),
+            ]),
             "consent": .object([
+                "grant_id": .string("cu_grant_fixture_123456"),
                 "state": .string("proposed"), "one_shot": .bool(true),
                 "application_ref": .string("app:fixture"), "window_ref": .string("window:fixture"),
                 "expires_at": .string("2026-08-20T12:01:00Z"),
@@ -62,6 +123,8 @@ final class NativeProductSurfaceViewTests: XCTestCase {
             reject: { actions.append("reject") }
         )
         XCTAssertEqual(presentation.countdownText, "18s")
+        XCTAssertEqual(presentation.grantID, "cu_grant_fixture_123456")
+        XCTAssertEqual(presentation.screenRecordingStatus, "denied")
         view.approve()
         view.reject()
         actions.append("countdown=18s")

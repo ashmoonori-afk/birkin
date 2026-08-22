@@ -22,13 +22,31 @@ final class NativeProductSurfaceTests: XCTestCase {
             "profile": .object(["kind": .string("private_workspace"), "generation": .int(7)]),
             "runtime": .object(["live": .bool(true)]),
             "control": .object(["owner_kind": .string("human"), "epoch": .int(2), "expires_at": .string("2026-08-20T12:01:00+00:00")]),
-            "navigation": .object(["display_url": .string("http://127.0.0.1:8123/")]),
-            "frame": .object(["ref": .string("frame:7:2"), "revision": .int(2)]),
+            "navigation": .object([
+                "display_url": .string("http://127.0.0.1:8123/"), "loading": .bool(false),
+                "history": .object([
+                    "can_go_back": .bool(true), "can_go_forward": .bool(false),
+                    "entries": .array([.string("http://127.0.0.1:8123/")]), "index": .int(0),
+                ]),
+            ]),
+            "frame": .object([
+                "ref": .string("frame:7:2"), "revision": .int(2),
+                "digest": .string("hmac-sha256:frame"), "media_type": .string("image/png"),
+                "max_bytes": .int(8388608),
+            ]),
             "refusal": .null,
         ]))
         try store.apply(surface: surface("computer_use", revision: 1, payload: [
-            "status": .object(["permission_prompted": .bool(false)]),
+            "status": .object([
+                "permission_prompted": .bool(false),
+                "permissions": .object([
+                    "accessibility": .string("granted"), "screen_capture": .string("granted"),
+                ]),
+                "backend": .object(["state": .string("available")]),
+                "binding": .object(["state": .string("bound")]),
+            ]),
             "consent": .object([
+                "grant_id": .string("cu_grant_fixture_123456"),
                 "state": .string("approved"), "one_shot": .bool(true),
                 "expires_at": .string("2026-08-20T12:01:00+00:00"),
                 "application_ref": .string("app:7"), "window_ref": .string("window:9"),
@@ -37,15 +55,31 @@ final class NativeProductSurfaceTests: XCTestCase {
         ]))
         try store.apply(surface: surface("office", revision: 1, payload: [
             "inventory": .array([.object(["format": .string("docx")])]),
+            "form": .object([
+                "format": .string("docx"), "output_name": .string("notes.docx"),
+                "content": .object(["paragraphs": .array([.string("Notes")])]),
+            ]),
+            "selected_artifact_id": .string("artifact:1"),
             "documents": .array([]), "receipts": .array([]), "refusal": .null,
         ]))
 
         XCTAssertEqual(BrowserAsidePresentation(store: store)?.profileGeneration, 7)
-        XCTAssertEqual(BrowserAsidePresentation(store: store)?.frameRevision, 2)
+        let browser = BrowserAsidePresentation(store: store)
+        XCTAssertEqual(browser?.frameRevision, 2)
+        XCTAssertEqual(browser?.frameDigest, "hmac-sha256:frame")
+        XCTAssertEqual(browser?.canGoBack, true)
+        XCTAssertEqual(browser?.isLoading, false)
         let consent = ComputerUsePresentation(store: store, now: date("2026-08-20T12:00:42+00:00"))
         XCTAssertEqual(consent?.countdownText, "18s")
         XCTAssertEqual(consent?.applicationRef, "app:7")
-        XCTAssertEqual(OfficePresentation(store: store)?.formats, ["docx"])
+        XCTAssertEqual(consent?.grantID, "cu_grant_fixture_123456")
+        XCTAssertEqual(consent?.accessibilityStatus, "granted")
+        XCTAssertEqual(consent?.screenRecordingStatus, "granted")
+        XCTAssertEqual(consent?.backendStatus, "available")
+        let office = OfficePresentation(store: store)
+        XCTAssertEqual(office?.formats, ["docx"])
+        XCTAssertEqual(office?.form.outputName, "notes.docx")
+        XCTAssertEqual(office?.selectedArtifactID, "artifact:1")
     }
 
     private func surface(

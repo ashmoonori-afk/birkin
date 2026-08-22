@@ -167,6 +167,72 @@ def test_runtime_adapter_advertises_and_executes_jailed_file_import(
     assert imported.read_text(encoding="utf-8") == "drop through production adapter"
 
 
+def test_chat_send_accepts_only_unchanged_imports_from_its_session(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    runtime = _RuntimeSession()
+    runtime.ask_count = 1
+
+    def build(
+        _cfg: dict[str, object],
+        on_event: Callable[[str, dict[str, object]], None] | None = None,
+    ) -> Session:
+        del on_event
+        return cast(Session, cast(object, runtime))
+
+    monkeypatch.setattr("birkin.workspace.runtime_adapter.build_session", build)
+    workspace = tmp_path / "workspace"
+    source = tmp_path / "attachment.txt"
+    source.write_text("trusted attachment", encoding="utf-8")
+    adapter = RuntimeWorkspaceAdapter("attachment-session", _event, workspace_root=workspace)
+    imported = adapter.handlers()["file.import"]({"source_path": str(source)})
+    reference = cast(dict[str, object], imported["reference"])
+
+    result = adapter.handlers()["chat.send"]({
+        "text": "inspect this",
+        "attachments": [reference],
+    })
+
+    assert result["attachments"] == [reference]
+    assert "attachment.txt" in cast(str, result["reply"])
+
+    jailed = workspace / "imports" / str(reference["jail_name"])
+    jailed.write_text("changed", encoding="utf-8")
+    with pytest.raises(ValueError, match="changed"):
+        adapter.handlers()["chat.send"]({
+            "text": "inspect this",
+            "attachments": [reference],
+        })
+    jailed.unlink()
+    with pytest.raises(ValueError, match="deleted"):
+        adapter.handlers()["chat.send"]({
+            "text": "inspect this",
+            "attachments": [reference],
+        })
+
+
+def test_chat_send_rejects_unknown_and_cross_session_imports(tmp_path: Path) -> None:
+    source = tmp_path / "attachment.txt"
+    source.write_text("trusted attachment", encoding="utf-8")
+    first = RuntimeWorkspaceAdapter(
+        "first-session", _event, workspace_root=tmp_path / "workspace"
+    )
+    second = RuntimeWorkspaceAdapter(
+        "second-session", _event, workspace_root=tmp_path / "workspace"
+    )
+    imported = first.handlers()["file.import"]({"source_path": str(source)})
+    reference = cast(dict[str, object], imported["reference"])
+
+    with pytest.raises(ValueError, match="unknown.*session"):
+        second.handlers()["chat.send"]({"text": "inspect", "attachments": [reference]})
+
+    unknown = dict(reference)
+    unknown["import_id"] = "import-00000000000000000000000000000000"
+    with pytest.raises(ValueError, match="unknown.*session"):
+        first.handlers()["chat.send"]({"text": "inspect", "attachments": [unknown]})
+
+
 def test_steer_delegates_to_runtime_and_emits_canonical_event(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -210,7 +276,13 @@ def test_turn_controls_mutate_the_active_runtime_without_waiting_for_ask(
         return cast(Session, cast(object, runtime))
 
     monkeypatch.setattr("birkin.workspace.runtime_adapter.build_session", build)
-    adapter = RuntimeWorkspaceAdapter("control-session", _event)
+    emitted: list[tuple[str, dict[str, object]]] = []
+
+    def emit(event_type: str, payload: dict[str, object]) -> WorkspaceEvent:
+        emitted.append((event_type, payload))
+        return _event(event_type, payload)
+
+    adapter = RuntimeWorkspaceAdapter("control-session", emit)
     handlers = adapter.handlers()
     errors: list[BaseException] = []
 
@@ -235,6 +307,14 @@ def test_turn_controls_mutate_the_active_runtime_without_waiting_for_ask(
         thread.join(timeout=2)
     assert not thread.is_alive()
     assert errors == []
+    assert (
+        "progress.updated",
+        {
+            "summary": "Turn interrupted.",
+            "status": "interrupted",
+            "ui_state": "paused",
+        },
+    ) in emitted
 
 
 def test_retry_replays_failed_text_as_a_new_handler_invocation(
@@ -267,6 +347,16 @@ def test_retry_replays_failed_text_as_a_new_handler_invocation(
     assert result == {"reply": "retried: original intent"}
     assert emitted == [
         ("message.user", {"text": "original intent"}),
+        (
+            "progress.updated",
+            {
+                "summary": "Assistant response failed.",
+                "status": "failed",
+                "ui_state": "failed",
+                "refusal_code": "E_RUNTIME",
+                "retryable": True,
+            },
+        ),
         ("message.user", {"text": "original intent"}),
         ("message.assistant.completed", {"text": "retried: original intent"}),
     ]

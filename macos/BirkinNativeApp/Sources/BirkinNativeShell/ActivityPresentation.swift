@@ -1,23 +1,104 @@
 import BirkinNativeProtocol
 import SwiftUI
 
+public enum ActivityKind: Equatable, Sendable {
+    case tool
+    case receipt
+    case failure
+    case integrityWarning
+    case other
+}
+
+public enum ActivityState: Equatable, Sendable {
+    case running
+    case succeeded
+    case failed
+    case actionNeeded
+    case pending
+}
+
+public struct ActivityDetail: Equatable, Sendable, Identifiable {
+    public let label: String
+    public let value: String
+    public var id: String { label }
+}
+
+public struct ActivityPresentation: Equatable, Sendable, Identifiable {
+    public let id: String
+    public let kind: ActivityKind
+    public let state: ActivityState
+    public let summary: String
+    public let details: [ActivityDetail]
+    public let receiptReference: String?
+    public let failure: CanonicalFailurePresentation?
+
+    public var isExpandable: Bool { !details.isEmpty || failure != nil }
+
+    public init?(_ raw: NativeJSONObject) {
+        guard let id = raw.string("id"), let rawKind = raw.string("kind") else { return nil }
+        let uiState = raw.string("ui_state") ?? "pending"
+        self.id = id
+        summary = raw.string("summary") ?? rawKind
+        state = switch uiState {
+        case "running": .running
+        case "succeeded", "completed": .succeeded
+        case "failed": .failed
+        case "action_needed": .actionNeeded
+        default: .pending
+        }
+        if rawKind == "receipt" {
+            kind = .receipt
+        } else if rawKind == "integrity_warning" {
+            kind = .integrityWarning
+        } else if rawKind == "failure" || uiState == "failed" {
+            kind = .failure
+        } else if rawKind == "activity" || raw.string("status") == "started" {
+            kind = .tool
+        } else {
+            kind = .other
+        }
+        receiptReference = raw.string("receipt_ref")
+        failure = kind == .failure ? CanonicalFailurePresentation(
+            code: raw.string("code") ?? raw.string("refusal_code"),
+            message: String((raw.string("message") ?? summary).prefix(300)),
+            retryable: raw.bool("retryable") ?? false
+        ) : nil
+        details = Self.detailFields.compactMap { key, label in
+            raw.string(key).map { ActivityDetail(label: label, value: $0) }
+        }
+    }
+
+    private static let detailFields: [(String, String)] = [
+        ("target", "Target"), ("status", "Status"),
+        ("effect", "Effect"), ("receipt_ref", "Receipt"),
+        ("snapshot_ref", "Snapshot"), ("refusal_code", "Refusal"),
+    ]
+}
+
 @MainActor
 public final class ActivityFilterModel: ObservableObject {
     @Published public var hideRead = false
     @Published public private(set) var readIDs: Set<String> = []
+    @Published public private(set) var expandedIDs: Set<String> = []
 
     public init() {}
 
-    public func markRead(_ id: String) {
-        readIDs.insert(id)
+    public func markRead(_ id: String) { readIDs.insert(id) }
+
+    public func toggleExpanded(_ id: String) {
+        if !expandedIDs.insert(id).inserted { expandedIDs.remove(id) }
     }
 
     public func visible(_ items: [NativeJSONObject]) -> [NativeJSONObject] {
         guard hideRead else { return items }
         return items.filter { item in
-            guard case .string(let id) = item["id"] else { return true }
+            guard let id = item.string("id") else { return true }
             return !readIDs.contains(id)
         }
+    }
+
+    public func presentations(_ items: [NativeJSONObject]) -> [ActivityPresentation] {
+        visible(items).compactMap(ActivityPresentation.init)
     }
 }
 
@@ -35,24 +116,59 @@ public struct ActivityListView: View {
             Toggle("Hide read", isOn: $filter.hideRead)
                 .accessibilityLabel("Hide read activity")
                 .accessibilityHint("Filters this view only and is not saved")
-            ForEach(Array(filter.visible(items).enumerated()), id: \.offset) { _, item in
-                Button {
-                    if case .string(let id) = item["id"] { filter.markRead(id) }
-                } label: {
-                    HStack {
-                        if case .string(let kind) = item["kind"], kind == "integrity_warning" {
-                            Image(systemName: "exclamationmark.shield")
-                        } else {
-                            Image(systemName: "checkmark.seal")
+            ForEach(filter.presentations(items)) { item in
+                VStack(alignment: .leading, spacing: 4) {
+                    Button {
+                        filter.markRead(item.id)
+                        if item.isExpandable { filter.toggleExpanded(item.id) }
+                    } label: {
+                        Label(item.summary, systemImage: icon(item.kind))
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel(accessibilityLabel(item.kind))
+                    if filter.expandedIDs.contains(item.id) {
+                        ForEach(item.details) { detail in
+                            Text("\(detail.label): \(detail.value)")
+                                .font(.caption).foregroundStyle(.secondary)
                         }
-                        if case .string(let summary) = item["summary"] {
-                            Text(summary)
+                        if let failure = item.failure {
+                            Text(failure.message).font(.caption).foregroundStyle(.red)
                         }
                     }
                 }
-                .buttonStyle(.plain)
-                .accessibilityLabel("Activity receipt")
             }
         }
+    }
+
+    private func icon(_ kind: ActivityKind) -> String {
+        switch kind {
+        case .tool: "hammer"
+        case .receipt: "checkmark.seal"
+        case .failure: "xmark.octagon"
+        case .integrityWarning: "exclamationmark.shield"
+        case .other: "circle"
+        }
+    }
+
+    private func accessibilityLabel(_ kind: ActivityKind) -> String {
+        switch kind {
+        case .tool: "Tool activity"
+        case .receipt: "Activity receipt"
+        case .failure: "Activity failure"
+        case .integrityWarning: "Activity integrity warning"
+        case .other: "Activity item"
+        }
+    }
+}
+
+private extension NativeJSONObject {
+    func string(_ key: String) -> String? {
+        guard case .string(let value) = self[key] else { return nil }
+        return value
+    }
+
+    func bool(_ key: String) -> Bool? {
+        guard case .bool(let value) = self[key] else { return nil }
+        return value
     }
 }

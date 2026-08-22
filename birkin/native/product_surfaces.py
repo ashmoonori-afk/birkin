@@ -136,6 +136,20 @@ class NativeProductSurfaceAuthority:
         return {
             "browser.start": wrapped("browser_aside", "browser.updated", self.browser.start),
             "browser.navigate": wrapped("browser_aside", "browser.updated", self.browser.navigate),
+            "browser.back": wrapped(
+                "browser_aside", "browser.updated",
+                lambda payload: self.browser.history(payload, delta=-1),
+            ),
+            "browser.forward": wrapped(
+                "browser_aside", "browser.updated",
+                lambda payload: self.browser.history(payload, delta=1),
+            ),
+            "browser.reload": wrapped("browser_aside", "browser.updated", self.browser.reload),
+            "browser.close": wrapped("browser_aside", "browser.updated", self.browser.close),
+            "computer.answer": wrapped("computer_use", "computer.updated", self.computer_use.answer),
+            "computer.execute": wrapped("computer_use", "computer.updated", self.computer_use.execute),
             "office.create": wrapped("office", "office.updated", self.office.create),
+            "office.select": wrapped("office", "office.updated", self.office.select),
             "office.open": wrapped("office", "office.updated", self.office.open),
+            "office.convert": wrapped("office", "office.updated", self.office.convert),
         }

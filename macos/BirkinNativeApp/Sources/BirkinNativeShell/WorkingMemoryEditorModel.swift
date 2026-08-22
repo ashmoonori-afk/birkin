@@ -12,6 +12,8 @@ public final class WorkingMemoryEditorModel: ObservableObject {
     @Published public private(set) var pending: WorkingMemoryPendingUpdate?
     @Published public private(set) var isAwaitingConfirmation = false
     @Published public private(set) var visibleReason: String?
+    @Published public private(set) var canonicalError: WorkingMemoryCanonicalErrorPresentation?
+    @Published public private(set) var revisionConflict: WorkingMemoryRevisionConflictPresentation?
 
     public init(authoritative: NativeWorkingMemoryProjection) {
         self.authoritative = authoritative
@@ -26,6 +28,8 @@ public final class WorkingMemoryEditorModel: ObservableObject {
         pending = WorkingMemoryPendingUpdate(requested: requested, effective: effective)
         isAwaitingConfirmation = false
         visibleReason = nil
+        canonicalError = nil
+        revisionConflict = nil
     }
 
     @discardableResult
@@ -117,13 +121,24 @@ public final class WorkingMemoryEditorModel: ObservableObject {
         }
     }
 
-    public func renderCanonicalError(code: String, message: String) {
+    public func renderCanonicalError(
+        code: String, message: String, currentRevision: Int? = nil
+    ) {
         let bounded = String(message.prefix(300))
+        canonicalError = WorkingMemoryCanonicalErrorPresentation(
+            code: code, message: bounded
+        )
         switch code {
         case "E_WORKING_MEMORY_REVISION":
             visibleReason = bounded.isEmpty
                 ? "Working Memory changed. Review the latest revision and try again."
                 : bounded
+            if let currentRevision {
+                revisionConflict = WorkingMemoryRevisionConflictPresentation(
+                    currentRevision: currentRevision,
+                    message: visibleReason ?? "Working Memory revision conflict."
+                )
+            }
         case "E_WORKING_MEMORY_BUDGET":
             visibleReason = bounded.isEmpty
                 ? "Working Memory exceeds the 20,000-character render budget."

@@ -20,7 +20,7 @@ public struct ImportedReference: Equatable, Sendable {
 
     public var composerToken: String { "[[workspace-import:\(importID)]]" }
 
-    init?(_ value: NativeJSONValue?) {
+    public init?(_ value: NativeJSONValue?) {
         guard case .object(let raw) = value,
               case .string("workspace_import") = raw["kind"],
               case .string(let importID) = raw["import_id"],
@@ -35,6 +35,17 @@ public struct ImportedReference: Equatable, Sendable {
         self.jailName = jailName
         self.sha256 = sha256
         self.byteCount = byteCount
+    }
+
+    public var canonicalJSONObject: NativeJSONObject {
+        [
+            "kind": .string("workspace_import"),
+            "import_id": .string(importID),
+            "display_name": .string(displayName),
+            "jail_name": .string(jailName),
+            "sha256": .string(sha256),
+            "byte_count": .int(byteCount),
+        ]
     }
 }
 
@@ -81,8 +92,13 @@ public final class JailedDropModel: ObservableObject {
 
     /// Show Python's bounded refusal for an import that never completed.
     public func refuse(reason: String) {
-        reference = nil
         state = .refused(reason: String(reason.prefix(300)))
+    }
+
+    public func clearAfterAcceptedSend(importIDs: Set<String>) {
+        guard let reference, importIDs.contains(reference.importID) else { return }
+        self.reference = nil
+        state = .idle
     }
 
     public func applyCanonicalResult(_ result: NativeJSONObject) {
@@ -90,7 +106,6 @@ public final class JailedDropModel: ObservableObject {
               case .bool(true) = receipt["copied"],
               let imported = ImportedReference(result["reference"]) else {
             state = .refused(reason: "Python refused the import.")
-            reference = nil
             return
         }
         reference = imported

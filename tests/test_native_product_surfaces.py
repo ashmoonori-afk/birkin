@@ -104,8 +104,17 @@ def test_browser_projection_has_private_generation_lease_frame_and_navigation(
     control = _object(payload["control"])
     assert control["owner_kind"] == "human"
     assert control["epoch"] == 1
-    assert payload["frame"] == {"ref": "frame:7:2", "revision": 2}
-    assert _object(payload["navigation"])["display_url"] == "http://127.0.0.1:8123/"
+    frame = _object(payload["frame"])
+    assert frame == {
+        "ref": "frame:7:2", "revision": 2, "digest": "safe-digest",
+        "media_type": "image/png", "max_bytes": 8 * 1024 * 1024,
+    }
+    navigation = _object(payload["navigation"])
+    assert navigation["display_url"] == "http://127.0.0.1:8123/"
+    assert navigation["loading"] is False
+    assert navigation["history"] == {
+        "can_go_back": False, "can_go_forward": False, "entries": [], "index": -1,
+    }
     assert "profile_path" not in json.dumps(payload)
 
 
@@ -118,6 +127,12 @@ def test_browser_command_refuses_personal_profile_path(tmp_path: Path) -> None:
                 Path.home() / "Library/Application Support/Google/Chrome"
             )
         })
+
+
+def test_browser_handlers_cover_history_reload_and_close(tmp_path: Path) -> None:
+    product = _product(tmp_path)
+    handlers = product.handlers(lambda _kind, _payload: None)
+    assert {"browser.back", "browser.forward", "browser.reload", "browser.close"} <= handlers.keys()
 
 
 def test_computer_use_never_prompts_and_projects_bound_one_shot_expiry(
@@ -145,11 +160,45 @@ def test_computer_use_never_prompts_and_projects_bound_one_shot_expiry(
         "accessibility": "not_determined",
         "screen_capture": "granted",
     }
+    assert _object(status["backend"])["state"] == "available"
+    assert _object(status["binding"])["state"] == "bound"
     assert consent["one_shot"] is True
     assert consent["application_ref"] == "app:7"
     assert consent["window_ref"] == "window:9"
     assert consent["expires_at"] == expires.isoformat()
     assert payload["receipts"] == [{"receipt_ref": "receipt:after", "verdict": "confirmed"}]
+
+
+def test_computer_use_grant_answer_execute_is_one_shot_and_preserves_focus(
+    tmp_path: Path,
+) -> None:
+    product = _product(tmp_path)
+    computer = product.computer_use
+    computer.record_consent(
+        grant_id="cu_grant_projection_123456",
+        state="proposed",
+        action="click",
+        application_ref="app:7",
+        window_ref="window:9",
+        prior_receipt="receipt:before",
+        expires_at=datetime(2026, 8, 20, 12, 1, tzinfo=timezone.utc),
+    )
+    handlers = product.handlers(lambda _kind, _payload: None)
+    answered = handlers["computer.answer"]({
+        "grant_id": "cu_grant_projection_123456", "decision": "approve",
+    })
+    assert _object(answered["consent"])["state"] == "approved"
+    executed = handlers["computer.execute"]({
+        "grant_id": "cu_grant_projection_123456",
+        "application_ref": "app:7", "window_ref": "window:9",
+    })
+    assert _object(executed["consent"])["state"] == "consumed"
+    assert _object(executed["receipt"])["focus_preserved"] is True
+    with pytest.raises(ValueError, match="already consumed"):
+        _ = handlers["computer.execute"]({
+            "grant_id": "cu_grant_projection_123456",
+            "application_ref": "app:7", "window_ref": "window:9",
+        })
 
 
 def test_office_projection_create_and_secure_open_stay_in_service_jail(
@@ -163,6 +212,8 @@ def test_office_projection_create_and_secure_open_stay_in_service_jail(
         "output_name": "phase-10.docx",
     })
     artifact = _object(created["document"])
+    selected = handlers["office.select"]({"artifact_id": artifact["artifact_id"]})
+    assert selected["selected_artifact_id"] == artifact["artifact_id"]
     opened = handlers["office.open"]({"artifact": artifact})
     payload = product.snapshots({"office": 0})[0].payload
     opened_document = _object(opened["document"])
@@ -173,7 +224,14 @@ def test_office_projection_create_and_secure_open_stay_in_service_jail(
     assert Path(cast(str, artifact["uri"])).is_relative_to(product.office.service.home)
     assert source["sha256"] == artifact["content_hash"]
     assert payload["inventory"]
+    assert payload["form"] == {
+        "format": "docx", "output_name": "phase-10.docx",
+        "content": {"paragraphs": ["Phase 10"]},
+    }
+    assert payload["selected_artifact_id"] == artifact["artifact_id"]
     assert documents[0]["artifact_id"] == artifact["artifact_id"]
+    assert _object(documents[0]["provenance"])["content_hash"] == artifact["content_hash"]
+    assert documents[0]["active_content"] == []
     assert [item["operation"] for item in receipts] == [
         "document_create", "document_open"
     ]

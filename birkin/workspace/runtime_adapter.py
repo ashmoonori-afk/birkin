@@ -109,7 +109,9 @@ class RuntimeWorkspaceAdapter:
             emit=emit,
             config_loader=config.load_config,
         )
-        self._jailed_import = JailedImportAuthority(self._workspace_root / "imports")
+        self._jailed_import = JailedImportAuthority(
+            self._workspace_root / "imports", session_id=session_id
+        )
         from ..native.product_surfaces import (
             BrowserSurfaceAuthority,
             ComputerUseSurfaceAuthority,
@@ -128,7 +130,7 @@ class RuntimeWorkspaceAdapter:
                 DocumentService(self._workspace_root / "office")
             ),
         )
-        self._failed_intent_text: str | None = None
+        self._failed_intent_payload: dict[str, object] | None = None
         self._run_id = (
             f"workspace-{datetime.now(timezone.utc):%Y%m%d-%H%M%S}-{os.getpid()}"
         )
@@ -312,33 +314,67 @@ class RuntimeWorkspaceAdapter:
         _ = self._emit("computer.updated", safe)
 
     def _chat_send(self, payload: dict[str, object]) -> dict[str, object]:
+        if set(payload) - {"text", "attachments"}:
+            raise ValueError("chat.send accepts only text and attachments")
         text = payload.get("text")
         if not isinstance(text, str) or not text.strip():
             raise ValueError("chat text must be non-empty")
-        _ = self._emit("message.user", {"text": text})
+        raw_attachments: object = payload.get("attachments", [])
+        if not isinstance(raw_attachments, list):
+            raise ValueError("chat attachments must be an array of at most 16 imports")
+        attachment_values = cast(list[object], raw_attachments)
+        if len(attachment_values) > 16:
+            raise ValueError("chat attachments must be an array of at most 16 imports")
+        validated = [
+            self._jailed_import.validate_attachment(raw) for raw in attachment_values
+        ]
+        attachments = [attachment.to_json() for attachment, _path in validated]
+        user_event: dict[str, object] = {"text": text}
+        if attachments:
+            user_event["attachments"] = attachments
+        _ = self._emit("message.user", user_event)
         pieces: list[str] = []
 
         def on_text(piece: str) -> None:
             pieces.append(piece)
             _ = self._emit("message.assistant.delta", {"text": piece})
 
+        runtime_text = text
+        if validated:
+            lines = [
+                f"- {attachment.display_name}: imports/{attachment.jail_name}"
+                for attachment, _path in validated
+            ]
+            runtime_text += "\n\nAttached workspace imports (validated):\n" + "\n".join(lines)
         session = self._get_session()
         try:
-            reply = session.ask(text, on_text=on_text)
+            reply = session.ask(runtime_text, on_text=on_text)
         except Exception:
-            self._failed_intent_text = text
+            self._failed_intent_payload = {
+                "text": text,
+                **({"attachments": attachments} if attachments else {}),
+            }
+            _ = self._emit(
+                "progress.updated",
+                {
+                    "summary": "Assistant response failed.",
+                    "status": "failed",
+                    "ui_state": "failed",
+                    "refusal_code": "E_RUNTIME",
+                    "retryable": True,
+                },
+            )
             raise
         final = reply or "".join(pieces)
         _ = self._emit("message.assistant.completed", {"text": final})
         _ = transcripts.append_turn(
-            "workspace",
-            self._run_id,
-            text,
-            final,
-            cfg=session.cfg,
+            "workspace", self._run_id, text, final, cfg=session.cfg
         )
-        self._failed_intent_text = None
-        return {"reply": final}
+        self._failed_intent_payload = None
+        result: dict[str, object] = {"reply": final}
+        if attachments:
+            result["attachments"] = attachments
+        return result
 
     def _chat_steer(self, payload: dict[str, object]) -> dict[str, object]:
         text = payload.get("text")
@@ -351,10 +387,10 @@ class RuntimeWorkspaceAdapter:
         return {"steered": True}
 
     def _chat_retry(self, _payload: dict[str, object]) -> dict[str, object]:
-        text = self._failed_intent_text
-        if text is None:
+        payload = self._failed_intent_payload
+        if payload is None:
             raise ValueError("no failed intent to retry")
-        return self._chat_send({"text": text})
+        return self._chat_send(dict(payload))
 
     def _session_compact(
         self,
@@ -371,6 +407,14 @@ class RuntimeWorkspaceAdapter:
         session = self._get_session()
         session.abort.set()
         _ = self._emit("turn.interrupted", {})
+        _ = self._emit(
+            "progress.updated",
+            {
+                "summary": "Turn interrupted.",
+                "status": "interrupted",
+                "ui_state": "paused",
+            },
+        )
         return {"interrupted": True}
 
     def _chat_resume(self, _payload: dict[str, object]) -> dict[str, object]:

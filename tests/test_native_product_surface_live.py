@@ -113,6 +113,32 @@ def _live_product(
     )
 
 
+def test_browser_history_reload_and_close_use_current_cas_identity(tmp_path: Path) -> None:
+    browser = _FakeBrowserRuntime()
+    product = _live_product(tmp_path, browser)
+    handlers = product.handlers(lambda _kind, _payload: None)
+
+    _ = handlers["browser.navigate"]({
+        "url": "http://127.0.0.1:8123/one", "generation": 7, "revision": 3,
+    })
+    _ = handlers["browser.navigate"]({
+        "url": "http://127.0.0.1:8123/two", "generation": 7, "revision": 4,
+    })
+    snapshot = product.browser.snapshot()
+    history = _object(_object(snapshot["navigation"])["history"])
+    assert history["entries"] == [
+        "http://127.0.0.1:8123/", "http://127.0.0.1:8123/one",
+        "http://127.0.0.1:8123/two",
+    ]
+    assert history["can_go_back"] is True
+
+    _ = handlers["browser.back"]({"generation": 7, "revision": 5})
+    _ = handlers["browser.reload"]({"generation": 7, "revision": 6})
+    _ = handlers["browser.forward"]({"generation": 7, "revision": 7})
+    _ = handlers["browser.close"]({})
+    assert _object(product.browser.snapshot()["runtime"])["live"] is False
+
+
 def test_unchanged_surface_payload_publishes_no_live_frame(tmp_path: Path) -> None:
     """Given a surface already published at a revision, When its canonical
     payload has not changed, Then no live frame is produced, and a later real

@@ -87,6 +87,33 @@ struct WorkingMemoryTests {
     }
 
     @MainActor
+    @Test("reusable edit model exposes dirty save, revision conflict, and budget flow")
+    func editFlow() {
+        let editor = WorkingMemoryDraftModel(
+            projection: projection(revision: 7, constraints: ["Offline"])
+        )
+        #expect(!editor.isDirty)
+        editor.setValues(["Offline", "Python owns policy"], for: "constraints")
+        #expect(editor.isDirty)
+        #expect(editor.canPreview)
+        #expect(editor.requestedFields == ["constraints": ["Offline", "Python owns policy"]])
+
+        editor.receiveCanonicalFailure(
+            code: "E_WORKING_MEMORY_REVISION", message: "stale", currentRevision: 8
+        )
+        #expect(editor.conflict?.currentRevision == 8)
+        #expect(!editor.canPreview)
+        editor.rebase(on: projection(revision: 8, constraints: ["Changed elsewhere"]))
+        #expect(editor.baseRevision == 8)
+        #expect(editor.values["constraints"] == ["Offline", "Python owns policy"])
+        #expect(editor.canPreview)
+
+        editor.setValues([String(repeating: "x", count: 20_001)], for: "constraints")
+        #expect(editor.renderBudget.isExceeded)
+        #expect(!editor.canPreview)
+    }
+
+    @MainActor
     @Test("clear scope and budget errors have bounded accessible copy")
     func clearAndBudgetAccessibility() throws {
         let clear = WorkingMemoryClearPresentation(sessionID: "session-1")

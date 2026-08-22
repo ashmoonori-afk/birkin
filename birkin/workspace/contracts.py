@@ -45,8 +45,16 @@ _COMMAND_TYPES = {
     "terminal.snapshot",
     "browser.start",
     "browser.navigate",
+    "browser.back",
+    "browser.forward",
+    "browser.reload",
+    "browser.close",
+    "computer.answer",
+    "computer.execute",
     "office.create",
+    "office.select",
     "office.open",
+    "office.convert",
     "file.import",
     "skill.reload",
     "checkpoint.restore",
@@ -199,6 +207,60 @@ def json_object(value: object, label: str) -> dict[str, object]:
     if len(json.dumps(mapping, ensure_ascii=False)) > 65_536:
         raise ProtocolError(f"{label} is too large")
     return mapping
+
+
+@final
+@dataclass(frozen=True)
+class ChatAttachment:
+    """A canonical reference to a file copied into this session's import jail."""
+
+    import_id: str
+    display_name: str
+    jail_name: str
+    sha256: str
+    byte_count: int
+
+    @classmethod
+    def parse(cls, raw: object) -> ChatAttachment:
+        mapping = object_mapping(raw, "chat attachment")
+        _strict_keys(
+            mapping,
+            {"kind", "import_id", "display_name", "jail_name", "sha256", "byte_count"},
+            "chat attachment",
+        )
+        if mapping["kind"] != "workspace_import":
+            raise ProtocolError("chat attachment kind must be workspace_import")
+        import_id = valid_identifier(mapping["import_id"], "attachment import_id")
+        display_name = mapping["display_name"]
+        jail_name = mapping["jail_name"]
+        digest = mapping["sha256"]
+        byte_count = mapping["byte_count"]
+        if not isinstance(display_name, str) or not display_name or len(display_name) > 255:
+            raise ProtocolError("attachment display_name must be non-empty")
+        if not isinstance(jail_name, str) or _JAIL_NAME.fullmatch(jail_name) is None:
+            raise ProtocolError("attachment jail_name is invalid")
+        if (
+            not isinstance(digest, str)
+            or len(digest) != 64
+            or any(character not in "0123456789abcdef" for character in digest)
+        ):
+            raise ProtocolError("attachment sha256 is invalid")
+        if isinstance(byte_count, bool) or not isinstance(byte_count, int) or byte_count < 0:
+            raise ProtocolError("attachment byte_count must be a non-negative integer")
+        return cls(import_id, display_name, jail_name, digest, byte_count)
+
+    def to_json(self) -> dict[str, object]:
+        return {
+            "kind": "workspace_import",
+            "import_id": self.import_id,
+            "display_name": self.display_name,
+            "jail_name": self.jail_name,
+            "sha256": self.sha256,
+            "byte_count": self.byte_count,
+        }
+
+
+_JAIL_NAME = re.compile(r"[A-Za-z0-9._-]{1,255}")
 
 
 @final

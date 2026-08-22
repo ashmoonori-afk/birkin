@@ -1,6 +1,5 @@
-import AppKit
 import BirkinNativeProtocol
-import SwiftUI
+import Foundation
 
 public enum ConversationRole: Equatable, Sendable {
     case user
@@ -21,8 +20,10 @@ public struct ConversationMessage: Equatable, Identifiable, Sendable {
 
 public struct MessageStreamModel: Equatable, Sendable {
     public let messages: [ConversationMessage]
+    public let rows: [ConversationRow]
 
     public init(projection: NativeProjectionState) {
+        rows = ConversationRows.parse(projection: projection)
         messages = projection.conversation.compactMap { raw in
             guard case .string(let id) = raw["id"],
                   case .string(let kind) = raw["kind"],
@@ -41,52 +42,11 @@ public struct MessageStreamModel: Equatable, Sendable {
     }
 }
 
-public struct MessageStreamView: View {
-    private let model: MessageStreamModel
-    @Environment(\.shellVisualSettings) private var visualSettings
-
-    public init(projection: NativeProjectionState) {
-        model = MessageStreamModel(projection: projection)
-    }
-
-    public var body: some View {
-        Group {
-            if visualSettings.snapshotRendering {
-                VStack(alignment: .leading, spacing: 8) { messageRows }
-            } else {
-                ScrollView {
-                    LazyVStack(alignment: .leading, spacing: 12) { messageRows }
-                }
-            }
-        }
-        .accessibilityLabel("Conversation message stream")
-    }
-
-    @ViewBuilder
-    private var messageRows: some View {
-        ForEach(model.messages) { message in
-            VStack(alignment: .leading, spacing: 4) {
-                Text(message.role == .user ? "You" : "Birkin")
-                    .font(.caption.bold())
-                    .foregroundStyle(.secondary)
-                Text(message.text)
-                    .textSelection(.enabled)
-                if message.state == .streaming {
-                    ProgressView().controlSize(.small)
-                        .accessibilityLabel("Assistant response streaming")
-                }
-            }
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .padding(10)
-            .background(.quaternary.opacity(0.35), in: RoundedRectangle(cornerRadius: 8))
-        }
-    }
-}
-
 @MainActor
 public final class ConversationComposerModel: ObservableObject {
     @Published public var draft: String
     @Published public var isCodeMode = false
+    @Published public private(set) var attachments: [ImportedReference] = []
     @Published public private(set) var visibleReason: String?
 
     public init(draft: String = "") {
@@ -94,7 +54,17 @@ public final class ConversationComposerModel: ObservableObject {
     }
 
     public var draftByteCount: Int {
-        NativePayloadSizing.encodedByteCount(["text": .string(draft)])
+        NativePayloadSizing.encodedByteCount(payload)
+    }
+
+    public func attach(_ reference: ImportedReference) {
+        guard !attachments.contains(where: { $0.importID == reference.importID }) else { return }
+        attachments.append(reference)
+        visibleReason = nil
+    }
+
+    public func removeAttachment(importID: String) {
+        attachments.removeAll { $0.importID == importID }
     }
 
     @discardableResult
@@ -117,25 +87,34 @@ public final class ConversationComposerModel: ObservableObject {
             visibleReason = "Enter a message before sending."
             return false
         }
-        let payload: NativeJSONObject = ["text": .string(draft)]
-        let byteCount = NativePayloadSizing.encodedByteCount(payload)
+        let commandPayload = payload
+        let byteCount = NativePayloadSizing.encodedByteCount(commandPayload)
         guard byteCount <= session.maxPayloadBytes else {
             visibleReason = "Payload is \(byteCount) bytes; the limit is \(session.maxPayloadBytes) bytes."
             return false
         }
         let id = UUID().uuidString.lowercased()
         submit(NativeCommandRequest(
-            frameID: "command-\(id)",
-            commandID: id,
-            expectedCursor: expectedCursor,
-            commandType: "chat.send",
-            payload: payload,
-            sessionCapability: session.sessionCapability,
+            frameID: "command-\(id)", commandID: id,
+            expectedCursor: expectedCursor, commandType: "chat.send",
+            payload: commandPayload, sessionCapability: session.sessionCapability,
             viewID: "main"
         ))
         draft = ""
+        attachments = []
         visibleReason = nil
         return true
+    }
+
+    private var payload: NativeJSONObject {
+        var value: NativeJSONObject = ["text": .string(draft)]
+        if !attachments.isEmpty {
+            try? value.append(
+                key: "attachments",
+                value: .array(attachments.map { .object($0.canonicalJSONObject) })
+            )
+        }
+        return value
     }
 }
 
@@ -159,9 +138,7 @@ public struct SendKeyResult: Equatable, Sendable {
 
 public enum SendKeyPolicy {
     public static func shouldSend(
-        commandPressed: Bool,
-        returnPressed: Bool,
-        hasMarkedText: Bool
+        commandPressed: Bool, returnPressed: Bool, hasMarkedText: Bool
     ) -> Bool {
         commandPressed && returnPressed && !hasMarkedText
     }
@@ -181,113 +158,5 @@ public enum SendKeyPolicy {
             ),
             text: text
         )
-    }
-}
-
-public struct ConversationComposerView: View {
-    @ObservedObject private var model: ConversationComposerModel
-    @Environment(\.shellVisualSettings) private var visualSettings
-    private let isSendEnabled: Bool
-    private let send: () -> Void
-
-    public init(
-        model: ConversationComposerModel,
-        isSendEnabled: Bool,
-        send: @escaping () -> Void
-    ) {
-        self.model = model
-        self.isSendEnabled = isSendEnabled
-        self.send = send
-    }
-
-    public var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            if visualSettings.snapshotRendering {
-                Label("Code mode: \(model.isCodeMode ? "On" : "Off")", systemImage: "chevron.left.forwardslash.chevron.right")
-            } else {
-                Toggle("Code mode", isOn: $model.isCodeMode)
-                    .accessibilityLabel("Code mode")
-            }
-            Group {
-                if visualSettings.snapshotRendering {
-                    Text(model.draft.isEmpty ? "Ask Birkin anything…" : model.draft)
-                        .foregroundStyle(model.draft.isEmpty ? .secondary : .primary)
-                        .frame(maxWidth: .infinity, minHeight: 72, alignment: .topLeading)
-                        .padding(8)
-                        .background(.background, in: RoundedRectangle(cornerRadius: 6))
-                        .overlay { RoundedRectangle(cornerRadius: 6).stroke(.secondary.opacity(0.4)) }
-                } else {
-                    IMEAwareTextEditor(text: $model.draft, send: send)
-                        .frame(minHeight: 72)
-                }
-            }
-            .font(model.isCodeMode ? .system(.body, design: .monospaced) : .body)
-            .accessibilityLabel(model.isCodeMode ? "Code message draft" : "Message draft")
-            HStack {
-                Text("\(model.draftByteCount) bytes")
-                    .font(.caption.monospacedDigit())
-                    .foregroundStyle(.secondary)
-                Spacer()
-                Button("Send", action: send)
-                    .keyboardShortcut(.return, modifiers: .command)
-                    .accessibilityLabel("Send message")
-                    .disabled(!isSendEnabled)
-            }
-            if let reason = model.visibleReason {
-                Text(reason)
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
-            }
-        }
-    }
-}
-
-private struct IMEAwareTextEditor: NSViewRepresentable {
-    @Binding var text: String
-    let send: () -> Void
-
-    func makeCoordinator() -> Coordinator { Coordinator(parent: self) }
-
-    func makeNSView(context: Context) -> NSScrollView {
-        let scroll = NSScrollView()
-        let view = NSTextView()
-        view.delegate = context.coordinator
-        view.isRichText = false
-        view.isAutomaticQuoteSubstitutionEnabled = false
-        view.string = text
-        scroll.documentView = view
-        scroll.hasVerticalScroller = true
-        return scroll
-    }
-
-    func updateNSView(_ scroll: NSScrollView, context: Context) {
-        guard let view = scroll.documentView as? NSTextView else { return }
-        if view.string != text { view.string = text }
-        context.coordinator.parent = self
-    }
-
-    final class Coordinator: NSObject, NSTextViewDelegate {
-        var parent: IMEAwareTextEditor
-
-        init(parent: IMEAwareTextEditor) { self.parent = parent }
-
-        func textDidChange(_ notification: Notification) {
-            guard let view = notification.object as? NSTextView else { return }
-            parent.text = view.string
-        }
-
-        func textView(
-            _ textView: NSTextView,
-            doCommandBy commandSelector: Selector
-        ) -> Bool {
-            let shouldSend = SendKeyPolicy.shouldSend(
-                commandPressed: NSApp.currentEvent?.modifierFlags.contains(.command) == true,
-                returnPressed: commandSelector == #selector(NSResponder.insertNewline(_:)),
-                hasMarkedText: textView.hasMarkedText()
-            )
-            if shouldSend { parent.send() }
-            return shouldSend
-        }
     }
 }

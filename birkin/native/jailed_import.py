@@ -12,7 +12,7 @@ from contextlib import contextmanager
 from pathlib import Path
 from typing import Final, final
 
-from birkin.workspace.contracts import JsonValue, ProtocolError
+from birkin.workspace.contracts import ChatAttachment, JsonValue, ProtocolError
 from birkin.workspace.service import CommandHandler
 
 
@@ -32,11 +32,14 @@ class JailedImportAuthority:
     a caller-selected destination crosses the canonical result boundary.
     """
 
-    def __init__(self, jail: Path) -> None:
+    def __init__(self, jail: Path, *, session_id: str = "local") -> None:
         self._jail = jail
+        self._session_id = session_id
         self._jail.mkdir(mode=0o700, parents=True, exist_ok=True)
         os.chmod(self._jail, 0o700)
         self._quota_lock = threading.Lock()
+        self._registry_lock = threading.Lock()
+        self._imports: dict[str, ChatAttachment] = {}
 
     @property
     def jail(self) -> Path:
@@ -44,6 +47,37 @@ class JailedImportAuthority:
 
     def handlers(self) -> dict[str, CommandHandler]:
         return {"file.import": self.import_file}
+
+    def validate_attachment(self, raw: object) -> tuple[ChatAttachment, Path]:
+        attachment = ChatAttachment.parse(raw)
+        with self._registry_lock:
+            registered = self._imports.get(attachment.import_id)
+        if registered is None or registered != attachment:
+            raise ProtocolError(
+                f"attachment import is unknown to session {self._session_id}"
+            )
+        path = self._jail / attachment.jail_name
+        flags = os.O_RDONLY
+        if hasattr(os, "O_NOFOLLOW"):
+            flags |= os.O_NOFOLLOW
+        try:
+            descriptor = os.open(path, flags)
+        except OSError as exc:
+            raise ProtocolError("attachment import was deleted") from exc
+        digest = hashlib.sha256()
+        byte_count = 0
+        try:
+            metadata = os.fstat(descriptor)
+            if not stat.S_ISREG(metadata.st_mode):
+                raise ProtocolError("attachment import changed after copy")
+            while chunk := os.read(descriptor, _COPY_CHUNK_BYTES):
+                digest.update(chunk)
+                byte_count += len(chunk)
+        finally:
+            os.close(descriptor)
+        if byte_count != attachment.byte_count or digest.hexdigest() != attachment.sha256:
+            raise ProtocolError("attachment import changed after copy")
+        return attachment, path
 
     @contextmanager
     def _locked_quota(self) -> Generator[None]:
@@ -200,4 +234,6 @@ class JailedImportAuthority:
             "byte_count": byte_count,
             "copied": True,
         }
+        with self._registry_lock:
+            self._imports[import_id] = ChatAttachment.parse(reference)
         return {"reference": reference, "receipt": receipt}

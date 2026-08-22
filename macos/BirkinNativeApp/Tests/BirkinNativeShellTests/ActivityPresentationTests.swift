@@ -20,6 +20,33 @@ struct ActivityPresentationTests {
         #expect(model.visible(items).map { $0.string("id") } == ["receipt-1", "warning-1"])
     }
 
+    @Test("typed Activity items expose lifecycle, receipts, failures, and details")
+    func typedPresentations() {
+        let tool = ActivityPresentation([
+            "id": .string("tool-1"), "kind": .string("activity"),
+            "summary": .string("Run grep"), "ui_state": .string("running"),
+            "status": .string("started"), "target": .string("Sources"),
+        ])
+        let receipt = ActivityPresentation([
+            "id": .string("receipt-1"), "kind": .string("receipt"),
+            "summary": .string("Command completed"), "ui_state": .string("succeeded"),
+            "receipt_ref": .string("receipt:1"),
+        ])
+        let failure = ActivityPresentation([
+            "id": .string("failure-1"), "kind": .string("failure"),
+            "summary": .string("Command failed"), "ui_state": .string("failed"),
+            "code": .string("E_PROVIDER"), "message": .string("Unavailable"),
+        ])
+
+        #expect(tool?.kind == .tool)
+        #expect(tool?.isExpandable == true)
+        #expect(tool?.details.first?.label == "Target")
+        #expect(receipt?.kind == .receipt)
+        #expect(receipt?.receiptReference == "receipt:1")
+        #expect(failure?.kind == .failure)
+        #expect(failure?.failure?.code == "E_PROVIDER")
+    }
+
     @Test("Activity filter source has no persistence seam")
     func persistenceScan() throws {
         let source = URL(fileURLWithPath: #filePath)

@@ -71,7 +71,9 @@ def test_office_snapshot_is_bounded_when_create_and_open_exceed_the_entry_limit(
     payload = authority.snapshot()
     documents = _objects(cast(JSONValue, payload["documents"]))
     receipts = _objects(cast(JSONValue, payload["receipts"]))
-    assert set(payload) == {"inventory", "documents", "receipts", "refusal"}
+    assert set(payload) == {
+        "inventory", "form", "selected_artifact_id", "documents", "receipts", "refusal",
+    }
     assert [item["artifact_id"] for item in documents] == [
         item["artifact_id"] for item in artifacts[1:]
     ]
@@ -114,4 +116,8 @@ def test_office_snapshot_discards_unknown_open_artifact_fields_within_frame_cap(
         "uri",
         "sensitivity",
         "acl_fingerprint",
+        "provenance",
+        "conversion",
+        "active_content",
     } for document in documents)
+    assert all("padding_alias" not in document for document in documents)
