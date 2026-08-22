@@ -58,7 +58,9 @@ enum NativeProjectionReducer {
             }
             append(value, toPanel: "sessions_history", state: &state)
         }
-        if let panelKey = panelByEvent[event.type] {
+        if event.type == "approval.answered" {
+            reconcileApproval(event, state: &state)
+        } else if let panelKey = panelByEvent[event.type] {
             append(panelItem(event), toPanel: panelKey, state: &state)
         }
         if event.type == "working_memory.updated" {
@@ -202,6 +204,48 @@ enum NativeProjectionReducer {
         state.panels[index].items.append(item)
     }
 
+    private static func reconcileApproval(
+        _ event: NativeProjectionEvent,
+        state: inout NativeProjectionState
+    ) {
+        guard let approvalID = event.payload.string("approval_id"),
+              let panelIndex = state.panels.firstIndex(where: { $0.key == "approvals" })
+        else { return }
+        let resolved = panelItem(event)
+        guard let itemIndex = state.panels[panelIndex].items.firstIndex(
+            where: { $0.string("id") == approvalID }
+        ) else {
+            state.panels[panelIndex].items.append(resolved)
+            return
+        }
+        state.panels[panelIndex].items[itemIndex] = merging(
+            state.panels[panelIndex].items[itemIndex],
+            with: resolved,
+            replacing: [
+                "status", "cursor", "kind", "ui_state", "decided",
+                "receipt_ref", "effect", "refusal_code",
+            ]
+        )
+    }
+
+    private static func merging(
+        _ original: NativeJSONObject,
+        with updates: NativeJSONObject,
+        replacing keys: Set<String>
+    ) -> NativeJSONObject {
+        var result = NativeJSONObject()
+        for pair in original.pairs {
+            try? result.append(
+                key: pair.key,
+                value: keys.contains(pair.key) ? updates[pair.key] ?? pair.value : pair.value
+            )
+        }
+        for pair in updates.pairs where result[pair.key] == nil && keys.contains(pair.key) {
+            try? result.append(key: pair.key, value: pair.value)
+        }
+        return result
+    }
+
     private static func panelItem(_ event: NativeProjectionEvent) -> NativeJSONObject {
         let payload = event.payload
         let decision = payload.string("decision")
@@ -209,7 +253,8 @@ enum NativeProjectionReducer {
             ?? payload.string("task_id") ?? payload.string("evidence_id")
             ?? payload.string("checkpoint_id") ?? event.eventID
         let summary = payload.string("summary") ?? payload.string("name") ?? event.type
-        let status = payload.string("status") ?? decision ?? event.type.split(separator: ".").last.map(String.init)!
+        let status = payload.string("outcome") ?? payload.string("status") ?? decision
+            ?? event.type.split(separator: ".").last.map(String.init)!
         let kind = [
             "task.updated": "task", "approval.requested": "approval",
             "approval.answered": "approval", "question.requested": "question",
@@ -238,6 +283,12 @@ enum NativeProjectionReducer {
                 try? item.append(key: field, value: .bool(value))
             }
         }
+        if event.type == "approval.answered", item["decided"] == nil {
+            try? item.append(key: "decided", value: .bool(true))
+        }
+        if let receipt = payload.string("receipt") {
+            try? item.append(key: "receipt_ref", value: .string(receipt))
+        }
         if case .int(let sequence) = payload["computer_sequence"] {
             try? item.append(key: "computer_sequence", value: .int(sequence))
         }
@@ -254,7 +305,12 @@ enum NativeProjectionReducer {
     ) -> String {
         switch type {
         case "approval.requested", "question.requested": return "action_needed"
-        case "approval.answered": return decision == "approve" ? "succeeded" : "blocked"
+        case "approval.answered":
+            switch payload.string("outcome") {
+            case "approved", "answered_elsewhere": return "succeeded"
+            case "failed": return "failed"
+            default: return decision == "approve" ? "succeeded" : "blocked"
+            }
         case "question.answered", "evidence.added", "checkpoint.restored": return "succeeded"
         case "task.updated", "tool.started": return "running"
         case "tool.completed": return "succeeded"

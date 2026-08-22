@@ -44,6 +44,31 @@ struct ApprovalPresentationTests {
         #expect(requests.isEmpty)
     }
 
+    @Test("resolved approval exposes outcome without decision actions")
+    func resolvedApprovalIsReadOnly() throws {
+        let item: NativeJSONObject = [
+            "id": .string("approval-1"), "summary": .string("Write release manifest"),
+            "description": .string("One digest-bound file write"),
+            "category": .string("operation"), "risk": .string("high"),
+            "sealed": .bool(true), "decided": .bool(true),
+            "status": .string("approved"), "kind": .string("approval"),
+            "ui_state": .string("succeeded"),
+            "receipt_ref": .string("exit 0: approved"),
+        ]
+        let approval = try #require(ApprovalCardPresentation(item: item))
+        var requests: [NativeCommandRequest] = []
+
+        #expect(approval.status == "approved")
+        #expect(approval.receiptReference == "exit 0: approved")
+        #expect(approval.availableDecisions.isEmpty)
+        #expect(!approval.submit(
+            .approve, availability: MutationAvailability(state: .ready(readySession())),
+            commandAdvertised: true, expectedCursor: 14,
+            sessionCapability: "capability", submit: { requests.append($0) }
+        ))
+        #expect(requests.isEmpty)
+    }
+
     @Test("approval card renders screenshot evidence")
     func screenshotEvidence() throws {
         let approval = try #require(ApprovalCardPresentation(item: approvalItem()))

@@ -64,6 +64,50 @@ def test_live_approval_event_preserves_risk_and_sealed_state() -> None:
     assert item["category"] == "operation"
 
 
+def test_snapshot_reconciles_answered_approval_without_losing_request_details() -> None:
+    requested = WorkspaceEvent(
+        protocol_version=1, session_id="session-1", cursor=1,
+        event_id="approval-requested", type="approval.requested",
+        timestamp="2026-08-20T00:00:00Z", actor_id="python",
+        command_id="command-1", payload={
+            "approval_id": "abc123def456", "summary": "Write manifest",
+            "description": "Digest-bound write", "category": "operation",
+            "status": "pending", "risk": "high", "sealed": True,
+            "decided": False,
+        },
+    )
+    answered = WorkspaceEvent(
+        protocol_version=1, session_id="session-1", cursor=2,
+        event_id="approval-answered", type="approval.answered",
+        timestamp="2026-08-20T00:00:01Z", actor_id="python",
+        command_id="command-2", payload={
+            "approval_id": "abc123def456", "decision": "approve",
+            "outcome": "approved", "receipt": "exit 0: approved",
+        },
+    )
+
+    snapshot = reduce_snapshot("session-1", (requested, answered))
+    approvals = next(
+        panel.items for panel in snapshot.panels if panel.key == "approvals"
+    )
+
+    assert len(approvals) == 1
+    assert approvals[0] == {
+        "id": "abc123def456",
+        "summary": "Write manifest",
+        "status": "approved",
+        "cursor": 2,
+        "kind": "approval",
+        "ui_state": "succeeded",
+        "description": "Digest-bound write",
+        "category": "operation",
+        "risk": "high",
+        "sealed": True,
+        "decided": True,
+        "receipt_ref": "exit 0: approved",
+    }
+
+
 def test_two_surfaces_resolve_one_approval_with_answered_elsewhere_event(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

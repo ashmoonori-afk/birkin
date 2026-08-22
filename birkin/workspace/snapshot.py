@@ -61,10 +61,16 @@ def _panel_item(event: WorkspaceEvent) -> dict[str, object]:
         "command.completed": "receipt",
         "integrity.warning": "integrity_warning",
     }.get(event.type, "activity")
-    decision = event.payload.get("decision")
+    outcome = event.payload.get("outcome")
     default_state = {
         "approval.requested": "action_needed",
-        "approval.answered": ("succeeded" if decision == "approve" else "blocked"),
+        "approval.answered": (
+            "failed"
+            if outcome == "failed"
+            else "succeeded"
+            if outcome in {"approved", "answered_elsewhere"}
+            else "blocked"
+        ),
         "question.requested": "action_needed",
         "question.answered": "succeeded",
         "task.updated": "running",
@@ -90,7 +96,8 @@ def _panel_item(event: WorkspaceEvent) -> dict[str, object]:
             else str(event.payload.get("name") or event.type)
         ),
         "status": str(
-            event.payload.get("status")
+            event.payload.get("outcome")
+            or event.payload.get("status")
             or event.payload.get("decision")
             or event.type.rsplit(".", 1)[-1]
         ),
@@ -126,10 +133,42 @@ def _panel_item(event: WorkspaceEvent) -> dict[str, object]:
         value = event.payload.get(field)
         if isinstance(value, bool):
             item[field] = value
+    if event.type == "approval.answered":
+        item["decided"] = True
+        receipt = event.payload.get("receipt")
+        if isinstance(receipt, str) and receipt:
+            item["receipt_ref"] = receipt
     focus_preserved = event.payload.get("focus_preserved")
     if isinstance(focus_preserved, bool):
         item["focus_preserved"] = focus_preserved
     return item
+
+
+def _reconcile_answered_approval(
+    items: list[dict[str, object]],
+    resolved: dict[str, object],
+) -> None:
+    approval_id = resolved["id"]
+    replace = {
+        "status",
+        "cursor",
+        "kind",
+        "ui_state",
+        "decided",
+        "receipt_ref",
+        "effect",
+        "refusal_code",
+    }
+    for index, current in enumerate(items):
+        if current.get("id") != approval_id:
+            continue
+        merged = dict(current)
+        for key in replace:
+            if key in resolved:
+                merged[key] = resolved[key]
+        items[index] = merged
+        return
+    items.append(resolved)
 
 
 def _live_lease(value: object) -> str | None:
@@ -245,7 +284,11 @@ def reduce_snapshot(
 
         panel_key = _PANEL_BY_EVENT.get(event.type)
         if panel_key is not None:
-            panel_items[panel_key].append(_panel_item(event))
+            item = _panel_item(event)
+            if event.type == "approval.answered":
+                _reconcile_answered_approval(panel_items[panel_key], item)
+            else:
+                panel_items[panel_key].append(item)
 
     return WorkspaceSnapshot(
         protocol_version=1,

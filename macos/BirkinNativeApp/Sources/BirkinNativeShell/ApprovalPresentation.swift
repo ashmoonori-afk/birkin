@@ -17,6 +17,9 @@ public struct ApprovalCardPresentation: Equatable, Sendable, Identifiable {
     public let risk: ApprovalRisk
     public let isSealed: Bool
     public let isDecided: Bool
+    public let status: String
+    public let receiptReference: String?
+    public let availableDecisions: [ApprovalDecision]
 
     public init?(item: NativeJSONObject) {
         guard item.text("kind") == "approval",
@@ -29,8 +32,15 @@ public struct ApprovalCardPresentation: Equatable, Sendable, Identifiable {
         category = item.text("category") ?? "unknown"
         self.risk = risk
         isSealed = item.flag("sealed") ?? false
-        isDecided = item.flag("decided") ?? false
+        status = item.text("status") ?? "pending"
+        receiptReference = item.text("receipt_ref")
+        isDecided = item.flag("decided") ?? Self.resolvedStatuses.contains(status)
+        availableDecisions = isDecided ? [] : [.reject, .approve]
     }
+
+    private static let resolvedStatuses = Set([
+        "approved", "rejected", "answered_elsewhere", "expired", "failed",
+    ])
 
     @discardableResult
     public func submit(
@@ -90,13 +100,26 @@ public struct ApprovalCardView: View {
             if !presentation.description.isEmpty {
                 Text(presentation.description).font(.subheadline).foregroundStyle(.secondary)
             }
-            HStack {
-                Button("Reject", role: .destructive, action: reject)
-                    .accessibilityLabel("Reject approval")
-                Button("Approve", action: approve)
-                    .buttonStyle(.borderedProminent)
-                    .accessibilityLabel("Approve request")
-            }.disabled(!canDecide || presentation.isDecided)
+            if presentation.availableDecisions.isEmpty {
+                Label(outcomeLabel, systemImage: outcomeSymbol)
+                    .font(.subheadline.weight(.medium))
+                    .foregroundStyle(.secondary)
+                if let receipt = presentation.receiptReference {
+                    Text(receipt)
+                        .font(.caption.monospaced())
+                        .foregroundStyle(.secondary)
+                        .textSelection(.enabled)
+                }
+            } else {
+                HStack {
+                    Button("Reject", role: .destructive, action: reject)
+                        .accessibilityLabel("Reject approval")
+                    Button("Approve", action: approve)
+                        .buttonStyle(.borderedProminent)
+                        .accessibilityLabel("Approve request")
+                }
+                .disabled(!canDecide)
+            }
         }
         .padding(14)
         .frame(maxWidth: .infinity, alignment: .leading)
@@ -113,6 +136,28 @@ public struct ApprovalCardView: View {
         case .critical: .purple
         }
     }
+
+    private var outcomeLabel: String {
+        switch presentation.status {
+        case "approved": "Approved"
+        case "rejected": "Rejected"
+        case "answered_elsewhere": "Answered elsewhere"
+        case "expired": "Expired"
+        case "failed": "Failed"
+        default: presentation.status.replacingOccurrences(of: "_", with: " ").capitalized
+        }
+    }
+
+    private var outcomeSymbol: String {
+        switch presentation.status {
+        case "approved": "checkmark.circle.fill"
+        case "answered_elsewhere": "person.crop.circle.badge.checkmark"
+        case "expired": "clock.badge.exclamationmark"
+        case "failed": "xmark.octagon.fill"
+        default: "hand.raised.fill"
+        }
+    }
+
 }
 
 private extension NativeJSONObject {
