@@ -54,6 +54,42 @@ struct TerminalControlsTests {
         #expect(requests[0].payload.string("signal") == "INT")
     }
 
+    @Test("presentation authority exposes controls only for a mutable leased terminal")
+    func presentationAuthority() {
+        let live = TerminalPresentationAuthority(
+            terminal: liveTerminal(), capabilityAllowsMutation: true
+        )
+        #expect(live.visibleMutationControls == Set(TerminalMutationControl.allCases))
+        #expect(!live.showsReadOnlyReplayLabel)
+
+        let noCapability = TerminalPresentationAuthority(
+            terminal: liveTerminal(), capabilityAllowsMutation: false
+        )
+        #expect(noCapability.visibleMutationControls.isEmpty)
+
+        for terminal in [
+            liveTerminal(state: "exited"),
+            liveTerminal(lease: nil),
+            liveTerminal(readOnly: true),
+        ] {
+            let replay = TerminalPresentationAuthority(
+                terminal: terminal, capabilityAllowsMutation: true
+            )
+            #expect(replay.visibleMutationControls.isEmpty)
+            #expect(replay.showsReadOnlyReplayLabel == terminal.readOnly)
+        }
+    }
+
+    @Test("read-only terminal view has a replay-only presentation")
+    func readOnlyPresentation() {
+        let terminal = liveTerminal(lease: nil, readOnly: true)
+        let authority = TerminalPresentationAuthority(
+            terminal: terminal, capabilityAllowsMutation: true
+        )
+        #expect(authority.visibleMutationControls.isEmpty)
+        #expect(authority.statusLabel == "Read-only replay")
+    }
+
     @Test("terminal surface renders real transcript screenshot")
     func screenshotEvidence() throws {
         let view = TerminalView(
@@ -75,11 +111,16 @@ struct TerminalControlsTests {
         #expect(png.count > 10_000)
     }
 
-    private func liveTerminal(screen: String = "") -> NativeTerminalProjection {
+    private func liveTerminal(
+        screen: String = "",
+        state: String = "running",
+        lease: String? = "lease-1",
+        readOnly: Bool = false
+    ) -> NativeTerminalProjection {
         NativeTerminalProjection(
             terminalID: "terminal-1", cwd: "/private/workspace", screen: screen,
-            outputSequence: 0, state: "running", exitStatus: nil,
-            columns: 80, rows: 24, lease: "lease-1", readOnly: false
+            outputSequence: 0, state: state, exitStatus: nil,
+            columns: 80, rows: 24, lease: lease, readOnly: readOnly
         )
     }
 

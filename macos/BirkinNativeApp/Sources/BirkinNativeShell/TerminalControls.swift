@@ -5,9 +5,7 @@ import SwiftUI
 public final class TerminalControlModel: ObservableObject {
     @Published public private(set) var visibleReason: String?
     private var inputSequences: [String: Int] = [:]
-
     public init() {}
-
     @discardableResult
     public func requestTerminal(
         cwd: String = ".",
@@ -29,14 +27,14 @@ public final class TerminalControlModel: ObservableObject {
                 "cwd": .string(cwd),
             ]
         }
-        submit(request(
-            type: "terminal.create", payload: payload,
-            expectedCursor: expectedCursor, sessionCapability: sessionCapability
-        ))
+        submit(
+            request(
+                type: "terminal.create", payload: payload,
+                expectedCursor: expectedCursor, sessionCapability: sessionCapability
+            ))
         visibleReason = nil
         return true
     }
-
     @discardableResult
     public func sendInput(
         _ data: String,
@@ -53,21 +51,21 @@ public final class TerminalControlModel: ObservableObject {
         }
         let sequence = (inputSequences[terminal.terminalID] ?? 0) + 1
         inputSequences[terminal.terminalID] = sequence
-        submit(request(
-            type: "terminal.input",
-            payload: [
-                "terminal_id": .string(terminal.terminalID),
-                "lease": .string(lease),
-                "sequence": .int(sequence),
-                "data": .string(data),
-            ],
-            expectedCursor: expectedCursor,
-            sessionCapability: sessionCapability
-        ))
+        submit(
+            request(
+                type: "terminal.input",
+                payload: [
+                    "terminal_id": .string(terminal.terminalID),
+                    "lease": .string(lease),
+                    "sequence": .int(sequence),
+                    "data": .string(data),
+                ],
+                expectedCursor: expectedCursor,
+                sessionCapability: sessionCapability
+            ))
         visibleReason = nil
         return true
     }
-
     @discardableResult
     public func interrupt(
         terminal: NativeTerminalProjection,
@@ -76,20 +74,20 @@ public final class TerminalControlModel: ObservableObject {
         submit: (NativeCommandRequest) -> Void
     ) -> Bool {
         guard let lease = liveLease(terminal) else { return false }
-        submit(request(
-            type: "terminal.signal",
-            payload: [
-                "terminal_id": .string(terminal.terminalID),
-                "lease": .string(lease),
-                "signal": .string("INT"),
-            ],
-            expectedCursor: expectedCursor,
-            sessionCapability: sessionCapability
-        ))
+        submit(
+            request(
+                type: "terminal.signal",
+                payload: [
+                    "terminal_id": .string(terminal.terminalID),
+                    "lease": .string(lease),
+                    "signal": .string("INT"),
+                ],
+                expectedCursor: expectedCursor,
+                sessionCapability: sessionCapability
+            ))
         visibleReason = nil
         return true
     }
-
     @discardableResult
     public func close(
         terminal: NativeTerminalProjection,
@@ -99,22 +97,24 @@ public final class TerminalControlModel: ObservableObject {
         submit: (NativeCommandRequest) -> Void
     ) -> Bool {
         guard confirmed, let lease = liveLease(terminal) else { return false }
-        submit(request(
-            type: "terminal.close",
-            payload: [
-                "terminal_id": .string(terminal.terminalID),
-                "lease": .string(lease),
-            ],
-            expectedCursor: expectedCursor,
-            sessionCapability: sessionCapability
-        ))
+        submit(
+            request(
+                type: "terminal.close",
+                payload: [
+                    "terminal_id": .string(terminal.terminalID),
+                    "lease": .string(lease),
+                ],
+                expectedCursor: expectedCursor,
+                sessionCapability: sessionCapability
+            ))
         visibleReason = nil
         return true
     }
 
     private func liveLease(_ terminal: NativeTerminalProjection) -> String? {
         guard terminal.state == "running", !terminal.readOnly,
-              let lease = terminal.lease, !lease.isEmpty else {
+            let lease = terminal.lease, !lease.isEmpty
+        else {
             visibleReason = "A live Python terminal lease is required."
             return nil
         }
@@ -143,7 +143,6 @@ public struct TerminalView: View {
     private let interrupt: () -> Void
     private let close: () -> Void
 
-    @Environment(\.shellVisualSettings) private var visualSettings
     @State private var input = ""
     @State private var confirmsClose = false
 
@@ -161,7 +160,41 @@ public struct TerminalView: View {
         self.close = close
     }
 
+    public init(
+        terminal: NativeTerminalProjection, presentationAuthority: TerminalPresentationAuthority,
+        sendInput: @escaping (String) -> Void, interrupt: @escaping () -> Void,
+        close: @escaping () -> Void
+    ) {
+        self.init(
+            terminal: terminal, canMutate: presentationAuthority.shows(.input),
+            sendInput: sendInput, interrupt: interrupt, close: close)
+    }
+
+    public var presentationAuthority: TerminalPresentationAuthority {
+        TerminalPresentationAuthority(
+            terminal: terminal, capabilityAllowsMutation: canMutate
+        )
+    }
+
+    @ViewBuilder
     public var body: some View {
+        if presentationAuthority.shows(.closeConfirmation) {
+            terminalContent.confirmationDialog(
+                "Close this Python-owned terminal?",
+                isPresented: $confirmsClose,
+                titleVisibility: .visible
+            ) {
+                Button("Close Terminal", role: .destructive, action: close)
+                Button("Cancel", role: .cancel) {}
+            } message: {
+                Text("The Python process tree will be terminated and cannot be resurrected.")
+            }
+        } else {
+            terminalContent
+        }
+    }
+
+    private var terminalContent: some View {
         VStack(alignment: .leading, spacing: 8) {
             HStack {
                 VStack(alignment: .leading, spacing: 2) {
@@ -169,45 +202,32 @@ public struct TerminalView: View {
                     Text(terminal.cwd).font(.caption2).foregroundStyle(.secondary)
                 }
                 Spacer()
-                Text(terminal.state.uppercased()).font(.caption.bold())
-                Button("Interrupt", action: interrupt)
-                    .disabled(!canMutate)
-                    .keyboardShortcut(".", modifiers: .command)
-                    .accessibilityLabel("Interrupt Python terminal")
-                Button("Close") { confirmsClose = true }
-                    .disabled(!canMutate)
-                    .accessibilityLabel("Close Python terminal")
+                Text(presentationAuthority.statusLabel).font(.caption.bold())
+                if presentationAuthority.shows(.interrupt) {
+                    Button("Interrupt", action: interrupt)
+                        .keyboardShortcut(".", modifiers: .command)
+                        .accessibilityLabel("Interrupt Python terminal")
+                }
+                if presentationAuthority.shows(.close) {
+                    Button("Close") { confirmsClose = true }
+                        .accessibilityLabel("Close Python terminal")
+                }
             }
-            if visualSettings.snapshotRendering {
-                terminalText
-                    .frame(minHeight: 72, maxHeight: 120, alignment: .topLeading)
-                    .clipped()
-            } else {
-                ScrollView([.vertical, .horizontal]) { terminalText }
+            ScrollView([.vertical, .horizontal]) { terminalText }
+            if presentationAuthority.shows(.input), presentationAuthority.shows(.run) {
                 HStack {
                     TextField("Terminal input", text: $input)
                         .textFieldStyle(.roundedBorder)
                         .onSubmit { submitInput() }
-                        .disabled(!canMutate)
                         .accessibilityLabel("Terminal input")
                     Button("Run", action: submitInput)
-                        .disabled(!canMutate || input.isEmpty)
+                        .disabled(input.isEmpty)
                         .accessibilityLabel("Run terminal input")
                 }
             }
         }
         .accessibilityElement(children: .contain)
         .accessibilityLabel("Python terminal")
-        .confirmationDialog(
-            "Close this Python-owned terminal?",
-            isPresented: $confirmsClose,
-            titleVisibility: .visible
-        ) {
-            Button("Close Terminal", role: .destructive, action: close)
-            Button("Cancel", role: .cancel) {}
-        } message: {
-            Text("The Python process tree will be terminated and cannot be resurrected.")
-        }
     }
 
     private var terminalText: some View {
