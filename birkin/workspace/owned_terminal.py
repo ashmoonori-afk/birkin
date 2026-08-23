@@ -15,6 +15,8 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import final
 
+import psutil
+
 from birkin import approvals, config, store
 from birkin.config_model import Config
 
@@ -469,6 +471,45 @@ class TerminalAuthority:
             },
         )
 
+    @staticmethod
+    def _owned_processes(
+        session: _TerminalSession,
+    ) -> tuple[psutil.Process, ...]:
+        processes: dict[int, psutil.Process] = {}
+        try:
+            root = psutil.Process(session.process.pid)
+            processes[root.pid] = root
+            for child in root.children(recursive=True):
+                processes[child.pid] = child
+        except (psutil.NoSuchProcess, psutil.AccessDenied):
+            pass
+        for process in psutil.process_iter():
+            try:
+                if os.getsid(process.pid) == session.process.pid:
+                    processes[process.pid] = process
+            except (
+                ProcessLookupError,
+                PermissionError,
+                psutil.NoSuchProcess,
+                psutil.AccessDenied,
+            ):
+                continue
+        return tuple(processes.values())
+
+    @staticmethod
+    def _signal_processes(
+        processes: tuple[psutil.Process, ...],
+        requested: signal.Signals,
+    ) -> tuple[psutil.Process, ...]:
+        signalled: list[psutil.Process] = []
+        for process in processes:
+            try:
+                process.send_signal(requested)
+            except psutil.NoSuchProcess:
+                continue
+            signalled.append(process)
+        return tuple(signalled)
+
     def _terminate(
         self,
         session: _TerminalSession,
@@ -476,19 +517,37 @@ class TerminalAuthority:
         reason: str,
         emit_exit: bool = True,
     ) -> None:
+        targets = self._signal_processes(
+            self._owned_processes(session),
+            signal.SIGTERM,
+        )
         if session.process.poll() is None:
-            try:
-                os.killpg(session.process.pid, signal.SIGTERM)
-            except ProcessLookupError:
-                pass
             try:
                 _ = session.process.wait(timeout=2)
             except subprocess.TimeoutExpired:
-                try:
-                    os.killpg(session.process.pid, signal.SIGKILL)
-                except ProcessLookupError:
-                    pass
+                session.process.kill()
                 _ = session.process.wait(timeout=2)
+        descendants = tuple(
+            process
+            for process in targets
+            if process.pid != session.process.pid
+        )
+        _, alive = psutil.wait_procs(descendants, timeout=2)
+        residual = {
+            process.pid: process
+            for process in (*alive, *self._owned_processes(session))
+            if process.pid != session.process.pid
+        }
+        killed = self._signal_processes(
+            tuple(residual.values()),
+            signal.SIGKILL,
+        )
+        _, survivors = psutil.wait_procs(killed, timeout=2)
+        if survivors:
+            raise subprocess.TimeoutExpired(
+                "terminal descendant cleanup",
+                timeout=2,
+            )
         if emit_exit:
             self._emit_exit_if_needed(session, reason=reason)
         try:
