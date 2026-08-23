@@ -50,14 +50,12 @@ def test_close_reaps_double_forked_setsid_child(
             "cwd": str(tmp_path),
         })
         child_code = (
-            "import os,signal,time;"
-            "shell=os.getppid();"
+            "import os,time;"
             "child=os.fork();"
             "child and os._exit(0);"
             "os.setsid();"
             f"f=open({str(ready_path)!r},'w');"
             "f.write(str(os.getpid()));f.close();"
-            "os.kill(shell,signal.SIGKILL);"
             "time.sleep(30)"
         )
         _ = terminal.input({
@@ -72,15 +70,11 @@ def test_close_reaps_double_forked_setsid_child(
         readable, _, _ = select.select([ready_fd], [], [], 5)
         assert readable == [ready_fd]
         child_pid = int(os.read(ready_fd, 32))
-        leader_pid = cast(int, opened["pid"])
-        try:
-            _ = psutil.Process(leader_pid).wait(timeout=5)
-        except psutil.NoSuchProcess:
-            pass
         assert os.getpgid(child_pid) == child_pid
         assert os.getsid(child_pid) == child_pid
 
         child = psutil.Process(child_pid)
+        assert child.ppid() == 1
         terminal.close_all()
 
         _ = child.wait(timeout=5)

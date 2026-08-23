@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import sys
 from pathlib import Path
 from typing import cast
 
@@ -10,6 +11,11 @@ import pytest
 
 from birkin.workspace import CommandReceipt, WorkspaceCommand, WorkspaceService
 from birkin.workspace.owned_terminal import TerminalAuthority
+
+DARWIN_ONLY = pytest.mark.skipif(
+    sys.platform != "darwin",
+    reason="terminal journaling requires Darwin containment",
+)
 
 
 def _submit(
@@ -53,6 +59,7 @@ def _payload(event: dict[str, object]) -> dict[str, object]:
     return cast(dict[str, object], payload)
 
 
+@DARWIN_ONLY
 def test_terminal_keystrokes_never_reach_the_durable_journal(
     tmp_path: Path,
 ) -> None:

@@ -767,8 +767,8 @@ The shipped boundary is deliberate:
   process trees, and resolves approvals. Swift sends typed commands; UI state,
   focus, menus, voice input, and notification taps never authorize an action.
   On macOS, every approved PTY shell runs in a terminal-unique launchd resource
-  coalition. Its Seatbelt profile denies Mach, network, and shared-memory IPC,
-  and cleanup
+  coalition. Its Seatbelt profile denies Mach, network, and shared-memory IPC
+  plus terminal-originated process signalling, and cleanup
   quiesces, rescans, and kills the coalition so double-forked or `setsid()`
   descendants cannot migrate away from Python ownership. Non-Darwin bridges do
   not advertise the Native Terminal command set.

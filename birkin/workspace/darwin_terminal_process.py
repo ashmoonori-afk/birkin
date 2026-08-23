@@ -22,7 +22,7 @@ _LAUNCHCTL = "/bin/launchctl"
 _SANDBOX_EXEC = "/usr/bin/sandbox-exec"
 _TERMINAL_SANDBOX_PROFILE = (
     "(version 1)(allow default)"
-    "(deny mach-lookup)(deny network*)(deny ipc*)"
+    "(deny mach-lookup)(deny network*)(deny ipc*)(deny signal)"
 )
 
 

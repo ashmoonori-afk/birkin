@@ -76,8 +76,8 @@ than authority.
   lease; every input/resize/signal/close mutation requires current authority,
   and only allowlisted signals are accepted. Secret input is not projected.
   Each macOS terminal runs in a launchd resource coalition under a Seatbelt
-  profile that denies Mach, network, and shared-memory IPC. App exit quiesces
-  and rescans the
+  profile that denies Mach, network, shared-memory IPC, and terminal-originated
+  process signalling. App exit quiesces and rescans the
   coalition before killing every member, including double-forked `setsid()`
   descendants. Non-Darwin bridges do not advertise this command set.
 - **Bridge supervision:** Swift terminates or restarts only children it spawned.

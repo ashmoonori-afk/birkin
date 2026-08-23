@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import os
 import socket
+import sys
 from pathlib import Path
 from typing import cast
 
@@ -20,6 +21,11 @@ from tests.native_bridge_support import (
     local_peer_uid,
     receive_kind,
     serve,
+)
+
+pytestmark = pytest.mark.skipif(
+    sys.platform != "darwin",
+    reason="Native terminal integration requires Darwin containment",
 )
 
 

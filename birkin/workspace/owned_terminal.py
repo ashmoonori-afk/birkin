@@ -209,6 +209,7 @@ class TerminalAuthority:
             "PS1": "",
             "ENV": "/dev/null",
         }
+        process: DarwinTerminalProcess | None = None
         try:
             process = launch_darwin_terminal(
                 shell_path=shell,
@@ -219,6 +220,10 @@ class TerminalAuthority:
             )
         finally:
             os.close(slave_fd)
+            if process is None:
+                os.close(master_fd)
+        if process is None:
+            raise OSError("terminal process did not launch")
         pty.set_nonblocking(master_fd)
         terminal_id = f"terminal-{secrets.token_hex(12)}"
         lease = secrets.token_urlsafe(32)

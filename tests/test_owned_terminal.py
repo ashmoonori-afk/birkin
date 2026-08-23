@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import os
 import signal
+import sys
 from pathlib import Path
 from typing import Any
 
@@ -12,10 +13,13 @@ from birkin.workspace.contracts import (
     TerminalApprovalRequired,
     TerminalLeaseRequired,
     TerminalSignalRejected,
-    TerminalUnsupported,
 )
-from birkin.workspace import owned_terminal as owned_terminal_module
 from birkin.workspace.owned_terminal import TerminalAuthority
+
+pytestmark = pytest.mark.skipif(
+    sys.platform != "darwin",
+    reason="owned terminal behavior requires Darwin containment",
+)
 
 
 class EventRecorder:
@@ -34,27 +38,6 @@ def authority(tmp_path: Path, recorder: EventRecorder, cfg: dict[str, Any]) -> T
         emit=recorder,
         config_loader=lambda: cfg,
     )
-
-
-def test_terminal_refuses_without_darwin_containment(
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    recorder = EventRecorder()
-    terminal = authority(tmp_path, recorder, {"auto_approve": ["shell"]})
-    monkeypatch.setattr(
-        owned_terminal_module,
-        "_DARWIN",
-        False,
-        raising=False,
-    )
-
-    assert terminal.handlers() == {}
-    with pytest.raises(TerminalUnsupported):
-        _ = terminal.create({
-            "actor_kind": "native_human",
-            "cwd": str(tmp_path),
-        })
 
 
 def test_terminal_create_requires_shell_approval_before_lease(

@@ -770,9 +770,10 @@ Unix domain socket을 우선 사용하고, 명시적으로 선택할 때 인증�
   보낼 뿐 UI state, focus, menu, voice input, notification tap이 action을
   승인하지 않습니다.
   macOS에서는 승인된 각 PTY shell이 terminal별 launchd resource coalition
-  안에서 실행됩니다. Seatbelt profile은 Mach, network, shared-memory IPC를
-  차단하고, cleanup은 coalition을 정지·재탐색·종료하므로 double-fork 또는
-  `setsid()` descendant가 Python 소유권 밖으로 이동할 수 없습니다.
+  안에서 실행됩니다. Seatbelt profile은 Mach, network, shared-memory IPC와
+  terminal-originated process signal을 차단하고, cleanup은 coalition을
+  정지·재탐색·종료하므로 double-fork 또는 `setsid()` descendant가 Python
+  소유권 밖으로 이동할 수 없습니다.
   Non-Darwin bridge는 Native Terminal command set을 광고하지 않습니다.
 - **Bridge lifecycle:** App은 배포된 `birkin native-bridge serve` 명령으로
   자체 Python bridge를 시작하고, 그 명령이 알리는 endpoint를 기다리며,
