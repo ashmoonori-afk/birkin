@@ -136,6 +136,7 @@ markers = [
 ]
 
 [tool.basedpyright]
+extraPaths = ["scripts/native"]
 include = [
     "birkin/workspace",
     "birkin/workspace_terminal.py",
