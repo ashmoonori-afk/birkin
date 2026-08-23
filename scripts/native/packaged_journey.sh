@@ -597,6 +597,7 @@ events_log_tmp="$(new_evidence_temp "packaged-journey-events.log")"
   /usr/bin/python3 -c \
   'import os, sys; os.setsid(); os.execv(sys.argv[1], sys.argv[1:])' \
   "$dist/Birkin.app/Contents/MacOS/BirkinNativeApp" \
+  -ApplePersistenceIgnoreState YES \
   > "$events_log_tmp" 2>&1 &
 app_pid=$!
 cd "$launch_cwd"

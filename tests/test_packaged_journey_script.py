@@ -48,3 +48,9 @@ def test_journey_uses_only_per_step_window_captures() -> None:
     source = SCRIPT.read_text(encoding="utf-8")
 
     assert "BIRKIN_NATIVE_SCREENSHOT" not in source
+
+
+def test_journey_ignores_persisted_window_restoration_state() -> None:
+    source = SCRIPT.read_text(encoding="utf-8")
+
+    assert "-ApplePersistenceIgnoreState YES" in source
