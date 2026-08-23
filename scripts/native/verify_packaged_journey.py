@@ -3,9 +3,11 @@
 
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 import plistlib
+import stat
 import sys
 from pathlib import Path
 from typing import Protocol, cast
@@ -131,6 +133,93 @@ def _require_within(path: Path, root: Path, label: str) -> None:
         ) from error
 
 
+def _mounted_browser_cache(
+    helper: Path,
+    workspace: Path,
+) -> tuple[Path, str, int]:
+    architecture = helper.parent.name
+    manifest = helper.parents[2] / "Resources/bridge-helper.json"
+    if not manifest.is_file() or manifest.is_symlink():
+        raise JourneyVerificationError(
+            "packaged browser manifest is missing or linked"
+        )
+    payload = _load(manifest.read_bytes(), manifest.name)
+    records = _objects(payload.get("browser_runtimes"), "browser_runtimes")
+    selected = [
+        record for record in records
+        if record.get("architecture") == architecture
+    ]
+    if len(selected) != 1:
+        raise JourneyVerificationError(
+            "packaged browser architecture is ambiguous"
+        )
+    record = selected[0]
+    digest = _string(record.get("sha256"), "browser sha256")
+    size = _integer(record.get("size_bytes"), "browser size_bytes")
+    if (
+        len(digest) != 64
+        or any(character not in "0123456789abcdef" for character in digest)
+        or record.get("path") != f"BrowserRuntimes/{architecture}"
+        or size <= 0
+    ):
+        raise JourneyVerificationError(
+            "packaged browser cache identity is invalid"
+        )
+    cache = (
+        workspace.parent
+        / "home/browser-runtime-cache"
+        / f"{architecture}-{digest}"
+    )
+    return cache.resolve(), digest, size
+
+
+def _verify_browser_cache(
+    root: Path,
+    expected_digest: str,
+    expected_size: int,
+) -> None:
+    if (
+        not root.is_dir()
+        or root.is_symlink()
+        or stat.S_IMODE(root.stat().st_mode) != 0o700
+    ):
+        raise JourneyVerificationError(
+            "provider browser cache is not private"
+        )
+    tree = hashlib.sha256()
+    size = 0
+    for path in sorted(
+        root.rglob("*"),
+        key=lambda item: item.relative_to(root).as_posix(),
+    ):
+        if path.is_symlink():
+            raise JourneyVerificationError(
+                "provider browser cache contains a link"
+            )
+        if path.is_dir():
+            continue
+        if not path.is_file():
+            raise JourneyVerificationError(
+                "provider browser cache contains a special file"
+            )
+        metadata = path.stat()
+        if metadata.st_nlink != 1:
+            raise JourneyVerificationError(
+                "provider browser cache contains a hard link"
+            )
+        digest = hashlib.sha256()
+        with path.open("rb") as handle:
+            while chunk := handle.read(1024 * 1024):
+                digest.update(chunk)
+        relative = "./" + path.relative_to(root).as_posix()
+        tree.update(f"{digest.hexdigest()}  {relative}\n".encode())
+        size += metadata.st_size
+    if tree.hexdigest() != expected_digest or size != expected_size:
+        raise JourneyVerificationError(
+            "provider browser cache identity changed"
+        )
+
+
 def verify(evidence: Path, helper: Path, workspace: Path) -> str:
     evidence = absolute_path(evidence)
     helper = helper.resolve()
@@ -214,7 +303,17 @@ def verify(evidence: Path, helper: Path, workspace: Path) -> str:
         _require_within(helper, mounted_root, "packaged helper")
         _require_within(expected_browser, mounted_root, "bundled browser")
         _require_within(expected_app, mounted_root, "packaged app")
-    if Path(_string(artifacts.get("browser_runtime"), "browser_runtime")).resolve() != expected_browser:
+    actual_browser = Path(
+        _string(artifacts.get("browser_runtime"), "browser_runtime")
+    ).resolve()
+    if origin == "mounted-dmg":
+        cache, digest, size = _mounted_browser_cache(helper, workspace)
+        if actual_browser != cache:
+            raise JourneyVerificationError(
+                f"provider probe did not verify private browser cache: {artifacts}"
+            )
+        _verify_browser_cache(cache, digest, size)
+    elif actual_browser != expected_browser:
         raise JourneyVerificationError(
             f"provider probe did not verify bundled browser: {artifacts}"
         )
