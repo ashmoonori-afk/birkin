@@ -199,8 +199,20 @@ def test_cleanup_reaps_the_owned_app_bridge_process_group_before_reporting(
 ) -> None:
     evidence = tmp_path / "evidence"
     dist = tmp_path / "dist"
+    architecture = {
+        "arm64": "arm64",
+        "aarch64": "arm64",
+        "x86_64": "x86_64",
+    }[platform.machine()]
     app = dist / "Birkin.app/Contents/MacOS/BirkinNativeApp"
-    helper = dist / "Birkin.app/Contents/Helpers/arm64/birkin-native-bridge"
+    helper = (
+        dist
+        / "Birkin.app"
+        / "Contents"
+        / "Helpers"
+        / architecture
+        / "birkin-native-bridge"
+    )
     app.parent.mkdir(parents=True)
     helper.parent.mkdir(parents=True)
     _ = helper.write_text(
