@@ -22,6 +22,13 @@ from birkin.native.transport import receive_frame
 from tests.native_bridge_support import envelope, hello
 
 
+_SHORT_TEMP_ROOT = (
+    Path("/private/tmp")
+    if Path("/private/tmp").is_dir()
+    else Path(tempfile.gettempdir())
+)
+
+
 def _serve(root: Path, *, transport: str = "uds") -> subprocess.Popen[str]:
     environment = dict(os.environ)
     environment["BIRKIN_HOME"] = str(root / "home")
@@ -110,7 +117,7 @@ def test_native_bridge_serves_a_real_connection_and_cleans_up() -> None:
     connection, and removed the endpoint on exit."""
     # A Unix socket path is bounded by the platform, so this suite keeps its
     # own short per-run root instead of the deep pytest temporary directory.
-    root = Path(tempfile.mkdtemp(prefix="bk-cli-", dir="/private/tmp"))
+    root = Path(tempfile.mkdtemp(prefix="bk-cli-", dir=_SHORT_TEMP_ROOT))
     process = _serve(root)
     try:
         record = _readiness(process)
@@ -191,7 +198,7 @@ def test_served_bridge_creates_selects_and_serves_a_new_session() -> None:
     """Given the shipped bridge, When the app creates and selects a session,
     Then session.create is advertised, accepted, and the new session serves
     its own projection."""
-    root = Path(tempfile.mkdtemp(prefix="bk-session-", dir="/private/tmp"))
+    root = Path(tempfile.mkdtemp(prefix="bk-session-", dir=_SHORT_TEMP_ROOT))
     process = _serve(root)
     try:
         record = _readiness(process)

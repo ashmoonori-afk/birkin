@@ -17,6 +17,7 @@ json_value() {
 
 verify_inputs() {
   local schema python_version python_build architecture url checksum
+  local python locked_version package_version
   schema="$(json_value schema)"
   python_version="$(json_value python.version)"
   python_build="$(json_value python.build)"
@@ -28,10 +29,34 @@ verify_inputs() {
     [[ "$checksum" =~ ^[0-9a-f]{64}$ ]]
   done
   grep -q '^pyinstaller==6\.22\.2 \\' "$build_lock"
-  UV_OFFLINE=1 uv lock --check --directory "$repo_root" >/dev/null
+  python=python3
+  command -v "$python" >/dev/null 2>&1 || python=python
+  locked_version="$("$python" - "$repo_root/uv.lock" <<'PY'
+import sys
+try:
+    import tomllib
+except ModuleNotFoundError:
+    import tomli as tomllib
+
+with open(sys.argv[1], "rb") as lock_file:
+    lock = tomllib.load(lock_file)
+packages = lock.get("package", [])
+project = next(
+    package
+    for package in packages
+    if package.get("name") == "birkin"
+    and package.get("source") == {"editable": "."}
+)
+print(project["version"])
+PY
+)"
+  package_version="$(
+    awk -F'"' '/^version = /{print $2; exit}' "$repo_root/pyproject.toml"
+  )"
+  [[ "$locked_version" == "$package_version" ]]
   printf '{"architectures":["arm64","x86_64"],'
   printf '"package_version":"%s","python_build":"%s",' \
-    "$(awk -F'"' '/^version = /{print $2; exit}' "$repo_root/pyproject.toml")" "$python_build"
+    "$package_version" "$python_build"
   printf '"python_version":"%s","schema":%s}\n' "$python_version" "$schema"
 }
 

@@ -186,7 +186,11 @@ unset BIRKIN_NATIVE_BRIDGE_COMMAND
 unset BIRKIN_NATIVE_BRIDGE_ARGUMENTS
 unset BIRKIN_NATIVE_BRIDGE_OPTIONS
 # A Unix socket path is platform bounded, so the runtime root stays short.
-root="$(mktemp -d /private/tmp/bk-journey-XXXXXX)"
+case "$(uname -s)" in
+  Darwin) short_temp_root=/private/tmp ;;
+  Linux) short_temp_root=/tmp ;;
+esac
+root="$(mktemp -d "$short_temp_root/bk-journey-XXXXXX")"
 browser_pid="" browser_started_pid="0" browser_group_id=""
 app_pid="" app_started_pid="0" app_group_id=""
 provider_log_tmp="" events_log_tmp=""

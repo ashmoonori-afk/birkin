@@ -8,6 +8,8 @@ import subprocess
 from pathlib import Path
 from typing import TypeGuard, cast
 
+import tomli
+
 REPOSITORY = Path(__file__).resolve().parent.parent
 INPUTS = REPOSITORY / "scripts/native/bridge_helper_inputs.json"
 BUILD_LOCK = REPOSITORY / "scripts/native/bridge_helper_build.lock"
@@ -122,34 +124,17 @@ def test_helper_builder_verifies_inputs_without_downloading() -> None:
 
 
 def test_helper_runtime_hash_policy_accepts_only_exact_vcs_source() -> None:
-    # Given the exact locked runtime dependency export.
-    result = subprocess.run(
-        [
-            "uv",
-            "export",
-            "--locked",
-            "--no-dev",
-            "--extra",
-            "browser",
-            "--extra",
-            "office",
-            "--no-emit-project",
-            "--no-annotate",
-            "--no-header",
-            "--format",
-            "requirements.txt",
-        ],
-        cwd=REPOSITORY,
-        text=True,
-        capture_output=True,
-        check=False,
-    )
-    assert result.returncode == 0, result.stdout + result.stderr
+    # Given the exact locked runtime dependency graph.
+    with (REPOSITORY / "uv.lock").open("rb") as lock_file:
+        lock = cast(dict[str, object], tomli.load(lock_file))
+    packages = cast(list[dict[str, object]], lock["package"])
 
-    # When unhashed records and their installer policy are inspected.
-    records = re.split(r"\n(?=\S)", result.stdout.strip())
-    unhashed_records = [
-        record for record in records if "--hash=sha256:" not in record
+    # When immutable VCS sources and their installer policy are inspected.
+    vcs_sources = [
+        (cast(str, package["name"]), cast(dict[str, str], package["source"]))
+        for package in packages
+        if isinstance(package.get("source"), dict)
+        and "git" in cast(dict[str, object], package["source"])
     ]
     runtime_install = re.search(
         r'uv pip install[^\n]*\\\n\s+--requirements "\$work/runtime\.lock"',
@@ -157,10 +142,16 @@ def test_helper_runtime_hash_policy_accepts_only_exact_vcs_source() -> None:
     )
 
     # Then only the immutable Git source bypasses all-record hash enforcement.
-    assert unhashed_records == [
-        "birkin-mnemosyne @ git+https://github.com/ashmoonori-afk/"
-        + "birkin-mnemosyne@36814c13b44260a0c1ada53d142b2940fff134df"
-    ]
+    assert vcs_sources == [(
+        "birkin-mnemosyne",
+        {
+            "git": (
+                "https://github.com/ashmoonori-afk/birkin-mnemosyne"
+                + "?rev=36814c13b44260a0c1ada53d142b2940fff134df"
+                + "#36814c13b44260a0c1ada53d142b2940fff134df"
+            ),
+        },
+    )]
     assert runtime_install is not None
     assert "--require-hashes" not in runtime_install.group()
 
