@@ -33,6 +33,20 @@ struct ShellPresentationModelTests {
     }
 
     @MainActor
+    @Test("an unchanged focus probe reports visibility once")
+    func unchangedProbeReportsOnce() {
+        let probe = ShellFocusVisibilityView(
+            frame: NSRect(x: 0, y: 0, width: 400, height: 100)
+        )
+        var reports: [Bool] = []
+
+        probe.configure { reports.append($0) }
+        probe.configure { reports.append($0) }
+
+        #expect(reports == [true])
+    }
+
+    @MainActor
     @Test("an unreported focus request times out")
     func unreportedFocusTimesOut() async {
         let model = ShellPresentationModel()
@@ -51,18 +65,16 @@ struct ShellPresentationModelTests {
     func newerFocusSupersedesRegisteredWaiter() async {
         let model = ShellPresentationModel()
         let firstGeneration = model.focus(.section(.conversation))
-        let (registrations, registration) = AsyncStream<Void>.makeStream()
-        var iterator = registrations.makeAsyncIterator()
+        var secondGeneration: UInt64 = 0
         let waiter = Task { @MainActor in
             try await model.waitUntilVisible(
                 generation: firstGeneration,
                 timeout: .seconds(2),
-                onWaiting: { registration.yield() }
+                onWaiting: {
+                    secondGeneration = model.focus(.section(.activity))
+                }
             )
         }
-        _ = await iterator.next()
-
-        let secondGeneration = model.focus(.section(.activity))
 
         do {
             try await waiter.value

@@ -126,6 +126,20 @@ private func browserTestCapture() -> PackagedWindowCapture {
                 alpha: 1
             )
             context.fill(CGRect(x: 0, y: 0, width: 2_560, height: 1_600))
+            for index in 0..<8 {
+                context.setFillColor(
+                    red: CGFloat(index) / 7,
+                    green: CGFloat(7 - index) / 7,
+                    blue: CGFloat(index % 3) / 2,
+                    alpha: 1
+                )
+                context.fill(CGRect(
+                    x: index * 320,
+                    y: 240,
+                    width: 320,
+                    height: 1_120
+                ))
+            }
             return context.makeImage()
         }
     )

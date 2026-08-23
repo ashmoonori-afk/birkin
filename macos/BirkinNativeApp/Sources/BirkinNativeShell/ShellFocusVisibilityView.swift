@@ -19,7 +19,6 @@ final class ShellFocusVisibilityView: NSView {
     func configure(
         reportVisibility: @escaping (Bool) -> Void
     ) {
-        lastReportedVisibility = nil
         self.reportVisibility = reportVisibility
         observeClipView()
         reportCurrentVisibility()
