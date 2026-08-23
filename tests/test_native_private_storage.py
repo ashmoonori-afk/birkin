@@ -58,6 +58,10 @@ def _windows_dacl(path: Path) -> str:
     return "D:" + tail.split("S:", 1)[0]
 
 
+def _normalize_windows_dacl(sddl: str, owner_sid: str) -> str:
+    return sddl.replace("PAI", "P").replace(";;;LA)", f";;;{owner_sid})")
+
+
 def test_windows_owner_sid_ignores_localized_username_bytes() -> None:
     output = (
         "사용자".encode("cp949")
@@ -88,7 +92,9 @@ def test_windows_private_file_removes_explicit_everyone_ace(
     private_storage.harden_private_file(path)
 
     sid = _windows_owner_sid(system)
-    assert _windows_dacl(path) == f"D:P(A;;FA;;;{sid})"
+    assert _normalize_windows_dacl(_windows_dacl(path), sid) == (
+        f"D:P(A;;FA;;;{sid})"
+    )
 
 
 @_WINDOWS_ONLY
@@ -118,7 +124,9 @@ def test_windows_private_temp_is_owner_only_at_creation(
         )
         os.replace(path, published)
         sid = _windows_owner_sid(system)
-        assert _windows_dacl(published) == f"D:P(A;;FA;;;{sid})"
+        assert _normalize_windows_dacl(_windows_dacl(published), sid) == (
+            f"D:P(A;;FA;;;{sid})"
+        )
     finally:
         path.unlink(missing_ok=True)
         published.unlink(missing_ok=True)

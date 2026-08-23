@@ -8,6 +8,7 @@ import secrets
 import subprocess
 import tempfile
 from collections.abc import Callable
+from functools import lru_cache
 from pathlib import Path
 from typing import cast, final
 
@@ -45,10 +46,7 @@ def _harden_windows_path(path: Path, *, directory: bool) -> None:
     system_root = os.environ.get("SystemRoot")
     if not system_root:
         raise OSError("cannot locate Windows security tools")
-    system = Path(system_root) / "System32"
-    sid = _windows_owner_sid(
-        _run([str(system / "whoami.exe"), "/user", "/fo", "csv", "/nh"])
-    )
+    sid = _current_windows_owner_sid(system_root)
     _set_windows_dacl(path, sid=sid, directory=directory)
 
 
@@ -57,6 +55,14 @@ def _windows_owner_sid(output: bytes) -> str:
     if _WINDOWS_SID.fullmatch(raw_sid) is None:
         raise OSError("cannot identify the Windows Native file owner")
     return raw_sid.decode("ascii")
+
+
+@lru_cache(maxsize=1)
+def _current_windows_owner_sid(system_root: str) -> str:
+    whoami = Path(system_root) / "System32/whoami.exe"
+    return _windows_owner_sid(
+        _run([str(whoami), "/user", "/fo", "csv", "/nh"])
+    )
 
 
 def _set_windows_dacl(
@@ -163,10 +169,7 @@ def _create_windows_private_temp(
     system_root = os.environ.get("SystemRoot")
     if not system_root:
         raise OSError("cannot locate Windows security tools")
-    whoami = Path(system_root) / "System32/whoami.exe"
-    sid = _windows_owner_sid(
-        _run([str(whoami), "/user", "/fo", "csv", "/nh"])
-    )
+    sid = _current_windows_owner_sid(system_root)
     security_descriptor = ctypes.c_void_p()
     descriptor_size = wintypes.DWORD()
     convert = (
