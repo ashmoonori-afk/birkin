@@ -39,7 +39,7 @@ class BrowserCommand:
 def load_sync_api() -> SyncApi:
     if os.environ.get("BIRKIN_BROWSER_FORCE_UNAVAILABLE") == "1":
         raise ImportError("forced unavailable browser")
-    ensure_bundled_browser()
+    _ = ensure_bundled_browser()
     module: ModuleType = importlib.import_module("playwright.sync_api")
     return cast(SyncApi, cast(object, module))
 
@@ -77,5 +77,5 @@ def launch_isolated_context(
         args=["--proxy-bypass-list=<-loopback>",
               "--force-webrtc-ip-handling-policy=disable_non_proxied_udp"],
         service_workers="block",
-        timeout=15_000,
+        timeout=45_000,
     )
