@@ -160,7 +160,7 @@ def test_blocked_command_keeps_heartbeat_live_until_ordered_receipt(
                 pong_body["session_capability"] = token
                 client.sendall(encode_frame(envelope(
                     "pong",
-                    frame_id=f"blocked-command-pong-{index}",
+                    frame_id=f"blocked-command-final-pong-{index}",
                     in_reply_to=frame.id,
                     body=pong_body,
                 )))
