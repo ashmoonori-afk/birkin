@@ -11,6 +11,9 @@ json_value() {
   local python
   if [[ -n "${BIRKIN_VERIFY_PYTHON:-}" ]]; then
     python="$BIRKIN_VERIFY_PYTHON"
+    case "$(uname -s)" in
+      MINGW*|MSYS*) python="$(cygpath -u "$python")" ;;
+    esac
   else
     python=python
     command -v "$python" >/dev/null 2>&1 || python=python3
@@ -49,6 +52,9 @@ verify_inputs() {
   }
   if [[ -n "${BIRKIN_VERIFY_PYTHON:-}" ]]; then
     python="$BIRKIN_VERIFY_PYTHON"
+    case "$(uname -s)" in
+      MINGW*|MSYS*) python="$(cygpath -u "$python")" ;;
+    esac
   else
     python=python
     command -v "$python" >/dev/null 2>&1 || python=python3
