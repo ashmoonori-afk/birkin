@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import csv
 import os
 import subprocess
 from pathlib import Path
@@ -8,42 +9,13 @@ import pytest
 
 from birkin.native import private_storage
 
-pytestmark = pytest.mark.skipif(
-    os.name != "nt",
-    reason="Windows ACL contract",
+_WINDOWS_ONLY = pytest.mark.skipif(
+    os.name != "nt", reason="Windows ACL contract"
 )
 
 
-def test_windows_private_paths_receive_owner_only_acl(
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    directory = tmp_path / "authority"
-    file = directory / "bootstrap.json"
-    directory.mkdir()
-    _ = file.write_text("secret", encoding="utf-8")
-    calls: list[list[str]] = []
-
-    def run(
-        command: list[str],
-        **_kwargs: object,
-    ) -> subprocess.CompletedProcess[bytes]:
-        calls.append(command)
-        stdout = (
-            b'"S-1-5-32-545","S-1-5-21-1000"\n'
-            if command[0].endswith("whoami.exe")
-            else b""
-        )
-        return subprocess.CompletedProcess(command, 0, stdout, b"")
-
-    monkeypatch.setenv("SystemRoot", "C:/Windows")
-    monkeypatch.setattr(private_storage.subprocess, "run", run)
-
-    private_storage.harden_private_directory(directory)
-    private_storage.harden_private_file(file)
-
-    system = Path("C:/Windows") / "System32"
-    assert calls == [
+def _windows_owner_sid(system: Path) -> str:
+    result = subprocess.run(
         [
             str(system / "whoami.exe"),
             "/user",
@@ -51,40 +23,43 @@ def test_windows_private_paths_receive_owner_only_acl(
             "csv",
             "/nh",
         ],
-        [
-            str(system / "icacls.exe"),
-            str(directory),
-            "/reset",
-        ],
-        [
-            str(system / "icacls.exe"),
-            str(directory),
-            "/inheritance:r",
-            "/grant:r",
-            "*S-1-5-21-1000:(OI)(CI)F",
-        ],
-        [
-            str(system / "whoami.exe"),
-            "/user",
-            "/fo",
-            "csv",
-            "/nh",
-        ],
-        [
-            str(system / "icacls.exe"),
-            str(file),
-            "/reset",
-        ],
-        [
-            str(system / "icacls.exe"),
-            str(file),
-            "/inheritance:r",
-            "/grant:r",
-            "*S-1-5-21-1000:F",
-        ],
-    ]
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+    rows = list(csv.reader(result.stdout.splitlines()))
+    assert len(rows) == 1
+    return rows[0][-1]
 
 
+def _windows_dacl(path: Path) -> str:
+    escaped = str(path).replace("'", "''")
+    result = subprocess.run(
+        [
+            "powershell.exe",
+            "-NoProfile",
+            "-Command",
+            f"(Get-Acl -LiteralPath '{escaped}').Sddl",
+        ],
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+    _, separator, tail = result.stdout.strip().partition("D:")
+    assert separator == "D:"
+    return "D:" + tail.split("S:", 1)[0]
+
+
+def test_windows_owner_sid_ignores_localized_username_bytes() -> None:
+    output = (
+        "사용자".encode("cp949")
+        + b',"S-1-5-21-1000"\r\n'
+    )
+
+    assert private_storage._windows_owner_sid(output) == "S-1-5-21-1000"
+
+
+@_WINDOWS_ONLY
 def test_windows_private_file_removes_explicit_everyone_ace(
     tmp_path: Path,
 ) -> None:
@@ -104,21 +79,11 @@ def test_windows_private_file_removes_explicit_everyone_ace(
 
     private_storage.harden_private_file(path)
 
-    escaped = str(path).replace("'", "''")
-    result = subprocess.run(
-        [
-            "powershell.exe",
-            "-NoProfile",
-            "-Command",
-            f"(Get-Acl -LiteralPath '{escaped}').Sddl",
-        ],
-        check=True,
-        capture_output=True,
-        text=True,
-    )
-    assert ";;;WD)" not in result.stdout
+    sid = _windows_owner_sid(system)
+    assert _windows_dacl(path) == f"D:P(A;;FA;;;{sid})"
 
 
+@_WINDOWS_ONLY
 def test_windows_private_temp_is_owner_only_at_creation(
     tmp_path: Path,
 ) -> None:
@@ -127,27 +92,31 @@ def test_windows_private_temp_is_owner_only_at_creation(
         prefix=".bootstrap.",
     )
     path = Path(name)
+    published = tmp_path / "published-bootstrap.json"
     try:
         with os.fdopen(descriptor, "w", encoding="utf-8") as handle:
             _ = handle.write("secret")
-        escaped = str(path).replace("'", "''")
-        result = subprocess.run(
+        _ = published.write_text("old", encoding="utf-8")
+        system = Path(os.environ["SystemRoot"]) / "System32"
+        subprocess.run(
             [
-                "powershell.exe",
-                "-NoProfile",
-                "-Command",
-                f"(Get-Acl -LiteralPath '{escaped}').Sddl",
+                str(system / "icacls.exe"),
+                str(published),
+                "/grant",
+                "*S-1-1-0:F",
             ],
             check=True,
             capture_output=True,
-            text=True,
         )
-        assert ";;;WD)" not in result.stdout
-        assert ":P(" in result.stdout
+        os.replace(path, published)
+        sid = _windows_owner_sid(system)
+        assert _windows_dacl(published) == f"D:P(A;;FA;;;{sid})"
     finally:
         path.unlink(missing_ok=True)
+        published.unlink(missing_ok=True)
 
 
+@_WINDOWS_ONLY
 def test_windows_private_path_fails_closed_without_security_tools(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,

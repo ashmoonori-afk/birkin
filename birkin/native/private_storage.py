@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import csv
 import os
 import re
 import secrets
@@ -47,40 +46,109 @@ def _harden_windows_path(path: Path, *, directory: bool) -> None:
     if not system_root:
         raise OSError("cannot locate Windows security tools")
     system = Path(system_root) / "System32"
-    identity = _windows_owner_sid(
+    sid = _windows_owner_sid(
         _run([str(system / "whoami.exe"), "/user", "/fo", "csv", "/nh"])
     )
-    sid = identity
-    grant = f"*{sid}:(OI)(CI)F" if directory else f"*{sid}:F"
-    _ = _run([
-        str(system / "icacls.exe"),
-        str(path),
-        "/reset",
-    ])
-    _ = _run([
-        str(system / "icacls.exe"),
-        str(path),
-        "/inheritance:r",
-        "/grant:r",
-        grant,
-    ])
+    _set_windows_dacl(path, sid=sid, directory=directory)
 
 
 def _windows_owner_sid(output: bytes) -> str:
+    raw_sid = output.rsplit(b",", 1)[-1].strip(b'"\r\n ')
+    if _WINDOWS_SID.fullmatch(raw_sid) is None:
+        raise OSError("cannot identify the Windows Native file owner")
+    return raw_sid.decode("ascii")
+
+
+def _set_windows_dacl(
+    path: Path,
+    *,
+    sid: str,
+    directory: bool,
+) -> None:
+    import ctypes
+    from ctypes import wintypes
+
+    descriptor = ctypes.c_void_p()
+    descriptor_size = wintypes.DWORD()
+    convert = (
+        ctypes.windll.advapi32
+        .ConvertStringSecurityDescriptorToSecurityDescriptorW
+    )
+    convert.argtypes = [
+        wintypes.LPCWSTR,
+        wintypes.DWORD,
+        ctypes.POINTER(ctypes.c_void_p),
+        ctypes.POINTER(wintypes.DWORD),
+    ]
+    convert.restype = wintypes.BOOL
+    inheritance = "OICI" if directory else ""
+    sddl = f"D:P(A;{inheritance};FA;;;{sid})"
+    if not convert(
+        sddl,
+        1,
+        ctypes.byref(descriptor),
+        ctypes.byref(descriptor_size),
+    ):
+        raise ctypes.WinError()
+    dacl_present = wintypes.BOOL()
+    dacl_defaulted = wintypes.BOOL()
+    dacl = ctypes.c_void_p()
+    get_dacl = (
+        ctypes.windll.advapi32.GetSecurityDescriptorDacl
+    )
+    get_dacl.argtypes = [
+        ctypes.c_void_p,
+        ctypes.POINTER(wintypes.BOOL),
+        ctypes.POINTER(ctypes.c_void_p),
+        ctypes.POINTER(wintypes.BOOL),
+    ]
+    get_dacl.restype = wintypes.BOOL
+    set_info = ctypes.windll.advapi32.SetNamedSecurityInfoW
+    set_info.argtypes = [
+        wintypes.LPWSTR,
+        wintypes.DWORD,
+        wintypes.DWORD,
+        ctypes.c_void_p,
+        ctypes.c_void_p,
+        ctypes.c_void_p,
+        ctypes.c_void_p,
+    ]
+    set_info.restype = wintypes.DWORD
+    call_set_info = cast(
+        Callable[
+            [str, int, int, object, object, object, object],
+            object
+        ],
+        set_info,
+    )
     try:
-        rows = list(csv.reader(
-            output.decode("utf-8-sig").splitlines()
-        ))
-    except UnicodeDecodeError as error:
-        raise OSError(
-            "cannot identify the Windows Native file owner"
-        ) from error
-    if len(rows) != 1 or len(rows[0]) < 2:
-        raise OSError("cannot identify the Windows Native file owner")
-    sid = rows[0][-1].strip()
-    if _WINDOWS_SID.fullmatch(sid.encode("ascii", errors="ignore")) is None:
-        raise OSError("cannot identify the Windows Native file owner")
-    return sid
+        if not get_dacl(
+            descriptor,
+            ctypes.byref(dacl_present),
+            ctypes.byref(dacl),
+            ctypes.byref(dacl_defaulted),
+        ) or not dacl_present:
+            raise ctypes.WinError()
+        raw_result = call_set_info(
+            str(path),
+            1,
+            0x80000004,
+            None,
+            None,
+            dacl,
+            None,
+        )
+        if not isinstance(raw_result, int):
+            raise OSError("Windows did not return a DACL result")
+        result = raw_result
+        if result != 0:
+            raise ctypes.WinError(result)
+    finally:
+        local_free = cast(
+            Callable[[object], object],
+            ctypes.windll.kernel32.LocalFree,
+        )
+        _ = local_free(descriptor)
 
 
 def _create_windows_private_temp(

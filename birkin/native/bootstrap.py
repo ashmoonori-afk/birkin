@@ -13,7 +13,6 @@ from typing import cast, final
 from birkin.native.private_storage import (
     create_private_temp,
     harden_private_directory,
-    harden_private_file,
 )
 from birkin.native.protocol import NativeProtocolError
 
@@ -91,13 +90,11 @@ def write_record(
     )
     temp_path = Path(temp_name)
     try:
-        harden_private_file(temp_path)
         with os.fdopen(fd, "w", encoding="utf-8") as handle:
             json.dump(payload, handle, sort_keys=True, separators=(",", ":"))
             handle.flush()
             os.fsync(handle.fileno())
         os.replace(temp_path, path)
-        harden_private_file(path)
     finally:
         if temp_path.exists():
             temp_path.unlink()

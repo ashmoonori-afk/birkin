@@ -11,10 +11,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import final
 
-from birkin.native.private_storage import (
-    create_private_temp,
-    harden_private_file,
-)
+from birkin.native.private_storage import create_private_temp
 from birkin.native.projection import public_error_text
 
 Clock = Callable[[], datetime]
@@ -95,6 +92,5 @@ class DiagnosticRing:
                 handle.flush()
                 os.fsync(handle.fileno())
             os.replace(temporary_path, destination)
-            harden_private_file(destination)
         finally:
             temporary_path.unlink(missing_ok=True)
