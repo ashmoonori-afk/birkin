@@ -88,7 +88,7 @@ build_architecture() {
   python="$runtime/bin/python3"
   uv pip install --python "$python" --require-hashes --only-binary :all: \
     --requirements "$build_lock"
-  uv pip install --python "$python" --require-hashes --only-binary :all: \
+  uv pip install --python "$python" --only-binary :all: \
     --requirements "$work/runtime.lock"
   site_packages="$runtime/lib/python3.13/site-packages"
   cp -R "$repo_root/birkin" "$site_packages/birkin"

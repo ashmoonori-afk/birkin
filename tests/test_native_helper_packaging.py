@@ -89,6 +89,50 @@ def test_helper_builder_verifies_inputs_without_downloading() -> None:
     }
 
 
+def test_helper_runtime_hash_policy_accepts_only_exact_vcs_source() -> None:
+    # Given the exact locked runtime dependency export.
+    result = subprocess.run(
+        [
+            "uv",
+            "export",
+            "--locked",
+            "--no-dev",
+            "--extra",
+            "browser",
+            "--extra",
+            "office",
+            "--no-emit-project",
+            "--no-annotate",
+            "--no-header",
+            "--format",
+            "requirements.txt",
+        ],
+        cwd=REPOSITORY,
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+    assert result.returncode == 0, result.stdout + result.stderr
+
+    # When unhashed records and their installer policy are inspected.
+    records = re.split(r"\n(?=\S)", result.stdout.strip())
+    unhashed_records = [
+        record for record in records if "--hash=sha256:" not in record
+    ]
+    runtime_install = re.search(
+        r'uv pip install[^\n]*\\\n\s+--requirements "\$work/runtime\.lock"',
+        BUILD_SCRIPT.read_text(encoding="utf-8"),
+    )
+
+    # Then only the immutable Git source bypasses all-record hash enforcement.
+    assert unhashed_records == [
+        "birkin-mnemosyne @ git+https://github.com/ashmoonori-afk/"
+        "birkin-mnemosyne@36814c13b44260a0c1ada53d142b2940fff134df"
+    ]
+    assert runtime_install is not None
+    assert "--require-hashes" not in runtime_install.group()
+
+
 def test_browser_builder_verifies_inputs_without_downloading() -> None:
     result = subprocess.run(
         ["bash", str(BROWSER_BUILD_SCRIPT), "--verify-inputs"],
