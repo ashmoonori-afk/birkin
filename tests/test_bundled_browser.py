@@ -5,6 +5,7 @@ import json
 import multiprocessing
 import os
 import shutil
+from collections.abc import Generator
 from dataclasses import dataclass
 from pathlib import Path
 from typing import cast
@@ -17,6 +18,16 @@ from birkin.bundled_browser import (
     BundledBrowserRuntimeError,
     ensure_bundled_browser,
 )
+
+
+@pytest.fixture(autouse=True)
+def _restore_playwright_browser_path() -> Generator[None]:
+    previous = os.environ.get("PLAYWRIGHT_BROWSERS_PATH")
+    yield
+    if previous is None:
+        _ = os.environ.pop("PLAYWRIGHT_BROWSERS_PATH", None)
+    else:
+        os.environ["PLAYWRIGHT_BROWSERS_PATH"] = previous
 
 
 @dataclass(frozen=True)
