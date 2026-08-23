@@ -165,6 +165,16 @@ def test_helper_runtime_hash_policy_accepts_only_exact_vcs_source() -> None:
     assert "--require-hashes" not in runtime_install.group()
 
 
+def test_helper_builder_signs_extracted_runtime_before_execution() -> None:
+    builder = BUILD_SCRIPT.read_text(encoding="utf-8")
+
+    signing = builder.index('/usr/bin/codesign --force --sign - "$binary"')
+    runtime_execution = builder.index('uv pip install --python "$python"')
+
+    assert signing < runtime_execution
+    assert '/usr/bin/codesign --verify "$python"' in builder
+
+
 def test_browser_builder_verifies_inputs_without_downloading() -> None:
     result = subprocess.run(
         ["bash", str(BROWSER_BUILD_SCRIPT), "--verify-inputs"],

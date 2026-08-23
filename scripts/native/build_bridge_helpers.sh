@@ -78,6 +78,7 @@ fetch_runtime() {
 build_architecture() {
   local architecture="$1" url="$2" checksum="$3"
   local stage="$work/$architecture" runtime python site_packages arch_flag helper
+  local binary
   local -a pyinstaller_args
   fetch_runtime "$architecture" "$url" "$checksum"
   stage="$work/$architecture"
@@ -86,6 +87,12 @@ build_architecture() {
   tar -xzf "$cache_root/cpython-$architecture.tar.gz" \
     -C "$runtime" --strip-components=1
   python="$runtime/bin/python3"
+  while IFS= read -r -d '' binary; do
+    case "$(/usr/bin/file -b "$binary")" in
+      Mach-O*) /usr/bin/codesign --force --sign - "$binary" ;;
+    esac
+  done < <(/usr/bin/find "$runtime" -type f -perm -111 -print0)
+  /usr/bin/codesign --verify "$python"
   uv pip install --python "$python" --require-hashes --only-binary :all: \
     --requirements "$build_lock"
   uv pip install --python "$python" --only-binary :all: \
