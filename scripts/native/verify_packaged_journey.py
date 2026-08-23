@@ -190,10 +190,7 @@ def _verify_browser_cache(
     if (
         not root.is_dir()
         or root.is_symlink()
-        or (
-            os.name != "nt"
-            and stat.S_IMODE(root.stat().st_mode) != 0o700
-        )
+        or stat.S_IMODE(root.stat().st_mode) != 0o700
     ):
         raise JourneyVerificationError(
             "provider browser cache is not private"

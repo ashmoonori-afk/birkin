@@ -18,6 +18,11 @@ from scripts.native.packaged_evidence_io import (
     REQUIRED_JOURNEY_STEPS,
 )
 
+pytestmark = pytest.mark.skipif(
+    os.name == "nt",
+    reason="verifier requires POSIX dir-fd no-follow semantics",
+)
+
 JSONValue: TypeAlias = (
     str | int | float | bool | None | list["JSONValue"] | dict[str, "JSONValue"]
 )
