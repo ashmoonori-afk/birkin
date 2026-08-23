@@ -52,6 +52,9 @@ def test_primary_ci_excludes_exact_lock_only_tests() -> None:
 
 def test_tests_workflow_has_bounded_native_swift_job() -> None:
     workflow = WORKFLOW.read_text(encoding="utf-8")
+    native_job = workflow.split("  native-macos-swift:", 1)[1].split(
+        "\n  windows-computer-use-native:", 1
+    )[0]
 
     assert "native-macos-swift:" in workflow
     assert "name: Native macOS Swift build and test" in workflow
@@ -60,6 +63,10 @@ def test_tests_workflow_has_bounded_native_swift_job() -> None:
     assert "Verify Swift 6 toolchain" in workflow
     assert "swift --version | grep -E 'Swift version 6\\.'" in workflow
     assert "swift test --package-path macos/BirkinNativeApp" in workflow
+    assert "actions/setup-python@" in native_job
+    assert 'python-version: "3.13"' in native_job
+    assert 'python -m pip install -e ".[browser]"' in native_job
+    assert "python -m playwright install chromium" in native_job
 
 
 def test_native_swift_job_uploads_test_evidence() -> None:
