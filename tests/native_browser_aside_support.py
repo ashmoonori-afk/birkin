@@ -27,7 +27,7 @@ WEBSOCKET_BLOCKED_COLOR = (24, 120, 70)
 # needs more than 5s on both; ``BIRKIN_BROWSER_TEST_TIMEOUT_MS`` retunes them
 # together. Raising the bound never weakens an assertion — a state that never
 # arrives still fails, only later.
-_DEFAULT_WAIT_BUDGET_MS = 15_000.0
+_DEFAULT_WAIT_BUDGET_MS = 30_000.0
 _MAX_WAIT_BUDGET_MS = 120_000.0
 
 
