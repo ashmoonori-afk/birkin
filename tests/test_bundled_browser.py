@@ -93,6 +93,23 @@ def _hold_runtime_lease(
         assert connection.recv() == "release"
 
 
+def _select_read_only_runtime(
+    helper: str,
+    home: str,
+    connection: multiprocessing.connection.Connection,
+) -> None:
+    os.environ["BIRKIN_HOME"] = home
+    os.statvfs = _read_only_statvfs
+    connection.send("ready")
+    assert connection.recv() == "start"
+    selected = ensure_bundled_browser(
+        executable=Path(helper),
+        frozen=True,
+    )
+    connection.send(str(selected))
+    assert connection.recv() == "release"
+
+
 def _tree_identity(root: Path) -> tuple[str, int]:
     tree = hashlib.sha256()
     size = 0
@@ -269,6 +286,73 @@ def test_read_only_bundle_keeps_live_cache_until_lease_release(
             process.join(timeout=10)
         parent.close()
         child.close()
+
+
+@pytest.mark.skipif(os.name == "nt", reason="runtime leases require flock")
+def test_concurrent_first_publication_returns_to_both_live_processes(
+    tmp_path: Path,
+) -> None:
+    fixture = BrowserBundleFixture.create(tmp_path / "bundle")
+    fixture.write_manifest()
+    home = tmp_path / "home"
+    context = multiprocessing.get_context("spawn")
+    channels = [context.Pipe(), context.Pipe()]
+    processes = [
+        context.Process(
+            target=_select_read_only_runtime,
+            args=(str(fixture.helper), str(home), child),
+        )
+        for _, child in channels
+    ]
+    for process in processes:
+        process.start()
+    try:
+        for parent, _ in channels:
+            assert parent.poll(10)
+            assert parent.recv() == "ready"
+        for parent, _ in channels:
+            parent.send("start")
+        selected: list[str] = []
+        for parent, _ in channels:
+            assert parent.poll(10)
+            value = parent.recv()
+            assert isinstance(value, str)
+            selected.append(value)
+        assert len(set(selected)) == 1
+        assert all(process.is_alive() for process in processes)
+    finally:
+        for parent, _ in channels:
+            parent.send("release")
+        for process in processes:
+            process.join(timeout=10)
+            if process.is_alive():
+                process.terminate()
+                process.join(timeout=10)
+        for parent, child in channels:
+            parent.close()
+            child.close()
+
+
+@pytest.mark.skipif(os.name == "nt", reason="runtime leases require flock")
+def test_repeated_selection_reuses_one_process_lifetime_lease(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from birkin import bundled_browser_cache
+
+    fixture = BrowserBundleFixture.create(tmp_path / "bundle")
+    fixture.write_manifest()
+    monkeypatch.setenv("BIRKIN_HOME", str(tmp_path / "home"))
+    monkeypatch.setattr(os, "statvfs", _read_only_statvfs)
+    before = len(bundled_browser_cache._RUNTIME_LEASES)
+
+    for _ in range(20):
+        _ = ensure_bundled_browser(
+            executable=fixture.helper,
+            frozen=True,
+        )
+
+    assert len(bundled_browser_cache._RUNTIME_LEASES) == before + 1
 
 
 def test_missing_bundled_browser_fails_closed_with_bounded_diagnostic(
