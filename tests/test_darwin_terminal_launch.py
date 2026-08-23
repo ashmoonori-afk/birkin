@@ -8,6 +8,10 @@ from typing import cast
 import pytest
 
 from birkin.config_model import Config
+from birkin.workspace.darwin_terminal_process import (
+    DarwinTerminalProcess,
+    terminate_darwin_terminal,
+)
 from birkin.workspace.owned_terminal import TerminalAuthority
 
 pytestmark = pytest.mark.skipif(
@@ -54,3 +58,35 @@ def test_terminal_close_removes_ready_launchd_job(
     finally:
         terminal.close_all()
     assert _terminal_labels() == before
+
+
+def test_launchctl_remove_failure_still_terminates_coalition(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    process = DarwinTerminalProcess(
+        pid=123,
+        label="com.birkin.terminal.cleanup-test",
+        coalition_id=456,
+    )
+    terminated: list[int] = []
+
+    def fail_remove(
+        _command: list[str],
+        **_kwargs: object,
+    ) -> subprocess.CompletedProcess[bytes]:
+        raise subprocess.TimeoutExpired("/bin/launchctl", 5)
+
+    monkeypatch.setattr(
+        subprocess,
+        "run",
+        fail_remove,
+    )
+    monkeypatch.setattr(
+        "birkin.workspace.darwin_terminal_process.terminate_resource_coalition",
+        terminated.append,
+    )
+
+    with pytest.raises(subprocess.TimeoutExpired):
+        terminate_darwin_terminal(process)
+
+    assert terminated == [456]

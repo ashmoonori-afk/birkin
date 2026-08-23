@@ -13,6 +13,7 @@ from pathlib import Path
 from typing import final
 
 from .darwin_coalition import (
+    DarwinCoalitionCleanupError,
     resource_coalition_id,
     terminate_resource_coalition,
 )
@@ -86,13 +87,20 @@ def launch_darwin_terminal(
             slave_path,
             str(ready_path),
         ]
-        submitted = subprocess.run(
-            command,
-            capture_output=True,
-            text=True,
-            timeout=5,
-            check=False,
-        )
+        try:
+            submitted = subprocess.run(
+                command,
+                capture_output=True,
+                text=True,
+                timeout=5,
+                check=False,
+            )
+        except (OSError, subprocess.SubprocessError) as submit_error:
+            remove_error = _remove_launchd_job(label)
+            os.close(ready_fd)
+            if remove_error is not None:
+                raise remove_error from submit_error
+            raise
         if submitted.returncode != 0:
             os.close(ready_fd)
             raise OSError(
@@ -127,15 +135,18 @@ def launch_darwin_terminal(
             if readable != [ready_fd] or os.read(ready_fd, 1) != b"1":
                 raise OSError("launchctl terminal PTY did not become ready")
             return process
-        except (OSError, subprocess.SubprocessError):
-            _ = subprocess.run(
-                [_LAUNCHCTL, "remove", label],
-                capture_output=True,
-                timeout=5,
-                check=False,
-            )
+        except (OSError, subprocess.SubprocessError) as startup_error:
+            remove_error = _remove_launchd_job(label)
+            coalition_error: OSError | DarwinCoalitionCleanupError | None = None
             if process is not None:
-                terminate_resource_coalition(process.coalition_id)
+                try:
+                    terminate_resource_coalition(process.coalition_id)
+                except (OSError, DarwinCoalitionCleanupError) as exc:
+                    coalition_error = exc
+            if coalition_error is not None:
+                raise coalition_error from startup_error
+            if remove_error is not None:
+                raise remove_error from startup_error
             raise
         finally:
             os.close(ready_fd)
@@ -143,11 +154,33 @@ def launch_darwin_terminal(
 
 def terminate_darwin_terminal(process: DarwinTerminalProcess) -> None:
     """Remove the launchd job and kill every member of its resource coalition."""
-    _ = subprocess.run(
-        [_LAUNCHCTL, "remove", process.label],
-        capture_output=True,
-        timeout=5,
-        check=False,
-    )
-    terminate_resource_coalition(process.coalition_id)
+    remove_error = _remove_launchd_job(process.label)
+    try:
+        terminate_resource_coalition(process.coalition_id)
+    except (OSError, DarwinCoalitionCleanupError) as coalition_error:
+        if remove_error is not None:
+            raise coalition_error from remove_error
+        raise
     process.mark_terminated()
+    if remove_error is not None:
+        raise remove_error
+
+
+def _remove_launchd_job(
+    label: str,
+) -> OSError | subprocess.SubprocessError | None:
+    try:
+        removed = subprocess.run(
+            [_LAUNCHCTL, "remove", label],
+            capture_output=True,
+            text=True,
+            timeout=5,
+            check=False,
+        )
+    except (OSError, subprocess.SubprocessError) as exc:
+        return exc
+    if removed.returncode not in {0, 3}:
+        return OSError(
+            removed.stderr.strip() or "launchctl could not remove terminal"
+        )
+    return None

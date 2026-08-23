@@ -79,7 +79,7 @@ than authority.
   profile that denies Mach, network, and shared-memory IPC. App exit quiesces
   and rescans the
   coalition before killing every member, including double-forked `setsid()`
-  descendants.
+  descendants. Non-Darwin bridges do not advertise this command set.
 - **Bridge supervision:** Swift terminates or restarts only children it spawned.
   An externally discovered bridge is attached without ownership and is left
   running at app shutdown. Restart loops are bounded.

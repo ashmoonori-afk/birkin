@@ -770,7 +770,8 @@ The shipped boundary is deliberate:
   coalition. Its Seatbelt profile denies Mach, network, and shared-memory IPC,
   and cleanup
   quiesces, rescans, and kills the coalition so double-forked or `setsid()`
-  descendants cannot migrate away from Python ownership.
+  descendants cannot migrate away from Python ownership. Non-Darwin bridges do
+  not advertise the Native Terminal command set.
 - **Bridge lifecycle:** the app starts its own Python bridge with the shipped
   `birkin native-bridge serve` command, waits for the endpoint that command
   announces, restarts it at most five times in sixty seconds, and terminates it
