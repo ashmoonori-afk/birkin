@@ -98,7 +98,6 @@ class _TerminalSession:
     terminal_id: str
     process: subprocess.Popen[bytes] | DarwinTerminalProcess
     master_fd: int
-    slave_fd: int | None
     pty: PtySupport
     cwd: Path
     lease: str | None
@@ -205,7 +204,6 @@ class TerminalAuthority:
             "PS1": "",
             "ENV": "/dev/null",
         }
-        close_slave = True
         try:
             if sys.platform == "darwin":
                 process = launch_darwin_terminal(
@@ -215,7 +213,6 @@ class TerminalAuthority:
                     slave_path=os.ttyname(slave_fd),
                     label=f"com.birkin.terminal.{secrets.token_hex(16)}",
                 )
-                close_slave = False
             else:
                 process = subprocess.Popen(
                     [shell],
@@ -228,8 +225,7 @@ class TerminalAuthority:
                     close_fds=True,
                 )
         finally:
-            if close_slave:
-                os.close(slave_fd)
+            os.close(slave_fd)
         pty.set_nonblocking(master_fd)
         terminal_id = f"terminal-{secrets.token_hex(12)}"
         lease = secrets.token_urlsafe(32)
@@ -237,7 +233,6 @@ class TerminalAuthority:
             terminal_id=terminal_id,
             process=process,
             master_fd=master_fd,
-            slave_fd=slave_fd if isinstance(process, DarwinTerminalProcess) else None,
             pty=pty,
             cwd=cwd,
             lease=lease,
@@ -551,11 +546,6 @@ class TerminalAuthority:
                 os.close(session.master_fd)
             except OSError:
                 pass
-            if session.slave_fd is not None:
-                try:
-                    os.close(session.slave_fd)
-                except OSError:
-                    pass
             return
         targets = self._signal_processes(
             self._owned_processes(session),
@@ -594,11 +584,6 @@ class TerminalAuthority:
             os.close(session.master_fd)
         except OSError:
             pass
-        if session.slave_fd is not None:
-            try:
-                os.close(session.slave_fd)
-            except OSError:
-                pass
         session.lease = None
 
     def _emit_exit_if_needed(

@@ -4,8 +4,10 @@ from __future__ import annotations
 
 import os
 import re
+import select
 import signal
 import subprocess
+import tempfile
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import final
@@ -53,68 +55,90 @@ def launch_darwin_terminal(
     label: str,
 ) -> DarwinTerminalProcess:
     """Launch one PTY shell in a terminal-unique launchd resource coalition."""
-    script = 'cd "$1" && exec "$2" <"$3" >"$3" 2>&1'
-    command = [
-        _LAUNCHCTL,
-        "submit",
-        "-l",
-        label,
-        "--",
-        "/usr/bin/env",
-        *(f"{key}={value}" for key, value in sorted(environment.items())),
-        _SANDBOX_EXEC,
-        "-p",
-        _TERMINAL_SANDBOX_PROFILE,
-        "/bin/sh",
-        "-c",
-        script,
-        "birkin-terminal",
-        str(cwd),
-        shell_path,
-        slave_path,
-    ]
-    submitted = subprocess.run(
-        command,
-        capture_output=True,
-        text=True,
-        timeout=5,
-        check=False,
-    )
-    if submitted.returncode != 0:
-        raise OSError(
-            submitted.stderr.strip() or "launchctl could not submit terminal"
+    with tempfile.TemporaryDirectory(
+        prefix="birkin-terminal-",
+        dir="/private/tmp",
+    ) as readiness_root:
+        ready_path = Path(readiness_root) / "ready"
+        os.mkfifo(ready_path, mode=0o600)
+        ready_fd = os.open(ready_path, os.O_RDWR | os.O_NONBLOCK)
+        script = (
+            'cd "$1" && exec 0<"$3" 1>"$3" 2>&1 && '
+            'printf 1 >"$4" && exec "$2"'
         )
-    try:
-        listed = subprocess.run(
-            [_LAUNCHCTL, "list", label],
+        command = [
+            _LAUNCHCTL,
+            "submit",
+            "-l",
+            label,
+            "--",
+            "/usr/bin/env",
+            *(f"{key}={value}" for key, value in sorted(environment.items())),
+            _SANDBOX_EXEC,
+            "-p",
+            _TERMINAL_SANDBOX_PROFILE,
+            "/bin/sh",
+            "-c",
+            script,
+            "birkin-terminal",
+            str(cwd),
+            shell_path,
+            slave_path,
+            str(ready_path),
+        ]
+        submitted = subprocess.run(
+            command,
             capture_output=True,
             text=True,
             timeout=5,
-            check=True,
-        )
-        match = re.search(r'"PID"\s*=\s*(\d+)', listed.stdout)
-        if match is None:
-            raise OSError("launchctl terminal PID is unavailable")
-        pid = int(match.group(1))
-        coalition_id = resource_coalition_id(pid)
-        if coalition_id is None:
-            raise OSError("launchctl terminal coalition is unavailable")
-        owner_coalition = resource_coalition_id(os.getpid())
-        if owner_coalition is None or coalition_id == owner_coalition:
-            raise OSError("launchctl did not isolate the terminal coalition")
-        return DarwinTerminalProcess(
-            pid=pid,
-            label=label,
-            coalition_id=coalition_id,
-        )
-    except (OSError, subprocess.SubprocessError):
-        _ = subprocess.run(
-            [_LAUNCHCTL, "remove", label],
-            capture_output=True,
-            timeout=5,
             check=False,
         )
-        raise
+        if submitted.returncode != 0:
+            os.close(ready_fd)
+            raise OSError(
+                submitted.stderr.strip()
+                or "launchctl could not submit terminal"
+            )
+        process: DarwinTerminalProcess | None = None
+        try:
+            listed = subprocess.run(
+                [_LAUNCHCTL, "list", label],
+                capture_output=True,
+                text=True,
+                timeout=5,
+                check=True,
+            )
+            match = re.search(r'"PID"\s*=\s*(\d+)', listed.stdout)
+            if match is None:
+                raise OSError("launchctl terminal PID is unavailable")
+            pid = int(match.group(1))
+            coalition_id = resource_coalition_id(pid)
+            if coalition_id is None:
+                raise OSError("launchctl terminal coalition is unavailable")
+            owner_coalition = resource_coalition_id(os.getpid())
+            if owner_coalition is None or coalition_id == owner_coalition:
+                raise OSError("launchctl did not isolate the terminal coalition")
+            process = DarwinTerminalProcess(
+                pid=pid,
+                label=label,
+                coalition_id=coalition_id,
+            )
+            readable, _, _ = select.select([ready_fd], [], [], 5)
+            if readable != [ready_fd] or os.read(ready_fd, 1) != b"1":
+                raise OSError("launchctl terminal PTY did not become ready")
+            return process
+        except (OSError, subprocess.SubprocessError):
+            _ = subprocess.run(
+                [_LAUNCHCTL, "remove", label],
+                capture_output=True,
+                timeout=5,
+                check=False,
+            )
+            if process is not None:
+                terminate_resource_coalition(process.coalition_id)
+            raise
+        finally:
+            os.close(ready_fd)
 
 
 def terminate_darwin_terminal(process: DarwinTerminalProcess) -> None:
