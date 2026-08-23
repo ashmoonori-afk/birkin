@@ -170,7 +170,16 @@ def _mounted_browser_cache(
         / "home/browser-runtime-cache"
         / f"{architecture}-{digest}"
     )
-    return cache.resolve(), digest, size
+    for path in (
+        workspace.parent / "home",
+        workspace.parent / "home/browser-runtime-cache",
+        cache,
+    ):
+        if path.is_symlink():
+            raise JourneyVerificationError(
+                "provider browser cache path contains a link"
+            )
+    return cache, digest, size
 
 
 def _verify_browser_cache(
@@ -305,7 +314,11 @@ def verify(evidence: Path, helper: Path, workspace: Path) -> str:
         _require_within(expected_app, mounted_root, "packaged app")
     actual_browser = Path(
         _string(artifacts.get("browser_runtime"), "browser_runtime")
-    ).resolve()
+    )
+    if not actual_browser.is_absolute():
+        raise JourneyVerificationError(
+            "provider browser runtime path is not absolute"
+        )
     if origin == "mounted-dmg":
         cache, digest, size = _mounted_browser_cache(helper, workspace)
         if actual_browser != cache:
@@ -313,7 +326,7 @@ def verify(evidence: Path, helper: Path, workspace: Path) -> str:
                 f"provider probe did not verify private browser cache: {artifacts}"
             )
         _verify_browser_cache(cache, digest, size)
-    elif actual_browser != expected_browser:
+    elif actual_browser.resolve() != expected_browser:
         raise JourneyVerificationError(
             f"provider probe did not verify bundled browser: {artifacts}"
         )

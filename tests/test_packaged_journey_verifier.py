@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import hashlib
+import importlib
 import json
 import struct
 import subprocess
@@ -8,6 +9,8 @@ import sys
 import zlib
 from pathlib import Path
 from typing import TypeAlias, cast
+
+import pytest
 
 from scripts.native.packaged_evidence_io import (
     CRITICAL_JOURNEY_STEPS,
@@ -228,6 +231,63 @@ def test_verifier_accepts_complete_schema_two_fixture(tmp_path: Path) -> None:
 
     assert result.returncode == 0, result.stderr
     assert "provider=codex-cli model=default route=cli" in result.stdout
+
+
+def test_mounted_cache_identity_accepts_private_tree_and_rejects_root_symlink(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.syspath_prepend(str(SCRIPT.parent))
+    verifier = importlib.import_module(
+        "scripts.native.verify_packaged_journey"
+    )
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    helper = (
+        tmp_path
+        / "dist/Birkin.app/Contents/Helpers/arm64/birkin-native-bridge"
+    )
+    helper.parent.mkdir(parents=True)
+    _ = helper.write_text("helper", encoding="utf-8")
+    payload = b"browser"
+    digest = hashlib.sha256(
+        f"{hashlib.sha256(payload).hexdigest()}  ./chrome\n".encode()
+    ).hexdigest()
+    manifest = helper.parents[2] / "Resources/bridge-helper.json"
+    manifest.parent.mkdir(parents=True)
+    _ = manifest.write_text(json.dumps({
+        "browser_runtimes": [{
+            "architecture": "arm64",
+            "path": "BrowserRuntimes/arm64",
+            "sha256": digest,
+            "size_bytes": len(payload),
+        }],
+    }), encoding="utf-8")
+    cache = (
+        tmp_path
+        / f"home/browser-runtime-cache/arm64-{digest}"
+    )
+    cache.mkdir(mode=0o700, parents=True)
+    _ = (cache / "chrome").write_bytes(payload)
+
+    selected, selected_digest, selected_size = (
+        verifier._mounted_browser_cache(helper, workspace)
+    )
+
+    assert selected == cache
+    assert selected_digest == digest
+    assert selected_size == len(payload)
+    verifier._verify_browser_cache(
+        selected,
+        selected_digest,
+        selected_size,
+    )
+
+    cache_target = tmp_path / "cache-target"
+    cache.rename(cache_target)
+    cache.symlink_to(cache_target, target_is_directory=True)
+    with pytest.raises(verifier.JourneyVerificationError):
+        _ = verifier._mounted_browser_cache(helper, workspace)
 
 
 def test_verifier_accepts_producer_receipt_contract(tmp_path: Path) -> None:
