@@ -75,6 +75,11 @@ than authority.
 - **Owned Terminal:** Python owns the PTY and process tree. Approval precedes the
   lease; every input/resize/signal/close mutation requires current authority,
   and only allowlisted signals are accepted. Secret input is not projected.
+  Each macOS terminal runs in a launchd resource coalition under a Seatbelt
+  profile that denies Mach, network, and shared-memory IPC. App exit quiesces
+  and rescans the
+  coalition before killing every member, including double-forked `setsid()`
+  descendants.
 - **Bridge supervision:** Swift terminates or restarts only children it spawned.
   An externally discovered bridge is attached without ownership and is left
   running at app shutdown. Restart loops are bounded.

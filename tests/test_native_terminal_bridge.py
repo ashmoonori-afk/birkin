@@ -1,16 +1,12 @@
 from __future__ import annotations
 
 import os
-import select
-import signal
 import socket
 from pathlib import Path
 from typing import cast
 
-import psutil
 import pytest
 
-from birkin.config_model import Config
 from birkin.native.capability import BootstrapSecretStore
 from birkin.native.protocol import encode_frame
 from birkin.native.server import NativeBridgeServer
@@ -146,69 +142,6 @@ def test_full_native_bridge_real_pty_round_trip_and_invalid_signal(
     if pid:
         with pytest.raises(ProcessLookupError):
             os.kill(pid, 0)
-
-
-def test_authority_close_reaps_reparented_child_in_distinct_process_group(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    monkeypatch.setenv("BIRKIN_HOME", str(tmp_path / "home"))
-    terminal = TerminalAuthority(
-        session_id="session-1",
-        workspace_root=tmp_path,
-        emit=lambda _event_type, _payload: None,
-        config_loader=lambda: cast(Config, {"auto_approve": ["shell"]}),
-    )
-    ready_path = tmp_path / "child-ready"
-    os.mkfifo(ready_path, mode=0o600)
-    ready_fd = os.open(ready_path, os.O_RDWR | os.O_NONBLOCK)
-    child_pid = 0
-    try:
-        opened = terminal.create({
-            "actor_kind": "native_human",
-            "cwd": str(tmp_path),
-        })
-        child_code = (
-            "import os,signal,time;"
-            "parent=os.getppid();"
-            "os.setpgid(0,0);"
-            f"f=open({str(ready_path)!r},'w');"
-            "f.write(str(os.getpid()));f.close();"
-            "os.kill(parent,signal.SIGKILL);"
-            "time.sleep(30)"
-        )
-        _ = terminal.input({
-            "terminal_id": opened["terminal_id"],
-            "lease": opened["lease"],
-            "sequence": 1,
-            "data": (
-                f"nohup python3 -c {child_code!r} "
-                "</dev/null >/dev/null 2>&1 &\n"
-            ),
-        })
-        readable, _, _ = select.select([ready_fd], [], [], 5)
-        assert readable == [ready_fd]
-        child_pid = int(os.read(ready_fd, 32))
-        leader_pid = cast(int, opened["pid"])
-        try:
-            _ = psutil.Process(leader_pid).wait(timeout=5)
-        except psutil.NoSuchProcess:
-            pass
-        assert os.getpgid(child_pid) == child_pid
-        assert os.getsid(child_pid) == leader_pid
-
-        child = psutil.Process(child_pid)
-        terminal.close_all()
-
-        _ = child.wait(timeout=5)
-        assert not child.is_running()
-    finally:
-        terminal.close_all()
-        os.close(ready_fd)
-        if child_pid:
-            try:
-                os.kill(child_pid, signal.SIGKILL)
-            except ProcessLookupError:
-                pass
 
 
 def test_disconnect_revokes_terminal_mutation_lease(

@@ -769,6 +769,10 @@ Unix domain socket을 우선 사용하고, 명시적으로 선택할 때 인증�
   process tree를 소유하고 approval을 처리합니다. Swift는 typed command를
   보낼 뿐 UI state, focus, menu, voice input, notification tap이 action을
   승인하지 않습니다.
+  macOS에서는 승인된 각 PTY shell이 terminal별 launchd resource coalition
+  안에서 실행됩니다. Seatbelt profile은 Mach, network, shared-memory IPC를
+  차단하고, cleanup은 coalition을 정지·재탐색·종료하므로 double-fork 또는
+  `setsid()` descendant가 Python 소유권 밖으로 이동할 수 없습니다.
 - **Bridge lifecycle:** App은 배포된 `birkin native-bridge serve` 명령으로
   자체 Python bridge를 시작하고, 그 명령이 알리는 endpoint를 기다리며,
   60초 안에 최대 다섯 번까지 재시작하고, 종료할 때 함께 정리합니다.

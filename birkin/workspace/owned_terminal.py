@@ -8,6 +8,7 @@ import select
 import signal
 import struct
 import subprocess
+import sys
 import threading
 import time
 from collections.abc import Callable, Mapping
@@ -29,6 +30,11 @@ from .contracts import (
     TerminalSequenceRejected,
     TerminalSignalRejected,
     TerminalUnsupported,
+)
+from .darwin_terminal_process import (
+    DarwinTerminalProcess,
+    launch_darwin_terminal,
+    terminate_darwin_terminal,
 )
 from .service import CommandHandler
 
@@ -90,11 +96,11 @@ def allowed_signals() -> dict[str, signal.Signals]:
 @dataclass(slots=True)
 class _TerminalSession:
     terminal_id: str
-    process: subprocess.Popen[bytes]
+    process: subprocess.Popen[bytes] | DarwinTerminalProcess
     master_fd: int
+    slave_fd: int | None
     pty: PtySupport
     cwd: Path
-    shell: str
     lease: str | None
     lease_expires_at: float
     input_sequence: int = 0
@@ -186,7 +192,7 @@ class TerminalAuthority:
                     )
                 raise TerminalApprovalRequired(approval_id)
         if not isinstance(approval_id, str) or not self._approved(
-            approval_id, cwd=cwd, shell=shell
+            approval_id, cwd=cwd, shell_path=shell
         ):
             raise TerminalApprovalRequired(str(approval_id))
 
@@ -199,19 +205,31 @@ class TerminalAuthority:
             "PS1": "",
             "ENV": "/dev/null",
         }
+        close_slave = True
         try:
-            process = subprocess.Popen(
-                [shell],
-                stdin=slave_fd,
-                stdout=slave_fd,
-                stderr=slave_fd,
-                cwd=cwd,
-                env=environment,
-                start_new_session=True,
-                close_fds=True,
-            )
+            if sys.platform == "darwin":
+                process = launch_darwin_terminal(
+                    shell_path=shell,
+                    cwd=cwd,
+                    environment=environment,
+                    slave_path=os.ttyname(slave_fd),
+                    label=f"com.birkin.terminal.{secrets.token_hex(16)}",
+                )
+                close_slave = False
+            else:
+                process = subprocess.Popen(
+                    [shell],
+                    stdin=slave_fd,
+                    stdout=slave_fd,
+                    stderr=slave_fd,
+                    cwd=cwd,
+                    env=environment,
+                    start_new_session=True,
+                    close_fds=True,
+                )
         finally:
-            os.close(slave_fd)
+            if close_slave:
+                os.close(slave_fd)
         pty.set_nonblocking(master_fd)
         terminal_id = f"terminal-{secrets.token_hex(12)}"
         lease = secrets.token_urlsafe(32)
@@ -219,9 +237,9 @@ class TerminalAuthority:
             terminal_id=terminal_id,
             process=process,
             master_fd=master_fd,
+            slave_fd=slave_fd if isinstance(process, DarwinTerminalProcess) else None,
             pty=pty,
             cwd=cwd,
-            shell=shell,
             lease=lease,
             lease_expires_at=self._monotonic() + self._lease_ttl,
         )
@@ -367,12 +385,18 @@ class TerminalAuthority:
         for session in sessions:
             self._terminate(session, reason="authority_closed", emit_exit=False)
 
-    def _approved(self, approval_id: str, *, cwd: Path, shell: str) -> bool:
+    def _approved(
+        self,
+        approval_id: str,
+        *,
+        cwd: Path,
+        shell_path: str,
+    ) -> bool:
         if not store.valid_pending_id(approval_id):
             return False
         expected_payload = {
             "command": "/usr/bin/true",
-            "shell": shell,
+            "shell": shell_path,
             "cwd": str(cwd),
             "terminal_lease_only": True,
             "session_id": self._session_id,
@@ -475,6 +499,8 @@ class TerminalAuthority:
     def _owned_processes(
         session: _TerminalSession,
     ) -> tuple[psutil.Process, ...]:
+        if isinstance(session.process, DarwinTerminalProcess):
+            return ()
         processes: dict[int, psutil.Process] = {}
         try:
             root = psutil.Process(session.process.pid)
@@ -517,6 +543,20 @@ class TerminalAuthority:
         reason: str,
         emit_exit: bool = True,
     ) -> None:
+        if isinstance(session.process, DarwinTerminalProcess):
+            terminate_darwin_terminal(session.process)
+            if emit_exit:
+                self._emit_exit_if_needed(session, reason=reason)
+            try:
+                os.close(session.master_fd)
+            except OSError:
+                pass
+            if session.slave_fd is not None:
+                try:
+                    os.close(session.slave_fd)
+                except OSError:
+                    pass
+            return
         targets = self._signal_processes(
             self._owned_processes(session),
             signal.SIGTERM,
@@ -554,6 +594,11 @@ class TerminalAuthority:
             os.close(session.master_fd)
         except OSError:
             pass
+        if session.slave_fd is not None:
+            try:
+                os.close(session.slave_fd)
+            except OSError:
+                pass
         session.lease = None
 
     def _emit_exit_if_needed(

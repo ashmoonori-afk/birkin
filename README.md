@@ -766,6 +766,11 @@ The shipped boundary is deliberate:
 - **Execution and authority:** Python enforces budgets, runs tools, owns terminal
   process trees, and resolves approvals. Swift sends typed commands; UI state,
   focus, menus, voice input, and notification taps never authorize an action.
+  On macOS, every approved PTY shell runs in a terminal-unique launchd resource
+  coalition. Its Seatbelt profile denies Mach, network, and shared-memory IPC,
+  and cleanup
+  quiesces, rescans, and kills the coalition so double-forked or `setsid()`
+  descendants cannot migrate away from Python ownership.
 - **Bridge lifecycle:** the app starts its own Python bridge with the shipped
   `birkin native-bridge serve` command, waits for the endpoint that command
   announces, restarts it at most five times in sixty seconds, and terminates it
