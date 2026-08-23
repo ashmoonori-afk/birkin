@@ -34,17 +34,26 @@ def _windows_owner_sid(system: Path) -> str:
 
 def _windows_dacl(path: Path) -> str:
     escaped = str(path).replace("'", "''")
+    powershell = (
+        Path(os.environ["SystemRoot"])
+        / "System32/WindowsPowerShell/v1.0/powershell.exe"
+    )
     result = subprocess.run(
         [
-            "powershell.exe",
+            str(powershell),
             "-NoProfile",
             "-Command",
-            f"(Get-Acl -LiteralPath '{escaped}').Sddl",
+            (
+                f"$acl = Get-Acl -LiteralPath '{escaped}'; "
+                "$acl.GetSecurityDescriptorSddlForm("
+                "[System.Security.AccessControl.AccessControlSections]::Access)"
+            ),
         ],
-        check=True,
+        check=False,
         capture_output=True,
         text=True,
     )
+    assert result.returncode == 0, result.stdout + result.stderr
     _, separator, tail = result.stdout.strip().partition("D:")
     assert separator == "D:"
     return "D:" + tail.split("S:", 1)[0]
@@ -142,6 +151,12 @@ def test_windows_private_temp_closes_handle_when_fd_transfer_fails(
     def fail_transfer(_handle: int, _flags: int) -> int:
         raise OSError("sentinel transfer failure")
 
+    warm_descriptor, warm_name = private_storage.create_private_temp(
+        tmp_path,
+        prefix=".warm.",
+    )
+    os.close(warm_descriptor)
+    Path(warm_name).unlink()
     before = count()
     monkeypatch.setattr(msvcrt, "open_osfhandle", fail_transfer)
 
