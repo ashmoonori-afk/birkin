@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import csv
 import os
+import re
 import subprocess
 from pathlib import Path
 
@@ -59,7 +60,22 @@ def _windows_dacl(path: Path) -> str:
 
 
 def _normalize_windows_dacl(sddl: str, owner_sid: str) -> str:
-    return sddl.replace("PAI", "P").replace(";;;LA)", f";;;{owner_sid})")
+    normalized = sddl.replace("PAI", "P")
+    if ";;;LA)" in normalized:
+        assert re.fullmatch(
+            r"S-1-5-21-\d+-\d+-\d+-500",
+            owner_sid,
+        )
+        normalized = normalized.replace(";;;LA)", f";;;{owner_sid})")
+    return normalized
+
+
+def test_windows_dacl_rejects_admin_alias_for_non_admin_owner() -> None:
+    with pytest.raises(AssertionError):
+        _ = _normalize_windows_dacl(
+            "D:P(A;;FA;;;LA)",
+            "S-1-5-21-100-200-300-1001",
+        )
 
 
 def test_windows_owner_sid_ignores_localized_username_bytes() -> None:
