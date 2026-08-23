@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import socket
 import threading
+import time
 from pathlib import Path
 
 import pytest
@@ -151,8 +152,16 @@ def test_blocked_command_keeps_heartbeat_live_until_ordered_receipt(
         release.set()
 
         command_frames: list[NativeEnvelope] = []
-        for index in range(16):
-            frame = receive_frame(client)
+        deadline = time.monotonic() + 5
+        final_pong_index = 0
+        while time.monotonic() < deadline:
+            client.settimeout(max(0.001, deadline - time.monotonic()))
+            try:
+                frame = receive_frame(client)
+            except TimeoutError as error:
+                raise AssertionError(
+                    "command completion was not delivered"
+                ) from error
             if frame.kind == "ping":
                 pong_body = {
                     key: value for key, value in frame.body.items()
@@ -160,10 +169,11 @@ def test_blocked_command_keeps_heartbeat_live_until_ordered_receipt(
                 pong_body["session_capability"] = token
                 client.sendall(encode_frame(envelope(
                     "pong",
-                    frame_id=f"blocked-command-final-pong-{index}",
+                    frame_id=f"blocked-command-final-pong-{final_pong_index}",
                     in_reply_to=frame.id,
                     body=pong_body,
                 )))
+                final_pong_index += 1
                 continue
             command_frames.append(frame)
             if (
