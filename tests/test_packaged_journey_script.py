@@ -42,3 +42,9 @@ def test_owned_bridge_cleanup_uses_recorded_process_ids() -> None:
 
     assert "owned_bridge_pids" in source
     assert 'pgrep -f "$bridge_pattern"' not in source
+
+
+def test_journey_uses_only_per_step_window_captures() -> None:
+    source = SCRIPT.read_text(encoding="utf-8")
+
+    assert "BIRKIN_NATIVE_SCREENSHOT" not in source
