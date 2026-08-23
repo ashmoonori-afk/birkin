@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import multiprocessing
 import os
 import shutil
 from dataclasses import dataclass
@@ -78,6 +79,18 @@ def _read_only_statvfs(
     _path: str | os.PathLike[str],
 ) -> os.statvfs_result:
     return cast(os.statvfs_result, cast(object, _ReadOnlyStat()))
+
+
+def _hold_runtime_lease(
+    path: str,
+    connection: multiprocessing.connection.Connection,
+) -> None:
+    import fcntl
+
+    with Path(path).open("a+b") as lease:
+        fcntl.flock(lease.fileno(), fcntl.LOCK_SH)
+        connection.send("ready")
+        assert connection.recv() == "release"
 
 
 def _tree_identity(root: Path) -> tuple[str, int]:
@@ -207,6 +220,55 @@ def test_read_only_bundle_prunes_prior_architecture_cache(
 
     assert selected is not None
     assert not stale.exists()
+
+
+@pytest.mark.skipif(os.name == "nt", reason="runtime leases require flock")
+def test_read_only_bundle_keeps_live_cache_until_lease_release(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    fixture = BrowserBundleFixture.create(tmp_path / "bundle")
+    fixture.write_manifest()
+    home = tmp_path / "home"
+    cache = home / "browser-runtime-cache"
+    stale = cache / "arm64-stale"
+    stale.mkdir(parents=True)
+    _ = (stale / "old").write_text("old", encoding="utf-8")
+    lease = cache / ".lease-arm64-stale"
+    context = multiprocessing.get_context("spawn")
+    parent, child = context.Pipe()
+    process = context.Process(
+        target=_hold_runtime_lease,
+        args=(str(lease), child),
+    )
+    process.start()
+    try:
+        assert parent.poll(10)
+        assert parent.recv() == "ready"
+        monkeypatch.setenv("BIRKIN_HOME", str(home))
+        monkeypatch.setattr(os, "statvfs", _read_only_statvfs)
+
+        _ = ensure_bundled_browser(
+            executable=fixture.helper,
+            frozen=True,
+        )
+
+        assert stale.exists()
+        parent.send("release")
+        process.join(timeout=10)
+        assert not process.is_alive()
+
+        _ = ensure_bundled_browser(
+            executable=fixture.helper,
+            frozen=True,
+        )
+        assert not stale.exists()
+    finally:
+        if process.is_alive():
+            parent.send("release")
+            process.join(timeout=10)
+        parent.close()
+        child.close()
 
 
 def test_missing_bundled_browser_fails_closed_with_bounded_diagnostic(

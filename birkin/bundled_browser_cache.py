@@ -2,13 +2,11 @@
 
 from __future__ import annotations
 
-import errno
 import os
 import shutil
-import tempfile
 from collections.abc import Callable
 from pathlib import Path
-from typing import Protocol, cast
+from typing import BinaryIO, Protocol, cast
 
 
 class RuntimeCacheError(RuntimeError):
@@ -16,6 +14,7 @@ class RuntimeCacheError(RuntimeError):
 
 
 RuntimeVerifier = Callable[[Path], None]
+_RUNTIME_LEASES: list[BinaryIO] = []
 
 
 class _VolumeStatus(Protocol):
@@ -47,26 +46,21 @@ def select_browser_runtime(
     except OSError as error:
         raise RuntimeCacheError from error
     target = parent / f"{architecture}-{sha256}"
-    if target.is_symlink():
-        raise RuntimeCacheError
-    if target.exists():
-        verify(target)
-        _prune_stale(parent, target, architecture)
-        return target
-    stage = Path(tempfile.mkdtemp(prefix=".runtime-", dir=parent))
+    lease = _acquire_shared_lease(parent, target.name)
     try:
-        copied = stage / "runtime"
-        _ = shutil.copytree(source, copied)
-        copied.chmod(0o700)
-        verify(copied)
-        try:
-            _ = copied.rename(target)
-        except OSError as error:
-            if error.errno not in {errno.EEXIST, errno.ENOTEMPTY}:
-                raise
-            if target.is_symlink():
-                raise RuntimeCacheError from error
+        if target.is_symlink():
+            raise RuntimeCacheError
+        if target.exists():
             verify(target)
+        else:
+            _publish_runtime(
+                source,
+                target,
+                lease,
+                verify,
+            )
+        _RUNTIME_LEASES.append(lease)
+        lease = None
         _prune_stale(parent, target, architecture)
         return target
     except RuntimeCacheError:
@@ -74,7 +68,61 @@ def select_browser_runtime(
     except OSError as error:
         raise RuntimeCacheError from error
     finally:
+        if lease is not None:
+            lease.close()
+
+
+def _publish_runtime(
+    source: Path,
+    target: Path,
+    lease: BinaryIO,
+    verify: RuntimeVerifier,
+) -> None:
+    import fcntl
+
+    fcntl.flock(lease.fileno(), fcntl.LOCK_UN)
+    fcntl.flock(lease.fileno(), fcntl.LOCK_EX)
+    if target.is_symlink():
+        raise RuntimeCacheError
+    if target.exists():
+        verify(target)
+        fcntl.flock(lease.fileno(), fcntl.LOCK_SH)
+        return
+    stage = target.parent / f".{target.name}.staging"
+    if stage.is_symlink():
+        raise RuntimeCacheError
+    if stage.exists():
+        shutil.rmtree(stage)
+    try:
+        _ = shutil.copytree(source, stage)
+        stage.chmod(0o700)
+        verify(stage)
+        _ = stage.rename(target)
+        fcntl.flock(lease.fileno(), fcntl.LOCK_SH)
+    finally:
         shutil.rmtree(stage, ignore_errors=True)
+
+
+def _acquire_shared_lease(
+    parent: Path,
+    target_name: str,
+) -> BinaryIO:
+    import fcntl
+
+    lease_path = parent / f".lease-{target_name}"
+    flags = os.O_RDWR | os.O_CREAT | os.O_CLOEXEC
+    flags |= getattr(os, "O_NOFOLLOW", 0)
+    try:
+        descriptor = os.open(lease_path, flags, 0o600)
+    except OSError as error:
+        raise RuntimeCacheError from error
+    lease = os.fdopen(descriptor, "a+b", buffering=0)
+    try:
+        fcntl.flock(lease.fileno(), fcntl.LOCK_SH)
+    except OSError as error:
+        lease.close()
+        raise RuntimeCacheError from error
+    return lease
 
 
 def _prune_stale(
@@ -86,15 +134,51 @@ def _prune_stale(
         for entry in parent.iterdir():
             if entry == keep:
                 continue
-            if not (
-                entry.name.startswith(".runtime-")
-                or entry.name.startswith(f"{architecture}-")
+            target_name: str
+            if entry.name.startswith(f"{architecture}-"):
+                target_name = entry.name
+            elif (
+                entry.name.startswith(f".{architecture}-")
+                and entry.name.endswith(".staging")
             ):
-                continue
-            if entry.is_symlink() or not entry.is_dir():
-                entry.unlink()
+                target_name = entry.name[1:-len(".staging")]
             else:
-                shutil.rmtree(entry)
+                continue
+            lease = _try_exclusive_lease(parent, target_name)
+            if lease is None:
+                continue
+            try:
+                if entry.is_symlink() or not entry.is_dir():
+                    entry.unlink()
+                else:
+                    shutil.rmtree(entry)
+            finally:
+                lease.close()
+    except OSError as error:
+        raise RuntimeCacheError from error
+
+
+def _try_exclusive_lease(
+    parent: Path,
+    target_name: str,
+) -> BinaryIO | None:
+    import fcntl
+
+    lease_path = parent / f".lease-{target_name}"
+    flags = os.O_RDWR | os.O_CREAT | os.O_CLOEXEC
+    flags |= getattr(os, "O_NOFOLLOW", 0)
+    try:
+        descriptor = os.open(lease_path, flags, 0o600)
+        lease = os.fdopen(descriptor, "a+b", buffering=0)
+        try:
+            fcntl.flock(
+                lease.fileno(),
+                fcntl.LOCK_EX | fcntl.LOCK_NB,
+            )
+        except BlockingIOError:
+            lease.close()
+            return None
+        return lease
     except OSError as error:
         raise RuntimeCacheError from error
 
