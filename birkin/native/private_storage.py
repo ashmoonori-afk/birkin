@@ -241,11 +241,15 @@ def _create_windows_private_temp(
         return descriptor, str(path)
     finally:
         if handle is not None:
+            close_handle_raw = ctypes.windll.kernel32.CloseHandle
+            close_handle_raw.argtypes = [wintypes.HANDLE]
+            close_handle_raw.restype = wintypes.BOOL
             close_handle = cast(
                 Callable[[int], object],
-                ctypes.windll.kernel32.CloseHandle,
+                close_handle_raw,
             )
             _ = close_handle(handle)
+            path.unlink(missing_ok=True)
         local_free = cast(
             Callable[[object], object],
             ctypes.windll.kernel32.LocalFree,

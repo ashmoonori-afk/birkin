@@ -117,6 +117,45 @@ def test_windows_private_temp_is_owner_only_at_creation(
 
 
 @_WINDOWS_ONLY
+def test_windows_private_temp_closes_handle_when_fd_transfer_fails(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import ctypes
+    import msvcrt
+    from ctypes import wintypes
+
+    handle_count = ctypes.windll.kernel32.GetProcessHandleCount
+    handle_count.argtypes = [
+        wintypes.HANDLE,
+        ctypes.POINTER(wintypes.DWORD),
+    ]
+    handle_count.restype = wintypes.BOOL
+    current_process = ctypes.windll.kernel32.GetCurrentProcess
+    current_process.restype = wintypes.HANDLE
+
+    def count() -> int:
+        value = wintypes.DWORD()
+        assert handle_count(current_process(), ctypes.byref(value))
+        return value.value
+
+    def fail_transfer(_handle: int, _flags: int) -> int:
+        raise OSError("sentinel transfer failure")
+
+    before = count()
+    monkeypatch.setattr(msvcrt, "open_osfhandle", fail_transfer)
+
+    with pytest.raises(OSError, match="sentinel transfer failure"):
+        _ = private_storage.create_private_temp(
+            tmp_path,
+            prefix=".bootstrap.",
+        )
+
+    assert count() == before
+    assert list(tmp_path.iterdir()) == []
+
+
+@_WINDOWS_ONLY
 def test_windows_private_path_fails_closed_without_security_tools(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
