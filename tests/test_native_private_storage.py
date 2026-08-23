@@ -1,8 +1,8 @@
 from __future__ import annotations
 
 import csv
+import json
 import os
-import re
 import subprocess
 from pathlib import Path
 
@@ -33,7 +33,7 @@ def _windows_owner_sid(system: Path) -> str:
     return rows[0][-1]
 
 
-def _windows_dacl(path: Path) -> str:
+def _windows_acl(path: Path) -> dict[str, object]:
     escaped = str(path).replace("'", "''")
     powershell = Path(os.environ["SystemRoot"]) / (
         "System32/WindowsPowerShell/v1.0/powershell.exe"
@@ -45,8 +45,15 @@ def _windows_dacl(path: Path) -> str:
             "-Command",
             (
                 f"$acl = [System.IO.File]::GetAccessControl('{escaped}'); "
-                "$acl.GetSecurityDescriptorSddlForm("
-                "[System.Security.AccessControl.AccessControlSections]::Access)"
+                "$rules = @($acl.GetAccessRules($true, $true, "
+                "[System.Security.Principal.SecurityIdentifier]) | "
+                "ForEach-Object { [pscustomobject]@{ "
+                "sid = $_.IdentityReference.Value; "
+                "rights = $_.FileSystemRights.ToString(); "
+                "type = $_.AccessControlType.ToString(); "
+                "inherited = $_.IsInherited } }); "
+                "[pscustomobject]@{ protected = $acl.AreAccessRulesProtected; "
+                "rules = $rules } | ConvertTo-Json -Compress"
             ),
         ],
         check=False,
@@ -54,28 +61,9 @@ def _windows_dacl(path: Path) -> str:
         text=True,
     )
     assert result.returncode == 0, result.stdout + result.stderr
-    _, separator, tail = result.stdout.strip().partition("D:")
-    assert separator == "D:"
-    return "D:" + tail.split("S:", 1)[0]
-
-
-def _normalize_windows_dacl(sddl: str, owner_sid: str) -> str:
-    normalized = sddl.replace("PAI", "P")
-    if ";;;LA)" in normalized:
-        assert re.fullmatch(
-            r"S-1-5-21-\d+-\d+-\d+-500",
-            owner_sid,
-        )
-        normalized = normalized.replace(";;;LA)", f";;;{owner_sid})")
-    return normalized
-
-
-def test_windows_dacl_rejects_admin_alias_for_non_admin_owner() -> None:
-    with pytest.raises(AssertionError):
-        _ = _normalize_windows_dacl(
-            "D:P(A;;FA;;;LA)",
-            "S-1-5-21-100-200-300-1001",
-        )
+    value = json.loads(result.stdout)
+    assert isinstance(value, dict)
+    return value
 
 
 def test_windows_owner_sid_ignores_localized_username_bytes() -> None:
@@ -108,9 +96,15 @@ def test_windows_private_file_removes_explicit_everyone_ace(
     private_storage.harden_private_file(path)
 
     sid = _windows_owner_sid(system)
-    assert _normalize_windows_dacl(_windows_dacl(path), sid) == (
-        f"D:P(A;;FA;;;{sid})"
-    )
+    assert _windows_acl(path) == {
+        "protected": True,
+        "rules": [{
+            "sid": sid,
+            "rights": "FullControl",
+            "type": "Allow",
+            "inherited": False,
+        }],
+    }
 
 
 @_WINDOWS_ONLY
@@ -140,9 +134,15 @@ def test_windows_private_temp_is_owner_only_at_creation(
         )
         os.replace(path, published)
         sid = _windows_owner_sid(system)
-        assert _normalize_windows_dacl(_windows_dacl(published), sid) == (
-            f"D:P(A;;FA;;;{sid})"
-        )
+        assert _windows_acl(published) == {
+            "protected": True,
+            "rules": [{
+                "sid": sid,
+                "rights": "FullControl",
+                "type": "Allow",
+                "inherited": False,
+            }],
+        }
     finally:
         path.unlink(missing_ok=True)
         published.unlink(missing_ok=True)
