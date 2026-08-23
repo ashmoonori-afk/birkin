@@ -178,6 +178,8 @@ jobs:
     name: Native macOS Swift build and test
     runs-on: macos-latest
     timeout-minutes: 20
+    env:
+      BIRKIN_BROWSER_INTEGRATION: "1"
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
@@ -188,9 +190,10 @@ jobs:
           cache: pip
       - name: Install Native bridge Browser runtime
         run: |
-          python -m pip install --upgrade pip
-          python -m pip install -e ".[browser]"
-          python -m playwright install chromium
+          python -m venv .venv
+          .venv/bin/python -m pip install --upgrade pip
+          .venv/bin/python -m pip install -e ".[browser]"
+          .venv/bin/python -m playwright install chromium
       - name: Verify Swift 6 toolchain
         shell: bash
         run: swift --version | grep -E 'Swift version 6\.'
