@@ -3,6 +3,8 @@ from __future__ import annotations
 from pathlib import Path
 
 from birkin.workspace import WorkspaceCommand, WorkspaceHub
+from birkin.workspace.hub import EventSink
+from birkin.workspace.service import CommandHandler
 
 
 def _command(
@@ -73,7 +75,7 @@ def test_session_rename_updates_canonical_summaries(tmp_path: Path) -> None:
 def test_session_compact_returns_canonical_receipt(tmp_path: Path) -> None:
     compacted: list[str] = []
 
-    def factory(session_id: str, emit):  # type: ignore[no-untyped-def]
+    def factory(session_id: str, emit: EventSink) -> dict[str, CommandHandler]:
         def compact(_payload: dict[str, object]) -> dict[str, object]:
             compacted.append(session_id)
             _ = emit("session.compacted", {"session_id": session_id})

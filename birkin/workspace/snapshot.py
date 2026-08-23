@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from typing import TypeGuard
+
 from .contracts import REDACTION_MARKER
 from .records import (
     PANEL_KEYS,
@@ -171,6 +173,14 @@ def _reconcile_answered_approval(
     items.append(resolved)
 
 
+def _object_list(value: object) -> TypeGuard[list[object]]:
+    return isinstance(value, list)
+
+
+def _object_mapping(value: object) -> TypeGuard[dict[str, object]]:
+    return isinstance(value, dict)
+
+
 def _live_lease(value: object) -> str | None:
     """A redacted or empty lease is the absence of authority, not a lease."""
     if not isinstance(value, str) or not value or value == REDACTION_MARKER:
@@ -199,7 +209,7 @@ def reduce_snapshot(
 
         text = event.payload.get("text")
         if event.type == "message.user" and isinstance(text, str):
-            message: dict[str, object] = {
+            user_message: dict[str, object] = {
                 "id": event.event_id,
                 "kind": "user_message",
                 "text": text,
@@ -207,11 +217,13 @@ def reduce_snapshot(
                 "cursor": event.cursor,
             }
             attachments = event.payload.get("attachments")
-            if isinstance(attachments, list):
-                message["attachments"] = [
-                    dict(item) for item in attachments if isinstance(item, dict)
+            if _object_list(attachments):
+                user_message["attachments"] = [
+                    dict(item)
+                    for item in attachments
+                    if _object_mapping(item)
                 ]
-            conversation.append(message)
+            conversation.append(user_message)
         elif event.type == "message.assistant.delta" and isinstance(text, str):
             if conversation and conversation[-1].get("kind") == "assistant_stream":
                 conversation[-1]["text"] = str(conversation[-1]["text"]) + text
@@ -227,7 +239,7 @@ def reduce_snapshot(
                     }
                 )
         elif event.type == "message.assistant.completed" and isinstance(text, str):
-            message: dict[str, object] = {
+            assistant_message: dict[str, object] = {
                 "id": event.event_id,
                 "kind": "assistant_message",
                 "text": text,
@@ -235,10 +247,10 @@ def reduce_snapshot(
                 "cursor": event.cursor,
             }
             if conversation and conversation[-1].get("kind") == "assistant_stream":
-                conversation[-1] = message
+                conversation[-1] = assistant_message
             else:
-                conversation.append(message)
-            panel_items["sessions_history"].append(message)
+                conversation.append(assistant_message)
+            panel_items["sessions_history"].append(assistant_message)
 
         terminal_id = event.payload.get("terminal_id")
         if isinstance(terminal_id, str):

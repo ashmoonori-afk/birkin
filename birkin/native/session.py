@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Protocol, final
+from typing import Protocol, TypeGuard, final
 
 from birkin.native.projection import (
     public_native_mapping,
@@ -104,12 +104,16 @@ class NativeProjectionSession:
 def _reconnect_snapshot(snapshot: WorkspaceSnapshot) -> dict[str, object]:
     public = public_native_mapping(snapshot.to_json())
     terminals = public.get("terminals")
-    if isinstance(terminals, list):
+    if _is_object_list(terminals):
         for terminal in terminals:
             if isinstance(terminal, dict):
                 terminal["lease"] = None
                 terminal["read_only"] = True
     return public
+
+
+def _is_object_list(value: object) -> TypeGuard[list[object]]:
+    return isinstance(value, list)
 
 
 def _cursors_are_contiguous(

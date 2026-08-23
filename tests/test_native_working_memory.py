@@ -8,18 +8,17 @@ import pytest
 from birkin import goals, harness
 from birkin.native.session import NativeProjectionSession
 from birkin.workspace import ProtocolError, WorkspaceCommand, WorkspaceHub, WorkspaceService
-from birkin.workspace.working_memory import (
-    WorkingMemoryAuthority,
+from birkin.workspace.contracts import (
     WorkingMemoryBudgetExceeded,
-    WorkingMemoryMutation,
     WorkingMemoryRevisionConflict,
 )
+from birkin.workspace.working_memory import WorkingMemoryAuthority, WorkingMemoryMutation
 
 
 def test_native_projection_maps_goal_fields_files_and_revision(tmp_path: Path) -> None:
     session_id = "working-native"
-    goals.set_goal("Ship native Working Memory", session_id=session_id)
-    harness.update_working(
+    _ = goals.set_goal("Ship native Working Memory", session_id=session_id)
+    _ = harness.update_working(
         session_id,
         corrections=["Use canonical state"],
         constraints=["Stay offline"],
@@ -96,7 +95,7 @@ def test_native_projection_maps_goal_fields_files_and_revision(tmp_path: Path) -
 
 
 def test_merge_schema_is_strict_and_preview_does_not_persist() -> None:
-    malformed = [
+    malformed: list[object] = [
         None,
         {"op": "merge", "expected_revision": 0},
         {"op": "merge", "expected_revision": 0, "fields": {}, "extra": True},
@@ -107,7 +106,7 @@ def test_merge_schema_is_strict_and_preview_does_not_persist() -> None:
     ]
     for payload in malformed:
         with pytest.raises(ProtocolError):
-            WorkingMemoryMutation.parse(payload)
+            _ = WorkingMemoryMutation.parse(payload)
 
     authority = WorkingMemoryAuthority("preview-native")
     mutation = WorkingMemoryMutation.parse({
@@ -172,13 +171,13 @@ def test_clear_revision_conflict_and_budget_are_canonical() -> None:
     assert merged.effective["revision"] == 1
 
     with pytest.raises(WorkingMemoryRevisionConflict) as stale:
-        authority.apply(WorkingMemoryMutation.parse({
+        _ = authority.apply(WorkingMemoryMutation.parse({
             "op": "clear", "expected_revision": 0,
         }))
     assert stale.value.current_revision == 1
 
     with pytest.raises(ProtocolError):
-        WorkingMemoryMutation.parse({
+        _ = WorkingMemoryMutation.parse({
             "op": "clear", "expected_revision": 1, "fields": {},
         })
 
@@ -189,7 +188,7 @@ def test_clear_revision_conflict_and_budget_are_canonical() -> None:
     assert all(not cleared.effective[field] for field in harness.WORKING_FIELDS)
 
     with pytest.raises(WorkingMemoryBudgetExceeded) as overflow:
-        WorkingMemoryAuthority("budget-native").preview(WorkingMemoryMutation.parse({
+        _ = WorkingMemoryAuthority("budget-native").preview(WorkingMemoryMutation.parse({
             "op": "merge",
             "expected_revision": 0,
             "fields": {

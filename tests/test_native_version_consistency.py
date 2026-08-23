@@ -6,8 +6,10 @@ import json
 import re
 import subprocess
 import sys
-import tomllib
 from pathlib import Path
+from typing import cast
+
+import tomli
 
 REPOSITORY = Path(__file__).resolve().parent.parent
 SWIFT_VERSION = (
@@ -25,9 +27,10 @@ _SEMVER = re.compile(r"\d+\.\d+\.\d+")
 
 def _package_version() -> str:
     with (REPOSITORY / "pyproject.toml").open("rb") as handle:
-        manifest = tomllib.load(handle)
-    project = manifest["project"]
-    assert isinstance(project, dict)
+        manifest = cast(dict[str, object], tomli.load(handle))
+    raw_project = manifest["project"]
+    assert isinstance(raw_project, dict)
+    project = cast(dict[str, object], raw_project)
     version = project["version"]
     assert isinstance(version, str)
     return version
@@ -68,18 +71,24 @@ def test_version_sync_reports_a_current_tree() -> None:
 def test_golden_vectors_advertise_the_manifest_version() -> None:
     """Given the generated protocol vectors, When the ready frame is read,
     Then its server_version is the manifest version."""
-    vectors = json.loads(GOLDEN_VECTORS.read_text(encoding="utf-8"))
-    assert isinstance(vectors, dict)
+    raw_vectors = cast(object, json.loads(GOLDEN_VECTORS.read_text(encoding="utf-8")))
+    assert isinstance(raw_vectors, dict)
+    vectors = cast(dict[str, object], raw_vectors)
+    raw_records = vectors["vectors"]
+    assert isinstance(raw_records, list)
+    records = cast(list[dict[str, object]], raw_records)
 
     ready = [
         record
-        for record in vectors["vectors"]
-        if record["envelope"]["kind"] == "ready"
+        for record in records
+        if cast(dict[str, object], record["envelope"])["kind"] == "ready"
     ]
 
     assert ready, "no ready vector was generated"
     for record in ready:
-        assert record["envelope"]["body"]["server_version"] == _package_version()
+        envelope = cast(dict[str, object], record["envelope"])
+        body = cast(dict[str, object], envelope["body"])
+        assert body["server_version"] == _package_version()
 
 
 def test_disk_image_name_is_derived_not_pinned() -> None:
@@ -113,13 +122,16 @@ def test_static_type_checking_covers_the_native_surface() -> None:
     Then the native bridge, its scripts, and its tests are all inside it, so
     the native surface cannot regress unchecked."""
     with (REPOSITORY / "pyproject.toml").open("rb") as handle:
-        manifest = tomllib.load(handle)
-    tools = manifest["tool"]
-    assert isinstance(tools, dict)
-    basedpyright = tools["basedpyright"]
-    assert isinstance(basedpyright, dict)
-    include = basedpyright["include"]
-    assert isinstance(include, list)
+        manifest = cast(dict[str, object], tomli.load(handle))
+    raw_tools = manifest["tool"]
+    assert isinstance(raw_tools, dict)
+    tools = cast(dict[str, object], raw_tools)
+    raw_basedpyright = tools["basedpyright"]
+    assert isinstance(raw_basedpyright, dict)
+    basedpyright = cast(dict[str, object], raw_basedpyright)
+    raw_include = basedpyright["include"]
+    assert isinstance(raw_include, list)
+    include = cast(list[str], raw_include)
     for required in (
         "birkin/native",
         "scripts/native",

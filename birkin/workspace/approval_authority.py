@@ -14,7 +14,7 @@ def decide(
     """Resolve once and normalize a multi-surface losing answer."""
 
     if decision == "approve":
-        result = approvals.approve(aid)
+        result: dict[str, object] = approvals.approve(aid)
         decided_status = "approved"
     elif decision == "reject":
         result = approvals.reject(aid, reason=reason)
@@ -29,7 +29,7 @@ def decide(
         if "result" in result:
             response["receipt"] = str(result["result"])
         return response
-    current = store.get_pending(aid)
+    current: dict[str, object] | None = store.get_pending(aid)
     if current is not None and current.get("status") != "pending":
         return {"outcome": "answered_elsewhere", "approval_id": aid}
     return {

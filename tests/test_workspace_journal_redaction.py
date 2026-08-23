@@ -35,7 +35,7 @@ def _submit(
 def _result(receipt: CommandReceipt) -> dict[str, object]:
     result = receipt.transient_result
     assert isinstance(result, dict)
-    return cast(dict[str, object], result)
+    return result
 
 
 def _journal_events(root: Path, session_id: str) -> list[dict[str, object]]:

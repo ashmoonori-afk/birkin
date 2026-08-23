@@ -164,7 +164,7 @@ def test_disconnect_revokes_terminal_mutation_lease(
         client.close()
         thread.join(timeout=2)
         with pytest.raises(TerminalLeaseRequired):
-            terminal.input({
+            _ = terminal.input({
                 "terminal_id": opened["terminal_id"],
                 "lease": opened["lease"],
                 "sequence": 1,

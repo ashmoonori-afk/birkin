@@ -24,13 +24,13 @@ def test_import_copies_external_file_and_returns_only_canonical_jail_identity(
 ) -> None:
     source = tmp_path / "outside" / "quarterly-plan.txt"
     source.parent.mkdir()
-    source.write_text("canonical attachment", encoding="utf-8")
+    _ = source.write_text("canonical attachment", encoding="utf-8")
     jail = tmp_path / "workspace" / "imports"
     authority = JailedImportAuthority(jail)
 
     result = authority.import_file({"source_path": str(source)})
 
-    reference = result["reference"]
+    reference = cast(dict[str, object], result["reference"])
     receipt = result["receipt"]
     assert isinstance(reference, dict)
     assert isinstance(receipt, dict)
@@ -111,21 +111,21 @@ def test_import_accepts_regular_file_at_canonical_byte_limit(tmp_path: Path) -> 
 
 def test_import_refuses_direct_destination_and_non_file_sources(tmp_path: Path) -> None:
     source = tmp_path / "outside.txt"
-    source.write_text("safe", encoding="utf-8")
+    _ = source.write_text("safe", encoding="utf-8")
     authority = JailedImportAuthority(tmp_path / "jail")
 
     with pytest.raises(ProtocolError, match="canonical source_path"):
-        authority.import_file({
+        _ = authority.import_file({
             "source_path": str(source),
             "destination_path": str(tmp_path / "passthrough.txt"),
         })
     with pytest.raises(ProtocolError, match="regular file"):
-        authority.import_file({"source_path": str(tmp_path)})
+        _ = authority.import_file({"source_path": str(tmp_path)})
 
 
 def test_import_handler_is_strict_and_advertisable(tmp_path: Path) -> None:
     source = tmp_path / "drop.txt"
-    source.write_text("drop", encoding="utf-8")
+    _ = source.write_text("drop", encoding="utf-8")
     authority = JailedImportAuthority(tmp_path / "jail")
 
     handlers = authority.handlers()
@@ -139,8 +139,8 @@ def test_real_bridge_advertises_import_and_emits_canonical_copy_receipt(
     tmp_path: Path,
 ) -> None:
     dropped = tmp_path / "external" / "drop.txt"
-    dropped.parent.mkdir()
-    dropped.write_text("bridge copy", encoding="utf-8")
+    _ = dropped.parent.mkdir()
+    _ = dropped.write_text("bridge copy", encoding="utf-8")
     authority = JailedImportAuthority(tmp_path / "workspace" / "imports")
     workspace = WorkspaceService(
         root=tmp_path / "journal",

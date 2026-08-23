@@ -6,6 +6,7 @@ import json
 import re
 import subprocess
 from pathlib import Path
+from typing import TypeGuard, cast
 
 REPOSITORY = Path(__file__).resolve().parent.parent
 INPUTS = REPOSITORY / "scripts/native/bridge_helper_inputs.json"
@@ -17,39 +18,70 @@ DMG_SCRIPT = REPOSITORY / "scripts/native/create_macos_dmg.sh"
 _SHA256 = re.compile(r"[0-9a-f]{64}")
 
 
+def _is_string_keyed_object(value: object) -> TypeGuard[dict[str, object]]:
+    return isinstance(value, dict)
+
+
+def _read_json_object(path: Path) -> dict[str, object]:
+    decoded = cast(object, json.loads(path.read_text(encoding="utf-8")))
+    if not _is_string_keyed_object(decoded):
+        raise AssertionError(f"{path} must contain a JSON object")
+    return decoded
+
+
+def _object(value: object) -> dict[str, object]:
+    assert _is_string_keyed_object(value)
+    return value
+
+
+def _string(value: object) -> str:
+    assert isinstance(value, str)
+    return value
+
+
+def _integer(value: object) -> int:
+    assert type(value) is int
+    return value
+
+
 def test_helper_build_inputs_pin_both_macos_architectures() -> None:
     # Given the release helper input descriptor.
-    descriptor = json.loads(INPUTS.read_text(encoding="utf-8"))
+    descriptor = _read_json_object(INPUTS)
 
     # When its runtime artifacts are inspected.
-    artifacts = descriptor["python"]["artifacts"]
+    artifacts = _object(_object(descriptor["python"])["artifacts"])
 
     # Then both app architectures have immutable upstream bytes.
-    assert descriptor["schema"] == 1
+    assert _integer(descriptor["schema"]) == 1
     assert set(artifacts) == {"arm64", "x86_64"}
     upstream_architectures = {"arm64": "aarch64", "x86_64": "x86_64"}
-    for architecture, artifact in artifacts.items():
-        assert upstream_architectures[architecture] in artifact["url"]
-        assert artifact["url"].startswith(
+    for architecture, artifact_value in artifacts.items():
+        artifact = _object(artifact_value)
+        url = _string(artifact["url"])
+        assert upstream_architectures[architecture] in url
+        assert url.startswith(
             "https://github.com/astral-sh/python-build-standalone/releases/download/"
         )
-        assert _SHA256.fullmatch(artifact["sha256"])
+        assert _SHA256.fullmatch(_string(artifact["sha256"]))
 
 
 def test_browser_build_inputs_pin_both_macos_architectures() -> None:
-    descriptor = json.loads(INPUTS.read_text(encoding="utf-8"))
-    browser = descriptor["browser"]
+    descriptor = _read_json_object(INPUTS)
+    browser = _object(descriptor["browser"])
 
-    assert browser["playwright_version"] == "1.62.0"
-    assert browser["chromium_revision"] == "1234"
-    assert browser["ffmpeg_revision"] == "1011"
-    assert set(browser["artifacts"]) == {"arm64", "x86_64"}
-    for artifacts in browser["artifacts"].values():
+    assert _string(browser["playwright_version"]) == "1.62.0"
+    assert _string(browser["chromium_revision"]) == "1234"
+    assert _string(browser["ffmpeg_revision"]) == "1011"
+    browser_artifacts = _object(browser["artifacts"])
+    assert set(browser_artifacts) == {"arm64", "x86_64"}
+    for artifacts_value in browser_artifacts.values():
+        artifacts = _object(artifacts_value)
         assert set(artifacts) == {"headless_shell", "ffmpeg"}
-        for artifact in artifacts.values():
-            assert artifact["url"].startswith("https://cdn.playwright.dev/")
-            assert _SHA256.fullmatch(artifact["sha256"])
-            assert artifact["size_bytes"] > 1_000_000
+        for artifact_value in artifacts.values():
+            artifact = _object(artifact_value)
+            assert _string(artifact["url"]).startswith("https://cdn.playwright.dev/")
+            assert _SHA256.fullmatch(_string(artifact["sha256"]))
+            assert _integer(artifact["size_bytes"]) > 1_000_000
 
 
 def test_helper_build_toolchain_is_version_and_hash_locked() -> None:
@@ -127,7 +159,7 @@ def test_helper_runtime_hash_policy_accepts_only_exact_vcs_source() -> None:
     # Then only the immutable Git source bypasses all-record hash enforcement.
     assert unhashed_records == [
         "birkin-mnemosyne @ git+https://github.com/ashmoonori-afk/"
-        "birkin-mnemosyne@36814c13b44260a0c1ada53d142b2940fff134df"
+        + "birkin-mnemosyne@36814c13b44260a0c1ada53d142b2940fff134df"
     ]
     assert runtime_install is not None
     assert "--require-hashes" not in runtime_install.group()

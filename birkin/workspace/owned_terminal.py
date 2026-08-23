@@ -13,9 +13,10 @@ import time
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, final
+from typing import final
 
 from birkin import approvals, config, store
+from birkin.config_model import Config
 
 from .approval_projection import approval_item
 from .contracts import (
@@ -114,7 +115,7 @@ class TerminalAuthority:
         session_id: str,
         workspace_root: Path,
         emit: TerminalEventSink,
-        config_loader: Callable[[], dict[str, Any]],
+        config_loader: Callable[[], Config],
         monotonic: Callable[[], float] = time.monotonic,
         lease_ttl: float = 60.0,
     ) -> None:
@@ -157,7 +158,7 @@ class TerminalAuthority:
         shell = "/bin/sh"
         approval_id = payload.get("approval_id")
         if approval_id is None:
-            proposal = approvals.propose(
+            proposal: dict[str, object] = approvals.propose(
                 category="shell",
                 title="Native terminal shell access",
                 description="Allow a Python-owned interactive shell for the native human.",

@@ -15,8 +15,9 @@ from __future__ import annotations
 
 import argparse
 import sys
-import tomllib
+import tomli as tomllib
 from pathlib import Path
+from typing import TypeGuard, cast
 
 REPOSITORY = Path(__file__).resolve().parent.parent.parent
 MANIFEST = REPOSITORY / "pyproject.toml"
@@ -36,12 +37,18 @@ public enum BirkinVersion {{
 '''
 
 
+def _is_string_keyed_table(value: object) -> TypeGuard[dict[str, object]]:
+    return isinstance(value, dict)
+
+
 def package_version() -> str:
     """Read the canonical package version from the Python manifest."""
     with MANIFEST.open("rb") as handle:
-        manifest = tomllib.load(handle)
+        manifest = cast(object, tomllib.load(handle))
+    if not _is_string_keyed_table(manifest):
+        raise ValueError("pyproject.toml has no [project] table")
     project = manifest["project"]
-    if not isinstance(project, dict):
+    if not _is_string_keyed_table(project):
         raise ValueError("pyproject.toml has no [project] table")
     version = project["version"]
     if not isinstance(version, str) or not version:
@@ -60,14 +67,15 @@ def main(argv: list[str] | None = None) -> int:
         action="store_true",
         help="exit non-zero when the generated seam is stale",
     )
-    arguments = parser.parse_args(argv)
+    _ = parser.parse_args(argv)
+    check = "--check" in (sys.argv[1:] if argv is None else argv)
     expected = render()
     current = GENERATED.read_text(encoding="utf-8") if GENERATED.exists() else ""
-    if arguments.check:
+    if check:
         if current != expected:
             print(
                 f"{GENERATED.relative_to(REPOSITORY)} is stale; "
-                "run scripts/native/sync_version.py",
+                + "run scripts/native/sync_version.py",
                 file=sys.stderr,
             )
             return 1

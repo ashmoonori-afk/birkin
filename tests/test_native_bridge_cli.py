@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import io
 import json
 import os
 import shutil
@@ -11,6 +12,7 @@ import subprocess
 import sys
 import tempfile
 from pathlib import Path
+from typing import TypeGuard, cast
 
 import pytest
 
@@ -37,12 +39,17 @@ def _serve(root: Path, *, transport: str = "uds") -> subprocess.Popen[str]:
     )
 
 
+def _is_string_keyed_record(value: object) -> TypeGuard[dict[str, object]]:
+    return isinstance(value, dict)
+
+
 def _readiness(process: subprocess.Popen[str]) -> dict[str, object]:
-    assert process.stdout is not None
-    line = process.stdout.readline()
+    stdout = cast(io.TextIOWrapper, process.stdout)
+    assert stdout is not None
+    line = stdout.readline()
     assert line, (process.stderr.read() if process.stderr else "no output")
-    record = json.loads(line)
-    assert isinstance(record, dict)
+    record = cast(object, json.loads(line))
+    assert _is_string_keyed_record(record)
     return record
 
 

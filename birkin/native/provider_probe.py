@@ -8,7 +8,6 @@ import json
 import os
 import sys
 from pathlib import Path
-from typing import Any
 
 from birkin import config
 from birkin.bundled_browser import ensure_bundled_browser
@@ -25,7 +24,7 @@ def run_probe(
     artifact_path: Path | None = None,
 ) -> tuple[dict[str, object], int]:
     """Run one real completion and return bounded, non-secret evidence."""
-    cfg: dict[str, Any] = dict(config.load_config())
+    cfg = config.load_config()
     cfg.update({
         "provider": provider,
         "model": model,
@@ -98,17 +97,26 @@ def emit_probe(*, provider: str, model: str, output: Path | None) -> int:
     print(encoded)
     if output is not None:
         output.parent.mkdir(parents=True, exist_ok=True)
-        output.write_text(encoded + "\n", encoding="utf-8")
+        _ = output.write_text(encoded + "\n", encoding="utf-8")
     return status
 
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser()
-    parser.add_argument("--provider", default="codex-cli", choices=("codex-cli",))
-    parser.add_argument("--model", default="default")
-    parser.add_argument("--output", type=Path)
-    args = parser.parse_args(argv)
-    return emit_probe(provider=args.provider, model=args.model, output=args.output)
+    _ = parser.add_argument(
+        "--provider", default="codex-cli", choices=("codex-cli",)
+    )
+    _ = parser.add_argument("--model", default="default")
+    _ = parser.add_argument("--output", type=Path)
+    args = vars(parser.parse_args(argv))
+    provider = args.get("provider")
+    model = args.get("model")
+    output = args.get("output")
+    if not isinstance(provider, str) or not isinstance(model, str):
+        raise ValueError("provider and model must be strings")
+    if output is not None and not isinstance(output, Path):
+        raise ValueError("output must be a path")
+    return emit_probe(provider=provider, model=model, output=output)
 
 
 if __name__ == "__main__":

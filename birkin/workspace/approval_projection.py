@@ -3,9 +3,15 @@
 from __future__ import annotations
 
 import json
-from typing import Any, cast
+from typing import TypeGuard, cast
 
 from birkin import approvals, config, risk, store
+
+from .contracts import json_object
+
+
+def _is_object_mapping(value: object) -> TypeGuard[dict[str, object]]:
+    return isinstance(value, dict)
 
 
 def approval_items(
@@ -13,7 +19,7 @@ def approval_items(
 ) -> tuple[dict[str, object], ...]:
     """Compose durable approval events with canonical authority records."""
 
-    records: list[dict[str, Any]] = list(approvals.reviewable_pending())
+    records: list[dict[str, object]] = list(approvals.reviewable_pending())
     for status in ("approved", "rejected", "error", "expired"):
         records.extend(store.list_resolved(status))
     records.sort(key=lambda record: str(record.get("created") or ""))
@@ -31,12 +37,14 @@ def approval_policy() -> dict[str, object]:
     path = config.config_path()
     if path.is_file():
         try:
-            raw = cast(object, json.loads(path.read_text(encoding="utf-8")))
-            if isinstance(raw, dict):
-                requested = cast(dict[object, object], raw).get("auto_approve")
+            raw = json_object(
+                cast(object, json.loads(path.read_text(encoding="utf-8"))),
+                "config",
+            )
+            requested = raw.get("auto_approve")
         except (json.JSONDecodeError, OSError):
             requested = None
-    effective = config.load_config().get("auto_approve") or []
+    effective: list[object] = config.load_config().get("auto_approve") or []
     return {
         "requested": {"auto_approve": requested},
         "effective": {"auto_approve": list(effective)},
@@ -46,13 +54,13 @@ def approval_policy() -> dict[str, object]:
     }
 
 
-def approval_item(record: dict[str, Any]) -> dict[str, object]:
+def approval_item(record: dict[str, object]) -> dict[str, object]:
     status = str(record.get("status") or "pending")
     category = str(record.get("category") or "")
     payload = record.get("payload")
     sealed = (
         category == "operation"
-        and isinstance(payload, dict)
+        and _is_object_mapping(payload)
         and isinstance(payload.get("digest"), str)
         and bool(payload["digest"])
     )

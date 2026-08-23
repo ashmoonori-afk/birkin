@@ -3,35 +3,38 @@ from __future__ import annotations
 import sys
 from pathlib import Path
 from types import SimpleNamespace
+from typing import cast
+
+import pytest
 
 from birkin.cli import build_parser
 from birkin.native import provider_probe
 
 
-def test_packaged_helper_exposes_provider_probe_command(tmp_path) -> None:
+def test_packaged_helper_exposes_provider_probe_command(tmp_path: Path) -> None:
     output = tmp_path / "probe.json"
 
-    args = build_parser().parse_args([
+    arguments = cast(dict[str, object], vars(build_parser().parse_args([
         "native-bridge", "provider-probe",
         "--provider", "codex-cli",
         "--model", "default",
         "--output", str(output),
-    ])
+    ])))
 
-    assert args.native_bridge_action == "provider-probe"
-    assert args.provider == "codex-cli"
-    assert args.model == "default"
-    assert args.output == output
+    assert arguments["native_bridge_action"] == "provider-probe"
+    assert arguments["provider"] == "codex-cli"
+    assert arguments["model"] == "default"
+    assert arguments["output"] == output
 
 
 class _Session:
     def __init__(self, reply: str) -> None:
-        self.reply = reply
-        self.closed = False
-        self.client = SimpleNamespace(
+        self.reply: str = reply
+        self.closed: bool = False
+        self.client: SimpleNamespace = SimpleNamespace(
             provider="codex-cli", model="default", transport="cli"
         )
-        self.ctx = SimpleNamespace(cwd=Path.cwd())
+        self.ctx: SimpleNamespace = SimpleNamespace(cwd=Path.cwd())
 
     def ask(self, _prompt: str, **_kwargs: object) -> str:
         return self.reply
@@ -40,9 +43,15 @@ class _Session:
         self.closed = True
 
 
-def test_probe_accepts_only_exact_provider_marker(monkeypatch, tmp_path) -> None:
+def test_probe_accepts_only_exact_provider_marker(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
     session = _Session(provider_probe.MARKER)
-    monkeypatch.setattr(provider_probe, "build_session", lambda _cfg: session)
+
+    def build_session(_cfg: object) -> _Session:
+        return session
+
+    monkeypatch.setattr(provider_probe, "build_session", build_session)
 
     output = tmp_path / "provider-probe.json"
     record, status = provider_probe.run_probe(
@@ -65,13 +74,19 @@ def test_probe_accepts_only_exact_provider_marker(monkeypatch, tmp_path) -> None
     assert session.closed is True
 
 
-def test_probe_rejects_canned_or_credential_error_text(monkeypatch) -> None:
+def test_probe_rejects_canned_or_credential_error_text(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     for reply in (
         "The native packaged app is connected to Python authority.",
         "401 Unauthorized: refresh_token_reused",
     ):
         session = _Session(reply)
-        monkeypatch.setattr(provider_probe, "build_session", lambda _cfg: session)
+
+        def build_session(_cfg: object) -> _Session:
+            return session
+
+        monkeypatch.setattr(provider_probe, "build_session", build_session)
 
         record, status = provider_probe.run_probe(
             provider="codex-cli", model="default"

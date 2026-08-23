@@ -184,7 +184,7 @@ def test_chat_send_accepts_only_unchanged_imports_from_its_session(
     monkeypatch.setattr("birkin.workspace.runtime_adapter.build_session", build)
     workspace = tmp_path / "workspace"
     source = tmp_path / "attachment.txt"
-    source.write_text("trusted attachment", encoding="utf-8")
+    _ = source.write_text("trusted attachment", encoding="utf-8")
     adapter = RuntimeWorkspaceAdapter("attachment-session", _event, workspace_root=workspace)
     imported = adapter.handlers()["file.import"]({"source_path": str(source)})
     reference = cast(dict[str, object], imported["reference"])
@@ -198,15 +198,15 @@ def test_chat_send_accepts_only_unchanged_imports_from_its_session(
     assert "attachment.txt" in cast(str, result["reply"])
 
     jailed = workspace / "imports" / str(reference["jail_name"])
-    jailed.write_text("changed", encoding="utf-8")
+    _ = jailed.write_text("changed", encoding="utf-8")
     with pytest.raises(ValueError, match="changed"):
-        adapter.handlers()["chat.send"]({
+        _ = adapter.handlers()["chat.send"]({
             "text": "inspect this",
             "attachments": [reference],
         })
     jailed.unlink()
     with pytest.raises(ValueError, match="deleted"):
-        adapter.handlers()["chat.send"]({
+        _ = adapter.handlers()["chat.send"]({
             "text": "inspect this",
             "attachments": [reference],
         })
@@ -214,7 +214,7 @@ def test_chat_send_accepts_only_unchanged_imports_from_its_session(
 
 def test_chat_send_rejects_unknown_and_cross_session_imports(tmp_path: Path) -> None:
     source = tmp_path / "attachment.txt"
-    source.write_text("trusted attachment", encoding="utf-8")
+    _ = source.write_text("trusted attachment", encoding="utf-8")
     first = RuntimeWorkspaceAdapter(
         "first-session", _event, workspace_root=tmp_path / "workspace"
     )
@@ -225,12 +225,12 @@ def test_chat_send_rejects_unknown_and_cross_session_imports(tmp_path: Path) -> 
     reference = cast(dict[str, object], imported["reference"])
 
     with pytest.raises(ValueError, match="unknown.*session"):
-        second.handlers()["chat.send"]({"text": "inspect", "attachments": [reference]})
+        _ = second.handlers()["chat.send"]({"text": "inspect", "attachments": [reference]})
 
     unknown = dict(reference)
     unknown["import_id"] = "import-00000000000000000000000000000000"
     with pytest.raises(ValueError, match="unknown.*session"):
-        first.handlers()["chat.send"]({"text": "inspect", "attachments": [unknown]})
+        _ = first.handlers()["chat.send"]({"text": "inspect", "attachments": [unknown]})
 
 
 def test_steer_delegates_to_runtime_and_emits_canonical_event(
