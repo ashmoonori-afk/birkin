@@ -79,8 +79,7 @@ class WorkingMemoryAuthority:
         if revision != mutation.expected_revision:
             raise WorkingMemoryRevisionConflict(revision)
         if mutation.op == "clear":
-            effective = harness.empty_working()
-            effective["revision"] = revision + 1
+            effective = harness.preview_working_clear(revision)
             return WorkingMemoryPreview(requested={}, effective=effective)
         complete = {
             field: mutation.fields.get(field, []) for field in harness.WORKING_FIELDS

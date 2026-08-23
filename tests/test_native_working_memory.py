@@ -181,9 +181,12 @@ def test_clear_revision_conflict_and_budget_are_canonical() -> None:
             "op": "clear", "expected_revision": 1, "fields": {},
         })
 
-    cleared = authority.apply(WorkingMemoryMutation.parse({
+    clear_mutation = WorkingMemoryMutation.parse({
         "op": "clear", "expected_revision": 1,
-    }))
+    })
+    clear_preview = authority.preview(clear_mutation)
+    cleared = authority.apply(clear_mutation, preview=clear_preview)
+    assert cleared.effective == clear_preview.effective
     assert cleared.effective["revision"] == 2
     assert all(not cleared.effective[field] for field in harness.WORKING_FIELDS)
 

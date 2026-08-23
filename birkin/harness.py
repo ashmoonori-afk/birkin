@@ -732,6 +732,14 @@ def preview_working_update(
     return _next_working(session, working_state(session), incoming)
 
 
+def preview_working_clear(current_revision: int) -> dict[str, Any]:
+    """Create the canonical clear result before its revision-checked commit."""
+    updated = empty_working()
+    updated["revision"] = current_revision + 1
+    updated["updated_at"] = _now()
+    return updated
+
+
 def update_working(
     session_id: str,
     *,
