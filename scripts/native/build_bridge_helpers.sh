@@ -8,7 +8,11 @@ build_lock="$repo_root/scripts/native/bridge_helper_build.lock"
 cache_root="${BIRKIN_HELPER_CACHE:-$package_root/.build/helper-cache}"
 
 json_value() {
-  plutil -extract "$1" raw -o - "$inputs"
+  local python=python3
+  command -v "$python" >/dev/null 2>&1 || python=python
+  "$python" -c \
+    'import json,sys; value=json.load(open(sys.argv[1], encoding="utf-8")); [value := value[key] for key in sys.argv[2].split(".")]; print(str(value).lower() if isinstance(value, bool) else value)' \
+    "$inputs" "$1"
 }
 
 verify_inputs() {
