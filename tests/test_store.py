@@ -1,5 +1,6 @@
 import json
 import multiprocessing
+from multiprocessing.connection import wait as wait_for_process_exit
 from pathlib import Path
 
 import pytest
@@ -169,7 +170,10 @@ def test_process_exit_releases_lock(tmp_path):
         args=(str(target),),
     )
     process.start()
-    process.join(timeout=5)
+    assert wait_for_process_exit([process.sentinel], timeout=30) == [
+        process.sentinel
+    ]
+    process.join()
     assert process.exitcode == 0
 
     with store.file_lock(target, timeout=0.5):
