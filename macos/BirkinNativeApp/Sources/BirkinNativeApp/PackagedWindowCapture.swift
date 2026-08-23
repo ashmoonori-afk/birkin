@@ -222,6 +222,24 @@ public final class PackagedWindowCapture {
         }
     }
 
+    func waitForOwnedWindowUpdate() async throws {
+        let updates = NotificationCenter.default.notifications(
+            named: NSApplication.didUpdateNotification,
+            object: NSApp
+        )
+        let candidates = windows()
+        guard candidates.count == 1, let window = candidates.first else {
+            throw PackagedWindowCaptureError.windowCount(candidates.count)
+        }
+        window.contentView?.needsDisplay = true
+        window.layoutIfNeeded()
+        window.displayIfNeeded()
+        for await _ in updates {
+            return
+        }
+        throw PackagedWindowCaptureError.captureFailed
+    }
+
     public static func windowMetadata(
         _ windowID: CGWindowID
     ) -> PackagedWindowMetadata? {
