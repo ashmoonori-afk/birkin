@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 import stat
 from pathlib import Path
 
@@ -65,7 +66,8 @@ def test_diagnostics_export_is_private_without_capabilities(
     exported = destination.read_text(encoding="utf-8")
     assert "capability" not in exported
     assert "bootstrap_secret" not in exported
-    assert stat.S_IMODE(destination.stat().st_mode) == 0o600
+    if os.name != "nt":
+        assert stat.S_IMODE(destination.stat().st_mode) == 0o600
 
 
 def test_diagnostics_export_redacts_seeded_bearer_secret(

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 import stat
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timedelta, timezone
@@ -39,7 +40,8 @@ def test_bootstrap_record_is_private_and_rotates_after_exchange(
 
     assert capability.token
     assert second.secret != first.secret
-    assert stat.S_IMODE(store.endpoint_path.stat().st_mode) == 0o600
+    if os.name != "nt":
+        assert stat.S_IMODE(store.endpoint_path.stat().st_mode) == 0o600
     with pytest.raises(NativeProtocolError) as exc_info:
         _ = store.exchange(first.secret, scope=_SCOPE)
     assert exc_info.value.code == "E_BOOTSTRAP_INVALID"

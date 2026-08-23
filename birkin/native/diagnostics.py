@@ -12,6 +12,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import final
 
+from birkin.native.private_storage import harden_private_file
 from birkin.native.projection import public_error_text
 
 Clock = Callable[[], datetime]
@@ -86,13 +87,13 @@ class DiagnosticRing:
         )
         temporary_path = Path(temporary)
         try:
-            os.fchmod(descriptor, 0o600)
+            harden_private_file(temporary_path)
             with os.fdopen(descriptor, "w", encoding="utf-8") as handle:
                 _ = handle.write(self.to_json())
                 _ = handle.write("\n")
                 handle.flush()
                 os.fsync(handle.fileno())
             os.replace(temporary_path, destination)
-            os.chmod(destination, 0o600)
+            harden_private_file(destination)
         finally:
             temporary_path.unlink(missing_ok=True)

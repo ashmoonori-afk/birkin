@@ -11,6 +11,10 @@ from datetime import datetime, timedelta
 from pathlib import Path
 from typing import cast, final
 
+from birkin.native.private_storage import (
+    harden_private_directory,
+    harden_private_file,
+)
 from birkin.native.protocol import NativeProtocolError
 
 
@@ -22,8 +26,7 @@ class BootstrapRecord:
 
 
 def prepare_private_root(root: Path) -> None:
-    root.mkdir(parents=True, exist_ok=True, mode=0o700)
-    os.chmod(root, 0o700)
+    harden_private_directory(root)
 
 
 def new_record(now: datetime, ttl: timedelta) -> BootstrapRecord:
@@ -88,13 +91,13 @@ def write_record(
     )
     temp_path = Path(temp_name)
     try:
+        harden_private_file(temp_path)
         with os.fdopen(fd, "w", encoding="utf-8") as handle:
             json.dump(payload, handle, sort_keys=True, separators=(",", ":"))
             handle.flush()
             os.fsync(handle.fileno())
-        os.chmod(temp_path, 0o600)
         os.replace(temp_path, path)
-        os.chmod(path, 0o600)
+        harden_private_file(path)
     finally:
         if temp_path.exists():
             temp_path.unlink()
