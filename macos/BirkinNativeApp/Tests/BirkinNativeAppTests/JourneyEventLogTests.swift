@@ -147,6 +147,35 @@ struct JourneyEventLogTests {
         }
     }
 
+    @MainActor
+    @Test("fixed connection capture focus resolves without a scroll probe")
+    func fixedConnectionCaptureFocusResolves() async throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("birkin-fixed-focus-\(UUID().uuidString)")
+        let browserURL = try #require(
+            URL(string: "http://127.0.0.1:8123/")
+        )
+        let runtime = BirkinApplicationRuntime(
+            socketPath: "/private/tmp/unconnected.sock",
+            ownedBridge: nil,
+            emit: { _ in }
+        )
+        let runner = PackagedJourneyRunner(
+            configuration: PackagedJourneyConfiguration(
+                evidenceRoot: root,
+                workspaceRoot: root.appendingPathComponent("workspace"),
+                browserURL: browserURL
+            ),
+            runtime: runtime,
+            events: JourneyEventLog()
+        )
+
+        let generation = try await runner.focusForCapture(.connection)
+
+        #expect(runtime.presentationModel.visibleGeneration == generation)
+        #expect(runtime.presentationModel.target == .connection)
+    }
+
     @Test("an absolute occurrence wait survives its match being trimmed away")
     func waitSurvivesTrimming() async throws {
         // Given: a bounded QA event log.

@@ -70,12 +70,7 @@ final class PackagedJourneyRunner {
         _ detail: String
     ) async throws {
         let target = focusTarget(for: name)
-        let generation = runtime.presentationModel.focus(target)
-        try await journeyDeadline("focus \(name)") {
-            try await self.runtime.presentationModel.waitUntilVisible(
-                generation: generation
-            )
-        }
+        let generation = try await focusForCapture(target)
         let url = configuration.evidenceRoot
             .appendingPathComponent("journey-\(steps.count + 1)-\(name).png")
         let capture = try runtime.captureEvidence(
@@ -97,6 +92,23 @@ final class PackagedJourneyRunner {
             capture: capture
         ))
         runtime.emitJourney("journey-step name=\(name) detail=\(evidenceDetail)")
+    }
+
+    func focusForCapture(_ target: ShellFocusTarget) async throws -> UInt64 {
+        let generation = runtime.presentationModel.focus(target)
+        if target == .connection {
+            runtime.presentationModel.reportVisible(
+                target: target,
+                generation: generation
+            )
+        } else {
+            try await journeyDeadline("focus \(target.evidenceName)") {
+                try await self.runtime.presentationModel.waitUntilVisible(
+                    generation: generation
+                )
+            }
+        }
+        return generation
     }
 
     private func fail(_ name: String, _ detail: String) {
