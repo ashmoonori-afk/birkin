@@ -717,7 +717,7 @@ Build the universal ad-hoc-signed app, create its DMG, and drive the built app
 through the production packaged journey:
 
 ```bash
-evidence="$PWD/.omo/evidence/native-shell/local"
+evidence="$(mktemp -d /private/tmp/birkin-native-evidence-XXXXXX)"
 dist="$evidence/dist"
 scripts/native/package_macos_app.sh "$dist"
 scripts/native/create_macos_dmg.sh "$dist"

@@ -720,7 +720,7 @@ Universal ad-hoc signed app을 build하고 DMG를 만든 뒤 production packaged
 journey로 built app을 구동합니다.
 
 ```bash
-evidence="$PWD/.omo/evidence/native-shell/local"
+evidence="$(mktemp -d /private/tmp/birkin-native-evidence-XXXXXX)"
 dist="$evidence/dist"
 scripts/native/package_macos_app.sh "$dist"
 scripts/native/create_macos_dmg.sh "$dist"
