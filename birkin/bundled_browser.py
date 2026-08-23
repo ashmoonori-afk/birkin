@@ -13,6 +13,10 @@ from pathlib import Path
 from typing import cast
 
 from birkin import __version__
+from birkin.bundled_browser_cache import (
+    RuntimeCacheError,
+    select_browser_runtime,
+)
 
 
 class BundledBrowserErrorCode(Enum):
@@ -120,15 +124,45 @@ def ensure_bundled_browser(
     root = resources / record.path
     if not root.is_dir() or root.is_symlink():
         raise BundledBrowserRuntimeError(BundledBrowserErrorCode.RUNTIME_MISSING)
+    _verify_runtime_root(root, record)
+    try:
+        selected = select_browser_runtime(
+            root,
+            architecture=record.architecture,
+            sha256=record.sha256,
+            verify=lambda candidate: _verify_runtime_root(candidate, record),
+        )
+    except RuntimeCacheError as error:
+        raise BundledBrowserRuntimeError(
+            BundledBrowserErrorCode.INTEGRITY_FAILED
+        ) from error
+    os.environ["PLAYWRIGHT_BROWSERS_PATH"] = str(selected)
+    return selected
+
+
+def _verify_runtime_root(
+    root: Path,
+    record: BrowserRuntimeRecord,
+) -> None:
+    if not root.is_dir() or root.is_symlink():
+        raise BundledBrowserRuntimeError(
+            BundledBrowserErrorCode.INTEGRITY_FAILED
+        )
     digest, size = browser_tree_identity(root)
     if digest != record.sha256 or size != record.size_bytes:
-        raise BundledBrowserRuntimeError(BundledBrowserErrorCode.INTEGRITY_FAILED)
+        raise BundledBrowserRuntimeError(
+            BundledBrowserErrorCode.INTEGRITY_FAILED
+        )
     for relative in (record.headless_executable, record.ffmpeg_executable):
         candidate = root / relative
-        if not candidate.is_file() or candidate.is_symlink() or not os.access(candidate, os.X_OK):
-            raise BundledBrowserRuntimeError(BundledBrowserErrorCode.INTEGRITY_FAILED)
-    os.environ["PLAYWRIGHT_BROWSERS_PATH"] = str(root)
-    return root
+        if (
+            not candidate.is_file()
+            or candidate.is_symlink()
+            or not os.access(candidate, os.X_OK)
+        ):
+            raise BundledBrowserRuntimeError(
+                BundledBrowserErrorCode.INTEGRITY_FAILED
+            )
 
 
 def browser_tree_identity(root: Path) -> tuple[str, int]:

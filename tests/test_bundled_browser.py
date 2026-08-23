@@ -6,6 +6,7 @@ import os
 import shutil
 from dataclasses import dataclass
 from pathlib import Path
+from typing import cast
 
 import pytest
 
@@ -61,6 +62,16 @@ class BrowserBundleFixture:
         manifest.write_text(json.dumps(record), encoding="utf-8")
 
 
+class _ReadOnlyStat:
+    f_flag: int = os.ST_RDONLY
+
+
+def _read_only_statvfs(
+    _path: str | os.PathLike[str],
+) -> os.statvfs_result:
+    return cast(os.statvfs_result, cast(object, _ReadOnlyStat()))
+
+
 def _tree_identity(root: Path) -> tuple[str, int]:
     tree = hashlib.sha256()
     size = 0
@@ -84,6 +95,59 @@ def test_frozen_helper_selects_only_verified_bundled_browser(
 
     assert selected == fixture.runtime
     assert os.environ["PLAYWRIGHT_BROWSERS_PATH"] == str(fixture.runtime)
+
+
+@pytest.mark.skipif(os.name == "nt", reason="read-only volumes are POSIX")
+def test_read_only_bundle_uses_private_verified_runtime_cache(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    fixture = BrowserBundleFixture.create(tmp_path / "bundle")
+    fixture.write_manifest()
+    home = tmp_path / "home"
+    monkeypatch.setenv("BIRKIN_HOME", str(home))
+    monkeypatch.setattr(
+        os,
+        "statvfs",
+        _read_only_statvfs,
+    )
+
+    selected = ensure_bundled_browser(executable=fixture.helper, frozen=True)
+
+    assert selected is not None
+    assert selected != fixture.runtime
+    assert selected.is_relative_to(home / "browser-runtime-cache")
+    assert _tree_identity(selected) == _tree_identity(fixture.runtime)
+    assert os.environ["PLAYWRIGHT_BROWSERS_PATH"] == str(selected)
+    assert selected.stat().st_mode & 0o777 == 0o700
+
+
+@pytest.mark.skipif(os.name == "nt", reason="read-only volumes are POSIX")
+def test_read_only_bundle_rejects_preseeded_cache_symlink(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    fixture = BrowserBundleFixture.create(tmp_path / "bundle")
+    fixture.write_manifest()
+    digest, _ = _tree_identity(fixture.runtime)
+    home = tmp_path / "home"
+    cache = home / "browser-runtime-cache"
+    cache.mkdir(parents=True)
+    victim = tmp_path / "victim"
+    victim.mkdir()
+    (cache / f"arm64-{digest}").symlink_to(victim)
+    monkeypatch.setenv("BIRKIN_HOME", str(home))
+    monkeypatch.setattr(
+        os,
+        "statvfs",
+        _read_only_statvfs,
+    )
+
+    with pytest.raises(BundledBrowserRuntimeError) as failure:
+        ensure_bundled_browser(executable=fixture.helper, frozen=True)
+
+    assert failure.value.code is BundledBrowserErrorCode.INTEGRITY_FAILED
+    assert not any(victim.iterdir())
 
 
 def test_missing_bundled_browser_fails_closed_with_bounded_diagnostic(
