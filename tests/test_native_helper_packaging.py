@@ -26,7 +26,10 @@ _SHA256 = re.compile(r"[0-9a-f]{64}")
 
 
 def _script_environment() -> dict[str, str]:
-    return {**os.environ, "BIRKIN_VERIFY_PYTHON": sys.executable}
+    return {
+        **os.environ,
+        "BIRKIN_VERIFY_PYTHON": Path(sys.executable).as_posix(),
+    }
 
 
 def _is_string_keyed_object(value: object) -> TypeGuard[dict[str, object]]:
@@ -197,6 +200,23 @@ def test_helper_builder_accepts_checkout_line_endings(tmp_path: Path) -> None:
     )
 
     assert result.returncode == 0, result.stdout + result.stderr
+
+
+@pytest.mark.parametrize("script", [BUILD_SCRIPT, BROWSER_BUILD_SCRIPT])
+def test_builder_rejects_missing_explicit_python(script: Path) -> None:
+    result = subprocess.run(
+        ["bash", str(script), "--verify-inputs"],
+        cwd=REPOSITORY,
+        env={
+            **os.environ,
+            "BIRKIN_VERIFY_PYTHON": "/missing/birkin-python",
+        },
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+
+    assert result.returncode != 0
 
 
 def test_helper_runtime_hash_policy_accepts_only_exact_vcs_source() -> None:
