@@ -22,6 +22,10 @@ from birkin.native.transport import receive_frame
 from tests.native_bridge_support import envelope, hello
 
 
+_UDS_ONLY = pytest.mark.skipif(
+    os.name == "nt",
+    reason="Unix peer credentials are unavailable on Windows",
+)
 _SHORT_TEMP_ROOT = (
     Path("/private/tmp")
     if Path("/private/tmp").is_dir()
@@ -111,6 +115,7 @@ def test_module_entry_point_rejects_an_unsupported_transport() -> None:
     assert result.returncode != 0
 
 
+@_UDS_ONLY
 def test_native_bridge_serves_a_real_connection_and_cleans_up() -> None:
     """Given the shipped CLI bridge, When a client completes a handshake and
     the bridge is asked to stop, Then it announced a live endpoint, served the
@@ -194,6 +199,7 @@ def _await(client: socket.socket, kind: str) -> object:
     raise AssertionError(f"did not receive {kind}")
 
 
+@_UDS_ONLY
 def test_served_bridge_creates_selects_and_serves_a_new_session() -> None:
     """Given the shipped bridge, When the app creates and selects a session,
     Then session.create is advertised, accepted, and the new session serves

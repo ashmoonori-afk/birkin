@@ -8,8 +8,8 @@ build_lock="$repo_root/scripts/native/bridge_helper_build.lock"
 cache_root="${BIRKIN_HELPER_CACHE:-$package_root/.build/helper-cache}"
 
 json_value() {
-  local python=python3
-  command -v "$python" >/dev/null 2>&1 || python=python
+  local python=python
+  command -v "$python" >/dev/null 2>&1 || python=python3
   "$python" -c \
     'import json,sys; value=json.load(open(sys.argv[1], encoding="utf-8")); [value := value[key] for key in sys.argv[2].split(".")]; print(str(value).lower() if isinstance(value, bool) else value)' \
     "$inputs" "$1"
@@ -42,13 +42,17 @@ verify_inputs() {
     echo "helper build lock does not pin PyInstaller 6.22.2" >&2
     return 1
   }
+  python=python
+  command -v "$python" >/dev/null 2>&1 || python=python3
   for project_input in pyproject uv_lock; do
     expected_hash="$(json_value "project.${project_input}_sha256")"
     case "$project_input" in
       pyproject) project_path="$repo_root/pyproject.toml" ;;
       uv_lock) project_path="$repo_root/uv.lock" ;;
     esac
-    actual_hash="$(shasum -a 256 "$project_path" | awk '{print $1}')"
+    actual_hash="$("$python" -c \
+      'import hashlib,sys; print(hashlib.sha256(open(sys.argv[1], "rb").read().replace(b"\r\n", b"\n")).hexdigest())' \
+      "$project_path")"
     [[ "$expected_hash" =~ ^[0-9a-f]{64}$ ]] || {
       echo "invalid $project_input input checksum" >&2
       return 1
@@ -58,8 +62,6 @@ verify_inputs() {
       return 1
     }
   done
-  python=python3
-  command -v "$python" >/dev/null 2>&1 || python=python
   locked_version="$("$python" - "$repo_root/uv.lock" <<'PY'
 import sys
 try:

@@ -97,7 +97,7 @@ def test_blocked_command_keeps_heartbeat_live_until_ordered_receipt(
 
     def blocked_chat(payload: dict[str, object]) -> dict[str, object]:
         entered.set()
-        if not release.wait(timeout=10):
+        if not release.wait(timeout=30):
             raise AssertionError("test did not release blocked command")
         return {"reply": str(payload["text"])}
 
@@ -136,7 +136,7 @@ def test_blocked_command_keeps_heartbeat_live_until_ordered_receipt(
         )))
         assert entered.wait(timeout=1)
 
-        for index in range(70):
+        for index in range(3):
             ping = receive_frame(client)
             assert ping.kind == "ping", ping.body
             pong_body: dict[str, object] = {

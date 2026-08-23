@@ -76,10 +76,12 @@ def test_helper_project_and_lock_inputs_are_checksum_pinned() -> None:
 
     assert project == {
         "pyproject_sha256": hashlib.sha256(
-            (REPOSITORY / "pyproject.toml").read_bytes()
+            (REPOSITORY / "pyproject.toml")
+            .read_bytes()
+            .replace(b"\r\n", b"\n")
         ).hexdigest(),
         "uv_lock_sha256": hashlib.sha256(
-            (REPOSITORY / "uv.lock").read_bytes()
+            (REPOSITORY / "uv.lock").read_bytes().replace(b"\r\n", b"\n")
         ).hexdigest(),
     }
 
@@ -140,11 +142,7 @@ def test_helper_builder_verifies_inputs_without_downloading() -> None:
     }
 
 
-@pytest.mark.parametrize("target_name", ["pyproject.toml", "uv.lock"])
-def test_helper_builder_rejects_changed_project_lock_inputs(
-    tmp_path: Path,
-    target_name: str,
-) -> None:
+def _copy_verifier_repository(tmp_path: Path) -> tuple[Path, Path]:
     repository = tmp_path / "repository"
     native_scripts = repository / "scripts/native"
     native_scripts.mkdir(parents=True)
@@ -152,11 +150,20 @@ def test_helper_builder_rejects_changed_project_lock_inputs(
         _ = shutil.copy2(source, native_scripts / source.name)
     for source_name in ("pyproject.toml", "uv.lock"):
         _ = shutil.copy2(REPOSITORY / source_name, repository / source_name)
+    return repository, native_scripts / BUILD_SCRIPT.name
+
+
+@pytest.mark.parametrize("target_name", ["pyproject.toml", "uv.lock"])
+def test_helper_builder_rejects_changed_project_lock_inputs(
+    tmp_path: Path,
+    target_name: str,
+) -> None:
+    repository, build_script = _copy_verifier_repository(tmp_path)
 
     target = repository / target_name
     _ = target.write_bytes(target.read_bytes() + b"\n# tampered\n")
     result = subprocess.run(
-        ["bash", str(native_scripts / BUILD_SCRIPT.name), "--verify-inputs"],
+        ["bash", str(build_script), "--verify-inputs"],
         cwd=repository,
         text=True,
         capture_output=True,
@@ -164,6 +171,23 @@ def test_helper_builder_rejects_changed_project_lock_inputs(
     )
 
     assert result.returncode != 0
+
+
+def test_helper_builder_accepts_checkout_line_endings(tmp_path: Path) -> None:
+    repository, build_script = _copy_verifier_repository(tmp_path)
+    for source_name in ("pyproject.toml", "uv.lock"):
+        source = repository / source_name
+        _ = source.write_bytes(source.read_bytes().replace(b"\n", b"\r\n"))
+
+    result = subprocess.run(
+        ["bash", str(build_script), "--verify-inputs"],
+        cwd=repository,
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+
+    assert result.returncode == 0, result.stdout + result.stderr
 
 
 def test_helper_runtime_hash_policy_accepts_only_exact_vcs_source() -> None:

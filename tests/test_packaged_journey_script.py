@@ -4,6 +4,8 @@ import os
 import subprocess
 from pathlib import Path
 
+import pytest
+
 SCRIPT = (
     Path(__file__).resolve().parents[1]
     / "scripts"
@@ -12,6 +14,7 @@ SCRIPT = (
 )
 
 
+@pytest.mark.skipif(os.name == "nt", reason="packaged journey requires POSIX bash")
 def test_packaged_journey_is_executable_and_valid_bash() -> None:
     result = subprocess.run(
         ["/bin/bash", "-n", str(SCRIPT)],
