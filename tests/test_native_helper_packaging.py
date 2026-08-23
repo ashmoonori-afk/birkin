@@ -4,9 +4,11 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 import re
 import shutil
 import subprocess
+import sys
 from pathlib import Path
 from typing import TypeGuard, cast
 
@@ -21,6 +23,10 @@ BROWSER_BUILD_SCRIPT = REPOSITORY / "scripts/native/build_browser_runtimes.sh"
 PACKAGE_SCRIPT = REPOSITORY / "scripts/native/package_macos_app.sh"
 DMG_SCRIPT = REPOSITORY / "scripts/native/create_macos_dmg.sh"
 _SHA256 = re.compile(r"[0-9a-f]{64}")
+
+
+def _script_environment() -> dict[str, str]:
+    return {**os.environ, "BIRKIN_VERIFY_PYTHON": sys.executable}
 
 
 def _is_string_keyed_object(value: object) -> TypeGuard[dict[str, object]]:
@@ -124,6 +130,7 @@ def test_helper_builder_verifies_inputs_without_downloading() -> None:
     result = subprocess.run(
         ["bash", str(BUILD_SCRIPT), "--verify-inputs"],
         cwd=REPOSITORY,
+        env=_script_environment(),
         text=True,
         capture_output=True,
         check=False,
@@ -165,6 +172,7 @@ def test_helper_builder_rejects_changed_project_lock_inputs(
     result = subprocess.run(
         ["bash", str(build_script), "--verify-inputs"],
         cwd=repository,
+        env=_script_environment(),
         text=True,
         capture_output=True,
         check=False,
@@ -182,6 +190,7 @@ def test_helper_builder_accepts_checkout_line_endings(tmp_path: Path) -> None:
     result = subprocess.run(
         ["bash", str(build_script), "--verify-inputs"],
         cwd=repository,
+        env=_script_environment(),
         text=True,
         capture_output=True,
         check=False,
@@ -237,6 +246,7 @@ def test_browser_builder_verifies_inputs_without_downloading() -> None:
     result = subprocess.run(
         ["bash", str(BROWSER_BUILD_SCRIPT), "--verify-inputs"],
         cwd=REPOSITORY,
+        env=_script_environment(),
         text=True,
         capture_output=True,
         check=False,

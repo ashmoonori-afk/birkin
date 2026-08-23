@@ -8,7 +8,7 @@ build_lock="$repo_root/scripts/native/bridge_helper_build.lock"
 cache_root="${BIRKIN_HELPER_CACHE:-$package_root/.build/helper-cache}"
 
 json_value() {
-  local python=python
+  local python="${BIRKIN_VERIFY_PYTHON:-python}"
   command -v "$python" >/dev/null 2>&1 || python=python3
   "$python" -c \
     'import json,sys; value=json.load(open(sys.argv[1], encoding="utf-8")); [value := value[key] for key in sys.argv[2].split(".")]; print(str(value).lower() if isinstance(value, bool) else value)' \
@@ -42,7 +42,7 @@ verify_inputs() {
     echo "helper build lock does not pin PyInstaller 6.22.2" >&2
     return 1
   }
-  python=python
+  python="${BIRKIN_VERIFY_PYTHON:-python}"
   command -v "$python" >/dev/null 2>&1 || python=python3
   for project_input in pyproject uv_lock; do
     expected_hash="$(json_value "project.${project_input}_sha256")"

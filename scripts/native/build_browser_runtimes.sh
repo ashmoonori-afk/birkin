@@ -6,7 +6,7 @@ inputs="$repo_root/scripts/native/bridge_helper_inputs.json"
 cache_root="${BIRKIN_BROWSER_CACHE:-$repo_root/macos/BirkinNativeApp/.build/browser-cache}"
 
 json_value() {
-  local python=python
+  local python="${BIRKIN_VERIFY_PYTHON:-python}"
   command -v "$python" >/dev/null 2>&1 || python=python3
   "$python" -c \
     'import json,sys; value=json.load(open(sys.argv[1], encoding="utf-8")); [value := value[key] for key in sys.argv[2].split(".")]; print(str(value).lower() if isinstance(value, bool) else value)' \
