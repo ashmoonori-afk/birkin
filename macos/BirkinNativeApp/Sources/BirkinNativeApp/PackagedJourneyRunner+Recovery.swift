@@ -58,12 +58,12 @@ extension PackagedJourneyRunner {
             session: try require(session, "session lost"),
             submit: {
                 submitted = $0
-                self.runtime.submit($0)
             }
         ) else {
             throw JourneyError.refused("post-reconnect send refused")
         }
         let request = try require(submitted, "post-reconnect command was not submitted")
+        try await runtime.submitAwaitingTransport(request)
         try await journeyDeadline("post reconnect receipt") { [events] in
             try await events.wait(for: "command-receipt id=\(request.frameID)")
         }

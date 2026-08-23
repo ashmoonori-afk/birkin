@@ -148,7 +148,7 @@ struct BirkinApplicationReconnectIntegrationTests {
         }
         let ready = try #require(session)
         #expect(runtime.store.projection?.composer.canSend == true)
-        runtime.submit(NativeCommandRequest(
+        try await runtime.submitAwaitingTransport(NativeCommandRequest(
             frameID: "post-reconnect-frame", commandID: "post-reconnect-command",
             expectedCursor: runtime.store.latestAppliedCursor ?? 0,
             commandType: "chat.send", payload: ["text": .string("Command after reconnect")],

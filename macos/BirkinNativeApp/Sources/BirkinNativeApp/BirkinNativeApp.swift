@@ -244,20 +244,28 @@ public final class BirkinApplicationRuntime: ObservableObject {
     }
 
     public func submit(_ request: NativeCommandRequest) {
+        Task { [weak self] in
+            try? await self?.submitAwaitingTransport(request)
+        }
+    }
+
+    func submitAwaitingTransport(_ request: NativeCommandRequest) async throws {
         guard let commandSubmitter else {
-            lastCommandError = "Command transport is not connected."
-            return
+            let reason = "Command transport is not connected."
+            lastCommandError = reason
+            throw NativeTransportError(reason)
         }
         lastCommandError = nil
         correlate(request)
-        Task.detached { [weak self] in
-            do {
+        do {
+            try await Task.detached {
                 try commandSubmitter(request)
-            } catch {
-                await MainActor.run {
-                    self?.lastCommandError = String(describing: error).prefix(300).description
-                }
-            }
+            }.value
+        } catch {
+            let reason = String(describing: error).prefix(300).description
+            lastCommandError = reason
+            emit("command-submit-failed id=\(request.frameID) reason=\(reason)")
+            throw error
         }
     }
 
