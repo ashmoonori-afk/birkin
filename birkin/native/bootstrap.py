@@ -5,13 +5,13 @@ from __future__ import annotations
 import json
 import os
 import secrets
-import tempfile
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 from pathlib import Path
 from typing import cast, final
 
 from birkin.native.private_storage import (
+    create_private_temp,
     harden_private_directory,
     harden_private_file,
 )
@@ -85,9 +85,9 @@ def write_record(
     }
     if metadata is not None:
         payload.update(metadata)
-    fd, temp_name = tempfile.mkstemp(
+    fd, temp_name = create_private_temp(
+        path.parent,
         prefix=f".{path.name}.",
-        dir=path.parent,
     )
     temp_path = Path(temp_name)
     try:

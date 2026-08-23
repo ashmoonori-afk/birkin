@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import json
 import os
-import tempfile
 import threading
 from collections import deque
 from collections.abc import Callable
@@ -12,7 +11,10 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import final
 
-from birkin.native.private_storage import harden_private_file
+from birkin.native.private_storage import (
+    create_private_temp,
+    harden_private_file,
+)
 from birkin.native.projection import public_error_text
 
 Clock = Callable[[], datetime]
@@ -81,13 +83,12 @@ class DiagnosticRing:
 
     def export(self, destination: Path) -> None:
         destination.parent.mkdir(parents=True, exist_ok=True)
-        descriptor, temporary = tempfile.mkstemp(
-            dir=destination.parent,
+        descriptor, temporary = create_private_temp(
+            destination.parent,
             prefix=f".{destination.name}-",
         )
         temporary_path = Path(temporary)
         try:
-            harden_private_file(temporary_path)
             with os.fdopen(descriptor, "w", encoding="utf-8") as handle:
                 _ = handle.write(self.to_json())
                 _ = handle.write("\n")
