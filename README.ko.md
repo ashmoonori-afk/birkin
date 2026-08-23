@@ -797,7 +797,11 @@ Unix domain socket을 우선 사용하고, 명시적으로 선택할 때 인증�
   `ready.server_version`은 generated app version과 정확히 같아야 합니다.
   Developer bridge override도 이 handshake를 우회할 수 없습니다. App은 현재
   architecture만 선택해 검증하며 bridge와 Browser Aside는 host Python,
-  repository, virtual environment, Playwright cache를 참조하지 않습니다.
+  repository, virtual environment, host Playwright cache를 참조하지 않습니다.
+  Read-only media에서 실행할 때 Browser Aside는 sealed runtime을
+  `BIRKIN_HOME` 아래 private architecture-bound content-addressed cache
+  하나로 복사하고, 복사본을 다시 검증하며, link를 거부하고, 실행 전에
+  이전 architecture cache를 정리합니다.
 - **Release QA:** 기본으로 비활성화된 `BIRKIN_NATIVE_JOURNEY=1` seam은 test
   transport나 direct wire client 없이 packaged UI와 같은 control을
   구동합니다. 빈 `HOME`, 정리된 `PATH`, bridge override가 없는 환경에서 실제

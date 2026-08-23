@@ -175,13 +175,18 @@ def browser_tree_identity(root: Path) -> tuple[str, int]:
             continue
         if not path.is_file():
             raise BundledBrowserRuntimeError(BundledBrowserErrorCode.INTEGRITY_FAILED)
+        metadata = path.stat()
+        if metadata.st_nlink != 1:
+            raise BundledBrowserRuntimeError(
+                BundledBrowserErrorCode.INTEGRITY_FAILED
+            )
         relative = "./" + path.relative_to(root).as_posix()
         file_hash = hashlib.sha256()
         with path.open("rb") as handle:
             while chunk := handle.read(1024 * 1024):
                 file_hash.update(chunk)
         tree.update(f"{file_hash.hexdigest()}  {relative}\n".encode())
-        size += path.stat().st_size
+        size += metadata.st_size
     return tree.hexdigest(), size
 
 

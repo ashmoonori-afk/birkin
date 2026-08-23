@@ -51,6 +51,7 @@ def select_browser_runtime(
         raise RuntimeCacheError
     if target.exists():
         verify(target)
+        _prune_stale(parent, target, architecture)
         return target
     stage = Path(tempfile.mkdtemp(prefix=".runtime-", dir=parent))
     try:
@@ -66,6 +67,7 @@ def select_browser_runtime(
             if target.is_symlink():
                 raise RuntimeCacheError from error
             verify(target)
+        _prune_stale(parent, target, architecture)
         return target
     except RuntimeCacheError:
         raise
@@ -73,6 +75,28 @@ def select_browser_runtime(
         raise RuntimeCacheError from error
     finally:
         shutil.rmtree(stage, ignore_errors=True)
+
+
+def _prune_stale(
+    parent: Path,
+    keep: Path,
+    architecture: str,
+) -> None:
+    try:
+        for entry in parent.iterdir():
+            if entry == keep:
+                continue
+            if not (
+                entry.name.startswith(".runtime-")
+                or entry.name.startswith(f"{architecture}-")
+            ):
+                continue
+            if entry.is_symlink() or not entry.is_dir():
+                entry.unlink()
+            else:
+                shutil.rmtree(entry)
+    except OSError as error:
+        raise RuntimeCacheError from error
 
 
 def _is_read_only(root: Path) -> bool:

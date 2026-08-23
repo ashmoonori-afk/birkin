@@ -62,8 +62,16 @@ class BrowserBundleFixture:
         manifest.write_text(json.dumps(record), encoding="utf-8")
 
 
+_READ_ONLY_FLAG_VALUE = getattr(os, "ST_RDONLY", None)
+_READ_ONLY_FLAG: int = (
+    _READ_ONLY_FLAG_VALUE
+    if isinstance(_READ_ONLY_FLAG_VALUE, int)
+    else 1
+)
+
+
 class _ReadOnlyStat:
-    f_flag: int = os.ST_RDONLY
+    f_flag: int = _READ_ONLY_FLAG
 
 
 def _read_only_statvfs(
@@ -148,6 +156,57 @@ def test_read_only_bundle_rejects_preseeded_cache_symlink(
 
     assert failure.value.code is BundledBrowserErrorCode.INTEGRITY_FAILED
     assert not any(victim.iterdir())
+
+
+@pytest.mark.skipif(os.name == "nt", reason="hard links are POSIX")
+def test_read_only_bundle_rejects_hard_linked_cache_file(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    fixture = BrowserBundleFixture.create(tmp_path / "bundle")
+    fixture.write_manifest()
+    digest, _ = _tree_identity(fixture.runtime)
+    home = tmp_path / "home"
+    target = home / "browser-runtime-cache" / f"arm64-{digest}"
+    shutil.copytree(fixture.runtime, target)
+    external = tmp_path / "external-link"
+    os.link(
+        target / fixture.headless.relative_to(fixture.runtime),
+        external,
+    )
+    monkeypatch.setenv("BIRKIN_HOME", str(home))
+    monkeypatch.setattr(os, "statvfs", _read_only_statvfs)
+
+    with pytest.raises(BundledBrowserRuntimeError) as failure:
+        _ = ensure_bundled_browser(
+            executable=fixture.helper,
+            frozen=True,
+        )
+
+    assert failure.value.code is BundledBrowserErrorCode.INTEGRITY_FAILED
+
+
+@pytest.mark.skipif(os.name == "nt", reason="read-only volumes are POSIX")
+def test_read_only_bundle_prunes_prior_architecture_cache(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    fixture = BrowserBundleFixture.create(tmp_path / "bundle")
+    fixture.write_manifest()
+    home = tmp_path / "home"
+    stale = home / "browser-runtime-cache/arm64-stale"
+    stale.mkdir(parents=True)
+    _ = (stale / "old").write_text("old", encoding="utf-8")
+    monkeypatch.setenv("BIRKIN_HOME", str(home))
+    monkeypatch.setattr(os, "statvfs", _read_only_statvfs)
+
+    selected = ensure_bundled_browser(
+        executable=fixture.helper,
+        frozen=True,
+    )
+
+    assert selected is not None
+    assert not stale.exists()
 
 
 def test_missing_bundled_browser_fails_closed_with_bounded_diagnostic(

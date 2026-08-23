@@ -114,7 +114,10 @@ Every embedded or external bridge must independently return the same exact
 `ready.server_version`. Frozen Python removes any inherited Playwright path,
 accepts only its bundled browser tree for the selected architecture, and
 refuses missing, malformed, wrong-architecture, symlinked, wrong-size, or
-changed browser bytes with bounded remediation text.
+changed browser bytes with bounded remediation text. On read-only media it
+copies that sealed tree into one private, architecture-bound,
+content-addressed cache under `BIRKIN_HOME`, rejects linked files, verifies
+the copy again, and prunes the prior architecture cache before execution.
 
 `BIRKIN_NATIVE_JOURNEY=1` is an explicit, disabled-by-default release-QA seam.
 It can drive real provider and product actions, so only the release harness

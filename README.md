@@ -794,7 +794,10 @@ The shipped boundary is deliberate:
   match the generated app version. A developer bridge override cannot bypass
   that handshake. The app selects and verifies only its architecture; neither
   the bridge nor Browser Aside consults a host Python, repository, virtual
-  environment, or Playwright cache.
+  environment, or host Playwright cache. When launched from read-only media,
+  Browser Aside copies the sealed runtime into one private, architecture-bound,
+  content-addressed cache under `BIRKIN_HOME`, verifies the copy again, rejects
+  links, and prunes the prior architecture cache before execution.
 - **Release QA:** the disabled-by-default `BIRKIN_NATIVE_JOURNEY=1` seam drives
   the same controls as the packaged UI, with no test transport or direct wire
   client. Under an empty `HOME`, sanitized `PATH`, and absent bridge overrides,
