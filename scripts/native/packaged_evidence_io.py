@@ -66,6 +66,54 @@ def verify_png_digest(data: bytes, receipt_digest: str, label: str) -> str:
     return digest
 
 
+def _read_evidence_file_portable(
+    root: Path,
+    relative: Path,
+    label: str,
+) -> EvidenceFile:
+    current = Path(root.anchor)
+    try:
+        for component in root.parts[1:]:
+            current /= component
+            metadata = os.lstat(current)
+            if stat.S_ISLNK(metadata.st_mode) or not stat.S_ISDIR(
+                metadata.st_mode
+            ):
+                raise EvidenceOpenError(
+                    "evidence root must be a directory without symlinks"
+                )
+        for component in relative.parts[:-1]:
+            current /= component
+            metadata = os.lstat(current)
+            if stat.S_ISLNK(metadata.st_mode) or not stat.S_ISDIR(
+                metadata.st_mode
+            ):
+                raise EvidenceOpenError(
+                    f"{label} must be a regular file without symlinks"
+                )
+        path = current / relative.parts[-1]
+        metadata = os.lstat(path)
+        if stat.S_ISLNK(metadata.st_mode) or not stat.S_ISREG(metadata.st_mode):
+            raise EvidenceOpenError(
+                f"{label} must be a regular file without symlinks"
+            )
+        flags = os.O_RDONLY | getattr(os, "O_BINARY", 0)
+        descriptor = os.open(path, flags)
+        try:
+            opened = os.fstat(descriptor)
+            if not os.path.samestat(metadata, opened):
+                raise EvidenceOpenError(f"{label} changed while opening")
+            with os.fdopen(descriptor, "rb", closefd=False) as handle:
+                data = handle.read()
+        finally:
+            os.close(descriptor)
+    except OSError as error:
+        raise EvidenceOpenError(
+            f"{label} must be a regular file without symlinks"
+        ) from error
+    return EvidenceFile(path=root / relative, data=data)
+
+
 def read_evidence_file(
     evidence_root: Path,
     value: str,
@@ -86,6 +134,8 @@ def read_evidence_file(
         raise EvidenceOpenError(
             f"{label} must stay within evidence root: {candidate}"
         )
+    if os.name == "nt":
+        return _read_evidence_file_portable(root, relative, label)
 
     flags = os.O_RDONLY | os.O_CLOEXEC
     root_fd = _open_directory(root, "evidence root")

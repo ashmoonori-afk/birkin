@@ -3,6 +3,7 @@ from __future__ import annotations
 import hashlib
 import importlib
 import json
+import os
 import struct
 import subprocess
 import sys
@@ -339,6 +340,10 @@ def test_verifier_help_exits_successfully() -> None:
     assert result.stderr == ""
 
 
+@pytest.mark.skipif(
+    os.name == "nt",
+    reason="packaged launcher Python path is a macOS contract",
+)
 def test_verifier_loads_under_packaged_launcher_python() -> None:
     result = subprocess.run(
         ["/usr/bin/python3", str(SCRIPT)],
