@@ -34,9 +34,8 @@ def _windows_owner_sid(system: Path) -> str:
 
 def _windows_dacl(path: Path) -> str:
     escaped = str(path).replace("'", "''")
-    powershell = (
-        Path(os.environ["SystemRoot"])
-        / "System32/WindowsPowerShell/v1.0/powershell.exe"
+    powershell = Path(os.environ["SystemRoot"]) / (
+        "System32/WindowsPowerShell/v1.0/powershell.exe"
     )
     result = subprocess.run(
         [
@@ -44,7 +43,7 @@ def _windows_dacl(path: Path) -> str:
             "-NoProfile",
             "-Command",
             (
-                f"$acl = Get-Acl -LiteralPath '{escaped}'; "
+                f"$acl = [System.IO.File]::GetAccessControl('{escaped}'); "
                 "$acl.GetSecurityDescriptorSddlForm("
                 "[System.Security.AccessControl.AccessControlSections]::Access)"
             ),
@@ -151,12 +150,14 @@ def test_windows_private_temp_closes_handle_when_fd_transfer_fails(
     def fail_transfer(_handle: int, _flags: int) -> int:
         raise OSError("sentinel transfer failure")
 
-    warm_descriptor, warm_name = private_storage.create_private_temp(
-        tmp_path,
-        prefix=".warm.",
-    )
-    os.close(warm_descriptor)
-    Path(warm_name).unlink()
+    real_transfer = msvcrt.open_osfhandle
+    monkeypatch.setattr(msvcrt, "open_osfhandle", fail_transfer)
+    with pytest.raises(OSError, match="sentinel transfer failure"):
+        _ = private_storage.create_private_temp(
+            tmp_path,
+            prefix=".warm.",
+        )
+    monkeypatch.setattr(msvcrt, "open_osfhandle", real_transfer)
     before = count()
     monkeypatch.setattr(msvcrt, "open_osfhandle", fail_transfer)
 
