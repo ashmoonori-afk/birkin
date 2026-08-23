@@ -5,7 +5,7 @@ from __future__ import annotations
 from collections.abc import Iterable
 from dataclasses import FrozenInstanceError, dataclass, field
 from enum import Enum
-from typing import ClassVar
+from typing import ClassVar, cast
 
 from typing_extensions import override
 
@@ -71,6 +71,23 @@ class DocumentError(Exception):
         if name in self._IMMUTABLE_FIELDS:
             raise FrozenInstanceError(f"cannot delete field {name!r}")
         super().__delattr__(name)
+
+    def add_note(self, note: object) -> None:
+        """Attach an operator note on every supported Python version."""
+        if not isinstance(note, str):
+            raise TypeError("note must be a str")
+        notes_value = cast(object, getattr(self, "__notes__", None))
+        if notes_value is None:
+            notes = []
+            super().__setattr__("__notes__", notes)
+        elif isinstance(notes_value, list):
+            raw_notes = cast(list[object], notes_value)
+            if not all(isinstance(item, str) for item in raw_notes):
+                raise TypeError("__notes__ must be a list of str")
+            notes = cast(list[str], raw_notes)
+        else:
+            raise TypeError("__notes__ must be a list of str")
+        notes.append(note)
 
     def envelope(self, *, secrets: Iterable[str] = ()) -> dict[str, object]:
         error = {
