@@ -253,7 +253,11 @@ public final class BirkinApplicationRuntime: ObservableObject {
         guard let commandSubmitter else {
             let reason = "Command transport is not connected."
             lastCommandError = reason
-            throw NativeTransportError(reason)
+            throw NSError(
+                domain: "BirkinNativeApp.CommandTransport",
+                code: 1,
+                userInfo: [NSLocalizedDescriptionKey: reason]
+            )
         }
         lastCommandError = nil
         correlate(request)
