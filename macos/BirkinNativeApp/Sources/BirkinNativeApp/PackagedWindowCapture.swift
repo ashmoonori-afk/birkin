@@ -192,6 +192,31 @@ public final class PackagedWindowCapture {
         )
     }
 
+    func waitForOwnedWindow(
+        onWaiting: @escaping @MainActor @Sendable () -> Void = {}
+    ) async throws {
+        let updates = NotificationCenter.default.notifications(
+            named: NSApplication.didUpdateNotification,
+            object: NSApplication.shared
+        )
+        onWaiting()
+        try validateWindowCountForReadiness()
+        if windows().count == 1 { return }
+        for await _ in updates {
+            try Task.checkCancellation()
+            try validateWindowCountForReadiness()
+            if windows().count == 1 { return }
+        }
+        throw CancellationError()
+    }
+
+    private func validateWindowCountForReadiness() throws {
+        let count = windows().count
+        if count > 1 {
+            throw PackagedWindowCaptureError.windowCount(count)
+        }
+    }
+
     public static func windowMetadata(
         _ windowID: CGWindowID
     ) -> PackagedWindowMetadata? {

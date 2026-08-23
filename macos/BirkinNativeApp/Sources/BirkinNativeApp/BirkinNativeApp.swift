@@ -575,6 +575,10 @@ public final class BirkinApplicationRuntime: ObservableObject {
         )
     }
 
+    func waitForEvidenceWindow() async throws {
+        try await windowCapture.waitForOwnedWindow()
+    }
+
     private func emit(_ message: String) {
         emitEvent(message)
     }

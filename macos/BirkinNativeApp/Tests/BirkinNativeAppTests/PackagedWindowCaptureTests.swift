@@ -28,6 +28,33 @@ struct PackagedWindowCaptureTests {
         }
     }
 
+    @Test("window readiness waits for an application update event")
+    func waitsForOwnedWindowEvent() async throws {
+        var windows: [NSWindow] = []
+        let capture = PackagedWindowCapture(
+            preflight: { true },
+            windows: { windows },
+            metadata: { _ in .valid },
+            image: { _ in Self.testImage() }
+        )
+        let (registrations, registration) = AsyncStream<Void>.makeStream()
+        var iterator = registrations.makeAsyncIterator()
+        let waiter = Task { @MainActor in
+            try await capture.waitForOwnedWindow(
+                onWaiting: { registration.yield() }
+            )
+        }
+        _ = await iterator.next()
+
+        windows = [makeWindow()]
+        NotificationCenter.default.post(
+            name: NSApplication.didUpdateNotification,
+            object: NSApplication.shared
+        )
+
+        try await waiter.value
+    }
+
     @Test("capture requires exactly one owned Birkin window")
     func requiresUniqueOwnedWindow() throws {
         let first = makeWindow()

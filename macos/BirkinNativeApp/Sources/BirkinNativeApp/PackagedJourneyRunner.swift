@@ -95,6 +95,9 @@ final class PackagedJourneyRunner {
     }
 
     func focusForCapture(_ target: ShellFocusTarget) async throws -> UInt64 {
+        try await journeyDeadline("window \(target.evidenceName)") {
+            try await self.runtime.waitForEvidenceWindow()
+        }
         let generation = runtime.presentationModel.focus(target)
         if target == .connection {
             runtime.presentationModel.reportVisible(

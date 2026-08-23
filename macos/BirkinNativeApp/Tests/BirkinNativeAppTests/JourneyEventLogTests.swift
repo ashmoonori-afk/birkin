@@ -1,3 +1,4 @@
+import AppKit
 import Foundation
 import Testing
 
@@ -155,9 +156,22 @@ struct JourneyEventLogTests {
         let browserURL = try #require(
             URL(string: "http://127.0.0.1:8123/")
         )
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 1_280, height: 800),
+            styleMask: [.titled],
+            backing: .buffered,
+            defer: false
+        )
+        defer { window.close() }
         let runtime = BirkinApplicationRuntime(
             socketPath: "/private/tmp/unconnected.sock",
             ownedBridge: nil,
+            windowCapture: PackagedWindowCapture(
+                preflight: { true },
+                windows: { [window] },
+                metadata: { _ in nil },
+                image: { _ in nil }
+            ),
             emit: { _ in }
         )
         let runner = PackagedJourneyRunner(
