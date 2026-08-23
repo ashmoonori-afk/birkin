@@ -200,18 +200,23 @@ public final class PackagedWindowCapture {
             object: NSApplication.shared
         )
         onWaiting()
-        try validateWindowCountForReadiness()
-        if windows().count == 1 { return }
+        var count = readinessWindowCount()
+        try validateWindowCountForReadiness(count)
+        if count == 1 { return }
         for await _ in updates {
             try Task.checkCancellation()
-            try validateWindowCountForReadiness()
-            if windows().count == 1 { return }
+            count = readinessWindowCount()
+            try validateWindowCountForReadiness(count)
+            if count == 1 { return }
         }
         throw CancellationError()
     }
 
-    private func validateWindowCountForReadiness() throws {
-        let count = windows().count
+    private func readinessWindowCount() -> Int {
+        injectedWindowIDs?().count ?? windows().count
+    }
+
+    private func validateWindowCountForReadiness(_ count: Int) throws {
         if count > 1 {
             throw PackagedWindowCaptureError.windowCount(count)
         }

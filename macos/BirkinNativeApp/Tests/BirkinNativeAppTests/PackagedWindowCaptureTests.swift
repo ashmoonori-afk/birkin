@@ -30,10 +30,10 @@ struct PackagedWindowCaptureTests {
 
     @Test("window readiness waits for an application update event")
     func waitsForOwnedWindowEvent() async throws {
-        var windows: [NSWindow] = []
+        let fixture = WindowReadinessFixture()
         let capture = PackagedWindowCapture(
             preflight: { true },
-            windows: { windows },
+            windows: { fixture.windows },
             metadata: { _ in .valid },
             image: { _ in Self.testImage() }
         )
@@ -46,7 +46,7 @@ struct PackagedWindowCaptureTests {
         }
         _ = await iterator.next()
 
-        windows = [makeWindow()]
+        fixture.windows = [makeWindow()]
         NotificationCenter.default.post(
             name: NSApplication.didUpdateNotification,
             object: NSApplication.shared
@@ -227,6 +227,11 @@ struct PackagedWindowCaptureTests {
         context.fill(CGRect(x: 0, y: 0, width: width, height: height))
         return context.makeImage()!
     }
+}
+
+@MainActor
+private final class WindowReadinessFixture {
+    var windows: [NSWindow] = []
 }
 
 @MainActor

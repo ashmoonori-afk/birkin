@@ -625,8 +625,7 @@ private enum BirkinApplicationRuntimeError: Error {
 
 /// The application's single runtime and its optional scripted QA journey.
 ///
-/// Both the delegate and the window read this, so the journey never depends on
-/// a window being presented.
+/// The window starts the journey only after SwiftUI mounts the real shell.
 @MainActor
 enum BirkinApplicationHost {
     static let journey = PackagedJourneyConfiguration.discovered()
@@ -649,19 +648,6 @@ enum BirkinApplicationHost {
 /// Runs the app-owned bridge lifecycle across the real application lifecycle.
 @MainActor
 private final class BirkinApplicationDelegate: NSObject, NSApplicationDelegate {
-    func applicationDidFinishLaunching(_ notification: Notification) {
-        guard let journey = BirkinApplicationHost.journey,
-              let events = BirkinApplicationHost.journeyEvents else { return }
-        Task { @MainActor in
-            await BirkinApplicationHost.runtime.start()
-            await PackagedJourneyRunner(
-                configuration: journey,
-                runtime: BirkinApplicationHost.runtime,
-                events: events
-            ).run()
-        }
-    }
-
     func applicationWillTerminate(_ notification: Notification) {
         BirkinApplicationHost.runtime.stop()
     }
@@ -692,10 +678,19 @@ private struct BirkinRootView: View {
             presentationModel: runtime.presentationModel
         )
         .frame(minWidth: 960, minHeight: 640)
-            .task {
-                guard BirkinApplicationHost.journey == nil else { return }
-                await runtime.start()
+        .task {
+            NSApplication.shared.activate(ignoringOtherApps: true)
+            await runtime.start()
+            guard let journey = BirkinApplicationHost.journey,
+                  let events = BirkinApplicationHost.journeyEvents else {
+                return
             }
+            await PackagedJourneyRunner(
+                configuration: journey,
+                runtime: runtime,
+                events: events
+            ).run()
+        }
     }
 }
 
