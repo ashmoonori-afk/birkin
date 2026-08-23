@@ -2,10 +2,15 @@ import json
 import multiprocessing
 from multiprocessing.connection import wait as wait_for_process_exit
 from pathlib import Path
+from typing import Protocol
 
 import pytest
 
 from birkin import config, store
+
+
+class _WaitableEvent(Protocol):
+    def wait(self, timeout: float | None = None) -> bool: ...
 
 
 def test_save_and_list_runs():
@@ -163,6 +168,23 @@ def _exit_while_holding_lock(path: str) -> None:
     lock.__enter__()
 
 
+def _await_process_exit(
+    process: multiprocessing.Process,
+    *,
+    timeout: float,
+) -> None:
+    sentinel = process.sentinel
+    try:
+        assert wait_for_process_exit([sentinel], timeout=timeout) == [sentinel]
+    finally:
+        if process.is_alive():
+            process.terminate()
+            if wait_for_process_exit([sentinel], timeout=5) != [sentinel]:
+                process.kill()
+                assert wait_for_process_exit([sentinel], timeout=5) == [sentinel]
+        process.join()
+
+
 def test_process_exit_releases_lock(tmp_path):
     target = tmp_path / "state.json"
     process = multiprocessing.Process(
@@ -170,11 +192,24 @@ def test_process_exit_releases_lock(tmp_path):
         args=(str(target),),
     )
     process.start()
-    assert wait_for_process_exit([process.sentinel], timeout=30) == [
-        process.sentinel
-    ]
-    process.join()
+    _await_process_exit(process, timeout=30)
     assert process.exitcode == 0
 
     with store.file_lock(target, timeout=0.5):
         assert True
+
+
+def _wait_for_event(event: _WaitableEvent) -> None:
+    _ = event.wait()
+
+
+def test_process_exit_timeout_reaps_the_child() -> None:
+    event = multiprocessing.Event()
+    process = multiprocessing.Process(target=_wait_for_event, args=(event,))
+    process.start()
+
+    with pytest.raises(AssertionError):
+        _await_process_exit(process, timeout=0.01)
+
+    assert not process.is_alive()
+    assert process.exitcode is not None
