@@ -111,9 +111,6 @@ final class PackagedJourneyRunner {
                 )
             }
         }
-        try await journeyDeadline("render \(target.evidenceName)") {
-            try await self.runtime.waitForEvidenceWindowUpdate()
-        }
         return generation
     }
 

@@ -3,6 +3,7 @@ import CoreGraphics
 import CryptoKit
 import Darwin
 import Foundation
+import QuartzCore
 import Vision
 
 public struct PackagedWindowMetadata: Equatable, Sendable {
@@ -125,6 +126,7 @@ public final class PackagedWindowCapture {
             }
             window.layoutIfNeeded()
             window.displayIfNeeded()
+            CATransaction.flush()
             windowID = CGWindowID(window.windowNumber)
             windowNumber = window.windowNumber
         }
@@ -220,31 +222,6 @@ public final class PackagedWindowCapture {
         if count > 1 {
             throw PackagedWindowCaptureError.windowCount(count)
         }
-    }
-
-    func waitForOwnedWindowUpdate() async throws {
-        if let injectedWindowIDs {
-            let candidates = injectedWindowIDs()
-            guard candidates.count == 1 else {
-                throw PackagedWindowCaptureError.windowCount(candidates.count)
-            }
-            return
-        }
-        let updates = NotificationCenter.default.notifications(
-            named: NSApplication.didUpdateNotification,
-            object: NSApp
-        )
-        let candidates = windows()
-        guard candidates.count == 1, let window = candidates.first else {
-            throw PackagedWindowCaptureError.windowCount(candidates.count)
-        }
-        window.contentView?.needsDisplay = true
-        window.layoutIfNeeded()
-        window.displayIfNeeded()
-        for await _ in updates {
-            return
-        }
-        throw PackagedWindowCaptureError.captureFailed
     }
 
     public static func windowMetadata(
