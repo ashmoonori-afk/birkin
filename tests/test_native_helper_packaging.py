@@ -5,10 +5,12 @@ from __future__ import annotations
 import hashlib
 import json
 import re
+import shutil
 import subprocess
 from pathlib import Path
 from typing import TypeGuard, cast
 
+import pytest
 import tomli
 
 REPOSITORY = Path(__file__).resolve().parent.parent
@@ -136,6 +138,32 @@ def test_helper_builder_verifies_inputs_without_downloading() -> None:
         "python_version": "3.13.13",
         "schema": 1,
     }
+
+
+@pytest.mark.parametrize("target_name", ["pyproject.toml", "uv.lock"])
+def test_helper_builder_rejects_changed_project_lock_inputs(
+    tmp_path: Path,
+    target_name: str,
+) -> None:
+    repository = tmp_path / "repository"
+    native_scripts = repository / "scripts/native"
+    native_scripts.mkdir(parents=True)
+    for source in (INPUTS, BUILD_LOCK, BUILD_SCRIPT):
+        _ = shutil.copy2(source, native_scripts / source.name)
+    for source_name in ("pyproject.toml", "uv.lock"):
+        _ = shutil.copy2(REPOSITORY / source_name, repository / source_name)
+
+    target = repository / target_name
+    _ = target.write_bytes(target.read_bytes() + b"\n# tampered\n")
+    result = subprocess.run(
+        ["bash", str(native_scripts / BUILD_SCRIPT.name), "--verify-inputs"],
+        cwd=repository,
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+
+    assert result.returncode != 0
 
 
 def test_helper_runtime_hash_policy_accepts_only_exact_vcs_source() -> None:

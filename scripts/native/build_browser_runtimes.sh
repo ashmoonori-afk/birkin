@@ -15,17 +15,35 @@ json_value() {
 
 verify_inputs() {
   local architecture component url checksum size
-  [[ "$(json_value browser.playwright_version)" == "1.62.0" ]]
-  [[ "$(json_value browser.chromium_revision)" =~ ^[0-9]+$ ]]
-  [[ "$(json_value browser.ffmpeg_revision)" =~ ^[0-9]+$ ]]
+  [[ "$(json_value browser.playwright_version)" == "1.62.0" ]] || {
+    echo "invalid Playwright version" >&2
+    return 1
+  }
+  [[ "$(json_value browser.chromium_revision)" =~ ^[0-9]+$ ]] || {
+    echo "invalid Chromium revision" >&2
+    return 1
+  }
+  [[ "$(json_value browser.ffmpeg_revision)" =~ ^[0-9]+$ ]] || {
+    echo "invalid FFmpeg revision" >&2
+    return 1
+  }
   for architecture in arm64 x86_64; do
     for component in headless_shell ffmpeg; do
       url="$(json_value "browser.artifacts.$architecture.$component.url")"
       checksum="$(json_value "browser.artifacts.$architecture.$component.sha256")"
       size="$(json_value "browser.artifacts.$architecture.$component.size_bytes")"
-      [[ "$url" == https://cdn.playwright.dev/* ]]
-      [[ "$checksum" =~ ^[0-9a-f]{64}$ ]]
-      [[ "$size" =~ ^[1-9][0-9]+$ ]]
+      [[ "$url" == https://cdn.playwright.dev/* ]] || {
+        echo "invalid $architecture $component browser URL" >&2
+        return 1
+      }
+      [[ "$checksum" =~ ^[0-9a-f]{64}$ ]] || {
+        echo "invalid $architecture $component browser checksum" >&2
+        return 1
+      }
+      [[ "$size" =~ ^[1-9][0-9]+$ ]] || {
+        echo "invalid $architecture $component browser size" >&2
+        return 1
+      }
     done
   done
   printf '{"architectures":["arm64","x86_64"],'
@@ -90,14 +108,14 @@ extract_architecture() {
 }
 
 if [[ "${1:-}" == "--verify-inputs" ]]; then
-  verify_inputs
+  verify_inputs || exit $?
   exit 0
 fi
 if [[ "$#" -ne 1 ]]; then
   echo "usage: build_browser_runtimes.sh <Contents/Resources/BrowserRuntimes>" >&2
   exit 2
 fi
-verify_inputs >/dev/null
+verify_inputs >/dev/null || exit $?
 destination="$1"
 work="$(mktemp -d /private/tmp/bk-browser-build-XXXXXX)"
 trap 'rm -rf "$work"' EXIT HUP INT TERM

@@ -22,14 +22,26 @@ verify_inputs() {
   schema="$(json_value schema)"
   python_version="$(json_value python.version)"
   python_build="$(json_value python.build)"
-  [[ "$schema" == "1" && -n "$python_version" && -n "$python_build" ]]
+  [[ "$schema" == "1" && -n "$python_version" && -n "$python_build" ]] || {
+    echo "invalid helper runtime identity" >&2
+    return 1
+  }
   for architecture in arm64 x86_64; do
     url="$(json_value "python.artifacts.$architecture.url")"
     checksum="$(json_value "python.artifacts.$architecture.sha256")"
-    [[ "$url" == https://github.com/astral-sh/python-build-standalone/releases/download/* ]]
-    [[ "$checksum" =~ ^[0-9a-f]{64}$ ]]
+    [[ "$url" == https://github.com/astral-sh/python-build-standalone/releases/download/* ]] || {
+      echo "invalid $architecture helper runtime URL" >&2
+      return 1
+    }
+    [[ "$checksum" =~ ^[0-9a-f]{64}$ ]] || {
+      echo "invalid $architecture helper runtime checksum" >&2
+      return 1
+    }
   done
-  grep -q '^pyinstaller==6\.22\.2 \\' "$build_lock"
+  grep -q '^pyinstaller==6\.22\.2 \\' "$build_lock" || {
+    echo "helper build lock does not pin PyInstaller 6.22.2" >&2
+    return 1
+  }
   for project_input in pyproject uv_lock; do
     expected_hash="$(json_value "project.${project_input}_sha256")"
     case "$project_input" in
@@ -37,8 +49,14 @@ verify_inputs() {
       uv_lock) project_path="$repo_root/uv.lock" ;;
     esac
     actual_hash="$(shasum -a 256 "$project_path" | awk '{print $1}')"
-    [[ "$expected_hash" =~ ^[0-9a-f]{64}$ ]]
-    [[ "$actual_hash" == "$expected_hash" ]]
+    [[ "$expected_hash" =~ ^[0-9a-f]{64}$ ]] || {
+      echo "invalid $project_input input checksum" >&2
+      return 1
+    }
+    [[ "$actual_hash" == "$expected_hash" ]] || {
+      echo "$project_input input checksum mismatch" >&2
+      return 1
+    }
   done
   python=python3
   command -v "$python" >/dev/null 2>&1 || python=python
@@ -64,7 +82,10 @@ PY
   package_version="$(
     awk -F'"' '/^version = /{print $2; exit}' "$repo_root/pyproject.toml"
   )"
-  [[ "$locked_version" == "$package_version" ]]
+  [[ "$locked_version" == "$package_version" ]] || {
+    echo "project and lock versions differ" >&2
+    return 1
+  }
   printf '{"architectures":["arm64","x86_64"],'
   printf '"package_version":"%s","python_build":"%s",' \
     "$package_version" "$python_build"
@@ -72,7 +93,7 @@ PY
 }
 
 if [[ "${1:-}" == "--verify-inputs" ]]; then
-  verify_inputs
+  verify_inputs || exit $?
   exit 0
 fi
 
@@ -81,7 +102,7 @@ if [[ "$#" -ne 1 ]]; then
   exit 2
 fi
 
-verify_inputs >/dev/null
+verify_inputs >/dev/null || exit $?
 destination="$1"
 work="$(mktemp -d /private/tmp/bk-helper-build-XXXXXX)"
 trap 'rm -rf "$work"' EXIT HUP INT TERM
