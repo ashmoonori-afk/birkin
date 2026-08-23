@@ -797,7 +797,8 @@ The shipped boundary is deliberate:
   environment, or host Playwright cache. When launched from read-only media,
   Browser Aside copies the sealed runtime into one private, architecture-bound,
   content-addressed cache under `BIRKIN_HOME`, verifies the copy again, rejects
-  links, and prunes the prior architecture cache before execution.
+  links, retains caches with live process leases, and prunes inactive prior
+  architecture caches before execution.
 - **Release QA:** the disabled-by-default `BIRKIN_NATIVE_JOURNEY=1` seam drives
   the same controls as the packaged UI, with no test transport or direct wire
   client. Under an empty `HOME`, sanitized `PATH`, and absent bridge overrides,
