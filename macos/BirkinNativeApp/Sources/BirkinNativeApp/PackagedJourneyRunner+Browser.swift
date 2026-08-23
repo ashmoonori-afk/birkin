@@ -77,7 +77,16 @@ extension PackagedJourneyRunner {
         label: String
     ) async throws {
         try await journeyDeadline("\(label) receipt") { [events] in
-            try await events.wait(for: "command-receipt id=\(request.frameID)")
+            try await events.wait(
+                forAnyOf: [
+                    "command-receipt id=\(request.frameID)",
+                    "command-error id=\(request.frameID)",
+                ],
+                occurrence: 1
+            )
+        }
+        if let error = runtime.lastCommandError {
+            throw JourneyError.refused(error)
         }
         try await journeyDeadline("\(label) outcome") { [events] in
             try await events.wait(
