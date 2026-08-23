@@ -65,24 +65,49 @@ final class PackagedJourneyRunner {
         }
     }
 
-    func record(_ name: String, _ detail: String, shot: Bool = true) {
-        var screenshot: String?
-        if shot, let session {
-            let url = configuration.evidenceRoot
-                .appendingPathComponent("journey-\(steps.count + 1)-\(name).png")
-            if (try? runtime.renderEvidence(to: url, session: session)) == true {
-                screenshot = url.lastPathComponent
-            }
+    func record(
+        _ name: String,
+        _ detail: String
+    ) async throws {
+        let target = focusTarget(for: name)
+        let generation = runtime.presentationModel.focus(target)
+        try await journeyDeadline("focus \(name)") {
+            try await self.runtime.presentationModel.waitUntilVisible(
+                generation: generation
+            )
         }
+        let url = configuration.evidenceRoot
+            .appendingPathComponent("journey-\(steps.count + 1)-\(name).png")
+        let capture = try runtime.captureEvidence(
+            to: url,
+            focusTarget: target.evidenceName,
+            focusGeneration: generation
+        )
+        let evidenceDetail = [
+            detail,
+            "cjk=\(PackagedWindowCapture.cjkSpecimens.joined(separator: " "))",
+        ].joined(separator: " ")
         steps.append(JourneyStep(
-            name: name, succeeded: true, detail: detail, screenshot: screenshot
+            name: name,
+            state: name,
+            surface: target.evidenceName,
+            succeeded: true,
+            detail: evidenceDetail,
+            screenshot: url.lastPathComponent,
+            capture: capture
         ))
-        runtime.emitJourney("journey-step name=\(name) detail=\(detail)")
+        runtime.emitJourney("journey-step name=\(name) detail=\(evidenceDetail)")
     }
 
     private func fail(_ name: String, _ detail: String) {
         steps.append(JourneyStep(
-            name: name, succeeded: false, detail: detail, screenshot: nil
+            name: name,
+            state: "failed",
+            surface: "journey",
+            succeeded: false,
+            detail: detail,
+            screenshot: nil,
+            capture: nil
         ))
         runtime.emitJourney("journey-step-failed name=\(name) detail=\(detail)")
     }
@@ -93,8 +118,16 @@ final class PackagedJourneyRunner {
         } catch {
             fail("journey", String(describing: error))
         }
+        var succeeded = steps.allSatisfy(\.succeeded)
         let ownedBridge = runtime.ownedBridgeProcessIdentifier
-        writeReceipts()
+        do {
+            try writeReceipts()
+        } catch {
+            succeeded = false
+            runtime.emitJourney(
+                "journey-receipt-write-failed error=\(String(describing: error))"
+            )
+        }
         runtime.stop()
         if let ownedBridge {
             // Leave nothing running: wait for the bridge this app owned to be
@@ -105,7 +138,7 @@ final class PackagedJourneyRunner {
                 }
             }
         }
-        exit(steps.allSatisfy(\.succeeded) ? 0 : 1)
+        exit(succeeded ? 0 : 1)
     }
 
     private func drive() async throws {
@@ -113,7 +146,10 @@ final class PackagedJourneyRunner {
             try await events.wait(for: "connected transport=uds")
         }
         let ready = try require(session, "no ready session")
-        record("connected", "session=\(ready.currentSessionID)")
+        try await record(
+            "connected",
+            "session=\(ready.currentSessionID)"
+        )
 
         try await driveSessionAndChat(ready)
         try await driveTerminal()
@@ -128,26 +164,87 @@ final class PackagedJourneyRunner {
         return value
     }
 
-    private func writeReceipts() {
+    private func focusTarget(for step: String) -> ShellFocusTarget {
+        switch step {
+        case "connected":
+            .connection
+        case "session-create", "post-reconnect-command":
+            .section(.sessions)
+        case "chat-send-stream":
+            .section(.conversation)
+        case "working-memory-clear", "working-memory-gated":
+            .section(.workingMemory)
+        case "terminal-approval-requested", "terminal-approval-approved":
+            .section(.approvals)
+        case "terminal-create-lease", "terminal-input-output",
+             "terminal-replay-refusal":
+            .section(.terminal)
+        case "activity-receipts":
+            .section(.activity)
+        case "browser-start-live", "browser-navigate-live":
+            .section(.browserAside)
+        case "office-create-live", "office-open-live":
+            .section(.office)
+        case "computer-use-status":
+            .section(.computerUse)
+        case "jailed-import-chip":
+            .section(.composer)
+        default:
+            .section(.conversation)
+        }
+    }
+
+    func writeReceipts() throws {
         let payload: [String: Any] = [
+            "schema": 2,
+            "origin": ProcessInfo.processInfo.environment[
+                "BIRKIN_NATIVE_JOURNEY_ORIGIN"
+            ] ?? "built-app",
+            "origin_mount": ProcessInfo.processInfo.environment[
+                "BIRKIN_NATIVE_JOURNEY_MOUNT"
+            ] ?? "",
+            "origin_image": ProcessInfo.processInfo.environment[
+                "BIRKIN_NATIVE_JOURNEY_IMAGE"
+            ] ?? "",
             "steps": steps.map {
-                [
-                    "name": $0.name, "succeeded": $0.succeeded,
-                    "detail": $0.detail, "screenshot": $0.screenshot ?? "",
+                var step: [String: Any] = [
+                    "name": $0.name,
+                    "succeeded": $0.succeeded,
+                    "state": $0.state,
+                    "surface": $0.surface,
+                    "detail": JourneyEvidenceRedactor.redact($0.detail),
+                    "screenshot": $0.screenshot ?? "",
                 ]
+                if let capture = $0.capture {
+                    step["capture"] = [
+                        "source": capture.source,
+                        "owner_pid": capture.ownerPID,
+                        "window_number": capture.windowNumber,
+                        "point_width": capture.pointWidth,
+                        "point_height": capture.pointHeight,
+                        "pixel_width": capture.pixelWidth,
+                        "pixel_height": capture.pixelHeight,
+                        "focus_target": capture.focusTarget,
+                        "focus_generation": capture.focusGeneration,
+                        "executable_path": capture.executablePath,
+                        "png_sha256": capture.pngSHA256,
+                        "cjk_ocr_markers": capture.cjkOCRMarkers,
+                    ]
+                }
+                return step
             },
             "succeeded": steps.allSatisfy(\.succeeded),
-            "events": events.recorded(),
+            "events": events.persisted(),
         ]
         let url = configuration.evidenceRoot
             .appendingPathComponent("packaged-journey-receipts.json")
-        try? FileManager.default.createDirectory(
+        try FileManager.default.createDirectory(
             at: configuration.evidenceRoot, withIntermediateDirectories: true
         )
-        if let data = try? JSONSerialization.data(
+        let data = try JSONSerialization.data(
             withJSONObject: payload, options: [.prettyPrinted, .sortedKeys]
-        ) {
-            try? data.write(to: url, options: .atomic)
-        }
+        )
+        try data.write(to: url, options: .atomic)
     }
+
 }

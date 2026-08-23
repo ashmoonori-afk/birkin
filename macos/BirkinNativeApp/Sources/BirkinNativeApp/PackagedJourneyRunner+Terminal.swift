@@ -41,7 +41,7 @@ extension PackagedJourneyRunner {
         guard runtime.store.projection?.terminals.isEmpty == true else {
             throw JourneyError.refused("terminal existed before approval")
         }
-        record(
+        try await record(
             "terminal-approval-requested",
             "approval=\(approval.id) frame=\(proposal.frameID)"
         )
@@ -73,7 +73,7 @@ extension PackagedJourneyRunner {
         guard approvalActivity > activityBeforeApproval else {
             throw JourneyError.refused("approval produced no Activity receipt")
         }
-        record(
+        try await record(
             "terminal-approval-approved",
             "approval=\(approval.id) activity_rows=\(approvalActivity)"
         )
@@ -100,7 +100,10 @@ extension PackagedJourneyRunner {
               opened.readOnly == false else {
             throw JourneyError.refused("terminal lease was not installed")
         }
-        record("terminal-create-lease", "terminal=\(opened.terminalID)")
+        try await record(
+            "terminal-create-lease",
+            "terminal=\(opened.terminalID)"
+        )
 
         var inputRequest: NativeCommandRequest?
         guard terminal.sendInput(
@@ -121,8 +124,14 @@ extension PackagedJourneyRunner {
         guard screen.contains("packaged-journey-terminal") else {
             throw JourneyError.refused("terminal output missing: \(screen.prefix(80))")
         }
-        record("terminal-input-output", "screen_bytes=\(screen.utf8.count)")
-        record("activity-receipts", "activity_rows=\(activityCount())", shot: false)
+        try await record(
+            "terminal-input-output",
+            "screen_bytes=\(screen.utf8.count)"
+        )
+        try await record(
+            "activity-receipts",
+            "activity_rows=\(activityCount())"
+        )
     }
 
     private func pendingApproval() -> ApprovalCardPresentation? {

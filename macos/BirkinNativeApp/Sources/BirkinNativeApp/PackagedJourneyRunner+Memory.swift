@@ -4,7 +4,7 @@ extension PackagedJourneyRunner {
         if ready.supportedCommands.contains("memory.write") {
             try await driveMemoryClear()
         } else {
-            record(
+        try await record(
                 "working-memory-gated",
                 "memory_write_advertised=false revision=\(runtime.store.projection?.workingMemory.revision ?? -1)"
             )
@@ -21,6 +21,9 @@ extension PackagedJourneyRunner {
             throw JourneyError.refused("memory clear refused: \(memory.visibleReason ?? "")")
         }
         try await nextOutcome("memory.write")
-        record("working-memory-clear", "revision=\(runtime.store.projection?.workingMemory.revision ?? -1)")
+        try await record(
+            "working-memory-clear",
+            "revision=\(runtime.store.projection?.workingMemory.revision ?? -1)"
+        )
     }
 }

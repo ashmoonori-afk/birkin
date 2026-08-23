@@ -20,7 +20,7 @@ struct BirkinApplicationTerminalLeaseTests {
     func receiptLeaseDrivesTerminalMutation() async throws {
         let root = URL(fileURLWithPath: "/private/tmp/birkin-app-terminal-\(UUID().uuidString)")
         let harness = try AppHarness.launch(
-            root: root, mode: "--terminal", sessionID: "terminal-session", connections: 2
+            root: root, mode: "--terminal", sessionID: "terminal-session"
         )
         let socketPath = try #require(harness.socketPath)
         let events = RuntimeEventRecorder()
@@ -101,6 +101,12 @@ struct BirkinApplicationTerminalLeaseTests {
         #expect(closed.state == "exited")
         #expect(closed.lease == nil)
         #expect(closed.readOnly == true)
+
+        runtime.stop()
+        try await withTimeout("terminal bridge cleanup", seconds: 60) {
+            await Task.detached { harness.process.waitUntilExit() }.value
+        }
+        #expect(!harness.process.isRunning)
     }
 
     @MainActor
@@ -153,5 +159,11 @@ struct BirkinApplicationTerminalLeaseTests {
             sessionCapability: secondSession.sessionCapability,
             submit: { second.submit($0) }
         ))
+
+        second.stop()
+        try await withTimeout("terminal replay bridge cleanup", seconds: 60) {
+            await Task.detached { harness.process.waitUntilExit() }.value
+        }
+        #expect(!harness.process.isRunning)
     }
 }

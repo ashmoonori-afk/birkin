@@ -711,6 +711,46 @@ points return `Tool` objects consumed by the existing native tool registry.
 
 Architecture, protocol, and security contracts: [`docs/native-app/`](./docs/native-app/README.md).
 
+### Build and verify the packaged app
+
+Build the universal ad-hoc-signed app, create its DMG, and drive the built app
+through the production packaged journey:
+
+```bash
+evidence="$PWD/.omo/evidence/native-shell/local"
+dist="$evidence/dist"
+scripts/native/package_macos_app.sh "$dist"
+scripts/native/create_macos_dmg.sh "$dist"
+scripts/native/packaged_journey.sh "$evidence" "$dist"
+```
+
+To verify an app from an attached read-only DMG, pass the mount containing
+`Birkin.app`. The harness rejects an unmounted directory or ambiguous image
+provenance:
+
+```bash
+mount="/Volumes/Birkin"
+BIRKIN_NATIVE_JOURNEY_ORIGIN=mounted-dmg \
+  scripts/native/packaged_journey.sh "$evidence" "$mount"
+```
+
+The journey exposes the existing-account provider credential only to the
+preflight probe and the app-owned bridge that performs the explicit
+provider-backed chat step. Browser fixtures and terminal children receive
+allowlisted environments without provider credentials. The harness owns only
+the process IDs it records and forces the evidence directory to mode `0700`
+under a restrictive umask. A successful run emits schema-2 receipts,
+compositor-backed per-step PNGs, a provider probe, read-only origin
+provenance, and bounded redacted events, then verifies them automatically
+before deleting its temporary provider workspace. A custom driver can invoke
+the same verifier before tearing down that workspace:
+
+```bash
+helper="$dist/Birkin.app/Contents/Helpers/$(uname -m)/birkin-native-bridge"
+scripts/native/verify_packaged_journey.py \
+  "$evidence" "$helper" "/private/tmp/bk-journey-XXXXXX/workspace"
+```
+
 Birkin's macOS client is a **thin SwiftUI shell over the existing Python
 runtime**, not a second agent implementation. Python remains authoritative for
 memory, tool execution, policy, approvals, audit records, and recovery. The two

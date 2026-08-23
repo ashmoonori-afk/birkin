@@ -7,7 +7,7 @@ import subprocess
 import sys
 import zlib
 from pathlib import Path
-from typing import TypeAlias
+from typing import TypeAlias, cast
 
 from scripts.native.packaged_evidence_io import (
     CRITICAL_JOURNEY_STEPS,
@@ -171,7 +171,8 @@ def _write_fixture(
     )
     receipts: dict[str, JSONValue] = {
         "events": [
-            f"bridge-started kind=owned executable={bridge_executable}",
+            f"bridge-started kind=owned executable={bridge_executable} "
+            + f"owner_sha256={'a' * 64}",
         ],
         "origin": "mounted-dmg" if forged_mounted_origin else "built-app",
         "schema": 2,
@@ -227,6 +228,34 @@ def test_verifier_accepts_complete_schema_two_fixture(tmp_path: Path) -> None:
 
     assert result.returncode == 0, result.stderr
     assert "provider=codex-cli model=default route=cli" in result.stdout
+
+
+def test_verifier_accepts_producer_receipt_contract(tmp_path: Path) -> None:
+    evidence, helper, workspace = _write_fixture(tmp_path)
+    receipt_path = evidence / "packaged-journey-receipts.json"
+    receipts = cast(
+        dict[str, JSONValue],
+        json.loads(receipt_path.read_text(encoding="utf-8")),
+    )
+    raw_steps = receipts["steps"]
+    assert isinstance(raw_steps, list)
+    for raw_step in cast(list[JSONValue], raw_steps):
+        assert isinstance(raw_step, dict)
+        step = cast(dict[str, JSONValue], raw_step)
+        name = step["name"]
+        assert isinstance(name, str)
+        step["detail"] = name
+        if name == "chat-send-stream":
+            step["detail"] += (
+                " provider_completion=PACKAGED_PROVIDER_COMPLETION_OK"
+            )
+        if name == "browser-navigate-live":
+            step["detail"] += " 한국어 日本語 漢字"
+    _ = receipt_path.write_text(json.dumps(receipts), encoding="utf-8")
+
+    result = _run(evidence, helper, workspace)
+
+    assert result.returncode == 0, result.stderr
 
 
 def test_verifier_rejects_missing_arguments() -> None:

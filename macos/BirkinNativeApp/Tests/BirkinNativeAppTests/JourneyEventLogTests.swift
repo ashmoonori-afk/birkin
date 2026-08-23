@@ -35,6 +35,118 @@ struct JourneyEventLogTests {
         #expect(retained.last == "event-\(overflow - 1)")
     }
 
+    @Test("persisted evidence redacts authority data without changing live waits")
+    func persistedEvidenceIsRedacted() {
+        let log = JourneyEventLog()
+        log.record("command-error reason=Authorization: Bearer top-secret")
+        log.record("jailed-import-applied reference=canonical-import-token")
+
+        #expect(log.recorded().contains {
+            $0.contains("canonical-import-token")
+        })
+        let persisted = log.persisted()
+        #expect(persisted.allSatisfy { $0.contains("[REDACTED]") })
+        #expect(persisted.allSatisfy {
+            !$0.contains("top-secret") && !$0.contains("canonical-import-token")
+        })
+        let detail = JourneyEvidenceRedactor.redact(
+            "access_token=token-value response=sk-1234567890"
+        )
+        #expect(detail == "access_token=[REDACTED] response=[REDACTED]")
+    }
+
+    @Test("stdout events redact secrets while live waits keep raw values")
+    func stdoutEventsAreRedacted() {
+        let raw = """
+        command-error owner=owner-secret approval_id=approval-secret \
+        payload={"session_capability":"capability-secret",\
+        "refresh_token":"refresh-secret"} Authorization: Bearer bearer-secret
+        """
+        let log = JourneyEventLog()
+        log.record(raw)
+
+        #expect(log.recorded() == [raw])
+        let output = String(
+            decoding: BirkinApplicationRuntime.standardEventData(raw),
+            as: UTF8.self
+        )
+        for secret in [
+            "owner-secret", "approval-secret", "capability-secret",
+            "refresh-secret", "bearer-secret",
+        ] {
+            #expect(!output.contains(secret))
+        }
+        #expect(output.contains("owner=[REDACTED]"))
+        #expect(output.contains("session_capability=[REDACTED]"))
+        #expect(output.contains("refresh_token=[REDACTED]"))
+    }
+
+    @Test("credential forms are completely redacted without suffix leaks")
+    func credentialFormsAreFullyRedacted() {
+        let redacted = JourneyEvidenceRedactor.redact(
+            #"Authorization: Basic dXNlcjpwYXNz password="hunter two" api_key=AIza-secret"#
+        )
+
+        for secret in ["Basic", "dXNlcjpwYXNz", "hunter", "two", "AIza-secret"] {
+            #expect(!redacted.contains(secret), "redacted=\(redacted)")
+        }
+        #expect(redacted == [
+            "Authorization=[REDACTED]",
+            "password=[REDACTED]",
+            "api_key=[REDACTED]",
+        ].joined(separator: " "))
+    }
+
+    @Test("ownership cleanup correlation is stable without exposing its token")
+    func ownershipCorrelationIsNonSecret() {
+        let token = "owner-secret"
+        let digest = BirkinApplicationRuntime.ownershipCorrelationDigest(token)
+        let output = String(
+            decoding: BirkinApplicationRuntime.standardEventData(
+                "bridge-started kind=owned pid=123 owner_sha256=\(digest)"
+            ),
+            as: UTF8.self
+        )
+
+        #expect(digest.count == 64)
+        #expect(output.contains("owner_sha256=\(digest)"))
+        #expect(!output.contains(token))
+    }
+
+    @MainActor
+    @Test("receipt persistence reports an unwritable evidence root")
+    func receiptWriteFailureIsPropagated() throws {
+        let parent = FileManager.default.temporaryDirectory
+            .appendingPathComponent("birkin-receipt-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(
+            at: parent,
+            withIntermediateDirectories: true
+        )
+        defer { try? FileManager.default.removeItem(at: parent) }
+        let blockedRoot = parent.appendingPathComponent("blocked")
+        try Data("not-a-directory".utf8).write(to: blockedRoot)
+        let browserURL = try #require(
+            URL(string: "http://127.0.0.1:8123/")
+        )
+        let runner = PackagedJourneyRunner(
+            configuration: PackagedJourneyConfiguration(
+                evidenceRoot: blockedRoot,
+                workspaceRoot: parent.appendingPathComponent("workspace"),
+                browserURL: browserURL
+            ),
+            runtime: BirkinApplicationRuntime(
+                socketPath: "/private/tmp/unconnected.sock",
+                ownedBridge: nil,
+                emit: { _ in }
+            ),
+            events: JourneyEventLog()
+        )
+
+        #expect(throws: CocoaError.self) {
+            try runner.writeReceipts()
+        }
+    }
+
     @Test("an absolute occurrence wait survives its match being trimmed away")
     func waitSurvivesTrimming() async throws {
         // Given: a bounded QA event log.

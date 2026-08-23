@@ -104,6 +104,8 @@ def _attached_disk_images() -> set[tuple[Path, Path]]:
         if not isinstance(value, dict):
             continue
         image = cast(JSONObject, value)
+        if image.get("writeable") is not False:
+            continue
         image_path = image.get("image-path")
         if not isinstance(image_path, str) or not image_path:
             continue
@@ -236,8 +238,16 @@ def verify(evidence: Path, helper: Path, workspace: Path) -> str:
             f"app did not launch its embedded helper: {bridge_starts}"
         )
     _, separator, bridge_identity = bridge_starts[0].rpartition(" executable=")
-    bridge_executable = bridge_identity.split(" owner=", maxsplit=1)[0]
-    if not separator or Path(bridge_executable).resolve() != helper:
+    bridge_executable, owner_separator, owner_digest = bridge_identity.partition(
+        " owner_sha256="
+    )
+    if (
+        not separator
+        or not owner_separator
+        or len(owner_digest) != 64
+        or any(character not in "0123456789abcdef" for character in owner_digest)
+        or Path(bridge_executable).resolve() != helper
+    ):
         raise JourneyVerificationError(
             f"app did not launch its embedded helper: {bridge_starts}"
         )

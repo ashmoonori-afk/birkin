@@ -101,6 +101,9 @@ struct BrowserControlTests {
     func onlyRegisteredBrowserCommandsAreOffered() {
         let offered = Set(ProductSurfaceControl.browserCommandTypes)
 
-        #expect(offered == ["browser.start", "browser.navigate"])
+        #expect(Set(offered) == Set([
+            "browser.start", "browser.navigate", "browser.back",
+            "browser.forward", "browser.reload", "browser.close",
+        ]))
     }
 }

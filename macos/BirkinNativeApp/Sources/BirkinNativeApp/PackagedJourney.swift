@@ -47,9 +47,33 @@ public struct PackagedJourneyConfiguration: Sendable {
 /// One recorded journey step.
 struct JourneyStep: Encodable {
     let name: String
+    let state: String
+    let surface: String
     let succeeded: Bool
     let detail: String
     let screenshot: String?
+    let capture: PackagedWindowCaptureReceipt?
+}
+
+enum JourneyEvidenceRedactor {
+    static func redact(_ value: String) -> String {
+        let marker = NativeRedaction.marker
+        var redacted = value.replacingOccurrences(
+            of: #"(?i)"?\b(authorization|access_token|refresh_token|api_key|session_capability|capability|token|secret|password|reference|owner|lease|approval_id)"?\s*[:=]\s*(?:"[^"]*"|'[^']*'|(?:Basic|Bearer)\s+[A-Za-z0-9._~+/=-]+|[^\s,}\]]+)"#,
+            with: "$1=\(marker)",
+            options: .regularExpression
+        )
+        redacted = redacted.replacingOccurrences(
+            of: #"(?i)\bBearer\s+[A-Za-z0-9._~+/=-]+"#,
+            with: "Bearer \(marker)",
+            options: .regularExpression
+        )
+        return redacted.replacingOccurrences(
+            of: #"\bsk-[A-Za-z0-9_-]{8,}"#,
+            with: marker,
+            options: .regularExpression
+        )
+    }
 }
 
 /// Awaits application events by prefix without polling or sleeping.
@@ -110,6 +134,10 @@ final class JourneyEventLog: @unchecked Sendable {
     }
 
     func recorded() -> [String] { lock.withLock { lines } }
+
+    func persisted() -> [String] {
+        recorded().map(JourneyEvidenceRedactor.redact)
+    }
 
     private func count(of series: MatchSeries) -> Int {
         lines.filter(series.matches).count

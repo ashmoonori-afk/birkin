@@ -136,10 +136,19 @@ struct BirkinApplicationOwnedBridgeTests {
         }
 
         try await withTimeout("external start", seconds: 30) { await runtime.start() }
+        try await withTimeout("external connected", seconds: 30) {
+            try await events.wait(for: "connected transport=uds")
+        }
 
         #expect(events.contains("bridge-attached kind=external"))
         #expect(!events.contains("bridge-started kind=owned"))
         #expect(runtime.ownedBridgeProcessIdentifier == nil)
         #expect(harness.process.isRunning)
+
+        runtime.stop()
+        try await withTimeout("external bridge cleanup", seconds: 60) {
+            await Task.detached { harness.process.waitUntilExit() }.value
+        }
+        #expect(!harness.process.isRunning)
     }
 }

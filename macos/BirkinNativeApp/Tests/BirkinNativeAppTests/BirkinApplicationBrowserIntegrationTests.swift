@@ -1,8 +1,12 @@
+import Combine
+import CoreGraphics
 import Foundation
+import SwiftUI
 import Testing
 
 @testable import BirkinNativeApp
 import BirkinNativeProtocol
+import BirkinNativeShell
 
 @Suite("Packaged application Browser lifecycle", .serialized)
 struct BirkinApplicationBrowserIntegrationTests {
@@ -23,11 +27,25 @@ struct BirkinApplicationBrowserIntegrationTests {
         let socketPath = try #require(harness.socketPath)
         let runtimeEvents = RuntimeEventRecorder()
         let journeyEvents = JourneyEventLog()
-        let runtime = BirkinApplicationRuntime(socketPath: socketPath, emit: {
-            runtimeEvents.record($0)
-            journeyEvents.record($0)
-        })
+        let runtime = BirkinApplicationRuntime(
+            socketPath: socketPath,
+            windowCapture: browserTestCapture(),
+            emit: {
+                runtimeEvents.record($0)
+                journeyEvents.record($0)
+            }
+        )
+        runtime.presentationModel.focus(.section(.browserAside))
+        let hostingView = NSHostingView(rootView: BrowserRuntimeView(runtime: runtime))
+        hostingView.frame = NSRect(x: 0, y: 0, width: 1_280, height: 800)
+        hostingView.layoutSubtreeIfNeeded()
+        let layoutDriver = runtime.presentationModel.$requestGeneration
+            .dropFirst()
+            .receive(on: DispatchQueue.main)
+            .sink { _ in hostingView.layoutSubtreeIfNeeded() }
         defer {
+            layoutDriver.cancel()
+            hostingView.removeFromSuperview()
             runtime.stop()
             harness.terminate()
             page.close()
@@ -69,6 +87,48 @@ struct BirkinApplicationBrowserIntegrationTests {
         }
         #expect(!harness.process.isRunning)
     }
+}
+
+private struct BrowserRuntimeView: View {
+    @ObservedObject var runtime: BirkinApplicationRuntime
+
+    var body: some View {
+        NativeShellView(
+            store: runtime.store,
+            connectionState: runtime.connectionState,
+            jailedDrop: runtime.jailedDrop,
+            presentationModel: runtime.presentationModel
+        )
+    }
+}
+
+@MainActor
+private func browserTestCapture() -> PackagedWindowCapture {
+    PackagedWindowCapture(
+        preflight: { true },
+        windowIDs: { [1] },
+        metadata: { _ in .valid },
+        image: { _ in
+            let colourSpace = CGColorSpaceCreateDeviceRGB()
+            guard let context = CGContext(
+                data: nil,
+                width: 2_560,
+                height: 1_600,
+                bitsPerComponent: 8,
+                bytesPerRow: 2_560 * 4,
+                space: colourSpace,
+                bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue
+            ) else { return nil }
+            context.setFillColor(
+                red: 0.08,
+                green: 0.09,
+                blue: 0.11,
+                alpha: 1
+            )
+            context.fill(CGRect(x: 0, y: 0, width: 2_560, height: 1_600))
+            return context.makeImage()
+        }
+    )
 }
 
 private final class LocalBrowserPage: @unchecked Sendable {

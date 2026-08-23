@@ -163,5 +163,11 @@ struct BirkinApplicationReconnectIntegrationTests {
         #expect(events.contains(
             "projection-event type=command.completed command_id=post-reconnect-command"
         ))
+
+        runtime.stop()
+        try await withTimeout("reconnect bridge cleanup", seconds: 60) {
+            await Task.detached { second.process.waitUntilExit() }.value
+        }
+        #expect(!second.process.isRunning)
     }
 }

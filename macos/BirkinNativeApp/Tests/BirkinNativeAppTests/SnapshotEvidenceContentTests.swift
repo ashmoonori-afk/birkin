@@ -1,10 +1,12 @@
 import AppKit
 import Foundation
+import SwiftUI
 import Testing
 import Vision
 
 @testable import BirkinNativeApp
 import BirkinNativeProtocol
+import BirkinNativeShell
 
 @Suite("Packaged snapshot evidence content")
 struct SnapshotEvidenceContentTests {
@@ -16,16 +18,31 @@ struct SnapshotEvidenceContentTests {
         try FileManager.default.createDirectory(
             at: root, withIntermediateDirectories: true
         )
-        let runtime = BirkinApplicationRuntime(socketPath: nil, emit: { _ in })
+        let captureView = SnapshotCaptureView()
+        let runtime = BirkinApplicationRuntime(
+            socketPath: nil,
+            windowCapture: testCapture(captureView),
+            emit: { _ in }
+        )
         let session = readySession()
 
         try runtime.store.apply(snapshot: snapshot(includeTerminal: false))
         let conversationURL = root.appendingPathComponent("conversation.png")
-        #expect(try runtime.renderEvidence(to: conversationURL, session: session))
+        #expect(try render(
+            runtime,
+            session: session,
+            captureView: captureView,
+            to: conversationURL
+        ))
 
         try runtime.store.apply(snapshot: snapshot(includeTerminal: true))
         let terminalURL = root.appendingPathComponent("terminal.png")
-        #expect(try runtime.renderEvidence(to: terminalURL, session: session))
+        #expect(try render(
+            runtime,
+            session: session,
+            captureView: captureView,
+            to: terminalURL
+        ))
 
         runtime.jailedDrop.applyCanonicalResult([
             "reference": .object([
@@ -39,7 +56,12 @@ struct SnapshotEvidenceContentTests {
             "receipt": .object(["copied": .bool(true)]),
         ])
         let importURL = root.appendingPathComponent("import.png")
-        #expect(try runtime.renderEvidence(to: importURL, session: session))
+        #expect(try render(
+            runtime,
+            session: session,
+            captureView: captureView,
+            to: importURL
+        ))
 
         let urls = [conversationURL, terminalURL, importURL]
         let images = try urls.map { try Data(contentsOf: $0) }
@@ -54,8 +76,90 @@ struct SnapshotEvidenceContentTests {
         #expect(conversationText.contains("ASSISTANT ROW VISIBLE"), "OCR: \(conversationText)")
         let terminalText = try recognizedText(terminalURL)
         #expect(terminalText.contains("TERMINAL OUTPUT VISIBLE"), "OCR: \(terminalText)")
+        let terminalLines = try recognizedLines(terminalURL)
+        let terminalHeading = try #require(terminalLines.first {
+            $0.text.contains("OWNED TERMINAL")
+        })
+        #expect(
+            terminalHeading.bounds.minY >= 0.15,
+            "Owned Terminal is visibly sliced at normalized y=\(terminalHeading.bounds.minY)"
+        )
+        let memoryHeading = try #require(terminalLines.first {
+            $0.text.contains("WORKING MEMORY")
+        })
+        #expect(
+            memoryHeading.bounds.minY >= 0.15,
+            "Working Memory is visibly sliced at normalized y=\(memoryHeading.bounds.minY)"
+        )
+        let navigationHeading = try #require(terminalLines
+            .filter { $0.text == "NAVIGATION" }
+            .max { $0.bounds.maxY < $1.bounds.maxY })
+        let conversationHeading = try #require(terminalLines
+            .filter { $0.text == "CONVERSATION" }
+            .max { $0.bounds.maxY < $1.bounds.maxY })
+        let contextHeading = try #require(terminalLines
+            .filter { $0.text == "CONTEXT" }
+            .max { $0.bounds.maxY < $1.bounds.maxY })
+        #expect(navigationHeading.bounds.minX < 0.15)
+        #expect(conversationHeading.bounds.minX > 0.18)
+        #expect(conversationHeading.bounds.minX < 0.60)
+        #expect(contextHeading.bounds.minX > 0.70)
+        let headingYs = [
+            navigationHeading.bounds.maxY,
+            conversationHeading.bounds.maxY,
+            contextHeading.bounds.maxY,
+        ]
+        #expect(
+            (headingYs.max() ?? 0) - (headingYs.min() ?? 0) <= 0.02,
+            "Column heading top origins must remain aligned: \(headingYs)"
+        )
         let importText = try recognizedText(importURL)
         #expect(importText.contains("IMPORT CHIP VISIBLE"), "OCR: \(importText)")
+        #expect(
+            Set(try recognizedCJK(importURL))
+                == Set(PackagedWindowCapture.cjkSpecimens)
+        )
+    }
+
+    @MainActor
+    private func testCapture(_ captureView: SnapshotCaptureView) -> PackagedWindowCapture {
+        PackagedWindowCapture(
+            preflight: { true },
+            windowIDs: { [1] },
+            metadata: { _ in .valid },
+            image: { _ in
+                guard let view = captureView.view else { return nil }
+                let representation = view.bitmapImageRepForCachingDisplay(in: view.bounds)
+                guard let representation else { return nil }
+                view.cacheDisplay(in: view.bounds, to: representation)
+                return representation.cgImage
+            }
+        )
+    }
+
+    @MainActor
+    private func render(
+        _ runtime: BirkinApplicationRuntime,
+        session: NativeReadySession,
+        captureView: SnapshotCaptureView,
+        to url: URL
+    ) throws -> Bool {
+        let hostingView = NSHostingView(rootView: NativeShellView(
+            store: runtime.store,
+            connectionState: .ready(session),
+            evidenceSpecimens: PackagedWindowCapture.cjkSpecimens,
+            jailedDrop: runtime.jailedDrop,
+            presentationModel: runtime.presentationModel
+        ))
+        hostingView.frame = NSRect(x: 0, y: 0, width: 1_280, height: 800)
+        hostingView.layoutSubtreeIfNeeded()
+        captureView.view = hostingView
+        return try runtime.renderEvidence(to: url, session: session)
+    }
+
+    @MainActor
+    private final class SnapshotCaptureView {
+        var view: NSView?
     }
 
     private func readySession() -> NativeReadySession {
@@ -126,17 +230,44 @@ struct SnapshotEvidenceContentTests {
     }
 
     private func recognizedText(_ url: URL) throws -> String {
+        try recognizedLines(url)
+            .map(\.text)
+            .joined(separator: "\n")
+    }
+
+    @MainActor
+    private func recognizedCJK(_ url: URL) throws -> [String] {
+        let data = try Data(contentsOf: url)
+        let bitmap = try #require(NSBitmapImageRep(data: data))
+        return PackagedWindowCapture.recognizedCJKMarkers(
+            try #require(bitmap.cgImage)
+        )
+    }
+
+    private struct RecognizedLine {
+        let text: String
+        let bounds: CGRect
+    }
+
+    private func recognizedLines(_ url: URL) throws -> [RecognizedLine] {
         let data = try Data(contentsOf: url)
         let bitmap = try #require(NSBitmapImageRep(data: data))
         let image = try #require(bitmap.cgImage)
         let request = VNRecognizeTextRequest()
         request.recognitionLevel = .accurate
         request.usesLanguageCorrection = false
+        request.recognitionLanguages = ["ko-KR", "ja-JP", "en-US"]
         try VNImageRequestHandler(cgImage: image).perform([request])
         return (request.results ?? [])
-            .compactMap { $0.topCandidates(1).first?.string }
-            .joined(separator: "\n")
-            .uppercased()
+            .compactMap { observation in
+                guard let text = observation.topCandidates(1).first?.string else {
+                    return nil
+                }
+                return RecognizedLine(
+                    text: text.uppercased(),
+                    bounds: observation.boundingBox
+                )
+            }
     }
 
     private func contentColourCount(_ url: URL) throws -> Int {

@@ -714,6 +714,45 @@ registry에 연결됩니다.
 
 Architecture, protocol, security contract: [`docs/native-app/`](./docs/native-app/README.md).
 
+### 패키지 앱 build와 검증
+
+Universal ad-hoc signed app을 build하고 DMG를 만든 뒤 production packaged
+journey로 built app을 구동합니다.
+
+```bash
+evidence="$PWD/.omo/evidence/native-shell/local"
+dist="$evidence/dist"
+scripts/native/package_macos_app.sh "$dist"
+scripts/native/create_macos_dmg.sh "$dist"
+scripts/native/packaged_journey.sh "$evidence" "$dist"
+```
+
+연결된 read-only DMG의 app을 검증하려면 `Birkin.app`이 있는 mount를
+전달합니다. Harness는 mount되지 않은 directory나 모호한 image provenance를
+거부합니다.
+
+```bash
+mount="/Volumes/Birkin"
+BIRKIN_NATIVE_JOURNEY_ORIGIN=mounted-dmg \
+  scripts/native/packaged_journey.sh "$evidence" "$mount"
+```
+
+Journey는 기존 계정 provider credential을 preflight probe와 explicit
+provider-backed chat step을 수행하는 app-owned bridge에만 노출합니다.
+Browser fixture와 terminal child는 provider credential이 없는 allowlist
+environment를 받습니다. Harness는 기록한 process ID만 소유하고 restrictive
+umask 아래 evidence directory mode를 `0700`으로 강제합니다. 성공한 run은
+schema-2 receipt, compositor-backed step별 PNG, provider probe, read-only
+origin provenance, bounded redacted event를 만들고 temporary provider
+workspace를 삭제하기 전에 자동으로 검증합니다. Custom driver는 해당
+workspace를 정리하기 전에 같은 verifier를 직접 실행할 수 있습니다.
+
+```bash
+helper="$dist/Birkin.app/Contents/Helpers/$(uname -m)/birkin-native-bridge"
+scripts/native/verify_packaged_journey.py \
+  "$evidence" "$helper" "/private/tmp/bk-journey-XXXXXX/workspace"
+```
+
 Birkin macOS client는 별도의 agent 구현이 아니라 **기존 Python runtime
 위에 얹는 얇은 SwiftUI shell**입니다. Memory, tool 실행, policy, approval,
 audit record, recovery의 권한은 Python에 남습니다. 두 process는 version이

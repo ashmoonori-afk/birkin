@@ -32,7 +32,7 @@ extension PackagedJourneyRunner {
                     + "\(initial.revision)->\(started.revision)"
             )
         }
-        record(
+        try await record(
             "browser-start-live",
             "surface_revision=\(initial.revision)->\(started.revision)"
         )
@@ -64,7 +64,7 @@ extension PackagedJourneyRunner {
                 "browser.navigate did not project the local page at the next revision"
             )
         }
-        record(
+        try await record(
             "browser-navigate-live",
             "surface_revision=\(started.revision)->\(navigated.revision) "
                 + "frame_revision=\(startedPresentation.frameRevision)"

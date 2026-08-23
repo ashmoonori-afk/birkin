@@ -1,6 +1,7 @@
 import AppKit
 import BirkinNativeProtocol
 import BirkinNativeShell
+import CryptoKit
 import SwiftUI
 
 public enum BirkinApplicationConfiguration {
@@ -15,6 +16,7 @@ public enum BirkinApplicationConfiguration {
 @MainActor
 public final class BirkinApplicationRuntime: ObservableObject {
     public let store = NativeProjectionStore()
+    public let presentationModel = ShellPresentationModel()
     /// Jailed drag-and-drop state. The runtime owns it because only the
     /// command receipt carries Python's canonical import reference.
     public let jailedDrop = JailedDropModel()
@@ -28,6 +30,7 @@ public final class BirkinApplicationRuntime: ObservableObject {
     private let reconnectClock: any NativeReconnectClock
     private let randomUnit: NativeReconnectScheduler.RandomUnit
     private let emitEvent: @Sendable (String) -> Void
+    private let windowCapture: PackagedWindowCapture
     private let transport = NativeTransportActor()
     private var scheduler: NativeReconnectScheduler?
     private var listener: Task<Void, Never>?
@@ -49,6 +52,7 @@ public final class BirkinApplicationRuntime: ObservableObject {
         randomUnit: @escaping NativeReconnectScheduler.RandomUnit = {
             Double.random(in: 0...1)
         },
+        windowCapture: PackagedWindowCapture = PackagedWindowCapture(),
         emit: @escaping @Sendable (String) -> Void = BirkinApplicationRuntime.standardEvent
     ) {
         self.socketPath = socketPath
@@ -56,6 +60,7 @@ public final class BirkinApplicationRuntime: ObservableObject {
         self.screenshotPath = screenshotPath
         self.reconnectClock = reconnectClock
         self.randomUnit = randomUnit
+        self.windowCapture = windowCapture
         self.emitEvent = emit
     }
 
@@ -123,7 +128,12 @@ public final class BirkinApplicationRuntime: ObservableObject {
             return
         }
         if case .runningOwned(let pid) = supervisor.state {
-            emit("bridge-started kind=owned pid=\(pid) executable=\(ownedBridge.executable)")
+            let owner = ProcessInfo.processInfo.environment["BIRKIN_NATIVE_OWNER_TOKEN"]
+                ?? "unscoped"
+            emit(
+                "bridge-started kind=owned pid=\(pid) executable=\(ownedBridge.executable)"
+                    + " owner_sha256=\(Self.ownershipCorrelationDigest(owner))"
+            )
         }
     }
 
@@ -131,7 +141,13 @@ public final class BirkinApplicationRuntime: ObservableObject {
         guard let supervisor, started else { return }
         supervisor.observeExit(pid: pid, status: status)
         switch supervisor.state {
-        case .runningOwned: emit("bridge-restarted kind=owned")
+        case .runningOwned(let replacementPID):
+            let owner = ProcessInfo.processInfo.environment["BIRKIN_NATIVE_OWNER_TOKEN"]
+                ?? "unscoped"
+            emit(
+                "bridge-restarted kind=owned pid=\(replacementPID)"
+                    + " owner_sha256=\(Self.ownershipCorrelationDigest(owner))"
+            )
         case .stopped(let reason): emit("bridge-stopped reason=\(reason)")
         case .attachedExternal, .idle: break
         }
@@ -181,7 +197,7 @@ public final class BirkinApplicationRuntime: ObservableObject {
             connectionGeneration += 1
             let generation = connectionGeneration
             listen(to: subscription.messages, generation: generation)
-            try renderConfiguredEvidence(session: subscription.session)
+            try await renderConfiguredEvidence(session: subscription.session)
             if replaying {
                 emit(
                     "replayed session=\(subscription.session.currentSessionID) cursor=\(store.latestAppliedCursor ?? -1)"
@@ -413,7 +429,7 @@ public final class BirkinApplicationRuntime: ObservableObject {
                 // the produced image actually carries content.
                 if let session = readySession,
                    store.surface(named: surfaceName) != nil,
-                   try renderConfiguredEvidence(session: session) {
+                   try await renderConfiguredEvidence(session: session) {
                     emit("surface-rendered name=\(surfaceName)")
                 }
             }
@@ -519,65 +535,44 @@ public final class BirkinApplicationRuntime: ObservableObject {
         await scheduler.disconnected()
     }
 
-    /// Render the live shell to the configured evidence path.
-    ///
-    /// `ImageRenderer` cannot lay out a scrolling container, so the shell is
-    /// rendered in its snapshot mode, where every panel draws its content
-    /// inline. Returns whether the produced image actually carries content
-    /// rather than an empty background.
+    /// Capture the launched app's compositor-backed window at the configured
+    /// evidence path. Synthetic offscreen view rendering is never accepted.
     @discardableResult
-    private func renderConfiguredEvidence(session: NativeReadySession) throws -> Bool {
+    private func renderConfiguredEvidence(session _: NativeReadySession) async throws -> Bool {
         guard let screenshotPath else { return false }
-        return try renderEvidence(to: URL(fileURLWithPath: screenshotPath), session: session)
+        let target = presentationModel.target ?? .connection
+        let generation = presentationModel.focus(target)
+        try await presentationModel.waitUntilVisible(generation: generation)
+        await Task.yield()
+        let receipt = try captureEvidence(
+            to: URL(fileURLWithPath: screenshotPath),
+            focusTarget: target.evidenceName,
+            focusGeneration: generation
+        )
+        return receipt.pixelWidth > 0 && receipt.pixelHeight > 0
     }
 
-    /// Render the live shell to an explicit destination.
+    /// Capture the launched app's owned window to an explicit destination.
     @discardableResult
-    func renderEvidence(to url: URL, session: NativeReadySession) throws -> Bool {
-        let view = NativeShellView(
-            store: store,
-            connectionState: .ready(session),
-            jailedDrop: jailedDrop
+    func renderEvidence(to url: URL, session _: NativeReadySession) throws -> Bool {
+        let receipt = try captureEvidence(
+            to: url,
+            focusTarget: "window:birkin",
+            focusGeneration: UInt64(max(0, store.latestAppliedCursor ?? 0))
         )
-        .frame(width: 1280, height: 800)
-        .background(Color(nsColor: .windowBackgroundColor))
-        .environment(\.colorScheme, .dark)
-        .environment(
-            \.shellVisualSettings, ShellVisualSettings(snapshotRendering: true)
-        )
-        let renderer = ImageRenderer(content: view)
-        renderer.proposedSize = ProposedViewSize(width: 1280, height: 800)
-        renderer.scale = 1
-        guard let image = renderer.nsImage,
-              let tiff = image.tiffRepresentation,
-              let bitmap = NSBitmapImageRep(data: tiff),
-              let png = bitmap.representation(using: .png, properties: [:])
-        else {
-            throw CocoaError(.fileWriteUnknown)
-        }
-        try FileManager.default.createDirectory(
-            at: url.deletingLastPathComponent(), withIntermediateDirectories: true
-        )
-        try png.write(to: url, options: .atomic)
-        return Self.carriesContent(bitmap)
+        return receipt.pixelWidth > 0 && receipt.pixelHeight > 0
     }
 
-    /// True when the rendered bitmap holds more than a flat background.
-    private static func carriesContent(_ bitmap: NSBitmapImageRep) -> Bool {
-        var seen = Set<UInt32>()
-        let stepX = max(1, bitmap.pixelsWide / 96)
-        let stepY = max(1, bitmap.pixelsHigh / 96)
-        for y in stride(from: 0, to: bitmap.pixelsHigh, by: stepY) {
-            for x in stride(from: 0, to: bitmap.pixelsWide, by: stepX) {
-                guard let colour = bitmap.colorAt(x: x, y: y) else { continue }
-                let red = UInt32(colour.redComponent * 255)
-                let green = UInt32(colour.greenComponent * 255)
-                let blue = UInt32(colour.blueComponent * 255)
-                seen.insert(red << 16 | green << 8 | blue)
-                if seen.count >= 8 { return true }
-            }
-        }
-        return false
+    func captureEvidence(
+        to url: URL,
+        focusTarget: String,
+        focusGeneration: UInt64
+    ) throws -> PackagedWindowCaptureReceipt {
+        try windowCapture.capture(
+            to: url,
+            focusTarget: focusTarget,
+            focusGeneration: focusGeneration
+        )
     }
 
     private func emit(_ message: String) {
@@ -585,8 +580,21 @@ public final class BirkinApplicationRuntime: ObservableObject {
     }
 
     nonisolated public static func standardEvent(_ message: String) {
-        let line = Data("BIRKIN_APP_EVENT \(message)\n".utf8)
-        try? FileHandle.standardOutput.write(contentsOf: line)
+        try? FileHandle.standardOutput.write(
+            contentsOf: standardEventData(message)
+        )
+    }
+
+    nonisolated static func standardEventData(_ message: String) -> Data {
+        Data(
+            "BIRKIN_APP_EVENT \(JourneyEvidenceRedactor.redact(message))\n".utf8
+        )
+    }
+
+    nonisolated static func ownershipCorrelationDigest(_ token: String) -> String {
+        SHA256.hash(data: Data(token.utf8))
+            .map { String(format: "%02x", $0) }
+            .joined()
     }
 }
 
@@ -674,7 +682,10 @@ private struct BirkinRootView: View {
             templateCommandAction: runtime.submit,
             productSurfaceAction: runtime.submit,
             voiceInputAction: runtime.beginVoiceInput,
-            jailedDrop: runtime.jailedDrop
+            evidenceSpecimens: BirkinApplicationHost.journey == nil
+                ? [] : PackagedWindowCapture.cjkSpecimens,
+            jailedDrop: runtime.jailedDrop,
+            presentationModel: runtime.presentationModel
         )
         .frame(minWidth: 960, minHeight: 640)
             .task {

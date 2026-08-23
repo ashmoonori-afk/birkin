@@ -31,7 +31,7 @@ extension PackagedJourneyRunner {
             )
         }
         completions += 1
-        record(
+        try await record(
             "session-create",
             "session=\(createdSessionID) frame=\(create.frameID) command=\(create.commandID)"
         )
@@ -75,7 +75,7 @@ extension PackagedJourneyRunner {
         guard PackagedProviderCompletion.validate(conversation) else {
             throw JourneyError.refused("provider completion evidence was missing or invalid")
         }
-        record(
+        try await record(
             "chat-send-stream",
             "conversation_rows=\(conversation.count) "
                 + "provider_completion=\(PackagedProviderCompletion.marker)"

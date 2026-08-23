@@ -149,7 +149,8 @@ final class AppHarness: @unchecked Sendable {
               let record = try JSONSerialization.jsonObject(with: data) as? [String: Any],
               record["event"] as? String == "listening"
         else {
-            process.terminate()
+            _ = kill(process.processIdentifier, SIGKILL)
+            process.waitUntilExit()
             throw AppRuntimeTestError.malformedReadiness
         }
         return AppHarness(
@@ -171,7 +172,7 @@ final class AppHarness: @unchecked Sendable {
 
     func terminate() {
         guard process.isRunning else { return }
-        process.terminate()
+        _ = kill(process.processIdentifier, SIGKILL)
         process.waitUntilExit()
     }
 

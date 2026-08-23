@@ -12,6 +12,8 @@ public struct NativeShellView: View {
     private let templateCommandAction: (NativeCommandRequest) -> Void
     private let productSurfaceAction: (ProductSurfaceControl) -> Void
     private let voiceInputAction: () -> Void
+    private let evidenceSpecimens: [String]
+    @ObservedObject private var presentationModel: ShellPresentationModel
 
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
     @Environment(\.shellVisualSettings) private var visualSettings
@@ -36,7 +38,9 @@ public struct NativeShellView: View {
         templateCommandAction: @escaping (NativeCommandRequest) -> Void = { _ in },
         productSurfaceAction: @escaping (ProductSurfaceControl) -> Void = { _ in },
         voiceInputAction: @escaping () -> Void = {},
+        evidenceSpecimens: [String] = [],
         jailedDrop: JailedDropModel = JailedDropModel(),
+        presentationModel: ShellPresentationModel = ShellPresentationModel(),
         makeSessionID: @escaping () -> String = { UUID().uuidString.lowercased() }
     ) {
         self.store = store
@@ -48,7 +52,11 @@ public struct NativeShellView: View {
         self.templateCommandAction = templateCommandAction
         self.productSurfaceAction = productSurfaceAction
         self.voiceInputAction = voiceInputAction
-        _selectedColumn = State(initialValue: initialColumn)
+        self.evidenceSpecimens = evidenceSpecimens
+        self.presentationModel = presentationModel
+        _selectedColumn = State(
+            initialValue: presentationModel.target?.column ?? initialColumn
+        )
         _templateLauncher = StateObject(wrappedValue: TemplateLauncherModel(
             presets: Self.readySession(in: connectionState)?.sessionPresets ?? [],
             makeSessionID: makeSessionID
@@ -69,6 +77,8 @@ public struct NativeShellView: View {
                     presentation: ConnectionPresentation(state: connectionState),
                     diagnosticsAction: diagnosticsAction
                 )
+                .id(ShellFocusTarget.connection)
+                .background(focusVisibilityProbe(for: .connection))
                 Spacer()
                 Button {
                     showsCommandPalette = true
@@ -79,6 +89,17 @@ public struct NativeShellView: View {
                 .accessibilityLabel("Open command palette")
             }
             .padding(12)
+            .overlay {
+                HStack(spacing: 24) {
+                    ForEach(evidenceSpecimens, id: \.self) { specimen in
+                        Text(specimen)
+                            .font(.headline.weight(.bold))
+                            .fixedSize()
+                    }
+                }
+                .frame(maxWidth: .infinity)
+                .accessibilityIdentifier("journey-cjk-specimens")
+            }
             if let commandError {
                 Text(commandError)
                     .font(.caption)
@@ -97,7 +118,11 @@ public struct NativeShellView: View {
                 if layout.mode == .panelNavigation {
                     adaptiveContent(structure, availability: availability)
                 } else {
-                    threeColumnContent(structure, availability: availability)
+                    threeColumnContent(
+                        structure,
+                        layout: layout,
+                        availability: availability
+                    )
                 }
             }
         }
@@ -105,6 +130,11 @@ public struct NativeShellView: View {
         .contrast(visualSettings.increasedContrast ? 1.25 : 1)
         .transaction { transaction in
             if visualSettings.reduceMotion { transaction.disablesAnimations = true }
+        }
+        .onChange(of: presentationModel.requestGeneration) { _ in
+            if let column = presentationModel.target?.column {
+                selectedColumn = column
+            }
         }
         .sheet(isPresented: $showsCommandPalette) {
             CommandPaletteView(model: CommandPaletteModel(
@@ -136,12 +166,21 @@ public struct NativeShellView: View {
 
     private func threeColumnContent(
         _ structure: ShellStructure,
+        layout: ShellLayoutPlan,
         availability: MutationAvailability
     ) -> some View {
-        HStack(spacing: 0) {
+        HStack(alignment: .top, spacing: 0) {
             ForEach(Array(structure.columns.enumerated()), id: \.element.id) { index, column in
+                let width = layout.width(for: column.id)
                 columnView(column, availability: availability)
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    .frame(
+                        minWidth: width.minimum,
+                        idealWidth: width.ideal,
+                        maxWidth: .infinity,
+                        maxHeight: .infinity,
+                        alignment: .top
+                    )
+                    .layoutPriority(width.layoutPriority)
                 if index < structure.columns.count - 1 { Divider() }
             }
         }
@@ -189,17 +228,24 @@ public struct NativeShellView: View {
         _ column: ShellColumn,
         availability: MutationAvailability
     ) -> some View {
-        VStack(alignment: .leading, spacing: 0) {
-            Text(column.id.title)
-                .font(.title2.bold())
-                .fixedSize(horizontal: false, vertical: true)
-                .padding([.horizontal, .top])
-            if visualSettings.snapshotRendering {
-                columnSections(column, availability: availability)
-            } else {
-                ScrollView {
+        ScrollViewReader { proxy in
+            VStack(alignment: .leading, spacing: 0) {
+                Text(column.id.title)
+                    .font(.title2.bold())
+                    .fixedSize(horizontal: false, vertical: true)
+                    .padding([.horizontal, .top])
+                if visualSettings.snapshotRendering {
                     columnSections(column, availability: availability)
+                } else {
+                    ScrollView {
+                        columnSections(column, availability: availability)
+                    }
                 }
+            }
+            .onChange(of: presentationModel.requestGeneration) { _ in
+                guard let target = presentationModel.target,
+                      target.column == column.id else { return }
+                proxy.scrollTo(target, anchor: .center)
             }
         }
         .accessibilityElement(children: .contain)
@@ -359,6 +405,24 @@ public struct NativeShellView: View {
         .background(.quaternary.opacity(0.45), in: RoundedRectangle(cornerRadius: 10))
         .accessibilityElement(children: .contain)
         .accessibilityLabel(section.id.title)
+        .id(ShellFocusTarget.section(section.id))
+        .background(
+            focusVisibilityProbe(for: .section(section.id))
+        )
+    }
+
+    @ViewBuilder
+    private func focusVisibilityProbe(for target: ShellFocusTarget) -> some View {
+        if presentationModel.target == target {
+            ShellFocusVisibilityProbe(
+                generation: presentationModel.requestGeneration
+            ) { generation in
+                presentationModel.reportVisible(
+                    target: target,
+                    generation: generation
+                )
+            }
+        }
     }
 
     private func stateText(_ state: ShellSectionState) -> some View {

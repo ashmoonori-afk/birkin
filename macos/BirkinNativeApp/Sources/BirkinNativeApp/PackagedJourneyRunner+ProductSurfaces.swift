@@ -13,20 +13,23 @@ extension PackagedJourneyRunner {
         guard documents >= 1 else {
             throw JourneyError.refused("office document was not projected")
         }
-        record("office-create-live", "documents=\(documents)")
+        try await record("office-create-live", "documents=\(documents)")
 
         runtime.submit(ProductSurfaceControl.officeOpen)
         try await nextOutcome("office.open")
         try await journeyDeadline("office open surface") { [events] in
             try await events.wait(for: "surface-applied name=office", occurrence: 3)
         }
-        record("office-open-live", "documents=\(officeDocumentCount())")
+        try await record(
+            "office-open-live",
+            "documents=\(officeDocumentCount())"
+        )
 
         let status = runtime.store.surface(named: "computer_use")
         guard status != nil else {
             throw JourneyError.refused("computer use surface missing")
         }
-        record("computer-use-status", "projected=true")
+        try await record("computer-use-status", "projected=true")
     }
 
     private func officeDocumentCount() -> Int {

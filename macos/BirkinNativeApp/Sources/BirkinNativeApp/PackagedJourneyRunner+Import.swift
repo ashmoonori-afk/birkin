@@ -19,6 +19,9 @@ extension PackagedJourneyRunner {
         guard runtime.jailedDrop.state == .imported else {
             throw JourneyError.refused("import chip state \(runtime.jailedDrop.state)")
         }
-        record("jailed-import-chip", "token=\(reference.composerToken)")
+        try await record(
+            "jailed-import-chip",
+            "token=\(reference.composerToken)"
+        )
     }
 }

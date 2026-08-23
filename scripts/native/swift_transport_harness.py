@@ -7,6 +7,8 @@ import argparse
 import json
 import os
 from pathlib import Path
+import sys
+from typing import Protocol, final
 
 from birkin import __version__
 from birkin.native.capability import BootstrapSecretStore
@@ -16,15 +18,56 @@ from birkin.workspace import TerminalAuthority, WorkspaceCommand, WorkspaceServi
 from birkin.workspace.runtime_adapter import RuntimeWorkspaceAdapter
 
 
+def _emit(record: dict[str, object]) -> bool:
+    """Write one harness record unless its test consumer already closed."""
+    try:
+        print(json.dumps(record, separators=(",", ":")), flush=True)
+    except BrokenPipeError:
+        null_descriptor = os.open(os.devnull, os.O_WRONLY)
+        try:
+            _ = os.dup2(null_descriptor, sys.stdout.fileno())
+        finally:
+            os.close(null_descriptor)
+        return False
+    return True
+
+
+@final
+class HarnessArguments(argparse.Namespace):
+    def __init__(self) -> None:
+        super().__init__()
+        self.transport = ""
+        self.root = Path()
+        self.terminal = False
+        self.j1_fixture = False
+        self.connections = 1
+        self.session_id = "session-1"
+
+
+class _OneConnectionEndpoint(Protocol):
+    def serve_once(self) -> None: ...
+
+
+def serve_connections(
+    endpoint: _OneConnectionEndpoint,
+    *,
+    count: int,
+) -> None:
+    for _ in range(count):
+        endpoint.serve_once()
+
+
 def main() -> None:
     parser = argparse.ArgumentParser()
-    parser.add_argument("--transport", choices=("uds", "loopback"), required=True)
-    parser.add_argument("--root", type=Path, required=True)
-    parser.add_argument("--terminal", action="store_true")
-    parser.add_argument("--j1-fixture", action="store_true")
-    parser.add_argument("--connections", type=int, default=1)
-    parser.add_argument("--session-id", default="session-1")
-    args = parser.parse_args()
+    _ = parser.add_argument(
+        "--transport", choices=("uds", "loopback"), required=True
+    )
+    _ = parser.add_argument("--root", type=Path, required=True)
+    _ = parser.add_argument("--terminal", action="store_true")
+    _ = parser.add_argument("--j1-fixture", action="store_true")
+    _ = parser.add_argument("--connections", type=int, default=1)
+    _ = parser.add_argument("--session-id", default="session-1")
+    args = parser.parse_args(namespace=HarnessArguments())
     if args.connections < 1 or args.connections > 8:
         parser.error("--connections must be between 1 and 8")
 
@@ -45,8 +88,8 @@ def main() -> None:
             text = payload.get("text")
             if not isinstance(text, str):
                 raise ValueError("J1 fixture requires message text")
-            source.emit("message.user", {"text": text})
-            source.emit(
+            _ = source.emit("message.user", {"text": text})
+            _ = source.emit(
                 "message.assistant.completed",
                 {"text": "The native packaged app is connected to Python authority."},
             )
@@ -58,7 +101,7 @@ def main() -> None:
         handlers = dict(adapter.handlers())
         handlers["chat.send"] = answer_first_message
         source.set_handlers(handlers)
-        source.submit(
+        _ = source.submit(
             WorkspaceCommand.parse({
                 "protocol_version": 1,
                 "command_id": "phase13-j1",
@@ -113,33 +156,27 @@ def main() -> None:
         readiness: dict[str, object] = {
             "event": "listening",
             "transport": args.transport,
-            "pid": __import__("os").getpid(),
+            "pid": os.getpid(),
             "root": str(args.root),
         }
         if args.transport == "uds":
             readiness["socket_path"] = str(socket_path)
         else:
             readiness["discovery_path"] = str(capabilities.endpoint_path)
-        print(json.dumps(readiness, separators=(",", ":")), flush=True)
-        for _ in range(args.connections):
-            endpoint.serve_once()
+        if not _emit(readiness):
+            return
+        serve_connections(endpoint, count=args.connections)
     finally:
         endpoint.close()
         if terminal is not None:
             terminal.close_all()
         if adapter is not None:
             adapter.close()
-        print(
-            json.dumps(
-                {
-                    "event": "cleaned",
-                    "socket_exists": socket_path.exists(),
-                    "discovery_exists": capabilities.endpoint_path.exists(),
-                },
-                separators=(",", ":"),
-            ),
-            flush=True,
-        )
+        _ = _emit({
+            "event": "cleaned",
+            "socket_exists": socket_path.exists(),
+            "discovery_exists": capabilities.endpoint_path.exists(),
+        })
 
 
 if __name__ == "__main__":

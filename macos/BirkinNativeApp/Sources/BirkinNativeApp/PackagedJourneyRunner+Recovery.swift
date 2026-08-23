@@ -18,7 +18,10 @@ extension PackagedJourneyRunner {
         guard restarted != pid else {
             throw JourneyError.refused("bridge pid did not change")
         }
-        record("owned-bridge-restart-replay", "pid=\(pid)->\(restarted)")
+        try await record(
+            "owned-bridge-restart-replay",
+            "pid=\(pid)->\(restarted)"
+        )
 
         let replayedTerminal = try require(
             runtime.store.projection?.terminals.first,
@@ -41,7 +44,7 @@ extension PackagedJourneyRunner {
         guard !replayInputAccepted, !replayInputSubmitted else {
             throw JourneyError.refused("replayed terminal accepted stale input")
         }
-        record(
+        try await record(
             "terminal-replay-refusal",
             "terminal=\(replayedTerminal.terminalID) read_only=true"
         )
@@ -73,7 +76,7 @@ extension PackagedJourneyRunner {
                 occurrence: 1
             )
         }
-        record(
+        try await record(
             "post-reconnect-command",
             "frame=\(request.frameID) command=\(request.commandID) cursor=\(cursor)"
         )

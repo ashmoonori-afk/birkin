@@ -1,6 +1,9 @@
 import AppKit
+import Combine
 import Foundation
+import SwiftUI
 import Testing
+import XCTest
 
 @testable import BirkinNativeApp
 import BirkinNativeProtocol
@@ -34,12 +37,27 @@ struct BirkinApplicationEvidenceTests {
         let socketPath = try #require(harness.socketPath)
         let screenshot = root.appendingPathComponent("surface.png")
         let events = RuntimeEventRecorder()
+        let captureState = EvidenceCaptureState()
+        let captureView = EvidenceCaptureView()
         let runtime = BirkinApplicationRuntime(
             socketPath: socketPath,
             screenshotPath: screenshot.path,
+            windowCapture: testCapture(captureView) {
+                captureState.visibleGeneration =
+                    captureState.runtime?.presentationModel.visibleGeneration ?? 0
+            },
             emit: { events.record($0) }
         )
+        captureState.runtime = runtime
+        runtime.presentationModel.focus(.section(.activity))
+        let hostedView = host(runtime, captureView: captureView)
+        let layoutDriver = driveLayout(
+            for: runtime,
+            view: hostedView
+        )
         defer {
+            layoutDriver.cancel()
+            captureView.view = nil
             runtime.stop()
             harness.terminate()
             try? FileManager.default.removeItem(at: root)
@@ -53,6 +71,10 @@ struct BirkinApplicationEvidenceTests {
         #expect(events.contains("surface-rendered name=browser_aside"))
         #expect(events.contains("surface-rendered name=computer_use"))
         #expect(FileManager.default.fileExists(atPath: screenshot.path))
+        #expect(
+            captureState.visibleGeneration > 0,
+            "Configured evidence must wait until the live shell reports its layout visible"
+        )
         let firstColours = try Self.contentPixelCount(screenshot)
         #expect(firstColours >= 8, "rendered evidence has \(firstColours) colours")
         let firstBytes = try Data(contentsOf: screenshot)
@@ -76,24 +98,96 @@ struct BirkinApplicationEvidenceTests {
         let secondBytes = try Data(contentsOf: screenshot)
         #expect(secondBytes != firstBytes, "office state change produced identical evidence")
         #expect(try Self.contentPixelCount(screenshot) >= 8)
+
+        runtime.stop()
+        try await withTimeout("evidence bridge cleanup", seconds: 60) {
+            await Task.detached { harness.process.waitUntilExit() }.value
+        }
+        #expect(!harness.process.isRunning)
     }
 
     @MainActor
-    @Test("no surface is reported as rendered before it is projected")
-    func unprojectedSurfaceIsNeverReportedRendered() async throws {
+    private func host(
+        _ runtime: BirkinApplicationRuntime,
+        captureView: EvidenceCaptureView
+    ) -> NSView {
+        let snapshotView = NSHostingView(rootView: EvidenceRuntimeView(runtime: runtime))
+        snapshotView.frame = NSRect(x: 0, y: 0, width: 1_280, height: 800)
+        snapshotView.layoutSubtreeIfNeeded()
+        captureView.view = snapshotView
+        return snapshotView
+    }
+
+    @MainActor
+    private func driveLayout(
+        for runtime: BirkinApplicationRuntime,
+        view: NSView
+    ) -> AnyCancellable {
+        runtime.presentationModel.$requestGeneration
+            .dropFirst()
+            .receive(on: DispatchQueue.main)
+            .sink { _ in view.layoutSubtreeIfNeeded() }
+    }
+
+    @MainActor
+    private func testCapture(_ view: EvidenceCaptureView) -> PackagedWindowCapture {
+        testCapture(view, beforeImage: {})
+    }
+
+    @MainActor
+    private func testCapture(
+        _ captureView: EvidenceCaptureView,
+        beforeImage: @escaping @MainActor @Sendable () -> Void
+    ) -> PackagedWindowCapture {
+        PackagedWindowCapture(
+            preflight: { true },
+            windowIDs: { [1] },
+            metadata: { _ in .valid },
+            image: { _ in
+                beforeImage()
+                guard let view = captureView.view,
+                      let representation = view.bitmapImageRepForCachingDisplay(
+                          in: view.bounds
+                      ) else { return nil }
+                view.cacheDisplay(in: view.bounds, to: representation)
+                return representation.cgImage
+            }
+        )
+    }
+}
+
+@MainActor
+final class BirkinApplicationUnprojectedSurfaceTests: XCTestCase {
+    func testNoSurfaceIsReportedRenderedBeforeProjection() async throws {
         let root = URL(fileURLWithPath: "/private/tmp/bk-evidence-none-\(UUID().uuidString)")
         let harness = try AppHarness.launch(
             root: root, mode: "--terminal", sessionID: "evidence-terminal", connections: 2
         )
-        let socketPath = try #require(harness.socketPath)
+        let socketPath = try XCTUnwrap(harness.socketPath)
         let screenshot = root.appendingPathComponent("terminal-surface.png")
         let events = RuntimeEventRecorder()
+        let captureView = EvidenceCaptureView()
         let runtime = BirkinApplicationRuntime(
             socketPath: socketPath,
             screenshotPath: screenshot.path,
+            windowCapture: testCapture(captureView),
             emit: { events.record($0) }
         )
+        runtime.presentationModel.focus(.section(.activity))
+        let hostingView = NSHostingView(rootView: EvidenceRuntimeView(runtime: runtime))
+        hostingView.frame = NSRect(x: 0, y: 0, width: 1_280, height: 800)
+        hostingView.layoutSubtreeIfNeeded()
+        captureView.view = hostingView
+        let focusStub = runtime.presentationModel.$requestGeneration
+            .dropFirst()
+            .receive(on: DispatchQueue.main)
+            .sink { [presentationModel = runtime.presentationModel] generation in
+                guard let target = presentationModel.target else { return }
+                presentationModel.reportVisible(target: target, generation: generation)
+            }
         defer {
+            focusStub.cancel()
+            captureView.view = nil
             runtime.stop()
             harness.terminate()
             try? FileManager.default.removeItem(at: root)
@@ -101,9 +195,51 @@ struct BirkinApplicationEvidenceTests {
 
         try await withTimeout("runtime start") { await runtime.start() }
 
-        #expect(!events.contains("surface-rendered name=office"))
-        #expect(!events.contains("surface-rendered name=browser_aside"))
-        #expect(runtime.store.surface(named: "office") == nil)
+        XCTAssertFalse(events.contains("surface-rendered name=office"))
+        XCTAssertFalse(events.contains("surface-rendered name=browser_aside"))
+        XCTAssertNil(runtime.store.surface(named: "office"))
+    }
+
+    private func testCapture(
+        _ captureView: EvidenceCaptureView
+    ) -> PackagedWindowCapture {
+        PackagedWindowCapture(
+            preflight: { true },
+            windowIDs: { [1] },
+            metadata: { _ in .valid },
+            image: { _ in
+                guard let view = captureView.view,
+                      let representation = view.bitmapImageRepForCachingDisplay(
+                          in: view.bounds
+                      ) else { return nil }
+                view.cacheDisplay(in: view.bounds, to: representation)
+                return representation.cgImage
+            }
+        )
+    }
+}
+
+@MainActor
+private final class EvidenceCaptureState {
+    weak var runtime: BirkinApplicationRuntime?
+    var visibleGeneration: UInt64 = 0
+}
+
+@MainActor
+private final class EvidenceCaptureView {
+    var view: NSView?
+}
+
+private struct EvidenceRuntimeView: View {
+    @ObservedObject var runtime: BirkinApplicationRuntime
+
+    var body: some View {
+        NativeShellView(
+            store: runtime.store,
+            connectionState: runtime.connectionState,
+            jailedDrop: runtime.jailedDrop,
+            presentationModel: runtime.presentationModel
+        )
     }
 }
 
