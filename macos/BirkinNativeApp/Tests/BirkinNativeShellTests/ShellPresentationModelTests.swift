@@ -78,6 +78,36 @@ struct ShellPresentationModelTests {
     }
 
     @MainActor
+    @Test("an already-mounted connection header focus is realized")
+    func mountedConnectionFocusIsRealized() async throws {
+        let now = Date(timeIntervalSince1970: 1_787_238_000)
+        let session = NativeReadySession(
+            instanceID: "mounted-focus-instance",
+            serverVersion: "1.0",
+            sessionCapability: "mounted-focus-capability",
+            capabilityExpiresAt: now.addingTimeInterval(60),
+            capabilityHardExpiresAt: now.addingTimeInterval(120)
+        )
+        let model = ShellPresentationModel()
+        let hostingView = NSHostingView(rootView: NativeShellView(
+            store: NativeProjectionStore(),
+            connectionState: .ready(session),
+            presentationModel: model
+        ))
+        hostingView.frame = NSRect(x: 0, y: 0, width: 1_280, height: 800)
+        hostingView.layoutSubtreeIfNeeded()
+
+        let generation = model.focus(.connection)
+        try await model.waitUntilVisible(
+            generation: generation,
+            timeout: .seconds(2)
+        )
+
+        #expect(model.visibleGeneration == generation)
+        #expect(model.target == .connection)
+    }
+
+    @MainActor
     @Test("a pre-mount accessibility panel focus is realized")
     func preMountPanelFocusIsRealized() async throws {
         let now = Date(timeIntervalSince1970: 1_787_238_000)

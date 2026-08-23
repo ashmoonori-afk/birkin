@@ -3,9 +3,8 @@ import SwiftUI
 
 @MainActor
 final class ShellFocusVisibilityView: NSView {
-    private var generation: UInt64 = 0
-    private var lastReportedGeneration: UInt64?
-    private var reportVisible: ((UInt64) -> Void)?
+    private var lastReportedVisibility: Bool?
+    private var reportVisibility: ((Bool) -> Void)?
     private weak var observedClipView: NSClipView?
     private var boundsObserver: NSObjectProtocol?
 
@@ -18,34 +17,30 @@ final class ShellFocusVisibilityView: NSView {
     }
 
     func configure(
-        generation: UInt64,
-        reportVisible: @escaping (UInt64) -> Void
+        reportVisibility: @escaping (Bool) -> Void
     ) {
-        if self.generation != generation {
-            lastReportedGeneration = nil
-        }
-        self.generation = generation
-        self.reportVisible = reportVisible
+        lastReportedVisibility = nil
+        self.reportVisibility = reportVisibility
         observeClipView()
-        reportIfVisible()
+        reportCurrentVisibility()
     }
 
     override func viewDidMoveToSuperview() {
         super.viewDidMoveToSuperview()
         observeClipView()
-        reportIfVisible()
+        reportCurrentVisibility()
     }
 
     override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
         observeClipView()
-        reportIfVisible()
+        reportCurrentVisibility()
     }
 
     override func layout() {
         super.layout()
         observeClipView()
-        reportIfVisible()
+        reportCurrentVisibility()
     }
 
     override func viewWillMove(toSuperview newSuperview: NSView?) {
@@ -53,6 +48,8 @@ final class ShellFocusVisibilityView: NSView {
             NotificationCenter.default.removeObserver(boundsObserver)
             self.boundsObserver = nil
             observedClipView = nil
+            lastReportedVisibility = false
+            reportVisibility?(false)
         }
         super.viewWillMove(toSuperview: newSuperview)
     }
@@ -72,26 +69,24 @@ final class ShellFocusVisibilityView: NSView {
             object: clipView,
             queue: .main
         ) { [weak self] _ in
-            Task { @MainActor in self?.reportIfVisible() }
+            Task { @MainActor in self?.reportCurrentVisibility() }
         }
     }
 
-    private func reportIfVisible() {
-        guard lastReportedGeneration != generation,
-              isWithinVisibleViewport
-        else { return }
-        lastReportedGeneration = generation
-        reportVisible?(generation)
+    private func reportCurrentVisibility() {
+        let isVisible = isWithinVisibleViewport
+        guard lastReportedVisibility != isVisible else { return }
+        lastReportedVisibility = isVisible
+        reportVisibility?(isVisible)
     }
 }
 
 struct ShellFocusVisibilityProbe: NSViewRepresentable {
-    let generation: UInt64
-    let reportVisible: (UInt64) -> Void
+    let reportVisibility: (Bool) -> Void
 
     func makeNSView(context _: Context) -> ShellFocusVisibilityView {
         let view = ShellFocusVisibilityView()
-        view.configure(generation: generation, reportVisible: reportVisible)
+        view.configure(reportVisibility: reportVisibility)
         return view
     }
 
@@ -99,6 +94,6 @@ struct ShellFocusVisibilityProbe: NSViewRepresentable {
         _ view: ShellFocusVisibilityView,
         context _: Context
     ) {
-        view.configure(generation: generation, reportVisible: reportVisible)
+        view.configure(reportVisibility: reportVisibility)
     }
 }

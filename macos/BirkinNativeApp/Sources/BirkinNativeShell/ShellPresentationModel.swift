@@ -44,13 +44,14 @@ public final class ShellPresentationModel: ObservableObject {
 
     private var waiters:
         [UInt64: [UUID: CheckedContinuation<Void, any Error>]] = [:]
+    private var visibleTargets = Set<ShellFocusTarget>()
 
     public init() {}
 
     @discardableResult
     public func focus(_ target: ShellFocusTarget) -> UInt64 {
-        self.target = target
         requestGeneration &+= 1
+        self.target = target
         for generation in waiters.keys where generation < requestGeneration {
             let pending = waiters.removeValue(forKey: generation) ?? [:]
             pending.values.forEach {
@@ -60,7 +61,22 @@ public final class ShellPresentationModel: ObservableObject {
                 ))
             }
         }
+        if visibleTargets.contains(target) {
+            visibleGeneration = requestGeneration
+        }
         return requestGeneration
+    }
+
+    public func reportVisibility(
+        target: ShellFocusTarget,
+        isVisible: Bool
+    ) {
+        if isVisible {
+            visibleTargets.insert(target)
+            reportVisible(target: target, generation: requestGeneration)
+        } else {
+            visibleTargets.remove(target)
+        }
     }
 
     public func reportVisible(

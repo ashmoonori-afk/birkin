@@ -411,17 +411,12 @@ public struct NativeShellView: View {
         )
     }
 
-    @ViewBuilder
     private func focusVisibilityProbe(for target: ShellFocusTarget) -> some View {
-        if presentationModel.target == target {
-            ShellFocusVisibilityProbe(
-                generation: presentationModel.requestGeneration
-            ) { generation in
-                presentationModel.reportVisible(
-                    target: target,
-                    generation: generation
-                )
-            }
+        ShellFocusVisibilityProbe { isVisible in
+            presentationModel.reportVisibility(
+                target: target,
+                isVisible: isVisible
+            )
         }
     }
 
