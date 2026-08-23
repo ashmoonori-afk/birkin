@@ -1,5 +1,9 @@
 {
   "schema": 1,
+  "project": {
+    "pyproject_sha256": "224f220e1ccf205e3e368183d5f3c01d6098cb4a5816f5bdce791d0581de83b5",
+    "uv_lock_sha256": "7d2553c470b3b5a410039b1b8285225030db617eee1abf7fea167740b4214138"
+  },
   "python": {
     "version": "3.13.13",
     "build": "20260414",

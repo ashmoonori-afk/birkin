@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import json
 import re
 import subprocess
@@ -65,6 +66,20 @@ def test_helper_build_inputs_pin_both_macos_architectures() -> None:
             "https://github.com/astral-sh/python-build-standalone/releases/download/"
         )
         assert _SHA256.fullmatch(_string(artifact["sha256"]))
+
+
+def test_helper_project_and_lock_inputs_are_checksum_pinned() -> None:
+    descriptor = _read_json_object(INPUTS)
+    project = _object(descriptor["project"])
+
+    assert project == {
+        "pyproject_sha256": hashlib.sha256(
+            (REPOSITORY / "pyproject.toml").read_bytes()
+        ).hexdigest(),
+        "uv_lock_sha256": hashlib.sha256(
+            (REPOSITORY / "uv.lock").read_bytes()
+        ).hexdigest(),
+    }
 
 
 def test_browser_build_inputs_pin_both_macos_architectures() -> None:

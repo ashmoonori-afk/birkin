@@ -17,7 +17,8 @@ json_value() {
 
 verify_inputs() {
   local schema python_version python_build architecture url checksum
-  local python locked_version package_version
+  local python locked_version package_version expected_hash actual_hash
+  local project_input project_path
   schema="$(json_value schema)"
   python_version="$(json_value python.version)"
   python_build="$(json_value python.build)"
@@ -29,6 +30,16 @@ verify_inputs() {
     [[ "$checksum" =~ ^[0-9a-f]{64}$ ]]
   done
   grep -q '^pyinstaller==6\.22\.2 \\' "$build_lock"
+  for project_input in pyproject uv_lock; do
+    expected_hash="$(json_value "project.${project_input}_sha256")"
+    case "$project_input" in
+      pyproject) project_path="$repo_root/pyproject.toml" ;;
+      uv_lock) project_path="$repo_root/uv.lock" ;;
+    esac
+    actual_hash="$(shasum -a 256 "$project_path" | awk '{print $1}')"
+    [[ "$expected_hash" =~ ^[0-9a-f]{64}$ ]]
+    [[ "$actual_hash" == "$expected_hash" ]]
+  done
   python=python3
   command -v "$python" >/dev/null 2>&1 || python=python
   locked_version="$("$python" - "$repo_root/uv.lock" <<'PY'
