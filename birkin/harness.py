@@ -691,10 +691,12 @@ def _next_working(
     session_id: str,
     current: dict[str, Any],
     incoming: dict[str, Iterable[str]],
+    *,
+    updated_at: str | None = None,
 ) -> dict[str, Any]:
     updated = {
         "revision": int(current.get("revision") or 0) + 1,
-        "updated_at": _now(),
+        "updated_at": updated_at or _now(),
         **{
             field: _working_merge(current.get(field), incoming[field])
             for field in WORKING_FIELDS
@@ -740,6 +742,7 @@ def update_working(
     evidence: Iterable[str] = (),
     next_actions: Iterable[str] = (),
     expected_revision: int | None = None,
+    updated_at: str | None = None,
     commit: Callable[[], Any] | None = None,
 ) -> dict[str, Any]:
     session = validate_working_session_id(session_id)
@@ -762,7 +765,12 @@ def update_working(
                 raise ValueError(
                     f"working memory revision conflict; current revision is {current_revision}"
                 )
-            updated = _next_working(session, current, incoming)
+            updated = _next_working(
+                session,
+                current,
+                incoming,
+                updated_at=updated_at,
+            )
             state["schema"] = 3
             state["working"] = updated
             store._write_json(path, state)
@@ -780,6 +788,7 @@ def clear_working_revisioned(
     session_id: str,
     *,
     expected_revision: int,
+    updated_at: str | None = None,
 ) -> dict[str, Any]:
     """Clear session Working Memory while preserving monotonic revision identity."""
     session = validate_working_session_id(session_id)
@@ -796,7 +805,7 @@ def clear_working_revisioned(
                 )
             updated = empty_working()
             updated["revision"] = current_revision + 1
-            updated["updated_at"] = _now()
+            updated["updated_at"] = updated_at or _now()
             state["schema"] = 3
             state["working"] = updated
             store._write_json(path, state)

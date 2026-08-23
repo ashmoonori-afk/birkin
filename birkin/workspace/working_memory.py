@@ -93,13 +93,20 @@ class WorkingMemoryAuthority:
             raise ProtocolError(str(error)) from error
         return WorkingMemoryPreview(requested=mutation.fields, effective=effective)
 
-    def apply(self, mutation: WorkingMemoryMutation) -> WorkingMemoryPreview:
-        preview = self.preview(mutation)
+    def apply(
+        self,
+        mutation: WorkingMemoryMutation,
+        *,
+        preview: WorkingMemoryPreview | None = None,
+    ) -> WorkingMemoryPreview:
+        preview = preview or self.preview(mutation)
+        updated_at = str(preview.effective["updated_at"])
         if mutation.op == "clear":
             try:
                 effective = harness.clear_working_revisioned(
                     self._session_id,
                     expected_revision=mutation.expected_revision,
+                    updated_at=updated_at,
                 )
             except ValueError as error:
                 current = int(
@@ -120,6 +127,7 @@ class WorkingMemoryAuthority:
                 evidence=complete["evidence"],
                 next_actions=complete["next_actions"],
                 expected_revision=mutation.expected_revision,
+                updated_at=updated_at,
             )
         except ValueError as error:
             current = int(harness.working_state(self._session_id).get("revision") or 0)
@@ -149,7 +157,7 @@ def memory_write_handler(
                 "effective": preview.effective,
             },
         )
-        result = authority.apply(mutation)
+        result = authority.apply(mutation, preview=preview)
         _ = emit("working_memory.updated", {"working_memory": result.effective})
         return {"requested": result.requested, "effective": result.effective}
 
