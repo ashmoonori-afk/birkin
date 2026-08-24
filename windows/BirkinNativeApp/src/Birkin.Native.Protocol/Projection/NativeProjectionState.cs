@@ -93,6 +93,25 @@ public sealed class NativeProjectionState
 
     public string ResetReason { get; }
 
+    internal NativeJsonObject ToBody() => new([
+        new("protocol_version", new NativeJsonInteger(ProtocolVersion)),
+        new("session_id", new NativeJsonString(SessionId)),
+        new("cursor", new NativeJsonInteger(Cursor)),
+        new("panels", Panels),
+        new("conversation", Conversation),
+        new("composer", Composer),
+        new("status", Status),
+        new("working_memory", WorkingMemory),
+        new("approval_policy", ApprovalPolicy),
+        new("terminals", Terminals),
+    ]);
+
+    internal NativeProjectionState WithBody(NativeJsonObject body) =>
+        new(new NativeJsonObject(body.Pairs.Concat([
+            new KeyValuePair<string, NativeJsonValue>("instance_id", new NativeJsonString(InstanceId)),
+            new KeyValuePair<string, NativeJsonValue>("reset_reason", new NativeJsonString(ResetReason)),
+        ])), new NativeReadyIdentity(SessionId, InstanceId, string.Empty));
+
     private static NativeJsonArray ObjectArray(NativeJsonObject body, string key)
     {
         if (body[key] is not NativeJsonArray values || values.Values.Any(value => value is not NativeJsonObject))
