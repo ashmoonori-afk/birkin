@@ -755,8 +755,10 @@ Birkin's macOS client is a **thin SwiftUI shell over the existing Python
 runtime**, not a second agent implementation. Python remains authoritative for
 memory, tool execution, policy, approvals, audit records, and recovery. The two
 processes communicate only over the versioned local `birkin-local-1` protocol:
-a same-user private Unix domain socket is preferred, with authenticated
-`127.0.0.1` loopback available when explicitly selected.
+a same-user private Unix domain socket is the POSIX default, and authenticated
+`127.0.0.1` loopback is the Windows default because Unix domain sockets and
+peer-UID checks are unavailable there. Either transport can be selected
+explicitly with `--transport`.
 
 The shipped boundary is deliberate:
 

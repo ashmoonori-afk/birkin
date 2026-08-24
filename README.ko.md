@@ -756,9 +756,10 @@ scripts/native/verify_packaged_journey.py \
 Birkin macOS client는 별도의 agent 구현이 아니라 **기존 Python runtime
 위에 얹는 얇은 SwiftUI shell**입니다. Memory, tool 실행, policy, approval,
 audit record, recovery의 권한은 Python에 남습니다. 두 process는 version이
-명시된 local `birkin-local-1` protocol로만 통신합니다. 같은 user의 private
-Unix domain socket을 우선 사용하고, 명시적으로 선택할 때 인증된
-`127.0.0.1` loopback을 사용할 수 있습니다.
+명시된 local `birkin-local-1` protocol로만 통신합니다. POSIX에서는 같은
+user의 private Unix domain socket이 기본값이고, Windows에서는 Unix domain
+socket과 peer-UID 검사를 쓸 수 없으므로 인증된 `127.0.0.1` loopback이
+기본값입니다. 두 transport 모두 `--transport`로 명시 선택할 수 있습니다.
 
 구현된 경계는 의도적으로 다음 원칙을 지킵니다.
 
