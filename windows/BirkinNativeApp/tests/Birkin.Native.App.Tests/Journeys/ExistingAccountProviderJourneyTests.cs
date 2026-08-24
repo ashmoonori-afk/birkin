@@ -1,6 +1,5 @@
 using System.ComponentModel;
 using System.IO;
-using System.Reflection;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Media;
@@ -72,16 +71,13 @@ public sealed class ExistingAccountProviderJourneyTests
             });
             Assert.AreEqual(ConnectionState.Ready, composition.PresentationModel.Connection.State);
 
-            var connectionField = typeof(ShellCoordinator).GetField("_connection", BindingFlags.Instance | BindingFlags.NonPublic)
-                ?? throw new InvalidOperationException("coordinator connection field was not found");
-            var connection = connectionField.GetValue(composition.Coordinator) as NativeClientConnection
-                ?? throw new InvalidOperationException("composition did not build the shipped native client connection");
+            Assert.IsTrue(composition.Session.OwnsReceiveLoop, "production session must own the sole receive loop");
             evidence.Record("advertised-command", new Dictionary<string, object?>
             {
-                ["chat.send"] = connection.AdvertisedCommands.Contains("chat.send"),
-                ["command_count"] = connection.AdvertisedCommands.Count,
+                ["chat.send"] = composition.Session.AdvertisedCommands.Contains("chat.send"),
+                ["command_count"] = composition.Session.AdvertisedCommands.Count,
             });
-            Assert.IsTrue(connection.AdvertisedCommands.Contains("chat.send"), "ready did not advertise chat.send");
+            Assert.IsTrue(composition.Session.AdvertisedCommands.Contains("chat.send"), "ready did not advertise chat.send");
 
             var window = new MainWindow(composition.PresentationModel, composition.Coordinator)
             {
@@ -180,10 +176,6 @@ public sealed class ExistingAccountProviderJourneyTests
                         WorkflowCommandState.AcceptedPendingProjection,
                         receiptState.CommandState,
                         $"chat receipt was refused: {receiptState.RefusalCode}");
-                    for (var frame = 0; frame < 128 && !completed.Task.IsCompleted; frame++)
-                    {
-                        await composition.Coordinator.ReceiveCanonicalAsync(deadline.Token);
-                    }
                     var final = await completed.Task.WaitAsync(deadline.Token);
 
                     // Then
@@ -193,7 +185,7 @@ public sealed class ExistingAccountProviderJourneyTests
                     Assert.IsNotNull(commandId);
                     Assert.IsNotNull(acceptedCursor);
                     Assert.IsTrue(final.Cursor >= assistant.Cursor);
-                    Assert.IsTrue(projectedFrames < 128, "provider response exceeded the coordinator frame bound");
+                    Assert.AreEqual(1, composition.Session.MaximumConcurrentReceives, "provider journey used more than the production session pump");
 
                     window.UpdateLayout();
                     var renderedWindow = (FrameworkElement)window.Content;

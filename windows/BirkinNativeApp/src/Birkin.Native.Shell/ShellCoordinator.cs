@@ -22,8 +22,17 @@ public sealed partial class ShellCoordinator : IAsyncDisposable
         _connection = connection;
         _projectionStore = projectionStore;
         _presentationModel = presentationModel;
+        if (_connection.OwnsReceiveLoop
+            && !ReferenceEquals(_connection.ProjectionStore, _projectionStore))
+        {
+            throw new ArgumentException("session and coordinator must share one projection store", nameof(projectionStore));
+        }
         _projectionStore.SnapshotApplied += OnProjectionSnapshotApplied;
+        _projectionStore.CanonicalApplied += OnCanonicalApplied;
+        _projectionStore.MutationAuthorityChanged += OnMutationAuthorityChanged;
     }
+
+    public NativeProjectionStore ProjectionStore => _projectionStore;
 
     public Func<string> CommandIdFactory { get; init; } =
         () => $"windows-{Guid.NewGuid():N}";
@@ -42,14 +51,17 @@ public sealed partial class ShellCoordinator : IAsyncDisposable
             TransitionTo(ConnectionState.Connecting);
             var announcement = BridgeAnnouncement.Parse(announcementJson);
             TransitionTo(ConnectionState.Handshaking);
-            await _connection.ConnectAsync(announcement, expectedProductVersion, cancellationToken).ConfigureAwait(false);
             TransitionTo(ConnectionState.Subscribing);
-            var snapshot = await _connection.ReceiveAsync(cancellationToken).ConfigureAwait(false);
-            var readyIdentity = new NativeReadyIdentity(
-                announcement.SessionId,
-                announcement.InstanceId,
-                announcement.ServerVersion);
-            _projectionStore.ApplySnapshot(snapshot, readyIdentity);
+            await _connection.ConnectAsync(announcement, expectedProductVersion, cancellationToken).ConfigureAwait(false);
+            if (!_connection.OwnsReceiveLoop)
+            {
+                var snapshot = await _connection.ReceiveAsync(cancellationToken).ConfigureAwait(false);
+                var readyIdentity = new NativeReadyIdentity(
+                    announcement.SessionId,
+                    announcement.InstanceId,
+                    announcement.ServerVersion);
+                _projectionStore.ApplySnapshot(snapshot, readyIdentity);
+            }
         }
         catch (OperationCanceledException)
         {
@@ -68,6 +80,8 @@ public sealed partial class ShellCoordinator : IAsyncDisposable
     public async ValueTask DisposeAsync()
     {
         _projectionStore.SnapshotApplied -= OnProjectionSnapshotApplied;
+        _projectionStore.CanonicalApplied -= OnCanonicalApplied;
+        _projectionStore.MutationAuthorityChanged -= OnMutationAuthorityChanged;
         ClearWorkflowAuthority();
         await _connection.DisposeAsync().ConfigureAwait(false);
     }
@@ -79,6 +93,27 @@ public sealed partial class ShellCoordinator : IAsyncDisposable
         RefreshMutationAvailability();
         ConnectionStateChanged?.Invoke(ConnectionState.Ready);
         _presentationModel.PresentReadySnapshot(snapshot, () => SnapshotApplied?.Invoke(snapshot));
+    }
+
+    private void OnCanonicalApplied(NativeEnvelope envelope)
+    {
+        if (envelope.Kind == NativeMessageKind.Event)
+        {
+            ResolveFromCanonicalEvent(envelope);
+        }
+        PresentProjection();
+    }
+
+    private void OnMutationAuthorityChanged(bool available)
+    {
+        if (available)
+        {
+            RefreshMutationAvailability();
+        }
+        else
+        {
+            ClearWorkflowAuthority();
+        }
     }
 
     private void TransitionTo(ConnectionState state)

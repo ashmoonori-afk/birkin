@@ -39,7 +39,11 @@ public sealed class BridgeSupervisor
 
     public BridgeAttachment? Attachment { get; private set; }
 
+    public IBridgeProcess? OwnedProcess => _ownedProcess;
+
     public int? OwnedProcessId => _ownedProcess?.ProcessId;
+
+    public event Action<IBridgeProcess>? OwnedProcessStarted;
 
     public void AttachExisting(BridgeAnnouncement announcement)
     {
@@ -54,9 +58,9 @@ public sealed class BridgeSupervisor
 
     public bool StartOwnedIfNeeded() => State == BridgeSupervisorState.Idle && LaunchOwned();
 
-    public void ObserveExit(int processId)
+    public void ObserveExit(IBridgeProcess process)
     {
-        if (_ownedProcess is null || _ownedProcess.ProcessId != processId)
+        if (!ReferenceEquals(_ownedProcess, process))
         {
             return;
         }
@@ -124,6 +128,7 @@ public sealed class BridgeSupervisor
             Attachment = new BridgeAttachment.RunningOwned(process.ProcessId);
             State = BridgeSupervisorState.RunningOwned;
             StopReason = null;
+            OwnedProcessStarted?.Invoke(process);
             return true;
         }
         catch (Exception)

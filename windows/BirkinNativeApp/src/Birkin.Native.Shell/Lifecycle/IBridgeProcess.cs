@@ -6,3 +6,8 @@ public interface IBridgeProcess
 
     void Stop();
 }
+
+public interface IBridgeAnnouncementSource
+{
+    ValueTask<string> ReadAnnouncementAsync(CancellationToken cancellationToken);
+}

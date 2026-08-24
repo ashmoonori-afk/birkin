@@ -15,7 +15,9 @@ public static class NativeReconnect
             store.DiscardForInstanceChange();
             return Canonical(store.SurfaceRevisions);
         }
-        if (state is null || store.Status == NativeProjectionStoreStatus.RepairRequired)
+        if (state is null
+            || store.Status == NativeProjectionStoreStatus.RepairRequired
+            || store.RecoveryState != NativeProjectionRecoveryState.Live)
         {
             return Canonical(store.SurfaceRevisions);
         }

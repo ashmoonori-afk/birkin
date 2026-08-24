@@ -57,6 +57,10 @@ internal sealed class BridgeProcessHarness : IAsyncDisposable
 
     public string LauncherDiagnostics => _standardError.LauncherDiagnostics;
 
+    public bool OwnedProcessExited { get; private set; }
+
+    public bool TemporaryRootDeleted { get; private set; }
+
     public static Task<BridgeProcessHarness> StartAsync(CancellationToken cancellationToken)
     {
         var temporaryRoot = Path.Combine(Path.GetTempPath(), $"birkin-live-bridge-{Guid.NewGuid():N}");
@@ -130,8 +134,10 @@ internal sealed class BridgeProcessHarness : IAsyncDisposable
     public async ValueTask DisposeAsync()
     {
         await StopOwnedProcessAsync(_process);
+        OwnedProcessExited = _process.HasExited;
         _process.Dispose();
         Directory.Delete(TemporaryRoot, recursive: true);
+        TemporaryRootDeleted = !Directory.Exists(TemporaryRoot);
     }
 
     internal static async Task StopOwnedProcessAsync(IOwnedBridgeProcess process)

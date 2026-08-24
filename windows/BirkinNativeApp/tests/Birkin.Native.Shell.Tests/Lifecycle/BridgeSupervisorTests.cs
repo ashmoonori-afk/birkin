@@ -65,14 +65,14 @@ public sealed class BridgeSupervisorTests
         foreach (var exitTime in new[] { TimeSpan.Zero, TimeSpan.FromSeconds(15), TimeSpan.FromSeconds(30), TimeSpan.FromSeconds(45) })
         {
             clock.Set(exitTime);
-            Assert.IsNotNull(supervisor.OwnedProcessId);
-            supervisor.ObserveExit(supervisor.OwnedProcessId.Value);
+            Assert.IsNotNull(supervisor.OwnedProcess);
+            supervisor.ObserveExit(supervisor.OwnedProcess);
         }
 
         // When
         clock.Set(TimeSpan.FromSeconds(60));
-        Assert.IsNotNull(supervisor.OwnedProcessId);
-        supervisor.ObserveExit(supervisor.OwnedProcessId.Value);
+        Assert.IsNotNull(supervisor.OwnedProcess);
+        supervisor.ObserveExit(supervisor.OwnedProcess);
 
         // Then
         Assert.AreEqual(BridgeSupervisorState.RunningOwned, supervisor.State);
@@ -91,14 +91,14 @@ public sealed class BridgeSupervisorTests
         foreach (var exitTime in new[] { 0, 15, 30, 45 })
         {
             clock.Set(TimeSpan.FromSeconds(exitTime));
-            Assert.IsNotNull(supervisor.OwnedProcessId);
-            supervisor.ObserveExit(supervisor.OwnedProcessId.Value);
+            Assert.IsNotNull(supervisor.OwnedProcess);
+            supervisor.ObserveExit(supervisor.OwnedProcess);
         }
 
         // When
         clock.Set(TimeSpan.FromTicks(TimeSpan.FromSeconds(60).Ticks - 1));
-        Assert.IsNotNull(supervisor.OwnedProcessId);
-        supervisor.ObserveExit(supervisor.OwnedProcessId.Value);
+        Assert.IsNotNull(supervisor.OwnedProcess);
+        supervisor.ObserveExit(supervisor.OwnedProcess);
 
         // Then
         Assert.AreEqual(BridgeSupervisorState.Stopped, supervisor.State);
@@ -108,6 +108,28 @@ public sealed class BridgeSupervisorTests
         Assert.IsTrue(supervisor.Retry());
         Assert.AreEqual(BridgeSupervisorState.RunningOwned, supervisor.State);
         Assert.AreEqual(6, supervisor.OwnedProcessId);
+    }
+
+    [TestMethod]
+    public void ObserveExit_WhenDifferentObjectReusesOwnedPid_DoesNotRestartOrLoseOwnedProcess()
+    {
+        var owned = new FakeBridgeProcess(27192, []);
+        var samePidExternal = new FakeBridgeProcess(27192, []);
+        var spawnCalls = 0;
+        var supervisor = new BridgeSupervisor(
+            () => TimeSpan.Zero,
+            () =>
+            {
+                spawnCalls++;
+                return owned;
+            });
+        Assert.IsTrue(supervisor.StartOwnedIfNeeded());
+
+        supervisor.ObserveExit(samePidExternal);
+
+        Assert.AreSame(owned, supervisor.OwnedProcess);
+        Assert.AreEqual(1, spawnCalls);
+        Assert.AreEqual(BridgeSupervisorState.RunningOwned, supervisor.State);
     }
 
     private static BridgeAnnouncement Announcement(int processId) => BridgeAnnouncement.Parse(

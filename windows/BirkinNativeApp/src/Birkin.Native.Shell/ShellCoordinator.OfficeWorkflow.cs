@@ -74,6 +74,12 @@ public sealed partial class ShellCoordinator
 
     public async Task ReceiveCanonicalAsync(CancellationToken cancellationToken)
     {
+        if (_connection.OwnsReceiveLoop)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            return;
+        }
+
         var envelope = await _connection.ReceiveAsync(cancellationToken).ConfigureAwait(false);
         ApplyCanonicalFrame(envelope);
     }
@@ -101,6 +107,13 @@ public sealed partial class ShellCoordinator
         RefreshMutationAvailability();
         try
         {
+            if (_connection.OwnsReceiveLoop)
+            {
+                var receipt = await _connection.SendCommandForResultAsync(request, cancellationToken).ConfigureAwait(false);
+                AcceptReceipt(receipt, request.CommandId);
+                return true;
+            }
+
             await _connection.SendCommandAsync(request, cancellationToken).ConfigureAwait(false);
             return await ReceiveCommandResultAsync(request.CommandId, cancellationToken).ConfigureAwait(false);
         }
@@ -229,6 +242,7 @@ public sealed partial class ShellCoordinator
                 _connection.AdvertisedCommands,
                 projectionPermits
                     && !_workflow.HasPendingCommand
+                    && _projectionStore.IsMutationAuthorityAvailable
                     && _projectionStore.Status == Protocol.Projection.NativeProjectionStoreStatus.Current));
 
     private bool ProjectionPermitsConversation() =>
