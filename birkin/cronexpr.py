@@ -19,7 +19,7 @@ becoming a job that silently does nothing.
 from __future__ import annotations
 
 import re
-from typing import Optional
+
 
 FIELD_RE = re.compile(r"^[\d*,/-]+$")
 
@@ -39,11 +39,11 @@ _MONTH_NAMES = {"JAN": 1, "FEB": 2, "MAR": 3, "APR": 4, "MAY": 5, "JUN": 6,
 _NAME_RE = re.compile(r"[A-Za-z]+")
 
 
-def _substitute_names(field: str, names: dict[str, int]) -> Optional[str]:
+def _substitute_names(field: str, names: dict[str, int]) -> str | None:
     """``MON-FRI`` -> ``1-5``. None when the field names a day/month nothing has."""
     unknown: list[str] = []
 
-    def one(match: re.Match) -> str:
+    def one(match: re.Match[str]) -> str:
         value = names.get(match.group(0).upper())
         if value is None:
             unknown.append(match.group(0))
@@ -79,7 +79,7 @@ def sunday_as_zero(field: str) -> str:
     return ",".join(parts)
 
 
-def normalize(text: str) -> Optional[str]:
+def normalize(text: str) -> str | None:
     """Five cron fields the matcher can evaluate, or None when ``text`` is not one.
 
     Callers use the None to fall through to another schedule shape, so this must

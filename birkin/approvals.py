@@ -16,14 +16,54 @@ consequential actions directly.
 
 from __future__ import annotations
 
+import importlib
 import subprocess
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
-from typing import Any
+from typing import Any, Protocol, runtime_checkable
 
 from . import actions, config, cron, risk, store, worker_hooks
 from .operation_policy import retry_environment
 from .proc import ShellCommand, run_shell_command, shell_env
+
+
+@runtime_checkable
+class _OperationExecutor(Protocol):
+    def execute_approved(
+        self, payload: dict[str, Any], cfg: dict[str, Any] | None
+    ) -> str: ...
+
+
+@runtime_checkable
+class _ComputerUseExecutor(Protocol):
+    def approve_payload(self, payload: dict[str, Any]) -> str: ...
+
+
+@runtime_checkable
+class _CheckpointExecutor(Protocol):
+    def execute_approved_restore(self, payload: dict[str, Any]) -> str: ...
+
+
+@runtime_checkable
+class _MoiraiExecutor(Protocol):
+    def run_approved(
+        self, payload: dict[str, Any], on_event: Any = None
+    ) -> str: ...
+
+
+@runtime_checkable
+class _SkillExecutor(Protocol):
+    def apply_skill_proposal(self, payload: dict[str, Any]) -> str: ...
+
+
+@runtime_checkable
+class _CompanionExecutor(Protocol):
+    def apply_proposal(self, payload: dict[str, Any]) -> str: ...
+
+
+@runtime_checkable
+class _HarnessExecutor(Protocol):
+    def apply_approved_edit(self, payload: dict[str, Any]) -> str: ...
 
 
 def is_auto(category: str, cfg: dict[str, Any]) -> bool:
@@ -305,51 +345,42 @@ def execute_action(category: str, payload: dict[str, Any],
                 approval_id = value
         return execute_approved_office_job(payload, approval_id=approval_id)
     if category == "operation":
-        from .operation_approval import execute_approved
-        return execute_approved(payload, cfg)
+        operation = importlib.import_module("birkin.operation_approval")
+        if not isinstance(operation, _OperationExecutor):
+            raise RuntimeError("operation approval executor is unavailable")
+        return operation.execute_approved(payload, cfg)
     if category == "computer_use":
-        from .computer_use.approval_bridge import approve_payload
-        return approve_payload(payload)
-    if category == "checkpoint_restore":
-        from . import checkpoint_state
-        from .checkpoints import CheckpointManager, RestoreMode
-        workspace = Path(str(payload.get("workspace") or "")).expanduser().resolve()
-        checkpoint = str(payload.get("checkpoint") or "")
-        try:
-            mode = RestoreMode(str(payload.get("mode") or ""))
-        except ValueError as exc:
-            raise ValueError("invalid checkpoint restore mode") from exc
-        session_id = str(payload.get("session_id") or "")
-        if mode is not RestoreMode.FILES and not session_id:
-            raise ValueError("checkpoint restore requires a session id")
-        manager = (
-            CheckpointManager(enabled=True)
-            if mode is RestoreMode.FILES
-            else CheckpointManager(
-                enabled=True,
-                state_snapshot=lambda: checkpoint_state.snapshot(session_id),
-                state_restore=lambda state: checkpoint_state.restore(
-                    session_id,
-                    state,
-                ),
-            )
+        computer_use = importlib.import_module(
+            "birkin.computer_use.approval_bridge"
         )
-        outcome = manager.restore(workspace, checkpoint, mode=mode)
-        if not outcome.ok:
-            raise ValueError(outcome.message)
-        return outcome.message
+        if not isinstance(computer_use, _ComputerUseExecutor):
+            raise RuntimeError("Computer Use approval executor is unavailable")
+        return computer_use.approve_payload(payload)
+    if category == "checkpoint_restore":
+        checkpoint_executor = importlib.import_module("birkin.checkpoints")
+        if not isinstance(checkpoint_executor, _CheckpointExecutor):
+            raise RuntimeError("checkpoint approval executor is unavailable")
+        return checkpoint_executor.execute_approved_restore(payload)
     if category == "moirai":
-        from .moirai.trigger import run_approved
-        return run_approved(payload, on_event=on_event)
+        moirai = importlib.import_module("birkin.moirai.trigger")
+        if not isinstance(moirai, _MoiraiExecutor):
+            raise RuntimeError("Moirai approval executor is unavailable")
+        return moirai.run_approved(payload, on_event=on_event)
     if category == "skill":
-        from .skills.manager import apply_skill_proposal
-        return apply_skill_proposal(payload)
+        skill = importlib.import_module("birkin.skills.manager")
+        if not isinstance(skill, _SkillExecutor):
+            raise RuntimeError("skill approval executor is unavailable")
+        return skill.apply_skill_proposal(payload)
     if category == "companion":
-        from .companion import apply_proposal
-        return apply_proposal(payload)
+        companion = importlib.import_module("birkin.companion")
+        if not isinstance(companion, _CompanionExecutor):
+            raise RuntimeError("companion approval executor is unavailable")
+        return companion.apply_proposal(payload)
     if category == "harness":
-        from .harness import apply_approved_edit
-        return apply_approved_edit(payload)
+        harness = importlib.import_module("birkin.harness")
+        if not isinstance(harness, _HarnessExecutor):
+            raise RuntimeError("harness approval executor is unavailable")
+        return harness.apply_approved_edit(payload)
     if category == "memory":
         return "(memory is applied directly by the agent)"
     raise ValueError(f"unknown approval category {category!r}")

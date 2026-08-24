@@ -2,11 +2,11 @@
 
 from __future__ import annotations
 
+import argparse
 import errno
 import json
 import os
 import signal
-import sys
 import threading
 import uuid
 from collections.abc import Callable, Mapping
@@ -297,9 +297,18 @@ def serve_bridge(
 
 def main(argv: list[str] | None = None) -> int:
     """Serve the bridge directly, for use as ``python -m birkin.native.serve``."""
-    from birkin.cli import main as cli_main
-
-    return cli_main(["native-bridge", "serve", *(argv or sys.argv[1:])])
+    parser = argparse.ArgumentParser(prog="python -m birkin.native.serve")
+    parser.add_argument("--transport", choices=("uds", "loopback"))
+    parser.add_argument("--session-id")
+    parser.add_argument("--root", type=Path)
+    options = parser.parse_args(argv)
+    return serve_bridge(
+        NativeServeOptions.resolve(
+            transport=options.transport,
+            session_id=options.session_id,
+            root=options.root,
+        )
+    )
 
 
 if __name__ == "__main__":

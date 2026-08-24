@@ -93,6 +93,37 @@ class RestoreOutcome:
         return (self.ok, self.message)[index]
 
 
+def execute_approved_restore(payload: dict[str, Any]) -> str:
+    """Execute one approval-bound checkpoint restore."""
+    from . import checkpoint_state
+
+    workspace = Path(str(payload.get("workspace") or "")).expanduser().resolve()
+    checkpoint = str(payload.get("checkpoint") or "")
+    try:
+        mode = RestoreMode(str(payload.get("mode") or ""))
+    except ValueError as exc:
+        raise ValueError("invalid checkpoint restore mode") from exc
+    session_id = str(payload.get("session_id") or "")
+    if mode is not RestoreMode.FILES and not session_id:
+        raise ValueError("checkpoint restore requires a session id")
+    manager = (
+        CheckpointManager(enabled=True)
+        if mode is RestoreMode.FILES
+        else CheckpointManager(
+            enabled=True,
+            state_snapshot=lambda: checkpoint_state.snapshot(session_id),
+            state_restore=lambda state: checkpoint_state.restore(
+                session_id,
+                state,
+            ),
+        )
+    )
+    outcome = manager.restore(workspace, checkpoint, mode=mode)
+    if not outcome.ok:
+        raise ValueError(outcome.message)
+    return outcome.message
+
+
 def _git_timeout() -> float:
     """Seconds one git call may take, read fresh so the env stays live."""
     raw = os.environ.get("BIRKIN_GIT_TIMEOUT")

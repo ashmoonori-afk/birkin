@@ -20,7 +20,7 @@ added to the system prompt for a turn only and never stored in history.
 from __future__ import annotations
 
 import threading
-from typing import Any, Callable, Optional, Protocol
+from typing import Any, Callable, Optional, Protocol, runtime_checkable
 
 from . import compaction, ooda, parallel
 from .config import CLI_PROVIDERS
@@ -69,6 +69,21 @@ def _append_user_text(messages: list[dict[str, Any]], text: str) -> None:
 class Registry(Protocol):
     def specs(self) -> list[dict[str, Any]]: ...
     def execute(self, name: str, tool_input: dict[str, Any]) -> "ToolResultLike": ...
+
+
+@runtime_checkable
+class EffectRefreshingRegistry(Protocol):
+    def refresh_effects(self) -> "EffectSnapshotLike": ...
+
+
+@runtime_checkable
+class ParallelRegistry(Protocol):
+    def can_parallelize(self, name: str) -> bool: ...
+
+
+class EffectSnapshotLike(Protocol):
+    state: str
+    diagnostic: str
 
 
 class ToolResultLike(Protocol):
@@ -466,17 +481,20 @@ class Agent:
         Exactly one tool_result per tool_use, always: a missing or duplicated
         one makes the next API call fail outright.
         """
-        refresh = getattr(self.registry, "refresh_effects", None)
-        snapshot = refresh() if callable(refresh) else None
-        if getattr(snapshot, "state", None) == "invalid":
-            diagnostic = str(getattr(snapshot, "diagnostic", "")).strip().rstrip(".")
-            message = "Tool effect file error"
-            if diagnostic:
-                message += f": {diagnostic}"
-            self._emit("warning", {"message": message + "."})
+        if isinstance(self.registry, EffectRefreshingRegistry):
+            snapshot = self.registry.refresh_effects()
+            if snapshot.state == "invalid":
+                diagnostic = snapshot.diagnostic.strip().rstrip(".")
+                message = "Tool effect file error"
+                if diagnostic:
+                    message += f": {diagnostic}"
+                self._emit("warning", {"message": message + "."})
 
-        classify = getattr(self.registry, "can_parallelize", None)
-        can_parallelize = classify if callable(classify) else None
+        can_parallelize = (
+            self.registry.can_parallelize
+            if isinstance(self.registry, ParallelRegistry)
+            else None
+        )
         if not self.parallel_tools or len(tool_uses) < 2:
             return [self._execute_with_events(tu) for tu in tool_uses]
 
