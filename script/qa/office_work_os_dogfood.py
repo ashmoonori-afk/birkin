@@ -13,35 +13,37 @@ ROOT = Path(__file__).resolve().parents[2]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-_conversion_audit = importlib.import_module("birkin.office.conversion_audit")
+_approvals = importlib.import_module("birkin.approvals")
+_errors = importlib.import_module("birkin.office.errors")
+_service = importlib.import_module("birkin.office.service")
 _tools = importlib.import_module("birkin.tools")
 _tool_types = importlib.import_module("birkin.tools._types")
 _dogfood_fixtures = importlib.import_module("script.qa.office_dogfood_fixtures")
 
-LOSS_CATEGORIES = _conversion_audit.LOSS_CATEGORIES
+approve = _approvals.approve
+DocumentError = _errors.DocumentError
+DocumentService = _service.DocumentService
 build_registry = _tools.build_registry
 ToolContext = _tool_types.ToolContext
 artifact = _dogfood_fixtures.artifact
-docx_fixture = _dogfood_fixtures.docx_fixture
 extracted_text = _dogfood_fixtures.extracted_text
 hwpx_fixture = _dogfood_fixtures.hwpx_fixture
 receipt = _dogfood_fixtures.receipt
 reopen = _dogfood_fixtures.reopen
 sha256 = _dogfood_fixtures.sha256
-zip_fixture = _dogfood_fixtures.zip_fixture
 
 FORMATS = ("docx", "xlsx", "pptx", "pdf", "hwpx")
-LOSS_BUDGET = {category: 100 for category in LOSS_CATEGORIES}
 CONTENT: dict[str, dict[str, object]] = {
     "docx": {"paragraphs": ["Dogfood DOCX evidence", "PLACEHOLDER"]},
-    "xlsx": {"sheets": [{"name": "Evidence", "rows": [["Dogfood XLSX evidence"], [1]]}]},
+    "xlsx": {"sheets": [{"name": "Evidence", "rows": [["Dogfood XLSX evidence"], [42]]}]},
     "pptx": {"slides": [{"title": "Dogfood PPTX evidence", "body": "PLACEHOLDER"}]},
     "pdf": {"paragraphs": ["Dogfood PDF evidence"]},
 }
 PATCHES: dict[str, dict[str, object]] = {
-    "docx": {"field": "customer", "value": "Dogfood DOCX modified"},
-    "xlsx": {"cell": "A2", "value": 42},
-    "pptx": {"placeholder_idx": 1, "value": "Dogfood PPTX modified"},
+    "docx": {
+        "locator": {"format": "docx", "index": 2},
+        "value": "Dogfood DOCX modified",
+    },
     "hwpx": {"field": "customer", "value": "Dogfood HWPX modified"},
 }
 
@@ -56,6 +58,9 @@ def run(output_dir: Path) -> dict[str, object]:
         ToolContext(cfg={"spill_threshold": 1_000_000}, client=None, cwd=jail),
         include={"documents"},
     )
+    service = DocumentService(jail)
+    coordinated = jail / "coordinated"
+    coordinated.mkdir(exist_ok=True)
 
     def call(
         name: str, data: dict[str, object], *, refusal: bool = False
@@ -68,6 +73,27 @@ def run(output_dir: Path) -> dict[str, object]:
             state = "refusal" if result.is_error else "success"
             raise AssertionError(f"{name}: unexpected {state}: {body}")
         return body
+
+    def coordinate(
+        format_name: str,
+        source: dict[str, str],
+        operation: dict[str, object],
+    ) -> dict[str, str]:
+        destination = coordinated / f"modified-{format_name}.{format_name}"
+        proposed = call(
+            "office_job_request",
+            {
+                "request": f"Update this {format_name} Office document",
+                "source": source,
+                "outcome": f"Apply the approved {format_name} dogfood edit",
+                "operations": [operation],
+                "destination": str(destination),
+            },
+        )
+        approved = approve(cast(str, proposed["id"]))
+        if approved["ok"] is not True:
+            raise AssertionError(f"office_job_request approval failed: {approved}")
+        return artifact(destination)
 
     inventory = cast(
         list[dict[str, object]], call("list_document_adapters", {})["adapters"]
@@ -84,32 +110,20 @@ def run(output_dir: Path) -> dict[str, object]:
             hwpx_fixture(source_path)
             source = artifact(source_path)
             fixture_kind = "standards_fixture_not_birkin_create"
-            created = cast(dict[str, str], call("create_document", {
-                "format": "hwpx", "content": {"bindings": {"customer": "Dogfood HWPX created"}},
-                "output_name": "created-hwpx.hwpx", "template": source,
-            })["draft_artifact"])
+            created = cast(dict[str, str], service.create_document(
+                format="hwpx",
+                content={"bindings": {"customer": "Dogfood HWPX created"}},
+                output_name="created-hwpx.hwpx",
+                template=source,
+            )["draft_artifact"])
         else:
-            created = cast(dict[str, str], call("create_document", {
-                "format": fmt, "content": CONTENT[fmt], "output_name": f"created-{fmt}.{fmt}",
-            })["draft_artifact"])
-            created_path = Path(created["uri"])
-            if fmt == "docx":
-                source_path = sources / "source.docx"
-                docx_fixture(created_path, source_path)
-                source = artifact(source_path)
-                fixture_kind = "deterministic_derived_fixture"
-            elif fmt in {"xlsx", "pptx"}:
-                source_path = sources / f"source.{fmt}"
-                replacement = None
-                if fmt == "xlsx":
-                    replacement = (
-                        "xl/worksheets/sheet1.xml", b'<c r="A2" t="n">', b'<c r="A2">'
-                    )
-                zip_fixture(created_path, source_path, replacement)
-                source = artifact(source_path)
-                fixture_kind = "deterministic_normalized_fixture"
-            else:
-                source = created
+            created = cast(dict[str, str], service.create_document(
+                format=fmt,
+                content=CONTENT[fmt],
+                output_name=f"created-{fmt}.{fmt}",
+            )["draft_artifact"])
+            source = created
+            fixture_kind = "deterministic_birkin_fixture"
         source_path = Path(source["uri"])
         before = sha256(source_path)
         operations: dict[str, object] = {"create": {"status": "ok", "artifact": created["content_hash"]}}
@@ -122,27 +136,19 @@ def run(output_dir: Path) -> dict[str, object]:
         operations["validate"] = {"status": "ok", "checks": validation["checks"]}
         same = call("compare_documents", {"left": source, "right": source})
         operations["compare"] = {"status": "ok", "equal": same["equal"]}
-        converted = cast(dict[str, str], call("convert_document", {
-            "source": source, "target_format": "txt",
-            "output_name": f"converted-{fmt}.txt", "loss_budget": LOSS_BUDGET,
-        })["draft_artifact"])
-        operations["convert"] = {"status": "ok", "artifact": converted["content_hash"]}
         primary = source
-        if fmt == "pdf":
-            refused = call("apply_document_patch", {
-                "base": source, "patch": {"operations": [{"value": "blocked"}]},
-                "expected_source_sha256": before, "output_name": "modified-pdf.pdf", "dry_run": False,
-            }, refusal=True)
-            error = cast(dict[str, object], refused["error"])
-            refusals.append({"format": fmt, "operation": "modify", **error})
-            operations["modify"] = {"status": "expected_refusal", "error": error}
+        if fmt in {"xlsx", "pptx", "pdf"}:
+            operations["modify"] = {
+                "status": "not_run",
+                "reason": f"{fmt} mutation has no preview-proven approved route",
+            }
         else:
-            modified = cast(dict[str, str], call("apply_document_patch", {
-                "base": source, "patch": {"operations": [PATCHES[fmt]]},
-                "expected_source_sha256": before, "output_name": f"modified-{fmt}.{fmt}", "dry_run": False,
-            })["draft_artifact"])
+            modified = coordinate(fmt, source, PATCHES[fmt])
             primary = modified
-            operations["modify"] = {"status": "ok", "artifact": modified["content_hash"]}
+            operations["modify"] = {
+                "status": "approved",
+                "artifact": modified["content_hash"],
+            }
             changed = call("compare_documents", {"left": source, "right": modified})
             if changed["equal"]:
                 raise AssertionError(f"{fmt} modification made no change")
@@ -154,7 +160,7 @@ def run(output_dir: Path) -> dict[str, object]:
         _ = call("validate_artifact", {"artifact": primary})
         receipts = {
             receipt(Path(item["uri"]))["path"]: receipt(Path(item["uri"]))
-            for item in (created, source, primary, converted)
+            for item in (created, source, primary)
         }
         evidence[fmt] = {
             "capabilities": by_format[fmt]["capabilities"], "fixture_creation": fixture_kind,
@@ -186,6 +192,7 @@ def main() -> int:
         report: dict[str, object] = run(cast(Path, args.output_dir))
     except (
         AssertionError,
+        DocumentError,
         ImportError,
         LookupError,
         OSError,

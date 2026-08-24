@@ -6,6 +6,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import cast, final
 
+import pytest
+
 from birkin.browser_aside_control import BrowserControlAuthority
 from birkin.computer_use.capability_types import (
     DisplayServer,
@@ -27,6 +29,7 @@ from birkin.office.service import DocumentService
 from birkin.workspace import WorkspaceService
 from birkin.workspace.contracts import ClientContext, PROTOCOL_VERSION, WorkspaceCommand
 from tests.native_bridge_support import envelope, hello, local_peer_uid, serve
+from tests.native_office_support import approved_docx
 
 
 def _object(value: object) -> dict[str, object]:
@@ -94,10 +97,13 @@ class _FailingSurfaceProjection:
 
 def test_surface_projection_failure_keeps_the_canonical_command_accepted(
     tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """Given a surface projection that raises, When a canonical command
     commits, Then the shell still receives an accepted receipt for it."""
     product = _product(tmp_path)
+    monkeypatch.setenv("BIRKIN_HOME", str(product.office.service.home))
+    artifact = approved_docx(product.office.service.home)
     source = WorkspaceService(
         root=tmp_path / "workspace", session_id="session-1", handlers={}
     )
@@ -134,14 +140,10 @@ def test_surface_projection_failure_keeps_the_canonical_command_accepted(
 
         _send_product_command(client, token, WorkspaceCommand(
             protocol_version=PROTOCOL_VERSION,
-            command_id="office-create-isolated",
+            command_id="office-open-isolated",
             expected_cursor=0,
-            type="office.create",
-            payload={
-                "format": "docx",
-                "content": {"paragraphs": ["Isolated"]},
-                "output_name": "isolated.docx",
-            },
+            type="office.open",
+            payload={"artifact": artifact},
             client_context=ClientContext(surface="macos", view_id="office"),
         ))
         receipt = _receive_kind(client, "receipt")
@@ -182,8 +184,13 @@ def _send_product_command(
     )))
 
 
-def test_real_socket_subscribe_emits_negotiated_surface_snapshots(tmp_path: Path) -> None:
+def test_real_socket_subscribe_emits_negotiated_surface_snapshots(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     product = _product(tmp_path)
+    monkeypatch.setenv("BIRKIN_HOME", str(product.office.service.home))
+    artifact = approved_docx(product.office.service.home)
     source = WorkspaceService(
         root=tmp_path / "workspace", session_id="session-1", handlers={}
     )
@@ -228,25 +235,8 @@ def test_real_socket_subscribe_emits_negotiated_surface_snapshots(tmp_path: Path
 
         _send_product_command(client, token, WorkspaceCommand(
             protocol_version=PROTOCOL_VERSION,
-            command_id="office-create-1",
-            expected_cursor=0,
-            type="office.create",
-            payload={
-                "format": "docx",
-                "content": {"paragraphs": ["Created through native socket"]},
-                "output_name": "socket-created.docx",
-            },
-            client_context=ClientContext(surface="macos", view_id="office"),
-        ))
-        create_receipt = _receive_kind(client, "receipt")
-        assert create_receipt.body["state"] == "completed"
-        office_projection = product.office.snapshot()
-        artifact = _objects(office_projection["documents"])[0]
-
-        _send_product_command(client, token, WorkspaceCommand(
-            protocol_version=PROTOCOL_VERSION,
             command_id="office-open-1",
-            expected_cursor=4,
+            expected_cursor=0,
             type="office.open",
             payload={"artifact": artifact},
             client_context=ClientContext(surface="macos", view_id="office"),
@@ -255,7 +245,7 @@ def test_real_socket_subscribe_emits_negotiated_surface_snapshots(tmp_path: Path
         assert open_receipt.body["state"] == "completed"
         receipts = _objects(product.office.snapshot()["receipts"])
         assert [receipt["operation"] for receipt in receipts] == [
-            "document_create", "document_open"
+            "document_open"
         ]
     finally:
         client.close()

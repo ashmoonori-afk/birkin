@@ -5,6 +5,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import cast, final
 
+import pytest
+
 from birkin.browser_aside_control import BrowserControlAuthority
 from birkin.computer_use.capability_types import (
     DisplayServer,
@@ -25,6 +27,7 @@ from birkin.office.service import DocumentService
 from birkin.workspace import WorkspaceService
 from birkin.workspace.contracts import ClientContext, PROTOCOL_VERSION, WorkspaceCommand
 from tests.native_bridge_support import envelope, hello, local_peer_uid, serve
+from tests.native_office_support import approved_docx
 
 
 def _object(value: object) -> dict[str, object]:
@@ -160,12 +163,14 @@ def test_unchanged_surface_payload_publishes_no_live_frame(tmp_path: Path) -> No
 
 def test_product_mutations_push_live_surface_events_without_resubscribe(
     tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """Given a subscribed client, When a browser navigation and an Office
-    creation are committed, Then each mutation delivers a revisioned surface
-    frame on the live connection."""
+    """Given a subscribed client, When navigation and an approved Office
+    artifact open commit, Then both deliver revisioned live surface frames."""
     browser = _FakeBrowserRuntime()
     product = _live_product(tmp_path, browser)
+    monkeypatch.setenv("BIRKIN_HOME", str(product.office.service.home))
+    artifact = approved_docx(product.office.service.home)
     source = WorkspaceService(
         root=tmp_path / "workspace", session_id="session-1", handlers={}
     )
@@ -227,14 +232,10 @@ def test_product_mutations_push_live_surface_events_without_resubscribe(
 
         _send_product_command(client, token, WorkspaceCommand(
             protocol_version=PROTOCOL_VERSION,
-            command_id="office-create-live",
+            command_id="office-open-live",
             expected_cursor=4,
-            type="office.create",
-            payload={
-                "format": "docx",
-                "content": {"paragraphs": ["Live surface"]},
-                "output_name": "live-surface.docx",
-            },
+            type="office.open",
+            payload={"artifact": artifact},
             client_context=ClientContext(surface="macos", view_id="office"),
         ))
         created = _receive_kind(client, "surface_event")

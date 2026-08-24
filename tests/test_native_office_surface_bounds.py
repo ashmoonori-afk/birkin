@@ -6,6 +6,8 @@ import json
 from pathlib import Path
 from typing import cast
 
+import pytest
+
 from birkin.native.product_surface_authorities import OfficeSurfaceAuthority
 from birkin.native.protocol import (
     MAX_FRAME_BYTES,
@@ -16,6 +18,7 @@ from birkin.native.protocol import (
     encode_frame,
 )
 from birkin.office.service import DocumentService
+from tests.native_office_support import approved_docx
 
 _OFFICE_SNAPSHOT_ENTRY_LIMIT = 8
 _COMMAND_PAYLOAD_BYTES = 65_536
@@ -48,22 +51,20 @@ def _surface_frame(payload: dict[str, JSONValue]) -> bytes:
 
 def test_office_snapshot_is_bounded_when_create_and_open_exceed_the_entry_limit(
     tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """Given repeated Office operations, When their count exceeds the limit,
     Then the projection retains the newest entries and fits one native frame.
     """
     # Given
     authority = OfficeSurfaceAuthority(DocumentService(tmp_path / "office"))
-    artifacts: list[dict[str, JSONValue]] = []
+    monkeypatch.setenv("BIRKIN_HOME", str(authority.service.home))
 
     # When
-    for index in range(_OFFICE_SNAPSHOT_ENTRY_LIMIT + 1):
-        created = authority.create({
-            "format": "docx",
-            "content": {"paragraphs": [f"bounded document {index}"]},
-            "output_name": f"bounded-{index}.docx",
-        })
-        artifacts.append(_object(cast(JSONValue, created["document"])))
+    artifacts = [
+        _object(cast(JSONValue, approved_docx(authority.service.home, index)))
+        for index in range(_OFFICE_SNAPSHOT_ENTRY_LIMIT + 1)
+    ]
     for artifact in artifacts:
         _ = authority.open({"artifact": artifact})
 
@@ -83,20 +84,18 @@ def test_office_snapshot_is_bounded_when_create_and_open_exceed_the_entry_limit(
 
 def test_office_snapshot_discards_unknown_open_artifact_fields_within_frame_cap(
     tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """Given command-sized artifact aliases, When eight documents are opened,
     Then only verified artifact fields are retained within one native frame.
     """
     # Given
     authority = OfficeSurfaceAuthority(DocumentService(tmp_path / "office"))
-    artifacts: list[dict[str, JSONValue]] = []
-    for index in range(_OFFICE_SNAPSHOT_ENTRY_LIMIT):
-        created = authority.create({
-            "format": "docx",
-            "content": {"paragraphs": [f"adversarial document {index}"]},
-            "output_name": f"adversarial-{index}.docx",
-        })
-        artifacts.append(_object(cast(JSONValue, created["document"])))
+    monkeypatch.setenv("BIRKIN_HOME", str(authority.service.home))
+    artifacts = [
+        _object(cast(JSONValue, approved_docx(authority.service.home, index)))
+        for index in range(_OFFICE_SNAPSHOT_ENTRY_LIMIT)
+    ]
 
     # When
     for artifact in artifacts:

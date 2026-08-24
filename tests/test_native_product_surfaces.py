@@ -23,8 +23,9 @@ from birkin.native.product_surfaces import (
     NativeProductSurfaceAuthority,
     OfficeSurfaceAuthority,
 )
-from birkin.office.errors import DocumentError
+from birkin.office.errors import DocumentError, DocumentErrorCode
 from birkin.office.service import DocumentService
+from tests.native_office_support import approved_docx
 
 
 def test_browser_aside_projection_source_import_is_compatible() -> None:
@@ -203,18 +204,25 @@ def test_computer_use_grant_answer_execute_is_one_shot_and_preserves_focus(
 
 def test_office_projection_create_and_secure_open_stay_in_service_jail(
     tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     product = _product(tmp_path)
     handlers = product.handlers(lambda _kind, _payload: None)
-    created = handlers["office.create"]({
-        "format": "docx",
-        "content": {"paragraphs": ["Phase 10"]},
-        "output_name": "phase-10.docx",
-    })
-    artifact = _object(created["document"])
+    before = set(product.office.service.home.rglob("*"))
+    with pytest.raises(DocumentError) as denied:
+        _ = handlers["office.create"]({
+            "format": "docx",
+            "content": {"paragraphs": ["Phase 10"]},
+            "output_name": "phase-10.docx",
+        })
+    assert denied.value.code is DocumentErrorCode.POLICY_DENIED
+    assert set(product.office.service.home.rglob("*")) == before
+
+    monkeypatch.setenv("BIRKIN_HOME", str(product.office.service.home))
+    artifact = approved_docx(product.office.service.home)
+    opened = handlers["office.open"]({"artifact": artifact})
     selected = handlers["office.select"]({"artifact_id": artifact["artifact_id"]})
     assert selected["selected_artifact_id"] == artifact["artifact_id"]
-    opened = handlers["office.open"]({"artifact": artifact})
     payload = product.snapshots({"office": 0})[0].payload
     opened_document = _object(opened["document"])
     source = _object(opened_document["source"])
@@ -232,9 +240,7 @@ def test_office_projection_create_and_secure_open_stay_in_service_jail(
     assert documents[0]["artifact_id"] == artifact["artifact_id"]
     assert _object(documents[0]["provenance"])["content_hash"] == artifact["content_hash"]
     assert documents[0]["active_content"] == []
-    assert [item["operation"] for item in receipts] == [
-        "document_create", "document_open"
-    ]
+    assert [item["operation"] for item in receipts] == ["document_open"]
     with pytest.raises(DocumentError):
         _ = handlers["office.open"]({
             "artifact": {
