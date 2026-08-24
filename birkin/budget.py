@@ -116,7 +116,7 @@ def usage_window(hours: float) -> int:
     """Sum of ``estTokens`` across run records newer than ``hours`` ago."""
     cutoff = datetime.now(timezone.utc) - timedelta(hours=hours)
     total = 0
-    for rec in store.list_runs(limit=1000):
+    for rec in store.list_runs(since=cutoff):
         ts = _parse(str(rec.get("at", "")))
         if ts is None or ts < cutoff:
             continue
@@ -179,8 +179,8 @@ def status(cfg: dict[str, Any]) -> dict[str, Any]:
 def is_over(cfg: dict[str, Any]) -> tuple[bool, str]:
     """Return (over, human_message). False/"" when within budget."""
     # Hot path (called once per turn). With no caps configured there is nothing
-    # to enforce, so skip the full ledger scan (`usage_window` reads up to 1000
-    # run files) entirely — unlimited users shouldn't pay a per-turn stat tax.
+    # to enforce, so skip the full ledger scan entirely — unlimited users
+    # shouldn't pay a per-turn stat tax.
     if not (int(cfg.get("budget_tokens_daily", 0) or 0)
             or int(cfg.get("budget_tokens_monthly", 0) or 0)):
         return False, ""

@@ -188,16 +188,23 @@ def _is_run_record(record: Any) -> bool:
     )
 
 
-def list_runs(limit: int = 20) -> list[dict[str, Any]]:
+def list_runs(limit: int = 20, since: datetime | None = None) -> list[dict[str, Any]]:
     files = sorted(config.runs_dir().glob("*.json"), reverse=True)
     out: list[dict[str, Any]] = []
-    if limit <= 0:
+    if since is None and limit <= 0:
         return out
     for f in files:
+        if since is not None:
+            try:
+                file_at = datetime.strptime(f.name[:15], "%Y%m%d-%H%M%S")
+            except ValueError:
+                continue
+            if file_at.replace(tzinfo=timezone.utc) < since:
+                break
         rec = _read_json(f, None)
         if _is_run_record(rec):
             out.append(rec)
-            if len(out) == limit:
+            if since is None and len(out) == limit:
                 break
     return out
 
