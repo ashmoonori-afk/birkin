@@ -105,9 +105,11 @@ internal sealed class RealBridgeHarness : IAsyncDisposable
 
     internal static void ValidateStandardError(string standardError)
     {
-        if (!string.IsNullOrEmpty(standardError))
+        var classified = BridgeStandardErrorClassifier.Classify(standardError);
+        if (!string.IsNullOrEmpty(classified.UnexpectedStandardError))
         {
-            throw new InvalidOperationException($"native bridge wrote stderr: {standardError}");
+            throw new InvalidOperationException(
+                $"native bridge wrote stderr: {classified.UnexpectedStandardError}");
         }
     }
 

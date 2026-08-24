@@ -13,6 +13,7 @@ namespace Birkin.Native.Protocol.Tests.Transport;
 
 [TestClass]
 [TestCategory("LiveBridge")]
+[TestCategory("WindowsOnly")]
 [TestCategory("OfficeWorkflow")]
 public sealed class OfficeAuthorityBridgeIntegrationTests
 {
