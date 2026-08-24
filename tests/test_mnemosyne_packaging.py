@@ -15,19 +15,35 @@ ROOT = Path(__file__).resolve().parent.parent
 UPSTREAM_URL = "git+" + "https://github.com/ashmoonori-afk/birkin-mnemosyne"
 
 
-@pytest.fixture(scope="module")
-def birkin_wheel(tmp_path_factory: pytest.TempPathFactory) -> Path:
-    output = tmp_path_factory.mktemp("birkin-wheel")
-    uv = shutil.which("uv")
-    assert uv is not None
+def _build_wheel(output: Path) -> Path:
     _ = subprocess.run(
-        [uv, "build", "--wheel", "--out-dir", str(output)],
+        [sys.executable, "-m", "build", "--wheel", "--outdir", str(output)],
         cwd=ROOT,
         check=True,
     )
     wheels = tuple(output.glob("birkin-*.whl"))
     assert len(wheels) == 1
     return wheels[0]
+
+
+@pytest.fixture(scope="module")
+def birkin_wheel(tmp_path_factory: pytest.TempPathFactory) -> Path:
+    return _build_wheel(tmp_path_factory.mktemp("birkin-wheel"))
+
+
+def test_wheel_build_succeeds_without_uv_or_repository_dist(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # Given a clean-checkout PATH with Python but no uv build frontend.
+    monkeypatch.setenv("PATH", str(Path(sys.executable).resolve().parent))
+    assert shutil.which("uv") is None
+
+    # When the packaging helper builds a wheel.
+    wheel = _build_wheel(tmp_path)
+
+    # Then the artifact is isolated from the repository dist directory.
+    assert wheel.parent == tmp_path
 
 
 def test_wheel_contains_mnemosyne_runtime_and_attribution(
