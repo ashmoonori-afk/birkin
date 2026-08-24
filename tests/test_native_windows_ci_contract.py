@@ -27,6 +27,8 @@ PROVIDER_FILTER = "TestCategory=OfficeWorkflow&TestCategory=ExistingAccountProvi
 ACTION_PIN = re.compile(r"^[^@]+@[0-9a-f]{40}$")
 GOLDEN_ROOT = "macos/BirkinNativeApp/Tests/BirkinNativeProtocolTests/GoldenVectors"
 SOLUTION = "windows/BirkinNativeApp/BirkinNativeApp.sln"
+LOCKED_SYNC = "uv sync --frozen --all-extras --all-groups"
+LOCKED_WINDOWS_PYTHON = "./.venv/Scripts/python.exe"
 YamlScalar: TypeAlias = str | int | float | bool | None
 YamlValue: TypeAlias = YamlScalar | list["YamlValue"] | dict[str, "YamlValue"]
 YamlMapping: TypeAlias = dict[str, YamlValue]
@@ -130,15 +132,20 @@ def test_python_windows_gate_runs_the_complete_locked_suite_with_only_two_desele
     assert any(str(step.get("uses", "")).startswith("astral-sh/setup-uv@") for step in steps)
 
     normalized = [_normalized(command) for command in _commands(job)]
-    assert "uv sync --frozen --all-extras --all-groups" in normalized
+    assert LOCKED_SYNC in normalized
     pytest_commands = [command for command in normalized if " pytest " in f" {command} "]
     assert len(pytest_commands) == 1
     pytest_command = pytest_commands[0]
-    assert pytest_command.startswith('uv run --frozen pytest -q -o addopts="" ')
+    assert pytest_command.startswith(
+        f'{LOCKED_WINDOWS_PYTHON} -m pytest -q -o addopts="" '
+    )
+    assert "uv run" not in pytest_command
     assert set(re.findall(r"--deselect\s+(\S+)", pytest_command)) == PYTHON_DESELECTIONS
     without_deselections = re.sub(r"\s*--deselect\s+\S+", "", pytest_command)
-    assert without_deselections == 'uv run --frozen pytest -q -o addopts=""'
-    assert not any(token in pytest_command for token in ("--ignore", "--ignore-glob", " -k ", " -m "))
+    assert without_deselections == (
+        f'{LOCKED_WINDOWS_PYTHON} -m pytest -q -o addopts=""'
+    )
+    assert not any(token in pytest_command for token in ("--ignore", "--ignore-glob", " -k "))
 
 
 def test_dotnet_portable_runs_protocol_and_shell_on_all_three_operating_systems() -> None:
@@ -167,7 +174,9 @@ def test_dotnet_portable_runs_protocol_and_shell_on_all_three_operating_systems(
 def test_wpf_job_prepares_locked_python_before_unfiltered_full_release_solution() -> None:
     wpf = _job(_workflow(), "wpf-windows")
     assert wpf["runs-on"] == "windows-latest"
-    assert "BIRKIN_EXISTING_ACCOUNT_RUNNER" not in _mapping(wpf.get("env", {}))
+    env = _mapping(wpf.get("env", {}))
+    assert "BIRKIN_EXISTING_ACCOUNT_RUNNER" not in env
+    assert env["UV_NO_SYNC"] == "1"
     steps = _steps(wpf)
     python_index, python = next(
         (index, step)
@@ -180,7 +189,7 @@ def test_wpf_job_prepares_locked_python_before_unfiltered_full_release_solution(
         if str(step.get("uses", "")).startswith("astral-sh/setup-uv@")
     )
     sync_index = next(
-        index for index, step in enumerate(steps) if step.get("run") == "uv sync --frozen"
+        index for index, step in enumerate(steps) if step.get("run") == LOCKED_SYNC
     )
     test_index = next(
         index for index, step in enumerate(steps) if f"dotnet test ./{SOLUTION}" in str(step.get("run", ""))
@@ -250,9 +259,12 @@ def test_provider_office_gate_is_manual_protected_and_requires_existing_account_
     assert job["if"] == "github.event_name == 'workflow_dispatch' && github.ref_protected"
     assert job["environment"] == "native-windows-existing-account"
     assert job["runs-on"] == ["self-hosted", "Windows", "X64", "birkin-existing-account"]
-    assert _mapping(job["env"])["BIRKIN_EXISTING_ACCOUNT_RUNNER"] == "1"
+    env = _mapping(job["env"])
+    assert env["BIRKIN_EXISTING_ACCOUNT_RUNNER"] == "1"
+    assert env["UV_NO_SYNC"] == "1"
 
     commands = [_normalized(command) for command in _commands(job)]
+    assert LOCKED_SYNC in commands
     test_commands = [command for command in commands if command.startswith("dotnet test ")]
     assert len(test_commands) == 1
     assert re.findall(r'--filter "([^"]+)"', test_commands[0]) == [PROVIDER_FILTER]

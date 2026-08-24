@@ -58,7 +58,7 @@ jobs:
           cache-dependency-glob: uv.lock
       - run: uv sync --frozen --all-extras --all-groups
       - run: >-
-          uv run --frozen pytest -q -o addopts=""
+          ./.venv/Scripts/python.exe -m pytest -q -o addopts=""
           --deselect tests/test_native_transport.py::test_uds_listener_rejects_symlinked_parent
           --deselect tests/test_native_transport.py::test_uds_listener_rejects_symlinked_socket_path
 
@@ -88,6 +88,7 @@ jobs:
     timeout-minutes: 30
     env:
       PYTHONUTF8: "1"
+      UV_NO_SYNC: "1"
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
         with:
@@ -103,7 +104,7 @@ jobs:
       - uses: actions/setup-dotnet@67a3573c9a986a3f9c594539f4ab511d57bb3ce9
         with:
           dotnet-version: "8.x"
-      - run: uv sync --frozen
+      - run: uv sync --frozen --all-extras --all-groups
       - run: dotnet restore ./windows/BirkinNativeApp/BirkinNativeApp.sln
       - run: dotnet build ./windows/BirkinNativeApp/BirkinNativeApp.sln -c Release --no-restore
       - run: >-
@@ -213,6 +214,7 @@ jobs:
     env:
       BIRKIN_EXISTING_ACCOUNT_RUNNER: "1"
       PYTHONUTF8: "1"
+      UV_NO_SYNC: "1"
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
         with:
@@ -228,7 +230,7 @@ jobs:
       - uses: actions/setup-dotnet@67a3573c9a986a3f9c594539f4ab511d57bb3ce9
         with:
           dotnet-version: "8.x"
-      - run: uv sync --frozen
+      - run: uv sync --frozen --all-extras --all-groups
       - run: dotnet restore ./windows/BirkinNativeApp/tests/Birkin.Native.App.Tests/Birkin.Native.App.Tests.csproj
       - run: dotnet build ./windows/BirkinNativeApp/tests/Birkin.Native.App.Tests/Birkin.Native.App.Tests.csproj -c Release --no-restore
       - run: >-
