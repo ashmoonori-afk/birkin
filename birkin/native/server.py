@@ -3,128 +3,50 @@
 from __future__ import annotations
 
 import secrets
-import threading
-from collections.abc import Callable, Mapping
-from typing import Protocol, cast, final, runtime_checkable
+from collections.abc import Callable
+from dataclasses import dataclass
+from typing import final
 
 from birkin.native.auth import NativeConnectionAuth
 from birkin.native.bridge_commands import (
     NativeCommandCoordinator,
     NativeCommandExecution,
     NativeCommandExecutor,
-    WorkspaceCommandAuthority,
 )
 from birkin.native.bridge_stream import NativeBridgeStream
 from birkin.native.capability import BootstrapSecretStore, SessionCapability
-from birkin.native.product_surfaces import SURFACE_EVENT_SOURCES, SurfaceSnapshot
-from birkin.native.messages import (
-    NativeMessageFactory,
-    body_integer,
-    body_string,
+from birkin.native.messages import NativeMessageFactory
+from birkin.native.protocol import NativeProtocolError
+from birkin.native.server_authority import (
+    CommandAuthority as CommandAuthority,
+    CommandRouter as _CommandRouter,
+    ControlCommandAuthority as ControlCommandAuthority,
+    SurfaceProjectionAuthority as SurfaceProjectionAuthority,
+    WorkspaceAuthority as WorkspaceAuthority,
 )
-from birkin.native.protocol import (
-    NativeEnvelope,
-    NativeProtocolError,
+from birkin.native.server_projection import (
+    NativeProjectionContext,
+    NativeProjectionDelivery,
+    ProjectionChannel,
 )
-from birkin.native.session import NativeProjectionSession, WorkspaceProjectionSource
 from birkin.native.state import NativeConnectionState
 from birkin.native.transport import NativeConnection
-from birkin.workspace import CommandReceipt, SessionPreset, WorkspaceCommand
-from birkin.workspace.contracts import CONTROL_COMMAND_TYPES
-from birkin.workspace.records import WorkspaceEvent
+
+__all__ = [
+    "CommandAuthority",
+    "ControlCommandAuthority",
+    "NativeBridgeServer",
+    "SurfaceProjectionAuthority",
+    "WorkspaceAuthority",
+]
 
 
-class CommandAuthority(Protocol):
-    @property
-    def supported_commands(self) -> frozenset[str]: ...
+@dataclass(slots=True)
+class _SessionCapabilityState:
+    """Mutable capability lineage owned by one authenticated connection."""
 
-    def submit(
-        self,
-        command: WorkspaceCommand,
-        *,
-        actor_id: str,
-    ) -> CommandReceipt: ...
-
-
-@runtime_checkable
-class ControlCommandAuthority(Protocol):
-    def submit_control(
-        self,
-        command: WorkspaceCommand,
-        *,
-        actor_id: str,
-    ) -> CommandReceipt: ...
-
-
-class SurfaceProjectionAuthority(Protocol):
-    @property
-    def surface_names(self) -> tuple[str, ...]: ...
-
-    def snapshots(
-        self,
-        requested: Mapping[str, int],
-    ) -> tuple[SurfaceSnapshot, ...]: ...
-
-    def live_snapshot(self, surface: str) -> SurfaceSnapshot | None: ...
-
-
-class WorkspaceAuthority(
-    WorkspaceProjectionSource,
-    WorkspaceCommandAuthority,
-    Protocol,
-):
-    @property
-    def supported_commands(self) -> frozenset[str]: ...
-
-    @property
-    def session_presets(self) -> tuple[SessionPreset, ...]: ...
-
-    def add_event_listener(
-        self,
-        listener: Callable[[WorkspaceEvent], None],
-    ) -> Callable[[], None]: ...
-
-@final
-class _CommandRouter:
-    def __init__(
-        self,
-        workspace: CommandAuthority,
-        session: CommandAuthority | None,
-        config: CommandAuthority | None,
-    ) -> None:
-        self._workspace = workspace
-        self._session = session
-        self._config = config
-
-    @property
-    def supported_commands(self) -> frozenset[str]:
-        commands = set(self._workspace.supported_commands)
-        if self._session is not None:
-            commands.update(
-                command
-                for command in self._session.supported_commands
-                if command.startswith("session.")
-            )
-        if self._config is not None and "config.set" in self._config.supported_commands:
-            commands.add("config.set")
-        return frozenset(commands)
-
-    def submit(
-        self,
-        command: WorkspaceCommand,
-        *,
-        actor_id: str,
-    ) -> CommandReceipt:
-        if command.type in CONTROL_COMMAND_TYPES and isinstance(
-            self._workspace, ControlCommandAuthority
-        ):
-            return self._workspace.submit_control(command, actor_id=actor_id)
-        authority = self._workspace
-        if command.type.startswith("session.") and self._session is not None:
-            authority = self._session
-        elif command.type == "config.set" and self._config is not None:
-            authority = self._config
-        return authority.submit(command, actor_id=actor_id)
+    current: SessionCapability
+    issued_tokens: set[str]
 
 
 @final
@@ -156,15 +78,9 @@ class NativeBridgeServer:
             session_authority,
             config_authority,
         )
-        self._authority = projection_authority
-        self._surface_authority = surface_authority
         self._capabilities = capabilities
         self._auth = NativeConnectionAuth(
             capabilities,
-            instance_id=instance_id,
-        )
-        self._projection = NativeProjectionSession(
-            projection_authority,
             instance_id=instance_id,
         )
         self._instance_id = instance_id
@@ -186,10 +102,16 @@ class NativeBridgeServer:
             NativeCommandExecutor(command_router, self._messages),
             on_disconnect,
         )
-        self._stream_lock = threading.Lock()
-        self._active_stream: NativeBridgeStream | None = None
-        self._listener_unsubscribe = self._authority.add_event_listener(
-            self._publish_active
+        self._projection = NativeProjectionDelivery(
+            NativeProjectionContext(
+                authority=projection_authority,
+                surface_authority=surface_authority,
+                instance_id=instance_id,
+            ),
+            self._messages,
+        )
+        self._listener_unsubscribe = projection_authority.add_event_listener(
+            self._projection.publish
         )
         self._heartbeat_interval = heartbeat_interval
         self._peer_timeout = peer_timeout
@@ -210,8 +132,7 @@ class NativeBridgeServer:
         command_execution: NativeCommandExecution | None = None
         with connection:
             try:
-                # Accepting is serial, so an authenticated-but-silent client
-                # would otherwise hold every other client out of the bridge.
+                # A silent pre-authentication client must not hold serial accept.
                 connection.set_read_deadline(self._hello_timeout)
                 hello = connection.receive()
                 state.receive(hello)
@@ -228,8 +149,6 @@ class NativeBridgeServer:
                 )
                 state.send(ready)
                 connection.send(ready)
-                # Cleared before the writer thread starts: from here the
-                # heartbeat, not a read deadline, supervises liveness.
                 connection.set_read_deadline(None)
                 issued_tokens.add(capability.token)
                 stream = NativeBridgeStream(
@@ -240,8 +159,7 @@ class NativeBridgeServer:
                     peer_timeout=self._peer_timeout,
                     capacity=self._outbound_capacity,
                 )
-                with self._stream_lock:
-                    self._active_stream = stream
+                self._projection.attach(stream)
                 stream.start()
                 command_execution = NativeCommandExecution(
                     connection=connection,
@@ -250,11 +168,7 @@ class NativeBridgeServer:
                     scope=capability.scope,
                 )
                 self._serve_messages(
-                    connection,
-                    state,
-                    capability,
-                    issued_tokens,
-                    stream,
+                    _SessionCapabilityState(capability, issued_tokens),
                     command_execution,
                 )
             except NativeProtocolError as exc:
@@ -262,9 +176,7 @@ class NativeBridgeServer:
                     connection.send(self._messages.error(exc))
             finally:
                 if stream is not None:
-                    with self._stream_lock:
-                        if self._active_stream is stream:
-                            self._active_stream = None
+                    self._projection.detach(stream)
                     stream.stop()
                 for token in issued_tokens:
                     self._capabilities.revoke_session(token)
@@ -273,66 +185,33 @@ class NativeBridgeServer:
                 elif self._on_disconnect is not None:
                     self._on_disconnect()
 
-    def _publish_active(self, event: WorkspaceEvent) -> None:
-        with self._stream_lock:
-            stream = self._active_stream
-        if stream is not None:
-            self._publish(stream, event)
-
-    def _publish(
-        self,
-        stream: NativeBridgeStream,
-        event: WorkspaceEvent,
-    ) -> None:
-        """Follow every canonical event with its product-surface projection.
-
-        This runs inside the canonical event listener, so it executes while the
-        command that produced the event is still being submitted. A derived
-        projection must never decide the fate of that command: the command has
-        already committed and been journaled, and raising here would report a
-        succeeded command to the shell as failed.
-        """
-        stream.publish(event)
-        surface = SURFACE_EVENT_SOURCES.get(event.type)
-        if surface is None or self._surface_authority is None:
-            return
-        try:
-            snapshot = self._surface_authority.live_snapshot(surface)
-        except Exception:  # noqa: BLE001 - derived projection boundary
-            # Dropping the frame is safe rather than lossy: a surface revision
-            # only advances on a fully projected payload, so the next
-            # successful projection still arrives as the exact next revision
-            # the shell requires.
-            return
-        if snapshot is not None:
-            stream.publish_surface(snapshot)
-
     def _serve_messages(
         self,
-        connection: NativeConnection,
-        state: NativeConnectionState,
-        capability: SessionCapability,
-        issued_tokens: set[str],
-        stream: NativeBridgeStream,
-        command_execution: NativeCommandExecution,
+        capability_state: _SessionCapabilityState,
+        execution: NativeCommandExecution,
     ) -> None:
-        active_token = capability.token
+        channel = ProjectionChannel(
+            execution.connection,
+            execution.state,
+            execution.stream,
+        )
+        active_token = capability_state.current.token
         while True:
-            message = connection.receive()
-            state.receive(message)
-            self._auth.require_capability(message.body, capability)
+            message = execution.connection.receive()
+            execution.state.receive(message)
+            self._auth.require_capability(message.body, capability_state.current)
             renewed = self._capabilities.renew_if_due(active_token)
             if renewed is not None:
-                capability = renewed
+                capability_state.current = renewed
                 active_token = renewed.token
-                issued_tokens.add(active_token)
+                capability_state.issued_tokens.add(active_token)
                 renewal = self._messages.capability_renewed(renewed)
-                state.send(renewal)
-                connection.send(renewal)
+                execution.state.send(renewal)
+                execution.connection.send(renewal)
             if message.kind == "goodbye":
                 return
             if message.kind == "pong":
-                stream.acknowledge_pong()
+                execution.stream.acknowledge_pong()
                 continue
             if message.kind == "ping":
                 pong_body: dict[str, object] = dict(message.body)
@@ -342,17 +221,12 @@ class NativeBridgeServer:
                     body=pong_body,
                     in_reply_to=message.id,
                 )
-                state.send(response)
-                connection.send(response)
+                execution.state.send(response)
+                execution.connection.send(response)
             elif message.kind == "subscribe":
-                self._send_projection(
-                    connection,
-                    state,
-                    message,
-                    stream,
-                )
+                self._projection.send(channel, message)
             elif message.kind == "command" and not self._commands.submit(
-                command_execution,
+                execution,
                 message,
             ):
                 refusal = self._messages.error(
@@ -362,120 +236,5 @@ class NativeBridgeServer:
                     ),
                     in_reply_to=message.id,
                 )
-                state.send(refusal)
-                connection.send(refusal)
-
-    def _send_projection(
-        self,
-        connection: NativeConnection,
-        state: NativeConnectionState,
-        message: NativeEnvelope,
-        stream: NativeBridgeStream,
-    ) -> None:
-        session_id = body_string(message.body, "session_id")
-        if session_id != self._authority.snapshot().session_id:
-            raise NativeProtocolError(
-                "E_SESSION_NOT_FOUND",
-                "workspace session was not found",
-            )
-        after_cursor = body_integer(message.body, "after_cursor")
-        known_instance = message.body["known_instance_id"]
-        if known_instance is not None and not isinstance(known_instance, str):
-            raise NativeProtocolError(
-                "E_BODY",
-                "known_instance_id must be a string or null",
-            )
-        stream.suspend()
-        try:
-            self._deliver_projection(
-                connection,
-                state,
-                message,
-                stream,
-                after_cursor=after_cursor,
-                known_instance_id=known_instance,
-            )
-        finally:
-            stream.resume()
-
-    def _deliver_projection(
-        self,
-        connection: NativeConnection,
-        state: NativeConnectionState,
-        message: NativeEnvelope,
-        stream: NativeBridgeStream,
-        *,
-        after_cursor: int,
-        known_instance_id: str | None,
-    ) -> None:
-        """Buffer live events first, then write the canonical catch-up frames.
-
-        Activation precedes the projection read so an event published while
-        this subscription is being computed is buffered instead of dropped.
-        The delivered cursor is recorded afterwards so the buffer never repeats
-        an event the replay already wrote.
-        """
-        stream.activate(after_cursor=after_cursor)
-        batch = self._projection.subscribe(
-            after_cursor=after_cursor,
-            known_instance_id=known_instance_id,
-        )
-        delivered_cursor = after_cursor
-        if batch.snapshot is not None:
-            body = dict(batch.snapshot)
-            body["instance_id"] = batch.instance_id
-            body["reset_reason"] = batch.reset_reason
-            snapshot_cursor = body["cursor"]
-            if isinstance(snapshot_cursor, int) and not isinstance(
-                snapshot_cursor, bool
-            ):
-                delivered_cursor = max(delivered_cursor, snapshot_cursor)
-            response = self._messages.message("snapshot", body=body)
-            state.send(response)
-            connection.send(response)
-        if self._surface_authority is not None:
-            requested = _surface_revisions(message.body.get("surfaces"))
-            try:
-                surface_snapshots = self._surface_authority.snapshots(requested)
-            except ValueError as exc:
-                raise NativeProtocolError("E_BODY", str(exc)) from exc
-            for surface in surface_snapshots:
-                payload = dict(surface.payload)
-                payload["_meta"] = {
-                    "full_snapshot": surface.full_snapshot,
-                    "reset_reason": surface.reset_reason,
-                }
-                response = self._messages.message(
-                    "surface_snapshot",
-                    body={
-                        "surface": surface.surface,
-                        "revision": surface.revision,
-                        "payload": payload,
-                    },
-                )
-                state.send(response)
-                connection.send(response)
-        for event in batch.events:
-            cursor = event.get("cursor")
-            if isinstance(cursor, int) and not isinstance(cursor, bool):
-                delivered_cursor = max(delivered_cursor, cursor)
-            response = self._messages.message("event", body=event)
-            state.send(response)
-            connection.send(response)
-        stream.mark_delivered(cursor=delivered_cursor)
-
-
-def _surface_revisions(value: object) -> dict[str, int]:
-    if not isinstance(value, dict):
-        raise NativeProtocolError("E_BODY", "surfaces must be an object")
-    unknown = cast(dict[object, object], value)
-    revisions: dict[str, int] = {}
-    for key, revision in unknown.items():
-        if not isinstance(key, str):
-            raise NativeProtocolError("E_BODY", "surface names must be strings")
-        if isinstance(revision, bool) or not isinstance(revision, int) or revision < 0:
-            raise NativeProtocolError(
-                "E_BODY", "surface revisions must be non-negative integers"
-            )
-        revisions[key] = revision
-    return revisions
+                execution.state.send(refusal)
+                execution.connection.send(refusal)
