@@ -115,16 +115,11 @@ def test_python_windows_gate_uses_locked_python_313_and_import_contract() -> Non
     assert "uv run --frozen pytest -q tests/test_native_windows_import.py" in commands
 
 
-def test_portable_and_wpf_jobs_test_release_solution_with_dotnet_8() -> None:
+def test_dotnet_jobs_use_sdk_8_and_portable_suite_stays_on_windows() -> None:
     workflow = _workflow()
     portable = _job(workflow, "dotnet-portable")
-    matrix = _mapping(_mapping(portable["strategy"])["matrix"])
-    assert set(cast(list[str], matrix["os"])) == {
-        "ubuntu-latest",
-        "macos-latest",
-        "windows-latest",
-    }
-    assert portable["runs-on"] == "${{ matrix.os }}"
+    assert portable["runs-on"] == "windows-latest"
+    assert "strategy" not in portable
 
     for name in ("dotnet-portable", "wpf-windows", "live-bridge-window"):
         job = _job(workflow, name)
@@ -135,8 +130,30 @@ def test_portable_and_wpf_jobs_test_release_solution_with_dotnet_8() -> None:
         )
         assert _mapping(setup["with"])["dotnet-version"] == "8.x"
 
-    wpf = _job(workflow, "wpf-windows")
+
+def test_wpf_job_prepares_locked_python_before_full_release_solution() -> None:
+    wpf = _job(_workflow(), "wpf-windows")
     assert wpf["runs-on"] == "windows-latest"
+    steps = _steps(wpf)
+    python_index, python = next(
+        (index, step)
+        for index, step in enumerate(steps)
+        if str(step.get("uses", "")).startswith("actions/setup-python@")
+    )
+    uv_index = next(
+        index
+        for index, step in enumerate(steps)
+        if str(step.get("uses", "")).startswith("astral-sh/setup-uv@")
+    )
+    sync_index = next(
+        index for index, step in enumerate(steps) if step.get("run") == "uv sync --frozen"
+    )
+    test_index = next(
+        index for index, step in enumerate(steps) if f"dotnet test ./{SOLUTION}" in str(step.get("run", ""))
+    )
+    assert _mapping(python["with"])["python-version"] == "3.13"
+    assert python_index < uv_index < sync_index < test_index
+
     commands = _joined_commands(wpf)
     assert f"dotnet restore ./{SOLUTION}" in commands
     assert f"dotnet build ./{SOLUTION} -c Release --no-restore" in commands
@@ -183,10 +200,12 @@ def test_live_job_runs_real_authenticated_loopback_journey_and_only_uploads_trx(
     assert upload_config["if-no-files-found"] == "error"
 
 
-def test_swift_job_consumes_shared_vectors() -> None:
+def test_swift_job_consumes_only_shared_negative_vectors() -> None:
     job = _job(_workflow(), "swift-conformance")
     assert job["runs-on"] == "macos-latest"
-    assert "swift test --package-path macos/BirkinNativeApp" in _joined_commands(job)
+    assert _commands(job) == [
+        "swift test --package-path macos/BirkinNativeApp --filter NativeNegativeGoldenVectorParityTests"
+    ]
 
 
 def test_jobs_use_platform_appropriate_shell_commands() -> None:
