@@ -5,6 +5,10 @@
              automation:AutomationProperties.AutomationId="office.workflow"
              automation:AutomationProperties.Name="Office document workflow">
     <UserControl.Resources><ResourceDictionary Source="../Styles/ShellStyles.xaml" /></UserControl.Resources>
+    <ScrollViewer automation:AutomationProperties.AutomationId="office.workflow-scroll"
+                  VerticalScrollBarVisibility="Auto"
+                  HorizontalScrollBarVisibility="Disabled"
+                  CanContentScroll="False">
     <Grid>
         <Grid.RowDefinitions><RowDefinition Height="*"/><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
         <Grid>
@@ -14,8 +18,8 @@
                         <Grid>
                             <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
                             <StackPanel>
-                                <TextBlock Text="{Binding Summary}" TextWrapping="Wrap" />
-                                <TextBlock Text="{Binding Kind}" Foreground="{StaticResource FaintBrush}" FontSize="10" />
+                                <TextBlock automation:AutomationProperties.AutomationId="office.document-summary" Text="{Binding Name}" FontWeight="SemiBold" TextWrapping="Wrap" />
+                                <TextBlock Text="{Binding MediaType}" Foreground="{StaticResource FaintBrush}" FontSize="10" TextWrapping="Wrap" />
                             </StackPanel>
                             <Button Grid.Column="1" Content="Select" Tag="{Binding Id}" Margin="6,0,0,0" automation:AutomationProperties.AutomationId="office.select" automation:AutomationProperties.Name="Select projected office document" Style="{StaticResource DisabledActionStyle}" IsEnabled="{Binding DataContext.OfficeWorkflow.Availability.OfficeSelect.IsEnabled, RelativeSource={RelativeSource AncestorType=UserControl}}" Click="SelectClicked" />
                         </Grid>
@@ -43,4 +47,5 @@
             </Expander>
         </Grid>
     </Grid>
+    </ScrollViewer>
 </UserControl>

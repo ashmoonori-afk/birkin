@@ -23,7 +23,7 @@
         </Grid.RowDefinitions>
 
         <Border x:Name="ApprovalsRegion"
-                MinHeight="210"
+                MinHeight="180"
                 automation:AutomationProperties.AutomationId="approvals.landmark"
                 Style="{StaticResource CardStyle}">
             <Grid>
@@ -49,7 +49,7 @@
         </Border>
 
         <Border x:Name="ActivityRegion" Grid.Row="2"
-                MinHeight="180"
+                Height="220"
                 automation:AutomationProperties.AutomationId="activity.landmark"
                 Style="{StaticResource CardStyle}">
             <Grid>
@@ -65,14 +65,19 @@
                     </StackPanel>
                 </DockPanel>
                 <Grid Grid.Row="1" Margin="0,8,0,0">
-                    <ItemsControl ItemsSource="{Binding Workspace.Activity}">
-                        <ItemsControl.ItemTemplate><DataTemplate>
-                            <Border Background="{StaticResource RaisedBrush}" CornerRadius="6" Padding="8" Margin="0,0,0,5">
-                                <TextBlock Text="{Binding Summary}" TextWrapping="Wrap" />
-                            </Border>
-                        </DataTemplate></ItemsControl.ItemTemplate>
-                    </ItemsControl>
-                    <Border>
+                    <ScrollViewer automation:AutomationProperties.AutomationId="activity.scroll"
+                                  VerticalScrollBarVisibility="Auto"
+                                  HorizontalScrollBarVisibility="Disabled"
+                                  CanContentScroll="False">
+                        <ItemsControl automation:AutomationProperties.AutomationId="activity.items" ItemsSource="{Binding Workspace.Activity}">
+                            <ItemsControl.ItemTemplate><DataTemplate>
+                                <Border Background="{StaticResource RaisedBrush}" CornerRadius="6" Padding="8" Margin="0,0,0,5">
+                                    <TextBlock automation:AutomationProperties.AutomationId="activity.summary" Text="{Binding Summary}" TextWrapping="Wrap" />
+                                </Border>
+                            </DataTemplate></ItemsControl.ItemTemplate>
+                        </ItemsControl>
+                    </ScrollViewer>
+                    <Border IsHitTestVisible="False">
                         <Border.Style><Style TargetType="Border" BasedOn="{StaticResource EmptyStateStyle}">
                             <Setter Property="Visibility" Value="Collapsed" />
                             <Style.Triggers><DataTrigger Binding="{Binding Workspace.Activity.Count}" Value="0"><Setter Property="Visibility" Value="Visible" /></DataTrigger></Style.Triggers>
@@ -87,7 +92,7 @@
         </Border>
 
         <Border x:Name="BrowserRegion" Grid.Row="4"
-                MinHeight="180"
+                Height="145"
                 automation:AutomationProperties.AutomationId="browser.landmark"
                 Style="{StaticResource CardStyle}">
             <Grid>
@@ -127,7 +132,7 @@
         </Border>
 
         <Border x:Name="OfficeRegion" Grid.Row="6"
-                MinHeight="190"
+                Height="330"
                 automation:AutomationProperties.AutomationId="office.landmark"
                 Style="{StaticResource CardStyle}">
             <Grid>

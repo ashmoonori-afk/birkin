@@ -33,12 +33,40 @@ public sealed class ShellPresentationModel : INotifyPropertyChanged
             },
             null);
 
+    public void PresentConnection(
+        ConnectionPresentation connection,
+        OfficeWorkflowPresentation workflow) =>
+        _synchronizationContext.Post(
+            _ =>
+            {
+                _connection = connection;
+                _officeWorkflow = workflow;
+                OnPropertyChanged(nameof(Connection));
+                OnPropertyChanged(nameof(OfficeWorkflow));
+            },
+            null);
+
     public void PresentSnapshot(WorkspaceSnapshotPresentation presentation, Action published) =>
         _synchronizationContext.Post(
             _ =>
             {
                 _workspace = presentation;
                 OnPropertyChanged(nameof(Workspace));
+                published();
+            },
+            null);
+
+    public void PresentSnapshot(
+        WorkspaceSnapshotPresentation presentation,
+        OfficeWorkflowPresentation workflow,
+        Action published) =>
+        _synchronizationContext.Post(
+            _ =>
+            {
+                _workspace = presentation;
+                _officeWorkflow = workflow;
+                OnPropertyChanged(nameof(Workspace));
+                OnPropertyChanged(nameof(OfficeWorkflow));
                 published();
             },
             null);
@@ -60,6 +88,24 @@ public sealed class ShellPresentationModel : INotifyPropertyChanged
                 _workspace = presentation;
                 OnPropertyChanged(nameof(Connection));
                 OnPropertyChanged(nameof(Workspace));
+                published();
+            },
+            null);
+
+    public void PresentReadySnapshot(
+        ConnectionPresentation connection,
+        WorkspaceSnapshotPresentation presentation,
+        OfficeWorkflowPresentation workflow,
+        Action published) =>
+        _synchronizationContext.Post(
+            _ =>
+            {
+                _connection = connection;
+                _workspace = presentation;
+                _officeWorkflow = workflow;
+                OnPropertyChanged(nameof(Connection));
+                OnPropertyChanged(nameof(Workspace));
+                OnPropertyChanged(nameof(OfficeWorkflow));
                 published();
             },
             null);

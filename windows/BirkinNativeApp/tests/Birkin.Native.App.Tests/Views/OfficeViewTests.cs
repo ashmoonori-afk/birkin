@@ -119,9 +119,9 @@ public sealed class OfficeViewTests
         // Then
         Console.WriteLine(
             $"CONTEXT_GEOMETRY=activity:{geometry.Panels.Activity:F0};browser:{geometry.Panels.Browser:F0};office:{geometry.Panels.Office:F0};scrollable:{geometry.Scroll.Scrollable:F0};offset:{geometry.Scroll.Offset:F0};action_top:{geometry.Reach.ActionTop:F0};action_bottom:{geometry.Reach.ActionBottom:F0};viewport:{geometry.Scroll.Viewport:F0};status_gap:{geometry.Reach.StatusGap:F0}");
-        Assert.IsTrue(geometry.Panels.Activity >= 180);
-        Assert.IsTrue(geometry.Panels.Browser >= 180);
-        Assert.IsTrue(geometry.Panels.Office >= 190);
+        Assert.IsTrue(geometry.Panels.Activity is >= 180 and <= 220);
+        Assert.IsTrue(geometry.Panels.Browser is >= 120 and <= 145);
+        Assert.IsTrue(geometry.Panels.Office is >= 260 and <= 330);
         Assert.IsTrue(geometry.Scroll.Scrollable > 0);
         Assert.IsTrue(geometry.Scroll.Offset > 0);
         Assert.IsTrue(geometry.Reach.ActionTop >= 0);

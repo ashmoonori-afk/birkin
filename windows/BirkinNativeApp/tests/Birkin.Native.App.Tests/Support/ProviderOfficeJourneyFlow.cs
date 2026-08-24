@@ -69,9 +69,10 @@ internal static class ProviderOfficeJourneyFlow
             var diffView = OfficeWorkflowViewHarness.Find<FrameworkElement>(window, "diff.landmark");
             var diffItems = OfficeWorkflowViewHarness.Find<ItemsControl>(window, "diff.items");
             Assert.AreEqual(Visibility.Visible, diffView.Visibility);
-            Assert.IsTrue(diffItems.Items.Cast<object>().Any(item =>
-                item.ToString()!.Contains("4100", StringComparison.Ordinal)
-                && item.ToString()!.Contains("4700", StringComparison.Ordinal)));
+            var canonicalChange = diffItems.Items.Cast<Birkin.Native.Shell.Presentation.OfficeDiffRowPresentation>()
+                .First(row => row.OldValue.Contains("4100", StringComparison.Ordinal)
+                    && row.NewValue.Contains("4700", StringComparison.Ordinal));
+            Assert.IsFalse(string.IsNullOrWhiteSpace(canonicalChange.Label));
 
             const string outputName = "comparison-report.docx";
             var outputPath = Path.Combine(
@@ -95,16 +96,24 @@ internal static class ProviderOfficeJourneyFlow
 
             await RenderBarrierAsync(window);
             var scroll = OfficeWorkflowViewHarness.Find<ScrollViewer>(window, "context.scroll");
-            scroll.ScrollToEnd();
+            diffView.BringIntoView();
             await RenderBarrierAsync(window);
+            var oldValue = OfficeWorkflowViewHarness.FindAll<TextBlock>(window, "diff.old-value")
+                .First(text => text.Text.Contains("4100", StringComparison.Ordinal));
+            var newValue = OfficeWorkflowViewHarness.FindAll<TextBlock>(window, "diff.new-value")
+                .First(text => text.Text.Contains("4700", StringComparison.Ordinal));
             Assert.IsTrue(IsInViewport(diffView, scroll), "the Python diff was not visibly in the pre-approval viewport");
-            var beforePath = Path.Combine(evidenceRoot, "pre-approval-diff.png");
-            var beforeHash = ProviderOfficeScreenshot.CaptureRedacted(window, beforePath);
+            Assert.IsTrue(IsInViewport(oldValue, scroll) && IsInViewport(newValue, scroll),
+                "the labeled 4100 -> 4700 controls were not fully visible before approval");
+            var beforePath = Path.Combine(evidenceRoot, "pre-approval-diff-1500x940.png");
+            var before = ProviderOfficeScreenshot.CaptureRedacted(window, beforePath, 1500, 940);
             evidence.Record("pre-approval-screenshot", new Dictionary<string, object?>
             {
                 ["diff_id"] = diffId,
                 ["cursor"] = Cursor(requested),
-                ["png_sha256"] = beforeHash,
+                ["png_sha256"] = before.Sha256,
+                ["width"] = before.Width,
+                ["height"] = before.Height,
             });
 
             scroll.ScrollToHome();
@@ -138,21 +147,46 @@ internal static class ProviderOfficeJourneyFlow
             Assert.AreEqual(String(saved, "content_hash"), String(Object(document, "source"), "sha256"));
 
             await RenderBarrierAsync(window);
-            ProviderOfficeJourneyAssertions.AssertActivityAndOfficeUi(window, String(saved, "artifact_id"));
+            var savedArtifactId = String(saved, "artifact_id");
+            ProviderOfficeJourneyAssertions.AssertActivityAndOfficeUi(window, savedArtifactId);
             var receiptTraces = new ProviderOfficeCommandTrace?[] { chat, draft, approval }
                 .OfType<ProviderOfficeCommandTrace>().ToArray();
             ProviderOfficeJourneyAssertions.AssertStoredReceipts(temporaryRoot, receiptTraces, evidence);
-            scroll.ScrollToVerticalOffset(Math.Max(0,
-                OfficeWorkflowViewHarness.Find<FrameworkElement>(window, "activity.landmark").ActualHeight - 160));
+            var savedActivity = OfficeWorkflowViewHarness.FindAll<TextBlock>(window, "activity.summary")
+                .Single(text => text.Text == "Approved Office report saved and structurally verified");
+            var savedReport = OfficeWorkflowViewHarness.FindAll<TextBlock>(window, "office.document-summary")
+                .Single(text => text.Text == outputName);
+            savedActivity.BringIntoView();
+            savedReport.BringIntoView();
+            scroll.ScrollToVerticalOffset(
+                OfficeWorkflowViewHarness.Find<FrameworkElement>(window, "approvals.landmark").ActualHeight + 5);
             await RenderBarrierAsync(window);
-            var afterPath = Path.Combine(evidenceRoot, "post-save-activity-office.png");
-            var afterHash = ProviderOfficeScreenshot.CaptureRedacted(window, afterPath);
+            Assert.IsTrue(IsInViewport(savedActivity, scroll), "the report-saved Activity entry was clipped");
+            Assert.IsTrue(IsInViewport(savedReport, scroll), "the saved report artifact was clipped");
+            var afterPath = Path.Combine(evidenceRoot, "post-save-activity-office-1500x940.png");
+            var after = ProviderOfficeScreenshot.CaptureRedacted(window, afterPath, 1500, 940);
             evidence.Record("post-save-screenshot", new Dictionary<string, object?>
             {
                 ["approval_id"] = approvalId,
-                ["artifact_id"] = String(saved, "artifact_id"),
+                ["artifact_id"] = savedArtifactId,
                 ["receipt_cursor"] = Cursor(receiptEvent),
-                ["png_sha256"] = afterHash,
+                ["png_sha256"] = after.Sha256,
+                ["width"] = after.Width,
+                ["height"] = after.Height,
+            });
+
+            savedReport.BringIntoView();
+            await RenderBarrierAsync(window);
+            var constrainedPath = Path.Combine(evidenceRoot, "post-save-office-1100x700.png");
+            var constrained = ProviderOfficeScreenshot.CaptureRedacted(
+                window, constrainedPath, 1100, 700, savedReport.BringIntoView);
+            evidence.Record("constrained-post-save-screenshot", new Dictionary<string, object?>
+            {
+                ["artifact_id"] = savedArtifactId,
+                ["cursor"] = Cursor(openedEvent),
+                ["png_sha256"] = constrained.Sha256,
+                ["width"] = constrained.Width,
+                ["height"] = constrained.Height,
             });
             var providerInvocations = events.Events.Count(envelope =>
                 ProviderOfficeEventLog.Type(envelope) == "message.user");
@@ -213,7 +247,12 @@ internal static class ProviderOfficeJourneyFlow
     {
         var bounds = element.TransformToAncestor(viewport).TransformBounds(
             new Rect(new Point(0, 0), element.RenderSize));
-        return element.IsVisible && bounds.IntersectsWith(new Rect(new Point(0, 0), viewport.RenderSize));
+        var visible = new Rect(new Point(0, 0), viewport.RenderSize);
+        return element.IsVisible
+            && bounds.Left >= visible.Left - 1
+            && bounds.Top >= visible.Top - 1
+            && bounds.Right <= visible.Right + 1
+            && bounds.Bottom <= visible.Bottom + 1;
     }
 
     private static OfficeArtifact Artifact(NativeJsonObject value) => new(

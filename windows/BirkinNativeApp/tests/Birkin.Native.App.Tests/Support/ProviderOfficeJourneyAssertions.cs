@@ -66,8 +66,9 @@ internal static class ProviderOfficeJourneyAssertions
         Assert.IsTrue(Descendants<TextBlock>(activity).Any(text =>
             string.Equals(text.Text, "Approved Office report saved and structurally verified", StringComparison.Ordinal)));
         var office = OfficeWorkflowViewHarness.Find<FrameworkElement>(window, "office.landmark");
-        Assert.IsTrue(Descendants<TextBlock>(office).Any(text =>
-            text.Text.Contains(artifactId, StringComparison.Ordinal)));
+        var items = OfficeWorkflowViewHarness.Find<ItemsControl>(office, "office.items");
+        Assert.IsTrue(items.Items.Cast<Birkin.Native.Shell.Presentation.OfficeDocumentRowPresentation>()
+            .Any(document => document.Id == artifactId && document.Name == "comparison-report.docx"));
     }
 
     private static IEnumerable<T> Descendants<T>(DependencyObject root) where T : DependencyObject

@@ -1,5 +1,6 @@
 using Birkin.Native.Protocol.Framing;
 using Birkin.Native.Protocol.Messaging;
+using Birkin.Native.Protocol.Projection;
 using Birkin.Native.Shell.Commands;
 using Birkin.Native.Shell.Presentation;
 
@@ -9,82 +10,64 @@ public sealed partial class ShellCoordinator
 {
     private const int MaxFramesBeforeCommandResult = 128;
     private OfficeWorkflowPresentation _workflow = OfficeWorkflowPresentation.Empty;
-
-    private sealed record CommandSubmission(NativeCommandRequest Request, bool ProjectionPermits);
+    private long _draftRevision;
+    private long? _pendingDraftRevision;
 
     public void SetConversationDraft(string draft)
     {
-        _workflow = _workflow.WithDraft(draft);
-        PresentWorkflow();
-    }
-
-    public Task<bool> SendConversationAsync(CancellationToken cancellationToken)
-    {
-        if (string.IsNullOrWhiteSpace(_workflow.Draft))
+        bool drain;
+        lock (_stateLock)
         {
-            return Task.FromResult(false);
+            _draftRevision++;
+            _workflow = _workflow.WithDraft(draft);
+            drain = EnqueuePresentationLocked(new(null, null, _workflow));
         }
-
-        return SubmitAsync(
-            new CommandSubmission(
-                ConversationCommands.Send(_workflow.Draft, Context()),
-                ProjectionPermitsConversation()),
-            cancellationToken);
+        DrainPresentations(drain);
     }
+
+    public Task<bool> SendConversationAsync(CancellationToken cancellationToken) =>
+        SubmitAsync(
+            (draft, context) => ConversationCommands.Send(draft, context),
+            conversationProjectionRequired: true,
+            cancellationToken);
 
     public Task<bool> ImportAsync(FileImportIntent intent, CancellationToken cancellationToken) =>
-        SubmitAsync(
-            new CommandSubmission(ImportCommands.Import(intent, Context()), true),
-            cancellationToken);
+        SubmitAsync((_, context) => ImportCommands.Import(intent, context), false, cancellationToken);
 
     public Task<bool> AnswerApprovalAsync(
         ApprovalAnswerIntent intent,
         CancellationToken cancellationToken) =>
-        SubmitAsync(
-            new CommandSubmission(ApprovalCommands.Answer(intent, Context()), true),
-            cancellationToken);
+        SubmitAsync((_, context) => ApprovalCommands.Answer(intent, context), false, cancellationToken);
 
     public Task<bool> CreateOfficeDocumentAsync(
         OfficeCreateIntent intent,
         CancellationToken cancellationToken) =>
-        SubmitAsync(
-            new CommandSubmission(OfficeCommands.Create(intent, Context()), true),
-            cancellationToken);
+        SubmitAsync((_, context) => OfficeCommands.Create(intent, context), false, cancellationToken);
 
     public Task<bool> SelectOfficeDocumentAsync(
         OfficeSelectIntent intent,
         CancellationToken cancellationToken) =>
-        SubmitAsync(
-            new CommandSubmission(OfficeCommands.Select(intent, Context()), true),
-            cancellationToken);
+        SubmitAsync((_, context) => OfficeCommands.Select(intent, context), false, cancellationToken);
 
     public Task<bool> OpenOfficeDocumentAsync(
         OfficeOpenIntent intent,
         CancellationToken cancellationToken) =>
-        SubmitAsync(
-            new CommandSubmission(OfficeCommands.Open(intent, Context()), true),
-            cancellationToken);
+        SubmitAsync((_, context) => OfficeCommands.Open(intent, context), false, cancellationToken);
 
     public Task<bool> CompareOfficeDocumentsAsync(
         OfficeCompareIntent intent,
         CancellationToken cancellationToken) =>
-        SubmitAsync(
-            new CommandSubmission(OfficeCommands.Compare(intent, Context()), true),
-            cancellationToken);
+        SubmitAsync((_, context) => OfficeCommands.Compare(intent, context), false, cancellationToken);
 
     public Task<bool> DraftOfficeDocumentAsync(
         OfficeDraftIntent intent,
         CancellationToken cancellationToken) =>
-        SubmitAsync(
-            new CommandSubmission(OfficeCommands.Draft(intent, Context()), true),
-            cancellationToken);
+        SubmitAsync((_, context) => OfficeCommands.Draft(intent, context), false, cancellationToken);
 
     public Task<bool> ConvertOfficeDocumentAsync(
         OfficeConvertIntent intent,
         CancellationToken cancellationToken) =>
-        SubmitAsync(
-            new CommandSubmission(OfficeCommands.Convert(intent, Context()), true),
-            cancellationToken);
+        SubmitAsync((_, context) => OfficeCommands.Convert(intent, context), false, cancellationToken);
 
     public async Task ReceiveCanonicalAsync(CancellationToken cancellationToken)
     {
@@ -99,26 +82,56 @@ public sealed partial class ShellCoordinator
     }
 
     private async Task<bool> SubmitAsync(
-        CommandSubmission submission,
+        Func<string, CommandRequestContext, NativeCommandRequest> requestFactory,
+        bool conversationProjectionRequired,
         CancellationToken cancellationToken)
     {
-        var request = submission.Request;
-        var availability = Availability(request.CommandType, submission.ProjectionPermits);
-        if (!availability.IsEnabled || _workflow.HasPendingCommand)
+        var commandId = CommandIdFactory();
+        var authority = CaptureConnectionAuthority();
+        NativeCommandRequest? request = null;
+        bool drain;
+        lock (_stateLock)
         {
-            if (!_connection.HasLiveCapability(DateTimeOffset.UtcNow))
+            if (conversationProjectionRequired && string.IsNullOrWhiteSpace(_workflow.Draft))
             {
-                ClearWorkflowAuthority();
+                return false;
+            }
+
+            var context = new CommandRequestContext(
+                commandId,
+                _projectionState?.Cursor ?? 0,
+                NativeHandshake.ViewId);
+            request = requestFactory(_workflow.Draft, context);
+            var projectionPermits = !conversationProjectionRequired || ProjectionPermitsConversationLocked();
+            var availability = AvailabilityLocked(request.CommandType, projectionPermits, authority);
+            if (!availability.IsEnabled || _workflow.HasPendingCommand)
+            {
+                if (!authority.IsLive)
+                {
+                    ClearWorkflowAuthorityLocked();
+                }
+                else
+                {
+                    RefreshMutationAvailabilityLocked(authority);
+                }
+                drain = EnqueuePresentationLocked(new(null, null, _workflow));
+                request = null;
             }
             else
             {
-                RefreshMutationAvailability();
+                _workflow = _workflow.Begin(request.CommandId, request.CommandType);
+                _pendingDraftRevision = conversationProjectionRequired ? _draftRevision : null;
+                RefreshMutationAvailabilityLocked(authority);
+                drain = EnqueuePresentationLocked(new(null, null, _workflow));
             }
+        }
+        DrainPresentations(drain);
+
+        if (request is null)
+        {
             return false;
         }
 
-        _workflow = _workflow.Begin(request.CommandId, request.CommandType);
-        RefreshMutationAvailability();
         try
         {
             if (_connection.OwnsReceiveLoop)
@@ -133,12 +146,16 @@ public sealed partial class ShellCoordinator
         }
         catch (NativeCommandRefusal refusal)
         {
-            _workflow = _workflow.Refuse(refusal.CommandId, refusal.Code, refusal.CurrentCursor);
-            RefreshMutationAvailability();
+            Refuse(refusal);
             return false;
         }
-        catch (NativeProtocolError) when (!_connection.HasLiveCapability(DateTimeOffset.UtcNow))
+        catch (NativeProtocolError)
         {
+            var currentAuthority = CaptureConnectionAuthority();
+            if (currentAuthority.IsLive)
+            {
+                throw;
+            }
             ClearWorkflowAuthority();
             return false;
         }
@@ -174,13 +191,10 @@ public sealed partial class ShellCoordinator
         {
             case "event":
                 _projectionStore.ApplyEvent(envelope);
-                ResolveFromCanonicalEvent(envelope);
-                PresentProjection();
                 break;
             case "surface_snapshot":
             case "surface_event":
                 _projectionStore.ApplySurface(envelope);
-                PresentProjection();
                 break;
             case "snapshot":
                 ApplyCanonicalSnapshot(envelope);
@@ -208,82 +222,132 @@ public sealed partial class ShellCoordinator
         }
 
         var acceptedCursor = Integer(receipt.Body, "accepted_cursor");
-        _workflow = _workflow.Accept(commandId, acceptedCursor);
-        RefreshMutationAvailability();
+        var authority = CaptureConnectionAuthority();
+        bool drain;
+        lock (_stateLock)
+        {
+            var draft = _workflow.Draft;
+            var preserveDraft = _pendingDraftRevision is { } submittedRevision
+                && submittedRevision != _draftRevision;
+            _workflow = _workflow.Accept(commandId, acceptedCursor);
+            if (preserveDraft)
+            {
+                _workflow = _workflow.WithDraft(draft);
+            }
+            RefreshMutationAvailabilityLocked(authority);
+            drain = EnqueuePresentationLocked(new(null, null, _workflow));
+        }
+        DrainPresentations(drain);
     }
 
-    private void ResolveFromCanonicalEvent(NativeEnvelope envelope)
+    private void Refuse(NativeCommandRefusal refusal)
     {
-        if (envelope.Body["command_id"] is NativeJsonString commandId)
+        var authority = CaptureConnectionAuthority();
+        bool drain;
+        lock (_stateLock)
         {
-            _workflow = _workflow.ResolveFromProjection(commandId.Value);
-            PresentWorkflow();
+            _workflow = _workflow.Refuse(refusal.CommandId, refusal.Code, refusal.CurrentCursor);
+            if (string.Equals(_workflow.CommandId, refusal.CommandId, StringComparison.Ordinal))
+            {
+                _pendingDraftRevision = null;
+            }
+            RefreshMutationAvailabilityLocked(authority);
+            drain = EnqueuePresentationLocked(new(null, null, _workflow));
+        }
+        DrainPresentations(drain);
+    }
+
+    private void ResolveFromCanonicalEventLocked(NativeEnvelope envelope)
+    {
+        if (envelope.Body["command_id"] is not NativeJsonString commandId)
+        {
+            return;
+        }
+
+        var draft = _workflow.Draft;
+        var preserveDraft = _pendingDraftRevision is { } submittedRevision
+            && submittedRevision != _draftRevision;
+        var resolved = _workflow.ResolveFromProjection(commandId.Value);
+        if (!ReferenceEquals(resolved, _workflow))
+        {
+            _workflow = preserveDraft ? resolved.WithDraft(draft) : resolved;
+            _pendingDraftRevision = null;
         }
     }
 
     private void ApplyCanonicalSnapshot(NativeEnvelope envelope)
     {
-        var current = _projectionStore.State
-            ?? throw new NativeProtocolError("E_STATE", "replacement snapshot requires canonical identity");
+        NativeProjectionState current;
+        lock (_stateLock)
+        {
+            current = _projectionState
+                ?? throw new NativeProtocolError("E_STATE", "replacement snapshot requires canonical identity");
+        }
         _projectionStore.ApplySnapshot(
             envelope,
             new NativeReadyIdentity(current.SessionId, current.InstanceId, string.Empty));
     }
 
-    private void PresentProjection()
-    {
-        if (_projectionStore.State is not { } state)
-        {
-            return;
-        }
-
-        var snapshot = WorkspaceSnapshotPresentation.FromProjection(state, "loopback");
-        _presentationModel.PresentSnapshot(snapshot, () => SnapshotApplied?.Invoke(snapshot));
-        RefreshMutationAvailability();
-    }
-
-    private CommandRequestContext Context() => new(
-        CommandIdFactory(),
-        _projectionStore.State?.Cursor ?? 0,
-        NativeHandshake.ViewId);
-
-    private MutationAvailability Availability(string commandType, bool projectionPermits) =>
+    private MutationAvailability AvailabilityLocked(
+        string commandType,
+        bool projectionPermits,
+        ConnectionAuthority authority) =>
         MutationAvailability.ForCommand(
             commandType,
             new MutationAuthoritySnapshot(
                 _connectionState,
-                _connection.HasLiveCapability(DateTimeOffset.UtcNow),
-                _connection.AdvertisedCommands,
+                authority.IsLive,
+                authority.AdvertisedCommands,
                 projectionPermits
                     && !_workflow.HasPendingCommand
-                    && _projectionStore.IsMutationAuthorityAvailable
-                    && _projectionStore.Status == Protocol.Projection.NativeProjectionStoreStatus.Current));
+                    && _projectionAuthorityAvailable
+                    && _projectionState is not null));
 
-    private bool ProjectionPermitsConversation() =>
-        _projectionStore.State?.Composer["can_send"] is NativeJsonBoolean { Value: true };
+    private bool ProjectionPermitsConversationLocked() =>
+        _projectionState?.Composer["can_send"] is NativeJsonBoolean { Value: true };
 
     private void RefreshMutationAvailability()
     {
+        var authority = CaptureConnectionAuthority();
+        bool drain;
+        lock (_stateLock)
+        {
+            RefreshMutationAvailabilityLocked(authority);
+            drain = EnqueuePresentationLocked(new(null, null, _workflow));
+        }
+        DrainPresentations(drain);
+    }
+
+    private void RefreshMutationAvailabilityLocked(ConnectionAuthority authority)
+    {
         _workflow = _workflow.WithAvailability(new MutationAvailabilitySet(
-            Availability(ConversationCommands.CommandType, ProjectionPermitsConversation()),
-            Availability(ImportCommands.CommandType, true),
-            Availability(ApprovalCommands.CommandType, true),
-            Availability(OfficeCommands.CreateCommandType, true),
-            Availability(OfficeCommands.SelectCommandType, true),
-            Availability(OfficeCommands.OpenCommandType, true),
-            Availability(OfficeCommands.CompareCommandType, true),
-            Availability(OfficeCommands.DraftCommandType, true),
-            Availability(OfficeCommands.ConvertCommandType, true)));
-        PresentWorkflow();
+            AvailabilityLocked(ConversationCommands.CommandType, ProjectionPermitsConversationLocked(), authority),
+            AvailabilityLocked(ImportCommands.CommandType, true, authority),
+            AvailabilityLocked(ApprovalCommands.CommandType, true, authority),
+            AvailabilityLocked(OfficeCommands.CreateCommandType, true, authority),
+            AvailabilityLocked(OfficeCommands.SelectCommandType, true, authority),
+            AvailabilityLocked(OfficeCommands.OpenCommandType, true, authority),
+            AvailabilityLocked(OfficeCommands.CompareCommandType, true, authority),
+            AvailabilityLocked(OfficeCommands.DraftCommandType, true, authority),
+            AvailabilityLocked(OfficeCommands.ConvertCommandType, true, authority)));
     }
 
     private void ClearWorkflowAuthority()
     {
-        _workflow = _workflow.ClearAuthority().WithAvailability(MutationAvailabilitySet.None);
-        PresentWorkflow();
+        bool drain;
+        lock (_stateLock)
+        {
+            ClearWorkflowAuthorityLocked();
+            drain = EnqueuePresentationLocked(new(null, null, _workflow));
+        }
+        DrainPresentations(drain);
     }
 
-    private void PresentWorkflow() => _presentationModel.PresentOfficeWorkflow(_workflow);
+    private void ClearWorkflowAuthorityLocked()
+    {
+        _workflow = _workflow.ClearAuthority().WithAvailability(MutationAvailabilitySet.None);
+        _pendingDraftRevision = null;
+    }
 
     private static string String(NativeJsonObject body, string key) =>
         body[key] is NativeJsonString text

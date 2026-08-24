@@ -1,9 +1,7 @@
 using System.ComponentModel;
-using System.Text;
 using System.Windows;
 using System.Windows.Controls;
 using Birkin.Native.Protocol.Framing;
-using Birkin.Native.Protocol.Messaging;
 using Birkin.Native.Protocol.Projection;
 using Birkin.Native.Shell.Presentation;
 
@@ -13,8 +11,8 @@ public partial class DiffView : UserControl, INotifyPropertyChanged
 {
     private readonly ShellPresentationModel? _model;
     private readonly NativeProjectionStore? _projectionStore;
-    private PanelItemPresentation? _canonicalDiff;
-    private IReadOnlyList<PanelItemPresentation> _diffRows = [];
+    private OfficeDiffPresentation? _canonicalDiff;
+    private IReadOnlyList<OfficeDiffRowPresentation> _diffRows = [];
 
     public DiffView()
     {
@@ -41,7 +39,12 @@ public partial class DiffView : UserControl, INotifyPropertyChanged
     }
 
     public event PropertyChangedEventHandler? PropertyChanged;
-    public IReadOnlyList<PanelItemPresentation> DiffRows
+
+    public string ApprovalStateText => _canonicalDiff?.ApprovalState == OfficeDiffApprovalState.Approved
+        ? "APPROVED"
+        : "BEFORE APPROVAL";
+
+    public IReadOnlyList<OfficeDiffRowPresentation> DiffRows
     {
         get => _diffRows;
         private set
@@ -61,20 +64,26 @@ public partial class DiffView : UserControl, INotifyPropertyChanged
 
     private void CanonicalApplied(NativeEnvelope envelope)
     {
-        if (envelope.Kind != NativeMessageKind.Event
-            || envelope.Body["type"] is not NativeJsonString { Value: "office.diff_ready" }
-            || envelope.Body["payload"] is not NativeJsonObject payload
-            || payload["result"] is not NativeJsonObject result
-            || result["diff"] is not NativeJsonObject diff
-            || diff["diff_id"] is not NativeJsonString diffId)
+        if (_canonicalDiff is { } current
+            && OfficeDiffPresentationMapper.IsCorrelatedApprovalReceipt(envelope, current.DiffId))
+        {
+            _ = Dispatcher.BeginInvoke(() =>
+            {
+                _canonicalDiff = current with { ApprovalState = OfficeDiffApprovalState.Approved };
+                PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(ApprovalStateText)));
+            });
+            return;
+        }
+
+        if (OfficeDiffPresentationMapper.FromCanonical(envelope) is not { } presentation)
         {
             return;
         }
 
-        var summary = Encoding.UTF8.GetString(NativeJsonSerializer.Serialize(diff));
         _ = Dispatcher.BeginInvoke(() =>
         {
-            _canonicalDiff = new PanelItemPresentation(diffId.Value, "diff", summary);
+            _canonicalDiff = presentation;
+            PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(ApprovalStateText)));
             UpdateRows();
         });
     }
@@ -82,8 +91,9 @@ public partial class DiffView : UserControl, INotifyPropertyChanged
     private void UpdateRows()
     {
         var projected = _model?.Workspace?.Office
-            .Where(row => string.Equals(row.Kind, "diff", StringComparison.Ordinal)) ?? [];
-        DiffRows = _canonicalDiff is null ? projected.ToArray() : [.. projected, _canonicalDiff];
+            .Where(row => string.Equals(row.Kind, "diff", StringComparison.Ordinal))
+            .Select(OfficeDiffPresentationMapper.FromProjected) ?? [];
+        DiffRows = _canonicalDiff?.Rows ?? projected.ToArray();
         Visibility = DiffRows.Count == 0 ? Visibility.Collapsed : Visibility.Visible;
     }
 

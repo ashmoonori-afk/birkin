@@ -19,7 +19,12 @@ public sealed class ProviderOfficeDeterministicSeamTests
     {
         using var deadline = new CancellationTokenSource(TimeSpan.FromSeconds(90));
         var repositoryRoot = FindRepositoryRoot();
-        var evidenceRoot = Path.Combine(Path.GetTempPath(), $"birkin-provider-office-seam-{Guid.NewGuid():N}");
+        var evidenceRoot = Path.Combine(
+            repositoryRoot, ".omo", "evidence", "native-windows-20260824", "final-review-fixes", "g");
+        if (Directory.Exists(evidenceRoot))
+        {
+            Directory.Delete(evidenceRoot, recursive: true);
+        }
         var evidence = new ProviderOfficeEvidence(evidenceRoot);
         var bridge = await BridgeProcessHarness.StartAsync(deadline.Token);
         await using (bridge)
@@ -70,7 +75,11 @@ public sealed class ProviderOfficeDeterministicSeamTests
 
         Assert.IsTrue(bridge.OwnedProcessExited);
         Assert.IsTrue(bridge.TemporaryRootDeleted);
-        Directory.Delete(evidenceRoot, recursive: true);
+        evidence.Record("cleanup", new Dictionary<string, object?>
+        {
+            ["owned_process_exited"] = bridge.OwnedProcessExited,
+            ["temporary_root_deleted"] = bridge.TemporaryRootDeleted,
+        });
     }
 
     private static string FindRepositoryRoot()
