@@ -18,34 +18,40 @@ import sys
 from pathlib import Path
 
 from birkin.native.protocol import (
+    JSONValue,
     MAX_FRAME_BYTES,
     MAX_JSON_DEPTH,
     NATIVE_PROTOCOL_NAME,
     NATIVE_PROTOCOL_VERSION,
+    NativeProtocolError,
     decode_frame,
     encode_frame,
 )
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
-from scripts.native.native_vector_catalogue import build_vectors  # noqa: E402
+from scripts.native.native_vector_catalogue import (  # noqa: E402
+    build_invalid_vectors,
+    build_vectors,
+)
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
-FIXTURE_PATH = (
+GOLDEN_VECTORS = (
     REPO_ROOT
     / "macos"
     / "BirkinNativeApp"
     / "Tests"
     / "BirkinNativeProtocolTests"
     / "GoldenVectors"
-    / "native-protocol-vectors.json"
 )
+FIXTURE_PATH = GOLDEN_VECTORS / "native-protocol-vectors.json"
+INVALID_FIXTURE_PATH = GOLDEN_VECTORS / "native-protocol-invalid-vectors.json"
 
 
 def render_fixture() -> str:
     """Render the fixture document, checking every frame round-trips first."""
 
-    vectors: list[dict[str, object]] = []
+    vectors: list[dict[str, JSONValue]] = []
     for name, envelope in build_vectors():
         frame = encode_frame(envelope)
         if decode_frame(frame).to_dict() != envelope:
@@ -75,10 +81,48 @@ def render_fixture() -> str:
     return json.dumps(document, ensure_ascii=False, indent=2) + "\n"
 
 
+def render_invalid_fixture() -> str:
+    """Render raw invalid frames after proving Python emits each expected code."""
+
+    vectors: list[dict[str, JSONValue]] = []
+    for vector in build_invalid_vectors():
+        try:
+            _ = decode_frame(vector.frame)
+        except NativeProtocolError as error:
+            if error.code != vector.expected_error_code:
+                raise SystemExit(
+                    f"invalid vector {vector.name!r} emitted {error.code}, "
+                    + f"expected {vector.expected_error_code}"
+                ) from error
+        else:
+            raise SystemExit(f"invalid vector {vector.name!r} was accepted")
+        vectors.append(
+            {
+                "name": vector.name,
+                "category": vector.category,
+                "frame_base64": base64.b64encode(vector.frame).decode("ascii"),
+                "expected_error_code": vector.expected_error_code,
+            }
+        )
+    document = {
+        "schema_version": 1,
+        "generated_by": "scripts/native/generate_golden_vectors.py",
+        "source_module": "birkin.native.protocol",
+        "normative_decoder": "birkin.native.protocol.decode_frame",
+        "vectors": vectors,
+    }
+    return json.dumps(document, ensure_ascii=False, indent=2) + "\n"
+
+
 def main() -> None:
-    FIXTURE_PATH.parent.mkdir(parents=True, exist_ok=True)
-    _ = FIXTURE_PATH.write_text(render_fixture(), encoding="utf-8")
-    print(f"wrote {FIXTURE_PATH.relative_to(REPO_ROOT)}")
+    GOLDEN_VECTORS.mkdir(parents=True, exist_ok=True)
+    outputs = (
+        (FIXTURE_PATH, render_fixture()),
+        (INVALID_FIXTURE_PATH, render_invalid_fixture()),
+    )
+    for path, content in outputs:
+        _ = path.write_text(content, encoding="utf-8")
+        print(f"wrote {path.relative_to(REPO_ROOT)}")
 
 
 if __name__ == "__main__":

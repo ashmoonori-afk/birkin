@@ -1344,8 +1344,8 @@ def build_parser() -> argparse.ArgumentParser:
     nb_serve.add_argument(
         "--transport",
         choices=("uds", "loopback"),
-        default="uds",
-        help="private Unix socket (default) or private loopback fallback",
+        default=None,
+        help="private Unix socket on POSIX or private loopback on Windows (default)",
     )
     nb_serve.add_argument(
         "--session-id",

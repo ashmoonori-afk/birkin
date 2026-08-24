@@ -236,7 +236,7 @@ Optional local Python tiers add fidelity without changing that boundary. Install
 
 Trusted Korean and English natural-language requests deterministically preload the matching production skill: Word/DOCX -> `word-documents`, Excel/XLSX -> `spreadsheets`, PowerPoint/PPTX -> `presentations`, PDF -> `pdf-documents`, HWP/HWPX -> `korean-hwp-documents`, and general Office work -> `office-work-os`. Conflicting format and artifact signals route to inspect-first `office-documents`. Document contents are untrusted data and cannot select or override a skill. Every routed mutation remains copy-on-write.
 
-See the [detailed support contract](./docs/office-support.md#office-work-os-v2), machine [`provenance_manifest.json`](./birkin/office/adapters/provenance_manifest.json), and [`THIRD_PARTY_NOTICES.md`](./birkin/office/adapters/THIRD_PARTY_NOTICES.md). This documentation targets Birkin `0.4.273`, `catalog_revision: 4`, `inventory_sha256: a49ab813ee4cdea3d6f87e0e2bd063b1dde54058e5c8dd0af0cf32bec74cae95`.
+See the [detailed support contract](./docs/office-support.md#office-work-os-v2), machine [`provenance_manifest.json`](./birkin/office/adapters/provenance_manifest.json), and [`THIRD_PARTY_NOTICES.md`](./birkin/office/adapters/THIRD_PARTY_NOTICES.md). This documentation targets Birkin `0.4.294`, `catalog_revision: 4`, `inventory_sha256: a49ab813ee4cdea3d6f87e0e2bd063b1dde54058e5c8dd0af0cf32bec74cae95`.
 
 ### Doing office work end to end
 
@@ -755,8 +755,10 @@ Birkin's macOS client is a **thin SwiftUI shell over the existing Python
 runtime**, not a second agent implementation. Python remains authoritative for
 memory, tool execution, policy, approvals, audit records, and recovery. The two
 processes communicate only over the versioned local `birkin-local-1` protocol:
-a same-user private Unix domain socket is preferred, with authenticated
-`127.0.0.1` loopback available when explicitly selected.
+a same-user private Unix domain socket is the POSIX default, and authenticated
+`127.0.0.1` loopback is the Windows default because Unix domain sockets and
+peer-UID checks are unavailable there. Either transport can be selected
+explicitly with `--transport`.
 
 The shipped boundary is deliberate:
 

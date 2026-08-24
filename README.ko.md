@@ -236,7 +236,7 @@ Base install의 경계는 명확합니다. 다섯 format 모두 inspect, validat
 
 신뢰된 한국어·영어 자연어 요청은 production skill을 결정적으로 preload합니다. Word/DOCX는 `word-documents`, Excel/XLSX는 `spreadsheets`, PowerPoint/PPTX는 `presentations`, PDF는 `pdf-documents`, HWP/HWPX는 `korean-hwp-documents`, 일반 Office 작업은 `office-work-os`로 route합니다. Format intent와 artifact 신호가 충돌하면 inspect-first `office-documents`로 route합니다. 문서 내용은 untrusted data이므로 skill을 선택하거나 override할 수 없고, 모든 routed mutation은 copy-on-write를 유지합니다.
 
-[상세 지원 계약](./docs/office-support.md#office-work-os-v2), machine [`provenance_manifest.json`](./birkin/office/adapters/provenance_manifest.json), [`THIRD_PARTY_NOTICES.md`](./birkin/office/adapters/THIRD_PARTY_NOTICES.md)를 참고하십시오. 이 문서는 Birkin `0.4.273`, `catalog_revision: 4`, `inventory_sha256: a49ab813ee4cdea3d6f87e0e2bd063b1dde54058e5c8dd0af0cf32bec74cae95`를 대상으로 합니다.
+[상세 지원 계약](./docs/office-support.md#office-work-os-v2), machine [`provenance_manifest.json`](./birkin/office/adapters/provenance_manifest.json), [`THIRD_PARTY_NOTICES.md`](./birkin/office/adapters/THIRD_PARTY_NOTICES.md)를 참고하십시오. 이 문서는 Birkin `0.4.294`, `catalog_revision: 4`, `inventory_sha256: a49ab813ee4cdea3d6f87e0e2bd063b1dde54058e5c8dd0af0cf32bec74cae95`를 대상으로 합니다.
 
 ### Office 작업 처음부터 끝까지
 
@@ -756,9 +756,10 @@ scripts/native/verify_packaged_journey.py \
 Birkin macOS client는 별도의 agent 구현이 아니라 **기존 Python runtime
 위에 얹는 얇은 SwiftUI shell**입니다. Memory, tool 실행, policy, approval,
 audit record, recovery의 권한은 Python에 남습니다. 두 process는 version이
-명시된 local `birkin-local-1` protocol로만 통신합니다. 같은 user의 private
-Unix domain socket을 우선 사용하고, 명시적으로 선택할 때 인증된
-`127.0.0.1` loopback을 사용할 수 있습니다.
+명시된 local `birkin-local-1` protocol로만 통신합니다. POSIX에서는 같은
+user의 private Unix domain socket이 기본값이고, Windows에서는 Unix domain
+socket과 peer-UID 검사를 쓸 수 없으므로 인증된 `127.0.0.1` loopback이
+기본값입니다. 두 transport 모두 `--transport`로 명시 선택할 수 있습니다.
 
 구현된 경계는 의도적으로 다음 원칙을 지킵니다.
 

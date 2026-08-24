@@ -93,15 +93,18 @@ class NativeServeOptions:
     def resolve(
         cls,
         *,
-        transport: str = "uds",
+        transport: str | None = None,
         session_id: str | None = None,
         root: Path | None = None,
     ) -> NativeServeOptions:
-        if transport not in _SUPPORTED_TRANSPORTS:
+        resolved_transport = (
+            "loopback" if os.name == "nt" else "uds"
+        ) if transport is None else transport
+        if resolved_transport not in _SUPPORTED_TRANSPORTS:
             raise ValueError(f"transport must be one of {_SUPPORTED_TRANSPORTS}")
         resolved_root = root or (config.birkin_home() / "native-bridge")
         return cls(
-            transport=transport,
+            transport=resolved_transport,
             session_id=session_id or DEFAULT_SESSION_ID,
             root=resolved_root.expanduser(),
         )
