@@ -1,0 +1,72 @@
+<ResourceDictionary xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+                    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+    <SolidColorBrush x:Key="CanvasBrush" Color="#0B0D0E" />
+    <SolidColorBrush x:Key="CardBrush" Color="#121415" />
+    <SolidColorBrush x:Key="RaisedBrush" Color="#1A1C1D" />
+    <SolidColorBrush x:Key="TerminalBrush" Color="#090A0A" />
+    <SolidColorBrush x:Key="BorderBrush" Color="#343638" />
+    <SolidColorBrush x:Key="TextBrush" Color="#E7E2D8" />
+    <SolidColorBrush x:Key="MutedBrush" Color="#99968F" />
+    <SolidColorBrush x:Key="FaintBrush" Color="#6F706D" />
+    <SolidColorBrush x:Key="AccentBrush" Color="#E2A44F" />
+    <SolidColorBrush x:Key="SuccessBrush" Color="#55C96D" />
+    <SolidColorBrush x:Key="DangerBrush" Color="#F05C61" />
+
+    <Style TargetType="ToolTip">
+        <Setter Property="Background" Value="{StaticResource RaisedBrush}" />
+        <Setter Property="Foreground" Value="{StaticResource TextBrush}" />
+    </Style>
+    <Style x:Key="CardStyle" TargetType="Border">
+        <Setter Property="Background" Value="{StaticResource CardBrush}" />
+        <Setter Property="BorderBrush" Value="{StaticResource BorderBrush}" />
+        <Setter Property="BorderThickness" Value="1" />
+        <Setter Property="CornerRadius" Value="10" />
+        <Setter Property="Padding" Value="14" />
+    </Style>
+    <Style x:Key="SectionTitleStyle" TargetType="TextBlock">
+        <Setter Property="Foreground" Value="{StaticResource TextBrush}" />
+        <Setter Property="FontSize" Value="17" />
+        <Setter Property="FontWeight" Value="SemiBold" />
+        <Setter Property="VerticalAlignment" Value="Center" />
+    </Style>
+    <Style x:Key="MutedTextStyle" TargetType="TextBlock">
+        <Setter Property="Foreground" Value="{StaticResource MutedBrush}" />
+        <Setter Property="FontSize" Value="12" />
+        <Setter Property="TextWrapping" Value="Wrap" />
+    </Style>
+    <Style x:Key="GlyphStyle" TargetType="TextBlock">
+        <Setter Property="Foreground" Value="{StaticResource FaintBrush}" />
+        <Setter Property="FontFamily" Value="Segoe MDL2 Assets" />
+        <Setter Property="FontSize" Value="30" />
+        <Setter Property="HorizontalAlignment" Value="Center" />
+    </Style>
+    <Style x:Key="DisabledActionStyle" TargetType="Button">
+        <Setter Property="IsEnabled" Value="False" />
+        <Setter Property="Foreground" Value="{StaticResource MutedBrush}" />
+        <Setter Property="Background" Value="{StaticResource RaisedBrush}" />
+        <Setter Property="BorderBrush" Value="{StaticResource BorderBrush}" />
+        <Setter Property="BorderThickness" Value="1" />
+        <Setter Property="Padding" Value="9,6" />
+        <Setter Property="MinHeight" Value="32" />
+        <Setter Property="Opacity" Value="0.82" />
+        <Setter Property="Template">
+            <Setter.Value>
+                <ControlTemplate TargetType="Button">
+                    <Border Background="{TemplateBinding Background}"
+                            BorderBrush="{TemplateBinding BorderBrush}"
+                            BorderThickness="{TemplateBinding BorderThickness}"
+                            CornerRadius="6"
+                            Padding="{TemplateBinding Padding}">
+                        <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center" />
+                    </Border>
+                </ControlTemplate>
+            </Setter.Value>
+        </Setter>
+    </Style>
+    <Style x:Key="EmptyStateStyle" TargetType="Border">
+        <Setter Property="BorderBrush" Value="{StaticResource BorderBrush}" />
+        <Setter Property="BorderThickness" Value="1" />
+        <Setter Property="CornerRadius" Value="8" />
+        <Setter Property="Padding" Value="16" />
+    </Style>
+</ResourceDictionary>

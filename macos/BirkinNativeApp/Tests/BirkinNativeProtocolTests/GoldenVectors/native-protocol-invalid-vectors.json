@@ -1,0 +1,128 @@
+{
+  "schema_version": 1,
+  "generated_by": "scripts/native/generate_golden_vectors.py",
+  "source_module": "birkin.native.protocol",
+  "normative_decoder": "birkin.native.protocol.decode_frame",
+  "vectors": [
+    {
+      "name": "incomplete_header",
+      "category": "frame_length",
+      "frame_base64": "AAAA",
+      "expected_error_code": "E_FRAME_INCOMPLETE"
+    },
+    {
+      "name": "incomplete_body",
+      "category": "frame_length",
+      "frame_base64": "AAAAA3t9",
+      "expected_error_code": "E_FRAME_INCOMPLETE"
+    },
+    {
+      "name": "oversized_declared_body",
+      "category": "frame_length",
+      "frame_base64": "AAQAAQ==",
+      "expected_error_code": "E_FRAME_TOO_LARGE"
+    },
+    {
+      "name": "trailing_data",
+      "category": "frame_length",
+      "frame_base64": "AAAAbnsicHJvdG9jb2wiOiJiaXJraW4tbG9jYWwtMSIsInByb3RvY29sX3ZlcnNpb24iOjEsImtpbmQiOiJwaW5nIiwiaWQiOiJpbnZhbGlkLTEiLCJpbl9yZXBseV90byI6bnVsbCwiYm9keSI6e319IA==",
+      "expected_error_code": "E_FRAME_TRAILING_DATA"
+    },
+    {
+      "name": "invalid_utf8",
+      "category": "utf8",
+      "frame_base64": "AAAAAf8=",
+      "expected_error_code": "E_INVALID_UTF8"
+    },
+    {
+      "name": "malformed_json",
+      "category": "json_syntax",
+      "frame_base64": "AAAAAXs=",
+      "expected_error_code": "E_JSON"
+    },
+    {
+      "name": "non_object_envelope",
+      "category": "envelope_shape",
+      "frame_base64": "AAAAAltd",
+      "expected_error_code": "E_JSON"
+    },
+    {
+      "name": "duplicate_object_key",
+      "category": "duplicate_key",
+      "frame_base64": "AAAAfHsicHJvdG9jb2wiOiJiaXJraW4tbG9jYWwtMSIsInByb3RvY29sX3ZlcnNpb24iOjEsImtpbmQiOiJwaW5nIiwia2luZCI6InBvbmciLCJpZCI6ImludmFsaWQtMSIsImluX3JlcGx5X3RvIjpudWxsLCJib2R5Ijp7fX0=",
+      "expected_error_code": "E_DUPLICATE_KEY"
+    },
+    {
+      "name": "lone_surrogate",
+      "category": "unicode",
+      "frame_base64": "AAAAfnsicHJvdG9jb2wiOiJiaXJraW4tbG9jYWwtMSIsInByb3RvY29sX3ZlcnNpb24iOjEsImtpbmQiOiJwaW5nIiwiaWQiOiJpbnZhbGlkLTEiLCJpbl9yZXBseV90byI6bnVsbCwiYm9keSI6eyJ2YWx1ZSI6Ilx1ZDgwMCJ9fQ==",
+      "expected_error_code": "E_JSON"
+    },
+    {
+      "name": "nonfinite_number",
+      "category": "number",
+      "frame_base64": "AAAAeXsicHJvdG9jb2wiOiJiaXJraW4tbG9jYWwtMSIsInByb3RvY29sX3ZlcnNpb24iOjEsImtpbmQiOiJwaW5nIiwiaWQiOiJpbnZhbGlkLTEiLCJpbl9yZXBseV90byI6bnVsbCwiYm9keSI6eyJ2YWx1ZSI6TmFOfX0=",
+      "expected_error_code": "E_NONFINITE_NUMBER"
+    },
+    {
+      "name": "signed_64_overflow",
+      "category": "number",
+      "frame_base64": "AAAAjHsicHJvdG9jb2wiOiJiaXJraW4tbG9jYWwtMSIsInByb3RvY29sX3ZlcnNpb24iOjEsImtpbmQiOiJwaW5nIiwiaWQiOiJpbnZhbGlkLTEiLCJpbl9yZXBseV90byI6bnVsbCwiYm9keSI6eyJ2YWx1ZSI6MTE4MDU5MTYyMDcxNzQxMTMwMzQyNH19",
+      "expected_error_code": "E_JSON"
+    },
+    {
+      "name": "parser_depth",
+      "category": "json_depth",
+      "frame_base64": "AAABeXsicHJvdG9jb2wiOiJiaXJraW4tbG9jYWwtMSIsInByb3RvY29sX3ZlcnNpb24iOjEsImtpbmQiOiJwaW5nIiwiaWQiOiJpbnZhbGlkLTEiLCJpbl9yZXBseV90byI6bnVsbCwiYm9keSI6eyJ2YWx1ZSI6W1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbMF1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXX19",
+      "expected_error_code": "E_JSON_DEPTH"
+    },
+    {
+      "name": "body_depth",
+      "category": "json_depth",
+      "frame_base64": "AAAA5nsicHJvdG9jb2wiOiJiaXJraW4tbG9jYWwtMSIsInByb3RvY29sX3ZlcnNpb24iOjEsImtpbmQiOiJwaW5nIiwiaWQiOiJpbnZhbGlkLTEiLCJpbl9yZXBseV90byI6bnVsbCwiYm9keSI6eyJjaGlsZCI6eyJjaGlsZCI6eyJjaGlsZCI6eyJjaGlsZCI6eyJjaGlsZCI6eyJjaGlsZCI6eyJjaGlsZCI6eyJjaGlsZCI6eyJjaGlsZCI6eyJjaGlsZCI6eyJjaGlsZCI6eyJjaGlsZCI6e319fX19fX19fX19fX19",
+      "expected_error_code": "E_JSON_DEPTH"
+    },
+    {
+      "name": "missing_protocol_version",
+      "category": "envelope_keys",
+      "frame_base64": "AAAAWXsicHJvdG9jb2wiOiJiaXJraW4tbG9jYWwtMSIsImtpbmQiOiJwaW5nIiwiaWQiOiJpbnZhbGlkLTEiLCJpbl9yZXBseV90byI6bnVsbCwiYm9keSI6e319",
+      "expected_error_code": "E_ENVELOPE_KEYS"
+    },
+    {
+      "name": "unsupported_protocol_version",
+      "category": "protocol_version",
+      "frame_base64": "AAAAbnsicHJvdG9jb2wiOiJiaXJraW4tbG9jYWwtMSIsInByb3RvY29sX3ZlcnNpb24iOjIsImtpbmQiOiJwaW5nIiwiaWQiOiJpbnZhbGlkLTEiLCJpbl9yZXBseV90byI6bnVsbCwiYm9keSI6e319",
+      "expected_error_code": "E_PROTOCOL_VERSION"
+    },
+    {
+      "name": "invalid_protocol_version_type",
+      "category": "protocol_version",
+      "frame_base64": "AAAAcHsicHJvdG9jb2wiOiJiaXJraW4tbG9jYWwtMSIsInByb3RvY29sX3ZlcnNpb24iOiIxIiwia2luZCI6InBpbmciLCJpZCI6ImludmFsaWQtMSIsImluX3JlcGx5X3RvIjpudWxsLCJib2R5Ijp7fX0=",
+      "expected_error_code": "E_PROTOCOL_VERSION"
+    },
+    {
+      "name": "missing_message_type",
+      "category": "envelope_keys",
+      "frame_base64": "AAAAYHsicHJvdG9jb2wiOiJiaXJraW4tbG9jYWwtMSIsInByb3RvY29sX3ZlcnNpb24iOjEsImlkIjoiaW52YWxpZC0xIiwiaW5fcmVwbHlfdG8iOm51bGwsImJvZHkiOnt9fQ==",
+      "expected_error_code": "E_ENVELOPE_KEYS"
+    },
+    {
+      "name": "invalid_message_type",
+      "category": "message_type",
+      "frame_base64": "AAAAcnsicHJvdG9jb2wiOiJiaXJraW4tbG9jYWwtMSIsInByb3RvY29sX3ZlcnNpb24iOjEsImtpbmQiOiJpbnZlbnRlZCIsImlkIjoiaW52YWxpZC0xIiwiaW5fcmVwbHlfdG8iOm51bGwsImJvZHkiOnt9fQ==",
+      "expected_error_code": "E_KIND"
+    },
+    {
+      "name": "invalid_identifier",
+      "category": "identifier",
+      "frame_base64": "AAAAc3sicHJvdG9jb2wiOiJiaXJraW4tbG9jYWwtMSIsInByb3RvY29sX3ZlcnNpb24iOjEsImtpbmQiOiJwaW5nIiwiaWQiOiJjb250YWlucyBzcGFjZSIsImluX3JlcGx5X3RvIjpudWxsLCJib2R5Ijp7fX0=",
+      "expected_error_code": "E_IDENTIFIER"
+    },
+    {
+      "name": "non_object_body",
+      "category": "body_shape",
+      "frame_base64": "AAAAbnsicHJvdG9jb2wiOiJiaXJraW4tbG9jYWwtMSIsInByb3RvY29sX3ZlcnNpb24iOjEsImtpbmQiOiJwaW5nIiwiaWQiOiJpbnZhbGlkLTEiLCJpbl9yZXBseV90byI6bnVsbCwiYm9keSI6W119",
+      "expected_error_code": "E_JSON"
+    }
+  ]
+}

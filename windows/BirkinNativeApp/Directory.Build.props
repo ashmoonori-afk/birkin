@@ -1,0 +1,14 @@
+<Project>
+  <PropertyGroup>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Deterministic>true</Deterministic>
+    <EnableNETAnalyzers>true</EnableNETAnalyzers>
+    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+    <!-- Derive this from the auto-bump hook's source of truth rather than pinning a version. -->
+    <BirkinVersionFile>$([System.IO.Path]::GetFullPath('$(MSBuildThisFileDirectory)..\..\birkin\__init__.py'))</BirkinVersionFile>
+    <BirkinProductVersion>$([System.Text.RegularExpressions.Regex]::Match($([System.IO.File]::ReadAllText('$(BirkinVersionFile)')), '(?&lt;=__version__ = ")[^"]+(?=")').Value)</BirkinProductVersion>
+    <Version>$(BirkinProductVersion)</Version>
+    <AssemblyInformationalVersion>$(BirkinProductVersion)</AssemblyInformationalVersion>
+  </PropertyGroup>
+</Project>
