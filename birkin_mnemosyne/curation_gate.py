@@ -1,8 +1,9 @@
+"""Deterministic safety gate and dense-zone link expansion."""
+
 from __future__ import annotations
 
 import math
 from datetime import datetime, timezone
-from typing import Any
 
 from . import mnemosyne
 from .curation_contract import (
@@ -10,156 +11,209 @@ from .curation_contract import (
     ARCHIVE_CAP_MIN,
     OPS,
     PROTECT_TYPES,
+    CurationNote,
     GateResult,
 )
+from .json_types import JsonObject
 from .mnemosyne import Mnemosyne
 
 
-def _is_protected(dex: Mnemosyne, s: str, snap: dict[str, dict]) -> bool:
-    e = snap.get(s)
-    if e is None:
+def _str_field(raw: JsonObject, key: str) -> str | None:
+    value = raw.get(key)
+    return value if isinstance(value, str) else None
+
+
+def _is_protected(note_slug: str, snap: dict[str, CurationNote]) -> bool:
+    entry = snap.get(note_slug)
+    if entry is None:
         return False
-    if e.get("polarity") == "negative":
+    if entry["polarity"] == "negative" or entry["type"] in PROTECT_TYPES:
         return True
-    if e.get("type") in PROTECT_TYPES:
-        return True
-    zone = e.get("zone") or ""
-    if zone and zone != mnemosyne.ARCHIVE_ZONE and e.get("links"):
-        return True
-    return False
-
-
-def validate_clamp(plan: dict[str, Any], dex: Mnemosyne,
-                   snap: dict[str, dict],
-                   now: datetime | None = None) -> GateResult:
-    now = now or datetime.now(timezone.utc)
-    res = GateResult()
-    known = set(snap)
-    active = [s for s, e in snap.items()
-              if (e.get("zone") or "") != mnemosyne.ARCHIVE_ZONE]
-    raw_archive_cap = (
-        max(ARCHIVE_CAP_MIN,
-            math.ceil(ARCHIVE_CAP_FRACTION * max(1, len(active))))
-        if active else 0
+    zone = entry["zone"]
+    return bool(
+        zone
+        and zone != mnemosyne.ARCHIVE_ZONE
+        and entry["links"]
     )
-    res.archive_cap = min(raw_archive_cap, max(0, len(active) - 1))
 
-    def _str_field(raw: dict[str, Any], key: str) -> str | None:
-        v = raw.get(key)
-        return v if isinstance(v, str) else None
 
-    archive_ops: list[dict[str, Any]] = []
-    for raw in plan.get("ops", []):
-        if not isinstance(raw, dict):
-            res.drop({"op": "?"}, "not an object")
+def validate_clamp(
+    plan: JsonObject,
+    dex: Mnemosyne,
+    snap: dict[str, CurationNote],
+    now: datetime | None = None,
+) -> GateResult:
+    """Validate plan operations and clamp archives to the safety cap."""
+    observed_at = now or datetime.now(timezone.utc)
+    result = GateResult()
+    known = set(snap)
+    active = [
+        note_slug
+        for note_slug, entry in snap.items()
+        if entry["zone"] != mnemosyne.ARCHIVE_ZONE
+    ]
+    raw_archive_cap = (
+        max(
+            ARCHIVE_CAP_MIN,
+            math.ceil(ARCHIVE_CAP_FRACTION * max(1, len(active))),
+        )
+        if active
+        else 0
+    )
+    result.archive_cap = min(raw_archive_cap, max(0, len(active) - 1))
+
+    archive_ops: list[JsonObject] = []
+    raw_ops = plan.get("ops", [])
+    operations = raw_ops if isinstance(raw_ops, list) else []
+    for raw_value in operations:
+        if not isinstance(raw_value, dict):
+            result.drop({"op": "?"}, "not an object")
             continue
+        raw = raw_value
         op = raw.get("op")
         if not isinstance(op, str) or op not in OPS:
-            res.drop({"op": str(op)[:40]}, f"unknown op {op!r}"[:60])
+            result.drop({"op": str(op)[:40]}, f"unknown op {op!r}"[:60])
             continue
         if op == "rezone":
-            s, zone = _str_field(raw, "slug"), str(raw.get("zone", ""))
-            if s is None or s not in known:
-                res.drop(raw, "unknown slug")
+            note_slug = _str_field(raw, "slug")
+            zone = str(raw.get("zone", ""))
+            if note_slug is None or note_slug not in known:
+                result.drop(raw, "unknown slug")
             elif zone in ("", "inbox"):
-                res.drop(raw, "rezone needs a real zone")
+                result.drop(raw, "rezone needs a real zone")
             elif zone.strip().lower().replace(" ", "") == mnemosyne.ARCHIVE_ZONE:
-                res.drop(raw, "rezone_to_archive_rejected")
+                result.drop(raw, "rezone_to_archive_rejected")
             elif not mnemosyne.ZONE_RE.fullmatch(zone):
-                res.drop(raw, "invalid zone name")
+                result.drop(raw, "invalid zone name")
             else:
-                res.accepted.append(raw)
+                result.accepted.append(raw)
         elif op == "link":
-            a, b = _str_field(raw, "a"), _str_field(raw, "b")
-            if a is None or b is None or a not in known or b not in known:
-                res.drop(raw, "unknown slug")
-            elif a == b:
-                res.drop(raw, "self-link")
+            left = _str_field(raw, "a")
+            right = _str_field(raw, "b")
+            if (
+                left is None
+                or right is None
+                or left not in known
+                or right not in known
+            ):
+                result.drop(raw, "unknown slug")
+            elif left == right:
+                result.drop(raw, "self-link")
             else:
-                res.accepted.append(raw)
+                result.accepted.append(raw)
         elif op == "supersede":
-            st, by = _str_field(raw, "stale"), _str_field(raw, "by")
-            if st is None or by is None or st not in known or by not in known:
-                res.drop(raw, "unknown slug")
-            elif st == by:
-                res.drop(raw, "self-supersede")
+            stale = _str_field(raw, "stale")
+            replacement = _str_field(raw, "by")
+            if (
+                stale is None
+                or replacement is None
+                or stale not in known
+                or replacement not in known
+            ):
+                result.drop(raw, "unknown slug")
+            elif stale == replacement:
+                result.drop(raw, "self-supersede")
             else:
-                res.accepted.append(raw)
+                result.accepted.append(raw)
         elif op == "archive":
-            s = _str_field(raw, "slug")
-            if s is None or s not in known:
-                res.drop(raw, "unknown slug")
-            elif (snap[s].get("zone") or "") == mnemosyne.ARCHIVE_ZONE:
-                res.drop(raw, "already archived")
-            elif _is_protected(dex, s, snap):
-                res.drop(raw, "protected note")
+            note_slug = _str_field(raw, "slug")
+            if note_slug is None or note_slug not in known:
+                result.drop(raw, "unknown slug")
+            elif snap[note_slug]["zone"] == mnemosyne.ARCHIVE_ZONE:
+                result.drop(raw, "already archived")
+            elif _is_protected(note_slug, snap):
+                result.drop(raw, "protected note")
             else:
                 archive_ops.append(raw)
 
     if archive_ops:
-        archive_ops.sort(key=lambda o: dex.effective_of(o["slug"], now))
-        for keep in archive_ops[:res.archive_cap]:
-            res.accepted.append(keep)
-        for over in archive_ops[res.archive_cap:]:
-            res.drop(over, f"archive_capped (>{res.archive_cap})")
-    return res
+        archive_ops.sort(
+            key=lambda operation: dex.effective_of(
+                _str_field(operation, "slug") or "",
+                observed_at,
+            )
+        )
+        result.accepted.extend(archive_ops[:result.archive_cap])
+        for over in archive_ops[result.archive_cap:]:
+            result.drop(over, f"archive_capped (>{result.archive_cap})")
+    return result
 
 
-def _dense_zone_links(accepted: list[dict[str, Any]],
-                      snap: dict[str, dict]) -> list[dict[str, Any]]:
+def dense_zone_links(
+    accepted: list[JsonObject],
+    snap: dict[str, CurationNote],
+) -> list[JsonObject]:
     touched_zones = {
-        op["zone"] for op in accepted
-        if op.get("op") == "rezone" and isinstance(op.get("zone"), str)
+        zone
+        for operation in accepted
+        if operation.get("op") == "rezone"
+        if (zone := _str_field(operation, "zone")) is not None
     }
     if not touched_zones:
         return accepted
     excluded = {
-        str(op[field])
-        for op in accepted
-        if op.get("op") == "supersede"
+        value
+        for operation in accepted
+        if operation.get("op") == "supersede"
         for field in ("stale", "by")
+        if (value := _str_field(operation, field)) is not None
     }
 
-    def _linkable(s: str) -> bool:
-        e = snap.get(s)
-        return (
-            e is not None
-            and str(e.get("zone") or "") != mnemosyne.ARCHIVE_ZONE
-            and e.get("polarity") != "negative"
-            and e.get("type") not in PROTECT_TYPES
-            and s not in excluded
+    def linkable(note_slug: str) -> bool:
+        entry = snap.get(note_slug)
+        return bool(
+            entry is not None
+            and entry["zone"] != mnemosyne.ARCHIVE_ZONE
+            and entry["polarity"] != "negative"
+            and entry["type"] not in PROTECT_TYPES
+            and note_slug not in excluded
         )
 
     final_zone = {
-        s: str(e.get("zone") or "")
-        for s, e in snap.items()
-        if _linkable(s)
+        note_slug: entry["zone"]
+        for note_slug, entry in snap.items()
+        if linkable(note_slug)
     }
-    for op in accepted:
-        kind = op.get("op")
+    for operation in accepted:
+        kind = operation.get("op")
         if kind == "rezone":
-            slug = str(op["slug"])
-            if _linkable(slug):
-                final_zone[slug] = str(op["zone"])
+            note_slug = _str_field(operation, "slug")
+            zone = _str_field(operation, "zone")
+            if note_slug is not None and zone is not None and linkable(note_slug):
+                final_zone[note_slug] = zone
         elif kind == "archive":
-            final_zone[str(op["slug"])] = mnemosyne.ARCHIVE_ZONE
+            note_slug = _str_field(operation, "slug")
+            if note_slug is not None:
+                final_zone[note_slug] = mnemosyne.ARCHIVE_ZONE
 
     pairs = {
-        frozenset((str(op["a"]), str(op["b"])))
-        for op in accepted
-        if op.get("op") == "link"
+        frozenset((left, right))
+        for operation in accepted
+        if operation.get("op") == "link"
+        if (left := _str_field(operation, "a")) is not None
+        if (right := _str_field(operation, "b")) is not None
     }
     expanded = list(accepted)
     for zone in sorted(touched_zones):
         if zone == mnemosyne.ARCHIVE_ZONE:
             continue
-        slugs = sorted(s for s, z in final_zone.items() if z == zone)
-        for i, a in enumerate(slugs):
-            for b in slugs[i + 1:]:
-                pair = frozenset((a, b))
+        slugs = sorted(
+            note_slug
+            for note_slug, final in final_zone.items()
+            if final == zone
+        )
+        for index, left in enumerate(slugs):
+            for right in slugs[index + 1:]:
+                pair = frozenset((left, right))
                 if pair in pairs:
                     continue
-                expanded.append({"op": "link", "a": a, "b": b,
-                                 "reason": f"dense zone link: {zone}"})
+                expanded.append(
+                    {
+                        "op": "link",
+                        "a": left,
+                        "b": right,
+                        "reason": f"dense zone link: {zone}",
+                    }
+                )
                 pairs.add(pair)
     return expanded

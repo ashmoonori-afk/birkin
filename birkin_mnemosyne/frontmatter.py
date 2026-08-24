@@ -16,7 +16,8 @@ raising.
 from __future__ import annotations
 
 import re
-from typing import Any
+
+from .json_types import JsonObject, JsonValue
 
 
 def split_frontmatter(text: str) -> tuple[str, str]:
@@ -30,7 +31,7 @@ def split_frontmatter(text: str) -> tuple[str, str]:
     return "", text
 
 
-def parse(text: str) -> tuple[dict[str, Any], str]:
+def parse(text: str) -> tuple[JsonObject, str]:
     """Parse a full SKILL.md string into (meta, body)."""
     fm, body = split_frontmatter(text)
     if not fm:
@@ -48,7 +49,9 @@ def _indent(s: str) -> int:
 
 
 def _split_commas(s: str) -> list[str]:
-    out, depth, buf = [], 0, []
+    out: list[str] = []
+    depth = 0
+    buf: list[str] = []
     for ch in s:
         if ch in "[{":
             depth += 1
@@ -64,7 +67,7 @@ def _split_commas(s: str) -> list[str]:
     return [x.strip() for x in out if x.strip()]
 
 
-def _parse_value(s: str) -> Any:
+def _parse_value(s: str) -> JsonValue:
     s = s.strip()
     if len(s) >= 2 and s[0] in "\"'" and s[-1] == s[0]:
         return s[1:-1]
@@ -82,12 +85,16 @@ def _parse_value(s: str) -> Any:
         return s
 
 
-def _parse_block(lines: list[str], i: int, base: int):
+def _parse_block(
+    lines: list[str],
+    i: int,
+    base: int,
+) -> tuple[JsonValue | None, int]:
     """Parse lines[i:] at indentation >= base into a dict or list.
 
     Returns (obj, next_index).
     """
-    result: Any = None
+    result: JsonValue | None = None
     while i < len(lines):
         raw = lines[i]
         if not raw.strip():
@@ -99,33 +106,47 @@ def _parse_block(lines: list[str], i: int, base: int):
         content = raw.strip()
 
         if content.startswith("- "):  # block list item
-            if result is None:
-                result = []
+            match result:
+                case None:
+                    items: list[JsonValue] = []
+                    result = items
+                case list() as items:
+                    pass
+                case _:
+                    message = "mixed frontmatter list and mapping"
+                    raise TypeError(message)
             item = content[2:].strip()
             if ":" in item and not item.startswith("["):
                 key, _, val = item.partition(":")
-                entry: dict[str, Any] = {}
+                entry: JsonObject = {}
                 if val.strip():
                     entry[key.strip()] = _parse_value(val)
                 sub, i = _parse_block(lines, i + 1, ind + 2)
                 if isinstance(sub, dict):
                     entry.update(sub)
-                result.append(entry)
+                items.append(entry)
             else:
-                result.append(_parse_value(item))
+                items.append(_parse_value(item))
                 i += 1
             continue
 
         # mapping entry
-        if result is None:
-            result = {}
+        match result:
+            case None:
+                mapping: JsonObject = {}
+                result = mapping
+            case dict() as mapping:
+                pass
+            case _:
+                message = "mixed frontmatter mapping and list"
+                raise TypeError(message)
         key, _, val = content.partition(":")
         key = key.strip()
         val = val.strip()
         if val:
-            result[key] = _parse_value(val)
+            mapping[key] = _parse_value(val)
             i += 1
         else:
             sub, i = _parse_block(lines, i + 1, ind + 1)
-            result[key] = {} if sub is None else sub
+            mapping[key] = {} if sub is None else sub
     return result, i

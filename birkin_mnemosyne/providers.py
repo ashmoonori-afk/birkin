@@ -18,23 +18,29 @@ straight to :func:`mnemosyne.run_curation_pass`.
 
 from __future__ import annotations
 
-import os
 import json
+import os
 import shutil
 import subprocess
 import tempfile
 import time
+from collections.abc import Callable, Mapping
 from pathlib import Path
-from typing import Callable, Optional
+from types import TracebackType
+
+from .json_types import JsonValue, load_json
+from .provider_api import api_completer
+from .provider_schema import curation_plan_schema
 
 Completer = Callable[[str], str]
+ProviderConfig = Mapping[str, JsonValue]
 
 _CLI_TIMEOUT = 900
 
 
 def _run(argv: list[str], stdin: str | None = None,
          timeout: int = _CLI_TIMEOUT, cwd: str | None = None,
-         env: dict | None = None) -> tuple[str, str, int]:
+         env: Mapping[str, str] | None = None) -> tuple[str, str, int]:
     """Discrete-argv subprocess (never shell=True). Returns (out, err, code)."""
     try:
         proc = subprocess.run(argv, input=stdin, capture_output=True,
@@ -55,7 +61,11 @@ def _rmtree_retry(path: Path, attempts: int = 20, delay: float = 0.15) -> None:
         if not resolved.startswith("\\\\?\\"):
             delete_path = Path("\\\\?\\" + resolved)
 
-    def retry_readonly(func, name, _exc):
+    def retry_readonly(
+        func: Callable[[str], None],
+        name: str,
+        _exc: tuple[type[BaseException], BaseException, TracebackType],
+    ) -> None:
         os.chmod(name, 0o700)
         func(name)
 
@@ -71,7 +81,7 @@ def _rmtree_retry(path: Path, attempts: int = 20, delay: float = 0.15) -> None:
             time.sleep(delay * (attempt + 1))
 
 
-def claude_completer(model: Optional[str] = None,
+def claude_completer(model: str | None = None,
                      timeout: int = _CLI_TIMEOUT) -> Completer:
     """Claude Code with NO tools — pure text generation of the plan."""
     def complete(prompt: str) -> str:
@@ -82,22 +92,24 @@ def claude_completer(model: Optional[str] = None,
                 "--allowedTools", "", "--permission-mode", "default"]
         if model and model not in ("claude-code", "default", ""):
             argv += ["--model", model]
-        out, err, code = _run(argv, stdin=prompt, timeout=timeout)
+        out, err, _code = _run(argv, stdin=prompt, timeout=timeout)
         out = out.strip()
         if out:
             try:
-                import json
-                return str(json.loads(out).get("result") or out)
+                payload = load_json(out)
+                if isinstance(payload, dict):
+                    return str(payload.get("result") or out)
             except (ValueError, json.JSONDecodeError):
-                return out
+                pass
+            return out
         return f"[provider-error] claude: {err.strip()[:300]}"
     return complete
 
 
-def codex_completer(model: Optional[str] = None,
+def codex_completer(model: str | None = None,
                     timeout: int = _CLI_TIMEOUT,
                     isolate_home: bool = True,
-                    cwd: Optional[str] = None) -> Completer:
+                    cwd: str | None = None) -> Completer:
     """codex exec in a READ-ONLY sandbox — it only needs to emit text.
 
     Read-only means codex structurally cannot touch the vault even if it wanted
@@ -120,33 +132,10 @@ def codex_completer(model: Optional[str] = None,
         os.close(fd)
         sfd, schema_path = tempfile.mkstemp(suffix="-curation-plan.schema.json")
         os.close(sfd)
-        Path(schema_path).write_text(json.dumps({
-            "type": "object",
-            "required": ["plan_version", "ops", "summary"],
-            "properties": {
-                "plan_version": {"type": "integer", "const": 1},
-                "summary": {"type": "string"},
-                "ops": {"type": "array", "items": {
-                    "type": "object",
-                    "required": [
-                        "op", "slug", "zone", "a", "b", "stale", "by",
-                        "reason",
-                    ],
-                    "properties": {
-                        "op": {"type": "string"},
-                        "slug": {"type": ["string", "null"]},
-                        "zone": {"type": ["string", "null"]},
-                        "a": {"type": ["string", "null"]},
-                        "b": {"type": ["string", "null"]},
-                        "stale": {"type": ["string", "null"]},
-                        "by": {"type": ["string", "null"]},
-                        "reason": {"type": ["string", "null"]},
-                    },
-                    "additionalProperties": False,
-                }},
-            },
-            "additionalProperties": False,
-        }), encoding="utf-8")
+        _ = Path(schema_path).write_text(
+            json.dumps(curation_plan_schema()),
+            encoding="utf-8",
+        )
         argv = [exe, "exec", "--skip-git-repo-check", "--color", "never",
                 "--sandbox", "read-only", "--ignore-user-config",
                 "--ignore-rules", "--ephemeral", "--output-schema", schema_path,
@@ -166,11 +155,11 @@ def codex_completer(model: Optional[str] = None,
                                          dir=str(tmp_root)))
             auth = src / "auth.json"
             if auth.is_file():
-                shutil.copy2(auth, home / "auth.json")
+                _ = shutil.copy2(auth, home / "auth.json")
             env["CODEX_HOME"] = str(home)
         try:
-            out, err, code = _run(argv, stdin=prompt, timeout=timeout,
-                                  env=env, cwd=cwd)
+            out, err, _code = _run(argv, stdin=prompt, timeout=timeout,
+                                   env=env, cwd=cwd)
             text = ""
             try:
                 text = Path(outpath).read_text(encoding="utf-8",
@@ -192,47 +181,9 @@ def codex_completer(model: Optional[str] = None,
     return complete
 
 
-def api_completer(cfg: dict, model: Optional[str] = None) -> Completer:
-    """Anthropic Messages API via stdlib ``urllib`` — no SDK, no dependency.
-
-    Reads the key from ``cfg["api_key"]`` or the ``ANTHROPIC_API_KEY`` env var.
-    Single turn, no tools; returns the concatenated text blocks. For any other
-    backend (OpenAI, a local server, a hosted gateway) pass your own
-    ``complete(prompt) -> str`` straight to :func:`run_curation_pass` — the API
-    provider is only a convenience."""
-    import urllib.request
-
-    key = cfg.get("api_key") or os.environ.get("ANTHROPIC_API_KEY")
-    endpoint = cfg.get("api_endpoint", "https://api.anthropic.com/v1/messages")
-    mdl = model or cfg.get("model") or "claude-sonnet-5"
-    max_tokens = int(cfg.get("max_tokens", 4096))
-
-    def complete(prompt: str) -> str:
-        if not key:
-            return "[provider-error] api: no ANTHROPIC_API_KEY / cfg['api_key']"
-        body = json.dumps({
-            "model": mdl, "max_tokens": max_tokens,
-            "system": "You output only the requested JSON plan.",
-            "messages": [{"role": "user", "content": prompt}],
-        }).encode("utf-8")
-        req = urllib.request.Request(endpoint, data=body, method="POST",
-                                     headers={"content-type": "application/json",
-                                              "x-api-key": key,
-                                              "anthropic-version": "2023-06-01"})
-        try:
-            with urllib.request.urlopen(req, timeout=120) as r:
-                data = json.loads(r.read().decode("utf-8"))
-        except Exception as exc:                       # noqa: BLE001
-            return f"[provider-error] api: {str(exc)[:300]}"
-        parts = [b.get("text", "") for b in data.get("content", [])
-                 if b.get("type") == "text"]
-        return "\n".join(parts)
-    return complete
-
-
 def _generic_cli_completer(exe_name: str, argv_tail: list[str],
-                           model: Optional[str],
-                           model_flag: Optional[str],
+                           model: str | None,
+                           model_flag: str | None,
                            timeout: int) -> Completer:
     def complete(prompt: str) -> str:
         exe = shutil.which(exe_name)
@@ -241,18 +192,18 @@ def _generic_cli_completer(exe_name: str, argv_tail: list[str],
         argv = [exe, *argv_tail]
         if model and model_flag:
             argv += [model_flag, model]
-        out, err, code = _run(argv, stdin=prompt, timeout=timeout)
+        out, err, _code = _run(argv, stdin=prompt, timeout=timeout)
         return out.strip() or f"[provider-error] {exe_name}: {err.strip()[:300]}"
     return complete
 
 
-def gemini_completer(model: Optional[str] = None,
+def gemini_completer(model: str | None = None,
                      timeout: int = _CLI_TIMEOUT) -> Completer:
     """Best-effort Gemini CLI wrapper (prompt on stdin)."""
     return _generic_cli_completer("gemini", ["-p", "-"], model, "-m", timeout)
 
 
-def local_completer(model: Optional[str] = None,
+def local_completer(model: str | None = None,
                     timeout: int = _CLI_TIMEOUT) -> Completer:
     """Best-effort local model via `ollama run <model>` (prompt on stdin)."""
     def complete(prompt: str) -> str:
@@ -260,15 +211,15 @@ def local_completer(model: Optional[str] = None,
         if not exe:
             return "[provider-error] ollama CLI not found"
         argv = [exe, "run", model or "llama3"]
-        out, err, code = _run(argv, stdin=prompt, timeout=timeout)
+        out, err, _code = _run(argv, stdin=prompt, timeout=timeout)
         return out.strip() or f"[provider-error] ollama: {err.strip()[:300]}"
     return complete
 
 
-def get_completer(provider: str, *, model: Optional[str] = None,
-                  cfg: Optional[dict] = None,
+def get_completer(provider: str, *, model: str | None = None,
+                  cfg: ProviderConfig | None = None,
                   timeout: int = _CLI_TIMEOUT,
-                  cwd: Optional[str] = None) -> Completer:
+                  cwd: str | None = None) -> Completer:
     """Resolve ``provider`` (claude|codex|api|gemini|local, or the ``*-cli``
     aliases) to a ``complete(prompt) -> text`` function.
 
@@ -285,5 +236,8 @@ def get_completer(provider: str, *, model: Optional[str] = None,
         return gemini_completer(model, timeout)
     if p in ("local", "ollama"):
         return local_completer(model, timeout)
-    raise ValueError(f"unknown curation provider {provider!r} "
-                     "(want: claude | codex | api | gemini | local)")
+    message = (
+        f"unknown curation provider {provider!r} "
+        "(want: claude | codex | api | gemini | local)"
+    )
+    raise ValueError(message)

@@ -8,33 +8,17 @@ from collections.abc import Callable
 from concurrent.futures import Future, ThreadPoolExecutor
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Literal
+from typing import Literal
 
-from .atomic import atomic_write
-
-PROFILE_DESCRIPTIONS = {
-    "user": "User characteristics and stable personal context.",
-    "preferences": "User preferences and favored choices.",
-    "soul": "Conversation style and interaction guidance.",
-    "workflow": "User work process and execution guidance.",
-    "automation": "User workflow automation guidance.",
-}
-
-_PROFILE_TITLES = {
-    "user": "User",
-    "preferences": "Preferences",
-    "soul": "Soul",
-    "workflow": "Workflow",
-    "automation": "Automation",
-}
-_LOCKS: dict[Path, threading.Lock] = {}
-_LOCKS_GUARD = threading.Lock()
-
-
-def _vault_lock(vault: Path) -> threading.Lock:
-    key = vault.resolve()
-    with _LOCKS_GUARD:
-        return _LOCKS.setdefault(key, threading.Lock())
+from .json_types import JsonObject, JsonValue, load_json
+from .profile_store import (
+    PROFILE_DESCRIPTIONS,
+    apply_proposal,
+    bootstrap,
+    profile_path,
+    read_profiles,
+    vault_lock,
+)
 
 
 @dataclass(frozen=True)
@@ -88,7 +72,8 @@ class ProfileMemory:
         self._pending: list[Future[None]] = []
         self._closed = False
         if self._save is None:
-            self._bootstrap()
+            with vault_lock(self._vault):
+                bootstrap(self._system)
 
     def __enter__(self) -> "ProfileMemory":
         return self
@@ -132,70 +117,24 @@ class ProfileMemory:
         """Return persisted guidance for each role profile."""
         if self._save is not None:
             raise RuntimeError("profile sink mode owns no files")
-        return {
-            name: self._read_guidance(self._profile_path(name))
-            for name in PROFILE_DESCRIPTIONS
-        }
-
-    def _bootstrap(self) -> None:
-        with _vault_lock(self._vault):
-            self._system.mkdir(parents=True, exist_ok=True)
-            for name, description in PROFILE_DESCRIPTIONS.items():
-                path = self._profile_path(name)
-                if path.exists():
-                    continue
-                text = (
-                    "---\n"
-                    f"description: {description}\n"
-                    "---\n"
-                    f"# {_PROFILE_TITLES[name]}\n\n"
-                    "## Guidance\n"
-                )
-                atomic_write(path, text)
+        return read_profiles(self._system)
 
     def _profile_path(self, name: str) -> Path:
-        return self._system / f"{name}.md"
+        return profile_path(self._system, name)
 
     def _review_and_save(self, exchange: ProfileExchange) -> None:
         proposals = self._parse_review(self._review(exchange))
         if self._save is not None:
             self._save(proposals)
             return
-        with _vault_lock(self._vault):
+        with vault_lock(self._vault):
             for proposal in proposals:
-                self._apply_file_proposal(proposal)
-
-    def _apply_file_proposal(self, proposal: ProfileProposal) -> None:
-        path = self._profile_path(proposal.profile)
-        current = path.read_text(encoding="utf-8")
-        lines = current.splitlines()
-        old_line = f"- {proposal.old_text}" if proposal.old_text else ""
-        new_line = f"- {proposal.content}" if proposal.content else ""
-
-        if proposal.action == "add":
-            if new_line in lines:
-                return
-            atomic_write(path, f"{current.rstrip()}\n{new_line}\n")
-            return
-
-        try:
-            index = lines.index(old_line)
-        except ValueError:
-            return
-
-        if proposal.action == "replace":
-            if new_line in lines:
-                lines.pop(index)
-            else:
-                lines[index] = new_line
-        elif proposal.action == "remove":
-            lines.pop(index)
-        atomic_write(path, "\n".join(lines).rstrip() + "\n")
+                apply_proposal(self._system, proposal)
 
     @staticmethod
     def _parse_review(raw: str) -> tuple[ProfileProposal, ...]:
         try:
-            payload = json.loads(raw)
+            payload = load_json(raw)
         except (json.JSONDecodeError, TypeError) as exc:
             raise ProfileReviewError("review must be valid JSON") from exc
         if not isinstance(payload, dict) or set(payload) != {"profiles"}:
@@ -232,7 +171,7 @@ class ProfileMemory:
         return " ".join(guidance.split())
 
     @staticmethod
-    def _parse_proposal(name: str, item: Any) -> ProfileProposal:
+    def _parse_proposal(name: str, item: JsonValue) -> ProfileProposal:
         if not isinstance(item, dict):
             raise ProfileReviewError(f"profile '{name}' proposal must be an object")
         allowed = {"action", "content", "old_text"}
@@ -241,9 +180,18 @@ class ProfileMemory:
             raise ProfileReviewError(
                 f"profile '{name}' proposal has unknown field: {min(extra)}"
             )
-        action = item.get("action")
-        if action not in {"add", "replace", "remove"}:
-            raise ProfileReviewError(f"profile '{name}' proposal has unknown action")
+        raw_action = item.get("action")
+        match raw_action:
+            case "add":
+                action: ProfileAction = "add"
+            case "replace":
+                action = "replace"
+            case "remove":
+                action = "remove"
+            case _:
+                raise ProfileReviewError(
+                    f"profile '{name}' proposal has unknown action"
+                )
 
         content = ProfileMemory._string_field(name, item, "content")
         old_text = ProfileMemory._string_field(name, item, "old_text")
@@ -278,20 +226,10 @@ class ProfileMemory:
         )
 
     @staticmethod
-    def _string_field(name: str, item: dict[str, Any], field: str) -> str:
+    def _string_field(name: str, item: JsonObject, field: str) -> str:
         value = item.get(field, "")
         if not isinstance(value, str):
             raise ProfileReviewError(
                 f"profile '{name}' proposal field '{field}' must be a string"
             )
         return value
-
-    @staticmethod
-    def _read_guidance(path: Path) -> list[str]:
-        text = path.read_text(encoding="utf-8")
-        _, _, guidance = text.partition("## Guidance")
-        return [
-            line.removeprefix("- ").strip()
-            for line in guidance.splitlines()
-            if line.startswith("- ")
-        ]

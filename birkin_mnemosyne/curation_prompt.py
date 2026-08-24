@@ -3,10 +3,15 @@ from __future__ import annotations
 import json
 import re
 from datetime import datetime, timezone
-from typing import Any
 
 from . import mnemosyne
-from .curation_contract import PLAN_VERSION
+from .curation_contract import (
+    PLAN_VERSION,
+    CatalogNote,
+    MechanicalCatalog,
+    StaleCandidate,
+)
+from .json_types import JsonObject, load_json
 from .mnemosyne import Mnemosyne
 
 
@@ -42,46 +47,79 @@ def _balanced_objects(text: str) -> list[str]:
     return out
 
 
-def extract_plan(text: str) -> dict[str, Any]:
+def extract_plan(text: str) -> JsonObject:
     candidates: list[str] = _FENCED_JSON.findall(text or "")
     candidates += _balanced_objects(text or "")
-    for cand in candidates:
+    for candidate in candidates:
         try:
-            obj = json.loads(cand)
+            value = load_json(candidate)
         except (json.JSONDecodeError, ValueError):
             continue
-        if isinstance(obj, dict) and isinstance(obj.get("ops"), list) \
-                and obj.get("plan_version") == PLAN_VERSION:
-            return obj
-    for cand in candidates:
+        if (
+            isinstance(value, dict)
+            and isinstance(value.get("ops"), list)
+            and value.get("plan_version") == PLAN_VERSION
+        ):
+            return value
+    for candidate in candidates:
         try:
-            obj = json.loads(cand)
+            value = load_json(candidate)
         except (json.JSONDecodeError, ValueError):
             continue
-        if isinstance(obj, dict) and isinstance(obj.get("ops"), list) \
-                and "plan_version" not in obj:
-            return {"plan_version": PLAN_VERSION, "ops": obj["ops"],
-                    "summary": str(obj.get("summary", ""))}
+        if (
+            isinstance(value, dict)
+            and isinstance(value.get("ops"), list)
+            and "plan_version" not in value
+        ):
+            return {
+                "plan_version": PLAN_VERSION,
+                "ops": value["ops"],
+                "summary": str(value.get("summary", "")),
+            }
     return {"plan_version": PLAN_VERSION, "ops": [], "summary": ""}
 
 
-def mechanical_catalog(dex: Mnemosyne, now: datetime | None = None) -> dict[str, Any]:
-    now = now or datetime.now(timezone.utc)
+def mechanical_catalog(
+    dex: Mnemosyne,
+    now: datetime | None = None,
+) -> MechanicalCatalog:
+    observed_at = now or datetime.now(timezone.utc)
     entries = dex.entries()
-    notes = []
-    for s, e in sorted(entries.items()):
-        if e["zone"] == mnemosyne.ARCHIVE_ZONE:
+    notes: list[CatalogNote] = []
+    for note_slug, entry in sorted(entries.items()):
+        if entry["zone"] == mnemosyne.ARCHIVE_ZONE:
             continue
-        related = [h["slug"] for h in dex.related(s, limit=4)]
-        notes.append({"slug": s, "title": e["title"], "zone": e["zone"] or "inbox",
-                      "type": e["type"], "polarity": e["polarity"],
-                      "summary": e["summary"], "links": e["links"],
-                      "related_candidates": related})
-    zones = sorted({e["zone"] for e in entries.values()
-                    if e["zone"] and e["zone"] != mnemosyne.ARCHIVE_ZONE})
-    stale = [{"slug": s["slug"], "title": s["title"]}
-             for s in dex.stale(now=now)]
-    return {"notes": notes, "existing_zones": zones, "stale_candidates": stale}
+        related = [
+            hit["slug"] for hit in dex.related(note_slug, limit=4)
+        ]
+        notes.append(
+            {
+                "slug": note_slug,
+                "title": entry["title"],
+                "zone": entry["zone"] or "inbox",
+                "type": entry["type"],
+                "polarity": entry["polarity"],
+                "summary": entry["summary"],
+                "links": entry["links"],
+                "related_candidates": related,
+            }
+        )
+    zones = sorted(
+        {
+            entry["zone"]
+            for entry in entries.values()
+            if entry["zone"] and entry["zone"] != mnemosyne.ARCHIVE_ZONE
+        }
+    )
+    stale: list[StaleCandidate] = [
+        {"slug": candidate["slug"], "title": candidate["title"]}
+        for candidate in dex.stale(now=observed_at)
+    ]
+    return {
+        "notes": notes,
+        "existing_zones": zones,
+        "stale_candidates": stale,
+    }
 
 
 _PROMPT = """You are the agent's nightly memory curator. Reorganize a personal
@@ -158,7 +196,10 @@ are weak lexical hints and often span different true zones.
 """
 
 
-def build_plan_prompt(catalog: dict[str, Any], untrusted: str = "") -> str:
+def build_plan_prompt(
+    catalog: MechanicalCatalog,
+    untrusted: str = "",
+) -> str:
     notes_lines = []
     for n in catalog["notes"]:
         rel = ", ".join(n["related_candidates"]) or "-"
