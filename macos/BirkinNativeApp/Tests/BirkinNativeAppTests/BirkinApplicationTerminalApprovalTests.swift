@@ -36,12 +36,10 @@ final class BirkinApplicationTerminalApprovalTests: XCTestCase {
             cwd: workspace.path,
             expectedCursor: runtime.store.latestAppliedCursor ?? 0,
             sessionCapability: session.sessionCapability,
-            submit: {
-                proposalRequest = $0
-                runtime.submit($0)
-            }
+            submit: { proposalRequest = $0 }
         ))
         let proposed = try XCTUnwrap(proposalRequest)
+        try await runtime.submitAwaitingTransport(proposed)
         try await withTimeout("approval requested") {
             try await events.wait(
                 for: "projection-event type=approval.requested command_id=\(proposed.commandID)"
@@ -68,12 +66,10 @@ final class BirkinApplicationTerminalApprovalTests: XCTestCase {
             commandAdvertised: true,
             expectedCursor: runtime.store.latestAppliedCursor ?? 0,
             sessionCapability: try XCTUnwrap(readySession(runtime)).sessionCapability,
-            submit: {
-                approvalRequest = $0
-                runtime.submit($0)
-            }
+            submit: { approvalRequest = $0 }
         ))
         let approved = try XCTUnwrap(approvalRequest)
+        try await runtime.submitAwaitingTransport(approved)
         try await withTimeout("approval receipt") {
             try await events.wait(for: "command-receipt id=\(approved.frameID)")
         }
@@ -97,12 +93,10 @@ final class BirkinApplicationTerminalApprovalTests: XCTestCase {
             approvalID: approval.id,
             expectedCursor: runtime.store.latestAppliedCursor ?? 0,
             sessionCapability: try XCTUnwrap(readySession(runtime)).sessionCapability,
-            submit: {
-                createRequest = $0
-                runtime.submit($0)
-            }
+            submit: { createRequest = $0 }
         ))
         let create = try XCTUnwrap(createRequest)
+        try await runtime.submitAwaitingTransport(create)
         try await withTimeout("terminal create receipt") {
             try await events.wait(for: "command-receipt id=\(create.frameID)")
         }
@@ -121,12 +115,10 @@ final class BirkinApplicationTerminalApprovalTests: XCTestCase {
             terminal: opened,
             expectedCursor: runtime.store.latestAppliedCursor ?? 0,
             sessionCapability: try XCTUnwrap(readySession(runtime)).sessionCapability,
-            submit: {
-                inputRequest = $0
-                runtime.submit($0)
-            }
+            submit: { inputRequest = $0 }
         ))
         let input = try XCTUnwrap(inputRequest)
+        try await runtime.submitAwaitingTransport(input)
         try await withTimeout("terminal input outcome") {
             try await events.wait(
                 for: "projection-event type=command.completed command_id=\(input.commandID)"
