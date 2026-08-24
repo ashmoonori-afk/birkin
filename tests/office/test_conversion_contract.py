@@ -1,10 +1,8 @@
 from __future__ import annotations
 
 import hashlib
-import json
 import zipfile
 from pathlib import Path
-from typing import cast
 
 import pytest
 
@@ -14,8 +12,6 @@ from birkin.office.service import DocumentService
 from birkin.office.service_create import convert_document
 from birkin.office.service_types import ArtifactRef
 from birkin.office.service_workspace import DocumentWorkspace
-from birkin.tools import build_registry
-from birkin.tools._types import ToolContext
 from tests.office.fixture_builders import build_hwpx_template
 
 
@@ -92,32 +88,53 @@ def test_real_file_text_conversion_is_budget_bound_and_receipted(
     assert receipt["diff"]["text_equal"] is True
 
 
-def test_tool_requires_budget_and_receipt_is_deterministic(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    monkeypatch.setenv("BIRKIN_HOME", str(tmp_path))
+def test_service_requires_budget_and_receipt_is_deterministic(tmp_path: Path) -> None:
     service = DocumentService(tmp_path)
+    workspace = DocumentWorkspace(tmp_path)
     artifact = service.create_document(
         format="docx", content={"paragraphs": ["Stable text"]}, output_name="in.docx"
     )["draft_artifact"]
-    registry = build_registry(ToolContext(cfg={}, client=None, cwd=tmp_path), include={"documents"})
-    base = {"source": artifact, "target_format": "txt", "output_name": "out.txt"}
-    missing = registry.execute("convert_document", base)
-    assert missing.is_error
-    assert json.loads(cast(str, missing.content))["error"]["code"] == "INVALID_INPUT"
-    payload = {**base, "loss_budget": _budget()}
-    first = registry.execute("convert_document", payload)
-    assert not first.is_error
-    first_body = cast("dict[str, object]", json.loads(cast(str, first.content)))
-    first_artifact = cast("dict[str, str]", first_body["draft_artifact"])
-    collision = registry.execute("convert_document", payload)
-    collision_body = cast(
-        "dict[str, dict[str, object]]", json.loads(cast(str, collision.content))
+
+    with pytest.raises(DocumentError) as missing:
+        _ = convert_document(
+            workspace,
+            artifact,
+            target_format="txt",
+            output_name="out.txt",
+            extract=service.extract_document,
+            loss_budget={},
+        )
+    assert missing.value.code is DocumentErrorCode.LOSSY_WRITE_BLOCKED
+
+    first = convert_document(
+        workspace,
+        artifact,
+        target_format="txt",
+        output_name="out.txt",
+        extract=service.extract_document,
+        loss_budget=_budget(),
     )
-    assert collision_body["error"]["code"] == "OUTPUT_EXISTS"
-    Path(first_artifact["uri"]).unlink()
-    second = registry.execute("convert_document", payload)
-    assert json.loads(cast(str, second.content))["receipt"] == first_body["receipt"]
+    with pytest.raises(DocumentError) as collision:
+        _ = convert_document(
+            workspace,
+            artifact,
+            target_format="txt",
+            output_name="out.txt",
+            extract=service.extract_document,
+            loss_budget=_budget(),
+        )
+    assert collision.value.code is DocumentErrorCode.OUTPUT_EXISTS
+
+    Path(first["draft_artifact"]["uri"]).unlink()
+    second = convert_document(
+        workspace,
+        artifact,
+        target_format="txt",
+        output_name="out.txt",
+        extract=service.extract_document,
+        loss_budget=_budget(),
+    )
+    assert second["receipt"] == first["receipt"]
 
 
 def test_refusals_leave_destination_unpublished(tmp_path: Path) -> None:

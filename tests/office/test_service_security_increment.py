@@ -277,26 +277,13 @@ def test_encrypted_hwpx_tools_share_refusal_while_inspect_remains_inventory(
         ("compare_documents", {"left": artifact, "right": artifact}),
         ("render_artifact", {"artifact": artifact, "output_format": "structured_preview"}),
         (
-            "convert_document",
+            "office_job_request",
             {
-                "source": artifact, "target_format": "txt",
-                "output_name": "converted.txt",
-                "loss_budget": {category: 100 for category in LOSS_CATEGORIES},
-            },
-        ),
-        (
-            "apply_document_patch",
-            {
-                "base": artifact, "patch": {"operations": []},
-                "expected_source_sha256": artifact["content_hash"],
-                "output_name": "patched.hwpx", "dry_run": True,
-            },
-        ),
-        (
-            "create_document",
-            {
-                "format": "hwpx", "content": {"bindings": {"customer": "Ada"}},
-                "output_name": "created.hwpx", "template": artifact,
+                "request": "Update this HWPX document",
+                "source": artifact,
+                "outcome": "Set the customer field to Ada",
+                "operations": [{"field": "customer", "value": "Ada"}],
+                "destination": str(tmp_path / "updated.hwpx"),
             },
         ),
     ]

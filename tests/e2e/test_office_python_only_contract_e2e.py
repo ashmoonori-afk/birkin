@@ -14,6 +14,7 @@ import pytest
 from birkin import runtime
 from birkin.gateway import core as gateway_core
 from birkin.llm import LLMClient, StreamCallback
+from birkin.tools.documents import NAMES as DOCUMENT_TOOL_NAMES
 
 
 PHRASES = {
@@ -177,13 +178,10 @@ def test_production_gateway_injects_exact_office_skill_and_document_tools(
     for phrase, expected in PHRASES.items():
         assert gateway.handle("http", "local", phrase) == "office-ok"
         assert f"# Skill: {expected}" in model.systems[-1]
-        assert {
-            "inspect_document",
-            "create_document",
-            "compare_documents",
-            "validate_artifact",
-            "convert_document",
-        } <= model.tool_names[-1]
+        assert set(DOCUMENT_TOOL_NAMES) <= model.tool_names[-1]
+        assert model.tool_names[-1].isdisjoint(
+            {"create_document", "fill_template", "apply_document_patch", "convert_document"}
+        )
         assert "inspect-first" in model.systems[-1].lower()
         assert "copy-on-write" in model.systems[-1].lower()
 

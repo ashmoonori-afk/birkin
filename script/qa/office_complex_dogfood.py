@@ -18,11 +18,13 @@ if str(ROOT) not in sys.path:
 _pdf_adapter = importlib.import_module("birkin.office.adapters.pdf")
 _pptx_adapter = importlib.import_module("birkin.office.adapters.pptx")
 _xlsx_adapter = importlib.import_module("birkin.office.adapters.xlsx")
+_approvals = importlib.import_module("birkin.approvals")
 _conversion_audit = importlib.import_module("birkin.office.conversion_audit")
 _errors = importlib.import_module("birkin.office.errors")
 _legacy_conversion = importlib.import_module("birkin.office.legacy_conversion")
 _legacy_preflight = importlib.import_module("birkin.office.legacy_preflight")
 _legacy_types = importlib.import_module("birkin.office.legacy_types")
+_service = importlib.import_module("birkin.office.service")
 _tools = importlib.import_module("birkin.tools")
 _tool_types = importlib.import_module("birkin.tools._types")
 _complex_fixtures = importlib.import_module("script.qa.office_complex_fixtures")
@@ -31,8 +33,10 @@ _complex_report = importlib.import_module("script.qa.office_complex_report")
 PdfAdapter = _pdf_adapter.PdfAdapter
 PptxAdapter = _pptx_adapter.PptxAdapter
 XlsxAdapter = _xlsx_adapter.XlsxAdapter
+approve = _approvals.approve
 LOSS_CATEGORIES = _conversion_audit.LOSS_CATEGORIES
 DocumentError = _errors.DocumentError
+DocumentService = _service.DocumentService
 convert_legacy = _legacy_conversion.convert_legacy
 preflight_legacy = _legacy_preflight.preflight_legacy
 LegacyConversionRequest = _legacy_types.LegacyConversionRequest
@@ -66,8 +70,18 @@ class _TextShape(Protocol):
     text: str
 
 
+REQUESTS = {
+    "docx": "Update this Word document",
+    "xlsx": "Update this Excel spreadsheet",
+    "pptx": "Update this PowerPoint presentation",
+    "pdf": "Update this PDF document",
+    "hwpx": "Update this HWPX document",
+}
 PATCH: dict[str, dict[str, object]] = {
-    "docx": {"field": "customer", "value": "수정된 고객 / Modified customer"},
+    "docx": {
+        "locator": {"format": "docx", "index": 2},
+        "value": "수정된 고객 / Modified customer",
+    },
     "xlsx": {"cell": "B2", "value": 42},
     "pptx": {"placeholder_idx": 1, "value": "수정됨 / Modified"},
     "hwpx": {"field": "customer", "value": "수정된 고객 / Modified customer"},
@@ -146,6 +160,9 @@ def run(output_dir: Path) -> dict[str, object]:
     sources.mkdir()
     os.environ["BIRKIN_HOME"] = str(jail)
     registry = build_registry(ToolContext(cfg={"spill_threshold": 1_000_000}, client=None, cwd=jail), include={"documents"})
+    service = DocumentService(jail)
+    coordinated = jail / "coordinated"
+    coordinated.mkdir()
     tools_exercised: set[str] = set()
 
     def execute(name: str, data: dict[str, object]) -> tuple[dict[str, object], bool]:
@@ -161,6 +178,23 @@ def run(output_dir: Path) -> dict[str, object]:
             raise AssertionError(f"{name} unexpected result: {body}")
         return body
 
+    def coordinate(format_name: str, source: dict[str, str], operation: dict[str, object]) -> dict[str, str]:
+        destination = coordinated / f"modified-{format_name}.{format_name}"
+        proposed = call(
+            "office_job_request",
+            {
+                "request": REQUESTS[format_name],
+                "source": source,
+                "outcome": f"Apply the approved {format_name} edit",
+                "operations": [operation],
+                "destination": str(destination),
+            },
+        )
+        approved = approve(cast(str, proposed["id"]))
+        if approved["ok"] is not True:
+            raise AssertionError(f"office_job_request approval failed: {approved}")
+        return artifact(destination)
+
     paths = {
         "docx": docx(sources / "complex.docx"),
         "xlsx": xlsx(sources / "complex.xlsx"),
@@ -175,14 +209,11 @@ def run(output_dir: Path) -> dict[str, object]:
 
     inventory = cast(list[dict[str, object]], call("list_document_adapters", {})["adapters"])
     adapter_by_format = {str(item["format"]): item for item in inventory}
-    template_plan = call(
-        "fill_template",
-        {
-            "template": artifact(paths["hwpx"]),
-            "bindings": [{"key": "customer", "value": "템플릿 고객 / Template"}],
-            "fields": [{"key": "customer", "kind": "field", "field": "customer"}],
-            "output_name": "planned.hwpx",
-        },
+    template_plan = service.fill_template(
+        artifact(paths["hwpx"]),
+        [{"key": "customer", "value": "템플릿 고객 / Template"}],
+        fields=[{"key": "customer", "kind": "field", "field": "customer"}],
+        output_name="planned.hwpx",
     )
 
     for fmt in FORMATS:
@@ -194,12 +225,12 @@ def run(output_dir: Path) -> dict[str, object]:
         create_data: dict[str, object] = {"format": fmt, "content": content, "output_name": f"created-{fmt}.{fmt}"}
         if fmt == "hwpx":
             create_data["template"] = source
-        create_result, create_failed = execute("create_document", create_data)
-        if not create_failed:
+        try:
+            create_result = service.create_document(**create_data)
             created = cast(dict[str, str], create_result["draft_artifact"])
             creation: dict[str, object] = {"status": "ok", "sha256": created["content_hash"]}
-        else:
-            create_error = cast(dict[str, object], create_result["error"])
+        except DocumentError as error:
+            create_error = _error(error)
             creation = {"status": "unavailable", "error": create_error}
             expected_refusals.append({"format": fmt, "operation": "create", **create_error})
         inspection = call("inspect_document", {"source": source})
@@ -211,16 +242,36 @@ def run(output_dir: Path) -> dict[str, object]:
         visual_error = cast(dict[str, object], visual["error"])
         expected_refusals.append({"format": fmt, "operation": "visual_render", **visual_error})
         budget = {category: 100 for category in LOSS_CATEGORIES}
-        converted = cast(dict[str, str], call("convert_document", {"source": source, "target_format": "txt", "output_name": f"complex-{fmt}.txt", "loss_budget": budget})["draft_artifact"])
+        converted = cast(dict[str, str], service.convert_document(source, target_format="txt", output_name=f"complex-{fmt}.txt", loss_budget=budget)["draft_artifact"])
         primary = source
         mutation: dict[str, object]
         if fmt == "pdf":
-            refused = call("apply_document_patch", {"base": source, "patch": {"operations": [{"type": "body_edit"}]}, "expected_source_sha256": source_digest, "output_name": "modified.pdf", "dry_run": False}, refused=True)
-            mutation = {"status": "expected_refusal", "error": refused["error"]}
-            expected_refusals.append({"format": "pdf", "operation": "body_edit", **cast(dict[str, object], refused["error"])})
+            try:
+                _ = service.apply_document_patch(
+                    source,
+                    {"operations": [{"type": "body_edit"}]},
+                    expected_source_sha256=source_digest,
+                    output_name="modified.pdf",
+                    dry_run=False,
+                )
+                raise AssertionError("PDF body edit unexpectedly succeeded")
+            except DocumentError as error:
+                refused = _error(error)
+            mutation = {"status": "expected_refusal", "error": refused}
+            expected_refusals.append({"format": "pdf", "operation": "body_edit", **refused})
             preservation: dict[str, object] = {"source_immutable": sha256(source_path) == source_digest, "signature_parts": "not_applicable_native_fixture"}
         else:
-            modified = cast(dict[str, str], call("apply_document_patch", {"base": source, "patch": {"operations": [PATCH[fmt]]}, "expected_source_sha256": source_digest, "output_name": f"modified-{fmt}.{fmt}", "dry_run": False})["draft_artifact"])
+            if fmt == "docx":
+                modified = coordinate(fmt, source, PATCH[fmt])
+            else:
+                patched = service.apply_document_patch(
+                    source,
+                    {"operations": [PATCH[fmt]]},
+                    expected_source_sha256=source_digest,
+                    output_name=f"modified-{fmt}.{fmt}",
+                    dry_run=False,
+                )
+                modified = cast(dict[str, str], patched["draft_artifact"])
             primary = modified
             changed = call("compare_documents", {"left": source, "right": modified})
             if changed["equal"] is True:
