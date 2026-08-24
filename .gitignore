@@ -51,6 +51,11 @@ docs/morpheus-skillification.md
 !.omo/plans/native-app/**
 !.omo/plans/native-windows-app/
 !.omo/plans/native-windows-app/**
+# .NET build output for the Windows client. Sources are tracked; nothing the
+# SDK generates is. `--artifacts-path` output is per-unit scratch by design.
+windows/**/bin/
+windows/**/obj/
+windows/BirkinNativeApp/artifacts/
 # Generated local research, reports, and one-shot QA scratch files
 /reports/
 /research-*.md
