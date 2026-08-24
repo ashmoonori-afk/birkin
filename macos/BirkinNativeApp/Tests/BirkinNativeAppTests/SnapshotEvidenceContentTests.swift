@@ -115,9 +115,11 @@ struct SnapshotEvidenceContentTests {
         )
         let importText = try recognizedText(importURL)
         #expect(importText.contains("IMPORT CHIP VISIBLE"), "OCR: \(importText)")
+        let recognizedSpecimens = Set(try recognizedCJK(importURL))
+        let expectedSpecimens = Set(PackagedWindowCapture.cjkSpecimens)
         #expect(
-            Set(try recognizedCJK(importURL))
-                == Set(PackagedWindowCapture.cjkSpecimens)
+            recognizedSpecimens == expectedSpecimens,
+            "CJK OCR: \(recognizedSpecimens); expected: \(expectedSpecimens)"
         )
     }
 
