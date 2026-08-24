@@ -58,7 +58,10 @@ def test_swift_gate_provisions_the_python_harness_before_serial_execution() -> N
         yaml.safe_load(WORKFLOW.read_text(encoding="utf-8")),
     )
     job = _mapping(_mapping(workflow["jobs"])["swift-conformance"])
-    assert _mapping(job["env"])["BIRKIN_BROWSER_INTEGRATION"] == "1"
+    assert _mapping(job["env"]) == {
+        "BIRKIN_BROWSER_INTEGRATION": "1",
+        "SWT_EXPERIMENTAL_MAXIMUM_PARALLELIZATION_WIDTH": "1",
+    }
     steps = cast(list[YamlMapping], job["steps"])
     uses = [str(step["uses"]) for step in steps if "uses" in step]
     commands = [str(step["run"]) for step in steps if "run" in step]

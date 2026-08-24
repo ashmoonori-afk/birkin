@@ -180,6 +180,7 @@ jobs:
     timeout-minutes: 20
     env:
       BIRKIN_BROWSER_INTEGRATION: "1"
+      SWT_EXPERIMENTAL_MAXIMUM_PARALLELIZATION_WIDTH: "1"
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:

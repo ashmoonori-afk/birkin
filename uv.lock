@@ -128,7 +128,7 @@ wheels = [
 
 [[package]]
 name = "birkin"
-version = "0.4.318"
+version = "0.4.319"
 source = { editable = "." }
 dependencies = [
     { name = "birkin-mnemosyne" },
