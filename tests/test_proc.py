@@ -173,7 +173,7 @@ def test_shell_argv_wraps_command_string():
             "/d",
             "/s",
             "/c",
-            "@C:\\Windows\\System32\\chcp.com 65001>nul & echo hi",
+            f"@{os.environ['SystemRoot']}\\System32\\chcp.com 65001>nul & echo hi",
         ]
         assert argv[0].lower().endswith(r"\system32\cmd.exe")
     else:
