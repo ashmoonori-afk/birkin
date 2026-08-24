@@ -42,12 +42,13 @@ public sealed class LiveBridgeIntegrationTests
         Assert.IsTrue(snapshot.Cursor >= 0);
         Assert.AreEqual("initial", snapshot.ResetReason);
         Assert.IsTrue(snapshot.PanelCount > 0);
-        Assert.AreEqual(string.Empty, bridge.StandardError);
+        Assert.AreEqual(string.Empty, bridge.StandardError, bridge.StandardError);
         Console.WriteLine($"ANNOUNCEMENT={announcementJson}");
         Console.WriteLine("ANNOUNCEMENT_HAS_BOOTSTRAP_SECRET=false");
         Console.WriteLine($"READY=protocol_version={snapshot.ProtocolVersion};server_version={announcement.ServerVersion};instance_id={snapshot.InstanceId};capability=[REDACTED]");
         Console.WriteLine($"PYTHON_SNAPSHOT=session_id={snapshot.SessionId};cursor={snapshot.Cursor};instance_id={snapshot.InstanceId};reset_reason={snapshot.ResetReason};transport={snapshot.Transport};panel_count={snapshot.PanelCount}");
         Console.WriteLine("BRIDGE_STDERR_EMPTY=true");
+        Console.WriteLine($"LAUNCHER_DIAGNOSTICS={bridge.LauncherDiagnostics}");
         Console.WriteLine($"BRIDGE_PID={bridge.ProcessId}");
     }
 

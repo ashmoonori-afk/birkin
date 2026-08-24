@@ -7,21 +7,27 @@ internal sealed class BridgeProcessHarness : IAsyncDisposable
 {
     private readonly Process _process;
     private readonly TaskCompletionSource<string> _listening;
-    private readonly List<string> _stderr;
+    private readonly BridgeStandardErrorCapture _standardError;
 
-    private BridgeProcessHarness(Process process, string temporaryRoot, TaskCompletionSource<string> listening, List<string> stderr)
+    private BridgeProcessHarness(
+        Process process,
+        string temporaryRoot,
+        TaskCompletionSource<string> listening,
+        BridgeStandardErrorCapture standardError)
     {
         _process = process;
         TemporaryRoot = temporaryRoot;
         _listening = listening;
-        _stderr = stderr;
+        _standardError = standardError;
     }
 
     public string TemporaryRoot { get; }
 
     public int ProcessId => _process.Id;
 
-    public string StandardError => string.Join(Environment.NewLine, _stderr);
+    public string StandardError => _standardError.StandardError;
+
+    public string LauncherDiagnostics => _standardError.LauncherDiagnostics;
 
     public static Task<BridgeProcessHarness> StartAsync(CancellationToken cancellationToken)
     {
@@ -29,7 +35,7 @@ internal sealed class BridgeProcessHarness : IAsyncDisposable
         var bridgeRoot = Path.Combine(temporaryRoot, "workspace");
         Directory.CreateDirectory(bridgeRoot);
         var listening = new TaskCompletionSource<string>(TaskCreationOptions.RunContinuationsAsynchronously);
-        var stderr = new List<string>();
+        var standardError = new BridgeStandardErrorCapture();
         var start = new ProcessStartInfo
         {
             FileName = "uv",
@@ -61,10 +67,7 @@ internal sealed class BridgeProcessHarness : IAsyncDisposable
         {
             if (eventArgs.Data is not null)
             {
-                lock (stderr)
-                {
-                    stderr.Add(eventArgs.Data);
-                }
+                standardError.Append(eventArgs.Data);
             }
         };
         process.Exited += (_, _) => listening.TrySetException(
@@ -79,7 +82,7 @@ internal sealed class BridgeProcessHarness : IAsyncDisposable
             process.BeginOutputReadLine();
             process.BeginErrorReadLine();
             cancellationToken.Register(() => listening.TrySetCanceled(cancellationToken));
-            return Task.FromResult(new BridgeProcessHarness(process, temporaryRoot, listening, stderr));
+            return Task.FromResult(new BridgeProcessHarness(process, temporaryRoot, listening, standardError));
         }
         catch
         {
