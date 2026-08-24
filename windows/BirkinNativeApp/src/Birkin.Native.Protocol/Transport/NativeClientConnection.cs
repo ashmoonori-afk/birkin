@@ -5,12 +5,13 @@ using Birkin.Native.Protocol.Projection;
 
 namespace Birkin.Native.Protocol.Transport;
 
-public sealed class NativeClientConnection : INativeClientConnection
+public sealed partial class NativeClientConnection : INativeClientConnection
 {
     private const int MaxTrackedFrameIds = 1_024;
     private readonly HashSet<string> _seenIds = new(StringComparer.Ordinal);
     private readonly Queue<string> _idOrder = new();
     private readonly object _capabilityGate = new();
+    private readonly object _idGate = new();
     private readonly NativeProjectionStore _projectionStore;
     private readonly Func<TimeSpan, CancellationToken, ValueTask> _delayAsync;
     private readonly Func<double> _jitter;
@@ -76,9 +77,7 @@ public sealed class NativeClientConnection : INativeClientConnection
             NativeBodyValidator.Validate(envelope, NativeMessageOrigin.Server);
             if (envelope.Kind == NativeMessageKind.Ready)
                 throw new NativeProtocolError("E_STATE", "ready is not valid after subscription");
-            if (envelope.InReplyTo is not null)
-                throw new NativeProtocolError("E_CORRELATION", "unsolicited server frame carries correlation");
-
+            ValidateCommandCorrelation(envelope);
             await HandleLifecycleFrameAsync(envelope, cancellationToken).ConfigureAwait(false);
             return envelope;
         }
@@ -86,13 +85,18 @@ public sealed class NativeClientConnection : INativeClientConnection
 
     public async ValueTask DisposeAsync() => await DisconnectAsync().ConfigureAwait(false);
 
-    public static TimeSpan ReconnectDelay(int attempt, double jitter) {
+    public static TimeSpan ReconnectDelay(int attempt, double jitter)
+    {
         ArgumentOutOfRangeException.ThrowIfNegative(attempt);
         ArgumentOutOfRangeException.ThrowIfLessThan(jitter, 0);
         ArgumentOutOfRangeException.ThrowIfGreaterThan(jitter, 1);
         var baseMilliseconds = attempt switch
         {
-            0 => 250, 1 => 500, 2 => 1_000, 3 => 2_000, _ => 5_000,
+            0 => 250,
+            1 => 500,
+            2 => 1_000,
+            3 => 2_000,
+            _ => 5_000,
         };
         return TimeSpan.FromMilliseconds(baseMilliseconds * (0.8 + (0.4 * jitter)));
     }
@@ -103,8 +107,11 @@ public sealed class NativeClientConnection : INativeClientConnection
         if (!string.Equals(expectedProductVersion, announcement.ServerVersion, StringComparison.Ordinal))
             throw new NativeProtocolError("E_VERSION_MISMATCH", "announcement and client product versions differ");
 
-        _seenIds.Clear();
-        _idOrder.Clear();
+        lock (_idGate)
+        {
+            _seenIds.Clear();
+            _idOrder.Clear();
+        }
         var discovery = DiscoveryRecordReader.Read(announcement.DiscoveryPath, announcement, DateTimeOffset.UtcNow);
         _bootstrapSecret = discovery.TakeBootstrapSecret()
             ?? throw new NativeProtocolError("E_BOOTSTRAP_INVALID", "bootstrap secret has already been consumed");
@@ -175,7 +182,11 @@ public sealed class NativeClientConnection : INativeClientConnection
             case "error":
                 if (envelope.Body["code"] is NativeJsonString { Value: "E_CAPABILITY_EXPIRED" }) ClearAuthority();
                 break;
-            case "event": case "surface_snapshot": case "surface_event": case "receipt": case "pong":
+            case "event":
+            case "surface_snapshot":
+            case "surface_event":
+            case "receipt":
+            case "pong":
                 break;
             default:
                 throw new NativeProtocolError("E_STATE", "server frame is not valid during a subscribed session");
@@ -255,20 +266,7 @@ public sealed class NativeClientConnection : INativeClientConnection
     private void ClearAuthority()
     {
         lock (_capabilityGate) { _currentCapability = null; _predecessorCapability = null; }
+        ClearPendingCommand();
     }
 
-    private string NextId() => $"client-{Interlocked.Increment(ref _nextId)}";
-
-    private void Claim(string id)
-    {
-        if (!_seenIds.Add(id))
-        {
-            throw new NativeProtocolError("E_DUPLICATE_FRAME_ID", "frame id was reused inside the connection replay window");
-        }
-        _idOrder.Enqueue(id);
-        if (_idOrder.Count > MaxTrackedFrameIds)
-        {
-            _seenIds.Remove(_idOrder.Dequeue());
-        }
-    }
 }
