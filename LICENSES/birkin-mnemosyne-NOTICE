@@ -1,0 +1,7 @@
+Mnemosyne — memory palace + safe curation for LLM agents.
+Extracted from the Birkin personal-agent project (MIT).
+
+The retrieval design (BM25 + usage-driven Ebbinghaus decay + zone priority) and
+the CurationPlan/1 safe-curation interface are described in the companion paper
+"Mnemosyne: A Zero-Dependency Memory Palace for Personal LLM Agents, with a
+Model-Agnostic Curation Interface" (Birkin project, 2026).

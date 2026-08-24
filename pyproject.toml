@@ -9,21 +9,14 @@ description = "Lightweight, self-improving CLI agent workspace with skill manage
 readme = "README.md"
 requires-python = ">=3.10"
 license = { text = "MIT" }
-license-files = ["LICENSE", "NOTICE"]
+license-files = ["LICENSE", "NOTICE", "LICENSES/*"]
 authors = [{ name = "birkin" }]
 keywords = ["agent", "cli", "skills", "subagents", "self-improving", "llm"]
 
 dependencies = [
     "psutil>=6",
     "typing-extensions>=4.12",
-    "birkin-mnemosyne @ git+https://github.com/ashmoonori-afk/birkin-mnemosyne@36814c13b44260a0c1ada53d142b2940fff134df",
 ]
-
-# `birkin-mnemosyne` ships only as a git source, so hatchling needs direct
-# references enabled. The revision is pinned to the immutable commit behind
-# tag v0.3.0 so a moved tag cannot change what gets installed.
-[tool.hatch.metadata]
-allow-direct-references = true
 
 [project.optional-dependencies]
 memory-semantic = [
@@ -115,10 +108,10 @@ birkin = "birkin.cli:main"
 
 [tool.hatch.build.targets.sdist]
 # Ship only project files ??never stray runtime data/binaries from the workspace.
-only-include = ["birkin", "skills", "scripts", "docs", "tests", "README.md", "pyproject.toml", "LICENSE", "NOTICE"]
+only-include = ["birkin", "birkin_mnemosyne", "skills", "scripts", "docs", "tests", "README.md", "pyproject.toml", "LICENSE", "NOTICE", "LICENSES"]
 
 [tool.hatch.build.targets.wheel]
-packages = ["birkin"]
+packages = ["birkin", "birkin_mnemosyne"]
 
 [tool.hatch.build.targets.wheel.force-include]
 "skills" = "birkin/_bundled_skills"
