@@ -10,6 +10,7 @@ from pathlib import Path
 import pytest
 
 from birkin.office.errors import DocumentError, DocumentErrorCode
+from birkin.office.export_policy import ExportRequest
 from birkin.office.job import OfficeJob, OfficeJobState
 from birkin.office.job_journal import OfficeJobJournal
 
@@ -48,9 +49,24 @@ class FakeRunner:
         self, *, artifact: Mapping[str, object], output_name: str
     ) -> dict[str, object]:
         return {
-            "artifact": {"uri": output_name, "content_hash": "published-sha"},
+            "artifact": {"uri": f"drafts/{output_name}", "content_hash": "published-sha"},
             "sha256": "published-sha",
         }
+
+    def export(
+        self, *, artifact: Mapping[str, object], request: ExportRequest
+    ) -> dict[str, object]:
+        return {
+            "path": str(request.destination),
+            "source_sha256": artifact["content_hash"],
+            "output_sha256": artifact["content_hash"],
+            "rollback_token": "rollback-1",
+        }
+
+    def rollback_export(
+        self, receipt: Mapping[str, object]
+    ) -> dict[str, object]:
+        return {"path": receipt["path"], "restored": False}
 
 
 def _job(journal: OfficeJobJournal | None = None) -> tuple[OfficeJob, FakeRunner]:
@@ -73,6 +89,21 @@ def _advance_to_approved(job: OfficeJob) -> None:
     job.build_preview()
     _ = job.request_approval()
     job.approve(actor="reviewer")
+
+
+def _advance_to_validated(job: OfficeJob) -> None:
+    _advance_to_approved(job)
+    job.execute()
+    job.validate()
+
+
+def _export_request(destination: Path) -> ExportRequest:
+    return ExportRequest(
+        destination=destination,
+        actor="reviewer",
+        proposal_digest="proposal-sha",
+        operations=({"type": "replace_text", "value": "New"},),
+    )
 
 
 def test_approved_snapshot_roundtrip_preserves_every_serialized_field() -> None:
@@ -100,6 +131,8 @@ def test_approved_snapshot_roundtrip_preserves_every_serialized_field() -> None:
         "artifact",
         "validation",
         "publication",
+        "export",
+        "rollback",
         "failure",
     }
     assert restored.to_dict() == snapshot
@@ -231,7 +264,7 @@ def test_restore_rejects_schema_invalid_earlier_snapshot(tmp_path: Path) -> None
 
 
 def test_terminal_and_incomplete_job_listings_use_latest_snapshot(tmp_path: Path) -> None:
-    # Given: one terminal rejection and one approval-ready job.
+    # Given: one completed export, one validated draft, and one active job.
     journal = OfficeJobJournal(tmp_path)
     terminal = OfficeJob(
         job_id="terminal",
@@ -240,8 +273,17 @@ def test_terminal_and_incomplete_job_listings_use_latest_snapshot(tmp_path: Path
         runner=FakeRunner(),
         journal=journal,
     )
-    _advance_to_approved(terminal)
-    terminal.fail(stage="execute", message="stopped")
+    _advance_to_validated(terminal)
+    terminal.publish(output_name="final.docx")
+    terminal.export(_export_request(tmp_path / "final.docx"))
+    validated = OfficeJob(
+        job_id="validated",
+        format_name="docx",
+        source={"uri": "source.docx"},
+        runner=FakeRunner(),
+        journal=journal,
+    )
+    _advance_to_validated(validated)
     incomplete = OfficeJob(
         job_id="incomplete",
         format_name="docx",
@@ -257,4 +299,4 @@ def test_terminal_and_incomplete_job_listings_use_latest_snapshot(tmp_path: Path
 
     # Then: each job appears in exactly its lifecycle partition.
     assert terminal_ids == ("terminal",)
-    assert incomplete_ids == ("incomplete",)
+    assert incomplete_ids == ("incomplete", "validated")

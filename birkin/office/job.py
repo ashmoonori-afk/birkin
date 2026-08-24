@@ -6,34 +6,13 @@ import hashlib
 from collections.abc import Mapping, Sequence
 from copy import deepcopy
 from datetime import datetime, timezone
-from enum import Enum
 from typing import Protocol, cast, final
 
 from .artifact_serialization import canonical_json
 from .errors import DocumentError, DocumentErrorCode
-
-
-class OfficeJobState(str, Enum):
-    input_captured = "input_captured"
-    outcome_declared = "outcome_declared"
-    operations_proposed = "operations_proposed"
-    preview_ready = "preview_ready"
-    approval_requested = "approval_requested"
-    approved = "approved"
-    executed = "executed"
-    validated = "validated"
-    published = "published"
-    rejected = "rejected"
-    failed = "failed"
-
-
-class OfficeJobRunner(Protocol):
-    def preview(self, *, source: Mapping[str, object], format_name: str,
-                operations: Sequence[Mapping[str, object]]) -> dict[str, object]: ...
-    def execute(self, *, source: Mapping[str, object], format_name: str,
-                operations: Sequence[Mapping[str, object]], draft_name: str) -> dict[str, object]: ...
-    def validate(self, *, artifact: Mapping[str, object]) -> dict[str, object]: ...
-    def publish(self, *, artifact: Mapping[str, object], output_name: str) -> dict[str, object]: ...
+from .export_policy import ExportRequest
+from .job_types import OfficeJobRunner as OfficeJobRunner
+from .job_types import OfficeJobState as OfficeJobState
 
 
 class OfficeJobJournalSink(Protocol):
@@ -41,7 +20,7 @@ class OfficeJobJournalSink(Protocol):
 
 
 _TERMINAL_STATES = {
-    OfficeJobState.published, OfficeJobState.rejected, OfficeJobState.failed
+    OfficeJobState.exported, OfficeJobState.rejected, OfficeJobState.failed
 }
 
 
@@ -66,6 +45,8 @@ class OfficeJob:
         self._artifact: dict[str, object] | None = None
         self._validation: dict[str, object] | None = None
         self._publication: dict[str, object] | None = None
+        self._export: dict[str, object] | None = None
+        self._rollback: dict[str, object] | None = None
         self._failure: dict[str, object] | None = None
         if self._journal is not None:
             self._journal.append(self)
@@ -216,26 +197,41 @@ class OfficeJob:
             raise self._error(DocumentErrorCode.PRECONDITION_FAILED,
                               "publication requires artifact and sha256")
         self._publication = deepcopy(publication)
-        self._enter(OfficeJobState.published)
+        if self._journal is not None:
+            self._journal.append(self)
         return deepcopy(publication)
 
+    def export(self, request: ExportRequest) -> dict[str, object]:
+        self._require(OfficeJobState.validated)
+        if self._publication is None:
+            raise self._error(DocumentErrorCode.PRECONDITION_FAILED,
+                              "internal publication is unavailable")
+        artifact = self._publication.get("artifact")
+        if not isinstance(artifact, Mapping):
+            raise self._error(DocumentErrorCode.PRECONDITION_FAILED,
+                              "internal publication artifact is unavailable")
+        artifact_mapping = cast("Mapping[str, object]", artifact)
+        receipt = dict(self._runner.export(
+            artifact=deepcopy(dict(artifact_mapping)), request=request
+        ))
+        self._export = deepcopy(receipt)
+        self._rollback = None
+        self._enter(OfficeJobState.exported)
+        return deepcopy(receipt)
+
+    def rollback_export(self) -> dict[str, object]:
+        self._require(OfficeJobState.exported)
+        if self._export is None:
+            raise self._error(DocumentErrorCode.PRECONDITION_FAILED,
+                              "export receipt is unavailable")
+        receipt = dict(self._runner.rollback_export(deepcopy(self._export)))
+        self._rollback = deepcopy(receipt)
+        self._enter(OfficeJobState.validated)
+        return deepcopy(receipt)
+
     def receipt(self) -> dict[str, object]:
-        operations: list[dict[str, object]] | None = None
-        if self._state is not OfficeJobState.input_captured and self._outcome is not None:
-            operations = deepcopy(self._operations) if self._operations else None
-        return {
-            "job_id": self._job_id,
-            "format": self._format_name,
-            "state": self._state.value,
-            "history": [state.value for state in self._history],
-            "outcome": self._outcome,
-            "operations": operations,
-            "preview": deepcopy(self._preview),
-            "approval": deepcopy(self._approval),
-            "execution": deepcopy(self._execution),
-            "validation": deepcopy(self._validation),
-            "publication": deepcopy(self._publication),
-        }
+        from .job_journal import receipt_job
+        return receipt_job(self)
 
     def fail(self, *, stage: str, message: str) -> None:
         if self._state in _TERMINAL_STATES:

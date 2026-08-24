@@ -12,7 +12,8 @@ from typing import TYPE_CHECKING, cast, final
 from .errors import DocumentError, DocumentErrorCode
 
 if TYPE_CHECKING:
-    from .job import OfficeJob, OfficeJobRunner
+    from .job import OfficeJob
+    from .job_types import OfficeJobRunner
 
 
 _SERIALIZED_FIELDS = frozenset(
@@ -31,10 +32,12 @@ _SERIALIZED_FIELDS = frozenset(
         "artifact",
         "validation",
         "publication",
+        "export",
+        "rollback",
         "failure",
     }
 )
-_TERMINAL_STATE_VALUES = frozenset({"published", "rejected", "failed"})
+_TERMINAL_STATE_VALUES = frozenset({"exported", "rejected", "failed"})
 
 
 def snapshot_job(job: OfficeJob) -> dict[str, object]:
@@ -54,7 +57,31 @@ def snapshot_job(job: OfficeJob) -> dict[str, object]:
         "artifact": deepcopy(job._artifact),
         "validation": deepcopy(job._validation),
         "publication": deepcopy(job._publication),
+        "export": deepcopy(job._export),
+        "rollback": deepcopy(job._rollback),
         "failure": deepcopy(job._failure),
+    }
+
+
+def receipt_job(job: OfficeJob) -> dict[str, object]:
+    """Copy caller-visible job state into a stable receipt."""
+    operations: list[dict[str, object]] | None = None
+    if job._outcome is not None:
+        operations = deepcopy(job._operations) if job._operations else None
+    return {
+        "job_id": job._job_id,
+        "format": job._format_name,
+        "state": job._state.value,
+        "history": [state.value for state in job._history],
+        "outcome": job._outcome,
+        "operations": operations,
+        "preview": deepcopy(job._preview),
+        "approval": deepcopy(job._approval),
+        "execution": deepcopy(job._execution),
+        "validation": deepcopy(job._validation),
+        "publication": deepcopy(job._publication),
+        "export": deepcopy(job._export),
+        "rollback": deepcopy(job._rollback),
     }
 
 
@@ -104,7 +131,8 @@ def restore_job(
     snapshot: Mapping[str, object], *, runner: OfficeJobRunner
 ) -> OfficeJob:
     """Parse an untrusted snapshot and bind a live runner without serializing it."""
-    from .job import OfficeJob, OfficeJobState
+    from .job import OfficeJob
+    from .job_types import OfficeJobState
 
     if frozenset(snapshot) != _SERIALIZED_FIELDS:
         raise _error("snapshot fields do not match the OfficeJob schema")
@@ -144,6 +172,8 @@ def restore_job(
     job._artifact = _optional_mapping(snapshot, "artifact")
     job._validation = _optional_mapping(snapshot, "validation")
     job._publication = _optional_mapping(snapshot, "publication")
+    job._export = _optional_mapping(snapshot, "export")
+    job._rollback = _optional_mapping(snapshot, "rollback")
     job._failure = _optional_mapping(snapshot, "failure")
     return job
 
