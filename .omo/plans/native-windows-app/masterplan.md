@@ -19,8 +19,12 @@ bridge, complete `hello -> ready -> subscribe`, and render one real
 Python-produced workspace snapshot in a real WPF window. Phases 2 and 3 now add
 sole-reader recovery and the core Office workflow, but the result remains a
 **development preview**, never complete, shipped, or customer-ready. Evidence
-is recorded under `.omo/evidence/native-windows-20260824/`, including the
-Phase 3 remediation evidence under `remediation/w6/`.
+was captured as private local evidence under
+`.omo/evidence/native-windows-20260824/`. That tree is ignored: it is not
+committed, attached to a pull request, or uploaded by remote CI, so path names
+below are local evidence locators rather than repository-accessible artifacts.
+This checkout also contains an admin-only `tmp-office-home` directory left by a
+local test; it is local residue, not product behavior, and is not claimed clean.
 
 ## 2. UI stack decision
 
@@ -178,7 +182,7 @@ a local shell or a browser authority itself.
 
 | Phase | Label | Goal | Exit |
 | --- | --- | --- | --- |
-| 1 | Development preview (complete) | Real bridge, handshake, initial Python snapshot, real WPF window. | Deterministic live-window evidence exists in `.omo/evidence/native-windows-20260824/p1-06-green.txt`. |
+| 1 | Development preview (complete) | Real bridge, handshake, initial Python snapshot, real WPF window. | Private local deterministic live-window evidence was captured at `.omo/evidence/native-windows-20260824/p1-06-green.txt`; it is not a repository artifact. |
 | 2 | Resilient foundation (complete) | Protocol hardening, sole-reader replay/reset, capability lifecycle, supervisor policy, and CI definition. | Focused recovery and lifecycle regressions pass; CI execution is not implied. |
 | 3 | Core Office workflow development preview (complete) | Conversation + jailed files + comparison/report/diff + approval + structural save and receipt. | Deterministic fast regressions pass and one separate real-provider Windows phase-exit proof passed. |
 | 4 | Windows beta quality (planned) | Sessions, Working Memory, Activity, desktop navigation, Korean IME, accessibility, and customer-OS evidence. | Windows 10/11 IME, keyboard, Narrator, scaling, and reconnect gates must pass. |
@@ -231,9 +235,11 @@ phase-exit evidence.
 
 These units are sequential because each consumes the previous public surface;
 their write scopes are still disjoint. The deterministic PR tests use the real
-codec and reducer. The phase-exit journey runs on a protected Windows runner
-with an existing-account provider and the standard live bridge, not an
-alternate test authority:
+codec and reducer. The workflow defines a dispatch-only phase-exit job intended
+for a protected Windows runner with an existing-account provider and the
+standard live bridge, not an alternate test authority. No protected-runner or
+remote workflow execution is claimed; the recorded passing provider proof was
+run locally with this same filter:
 
 ```powershell
 dotnet test .\windows\BirkinNativeApp\tests\Birkin.Native.App.Tests\Birkin.Native.App.Tests.csproj -c Release --filter "TestCategory=OfficeWorkflow&TestCategory=ExistingAccountProvider"
@@ -243,11 +249,15 @@ The implemented journey imports three jailed files (two real spreadsheets and
 one existing document template), asks Birkin to compare them and draft the
 report, verifies that the Diff is visible before approval, submits approval
 through the UI, and validates the structural OOXML save plus Python Activity
-receipt. The real-provider test uses `codex-cli` chat and produced two bounded
-screenshots before cleanup. It passed once; see
-`.omo/evidence/native-windows-20260824/remediation/w6/provider-office-run.txt`,
-`pre-approval-diff.png`, `post-save-activity-office.png`, and
-`cleanup-proof.txt`. Fast regression is deliberately separate: the
+receipt. The real-provider test uses `codex-cli` chat and passed once locally. Historical
+W6 provider evidence used `remediation/w6/pre-approval-diff.png` and
+`remediation/w6/post-save-activity-office.png`, alongside
+`provider-office-run.txt` and `cleanup-proof.txt`. The final G local visual
+review instead used `final-review-fixes/g/pre-approval-diff-1500x940.png`,
+`post-save-activity-office-1500x940.png`, and
+`post-save-office-1100x700.png`. All are private ignored local evidence under
+`.omo/evidence/native-windows-20260824/`, not committed, PR-attached, or remote
+CI artifacts. Fast regression is deliberately separate: the
 `DeterministicWindow` tests use production composition, real WPF, the real
 codec/reducer, and a real Python bridge but no provider. Tests compare sentinel
 cell/document values, paths, command IDs, cursors, and receipts; they do not pin

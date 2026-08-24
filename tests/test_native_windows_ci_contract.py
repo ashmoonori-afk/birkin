@@ -24,6 +24,7 @@ PYTHON_DESELECTIONS = {
     "tests/test_native_transport.py::test_uds_listener_rejects_symlinked_socket_path",
 }
 PROVIDER_FILTER = "TestCategory=OfficeWorkflow&TestCategory=ExistingAccountProvider"
+PORTABLE_FILTER = "TestCategory!=LiveBridge&TestCategory!=WindowsOnly"
 ACTION_PIN = re.compile(r"^[^@]+@[0-9a-f]{40}$")
 GOLDEN_ROOT = "macos/BirkinNativeApp/Tests/BirkinNativeProtocolTests/GoldenVectors"
 SOLUTION = "windows/BirkinNativeApp/BirkinNativeApp.sln"
@@ -81,6 +82,7 @@ def test_triggers_cover_every_client_breaking_path() -> None:
     required_paths = {
         "windows/**",
         "birkin/native/**",
+        "birkin/office/**",
         "birkin/workspace/**",
         "scripts/native/**",
         f"{GOLDEN_ROOT}/**",
@@ -90,6 +92,7 @@ def test_triggers_cover_every_client_breaking_path() -> None:
         ".github/workflows/native-windows.yml",
         "tests/test_native_windows_import.py",
         "tests/test_native_windows_ci_contract.py",
+        "tests/test_native_office*.py",
     }
     for event in ("push", "pull_request"):
         config = _mapping(triggers[event])
@@ -163,12 +166,17 @@ def test_dotnet_portable_runs_protocol_and_shell_on_all_three_operating_systems(
     )
     assert _mapping(setup["with"])["dotnet-version"] == "8.x"
     commands = [_normalized(command) for command in _commands(portable)]
-    for project in (
+    projects = (
         "windows/BirkinNativeApp/tests/Birkin.Native.Protocol.Tests/Birkin.Native.Protocol.Tests.csproj",
         "windows/BirkinNativeApp/tests/Birkin.Native.Shell.Tests/Birkin.Native.Shell.Tests.csproj",
-    ):
+    )
+    expected_tests = {
+        f'dotnet test {project} -c Release --no-restore --filter "{PORTABLE_FILTER}"'
+        for project in projects
+    }
+    for project in projects:
         assert f"dotnet restore {project}" in commands
-        assert f"dotnet test {project} -c Release --no-restore" in commands
+    assert {command for command in commands if command.startswith("dotnet test ")} == expected_tests
 
 
 def test_wpf_job_prepares_locked_python_before_unfiltered_full_release_solution() -> None:
@@ -229,8 +237,10 @@ def test_fixture_freshness_regenerates_every_normative_vector() -> None:
 def test_live_job_runs_real_authenticated_loopback_journey_and_only_uploads_trx() -> None:
     job = _job(_workflow(), "live-bridge-window")
     assert job["runs-on"] == "windows-latest"
+    assert _mapping(job["env"])["UV_NO_SYNC"] == "1"
+    normalized = [_normalized(command) for command in _commands(job)]
+    assert [command for command in normalized if command.startswith("uv sync ")] == [LOCKED_SYNC]
     commands = _joined_commands(job)
-    assert "uv sync --frozen" in commands
     assert "TestCategory=LiveBridge" in commands
     assert "--logger \"trx;LogFilePrefix=native-windows-live\"" in commands
 
