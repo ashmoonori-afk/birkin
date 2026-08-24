@@ -1,10 +1,13 @@
 from __future__ import annotations
 
+import ast
 import json
 from pathlib import Path
 from typing import cast
 
 import yaml
+
+from birkin.tools.documents import NAMES as DOCUMENT_TOOL_NAMES
 
 WORKFLOW = Path(__file__).parents[2] / ".github" / "workflows" / "office-tests.yml"
 PLATFORM_WORKFLOW = Path(__file__).parents[2] / ".github" / "workflows" / "tests.yml"
@@ -105,6 +108,42 @@ def test_clean_wheel_smoke_runs_outside_checkout_and_probes_office_resources() -
     assert "wheel.as_uri()" in smoke
     assert 'environment.pop("PYTHONPATH"' in smoke
     assert "GITHUB_WORKSPACE" in smoke
+    smoke_tree = ast.parse(smoke)
+    probe_source = next(
+        assignment.value.args[0].value
+        for assignment in ast.walk(smoke_tree)
+        if isinstance(assignment, ast.Assign)
+        and any(
+            isinstance(target, ast.Name) and target.id == "probe"
+            for target in assignment.targets
+        )
+        and isinstance(assignment.value, ast.Call)
+        and len(assignment.value.args) == 1
+        and isinstance(assignment.value.args[0], ast.Constant)
+        and isinstance(assignment.value.args[0].value, str)
+    )
+    required_tools = next(
+        {
+            element.value
+            for element in comparison.comparators[0].elts
+            if isinstance(element, ast.Constant) and isinstance(element.value, str)
+        }
+        for comparison in ast.walk(ast.parse(probe_source))
+        if isinstance(comparison, ast.Compare)
+        and isinstance(comparison.left, ast.Call)
+        and isinstance(comparison.left.func, ast.Name)
+        and comparison.left.func.id == "set"
+        and len(comparison.left.args) == 1
+        and isinstance(comparison.left.args[0], ast.Name)
+        and comparison.left.args[0].id == "NAMES"
+        and isinstance(comparison.comparators[0], ast.Set)
+    )
+    assert required_tools == {
+        "inspect_document",
+        "office_job_request",
+        "validate_artifact",
+    }
+    assert required_tools <= set(DOCUMENT_TOOL_NAMES)
     assert "import birkin.office" in smoke
     assert "from birkin.office.service_workspace import DocumentWorkspace" in smoke
     assert "workspace.atomic_publish" in smoke

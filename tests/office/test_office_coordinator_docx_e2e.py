@@ -4,7 +4,7 @@ import json
 from pathlib import Path
 from typing import cast
 
-from script.qa.office_coordinator_docx_e2e import run
+from script.qa.office_coordinator_docx_e2e import _flow, _propose, _request, run
 
 
 EVIDENCE_FILES = {
@@ -18,6 +18,23 @@ EVIDENCE_FILES = {
     "action-log.txt",
     "cleanup-receipt.json",
 }
+
+
+def test_docx_coordinator_accepts_canonical_equivalent_runtime_paths(
+    tmp_path: Path,
+) -> None:
+    # Given: the driver receives a lexical temp path with a canonical alias.
+    runtime = tmp_path / "unused" / ".." / "runtime"
+    flow = _flow(runtime, "canonical")
+
+    # When: the real registry prepares the DOCX approval.
+    body = _propose(flow, _request(flow))
+
+    # Then: import and export bind to the same canonical filesystem identities.
+    approval = cast("dict[str, object]", body["approval"])
+    assert flow.home == flow.home.resolve(strict=True)
+    assert flow.caller == flow.caller.resolve(strict=True)
+    assert approval["destination"] == str(flow.destination)
 
 
 def test_real_docx_coordinator_flow_emits_complete_clean_evidence(tmp_path: Path) -> None:

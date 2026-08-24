@@ -9,6 +9,7 @@ import os
 import shutil
 import socket
 import subprocess
+from collections.abc import Mapping
 from pathlib import Path
 from typing import cast
 from unittest.mock import patch
@@ -23,8 +24,28 @@ def _reference(path: Path) -> dict[str, str]:
 
 def _managed_fixture(source: Path, incoming: Path) -> dict[str, str]:
     target = incoming / source.name
-    shutil.copyfile(source, target)
+    _ = shutil.copyfile(source, target)
     return _reference(target)
+
+
+def fixture_sources(fixtures: Path) -> Mapping[str, Path]:
+    generated = fixtures / "sources"
+    if generated.is_dir():
+        drafts = fixtures / "artifacts" / "drafts"
+        return {
+            "docx": drafts / "created-docx.docx",
+            "xlsx": drafts / "created-xlsx.xlsx",
+            "pptx": drafts / "created-pptx.pptx",
+            "pdf": drafts / "created-pdf.pdf",
+            "hwpx": generated / "source.hwpx",
+        }
+    return {
+        "docx": fixtures / "docx" / "template-fields.docx",
+        "xlsx": fixtures / "xlsx" / "formulas-hidden-chart.xlsx",
+        "pptx": fixtures / "pptx" / "branded-placeholder.pptx",
+        "pdf": fixtures / "pdf" / "native-text.pdf",
+        "hwpx": fixtures / "hwpx" / "form-table.hwpx",
+    }
 
 
 def run(home: Path, fixtures: Path) -> dict[str, object]:
@@ -46,7 +67,7 @@ def run(home: Path, fixtures: Path) -> dict[str, object]:
         ),
     ):
         from birkin import config
-        from birkin.office.conversion_audit import LOSS_CATEGORIES
+        from birkin.office.conversion_schema import LOSS_CATEGORIES
         from birkin.office.errors import DocumentError, DocumentErrorCode
         from birkin.office.service import DocumentService
         from birkin.office.skill_router import route_office_request
@@ -55,21 +76,7 @@ def run(home: Path, fixtures: Path) -> dict[str, object]:
 
         incoming = home / "artifacts" / "incoming"
         incoming.mkdir(parents=True)
-        generated = fixtures / "sources"
-        if generated.is_dir():
-            sources = {
-                format_name: generated / f"source.{format_name}"
-                for format_name in ("docx", "xlsx", "pptx", "hwpx")
-            }
-            sources["pdf"] = fixtures / "artifacts" / "drafts" / "created-pdf.pdf"
-        else:
-            sources = {
-                "docx": fixtures / "docx" / "template-fields.docx",
-                "xlsx": fixtures / "xlsx" / "formulas-hidden-chart.xlsx",
-                "pptx": fixtures / "pptx" / "branded-placeholder.pptx",
-                "pdf": fixtures / "pdf" / "native-text.pdf",
-                "hwpx": fixtures / "hwpx" / "form-table.hwpx",
-            }
+        sources = fixture_sources(fixtures)
         references = {
             format_name: _managed_fixture(source, incoming)
             for format_name, source in sources.items()
@@ -186,7 +193,7 @@ def main() -> int:
     args = parser.parse_args()
     for key in tuple(os.environ):
         if key.endswith("_API_KEY") or key.endswith("_TOKEN"):
-            os.environ.pop(key, None)
+            _ = os.environ.pop(key, None)
     report = run(cast(Path, args.home), cast(Path, args.fixtures))
     print(json.dumps(report, ensure_ascii=False, sort_keys=True))
     return 0

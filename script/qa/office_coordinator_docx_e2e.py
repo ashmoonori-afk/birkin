@@ -68,6 +68,7 @@ def _flow(root: Path, name: str) -> Flow:
     home, caller = root / name / "home", root / name / "caller"
     home.mkdir(parents=True)
     caller.mkdir()
+    home, caller = home.resolve(strict=True), caller.resolve(strict=True)
     os.environ["BIRKIN_HOME"] = str(home)
     source, destination = home / "source.docx", caller / "delivery.docx"
     document = Document()
