@@ -8,6 +8,7 @@ from pathlib import Path
 import pytest
 
 from birkin.skills import guard, hub
+from tests.symlink_support import create_symlink
 
 
 @pytest.fixture(autouse=True)
@@ -89,7 +90,7 @@ def test_scan_does_not_read_file_symlink_targets(
         encoding="utf-8",
     )
     linked = bundle / "linked.txt"
-    linked.symlink_to(external)
+    create_symlink(linked, external)
     real_read_text = Path.read_text
     real_read_bytes = Path.read_bytes
     followed: list[Path] = []
@@ -178,7 +179,7 @@ def test_bundle_snapshot_does_not_follow_raced_file_link(
     def swap_before_path_read(path: Path) -> bytes:
         if path == candidate:
             path.unlink()
-            path.symlink_to(external)
+            create_symlink(path, external)
         return real_read_bytes(path)
 
     monkeypatch.setattr(Path, "read_bytes", swap_before_path_read)
@@ -570,7 +571,7 @@ def test_sync_rejects_source_symlink_that_escapes_skill(tmp_path):
     _skill(source, "A clean helper.", name="linked")
     outside = tmp_path / "outside.txt"
     outside.write_text("OUTSIDE-SENTINEL", encoding="utf-8")
-    (source / "linked" / "escape.txt").symlink_to(outside)
+    create_symlink(source / "linked" / "escape.txt", outside)
 
     synced = sync.sync_skills(source)
 
@@ -589,7 +590,8 @@ def test_sync_rejects_source_directory_symlink_that_escapes_skill(tmp_path):
     outside = tmp_path / "outside"
     outside.mkdir()
     (outside / "payload.sh").write_text("echo outside", encoding="utf-8")
-    (source / "linked-dir" / "scripts").symlink_to(
+    create_symlink(
+        source / "linked-dir" / "scripts",
         outside,
         target_is_directory=True,
     )
@@ -619,7 +621,8 @@ def test_sync_rejects_destination_parent_symlink(
     sentinel.write_text("EXTERNAL-SENTINEL", encoding="utf-8")
     mirrors = config.user_skills_dir() / "mirrors"
     mirrors.mkdir(parents=True)
-    (mirrors / "category").symlink_to(
+    create_symlink(
+        mirrors / "category",
         external,
         target_is_directory=True,
     )
@@ -641,7 +644,8 @@ def test_sync_rejects_configured_skills_root_symlink(
     external = tmp_path / "external-root"
     external.mkdir()
     home.mkdir()
-    (home / "skills").symlink_to(
+    create_symlink(
+        home / "skills",
         external,
         target_is_directory=True,
     )
@@ -665,7 +669,7 @@ def test_sync_rejects_skill_link_before_attribution(
         "EXTERNAL-SENTINEL\n"
     ).encode()
     external.write_bytes(original)
-    (skill / "SKILL.md").symlink_to(external)
+    create_symlink(skill / "SKILL.md", external)
 
     assert sync.sync_skills(source) == []
 
@@ -700,7 +704,7 @@ def test_sync_parent_swap_cannot_redirect_publication(
 
     def swap_parent_then_populate(root_fd, snapshot) -> None:
         category.rename(moved_category)
-        category.symlink_to(external, target_is_directory=True)
+        create_symlink(category, external, target_is_directory=True)
         real_populate(root_fd, snapshot)
 
     monkeypatch.setattr(

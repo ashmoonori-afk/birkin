@@ -18,6 +18,7 @@ import pytest
 
 from birkin import config, curation, curation_contract, mnemosyne
 from birkin.memory import VaultMemory
+from tests.symlink_support import create_symlink
 
 
 NOW = datetime(2026, 7, 3, 12, 0, 0, tzinfo=timezone.utc)
@@ -276,7 +277,7 @@ def test_run_pass_pins_vault_before_model_completion(
         zone="inbox",
     )
     configured_vault = tmp_path / "configured-vault"
-    configured_vault.symlink_to(vault_a, target_is_directory=True)
+    create_symlink(configured_vault, vault_a, target_is_directory=True)
     monkeypatch.setattr(
         curation,
         "snapshot_vault",
@@ -285,7 +286,7 @@ def test_run_pass_pins_vault_before_model_completion(
 
     def retarget_then_complete(_prompt: str) -> str:
         configured_vault.unlink()
-        configured_vault.symlink_to(vault_b, target_is_directory=True)
+        create_symlink(configured_vault, vault_b, target_is_directory=True)
         return json.dumps({
             "plan_version": 1,
             "ops": [{

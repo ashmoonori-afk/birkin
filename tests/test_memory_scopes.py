@@ -16,6 +16,7 @@ from birkin.memory_scopes import (
     scope_root,
 )
 from birkin.tools import ToolContext
+from tests.symlink_support import create_symlink
 
 
 def test_unscoped_vault_keeps_legacy_storage_and_lexical_search():
@@ -603,7 +604,7 @@ def test_vault_symlink_retarget_cannot_reuse_pinned_provenance(
     vault_a.mkdir()
     vault_b.mkdir()
     active = tmp_path / "active-vault"
-    active.symlink_to(vault_a, target_is_directory=True)
+    create_symlink(active, vault_a, target_is_directory=True)
     mem = VaultMemory({
         **config.load_config(),
         "vault_path": str(active),
@@ -621,7 +622,7 @@ def test_vault_symlink_retarget_cannot_reuse_pinned_provenance(
     forged.parent.mkdir(parents=True)
     forged.write_bytes(trusted.read_bytes())
     active.unlink()
-    active.symlink_to(vault_b, target_is_directory=True)
+    create_symlink(active, vault_b, target_is_directory=True)
     mem.reindex()
 
     pinned_record = mem.get_note_record("Retargeted boundary")
@@ -655,7 +656,7 @@ def test_vault_symlink_retarget_cannot_redirect_mutations(
     vault_a.mkdir()
     vault_b.mkdir()
     active = tmp_path / "active-vault"
-    active.symlink_to(vault_a, target_is_directory=True)
+    create_symlink(active, vault_a, target_is_directory=True)
     mem = VaultMemory({
         **config.load_config(),
         "vault_path": str(active),
@@ -666,7 +667,7 @@ def test_vault_symlink_retarget_cannot_redirect_mutations(
         source="conversation",
     )
     active.unlink()
-    active.symlink_to(vault_b, target_is_directory=True)
+    create_symlink(active, vault_b, target_is_directory=True)
 
     created = mem.write_note(
         "Pinned mutation",

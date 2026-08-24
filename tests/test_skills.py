@@ -14,6 +14,7 @@ from birkin.skills.manager import (
     _write_skill,
     apply_skill_proposal,
 )
+from tests.symlink_support import create_symlink
 
 
 def _mgr():
@@ -171,7 +172,7 @@ def test_guarded_improve_rejects_skill_file_symlink_before_write(
     external = tmp_path / "external-skill.md"
     external.write_text("EXTERNAL ORIGINAL\n", encoding="utf-8")
     path.unlink()
-    path.symlink_to(external)
+    create_symlink(path, external)
 
     with pytest.raises(SkillProposalError):
         apply_skill_proposal({
@@ -224,7 +225,8 @@ def test_improve_parent_swap_cannot_escape_skill_root(
             and not swapped
         ):
             original_replace(victim, saved_victim)
-            victim.symlink_to(
+            create_symlink(
+                victim,
                 external_victim,
                 target_is_directory=True,
             )

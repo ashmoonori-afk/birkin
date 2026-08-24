@@ -22,6 +22,7 @@ from tests.office.test_active_content_consent import _docx
 from tests.office.test_hwpx_encryption import _package as encrypted_hwpx
 from tests.office.test_hwpx_encryption import _valid_declaration
 from tests.office.test_pdf_state_security import _form_pdf, _image_pdf
+from tests.symlink_support import create_symlink
 
 
 def _artifact(path: Path) -> dict[str, str]:
@@ -72,7 +73,7 @@ def test_validate_consumes_verified_snapshot_after_source_symlink_swap(
 
     def swap_then_validate(path: Path, format_name: str) -> ValidationResult:
         _ = source.rename(tmp_path / "verified-source.docx")
-        source.symlink_to(replacement)
+        create_symlink(source, replacement)
         return validate_document(path, format_name)
 
     monkeypatch.setattr("birkin.office.service.validate_document", swap_then_validate)
