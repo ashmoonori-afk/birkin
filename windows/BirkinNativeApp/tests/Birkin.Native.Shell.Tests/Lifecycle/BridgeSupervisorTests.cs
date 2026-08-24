@@ -7,8 +7,6 @@ namespace Birkin.Native.Shell.Tests.Lifecycle;
 [TestClass]
 public sealed class BridgeSupervisorTests
 {
-    private const string InstanceId = "0123456789abcdef0123456789abcdef";
-
     [TestMethod]
     public async Task ShutdownAsync_WhenAttachedExternally_LeavesMatchingAnnouncedProcessUntouched()
     {
@@ -274,8 +272,8 @@ public sealed class BridgeSupervisorTests
         Assert.AreEqual(BridgeSupervisorState.RunningOwned, supervisor.State);
     }
 
-    private static BridgeAnnouncement Announcement(int processId) => BridgeAnnouncement.Parse(
-        $$"""{"event":"listening","transport":"loopback","pid":{{processId}},"root":"C:\\root","session_id":"session-1","instance_id":"{{InstanceId}}","server_version":"0.4.276","discovery_path":"C:\\root\\native\\endpoint.json"}""");
+    private static BridgeAnnouncement Announcement(int processId) =>
+        BridgeAnnouncement.Parse(TestBridgeAnnouncement.Json(processId));
 
     private static FakeBridgeProcess Return(FakeBridgeProcess process)
     {

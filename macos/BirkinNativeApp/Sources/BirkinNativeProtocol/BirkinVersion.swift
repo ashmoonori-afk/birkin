@@ -4,5 +4,5 @@
 
 /// The Birkin package version this application was built from.
 public enum BirkinVersion {
-    public static let packageVersion = "0.4.314"
+    public static let packageVersion = "0.4.315"
 }

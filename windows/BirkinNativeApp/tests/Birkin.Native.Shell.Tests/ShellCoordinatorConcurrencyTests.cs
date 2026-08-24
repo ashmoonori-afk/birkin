@@ -178,8 +178,7 @@ public sealed class ShellCoordinatorConcurrencyTests
     private static NativeJsonObject Object(params (string Key, NativeJsonValue Value)[] pairs) =>
         new(pairs.Select(pair => new KeyValuePair<string, NativeJsonValue>(pair.Key, pair.Value)));
 
-    private static string AnnouncementJson() =>
-        $$"""{"event":"listening","transport":"loopback","pid":1,"root":"C:\\root","session_id":"session-1","instance_id":"{{InstanceId}}","server_version":"0.4.276","discovery_path":"C:\\root\\endpoint.json"}""";
+    private static string AnnouncementJson() => TestBridgeAnnouncement.Json();
 
     private sealed class Fixture : IAsyncDisposable
     {

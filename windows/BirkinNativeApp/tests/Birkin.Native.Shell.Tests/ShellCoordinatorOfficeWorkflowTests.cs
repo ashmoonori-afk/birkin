@@ -243,7 +243,7 @@ public sealed class ShellCoordinatorOfficeWorkflowTests
                 CommandIdFactory = () => "command-1",
             };
             await coordinator.ConnectAsync(
-                $$"""{"event":"listening","transport":"loopback","pid":1,"root":"C:\\root","session_id":"session-1","instance_id":"{{InstanceId}}","server_version":"0.4.276","discovery_path":"C:\\root\\endpoint.json"}""",
+                TestBridgeAnnouncement.Json(),
                 "0.4.276",
                 CancellationToken.None);
             context.RunAll();
