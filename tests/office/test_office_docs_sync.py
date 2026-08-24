@@ -160,6 +160,12 @@ def test_version_and_provenance_publications_are_synchronized() -> None:
     assert manifest["inventory"] == adapter_inventory()
 
 
+def test_detailed_office_support_version_matches_project() -> None:
+    version = _project_version()
+    detail = _text(ROOT / "docs" / "office-support.md")
+    assert f"- Birkin version: `{version}`" in detail
+
+
 def test_office_document_links_and_anchor_targets_exist() -> None:
     readmes = (_text(ROOT / "README.md"), _text(ROOT / "README.ko.md"))
     for text in readmes:

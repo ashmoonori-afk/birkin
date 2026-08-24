@@ -814,9 +814,11 @@ The shipped boundary is deliberate:
   the initial profile, while Python policy, local authentication, and macOS
   privacy permissions remain enforced.
 
-A future platform decision—Windows-native versus a shared cross-platform
-shell—remains open and will be based on accessibility APIs, installer
-maintenance, and real usage rather than code reuse alone.
+**Windows WPF/native is implemented in this branch as a development preview.**
+The preview exercises the native shell and bridge contracts, but it is not
+shipped production support: installer and updater delivery, production
+signing, and provider-backed production delivery remain future work. A
+shared cross-platform shell remains a separate future platform decision.
 
 ### Trade-offs and non-goals
 
