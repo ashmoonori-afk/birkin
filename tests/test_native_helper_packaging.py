@@ -244,17 +244,15 @@ def test_helper_builder_normalizes_msys_interpreter_path(
     tmp_path: Path,
 ) -> None:
     repository, build_script = _copy_verifier_repository(tmp_path)
-    tools = tmp_path / "tools"
-    tools.mkdir()
-    uname = tools / "uname"
-    _ = uname.write_text("#!/bin/sh\nprintf 'MINGW64_NT\\n'\n", encoding="utf-8")
-    uname.chmod(0o755)
-    cygpath = tools / "cygpath"
-    _ = cygpath.write_text(
-        f"#!/bin/sh\nprintf '%s\\n' '{_bash_path(Path(sys.executable))}'\n",
+    msys_environment = tmp_path / "msys-environment.sh"
+    _ = msys_environment.write_text(
+        "\n".join([
+            "uname() { printf 'MINGW64_NT\\n'; }",
+            f"cygpath() {{ printf '%s\\n' '{_bash_path(Path(sys.executable))}'; }}",
+            "",
+        ]),
         encoding="utf-8",
     )
-    cygpath.chmod(0o755)
 
     result = subprocess.run(
         [_bash_executable(), str(build_script), "--verify-inputs"],
@@ -262,7 +260,7 @@ def test_helper_builder_normalizes_msys_interpreter_path(
         env={
             **os.environ,
             "BIRKIN_VERIFY_PYTHON": r"C:\Birkin\python.exe",
-            "PATH": f"{_bash_path(tools)}:/usr/bin:/bin",
+            "BASH_ENV": _bash_path(msys_environment),
         },
         text=True,
         capture_output=True,
