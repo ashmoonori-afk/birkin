@@ -79,6 +79,12 @@ Role profile 계층은 opt-in입니다. `profile.enabled`의 기본값은 `false
 
 Workspace `SOUL.md`는 deprecated되었고 더 이상 주입되지 않습니다. Project instruction은 workspace `AGENTS.md`에, persona는 `~/.birkin/SOUL.md`에 두십시오. Birkin은 cwd `SOUL.md`를 발견하면 deprecation notice를 출력합니다.
 
+### 로컬 환경 증거
+
+신뢰된 native 및 CLI agent prompt에는 현재 운영체제와 홈 디렉터리, 그리고 machine-readable 로컬 환경 policy가 들어갑니다. Session이나 memory에 남은 경로는 현재 tool output으로 확인되기 전까지 미검증 값으로 취급하므로 다른 운영체제의 경로를 현재 host 사실로 재사용해서는 안 됩니다. Birkin은 대상 디렉터리가 쓰기 불가라고 보고하기 전에 사용 가능한 tool로 그 디렉터리 안에 고유한 이름의 임시 항목을 생성하고 쓰고 삭제해야 하며, 기존 경로는 수정하거나 삭제해서는 안 됩니다. Sandbox, route, 누락된 tool, 승인 요구, 운영체제 권한 결과는 관찰된 증거로 구분하며 서로 다른 제한으로 잘못 분류하지 않습니다.
+
+요청한 결과와 적용 범위는 계속 구속력을 가집니다. Birkin은 실제 profile 또는 memory 적용을 workspace 초안으로 대체한 뒤 완료라고 주장해서는 안 됩니다. Assistant에게 붙인 이름을 포함한 assistant persona 사실과 사용자 profile 사실도 분리합니다. 이 로컬 block은 신뢰된 native 및 CLI prompt에만 추가되며 public 또는 untrusted prompt에는 로컬 경로 사실이나 private profile context가 들어가지 않습니다.
+
 ## 빠른 시작
 
 Birkin은 Python 3.10 이상이 필요합니다. 제공된 Birkin 디렉터리에서 설치하십시오. Git은 필요 없고 `birkin_mnemosyne`은 패키지에 포함되어 있습니다. 기본값은 로컬에서 인증한 Codex CLI이며, `birkin setup`에서 Claude CLI나 API provider를 선택할 수 있습니다.
