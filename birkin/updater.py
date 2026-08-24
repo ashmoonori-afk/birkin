@@ -56,8 +56,8 @@ def _is_dirty(root: Path) -> bool:
 
 def _read_version(root: Path) -> str:
     """Read birkin's ``__version__`` from the checkout. This is the user-facing
-    version (bumped +0.0.1 per commit by the pre-commit hook), shown by ``update``
-    instead of a git commit hash. Returns ``'?'`` if unreadable."""
+    release version shown by ``update`` instead of a git commit hash. Returns
+    ``'?'`` if unreadable."""
     init = Path(root) / "birkin" / "__init__.py"
     try:
         for line in init.read_text(encoding="utf-8", errors="replace").splitlines():
