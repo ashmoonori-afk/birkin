@@ -27,9 +27,10 @@ public sealed class CompositionRoot : IAsyncDisposable
     public static CompositionRoot Create(SynchronizationContext synchronizationContext)
     {
         var presentationModel = new ShellPresentationModel(synchronizationContext);
+        var projectionStore = new NativeProjectionStore();
         var coordinator = new ShellCoordinator(
-            new NativeClientConnection(),
-            new NativeProjectionStore(),
+            new NativeClientConnection(projectionStore),
+            projectionStore,
             presentationModel);
         var informationalVersion = typeof(CompositionRoot).Assembly
             .GetCustomAttribute<AssemblyInformationalVersionAttribute>()?.InformationalVersion

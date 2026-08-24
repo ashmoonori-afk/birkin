@@ -104,6 +104,9 @@ public sealed class ShellCoordinatorTests
     {
         private readonly NativeEnvelope? _envelope;
         private readonly NativeProtocolError? _connectError;
+        private readonly TaskCompletionSource<NativeEnvelope> _nextEnvelope =
+            new(TaskCreationOptions.RunContinuationsAsynchronously);
+        private int _receiveCount;
 
         public FrameConnection(NativeEnvelope envelope) => _envelope = envelope;
 
@@ -127,7 +130,9 @@ public sealed class ShellCoordinatorTests
         public ValueTask<NativeEnvelope> ReceiveAsync(CancellationToken cancellationToken)
         {
             cancellationToken.ThrowIfCancellationRequested();
-            return ValueTask.FromResult(_envelope ?? throw new InvalidOperationException());
+            return Interlocked.Increment(ref _receiveCount) == 1
+                ? ValueTask.FromResult(_envelope ?? throw new InvalidOperationException())
+                : new ValueTask<NativeEnvelope>(_nextEnvelope.Task.WaitAsync(cancellationToken));
         }
 
         public ValueTask DisposeAsync() => ValueTask.CompletedTask;
