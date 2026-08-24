@@ -10,7 +10,7 @@ from birkin.browser_aside_service import BrowserAsideService
 from birkin.browser_aside_store import MAX_FRAME_BYTES
 from birkin.computer_use.capability_types import PlatformProbe
 from birkin.computer_use.doctor import doctor_report
-from birkin.office.errors import DocumentError
+from birkin.office.errors import DocumentError, DocumentErrorCode
 from birkin.office.service import DocumentService
 
 MAX_OFFICE_SNAPSHOT_ITEMS: Final = 8
@@ -238,15 +238,13 @@ class OfficeSurfaceAuthority:
             raise ValueError("Office format and output_name must be strings")
         content = _mapping(payload["content"], "Office content")
         self._form = {"format": format_name, "output_name": output_name, "content": content}
-        try:
-            result = self.service.create_document(format=format_name, content=content, output_name=output_name)
-        except DocumentError as exc:
-            self._refused(exc)
-            raise
-        artifact, receipt = dict(result["draft_artifact"]), dict(result["receipt"])
-        artifact_id = cast(str, artifact["artifact_id"])
-        self._retain(artifact_id, {**artifact, "provenance": {"operation": "document_create", "content_hash": artifact["content_hash"]}, "conversion": None, "active_content": []}, receipt)
-        return {"document": artifact, "receipt": receipt}
+        error = DocumentError(
+            DocumentErrorCode.POLICY_DENIED,
+            "office_surface",
+            "document mutation requires office_job_request approval",
+        )
+        self._refused(error)
+        raise error
 
     def select(self, payload: dict[str, object]) -> dict[str, object]:
         _exact(payload, {"artifact_id"}, "office.select")
@@ -273,17 +271,15 @@ class OfficeSurfaceAuthority:
 
     def convert(self, payload: dict[str, object]) -> dict[str, object]:
         _exact(payload, {"artifact", "target_format", "output_name", "loss_budget"}, "office.convert")
-        artifact = _mapping(payload["artifact"], "Office artifact")
+        _ = _mapping(payload["artifact"], "Office artifact")
         target, name = payload["target_format"], payload["output_name"]
         if not isinstance(target, str) or not isinstance(name, str):
             raise ValueError("Office conversion format and output_name must be strings")
-        budget = _mapping(payload["loss_budget"], "Office loss budget")
-        try:
-            result = self.service.convert_document(artifact, target_format=target, output_name=name, loss_budget=budget)
-        except DocumentError as exc:
-            self._refused(exc)
-            raise
-        draft, receipt = dict(result["draft_artifact"]), dict(result["receipt"])
-        artifact_id = cast(str, draft["artifact_id"])
-        self._retain(artifact_id, {**draft, "provenance": {"operation": "document_convert", "source_sha256": result["source_sha256"]}, "conversion": receipt, "active_content": []}, receipt)
-        return {"document": draft, "receipt": receipt}
+        _ = _mapping(payload["loss_budget"], "Office loss budget")
+        error = DocumentError(
+            DocumentErrorCode.POLICY_DENIED,
+            "office_surface",
+            "document mutation requires office_job_request approval",
+        )
+        self._refused(error)
+        raise error

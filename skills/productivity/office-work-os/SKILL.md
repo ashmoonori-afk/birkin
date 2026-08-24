@@ -8,7 +8,7 @@ metadata:
   birkin:
     tags: [productivity, office, documents, dispatcher]
     formats: [docx, xlsx, pptx, pdf, hwpx]
-    requires_tools: [list_document_adapters, inspect_document, extract_document, create_document, compare_documents, fill_template, apply_document_patch, render_artifact, validate_artifact, convert_document]
+    requires_tools: [list_document_adapters, inspect_document, extract_document, compare_documents, render_artifact, validate_artifact, office_job_request]
     inspect_first: inspect_document
     write_policy: copy-on-write
     extension_conversion: txt-only

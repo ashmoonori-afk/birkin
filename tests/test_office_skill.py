@@ -24,18 +24,16 @@ REQUIRED_ARGUMENTS = {
     "list_document_adapters": [],
     "inspect_document": ["source"],
     "extract_document": ["source"],
-    "create_document": ["format", "content", "output_name"],
     "compare_documents": ["left", "right"],
-    "fill_template": ["template", "bindings", "output_name"],
-    "apply_document_patch": [
-        "base",
-        "patch",
-        "expected_source_sha256",
-        "output_name",
-    ],
     "render_artifact": ["artifact"],
     "validate_artifact": ["artifact"],
-    "convert_document": ["source", "target_format", "output_name", "loss_budget"],
+    "office_job_request": [
+        "request",
+        "source",
+        "outcome",
+        "operations",
+        "destination",
+    ],
 }
 SENTINEL_SECTIONS = {
     "When to Use",

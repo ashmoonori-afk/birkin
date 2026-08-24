@@ -295,6 +295,15 @@ def execute_action(category: str, payload: dict[str, Any],
             return "Command timed out."
         out = (proc.stdout or "") + (proc.stderr or "")
         return f"[exit {proc.returncode}] {out[:2000]}"
+    if category == "office_job":
+        from .office.coordinator import execute_approved_office_job
+
+        approval_id = None
+        if cfg is not None:
+            value = cfg.get("_office_approval_id")
+            if isinstance(value, str):
+                approval_id = value
+        return execute_approved_office_job(payload, approval_id=approval_id)
     if category == "operation":
         from .operation_approval import execute_approved
         return execute_approved(payload, cfg)
@@ -411,7 +420,13 @@ def execute_claimed(aid: str, on_event: Any = None) -> dict[str, Any]:
         # caller) replace execute_action through -- a surprise keyword on a
         # monkeypatched fake TypeErrors and reads as ok: False. Forward the
         # observer only when there is one.
-        if on_event is not None:
+        if rec["category"] == "office_job":
+            result = execute_action(
+                rec["category"],
+                rec.get("payload", {}),
+                {"_office_approval_id": aid},
+            )
+        elif on_event is not None:
             result = execute_action(rec["category"], rec.get("payload", {}),
                                     on_event=on_event)
         else:
