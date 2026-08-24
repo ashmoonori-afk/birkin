@@ -1,5 +1,6 @@
 import Darwin
 import Dispatch
+import Foundation
 import Testing
 
 @testable import BirkinNativeProtocol
@@ -48,7 +49,7 @@ struct NativeSocketTests {
 
         for _ in 0..<16 {
             finished.enter()
-            DispatchQueue.global().async {
+            Thread.detachNewThread {
                 start.wait()
                 ownership.close()
                 finished.leave()

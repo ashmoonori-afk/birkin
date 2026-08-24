@@ -20,6 +20,8 @@ from birkin.browser_aside_store import (
     FrameStoreError,
 )
 
+NAVIGATION_TIMEOUT_MILLISECONDS = 45_000
+
 
 @final
 class BrowserOwnerLoop:
@@ -76,7 +78,7 @@ class BrowserOwnerLoop:
                         timeout=max(
                             1,
                             min(
-                                15_000,
+                                NAVIGATION_TIMEOUT_MILLISECONDS,
                                 int(
                                     (
                                         command.deadline
