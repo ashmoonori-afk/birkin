@@ -1137,7 +1137,7 @@ npm run test:e2e
 
 CI는 Ubuntu/Python 3.10, macOS/Python 3.13, Windows/Python 3.13에서 일반 Python suite를 실행합니다. macOS와 Windows job은 고정된 Bun release를 추가로 설치하고, workflow의 **Native macOS shell acceptance** 또는 **Native Windows shell acceptance** step과 각 platform의 tracked sibling-surface smoke driver를 실행합니다. Extension unit test는 Vitest, host QA는 `@vscode/test-electron`을 사용합니다.
 
-개발 commit은 package version을 자동으로 올리지 않습니다. 추적 중인 `scripts/hooks/pre-commit`은 의도적으로 파일을 변경하지 않습니다. Release할 때는 `pyproject.toml`과 `birkin/__init__.py`를 명시적으로 함께 변경한 뒤 일치하는 `vX.Y.Z` tag를 push합니다. Release workflow는 version과 tag가 다르면 거부합니다. 과거의 version 변경 hook이 이미 `.git/hooks/pre-commit`에 설치되어 있다면 추적 중인 hook으로 교체하거나 삭제해야 합니다.
+개발 commit은 package version을 자동으로 올리지 않습니다. 추적 중인 `scripts/hooks/pre-commit`은 의도적으로 파일을 변경하지 않습니다. 하나의 release 준비 변경에서 `pyproject.toml`, `birkin/__init__.py`, `uv.lock`, 생성된 Native version/protocol artifact, README.md, README.ko.md, `docs/office-support.md`를 함께 갱신하고 검증이 통과한 뒤에만 일치하는 `vX.Y.Z` tag를 push합니다. 과거의 version 변경 hook이 이미 `.git/hooks/pre-commit`에 설치되어 있다면 추적 중인 hook으로 교체하거나 삭제해야 합니다.
 
 ## 라이선스
 
