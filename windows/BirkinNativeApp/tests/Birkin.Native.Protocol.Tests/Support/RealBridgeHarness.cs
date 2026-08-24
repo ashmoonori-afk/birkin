@@ -25,31 +25,14 @@ internal sealed class RealBridgeHarness : IAsyncDisposable
         var temporaryRoot = Path.Combine(Path.GetTempPath(), $"birkin-w5-bridge-{Guid.NewGuid():N}");
         var bridgeRoot = Path.Combine(temporaryRoot, "bridge");
         Directory.CreateDirectory(bridgeRoot);
-        var start = new ProcessStartInfo
-        {
-            FileName = "uv",
-            WorkingDirectory = FindRepositoryRoot(),
-            UseShellExecute = false,
-            RedirectStandardOutput = true,
-            RedirectStandardError = true,
-            CreateNoWindow = true,
-        };
-        start.Environment["BIRKIN_HOME"] = Path.Combine(temporaryRoot, "home");
-        foreach (var argument in new[]
-        {
-            "run", "--frozen", "birkin", "native-bridge", "serve",
-            "--transport", "loopback", "--root", bridgeRoot,
-        })
-        {
-            start.ArgumentList.Add(argument);
-        }
+        var start = CreateStartInfo(temporaryRoot, bridgeRoot);
 
         var process = new Process { StartInfo = start };
         try
         {
             if (!process.Start())
             {
-                throw new InvalidOperationException("uv did not start the native bridge");
+                throw new InvalidOperationException("repository Python did not start the native bridge");
             }
 
             var standardError = process.StandardError.ReadToEndAsync(cancellationToken);
@@ -91,13 +74,53 @@ internal sealed class RealBridgeHarness : IAsyncDisposable
         var standardError = await _standardError;
         _process.Dispose();
         Directory.Delete(TemporaryRoot, recursive: true);
+        ValidateStandardError(standardError);
+    }
+
+    public static string RepositoryRoot => FindRepositoryRoot();
+
+    internal static ProcessStartInfo CreateStartInfo(string temporaryRoot, string bridgeRoot)
+    {
+        var repositoryRoot = FindRepositoryRoot();
+        var start = new ProcessStartInfo
+        {
+            FileName = FindRepositoryPython(repositoryRoot),
+            WorkingDirectory = repositoryRoot,
+            UseShellExecute = false,
+            RedirectStandardOutput = true,
+            RedirectStandardError = true,
+            CreateNoWindow = true,
+        };
+        start.Environment["BIRKIN_HOME"] = Path.Combine(temporaryRoot, "home");
+        foreach (var argument in new[]
+        {
+            "-m", "birkin.native.serve",
+            "--transport", "loopback", "--root", bridgeRoot,
+        })
+        {
+            start.ArgumentList.Add(argument);
+        }
+        return start;
+    }
+
+    internal static void ValidateStandardError(string standardError)
+    {
         if (!string.IsNullOrEmpty(standardError))
         {
             throw new InvalidOperationException($"native bridge wrote stderr: {standardError}");
         }
     }
 
-    public static string RepositoryRoot => FindRepositoryRoot();
+    private static string FindRepositoryPython(string repositoryRoot)
+    {
+        var relativePath = OperatingSystem.IsWindows()
+            ? Path.Combine(".venv", "Scripts", "python.exe")
+            : Path.Combine(".venv", "bin", "python");
+        var executable = Path.Combine(repositoryRoot, relativePath);
+        return File.Exists(executable)
+            ? executable
+            : throw new InvalidOperationException($"locked repository Python was not found: {executable}");
+    }
 
     private static string FindRepositoryRoot()
     {

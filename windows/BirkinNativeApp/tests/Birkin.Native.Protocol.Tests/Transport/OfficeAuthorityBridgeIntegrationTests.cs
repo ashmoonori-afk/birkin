@@ -19,6 +19,22 @@ public sealed class OfficeAuthorityBridgeIntegrationTests
     [TestMethod]
     public async Task ProductionSession_ExecutesAuthoritativeOfficeApprovalJourneyWithoutProvider()
     {
+        var launcher = RealBridgeHarness.CreateStartInfo("test-home", "test-bridge");
+        var expectedPython = OperatingSystem.IsWindows()
+            ? Path.Combine(".venv", "Scripts", "python.exe")
+            : Path.Combine(".venv", "bin", "python");
+        StringAssert.EndsWith(launcher.FileName, expectedPython);
+        CollectionAssert.AreEqual(
+            new[]
+            {
+                "-m", "birkin.native.serve",
+                "--transport", "loopback", "--root", "test-bridge",
+            },
+            launcher.ArgumentList.ToArray());
+        var stderrFailure = Assert.ThrowsException<InvalidOperationException>(() =>
+            RealBridgeHarness.ValidateStandardError("E_BRIDGE_SENTINEL unexpected bridge failure"));
+        StringAssert.Contains(stderrFailure.Message, "E_BRIDGE_SENTINEL");
+
         using var deadline = new CancellationTokenSource(TimeSpan.FromSeconds(60));
         var started = await RealBridgeHarness.StartAsync(deadline.Token);
         await using var bridge = started.Harness;
