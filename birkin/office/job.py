@@ -3,37 +3,21 @@
 from __future__ import annotations
 
 import hashlib
-import importlib
 from collections.abc import Mapping, Sequence
 from copy import deepcopy
 from datetime import datetime, timezone
-from typing import Protocol, cast, final, runtime_checkable
+from typing import Protocol, cast, final
 
 from .artifact_serialization import canonical_json
 from .errors import DocumentError, DocumentErrorCode
 from .export_policy import ExportRequest
+from .job_serialization import receipt_job, restore_job, snapshot_job
 from .job_types import OfficeJobRunner as OfficeJobRunner
 from .job_types import OfficeJobState as OfficeJobState
 
 
 class OfficeJobJournalSink(Protocol):
     def append(self, job: OfficeJob) -> None: ...
-
-
-@runtime_checkable
-class _JobJournalModule(Protocol):
-    def snapshot_job(self, job: OfficeJob) -> dict[str, object]: ...
-    def restore_job(
-        self, snapshot: Mapping[str, object], *, runner: OfficeJobRunner
-    ) -> OfficeJob: ...
-    def receipt_job(self, job: OfficeJob) -> dict[str, object]: ...
-
-
-def _job_journal() -> _JobJournalModule:
-    module = importlib.import_module("birkin.office.job_journal")
-    if not isinstance(module, _JobJournalModule):
-        raise RuntimeError("Office job journal is unavailable")
-    return module
 
 
 _TERMINAL_STATES = {
@@ -69,11 +53,11 @@ class OfficeJob:
             self._journal.append(self)
 
     def to_dict(self) -> dict[str, object]:
-        return _job_journal().snapshot_job(self)
+        return snapshot_job(self)
 
     @classmethod
     def from_dict(cls, snapshot: Mapping[str, object], *, runner: OfficeJobRunner) -> OfficeJob:
-        return _job_journal().restore_job(snapshot, runner=runner)
+        return restore_job(snapshot, runner=runner, job_factory=cls)
 
     @property
     def state(self) -> OfficeJobState:
@@ -245,7 +229,7 @@ class OfficeJob:
         return deepcopy(receipt)
 
     def receipt(self) -> dict[str, object]:
-        return _job_journal().receipt_job(self)
+        return receipt_job(self)
 
     def fail(self, *, stage: str, message: str) -> None:
         if self._state in _TERMINAL_STATES:
