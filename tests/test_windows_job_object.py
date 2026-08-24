@@ -14,7 +14,9 @@ import pytest
 
 from birkin.proc import (
     ShellCommand,
+    _spawn_managed_windows_shell,
     run_shell_command,
+    shell_argv,
     shell_env,
     windows_creation_flags,
 )
@@ -108,11 +110,10 @@ def _run_driver_in_outer_job(
     from birkin import _winjob
 
     outer = _winjob.WindowsJob.create()
-    gate = _winjob.WindowsStartGate.create()
     process: subprocess.Popen[str] | None = None
     try:
         process = subprocess.Popen(
-            gate.bootstrap_argv(argv),
+            argv,
             cwd=cwd,
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
@@ -120,10 +121,10 @@ def _run_driver_in_outer_job(
             encoding="utf-8",
             errors="replace",
             env=shell_env(),
-            creationflags=windows_creation_flags(True),
+            creationflags=windows_creation_flags(True) | 0x00000004,
         )
         outer.assign(process.pid)
-        gate.release()
+        outer.resume(process.pid)
         stdout, stderr = process.communicate(timeout=20)
         return subprocess.CompletedProcess(
             argv,
@@ -132,7 +133,6 @@ def _run_driver_in_outer_job(
             stderr,
         )
     finally:
-        gate.close()
         outer.close()
         if process is not None and process.poll() is None:
             process.kill()
@@ -170,22 +170,38 @@ def test_successful_shell_cannot_leak_background_child(
     assert _wait_for_process_exit(child_pid)
 
 
-def test_bootstrap_starts_isolated_before_gate_release() -> None:
-    from birkin import _winjob
+def test_real_shell_and_descendant_are_in_intended_job(
+    tmp_path: Path,
+) -> None:
+    from birkin._winjob import WindowsJob
 
-    gate = _winjob.WindowsStartGate.create()
+    command = subprocess.list2cmdline(
+        [
+            sys.executable,
+            "-c",
+            "import os; print(os.getpid(), flush=True); input()",
+        ]
+    )
+    request = ShellCommand(command, tmp_path, 10, shell_env(), stdin="")
+    process, managed = _spawn_managed_windows_shell(
+        shell_argv(command),
+        request,
+    )
+    assert isinstance(managed, WindowsJob)
     try:
-        argv = gate.bootstrap_argv(["cmd.exe", "/d", "/c", "echo ok"])
-    finally:
-        gate.close()
+        child_pid = int(process.stdout.readline())
 
-    assert argv[0] == sys.executable
-    assert argv[1:3] == ["-I", "-S"]
-    assert Path(argv[3]).name == "_winjob_bootstrap.py"
-    assert argv[4].startswith("Local\\BirkinJob-")
-    assert argv[4].endswith("-release")
-    assert argv[5].startswith("Local\\BirkinJob-")
-    assert argv[5].endswith("-ready")
+        assert str(process.args).casefold().startswith(
+            str(shell_argv(command)[0]).casefold()
+        )
+        assert managed.contains(process.pid)
+        assert managed.contains(child_pid)
+    finally:
+        assert process.stdin is not None
+        _ = process.stdin.write("\n")
+        process.stdin.flush()
+        _ = process.communicate(timeout=10)
+        managed.close()
 
 
 def test_job_object_ctypes_layout_matches_winnt() -> None:
