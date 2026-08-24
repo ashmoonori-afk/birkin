@@ -7,6 +7,8 @@ namespace Birkin.Native.App.Tests.Support;
 
 internal static class ProviderOfficeProviderTurn
 {
+    private const string Sentinel = "OFFICE_PROVIDER_PARTICIPATED";
+    private const string SentinelSha256 = "3f78f63495f2955c6b0499884a11d123ed6cfbefbf63aca74c5a41a16b9fd577";
     private const string Request =
         "Compare the imported baseline and candidate spreadsheets and draft a report from the imported template. "
         + "Reply only OFFICE_PROVIDER_PARTICIPATED.";
@@ -35,8 +37,14 @@ internal static class ProviderOfficeProviderTurn
             && row.Id == ProviderOfficeEventLog.EventId(assistant)
             && row.Cursor == ProviderOfficeEventLog.Cursor(assistant)));
         Assert.IsTrue(ProviderOfficeEventLog.Cursor(user) < ProviderOfficeEventLog.Cursor(assistant));
-        var assistantRow = rows.Single(row => row.Id == ProviderOfficeEventLog.EventId(assistant));
-        evidence.RecordText("provider-assistant", assistantRow.Text);
+        var assistantRow = AssistantSentinelValidator.ValidateExact(
+            rows.Where(row => row.Kind == "assistant_message"
+                    && row.Id == ProviderOfficeEventLog.EventId(assistant))
+                .Select(row => new AssistantSentinelRow(row.Id, row.Text))
+                .ToArray(),
+            Sentinel,
+            SentinelSha256);
+        evidence.RecordText("provider-assistant", assistantRow.Text.Trim());
         evidence.Record("provider-turn", new Dictionary<string, object?>
         {
             ["command_id"] = trace.CommandId,

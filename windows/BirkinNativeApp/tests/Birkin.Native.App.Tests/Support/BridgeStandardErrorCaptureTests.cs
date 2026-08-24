@@ -32,7 +32,7 @@ public sealed class BridgeStandardErrorCaptureTests
     }
 
     [TestMethod]
-    public void Append_WhenUnexpectedLineIsInjected_KeepsItInFailingBridgeAssertion()
+    public void Append_WhenUnexpectedLineIsInjected_FailsWithRedactedBridgeDiagnostics()
     {
         // Given
         const string unexpected = "E_BRIDGE_SENTINEL unexpected bridge failure";
@@ -41,10 +41,12 @@ public sealed class BridgeStandardErrorCaptureTests
 
         // When
         var failure = Assert.ThrowsException<AssertFailedException>(() =>
-            Assert.AreEqual(string.Empty, capture.StandardError, capture.StandardError));
+            RedactedDiagnostics.AssertEmpty("bridge_stderr", capture.StandardError));
 
         // Then
-        StringAssert.Contains(failure.Message, unexpected);
+        StringAssert.Contains(failure.Message, $"bridge_stderr_bytes={System.Text.Encoding.UTF8.GetByteCount(unexpected)}");
+        StringAssert.Contains(failure.Message, $"bridge_stderr_sha256={ProviderOfficeEvidence.Hash(unexpected)}");
+        Assert.IsFalse(failure.Message.Contains(unexpected, StringComparison.Ordinal));
         Assert.AreEqual(string.Empty, capture.LauncherDiagnostics);
     }
 }

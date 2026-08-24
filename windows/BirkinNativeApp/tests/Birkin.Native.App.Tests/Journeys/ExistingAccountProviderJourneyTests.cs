@@ -19,6 +19,7 @@ public sealed class ExistingAccountProviderJourneyTests
 {
     private const string Prompt = "Reply with exactly PACKAGED_PROVIDER_COMPLETION_OK and no other text.";
     private const string Marker = "PACKAGED_PROVIDER_COMPLETION_OK";
+    private const string MarkerSha256 = "97e1434f1402ea1678d9fba3aa66906c842dff8536f20114da93f5b1500bf5f4";
 
     [TestMethod]
     [TestCategory("ExistingAccountProvider")]
@@ -180,8 +181,16 @@ public sealed class ExistingAccountProviderJourneyTests
 
                     // Then
                     var user = final.Conversation.Last(row => row.Kind == "user_message" && row.Text == Prompt);
-                    var assistant = final.Conversation.Last(row => row.Kind == "assistant_message");
-                    Assert.AreEqual(Marker, assistant.Text.Trim());
+                    var userIndex = final.Conversation.Select((row, index) => (row, index))
+                        .Single(item => item.row.Id == user.Id).index;
+                    var validatedAssistant = AssistantSentinelValidator.ValidateExact(
+                        final.Conversation.Skip(userIndex + 1)
+                            .Where(row => row.Kind == "assistant_message")
+                            .Select(row => new AssistantSentinelRow(row.Id, row.Text))
+                            .ToArray(),
+                        Marker,
+                        MarkerSha256);
+                    var assistant = final.Conversation.Single(row => row.Id == validatedAssistant.Id);
                     Assert.IsNotNull(commandId);
                     Assert.IsNotNull(acceptedCursor);
                     Assert.IsTrue(final.Cursor >= assistant.Cursor);
@@ -209,7 +218,8 @@ public sealed class ExistingAccountProviderJourneyTests
 
                     Console.WriteLine($"READY_COMMAND=chat.send;transport={ready.Transport};session_id={ready.SessionId}");
                     Console.WriteLine($"CHAT_COMMAND=id={commandId};accepted_cursor={acceptedCursor};final_cursor={final.Cursor};projected_frames={projectedFrames};cursor_sequence={string.Join(',', projectionCursors)}");
-                    Console.WriteLine($"CHAT_ROWS=user_id={user.Id};user_cursor={user.Cursor};assistant_id={assistant.Id};assistant_cursor={assistant.Cursor};assistant_text={assistant.Text.Trim()}");
+                    var assistantText = assistant.Text.Trim();
+                    Console.WriteLine($"CHAT_ROWS=user_id={user.Id};user_cursor={user.Cursor};assistant_id={assistant.Id};assistant_cursor={assistant.Cursor};assistant_text_bytes={System.Text.Encoding.UTF8.GetByteCount(assistantText)};assistant_text_sha256={ProviderOfficeEvidence.Hash(assistantText)}");
                     Console.WriteLine($"RECEIPT=state=accepted;command_id={commandId};accepted_cursor={acceptedCursor}");
                     Console.WriteLine($"SCREENSHOT={evidencePath}");
                 }
@@ -246,13 +256,15 @@ public sealed class ExistingAccountProviderJourneyTests
             {
                 ["stderr_empty"] = string.IsNullOrEmpty(bridge.StandardError),
                 ["stderr_bytes"] = System.Text.Encoding.UTF8.GetByteCount(bridge.StandardError),
+                ["stderr_sha256"] = ProviderOfficeEvidence.Hash(bridge.StandardError),
                 ["launcher_diagnostics_bytes"] = System.Text.Encoding.UTF8.GetByteCount(bridge.LauncherDiagnostics),
+                ["launcher_diagnostics_sha256"] = ProviderOfficeEvidence.Hash(bridge.LauncherDiagnostics),
             });
             throw;
         }
         evidence.CaptureWorkspace(bridge.TemporaryRoot);
 
-        Assert.AreEqual(string.Empty, bridge.StandardError, bridge.StandardError);
+        RedactedDiagnostics.AssertEmpty("bridge_stderr", bridge.StandardError);
         Console.WriteLine($"BRIDGE=pid={bridge.ProcessId};transport=loopback;stderr_empty=true;temporary_root={bridge.TemporaryRoot}");
     }
 }
