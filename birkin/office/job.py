@@ -2,18 +2,17 @@
 
 from __future__ import annotations
 
-import hashlib
 from collections.abc import Mapping, Sequence
 from copy import deepcopy
 from datetime import datetime, timezone
 from typing import Protocol, cast, final
 
-from .artifact_serialization import canonical_json
 from .errors import DocumentError, DocumentErrorCode
 from .export_policy import ExportRequest
 from .job_serialization import receipt_job, restore_job, snapshot_job
 from .job_types import OfficeJobRunner as OfficeJobRunner
 from .job_types import OfficeJobState as OfficeJobState
+from .proposal_integrity import proposal_digest
 
 
 class OfficeJobJournalSink(Protocol):
@@ -259,12 +258,7 @@ class OfficeJob:
                 DocumentErrorCode.PRECONDITION_FAILED,
                 "preview requires source_sha256",
             )
-        proposal = {
-            "operations": self._operations,
-            "source_sha256": source_sha256,
-            "outcome": self._outcome,
-        }
-        return hashlib.sha256(canonical_json(proposal).encode("utf-8")).hexdigest()
+        return proposal_digest(self._operations, source_sha256, self._outcome)
 
     def _operation_snapshot(self) -> tuple[Mapping[str, object], ...]:
         return tuple(deepcopy(operation) for operation in self._operations)

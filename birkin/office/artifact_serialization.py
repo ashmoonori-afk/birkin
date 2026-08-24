@@ -3,15 +3,30 @@
 from __future__ import annotations
 
 import json
+import math
 import re
 import unicodedata
 from collections.abc import Iterable, Mapping, Sequence
+from dataclasses import dataclass
 from typing import TypeAlias, cast
+
+from typing_extensions import override
 
 JsonScalar: TypeAlias = str | int | float | bool | None
 JsonValue: TypeAlias = JsonScalar | list["JsonValue"] | dict[str, "JsonValue"]
 
 _REDACTED = "[redacted]"
+@dataclass(frozen=True, slots=True)
+class IntegritySerializationError(TypeError):
+    """A proposal contains a value outside the exact JSON data model."""
+
+    reason: str
+
+    @override
+    def __str__(self) -> str:
+        return self.reason
+
+
 _SECRET_PATTERNS = (
     re.compile(r"(?i)\b(bearer\s+)[A-Za-z0-9._~+/=-]{8,}"),
     re.compile(r"\b(AKIA|ASIA)[A-Z0-9]{16}\b"),
@@ -72,6 +87,50 @@ def canonical_json(value: object, *, secrets: Iterable[str] = ()) -> str:
     safe = sanitize_data(value, secrets=secrets)
     return json.dumps(
         safe,
+        ensure_ascii=False,
+        sort_keys=True,
+        separators=(",", ":"),
+        allow_nan=False,
+    )
+
+
+def _integrity_value(value: object, active: set[int]) -> JsonValue:
+    if value is None or isinstance(value, (str, bool, int)):
+        return value
+    if isinstance(value, float):
+        if not math.isfinite(value):
+            raise IntegritySerializationError("integrity JSON numbers must be finite")
+        return value
+    identity = id(value)
+    if identity in active:
+        raise IntegritySerializationError("integrity JSON must not contain cycles")
+    if isinstance(value, Mapping):
+        active.add(identity)
+        try:
+            result: dict[str, JsonValue] = {}
+            for key, item in cast("Mapping[object, object]", value).items():
+                if not isinstance(key, str):
+                    raise IntegritySerializationError(
+                        "integrity JSON object keys must be strings"
+                    )
+                result[key] = _integrity_value(item, active)
+            return result
+        finally:
+            active.remove(identity)
+    if isinstance(value, Sequence) and not isinstance(value, (str, bytes, bytearray)):
+        active.add(identity)
+        try:
+            return [_integrity_value(item, active) for item in value]
+        finally:
+            active.remove(identity)
+    raise IntegritySerializationError("integrity authority must contain only JSON values")
+
+
+def canonical_integrity_json(value: object) -> str:
+    """Serialize exact JSON authority without redaction or lossy coercion."""
+    exact = _integrity_value(value, set())
+    return json.dumps(
+        exact,
         ensure_ascii=False,
         sort_keys=True,
         separators=(",", ":"),

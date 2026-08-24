@@ -16,54 +16,18 @@ consequential actions directly.
 
 from __future__ import annotations
 
-import importlib
 import subprocess
-from datetime import datetime, timedelta, timezone
-from pathlib import Path
-from typing import Any, Protocol, runtime_checkable
+from typing import Any
 
-from . import actions, config, cron, risk, store, worker_hooks
-from .operation_policy import retry_environment
-from .proc import ShellCommand, run_shell_command, shell_env
-
-
-@runtime_checkable
-class _OperationExecutor(Protocol):
-    def execute_approved(
-        self, payload: dict[str, Any], cfg: dict[str, Any] | None
-    ) -> str: ...
-
-
-@runtime_checkable
-class _ComputerUseExecutor(Protocol):
-    def approve_payload(self, payload: dict[str, Any]) -> str: ...
-
-
-@runtime_checkable
-class _CheckpointExecutor(Protocol):
-    def execute_approved_restore(self, payload: dict[str, Any]) -> str: ...
-
-
-@runtime_checkable
-class _MoiraiExecutor(Protocol):
-    def run_approved(
-        self, payload: dict[str, Any], on_event: Any = None
-    ) -> str: ...
-
-
-@runtime_checkable
-class _SkillExecutor(Protocol):
-    def apply_skill_proposal(self, payload: dict[str, Any]) -> str: ...
-
-
-@runtime_checkable
-class _CompanionExecutor(Protocol):
-    def apply_proposal(self, payload: dict[str, Any]) -> str: ...
-
-
-@runtime_checkable
-class _HarnessExecutor(Protocol):
-    def apply_approved_edit(self, payload: dict[str, Any]) -> str: ...
+from . import (
+    approval_dispatch,
+    approval_execution,
+    approval_questions,
+    risk,
+    store,
+    worker_hooks,
+)
+from .proc import run_shell_command
 
 
 def is_auto(category: str, cfg: dict[str, Any]) -> bool:
@@ -134,46 +98,13 @@ def request_answers(
     timeout_seconds: int = 300,
     allow_clarification: bool = True,
 ) -> dict[str, Any]:
-    """Persist a channel-neutral action that needs structured answers."""
-    normalized = actions.normalize_questions(questions)
-    timeout = max(1, min(86_400, int(timeout_seconds)))
-    expires_at = (
-        datetime.now(timezone.utc) + timedelta(seconds=timeout)
-    ).isoformat(timespec="seconds")
-    record = store.add_pending(
-        category="question",
+    return approval_questions.request_answers(
         title=title,
         description=description,
-        payload={},
+        questions=questions,
         origin=origin,
-        details={
-            "action_state": "action_needed",
-            "questions": normalized,
-            "allow_clarification": bool(allow_clarification),
-            "expires_at": expires_at,
-        },
-    )
-    return {
-        "ok": True,
-        "event": "action_needed",
-        "id": record["id"],
-        "questions": normalized,
-        "expires_at": expires_at,
-    }
-
-
-def _is_moirai_continuation(aid: str) -> bool:
-    """Claim the action for the durable contract before the journal is read.
-
-    The pending projection is the only trust anchor left when the journal row
-    is missing or unreadable; without this the plain answer path would resolve
-    a Moirai checkpoint with none of its binding checks.
-    """
-    record = store.get_pending(aid)
-    envelope = (record or {}).get("continuation")
-    return (
-        isinstance(envelope, dict)
-        and envelope.get("handler") == "moirai.resume.v1"
+        timeout_seconds=timeout_seconds,
+        allow_clarification=allow_clarification,
     )
 
 
@@ -190,207 +121,39 @@ def answer(
     input_schema_version: int | None = None,
     previous_state_digest: str = "",
 ) -> dict[str, Any]:
-    """Resolve one structured action with a validated answer set."""
-    from .moirai import continuation, journal
-
-    if _is_moirai_continuation(aid) or journal.get_input_wait(aid) is not None:
-        return continuation.accept(
-            aid,
-            answers=answers,
-            actor=source,
-            capability=capability,
-            resume_token=resume_token,
-            question_digest=question_digest,
-            input_schema_version=input_schema_version,
-            previous_state_digest=previous_state_digest,
-            clarification=clarification,
-            navigation=navigation,
-        )
-    try:
-        with store.file_lock(_pending_path(aid)):
-            record = store.get_pending(aid)
-            if (not record or record.get("status") != "pending"
-                    or record.get("action_state") != "action_needed"):
-                return {"ok": False, "event": "reply_rejected", "id": aid,
-                        "error": "not found or already resolved"}
-
-            expires_at = datetime.fromisoformat(str(record["expires_at"]))
-            if expires_at.tzinfo is None:
-                raise ValueError("invalid action expiry")
-            if expires_at <= datetime.now(timezone.utc):
-                store.resolve_pending(
-                    aid,
-                    "expired",
-                    details={"action_state": "action_expired"},
-                )
-                return {"ok": False, "event": "reply_rejected", "id": aid,
-                        "error": "action expired"}
-
-            normalized = actions.normalize_answers(
-                record.get("questions") or [], answers)
-            details: dict[str, Any] = {
-                "action_state": "action_resolved",
-                "answers": normalized,
-                "resolved_by": source,
-            }
-            if clarification and record.get("allow_clarification"):
-                details["clarification"] = clarification[:2_000]
-            if navigation:
-                details["navigation"] = [
-                    str(item)[:64] for item in navigation[-50:]]
-            store.resolve_pending(aid, "answered", details=details)
-    except (actions.InvalidAnswer, KeyError, ValueError) as exc:
-        return {"ok": False, "event": "reply_rejected", "id": aid,
-                "error": str(exc)}
-    except store.FileLockTimeout:
-        return {"ok": False, "event": "reply_rejected", "id": aid,
-                "error": "action is busy; retry"}
-    return {
-        "ok": True,
-        "event": "action_resolved",
-        "id": aid,
-        "answers": normalized,
-        "resolved_by": source,
-    }
+    return approval_questions.answer(
+        aid,
+        answers=answers,
+        source=source,
+        clarification=clarification,
+        navigation=navigation,
+        capability=capability,
+        resume_token=resume_token,
+        question_digest=question_digest,
+        input_schema_version=input_schema_version,
+        previous_state_digest=previous_state_digest,
+    )
 
 
-def execute_action(category: str, payload: dict[str, Any],
-                   cfg: dict[str, Any] | None = None,
-                   on_event: Any = None) -> str:
-    """Carry out an approved action. Returns a human-readable result.
-
-    ``cfg`` is accepted for policy-aware callers (see :func:`propose`); manual
-    approval via :func:`approve` has already gathered explicit human consent.
-    """
-    if category == "cron":
-        def _clk(v: Any, d: int, hi: int) -> int:
-            # A model/user payload may carry a non-int (e.g. "9; rm") or an
-            # out-of-range value (e.g. 25): default on garbage, clamp to 0..hi
-            # so we never raise mid-execution or store a time that can't fire.
-            try:
-                n = int(v)
-            except (TypeError, ValueError):
-                n = d
-            return max(0, min(hi, n))
-        # A proposal may carry a schedule expression ("every 30m", "0 9 * * 1")
-        # or the original hour/minute pair. An unparseable expression falls
-        # back to hour/minute rather than failing the approved action.
-        schedule = payload.get("schedule")
-        if schedule and cron.parse_schedule(str(schedule)) is None:
-            schedule = None
-        def _opt_text(value: Any) -> str | None:
-            text = str(value).strip() if value is not None else ""
-            return text or None
-
-        # Monitor sources travel with the proposal: dropping them here produced
-        # an approved job whose every tick failed for want of a source.
-        job = cron.add_job(
-            name=payload.get("name", "job"),
-            hour=_clk(payload.get("hour", 9), 9, 23),
-            minute=_clk(payload.get("minute", 0), 0, 59),
-            action_type=payload.get("type", "prompt"),
-            value=payload.get("value", ""),
-            deliver_chat_id=payload.get("deliver_chat_id"),
-            deliver_channel=str(
-                payload.get("deliver_channel") or "telegram"
-            ),
-            schedule=str(schedule) if schedule else None,
-            monitor_url=_opt_text(payload.get("monitor_url")),
-            monitor_script=_opt_text(payload.get("monitor_script")),
-            max_bytes=payload.get("max_bytes"))
-        return f"Registered cron job '{job['name']}' at " \
-               f"{cron.schedule_display(job)} (id {job['id']})."
-    if category == "shell":
-        command = str(payload.get("command") or "")
-        if not command:
-            return "No command to run."
-        cwd = Path(str(payload.get("cwd") or Path.cwd())).expanduser().resolve()
-        if not cwd.is_dir():
-            return f"Working directory does not exist: {cwd}"
-        environment = shell_env()
-        command_name = command.strip().split(maxsplit=1)[0] \
-            .strip("\"'").replace("\\", "/").rsplit("/", 1)[-1] \
-            .casefold().removesuffix(".exe").removesuffix(".cmd")
-        if command_name in {"bun", "bunx"}:
-            local_temp = retry_environment("local_temp_policy", cwd)
-            for key in ("TEMP", "TMP", "UV_CACHE_DIR"):
-                Path(local_temp[key]).mkdir(parents=True, exist_ok=True)
-            environment.update(local_temp)
-        try:
-            to = payload.get("timeout", 300)
-            try:                           # model/user payload may be non-int
-                to = int(to)
-            except (TypeError, ValueError):
-                to = 300
-            proc = run_shell_command(
-                ShellCommand(
-                    command=command,
-                    cwd=cwd,
-                    timeout=max(1, min(3600, to)),
-                    environment=environment,
-                    hide_window=True,
-                )
-            )
-        except subprocess.TimeoutExpired:
-            return "Command timed out."
-        out = (proc.stdout or "") + (proc.stderr or "")
-        return f"[exit {proc.returncode}] {out[:2000]}"
-    if category == "office_job":
-        from .office.coordinator import execute_approved_office_job
-
-        approval_id = None
-        if cfg is not None:
-            value = cfg.get("_office_approval_id")
-            if isinstance(value, str):
-                approval_id = value
-        return execute_approved_office_job(payload, approval_id=approval_id)
-    if category == "operation":
-        operation = importlib.import_module("birkin.operation_approval")
-        if not isinstance(operation, _OperationExecutor):
-            raise RuntimeError("operation approval executor is unavailable")
-        return operation.execute_approved(payload, cfg)
-    if category == "computer_use":
-        computer_use = importlib.import_module(
-            "birkin.computer_use.approval_bridge"
-        )
-        if not isinstance(computer_use, _ComputerUseExecutor):
-            raise RuntimeError("Computer Use approval executor is unavailable")
-        return computer_use.approve_payload(payload)
-    if category == "checkpoint_restore":
-        checkpoint_executor = importlib.import_module("birkin.checkpoints")
-        if not isinstance(checkpoint_executor, _CheckpointExecutor):
-            raise RuntimeError("checkpoint approval executor is unavailable")
-        return checkpoint_executor.execute_approved_restore(payload)
-    if category == "moirai":
-        moirai = importlib.import_module("birkin.moirai.trigger")
-        if not isinstance(moirai, _MoiraiExecutor):
-            raise RuntimeError("Moirai approval executor is unavailable")
-        return moirai.run_approved(payload, on_event=on_event)
-    if category == "skill":
-        skill = importlib.import_module("birkin.skills.manager")
-        if not isinstance(skill, _SkillExecutor):
-            raise RuntimeError("skill approval executor is unavailable")
-        return skill.apply_skill_proposal(payload)
-    if category == "companion":
-        companion = importlib.import_module("birkin.companion")
-        if not isinstance(companion, _CompanionExecutor):
-            raise RuntimeError("companion approval executor is unavailable")
-        return companion.apply_proposal(payload)
-    if category == "harness":
-        harness = importlib.import_module("birkin.harness")
-        if not isinstance(harness, _HarnessExecutor):
-            raise RuntimeError("harness approval executor is unavailable")
-        return harness.apply_approved_edit(payload)
-    if category == "memory":
-        return "(memory is applied directly by the agent)"
-    raise ValueError(f"unknown approval category {category!r}")
+def execute_action(
+    category: str,
+    payload: dict[str, Any],
+    cfg: dict[str, Any] | None = None,
+    on_event: Any = None,
+) -> str:
+    """Carry out an action that already has durable approval authority."""
+    return approval_dispatch.execute_action(
+        category,
+        payload,
+        approval_dispatch.DispatchOptions(
+            cfg=cfg,
+            on_event=on_event,
+            shell_runner=run_shell_command,
+        ),
+    )
 
 
 # -- CLI review ------------------------------------------------------------
-
-def _pending_path(aid: str):
-    return config.pending_dir() / f"{aid}.json"
-
 
 def reviewable_pending() -> list[dict[str, Any]]:
     return [rec for rec in store.list_pending()
@@ -398,155 +161,29 @@ def reviewable_pending() -> list[dict[str, Any]]:
 
 
 def claim(aid: str) -> dict[str, Any]:
-    if not store.valid_pending_id(aid):
-        return {"ok": False, "error": "invalid approval id"}
-    # CLAIM under the lock (fast: read + status write), then EXECUTE outside it.
-    # The claim — flipping status away from "pending" — is the gate against a
-    # double-run (same item tapped in Telegram while also approved in the CLI).
-    # Running the action (a shell job can be minutes) INSIDE the lock was the
-    # bug: file_lock proceeds after a 5s timeout / reclaims a 30s-stale lock,
-    # so a long approve could release the gate and let a second run start.
-    try:
-        with store.file_lock(_pending_path(aid)):
-            rec = store.get_pending(aid)
-            if not rec or rec.get("status") != "pending":
-                return {"ok": False, "error": "not found or already resolved"}
-            if rec.get("action_state") == "action_needed":
-                return {
-                    "ok": False,
-                    "error": "structured action requires answers",
-                }
-            if rec.get("category") == "workflow":
-                return {"ok": False,
-                        "error": "Telegram workflow requires its origin chat"}
-            store.resolve_pending(aid, "approving")     # claim it
-    except store.FileLockTimeout:
-        return {"ok": False, "error": "approval store is busy"}
-    return {"ok": True}
+    return approval_execution.claim(aid)
 
 
 def execute_claimed(aid: str, on_event: Any = None) -> dict[str, Any]:
-    if not store.valid_pending_id(aid):
-        return {"ok": False, "error": "invalid approval id"}
-    try:
-        with store.file_lock(_pending_path(aid)):
-            rec = store.get_pending(aid)
-            if not rec or rec.get("status") != "approving":
-                return {"ok": False, "error": "approval is not claimed"}
-            continuation = rec.get("continuation")
-            if continuation is not None:
-                try:
-                    worker_hooks.validate(continuation)
-                except worker_hooks.WorkerHookError as exc:
-                    store.resolve_pending(
-                        aid, "error",
-                        updates={"failure_stage": "validation"},
-                    )
-                    return {"ok": False, "error": str(exc)}
-            store.resolve_pending(aid, "executing")
-    except store.FileLockTimeout:
-        return {"ok": False, "error": "approval store is busy"}
-    try:
-        # The bare two-argument call is the contract tests (and any older
-        # caller) replace execute_action through -- a surprise keyword on a
-        # monkeypatched fake TypeErrors and reads as ok: False. Forward the
-        # observer only when there is one.
-        if rec["category"] == "office_job":
-            result = execute_action(
-                rec["category"],
-                rec.get("payload", {}),
-                {"_office_approval_id": aid},
-            )
-        elif on_event is not None:
-            result = execute_action(rec["category"], rec.get("payload", {}),
-                                    on_event=on_event)
-        else:
-            result = execute_action(rec["category"], rec.get("payload", {}))
-    except store.FileLockTimeout:
-        try:
-            with store.file_lock(_pending_path(aid)):
-                current = store.get_pending(aid)
-                if not current or current.get("status") != "executing":
-                    return {"ok": False, "error": "approval store is busy"}
-                store.resolve_pending(aid, "pending")
-        except store.FileLockTimeout:
-            return {"ok": False, "error": "approval store is busy"}
-        return {"ok": False, "error": "cron store is busy; retry."}
-    except Exception as exc:
-        store.resolve_pending(
-            aid, "error", updates={"failure_stage": "action"},
-        )
-        return {"ok": False, "error": f"action failed: {exc}"}
-    if continuation is not None:
-        store.resolve_pending(
-            aid, "resume_pending", updates={"action_receipt": result},
-        )
-        resumed = execute_continuation(aid, on_event=on_event)
-        if resumed.get("ok"):
-            resumed["result"] = result
-        return resumed
-    store.resolve_pending(aid, "approved", updates={"action_receipt": result})
-    return {"ok": True, "result": result}
+    return approval_execution.execute_claimed(
+        aid, execute_action, on_event=on_event
+    )
 
 
 def execute_continuation(aid: str, on_event: Any = None) -> dict[str, Any]:
-    if not store.valid_pending_id(aid):
-        return {"ok": False, "error": "invalid approval id"}
-    try:
-        with store.file_lock(_pending_path(aid)):
-            rec = store.get_pending(aid)
-            if not rec or rec.get("status") != "resume_pending":
-                return {"ok": False, "error": "continuation is not pending"}
-            continuation = worker_hooks.validate(rec.get("continuation"))
-            store.resolve_pending(aid, "resuming")
-    except (store.FileLockTimeout, worker_hooks.WorkerHookError) as exc:
-        return {"ok": False, "error": str(exc)}
-    try:
-        result = worker_hooks.dispatch(continuation, on_event=on_event)
-    except (OSError, RuntimeError, TypeError, ValueError) as exc:
-        store.resolve_pending(
-            aid, "error", updates={"failure_stage": "continuation"},
-        )
-        return {"ok": False, "error": f"continuation failed: {exc}"}
-    store.resolve_pending(
-        aid, "approved", updates={"continuation_result": result},
-    )
-    return {"ok": True, "continuation_result": result}
+    return approval_execution.execute_continuation(aid, on_event=on_event)
 
 
 def restore_claim(aid: str) -> bool:
-    if not store.valid_pending_id(aid):
-        return False
-    try:
-        with store.file_lock(_pending_path(aid)):
-            rec = store.get_pending(aid)
-            if not rec or rec.get("status") != "approving":
-                return False
-            store.resolve_pending(aid, "pending")
-    except store.FileLockTimeout:
-        return False
-    return True
+    return approval_execution.restore_claim(aid)
 
 
 def approve(aid: str, on_event: Any = None) -> dict[str, Any]:
-    claimed = claim(aid)
-    if not claimed.get("ok"):
-        return claimed
-    return execute_claimed(aid, on_event=on_event)
+    return approval_execution.approve(aid, execute_action, on_event=on_event)
 
 
 def reject(aid: str, reason: str = "") -> dict[str, Any]:
-    if not store.valid_pending_id(aid):
-        return {"ok": False}
-    try:
-        with store.file_lock(_pending_path(aid)):
-            rec = store.get_pending(aid)
-            if not rec or rec.get("status") != "pending":
-                return {"ok": False}      # already resolved — don't clobber
-            store.resolve_pending(aid, "rejected", reason=reason)
-    except store.FileLockTimeout:
-        return {"ok": False}
-    return {"ok": True}
+    return approval_execution.reject(aid, reason=reason)
 
 
 def denial_reason_for(command: str) -> str:
@@ -605,3 +242,24 @@ def review_cli() -> int:
         else:
             print("   … skipped\n")
     return 0
+
+
+__all__ = [
+    "answer",
+    "approve",
+    "claim",
+    "denial_reason_for",
+    "execute_action",
+    "execute_claimed",
+    "execute_continuation",
+    "is_auto",
+    "propose",
+    "reject",
+    "request_answers",
+    "restore_claim",
+    "review_cli",
+    "reviewable_pending",
+    "run_shell_command",
+    "subprocess",
+    "worker_hook_contract",
+]
