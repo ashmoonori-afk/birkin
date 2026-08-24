@@ -26,8 +26,7 @@ public sealed partial class NativeClientConnection : INativeClientConnection
     private int _reconnectAttempt;
     private bool _subscribed;
 
-    public NativeClientConnection(NativeProjectionStore? projectionStore = null,
-        Func<TimeSpan, CancellationToken, ValueTask>? delayAsync = null, Func<double>? jitter = null)
+    public NativeClientConnection(NativeProjectionStore? projectionStore = null, Func<TimeSpan, CancellationToken, ValueTask>? delayAsync = null, Func<double>? jitter = null)
     {
         _projectionStore = projectionStore ?? new NativeProjectionStore();
         _delayAsync = delayAsync ?? ((delay, cancellationToken) => new(Task.Delay(delay, cancellationToken)));
@@ -37,6 +36,8 @@ public sealed partial class NativeClientConnection : INativeClientConnection
     public bool ContainsBootstrapSecretForTesting => _bootstrapSecret is not null;
     public bool IsProjectionCurrent { get; private set; }
     public NativeSessionCapability? CurrentCapability => Volatile.Read(ref _currentCapability);
+    public bool HasLiveCapability(DateTimeOffset now) => CurrentCapability is { } capability && capability.ExpiresAt > now && capability.HardExpiresAt > now;
+    public IReadOnlySet<string> AdvertisedCommands => Volatile.Read(ref _session)?.AdvertisedCommands ?? System.Collections.Frozen.FrozenSet<string>.Empty;
     public NativeSessionCapability? PredecessorCapability => Volatile.Read(ref _predecessorCapability);
 
     public async Task ConnectAsync(BridgeAnnouncement announcement, string expectedProductVersion,
@@ -101,8 +102,7 @@ public sealed partial class NativeClientConnection : INativeClientConnection
         return TimeSpan.FromMilliseconds(baseMilliseconds * (0.8 + (0.4 * jitter)));
     }
 
-    private async Task ConnectCoreAsync(BridgeAnnouncement announcement, string expectedProductVersion,
-        CancellationToken cancellationToken)
+    private async Task ConnectCoreAsync(BridgeAnnouncement announcement, string expectedProductVersion, CancellationToken cancellationToken)
     {
         if (!string.Equals(expectedProductVersion, announcement.ServerVersion, StringComparison.Ordinal))
             throw new NativeProtocolError("E_VERSION_MISMATCH", "announcement and client product versions differ");
