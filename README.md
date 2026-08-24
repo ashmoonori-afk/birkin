@@ -1132,8 +1132,6 @@ npm run test:e2e
 
 CI runs the general Python suite on Ubuntu/Python 3.10, macOS/Python 3.13, and Windows/Python 3.13. The macOS and Windows jobs also install a pinned Bun release, run the workflow's **Native macOS shell acceptance** or **Native Windows shell acceptance** step, and execute their tracked sibling-surface smoke drivers. Extension unit tests use Vitest; host QA uses `@vscode/test-electron`.
 
-Development commits never increment the package version automatically. The tracked `scripts/hooks/pre-commit` is intentionally non-mutating. One release-preparation change updates `pyproject.toml`, `birkin/__init__.py`, `uv.lock`, generated Native version/protocol artifacts, README.md, README.ko.md, and `docs/office-support.md` together; the matching `vX.Y.Z` tag is pushed only after those checks pass. If an older mutating hook is already installed in `.git/hooks/pre-commit`, replace it with the tracked hook or remove it.
-
 ## License
 
 [MIT](./LICENSE). See [NOTICE](./NOTICE) for attribution.

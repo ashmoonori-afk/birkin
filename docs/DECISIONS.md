@@ -388,27 +388,26 @@ A-MEM (arXiv:2502.12110 via blog.outta.ai/230), hermes-agent (`curator.py`).
 
 ---
 
-## ADR-039 — Release-only version publication
+## ADR-039 — Per-commit version bump; `update` shows the version, not a commit hash
 
-**Context.** `update` originally reported the git short SHA. A per-commit patch
-bump replaced that SHA with a human version, but it coupled every development
-commit to `pyproject.toml`, `birkin/__init__.py`, `uv.lock`, generated Native
-metadata, README publication, and the Office support contract. Version-only
-follow-up commits and CI drift failures became more common than useful release
-changes.
+**Context.** `update` reported the git short-SHA ("Already up to date (at 4fe39f6)").
+The user wanted a human **version** as the update reference, bumped once per commit
+("커밋 1개마다 v.001씩"), and **not** the commit hash.
 
-**Decision.** The package version is release metadata, not a commit counter.
-Development commits never change it. One explicit release-preparation change
-updates `pyproject.toml`, `birkin/__init__.py`, `uv.lock`, generated Native
-version/protocol artifacts, README.md, README.ko.md, and docs/office-support.md
-together. CI continues to reject disagreement, and release.yml accepts only a
-matching `vX.Y.Z` tag. `scripts/hooks/pre-commit` remains non-mutating so it can
-safely replace stale installed copies. `updater.update()` reports the release
-version without a commit SHA and without presenting the unrelated HEAD commit
-date as version metadata.
+**Decision.** `birkin/__init__.py` `__version__` + `pyproject.toml` `[project]`
+`version` are the single semver version. A repo **pre-commit hook**
+(`scripts/hooks/pre-commit`, installed to `.git/hooks/`) bumps the **patch by
++0.0.1 on every commit** and re-stages both files; it **never blocks** a commit
+(exits 0 on any error). `updater.update()` now reads `__version__` from the
+checkout and reports it **with the HEAD commit date** (≈ push date) — e.g.
+"Already up to date — v0.1.3 (2026-06-02)", "Updated v0.1.0 → v0.1.4 (2026-06-02);
+4 commit(s), N files" — across the gateway `/update`, the `birkin update` CLI, and
+the REPL `/update`; no commit hash is shown. The pre-existing duplicate
+REPL `/update` (a bare `git pull`) was folded into the shared `updater.update()`.
 
-**Status.** Accepted. This supersedes the original per-commit implementation.
-Existing clones with the old mutating hook must replace or remove it.
+**Status.** Done; +3 `test_updater` cases (version read + version-in-message). The
+hook is per-clone (`cp scripts/hooks/pre-commit .git/hooks/`), committed as a
+reference so any checkout can install it.
 
 ---
 

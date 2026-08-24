@@ -88,10 +88,10 @@ def test_read_version_missing_returns_placeholder(tmp_path):
     assert updater._read_version(tmp_path) == "?"   # no birkin/__init__.py
 
 
-def test_update_message_shows_release_version_without_head_date(repos):
-    """The message references a release version, not HEAD metadata.
+def test_update_message_shows_version_and_date(repos):
+    """The message references a version + commit date, not a commit hash.
     (The temp clone has no birkin/__init__.py, so the version reads as '?'.)"""
     import re
     r = updater.update(repos["work"])
-    assert r["message"] == "Already up to date — v?."
-    assert re.search(r"\d{4}-\d{2}-\d{2}", r["message"]) is None
+    assert "v" in r["message"] and "Already up to date" in r["message"]
+    assert re.search(r"\d{4}-\d{2}-\d{2}", r["message"])   # commit date shown

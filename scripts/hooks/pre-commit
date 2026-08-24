@@ -1,10 +1,36 @@
 #!/bin/sh
-# birkin: package versions are release metadata, not commit counters.
+# birkin: auto-bump the version (semver patch, +0.0.1) on every commit.
 #
-# Development commits must never rewrite or stage version files. Update
-# pyproject.toml and birkin/__init__.py explicitly when preparing a release;
-# release.yml validates that the release tag matches that chosen version.
+# Keeps birkin/__init__.py __version__ and pyproject.toml [project] version in
+# sync. This is the user-facing version shown by `birkin update` / the gateway
+# `/update` (instead of a git commit hash). One commit == one +0.0.1 bump.
 #
 # Install (from the repo root):
 #   cp scripts/hooks/pre-commit .git/hooks/pre-commit && chmod +x .git/hooks/pre-commit
+#
+# Safety: this hook NEVER blocks a commit — on any problem it exits 0 (the bump is
+# simply skipped) rather than failing the commit.
+
+root=$(git rev-parse --show-toplevel 2>/dev/null) || exit 0
+init="$root/birkin/__init__.py"
+pyproj="$root/pyproject.toml"
+[ -f "$init" ] || exit 0
+
+cur=$(sed -n -E 's/^__version__[[:space:]]*=[[:space:]]*"([0-9]+\.[0-9]+\.[0-9]+)".*/\1/p' "$init" | head -n1)
+[ -n "$cur" ] || exit 0
+
+maj=${cur%%.*}; rest=${cur#*.}; min=${rest%%.*}; pat=${rest#*.}
+case "$maj$min$pat" in *[!0-9]*) exit 0;; esac
+new="$maj.$min.$((pat + 1))"
+esc=$(printf '%s' "$cur" | sed 's/\./\\./g')
+
+tmp=$(mktemp 2>/dev/null) || exit 0
+sed -E "s/^(__version__[[:space:]]*=[[:space:]]*\")$esc(\")/\1$new\2/" "$init" > "$tmp" 2>/dev/null && mv "$tmp" "$init"
+
+if [ -f "$pyproj" ]; then
+  tmp=$(mktemp 2>/dev/null) || exit 0
+  sed -E "s/^(version[[:space:]]*=[[:space:]]*\")$esc(\")/\1$new\2/" "$pyproj" > "$tmp" 2>/dev/null && mv "$tmp" "$pyproj"
+fi
+
+git add "$init" "$pyproj" 2>/dev/null
 exit 0

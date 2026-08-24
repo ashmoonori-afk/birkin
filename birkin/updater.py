@@ -56,8 +56,8 @@ def _is_dirty(root: Path) -> bool:
 
 def _read_version(root: Path) -> str:
     """Read birkin's ``__version__`` from the checkout. This is the user-facing
-    release version shown by ``update`` instead of a git commit hash. Returns
-    ``'?'`` if unreadable."""
+    version (bumped +0.0.1 per commit by the pre-commit hook), shown by ``update``
+    instead of a git commit hash. Returns ``'?'`` if unreadable."""
     init = Path(root) / "birkin" / "__init__.py"
     try:
         for line in init.read_text(encoding="utf-8", errors="replace").splitlines():
@@ -70,14 +70,15 @@ def _read_version(root: Path) -> str:
 
 
 def _head_date(root: Path) -> str:
-    """Short commit date (YYYY-MM-DD) of HEAD. Empty if unavailable."""
+    """Short commit date (YYYY-MM-DD) of HEAD — the version's date (≈ push date,
+    since each commit is pushed right after). Empty if unavailable."""
     rc, out, _ = _git(root, "log", "-1", "--format=%cd", "--date=short")
     return out if rc == 0 else ""
 
 
-def _version_label(ver: str) -> str:
-    """Return a release label without attaching unrelated HEAD metadata."""
-    return f"v{ver}"
+def _version_label(ver: str, date: str) -> str:
+    """'v0.1.3 (2026-06-02)' — version + commit date, or just 'v0.1.3'."""
+    return f"v{ver} ({date})" if date else f"v{ver}"
 
 
 def update(root: Optional[Path] = None) -> dict[str, Any]:
@@ -115,7 +116,7 @@ def update(root: Optional[Path] = None) -> dict[str, Any]:
         if behind == 0:
             return {"ok": True, "updated": False, "version": ver_before,
                     "message": "Already up to date — "
-                               f"{_version_label(ver_before)}."}
+                               f"{_version_label(ver_before, _head_date(root))}."}
         # Opt-in supply-chain guard (default off — most repos don't sign commits):
         # verify the upstream tip's signature before fast-forwarding to it.
         try:
@@ -143,7 +144,7 @@ def update(root: Optional[Path] = None) -> dict[str, Any]:
         return {"ok": True, "updated": True, "version": ver_after,
                 "date": date_after, "behind": behind, "changed": n,
                 "message": f"Updated v{ver_before} → "
-                           f"{_version_label(ver_after)}; "
+                           f"{_version_label(ver_after, date_after)}; "
                            f"{behind} commit(s), {n} file(s)."}
     except (OSError, ValueError, subprocess.SubprocessError) as exc:
         return {"ok": False, "updated": False, "message": f"update failed: {exc}"}

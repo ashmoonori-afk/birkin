@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import subprocess
 import sys
 from pathlib import Path
 from typing import TypedDict, cast
@@ -49,51 +48,6 @@ def test_package_versions_match() -> None:
     from birkin import __version__
 
     assert _project()["version"] == __version__
-
-
-def test_pre_commit_hook_does_not_mutate_package_version(
-    tmp_path: Path,
-) -> None:
-    repository = tmp_path / "repository"
-    package = repository / "birkin"
-    hook = repository / "scripts/hooks/pre-commit"
-    package.mkdir(parents=True)
-    hook.parent.mkdir(parents=True)
-    init = package / "__init__.py"
-    project = repository / "pyproject.toml"
-    _ = init.write_text('__version__ = "1.2.3"\n', encoding="utf-8")
-    _ = project.write_text(
-        '[project]\nname = "birkin"\nversion = "1.2.3"\n',
-        encoding="utf-8",
-    )
-    _ = hook.write_bytes((_ROOT / "scripts/hooks/pre-commit").read_bytes())
-    _ = subprocess.run(
-        ["git", "init", "--quiet"],
-        cwd=repository,
-        check=True,
-    )
-
-    result = subprocess.run(
-        ["sh", str(hook)],
-        cwd=repository,
-        check=False,
-        capture_output=True,
-        text=True,
-    )
-
-    assert result.returncode == 0, result.stdout + result.stderr
-    assert init.read_text(encoding="utf-8") == '__version__ = "1.2.3"\n'
-    assert project.read_text(encoding="utf-8") == (
-        '[project]\nname = "birkin"\nversion = "1.2.3"\n'
-    )
-    staged = subprocess.run(
-        ["git", "diff", "--cached", "--name-only"],
-        cwd=repository,
-        check=True,
-        capture_output=True,
-        text=True,
-    )
-    assert staged.stdout == ""
 
 
 def test_core_install_has_only_required_runtime_dependencies() -> None:
