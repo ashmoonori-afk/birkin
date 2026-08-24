@@ -1,4 +1,5 @@
 using Birkin.Native.Protocol.Framing;
+using Birkin.Native.Protocol.Projection;
 using Birkin.Native.Protocol.Transport;
 
 namespace Birkin.Native.Protocol.Messaging;
@@ -114,19 +115,72 @@ public static class NativeHandshake
             new NativeSessionCapability(token, expiresAt, hardExpiresAt));
     }
 
-    public static NativeEnvelope CreateSubscribe(NativeReadySession session, string id)
+    public static NativeEnvelope CreateSubscribe(NativeReadySession session, string id) =>
+        CreateSubscribe(
+            session,
+            id,
+            new NativeProjectionSubscription(0, null, new Dictionary<string, long>(), isCanonicalRepair: true));
+
+    public static NativeEnvelope CreateSubscribe(
+        NativeReadySession session,
+        string id,
+        NativeProjectionSubscription subscription)
     {
+        var surfaces = new NativeJsonObject(subscription.SurfaceRevisions.Select(pair =>
+            new KeyValuePair<string, NativeJsonValue>(pair.Key, new NativeJsonInteger(pair.Value))));
         var subscribe = new NativeEnvelope(
             NativeMessageKind.Subscribe,
             id,
             Object(
                 ("session_id", new NativeJsonString(session.SessionId)),
-                ("after_cursor", new NativeJsonInteger(0)),
-                ("known_instance_id", NativeJsonNull.Value),
+                ("after_cursor", new NativeJsonInteger(subscription.AfterCursor)),
+                ("known_instance_id", subscription.KnownInstanceId is null
+                    ? NativeJsonNull.Value
+                    : new NativeJsonString(subscription.KnownInstanceId)),
                 ("session_capability", new NativeJsonString(session.Capability)),
-                ("surfaces", new NativeJsonObject())));
+                ("surfaces", surfaces)));
         NativeBodyValidator.Validate(subscribe, NativeMessageOrigin.Client);
         return subscribe;
+    }
+
+    public static NativeSessionCapability ValidateRenewedCapability(NativeEnvelope renewed)
+    {
+        if (renewed.Kind != NativeMessageKind.CapabilityRenewed)
+        {
+            throw new NativeProtocolError("E_STATE", "capability renewal frame is required");
+        }
+
+        NativeBodyValidator.Validate(renewed, NativeMessageOrigin.Server);
+        var token = String(renewed.Body, "token");
+        if (token.Length is < 1 or > 512 || !token.All(character => character <= 0x7f))
+        {
+            throw BodyError();
+        }
+        var expiresAt = NativeProtocolDate.Parse(String(renewed.Body, "expires_at"), "E_BODY");
+        var hardExpiresAt = NativeProtocolDate.Parse(String(renewed.Body, "hard_expires_at"), "E_BODY");
+        return expiresAt <= hardExpiresAt
+            ? new NativeSessionCapability(token, expiresAt, hardExpiresAt)
+            : throw BodyError();
+    }
+
+    public static NativeEnvelope CreatePong(
+        NativeEnvelope ping,
+        NativeSessionCapability capability,
+        string id)
+    {
+        if (ping.Kind != NativeMessageKind.Ping)
+        {
+            throw new NativeProtocolError("E_STATE", "pong requires a ping frame");
+        }
+
+        var pong = new NativeEnvelope(
+            NativeMessageKind.Pong,
+            new NativeEnvelopeIdentity(id, ping.Id),
+            Object(
+                ("session_capability", new NativeJsonString(capability.Token)),
+                ("sent_at", new NativeJsonString(String(ping.Body, "sent_at")))));
+        NativeBodyValidator.Validate(pong, NativeMessageOrigin.Client);
+        return pong;
     }
 
     private static void ValidateLimits(NativeJsonObject limits)
