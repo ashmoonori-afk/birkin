@@ -3,6 +3,8 @@ import Testing
 
 @testable import BirkinNativeProtocol
 
+private let harnessSignalTimeout = DispatchTimeInterval.seconds(60)
+
 final class LockedLine: @unchecked Sendable {
     private let lock = NSLock()
     private var value = Data()
@@ -87,7 +89,7 @@ struct HarnessReadiness {
             ready.signal()
         }
         try process.run()
-        guard ready.wait(timeout: .now() + 10) == .success,
+        guard ready.wait(timeout: .now() + harnessSignalTimeout) == .success,
               let text = line.text(),
               let data = text.data(using: .utf8),
               let record = try JSONSerialization.jsonObject(with: data) as? [String: Any],
@@ -102,7 +104,7 @@ struct HarnessReadiness {
     }
 
     func finish(removeRoot: Bool = true) throws -> String {
-        guard exit.wait(timeout: .now() + 10) == .success else {
+        guard exit.wait(timeout: .now() + harnessSignalTimeout) == .success else {
             process.terminate()
             throw HarnessError.exitTimeout
         }

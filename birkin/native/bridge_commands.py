@@ -54,11 +54,11 @@ class NativeCommandExecutor:
 
     def execute(
         self,
-        connection: NativeConnection,
-        state: NativeConnectionState,
+        _connection: NativeConnection,
+        _state: NativeConnectionState,
         message: NativeEnvelope,
         scope: CapabilityScope,
-    ) -> None:
+    ) -> NativeEnvelope | None:
         try:
             command = WorkspaceCommand.parse(message.body.get("command"))
             if (
@@ -102,8 +102,7 @@ class NativeCommandExecutor:
                 NativeProtocolError("E_COMMAND_FAILED", str(error)),
                 in_reply_to=message.id,
             )
-        state.send(response)
-        connection.send(response)
+        return response
 
 
 @final
@@ -173,12 +172,19 @@ class NativeCommandCoordinator:
             if lane == _NORMAL_LANE:
                 execution.stream.suspend()
                 suspended = True
-            self._executor.execute(
+            response = self._executor.execute(
                 execution.connection,
                 execution.state,
                 message,
                 execution.scope,
             )
+            if suspended:
+                execution.stream.resume()
+                suspended = False
+            self._finish(execution, lane)
+            if response is not None:
+                execution.state.send(response)
+                execution.connection.send(response)
         except (NativeProtocolError, OSError):
             execution.connection.interrupt()
         finally:
