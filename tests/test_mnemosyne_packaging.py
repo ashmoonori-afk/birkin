@@ -17,7 +17,16 @@ UPSTREAM_URL = "git+" + "https://github.com/ashmoonori-afk/birkin-mnemosyne"
 
 def _build_wheel(output: Path) -> Path:
     _ = subprocess.run(
-        [sys.executable, "-m", "build", "--wheel", "--outdir", str(output)],
+        [
+            sys.executable,
+            "-m",
+            "pip",
+            "wheel",
+            "--no-deps",
+            "--wheel-dir",
+            str(output),
+            str(ROOT),
+        ],
         cwd=ROOT,
         check=True,
     )
