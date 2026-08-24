@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import http.client
 import json
+import secrets
 import threading
 import types
 
@@ -342,6 +343,56 @@ def test_local_http_timeout_runs_real_moirai_hard_task(
     assert json.loads(payload)["reply"].startswith(
         "moirai: hard-task completed")
     assert roles == ["planner", "decomposer", "worker", "worker"]
+
+
+def test_local_http_token_uses_constant_time_comparison(monkeypatch):
+    monkeypatch.setattr(local_http, "_HTTP_TOKEN", "correct-token")
+    comparisons = []
+    real_compare_digest = secrets.compare_digest
+
+    def record_comparison(left, right):
+        comparisons.append((left, right))
+        return real_compare_digest(left, right)
+
+    monkeypatch.setattr(secrets, "compare_digest", record_comparison)
+    fake_gw = types.SimpleNamespace(
+        handle=lambda *_args: "ok",
+        pending_hard_restart=False,
+    )
+    channel, thread = _start_http_channel(fake_gw)
+    try:
+        body = json.dumps({"text": "x"}).encode()
+        conn = http.client.HTTPConnection(
+            "127.0.0.1", channel.port, timeout=local_http_timeout())
+        conn.request(
+            "POST", "/message", body=body,
+            headers={
+                "Host": "127.0.0.1",
+                "Content-Type": "application/json",
+                "X-Birkin-Token": "correct-token",
+            })
+        response = conn.getresponse()
+        response.read()
+        conn.close()
+
+        missing_conn = http.client.HTTPConnection(
+            "127.0.0.1", channel.port, timeout=local_http_timeout())
+        missing_conn.request(
+            "POST", "/message", body=body,
+            headers={
+                "Host": "127.0.0.1",
+                "Content-Type": "application/json",
+            })
+        missing_response = missing_conn.getresponse()
+        missing_response.read()
+        missing_conn.close()
+    finally:
+        channel.stop()
+        thread.join(timeout=2.0)
+
+    assert response.status == 200
+    assert missing_response.status == 401
+    assert comparisons == [("correct-token", "correct-token"), ("", "correct-token")]
 
 
 def test_local_http_forged_host_403(http_channel):

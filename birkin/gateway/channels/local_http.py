@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import json
 import os
+import secrets
 import socket
 import threading
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -112,7 +113,8 @@ class LocalHTTPChannel(Channel):
                         {"error": "Content-Type must be application/json"}, 415)
                     return
                 # Optional shared-secret lockdown (off unless BIRKIN_HTTP_TOKEN set).
-                if _HTTP_TOKEN and self.headers.get("X-Birkin-Token", "") != _HTTP_TOKEN:
+                if _HTTP_TOKEN and not secrets.compare_digest(
+                        self.headers.get("X-Birkin-Token", ""), _HTTP_TOKEN):
                     self._json({"error": "unauthorized"}, 401)
                     return
                 # Tolerate junk: bad Content-Length, non-UTF-8 bytes (port
