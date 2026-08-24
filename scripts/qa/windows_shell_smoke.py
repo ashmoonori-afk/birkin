@@ -179,11 +179,19 @@ def main() -> int:
             "@echo off\r\necho mcp-discrete:%*\r\n",
         )
         original_path = os.environ.get("PATH", "")
+        original_appdata = os.environ.get("APPDATA")
+        isolated_appdata = root / "appdata"
+        isolated_appdata.mkdir()
+        os.environ["APPDATA"] = str(isolated_appdata)
         os.environ["PATH"] = f"{bin_dir}{os.pathsep}{original_path}"
         try:
             mcp_result = mcp.run(["list"], capture=True)
         finally:
             os.environ["PATH"] = original_path
+            if original_appdata is None:
+                _ = os.environ.pop("APPDATA", None)
+            else:
+                os.environ["APPDATA"] = original_appdata
 
         repo = root / "repo"
         repo.mkdir()
