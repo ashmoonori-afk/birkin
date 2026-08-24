@@ -36,21 +36,25 @@ class OfficeJobRunner(Protocol):
     def publish(self, *, artifact: Mapping[str, object], output_name: str) -> dict[str, object]: ...
 
 
+class OfficeJobJournalSink(Protocol):
+    def append(self, job: OfficeJob) -> None: ...
+
+
 _TERMINAL_STATES = {
-    OfficeJobState.published,
-    OfficeJobState.rejected,
-    OfficeJobState.failed,
+    OfficeJobState.published, OfficeJobState.rejected, OfficeJobState.failed
 }
 
 
 @final
 class OfficeJob:
     def __init__(self, *, job_id: str, format_name: str, source: Mapping[str, object],
-                 runner: OfficeJobRunner) -> None:
+                 runner: OfficeJobRunner,
+                 journal: OfficeJobJournalSink | None = None) -> None:
         self._job_id = job_id
         self._format_name = format_name
         self._source = deepcopy(dict(source))
         self._runner = runner
+        self._journal = journal
         self._state = OfficeJobState.input_captured
         self._history = [self._state]
         self._outcome: str | None = None
@@ -63,6 +67,17 @@ class OfficeJob:
         self._validation: dict[str, object] | None = None
         self._publication: dict[str, object] | None = None
         self._failure: dict[str, object] | None = None
+        if self._journal is not None:
+            self._journal.append(self)
+
+    def to_dict(self) -> dict[str, object]:
+        from .job_journal import snapshot_job
+        return snapshot_job(self)
+
+    @classmethod
+    def from_dict(cls, snapshot: Mapping[str, object], *, runner: OfficeJobRunner) -> OfficeJob:
+        from .job_journal import restore_job
+        return restore_job(snapshot, runner=runner)
 
     @property
     def state(self) -> OfficeJobState:
@@ -237,6 +252,8 @@ class OfficeJob:
     def _enter(self, state: OfficeJobState) -> None:
         self._state = state
         self._history.append(state)
+        if self._journal is not None:
+            self._journal.append(self)
 
     def _proposal_digest(self) -> str:
         if self._preview is None or self._outcome is None:
