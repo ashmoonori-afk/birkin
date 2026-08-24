@@ -3,6 +3,7 @@ import CoreGraphics
 import CryptoKit
 import Darwin
 import Foundation
+import QuartzCore
 import Vision
 
 public struct PackagedWindowMetadata: Equatable, Sendable {
@@ -125,6 +126,7 @@ public final class PackagedWindowCapture {
             }
             window.layoutIfNeeded()
             window.displayIfNeeded()
+            CATransaction.flush()
             windowID = CGWindowID(window.windowNumber)
             windowNumber = window.windowNumber
         }

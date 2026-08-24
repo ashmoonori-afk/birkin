@@ -1,9 +1,11 @@
 from __future__ import annotations
 
 import csv
+import json
 import os
 import subprocess
 from pathlib import Path
+from typing import cast
 
 import pytest
 
@@ -32,7 +34,7 @@ def _windows_owner_sid(system: Path) -> str:
     return rows[0][-1]
 
 
-def _windows_dacl(path: Path) -> str:
+def _windows_access_rules(path: Path) -> dict[str, object]:
     escaped = str(path).replace("'", "''")
     powershell = Path(os.environ["SystemRoot"]) / (
         "System32/WindowsPowerShell/v1.0/powershell.exe"
@@ -44,8 +46,18 @@ def _windows_dacl(path: Path) -> str:
             "-Command",
             (
                 f"$acl = [System.IO.File]::GetAccessControl('{escaped}'); "
-                "$acl.GetSecurityDescriptorSddlForm("
-                "[System.Security.AccessControl.AccessControlSections]::Access)"
+                "$rules = @($acl.Access | ForEach-Object { "
+                "[PSCustomObject]@{"
+                "sid=$_.IdentityReference.Translate("
+                "[System.Security.Principal.SecurityIdentifier]).Value;"
+                "rights=[int]$_.FileSystemRights;"
+                "type=[int]$_.AccessControlType;"
+                "inherited=$_.IsInherited"
+                "} }); "
+                "[PSCustomObject]@{"
+                "protected=$acl.AreAccessRulesProtected;"
+                "rules=$rules"
+                "} | ConvertTo-Json -Compress -Depth 3"
             ),
         ],
         check=False,
@@ -53,9 +65,25 @@ def _windows_dacl(path: Path) -> str:
         text=True,
     )
     assert result.returncode == 0, result.stdout + result.stderr
-    _, separator, tail = result.stdout.strip().partition("D:")
-    assert separator == "D:"
-    return "D:" + tail.split("S:", 1)[0]
+    decoded = cast(object, json.loads(result.stdout))
+    assert isinstance(decoded, dict)
+    mapping = cast(dict[object, object], decoded)
+    assert all(isinstance(key, str) for key in mapping)
+    return cast(dict[str, object], mapping)
+
+
+def _assert_windows_owner_only(path: Path, *, sid: str) -> None:
+    assert _windows_access_rules(path) == {
+        "protected": True,
+        "rules": [
+            {
+                "sid": sid,
+                "rights": 2032127,
+                "type": 0,
+                "inherited": False,
+            }
+        ],
+    }
 
 
 def test_windows_owner_sid_ignores_localized_username_bytes() -> None:
@@ -88,7 +116,7 @@ def test_windows_private_file_removes_explicit_everyone_ace(
     private_storage.harden_private_file(path)
 
     sid = _windows_owner_sid(system)
-    assert _windows_dacl(path) == f"D:P(A;;FA;;;{sid})"
+    _assert_windows_owner_only(path, sid=sid)
 
 
 @_WINDOWS_ONLY
@@ -118,7 +146,7 @@ def test_windows_private_temp_is_owner_only_at_creation(
         )
         os.replace(path, published)
         sid = _windows_owner_sid(system)
-        assert _windows_dacl(published) == f"D:P(A;;FA;;;{sid})"
+        _assert_windows_owner_only(published, sid=sid)
     finally:
         path.unlink(missing_ok=True)
         published.unlink(missing_ok=True)
@@ -133,32 +161,18 @@ def test_windows_private_temp_closes_handle_when_fd_transfer_fails(
     import msvcrt
     from ctypes import wintypes
 
-    handle_count = ctypes.windll.kernel32.GetProcessHandleCount
-    handle_count.argtypes = [
+    get_handle_information = ctypes.windll.kernel32.GetHandleInformation
+    get_handle_information.argtypes = [
         wintypes.HANDLE,
         ctypes.POINTER(wintypes.DWORD),
     ]
-    handle_count.restype = wintypes.BOOL
-    current_process = ctypes.windll.kernel32.GetCurrentProcess
-    current_process.restype = wintypes.HANDLE
+    get_handle_information.restype = wintypes.BOOL
+    transferred_handles: list[int] = []
 
-    def count() -> int:
-        value = wintypes.DWORD()
-        assert handle_count(current_process(), ctypes.byref(value))
-        return value.value
-
-    def fail_transfer(_handle: int, _flags: int) -> int:
+    def fail_transfer(handle: int, _flags: int) -> int:
+        transferred_handles.append(handle)
         raise OSError("sentinel transfer failure")
 
-    real_transfer = msvcrt.open_osfhandle
-    monkeypatch.setattr(msvcrt, "open_osfhandle", fail_transfer)
-    with pytest.raises(OSError, match="sentinel transfer failure"):
-        _ = private_storage.create_private_temp(
-            tmp_path,
-            prefix=".warm.",
-        )
-    monkeypatch.setattr(msvcrt, "open_osfhandle", real_transfer)
-    before = count()
     monkeypatch.setattr(msvcrt, "open_osfhandle", fail_transfer)
 
     with pytest.raises(OSError, match="sentinel transfer failure"):
@@ -167,7 +181,12 @@ def test_windows_private_temp_closes_handle_when_fd_transfer_fails(
             prefix=".bootstrap.",
         )
 
-    assert count() == before
+    assert len(transferred_handles) == 1
+    flags = wintypes.DWORD()
+    assert not get_handle_information(
+        wintypes.HANDLE(transferred_handles[0]),
+        ctypes.byref(flags),
+    )
     assert list(tmp_path.iterdir()) == []
 
 

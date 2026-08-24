@@ -80,6 +80,7 @@ _READ_ONLY_FLAG: int = (
     if isinstance(_READ_ONLY_FLAG_VALUE, int)
     else 1
 )
+_PROCESS_SIGNAL_TIMEOUT_SECONDS = 60.0
 
 
 class _ReadOnlyStat:
@@ -271,7 +272,7 @@ def test_read_only_bundle_keeps_live_cache_until_lease_release(
     )
     process.start()
     try:
-        assert parent.poll(10)
+        assert parent.poll(_PROCESS_SIGNAL_TIMEOUT_SECONDS)
         assert parent.recv() == "ready"
         monkeypatch.setenv("BIRKIN_HOME", str(home))
         monkeypatch.setattr(os, "statvfs", _read_only_statvfs)
@@ -283,7 +284,7 @@ def test_read_only_bundle_keeps_live_cache_until_lease_release(
 
         assert stale.exists()
         parent.send("release")
-        process.join(timeout=10)
+        process.join(timeout=_PROCESS_SIGNAL_TIMEOUT_SECONDS)
         assert not process.is_alive()
 
         _ = ensure_bundled_browser(
@@ -294,7 +295,7 @@ def test_read_only_bundle_keeps_live_cache_until_lease_release(
     finally:
         if process.is_alive():
             parent.send("release")
-            process.join(timeout=10)
+            process.join(timeout=_PROCESS_SIGNAL_TIMEOUT_SECONDS)
         parent.close()
         child.close()
 

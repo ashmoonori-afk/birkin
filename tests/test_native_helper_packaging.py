@@ -32,6 +32,16 @@ def _script_environment() -> dict[str, str]:
     }
 
 
+def _bash_executable() -> str:
+    if os.name != "nt":
+        return "bash"
+    git = shutil.which("git")
+    assert git is not None
+    bash = Path(git).resolve().parent.parent / "bin/bash.exe"
+    assert bash.is_file()
+    return str(bash)
+
+
 def _is_string_keyed_object(value: object) -> TypeGuard[dict[str, object]]:
     return isinstance(value, dict)
 
@@ -131,7 +141,7 @@ def test_helper_builder_verifies_inputs_without_downloading() -> None:
     # Given the checked-in runtime descriptor, build lock, and project lock.
     # When the builder runs its offline input-verification mode.
     result = subprocess.run(
-        ["bash", str(BUILD_SCRIPT), "--verify-inputs"],
+        [_bash_executable(), str(BUILD_SCRIPT), "--verify-inputs"],
         cwd=REPOSITORY,
         env=_script_environment(),
         text=True,
@@ -173,7 +183,7 @@ def test_helper_builder_rejects_changed_project_lock_inputs(
     target = repository / target_name
     _ = target.write_bytes(target.read_bytes() + b"\n# tampered\n")
     result = subprocess.run(
-        ["bash", str(build_script), "--verify-inputs"],
+        [_bash_executable(), str(build_script), "--verify-inputs"],
         cwd=repository,
         env=_script_environment(),
         text=True,
@@ -191,7 +201,7 @@ def test_helper_builder_accepts_checkout_line_endings(tmp_path: Path) -> None:
         _ = source.write_bytes(source.read_bytes().replace(b"\n", b"\r\n"))
 
     result = subprocess.run(
-        ["bash", str(build_script), "--verify-inputs"],
+        [_bash_executable(), str(build_script), "--verify-inputs"],
         cwd=repository,
         env=_script_environment(),
         text=True,
@@ -205,7 +215,7 @@ def test_helper_builder_accepts_checkout_line_endings(tmp_path: Path) -> None:
 @pytest.mark.parametrize("script", [BUILD_SCRIPT, BROWSER_BUILD_SCRIPT])
 def test_builder_rejects_missing_explicit_python(script: Path) -> None:
     result = subprocess.run(
-        ["bash", str(script), "--verify-inputs"],
+        [_bash_executable(), str(script), "--verify-inputs"],
         cwd=REPOSITORY,
         env={
             **os.environ,
@@ -217,6 +227,38 @@ def test_builder_rejects_missing_explicit_python(script: Path) -> None:
     )
 
     assert result.returncode != 0
+
+
+def test_helper_builder_normalizes_msys_interpreter_path(
+    tmp_path: Path,
+) -> None:
+    repository, build_script = _copy_verifier_repository(tmp_path)
+    tools = tmp_path / "tools"
+    tools.mkdir()
+    uname = tools / "uname"
+    _ = uname.write_text("#!/bin/sh\nprintf 'MINGW64_NT\\n'\n", encoding="utf-8")
+    uname.chmod(0o755)
+    cygpath = tools / "cygpath"
+    _ = cygpath.write_text(
+        f"#!/bin/sh\nprintf '%s\\n' '{Path(sys.executable).as_posix()}'\n",
+        encoding="utf-8",
+    )
+    cygpath.chmod(0o755)
+
+    result = subprocess.run(
+        [_bash_executable(), str(build_script), "--verify-inputs"],
+        cwd=repository,
+        env={
+            **os.environ,
+            "BIRKIN_VERIFY_PYTHON": r"C:\Birkin\python.exe",
+            "PATH": str(tools) + os.pathsep + os.environ["PATH"],
+        },
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+
+    assert result.returncode == 0, result.stdout + result.stderr
 
 
 def test_helper_runtime_hash_policy_accepts_only_exact_vcs_source() -> None:
@@ -264,7 +306,7 @@ def test_helper_builder_signs_extracted_runtime_before_execution() -> None:
 
 def test_browser_builder_verifies_inputs_without_downloading() -> None:
     result = subprocess.run(
-        ["bash", str(BROWSER_BUILD_SCRIPT), "--verify-inputs"],
+        [_bash_executable(), str(BROWSER_BUILD_SCRIPT), "--verify-inputs"],
         cwd=REPOSITORY,
         env=_script_environment(),
         text=True,
