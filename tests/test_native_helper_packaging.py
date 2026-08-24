@@ -37,9 +37,18 @@ def _bash_executable() -> str:
         return "bash"
     git = shutil.which("git")
     assert git is not None
-    bash = Path(git).resolve().parent.parent / "bin/bash.exe"
-    assert bash.is_file()
-    return str(bash)
+    git_root = Path(git).resolve().parent.parent.parent
+    bash = shutil.which("bash")
+    candidates = (
+        Path(bash).resolve() if bash is not None else None,
+        git_root / "usr/bin/bash.exe",
+        git_root / "mingw64/bin/bash.exe",
+        git_root / "bin/bash.exe",
+    )
+    for candidate in candidates:
+        if candidate is not None and candidate.is_file() and git_root in candidate.parents:
+            return str(candidate)
+    raise AssertionError("Git Bash executable not found")
 
 
 def _bash_path(path: Path) -> str:
