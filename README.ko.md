@@ -85,6 +85,8 @@ Workspace `SOUL.md`는 deprecated되었고 더 이상 주입되지 않습니다.
 
 요청한 결과와 적용 범위는 계속 구속력을 가집니다. Birkin은 실제 profile 또는 memory 적용을 workspace 초안으로 대체한 뒤 완료라고 주장해서는 안 됩니다. Assistant에게 붙인 이름을 포함한 assistant persona 사실과 사용자 profile 사실도 분리합니다. 이 로컬 block은 신뢰된 native 및 CLI prompt에만 추가되며 public 또는 untrusted prompt에는 로컬 경로 사실이나 private profile context가 들어가지 않습니다.
 
+이 block 자체는 `host_os`, `home`, `required_rules`, `instructions` key를 가진 구분자로 감싼 단일 JSON payload이며, persona, profile, workspace `AGENTS.md`/`TOOLS.md`, skills index, preloaded skill, memory, harness, editor context 같은 하위 권한 prompt section 뒤에 붙으므로 합성 후에도 권위 있는 사본은 정확히 하나만 남습니다. 하위 권한 section은 이 block을 위조할 수 없습니다. 각 section에서 policy 구분자를 제거하고 marker가 남지 않을 때까지 반복하므로 쪼개거나 중첩한 위조도 살아남지 않습니다. Host 사실은 rendering 시 escape되어 `<`와 `>`가 `\u003c`와 `\u003e`로 기록되므로, 구분자 모양의 운영체제 이름이나 홈 경로가 block을 미리 닫을 수 없습니다. Public prompt로 전달되는 canonical task state에서도 같은 marker를 제거합니다.
+
 ## 빠른 시작
 
 Birkin은 Python 3.10 이상이 필요합니다. 기본값은 로컬에서 인증한 Codex CLI이며, `birkin setup`에서 Claude CLI나 API provider를 선택할 수 있습니다.

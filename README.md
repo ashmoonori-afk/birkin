@@ -86,6 +86,8 @@ Trusted native and CLI agent prompts include the current operating system and ho
 
 The requested outcome and application scope remain binding: Birkin must not replace an applied profile or memory change with a workspace draft and then claim completion. User-profile facts remain separate from assistant-persona facts, including names assigned to the assistant. This local block is added only to trusted native and CLI prompts; public or untrusted prompts receive neither local path facts nor private profile context.
 
+The block itself is one delimited JSON payload with `host_os`, `home`, `required_rules`, and `instructions` keys, appended after every lower-authority prompt section — persona, profile, workspace `AGENTS.md`/`TOOLS.md`, the skills index, preloaded skills, memory, harness, and editor context — so exactly one authoritative copy survives composition. Those lower-authority sections cannot forge it: the policy delimiters are removed from each of them, and removal repeats until no marker remains, so split or nested forgeries do not survive either. Host facts are escaped as they are rendered, with `<` and `>` written as `\u003c` and `\u003e`, so an operating-system name or home path shaped like a delimiter cannot close the block early. Canonical task state handed to a public prompt is stripped of the same markers.
+
 ## Quick Start
 
 Birkin requires Python 3.10 or newer. It defaults to a locally authenticated Codex CLI; `birkin setup` can select Claude CLI or an API-backed provider instead.
