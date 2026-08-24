@@ -120,7 +120,14 @@ public sealed class NativeHandshakeTests
                 ("features", new NativeJsonObject()))),
         }));
 
-    internal static BridgeAnnouncement Announcement() => BridgeAnnouncement.Parse($$"""{"event":"listening","transport":"loopback","pid":1904,"root":"C:\\root","session_id":"native-app","instance_id":"{{InstanceId}}","server_version":"{{Version}}","discovery_path":"C:\\root\\native\\endpoint.json"}""");
+    internal static BridgeAnnouncement Announcement()
+    {
+        var root = Path.Combine(Path.GetTempPath(), "birkin-handshake");
+        var discoveryPath = Path.Combine(root, "native", "endpoint.json");
+        return BridgeAnnouncement.Parse($$"""{"event":"listening","transport":"loopback","pid":1904,"root":"{{Escape(root)}}","session_id":"native-app","instance_id":"{{InstanceId}}","server_version":"{{Version}}","discovery_path":"{{Escape(discoveryPath)}}"}""");
+    }
+
+    private static string Escape(string path) => path.Replace("\\", "\\\\", StringComparison.Ordinal);
 
     private static NativeJsonObject Object(params (string Key, NativeJsonValue Value)[] pairs) => new(pairs.Select(pair => new KeyValuePair<string, NativeJsonValue>(pair.Key, pair.Value)));
     private static string String(NativeJsonObject body, string key) => ((NativeJsonString)body[key]!).Value;

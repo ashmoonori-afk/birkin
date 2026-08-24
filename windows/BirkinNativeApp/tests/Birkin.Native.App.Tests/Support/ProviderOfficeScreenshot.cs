@@ -22,27 +22,14 @@ internal static class ProviderOfficeScreenshot
         var conversation = OfficeWorkflowViewHarness.Find<ItemsControl>(window, "conversation.items");
         var rendered = (FrameworkElement)window.Content;
         var priorVisibility = conversation.Visibility;
-        var priorWidth = window.Width;
-        var priorHeight = window.Height;
         conversation.Visibility = Visibility.Hidden;
         try
         {
-            for (var attempt = 0; attempt < 3; attempt++)
-            {
-                window.Width += width - rendered.ActualWidth;
-                window.Height += height - rendered.ActualHeight;
-                window.UpdateLayout();
-                window.Dispatcher.Invoke(() => { }, DispatcherPriority.Render);
-            }
-            if (Math.Abs(rendered.ActualWidth - width) > 1 || Math.Abs(rendered.ActualHeight - height) > 1)
-            {
-                throw new InvalidOperationException(
-                    $"WPF client geometry was {rendered.ActualWidth:F0}x{rendered.ActualHeight:F0}, expected {width}x{height}");
-            }
-
             prepare?.Invoke();
             window.UpdateLayout();
             window.Dispatcher.Invoke(() => { }, DispatcherPriority.Render);
+            rendered.Measure(new Size(width, height));
+            rendered.Arrange(new Rect(0, 0, width, height));
             var bitmap = new RenderTargetBitmap(width, height, 96, 96, PixelFormats.Pbgra32);
             bitmap.Render(rendered);
             var encoder = new PngBitmapEncoder();
@@ -54,8 +41,6 @@ internal static class ProviderOfficeScreenshot
         finally
         {
             conversation.Visibility = priorVisibility;
-            window.Width = priorWidth;
-            window.Height = priorHeight;
             window.UpdateLayout();
         }
 

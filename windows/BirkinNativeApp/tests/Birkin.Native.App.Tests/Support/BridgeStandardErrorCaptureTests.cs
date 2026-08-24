@@ -32,6 +32,28 @@ public sealed class BridgeStandardErrorCaptureTests
     }
 
     [TestMethod]
+    public void Append_WhenKnownPywinautoWarningIsEmitted_SeparatesRuntimeDiagnostic()
+    {
+        // Given
+        string[] diagnostic =
+        [
+            @"C:\workspace\birkin\.venv\Lib\site-packages\pywinauto\keyboard.py:105: SyntaxWarning: invalid escape sequence '\;'",
+            @"  option only affects the behavior of keys matching [-=[]\;',./a-zA-Z0-9 ].  Note",
+        ];
+        var capture = new BridgeStandardErrorCapture();
+
+        // When
+        foreach (var line in diagnostic)
+        {
+            capture.Append(line);
+        }
+
+        // Then
+        Assert.AreEqual(string.Empty, capture.StandardError);
+        Assert.AreEqual(string.Join(Environment.NewLine, diagnostic), capture.LauncherDiagnostics);
+    }
+
+    [TestMethod]
     public void Append_WhenUnexpectedLineIsInjected_FailsWithRedactedBridgeDiagnostics()
     {
         // Given

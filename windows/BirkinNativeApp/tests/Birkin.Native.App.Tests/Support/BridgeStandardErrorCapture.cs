@@ -1,4 +1,5 @@
 using System.Text.RegularExpressions;
+using Birkin.Native.Protocol.Tests.Support;
 
 namespace Birkin.Native.App.Tests.Support;
 
@@ -21,7 +22,9 @@ internal sealed class BridgeStandardErrorCapture
         {
             lock (_gate)
             {
-                return string.Join(Environment.NewLine, _bridgeStandardError);
+                return BridgeStandardErrorClassifier
+                    .Classify(string.Join(Environment.NewLine, _bridgeStandardError))
+                    .UnexpectedStandardError;
             }
         }
     }
@@ -32,7 +35,13 @@ internal sealed class BridgeStandardErrorCapture
         {
             lock (_gate)
             {
-                return string.Join(Environment.NewLine, _launcherDiagnostics);
+                var runtimeDiagnostics = BridgeStandardErrorClassifier
+                    .Classify(string.Join(Environment.NewLine, _bridgeStandardError))
+                    .RuntimeDiagnostics;
+                return string.Join(
+                    Environment.NewLine,
+                    _launcherDiagnostics.Append(runtimeDiagnostics)
+                        .Where(diagnostic => !string.IsNullOrEmpty(diagnostic)));
             }
         }
     }
