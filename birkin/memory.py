@@ -649,6 +649,12 @@ class VaultMemory:
                 if item not in entries:  # precedence order resolves duplicates
                     entries[item] = entry
                     owners[item] = owner
+        entries = {
+            item: entry for item, entry in entries.items()
+            if entry["zone"] != ARCHIVE_ZONE
+            and (as_of is not None or not _is_expired(entry))
+        }
+        owners = {item: owner for item, owner in owners.items() if item in entries}
         trusted_snapshots = {
             item: self._entry_record_snapshot(owners[item], entry)
             for item, entry in entries.items()
