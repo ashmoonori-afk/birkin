@@ -63,14 +63,6 @@ def build_vectors() -> list[tuple[str, Envelope]]:
         "payload": {"session_id": "s-1"},
         "client_context": {"surface": "windows", "view_id": "conversation"},
     })
-    command_body = {
-        "protocol_version": command.protocol_version,
-        "command_id": command.command_id,
-        "expected_cursor": command.expected_cursor,
-        "type": command.type,
-        "payload": command.payload,
-        "client_context": command.client_context.to_json(),
-    }
     receipt = CommandReceipt(
         protocol_version=1,
         command_id="cmd-1",
@@ -81,13 +73,29 @@ def build_vectors() -> list[tuple[str, Envelope]]:
         result_event_cursor=44,
         fingerprint="fixture-fingerprint",
     )
-    receipt_body = receipt.to_public_json()
-    receipt_body["outcome"] = "accepted"
-    bounded_receipt_body = replace(
-        receipt,
-        command_id="a.b:c-d_e",
-    ).to_public_json()
-    bounded_receipt_body["outcome"] = "accepted"
+    receipt_body: dict[str, JSONValue] = {
+        "protocol_version": receipt.protocol_version,
+        "command_id": receipt.command_id,
+        "session_id": receipt.session_id,
+        "actor_id": receipt.actor_id,
+        "accepted_cursor": receipt.accepted_cursor,
+        "state": receipt.state,
+        "result_event_cursor": receipt.result_event_cursor,
+        "duplicate": receipt.duplicate,
+        "outcome": "accepted",
+    }
+    bounded_receipt = replace(receipt, command_id="a.b:c-d_e")
+    bounded_receipt_body: dict[str, JSONValue] = {
+        "protocol_version": bounded_receipt.protocol_version,
+        "command_id": bounded_receipt.command_id,
+        "session_id": bounded_receipt.session_id,
+        "actor_id": bounded_receipt.actor_id,
+        "accepted_cursor": bounded_receipt.accepted_cursor,
+        "state": bounded_receipt.state,
+        "result_event_cursor": bounded_receipt.result_event_cursor,
+        "duplicate": bounded_receipt.duplicate,
+        "outcome": "accepted",
+    }
     vectors: list[tuple[str, Envelope]] = [
         ("hello", envelope("hello", "hello-1", {
             "client": "birkin-macos", "client_version": "0.1.0",
@@ -134,7 +142,17 @@ def build_vectors() -> list[tuple[str, Envelope]]:
             "patch": {"op": "line", "index": 0, "text": "$ birkin run"},
         })),
         ("command", envelope("command", "command-1", {
-            "session_capability": "cap-token-1", "command": command_body,
+            "session_capability": "cap-token-1",
+            "command": {
+                "protocol_version": command.protocol_version,
+                "command_id": command.command_id,
+                "expected_cursor": command.expected_cursor,
+                "type": command.type,
+                "payload": {"session_id": "s-1"},
+                "client_context": {
+                    "surface": "windows", "view_id": "conversation",
+                },
+            },
         })),
         ("receipt", envelope(
             "receipt", "receipt-1", receipt_body, "command-1"

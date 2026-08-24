@@ -21,7 +21,7 @@ def approved_docx(home: Path, index: int = 0) -> dict[str, object]:
     destination = export_root / f"native-approved-{index}.docx"
     document = Document()
     _ = document.add_paragraph(f"Native Office source {index}")
-    document.save(source)
+    document.save(str(source))
     source_hash = hashlib.sha256(source.read_bytes()).hexdigest()
     registry = build_registry(
         ToolContext(
