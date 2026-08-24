@@ -180,6 +180,7 @@ jobs:
     timeout-minutes: 20
     env:
       BIRKIN_BROWSER_INTEGRATION: "1"
+      SWT_EXPERIMENTAL_MAXIMUM_PARALLELIZATION_WIDTH: "1"
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
@@ -204,7 +205,7 @@ jobs:
         shell: bash
         run: |
           set -o pipefail
-          swift test --package-path macos/BirkinNativeApp 2>&1 | tee .omo/evidence/native-swift/swift-test.log
+          swift test --package-path macos/BirkinNativeApp --no-parallel 2>&1 | tee .omo/evidence/native-swift/swift-test.log
       - name: Native Swift test evidence
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4

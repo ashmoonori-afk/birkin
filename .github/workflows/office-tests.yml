@@ -132,7 +132,7 @@ jobs:
           assert all(skills[name].path.is_file() and skills[name].path.is_relative_to(bundled) for name in required)
           assert route_office_request("이 워드 문서 검토해줘").skill_name == "word-documents"
           assert set(NAMES) >= {
-              "inspect_document", "create_document", "validate_artifact"
+              "inspect_document", "office_job_request", "validate_artifact"
           }
           office_resources = importlib.resources.files("birkin.office")
           assert office_resources.joinpath("adapters", "provenance_manifest.json").is_file()

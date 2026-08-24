@@ -9,11 +9,11 @@ from birkin.office.adapters.catalog import adapter_inventory
 from birkin.tools.documents import NAMES
 
 ROOT = Path(__file__).parents[2]
-DOC_PATHS = (
+README_PATHS = (
     ROOT / "README.md",
     ROOT / "README.ko.md",
-    ROOT / "docs" / "office-support.md",
 )
+DOC_PATHS = (*README_PATHS, ROOT / "docs" / "office-support.md")
 SKILL_IDS = (
     "office-work-os",
     "office-documents",
@@ -153,11 +153,33 @@ def test_version_and_provenance_publications_are_synchronized() -> None:
         "provenance_manifest.json",
         "THIRD_PARTY_NOTICES.md",
     )
-    for path in DOC_PATHS:
+    for path in README_PATHS:
         text = _text(path)
         assert all(value in text for value in required), path
 
     assert manifest["inventory"] == adapter_inventory()
+
+
+def test_detailed_office_support_version_matches_project() -> None:
+    version = _project_version()
+    detail = _text(ROOT / "docs" / "office-support.md")
+    assert f"- Birkin version: `{version}`" in detail
+
+
+def test_english_and_korean_windows_publication_claims_match() -> None:
+    claims = (
+        "development preview",
+        "installer and updater delivery",
+        "production\nsigning",
+        "provider-backed production delivery",
+    )
+    english = _text(ROOT / "README.md").lower()
+    korean = _text(ROOT / "README.ko.md").lower()
+    assert all(claim in english for claim in claims)
+    assert "development preview" in korean
+    assert "installer와 updater delivery" in korean
+    assert "production signing" in korean
+    assert "provider-backed production delivery" in korean
 
 
 def test_office_document_links_and_anchor_targets_exist() -> None:

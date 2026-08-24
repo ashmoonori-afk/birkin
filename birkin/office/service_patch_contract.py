@@ -11,10 +11,10 @@ from .errors import DocumentError, DocumentErrorCode
 
 _CELL_REFERENCE = re.compile(r"\$?[A-Za-z]{1,3}\$?[1-9][0-9]*")
 _FIELDS = {
-    "docx": {"field", "value"},
-    "hwpx": {"field", "value"},
-    "xlsx": {"cell", "value"},
-    "pptx": {"placeholder_idx", "value"},
+    "docx": ({"field", "value"}, {"locator", "value"}),
+    "hwpx": ({"field", "value"},),
+    "xlsx": ({"cell", "value"},),
+    "pptx": ({"placeholder_idx", "value"},),
 }
 
 
@@ -31,7 +31,16 @@ def _string(operation: Mapping[str, object], key: str) -> str:
 
 def _validate_value(format_name: str, operation: Mapping[str, object]) -> None:
     value = operation.get("value")
-    if format_name in {"docx", "hwpx"}:
+    if format_name == "docx" and "locator" in operation:
+        locator = operation.get("locator")
+        if not isinstance(locator, Mapping) or set(locator) != {"format", "index"}:
+            raise _invalid("DOCX paragraph locator requires format and index")
+        index = locator.get("index")
+        if locator.get("format") != "docx" or isinstance(index, bool) or not isinstance(index, int) or index < 1:
+            raise _invalid("DOCX paragraph locator requires format docx and a positive index")
+        if not isinstance(value, str):
+            raise _invalid("DOCX paragraph patch value must be a string")
+    elif format_name in {"docx", "hwpx"}:
         _ = _string(operation, "field")
         if not isinstance(value, str):
             raise _invalid("field patch value must be a string")
@@ -69,8 +78,8 @@ def validate_operations(
         )
     if require_single and len(operations) != 1:
         raise _invalid("one narrow Wave 1 operation is required")
-    expected = _FIELDS.get(format_name)
-    if expected is None:
+    expected_shapes = _FIELDS.get(format_name)
+    if expected_shapes is None:
         raise DocumentError(
             DocumentErrorCode.UNSUPPORTED_EDIT,
             "plan",
@@ -78,8 +87,9 @@ def validate_operations(
             details={"format": format_name, "operation": operation_name},
         )
     for operation in operations:
-        if set(operation) != expected:
+        if set(operation) not in expected_shapes:
+            choices = [sorted(shape) for shape in expected_shapes]
             raise _invalid(
-                f"{format_name} patch operation requires exactly {sorted(expected)}"
+                f"{format_name} patch operation requires one of {choices}"
             )
         _validate_value(format_name, operation)

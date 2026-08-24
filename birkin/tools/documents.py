@@ -3,30 +3,21 @@ from __future__ import annotations
 
 import json
 import os
-from collections.abc import Callable, Mapping
+from collections.abc import Callable, Mapping, Sequence
 from pathlib import Path
 from typing import cast
 
-from ..office.active_content_schema import (
-    ACTIVE_CONTENT_CONSENT_SCHEMA,
-    PATCH_OPERATION_SCHEMA,
-)
-from ..office.adapters.catalog import supported_formats
-from ..office.conversion_schema import budget_schema
-from ..office.create_schema import create_content_schema
+from ..office.active_content_schema import PATCH_OPERATION_SCHEMA
 from ._types import Tool, ToolContext, ToolInput, ToolResult
 
 NAMES = (
     "list_document_adapters",
     "inspect_document",
     "extract_document",
-    "create_document",
     "compare_documents",
-    "fill_template",
-    "apply_document_patch",
     "render_artifact",
     "validate_artifact",
-    "convert_document",
+    "office_job_request",
 )
 
 _ARTIFACT = {
@@ -41,11 +32,6 @@ _ARTIFACT = {
     },
     "required": ["content_hash", "uri"],
     "additionalProperties": False,
-}
-_OUTPUT_NAME = {
-    "type": "string",
-    "minLength": 1,
-    "description": "Logical file name emitted under the managed drafts directory.",
 }
 
 
@@ -70,20 +56,26 @@ def _payload(value: object) -> dict[str, object]:
     return payload
 
 
+def _operations(value: object) -> tuple[Mapping[str, object], ...]:
+    if not isinstance(value, Sequence) or isinstance(value, (str, bytes)):
+        raise TypeError("operations must be an array")
+    return tuple(_payload(item) for item in value)
+
+
 def _handler(name: str) -> Callable[[ToolInput, ToolContext], ToolResult]:
     def run(data: ToolInput, ctx: ToolContext) -> ToolResult:
-        from ..office.conversion_tool import execute_tool_conversion
+        from .. import approvals
+        from ..office.coordinator import OfficeCaller, OfficeCoordinator, OfficeMutationRequest
         from ..office.errors import DocumentError, DocumentErrorCode
         from ..office.service import DocumentService
 
-        _ = ctx
         home = Path(os.environ.get("BIRKIN_HOME", Path.home() / ".birkin"))
         service = DocumentService(home)
         try:
+            payload = _payload(data)
             if name == "list_document_adapters":
                 result: object = {"adapters": service.adapter_inventory()}
             elif name == "render_artifact":
-                payload = _payload(data)
                 if "output_format" not in payload:
                     result = DocumentError(
                         DocumentErrorCode.CAPABILITY_UNAVAILABLE,
@@ -91,42 +83,62 @@ def _handler(name: str) -> Callable[[ToolInput, ToolContext], ToolResult]:
                         "visual rendering requires an approved pinned renderer",
                     ).envelope()
                 else:
-                    artifact = cast("Mapping[str, object]", payload["artifact"])
-                    output_format = cast("str", payload["output_format"])
-                    page = cast("int | None", payload.get("page"))
                     result = service.render_artifact(
-                        artifact, output_format=output_format, page=page
+                        cast("Mapping[str, object]", payload["artifact"]),
+                        output_format=cast("str", payload["output_format"]),
+                        page=cast("int | None", payload.get("page")),
                     )
-            elif name == "convert_document":
-                result = execute_tool_conversion(home, service, _payload(data))
+            elif name == "office_job_request":
+                coordinator = OfficeCoordinator(
+                    OfficeCaller(
+                        home=home,
+                        allowlist_root=ctx.cwd,
+                        actor=ctx.record_source,
+                    )
+                )
+                approval = coordinator.request(
+                    OfficeMutationRequest(
+                        request_text=cast("str", payload["request"]),
+                        source=cast("Mapping[str, object]", payload["source"]),
+                        outcome=cast("str", payload["outcome"]),
+                        operations=_operations(payload["operations"]),
+                        destination=Path(cast("str", payload["destination"])),
+                        overwrite_approved=cast("bool", payload.get("overwrite_approved", False)),
+                    )
+                )
+                queued = approvals.propose(
+                    category="office_job",
+                    title=f"Office mutation: {payload['outcome']}",
+                    description="\n".join(
+                        cast("str", item["summary"])
+                        for item in cast("list[dict[str, object]]", approval["semantic_summaries"])
+                    ),
+                    payload=approval,
+                    cfg={},
+                    origin=ctx.record_source,
+                )
+                result = {**queued, "category": "office_job", "approval": approval}
             else:
                 methods: dict[str, Callable[..., object]] = {
                     "inspect_document": service.inspect_document,
                     "extract_document": service.extract_document,
-                    "create_document": service.create_document,
                     "compare_documents": service.compare_documents,
-                    "fill_template": service.fill_template,
-                    "apply_document_patch": service.apply_document_patch,
                     "validate_artifact": service.validate_artifact,
                 }
-                result = methods[name](**_payload(data))
+                result = methods[name](**payload)
             return ToolResult(
                 json.dumps(result, ensure_ascii=False, default=str),
                 is_error=isinstance(result, Mapping) and "error" in result,
             )
         except DocumentError as exc:
-            return ToolResult(
-                json.dumps(exc.envelope(), ensure_ascii=False), is_error=True
-            )
+            return ToolResult(json.dumps(exc.envelope(), ensure_ascii=False), is_error=True)
         except (KeyError, TypeError, ValueError) as exc:
             error = DocumentError(
                 DocumentErrorCode.INVALID_INPUT,
                 "plan",
                 f"invalid {name} input: {exc}",
             )
-            return ToolResult(
-                json.dumps(error.envelope(), ensure_ascii=False), is_error=True
-            )
+            return ToolResult(json.dumps(error.envelope(), ensure_ascii=False), is_error=True)
 
     return run
 
@@ -139,113 +151,35 @@ def tools() -> list[Tool]:
             {
                 "source": _ARTIFACT,
                 "projection": {"type": "string", "enum": ["text"]},
-                "max_spans": {
-                    "type": "integer",
-                    "minimum": 1,
-                    "maximum": 10_000,
-                },
-                "max_nodes": {
-                    "type": "integer",
-                    "minimum": 1,
-                    "maximum": 10_000,
-                },
-                "max_text_bytes": {
-                    "type": "integer",
-                    "minimum": 1,
-                    "maximum": 1_000_000,
-                },
+                "max_spans": {"type": "integer", "minimum": 1, "maximum": 10_000},
+                "max_nodes": {"type": "integer", "minimum": 1, "maximum": 10_000},
+                "max_text_bytes": {"type": "integer", "minimum": 1, "maximum": 1_000_000},
             },
             ["source"],
         ),
-        "create_document": _object(
-            {
-                "format": {
-                    "type": "string",
-                    "enum": list(supported_formats("create")),
-                },
-                "content": create_content_schema(),
-                "output_name": _OUTPUT_NAME,
-                "template": _ARTIFACT,
-            },
-            ["format", "content", "output_name"],
-        ),
-        "compare_documents": _object(
-            {"left": _ARTIFACT, "right": _ARTIFACT}, ["left", "right"]
-        ),
-        "fill_template": _object(
-            {
-                "template": _ARTIFACT,
-                "bindings": {
-                    "type": "array",
-                    "items": {
-                        "type": "object",
-                        "properties": {
-                            "key": {"type": "string"},
-                            "value": {},
-                        },
-                        "required": ["key", "value"],
-                        "additionalProperties": False,
-                    },
-                },
-                "output_name": _OUTPUT_NAME,
-                "fields": {"type": "array", "items": {"type": "object"}},
-                "strict": {"type": "boolean"},
-                "raw_token_fallback": {"type": "boolean"},
-            },
-            ["template", "bindings", "output_name"],
-        ),
-        "apply_document_patch": _object(
-            {
-                "base": _ARTIFACT,
-                "patch": {
-                    "type": "object",
-                    "properties": {
-                        "operations": {
-                            "type": "array",
-                            "items": PATCH_OPERATION_SCHEMA,
-                        },
-                        "active_content_consent": ACTIVE_CONTENT_CONSENT_SCHEMA,
-                    },
-                    "required": ["operations"],
-                    "additionalProperties": False,
-                },
-                "expected_source_sha256": {
-                    "type": "string",
-                    "pattern": "^[0-9a-f]{64}$",
-                },
-                "output_name": _OUTPUT_NAME,
-                "dry_run": {"type": "boolean"},
-            },
-            ["base", "patch", "expected_source_sha256", "output_name"],
-        ),
+        "compare_documents": _object({"left": _ARTIFACT, "right": _ARTIFACT}, ["left", "right"]),
         "render_artifact": _object(
             {
                 "artifact": _ARTIFACT,
-                "output_format": {
-                    "type": "string",
-                    "enum": ["structured_preview", "pdf", "png", "thumbnail"],
-                },
+                "output_format": {"type": "string", "enum": ["structured_preview", "pdf", "png", "thumbnail"]},
                 "page": {"type": "integer", "minimum": 1},
             },
             ["artifact"],
         ),
         "validate_artifact": _object({"artifact": _ARTIFACT}, ["artifact"]),
-        "convert_document": _object(
+        "office_job_request": _object(
             {
+                "request": {"type": "string", "minLength": 1},
                 "source": _ARTIFACT,
-                "target_format": {"type": "string", "enum": ["txt"]},
-                "output_name": _OUTPUT_NAME,
-                "loss_budget": budget_schema(),
+                "outcome": {"type": "string", "minLength": 1},
+                "operations": {"type": "array", "minItems": 1, "items": PATCH_OPERATION_SCHEMA},
+                "destination": {"type": "string", "minLength": 1},
+                "overwrite_approved": {"type": "boolean"},
             },
-            ["source", "target_format", "output_name", "loss_budget"],
+            ["request", "source", "outcome", "operations", "destination"],
         ),
     }
     return [
-        Tool(
-            name,
-            f"Office Work OS: {name.replace('_', ' ')}.",
-            schemas[name],
-            _handler(name),
-        )
+        Tool(name, f"Office Work OS: {name.replace('_', ' ')}.", schemas[name], _handler(name))
         for name in NAMES
     ]

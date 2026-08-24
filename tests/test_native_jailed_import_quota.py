@@ -14,6 +14,7 @@ from birkin.native.jailed_import import (
     JailedImportAuthority,
 )
 from birkin.workspace.contracts import ProtocolError
+from tests.symlink_support import create_symlink
 
 
 def _seed_owned_file(jail: Path, size: int, serial: int) -> Path:
@@ -233,7 +234,7 @@ def test_aggregate_accounting_does_not_follow_or_delete_partial_symlinks_or_dotf
     authority = JailedImportAuthority(tmp_path / "jail")
     partial_symlink = authority.jail / f".partial-{'f' * 32}"
     unrelated_dotfile = authority.jail / ".keep"
-    _ = partial_symlink.symlink_to(external)
+    create_symlink(partial_symlink, external)
     _ = unrelated_dotfile.write_bytes(b"unrelated")
 
     # When: a regular source is imported.
@@ -255,7 +256,7 @@ def test_aggregate_accounting_ignores_owned_name_symlinks(tmp_path: Path) -> Non
     source = tmp_path / "source.bin"
     _ = source.write_bytes(b"safe")
     authority = JailedImportAuthority(tmp_path / "jail")
-    _ = (authority.jail / f"import-{'f' * 32}.bin").symlink_to(external)
+    create_symlink(authority.jail / f"import-{'f' * 32}.bin", external)
 
     # When: a regular source is imported.
     result = authority.import_file({"source_path": str(source)})

@@ -363,16 +363,16 @@ def test_failed_external_mutation_still_closes_timeline_event(
     monkeypatch.setattr(manager, "_take", lambda *_args, **_kwargs: "after")
     monkeypatch.setattr(manager._timeline, "append", lambda _w, _s, row: rows.append(row))
 
-    manager.begin_tool(
+    token = manager.begin_tool(
         tmp_path,
         "plugin_write",
         {},
         origin=PLUGIN_ORIGIN,
         effect=ToolEffect.CHANGE,
     )
-    manager.complete_tool("plugin_write", failed=True)
+    manager.complete_tool(token, failed=True)
 
-    assert manager._active_tools == []
+    assert manager._active_tools == {}
     assert len(rows) == 1
     assert rows[0]["tool"] == "plugin_write"
     assert rows[0]["status"] == "failed"

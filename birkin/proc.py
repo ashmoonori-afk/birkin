@@ -29,6 +29,7 @@ from typing import Protocol, TypedDict
 # intend shell semantics for the args, so reject them on Windows. Free-form shell
 # strings have their own intentional path (``shell_argv``), which this never gates.
 _WIN_SHELL_METACHARS = frozenset("&|<>^")
+_WINDOWS_CREATE_SUSPENDED = 0x00000004
 _POSIX_KILL_SIGNAL = getattr(signal, "SIGKILL", signal.SIGTERM)
 
 
@@ -212,7 +213,7 @@ def run_shell_command(
     argv = shell_argv(request.command)
     managed_tree: ManagedProcessTree | None = None
     if os.name == "nt":
-        process, managed_tree = _spawn_managed_windows_shell(argv, request)
+        process, managed_tree = spawn_managed_windows_shell(argv, request)
     else:
         process = _spawn_shell(argv, request)
     try:
@@ -259,41 +260,27 @@ def run_shell_command(
             managed_tree.close()
 
 
-def _spawn_managed_windows_shell(
+def spawn_managed_windows_shell(
     argv: list[str],
     request: ShellCommand,
 ) -> tuple[subprocess.Popen[str], ManagedProcessTree]:
-    from birkin._winjob import WindowsJob, WindowsStartGate
+    from birkin._winjob import WindowsJob
 
     job = WindowsJob.create()
-    gate: WindowsStartGate | None = None
     process: subprocess.Popen[str] | None = None
-    assigned = False
     successful = False
     try:
-        start_gate = WindowsStartGate.create()
-        gate = start_gate
-        process = _spawn_shell(start_gate.bootstrap_argv(argv), request)
-        start_gate.wait_ready()
+        process = _spawn_shell(argv, request, suspended=True)
         job.assign(process.pid)
-        assigned = True
-        start_gate.release()
+        job.resume(process.pid)
         successful = True
         return process, job
     except (OSError, RuntimeError, ValueError, KeyboardInterrupt, SystemExit):
-        if assigned:
-            job.terminate()
-        elif process is not None:
-            process.kill()
         if process is not None:
-            try:
-                _ = process.wait(timeout=10)
-            except subprocess.TimeoutExpired:
-                process.kill()
+            process.kill()
+            _ = process.wait(timeout=10)
         raise
     finally:
-        if gate is not None:
-            gate.close()
         if not successful:
             job.close()
 
@@ -301,11 +288,28 @@ def _spawn_managed_windows_shell(
 def _spawn_shell(
     argv: list[str],
     request: ShellCommand,
+    *,
+    suspended: bool = False,
 ) -> subprocess.Popen[str]:
     cwd = str(request.cwd) if request.cwd is not None else None
     if os.name == "nt":
+        creationflags = windows_creation_flags(request.hide_window)
+        if suspended:
+            creationflags |= _WINDOWS_CREATE_SUSPENDED
+        popen_argv: list[str] | str = argv
+        executable: str | None = None
+        is_cmd_shell = (
+            len(argv) == 5
+            and ntpath.basename(argv[0]).casefold() == "cmd.exe"
+            and [part.casefold() for part in argv[1:4]]
+            == ["/d", "/s", "/c"]
+        )
+        if is_cmd_shell:
+            popen_argv = f"{subprocess.list2cmdline(argv[:4])} {argv[4]}"
+            executable = argv[0]
         return subprocess.Popen(
-            argv,
+            popen_argv,
+            executable=executable,
             cwd=cwd,
             stdin=subprocess.PIPE if request.stdin is not None else None,
             stdout=subprocess.PIPE,
@@ -318,7 +322,7 @@ def _spawn_shell(
             encoding="utf-8",
             errors="replace",
             env=request.environment,
-            creationflags=windows_creation_flags(request.hide_window),
+            creationflags=creationflags,
         )
     return subprocess.Popen(
         argv,

@@ -2,11 +2,11 @@
 
 from __future__ import annotations
 
+import argparse
 import errno
 import json
 import os
 import signal
-import sys
 import threading
 import uuid
 from collections.abc import Callable, Mapping
@@ -18,7 +18,9 @@ from typing import Protocol, final
 from birkin import __version__, config
 from birkin.native.capability import BootstrapSecretStore
 from birkin.native.endpoint import NativeBridgeEndpoint
-from birkin.native.product_surfaces import SurfaceSnapshot
+from birkin.native.serve_surfaces import (
+    SelectedSurfaceAuthority as _SelectedSurfaceAuthority,
+)
 from birkin.native.server import NativeBridgeServer
 from birkin.workspace.hub import EventSink, WorkspaceHub
 from birkin.workspace.runtime_adapter import RuntimeWorkspaceAdapter
@@ -48,39 +50,6 @@ class ServingEndpoint(Protocol):
 
 
 @final
-class _SelectedSurfaceAuthority:
-    """Project the product surfaces belonging to the selected session.
-
-    Surfaces are per-session state, so the bridge must follow the hub's
-    selection rather than bind to whichever session happened to start first.
-    """
-
-    def __init__(
-        self,
-        hub: WorkspaceHub,
-        adapters: Mapping[str, RuntimeWorkspaceAdapter],
-    ) -> None:
-        self._hub = hub
-        self._adapters = adapters
-
-    def _current(self) -> RuntimeWorkspaceAdapter:
-        return self._adapters[self._hub.snapshot().session_id]
-
-    @property
-    def surface_names(self) -> tuple[str, ...]:
-        return self._current().surface_authority.surface_names
-
-    def snapshots(
-        self,
-        requested: Mapping[str, int],
-    ) -> tuple[SurfaceSnapshot, ...]:
-        return self._current().surface_authority.snapshots(requested)
-
-    def live_snapshot(self, surface: str) -> SurfaceSnapshot | None:
-        return self._current().surface_authority.live_snapshot(surface)
-
-
-@final
 @dataclass(frozen=True, slots=True)
 class NativeServeOptions:
     """The resolved identity of one bridge process."""
@@ -93,15 +62,18 @@ class NativeServeOptions:
     def resolve(
         cls,
         *,
-        transport: str = "uds",
+        transport: str | None = None,
         session_id: str | None = None,
         root: Path | None = None,
     ) -> NativeServeOptions:
-        if transport not in _SUPPORTED_TRANSPORTS:
+        resolved_transport = (
+            "loopback" if os.name == "nt" else "uds"
+        ) if transport is None else transport
+        if resolved_transport not in _SUPPORTED_TRANSPORTS:
             raise ValueError(f"transport must be one of {_SUPPORTED_TRANSPORTS}")
         resolved_root = root or (config.birkin_home() / "native-bridge")
         return cls(
-            transport=transport,
+            transport=resolved_transport,
             session_id=session_id or DEFAULT_SESSION_ID,
             root=resolved_root.expanduser(),
         )
@@ -292,11 +264,29 @@ def serve_bridge(
     return BridgeProcess(options, announce).run()
 
 
+@final
+class _NativeServeArguments(argparse.Namespace):
+    def __init__(self) -> None:
+        super().__init__()
+        self.transport: str | None = None
+        self.session_id: str | None = None
+        self.root: Path | None = None
+
+
 def main(argv: list[str] | None = None) -> int:
     """Serve the bridge directly, for use as ``python -m birkin.native.serve``."""
-    from birkin.cli import main as cli_main
-
-    return cli_main(["native-bridge", "serve", *(argv or sys.argv[1:])])
+    parser = argparse.ArgumentParser(prog="python -m birkin.native.serve")
+    _ = parser.add_argument("--transport", choices=("uds", "loopback"))
+    _ = parser.add_argument("--session-id")
+    _ = parser.add_argument("--root", type=Path)
+    arguments = parser.parse_args(argv, namespace=_NativeServeArguments())
+    return serve_bridge(
+        NativeServeOptions.resolve(
+            transport=arguments.transport,
+            session_id=arguments.session_id,
+            root=arguments.root,
+        )
+    )
 
 
 if __name__ == "__main__":

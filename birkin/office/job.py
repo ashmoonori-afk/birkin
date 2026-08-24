@@ -2,55 +2,38 @@
 
 from __future__ import annotations
 
-import hashlib
 from collections.abc import Mapping, Sequence
 from copy import deepcopy
 from datetime import datetime, timezone
-from enum import Enum
 from typing import Protocol, cast, final
 
-from .artifact_serialization import canonical_json
 from .errors import DocumentError, DocumentErrorCode
+from .export_policy import ExportRequest
+from .job_serialization import receipt_job, restore_job, snapshot_job
+from .job_types import OfficeJobRunner as OfficeJobRunner
+from .job_types import OfficeJobState as OfficeJobState
+from .proposal_integrity import proposal_digest
 
 
-class OfficeJobState(str, Enum):
-    input_captured = "input_captured"
-    outcome_declared = "outcome_declared"
-    operations_proposed = "operations_proposed"
-    preview_ready = "preview_ready"
-    approval_requested = "approval_requested"
-    approved = "approved"
-    executed = "executed"
-    validated = "validated"
-    published = "published"
-    rejected = "rejected"
-    failed = "failed"
-
-
-class OfficeJobRunner(Protocol):
-    def preview(self, *, source: Mapping[str, object], format_name: str,
-                operations: Sequence[Mapping[str, object]]) -> dict[str, object]: ...
-    def execute(self, *, source: Mapping[str, object], format_name: str,
-                operations: Sequence[Mapping[str, object]], draft_name: str) -> dict[str, object]: ...
-    def validate(self, *, artifact: Mapping[str, object]) -> dict[str, object]: ...
-    def publish(self, *, artifact: Mapping[str, object], output_name: str) -> dict[str, object]: ...
+class OfficeJobJournalSink(Protocol):
+    def append(self, job: OfficeJob) -> None: ...
 
 
 _TERMINAL_STATES = {
-    OfficeJobState.published,
-    OfficeJobState.rejected,
-    OfficeJobState.failed,
+    OfficeJobState.exported, OfficeJobState.rejected, OfficeJobState.failed
 }
 
 
 @final
 class OfficeJob:
     def __init__(self, *, job_id: str, format_name: str, source: Mapping[str, object],
-                 runner: OfficeJobRunner) -> None:
+                 runner: OfficeJobRunner,
+                 journal: OfficeJobJournalSink | None = None) -> None:
         self._job_id = job_id
         self._format_name = format_name
         self._source = deepcopy(dict(source))
         self._runner = runner
+        self._journal = journal
         self._state = OfficeJobState.input_captured
         self._history = [self._state]
         self._outcome: str | None = None
@@ -62,7 +45,18 @@ class OfficeJob:
         self._artifact: dict[str, object] | None = None
         self._validation: dict[str, object] | None = None
         self._publication: dict[str, object] | None = None
+        self._export: dict[str, object] | None = None
+        self._rollback: dict[str, object] | None = None
         self._failure: dict[str, object] | None = None
+        if self._journal is not None:
+            self._journal.append(self)
+
+    def to_dict(self) -> dict[str, object]:
+        return snapshot_job(self)
+
+    @classmethod
+    def from_dict(cls, snapshot: Mapping[str, object], *, runner: OfficeJobRunner) -> OfficeJob:
+        return restore_job(snapshot, runner=runner, job_factory=cls)
 
     @property
     def state(self) -> OfficeJobState:
@@ -103,6 +97,15 @@ class OfficeJob:
 
     def request_approval(self) -> dict[str, object]:
         self._require(OfficeJobState.preview_ready)
+        if self._preview is None:
+            raise self._error(DocumentErrorCode.PRECONDITION_FAILED,
+                              "preview is unavailable")
+        source_sha256 = self._preview.get("source_sha256")
+        if not isinstance(source_sha256, str):
+            raise self._error(
+                DocumentErrorCode.PRECONDITION_FAILED,
+                "preview requires source_sha256",
+            )
         self._enter(OfficeJobState.approval_requested)
         return {
             "job_id": self._job_id,
@@ -110,6 +113,8 @@ class OfficeJob:
             "outcome": self._outcome,
             "operations": deepcopy(self._operations),
             "preview": deepcopy(self._preview),
+            "proposal_digest": self._proposal_digest(),
+            "source_sha256": source_sha256,
         }
 
     def approve(self, *, actor: str) -> None:
@@ -190,26 +195,40 @@ class OfficeJob:
             raise self._error(DocumentErrorCode.PRECONDITION_FAILED,
                               "publication requires artifact and sha256")
         self._publication = deepcopy(publication)
-        self._enter(OfficeJobState.published)
+        if self._journal is not None:
+            self._journal.append(self)
         return deepcopy(publication)
 
+    def export(self, request: ExportRequest) -> dict[str, object]:
+        self._require(OfficeJobState.validated)
+        if self._publication is None:
+            raise self._error(DocumentErrorCode.PRECONDITION_FAILED,
+                              "internal publication is unavailable")
+        artifact = self._publication.get("artifact")
+        if not isinstance(artifact, Mapping):
+            raise self._error(DocumentErrorCode.PRECONDITION_FAILED,
+                              "internal publication artifact is unavailable")
+        artifact_mapping = cast("Mapping[str, object]", artifact)
+        receipt = dict(self._runner.export(
+            artifact=deepcopy(dict(artifact_mapping)), request=request
+        ))
+        self._export = deepcopy(receipt)
+        self._rollback = None
+        self._enter(OfficeJobState.exported)
+        return deepcopy(receipt)
+
+    def rollback_export(self) -> dict[str, object]:
+        self._require(OfficeJobState.exported)
+        if self._export is None:
+            raise self._error(DocumentErrorCode.PRECONDITION_FAILED,
+                              "export receipt is unavailable")
+        receipt = dict(self._runner.rollback_export(deepcopy(self._export)))
+        self._rollback = deepcopy(receipt)
+        self._enter(OfficeJobState.validated)
+        return deepcopy(receipt)
+
     def receipt(self) -> dict[str, object]:
-        operations: list[dict[str, object]] | None = None
-        if self._state is not OfficeJobState.input_captured and self._outcome is not None:
-            operations = deepcopy(self._operations) if self._operations else None
-        return {
-            "job_id": self._job_id,
-            "format": self._format_name,
-            "state": self._state.value,
-            "history": [state.value for state in self._history],
-            "outcome": self._outcome,
-            "operations": operations,
-            "preview": deepcopy(self._preview),
-            "approval": deepcopy(self._approval),
-            "execution": deepcopy(self._execution),
-            "validation": deepcopy(self._validation),
-            "publication": deepcopy(self._publication),
-        }
+        return receipt_job(self)
 
     def fail(self, *, stage: str, message: str) -> None:
         if self._state in _TERMINAL_STATES:
@@ -226,6 +245,8 @@ class OfficeJob:
     def _enter(self, state: OfficeJobState) -> None:
         self._state = state
         self._history.append(state)
+        if self._journal is not None:
+            self._journal.append(self)
 
     def _proposal_digest(self) -> str:
         if self._preview is None or self._outcome is None:
@@ -237,12 +258,7 @@ class OfficeJob:
                 DocumentErrorCode.PRECONDITION_FAILED,
                 "preview requires source_sha256",
             )
-        proposal = {
-            "operations": self._operations,
-            "source_sha256": source_sha256,
-            "outcome": self._outcome,
-        }
-        return hashlib.sha256(canonical_json(proposal).encode("utf-8")).hexdigest()
+        return proposal_digest(self._operations, source_sha256, self._outcome)
 
     def _operation_snapshot(self) -> tuple[Mapping[str, object], ...]:
         return tuple(deepcopy(operation) for operation in self._operations)

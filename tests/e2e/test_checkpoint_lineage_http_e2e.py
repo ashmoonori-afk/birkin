@@ -79,10 +79,10 @@ def test_checkpoint_timeline_and_lineage_use_real_authenticated_http(
         check=True,
     )
     manager = checkpoints.CheckpointManager()
-    manager.begin_tool(workspace, "edit_file", {"path": "main.py"})
+    token = manager.begin_tool(workspace, "edit_file", {"path": "main.py"})
     first = manager.list_checkpoints(workspace)[0]["hash"]
     source.write_text("two\n", encoding="utf-8")
-    manager.complete_tool("edit_file", failed=False)
+    manager.complete_tool(token, failed=False)
     runner = WorktreeRunner(
         workspace,
         sandbox_root=tmp_path / "sandboxes",

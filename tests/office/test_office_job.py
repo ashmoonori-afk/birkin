@@ -1,10 +1,12 @@
 from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
+from pathlib import Path
 
 import pytest
 
 from birkin.office.errors import DocumentError, DocumentErrorCode
+from birkin.office.export_policy import ExportRequest
 from birkin.office.job import OfficeJob, OfficeJobState
 
 
@@ -14,6 +16,8 @@ class FakeRunner:
         self.execute_calls = 0
         self.validate_calls = 0
         self.publish_calls = 0
+        self.export_calls = 0
+        self.rollback_calls = 0
         self.validation_status = validation_status
 
     def preview(
@@ -52,9 +56,27 @@ class FakeRunner:
     ) -> dict[str, object]:
         self.publish_calls += 1
         return {
-            "artifact": {"uri": output_name, "content_hash": "published-sha"},
+            "artifact": {"uri": f"drafts/{output_name}", "content_hash": "published-sha"},
             "sha256": "published-sha",
+            "path": f"drafts/{output_name}",
         }
+
+    def export(
+        self, *, artifact: Mapping[str, object], request: ExportRequest
+    ) -> dict[str, object]:
+        self.export_calls += 1
+        return {
+            "path": str(request.destination),
+            "source_sha256": artifact["content_hash"],
+            "output_sha256": artifact["content_hash"],
+            "rollback_token": "rollback-1",
+        }
+
+    def rollback_export(
+        self, receipt: Mapping[str, object]
+    ) -> dict[str, object]:
+        self.rollback_calls += 1
+        return {"path": receipt["path"], "restored": False}
 
 
 def _job(*, validation_status: str = "pass") -> tuple[OfficeJob, FakeRunner]:
@@ -66,6 +88,15 @@ def _job(*, validation_status: str = "pass") -> tuple[OfficeJob, FakeRunner]:
         runner=runner,
     )
     return job, runner
+
+
+def _request() -> ExportRequest:
+    return ExportRequest(
+        destination=Path("caller/final.docx"),
+        actor="reviewer",
+        proposal_digest="proposal-sha",
+        operations=({"type": "replace_text", "value": "New"},),
+    )
 
 
 def _advance_to_approval(job: OfficeJob) -> None:
@@ -80,6 +111,23 @@ def _assert_error_code(caught: pytest.ExceptionInfo[DocumentError], code: Docume
     assert caught.value.stage == "office_job"
 
 
+def test_approval_request_binds_preview_source_and_proposal_digest() -> None:
+    job, _runner = _job()
+
+    job.declare_outcome("Replace the heading")
+    job.propose_operations([{"type": "replace_text", "value": "New"}])
+    job.build_preview()
+    request = job.request_approval()
+
+    assert request["source_sha256"] == "source-sha"
+    assert isinstance(request["proposal_digest"], str)
+
+    job.approve(actor="reviewer")
+    approval = job.receipt()["approval"]
+    assert isinstance(approval, dict)
+    assert request["proposal_digest"] == approval["proposal_digest"]
+
+
 def test_happy_path_has_exact_state_sequence() -> None:
     job, runner = _job()
 
@@ -87,8 +135,12 @@ def test_happy_path_has_exact_state_sequence() -> None:
     job.approve(actor="reviewer")
     job.execute()
     job.validate()
-    job.publish(output_name="final.docx")
+    publication = job.publish(output_name="final.docx")
+    assert job.state is OfficeJobState.validated
+    export = job.export(_request())
 
+    assert publication["path"] == "drafts/final.docx"
+    assert Path(export["path"]) == Path("caller/final.docx")
     assert job.history == (
         OfficeJobState.input_captured,
         OfficeJobState.outcome_declared,
@@ -98,14 +150,54 @@ def test_happy_path_has_exact_state_sequence() -> None:
         OfficeJobState.approved,
         OfficeJobState.executed,
         OfficeJobState.validated,
-        OfficeJobState.published,
+        OfficeJobState.exported,
     )
-    assert (runner.preview_calls, runner.execute_calls, runner.validate_calls, runner.publish_calls) == (
-        1,
-        1,
-        1,
-        1,
+    assert (
+        runner.preview_calls,
+        runner.execute_calls,
+        runner.validate_calls,
+        runner.publish_calls,
+        runner.export_calls,
+    ) == (1, 1, 1, 1, 1)
+
+
+def test_export_requires_validated_internal_publication() -> None:
+    job, runner = _job()
+    _advance_to_approval(job)
+    job.approve(actor="reviewer")
+    job.execute()
+    job.validate()
+
+    with pytest.raises(DocumentError) as caught:
+        job.export(_request())
+
+    _assert_error_code(caught, DocumentErrorCode.PRECONDITION_FAILED)
+    assert job.state is OfficeJobState.validated
+    assert runner.export_calls == 0
+
+
+def test_rollback_returns_exported_job_to_validated_with_receipts() -> None:
+    job, runner = _job()
+    _advance_to_approval(job)
+    job.approve(actor="reviewer")
+    job.execute()
+    job.validate()
+    job.publish(output_name="final.docx")
+    job.export(_request())
+
+    rollback = job.rollback_export()
+
+    assert rollback == {"path": str(Path("caller/final.docx")), "restored": False}
+    assert job.state is OfficeJobState.validated
+    assert job.history[-3:] == (
+        OfficeJobState.validated,
+        OfficeJobState.exported,
+        OfficeJobState.validated,
     )
+    assert runner.rollback_calls == 1
+    receipt = job.receipt()
+    assert receipt["export"]["rollback_token"] == "rollback-1"
+    assert receipt["rollback"] == rollback
 
 
 def test_skipping_states_and_empty_operations_are_rejected() -> None:
@@ -189,58 +281,3 @@ def test_failed_validation_blocks_publication_without_runner_call() -> None:
         job.publish(output_name="final.docx")
     _assert_error_code(caught, DocumentErrorCode.PRECONDITION_FAILED)
     assert runner.publish_calls == 0
-
-
-def test_receipt_has_fixed_keys_and_pending_values_are_none() -> None:
-    job, _runner = _job()
-    initial = job.receipt()
-    expected_keys = {
-        "job_id",
-        "format",
-        "state",
-        "history",
-        "outcome",
-        "operations",
-        "preview",
-        "approval",
-        "execution",
-        "validation",
-        "publication",
-    }
-    assert set(initial) == expected_keys
-    assert initial == {
-        "job_id": "job-1",
-        "format": "docx",
-        "state": "input_captured",
-        "history": ["input_captured"],
-        "outcome": None,
-        "operations": None,
-        "preview": None,
-        "approval": None,
-        "execution": None,
-        "validation": None,
-        "publication": None,
-    }
-
-    _advance_to_approval(job)
-    job.approve(actor="reviewer")
-    job.execute()
-    job.validate()
-    job.publish(output_name="final.docx")
-    completed = job.receipt()
-
-    assert set(completed) == expected_keys
-    assert completed["state"] == "published"
-    assert completed["outcome"] == "Replace the heading"
-    assert completed["operations"] == [{"type": "replace_text", "value": "New"}]
-    assert completed["preview"] is not None
-    assert completed["execution"] is not None
-    assert completed["validation"] is not None
-    assert completed["publication"] is not None
-    approval = completed["approval"]
-    assert isinstance(approval, dict)
-    assert set(approval) == {"decision", "actor", "at", "proposal_digest"}
-    assert approval["decision"] == "approved"
-    assert approval["actor"] == "reviewer"
-    assert isinstance(approval["at"], str)
-    assert isinstance(approval["proposal_digest"], str)

@@ -72,6 +72,10 @@ class DocumentError(Exception):
             raise FrozenInstanceError(f"cannot delete field {name!r}")
         super().__delattr__(name)
 
+    @override
+    def __str__(self) -> str:
+        return f"{self.code.value} [{self.stage}]: {self.message}"
+
     def add_note(self, note: object) -> None:
         """Attach an operator note on every supported Python version."""
         if not isinstance(note, str):

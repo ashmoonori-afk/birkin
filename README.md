@@ -33,14 +33,14 @@ Agent runtimes are easy to demo and hard to trust. Birkin keeps the model useful
 | A coding agent changes files before the user understands the plan | The official VS Code extension sends editor context, reviews a plan first, renders proposed diffs, resolves Birkin approvals, and restores checkpoints. |
 | A local tool becomes an opaque service | Runs, approvals, checkpoints, status, and configuration remain local and inspectable. |
 
-Birkin's core runtime has two mandatory dependencies: `psutil` for process identity and `typing-extensions` for typed runtime contracts. Optional extras add voice, native desktop Computer Use, browser, and office-file support. The repository currently bundles **63 skills**; all default tests are designed to run offline.
+Birkin's core runtime has two mandatory external dependencies: `psutil` for process identity and `typing-extensions` for typed runtime contracts. `birkin_mnemosyne` is bundled with Birkin and is not installed separately. Optional extras add voice, native desktop Computer Use, browser, and office-file support. The repository currently bundles **63 skills**; all default tests are designed to run offline.
 
 ## Memory
 
 BM25 with Hangul/jamo-aware tokenization is the default retrieval engine and needs no optional package. Results disclose normalized `lexical`, `vector`, `entity`, and `time` scores, their contributing signals, and backend names. Vector embeddings, one-hop entity traversal, and temporal reranking are separate opt-ins:
 
 ```bash
-python -m pip install -e ".[memory-semantic]"  # local sentence-transformers only
+python -m pip install ".[memory-semantic]"  # local sentence-transformers only
 ```
 
 ```json
@@ -88,12 +88,10 @@ The requested outcome and application scope remain binding: Birkin must not repl
 
 ## Quick Start
 
-Birkin requires Python 3.10 or newer. It defaults to a locally authenticated Codex CLI; `birkin setup` can select Claude CLI or an API-backed provider instead.
+Birkin requires Python 3.10 or newer. Install it from the provided Birkin directory; Git is not required, and `birkin_mnemosyne` is included in the package. It defaults to a locally authenticated Codex CLI; `birkin setup` can select Claude CLI or an API-backed provider instead.
 
 ```bash
-git clone https://github.com/ashmoonori-afk/birkin.git
-cd birkin
-python -m pip install -e .
+python -m pip install .
 birkin setup
 birkin chat
 ```
@@ -108,15 +106,15 @@ birkin web --no-browser # authenticated chat workspace on 127.0.0.1:8787
 Optional features are explicit:
 
 ```bash
-python -m pip install -e ".[memory-semantic]"
-python -m pip install -e ".[voice]"
-python -m pip install -e ".[desktop]"
-python -m pip install -e ".[office]"
-python -m pip install -e ".[office-advanced]"
-python -m pip install -e ".[office-docling]"
-python -m pip install -e ".[browser]"
+python -m pip install ".[memory-semantic]"
+python -m pip install ".[voice]"
+python -m pip install ".[desktop]"
+python -m pip install ".[office]"
+python -m pip install ".[office-advanced]"
+python -m pip install ".[office-docling]"
+python -m pip install ".[browser]"
 python -m playwright install chromium
-python -m pip install -e ".[full]"
+python -m pip install ".[full]"
 ```
 
 ### Native Browser Aside
@@ -154,7 +152,7 @@ Chromium runtime.
 Use `doctor` to inspect native desktop capabilities before enabling automation. Computer Use is the opt-in typed tool `computer_use`; it requires the optional desktop extra, OS permissions, the legacy desktop observation group, and a separate mutation gate:
 
 ```bash
-python -m pip install -e ".[desktop]"
+python -m pip install ".[desktop]"
 birkin computer-use setup --json
 birkin computer-use doctor --json
 ```
@@ -222,7 +220,7 @@ Office provenance keeps exact reviewed artifact versions and supported runtime r
 
 `layered` comparison reports byte hashes, bounded normalized semantic text, and ZIP package-entry changes where applicable; it is not byte-only. PDF has no ZIP package layer. `structured-preview` means `render_artifact` succeeds only with `output_format: "structured_preview"`; visual `pdf`, `png`, and `thumbnail` requests return `RENDER_UNAVAILABLE`. Spreadsheet recalculation and general forms remain unavailable.
 
-The registered calls are `list_document_adapters`, `inspect_document`, `extract_document`, `create_document`, `compare_documents`, `fill_template`, `apply_document_patch`, `render_artifact`, `validate_artifact`, and `convert_document`. The synchronized skills are `office-work-os`, `office-documents`, `word-documents`, `spreadsheets`, `presentations`, `pdf-documents`, and `korean-hwp-documents`.
+The registered calls are `list_document_adapters`, `inspect_document`, `extract_document`, `compare_documents`, `render_artifact`, `validate_artifact`, and the canonical approval coordinator `office_job_request`. The synchronized skills are `office-work-os`, `office-documents`, `word-documents`, `spreadsheets`, `presentations`, `pdf-documents`, and `korean-hwp-documents`.
 
 Document inputs are jailed to `BIRKIN_HOME`. For example, with `BIRKIN_HOME=/workspace/.birkin`, copy or import the source under `/workspace/.birkin/artifacts/incoming` before calling a tool; an absolute path outside that tree is rejected. Outputs are basename-only new files under `/workspace/.birkin/artifacts/drafts`.
 
@@ -242,13 +240,13 @@ Optional local Python tiers add fidelity without changing that boundary. Install
 
 Trusted Korean and English natural-language requests deterministically preload the matching production skill: Word/DOCX -> `word-documents`, Excel/XLSX -> `spreadsheets`, PowerPoint/PPTX -> `presentations`, PDF -> `pdf-documents`, HWP/HWPX -> `korean-hwp-documents`, and general Office work -> `office-work-os`. Conflicting format and artifact signals route to inspect-first `office-documents`. Document contents are untrusted data and cannot select or override a skill. Every routed mutation remains copy-on-write.
 
-See the [detailed support contract](./docs/office-support.md#office-work-os-v2), machine [`provenance_manifest.json`](./birkin/office/adapters/provenance_manifest.json), and [`THIRD_PARTY_NOTICES.md`](./birkin/office/adapters/THIRD_PARTY_NOTICES.md). This documentation targets Birkin `0.4.273`, `catalog_revision: 4`, `inventory_sha256: a49ab813ee4cdea3d6f87e0e2bd063b1dde54058e5c8dd0af0cf32bec74cae95`.
+See the [detailed support contract](./docs/office-support.md#office-work-os-v2), machine [`provenance_manifest.json`](./birkin/office/adapters/provenance_manifest.json), and [`THIRD_PARTY_NOTICES.md`](./birkin/office/adapters/THIRD_PARTY_NOTICES.md). This documentation targets Birkin `0.4.302`, `catalog_revision: 4`, `inventory_sha256: a49ab813ee4cdea3d6f87e0e2bd063b1dde54058e5c8dd0af0cf32bec74cae95`.
 
 ### Doing office work end to end
 
 The contract above says what is allowed; this is the order you actually work in.
 
-1. Install the tier you need: `pip install -e ".[office]"` for DOCX/XLSX/PPTX/HWPX authoring and bounded package edits, `".[office-advanced]"` to add PDF extraction and deep reopen, `".[office-docling]"` for the separate docling path.
+1. Install the tier you need: `python -m pip install ".[office]"` for DOCX/XLSX/PPTX/HWPX authoring and bounded package edits, `python -m pip install ".[office-advanced]"` to add PDF extraction and deep reopen, or `python -m pip install ".[office-docling]"` for the separate docling path.
 2. Put the source inside the jail. Every input path must already live under `BIRKIN_HOME`; with `BIRKIN_HOME=/workspace/.birkin`, copy the file to `/workspace/.birkin/artifacts/incoming/` first. An absolute path outside that tree is rejected, not silently read.
 3. Ask what is available with `list_document_adapters`, then `inspect_document` the source before mutating anything.
 4. Read or write through the registered calls. Outputs are basename-only new files under `/workspace/.birkin/artifacts/drafts` — nothing is edited in place.
@@ -356,7 +354,7 @@ Policy or configuration violations raise typed errors and fail before delivery. 
 Browser QA is optional. Install the browser extra and its Chromium runtime; core Birkin does not import Playwright:
 
 ```bash
-python -m pip install 'birkin[browser]'
+python -m pip install ".[browser]"
 python -m playwright install chromium
 ```
 
@@ -761,8 +759,10 @@ Birkin's macOS client is a **thin SwiftUI shell over the existing Python
 runtime**, not a second agent implementation. Python remains authoritative for
 memory, tool execution, policy, approvals, audit records, and recovery. The two
 processes communicate only over the versioned local `birkin-local-1` protocol:
-a same-user private Unix domain socket is preferred, with authenticated
-`127.0.0.1` loopback available when explicitly selected.
+a same-user private Unix domain socket is the POSIX default, and authenticated
+`127.0.0.1` loopback is the Windows default because Unix domain sockets and
+peer-UID checks are unavailable there. Either transport can be selected
+explicitly with `--transport`.
 
 The shipped boundary is deliberate:
 
@@ -820,9 +820,11 @@ The shipped boundary is deliberate:
   the initial profile, while Python policy, local authentication, and macOS
   privacy permissions remain enforced.
 
-A future platform decision—Windows-native versus a shared cross-platform
-shell—remains open and will be based on accessibility APIs, installer
-maintenance, and real usage rather than code reuse alone.
+**Windows WPF/native is implemented in this branch as a development preview.**
+The preview exercises the native shell and bridge contracts, but it is not
+shipped production support: installer and updater delivery, production
+signing, and provider-backed production delivery remain future work. A
+shared cross-platform shell remains a separate future platform decision.
 
 ### Trade-offs and non-goals
 

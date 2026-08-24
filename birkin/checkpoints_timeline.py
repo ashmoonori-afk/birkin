@@ -5,6 +5,7 @@ from __future__ import annotations
 import hashlib
 import json
 from datetime import datetime, timezone
+from collections.abc import Mapping
 from pathlib import Path
 from typing import Any
 
@@ -80,7 +81,7 @@ class TimelineStore:
         self,
         workspace: Path,
         checkpoint: str,
-        value: dict[str, Any],
+        value: Mapping[str, object],
     ) -> None:
         self._write(
             self._dir(workspace) / "tasks" / f"{checkpoint}.json",
@@ -91,7 +92,7 @@ class TimelineStore:
         self,
         workspace: Path,
         checkpoint: str,
-        current: dict[str, Any],
+        current: Mapping[str, object],
     ) -> bool:
         previous = self._read(
             self._dir(workspace) / "tasks" / f"{checkpoint}.json", None)

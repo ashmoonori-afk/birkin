@@ -82,4 +82,6 @@ def build_pptx_template(path: Path) -> Path:
 def _write_package(path: Path, entries: dict[str, bytes]) -> None:
     with zipfile.ZipFile(path, "w", zipfile.ZIP_STORED) as archive:
         for name, data in entries.items():
-            archive.writestr(name, data)
+            info = zipfile.ZipInfo(name, (2026, 8, 24, 0, 0, 20))
+            info.compress_type = zipfile.ZIP_STORED
+            archive.writestr(info, data)

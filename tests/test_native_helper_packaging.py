@@ -37,9 +37,18 @@ def _bash_executable() -> str:
         return "bash"
     git = shutil.which("git")
     assert git is not None
-    bash = Path(git).resolve().parent.parent / "bin/bash.exe"
-    assert bash.is_file()
-    return str(bash)
+    git_root = Path(git).resolve().parent.parent.parent
+    bash = shutil.which("bash")
+    candidates = (
+        Path(bash).resolve() if bash is not None else None,
+        git_root / "usr/bin/bash.exe",
+        git_root / "mingw64/bin/bash.exe",
+        git_root / "bin/bash.exe",
+    )
+    for candidate in candidates:
+        if candidate is not None and candidate.is_file() and git_root in candidate.parents:
+            return str(candidate)
+    raise AssertionError("Git Bash executable not found")
 
 
 def _bash_path(path: Path) -> str:
@@ -270,37 +279,22 @@ def test_helper_builder_normalizes_msys_interpreter_path(
     assert result.returncode == 0, result.stdout + result.stderr
 
 
-def test_helper_runtime_hash_policy_accepts_only_exact_vcs_source() -> None:
+def test_helper_runtime_lock_has_no_vcs_sources() -> None:
     # Given the exact locked runtime dependency graph.
     with (REPOSITORY / "uv.lock").open("rb") as lock_file:
         lock = cast(dict[str, object], tomli.load(lock_file))
     packages = cast(list[dict[str, object]], lock["package"])
 
-    # When immutable VCS sources and their installer policy are inspected.
+    # When VCS sources are inspected.
     vcs_sources = [
-        (cast(str, package["name"]), cast(dict[str, str], package["source"]))
+        cast(str, package["name"])
         for package in packages
         if isinstance(package.get("source"), dict)
         and "git" in cast(dict[str, object], package["source"])
     ]
-    runtime_install = re.search(
-        r'uv pip install[^\n]*\\\n\s+--requirements "\$work/runtime\.lock"',
-        BUILD_SCRIPT.read_text(encoding="utf-8"),
-    )
 
-    # Then only the immutable Git source bypasses all-record hash enforcement.
-    assert vcs_sources == [(
-        "birkin-mnemosyne",
-        {
-            "git": (
-                "https://github.com/ashmoonori-afk/birkin-mnemosyne"
-                + "?rev=36814c13b44260a0c1ada53d142b2940fff134df"
-                + "#36814c13b44260a0c1ada53d142b2940fff134df"
-            ),
-        },
-    )]
-    assert runtime_install is not None
-    assert "--require-hashes" not in runtime_install.group()
+    # Then the embedded helper can install without a VCS executable.
+    assert vcs_sources == []
 
 
 def test_helper_builder_signs_extracted_runtime_before_execution() -> None:

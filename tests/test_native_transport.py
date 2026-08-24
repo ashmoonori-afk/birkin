@@ -22,6 +22,7 @@ from birkin.native.transport import (
     NativeListener,
     receive_frame,
 )
+from tests.symlink_support import create_symlink
 
 _HAS_POSIX_PEER_UID = hasattr(os, "geteuid")
 _TEMP_ROOT = str(Path(gettempdir()).resolve())
@@ -161,7 +162,7 @@ def test_uds_listener_rejects_symlinked_parent() -> None:
         actual = Path(root) / "actual"
         actual.mkdir()
         linked = Path(root) / "linked"
-        linked.symlink_to(actual, target_is_directory=True)
+        create_symlink(linked, actual, target_is_directory=True)
 
         with pytest.raises(NativeProtocolError) as exc_info:
             _ = NativeListener.uds(linked / "native.sock")
@@ -174,7 +175,7 @@ def test_uds_listener_rejects_symlinked_socket_path() -> None:
         target = Path(root) / "target.sock"
         target.touch()
         linked = Path(root) / "native.sock"
-        linked.symlink_to(target)
+        create_symlink(linked, target)
 
         with pytest.raises(NativeProtocolError) as exc_info:
             _ = NativeListener.uds(linked)

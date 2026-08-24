@@ -8,6 +8,7 @@ from typing import cast
 
 import pytest
 
+from birkin.office.export_policy import ExportRequest
 from birkin.office.job import OfficeJob
 from birkin.office.job_runner import DocumentServiceRunner
 from birkin.office.service import DocumentService
@@ -33,7 +34,7 @@ EXPECTED_HISTORY = [
     "approved",
     "executed",
     "validated",
-    "published",
+    "exported",
 ]
 
 
@@ -76,14 +77,19 @@ def test_document_service_runner_four_format_contract(
 ) -> None:
     service = DocumentService(tmp_path)
     source = _source(tmp_path, format_name)
+    caller_folder = tmp_path / "caller-output"
+    caller_folder.mkdir()
     job = OfficeJob(
         job_id=f"contract-{format_name}",
         format_name=format_name,
         source=source,
-        runner=DocumentServiceRunner(service),
+        runner=DocumentServiceRunner(service, export_root=caller_folder),
     )
-    output_name = f"published-{format_name}.{format_name}"
+    output_name = f"validated-{format_name}.{format_name}"
     output_path = service.home / "artifacts" / "drafts" / output_name
+    destination = caller_folder / f"exported-{format_name}.{format_name}"
+    source_path = Path(source["uri"])
+    source_before = source_path.read_bytes()
 
     job.declare_outcome(f"Apply the proven {format_name} patch")
     job.propose_operations([OPERATIONS[format_name]])
@@ -103,17 +109,37 @@ def test_document_service_runner_four_format_contract(
     assert isinstance(validation["checks"], list)
     assert isinstance(validation["layers"], dict)
     publication = job.publish(output_name=output_name)
+    assert job.state.value == "validated"
+    exported = job.export(
+        ExportRequest(
+            destination=destination,
+            actor="contract-test",
+            proposal_digest=cast(str, job.receipt()["approval"]["proposal_digest"]),
+            operations=(OPERATIONS[format_name],),
+        )
+    )
 
     receipt = job.receipt()
     history = cast("list[str]", receipt["history"])
-    published_path = Path(cast(str, publication["path"]))
-    published_sha256 = hashlib.sha256(published_path.read_bytes()).hexdigest()
+    validated_path = Path(cast(str, publication["path"]))
+    validated_before = validated_path.read_bytes()
+    validated_sha256 = hashlib.sha256(validated_before).hexdigest()
     assert history == EXPECTED_HISTORY
-    assert published_path == output_path
-    assert published_path.is_file()
-    assert publication["sha256"] == published_sha256
-    assert cast("Mapping[str, object]", receipt["publication"])["sha256"] == published_sha256
+    assert validated_path == output_path
+    assert validated_path.parent == service.home / "artifacts" / "drafts"
+    assert destination == Path(cast(str, exported["path"]))
+    assert destination.read_bytes() == validated_path.read_bytes()
+    assert source_path.read_bytes() == source_before
+    assert publication["sha256"] == validated_sha256
+    assert cast("Mapping[str, object]", receipt["export"])["output_sha256"] == validated_sha256
+    rollback = job.rollback_export()
+    assert rollback["restored"] is False
+    assert not destination.exists()
+    assert validated_path.read_bytes() == validated_before
+    assert source_path.read_bytes() == source_before
+    assert job.state.value == "validated"
+    assert [state.value for state in job.history] == [*EXPECTED_HISTORY, "validated"]
     print(
         f"{format_name} history={history} "
-        f"published={published_path} sha256={published_sha256}"
+        f"validated={validated_path} exported={destination} sha256={validated_sha256}"
     )

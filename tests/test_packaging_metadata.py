@@ -14,14 +14,11 @@ else:
 
 _ROOT = Path(__file__).resolve().parent.parent
 
-# The core install stays deliberately small. `birkin-mnemosyne` is the one
-# git-sourced runtime dependency (role-profile review), and it is pinned to an
-# immutable commit so a moved tag cannot silently change what ships.
+# The core install stays deliberately small. Mnemosyne is bundled in the Birkin
+# wheel, so installing core never requires a VCS client or source checkout.
 _CORE_DEPENDENCIES = [
     "psutil>=6",
     "typing-extensions>=4.12",
-    "birkin-mnemosyne @ git+https://github.com/ashmoonori-afk"
-    "/birkin-mnemosyne@36814c13b44260a0c1ada53d142b2940fff134df",
 ]
 
 

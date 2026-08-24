@@ -24,18 +24,16 @@ REQUIRED_ARGUMENTS = {
     "list_document_adapters": [],
     "inspect_document": ["source"],
     "extract_document": ["source"],
-    "create_document": ["format", "content", "output_name"],
     "compare_documents": ["left", "right"],
-    "fill_template": ["template", "bindings", "output_name"],
-    "apply_document_patch": [
-        "base",
-        "patch",
-        "expected_source_sha256",
-        "output_name",
-    ],
     "render_artifact": ["artifact"],
     "validate_artifact": ["artifact"],
-    "convert_document": ["source", "target_format", "output_name", "loss_budget"],
+    "office_job_request": [
+        "request",
+        "source",
+        "outcome",
+        "operations",
+        "destination",
+    ],
 }
 SENTINEL_SECTIONS = {
     "When to Use",
@@ -56,6 +54,25 @@ SENTINEL_SECTIONS = {
 def _birkin_metadata(skill: Skill) -> dict[str, object]:
     metadata_root = cast(dict[str, object], skill.meta["metadata"])
     return cast(dict[str, object], metadata_root["birkin"])
+
+
+def test_malformed_skill_does_not_block_valid_discovery(tmp_path: Path):
+    malformed = tmp_path / "malformed" / "SKILL.md"
+    malformed.parent.mkdir()
+    malformed.write_text(
+        "---\nitems:\n  - first\n  broken: value\n---\n",
+        encoding="utf-8",
+    )
+    valid = tmp_path / "valid" / "SKILL.md"
+    valid.parent.mkdir()
+    valid.write_text(
+        "---\nname: valid-skill\ndescription: usable\n---\n",
+        encoding="utf-8",
+    )
+
+    found = discover([(tmp_path, "extra")])
+
+    assert set(found) == {"malformed", "valid-skill"}
 
 
 def test_office_bundle_validates_and_declares_machine_contract() -> None:

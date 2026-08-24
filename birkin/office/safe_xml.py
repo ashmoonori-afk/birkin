@@ -3,8 +3,8 @@
 from __future__ import annotations
 
 import re
-from pathlib import Path
-from typing import Any, BinaryIO
+from os import PathLike
+from typing import Any, Protocol, TypeAlias, TypeVar
 from xml.etree import ElementTree as _ET
 
 _DefusedXmlExceptionType: type[Exception]
@@ -30,6 +30,22 @@ _EXTERNAL_DECLARATION = re.compile(
     re.IGNORECASE | re.DOTALL,
 )
 _XML_COMMENT_OR_CDATA = re.compile(r"<!--.*?-->|<!\[CDATA\[.*?\]\]>", re.DOTALL)
+_XmlData = TypeVar("_XmlData", bytes, str, covariant=True)
+
+
+class _XmlReader(Protocol[_XmlData]):
+    def read(self, size: int = -1, /) -> _XmlData: ...
+
+
+XmlSource: TypeAlias = (
+    str
+    | bytes
+    | int
+    | PathLike[str]
+    | PathLike[bytes]
+    | _XmlReader[str]
+    | _XmlReader[bytes]
+)
 
 
 def _guard_text(
@@ -85,19 +101,20 @@ def fromstring(
 
 
 def parse(
-    source: str | Path | BinaryIO,
+    source: XmlSource,
     *,
     forbid_dtd: bool = True,
     forbid_entities: bool = True,
     forbid_external: bool = True,
-) -> _ET.ElementTree:
+) -> _ET.ElementTree[_ET.Element[str]]:
     parser = XMLParser(
         forbid_dtd=forbid_dtd,
         forbid_entities=forbid_entities,
         forbid_external=forbid_external,
     )
-    if isinstance(source, (str, Path)):
-        payload = Path(source).read_bytes()
+    if isinstance(source, (str, bytes, int, PathLike)):
+        with open(source, "rb") as stream:
+            payload = stream.read()
     else:
         payload = source.read()
     parser.feed(payload)
@@ -190,8 +207,8 @@ def XMLParser(
 class _GuardedElementTree(_ET.ElementTree):
     def parse(
         self,
-        source: str | Path | BinaryIO,
-        parser: Any = None,
+        source: XmlSource,
+        parser: _ET.XMLParser | None = None,
     ) -> _ET.Element:
         if parser is not None:
             raise TypeError("custom XML parsers are not supported")

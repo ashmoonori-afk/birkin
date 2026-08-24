@@ -7,9 +7,12 @@ whether that fits the credit envelope Anthropic announced.
 
 from __future__ import annotations
 
+import json
+from datetime import datetime, timedelta, timezone
+
 import pytest
 
-from birkin import budget
+from birkin import budget, config, store
 
 
 def test_cost_scales_with_tokens_and_model_tier():
@@ -60,3 +63,52 @@ def test_budget_command_reports_dollars_and_a_tier_verdict(tmp_path,
     out = capsys.readouterr().out
     assert "At API list rates" in out and "$" in out
     assert "credit tier" in out
+
+
+def test_monthly_budget_reads_all_in_window_runs_when_ledger_exceeds_limit(
+    tmp_path, monkeypatch,
+):
+    # Given: 1,200 current runs and 300 stale runs in a 1,500-record ledger.
+    monkeypatch.setenv("BIRKIN_HOME", str(tmp_path))
+    recent_at = datetime.now(timezone.utc) - timedelta(days=1)
+    stale_at = datetime.now(timezone.utc) - timedelta(days=31)
+    runs_dir = config.runs_dir()
+    for index in range(1_200):
+        record = {
+            "id": f"recent-{index}",
+            "kind": "chat",
+            "at": recent_at.isoformat(),
+            "summary": "recent",
+            "usage": {"estTokens": 100},
+        }
+        name = f"{recent_at.strftime('%Y%m%d-%H%M%S')}-{index:04d}-chat.json"
+        (runs_dir / name).write_text(json.dumps(record), encoding="utf-8")
+    for index in range(300):
+        record = {
+            "id": f"stale-{index}",
+            "kind": "chat",
+            "at": stale_at.isoformat(),
+            "summary": "stale",
+            "usage": {"estTokens": 100},
+        }
+        name = f"{stale_at.strftime('%Y%m%d-%H%M%S')}-{index:04d}-chat.json"
+        (runs_dir / name).write_text(json.dumps(record), encoding="utf-8")
+
+    reads = 0
+    read_json = store._read_json
+
+    def count_reads(*args, **kwargs):
+        nonlocal reads
+        reads += 1
+        return read_json(*args, **kwargs)
+
+    monkeypatch.setattr(store, "_read_json", count_reads)
+
+    # When: the monthly budget window is calculated.
+    used = budget.usage_window(24 * 30)
+
+    # Then: every current run counts, while stale JSON stays unopened.
+    assert used == 120_000
+    assert reads == 1_200
+    over, _ = budget.is_over({"budget_tokens_monthly": 120_000})
+    assert over is True

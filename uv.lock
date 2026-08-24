@@ -128,10 +128,9 @@ wheels = [
 
 [[package]]
 name = "birkin"
-version = "0.4.273"
+version = "0.4.302"
 source = { editable = "." }
 dependencies = [
-    { name = "birkin-mnemosyne" },
     { name = "psutil" },
     { name = "typing-extensions" },
 ]
@@ -231,7 +230,6 @@ dev = [
 
 [package.metadata]
 requires-dist = [
-    { name = "birkin-mnemosyne", git = "https://github.com/ashmoonori-afk/birkin-mnemosyne?rev=36814c13b44260a0c1ada53d142b2940fff134df" },
     { name = "defusedxml", marker = "extra == 'full'", specifier = ">=0.7,<1" },
     { name = "defusedxml", marker = "extra == 'office'", specifier = ">=0.7,<1" },
     { name = "docling", marker = "extra == 'office-docling'", specifier = ">=2.50,<3" },
@@ -305,11 +303,6 @@ dev = [
     { name = "ruff", specifier = ">=0.12" },
     { name = "tomli", specifier = ">=2" },
 ]
-
-[[package]]
-name = "birkin-mnemosyne"
-version = "0.3.0"
-source = { git = "https://github.com/ashmoonori-afk/birkin-mnemosyne?rev=36814c13b44260a0c1ada53d142b2940fff134df#36814c13b44260a0c1ada53d142b2940fff134df" }
 
 [[package]]
 name = "build"

@@ -13,6 +13,9 @@ from .curation_contract import (
     ARCHIVE_CAP_MIN,
     OPS,
     PROTECT_TYPES,
+    AnnotateOperation,
+    ArchiveOperation,
+    CurationOperation,
     GateResult,
     sanitize_summary,
 )
@@ -52,7 +55,7 @@ def validate_clamp(plan: dict[str, Any], dex: Mnemosyne,
         v = raw.get(key)
         return v if isinstance(v, str) else None
 
-    archive_ops: list[dict[str, Any]] = []
+    archive_ops: list[ArchiveOperation] = []
     for raw in plan.get("ops", []):
         if not isinstance(raw, dict):
             res.drop({"op": "?"}, "not an object")
@@ -72,7 +75,11 @@ def validate_clamp(plan: dict[str, Any], dex: Mnemosyne,
             elif not mnemosyne.ZONE_RE.fullmatch(zone):
                 res.drop(raw, "invalid zone name")
             else:
-                res.accepted.append(raw)
+                res.accepted.append({
+                    "op": "rezone",
+                    "slug": s,
+                    "zone": zone,
+                })
         elif op == "link":
             a, b = _str_field(raw, "a"), _str_field(raw, "b")
             if a is None or b is None or a not in known or b not in known:
@@ -80,7 +87,7 @@ def validate_clamp(plan: dict[str, Any], dex: Mnemosyne,
             elif a == b:
                 res.drop(raw, "self-link")
             else:
-                res.accepted.append(raw)
+                res.accepted.append({"op": "link", "a": a, "b": b})
         elif op == "supersede":
             st, by = _str_field(raw, "stale"), _str_field(raw, "by")
             if st is None or by is None or st not in known or by not in known:
@@ -88,13 +95,17 @@ def validate_clamp(plan: dict[str, Any], dex: Mnemosyne,
             elif st == by:
                 res.drop(raw, "self-supersede")
             else:
-                res.accepted.append(raw)
+                res.accepted.append({
+                    "op": "supersede",
+                    "stale": st,
+                    "by": by,
+                })
         elif op == "annotate":
             s = _str_field(raw, "slug")
             if s is None or s not in known:
                 res.drop(raw, "unknown slug")
                 continue
-            clean: dict[str, Any] = {"op": "annotate", "slug": s}
+            clean: AnnotateOperation = {"op": "annotate", "slug": s}
             for field_name in ANNOTATE_FIELDS:
                 items = raw.get(field_name)
                 if not isinstance(items, list):
@@ -102,7 +113,13 @@ def validate_clamp(plan: dict[str, Any], dex: Mnemosyne,
                 kept = [sanitize_summary(v.strip())[:ANNOTATE_MAX_CHARS]
                         for v in items if isinstance(v, str) and v.strip()]
                 if kept:
-                    clean[field_name] = kept[:ANNOTATE_MAX_ITEMS]
+                    match field_name:
+                        case "aliases":
+                            clean["aliases"] = kept[:ANNOTATE_MAX_ITEMS]
+                        case "queries":
+                            clean["queries"] = kept[:ANNOTATE_MAX_ITEMS]
+                        case "xlang":
+                            clean["xlang"] = kept[:ANNOTATE_MAX_ITEMS]
             if len(clean) == 2:            # slug + op only: nothing to write
                 res.drop(raw, "annotate has no usable field")
             else:
@@ -116,30 +133,35 @@ def validate_clamp(plan: dict[str, Any], dex: Mnemosyne,
             elif _is_protected(dex, s, snap):
                 res.drop(raw, "protected note")
             else:
-                archive_ops.append(raw)
+                archive_ops.append({"op": "archive", "slug": s})
 
     if archive_ops:
         archive_ops.sort(key=lambda o: dex.effective_of(o["slug"], now))
         for keep in archive_ops[:res.archive_cap]:
             res.accepted.append(keep)
         for over in archive_ops[res.archive_cap:]:
-            res.drop(over, f"archive_capped (>{res.archive_cap})")
+            res.drop(
+                {"op": "archive", "slug": over["slug"]},
+                f"archive_capped (>{res.archive_cap})",
+            )
     return res
 
 
-def _dense_zone_links(accepted: list[dict[str, Any]],
-                      snap: dict[str, dict]) -> list[dict[str, Any]]:
+def _dense_zone_links(accepted: list[CurationOperation],
+                      snap: dict[str, dict]) -> list[CurationOperation]:
     touched_zones = {
-        op["zone"] for op in accepted
-        if op.get("op") == "rezone" and isinstance(op.get("zone"), str)
+        zone
+        for op in accepted
+        if op["op"] == "rezone"
+        for zone in (op["zone"],)
     }
     if not touched_zones:
         return accepted
     excluded = {
-        str(op[field])
+        slug
         for op in accepted
-        if op.get("op") == "supersede"
-        for field in ("stale", "by")
+        if op["op"] == "supersede"
+        for slug in (op["stale"], op["by"])
     }
 
     def _linkable(s: str) -> bool:
@@ -158,18 +180,18 @@ def _dense_zone_links(accepted: list[dict[str, Any]],
         if _linkable(s)
     }
     for op in accepted:
-        kind = op.get("op")
-        if kind == "rezone":
-            slug = str(op["slug"])
-            if _linkable(slug):
-                final_zone[slug] = str(op["zone"])
-        elif kind == "archive":
-            final_zone[str(op["slug"])] = mnemosyne.ARCHIVE_ZONE
+        match op:
+            case {"op": "rezone", "slug": slug, "zone": zone}:
+                if _linkable(slug):
+                    final_zone[slug] = zone
+            case {"op": "archive", "slug": slug}:
+                final_zone[slug] = mnemosyne.ARCHIVE_ZONE
 
     pairs = {
-        frozenset((str(op["a"]), str(op["b"])))
+        frozenset((a, b))
         for op in accepted
-        if op.get("op") == "link"
+        if op["op"] == "link"
+        for a, b in ((op["a"], op["b"]),)
     }
     expanded = list(accepted)
     for zone in sorted(touched_zones):

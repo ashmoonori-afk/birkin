@@ -80,23 +80,20 @@ struct BirkinApplicationEvidenceTests {
         let firstBytes = try Data(contentsOf: screenshot)
 
         let ready = try #require(readySessionForEvidence(runtime))
-        runtime.submit(NativeCommandRequest(
-            frameID: "evidence-office-frame", commandID: "evidence-office",
-            expectedCursor: runtime.store.latestAppliedCursor ?? 0,
-            commandType: "office.create",
-            payload: [
-                "format": .string("docx"),
-                "content": .object(["paragraphs": .array([.string("Evidence body")])]),
-                "output_name": .string("evidence.docx"),
-            ],
-            sessionCapability: ready.sessionCapability, viewID: "office"
-        ))
-        try await withTimeout("office surface update") {
-            try await events.wait(for: "surface-rendered name=office", occurrence: 2)
+        runtime.presentationModel.focus(.section(.browserAside))
+        let start = BrowserCommandFactory.start(store: runtime.store, session: ready)
+        runtime.submit(start)
+        try await withTimeout("Browser start outcome") {
+            try await events.wait(
+                for: "projection-event type=command.completed command_id=\(start.commandID)"
+            )
+        }
+        try await withTimeout("Browser surface update") {
+            try await events.wait(for: "surface-rendered name=browser_aside", occurrence: 2)
         }
 
         let secondBytes = try Data(contentsOf: screenshot)
-        #expect(secondBytes != firstBytes, "office state change produced identical evidence")
+        #expect(secondBytes != firstBytes, "Browser state change produced identical evidence")
         #expect(try Self.contentPixelCount(screenshot) >= 8)
 
         runtime.stop()

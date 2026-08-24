@@ -128,7 +128,10 @@ def discover(dirs: list[tuple[Path, str]]) -> dict[str, Skill]:
             # Hidden trees are not catalog: .archive (curator), .git, …
             if any(part.startswith(".") for part in rel.parts):
                 continue
-            skill = _load_skill(skill_md, source)
+            try:
+                skill = _load_skill(skill_md, source)
+            except Exception:  # noqa: BLE001 - discovery boundary
+                continue
             if skill:
                 skills[skill.name] = skill
     return skills

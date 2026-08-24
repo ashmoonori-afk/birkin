@@ -2,7 +2,7 @@
 
 This shipped contract describes registered runtime behavior, not theoretical package features.
 
-- Birkin version: `0.4.273`
+- Birkin version: `0.4.302`
 - `catalog_revision: 4`
 - `inventory_sha256: a49ab813ee4cdea3d6f87e0e2bd063b1dde54058e5c8dd0af0cf32bec74cae95`
 - Machine publication: [`provenance_manifest.json`](../birkin/office/adapters/provenance_manifest.json)
@@ -43,20 +43,17 @@ Trusted Korean and English Office requests are routed before model execution fro
 
 ## Registered tools and arguments
 
-The exact registered set is `list_document_adapters`, `inspect_document`, `extract_document`, `create_document`, `compare_documents`, `fill_template`, `apply_document_patch`, `render_artifact`, `validate_artifact`, and `convert_document`.
+The exact registered set is `list_document_adapters`, `inspect_document`, `extract_document`, `compare_documents`, `render_artifact`, `validate_artifact`, and `office_job_request`.
 
 | Tool | Required arguments | Important optional arguments/behavior |
 |---|---|---|
 | `list_document_adapters` | none | Returns the authoritative catalog. |
 | `inspect_document` | `source` | Existing artifacts must be inspected first. |
 | `extract_document` | `source` | `projection`, `max_spans`, `max_nodes`, `max_text_bytes`. |
-| `create_document` | `format`, `content`, `output_name` | HWPX accepts optional `template` derivation; without it, exact-pinned local Python performs text-first blank authoring. Templates are rejected for other formats. |
 | `compare_documents` | `left`, `right` | Returns separate byte, semantic, package, and visual claims. |
-| `fill_template` | `template`, `bindings`, `output_name` | Verifies and reads the in-jail template to bind a hash/format-specific plan; it does not write a file. |
-| `apply_document_patch` | `base`, `patch`, `expected_source_sha256`, `output_name` | `dry_run` defaults to true; only one narrow operation is accepted. |
 | `render_artifact` | `artifact` | `output_format` is `structured_preview`, `pdf`, `png`, or `thumbnail`; `page` is optional. |
 | `validate_artifact` | `artifact` | Reports package, schema-root, formula, openability, security, and fidelity layers. |
-| `convert_document` | `source`, `target_format`, `output_name`, `loss_budget` | Only UTF-8 `txt` is accepted. |
+| `office_job_request` | `request`, `source`, `outcome`, `operations`, `destination` | Creates a durable proposal; only canonical approval execution may mutate or export. |
 
 The seven synchronized skill IDs are `office-work-os`, `office-documents`, `word-documents`, `spreadsheets`, `presentations`, `pdf-documents`, and `korean-hwp-documents`. Their machine metadata requires the same ten-tool set.
 

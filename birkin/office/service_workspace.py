@@ -16,6 +16,7 @@ from .artifact_snapshot import ArtifactSnapshot as _ArtifactSnapshot
 from .artifact_snapshot import SnapshotPath, protect_snapshot, sync_read_descriptor
 from .artifact_snapshot import snapshot_from_descriptor as _snapshot_from_descriptor
 from .errors import DocumentError, DocumentErrorCode
+from .export_policy import ExportPolicy
 from .path_security import (
     canonical_name,
     close_guard,
@@ -183,6 +184,10 @@ class DocumentWorkspace:
 
     def ensure_drafts_identity(self) -> None:
         ensure_directory_identity(self.drafts, self._draft_identity)
+
+    def export_policy(self, root: Path) -> ExportPolicy:
+        self.ensure_drafts_identity()
+        return ExportPolicy(self.drafts, root, self.drafts.parent / "export-backups")
 
     def output_path(self, output_name: object, suffix: str) -> Path:
         name = self._check_output_name(output_name, suffix)

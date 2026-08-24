@@ -56,7 +56,7 @@ STALE_EFF, STALE_DAYS = 0.1, 90       # hermes curator archive tier
 MAX_ZONES = 24
 RELATED_LIMIT = 5                     # A-MEM: keep top-k small
 RELATED_QUERY_TERMS = 12
-INDEX_VERSION = 3
+INDEX_VERSION = 4
 
 INDEX_FILE = ".birkin-index.json"
 DYNAMICS_FILE = ".birkin-dynamics.json"
@@ -67,7 +67,7 @@ IDENTITY_ZONE = "identity"
 ZONE_RE = re.compile(r"^[a-z0-9][a-z0-9-]{0,31}$")
 WIKILINK_RE = re.compile(r"\[\[([^\]|#]+)(?:[|#][^\]]*)?\]\]")
 _ASCII_RE = re.compile(r"[a-z0-9]+")
-_HANGUL_RE = re.compile(r"[가-힣]+")
+_CJK_RE = re.compile(r"[가-힣ㄱ-ㅎㅏ-ㅣᄀ-ᇿ぀-ヿ一-鿿]+")
 
 # Mechanical default placement for *new* notes (mempalace FOLDER_ROOM_MAP
 # analog); Morpheus refines placement nightly via memory_rezone.
@@ -110,17 +110,17 @@ def atomic_write(path: Path, text: str) -> None:
 # -- pure functions -----------------------------------------------------------
 
 def tokenize(text: str) -> list[str]:
-    """Lowercased ASCII words + Hangul runs + Hangul character bigrams.
+    """Lowercased ASCII words plus CJK runs, unigrams, and bigrams.
 
-    Bigrams give substring-ish recall for Korean without a morphological
-    analyzer — the zero-dependency answer to CJK tokenization.
+    Each CJK run preserves exact matching, its unigrams recover remembered
+    characters, and its bigrams retain substring recall without an analyzer.
     """
     low = text.lower()
     toks = _ASCII_RE.findall(low)
-    for run in _HANGUL_RE.findall(low):
-        toks.append(run)
-        if len(run) >= 2:
-            toks.extend(run[i:i + 2] for i in range(len(run) - 1))
+    for run in _CJK_RE.findall(low):
+        toks.extend(dict.fromkeys([run, *run,
+                                   *(run[i:i + 2]
+                                     for i in range(len(run) - 1))]))
     return toks
 
 

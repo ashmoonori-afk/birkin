@@ -41,7 +41,7 @@ def _send_command(
     )))
 
 
-def _barrier(client: socket.socket, token: str, frame_id: str) -> list[NativeEnvelope]:
+def _send_ping(client: socket.socket, token: str, frame_id: str) -> None:
     client.sendall(encode_frame(envelope(
         "ping",
         frame_id=frame_id,
@@ -50,6 +50,10 @@ def _barrier(client: socket.socket, token: str, frame_id: str) -> list[NativeEnv
             "sent_at": "2026-08-21T00:00:00Z",
         },
     )))
+
+
+def _barrier(client: socket.socket, token: str, frame_id: str) -> list[NativeEnvelope]:
+    _send_ping(client, token, frame_id)
     received: list[NativeEnvelope] = []
     for _index in range(32):
         frame = receive_frame(client)
@@ -139,17 +143,23 @@ def test_repeated_blocked_disconnects_keep_command_and_unsubscribe_threads_bound
                 peer_uid=local_peer_uid(),
             )
             token = handshake(client)
+            if cycle > 0:
+                _send_ping(client, token, f"queued-heartbeat-{cycle}")
             _send_command(client, token, command_id=f"blocked-{cycle}")
             if cycle == 0:
                 assert command_started.wait(timeout=1)
                 assert entered.wait(timeout=1)
             else:
-                refusal = receive_frame(client)
-                assert (refusal.in_reply_to, refusal.body["code"]) == (
-                    f"blocked-{cycle}",
-                    "E_FLOW_VIOLATION",
-                )
-            _ = _barrier(client, token, f"barrier-{cycle}")
+                frames = _barrier(client, token, f"barrier-{cycle}")
+                refusals = [
+                    frame
+                    for frame in frames
+                    if frame.kind == "error"
+                    and frame.in_reply_to == f"blocked-{cycle}"
+                ]
+                assert [(frame.in_reply_to, frame.body["code"]) for frame in refusals] == [
+                    (f"blocked-{cycle}", "E_FLOW_VIOLATION")
+                ]
             client.close()
             thread.join(timeout=2)
             assert not thread.is_alive()
@@ -237,9 +247,17 @@ def test_disconnect_cleanup_runs_after_blocked_command_mutation(
             peer_uid=local_peer_uid(),
         )
         second_token = handshake(second_client)
+        _send_ping(second_client, second_token, "queued-cleanup-heartbeat")
         _send_command(second_client, second_token, command_id="refused-late")
-        refusal = receive_frame(second_client)
-        assert refusal.body["code"] == "E_FLOW_VIOLATION"
+        frames = _barrier(second_client, second_token, "cleanup-barrier")
+        refusals = [
+            frame
+            for frame in frames
+            if frame.kind == "error" and frame.in_reply_to == "refused-late"
+        ]
+        assert [(frame.in_reply_to, frame.body["code"]) for frame in refusals] == [
+            ("refused-late", "E_FLOW_VIOLATION")
+        ]
         second_client.close()
         second_thread.join(timeout=2)
         assert second_errors == []

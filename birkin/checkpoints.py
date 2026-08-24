@@ -23,6 +23,7 @@ import os
 import shutil
 import subprocess
 import tarfile
+import threading
 import uuid
 from dataclasses import dataclass
 from enum import Enum
@@ -92,6 +93,37 @@ class RestoreOutcome:
         return (self.ok, self.message)[index]
 
 
+def execute_approved_restore(payload: dict[str, Any]) -> str:
+    """Execute one approval-bound checkpoint restore."""
+    from . import checkpoint_state
+
+    workspace = Path(str(payload.get("workspace") or "")).expanduser().resolve()
+    checkpoint = str(payload.get("checkpoint") or "")
+    try:
+        mode = RestoreMode(str(payload.get("mode") or ""))
+    except ValueError as exc:
+        raise ValueError("invalid checkpoint restore mode") from exc
+    session_id = str(payload.get("session_id") or "")
+    if mode is not RestoreMode.FILES and not session_id:
+        raise ValueError("checkpoint restore requires a session id")
+    manager = (
+        CheckpointManager(enabled=True)
+        if mode is RestoreMode.FILES
+        else CheckpointManager(
+            enabled=True,
+            state_snapshot=lambda: checkpoint_state.snapshot(session_id),
+            state_restore=lambda state: checkpoint_state.restore(
+                session_id,
+                state,
+            ),
+        )
+    )
+    outcome = manager.restore(workspace, checkpoint, mode=mode)
+    if not outcome.ok:
+        raise ValueError(outcome.message)
+    return outcome.message
+
+
 def _git_timeout() -> float:
     """Seconds one git call may take, read fresh so the env stays live."""
     raw = os.environ.get("BIRKIN_GIT_TIMEOUT")
@@ -127,6 +159,31 @@ def _ref_for(workdir: Path) -> str:
     return f"refs/birkin/{digest[:16]}"
 
 
+def _safe_extract(archive: tarfile.TarFile, target: Path) -> None:
+    """Extract an archive safely on Python versions without tar filters."""
+    root = target.resolve()
+    directories: list[tarfile.TarInfo] = []
+    for member in archive.getmembers():
+        member_path = root / member.name
+        destination = member_path.resolve()
+        if destination != root and root not in destination.parents:
+            raise CheckpointError(f"archive member escapes destination: {member.name}")
+        if member.isdev() or not (
+            member.isfile() or member.isdir() or member.issym() or member.islnk()
+        ):
+            raise CheckpointError(f"unsupported archive member: {member.name}")
+        if member.issym() or member.islnk():
+            link_root = member_path.parent.resolve() if member.issym() else root
+            link_target = (link_root / member.linkname).resolve()
+            if link_target != root and root not in link_target.parents:
+                raise CheckpointError(f"archive link escapes destination: {member.name}")
+        archive.extract(member, root, set_attrs=not member.isdir())
+        if member.isdir():
+            directories.append(member)
+    for directory in reversed(directories):
+        archive.extract(directory, root)
+
+
 class CheckpointManager:
     """One bare git store shared by every workspace birkin touches."""
 
@@ -146,7 +203,8 @@ class CheckpointManager:
         self._ready = False
         self._this_turn: set[str] = set()
         self._timeline = TimelineStore(self.store.parent / "timeline")
-        self._active_tools: list[dict[str, Any]] = []
+        self._active_tools: dict[str, dict[str, Any]] = {}
+        self._active_tools_lock = threading.Lock()
         self._state_snapshot = state_snapshot
         self._state_restore = state_restore
 
@@ -629,8 +687,8 @@ class CheckpointManager:
         *,
         origin: ToolOrigin = NATIVE_TOOL_ORIGIN,
         effect: ToolEffect = ToolEffect.CHANGE,
-    ) -> None:
-        """Open one timeline event and capture its before file/task state."""
+    ) -> str:
+        """Open one timeline event and return its invocation token."""
         workspace = Path(workdir).resolve()
         if origin.kind == "native":
             mutating = (
@@ -654,27 +712,29 @@ class CheckpointManager:
                 except ValueError:
                     candidate = Path(candidate.name)
             touched = [candidate.as_posix()]
-        self._active_tools.append({
-            "id": uuid.uuid4().hex,
-            "workspace": workspace,
-            "tool": tool,
-            "before": before,
-            "touched_hint": touched,
-            "mutating": mutating,
-            "started_at": now(),
-        })
+        token = uuid.uuid4().hex
+        with self._active_tools_lock:
+            self._active_tools[token] = {
+                "id": token,
+                "workspace": workspace,
+                "tool": tool,
+                "before": before,
+                "touched_hint": touched,
+                "mutating": mutating,
+                "started_at": now(),
+            }
+        return token
 
-    def complete_tool(self, tool: str, *, failed: bool) -> None:
-        """Close the latest matching tool event and persist its after state."""
-        index = next(
-            (i for i in range(len(self._active_tools) - 1, -1, -1)
-             if self._active_tools[i]["tool"] == tool),
-            None,
-        )
-        if index is None:
+    def complete_tool(self, token: str | None, *, failed: bool) -> None:
+        """Close the event identified by ``token``; missing tokens are no-ops."""
+        if token is None:
             return
-        active = self._active_tools.pop(index)
+        with self._active_tools_lock:
+            active = self._active_tools.pop(token, None)
+        if active is None:
+            return
         workspace: Path = active["workspace"]
+        tool = str(active["tool"])
         before = str(active["before"])
         after = before
         if active["mutating"]:
@@ -718,7 +778,12 @@ class CheckpointManager:
         if proc.returncode != 0:
             raise CheckpointError("could not export checkpoint tree")
         with tarfile.open(fileobj=io.BytesIO(proc.stdout), mode="r:") as archive:
-            archive.extractall(target, filter="data")
+            try:
+                archive.extractall(target, members=(), filter="data")
+            except TypeError:
+                _safe_extract(archive, target)
+            else:
+                archive.extractall(target, filter="data")
 
     def fork(self, workdir: Any, checkpoint: str, command: Sequence[str], *,
              runner: Any = None, policy: Any = None,
@@ -784,8 +849,8 @@ def preflight(
     *,
     origin: ToolOrigin = NATIVE_TOOL_ORIGIN,
     effect: ToolEffect = ToolEffect.CHANGE,
-) -> None:
-    """Open a per-tool timeline event, checkpointing mutating tools first."""
+) -> str | None:
+    """Open a per-tool timeline event and return its invocation token."""
     manager = getattr(ctx, "checkpoints", None)
     if manager is None or not getattr(manager, "enabled", False):
         return
@@ -807,14 +872,14 @@ def preflight(
         # create snapshots merely by being observed.
         if not command or detect(str(command))[0] is None:
             if hasattr(manager, "begin_tool"):
-                manager.begin_tool(
+                return manager.begin_tool(
                     workspace,
                     tool_name,
                     {**tool_input, "_read_only": True},
                     origin=origin,
                     effect=effect,
                 )
-            return
+            return None
         workspace = Path((tool_input or {}).get("cwd") or ctx.cwd).resolve()
 
     if not hasattr(manager, "begin_tool"):
@@ -832,7 +897,7 @@ def preflight(
         return
 
     before = manager._head(workspace)
-    manager.begin_tool(
+    token = manager.begin_tool(
         workspace,
         tool_name,
         tool_input or {},
@@ -841,10 +906,11 @@ def preflight(
     )
     if manager._head(workspace) != before and getattr(ctx, "emit", None):
         ctx.emit("checkpoint", {"before": tool_name})
+    return token
 
 
-def postflight(ctx: Any, tool_name: str, *, failed: bool) -> None:
+def postflight(ctx: Any, token: str | None, *, failed: bool) -> None:
     manager = getattr(ctx, "checkpoints", None)
     if (manager is not None and getattr(manager, "enabled", False)
             and hasattr(manager, "complete_tool")):
-        manager.complete_tool(tool_name, failed=failed)
+        manager.complete_tool(token, failed=failed)

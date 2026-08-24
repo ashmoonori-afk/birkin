@@ -2,9 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-WORKFLOW = (
-    Path(__file__).parents[1] / ".github" / "workflows" / "tests.yml"
-)
+WORKFLOW = Path(__file__).parents[1] / ".github" / "workflows" / "tests.yml"
 
 
 def test_tests_workflow_runs_for_feature_branch_pushes() -> None:
@@ -62,10 +60,11 @@ def test_tests_workflow_has_bounded_native_swift_job() -> None:
     assert "timeout-minutes: 20" in workflow
     assert "Verify Swift 6 toolchain" in workflow
     assert "swift --version | grep -E 'Swift version 6\\.'" in workflow
-    assert "swift test --package-path macos/BirkinNativeApp" in workflow
+    assert "swift test --package-path macos/BirkinNativeApp --no-parallel" in workflow
     assert "actions/setup-python@" in native_job
     assert 'python-version: "3.13"' in native_job
     assert 'BIRKIN_BROWSER_INTEGRATION: "1"' in native_job
+    assert 'SWT_EXPERIMENTAL_MAXIMUM_PARALLELIZATION_WIDTH: "1"' in native_job
     assert "python -m venv .venv" in native_job
     assert '.venv/bin/python -m pip install -e ".[browser,office]"' in native_job
     assert ".venv/bin/python -m playwright install chromium" in native_job

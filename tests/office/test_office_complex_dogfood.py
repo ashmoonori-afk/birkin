@@ -16,21 +16,12 @@ from openpyxl.worksheet.worksheet import Worksheet
 from pptx import Presentation
 from pypdf import PdfReader
 
+from birkin.tools.documents import NAMES as DOCUMENT_TOOL_NAMES
+
 ROOT = Path(__file__).parents[2]
 SCRIPT = ROOT / "script/qa/office_complex_dogfood.py"
 FORMATS = {"docx", "xlsx", "pptx", "pdf", "hwpx"}
-TOOLS = {
-    "apply_document_patch",
-    "compare_documents",
-    "convert_document",
-    "create_document",
-    "extract_document",
-    "fill_template",
-    "inspect_document",
-    "list_document_adapters",
-    "render_artifact",
-    "validate_artifact",
-}
+TOOLS = set(DOCUMENT_TOOL_NAMES)
 
 
 def _invoke(output: Path, *, module: bool) -> dict[str, object]:

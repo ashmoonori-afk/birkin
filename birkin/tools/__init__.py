@@ -134,10 +134,11 @@ class ToolRegistry:
                     self.ctx,
                     ApprovalRequiredError("hook_policy", blocked),
                 )
+        checkpoint_token: str | None = None
         if self.ctx.checkpoints is not None:
             from .. import checkpoints
             try:
-                checkpoints.preflight(
+                checkpoint_token = checkpoints.preflight(
                     self.ctx,
                     name,
                     tool_input or {},
@@ -164,7 +165,11 @@ class ToolRegistry:
         if self.ctx.checkpoints is not None:
             from .. import checkpoints
             try:
-                checkpoints.postflight(self.ctx, name, failed=result.is_error)
+                checkpoints.postflight(
+                    self.ctx,
+                    checkpoint_token,
+                    failed=result.is_error,
+                )
             except Exception as exc:
                 return ToolResult(
                     f"Checkpoint failed after {name!r}: {exc}", is_error=True)

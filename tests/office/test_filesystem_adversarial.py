@@ -18,6 +18,7 @@ from birkin.office import artifact_snapshot_platform, windows_native
 from birkin.office.artifact_snapshot import protect_snapshot, sync_read_descriptor
 from birkin.office.errors import DocumentError, DocumentErrorCode
 from birkin.office.service_workspace import DocumentWorkspace
+from tests.symlink_support import create_symlink
 
 
 def _write_text(value: str):
@@ -171,14 +172,14 @@ def test_symlink_directory_and_component_escape_are_refused(tmp_path: Path) -> N
     outside = tmp_path / "outside.txt"
     outside.write_text("secret", encoding="utf-8")
     component = workspace.home / "component"
-    component.symlink_to(tmp_path, target_is_directory=True)
+    create_symlink(component, tmp_path, target_is_directory=True)
     escaped = component / outside.name
     with pytest.raises(DocumentError) as jailed:
         workspace.resolve_artifact(_ref(outside) | {"uri": str(escaped)})
     assert jailed.value.code is DocumentErrorCode.PERMISSION_DENIED
 
     destination = workspace.drafts / "occupied.txt"
-    destination.symlink_to(outside)
+    create_symlink(destination, outside)
     with pytest.raises(DocumentError) as symlinked:
         workspace.atomic_publish(destination, _write_text("replace"))
     assert symlinked.value.code is DocumentErrorCode.OUTPUT_EXISTS

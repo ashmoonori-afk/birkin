@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import importlib
+import json
 from pathlib import Path
 from typing import cast
 
@@ -119,21 +120,24 @@ def test_non_latin_pdf_creation_refuses_without_importing_reportlab(
     assert not (tmp_path / "artifacts" / "drafts" / "korean.pdf").exists()
 
 
-def test_catalog_derives_runtime_and_tool_format_surfaces(tmp_path: Path) -> None:
+def test_catalog_derives_runtime_and_registered_read_surfaces(tmp_path: Path) -> None:
     from birkin.office.adapters.catalog import adapter_inventory, supported_formats
     from birkin.office.extract import SUPPORTED_FORMATS
     from birkin.tools import build_registry
     from birkin.tools._types import ToolContext
+    from birkin.tools.documents import NAMES
 
-    inventory_formats = tuple(item["format"] for item in adapter_inventory())
+    inventory = adapter_inventory()
+    inventory_formats = tuple(item["format"] for item in inventory)
     assert supported_formats() == inventory_formats
     assert SUPPORTED_FORMATS == frozenset(supported_formats("extract"))
 
     registry = build_registry(
-        ToolContext(cfg={}, client=None, cwd=tmp_path), include={"documents"}
+        ToolContext(cfg={"spill_threshold": 1_000_000}, client=None, cwd=tmp_path),
+        include={"documents"},
     )
-    create = next(spec for spec in registry.specs() if spec["name"] == "create_document")
-    schema = cast("dict[str, object]", create["input_schema"])
-    properties = cast("dict[str, object]", schema["properties"])
-    format_schema = cast("dict[str, object]", properties["format"])
-    assert format_schema["enum"] == list(supported_formats("create"))
+    assert tuple(registry.names()) == NAMES
+    result = registry.execute("list_document_adapters", {})
+    assert not result.is_error
+    body = cast("dict[str, object]", json.loads(cast("str", result.content)))
+    assert body["adapters"] == inventory

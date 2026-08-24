@@ -30,10 +30,11 @@ from .agent import Agent
 from .llm import LLMClient, LLMError, build_client
 from .profile_actions import ProfileActions
 from .profile_prompt import render_profile_blocks
-from .profile_review import build_profile_review
+from .profile_review import ProfileReviewService, build_profile_review
 from .rolefiles import ProfileSnapshot, ProfileStore
 from .memory import Memory
 from .skills import SkillManager, build_manager
+from .skills.routing import assemble_routed_skills
 from .tools import ToolContext, build_registry
 
 if TYPE_CHECKING:
@@ -117,7 +118,7 @@ class Session:
     _checkpoint_session: list[str] = field(default_factory=list)
     _warm_profile_revision: str = ""
     _profile_notice_revisions: set[str] = field(default_factory=set)
-    profile_review_service: Any = None
+    profile_review_service: ProfileReviewService | None = None
 
     def refresh_system_prompt(
         self,
@@ -218,32 +219,13 @@ class Session:
     def _route_cli_skills(self, text: str,
                           loaded_skills: set[str] | None = None) -> list[str]:
         from .curator import record_use
-        from .office.skill_router import route_office_request
 
-        office_route = route_office_request(text)
-        office_skill = (
-            self.skills.get(office_route.skill_name)
-            if office_route is not None
-            else None
-        )
-        routed = (
-            [office_skill]
-            if office_skill is not None and office_skill.eligible
-            else self.skills.route(text, limit=3)
-        )
-        for skill in routed:
-            record_use(skill.name)
-        fresh = [skill for skill in routed
-                 if loaded_skills is None or skill.name not in loaded_skills]
+        routed = assemble_routed_skills(self.skills, text, loaded_skills)
+        for name in routed.names:
+            record_use(name)
         if loaded_skills is not None:
-            loaded_skills.update(skill.name for skill in routed)
-        rendered = [self.skills.render_skill(skill) for skill in fresh]
-        if office_route is not None and rendered:
-            rendered[0] = (
-                "Office route policy: inspect-first; write policy: "
-                f"{office_route.write_policy}.\n\n{rendered[0]}"
-            )
-        return rendered
+            loaded_skills.update(routed.names)
+        return list(routed.rendered)
 
     def _prepare_cli_turn(self, text: str, *, route_query: str | None = None,
                           skill_state: dict[str, Any] | None = None,
@@ -497,12 +479,13 @@ class Session:
             self._profile_notice_revisions.add(current)
             if on_text is not None:
                 on_text("profile updated - /new required")
-        service = getattr(self, "profile_review_service", None)
-        drain = getattr(service, "drain_notices", None) if service else None
-        if callable(drain):
-            for notice in drain(str(session_id or self.cfg.get("session_id") or "")):
+        service = self.profile_review_service
+        if service is not None:
+            for notice in service.drain_notices(
+                str(session_id or self.cfg.get("session_id") or "")
+            ):
                 if on_text is not None:
-                    on_text(str(notice))
+                    on_text(notice)
 
     def _record_turn(
         self,
@@ -546,11 +529,10 @@ class Session:
         except Exception as exc:
             print(f"[birkin] warning: could not update goal usage: {exc}",
                   file=sys.stderr, flush=True)
-        service = getattr(self, "profile_review_service", None)
-        record = getattr(service, "record_exchange", None) if service else None
-        if callable(record):
+        service = self.profile_review_service
+        if service is not None:
             try:
-                record(
+                service.record_exchange(
                     text,
                     reply or "",
                     trusted=review_harness,
@@ -777,10 +759,14 @@ def failure_context(limit: int = 5) -> str:
     return "\n".join(lines)
 
 
-def _build_profile_review_service(cfg: dict[str, Any]) -> Any:
-    profile = cfg.get("profile") if isinstance(cfg.get("profile"), dict) else {}
-    review = profile.get("background_review", {}) if isinstance(profile, dict) else {}
-    if not (_profiles_enabled(cfg) and isinstance(review, dict)):
+def _build_profile_review_service(
+    cfg: dict[str, Any],
+) -> ProfileReviewService | None:
+    profile = cfg.get("profile")
+    if not (_profiles_enabled(cfg) and isinstance(profile, dict)):
+        return None
+    review = profile.get("background_review", {})
+    if not isinstance(review, dict):
         return None
     provider = review.get("provider")
     model = review.get("model")
@@ -891,14 +877,13 @@ def build_dry_run_packet(text: str, cfg: Optional[dict[str, Any]] = None
     skills = build_manager(cfg)
     memory = Memory(cfg)
 
+    routed = assemble_routed_skills(skills, text)
     if provider in config.CLI_PROVIDERS:
-        routed = skills.route(text, limit=3)
         system = promptgate.compose_cli(
             cfg, memory_block=memory.render(), profile_block=_profile_block(cfg),
-            preloaded=[skills.render_skill(s) for s in routed] or None,
+            preloaded=list(routed.rendered) or None,
             harness_block=_harness_block(cfg))
         tool_names: list[str] = []
-        routed_names = [s.name for s in routed]
     else:
         client = LLMClient(provider="local-cli", model="", api_key="", base_url="")
         ctx = ToolContext(cfg=cfg, client=client, cwd=Path.cwd(), skills=skills,
@@ -906,15 +891,19 @@ def build_dry_run_packet(text: str, cfg: Optional[dict[str, Any]] = None
         system = promptgate.compose_main(
             cfg, skills_index=skills.index(), memory_block=memory.render(),
             profile_block=_profile_block(cfg), harness_block=_harness_block(cfg))
+        if routed.rendered:
+            system += (
+                "\n\n## Birkin routed skills for this turn\n\n"
+                + "\n\n".join(routed.rendered)
+            )
         tool_names = [t["name"] for t in build_registry(ctx).specs()]
-        routed_names = []
 
     return {
         "provider": provider,
         "model": cfg.get("model"),
         "system": system,
         "tools": tool_names,
-        "routed_skills": routed_names,
+        "routed_skills": list(routed.names),
         "user": text,
         "usage": store.estimate_usage(system, text),
     }

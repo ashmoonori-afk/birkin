@@ -106,7 +106,7 @@ def test_run_shell_command_cleans_tree_when_interrupted(monkeypatch) -> None:
     if os.name == "nt":
         monkeypatch.setattr(
             proc,
-            "_spawn_managed_windows_shell",
+            "spawn_managed_windows_shell",
             lambda _argv, _request: (process, managed),
         )
     else:
@@ -173,7 +173,7 @@ def test_shell_argv_wraps_command_string():
             "/d",
             "/s",
             "/c",
-            "@C:\\Windows\\System32\\chcp.com 65001>nul & echo hi",
+            f"@{os.environ['SystemRoot']}\\System32\\chcp.com 65001>nul & echo hi",
         ]
         assert argv[0].lower().endswith(r"\system32\cmd.exe")
     else:

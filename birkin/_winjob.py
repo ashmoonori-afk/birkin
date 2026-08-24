@@ -2,24 +2,17 @@
 
 from __future__ import annotations
 
-import base64
 import ctypes
-import json
-import sys
-import uuid
-from collections.abc import Sequence
 from ctypes import wintypes
 from dataclasses import dataclass
-from pathlib import Path
 from typing import Protocol, cast, final
 
 _JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE = 0x00002000
 _JOB_OBJECT_EXTENDED_LIMIT_INFORMATION = 9
 _PROCESS_TERMINATE = 0x0001
 _PROCESS_SET_QUOTA = 0x0100
-_SYNCHRONIZE = 0x00100000
-_WAIT_OBJECT_0 = 0
-_START_GATE_TIMEOUT_MS = 30_000
+_PROCESS_QUERY_LIMITED_INFORMATION = 0x1000
+_PROCESS_SUSPEND_RESUME = 0x0800
 
 
 @final
@@ -62,6 +55,7 @@ class _ExtendedLimitInformation(ctypes.Structure):
 
 
 _kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+_ntdll = ctypes.WinDLL("ntdll")
 
 class _CreateJob(Protocol):
     argtypes: list[object]
@@ -108,31 +102,23 @@ class _TerminateJob(Protocol):
     def __call__(self, job: int, exit_code: int) -> int: ...
 
 
-class _CreateEvent(Protocol):
+class _IsProcessInJob(Protocol):
     argtypes: list[object]
     restype: object
 
     def __call__(
         self,
-        attributes: object | None,
-        manual_reset: bool,
-        initial_state: bool,
-        name: str,
+        process: int,
+        job: int,
+        result: object,
     ) -> int: ...
 
 
-class _SetEvent(Protocol):
+class _ResumeProcess(Protocol):
     argtypes: list[object]
     restype: object
 
-    def __call__(self, event: int) -> int: ...
-
-
-class _Wait(Protocol):
-    argtypes: list[object]
-    restype: object
-
-    def __call__(self, handle: int, timeout_ms: int) -> int: ...
+    def __call__(self, process: int) -> int: ...
 
 
 class _CloseHandle(Protocol):
@@ -190,28 +176,23 @@ _terminate_job = cast(
 _terminate_job.argtypes = [wintypes.HANDLE, wintypes.UINT]
 _terminate_job.restype = wintypes.BOOL
 
-_create_event = cast(
-    _CreateEvent,
-    cast(object, _kernel32.CreateEventW),
+_is_process_in_job = cast(
+    _IsProcessInJob,
+    cast(object, _kernel32.IsProcessInJob),
 )
-_create_event.argtypes = [
-    ctypes.c_void_p,
-    wintypes.BOOL,
-    wintypes.BOOL,
-    wintypes.LPCWSTR,
+_is_process_in_job.argtypes = [
+    wintypes.HANDLE,
+    wintypes.HANDLE,
+    ctypes.POINTER(wintypes.BOOL),
 ]
-_create_event.restype = wintypes.HANDLE
+_is_process_in_job.restype = wintypes.BOOL
 
-_set_event = cast(_SetEvent, cast(object, _kernel32.SetEvent))
-_set_event.argtypes = [wintypes.HANDLE]
-_set_event.restype = wintypes.BOOL
-
-_wait = cast(
-    _Wait,
-    cast(object, _kernel32.WaitForSingleObject),
+_resume_process = cast(
+    _ResumeProcess,
+    cast(object, _ntdll.NtResumeProcess),
 )
-_wait.argtypes = [wintypes.HANDLE, wintypes.DWORD]
-_wait.restype = wintypes.DWORD
+_resume_process.argtypes = [wintypes.HANDLE]
+_resume_process.restype = wintypes.LONG
 
 _close_handle = cast(
     _CloseHandle,
@@ -284,6 +265,34 @@ class WindowsJob:
         finally:
             _ = _close_handle(process)
 
+    def contains(self, pid: int) -> bool:
+        handle = self._require_handle()
+        process = _open_process(
+            _PROCESS_QUERY_LIMITED_INFORMATION,
+            False,
+            pid,
+        )
+        if not process:
+            raise _windows_error("OpenProcess failed")
+        try:
+            result = wintypes.BOOL()
+            if not _is_process_in_job(process, handle, ctypes.byref(result)):
+                raise _windows_error("IsProcessInJob failed")
+            return bool(result.value)
+        finally:
+            _ = _close_handle(process)
+
+    def resume(self, pid: int) -> None:
+        process = _open_process(_PROCESS_SUSPEND_RESUME, False, pid)
+        if not process:
+            raise _windows_error("OpenProcess failed")
+        try:
+            status = _resume_process(process)
+            if status != 0:
+                raise OSError(status, "NtResumeProcess failed")
+        finally:
+            _ = _close_handle(process)
+
     def terminate(self, exit_code: int = 1) -> None:
         handle = self._handle
         if handle:
@@ -298,77 +307,3 @@ class WindowsJob:
         if not self._handle:
             raise RuntimeError("Windows Job Object is closed")
         return self._handle
-
-
-@dataclass(slots=True)
-class WindowsStartGate:
-    """Two-event handshake that gates the bootstrap before shell creation."""
-
-    release_name: str
-    ready_name: str
-    _release_handle: int | None
-    _ready_handle: int | None
-
-    @classmethod
-    def create(cls) -> WindowsStartGate:
-        token = uuid.uuid4().hex
-        release_name = f"Local\\BirkinJob-{token}-release"
-        ready_name = f"Local\\BirkinJob-{token}-ready"
-        release_handle = _create_event(None, True, False, release_name)
-        if not release_handle:
-            raise _windows_error("CreateEventW failed")
-        ready_handle = _create_event(None, True, False, ready_name)
-        if not ready_handle:
-            _ = _close_handle(release_handle)
-            raise _windows_error("CreateEventW failed")
-        return cls(
-            release_name,
-            ready_name,
-            release_handle,
-            ready_handle,
-        )
-
-    def bootstrap_argv(self, argv: Sequence[str]) -> list[str]:
-        payload = json.dumps(list(argv), ensure_ascii=False).encode("utf-8")
-        encoded = base64.urlsafe_b64encode(payload).decode("ascii")
-        bootstrap = Path(__file__).with_name(
-            "_winjob_bootstrap.py"
-        ).resolve()
-        return [
-            sys.executable,
-            "-I",
-            "-S",
-            str(bootstrap),
-            self.release_name,
-            self.ready_name,
-            encoded,
-        ]
-
-    def wait_ready(self) -> None:
-        handle = self._require_ready_handle()
-        result = _wait(handle, _START_GATE_TIMEOUT_MS)
-        if result != _WAIT_OBJECT_0:
-            raise _windows_error("bootstrap readiness wait failed")
-
-    def release(self) -> None:
-        handle = self._require_release_handle()
-        if not _set_event(handle):
-            raise _windows_error("SetEvent failed")
-
-    def close(self) -> None:
-        release, self._release_handle = self._release_handle, None
-        ready, self._ready_handle = self._ready_handle, None
-        if release:
-            _ = _close_handle(release)
-        if ready:
-            _ = _close_handle(ready)
-
-    def _require_release_handle(self) -> int:
-        if not self._release_handle:
-            raise RuntimeError("Windows start gate is closed")
-        return self._release_handle
-
-    def _require_ready_handle(self) -> int:
-        if not self._ready_handle:
-            raise RuntimeError("Windows start gate is closed")
-        return self._ready_handle

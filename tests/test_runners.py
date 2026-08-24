@@ -1,6 +1,11 @@
 
+from pathlib import Path
+
+import pytest
+
 from birkin import runtime
 from birkin.llm import LLMClient
+from birkin.skills.loader import Skill
 
 USER = [{"role": "user", "content": [{"type": "text", "text": "hi"}]}]
 
@@ -48,6 +53,35 @@ def test_dry_run_packet_cli_provider_routes_skills():
         "find recent arxiv papers on transformer attention", cfg)
     assert pkt["tools"] == []          # CLI agents use their own tools
     assert "arxiv" in pkt["routed_skills"]
+
+
+def test_dry_run_routes_the_same_office_skill_as_a_live_turn(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # Given: an isolated CLI session and an Office DOCX request.
+    monkeypatch.setenv("BIRKIN_HOME", str(tmp_path))
+    cfg = {"provider": "codex-cli", "model": "", "harness_enabled": False}
+    manager = runtime.build_manager(cfg)
+    session = runtime.Session.__new__(runtime.Session)
+    session.skills = manager
+    live_skill_ids: list[str] = []
+
+    def record_skill_id(skill: Skill) -> str:
+        live_skill_ids.append(skill.name)
+        return skill.name
+
+    monkeypatch.setattr(manager, "render_skill", record_skill_id)
+
+    # When: live and dry-run assemble routing for the same request.
+    session._route_cli_skills("Create a Word DOCX contract summary")
+    packet = runtime.build_dry_run_packet(
+        "Create a Word DOCX contract summary", cfg,
+    )
+
+    # Then: both expose only the deterministic Word skill identifier.
+    assert live_skill_ids == ["word-documents"]
+    assert packet["routed_skills"] == live_skill_ids
 
 
 def test_dry_run_packet_includes_neurosis_note_like_a_real_turn():

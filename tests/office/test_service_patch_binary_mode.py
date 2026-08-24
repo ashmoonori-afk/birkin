@@ -42,11 +42,7 @@ def _exercise_patch(
             and flags & os.O_WRONLY
         ):
             candidate_flags.append(flags)
-        native_flags = (
-            flags
-            if binary_flag is None
-            else (flags & ~binary_flag) | native_binary_flag
-        )
+        native_flags = (flags & ~(binary_flag or 0)) | native_binary_flag
         if dir_fd is None:
             return real_open(path, native_flags, mode)
         return real_open(path, native_flags, mode, dir_fd=dir_fd)

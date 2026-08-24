@@ -226,9 +226,23 @@ def build_profile_tools(actions: ProfileActions) -> list[Any]:
     """Build the foreground profile_write tool."""
 
     def profile_write(inp: dict[str, Any], _ctx: ToolContext) -> ToolResult:
+        raw_action = str(inp.get("action", ""))
+        match raw_action:
+            case "add" | "replace" | "remove":
+                action = raw_action
+            case _:
+                payload = {
+                    "error": {
+                        "type": "invalid",
+                        "message": f"unknown profile action: {raw_action}",
+                    },
+                    "source": "tool",
+                    "status": "error",
+                }
+                return ToolResult(json.dumps(payload, sort_keys=True), True)
         edit = ProfileEdit(
             target=str(inp.get("target", "")),
-            action=str(inp.get("action", "")),  # type: ignore[arg-type]
+            action=action,
             old_text=str(inp.get("old_text", "")),
             content=str(inp.get("content", "")),
         )

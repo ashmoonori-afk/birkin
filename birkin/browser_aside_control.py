@@ -7,6 +7,7 @@ from dataclasses import dataclass
 from threading import RLock
 from typing import ClassVar, final
 
+from birkin.browser_aside_errors import BrowserAsideError
 from birkin.browser_aside_service import BrowserAsideService
 
 _ACTOR_KINDS = frozenset({"human", "agent", "tool"})
@@ -192,8 +193,15 @@ class BrowserWorkspaceRegistry:
         with self._lock:
             services = tuple(self._services.values())
             self._services.clear()
+        first_error: BrowserAsideError | None = None
         for service in services:
-            _ = service.close()
+            try:
+                _ = service.close()
+            except BrowserAsideError as exc:
+                if first_error is None:
+                    first_error = exc
+        if first_error is not None:
+            raise first_error
 
 
 _REGISTRY = BrowserWorkspaceRegistry()
