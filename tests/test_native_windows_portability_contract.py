@@ -52,6 +52,22 @@ def test_python_windows_gate_provisions_runtimes_and_uses_locked_launcher() -> N
     assert "./.venv/Scripts/python.exe -m pytest" in pytest_command
 
 
+def test_swift_gate_provisions_the_python_harness_before_serial_execution() -> None:
+    workflow = cast(
+        YamlMapping,
+        yaml.safe_load(WORKFLOW.read_text(encoding="utf-8")),
+    )
+    job = _mapping(_mapping(workflow["jobs"])["swift-conformance"])
+    assert _mapping(job["env"])["BIRKIN_BROWSER_INTEGRATION"] == "1"
+    steps = cast(list[YamlMapping], job["steps"])
+    uses = [str(step["uses"]) for step in steps if "uses" in step]
+    commands = [str(step["run"]) for step in steps if "run" in step]
+    assert any(action.startswith("actions/setup-python@") for action in uses)
+    assert any(action.startswith("astral-sh/setup-uv@") for action in uses)
+    assert "uv sync --frozen --all-extras --all-groups" in commands
+    assert ".venv/bin/python -m playwright install chromium" in commands
+
+
 def test_portable_shell_fixtures_do_not_embed_windows_drive_paths() -> None:
     offenders = [
         source.relative_to(SHELL_TESTS).as_posix()

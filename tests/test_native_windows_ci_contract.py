@@ -261,7 +261,9 @@ def test_live_job_runs_real_authenticated_loopback_journey_and_only_uploads_trx(
 def test_swift_job_runs_the_full_package_suite() -> None:
     job = _job(_workflow(), "swift-conformance")
     assert job["runs-on"] == "macos-latest"
-    assert _commands(job) == ["swift test --package-path macos/BirkinNativeApp"]
+    assert _commands(job)[-1] == (
+        "swift test --package-path macos/BirkinNativeApp --no-parallel"
+    )
 
 
 def test_provider_office_gate_is_manual_protected_and_requires_existing_account_runner() -> None:

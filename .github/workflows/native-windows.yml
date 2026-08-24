@@ -212,11 +212,23 @@ jobs:
   swift-conformance:
     runs-on: macos-latest
     timeout-minutes: 20
+    env:
+      BIRKIN_BROWSER_INTEGRATION: "1"
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
         with:
           persist-credentials: false
-      - run: swift test --package-path macos/BirkinNativeApp
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: "3.13"
+      - uses: astral-sh/setup-uv@d0cc045d04ccac9d8b7881df0226f9e82c39688e
+        with:
+          version: "0.11.8"
+          enable-cache: true
+          cache-dependency-glob: uv.lock
+      - run: uv sync --frozen --all-extras --all-groups
+      - run: .venv/bin/python -m playwright install chromium
+      - run: swift test --package-path macos/BirkinNativeApp --no-parallel
 
   # This gate depends on repository administrators provisioning the named
   # protected environment and an existing-account runner with these labels.

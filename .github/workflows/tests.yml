@@ -204,7 +204,7 @@ jobs:
         shell: bash
         run: |
           set -o pipefail
-          swift test --package-path macos/BirkinNativeApp 2>&1 | tee .omo/evidence/native-swift/swift-test.log
+          swift test --package-path macos/BirkinNativeApp --no-parallel 2>&1 | tee .omo/evidence/native-swift/swift-test.log
       - name: Native Swift test evidence
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
