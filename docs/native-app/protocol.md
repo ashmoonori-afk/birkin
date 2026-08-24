@@ -2,7 +2,7 @@
 
 Protocol: `birkin-local-1`, envelope version `1`
 
-Status: shipped by the Python bridge and Swift protocol package.
+Status: shipped by the Python bridge and Swift protocol package; consumed by the Windows Phase 3 development preview.
 
 ## Transport and framing
 
@@ -40,6 +40,17 @@ connection. Reusing an identifier still inside that window is refused as
 `E_DUPLICATE_FRAME_ID`. Older identifiers are evicted, so a long-lived
 streaming connection processes an unbounded number of frames with bounded
 memory and is never torn down for age alone.
+
+### Windows client consumption
+
+Windows uses authenticated loopback with exact
+`surface = "windows"` and `view_id = "window-main"`. One `BridgeSession` is the
+sole reader over one shared projection store; callers cannot race it with a
+manual receive. Cursor or surface gaps, `stream.desynchronized`, heartbeat loss,
+and disconnect revoke mutation authority. One gated replay episode requests
+canonical state, and only a replacement snapshot returns the store to `Live`.
+Attach never kills an external bridge; shutdown closes the session before
+stopping an exact owned process.
 
 ## Message kinds
 
@@ -162,11 +173,12 @@ The shipped Python native boundary emits these codes:
 
 Errors expose bounded public text, not tracebacks or raw secret-bearing payloads.
 The protocol and projection fixtures contain 21 Python-generated frame vectors,
-a canonical snapshot, 14 events, and a gap event, all decoded by Swift tests.
+a canonical snapshot, 14 events, and a gap event, consumed by both Swift and C#
+tests.
 
 ## Cross-language JSON narrowings
 
-The Python and Swift codecs both narrow generic JSON in two places:
+The Python, Swift, and C# codecs narrow generic JSON in two places:
 
 - A lone UTF-16 surrogate (`\uD800`-`\uDFFF` not forming a valid pair) is
   refused as `E_JSON`, because Swift `String` cannot represent it.

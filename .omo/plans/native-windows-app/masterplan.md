@@ -1,6 +1,6 @@
 # Birkin Native Windows Application Masterplan
 
-Status: implementation decision
+Status: Phases 1-3 implemented as a development preview; Phases 4-5 planned
 Branch: `feat/native-windows-app-20260824`
 Target: Windows 10 22H2 and current Windows 11, x64
 First deliverable: **development preview**
@@ -14,10 +14,13 @@ command-line-buildable presentation process over the existing Python
 owner-only-DACL discovery record; do not add named pipes, Windows AF_UNIX, HTTP,
 or another agent runtime.
 
-The first milestone is deliberately one read-only vertical slice: connect to a
-live bridge, complete `hello -> ready -> subscribe`, and render one real
-Python-produced workspace snapshot in a real WPF window. It is called a
-**development preview**, never complete or shipped.
+Phase 1 delivered the original read-only vertical slice: connect to a live
+bridge, complete `hello -> ready -> subscribe`, and render one real
+Python-produced workspace snapshot in a real WPF window. Phases 2 and 3 now add
+sole-reader recovery and the core Office workflow, but the result remains a
+**development preview**, never complete, shipped, or customer-ready. Evidence
+is recorded under `.omo/evidence/native-windows-20260824/`, including the
+Phase 3 remediation evidence under `remediation/w6/`.
 
 ## 2. UI stack decision
 
@@ -48,8 +51,9 @@ and aligns naturally with MSIX. It loses today because it adds Windows App SDK
 NuGet/runtime and Windows SDK TFM requirements without improving the thin
 client's first workflow.
 
-There is one switch condition, evaluated before Phase 3 begins. Switch to WinUI
-3 only if all of these are true:
+The pre-Phase-3 switch gate is closed: none of the four required switch
+conditions was established, so WPF is the implemented stack. The recorded gate
+was to switch to WinUI 3 only if all of these were true:
 
 1. A minimal unstyled WPF `TextBox` reproducibly loses, commits early, or
    corrupts Microsoft Korean IME 2-set composition on both supported Windows
@@ -153,16 +157,20 @@ Rejected channels:
 - **HTTP/WebSocket:** the protocol is already bounded raw framing and requires
   neither Host nor Origin semantics.
 
-The client never interprets an external announcement PID as ownership. A
-supervisor can stop only a process object returned by its injected spawn
-closure. Five owned exits in a rolling 60 seconds enter a stopped state.
-Reconnect immediately clears capabilities and terminal leases; instance change
-also discards projection and surface state.
+The client never interprets an external announcement PID as ownership. Attach
+never kills. A supervisor can stop only the exact `IBridgeProcess` returned by
+its injected spawn closure; five owned exits in a rolling 60 seconds enter a
+stopped state. Shutdown disposes the session/connection before stopping that
+owned process. Reconnect, gap, desynchronization, heartbeat loss, and disconnect
+immediately revoke mutation authority; a replacement snapshot ends one gated
+canonical replay episode.
 
-Phase 1 has no terminal panel. The first public release also omits Terminal.
-Terminal becomes a separately approved post-release capability only after
-Python owns a tested ConPTY `CreatePseudoConsole` backend. The client will never
-start a local shell itself.
+Terminal and Browser regions are visibly present because the user directly
+requested the Windows mockup hierarchy. They are truth-telling placeholders,
+not omitted controls: Terminal reports unavailable until Python owns a tested
+ConPTY `CreatePseudoConsole` backend, and Browser renders only canonical
+projected data without inventing navigation authority. The client never starts
+a local shell or a browser authority itself.
 
 ## 6. Phasing and waves
 
@@ -170,17 +178,22 @@ start a local shell itself.
 
 | Phase | Label | Goal | Exit |
 | --- | --- | --- | --- |
-| 1 | Development preview | Real bridge, handshake, initial Python snapshot, real WPF window. | One deterministic live-window test passes once. |
-| 2 | Resilient read-only foundation | Full protocol hardening, replay/reset, capability lifecycle, supervisor policy, and CI. | Malformed traffic, reconnect, instance reset, and five-in-sixty behavior are green. |
-| 3 | Core office workflow alpha | Conversation + jailed files + comparison/report/diff + approval + verified save and receipt. | The named workflow passes through a real bridge and real provider on Windows. |
-| 4 | Windows beta quality | Sessions, Working Memory, Activity, desktop navigation, Korean IME, accessibility, and customer-OS evidence. | Windows 10/11 IME, keyboard, Narrator, scaling, and reconnect gates pass. |
-| 5 | Signed release candidate | Frozen Python authority, signed x64 MSI, upgrade/uninstall, installed workflow. | Clean-machine signed installed journey passes without repo, uv, or host Python. |
+| 1 | Development preview (complete) | Real bridge, handshake, initial Python snapshot, real WPF window. | Deterministic live-window evidence exists in `.omo/evidence/native-windows-20260824/p1-06-green.txt`. |
+| 2 | Resilient foundation (complete) | Protocol hardening, sole-reader replay/reset, capability lifecycle, supervisor policy, and CI definition. | Focused recovery and lifecycle regressions pass; CI execution is not implied. |
+| 3 | Core Office workflow development preview (complete) | Conversation + jailed files + comparison/report/diff + approval + structural save and receipt. | Deterministic fast regressions pass and one separate real-provider Windows phase-exit proof passed. |
+| 4 | Windows beta quality (planned) | Sessions, Working Memory, Activity, desktop navigation, Korean IME, accessibility, and customer-OS evidence. | Windows 10/11 IME, keyboard, Narrator, scaling, and reconnect gates must pass. |
+| 5 | Signed release candidate (planned) | Frozen Python authority, signed x64 MSI, upgrade/uninstall, installed workflow. | Clean-machine signed installed journey must pass without repo, uv, or host Python. |
 
 Phase 1 is specified file-by-file in `phase-1-slice.md`. Its six units are
 pairwise disjoint, each captures RED before production, and each has an exact
 PowerShell command. None touches `birkin/native/serve.py`.
 
-### Phase 2 waves: resilient read-only foundation
+### Phase 2 implementation record: resilient foundation
+
+The table preserves the original failing-first ownership plan, not a current
+file inventory or a claim that GitHub ran it. Current evidence is the focused
+Protocol/Shell coverage, sole-reader `BridgeSession` tests, and the locally
+validated W7 workflow contract described in `test-matrix.md`.
 
 | Wave/unit | Exclusive source scope | RED before production | Exact verification |
 | --- | --- | --- | --- |
@@ -203,7 +216,12 @@ The Windows Python workflow deselects only the two POSIX symlink-privilege tests
 named in `test-matrix.md`; Ubuntu and macOS continue to require them. There is
 no attempt to change their UDS behavior.
 
-### Phase 3 waves: core office workflow alpha
+### Phase 3 implementation record: core Office workflow preview
+
+The table preserves the original decomposition. Current exit evidence is the
+provider-free deterministic production-composed window seam plus the separate
+one-time real-provider proof described below; table commands alone are not
+phase-exit evidence.
 
 | Wave/unit | Exclusive source scope | RED before production | Exact verification |
 | --- | --- | --- | --- |
@@ -221,11 +239,19 @@ alternate test authority:
 dotnet test .\windows\BirkinNativeApp\tests\Birkin.Native.App.Tests\Birkin.Native.App.Tests.csproj -c Release --filter "TestCategory=OfficeWorkflow&TestCategory=ExistingAccountProvider"
 ```
 
-The journey imports two real spreadsheets and an existing document template,
-asks Birkin to compare them and draft the report, verifies that the diff is
-visible before approval, submits approval through the UI, and validates the
-saved output plus Python Activity receipt. Tests compare sentinel cell/document
-values, paths, command IDs, cursors, and receipts; they do not pin prompt prose.
+The implemented journey imports three jailed files (two real spreadsheets and
+one existing document template), asks Birkin to compare them and draft the
+report, verifies that the Diff is visible before approval, submits approval
+through the UI, and validates the structural OOXML save plus Python Activity
+receipt. The real-provider test uses `codex-cli` chat and produced two bounded
+screenshots before cleanup. It passed once; see
+`.omo/evidence/native-windows-20260824/remediation/w6/provider-office-run.txt`,
+`pre-approval-diff.png`, `post-save-activity-office.png`, and
+`cleanup-proof.txt`. Fast regression is deliberately separate: the
+`DeterministicWindow` tests use production composition, real WPF, the real
+codec/reducer, and a real Python bridge but no provider. Tests compare sentinel
+cell/document values, paths, command IDs, cursors, and receipts; they do not pin
+prompt prose.
 
 ### Phase 4 waves: Windows beta quality
 
@@ -241,7 +267,8 @@ shared App test project. P4-03 follows because it edits the presentation model;
 P4-04 runs in parallel with P4-03 because it owns only a Python contract test
 and the evidence script.
 
-The hardware gate then executes on Windows 10 22H2 and current Windows 11:
+The planned hardware gate would execute on Windows 10 22H2 and current Windows
+11:
 
 ```powershell
 powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\native\run_windows_client_quality_gate.ps1 -Configuration Release
@@ -251,9 +278,10 @@ It records app hash, OS build, Microsoft Korean IME profile, display scale,
 keyboard/Narrator scenario results, and reconnect result as machine values.
 Synthetic CI composition events do not replace this gate.
 
-Browser Aside, Computer Use, voice, and Terminal are not part of the first
-public Windows release. Their controls are absent, not placeholders. Office is
-included because it is part of the core commercial workflow.
+Computer Use and voice are not part of this preview. Terminal and Browser are
+visible truth-telling placeholders solely because the user directly requested
+the mockup hierarchy; they do not claim unavailable authority. Office is active
+because it is part of the Phase 3 workflow.
 
 ### Phase 5 waves: signed MSI release candidate
 
@@ -271,7 +299,9 @@ Phase 3 workflow and Phase 4 quality gates are green.
 
 ## 7. Test matrix decision
 
-The detailed matrix and commands are normative in `test-matrix.md`.
+The detailed matrix and actual W7 workflow commands are normative in
+`test-matrix.md`. Workflow definition is proven by
+`tests/test_native_windows_ci_contract.py`; GitHub execution is not.
 
 - Python authority and loopback tests run on Ubuntu, macOS, and Windows.
 - POSIX UDS/peer-UID tests run on Ubuntu and macOS only.
@@ -280,17 +310,24 @@ The detailed matrix and commands are normative in `test-matrix.md`.
 - Swift remains macOS-only.
 - Python generates protocol/projection fixtures; Swift and C# consume and
   byte-round-trip them; a live C# journey talks to the real Python bridge.
-- The two `WinError 1314` symlink tests are environment-gated only on Windows
-  and remain mandatory on Unix. No product fix is proposed for them.
+- The Windows Python job deselects exactly the two UDS symlink tests named in
+  `test-matrix.md`; both remain mandatory on Unix.
+- The dispatch-only provider job requires an externally provisioned protected
+  environment and matching authenticated self-hosted runner. Neither
+  provisioning nor a remote job run is proven by repository evidence.
+- Current one-shot-secret, owner-only Python discovery is authenticated and
+  proven. Handle-level final-path, reparse/owner, and protected-DACL verification
+  in the C# discovery reader is deferred LOW hardening.
 - Async tests await pre-subscribed signals with deadlines. Fixed sleeps and
   polling are forbidden.
 
-## 8. Installer, signing, and update outline
+## 8. Installer, signing, and update outline (unimplemented Phase 5)
 
-The first public Windows artifact is a WiX Toolset v4 x64 MSI, not MSIX and not
-NSIS. WiX is pinned at 4.0.6 and built with `dotnet`, so no Visual Studio IDE is
-required. It installs per user under `%LocalAppData%\Programs\Birkin`, requires
-Windows 10 22H2 or later, and includes:
+There is currently no installer/MSI, signing, updater, packaged Windows app, or
+customer-ready release. The planned first public Windows artifact is a WiX
+Toolset v4 x64 MSI, not MSIX and not NSIS. WiX is pinned at 4.0.6 and built
+with `dotnet`, so no Visual Studio IDE would be required. The planned package would install per user under
+`%LocalAppData%\Programs\Birkin`, require Windows 10 22H2 or later, and include:
 
 - a self-contained `win-x64` WPF publish (no machine .NET dependency);
 - a PyInstaller one-folder frozen Python bridge and locked dependencies;
@@ -301,22 +338,24 @@ Windows 10 22H2 or later, and includes:
 One-folder freezing is chosen over one-file extraction to avoid an extraction
 parent, startup races, and antivirus-sensitive temporary executables. The app
 launches only the verified serving executable returned by its spawn closure.
-The installed workflow does not consult a repository, uv, host Python, browser
-cache, or developer bridge override.
+The planned installed workflow would not consult a repository, uv, host Python,
+browser cache, or developer bridge override.
 
-The MSI has a stable UpgradeCode, versioned ProductCode, monotonic major-upgrade
-rules, downgrade refusal, rollback, repair, and complete uninstall. Updates are
-signed full MSI major upgrades delivered through the release HTTPS endpoint,
-WinGet, or customer IT tooling. The first public release has no privileged
-background updater and no bespoke self-update service.
+The planned MSI would have a stable UpgradeCode, versioned ProductCode,
+monotonic major-upgrade rules, downgrade refusal, rollback, repair, and complete
+uninstall. Updates would be signed full MSI major upgrades delivered through
+the release HTTPS endpoint, WinGet, or customer IT tooling. The first public
+release would have no privileged background updater or bespoke self-update
+service.
 
-Signing is inside-out: every shipped `.exe` and `.dll` is Authenticode signed;
-`bridge-helper.json` receives a detached CMS signature; the app verifies both
-before launch; and the enclosing MSI is Authenticode signed last. Public release
-requires a stable publisher identity, an OV/EV code-signing certificate held in
-an HSM or Azure Trusted Signing account, credentialed CI, RFC 3161 timestamping,
-and a release runner with Windows SDK `signtool` plus .NET `SignedCms`. Unsigned
-output is labelled development-only and cannot enter the release channel.
+Planned signing is inside-out: every shipped `.exe` and `.dll` would be
+Authenticode signed; `bridge-helper.json` would receive a detached CMS
+signature; the app would verify both before launch; and the enclosing MSI would
+be Authenticode signed last. Public release would require a stable publisher
+identity, an OV/EV code-signing certificate held in an HSM or Azure Trusted
+Signing account, credentialed CI, RFC 3161 timestamping, and a release runner
+with Windows SDK `signtool` plus .NET `SignedCms`. Unsigned output would be
+labelled development-only and excluded from the release channel.
 
 MSIX is rejected for the first release because package identity and App
 Installer updates do not offset sideload/trust and full-trust-helper validation
@@ -332,10 +371,11 @@ shell before core value exists.
 
 ## 9. Development preview and shippable definitions
 
-Phase 1 may be demonstrated internally only as **Birkin for Windows Development
-Preview**. It proves transport, protocol negotiation, Python authority, and WPF
-rendering. It is not alpha, complete, shipped, production-ready, secure-release
-evidence, or a customer installer.
+Phases 1-3 may be demonstrated only as **Birkin for Windows Development
+Preview**. The current preview proves transport, protocol negotiation, Python
+authority, sole-reader recovery, WPF rendering, and one core Office journey. It
+is not a beta, complete, shipped, production-ready, secure-release artifact, or
+customer installer.
 
 A Windows build is shippable only when all of these are true:
 
@@ -367,4 +407,4 @@ Until then, milestone language must describe the exact proven slice and no more.
 | Client becomes a second authority | One-way dependencies, no product persistence, capability-gated controls, canonical replay, and real-authority journeys. |
 | Windows process supervision kills an external bridge | Process object from the spawn closure is the only ownership token; PID is diagnostic only. |
 | Packaging consumes the project before value exists | Packaging is Phase 5 and cannot start until the Phase 3 office journey and Phase 4 quality gate pass. |
-| Terminal parity drives unsafe client shell work | No Terminal in the first release; only a future Python-owned ConPTY capability may add it. |
+| Terminal or Browser placeholders imply authority | Keep the user-requested regions visibly unavailable/projected-only; only future Python-advertised authority may activate them. |

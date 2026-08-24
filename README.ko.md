@@ -236,7 +236,7 @@ Base install의 경계는 명확합니다. 다섯 format 모두 inspect, validat
 
 신뢰된 한국어·영어 자연어 요청은 production skill을 결정적으로 preload합니다. Word/DOCX는 `word-documents`, Excel/XLSX는 `spreadsheets`, PowerPoint/PPTX는 `presentations`, PDF는 `pdf-documents`, HWP/HWPX는 `korean-hwp-documents`, 일반 Office 작업은 `office-work-os`로 route합니다. Format intent와 artifact 신호가 충돌하면 inspect-first `office-documents`로 route합니다. 문서 내용은 untrusted data이므로 skill을 선택하거나 override할 수 없고, 모든 routed mutation은 copy-on-write를 유지합니다.
 
-[상세 지원 계약](./docs/office-support.md#office-work-os-v2), machine [`provenance_manifest.json`](./birkin/office/adapters/provenance_manifest.json), [`THIRD_PARTY_NOTICES.md`](./birkin/office/adapters/THIRD_PARTY_NOTICES.md)를 참고하십시오. 이 문서는 Birkin `0.4.303`, `catalog_revision: 4`, `inventory_sha256: a49ab813ee4cdea3d6f87e0e2bd063b1dde54058e5c8dd0af0cf32bec74cae95`를 대상으로 합니다.
+[상세 지원 계약](./docs/office-support.md#office-work-os-v2), machine [`provenance_manifest.json`](./birkin/office/adapters/provenance_manifest.json), [`THIRD_PARTY_NOTICES.md`](./birkin/office/adapters/THIRD_PARTY_NOTICES.md)를 참고하십시오. 이 문서는 Birkin `0.4.304`, `catalog_revision: 4`, `inventory_sha256: a49ab813ee4cdea3d6f87e0e2bd063b1dde54058e5c8dd0af0cf32bec74cae95`를 대상으로 합니다.
 
 ### Office 작업 처음부터 끝까지
 
@@ -576,7 +576,7 @@ snapshot을 복사할 수 있습니다.
 | `birkin chat` | 기본 terminal chat workspace와 private loopback web authority 실행. |
 | `birkin gateway` | Loopback HTTP와 설정된 message channel을 실행하고, 중단 후 답변 재전송을 단일 owner가 배타적으로 claim하도록 보장. |
 | `birkin web [--no-browser]` | 독립 인증 chat workspace와 control API 실행. |
-| `birkin native-bridge serve` | macOS 앱이 연결하는 인증된 local bridge 실행. |
+| `birkin native-bridge serve` | macOS와 Windows native client가 사용하는 인증된 local bridge 실행. |
 | `birkin review` | 결과가 생기는 대기 action 승인 또는 거절. |
 | `birkin permission` | Approval category와 CLI access 확인·변경. |
 | `birkin tools` | Canonical registry inventory에서 네이티브 tool 목록·활성화·비활성화. |
@@ -819,9 +819,32 @@ socket과 peer-UID 검사를 쓸 수 없으므로 인증된 `127.0.0.1` loopback
   밖에 있어 App Sandbox는 계속 비활성화하지만 Python policy, local
   authentication, macOS privacy permission은 적용됩니다.
 
-향후 Windows-native client와 공통 cross-platform shell 중 무엇을 택할지는
-아직 열려 있으며, 코드 재사용률만이 아니라 accessibility API, installer
-유지보수, 실제 사용량을 기준으로 결정합니다.
+## Native Windows development preview
+
+플랫폼 결정은 인증된 loopback bridge 위의 .NET 8 WPF thin client로 구현되었습니다.
+Phase 3는 **development preview**이며 customer release가 아닙니다. Production
+composition은 socket을 읽는 유일한 주체인 `BridgeSession` 하나와 공유 in-memory
+projection store 하나를 사용합니다. Policy, execution, approval, Office, receipt,
+recovery의 유일한 authority는 계속 Python입니다. 요청된 Windows mockup에 포함된
+Terminal과 Browser 영역은 상태를 사실대로 알리는 visible placeholder입니다.
+Terminal은 Windows에서 사용할 수 없음을 표시하고, Browser는 control이나 authority를
+만들지 않고 canonical projected state만 표시합니다.
+
+결정적 fast regression은 provider나 manual receive path 없이 실제 WPF
+`MainWindow`, 실제 frame codec/reducer, 실제 Python bridge를 구동합니다
+(`windows/BirkinNativeApp/tests/Birkin.Native.App.Tests/Journeys/DeterministicWindowJourneyTests.cs`,
+`ProviderOfficeDeterministicSeamTests.cs`). 이와 별도로 Phase 3 exit journey는
+기존 `codex-cli` 계정으로 한 번 통과했습니다. Provider-backed chat, jailed import
+3건, Python comparison과 sealed approval, 승인 전에 보이는 Diff, UI approval,
+structural OOXML save, Activity receipt, screenshot 2장, cleanup을 확인했습니다.
+테스트는
+`windows/BirkinNativeApp/tests/Birkin.Native.App.Tests/Journeys/ProviderOfficeJourneyTests.cs`이며
+bounded evidence는 private local release evidence로 보존되고 배포되지 않습니다.
+
+Windows installer나 MSI, code signing, updater, packaged app, customer-ready
+release는 아직 없습니다. 이는 이후 roadmap 작업입니다. 위 native-shell mockup은
+계속 product roadmap이며, 그림에 있는 모든 Windows capability가 활성화되었다는
+주장이 아닙니다.
 
 ### 절충점과 비목표
 
