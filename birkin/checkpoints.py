@@ -23,6 +23,7 @@ import os
 import shutil
 import subprocess
 import tarfile
+import threading
 import uuid
 from dataclasses import dataclass
 from enum import Enum
@@ -146,7 +147,8 @@ class CheckpointManager:
         self._ready = False
         self._this_turn: set[str] = set()
         self._timeline = TimelineStore(self.store.parent / "timeline")
-        self._active_tools: list[dict[str, Any]] = []
+        self._active_tools: dict[str, dict[str, Any]] = {}
+        self._active_tools_lock = threading.Lock()
         self._state_snapshot = state_snapshot
         self._state_restore = state_restore
 
@@ -629,8 +631,8 @@ class CheckpointManager:
         *,
         origin: ToolOrigin = NATIVE_TOOL_ORIGIN,
         effect: ToolEffect = ToolEffect.CHANGE,
-    ) -> None:
-        """Open one timeline event and capture its before file/task state."""
+    ) -> str:
+        """Open one timeline event and return its invocation token."""
         workspace = Path(workdir).resolve()
         if origin.kind == "native":
             mutating = (
@@ -654,27 +656,29 @@ class CheckpointManager:
                 except ValueError:
                     candidate = Path(candidate.name)
             touched = [candidate.as_posix()]
-        self._active_tools.append({
-            "id": uuid.uuid4().hex,
-            "workspace": workspace,
-            "tool": tool,
-            "before": before,
-            "touched_hint": touched,
-            "mutating": mutating,
-            "started_at": now(),
-        })
+        token = uuid.uuid4().hex
+        with self._active_tools_lock:
+            self._active_tools[token] = {
+                "id": token,
+                "workspace": workspace,
+                "tool": tool,
+                "before": before,
+                "touched_hint": touched,
+                "mutating": mutating,
+                "started_at": now(),
+            }
+        return token
 
-    def complete_tool(self, tool: str, *, failed: bool) -> None:
-        """Close the latest matching tool event and persist its after state."""
-        index = next(
-            (i for i in range(len(self._active_tools) - 1, -1, -1)
-             if self._active_tools[i]["tool"] == tool),
-            None,
-        )
-        if index is None:
+    def complete_tool(self, token: str | None, *, failed: bool) -> None:
+        """Close the event identified by ``token``; missing tokens are no-ops."""
+        if token is None:
             return
-        active = self._active_tools.pop(index)
+        with self._active_tools_lock:
+            active = self._active_tools.pop(token, None)
+        if active is None:
+            return
         workspace: Path = active["workspace"]
+        tool = str(active["tool"])
         before = str(active["before"])
         after = before
         if active["mutating"]:
@@ -784,8 +788,8 @@ def preflight(
     *,
     origin: ToolOrigin = NATIVE_TOOL_ORIGIN,
     effect: ToolEffect = ToolEffect.CHANGE,
-) -> None:
-    """Open a per-tool timeline event, checkpointing mutating tools first."""
+) -> str | None:
+    """Open a per-tool timeline event and return its invocation token."""
     manager = getattr(ctx, "checkpoints", None)
     if manager is None or not getattr(manager, "enabled", False):
         return
@@ -807,14 +811,14 @@ def preflight(
         # create snapshots merely by being observed.
         if not command or detect(str(command))[0] is None:
             if hasattr(manager, "begin_tool"):
-                manager.begin_tool(
+                return manager.begin_tool(
                     workspace,
                     tool_name,
                     {**tool_input, "_read_only": True},
                     origin=origin,
                     effect=effect,
                 )
-            return
+            return None
         workspace = Path((tool_input or {}).get("cwd") or ctx.cwd).resolve()
 
     if not hasattr(manager, "begin_tool"):
@@ -832,7 +836,7 @@ def preflight(
         return
 
     before = manager._head(workspace)
-    manager.begin_tool(
+    token = manager.begin_tool(
         workspace,
         tool_name,
         tool_input or {},
@@ -841,10 +845,11 @@ def preflight(
     )
     if manager._head(workspace) != before and getattr(ctx, "emit", None):
         ctx.emit("checkpoint", {"before": tool_name})
+    return token
 
 
-def postflight(ctx: Any, tool_name: str, *, failed: bool) -> None:
+def postflight(ctx: Any, token: str | None, *, failed: bool) -> None:
     manager = getattr(ctx, "checkpoints", None)
     if (manager is not None and getattr(manager, "enabled", False)
             and hasattr(manager, "complete_tool")):
-        manager.complete_tool(tool_name, failed=failed)
+        manager.complete_tool(token, failed=failed)
