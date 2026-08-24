@@ -1,0 +1,18 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net8.0</TargetFramework>
+    <IsTestProject>true</IsTestProject>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.NET.Test.Sdk" />
+    <PackageReference Include="MSTest.TestFramework" />
+    <PackageReference Include="MSTest.TestAdapter" />
+    <ProjectReference Include="..\..\src\Birkin.Native.Protocol\Birkin.Native.Protocol.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <None Include="..\..\..\..\macos\BirkinNativeApp\Tests\BirkinNativeProtocolTests\GoldenVectors\native-protocol-vectors.json" Link="GoldenVectors\native-protocol-vectors.json" CopyToOutputDirectory="PreserveNewest" />
+    <None Include="..\..\..\..\macos\BirkinNativeApp\Tests\BirkinNativeProtocolTests\GoldenVectors\native-projection-vectors.json" Link="GoldenVectors\native-projection-vectors.json" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+</Project>
