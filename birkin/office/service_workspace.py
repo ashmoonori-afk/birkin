@@ -61,7 +61,9 @@ class DocumentWorkspace:
     home: Path
     configured_home: Path
     drafts: Path
+    staging: Path
     _draft_identity: tuple[int, int]
+    _staging_identity: tuple[int, int]
     def __init__(self, home: Path):
         configured = Path(home).absolute()
         _prepare_private_directory(configured, parents=True)
@@ -85,6 +87,16 @@ class DocumentWorkspace:
                 "managed draft directory escapes the document home",
             )
         self._draft_identity = directory_identity(self.drafts)
+        staging = artifacts / "staging"
+        _prepare_private_directory(staging)
+        self.staging = staging.resolve(strict=True)
+        if self.staging.parent.parent != self.home:
+            raise DocumentError(
+                DocumentErrorCode.PERMISSION_DENIED,
+                "emit",
+                "managed staging directory escapes the document home",
+            )
+        self._staging_identity = directory_identity(self.staging)
         self._snapshots: dict[str, _ArtifactSnapshot] = {}
 
     @staticmethod
@@ -195,6 +207,57 @@ class DocumentWorkspace:
         if collision is not None:
             raise DocumentError(DocumentErrorCode.OUTPUT_EXISTS, "emit", "output exists or canonically collides")
         return self.drafts / name
+
+    def staging_path(self, output_name: object, suffix: str) -> Path:
+        name = self._check_output_name(output_name, suffix)
+        ensure_directory_identity(self.staging, self._staging_identity)
+        wanted = canonical_name(name)
+        try:
+            collision = next(
+                (
+                    item
+                    for item in self.staging.iterdir()
+                    if canonical_name(item.name) == wanted
+                ),
+                None,
+            )
+        except OSError as exc:
+            raise DocumentError(
+                DocumentErrorCode.PERMISSION_DENIED,
+                "emit",
+                "cannot inspect managed staging directory",
+            ) from exc
+        if collision is not None:
+            raise DocumentError(
+                DocumentErrorCode.OUTPUT_EXISTS,
+                "emit",
+                "private draft exists or canonically collides",
+            )
+        return self.staging / name
+
+    def atomic_stage(
+        self,
+        output: Path,
+        writer: Callable[[Path], None],
+        validator: Callable[[Path], None] | None = None,
+    ) -> str:
+        """Durably seal an artifact in private storage without publishing it."""
+        output = Path(output)
+        if output.parent != self.staging:
+            raise DocumentError(
+                DocumentErrorCode.PERMISSION_DENIED,
+                "emit",
+                "private draft destination escapes managed staging",
+            )
+        _ = self._check_output_name(output.name, output.suffix.lower())
+        return publish_once(
+            self.staging,
+            self._staging_identity,
+            output,
+            writer,
+            validator,
+            verify_descriptor_identity,
+        )
 
     def atomic_publish(
         self,

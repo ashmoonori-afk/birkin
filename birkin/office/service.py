@@ -16,6 +16,7 @@ from .adapters.hwpx_package import require_hwpx_content
 from .adapters.pdf import PdfAdapter
 from .adapters.pptx import PptxAdapter
 from .adapters.xlsx import XlsxAdapter
+from .comparison_report import render_comparison_report
 from .diff import compare_documents as build_document_diff
 from .errors import DocumentError, DocumentErrorCode
 from .extract import extract_items
@@ -271,6 +272,38 @@ class DocumentService:
             self._require_content(left_path, left_fmt)
             self._require_content(right_path, right_fmt)
             return build_document_diff(left_path, right_path, left_fmt, right_fmt)
+
+    def render_comparison_draft(
+        self,
+        template: Mapping[str, object],
+        diff: Mapping[str, object],
+        *,
+        draft_name: str,
+    ) -> dict[str, object]:
+        """Render and seal a comparison report outside the publication path."""
+        with self._workspace.artifact_snapshot(template) as source:
+            if self._format(source) != "docx":
+                raise DocumentError(
+                    DocumentErrorCode.UNSUPPORTED_FORMAT,
+                    "office_draft",
+                    "Office comparison report templates must be DOCX",
+                )
+            output = self._workspace.staging_path(draft_name, ".docx")
+
+            def write(target: Path) -> None:
+                render_comparison_report(source, target, diff)
+
+            def validate(target: Path) -> None:
+                if validate_document(target, "docx")["valid"] is not True:
+                    raise DocumentError(
+                        DocumentErrorCode.PACKAGE_INVALID,
+                        "office_draft",
+                        "rendered Office comparison draft is invalid",
+                    )
+
+            sha256 = self._workspace.atomic_stage(output, write, validate)
+        artifact = self._workspace.artifact(output, template)
+        return {"artifact": artifact, "sha256": sha256}
 
     def render_artifact(
         self,

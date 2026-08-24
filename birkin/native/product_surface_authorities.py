@@ -339,6 +339,12 @@ class OfficeSurfaceAuthority:
             separators=(",", ":"),
         )
         draft_id = f"draft-{hashlib.sha256(identity.encode()).hexdigest()[:32]}"
+        rendered = self.service.render_comparison_draft(
+            template,
+            self._diffs[diff_id],
+            draft_name=f"{draft_id}.docx",
+        )
+        draft_artifact = dict(cast(Mapping[str, object], rendered["artifact"]))
         record = store.add_pending(
             category="office",
             title="Save Office comparison report",
@@ -346,7 +352,7 @@ class OfficeSurfaceAuthority:
             payload={
                 "draft_id": draft_id,
                 "diff_id": diff_id,
-                "template": template,
+                "draft_artifact": draft_artifact,
                 "output_name": output_name,
             },
             origin="native-office",
@@ -407,18 +413,21 @@ class OfficeSurfaceAuthority:
         if not claimed.get("ok"):
             return {"outcome": "answered_elsewhere", "approval_id": approval_id}
         try:
-            template = _mapping(payload.get("template"), "Office template")
+            draft_artifact = _mapping(
+                payload.get("draft_artifact"),
+                "Office rendered draft",
+            )
             output_name = payload.get("output_name")
             if not isinstance(output_name, str):
                 raise ValueError("Office approval output_name is invalid")
+            validation = dict(self.service.validate_artifact(draft_artifact))
+            if validation.get("valid") is not True:
+                raise ValueError("sealed Office draft failed structural validation")
             publication = DocumentServiceRunner(self.service).publish(
-                artifact=template,
+                artifact=draft_artifact,
                 output_name=output_name,
             )
             artifact = dict(cast(Mapping[str, object], publication["artifact"]))
-            validation = dict(self.service.validate_artifact(artifact))
-            if validation.get("valid") is not True:
-                raise ValueError("saved Office artifact failed structural validation")
         except Exception:
             _ = store.resolve_pending(
                 approval_id,

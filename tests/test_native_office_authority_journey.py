@@ -6,7 +6,10 @@ from pathlib import Path
 from typing import cast
 
 import pytest
+from docx import Document
+from openpyxl import load_workbook
 
+from birkin import store
 from birkin.workspace.contracts import ClientContext, WorkspaceCommand
 from birkin.workspace.records import CommandReceipt
 from birkin.workspace.runtime_adapter import RuntimeWorkspaceAdapter
@@ -95,13 +98,24 @@ def test_python_authority_runs_import_diff_approval_save_and_activity_receipt(
 ) -> None:
     monkeypatch.setenv("BIRKIN_HOME", str(tmp_path / "home"))
     service, adapter = _service(tmp_path)
+    changed_candidate = tmp_path / "changed-candidate.xlsx"
+    workbook = load_workbook(FIXTURES / "candidate.xlsx")
+    sheet = workbook["Comparison"]
+    sheet["B1"] = 4800
+    sheet["B2"] = "office-4800"
+    workbook.save(changed_candidate)
+    sources = {
+        "baseline.xlsx": FIXTURES / "baseline.xlsx",
+        "candidate.xlsx": changed_candidate,
+        "report-template.docx": FIXTURES / "report-template.docx",
+    }
     imported: dict[str, dict[str, object]] = {}
-    for name in ("baseline.xlsx", "candidate.xlsx", "report-template.docx"):
+    for name, source in sources.items():
         _receipt, result = _submit(
             service,
             f"import-{name.split('.')[0]}",
             "file.import",
-            {"source_path": str((FIXTURES / name).resolve())},
+            {"source_path": str(source.resolve())},
         )
         imported[name] = _artifact(result)
 
@@ -118,7 +132,7 @@ def test_python_authority_runs_import_diff_approval_save_and_activity_receipt(
     semantic = cast(dict[str, object], diff["semantic"])
     normalized = cast(dict[str, object], semantic["normalized_ir"])
     assert "4100" in str(normalized["left"])
-    assert "4700" in str(normalized["right"])
+    assert "4800" in str(normalized["right"])
     assert isinstance(diff["diff_id"], str)
     assert compare_receipt.result_event_cursor is not None
 
@@ -137,6 +151,17 @@ def test_python_authority_runs_import_diff_approval_save_and_activity_receipt(
     draft_id = cast(str, drafted["draft_id"])
     output = adapter.surface_authority.office.service.home / "artifacts" / "drafts" / "comparison-report.docx"
     assert not output.exists()
+    pending = store.get_pending(approval_id)
+    assert pending is not None
+    pending_payload = cast(dict[str, object], pending["payload"])
+    assert "template" not in pending_payload
+    sealed_artifact = pending_payload.get("draft_artifact")
+    sealed_uri = (
+        cast(dict[str, object], sealed_artifact).get("uri")
+        if isinstance(sealed_artifact, dict)
+        else None
+    )
+    sealed_bytes = Path(sealed_uri).read_bytes() if isinstance(sealed_uri, str) else None
 
     events_before_answer = service.events()
     diff_event = next(event for event in events_before_answer if event.type == "office.diff_ready")
@@ -169,7 +194,47 @@ def test_python_authority_runs_import_diff_approval_save_and_activity_receipt(
             if name.endswith(".xml")
         )
     assert "BIRKIN_P3_03_DOCUMENT_SENTINEL" in xml
-    assert "4100" in xml and "4700" in xml
+    assert "4100" in xml and "4800" in xml
+
+    report = Document(str(output))
+    assert [paragraph.text for paragraph in report.paragraphs[:3]] == [
+        "Birkin Office Report",
+        "BIRKIN_P3_03_DOCUMENT_SENTINEL",
+        "기준값 4100, 후보값 4700",
+    ]
+    changes = [
+        table
+        for table in report.tables
+        if [cell.text for cell in table.rows[0].cells]
+        == ["Field", "Old value", "New value"]
+    ]
+    assert len(changes) == 1
+    rows = [[cell.text for cell in row.cells] for row in changes[0].rows[1:]]
+    expected_entries = [
+        (left, right)
+        for left, right in zip(
+            cast(list[dict[str, object]], normalized["left"]),
+            cast(list[dict[str, object]], normalized["right"]),
+            strict=True,
+        )
+        if left != right
+    ]
+    assert rows == [
+        [
+            f"{left['kind']} {left['order']}",
+            cast(str, left["text"]),
+            cast(str, right["text"]),
+        ]
+        for left, right in expected_entries
+    ]
+    assert all("4700" not in cell for row in rows for cell in row)
+    assert any("4800" in cell for row in rows for cell in row)
+    assert sealed_bytes is not None
+    assert isinstance(sealed_uri, str)
+    assert Path(sealed_uri).is_relative_to(
+        adapter.surface_authority.office.service.home / "artifacts" / "staging"
+    )
+    assert output.read_bytes() == sealed_bytes
 
     _open_receipt, opened = _submit(
         service,
