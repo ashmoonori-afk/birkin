@@ -49,6 +49,8 @@ docs/morpheus-skillification.md
 .omo/plans/*
 !.omo/plans/native-app/
 !.omo/plans/native-app/**
+!.omo/plans/native-windows-app/
+!.omo/plans/native-windows-app/**
 # Generated local research, reports, and one-shot QA scratch files
 /reports/
 /research-*.md
