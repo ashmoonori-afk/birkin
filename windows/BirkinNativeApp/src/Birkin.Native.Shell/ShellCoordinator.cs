@@ -69,16 +69,9 @@ public sealed class ShellCoordinator : IAsyncDisposable
 
     private void OnProjectionSnapshotApplied(NativeProjectionState state)
     {
-        var snapshot = new WorkspaceSnapshotPresentation(
-            state.ProtocolVersion,
-            state.SessionId,
-            state.Cursor,
-            state.InstanceId,
-            state.ResetReason,
-            "loopback",
-            state.Panels.Values.Count);
-        TransitionTo(ConnectionState.Ready);
-        _presentationModel.PresentSnapshot(snapshot, () => SnapshotApplied?.Invoke(snapshot));
+        var snapshot = WorkspaceSnapshotPresentation.FromProjection(state, "loopback");
+        ConnectionStateChanged?.Invoke(ConnectionState.Ready);
+        _presentationModel.PresentReadySnapshot(snapshot, () => SnapshotApplied?.Invoke(snapshot));
     }
 
     private void TransitionTo(ConnectionState state)

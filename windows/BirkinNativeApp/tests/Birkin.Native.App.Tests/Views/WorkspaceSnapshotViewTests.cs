@@ -3,6 +3,7 @@ using System.Windows.Automation;
 using System.Windows.Controls;
 using System.Windows.Data;
 using System.Windows.Threading;
+using System.Windows.Media;
 using Birkin.Native.App.Tests.Support;
 using Birkin.Native.App.Views;
 using Birkin.Native.Shell.Connection;
@@ -61,6 +62,73 @@ public sealed class WorkspaceSnapshotViewTests
     }
 
     [TestMethod]
+    public async Task Bindings_WhenCanonicalRegionsArePresented_RenderValuesAndKeepEveryControlDisabled()
+    {
+        // Given
+        using var deadline = new CancellationTokenSource(TimeSpan.FromSeconds(10));
+        await using var sta = await StaDispatcherHarness.StartAsync(deadline.Token);
+
+        // When
+        var rendered = await sta.InvokeAsync(() =>
+        {
+            var model = new ShellPresentationModel(SynchronizationContext.Current!);
+            var view = new WorkspaceSnapshotView(model);
+            model.PresentSnapshot(
+                new WorkspaceSnapshotPresentation(
+                    1,
+                    "session-from-python",
+                    9,
+                    "instance-from-python",
+                    "initial",
+                    "loopback",
+                    10,
+                    "connected",
+                    [new ConversationRowPresentation("event-1", "user_message", "canonical text", "python:actor", 9)],
+                    new ComposerPresentation(true, false, false, false),
+                    new WorkingMemoryPresentation(
+                        3,
+                        [new WorkingMemoryRowPresentation("Goals", ["canonical goal"], "None set")]),
+                    [new ApprovalPolicyRowPresentation("Command Execution", "shell", "Ask", "Default", false)],
+                    [],
+                    [],
+                    [],
+                    new TerminalPresentation(false, 0),
+                    MutationAvailabilityPresentation.PhaseOne),
+                () => { });
+            view.Measure(new Size(1500, 900));
+            view.Arrange(new Rect(0, 0, 1500, 900));
+            view.UpdateLayout();
+            view.Dispatcher.Invoke(() => { }, DispatcherPriority.DataBind);
+            return new RegionBindingValues(
+                FindByAutomationId<ItemsControl>(view, "conversation.items").ItemsSource,
+                FindByAutomationId<ItemsControl>(view, "working-memory.items").ItemsSource,
+                FindByAutomationId<ItemsControl>(view, "approvals.items").ItemsSource,
+                RegionAutomationIds(view),
+                Descendants<Button>(view).Select(button => button.IsEnabled).ToArray(),
+                FindByAutomationId<TextBox>(view, "composer.draft").IsEnabled,
+                AutomationProperties.GetAutomationId(
+                    FindByAutomationId<TextBlock>(view, "composer.read-only-caption")));
+        });
+
+        // Then
+        Assert.AreEqual(1, rendered.Conversation.Cast<object>().Count());
+        Assert.AreEqual(1, rendered.WorkingMemory.Cast<object>().Count());
+        Assert.AreEqual(1, rendered.Approvals.Cast<object>().Count());
+        CollectionAssert.AreEqual(
+            new[]
+            {
+                "navigation.column", "navigation.sessions", "working-memory.landmark",
+                "primary.column", "conversation.stream", "composer.landmark", "terminal.landmark",
+                "context.column", "approvals.landmark", "activity.landmark", "browser.landmark", "office.landmark",
+            },
+            rendered.RegionAutomationIds);
+        Assert.IsTrue(rendered.ControlEnabledStates.Length > 0);
+        Assert.IsTrue(rendered.ControlEnabledStates.All(enabled => !enabled));
+        Assert.IsFalse(rendered.ComposerInputEnabled);
+        Assert.AreEqual("composer.read-only-caption", rendered.ComposerCaptionAutomationId);
+    }
+
+    [TestMethod]
     public async Task MainWindow_WhenConstructed_UsesDevelopmentPreviewTitleAndAllowsKeyboardFocus()
     {
         // Given
@@ -91,6 +159,37 @@ public sealed class WorkspaceSnapshotViewTests
             .Select(name => AutomationProperties.GetAutomationId((DependencyObject)view.FindName(name)))
             .ToArray();
 
+    private static string[] RegionAutomationIds(FrameworkElement view) =>
+        new[]
+        {
+            "navigation.column", "navigation.sessions", "working-memory.landmark",
+            "primary.column", "conversation.stream", "composer.landmark", "terminal.landmark",
+            "context.column", "approvals.landmark", "activity.landmark", "browser.landmark", "office.landmark",
+        }
+        .Select(id => AutomationProperties.GetAutomationId(FindByAutomationId<FrameworkElement>(view, id)))
+        .ToArray();
+
+    private static T FindByAutomationId<T>(DependencyObject root, string id) where T : DependencyObject =>
+        Descendants<T>(root).Single(element =>
+            string.Equals(AutomationProperties.GetAutomationId(element), id, StringComparison.Ordinal));
+
+    private static IEnumerable<T> Descendants<T>(DependencyObject root) where T : DependencyObject
+    {
+        for (var index = 0; index < VisualTreeHelper.GetChildrenCount(root); index++)
+        {
+            var child = VisualTreeHelper.GetChild(root, index);
+            if (child is T match)
+            {
+                yield return match;
+            }
+
+            foreach (var descendant in Descendants<T>(child))
+            {
+                yield return descendant;
+            }
+        }
+    }
+
     private sealed record RenderedValues(
         string ConnectionStatus,
         string Transport,
@@ -99,4 +198,13 @@ public sealed class WorkspaceSnapshotViewTests
         string ResetReason,
         string PanelCount,
         string[] AutomationIds);
+
+    private sealed record RegionBindingValues(
+        System.Collections.IEnumerable Conversation,
+        System.Collections.IEnumerable WorkingMemory,
+        System.Collections.IEnumerable Approvals,
+        string[] RegionAutomationIds,
+        bool[] ControlEnabledStates,
+        bool ComposerInputEnabled,
+        string ComposerCaptionAutomationId);
 }

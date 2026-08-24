@@ -40,6 +40,18 @@ public sealed class ShellPresentationModel : INotifyPropertyChanged
             },
             null);
 
+    public void PresentReadySnapshot(WorkspaceSnapshotPresentation presentation, Action published) =>
+        _synchronizationContext.Post(
+            _ =>
+            {
+                _connection = ConnectionPresentation.Create(ConnectionState.Ready);
+                _workspace = presentation;
+                OnPropertyChanged(nameof(Connection));
+                OnPropertyChanged(nameof(Workspace));
+                published();
+            },
+            null);
+
     private void OnPropertyChanged([CallerMemberName] string? propertyName = null) =>
         PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(propertyName));
 

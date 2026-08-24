@@ -2,80 +2,78 @@
              xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              xmlns:automation="clr-namespace:System.Windows.Automation;assembly=PresentationCore"
+             xmlns:views="clr-namespace:Birkin.Native.App.Views"
+             Background="{DynamicResource CanvasBrush}"
              Focusable="True">
     <UserControl.Resources>
-        <Style x:Key="LabelText" TargetType="TextBlock">
-            <Setter Property="Foreground" Value="#8E99A8" />
-            <Setter Property="FontSize" Value="12" />
-            <Setter Property="Margin" Value="0,0,0,5" />
-        </Style>
-        <Style x:Key="ValueText" TargetType="TextBlock">
-            <Setter Property="Foreground" Value="#F4F7FA" />
-            <Setter Property="FontFamily" Value="Consolas" />
-            <Setter Property="FontSize" Value="16" />
-            <Setter Property="TextWrapping" Value="Wrap" />
-        </Style>
+        <ResourceDictionary Source="../Styles/ShellStyles.xaml" />
     </UserControl.Resources>
-
-    <Grid>
+    <Grid Margin="12">
         <Grid.RowDefinitions>
-            <RowDefinition Height="Auto" />
+            <RowDefinition Height="48" />
             <RowDefinition Height="*" />
+            <RowDefinition Height="32" />
         </Grid.RowDefinitions>
 
-        <Border Background="#17231F" BorderBrush="#2B7D62" BorderThickness="1" CornerRadius="8" Padding="18" Margin="0,0,0,18">
-            <DockPanel>
-                <StackPanel DockPanel.Dock="Left">
-                    <TextBlock Text="CONNECTION" Style="{StaticResource LabelText}" />
-                    <TextBlock x:Name="ConnectionStatusText"
-                               automation:AutomationProperties.AutomationId="ConnectionStatusText"
-                               Text="{Binding Connection.StatusText}"
-                               Foreground="#79D6B1"
-                               FontSize="18"
-                               FontWeight="SemiBold" />
-                </StackPanel>
-                <StackPanel DockPanel.Dock="Right" HorizontalAlignment="Right">
-                    <TextBlock Text="TRANSPORT" Style="{StaticResource LabelText}" HorizontalAlignment="Right" />
-                    <TextBlock x:Name="TransportText"
-                               automation:AutomationProperties.AutomationId="TransportText"
-                               Text="{Binding Workspace.Transport}"
-                               Style="{StaticResource ValueText}"
-                               HorizontalAlignment="Right" />
-                </StackPanel>
-            </DockPanel>
+        <Border HorizontalAlignment="Center"
+                VerticalAlignment="Top"
+                Background="{StaticResource CardBrush}"
+                BorderBrush="{StaticResource BorderBrush}"
+                BorderThickness="1"
+                CornerRadius="12"
+                Padding="14,7">
+            <StackPanel Orientation="Horizontal">
+                <Ellipse Width="8" Height="8" Fill="{StaticResource SuccessBrush}" Margin="0,0,9,0" />
+                <TextBlock x:Name="ConnectionStatusText"
+                           automation:AutomationProperties.AutomationId="ConnectionStatusText"
+                           Text="{Binding Connection.StatusText}"
+                           Foreground="{StaticResource TextBrush}"
+                           FontSize="13"
+                           FontWeight="SemiBold" />
+            </StackPanel>
         </Border>
 
-        <ItemsControl Grid.Row="1">
-            <ItemsControl.Items>
-                <Border Background="#151A21" CornerRadius="8" Padding="18" Margin="0,0,0,10">
-                    <StackPanel>
-                        <TextBlock Text="SESSION" Style="{StaticResource LabelText}" />
-                        <TextBlock x:Name="SessionIdText" automation:AutomationProperties.AutomationId="SessionIdText"
-                                   Text="{Binding Workspace.SessionId}" Style="{StaticResource ValueText}" />
-                    </StackPanel>
-                </Border>
-                <Border Background="#151A21" CornerRadius="8" Padding="18" Margin="0,0,0,10">
-                    <StackPanel>
-                        <TextBlock Text="CURSOR" Style="{StaticResource LabelText}" />
-                        <TextBlock x:Name="CursorText" automation:AutomationProperties.AutomationId="CursorText"
-                                   Text="{Binding Workspace.Cursor}" Style="{StaticResource ValueText}" />
-                    </StackPanel>
-                </Border>
-                <Border Background="#151A21" CornerRadius="8" Padding="18" Margin="0,0,0,10">
-                    <StackPanel>
-                        <TextBlock Text="RESET REASON" Style="{StaticResource LabelText}" />
-                        <TextBlock x:Name="ResetReasonText" automation:AutomationProperties.AutomationId="ResetReasonText"
-                                   Text="{Binding Workspace.ResetReason}" Style="{StaticResource ValueText}" />
-                    </StackPanel>
-                </Border>
-                <Border Background="#151A21" CornerRadius="8" Padding="18">
-                    <StackPanel>
-                        <TextBlock Text="PANEL COUNT" Style="{StaticResource LabelText}" />
-                        <TextBlock x:Name="PanelCountText" automation:AutomationProperties.AutomationId="PanelCountText"
-                                   Text="{Binding Workspace.PanelCount}" Style="{StaticResource ValueText}" />
-                    </StackPanel>
-                </Border>
-            </ItemsControl.Items>
-        </ItemsControl>
+        <Grid Grid.Row="1">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="280" MinWidth="240" />
+                <ColumnDefinition Width="5" />
+                <ColumnDefinition Width="2*" MinWidth="400" />
+                <ColumnDefinition Width="5" />
+                <ColumnDefinition Width="340" MinWidth="300" />
+            </Grid.ColumnDefinitions>
+            <views:NavigationColumnView Grid.Column="0" />
+            <views:PrimaryColumnView Grid.Column="2" />
+            <views:ContextColumnView Grid.Column="4" />
+        </Grid>
+
+        <Border Grid.Row="2"
+                Background="{StaticResource CardBrush}"
+                BorderBrush="{StaticResource BorderBrush}"
+                BorderThickness="1,1,1,0"
+                CornerRadius="6,6,0,0"
+                Padding="10,6">
+            <StackPanel Orientation="Horizontal" HorizontalAlignment="Center">
+                <TextBlock Text="Transport " Foreground="{StaticResource FaintBrush}" />
+                <TextBlock x:Name="TransportText"
+                           automation:AutomationProperties.AutomationId="TransportText"
+                           Text="{Binding Workspace.Transport}" />
+                <TextBlock Text="  ·  Session " Foreground="{StaticResource FaintBrush}" />
+                <TextBlock x:Name="SessionIdText"
+                           automation:AutomationProperties.AutomationId="SessionIdText"
+                           Text="{Binding Workspace.SessionId}" />
+                <TextBlock Text="  ·  Cursor " Foreground="{StaticResource FaintBrush}" />
+                <TextBlock x:Name="CursorText"
+                           automation:AutomationProperties.AutomationId="CursorText"
+                           Text="{Binding Workspace.Cursor}" />
+                <TextBlock Text="  ·  Reset " Foreground="{StaticResource FaintBrush}" />
+                <TextBlock x:Name="ResetReasonText"
+                           automation:AutomationProperties.AutomationId="ResetReasonText"
+                           Text="{Binding Workspace.ResetReason}" />
+                <TextBlock Text="  ·  Panels " Foreground="{StaticResource FaintBrush}" />
+                <TextBlock x:Name="PanelCountText"
+                           automation:AutomationProperties.AutomationId="PanelCountText"
+                           Text="{Binding Workspace.PanelCount}" />
+            </StackPanel>
+        </Border>
     </Grid>
 </UserControl>

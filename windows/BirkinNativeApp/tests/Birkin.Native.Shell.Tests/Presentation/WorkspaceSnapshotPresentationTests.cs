@@ -1,0 +1,68 @@
+using System.Text.Json;
+using Birkin.Native.Protocol.Framing;
+using Birkin.Native.Protocol.Messaging;
+using Birkin.Native.Protocol.Projection;
+using Birkin.Native.Shell.Presentation;
+using Microsoft.VisualStudio.TestTools.UnitTesting;
+
+namespace Birkin.Native.Shell.Tests.Presentation;
+
+[TestClass]
+public sealed class WorkspaceSnapshotPresentationTests
+{
+    [TestMethod]
+    public void FromProjection_WhenPythonGoldenSnapshotIsApplied_MapsCanonicalShellRegionsReadOnly()
+    {
+        // Given
+        var path = Path.Combine(AppContext.BaseDirectory, "GoldenVectors", "native-projection-vectors.json");
+        using var fixture = JsonDocument.Parse(File.ReadAllBytes(path));
+        var vector = fixture.RootElement.GetProperty("snapshot");
+        var frame = Convert.FromBase64String(vector.GetProperty("frame_base64").GetString()!);
+        var store = new NativeProjectionStore();
+        store.ApplySnapshot(
+            NativeFrameCodec.Decode(frame),
+            new NativeReadyIdentity("session-1", "instance-1", "fixture-version"));
+
+        // When
+        var presentation = WorkspaceSnapshotPresentation.FromProjection(store.State!, "loopback");
+
+        // Then
+        Assert.AreEqual("session-1", presentation.SessionId);
+        Assert.AreEqual(10, presentation.PanelCount);
+        Assert.AreEqual("connected", presentation.PythonConnection);
+        Assert.AreEqual(2, presentation.Conversation.Count);
+        Assert.AreEqual("user_message", presentation.Conversation[0].Kind);
+        Assert.AreEqual("Ship the reducer", presentation.Conversation[0].Text);
+        Assert.AreEqual("macos:window-main", presentation.Conversation[0].ActorId);
+        Assert.AreEqual("assistant_message", presentation.Conversation[1].Kind);
+        Assert.IsTrue(presentation.Composer.CanSend);
+        Assert.IsFalse(presentation.Composer.IsEnabled);
+        Assert.IsFalse(presentation.MutationAvailability.IsEnabled);
+        CollectionAssert.AreEqual(
+            new[] { "Goals", "Context", "Files", "Constraints", "Notes" },
+            presentation.WorkingMemory.Rows.Select(row => row.Label).ToArray());
+        CollectionAssert.AreEqual(
+            new[] { "Ship native Working Memory" },
+            presentation.WorkingMemory.Rows[0].Values.ToArray());
+        CollectionAssert.AreEqual(
+            new[] { "Use canonical state", "Delegate to Python", "RED captured" },
+            presentation.WorkingMemory.Rows[1].Values.ToArray());
+        CollectionAssert.AreEqual(
+            new[] { "workspace/main.py" },
+            presentation.WorkingMemory.Rows[2].Values.ToArray());
+        CollectionAssert.AreEqual(
+            new[] { "Stay offline" },
+            presentation.WorkingMemory.Rows[3].Values.ToArray());
+        CollectionAssert.AreEqual(
+            new[] { "Render five rows", "Run GREEN" },
+            presentation.WorkingMemory.Rows[4].Values.ToArray());
+        Assert.AreEqual(1L, presentation.WorkingMemory.Revision);
+        Assert.AreEqual(3, presentation.Approvals.Count);
+        Assert.IsTrue(presentation.Approvals.All(row => row.EffectiveState == "Ask"));
+        Assert.IsTrue(presentation.Approvals.All(row => row.RequestedState == "Default"));
+        Assert.AreEqual(0, presentation.Activity.Count);
+        Assert.AreEqual(0, presentation.Browser.Count);
+        Assert.AreEqual(0, presentation.Office.Count);
+        Assert.IsFalse(presentation.Terminal.IsAvailable);
+    }
+}

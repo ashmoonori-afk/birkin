@@ -53,6 +53,31 @@ public sealed class ShellPresentationModelTests
         Assert.AreSame(snapshot, observed);
     }
 
+    [TestMethod]
+    public void PresentReadySnapshot_WhenPublished_CommitsReadyConnectionAndWorkspaceAtomically()
+    {
+        // Given
+        var context = new DeterministicSynchronizationContext();
+        var model = new ShellPresentationModel(context);
+        var snapshot = new WorkspaceSnapshotPresentation(
+            ProtocolVersion: 1,
+            SessionId: "session-1",
+            Cursor: 42,
+            InstanceId: "0123456789abcdef0123456789abcdef",
+            ResetReason: "initial",
+            Transport: "loopback",
+            PanelCount: 3);
+        (ConnectionState State, WorkspaceSnapshotPresentation? Workspace)? observed = null;
+
+        // When
+        model.PresentReadySnapshot(snapshot, () => observed = (model.Connection.State, model.Workspace));
+        context.RunAll();
+
+        // Then
+        Assert.AreEqual(ConnectionState.Ready, observed?.State);
+        Assert.AreSame(snapshot, observed?.Workspace);
+    }
+
     private sealed class DeterministicSynchronizationContext : SynchronizationContext
     {
         private readonly Queue<(SendOrPostCallback Callback, object? State)> _work = new();

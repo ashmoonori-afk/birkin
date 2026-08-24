@@ -10,4 +10,8 @@
     <PackageReference Include="MSTest.TestAdapter" />
     <ProjectReference Include="..\..\src\Birkin.Native.Shell\Birkin.Native.Shell.csproj" />
   </ItemGroup>
+
+  <ItemGroup>
+    <None Include="..\..\..\..\macos\BirkinNativeApp\Tests\BirkinNativeProtocolTests\GoldenVectors\native-projection-vectors.json" Link="GoldenVectors\native-projection-vectors.json" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
 </Project>
