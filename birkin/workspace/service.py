@@ -3,22 +3,30 @@
 from __future__ import annotations
 
 import threading
+from dataclasses import replace
 from collections.abc import Callable, Mapping
 from pathlib import Path
 from typing import final
 
 from .contracts import (
+    CONTROL_COMMAND_TYPES,
+    REDACTION_MARKER,
     JsonValue,
     ProtocolError,
+    UnsupportedCommand,
     WorkspaceCommand,
 )
+from .approval_projection import approval_items, approval_policy
 from .journal import WorkspaceJournal
+from .presets import SESSION_PRESETS, SessionPreset
+from .redaction import bounded_error_text
 from .records import (
     CommandReceipt,
     WorkspaceEvent,
     WorkspaceSnapshot,
 )
 from .snapshot import reduce_snapshot
+from .working_memory import project_working_memory
 
 CommandHandler = Callable[[dict[str, JsonValue]], dict[str, JsonValue]]
 EventListener = Callable[[WorkspaceEvent], None]
@@ -27,6 +35,14 @@ EventListener = Callable[[WorkspaceEvent], None]
 @final
 class WorkspaceService:
     """Execute one session's commands in accepted event order."""
+
+    @property
+    def supported_commands(self) -> frozenset[str]:
+        return frozenset(self._handlers)
+
+    @property
+    def session_presets(self) -> tuple[SessionPreset, ...]:
+        return SESSION_PRESETS
 
     def __init__(
         self,
@@ -38,8 +54,9 @@ class WorkspaceService:
         self._journal = WorkspaceJournal(root, session_id)
         self._handlers = dict(handlers)
         self._lock = threading.RLock()
-        self._active_receipt: CommandReceipt | None = None
-        self._event_listener: EventListener | None = None
+        self._receipt_lock = threading.Lock()
+        self._active_receipts: dict[int, CommandReceipt] = {}
+        self._event_listeners: list[EventListener] = []
 
     def set_handlers(self, handlers: Mapping[str, CommandHandler]) -> None:
         with self._lock:
@@ -49,11 +66,24 @@ class WorkspaceService:
 
     def set_event_listener(self, listener: EventListener) -> None:
         with self._lock:
-            self._event_listener = listener
+            self._event_listeners = [listener]
+
+    def add_event_listener(
+        self,
+        listener: EventListener,
+    ) -> Callable[[], None]:
+        with self._lock:
+            self._event_listeners.append(listener)
+
+        def unsubscribe() -> None:
+            with self._lock:
+                if listener in self._event_listeners:
+                    self._event_listeners.remove(listener)
+
+        return unsubscribe
 
     def _notify(self, event: WorkspaceEvent) -> None:
-        listener = self._event_listener
-        if listener is not None:
+        for listener in tuple(self._event_listeners):
             listener(event)
 
     def _append(
@@ -78,16 +108,16 @@ class WorkspaceService:
         event_type: str,
         payload: dict[str, object],
     ) -> WorkspaceEvent:
-        with self._lock:
-            receipt = self._active_receipt
-            if receipt is None:
-                raise ProtocolError("workspace event emitted outside a command")
-            return self._append(
-                event_type,
-                actor_id=receipt.actor_id,
-                command_id=receipt.command_id,
-                payload=payload,
-            )
+        with self._receipt_lock:
+            receipt = self._active_receipts.get(threading.get_ident())
+        if receipt is None:
+            raise ProtocolError("workspace event emitted outside a command")
+        return self._append(
+            event_type,
+            actor_id=receipt.actor_id,
+            command_id=receipt.command_id,
+            payload=payload,
+        )
 
     def submit(
         self,
@@ -99,6 +129,20 @@ class WorkspaceService:
         if not execute:
             return receipt
         return self.execute(command, receipt)
+
+    def submit_control(
+        self,
+        command: WorkspaceCommand,
+        *,
+        actor_id: str,
+    ) -> CommandReceipt:
+        """Execute an explicit turn control outside the normal command lock."""
+        if command.type not in CONTROL_COMMAND_TYPES:
+            raise ProtocolError("command is not a concurrent turn control")
+        receipt, execute = self.accept(command, actor_id=actor_id)
+        if not execute:
+            return receipt
+        return self._execute(command, receipt)
 
     def accept(
         self,
@@ -121,55 +165,69 @@ class WorkspaceService:
         receipt: CommandReceipt,
     ) -> CommandReceipt:
         with self._lock:
-            handler = self._handlers.get(command.type)
-            if handler is None:
-                failed = self._append(
-                    "command.failed",
-                    actor_id=receipt.actor_id,
-                    command_id=command.command_id,
-                    payload={"error": "unsupported command handler"},
-                )
-                _ = self._journal.complete(
-                    receipt,
-                    state="failed",
-                    result_cursor=failed.cursor,
-                )
-                raise ProtocolError(f"no handler for {command.type}")
-            _ = self._append(
-                "command.started",
+            return self._execute(command, receipt)
+
+    def _execute(
+        self,
+        command: WorkspaceCommand,
+        receipt: CommandReceipt,
+    ) -> CommandReceipt:
+        handler = self._handlers.get(command.type)
+        if handler is None:
+            failed = self._append(
+                "command.failed",
                 actor_id=receipt.actor_id,
                 command_id=command.command_id,
-                payload={"command_type": command.type},
+                payload={"error": "unsupported command handler"},
             )
-            self._active_receipt = receipt
-            try:
-                result = handler(command.payload)
-            except Exception as exc:
-                failed = self._append(
-                    "command.failed",
-                    actor_id=receipt.actor_id,
-                    command_id=command.command_id,
-                    payload={"error": str(exc)[:300]},
-                )
-                _ = self._journal.complete(
-                    receipt,
-                    state="failed",
-                    result_cursor=failed.cursor,
-                )
-                raise
-            finally:
-                self._active_receipt = None
-            completed = self._append(
-                "command.completed",
-                actor_id=receipt.actor_id,
-                command_id=command.command_id,
-                payload={"result": result},
-            )
-            return self._journal.complete(
+            _ = self._journal.complete(
                 receipt,
-                state="completed",
-                result_cursor=completed.cursor,
+                state="failed",
+                result_cursor=failed.cursor,
             )
+            raise UnsupportedCommand(f"no handler for {command.type}")
+        _ = self._append(
+            "command.started",
+            actor_id=receipt.actor_id,
+            command_id=command.command_id,
+            payload={"command_type": command.type},
+        )
+        thread_id = threading.get_ident()
+        with self._receipt_lock:
+            self._active_receipts[thread_id] = receipt
+        try:
+            result = handler(command.payload)
+        except Exception as exc:
+            failed = self._append(
+                "command.failed",
+                actor_id=receipt.actor_id,
+                command_id=command.command_id,
+                payload={"error": bounded_error_text(str(exc))},
+            )
+            _ = self._journal.complete(
+                receipt,
+                state="failed",
+                result_cursor=failed.cursor,
+            )
+            raise
+        finally:
+            with self._receipt_lock:
+                del self._active_receipts[thread_id]
+        durable_result = result
+        if command.type == "terminal.create" and "lease" in result:
+            durable_result = {**result, "lease": REDACTION_MARKER}
+        completed = self._append(
+            "command.completed",
+            actor_id=receipt.actor_id,
+            command_id=command.command_id,
+            payload={"result": durable_result},
+        )
+        completed_receipt = self._journal.complete(
+            receipt,
+            state="completed",
+            result_cursor=completed.cursor,
+        )
+        return replace(completed_receipt, transient_result=result)
 
     def cancel(
         self,
@@ -193,7 +251,22 @@ class WorkspaceService:
         return self._journal.events(after=after)
 
     def snapshot(self) -> WorkspaceSnapshot:
-        return reduce_snapshot(
+        snapshot = reduce_snapshot(
             self._journal.session_id,
             self._journal.events(),
+        )
+        files = next(
+            panel.items for panel in snapshot.panels if panel.key == "files_evidence"
+        )
+        panels = tuple(
+            replace(panel, items=approval_items(panel.items))
+            if panel.key == "approvals"
+            else panel
+            for panel in snapshot.panels
+        )
+        return replace(
+            snapshot,
+            panels=panels,
+            working_memory=project_working_memory(snapshot.session_id, files),
+            approval_policy=approval_policy(),
         )

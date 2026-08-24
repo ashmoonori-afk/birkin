@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import ast
 import re
+import subprocess
 from pathlib import Path
 
 import pytest
@@ -90,3 +91,33 @@ def test_source_files_end_with_a_newline():
     for rel in ("pyproject.toml", "birkin/__init__.py"):
         raw = (ROOT / rel).read_bytes()
         assert raw.endswith(b"\n"), f"{rel} has no trailing newline"
+
+
+def test_only_native_application_plans_are_exempt_from_omo_ignore() -> None:
+    """Given repository-local OMO data, When Git applies ignore rules, Then
+    only the native application plans remain explicitly trackable."""
+    trackable = subprocess.run(
+        [
+            "git",
+            "check-ignore",
+            "--no-index",
+            "--quiet",
+            ".omo/plans/native-app/new-contract.md",
+        ],
+        cwd=ROOT,
+        check=False,
+    )
+    ignored = [
+        ".omo/plans/other-plan.md",
+        ".omo/evidence/native-shell/run.log",
+        ".omo/ulw-loop/native-app-implementation-20260817/goals.json",
+    ]
+
+    assert trackable.returncode == 1
+    for path in ignored:
+        result = subprocess.run(
+            ["git", "check-ignore", "--no-index", "--quiet", path],
+            cwd=ROOT,
+            check=False,
+        )
+        assert result.returncode == 0, path

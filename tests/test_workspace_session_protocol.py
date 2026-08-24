@@ -49,6 +49,37 @@ def _command(
     )
 
 
+def test_command_fingerprint_is_digest_without_payload() -> None:
+    secret = "seeded-terminal-secret"
+    command = _command("digest-only", expected_cursor=0, text=secret)
+
+    fingerprint = command.fingerprint()
+
+    assert len(fingerprint) == 64
+    assert int(fingerprint, 16) >= 0
+    assert secret not in fingerprint
+
+
+def test_journal_integrity_metadata_does_not_persist_command_payload(
+    tmp_path: Path,
+) -> None:
+    secret = "seeded-terminal-secret"
+    command = _command("digest-journal", expected_cursor=0, text=secret)
+    journal = WorkspaceJournal(tmp_path, "digest-journal")
+
+    receipt, execute = journal.accept(command, actor_id="terminal:one")
+
+    assert execute is True
+    assert secret not in str(receipt.to_public_json())
+    assert secret not in str([event.to_json() for event in journal.events()])
+    persisted = "\n".join(
+        path.read_text(encoding="utf-8")
+        for path in tmp_path.rglob("*")
+        if path.is_file()
+    )
+    assert secret not in persisted
+
+
 def test_restart_recovers_accepted_unfinished_command(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,

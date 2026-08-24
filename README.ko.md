@@ -576,6 +576,7 @@ snapshot을 복사할 수 있습니다.
 | `birkin chat` | 기본 terminal chat workspace와 private loopback web authority 실행. |
 | `birkin gateway` | Loopback HTTP와 설정된 message channel을 실행하고, 중단 후 답변 재전송을 단일 owner가 배타적으로 claim하도록 보장. |
 | `birkin web [--no-browser]` | 독립 인증 chat workspace와 control API 실행. |
+| `birkin native-bridge serve` | macOS 앱이 연결하는 인증된 local bridge 실행. |
 | `birkin review` | 결과가 생기는 대기 action 승인 또는 거절. |
 | `birkin permission` | Approval category와 CLI access 확인·변경. |
 | `birkin tools` | Canonical registry inventory에서 네이티브 tool 목록·활성화·비활성화. |
@@ -701,54 +702,125 @@ conflict가 됩니다. 기존 pin은 `--upgrade`로만 변경됩니다. Skill en
 기존 `SkillManager`에, agent entry point가 반환한 `Tool`은 기존 native tool
 registry에 연결됩니다.
 
-## Future Roadmap: 네이티브 control shell
+## 네이티브 macOS control shell
 
-> **향후 계획이며 현재 Birkin 기능이 아닙니다.** 아래 목업은 네이티브
-> 데스크톱 클라이언트의 권장 방향을 보여줍니다. 현재 CLI, WebUI, VS Code
-> extension, 배포 package에는 포함되지 않습니다.
+> **이 저장소에 구현되어 있습니다.** Birkin은 이제 네이티브 macOS
+> SwiftUI client와 universal signed `Birkin.app` build pipeline을
+> 포함합니다. 이 앱은 별도의 local control surface이며 CLI, WebUI, VS Code
+> extension을 대체하지 않습니다. Credential 없이 만든 app은 ad-hoc signed
+> development artifact이지 notarized public download가 아닙니다.
 
-<img src="./docs/assets/birkin-native-app-roadmap.png" alt="왼쪽에 session과 Working Memory, 중앙에 chat과 terminal workspace, 오른쪽에 approval, activity, Browser Aside, Office surface를 배치한 향후 Birkin macOS 네이티브 control shell" width="920" />
+<img src="./docs/assets/birkin-native-app-roadmap.png" alt="왼쪽에 session과 Working Memory, 중앙에 chat과 terminal workspace, 오른쪽에 approval, activity, Browser Aside, Office surface를 배치한 Birkin macOS 네이티브 control shell" width="920" />
 
-*이 이미지는 개념적인 화면 배치만 보여줍니다. 패널 이름과 토글은 정식
-Working Memory 구조, 승인 분류, 외부 통신 정책을 정의하지 않으며 실제
-동작은 앞에서 설명한 운영 경계를 따릅니다.*
+Architecture, protocol, security contract: [`docs/native-app/`](./docs/native-app/README.md).
 
-권장하는 macOS 앱은 별도의 agent 구현이 아니라 **기존 Python runtime
-위에 얹는 얇은 SwiftUI shell**입니다. 메모리, tool 실행, policy, approval,
-audit record, recovery의 권한은 계속 Birkin Python core가 가집니다.
-네이티브 process는 version이 명시된 local protocol로 이 기능을
-표시합니다. macOS에서는 Unix domain socket을 우선 사용하고,
-browser-compatible transport가 필요할 때만 인증된 private loopback을
-fallback으로 둡니다.
+### 패키지 앱 build와 검증
 
-이 경계는 Birkin의 정체성을 그대로 지킵니다.
+Universal ad-hoc signed app을 build하고 DMG를 만든 뒤 production packaged
+journey로 built app을 구동합니다.
 
-- **영속 상태:** Shell은 session과 Working Memory의 projection을
-  읽으며, 별도 native database를 두 번째 source of truth로 만들지 않습니다.
-- **실행:** 작업 예약, budget 적용, tool 실행,
-  typed result 생성은 Python이 맡고 SwiftUI는 상태를 표시하고 명시적인
-  command를 보냅니다.
-- **권한:** Approval 결정은 Python authority로
-  돌아갑니다. UI 상태, window focus, notification tap은 action이
-  승인됐다는 증거가 될 수 없습니다.
+```bash
+evidence="$(mktemp -d /private/tmp/birkin-native-evidence-XXXXXX)"
+dist="$evidence/dist"
+scripts/native/package_macos_app.sh "$dist"
+scripts/native/create_macos_dmg.sh "$dist"
+scripts/native/packaged_journey.sh "$evidence" "$dist"
+```
 
-다음 단계는 각각 독립적으로 관찰 가능한 결과를 내야 합니다.
+연결된 read-only DMG의 app을 검증하려면 `Birkin.app`이 있는 mount를
+전달합니다. Harness는 mount되지 않은 directory나 모호한 image provenance를
+거부합니다.
 
-1. **읽기 전용 기반:** session, run status, transcript, Working Memory를
-   표시하고 reconnect와 protocol version 진단을 제공합니다.
-2. **사람의 제어:** approval, activity receipt, local notification을
-   제공합니다. Native shell은 approval에 답할 수 있지만 policy를
-   재해석하지 않습니다.
-3. **Workspace surface:** Browser Aside, native Computer Use 상태와 동의,
-   Office workspace artifact를 연결하되 기존 격리와 refusal contract를
-   그대로 사용합니다.
-4. **Desktop integration:** menu bar status, jailed import path로 제한한
-   drag and drop, 선택적 voice control, 두 프로세스 중 하나가 재시작되어도
-   복구할 수 있는 lifecycle을 추가합니다.
-5. **Platform 결정:** protocol과 macOS shell이 검증된 뒤 accessibility
-   API, installer 유지보수, 실제 사용량을 기준으로 Windows native
-   client와 공통 cross-platform shell 중 하나를 선택합니다. 코드 재사용률만
-   보고 결정하지 않습니다.
+```bash
+mount="/Volumes/Birkin"
+BIRKIN_NATIVE_JOURNEY_ORIGIN=mounted-dmg \
+  scripts/native/packaged_journey.sh "$evidence" "$mount"
+```
+
+Journey는 기존 계정 provider credential을 preflight probe와 explicit
+provider-backed chat step을 수행하는 app-owned bridge에만 노출합니다.
+Browser fixture와 terminal child는 provider credential이 없는 allowlist
+environment를 받습니다. Harness는 기록한 process ID만 소유하고 restrictive
+umask 아래 evidence directory mode를 `0700`으로 강제합니다. 성공한 run은
+schema-2 receipt, compositor-backed step별 PNG, provider probe, read-only
+origin provenance, bounded redacted event를 만들고 temporary provider
+workspace를 삭제하기 전에 자동으로 검증합니다. Custom driver는 해당
+workspace를 정리하기 전에 같은 verifier를 직접 실행할 수 있습니다.
+
+```bash
+helper="$dist/Birkin.app/Contents/Helpers/$(uname -m)/birkin-native-bridge"
+scripts/native/verify_packaged_journey.py \
+  "$evidence" "$helper" "/private/tmp/bk-journey-XXXXXX/workspace"
+```
+
+Birkin macOS client는 별도의 agent 구현이 아니라 **기존 Python runtime
+위에 얹는 얇은 SwiftUI shell**입니다. Memory, tool 실행, policy, approval,
+audit record, recovery의 권한은 Python에 남습니다. 두 process는 version이
+명시된 local `birkin-local-1` protocol로만 통신합니다. 같은 user의 private
+Unix domain socket을 우선 사용하고, 명시적으로 선택할 때 인증된
+`127.0.0.1` loopback을 사용할 수 있습니다.
+
+구현된 경계는 의도적으로 다음 원칙을 지킵니다.
+
+- **영속 상태:** Swift는 ephemeral session과 Working Memory projection을
+  표시하며 native database를 만들거나 capability와 execution state를
+  저장하지 않습니다.
+- **실행과 권한:** Python이 budget을 적용하고 tool을 실행하며 terminal
+  process tree를 소유하고 approval을 처리합니다. Swift는 typed command를
+  보낼 뿐 UI state, focus, menu, voice input, notification tap이 action을
+  승인하지 않습니다.
+  macOS에서는 승인된 각 PTY shell이 terminal별 launchd resource coalition
+  안에서 실행됩니다. Seatbelt profile은 Mach, network, shared-memory IPC와
+  terminal-originated process signal을 차단하고, cleanup은 coalition을
+  정지·재탐색·종료하므로 double-fork 또는 `setsid()` descendant가 Python
+  소유권 밖으로 이동할 수 없습니다.
+  Non-Darwin bridge는 Native Terminal command set을 광고하지 않습니다.
+- **Bridge lifecycle:** App은 배포된 `birkin native-bridge serve` 명령으로
+  자체 Python bridge를 시작하고, 그 명령이 알리는 endpoint를 기다리며,
+  60초 안에 최대 다섯 번까지 재시작하고, 종료할 때 함께 정리합니다.
+  `BIRKIN_NATIVE_SOCKET`을 설정하면 이미 실행 중인 사용자 관리 bridge에
+  연결하며, 이 경우 app은 그 bridge를 종료하지 않습니다.
+- **복구:** Cursor replay, gap 또는 instance 변경 뒤 full snapshot,
+  capability renewal, app-owned bridge의 bounded restart로 stale projection을
+  권한으로 취급하지 않고 local state를 복구합니다.
+- **Workspace:** Shell은 session, streaming conversation, Working Memory
+  merge/clear, owned Terminal, approval, Activity, Browser Aside, Computer Use
+  상태/동의, Office create/open projection을 표시합니다.
+- **Desktop integration:** Navigation-only menu, redacted notification과 deep
+  link, jailed file import, 선택적 voice gate, keyboard와 VoiceOver path,
+  visual accessibility setting이 Python의 refusal boundary를 유지합니다.
+- **Packaging:** Build는 dirty tree를 거부하고 universal
+  `com.birkin.native` app을 만든 뒤 inside-out 순서로 sign합니다. `arm64`와
+  `x86_64` 모두 app과 함께 build한 frozen Python helper와 checksum이 고정된
+  Playwright Chromium·FFmpeg runtime을 포함합니다. Seal된 manifest는
+  clean revision을 기록하며 package version과 bridge의
+  `ready.server_version`은 generated app version과 정확히 같아야 합니다.
+  Developer bridge override도 이 handshake를 우회할 수 없습니다. App은 현재
+  architecture만 선택해 검증하며 bridge와 Browser Aside는 host Python,
+  repository, virtual environment, host Playwright cache를 참조하지 않습니다.
+  Read-only media에서 실행할 때 Browser Aside는 sealed runtime을
+  `BIRKIN_HOME` 아래 private architecture-bound content-addressed cache
+  하나로 복사하고, 복사본을 다시 검증하며, link를 거부합니다. Live process
+  lease가 있는 cache는 유지하고 실행 전에 inactive 이전 architecture
+  cache를 정리합니다.
+- **Release QA:** 기본으로 비활성화된 `BIRKIN_NATIVE_JOURNEY=1` seam은 test
+  transport나 direct wire client 없이 packaged UI와 같은 control을
+  구동합니다. 빈 `HOME`, 정리된 `PATH`, bridge override가 없는 환경에서 실제
+  existing-account provider probe와 별도의 provider-backed chat success
+  marker가 확인되어야 전체 product와 reconnect journey를 통과합니다. Python
+  policy, approval, consent, lease gate는 그대로 적용됩니다.
+- **Signing:** Developer ID identity가 있으면 packaging script가 hardened
+  runtime을 활성화합니다. Identity가 없으면 hardened-runtime option과
+  entitlement가 없는 ad-hoc-signed development artifact를 만듭니다. 이
+  script는 해당 artifact를 notarize하지 않으며 notarization, stapling,
+  Gatekeeper 평가는 credential이 필요한 별도의 public-release gate입니다.
+  PTY, local socket, Accessibility, Screen Recording이 초기 sandbox profile
+  밖에 있어 App Sandbox는 계속 비활성화하지만 Python policy, local
+  authentication, macOS privacy permission은 적용됩니다.
+
+향후 Windows-native client와 공통 cross-platform shell 중 무엇을 택할지는
+아직 열려 있으며, 코드 재사용률만이 아니라 accessibility API, installer
+유지보수, 실제 사용량을 기준으로 결정합니다.
 
 ### 절충점과 비목표
 
@@ -758,7 +830,7 @@ lifecycle, drag and drop, OS 수준 recovery를 더 자연스럽게 제공할 �
 signing/notarization, platform별 QA가 필요합니다. 따라서 local protocol은
 명시적인 version negotiation, 수명이 짧은 capability, bounded payload,
 눈에 보이는 disconnected state를 가져야 합니다.
-이 roadmap은 다음을 제안하지 않습니다.
+이 native design은 다음을 제안하지 않습니다.
 
 - Birkin 전체를 Swift로 다시 작성하는 일
 - memory ownership, policy evaluation, approval, audit authority를 UI로
@@ -768,8 +840,7 @@ signing/notarization, platform별 QA가 필요합니다. 따라서 local protoco
 - 편의를 위해 개인 browser profile을 연결하거나 Browser Aside,
   Computer Use, Office의 refusal boundary를 약화하는 일
 - app 안에 provider token, debug dump, 숨은 execution state를 저장하는 일
-- package, test, release artifact가 나오기 전에 목업이나 완료된 단계를
-  실제 출시 기능으로 표현하는 일
+- ad-hoc development build를 notarized release로 표현하는 일
 
 ## 설정
 

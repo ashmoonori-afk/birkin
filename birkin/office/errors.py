@@ -3,8 +3,11 @@
 from __future__ import annotations
 
 from collections.abc import Iterable
-from dataclasses import dataclass, field
+from dataclasses import FrozenInstanceError, dataclass, field
 from enum import Enum
+from typing import ClassVar, cast
+
+from typing_extensions import override
 
 from .artifact_serialization import canonical_json, sanitize_data
 
@@ -32,8 +35,11 @@ class DocumentErrorCode(str, Enum):
     INTERNAL_ERROR = "INTERNAL_ERROR"
 
 
-@dataclass(frozen=True)
+# This payload is selectively immutable because BaseException owns mutable traceback state.
+@dataclass
 class DocumentError(Exception):
+    """Typed failure with immutable payload fields and writable exception state."""
+
     code: DocumentErrorCode
     stage: str
     message: str
@@ -41,6 +47,47 @@ class DocumentError(Exception):
     artifact_sha256: str | None = None
     locator: dict[str, object] | None = None
     details: dict[str, object] = field(default_factory=dict)
+
+    _IMMUTABLE_FIELDS: ClassVar[frozenset[str]] = frozenset(
+        {
+            "code",
+            "stage",
+            "message",
+            "retryable",
+            "artifact_sha256",
+            "locator",
+            "details",
+        }
+    )
+
+    @override
+    def __setattr__(self, name: str, value: object) -> None:
+        if name in self._IMMUTABLE_FIELDS and name in self.__dict__:
+            raise FrozenInstanceError(f"cannot assign to field {name!r}")
+        super().__setattr__(name, value)
+
+    @override
+    def __delattr__(self, name: str) -> None:
+        if name in self._IMMUTABLE_FIELDS:
+            raise FrozenInstanceError(f"cannot delete field {name!r}")
+        super().__delattr__(name)
+
+    def add_note(self, note: object) -> None:
+        """Attach an operator note on every supported Python version."""
+        if not isinstance(note, str):
+            raise TypeError("note must be a str")
+        notes_value = cast(object, getattr(self, "__notes__", None))
+        if notes_value is None:
+            notes = []
+            super().__setattr__("__notes__", notes)
+        elif isinstance(notes_value, list):
+            raw_notes = cast(list[object], notes_value)
+            if not all(isinstance(item, str) for item in raw_notes):
+                raise TypeError("__notes__ must be a list of str")
+            notes = cast(list[str], raw_notes)
+        else:
+            raise TypeError("__notes__ must be a list of str")
+        notes.append(note)
 
     def envelope(self, *, secrets: Iterable[str] = ()) -> dict[str, object]:
         error = {

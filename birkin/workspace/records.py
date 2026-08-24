@@ -89,6 +89,7 @@ class CommandReceipt:
     result_event_cursor: int | None
     fingerprint: str
     duplicate: bool = False
+    transient_result: dict[str, object] | None = None
 
     def as_duplicate(self) -> CommandReceipt:
         return replace(self, duplicate=True)
@@ -167,6 +168,9 @@ class WorkspaceSnapshot:
     conversation: tuple[dict[str, object], ...]
     composer: ComposerState
     status: WorkspaceStatus
+    working_memory: dict[str, object]
+    approval_policy: dict[str, object]
+    terminals: tuple[dict[str, object], ...]
 
     def to_json(self) -> dict[str, object]:
         return {
@@ -183,4 +187,7 @@ class WorkspaceSnapshot:
                 "can_resume": self.composer.can_resume,
             },
             "status": {"connection": self.status.connection},
+            "working_memory": self.working_memory,
+            "approval_policy": self.approval_policy,
+            "terminals": list(self.terminals),
         }

@@ -42,8 +42,13 @@ docs/moirai-design.md
 # Superseded Morpheus implementation notes; current behavior lives in ADRs/code
 docs/morpheus-skillification-plan.md
 docs/morpheus-skillification.md
-# Working evidence/drafts dir (codex receipts, model-test logs) — local only
-.omo/
+# Working evidence/drafts dir (codex receipts, model-test logs) — local only.
+# The native application contracts are the sole reviewed, tracked exception.
+.omo/*
+!.omo/plans/
+.omo/plans/*
+!.omo/plans/native-app/
+!.omo/plans/native-app/**
 # Generated local research, reports, and one-shot QA scratch files
 /reports/
 /research-*.md

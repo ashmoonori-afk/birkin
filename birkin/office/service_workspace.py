@@ -18,11 +18,13 @@ from .artifact_snapshot import snapshot_from_descriptor as _snapshot_from_descri
 from .errors import DocumentError, DocumentErrorCode
 from .path_security import (
     canonical_name,
+    close_guard,
     directory_identity,
     enforce_content_limit,
     ensure_directory_identity,
     hash_descriptor,
     hash_path,
+    open_directory_guard,
     open_regular,
     sync_directory,
 )
@@ -31,6 +33,26 @@ from .service_types import ArtifactRef
 
 MAX_CONTENT_CHARS = 1_000_000
 MAX_ARTIFACT_BYTES = 256 * 1024 * 1024
+
+
+def _prepare_private_directory(path: Path, *, parents: bool = False) -> None:
+    """Create a private directory without following a pre-existing symlink."""
+    path.mkdir(parents=parents, exist_ok=True, mode=0o700)
+    if path.is_symlink():
+        raise DocumentError(
+            DocumentErrorCode.PERMISSION_DENIED,
+            "emit",
+            "managed workspace directory must not be a symbolic link",
+        )
+    if os.name == "posix":
+        identity = directory_identity(path)
+        descriptor = open_directory_guard(path, identity)
+        try:
+            os.fchmod(descriptor, 0o700)
+        finally:
+            close_guard(descriptor)
+    else:
+        os.chmod(path, 0o700)
 
 
 class DocumentWorkspace:
@@ -42,11 +64,13 @@ class DocumentWorkspace:
     _draft_identity: tuple[int, int]
     def __init__(self, home: Path):
         configured = Path(home).absolute()
-        configured.mkdir(parents=True, exist_ok=True)
+        _prepare_private_directory(configured, parents=True)
         self.configured_home = configured
         self.home = configured.resolve(strict=True)
-        drafts = self.home / "artifacts" / "drafts"
-        drafts.mkdir(parents=True, exist_ok=True)
+        artifacts = self.home / "artifacts"
+        _prepare_private_directory(artifacts)
+        drafts = artifacts / "drafts"
+        _prepare_private_directory(drafts)
         if drafts.is_symlink():
             raise DocumentError(
                 DocumentErrorCode.PERMISSION_DENIED,

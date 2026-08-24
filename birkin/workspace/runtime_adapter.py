@@ -3,16 +3,27 @@
 from __future__ import annotations
 
 import os
+import time
 from collections.abc import Callable, Mapping
 from dataclasses import replace
 from datetime import datetime, timezone
+from pathlib import Path
 from typing import cast, final
 
-from .. import approvals, config, transcripts, uistate, workbench
+from .. import config, transcripts, uistate, workbench
+from ..browser_aside_control import BrowserControlAuthority
+from ..browser_aside_service import BrowserAsideService
 from ..computer_use.events import ComputerEvent
 from ..computer_use.reducer import ComputerState, reduce_event
+from ..computer_use.runtime import default_backend
+from ..native.jailed_import import JailedImportAuthority
+from ..office.service import DocumentService
 from ..runtime import Session, build_session
+
+from . import approval_authority
+from .owned_terminal import TerminalAuthority
 from .records import PanelSummary, WorkspaceEvent, WorkspaceSnapshot
+from .working_memory import memory_write_handler
 from .service import CommandHandler
 
 EventSink = Callable[[str, dict[str, object]], WorkspaceEvent]
@@ -84,11 +95,42 @@ class RuntimeWorkspaceAdapter:
         self,
         session_id: str,
         emit: EventSink,
+        *,
+        workspace_root: Path | None = None,
     ) -> None:
         self._session_id = session_id
         self._emit = emit
+        self._workspace_root = (workspace_root or Path.cwd()).expanduser().resolve()
         self._session: Session | None = None
         self._computer_state = ComputerState()
+        self._terminal = TerminalAuthority(
+            session_id=session_id,
+            workspace_root=self._workspace_root,
+            emit=emit,
+            config_loader=config.load_config,
+        )
+        self._jailed_import = JailedImportAuthority(
+            self._workspace_root / "imports", session_id=session_id
+        )
+        from ..native.product_surfaces import (
+            BrowserSurfaceAuthority,
+            ComputerUseSurfaceAuthority,
+            NativeProductSurfaceAuthority,
+            OfficeSurfaceAuthority,
+        )
+
+        self.surface_authority = NativeProductSurfaceAuthority(
+            browser=BrowserSurfaceAuthority(
+                BrowserAsideService(session_id), BrowserControlAuthority(time.monotonic)
+            ),
+            computer_use=ComputerUseSurfaceAuthority(
+                probe=default_backend().probe()
+            ),
+            office=OfficeSurfaceAuthority(
+                DocumentService(self._workspace_root / "office")
+            ),
+        )
+        self._failed_intent_payload: dict[str, object] | None = None
         self._run_id = (
             f"workspace-{datetime.now(timezone.utc):%Y%m%d-%H%M%S}-{os.getpid()}"
         )
@@ -96,16 +138,37 @@ class RuntimeWorkspaceAdapter:
     def handlers(self) -> Mapping[str, CommandHandler]:
         return {
             "chat.send": self._chat_send,
+            "chat.steer": self._chat_steer,
+            "chat.retry": self._chat_retry,
             "chat.interrupt": self._chat_interrupt,
             "chat.resume": self._chat_resume,
             "approval.answer": self._approval_answer,
             "question.answer": self._question_answer,
+            "session.compact": self._session_compact,
+            "memory.write": memory_write_handler(self._session_id, self._emit),
+            **self._terminal.handlers(),
+            **self._jailed_import.handlers(),
+            **self.surface_authority.handlers(self._emit),
         }
 
+    def revoke_terminal_leases(self) -> None:
+        self._terminal.revoke_leases()
+
     def close(self) -> None:
-        if self._session is not None:
-            self._session.abort.set()
-            self._session.close()
+        """Release everything this session owns, whatever fails on the way.
+
+        The private browser is a real child process, so leaving it running
+        when the bridge stops would strand it with no owner.
+        """
+        try:
+            self._terminal.close_all()
+        finally:
+            try:
+                _ = self.surface_authority.browser.close()
+            finally:
+                if self._session is not None:
+                    self._session.abort.set()
+                    self._session.close()
             self._session = None
 
     def runtime_session(self) -> Session:
@@ -144,6 +207,10 @@ class RuntimeWorkspaceAdapter:
 
     def interrupt_now(self) -> None:
         self._get_session().abort.set()
+
+    def compact(self) -> bool:
+        """Compact through the runtime's canonical agent entry point."""
+        return self._get_session().agent.compact_now("manual")
 
     def _get_session(self) -> Session:
         if self._session is None:
@@ -239,42 +306,115 @@ class RuntimeWorkspaceAdapter:
             value = event.payload.get(key)
             if isinstance(value, str):
                 safe[key] = value
-        focus = event.payload.get("focus")
-        if isinstance(focus, dict) and isinstance(
-            focus.get("preserved"),
-            bool,
-        ):
-            safe["focus_preserved"] = focus["preserved"]
+        raw_focus = event.payload.get("focus")
+        if isinstance(raw_focus, dict):
+            focus = cast(dict[str, object], raw_focus)
+            if isinstance(focus.get("preserved"), bool):
+                safe["focus_preserved"] = focus["preserved"]
         _ = self._emit("computer.updated", safe)
 
     def _chat_send(self, payload: dict[str, object]) -> dict[str, object]:
+        if set(payload) - {"text", "attachments"}:
+            raise ValueError("chat.send accepts only text and attachments")
         text = payload.get("text")
         if not isinstance(text, str) or not text.strip():
             raise ValueError("chat text must be non-empty")
-        _ = self._emit("message.user", {"text": text})
+        raw_attachments: object = payload.get("attachments", [])
+        if not isinstance(raw_attachments, list):
+            raise ValueError("chat attachments must be an array of at most 16 imports")
+        attachment_values = cast(list[object], raw_attachments)
+        if len(attachment_values) > 16:
+            raise ValueError("chat attachments must be an array of at most 16 imports")
+        validated = [
+            self._jailed_import.validate_attachment(raw) for raw in attachment_values
+        ]
+        attachments = [attachment.to_json() for attachment, _path in validated]
+        user_event: dict[str, object] = {"text": text}
+        if attachments:
+            user_event["attachments"] = attachments
+        _ = self._emit("message.user", user_event)
         pieces: list[str] = []
 
         def on_text(piece: str) -> None:
             pieces.append(piece)
             _ = self._emit("message.assistant.delta", {"text": piece})
 
+        runtime_text = text
+        if validated:
+            lines = [
+                f"- {attachment.display_name}: imports/{attachment.jail_name}"
+                for attachment, _path in validated
+            ]
+            runtime_text += "\n\nAttached workspace imports (validated):\n" + "\n".join(lines)
         session = self._get_session()
-        reply = session.ask(text, on_text=on_text)
+        try:
+            reply = session.ask(runtime_text, on_text=on_text)
+        except Exception:
+            self._failed_intent_payload = {
+                "text": text,
+                **({"attachments": attachments} if attachments else {}),
+            }
+            _ = self._emit(
+                "progress.updated",
+                {
+                    "summary": "Assistant response failed.",
+                    "status": "failed",
+                    "ui_state": "failed",
+                    "refusal_code": "E_RUNTIME",
+                    "retryable": True,
+                },
+            )
+            raise
         final = reply or "".join(pieces)
         _ = self._emit("message.assistant.completed", {"text": final})
         _ = transcripts.append_turn(
-            "workspace",
-            self._run_id,
-            text,
-            final,
-            cfg=session.cfg,
+            "workspace", self._run_id, text, final, cfg=session.cfg
         )
-        return {"reply": final}
+        self._failed_intent_payload = None
+        result: dict[str, object] = {"reply": final}
+        if attachments:
+            result["attachments"] = attachments
+        return result
+
+    def _chat_steer(self, payload: dict[str, object]) -> dict[str, object]:
+        text = payload.get("text")
+        if not isinstance(text, str) or not text.strip():
+            raise ValueError("steer text must be non-empty")
+        cleaned = text.strip()
+        if not self._get_session().steer(cleaned):
+            raise ValueError("active runtime cannot be steered")
+        _ = self._emit("turn.steered", {"text": cleaned})
+        return {"steered": True}
+
+    def _chat_retry(self, _payload: dict[str, object]) -> dict[str, object]:
+        payload = self._failed_intent_payload
+        if payload is None:
+            raise ValueError("no failed intent to retry")
+        return self._chat_send(dict(payload))
+
+    def _session_compact(
+        self,
+        _payload: dict[str, object],
+    ) -> dict[str, object]:
+        compacted = self.compact()
+        _ = self._emit(
+            "session.compacted",
+            {"session_id": self._session_id, "compacted": compacted},
+        )
+        return {"compacted": compacted}
 
     def _chat_interrupt(self, _payload: dict[str, object]) -> dict[str, object]:
         session = self._get_session()
         session.abort.set()
         _ = self._emit("turn.interrupted", {})
+        _ = self._emit(
+            "progress.updated",
+            {
+                "summary": "Turn interrupted.",
+                "status": "interrupted",
+                "ui_state": "paused",
+            },
+        )
         return {"interrupted": True}
 
     def _chat_resume(self, _payload: dict[str, object]) -> dict[str, object]:
@@ -288,23 +428,21 @@ class RuntimeWorkspaceAdapter:
         decision = payload.get("decision")
         if not isinstance(approval_id, str):
             raise TypeError("approval_id is required")
-        if decision == "approve":
-            result = approvals.approve(approval_id)
-        elif decision == "reject":
-            result = approvals.reject(
-                approval_id,
-                reason=str(payload.get("reason") or ""),
-            )
-        else:
-            raise ValueError("decision must be approve or reject")
+        result = approval_authority.decide(
+            approval_id,
+            decision=str(decision),
+            reason=str(payload.get("reason") or ""),
+        )
         event_payload: dict[str, object] = {
             "approval_id": approval_id,
             "decision": str(decision),
+            "outcome": str(result["outcome"]),
         }
-        if decision == "approve":
-            event_payload["receipt"] = str(result)
+        receipt = result.get("receipt")
+        if isinstance(receipt, str):
+            event_payload["receipt"] = receipt
         _ = self._emit("approval.answered", event_payload)
-        return {"result": str(result)}
+        return {str(key): value for key, value in result.items()}
 
     def _question_answer(
         self,

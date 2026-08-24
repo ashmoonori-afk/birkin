@@ -1,0 +1,5 @@
+# Swift Package Manager build products and local IDE state.
+.build/
+.swiftpm/
+*.xcodeproj/
+DerivedData/

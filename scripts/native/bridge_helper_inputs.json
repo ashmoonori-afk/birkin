@@ -1,0 +1,53 @@
+{
+  "schema": 1,
+  "project": {
+    "pyproject_sha256": "224f220e1ccf205e3e368183d5f3c01d6098cb4a5816f5bdce791d0581de83b5",
+    "uv_lock_sha256": "7d2553c470b3b5a410039b1b8285225030db617eee1abf7fea167740b4214138"
+  },
+  "python": {
+    "version": "3.13.13",
+    "build": "20260414",
+    "artifacts": {
+      "arm64": {
+        "url": "https://github.com/astral-sh/python-build-standalone/releases/download/20260414/cpython-3.13.13%2B20260414-aarch64-apple-darwin-install_only_stripped.tar.gz",
+        "sha256": "874f9931ad40dcce38caf6f408aa7e10ec3d0dfce2184ba7af62a965a66b9cd9"
+      },
+      "x86_64": {
+        "url": "https://github.com/astral-sh/python-build-standalone/releases/download/20260414/cpython-3.13.13%2B20260414-x86_64-apple-darwin-install_only_stripped.tar.gz",
+        "sha256": "d34198cd856fa80ebf3aa821fe329a25fab66eeda44f72ac9576591282e31bb7"
+      }
+    }
+  },
+  "browser": {
+    "playwright_version": "1.62.0",
+    "chromium_revision": "1234",
+    "chromium_version": "151.0.7922.34",
+    "ffmpeg_revision": "1011",
+    "artifacts": {
+      "arm64": {
+        "headless_shell": {
+          "url": "https://cdn.playwright.dev/builds/cft/151.0.7922.34/mac-arm64/chrome-headless-shell-mac-arm64.zip",
+          "sha256": "cb46a336dbe3d6f1339c5039c3083e4e5dd8e4379710790e34f8f4a865e2452d",
+          "size_bytes": 99275008
+        },
+        "ffmpeg": {
+          "url": "https://cdn.playwright.dev/dbazure/download/playwright/builds/ffmpeg/1011/ffmpeg-mac-arm64.zip",
+          "sha256": "7d77eb0d44b59acc4065faa2476c0df1a242cc904c346f820626818c953c5277",
+          "size_bytes": 1097141
+        }
+      },
+      "x86_64": {
+        "headless_shell": {
+          "url": "https://cdn.playwright.dev/builds/cft/151.0.7922.34/mac-x64/chrome-headless-shell-mac-x64.zip",
+          "sha256": "608e2b5b1815b45e8bf59c9a381412b62df3ce36f2c182bc04e22fcf04ad53ea",
+          "size_bytes": 103580477
+        },
+        "ffmpeg": {
+          "url": "https://cdn.playwright.dev/dbazure/download/playwright/builds/ffmpeg/1011/ffmpeg-mac.zip",
+          "sha256": "17ed15a2fa60d3c74181befcb2bdf7c9bb288d19b2a3b9893b94b63f2ce260e4",
+          "size_bytes": 1353430
+        }
+      }
+    }
+  }
+}

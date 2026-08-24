@@ -574,6 +574,7 @@ the newest snapshots with `prune --keep N`, or copy a snapshot with
 | `birkin chat` | Default terminal chat workspace plus private loopback web authority. |
 | `birkin gateway` | Run loopback HTTP and configured message channels with crash-durable, exclusively claimed reply redelivery. |
 | `birkin web [--no-browser]` | Run the standalone authenticated chat workspace and control API. |
+| `birkin native-bridge serve` | Serve the authenticated local bridge the macOS application connects to. |
 | `birkin review` | Approve or reject pending consequential actions. |
 | `birkin permission` | Inspect or change approval categories and CLI access. |
 | `birkin tools` | List, enable, or disable native tools from the canonical registry inventory. |
@@ -698,52 +699,124 @@ conflict rather than a fallback to team scope. Existing pins change only with
 `--upgrade`. Skill entry points feed the existing `SkillManager`; agent entry
 points return `Tool` objects consumed by the existing native tool registry.
 
-## Future Roadmap: Native control shell
+## Native macOS control shell
 
-> **Future work — not a current Birkin surface.** The mockup below describes a
-> direction for a native desktop client. It is not included in the CLI, WebUI,
-> VS Code extension, or current packages.
+> **Shipped in this repository.** Birkin now includes a native macOS SwiftUI
+> client and a build pipeline for a universal signed `Birkin.app`. The app is a
+> separate local control surface; it does not replace the CLI, WebUI, or VS Code
+> extension. Credential-free builds are ad-hoc signed development artifacts,
+> not notarized public downloads.
 
-<img src="./docs/assets/birkin-native-app-roadmap.png" alt="Future Birkin macOS native control shell with Sessions and Working Memory on the left, chat and terminal workspace in the center, and approvals, activity, Browser Aside, and Office surfaces on the right" width="920" />
+<img src="./docs/assets/birkin-native-app-roadmap.png" alt="Birkin macOS native control shell with Sessions and Working Memory on the left, chat and terminal workspace in the center, and approvals, activity, Browser Aside, and Office surfaces on the right" width="920" />
 
-*Concept layout only. Panel labels and toggles do not define the canonical
-Working Memory schema, approval categories, or egress policy; those remain the
-contracts documented above.*
+Architecture, protocol, and security contracts: [`docs/native-app/`](./docs/native-app/README.md).
 
-The recommended macOS client is a **thin SwiftUI shell over the existing Python
-runtime**, not a second agent implementation. Birkin's Python core continues to
-own memory, tool execution, policy, approvals, audit records, and recovery. The
-native process presents those capabilities over a versioned local protocol:
-prefer a Unix domain socket on macOS, with authenticated private loopback as a
-fallback when a browser-compatible transport is useful.
+### Build and verify the packaged app
 
-That boundary keeps the product identity intact:
+Build the universal ad-hoc-signed app, create its DMG, and drive the built app
+through the production packaged journey:
 
-- **Persistence:** The shell reads projected session and Working
-  Memory state; it does not create a private native database as a second source
-  of truth.
-- **Execution:** Python continues to schedule work, enforce
-  budgets, run tools, and produce typed results. SwiftUI renders state and sends
-  explicit commands.
-- **Authority:** Approval decisions return to the
-  Python authority. UI state, window focus, and notification taps never become
-  proof that an action was authorized.
+```bash
+evidence="$(mktemp -d /private/tmp/birkin-native-evidence-XXXXXX)"
+dist="$evidence/dist"
+scripts/native/package_macos_app.sh "$dist"
+scripts/native/create_macos_dmg.sh "$dist"
+scripts/native/packaged_journey.sh "$evidence" "$dist"
+```
 
-The work should land in observable stages:
+To verify an app from an attached read-only DMG, pass the mount containing
+`Birkin.app`. The harness rejects an unmounted directory or ambiguous image
+provenance:
 
-1. **Read-only foundation:** sessions, run status, transcripts, and Working
-   Memory, with reconnect and protocol-version diagnostics.
-2. **Human control:** approvals, activity receipts, and local notifications.
-   The native shell can answer an approval; it cannot reinterpret policy.
-3. **Workspace surfaces:** Browser Aside, native Computer Use status and
-   consent, and Office workspace artifacts, all reusing their current isolation
-   and refusal contracts.
-4. **Desktop integration:** menu bar status, drag and drop into jailed import
-   paths, optional voice controls, and recovery after either process restarts.
-5. **Platform decision:** after the protocol and macOS shell are proven, choose
-   between a Windows-native client and a shared cross-platform shell based on
-   accessibility APIs, installer maintenance, and real usage—not code reuse
-   alone.
+```bash
+mount="/Volumes/Birkin"
+BIRKIN_NATIVE_JOURNEY_ORIGIN=mounted-dmg \
+  scripts/native/packaged_journey.sh "$evidence" "$mount"
+```
+
+The journey exposes the existing-account provider credential only to the
+preflight probe and the app-owned bridge that performs the explicit
+provider-backed chat step. Browser fixtures and terminal children receive
+allowlisted environments without provider credentials. The harness owns only
+the process IDs it records and forces the evidence directory to mode `0700`
+under a restrictive umask. A successful run emits schema-2 receipts,
+compositor-backed per-step PNGs, a provider probe, read-only origin
+provenance, and bounded redacted events, then verifies them automatically
+before deleting its temporary provider workspace. A custom driver can invoke
+the same verifier before tearing down that workspace:
+
+```bash
+helper="$dist/Birkin.app/Contents/Helpers/$(uname -m)/birkin-native-bridge"
+scripts/native/verify_packaged_journey.py \
+  "$evidence" "$helper" "/private/tmp/bk-journey-XXXXXX/workspace"
+```
+
+Birkin's macOS client is a **thin SwiftUI shell over the existing Python
+runtime**, not a second agent implementation. Python remains authoritative for
+memory, tool execution, policy, approvals, audit records, and recovery. The two
+processes communicate only over the versioned local `birkin-local-1` protocol:
+a same-user private Unix domain socket is preferred, with authenticated
+`127.0.0.1` loopback available when explicitly selected.
+
+The shipped boundary is deliberate:
+
+- **Persistence:** Swift renders ephemeral projected session and Working Memory
+  state; it does not create a native database or persist capabilities and
+  execution state.
+- **Execution and authority:** Python enforces budgets, runs tools, owns terminal
+  process trees, and resolves approvals. Swift sends typed commands; UI state,
+  focus, menus, voice input, and notification taps never authorize an action.
+  On macOS, every approved PTY shell runs in a terminal-unique launchd resource
+  coalition. Its Seatbelt profile denies Mach, network, and shared-memory IPC
+  plus terminal-originated process signalling, and cleanup
+  quiesces, rescans, and kills the coalition so double-forked or `setsid()`
+  descendants cannot migrate away from Python ownership. Non-Darwin bridges do
+  not advertise the Native Terminal command set.
+- **Bridge lifecycle:** the app starts its own Python bridge with the shipped
+  `birkin native-bridge serve` command, waits for the endpoint that command
+  announces, restarts it at most five times in sixty seconds, and terminates it
+  on exit. Setting `BIRKIN_NATIVE_SOCKET` attaches an already running,
+  user-managed bridge instead, which the app never terminates.
+- **Recovery:** cursor replay, full snapshots after gaps or instance changes,
+  capability renewal, and bounded app-owned bridge restart recover local state
+  without treating stale projections as authority.
+- **Workspace:** the shell presents sessions, streaming conversation, Working
+  Memory merge/clear, owned Terminal, approvals, Activity, Browser Aside,
+  Computer Use status/consent, and Office create/open projections.
+- **Desktop integration:** navigation-only menus, redacted notifications and
+  deep links, jailed file import, optional voice gating, keyboard and VoiceOver
+  paths, and visual accessibility settings retain Python's refusal boundaries.
+- **Packaging:** the build refuses a dirty tree, produces a universal
+  `com.birkin.native` app, and signs it inside-out. Both `arm64` and `x86_64`
+  ship a frozen Python helper built with the app plus checksum-pinned Playwright
+  Chromium and FFmpeg runtimes. The sealed manifest records the clean revision;
+  its package version and the bridge `ready.server_version` must both exactly
+  match the generated app version. A developer bridge override cannot bypass
+  that handshake. The app selects and verifies only its architecture; neither
+  the bridge nor Browser Aside consults a host Python, repository, virtual
+  environment, or host Playwright cache. When launched from read-only media,
+  Browser Aside copies the sealed runtime into one private, architecture-bound,
+  content-addressed cache under `BIRKIN_HOME`, verifies the copy again, rejects
+  links, retains caches with live process leases, and prunes inactive prior
+  architecture caches before execution.
+- **Release QA:** the disabled-by-default `BIRKIN_NATIVE_JOURNEY=1` seam drives
+  the same controls as the packaged UI, with no test transport or direct wire
+  client. Under an empty `HOME`, sanitized `PATH`, and absent bridge overrides,
+  acceptance requires a real existing-account provider probe and a separate
+  provider-backed chat success marker before the full product and reconnect
+  journey passes. Python policy, approval, consent, and lease gates still apply.
+- **Signing:** with a Developer ID identity the packaging script enables
+  hardened runtime. Without one it produces an ad-hoc-signed development
+  artifact with no hardened-runtime option or entitlements. The script does not
+  notarize that artifact; notarization, stapling, and Gatekeeper assessment are
+  separate credentialed public-release gates. App Sandbox remains disabled
+  because PTYs, local sockets, Accessibility, and Screen Recording are outside
+  the initial profile, while Python policy, local authentication, and macOS
+  privacy permissions remain enforced.
+
+A future platform decision—Windows-native versus a shared cross-platform
+shell—remains open and will be based on accessibility APIs, installer
+maintenance, and real usage rather than code reuse alone.
 
 ### Trade-offs and non-goals
 
@@ -754,7 +827,7 @@ and platform-specific QA. The local protocol therefore needs explicit version
 negotiation, short-lived capabilities, bounded payloads, and a visible
 disconnected state.
 
-This roadmap does **not** propose:
+This native design does **not** propose:
 
 - a full Swift rewrite of Birkin;
 - moving memory ownership, policy evaluation, approvals, or audit authority
@@ -764,8 +837,7 @@ This roadmap does **not** propose:
 - attaching personal browser profiles or weakening Browser Aside, Computer
   Use, or Office refusal boundaries for convenience;
 - storing provider tokens, debug dumps, or hidden execution state in the app;
-- treating the mockup or a completed phase as shipped before its package,
-  tests, and release artifacts exist.
+- presenting an ad-hoc development build as a notarized release.
 
 ## Configuration
 

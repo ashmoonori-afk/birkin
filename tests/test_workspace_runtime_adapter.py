@@ -1,10 +1,379 @@
 from __future__ import annotations
 
+from collections.abc import Callable
+from pathlib import Path
+import threading
+from typing import cast, final
+
 import pytest
 
-from birkin import approvals, uistate
-from birkin.workspace import WorkspaceEvent
+from birkin import uistate
+from birkin.computer_use.capability_types import (
+    DisplayServer,
+    PermissionState,
+    PlatformProbe,
+)
+from birkin.computer_use.runtime import UnavailableBackend
+from birkin.workspace import approval_authority
+from birkin.runtime import Session
+from birkin.workspace import WorkspaceEvent, runtime_adapter
 from birkin.workspace.runtime_adapter import RuntimeWorkspaceAdapter
+
+
+@final
+class _RuntimeSession:
+    def __init__(self) -> None:
+        self.cfg: dict[str, object] = {}
+        self.steers: list[str] = []
+        self.ask_count: int = 0
+
+    def steer(self, text: str) -> bool:
+        self.steers.append(text)
+        return True
+
+    def ask(self, text: str, *, on_text: object) -> str:
+        del on_text
+        self.ask_count += 1
+        if self.ask_count == 1:
+            raise RuntimeError("provider failed")
+        return f"retried: {text}"
+
+
+@final
+class _ActiveRuntimeSession:
+    def __init__(self, started: threading.Event, release: threading.Event) -> None:
+        self.cfg: dict[str, object] = {}
+        self.abort = threading.Event()
+        self.steers: list[str] = []
+        self._started = started
+        self._release = release
+
+    def ask(self, text: str, *, on_text: object) -> str:
+        del on_text
+        self._started.set()
+        if not self._release.wait(timeout=10):
+            raise AssertionError("test did not release active runtime")
+        return text
+
+    def steer(self, text: str) -> bool:
+        self.steers.append(text)
+        return True
+
+
+def test_runtime_adapter_registers_product_surface_authority_and_commands(
+    tmp_path: Path,
+) -> None:
+    adapter = RuntimeWorkspaceAdapter(
+        "surface-session", _event, workspace_root=tmp_path / "workspace"
+    )
+
+    assert adapter.surface_authority.surface_names == (
+        "browser_aside", "computer_use", "office"
+    )
+    assert {
+        "browser.start", "browser.navigate", "office.create", "office.open"
+    }.issubset(adapter.handlers())
+    snapshots = adapter.surface_authority.snapshots({
+        "browser_aside": 0, "computer_use": 0, "office": 0
+    })
+    assert [snapshot.surface for snapshot in snapshots] == [
+        "browser_aside", "computer_use", "office"
+    ]
+
+
+@final
+class _GrantedBackend:
+    """A platform backend that reports both permissions already granted."""
+
+    backend_id = "test-granted"
+
+    def probe(self) -> PlatformProbe:
+        return PlatformProbe(
+            platform="darwin",
+            display_server=DisplayServer.QUARTZ,
+            interactive=True,
+            accessibility=PermissionState.GRANTED,
+            screen_capture=PermissionState.GRANTED,
+            responsible_process="birkin-test",
+        )
+
+
+def test_computer_use_surface_projects_the_selected_backend_capability(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    """Given a platform backend reporting granted permissions, When the runtime
+    adapter composes product surfaces, Then Computer Use projects that grant."""
+    monkeypatch.setattr(
+        runtime_adapter, "default_backend", lambda: _GrantedBackend()
+    )
+    adapter = RuntimeWorkspaceAdapter(
+        "capability-session", _event, workspace_root=tmp_path / "workspace"
+    )
+
+    status = cast(
+        dict[str, object], adapter.surface_authority.computer_use.snapshot()["status"]
+    )
+
+    permissions = cast(dict[str, object], status["permissions"])
+    assert permissions["accessibility"] == "granted"
+    assert permissions["screen_capture"] == "granted"
+    assert status["permission_prompted"] is False
+
+
+def test_computer_use_surface_projects_an_unavailable_backend(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    """Given no supported platform backend, When the runtime adapter composes
+    product surfaces, Then Computer Use projects undetermined permissions."""
+    monkeypatch.setattr(
+        runtime_adapter, "default_backend", lambda: UnavailableBackend()
+    )
+    adapter = RuntimeWorkspaceAdapter(
+        "capability-session", _event, workspace_root=tmp_path / "workspace"
+    )
+
+    status = cast(
+        dict[str, object], adapter.surface_authority.computer_use.snapshot()["status"]
+    )
+
+    permissions = cast(dict[str, object], status["permissions"])
+    assert permissions["accessibility"] == "unknown"
+    assert status["permission_prompted"] is False
+
+
+def test_runtime_adapter_advertises_and_executes_jailed_file_import(
+    tmp_path: Path,
+) -> None:
+    emitted: list[tuple[str, dict[str, object]]] = []
+
+    def emit(event_type: str, payload: dict[str, object]) -> WorkspaceEvent:
+        emitted.append((event_type, payload))
+        return _event(event_type, payload)
+
+    dropped = tmp_path / "outside" / "drop.txt"
+    dropped.parent.mkdir()
+    _ = dropped.write_text("drop through production adapter", encoding="utf-8")
+    adapter = RuntimeWorkspaceAdapter(
+        "import-session", emit, workspace_root=tmp_path / "workspace"
+    )
+
+    handler = adapter.handlers()["file.import"]
+    result = handler({"source_path": str(dropped)})
+
+    reference = cast(dict[str, object], result["reference"])
+    imported = tmp_path / "workspace" / "imports" / str(reference["jail_name"])
+    assert imported.read_text(encoding="utf-8") == "drop through production adapter"
+
+
+def test_chat_send_accepts_only_unchanged_imports_from_its_session(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    runtime = _RuntimeSession()
+    runtime.ask_count = 1
+
+    def build(
+        _cfg: dict[str, object],
+        on_event: Callable[[str, dict[str, object]], None] | None = None,
+    ) -> Session:
+        del on_event
+        return cast(Session, cast(object, runtime))
+
+    monkeypatch.setattr("birkin.workspace.runtime_adapter.build_session", build)
+    workspace = tmp_path / "workspace"
+    source = tmp_path / "attachment.txt"
+    _ = source.write_text("trusted attachment", encoding="utf-8")
+    adapter = RuntimeWorkspaceAdapter("attachment-session", _event, workspace_root=workspace)
+    imported = adapter.handlers()["file.import"]({"source_path": str(source)})
+    reference = cast(dict[str, object], imported["reference"])
+
+    result = adapter.handlers()["chat.send"]({
+        "text": "inspect this",
+        "attachments": [reference],
+    })
+
+    assert result["attachments"] == [reference]
+    assert "attachment.txt" in cast(str, result["reply"])
+
+    jailed = workspace / "imports" / str(reference["jail_name"])
+    _ = jailed.write_text("changed", encoding="utf-8")
+    with pytest.raises(ValueError, match="changed"):
+        _ = adapter.handlers()["chat.send"]({
+            "text": "inspect this",
+            "attachments": [reference],
+        })
+    jailed.unlink()
+    with pytest.raises(ValueError, match="deleted"):
+        _ = adapter.handlers()["chat.send"]({
+            "text": "inspect this",
+            "attachments": [reference],
+        })
+
+
+def test_chat_send_rejects_unknown_and_cross_session_imports(tmp_path: Path) -> None:
+    source = tmp_path / "attachment.txt"
+    _ = source.write_text("trusted attachment", encoding="utf-8")
+    first = RuntimeWorkspaceAdapter(
+        "first-session", _event, workspace_root=tmp_path / "workspace"
+    )
+    second = RuntimeWorkspaceAdapter(
+        "second-session", _event, workspace_root=tmp_path / "workspace"
+    )
+    imported = first.handlers()["file.import"]({"source_path": str(source)})
+    reference = cast(dict[str, object], imported["reference"])
+
+    with pytest.raises(ValueError, match="unknown.*session"):
+        _ = second.handlers()["chat.send"]({"text": "inspect", "attachments": [reference]})
+
+    unknown = dict(reference)
+    unknown["import_id"] = "import-00000000000000000000000000000000"
+    with pytest.raises(ValueError, match="unknown.*session"):
+        _ = first.handlers()["chat.send"]({"text": "inspect", "attachments": [unknown]})
+
+
+def test_steer_delegates_to_runtime_and_emits_canonical_event(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    emitted: list[tuple[str, dict[str, object]]] = []
+
+    def emit(event_type: str, payload: dict[str, object]) -> WorkspaceEvent:
+        emitted.append((event_type, payload))
+        return _event(event_type, payload)
+
+    runtime = _RuntimeSession()
+
+    def build(
+        _cfg: dict[str, object],
+        on_event: Callable[[str, dict[str, object]], None] | None = None,
+    ) -> Session:
+        del on_event
+        return cast(Session, cast(object, runtime))
+
+    monkeypatch.setattr("birkin.workspace.runtime_adapter.build_session", build)
+    adapter = RuntimeWorkspaceAdapter("steer-session", emit)
+
+    result = adapter.handlers()["chat.steer"]({"text": "  check tests  "})
+
+    assert result == {"steered": True}
+    assert runtime.steers == ["check tests"]
+    assert emitted == [("turn.steered", {"text": "check tests"})]
+
+
+def test_turn_controls_mutate_the_active_runtime_without_waiting_for_ask(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    started = threading.Event()
+    release = threading.Event()
+    runtime = _ActiveRuntimeSession(started, release)
+
+    def build(
+        _cfg: dict[str, object],
+        on_event: Callable[[str, dict[str, object]], None] | None = None,
+    ) -> Session:
+        del on_event
+        return cast(Session, cast(object, runtime))
+
+    monkeypatch.setattr("birkin.workspace.runtime_adapter.build_session", build)
+    emitted: list[tuple[str, dict[str, object]]] = []
+
+    def emit(event_type: str, payload: dict[str, object]) -> WorkspaceEvent:
+        emitted.append((event_type, payload))
+        return _event(event_type, payload)
+
+    adapter = RuntimeWorkspaceAdapter("control-session", emit)
+    handlers = adapter.handlers()
+    errors: list[BaseException] = []
+
+    def send() -> None:
+        try:
+            _ = handlers["chat.send"]({"text": "work"})
+        except BaseException as exc:
+            errors.append(exc)
+
+    thread = threading.Thread(target=send)
+    thread.start()
+    try:
+        assert started.wait(timeout=1)
+        assert handlers["chat.interrupt"]({}) == {"interrupted": True}
+        assert runtime.abort.is_set()
+        assert handlers["chat.steer"]({"text": "redirect"}) == {"steered": True}
+        assert runtime.steers == ["redirect"]
+        assert handlers["chat.resume"]({}) == {"resumed": True}
+        assert not runtime.abort.is_set()
+    finally:
+        release.set()
+        thread.join(timeout=2)
+    assert not thread.is_alive()
+    assert errors == []
+    assert (
+        "progress.updated",
+        {
+            "summary": "Turn interrupted.",
+            "status": "interrupted",
+            "ui_state": "paused",
+        },
+    ) in emitted
+
+
+def test_retry_replays_failed_text_as_a_new_handler_invocation(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    emitted: list[tuple[str, dict[str, object]]] = []
+
+    def emit(event_type: str, payload: dict[str, object]) -> WorkspaceEvent:
+        emitted.append((event_type, payload))
+        return _event(event_type, payload)
+
+    runtime = _RuntimeSession()
+
+    def build(
+        _cfg: dict[str, object],
+        on_event: Callable[[str, dict[str, object]], None] | None = None,
+    ) -> Session:
+        del on_event
+        return cast(Session, cast(object, runtime))
+
+    monkeypatch.setattr("birkin.workspace.runtime_adapter.build_session", build)
+    adapter = RuntimeWorkspaceAdapter("retry-session", emit)
+    handlers = adapter.handlers()
+
+    with pytest.raises(RuntimeError, match="provider failed"):
+        _ = handlers["chat.send"]({"text": "original intent"})
+    result = handlers["chat.retry"]({})
+
+    assert runtime.ask_count == 2
+    assert result == {"reply": "retried: original intent"}
+    assert emitted == [
+        ("message.user", {"text": "original intent"}),
+        (
+            "progress.updated",
+            {
+                "summary": "Assistant response failed.",
+                "status": "failed",
+                "ui_state": "failed",
+                "refusal_code": "E_RUNTIME",
+                "retryable": True,
+            },
+        ),
+        ("message.user", {"text": "original intent"}),
+        ("message.assistant.completed", {"text": "retried: original intent"}),
+    ]
+
+
+def _event(event_type: str, payload: dict[str, object]) -> WorkspaceEvent:
+    return WorkspaceEvent(
+        protocol_version=1,
+        session_id="test-session",
+        cursor=1,
+        event_id="event-1",
+        type=event_type,
+        timestamp="2026-08-20T00:00:00Z",
+        actor_id="test:runtime",
+        command_id="command-1",
+        payload=payload,
+    )
 
 
 def test_approval_answer_event_carries_execution_receipt(
@@ -29,23 +398,36 @@ def test_approval_answer_event_carries_execution_receipt(
             payload=payload,
         )
 
-    def approve(_approval_id: str) -> str:
-        return "exit 0: approved"
+    def decide(
+        approval_id: str, *, decision: str, reason: str = ""
+    ) -> dict[str, object]:
+        assert decision == "approve"
+        assert reason == ""
+        return {
+            "outcome": "approved",
+            "approval_id": approval_id,
+            "receipt": "exit 0: approved",
+        }
 
-    monkeypatch.setattr(approvals, "approve", approve)
+    monkeypatch.setattr(approval_authority, "decide", decide)
     adapter = RuntimeWorkspaceAdapter("receipt-session", emit)
 
     result = adapter.handlers()["approval.answer"](
         {"approval_id": "abc123def456", "decision": "approve"}
     )
 
-    assert result == {"result": "exit 0: approved"}
+    assert result == {
+        "outcome": "approved",
+        "approval_id": "abc123def456",
+        "receipt": "exit 0: approved",
+    }
     assert emitted == [
         (
             "approval.answered",
             {
                 "approval_id": "abc123def456",
                 "decision": "approve",
+                "outcome": "approved",
                 "receipt": "exit 0: approved",
             },
         )
@@ -188,3 +570,11 @@ def test_event_type_table_pin() -> None:
         "progress.updated",
         "progress.updated",
     ]
+def test_runtime_adapter_registers_the_working_memory_command(tmp_path: Path) -> None:
+    """Given the production runtime adapter, When its handlers are read, Then
+    Working Memory mutation is registered so the shell can advertise it."""
+    adapter = RuntimeWorkspaceAdapter(
+        "memory-session", _event, workspace_root=tmp_path / "workspace"
+    )
+
+    assert "memory.write" in adapter.handlers()

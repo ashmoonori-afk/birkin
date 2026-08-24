@@ -1,8 +1,9 @@
 from __future__ import annotations
 
-from io import BytesIO
+import hashlib
 import zipfile
 from collections.abc import Callable
+from io import BytesIO
 from pathlib import Path
 from typing import cast
 
@@ -19,10 +20,38 @@ _DTD = b"<!DOCTYPE r><r/>"
 _ENTITY = b"<!DOCTYPE r [<!ENTITY x 'expanded'>]><r>&x;</r>"
 _EXTERNAL = b'<!DOCTYPE r SYSTEM "file:///etc/passwd"><r/>'
 _UNBOUND = b"<r><x:item/></r>"
+_EXTERNAL_ENTITY = (
+    b'<!DOCTYPE r [<!ENTITY x SYSTEM "file:///nonexistent/birkin-xxe">]>'
+    b"<r>&x;</r>"
+)
+_ENCODING_CASES = [
+    pytest.param("utf-8", b"", None, id="utf8-no-bom-no-declaration"),
+    pytest.param("utf-8", b"\xef\xbb\xbf", "uTf-8", id="utf8-bom-mixed-declaration"),
+    pytest.param("utf-16le", b"", None, id="utf16le-no-bom-no-declaration"),
+    pytest.param("utf-16le", b"", "uTf-16Le", id="utf16le-no-bom-mixed-declaration"),
+    pytest.param("utf-16le", b"\xff\xfe", "UTF-16", id="utf16le-bom-declaration"),
+    pytest.param("utf-16be", b"", None, id="utf16be-no-bom-no-declaration"),
+    pytest.param("utf-16be", b"", "uTf-16Be", id="utf16be-no-bom-mixed-declaration"),
+    pytest.param("utf-16be", b"\xfe\xff", "UTF-16", id="utf16be-bom-declaration"),
+]
 _PARSE_PART = cast(Callable[[str, bytes], object], vars(xlsx)["_parse_part"])
 _PARSE_EXTRACT = cast(
     Callable[[bytes, str], object], vars(extract_package)["_parse"]
 )
+
+
+def _encoded_xml(
+    body: str,
+    encoding: str,
+    bom: bytes,
+    declared_encoding: str | None,
+) -> bytes:
+    declaration = (
+        ""
+        if declared_encoding is None
+        else f"<?xml version='1.0' encoding='{declared_encoding}'?>"
+    )
+    return bom + f"{declaration}{body}".encode(encoding)
 
 
 def _assert_typed_error(
@@ -133,15 +162,98 @@ def test_package_streaming_parser_preserves_resource_limits(
     assert error.details == {"reason": reason}
 
 
-def test_streaming_xml_parser_rejects_entity_declarations() -> None:
+@pytest.mark.parametrize(("encoding", "bom", "declared_encoding"), _ENCODING_CASES)
+@pytest.mark.parametrize(
+    "declaration",
+    ["<!DOCTYPE r>", "<!DOCTYPE r [<!ENTITY x 'bounded'>]>"],
+)
+def test_safe_xml_rejects_declarations_independent_of_encoding(
+    encoding: str,
+    bom: bytes,
+    declared_encoding: str | None,
+    declaration: str,
+) -> None:
+    from birkin.office.safe_xml import DefusedXmlException, fromstring
+
+    xml = _encoded_xml(
+        f"{declaration}<r>&x;</r>" if "ENTITY" in declaration else f"{declaration}<r/>",
+        encoding,
+        bom,
+        declared_encoding,
+    )
+
+    with pytest.raises(DefusedXmlException):
+        _ = fromstring(xml)
+
+
+@pytest.mark.parametrize(("encoding", "bom", "declared_encoding"), _ENCODING_CASES)
+def test_streaming_xml_parser_rejects_entities_independent_of_encoding(
+    encoding: str,
+    bom: bytes,
+    declared_encoding: str | None,
+) -> None:
     from birkin.office.safe_xml import DefusedXmlException, ElementTree
 
+    xml = _encoded_xml(
+        "<!DOCTYPE r [<!ENTITY x 'bounded'>]><r>&x;</r>",
+        encoding,
+        bom,
+        declared_encoding,
+    )
     parser = ElementTree.XMLParser()
-    parser.feed(b"<!DOCTYPE r [<!ENTITY x 'expanded'>]>")
-    parser.feed(b"<r>&x;</r>")
 
-    with pytest.raises(DefusedXmlException, match="DTD and entity"):
+    with pytest.raises(DefusedXmlException):
+        parser.feed(xml[:7])
+        parser.feed(xml[7:])
         _ = parser.close()
+
+
+@pytest.mark.parametrize(("encoding", "bom", "declared_encoding"), _ENCODING_CASES)
+def test_safe_unicode_office_xml_parses_independent_of_encoding(
+    encoding: str,
+    bom: bytes,
+    declared_encoding: str | None,
+) -> None:
+    from birkin.office.safe_xml import fromstring
+
+    xml = _encoded_xml(
+        '<w:document xmlns:w="urn:office"><w:t>한글 문서</w:t></w:document>',
+        encoding,
+        bom,
+        declared_encoding,
+    )
+
+    root = fromstring(xml)
+
+    assert root[0].text == "한글 문서"
+
+
+def test_safe_xml_security_switches_are_load_bearing() -> None:
+    from birkin.office.safe_xml import DefusedXmlException, ElementTree, fromstring
+
+    dtd = fromstring(_DTD, forbid_dtd=False)
+    entity = fromstring(
+        _ENTITY,
+        forbid_dtd=False,
+        forbid_entities=False,
+    )
+    with pytest.raises(DefusedXmlException):
+        _ = fromstring(
+            _EXTERNAL_ENTITY,
+            forbid_dtd=False,
+            forbid_entities=False,
+            forbid_external=True,
+        )
+    with pytest.raises(ElementTree.ParseError):
+        _ = fromstring(
+            _EXTERNAL_ENTITY,
+            forbid_dtd=False,
+            forbid_entities=False,
+            forbid_external=False,
+        )
+
+    assert dtd.tag == "r"
+    assert entity.text == "expanded"
 
 
 def test_safe_xml_rejects_utf16_entity_declarations() -> None:
@@ -172,7 +284,7 @@ def test_safe_xml_element_tree_class_rejects_entity_declarations() -> None:
 
 
 def test_stdlib_fallback_honors_external_reference_flag(
-        monkeypatch: pytest.MonkeyPatch,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     from birkin.office import safe_xml
 
@@ -204,3 +316,44 @@ def test_safe_xml_facade_does_not_expose_unguarded_parser_entrypoints() -> None:
     assert not hasattr(ElementTree, "XML")
     assert not hasattr(ElementTree, "XMLID")
     assert not hasattr(ElementTree, "iterparse")
+
+
+def test_document_service_inspect_rejects_utf16_internal_entity(
+    tmp_path: Path,
+) -> None:
+    from birkin.office.errors import DocumentError
+    from birkin.office.service import DocumentService
+
+    document = _encoded_xml(
+        "<!DOCTYPE w:document [<!ENTITY x 'bounded'>]>"
+        + '<w:document xmlns:w="http://schemas.openxmlformats.org/'
+        + 'wordprocessingml/2006/main"><w:p><w:r><w:t>&x;</w:t></w:r></w:p>'
+        + "</w:document>",
+        "utf-16le",
+        b"\xff\xfe",
+        "UTF-16",
+    )
+    source = tmp_path / "hostile.docx"
+    with zipfile.ZipFile(source, "w", zipfile.ZIP_STORED) as archive:
+        archive.writestr(
+            "[Content_Types].xml",
+            b"".join(
+                (
+                    b'<Types xmlns="http://schemas.openxmlformats.org/package/2006/',
+                    b'content-types"><Override PartName="/word/document.xml" ',
+                    b'ContentType="application/vnd.openxmlformats-officedocument.',
+                    b'wordprocessingml.document.main+xml"/></Types>',
+                )
+            ),
+        )
+        archive.writestr("word/document.xml", document)
+    artifact = {
+        "uri": str(source),
+        "content_hash": hashlib.sha256(source.read_bytes()).hexdigest(),
+    }
+
+    with pytest.raises(DocumentError) as caught:
+        _ = DocumentService(tmp_path).inspect_document(artifact)
+
+    assert caught.value.code is DocumentErrorCode.PACKAGE_INVALID
+    assert caught.value.stage == "import"

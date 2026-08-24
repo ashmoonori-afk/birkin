@@ -13,8 +13,10 @@ from birkin.browser_aside_engine import (
     BrowserRuntimeStatus,
     Playwright,
     PlaywrightManager,
+    SyncApi,
 )
 from birkin.browser_aside_errors import BrowserAsideError
+from birkin.bundled_browser import BundledBrowserRuntimeError
 from birkin.browser_aside_owner import BrowserOwnerLoop, fail_pending
 from birkin.browser_aside_playwright_support import (
     BrowserCommand,
@@ -32,7 +34,8 @@ from birkin.browser_aside_store import (
     FrameBlob,
 )
 
-START_TIMEOUT_SECONDS = COMMAND_TIMEOUT_SECONDS = 20
+START_TIMEOUT_SECONDS = 60
+COMMAND_TIMEOUT_SECONDS = 20
 CLOSE_TIMEOUT_SECONDS = 30
 QUEUE_CAPACITY = 32
 
@@ -57,6 +60,7 @@ class PersistentBrowserRuntime:
         self._requests = requests
         self._store = BrowserFrameStore()
         self._commands: Queue[BrowserCommand] = Queue(maxsize=QUEUE_CAPACITY)
+        self._api = self._load_api()
         self._ready = Event()
         self._startup_cancelled = Event()
         self._startup_error: BrowserAsideError | None = None
@@ -83,6 +87,25 @@ class PersistentBrowserRuntime:
             )
         if self._startup_error is not None:
             raise self._startup_error
+
+    @staticmethod
+    def _load_api() -> SyncApi:
+        try:
+            return load_sync_api()
+        except BundledBrowserRuntimeError as error:
+            raise BrowserAsideError(
+                error.code.value,
+                str(error),
+                503,
+            ) from error
+        except ImportError as error:
+            raise BrowserAsideError(
+                "browser_unavailable",
+                "Install the optional browser dependency and Chromium with "
+                + "`uv sync --extra browser && "
+                + "uv run playwright install chromium`.",
+                503,
+            ) from error
 
     def status(self) -> BrowserRuntimeStatus:
         return cast(
@@ -161,18 +184,7 @@ class PersistentBrowserRuntime:
         return result
 
     def _run(self) -> None:
-        try:
-            api = load_sync_api()
-        except ImportError:
-            self._startup_error = BrowserAsideError(
-                "browser_unavailable",
-                "Install the optional browser dependency and Chromium with "
-                + "`uv sync --extra browser && "
-                + "uv run playwright install chromium`.",
-                503,
-            )
-            self._ready.set()
-            return
+        api = self._api
         manager: PlaywrightManager | None = None
         playwright: Playwright | None = None
         context: BrowserContext | None = None
