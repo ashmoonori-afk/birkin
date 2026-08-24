@@ -68,7 +68,10 @@ public sealed class ShellCoordinatorOfficeWorkflowTests
     [DataRow("file.import")]
     [DataRow("approval.answer")]
     [DataRow("office.create")]
-    public async Task Submit_WhenReceiptAccepted_DoesNotFabricateVisibleSuccess(string commandType)
+    [DataRow("office.select")]
+    [DataRow("office.open")]
+    [DataRow("office.convert")]
+    public async Task Submit_WhenReceiptAccepted_UsesHelloScopeWithoutFabricatingVisibleSuccess(string commandType)
     {
         // Given
         var fixture = await Fixture.ConnectAsync(new HashSet<string>([commandType]));
@@ -83,22 +86,24 @@ public sealed class ShellCoordinatorOfficeWorkflowTests
             "file.import" => await fixture.Coordinator.ImportAsync(new FileImportIntent(@"C:\input.xlsx"), CancellationToken.None),
             "approval.answer" => await fixture.Coordinator.AnswerApprovalAsync(new ApprovalAnswerIntent("approval-1", ApprovalDecision.Approve), CancellationToken.None),
             "office.create" => await fixture.Coordinator.CreateOfficeDocumentAsync(new OfficeCreateIntent("docx", new OfficeDocumentContent(["Report"]), "report.docx"), CancellationToken.None),
+            "office.select" => await fixture.Coordinator.SelectOfficeDocumentAsync(new OfficeSelectIntent("artifact-1"), CancellationToken.None),
+            "office.open" => await fixture.Coordinator.OpenOfficeDocumentAsync(new OfficeOpenIntent(new OfficeArtifact("artifact-1", "hash", "application/test", "file:///test", "private", "acl")), CancellationToken.None),
+            "office.convert" => await fixture.Coordinator.ConvertOfficeDocumentAsync(new OfficeConvertIntent(new OfficeArtifact("artifact-1", "hash", "application/test", "file:///test", "private", "acl"), "txt", "output.txt", OfficeLossBudget.Zero), CancellationToken.None),
             _ => throw new AssertFailedException(),
         };
         fixture.Context.RunAll();
 
         // Then
         Assert.IsTrue(submitted);
+        var helloViewId = ((NativeJsonString)NativeHandshake.CreateHello("0.4.276", "secret", "hello-1").Body["view_id"]!).Value;
+        Assert.AreEqual(helloViewId, fixture.Connection.Sent.Single().ViewId);
         Assert.AreEqual(0, fixture.Model.Workspace?.Conversation.Count);
         Assert.AreEqual(0, fixture.Model.Workspace?.Activity.Count);
         Assert.AreEqual(0, fixture.Model.Workspace?.Office.Count);
         Assert.AreEqual(WorkflowCommandState.AcceptedPendingProjection, fixture.Model.OfficeWorkflow.CommandState);
         var availability = fixture.Model.OfficeWorkflow.Availability;
-        Assert.IsFalse(new[]
-        {
-            availability.ConversationSend, availability.FileImport, availability.ApprovalAnswer,
-            availability.OfficeCreate, availability.OfficeSelect, availability.OfficeOpen, availability.OfficeConvert,
-        }.Any(item => item.IsEnabled));
+        Assert.IsFalse(new[] { availability.ConversationSend, availability.FileImport, availability.ApprovalAnswer,
+            availability.OfficeCreate, availability.OfficeSelect, availability.OfficeOpen, availability.OfficeConvert }.Any(item => item.IsEnabled));
         await fixture.DisposeAsync();
     }
 
@@ -210,13 +215,8 @@ public sealed class ShellCoordinatorOfficeWorkflowTests
     private sealed class Fixture : IAsyncDisposable
     {
         private Fixture(TestConnection connection, DeterministicSynchronizationContext context,
-            ShellPresentationModel model, ShellCoordinator coordinator)
-        {
-            Connection = connection;
-            Context = context;
-            Model = model;
-            Coordinator = coordinator;
-        }
+            ShellPresentationModel model, ShellCoordinator coordinator) =>
+            (Connection, Context, Model, Coordinator) = (connection, context, model, coordinator);
 
         public TestConnection Connection { get; }
         public DeterministicSynchronizationContext Context { get; }

@@ -30,6 +30,8 @@ public sealed record NativeHandshakeExpectation(
 
 public static class NativeHandshake
 {
+    public const string ViewId = "window-main";
+
     private const int MaxPayloadBytes = 65_536;
     private const int MaxInflightCommands = 1;
     private const int MaxSubscriptions = 32;
@@ -42,7 +44,7 @@ public static class NativeHandshake
             ("client_build", new NativeJsonString(productVersion)),
             ("supported_protocol_versions", new NativeJsonArray([new NativeJsonInteger(NativeProtocolConstants.Version)])),
             ("surface", new NativeJsonString("windows")),
-            ("view_id", new NativeJsonString("window-main")),
+            ("view_id", new NativeJsonString(ViewId)),
             ("bootstrap_secret", new NativeJsonString(bootstrapSecret)));
         var hello = new NativeEnvelope(NativeMessageKind.Hello, id, body);
         NativeBodyValidator.Validate(hello, NativeMessageOrigin.Client);

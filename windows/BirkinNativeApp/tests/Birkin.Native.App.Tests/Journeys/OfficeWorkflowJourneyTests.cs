@@ -58,14 +58,6 @@ public sealed class OfficeWorkflowJourneyTests
         StringAssert.Contains(reportText, "BIRKIN_P3_03_DOCUMENT_SENTINEL");
     }
 
-    [TestMethod]
-    [TestCategory("ExistingAccountProvider")]
-    public void ExistingAccountProvider_WhenProtectedRunnerIsAbsent_IsExplicitlyInconclusive()
-    {
-        // Given / When / Then
-        Assert.Inconclusive("Existing-account provider journey requires the protected Windows runner.");
-    }
-
     private static string ReadXml(ZipArchive archive) =>
         string.Join("\n", archive.Entries.Where(entry => entry.FullName.EndsWith(".xml", StringComparison.Ordinal)).Select(entry =>
         {

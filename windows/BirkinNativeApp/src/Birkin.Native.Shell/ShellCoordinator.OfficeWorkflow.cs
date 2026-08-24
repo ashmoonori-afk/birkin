@@ -27,49 +27,49 @@ public sealed partial class ShellCoordinator
 
         return SubmitAsync(
             new CommandSubmission(
-                ConversationCommands.Send(_workflow.Draft, Context("conversation")),
+                ConversationCommands.Send(_workflow.Draft, Context()),
                 ProjectionPermitsConversation()),
             cancellationToken);
     }
 
     public Task<bool> ImportAsync(FileImportIntent intent, CancellationToken cancellationToken) =>
         SubmitAsync(
-            new CommandSubmission(ImportCommands.Import(intent, Context("imports")), true),
+            new CommandSubmission(ImportCommands.Import(intent, Context()), true),
             cancellationToken);
 
     public Task<bool> AnswerApprovalAsync(
         ApprovalAnswerIntent intent,
         CancellationToken cancellationToken) =>
         SubmitAsync(
-            new CommandSubmission(ApprovalCommands.Answer(intent, Context("approvals")), true),
+            new CommandSubmission(ApprovalCommands.Answer(intent, Context()), true),
             cancellationToken);
 
     public Task<bool> CreateOfficeDocumentAsync(
         OfficeCreateIntent intent,
         CancellationToken cancellationToken) =>
         SubmitAsync(
-            new CommandSubmission(OfficeCommands.Create(intent, Context("office")), true),
+            new CommandSubmission(OfficeCommands.Create(intent, Context()), true),
             cancellationToken);
 
     public Task<bool> SelectOfficeDocumentAsync(
         OfficeSelectIntent intent,
         CancellationToken cancellationToken) =>
         SubmitAsync(
-            new CommandSubmission(OfficeCommands.Select(intent, Context("office")), true),
+            new CommandSubmission(OfficeCommands.Select(intent, Context()), true),
             cancellationToken);
 
     public Task<bool> OpenOfficeDocumentAsync(
         OfficeOpenIntent intent,
         CancellationToken cancellationToken) =>
         SubmitAsync(
-            new CommandSubmission(OfficeCommands.Open(intent, Context("office")), true),
+            new CommandSubmission(OfficeCommands.Open(intent, Context()), true),
             cancellationToken);
 
     public Task<bool> ConvertOfficeDocumentAsync(
         OfficeConvertIntent intent,
         CancellationToken cancellationToken) =>
         SubmitAsync(
-            new CommandSubmission(OfficeCommands.Convert(intent, Context("office")), true),
+            new CommandSubmission(OfficeCommands.Convert(intent, Context()), true),
             cancellationToken);
 
     public async Task ReceiveCanonicalAsync(CancellationToken cancellationToken)
@@ -215,10 +215,10 @@ public sealed partial class ShellCoordinator
         RefreshMutationAvailability();
     }
 
-    private CommandRequestContext Context(string viewId) => new(
+    private CommandRequestContext Context() => new(
         CommandIdFactory(),
         _projectionStore.State?.Cursor ?? 0,
-        viewId);
+        NativeHandshake.ViewId);
 
     private MutationAvailability Availability(string commandType, bool projectionPermits) =>
         MutationAvailability.ForCommand(
