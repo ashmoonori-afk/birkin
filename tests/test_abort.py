@@ -54,6 +54,85 @@ def test_agent_abort_stops_after_a_tool_turn():
     assert calls["n"] == 1 and "aborted" in out.lower()
 
 
+def test_parallel_abort_returns_promptly_with_valid_history():
+    long_started = threading.Event()
+    release_long = threading.Event()
+    long_finished = threading.Event()
+    returned = threading.Event()
+    abort = threading.Event()
+    output = []
+
+    calls = [
+        {"type": "tool_use", "id": "long", "name": "web_fetch",
+         "input": {"wait": True}},
+        {"type": "tool_use", "id": "quick", "name": "web_fetch", "input": {}},
+    ]
+
+    class _Client:
+        provider = "anthropic"
+
+        def __init__(self):
+            self.calls = 0
+
+        def complete(self, **kw):
+            self.calls += 1
+            if self.calls == 1:
+                return {"content": calls, "stop_reason": "tool_use"}
+            raise AssertionError("abort must prevent another model turn")
+
+    class _ParallelReg(_Reg):
+        def execute(self, name, tool_input):
+            if tool_input.get("wait"):
+                long_started.set()
+                try:
+                    assert release_long.wait(timeout=10)
+                finally:
+                    long_finished.set()
+            return super().execute(name, tool_input)
+
+    agent = Agent(client=_Client(), system="", registry=_ParallelReg())
+
+    def run_agent():
+        try:
+            output.append(agent.run("fetch", abort=abort))
+        finally:
+            returned.set()
+
+    runner = threading.Thread(target=run_agent, name="parallel-abort-test")
+    runner.start()
+    assert long_started.wait(timeout=2)
+
+    started = time.monotonic()
+    abort.set()
+    did_return = False
+    try:
+        did_return = returned.wait(timeout=4)
+        elapsed = time.monotonic() - started
+    finally:
+        release_long.set()
+        assert long_finished.wait(timeout=2)
+        runner.join(timeout=2)
+
+    assert not runner.is_alive()
+    assert did_return, "parallel abort waited for the running tool"
+    assert elapsed < 4
+    assert output and "aborted" in output[0].lower()
+    tool_uses = [
+        block for message in agent.messages
+        for block in message["content"] if block.get("type") == "tool_use"
+    ]
+    tool_results = [
+        block for message in agent.messages
+        for block in message["content"] if block.get("type") == "tool_result"
+    ]
+    assert len(tool_results) == len(calls)
+    assert [block["tool_use_id"] for block in tool_results] == [
+        block["id"] for block in tool_uses
+    ]
+    assert tool_results[0]["content"] == "aborted"
+    assert tool_results[0]["is_error"] is True
+
+
 def test_agent_no_abort_runs_normally():
     class _Client:
         def complete(self, **kw):

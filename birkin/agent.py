@@ -541,8 +541,10 @@ class Agent:
                                       "id": tu.get("id")})
 
         slots: list[Optional[dict[str, Any]]] = [None] * len(calls)
-        with ThreadPoolExecutor(
-                max_workers=min(len(calls), self.parallel_workers)) as pool:
+        pool = ThreadPoolExecutor(
+            max_workers=min(len(calls), self.parallel_workers))
+        aborted = False
+        try:
             futures = {}
             for i, tu in enumerate(calls):
                 futures[pool.submit(self._run_one, tu)] = i
@@ -557,6 +559,7 @@ class Agent:
                         slots[i] = self._result_block(  # this guards the executor
                             calls[i], f"Tool failed: {exc}", True)
                 if pending and self._aborted(abort):
+                    aborted = True
                     for fut in pending:
                         fut.cancel()
                     # Running reads cannot be killed; give them a moment, then
@@ -569,6 +572,8 @@ class Agent:
                         except Exception:
                             slots[i] = None
                     break
+        finally:
+            pool.shutdown(wait=not aborted, cancel_futures=aborted)
 
         out: list[dict[str, Any]] = []
         for i, tu in enumerate(calls):
