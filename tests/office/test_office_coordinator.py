@@ -7,6 +7,7 @@ from pathlib import Path
 from typing import cast
 
 import pytest
+from docx import Document
 
 from birkin import approvals, config, store
 from birkin.office.errors import DocumentError, DocumentErrorCode
@@ -82,6 +83,57 @@ def _queue(
 
 def _sha256(path: Path) -> str:
     return hashlib.sha256(path.read_bytes()).hexdigest()
+
+
+def test_docx_paragraph_request_executes_through_registry_and_approval(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # Given: a real DOCX and a natural-language bilingual paragraph request.
+    home = tmp_path / "home"
+    caller = tmp_path / "caller"
+    home.mkdir()
+    caller.mkdir()
+    monkeypatch.setenv("BIRKIN_HOME", str(home))
+    source = home / "source.docx"
+    destination = caller / "approved.docx"
+    document = Document()
+    _ = document.add_paragraph("계약 원문 Original contract paragraph.")
+    document.save(source)
+    source_sha256 = _sha256(source)
+    request = {
+        "request": (
+            "이 DOCX Word document의 계약 원문 Original contract paragraph를 "
+            "승인된 계약문 Approved contract paragraph로 교체해 주세요."
+        ),
+        "source": {"content_hash": source_sha256, "uri": str(source)},
+        "outcome": "Replace the known bilingual contract paragraph",
+        "operations": [
+            {
+                "locator": {"format": "docx", "index": 1},
+                "value": "승인된 계약문 Approved contract paragraph.",
+            }
+        ],
+        "destination": str(destination),
+    }
+    registry = build_registry(
+        ToolContext(
+            cfg={}, client=None, cwd=caller, record_source="user:docx-e2e"
+        ),
+        include={"documents"},
+    )
+
+    # When: the registry queues and the standard approval queue executes the job.
+    proposed = registry.execute("office_job_request", request)
+    body = cast("dict[str, object]", json.loads(cast(str, proposed.content)))
+    result = approvals.approve(cast(str, body["id"]))
+
+    # Then: the exported DOCX reopens with only the approved paragraph replacement.
+    assert not proposed.is_error, body
+    assert result["ok"] is True, result
+    assert Document(str(destination)).paragraphs[0].text == (
+        "승인된 계약문 Approved contract paragraph."
+    )
+    assert _sha256(source) == source_sha256
 
 
 def test_request_queues_bound_approval_without_mutating_files(

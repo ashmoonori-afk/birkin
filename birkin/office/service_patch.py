@@ -18,6 +18,7 @@ from .adapters.hwpx import HwpxAdapter
 from .adapters.hwpx_package import require_hwpx_content
 from .adapters.pptx import PptxAdapter
 from .adapters.xlsx import XlsxAdapter
+from .docx_patch_locator import resolve_docx_paragraph
 from .errors import DocumentError, DocumentErrorCode
 from .service_patch_contract import validate_operations
 from .service_workspace import DocumentWorkspace
@@ -149,7 +150,21 @@ def _patch_writer(
         staging.unlink()
         value = operation.get("value")
         try:
-            if fmt in {"docx", "hwpx"}:
+            if fmt == "docx" and "locator" in operation:
+                if not isinstance(value, str):
+                    raise _invalid("DOCX paragraph patch value must be a string")
+                selector = operation.get("locator")
+                if not isinstance(selector, Mapping):
+                    raise _invalid("DOCX paragraph locator must be an object")
+                adapter = DocxAdapter()
+                _ = adapter.patch_text(
+                    source,
+                    staging,
+                    resolve_docx_paragraph(source, selector),
+                    value,
+                    expected_source_sha256=expected_sha256,
+                )
+            elif fmt in {"docx", "hwpx"}:
                 if not isinstance(value, str):
                     raise _invalid("field patch value must be a string")
                 adapter = DocxAdapter() if fmt == "docx" else HwpxAdapter()

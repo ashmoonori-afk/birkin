@@ -33,6 +33,23 @@ PATCH_OPERATION_SCHEMA: dict[str, object] = {
         },
         {
             "type": "object",
+            "properties": {
+                "locator": {
+                    "type": "object",
+                    "properties": {
+                        "format": {"const": "docx"},
+                        "index": {"type": "integer", "minimum": 1},
+                    },
+                    "required": ["format", "index"],
+                    "additionalProperties": False,
+                },
+                "value": {"type": "string"},
+            },
+            "required": ["locator", "value"],
+            "additionalProperties": False,
+        },
+        {
+            "type": "object",
             "properties": {"cell": {"type": "string"}, "value": {}},
             "required": ["cell", "value"],
             "additionalProperties": False,

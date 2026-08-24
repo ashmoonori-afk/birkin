@@ -14,6 +14,7 @@ from typing import TypeAlias, final
 
 from .artifact_snapshot import SnapshotPath
 from .errors import DocumentError, DocumentErrorCode
+from .export_copy import copy_to_temporary
 from .path_security import directory_identity, ensure_directory_identity, sync_directory
 
 
@@ -113,13 +114,16 @@ class ExportPolicy:
             raise self._denied("export destination must be a regular file")
 
         source_sha256 = source.sha256()
+        rollback_token = uuid.uuid4().hex
         prior_sha256: str | None = None
         backup: Path | None = None
         temporary: Path | None = None
         reservation: int | None = None
         try:
             if existed:
-                backup, prior_sha256 = self._snapshot_destination(destination)
+                backup, prior_sha256 = self._snapshot_destination(
+                    destination, rollback_token
+                )
             descriptor, temporary_name = tempfile.mkstemp(
                 prefix=".birkin-export-", suffix=destination.suffix, dir=destination.parent
             )
@@ -154,7 +158,7 @@ class ExportPolicy:
             temporary = None
             sync_directory(destination.parent, parent_identity)
             return ExportReceipt(
-                rollback_token=uuid.uuid4().hex,
+                rollback_token=rollback_token,
                 destination=destination,
                 source_sha256=source_sha256,
                 output_sha256=output_sha256,
@@ -194,7 +198,7 @@ class ExportPolicy:
                     "rollback",
                     "destination backup is unavailable",
                 )
-            temporary = self._copy_to_temporary(backup, destination.parent, destination.suffix)
+            temporary = copy_to_temporary(backup, destination.parent, destination.suffix)
             try:
                 if self._hash(temporary) != receipt.destination_sha256:
                     raise DocumentError(
@@ -232,35 +236,21 @@ class ExportPolicy:
             raise self._denied("export destination requires a filename")
         return absolute
 
-    def _snapshot_destination(self, destination: Path) -> tuple[Path, str]:
+    def _snapshot_destination(
+        self, destination: Path, rollback_token: str
+    ) -> tuple[Path, str]:
         self._backup_root.mkdir(mode=0o700, exist_ok=True)
         if self._backup_root.is_symlink():
             raise self._denied("export backup directory must not be a symbolic link")
         os.chmod(self._backup_root, 0o700)
-        backup = self._backup_root / f"{uuid.uuid4().hex}.bak"
-        temporary = self._copy_to_temporary(
+        backup = self._backup_root / f"{rollback_token}.bak"
+        temporary = copy_to_temporary(
             destination, self._backup_root, destination.suffix
         )
         digest = self._hash(temporary)
         os.replace(temporary, backup)
         sync_directory(self._backup_root, directory_identity(self._backup_root))
         return backup, digest
-
-    @staticmethod
-    def _copy_to_temporary(source: Path, directory: Path, suffix: str) -> Path:
-        descriptor, name = tempfile.mkstemp(
-            prefix=".birkin-export-", suffix=suffix, dir=directory
-        )
-        temporary = Path(name)
-        try:
-            with os.fdopen(descriptor, "wb") as outgoing, source.open("rb") as incoming:
-                shutil.copyfileobj(incoming, outgoing, 1024 * 1024)
-                outgoing.flush()
-                os.fsync(outgoing.fileno())
-        except OSError:
-            temporary.unlink(missing_ok=True)
-            raise
-        return temporary
 
     @staticmethod
     def _hash(path: Path) -> str:

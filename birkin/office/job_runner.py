@@ -9,6 +9,7 @@ from typing import BinaryIO, cast, final
 
 from .errors import DocumentError, DocumentErrorCode
 from .export_policy import JSONValue, ExportReceipt, ExportRequest
+from .export_receipt import restore_export_receipt
 from .service import DocumentService
 from .service_workspace import DocumentWorkspace
 
@@ -111,7 +112,14 @@ class DocumentServiceRunner:
         token = _string(receipt.get("rollback_token"), "rollback token")
         exported = self._export_receipts.get(token)
         if exported is None:
-            raise _precondition("export receipt is unavailable")
+            policy = DocumentWorkspace(self._service.home).export_policy(
+                self._export_root or Path(_string(receipt.get("path"), "export path")).parent
+            )
+            exported = restore_export_receipt(
+                receipt,
+                self._service.home / "artifacts" / "export-backups",
+                policy.resolve_destination,
+            )
         if receipt.get("output_sha256") != exported.output_sha256:
             raise _precondition("export receipt output sha256 changed")
         if receipt.get("path") != str(exported.destination):
@@ -120,7 +128,7 @@ class DocumentServiceRunner:
             self._export_root or exported.destination.parent
         )
         rolled_back = policy.rollback(exported)
-        del self._export_receipts[token]
+        self._export_receipts.pop(token, None)
         return rolled_back.public()
 
     def publish(

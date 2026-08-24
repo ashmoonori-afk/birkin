@@ -142,6 +142,32 @@ def test_rollback_restores_overwritten_destination_byte_for_byte_without_residue
     assert not backup_root.exists() or not tuple(backup_root.iterdir())
 
 
+def test_export_receipt_rolls_back_after_runner_restart(tmp_path: Path) -> None:
+    # Given: an overwritten destination and only the durable public export receipt.
+    service = DocumentService(tmp_path / "office-home")
+    artifact = _validated_draft(service, "new validated bytes")
+    caller_folder = tmp_path / "caller-output"
+    caller_folder.mkdir()
+    destination = caller_folder / "result.txt"
+    original = b"caller original before restart"
+    _ = destination.write_bytes(original)
+    receipt = DocumentServiceRunner(service, export_root=caller_folder).export(
+        artifact=artifact,
+        request=_request(destination, overwrite_approved=True),
+    )
+
+    # When: a fresh runner restores the rollback authority from the receipt.
+    rollback = DocumentServiceRunner(
+        service, export_root=caller_folder
+    ).rollback_export(receipt)
+
+    # Then: the caller's original bytes are restored without backup residue.
+    assert rollback["restored"] is True
+    assert destination.read_bytes() == original
+    backup_root = service.home / "artifacts" / "export-backups"
+    assert not tuple(backup_root.iterdir())
+
+
 def test_rollback_removes_destination_that_did_not_exist_before_export(
     tmp_path: Path,
 ) -> None:
