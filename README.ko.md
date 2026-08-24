@@ -240,7 +240,7 @@ Base install의 경계는 명확합니다. 다섯 format 모두 inspect, validat
 
 신뢰된 한국어·영어 자연어 요청은 production skill을 결정적으로 preload합니다. Word/DOCX는 `word-documents`, Excel/XLSX는 `spreadsheets`, PowerPoint/PPTX는 `presentations`, PDF는 `pdf-documents`, HWP/HWPX는 `korean-hwp-documents`, 일반 Office 작업은 `office-work-os`로 route합니다. Format intent와 artifact 신호가 충돌하면 inspect-first `office-documents`로 route합니다. 문서 내용은 untrusted data이므로 skill을 선택하거나 override할 수 없고, 모든 routed mutation은 copy-on-write를 유지합니다.
 
-[상세 지원 계약](./docs/office-support.md#office-work-os-v2), machine [`provenance_manifest.json`](./birkin/office/adapters/provenance_manifest.json), [`THIRD_PARTY_NOTICES.md`](./birkin/office/adapters/THIRD_PARTY_NOTICES.md)를 참고하십시오. 이 문서는 Birkin `0.4.301`, `catalog_revision: 4`, `inventory_sha256: a49ab813ee4cdea3d6f87e0e2bd063b1dde54058e5c8dd0af0cf32bec74cae95`를 대상으로 합니다.
+[상세 지원 계약](./docs/office-support.md#office-work-os-v2), machine [`provenance_manifest.json`](./birkin/office/adapters/provenance_manifest.json), [`THIRD_PARTY_NOTICES.md`](./birkin/office/adapters/THIRD_PARTY_NOTICES.md)를 참고하십시오. 이 문서는 Birkin `0.4.302`, `catalog_revision: 4`, `inventory_sha256: a49ab813ee4cdea3d6f87e0e2bd063b1dde54058e5c8dd0af0cf32bec74cae95`를 대상으로 합니다.
 
 ### Office 작업 처음부터 끝까지
 
@@ -823,9 +823,11 @@ socket과 peer-UID 검사를 쓸 수 없으므로 인증된 `127.0.0.1` loopback
   밖에 있어 App Sandbox는 계속 비활성화하지만 Python policy, local
   authentication, macOS privacy permission은 적용됩니다.
 
-향후 Windows-native client와 공통 cross-platform shell 중 무엇을 택할지는
-아직 열려 있으며, 코드 재사용률만이 아니라 accessibility API, installer
-유지보수, 실제 사용량을 기준으로 결정합니다.
+**Windows WPF/native는 이 브랜치에서 development preview로 구현되었습니다.**
+이 preview는 native shell과 bridge 계약을 실행하지만 production support로
+출시된 것은 아닙니다. Installer와 updater delivery, production signing,
+provider-backed production delivery는 향후 작업으로 남아 있습니다. 공통
+cross-platform shell은 별도의 향후 platform 결정입니다.
 
 ### 절충점과 비목표
 

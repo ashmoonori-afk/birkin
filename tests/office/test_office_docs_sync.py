@@ -166,6 +166,22 @@ def test_detailed_office_support_version_matches_project() -> None:
     assert f"- Birkin version: `{version}`" in detail
 
 
+def test_english_and_korean_windows_publication_claims_match() -> None:
+    claims = (
+        "development preview",
+        "installer and updater delivery",
+        "production\nsigning",
+        "provider-backed production delivery",
+    )
+    english = _text(ROOT / "README.md").lower()
+    korean = _text(ROOT / "README.ko.md").lower()
+    assert all(claim in english for claim in claims)
+    assert "development preview" in korean
+    assert "installer와 updater delivery" in korean
+    assert "production signing" in korean
+    assert "provider-backed production delivery" in korean
+
+
 def test_office_document_links_and_anchor_targets_exist() -> None:
     readmes = (_text(ROOT / "README.md"), _text(ROOT / "README.ko.md"))
     for text in readmes:
