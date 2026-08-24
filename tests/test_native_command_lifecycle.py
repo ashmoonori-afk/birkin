@@ -139,17 +139,30 @@ def test_repeated_blocked_disconnects_keep_command_and_unsubscribe_threads_bound
                 peer_uid=local_peer_uid(),
             )
             token = handshake(client)
+            if cycle > 0:
+                client.sendall(encode_frame(envelope(
+                    "ping",
+                    frame_id=f"queued-heartbeat-{cycle}",
+                    body={
+                        "session_capability": token,
+                        "sent_at": "2026-08-21T00:00:00Z",
+                    },
+                )))
             _send_command(client, token, command_id=f"blocked-{cycle}")
             if cycle == 0:
                 assert command_started.wait(timeout=1)
                 assert entered.wait(timeout=1)
             else:
-                refusal = receive_frame(client)
-                assert (refusal.in_reply_to, refusal.body["code"]) == (
-                    f"blocked-{cycle}",
-                    "E_FLOW_VIOLATION",
-                )
-            _ = _barrier(client, token, f"barrier-{cycle}")
+                frames = _barrier(client, token, f"barrier-{cycle}")
+                refusals = [
+                    frame
+                    for frame in frames
+                    if frame.kind == "error"
+                    and frame.in_reply_to == f"blocked-{cycle}"
+                ]
+                assert [(frame.in_reply_to, frame.body["code"]) for frame in refusals] == [
+                    (f"blocked-{cycle}", "E_FLOW_VIOLATION")
+                ]
             client.close()
             thread.join(timeout=2)
             assert not thread.is_alive()
