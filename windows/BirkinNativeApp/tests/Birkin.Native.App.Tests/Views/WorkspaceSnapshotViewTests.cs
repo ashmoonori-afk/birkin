@@ -105,7 +105,7 @@ public sealed class WorkspaceSnapshotViewTests
                 FindByAutomationId<ItemsControl>(view, "approvals.items").ItemsSource,
                 RegionAutomationIds(view),
                 Descendants<Button>(view).Select(button => button.IsEnabled).ToArray(),
-                FindByAutomationId<TextBox>(view, "composer.draft").IsEnabled,
+                FindByAutomationId<TextBox>(view, "conversation.draft").IsEnabled,
                 AutomationProperties.GetAutomationId(
                     FindByAutomationId<TextBlock>(view, "composer.read-only-caption")));
         });
@@ -170,8 +170,9 @@ public sealed class WorkspaceSnapshotViewTests
         .ToArray();
 
     private static T FindByAutomationId<T>(DependencyObject root, string id) where T : DependencyObject =>
-        Descendants<T>(root).Single(element =>
-            string.Equals(AutomationProperties.GetAutomationId(element), id, StringComparison.Ordinal));
+        Descendants<T>(root).SingleOrDefault(element =>
+            string.Equals(AutomationProperties.GetAutomationId(element), id, StringComparison.Ordinal))
+        ?? throw new AssertFailedException($"Missing automation element: {id}");
 
     private static IEnumerable<T> Descendants<T>(DependencyObject root) where T : DependencyObject
     {
@@ -207,4 +208,5 @@ public sealed class WorkspaceSnapshotViewTests
         bool[] ControlEnabledStates,
         bool ComposerInputEnabled,
         string ComposerCaptionAutomationId);
+
 }

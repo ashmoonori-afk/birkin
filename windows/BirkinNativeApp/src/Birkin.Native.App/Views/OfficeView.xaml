@@ -1,0 +1,46 @@
+<UserControl x:Class="Birkin.Native.App.Views.OfficeView"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:automation="clr-namespace:System.Windows.Automation;assembly=PresentationCore"
+             automation:AutomationProperties.AutomationId="office.workflow"
+             automation:AutomationProperties.Name="Office document workflow">
+    <UserControl.Resources><ResourceDictionary Source="../Styles/ShellStyles.xaml" /></UserControl.Resources>
+    <Grid>
+        <Grid.RowDefinitions><RowDefinition Height="*"/><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
+        <Grid>
+            <ItemsControl automation:AutomationProperties.AutomationId="office.items" ItemsSource="{Binding DocumentRows, RelativeSource={RelativeSource AncestorType=UserControl}}">
+                <ItemsControl.ItemTemplate><DataTemplate>
+                    <Border Background="{StaticResource RaisedBrush}" CornerRadius="6" Padding="8" Margin="0,0,0,5">
+                        <Grid>
+                            <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
+                            <StackPanel>
+                                <TextBlock Text="{Binding Summary}" TextWrapping="Wrap" />
+                                <TextBlock Text="{Binding Kind}" Foreground="{StaticResource FaintBrush}" FontSize="10" />
+                            </StackPanel>
+                            <Button Grid.Column="1" Content="Select" Tag="{Binding Id}" Margin="6,0,0,0" automation:AutomationProperties.AutomationId="office.select" automation:AutomationProperties.Name="Select projected office document" Style="{StaticResource DisabledActionStyle}" IsEnabled="{Binding DataContext.OfficeWorkflow.Availability.OfficeSelect.IsEnabled, RelativeSource={RelativeSource AncestorType=UserControl}}" Click="SelectClicked" />
+                        </Grid>
+                    </Border>
+                </DataTemplate></ItemsControl.ItemTemplate>
+            </ItemsControl>
+            <StackPanel VerticalAlignment="Center">
+                <StackPanel.Style><Style TargetType="StackPanel"><Setter Property="Visibility" Value="Collapsed"/><Style.Triggers><DataTrigger Binding="{Binding DocumentRows.Count, RelativeSource={RelativeSource AncestorType=UserControl}}" Value="0"><Setter Property="Visibility" Value="Visible"/></DataTrigger></Style.Triggers></Style></StackPanel.Style>
+                <TextBlock Text="&#xE8A5;" Style="{StaticResource GlyphStyle}" FontSize="18" />
+                <TextBlock Text="No documents open" FontWeight="SemiBold" HorizontalAlignment="Center" Margin="0,2,0,0" />
+            </StackPanel>
+        </Grid>
+        <ContentControl x:Name="DiffHost" Grid.Row="1" />
+        <Grid Grid.Row="2" Margin="0,4,0,0">
+            <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
+            <Expander Header="New document" automation:AutomationProperties.AutomationId="office.new-panel" automation:AutomationProperties.Name="New office document controls" Foreground="{StaticResource TextBrush}">
+                <StackPanel Margin="0,6,6,0">
+                    <TextBox x:Name="OutputNameBox" automation:AutomationProperties.AutomationId="office.output-name" automation:AutomationProperties.Name="Office output file name" Background="{StaticResource RaisedBrush}" BorderBrush="{StaticResource BorderBrush}" Foreground="{StaticResource TextBrush}" Padding="8,5" Text="report.docx" />
+                    <TextBox x:Name="ContentBox" automation:AutomationProperties.AutomationId="office.content" automation:AutomationProperties.Name="Office document content" Background="{StaticResource RaisedBrush}" BorderBrush="{StaticResource BorderBrush}" Foreground="{StaticResource TextBrush}" Padding="8,5" Text="검토 보고서" Margin="0,5,0,0" />
+                    <Button Content="Create DOCX" HorizontalAlignment="Right" Margin="0,5,0,0" automation:AutomationProperties.AutomationId="office.create" automation:AutomationProperties.Name="Create office document" Style="{StaticResource DisabledActionStyle}" IsEnabled="{Binding OfficeWorkflow.Availability.OfficeCreate.IsEnabled}" Click="CreateClicked" />
+                </StackPanel>
+            </Expander>
+            <Expander Grid.Column="1" Header="Import file" automation:AutomationProperties.AutomationId="office.import-panel" automation:AutomationProperties.Name="Import office file controls" Foreground="{StaticResource TextBrush}">
+                <ContentControl x:Name="ImportHost" />
+            </Expander>
+        </Grid>
+    </Grid>
+</UserControl>

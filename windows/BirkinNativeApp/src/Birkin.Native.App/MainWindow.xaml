@@ -16,18 +16,5 @@
     <Window.Resources>
         <ResourceDictionary Source="Styles/ShellStyles.xaml" />
     </Window.Resources>
-    <Grid>
-        <Grid.RowDefinitions>
-            <RowDefinition Height="28" />
-            <RowDefinition Height="*" />
-        </Grid.RowDefinitions>
-        <Border Background="#BD792B" Padding="12,5">
-            <TextBlock Text="DEVELOPMENT PREVIEW"
-                       Foreground="#160F08"
-                       FontSize="11"
-                       FontWeight="Bold"
-                       HorizontalAlignment="Center" />
-        </Border>
-        <views:WorkspaceSnapshotView x:Name="SnapshotView" Grid.Row="1" />
-    </Grid>
+    <views:WorkspaceSnapshotView x:Name="SnapshotView" />
 </Window>

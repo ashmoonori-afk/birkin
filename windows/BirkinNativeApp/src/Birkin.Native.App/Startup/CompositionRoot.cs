@@ -1,4 +1,5 @@
 using System.Reflection;
+using System.Runtime.CompilerServices;
 using Birkin.Native.Protocol.Projection;
 using Birkin.Native.Protocol.Transport;
 using Birkin.Native.Shell;
@@ -8,6 +9,8 @@ namespace Birkin.Native.App.Startup;
 
 public sealed class CompositionRoot : IAsyncDisposable
 {
+    private static readonly ConditionalWeakTable<ShellPresentationModel, ShellCoordinator> Coordinators = new();
+
     private CompositionRoot(
         ShellPresentationModel presentationModel,
         ShellCoordinator coordinator,
@@ -35,11 +38,19 @@ public sealed class CompositionRoot : IAsyncDisposable
             .GetCustomAttribute<AssemblyInformationalVersionAttribute>()?.InformationalVersion
             ?? throw new InvalidOperationException("The application product version is unavailable.");
         var productVersion = informationalVersion.Split('+', 2)[0];
+        Coordinators.Add(presentationModel, coordinator);
         return new CompositionRoot(
             presentationModel,
             coordinator,
             new DevelopmentPreviewRunner(coordinator, productVersion));
     }
 
-    public ValueTask DisposeAsync() => Coordinator.DisposeAsync();
+    internal static ShellCoordinator? CoordinatorFor(ShellPresentationModel presentationModel) =>
+        Coordinators.TryGetValue(presentationModel, out var coordinator) ? coordinator : null;
+
+    public ValueTask DisposeAsync()
+    {
+        _ = Coordinators.Remove(PresentationModel);
+        return Coordinator.DisposeAsync();
+    }
 }

@@ -10,5 +10,6 @@
     <PackageReference Include="MSTest.TestFramework" />
     <PackageReference Include="MSTest.TestAdapter" />
     <ProjectReference Include="..\..\src\Birkin.Native.App\Birkin.Native.App.csproj" />
+    <None Include="Fixtures\Office\*" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 </Project>
