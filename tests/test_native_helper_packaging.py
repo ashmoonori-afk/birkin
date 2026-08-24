@@ -42,6 +42,16 @@ def _bash_executable() -> str:
     return str(bash)
 
 
+def _bash_path(path: Path) -> str:
+    resolved = path.resolve()
+    posix = resolved.as_posix()
+    if os.name != "nt":
+        return posix
+    drive = resolved.drive.removesuffix(":").lower()
+    assert drive
+    return f"/{drive}{posix[2:]}"
+
+
 def _is_string_keyed_object(value: object) -> TypeGuard[dict[str, object]]:
     return isinstance(value, dict)
 
@@ -198,7 +208,8 @@ def test_helper_builder_accepts_checkout_line_endings(tmp_path: Path) -> None:
     repository, build_script = _copy_verifier_repository(tmp_path)
     for source_name in ("pyproject.toml", "uv.lock"):
         source = repository / source_name
-        _ = source.write_bytes(source.read_bytes().replace(b"\n", b"\r\n"))
+        canonical = source.read_bytes().replace(b"\r\n", b"\n")
+        _ = source.write_bytes(canonical.replace(b"\n", b"\r\n"))
 
     result = subprocess.run(
         [_bash_executable(), str(build_script), "--verify-inputs"],
@@ -240,7 +251,7 @@ def test_helper_builder_normalizes_msys_interpreter_path(
     uname.chmod(0o755)
     cygpath = tools / "cygpath"
     _ = cygpath.write_text(
-        f"#!/bin/sh\nprintf '%s\\n' '{Path(sys.executable).as_posix()}'\n",
+        f"#!/bin/sh\nprintf '%s\\n' '{_bash_path(Path(sys.executable))}'\n",
         encoding="utf-8",
     )
     cygpath.chmod(0o755)
@@ -251,7 +262,7 @@ def test_helper_builder_normalizes_msys_interpreter_path(
         env={
             **os.environ,
             "BIRKIN_VERIFY_PYTHON": r"C:\Birkin\python.exe",
-            "PATH": str(tools) + os.pathsep + os.environ["PATH"],
+            "PATH": f"{_bash_path(tools)}:/usr/bin:/bin",
         },
         text=True,
         capture_output=True,
