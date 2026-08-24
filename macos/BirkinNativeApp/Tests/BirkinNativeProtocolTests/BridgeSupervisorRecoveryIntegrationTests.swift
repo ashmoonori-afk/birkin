@@ -22,18 +22,19 @@ struct BridgeSupervisorRecoveryIntegrationTests {
         )
         defer { try? FileManager.default.removeItem(at: root) }
 
-        #expect(supervisor.startOwnedIfNeeded())
-        let crashedPID = harnesses[0].process.processIdentifier
+        try #require(supervisor.startOwnedIfNeeded())
+        let firstHarness = try #require(harnesses.first)
+        let crashedPID = firstHarness.process.processIdentifier
         #expect(kill(crashedPID, SIGKILL) == 0)
-        let crashReceipt = try harnesses[0].finish(removeRoot: false)
-        #expect(harnesses[0].process.terminationReason == .uncaughtSignal)
-        supervisor.observeExit(pid: crashedPID, status: harnesses[0].process.terminationStatus)
+        let crashReceipt = try firstHarness.finish(removeRoot: false)
+        #expect(firstHarness.process.terminationReason == .uncaughtSignal)
+        supervisor.observeExit(pid: crashedPID, status: firstHarness.process.terminationStatus)
 
-        #expect(harnesses.count == 2)
-        let restartedPID = harnesses[1].process.processIdentifier
+        let restartedHarness = try #require(harnesses.count == 2 ? harnesses[1] : nil)
+        let restartedPID = restartedHarness.process.processIdentifier
         #expect(restartedPID != crashedPID)
         #expect(supervisor.state == .runningOwned(pid: restartedPID))
-        let socketPath = try #require(harnesses[1].record["socket_path"] as? String)
+        let socketPath = try #require(restartedHarness.record["socket_path"] as? String)
         // A relaunched app discovers the live helper but never adopts process
         // ownership. It reconnects to the canonical session rather than creating one.
         var relaunchSpawnCount = 0
@@ -52,7 +53,7 @@ struct BridgeSupervisorRecoveryIntegrationTests {
         #expect(replayed.session.instanceID == "swift-integration-instance")
         #expect(relaunchSpawnCount == 0)
 
-        let cleanupReceipt = try harnesses[1].finish(removeRoot: false)
+        let cleanupReceipt = try restartedHarness.finish(removeRoot: false)
         relaunched.shutdown()
         supervisor.shutdown()
         let sessions = try FileManager.default.contentsOfDirectory(
