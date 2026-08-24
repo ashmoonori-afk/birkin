@@ -15,7 +15,7 @@ from birkin.native.capability import CapabilityScope
 from birkin.native.messages import NativeMessageFactory
 from birkin.native.protocol import NativeEnvelope
 from birkin.native.state import NativeConnectionState
-from birkin.native.transport import NativeConnection
+from birkin.native.transport import NativeConnection, receive_frame
 from birkin.workspace import CommandReceipt, WorkspaceCommand
 from tests.native_bridge_support import envelope
 
@@ -69,7 +69,12 @@ def _fixture() -> tuple[
     )
 
 
-def _command(command_type: str, command_id: str) -> NativeEnvelope:
+def _command(
+    command_type: str,
+    command_id: str,
+    *,
+    surface: str = "macos",
+) -> NativeEnvelope:
     return envelope(
         "command",
         frame_id=command_id,
@@ -80,10 +85,57 @@ def _command(command_type: str, command_id: str) -> NativeEnvelope:
                 "expected_cursor": 0,
                 "type": command_type,
                 "payload": {},
-                "client_context": {"surface": "macos", "view_id": "main"},
+                "client_context": {"surface": surface, "view_id": "main"},
             },
         },
     )
+
+
+def test_terminal_response_releases_lane_before_client_retry(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    executor, execution, peer = _fixture()
+    coordinator = NativeCommandCoordinator(executor, cleanup=None)
+    first = _command("chat.send", "outside-first", surface="web")
+    retry = _command("chat.send", "outside-retry", surface="web")
+    admitted: list[bool] = []
+    response_observed = threading.Event()
+    send = NativeConnection.send
+    state_send = NativeConnectionState.send
+
+    def allow_response(
+        state: NativeConnectionState,
+        response: NativeEnvelope,
+    ) -> None:
+        if state is not execution.state:
+            state_send(state, response)
+
+    def observe_send(
+        connection: NativeConnection,
+        response: NativeEnvelope,
+    ) -> None:
+        send(connection, response)
+        if connection is execution.connection and response.in_reply_to == first.id:
+            admitted.append(coordinator.submit(execution, retry))
+            response_observed.set()
+
+    monkeypatch.setattr(NativeConnectionState, "send", allow_response)
+    monkeypatch.setattr(NativeConnection, "send", observe_send)
+    try:
+        assert coordinator.submit(execution, first)
+        first_response = receive_frame(peer)
+
+        assert first_response.kind == "error"
+        assert first_response.body["code"] == "E_CAPABILITY_SCOPE"
+        assert response_observed.wait(timeout=5)
+        assert admitted == [True]
+
+        retry_response = receive_frame(peer)
+        assert retry_response.kind == "error"
+        assert retry_response.body["code"] == "E_CAPABILITY_SCOPE"
+    finally:
+        execution.connection.close()
+        peer.close()
 
 
 def test_thread_start_failure_releases_control_lane_without_disturbing_normal_lane(
