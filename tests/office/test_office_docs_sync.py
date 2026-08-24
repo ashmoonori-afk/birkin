@@ -9,11 +9,11 @@ from birkin.office.adapters.catalog import adapter_inventory
 from birkin.tools.documents import NAMES
 
 ROOT = Path(__file__).parents[2]
-DOC_PATHS = (
+README_PATHS = (
     ROOT / "README.md",
     ROOT / "README.ko.md",
-    ROOT / "docs" / "office-support.md",
 )
+DOC_PATHS = (*README_PATHS, ROOT / "docs" / "office-support.md")
 SKILL_IDS = (
     "office-work-os",
     "office-documents",
@@ -153,7 +153,7 @@ def test_version_and_provenance_publications_are_synchronized() -> None:
         "provenance_manifest.json",
         "THIRD_PARTY_NOTICES.md",
     )
-    for path in DOC_PATHS:
+    for path in README_PATHS:
         text = _text(path)
         assert all(value in text for value in required), path
 

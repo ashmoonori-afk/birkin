@@ -32,14 +32,14 @@
 | 코딩 에이전트가 사용자가 plan을 이해하기 전에 파일을 변경함 | 공식 VS Code extension이 editor context를 보내고, plan을 먼저 검토하며, 제안 diff를 표시하고, Birkin 승인을 처리하고, checkpoint를 복원합니다. |
 | 로컬 도구가 불투명한 서비스가 됨 | run, approval, checkpoint, status, config가 모두 로컬에서 확인 가능합니다. |
 
-Birkin 핵심 런타임에는 process identity용 `psutil`과 타입화된 runtime 계약용 `typing-extensions`라는 두 필수 의존성이 있습니다. 선택적 extra가 voice, native desktop Computer Use, browser, office 파일 지원을 추가합니다. 현재 저장소에는 **63개 스킬**이 번들되며, 기본 테스트는 모두 오프라인 실행을 목표로 합니다.
+Birkin 핵심 런타임에는 process identity용 `psutil`과 타입화된 runtime 계약용 `typing-extensions`라는 두 외부 필수 의존성이 있습니다. `birkin_mnemosyne`은 Birkin에 번들되며 별도로 설치하지 않습니다. 선택적 extra가 voice, native desktop Computer Use, browser, office 파일 지원을 추가합니다. 현재 저장소에는 **63개 스킬**이 번들되며, 기본 테스트는 모두 오프라인 실행을 목표로 합니다.
 
 ## 메모리
 
 한글과 자모를 인식해 tokenize하는 BM25가 기본 retrieval engine이며 선택 package가 필요 없습니다. 결과에는 정규화된 `lexical`, `vector`, `entity`, `time` score와 기여한 signal, backend 이름이 표시됩니다. Vector embedding, 1-hop entity traversal, temporal reranking은 각각 별도로 켜는 opt-in 기능입니다.
 
 ```bash
-python -m pip install -e ".[memory-semantic]"  # 로컬 sentence-transformers 전용
+python -m pip install ".[memory-semantic]"  # 로컬 sentence-transformers 전용
 ```
 
 ```json
@@ -81,12 +81,10 @@ Workspace `SOUL.md`는 deprecated되었고 더 이상 주입되지 않습니다.
 
 ## 빠른 시작
 
-Birkin은 Python 3.10 이상이 필요합니다. 기본값은 로컬에서 인증한 Codex CLI이며, `birkin setup`에서 Claude CLI나 API provider를 선택할 수 있습니다.
+Birkin은 Python 3.10 이상이 필요합니다. 제공된 Birkin 디렉터리에서 설치하십시오. Git은 필요 없고 `birkin_mnemosyne`은 패키지에 포함되어 있습니다. 기본값은 로컬에서 인증한 Codex CLI이며, `birkin setup`에서 Claude CLI나 API provider를 선택할 수 있습니다.
 
 ```bash
-git clone https://github.com/ashmoonori-afk/birkin.git
-cd birkin
-python -m pip install -e .
+python -m pip install .
 birkin setup
 birkin chat
 ```
@@ -101,15 +99,15 @@ birkin web --no-browser # 127.0.0.1:8787 인증 chat workspace
 선택 기능은 명시적으로 설치합니다.
 
 ```bash
-python -m pip install -e ".[memory-semantic]"
-python -m pip install -e ".[voice]"
-python -m pip install -e ".[desktop]"
-python -m pip install -e ".[office]"
-python -m pip install -e ".[office-advanced]"
-python -m pip install -e ".[office-docling]"
-python -m pip install -e ".[browser]"
+python -m pip install ".[memory-semantic]"
+python -m pip install ".[voice]"
+python -m pip install ".[desktop]"
+python -m pip install ".[office]"
+python -m pip install ".[office-advanced]"
+python -m pip install ".[office-docling]"
+python -m pip install ".[browser]"
 python -m playwright install chromium
-python -m pip install -e ".[full]"
+python -m pip install ".[full]"
 ```
 
 ### Native Browser Aside
@@ -148,7 +146,7 @@ Playwright Chromium이 없으면 core startup은 계속되고 browser endpoint�
 자동화를 켜기 전에 `doctor`로 native desktop capability부터 확인하십시오. Computer Use는 opt-in typed tool인 `computer_use`이며 선택 desktop extra와 OS permission, 기존 desktop observation group, 별도 mutation gate가 모두 필요합니다.
 
 ```bash
-python -m pip install -e ".[desktop]"
+python -m pip install ".[desktop]"
 birkin computer-use setup --json
 birkin computer-use doctor --json
 ```
@@ -236,13 +234,13 @@ Base install의 경계는 명확합니다. 다섯 format 모두 inspect, validat
 
 신뢰된 한국어·영어 자연어 요청은 production skill을 결정적으로 preload합니다. Word/DOCX는 `word-documents`, Excel/XLSX는 `spreadsheets`, PowerPoint/PPTX는 `presentations`, PDF는 `pdf-documents`, HWP/HWPX는 `korean-hwp-documents`, 일반 Office 작업은 `office-work-os`로 route합니다. Format intent와 artifact 신호가 충돌하면 inspect-first `office-documents`로 route합니다. 문서 내용은 untrusted data이므로 skill을 선택하거나 override할 수 없고, 모든 routed mutation은 copy-on-write를 유지합니다.
 
-[상세 지원 계약](./docs/office-support.md#office-work-os-v2), machine [`provenance_manifest.json`](./birkin/office/adapters/provenance_manifest.json), [`THIRD_PARTY_NOTICES.md`](./birkin/office/adapters/THIRD_PARTY_NOTICES.md)를 참고하십시오. 이 문서는 Birkin `0.4.294`, `catalog_revision: 4`, `inventory_sha256: a49ab813ee4cdea3d6f87e0e2bd063b1dde54058e5c8dd0af0cf32bec74cae95`를 대상으로 합니다.
+[상세 지원 계약](./docs/office-support.md#office-work-os-v2), machine [`provenance_manifest.json`](./birkin/office/adapters/provenance_manifest.json), [`THIRD_PARTY_NOTICES.md`](./birkin/office/adapters/THIRD_PARTY_NOTICES.md)를 참고하십시오. 이 문서는 Birkin `0.4.301`, `catalog_revision: 4`, `inventory_sha256: a49ab813ee4cdea3d6f87e0e2bd063b1dde54058e5c8dd0af0cf32bec74cae95`를 대상으로 합니다.
 
 ### Office 작업 처음부터 끝까지
 
 위 계약이 "무엇이 허용되는가"라면, 아래는 실제 작업 순서입니다.
 
-1. 필요한 tier를 설치합니다. DOCX/XLSX/PPTX/HWPX 생성과 bounded package 수정은 `pip install -e ".[office]"`, PDF 추출과 deep reopen 추가는 `".[office-advanced]"`, 별도 docling path는 `".[office-docling]"`입니다.
+1. 필요한 tier를 설치합니다. DOCX/XLSX/PPTX/HWPX 생성과 bounded package 수정은 `python -m pip install ".[office]"`, PDF 추출과 deep reopen 추가는 `python -m pip install ".[office-advanced]"`, 별도 docling path는 `python -m pip install ".[office-docling]"`입니다.
 2. 원본을 jail 안에 둡니다. 모든 입력 경로는 이미 `BIRKIN_HOME` 아래에 있어야 하며, `BIRKIN_HOME=/workspace/.birkin`이면 먼저 `/workspace/.birkin/artifacts/incoming/`으로 복사합니다. 이 tree 밖의 absolute path는 조용히 읽히지 않고 거부됩니다.
 3. `list_document_adapters`로 사용 가능한 adapter를 확인하고, 무엇을 바꾸기 전에 `inspect_document`로 원본을 먼저 점검합니다.
 4. 등록된 호출로 읽고 씁니다. 출력은 `/workspace/.birkin/artifacts/drafts` 아래 basename-only 새 파일이며, 원본을 제자리에서 수정하지 않습니다.
@@ -350,7 +348,7 @@ Policy 또는 config 위반은 typed error로 delivery 전에 실패합니다. S
 Browser QA는 선택 기능입니다. Browser extra와 Chromium runtime을 설치하며, core Birkin은 Playwright를 import하지 않습니다.
 
 ```bash
-python -m pip install 'birkin[browser]'
+python -m pip install ".[browser]"
 python -m playwright install chromium
 ```
 
