@@ -135,6 +135,8 @@ def _parse_block(lines: list[str], i: int, base: int):
         if content.startswith("- "):  # block list item
             if result is None:
                 result = []
+            elif not isinstance(result, list):
+                break
             item = content[2:].strip()
             if ":" in item and not item.startswith(("[", "\"", "'")):
                 key, _, val = item.partition(":")
@@ -153,6 +155,8 @@ def _parse_block(lines: list[str], i: int, base: int):
         # mapping entry
         if result is None:
             result = {}
+        elif not isinstance(result, dict):
+            break
         key, _, val = content.partition(":")
         key = key.strip()
         val = val.strip()

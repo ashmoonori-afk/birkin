@@ -55,3 +55,19 @@ def test_extract_meta_regex_fallback():
     meta, _ = frontmatter.extract_meta(HERMES_SAMPLE)
     assert meta.get("name") == "apple-notes"
     assert meta.get("description")
+
+
+def test_malformed_list_then_mapping_degrades_without_raising():
+    text = "---\nitems:\n  - first\n  broken: value\n---\n"
+
+    meta, _ = frontmatter.parse(text)
+
+    assert meta["items"] == ["first"]
+
+
+def test_malformed_mapping_then_list_degrades_without_raising():
+    text = "---\nitems:\n  first: value\n  - broken\n---\n"
+
+    meta, _ = frontmatter.parse(text)
+
+    assert meta["items"] == {"first": "value"}
