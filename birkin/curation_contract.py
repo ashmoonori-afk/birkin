@@ -2,7 +2,9 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass, field
-from typing import Any
+from typing import Any, Literal, TypedDict
+
+from typing_extensions import NotRequired
 
 from .curation_schema import load_curation_plan_schema
 
@@ -35,6 +37,61 @@ class CurationResidueError(OSError):
     """A move failed after publication; retrying could compound residue."""
 
 
+class RezoneOperation(TypedDict):
+    op: Literal["rezone"]
+    slug: str
+    zone: str
+
+
+class ArchiveOperation(TypedDict):
+    op: Literal["archive"]
+    slug: str
+
+
+class LinkOperation(TypedDict):
+    op: Literal["link"]
+    a: str
+    b: str
+    reason: NotRequired[str]
+
+
+class AnnotateOperation(TypedDict):
+    op: Literal["annotate"]
+    slug: str
+    aliases: NotRequired[list[str]]
+    queries: NotRequired[list[str]]
+    xlang: NotRequired[list[str]]
+
+
+class SupersedeOperation(TypedDict):
+    op: Literal["supersede"]
+    stale: str
+    by: str
+
+
+CurationOperation = (
+    RezoneOperation
+    | ArchiveOperation
+    | LinkOperation
+    | AnnotateOperation
+    | SupersedeOperation
+)
+
+
+class CurationEffect(TypedDict, total=False):
+    op: str
+    slug: str
+    zone: str
+    a: str
+    b: str
+    stale: str
+    by: str
+    error: str
+    residue: bool
+    retryable: bool
+    fields: list[str]
+
+
 @dataclass
 class OpResult:
     op: dict[str, Any]
@@ -43,7 +100,7 @@ class OpResult:
 
 @dataclass
 class GateResult:
-    accepted: list[dict[str, Any]] = field(default_factory=list)
+    accepted: list[CurationOperation] = field(default_factory=list)
     dropped: list[OpResult] = field(default_factory=list)
     archive_cap: int = 0
 
@@ -57,7 +114,7 @@ class CurationOutcome:
     model: str | None
     accepted: list[dict[str, Any]]
     dropped: list[dict[str, Any]]
-    effected: list[dict[str, Any]]
+    effected: list[CurationEffect]
     archive_cap: int
     summary: str
     raw_text: str

@@ -30,7 +30,7 @@ from .agent import Agent
 from .llm import LLMClient, LLMError, build_client
 from .profile_actions import ProfileActions
 from .profile_prompt import render_profile_blocks
-from .profile_review import build_profile_review
+from .profile_review import ProfileReviewService, build_profile_review
 from .rolefiles import ProfileSnapshot, ProfileStore
 from .memory import Memory
 from .skills import SkillManager, build_manager
@@ -117,7 +117,7 @@ class Session:
     _checkpoint_session: list[str] = field(default_factory=list)
     _warm_profile_revision: str = ""
     _profile_notice_revisions: set[str] = field(default_factory=set)
-    profile_review_service: Any = None
+    profile_review_service: ProfileReviewService | None = None
 
     def refresh_system_prompt(
         self,
@@ -497,12 +497,13 @@ class Session:
             self._profile_notice_revisions.add(current)
             if on_text is not None:
                 on_text("profile updated - /new required")
-        service = getattr(self, "profile_review_service", None)
-        drain = getattr(service, "drain_notices", None) if service else None
-        if callable(drain):
-            for notice in drain(str(session_id or self.cfg.get("session_id") or "")):
+        service = self.profile_review_service
+        if service is not None:
+            for notice in service.drain_notices(
+                str(session_id or self.cfg.get("session_id") or "")
+            ):
                 if on_text is not None:
-                    on_text(str(notice))
+                    on_text(notice)
 
     def _record_turn(
         self,
@@ -546,11 +547,10 @@ class Session:
         except Exception as exc:
             print(f"[birkin] warning: could not update goal usage: {exc}",
                   file=sys.stderr, flush=True)
-        service = getattr(self, "profile_review_service", None)
-        record = getattr(service, "record_exchange", None) if service else None
-        if callable(record):
+        service = self.profile_review_service
+        if service is not None:
             try:
-                record(
+                service.record_exchange(
                     text,
                     reply or "",
                     trusted=review_harness,
@@ -777,10 +777,14 @@ def failure_context(limit: int = 5) -> str:
     return "\n".join(lines)
 
 
-def _build_profile_review_service(cfg: dict[str, Any]) -> Any:
-    profile = cfg.get("profile") if isinstance(cfg.get("profile"), dict) else {}
-    review = profile.get("background_review", {}) if isinstance(profile, dict) else {}
-    if not (_profiles_enabled(cfg) and isinstance(review, dict)):
+def _build_profile_review_service(
+    cfg: dict[str, Any],
+) -> ProfileReviewService | None:
+    profile = cfg.get("profile")
+    if not (_profiles_enabled(cfg) and isinstance(profile, dict)):
+        return None
+    review = profile.get("background_review", {})
+    if not isinstance(review, dict):
         return None
     provider = review.get("provider")
     model = review.get("model")

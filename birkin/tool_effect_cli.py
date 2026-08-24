@@ -124,11 +124,12 @@ def _set(argv: Sequence[str]) -> int:
     plugin, tool, effect = args.values
     if effect not in ("inspect", "change"):
         return _semantic("effect must be 'inspect' or 'change'", args.json)
-    if effect == "inspect" and (args.reason is None or not args.reason.strip()):
+    reason = args.reason if isinstance(args.reason, str) else ""
+    if effect == "inspect" and not reason.strip():
         return _semantic("inspect requires a non-empty --reason", args.json)
     if effect == "change" and args.parallel_safe:
         return _semantic("--parallel-safe is only valid with inspect", args.json)
-    if effect == "change" and args.reason is not None:
+    if effect == "change" and reason:
         return _semantic("--reason is only valid with inspect", args.json)
 
     store = ToolAttestationStore()
@@ -144,7 +145,7 @@ def _set(argv: Sequence[str]) -> int:
     if effect == "inspect":
         stamp = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
         grants += (InspectGrant(
-            identity, parallel_safe, args.reason, stamp),)
+            identity, parallel_safe, reason, stamp),)
     store.write(grants)
     payload = {
         "bundle_digest": identity.bundle_digest,

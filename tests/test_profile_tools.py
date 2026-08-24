@@ -8,7 +8,7 @@ import pytest
 
 from birkin import config
 from birkin.memory import VaultMemory
-from birkin.profile_actions import ProfileActions
+from birkin.profile_actions import ProfileActions, build_profile_tools
 from birkin.rolefiles import ProfileEdit, ProfileStore
 from birkin.tools import ToolContext, build_registry
 
@@ -100,6 +100,28 @@ def test_untrusted_writes_rejected():
     receipt = actions.submit(ProfileEdit("preferences", "add", content="x"), trusted=False, source="test")
     assert receipt.status == "error"
     assert receipt.error == {"type": "untrusted"}
+
+
+def test_profile_tool_rejects_unknown_action() -> None:
+    actions = ProfileActions(
+        ProfileStore(config.birkin_home(), {}),
+        approval_required=False,
+    )
+    tool = build_profile_tools(actions)[0]
+    context = ToolContext(
+        cfg={},
+        client=None,
+        cwd=config.birkin_home(),
+    )
+
+    result = tool.fn(
+        {"target": "preferences", "action": "merge", "content": "x"},
+        context,
+    )
+
+    payload = json.loads(str(result.content))
+    assert result.is_error is True
+    assert payload["error"]["type"] == "invalid"
 
 
 def test_budget_error_payload_carries_all_structured_fields_and_preserves_bytes():

@@ -1,13 +1,14 @@
 from __future__ import annotations
 
 import json
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 from pathlib import Path
 
 from . import mnemosyne
 from .curation_contract import (
-    ANNOTATE_FIELDS,
     ANNOTATE_MAX_ITEMS,
+    CurationEffect,
+    CurationOperation,
     CurationResidueError,
 )
 from .mnemosyne import Mnemosyne
@@ -151,14 +152,14 @@ def _write_anchors(vault: Path, dex: Mnemosyne, s: str,
     return True
 
 
-def apply_plan(accepted: list[dict], vault: Path,
+def apply_plan(accepted: Sequence[CurationOperation], vault: Path,
                dex: Mnemosyne, *,
                move_note: Callable[[str, str], Path] | None = None,
                validate_vault: Callable[[], None] | None = None,
                read_note: ReadNote | None = None,
                write_note: WriteNote | None = None,
-               ) -> list[dict]:
-    effected: list[dict] = []
+               ) -> list[CurationEffect]:
+    effected: list[CurationEffect] = []
     if move_note is None:
         from .memory import VaultMemory
         move = VaultMemory({"vault_path": str(vault)}).rezone
@@ -169,69 +170,86 @@ def apply_plan(accepted: list[dict], vault: Path,
         try:
             if validate_vault is not None:
                 validate_vault()
-            if kind == "rezone":
-                move(op["slug"], op["zone"])
-                dex.refresh()
-                effected.append({"op": "rezone", "slug": op["slug"],
-                                 "zone": op["zone"]})
-            elif kind == "archive":
-                move(op["slug"], mnemosyne.ARCHIVE_ZONE)
-                dex.refresh()
-                effected.append({"op": "archive", "slug": op["slug"]})
-            elif kind == "link":
-                a, b = op["a"], op["b"]
-                ok1 = _append_related(
-                    vault,
-                    dex,
-                    a,
-                    _title_of(dex, b),
-                    read_note,
-                    write_note,
-                )
-                ok2 = _append_related(
-                    vault,
-                    dex,
-                    b,
-                    _title_of(dex, a),
-                    read_note,
-                    write_note,
-                )
-                if ok1 or ok2:
-                    effected.append({"op": "link", "a": a, "b": b})
-            elif kind == "annotate":
-                fields = {k: op[k] for k in ANNOTATE_FIELDS if k in op}
-                if fields and _write_anchors(
-                    vault,
-                    dex,
-                    op["slug"],
-                    fields,
-                    read_note,
-                    write_note,
-                ):
-                    effected.append({"op": "annotate", "slug": op["slug"],
-                                     "fields": sorted(fields)})
-            elif kind == "supersede":
-                st, by = op["stale"], op["by"]
-                ok = _append_line(
-                    vault,
-                    dex,
-                    st,
-                    f"> Superseded by [[{_title_of(dex, by)}]]",
-                    read_note,
-                    write_note,
-                )
-                _append_related(
-                    vault,
-                    dex,
-                    by,
-                    _title_of(dex, st),
-                    read_note,
-                    write_note,
-                )
-                if ok:
-                    effected.append({"op": "supersede", "stale": st, "by": by})
+            match op:
+                case {"op": "rezone", "slug": slug, "zone": zone}:
+                    move(slug, zone)
+                    dex.refresh()
+                    effected.append({
+                        "op": "rezone",
+                        "slug": slug,
+                        "zone": zone,
+                    })
+                case {"op": "archive", "slug": slug}:
+                    move(slug, mnemosyne.ARCHIVE_ZONE)
+                    dex.refresh()
+                    effected.append({"op": "archive", "slug": slug})
+                case {"op": "link", "a": a, "b": b}:
+                    ok1 = _append_related(
+                        vault,
+                        dex,
+                        a,
+                        _title_of(dex, b),
+                        read_note,
+                        write_note,
+                    )
+                    ok2 = _append_related(
+                        vault,
+                        dex,
+                        b,
+                        _title_of(dex, a),
+                        read_note,
+                        write_note,
+                    )
+                    if ok1 or ok2:
+                        effected.append({"op": "link", "a": a, "b": b})
+                case {"op": "annotate", "slug": slug}:
+                    fields = {
+                        key: value
+                        for key, value in (
+                            ("aliases", op.get("aliases")),
+                            ("queries", op.get("queries")),
+                            ("xlang", op.get("xlang")),
+                        )
+                        if value is not None
+                    }
+                    if fields and _write_anchors(
+                        vault,
+                        dex,
+                        slug,
+                        fields,
+                        read_note,
+                        write_note,
+                    ):
+                        effected.append({
+                            "op": "annotate",
+                            "slug": slug,
+                            "fields": sorted(fields),
+                        })
+                case {"op": "supersede", "stale": st, "by": by}:
+                    ok = _append_line(
+                        vault,
+                        dex,
+                        st,
+                        f"> Superseded by [[{_title_of(dex, by)}]]",
+                        read_note,
+                        write_note,
+                    )
+                    _append_related(
+                        vault,
+                        dex,
+                        by,
+                        _title_of(dex, st),
+                        read_note,
+                        write_note,
+                    )
+                    if ok:
+                        effected.append({
+                            "op": "supersede",
+                            "stale": st,
+                            "by": by,
+                        })
         except OSError as exc:
-            record = {"op": kind, "error": str(exc)}
+            record: CurationEffect = {"op": kind, "error": str(exc)}
             if isinstance(exc, CurationResidueError):
                 record.update({
                     "residue": True,
