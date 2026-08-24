@@ -193,7 +193,7 @@ jobs:
           version: "0.11.8"
           enable-cache: true
           cache-dependency-glob: uv.lock
-      - name: Install Native bridge Browser runtime
+      - name: Install isolated Native bridge Browser and Office runtime
         run: |
           uv sync --frozen --all-extras --all-groups
           .venv/bin/python -m playwright install chromium

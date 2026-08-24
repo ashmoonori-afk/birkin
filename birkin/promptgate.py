@@ -16,7 +16,15 @@ from __future__ import annotations
 from html import escape
 from typing import Any, Optional
 
-from . import cynefin, ishikawa, neurosis, persona, presets, prompts
+from . import (
+    cynefin,
+    ishikawa,
+    local_environment_policy,
+    neurosis,
+    persona,
+    presets,
+    prompts,
+)
 from .moirai import trigger as moirai_trigger
 
 _MINTO_GUIDANCE = (
@@ -159,7 +167,8 @@ def _persona(persona_text: Optional[str]) -> str:
 def compose_public(*, trusted_session_state: str = "") -> str:
     """Minimal prompt for untrusted channels plus local canonical task state."""
     return prompts.seal_research_policy(
-        _PUBLIC_SYSTEM + trusted_session_state
+        _PUBLIC_SYSTEM
+        + local_environment_policy.strip_markers(trusted_session_state)
     )
 
 
@@ -188,7 +197,11 @@ def compose_main(cfg: dict[str, Any], *, skills_index: str = "",
         + _minto_note(cfg) \
         + turn_state
     from . import ide
-    return prompts.seal_research_policy(system) + ide.consume_context_note()
+    grounded = local_environment_policy.seal(system)
+    ide_note = local_environment_policy.strip_markers(
+        ide.consume_context_note()
+    )
+    return prompts.seal_research_policy(grounded) + ide_note
 
 
 def compose_cli(cfg: dict[str, Any], *, memory_block: str = "",
@@ -218,7 +231,11 @@ def compose_cli(cfg: dict[str, Any], *, memory_block: str = "",
         + _minto_note(cfg) \
         + turn_state
     from . import ide
-    return prompts.seal_research_policy(system) + ide.consume_context_note()
+    grounded = local_environment_policy.seal(system)
+    ide_note = local_environment_policy.strip_markers(
+        ide.consume_context_note()
+    )
+    return prompts.seal_research_policy(grounded) + ide_note
 
 
 def compose_subagent(cfg: dict[str, Any], *, skills_index: str = "",

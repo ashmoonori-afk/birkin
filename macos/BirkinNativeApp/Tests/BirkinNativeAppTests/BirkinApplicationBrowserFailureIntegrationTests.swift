@@ -49,13 +49,14 @@ struct BirkinApplicationBrowserFailureIntegrationTests {
         )
 
         do {
-            try await withTimeout("Browser command failure", seconds: 5) {
-                try await runner.driveBrowser()
-            }
+            try await runner.driveBrowser()
             Issue.record("Browser command unexpectedly succeeded")
         } catch JourneyError.refused {
         } catch {
             Issue.record("unexpected Browser failure: \(error)")
         }
+        let recorded = journeyEvents.recorded()
+        #expect(recorded.contains { $0.hasPrefix("command-error id=") })
+        #expect(!recorded.contains { $0.hasPrefix("command-receipt id=") })
     }
 }

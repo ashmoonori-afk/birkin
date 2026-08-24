@@ -80,7 +80,7 @@ struct HarnessReadiness {
 
         let line = LockedLine()
         let ready = DispatchSemaphore(value: 0)
-        DispatchQueue.global().async {
+        Thread.detachNewThread {
             while true {
                 let byte = stdout.fileHandleForReading.readData(ofLength: 1)
                 if byte.isEmpty || byte == Data([0x0a]) { break }
