@@ -335,7 +335,7 @@ class WindowsStartGate:
             "_winjob_bootstrap.py"
         ).resolve()
         return [
-            sys.executable,
+            str(Path(sys.base_prefix) / Path(sys.executable).name),
             "-I",
             "-S",
             str(bootstrap),

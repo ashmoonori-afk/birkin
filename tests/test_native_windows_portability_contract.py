@@ -26,7 +26,7 @@ def _mapping(value: YamlValue) -> YamlMapping:
     return cast(YamlMapping, value)
 
 
-def test_python_windows_gate_provisions_runtimes_and_uses_system_launcher() -> None:
+def test_python_windows_gate_provisions_runtimes_and_uses_locked_launcher() -> None:
     workflow = cast(
         YamlMapping,
         yaml.safe_load(WORKFLOW.read_text(encoding="utf-8")),
@@ -34,10 +34,7 @@ def test_python_windows_gate_provisions_runtimes_and_uses_system_launcher() -> N
     job = _mapping(_mapping(workflow["jobs"])["python-windows"])
     env = _mapping(job["env"])
     assert env["BIRKIN_BROWSER_INTEGRATION"] == "1"
-    assert env["PYTHONPATH"] == (
-        "${{ github.workspace }};"
-        "${{ github.workspace }}\\.venv\\Lib\\site-packages"
-    )
+    assert "PYTHONPATH" not in env
 
     steps = cast(list[YamlMapping], job["steps"])
     bun = next(
@@ -52,8 +49,7 @@ def test_python_windows_gate_provisions_runtimes_and_uses_system_launcher() -> N
         for command in commands
     )
     pytest_command = next(command for command in commands if "pytest" in command)
-    assert "python -m pytest" in pytest_command
-    assert "./.venv/Scripts/python.exe -m pytest" not in pytest_command
+    assert "./.venv/Scripts/python.exe -m pytest" in pytest_command
 
 
 def test_portable_shell_fixtures_do_not_embed_windows_drive_paths() -> None:

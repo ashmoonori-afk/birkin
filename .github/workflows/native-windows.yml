@@ -48,7 +48,6 @@ jobs:
     timeout-minutes: 20
     env:
       BIRKIN_BROWSER_INTEGRATION: "1"
-      PYTHONPATH: ${{ github.workspace }};${{ github.workspace }}\.venv\Lib\site-packages
       PYTHONUTF8: "1"
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
@@ -68,7 +67,7 @@ jobs:
       - run: uv sync --frozen --all-extras --all-groups
       - run: ./.venv/Scripts/python.exe -m playwright install chromium
       - run: >-
-          python -m pytest -q -o addopts=""
+          ./.venv/Scripts/python.exe -m pytest -q -o addopts=""
           --deselect tests/test_native_transport.py::test_uds_listener_rejects_symlinked_parent
           --deselect tests/test_native_transport.py::test_uds_listener_rejects_symlinked_socket_path
 

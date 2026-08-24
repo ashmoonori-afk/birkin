@@ -179,7 +179,7 @@ def test_bootstrap_starts_isolated_before_gate_release() -> None:
     finally:
         gate.close()
 
-    assert argv[0] == sys.executable
+    assert argv[0] == str(Path(sys.base_prefix) / Path(sys.executable).name)
     assert argv[1:3] == ["-I", "-S"]
     assert Path(argv[3]).name == "_winjob_bootstrap.py"
     assert argv[4].startswith("Local\\BirkinJob-")
