@@ -147,10 +147,10 @@ extension NativeTransportActor {
             )
             let messages = AsyncThrowingStream<NativeEnvelope, any Error> { continuation in
                 continuation.onTermination = { _ in socket.close() }
-                Task.detached {
+                Thread.detachNewThread {
                     defer { socket.close() }
                     do {
-                        while !Task.isCancelled {
+                        while true {
                             let envelope = try NativeFrameCodec.decode(
                                 frame: socket.receiveFrame()
                             )

@@ -67,7 +67,7 @@ def test_tests_workflow_has_bounded_native_swift_job() -> None:
     assert 'python-version: "3.13"' in native_job
     assert 'BIRKIN_BROWSER_INTEGRATION: "1"' in native_job
     assert "python -m venv .venv" in native_job
-    assert '.venv/bin/python -m pip install -e ".[browser]"' in native_job
+    assert '.venv/bin/python -m pip install -e ".[browser,office]"' in native_job
     assert ".venv/bin/python -m playwright install chromium" in native_job
 
 

@@ -80,6 +80,12 @@ Optional background review is best effort, not guaranteed capture. It runs only 
 
 Workspace `SOUL.md` is deprecated and no longer injected. Use workspace `AGENTS.md` for project instructions and `~/.birkin/SOUL.md` for persona; Birkin prints a deprecation notice when it finds a cwd `SOUL.md`.
 
+### Local environment evidence
+
+Trusted native and CLI agent prompts include the current operating system and home directory plus a machine-readable local-environment policy. Session or memory paths are treated as unverified until current tool output establishes them, so a path from another operating system must not be reused as a host fact. Before Birkin reports that a target directory is not writable, it must use an available tool to create, write, and delete a uniquely named temporary entry inside that directory; the probe must never modify or delete an existing path. A sandbox, route, missing tool, approval requirement, or operating-system permission result is classified from the observed evidence instead of being mislabeled as a different restriction.
+
+The requested outcome and application scope remain binding: Birkin must not replace an applied profile or memory change with a workspace draft and then claim completion. User-profile facts remain separate from assistant-persona facts, including names assigned to the assistant. This local block is added only to trusted native and CLI prompts; public or untrusted prompts receive neither local path facts nor private profile context.
+
 ## Quick Start
 
 Birkin requires Python 3.10 or newer. It defaults to a locally authenticated Codex CLI; `birkin setup` can select Claude CLI or an API-backed provider instead.

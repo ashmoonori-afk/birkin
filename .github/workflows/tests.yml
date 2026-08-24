@@ -192,7 +192,7 @@ jobs:
         run: |
           python -m venv .venv
           .venv/bin/python -m pip install --upgrade pip
-          .venv/bin/python -m pip install -e ".[browser]"
+          .venv/bin/python -m pip install -e ".[browser,office]"
           .venv/bin/python -m playwright install chromium
       - name: Verify Swift 6 toolchain
         shell: bash

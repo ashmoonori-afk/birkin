@@ -84,7 +84,7 @@ public enum OwnedBridgeLauncher {
     ) throws -> BridgeReadiness {
         let bytes = ReadinessBuffer()
         let ready = DispatchSemaphore(value: 0)
-        DispatchQueue.global().async {
+        Thread.detachNewThread {
             while true {
                 let byte = handle.readData(ofLength: 1)
                 if byte.isEmpty || byte == Data([0x0a]) { break }
