@@ -128,7 +128,7 @@ wheels = [
 
 [[package]]
 name = "birkin"
-version = "0.4.301"
+version = "0.4.302"
 source = { editable = "." }
 dependencies = [
     { name = "psutil" },
