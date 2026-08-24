@@ -13,6 +13,7 @@
 
   <ItemGroup>
     <None Include="..\..\..\..\macos\BirkinNativeApp\Tests\BirkinNativeProtocolTests\GoldenVectors\native-protocol-vectors.json" Link="GoldenVectors\native-protocol-vectors.json" CopyToOutputDirectory="PreserveNewest" />
+    <None Include="..\..\..\..\macos\BirkinNativeApp\Tests\BirkinNativeProtocolTests\GoldenVectors\native-protocol-invalid-vectors.json" Link="GoldenVectors\native-protocol-invalid-vectors.json" CopyToOutputDirectory="PreserveNewest" />
     <None Include="..\..\..\..\macos\BirkinNativeApp\Tests\BirkinNativeProtocolTests\GoldenVectors\native-projection-vectors.json" Link="GoldenVectors\native-projection-vectors.json" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 </Project>
