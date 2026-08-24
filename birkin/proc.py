@@ -213,7 +213,7 @@ def run_shell_command(
     argv = shell_argv(request.command)
     managed_tree: ManagedProcessTree | None = None
     if os.name == "nt":
-        process, managed_tree = _spawn_managed_windows_shell(argv, request)
+        process, managed_tree = spawn_managed_windows_shell(argv, request)
     else:
         process = _spawn_shell(argv, request)
     try:
@@ -260,7 +260,7 @@ def run_shell_command(
             managed_tree.close()
 
 
-def _spawn_managed_windows_shell(
+def spawn_managed_windows_shell(
     argv: list[str],
     request: ShellCommand,
 ) -> tuple[subprocess.Popen[str], ManagedProcessTree]:

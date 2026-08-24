@@ -14,7 +14,7 @@ import pytest
 
 from birkin.proc import (
     ShellCommand,
-    _spawn_managed_windows_shell,
+    spawn_managed_windows_shell,
     run_shell_command,
     shell_argv,
     shell_env,
@@ -183,13 +183,13 @@ def test_real_shell_and_descendant_are_in_intended_job(
         ]
     )
     request = ShellCommand(command, tmp_path, 10, shell_env(), stdin="")
-    process, managed = _spawn_managed_windows_shell(
+    process, managed = spawn_managed_windows_shell(
         shell_argv(command),
         request,
     )
-    assert isinstance(managed, WindowsJob)
+    assert isinstance(managed, WindowsJob) and process.stdout is not None
     try:
-        child_pid = int(process.stdout.readline())
+        child_pid = int(f"{process.stdout.readline()}")
 
         assert str(process.args).casefold().startswith(
             str(shell_argv(command)[0]).casefold()

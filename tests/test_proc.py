@@ -106,7 +106,7 @@ def test_run_shell_command_cleans_tree_when_interrupted(monkeypatch) -> None:
     if os.name == "nt":
         monkeypatch.setattr(
             proc,
-            "_spawn_managed_windows_shell",
+            "spawn_managed_windows_shell",
             lambda _argv, _request: (process, managed),
         )
     else:
