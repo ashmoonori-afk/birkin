@@ -1,8 +1,12 @@
 namespace Birkin.Native.Shell.Lifecycle;
 
-public interface IBridgeProcess
+public interface IBridgeProcess : IDisposable
 {
     int ProcessId { get; }
+
+    bool HasExited { get; }
+
+    event Action<IBridgeProcess>? Exited;
 
     void Stop();
 }

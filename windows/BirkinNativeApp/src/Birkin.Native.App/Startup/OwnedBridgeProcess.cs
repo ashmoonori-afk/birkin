@@ -8,19 +8,26 @@ internal sealed class OwnedBridgeProcess : IBridgeProcess, IBridgeAnnouncementSo
 {
     private static readonly TimeSpan ExitTimeout = TimeSpan.FromSeconds(5);
     private readonly Process _process;
+    private readonly EventHandler _processExited;
     private readonly TaskCompletionSource<string> _announcement =
         new(TaskCreationOptions.RunContinuationsAsynchronously);
     private int _stopped;
+    private int _disposed;
 
-    private OwnedBridgeProcess(Process process, Action<IBridgeProcess> exited)
+    private OwnedBridgeProcess(Process process)
     {
         _process = process;
+        _processExited = OnProcessExited;
+        _process.Exited += _processExited;
         _process.EnableRaisingEvents = true;
-        _process.Exited += (_, _) => exited(this);
         _ = ReadAnnouncementLineAsync();
     }
 
     public int ProcessId => _process.Id;
+
+    public bool HasExited => _process.HasExited;
+
+    public event Action<IBridgeProcess>? Exited;
 
     public static OwnedBridgeProcess Start(Action<IBridgeProcess> exited)
     {
@@ -33,7 +40,9 @@ internal sealed class OwnedBridgeProcess : IBridgeProcess, IBridgeAnnouncementSo
         };
         var process = Process.Start(startInfo)
             ?? throw new InvalidOperationException("The native bridge process could not be started.");
-        return new OwnedBridgeProcess(process, exited);
+        var ownedProcess = new OwnedBridgeProcess(process);
+        ownedProcess.Exited += exited;
+        return ownedProcess;
     }
 
     public async ValueTask<string> ReadAnnouncementAsync(CancellationToken cancellationToken) =>
@@ -46,25 +55,31 @@ internal sealed class OwnedBridgeProcess : IBridgeProcess, IBridgeAnnouncementSo
             return;
         }
 
-        try
+        if (_process.HasExited)
         {
-            if (_process.HasExited)
-            {
-                return;
-            }
-
-            _ = _process.CloseMainWindow();
-            if (!_process.WaitForExit((int)ExitTimeout.TotalMilliseconds) && !_process.HasExited)
-            {
-                _process.Kill(entireProcessTree: false);
-                _process.WaitForExit((int)ExitTimeout.TotalMilliseconds);
-            }
+            return;
         }
-        finally
+
+        _ = _process.CloseMainWindow();
+        if (!_process.WaitForExit((int)ExitTimeout.TotalMilliseconds) && !_process.HasExited)
         {
-            _process.Dispose();
+            _process.Kill(entireProcessTree: false);
+            _process.WaitForExit((int)ExitTimeout.TotalMilliseconds);
         }
     }
+
+    public void Dispose()
+    {
+        if (Interlocked.Exchange(ref _disposed, 1) != 0)
+        {
+            return;
+        }
+
+        _process.Exited -= _processExited;
+        _process.Dispose();
+    }
+
+    private void OnProcessExited(object? sender, EventArgs eventArgs) => Exited?.Invoke(this);
 
     private async Task ReadAnnouncementLineAsync()
     {

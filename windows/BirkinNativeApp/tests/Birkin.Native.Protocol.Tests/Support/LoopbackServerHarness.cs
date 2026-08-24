@@ -23,6 +23,8 @@ internal sealed class LoopbackServerHarness : IAsyncDisposable
 
     public int Port { get; }
 
+    public bool HasAcceptedClient => _client is not null || _accepted.IsCompletedSuccessfully;
+
     public async Task<NativeEnvelope> ReceiveAsync()
     {
         var stream = await GetStreamAsync().ConfigureAwait(false);

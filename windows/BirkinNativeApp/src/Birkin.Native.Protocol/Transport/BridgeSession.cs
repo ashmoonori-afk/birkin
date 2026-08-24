@@ -17,6 +17,7 @@ public sealed class BridgeSession : INativeClientConnection
     private PendingCommand? _pendingCommand;
     private int _activeReceives;
     private int _maximumConcurrentReceives;
+    private int _shutdownRequested;
     private bool _disposed;
     private NativeReadyIdentity? _readyIdentity;
 
@@ -81,10 +82,10 @@ public sealed class BridgeSession : INativeClientConnection
         string expectedProductVersion,
         CancellationToken cancellationToken)
     {
-        ObjectDisposedException.ThrowIf(_disposed, this);
         await _lifecycleGate.WaitAsync(cancellationToken).ConfigureAwait(false);
         try
         {
+            ObjectDisposedException.ThrowIf(_disposed, this);
             var lifetime = _lifetime;
             lifetime?.Cancel();
             if (_receiveTask is not null)
@@ -157,32 +158,47 @@ public sealed class BridgeSession : INativeClientConnection
 
     public async ValueTask DisposeAsync()
     {
-        if (_disposed)
+        // Request cancellation before taking the gate so a reconnect blocked in connection setup
+        // can leave the gate. Actual teardown and the disposed transition remain serialized below.
+        if (Interlocked.Exchange(ref _shutdownRequested, 1) == 0)
         {
-            return;
+            _shutdown.Cancel();
         }
 
-        _disposed = true;
-        _shutdown.Cancel();
-        if (_receiveTask is not null)
+        await _lifecycleGate.WaitAsync().ConfigureAwait(false);
+        try
         {
-            try
+            if (_disposed)
             {
-                await _receiveTask.ConfigureAwait(false);
+                return;
             }
-            catch (OperationCanceledException)
-            {
-            }
-        }
 
-        FaultPending(new OperationCanceledException("bridge session stopped"));
-        ProjectionStore.MarkMutationAuthorityUnavailable();
-        _connection.AuthorityUnavailable -= OnAuthorityUnavailable;
-        _connection.SnapshotInFlight -= OnSnapshotInFlight;
-        await _connection.DisposeAsync().ConfigureAwait(false);
-        _lifetime?.Dispose();
-        _lifecycleGate.Dispose();
-        _shutdown.Dispose();
+            _disposed = true;
+            if (_receiveTask is not null)
+            {
+                try
+                {
+                    await _receiveTask.ConfigureAwait(false);
+                }
+                catch (OperationCanceledException)
+                {
+                }
+            }
+
+            FaultPending(new OperationCanceledException("bridge session stopped"));
+            ProjectionStore.MarkMutationAuthorityUnavailable();
+            _connection.AuthorityUnavailable -= OnAuthorityUnavailable;
+            _connection.SnapshotInFlight -= OnSnapshotInFlight;
+            await _connection.DisposeAsync().ConfigureAwait(false);
+            _lifetime?.Dispose();
+            _lifetime = null;
+            _receiveTask = null;
+            _shutdown.Dispose();
+        }
+        finally
+        {
+            _lifecycleGate.Release();
+        }
     }
 
     private async Task ReceiveLoopAsync(CancellationToken cancellationToken)
