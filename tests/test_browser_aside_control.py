@@ -7,6 +7,9 @@ from typing import Protocol, cast
 
 import pytest
 
+from birkin.browser_aside_control import BrowserWorkspaceRegistry
+from birkin.browser_aside_errors import BrowserAsideError
+
 
 class _Lease(Protocol):
     owner_id: str
@@ -103,6 +106,49 @@ def test_web_and_agent_resolve_same_workspace_runtime() -> None:
     terminal = registry.resolve("workspace-1", "terminal")
     assert web is agent is terminal
     assert registry.resolve("workspace-2", "web") is not web
+
+
+class _CloseRecordingService:
+    """Mutable fake service records whether registry cleanup reached it."""
+
+    def __init__(self, error: BrowserAsideError | None = None) -> None:
+        self.closed = False
+        self._error = error
+
+    def close(self) -> dict[str, object]:
+        self.closed = True
+        if self._error is not None:
+            raise self._error
+        return {"closed": True}
+
+
+def test_registry_closes_every_service_when_one_close_fails() -> None:
+    # Given: three services and a failure from the middle close operation.
+    registry = BrowserWorkspaceRegistry()
+    failure = BrowserAsideError(
+        "browser_cleanup_failed",
+        "Chromium cleanup failed.",
+        500,
+    )
+    first = _CloseRecordingService()
+    second = _CloseRecordingService(failure)
+    third = _CloseRecordingService()
+    registry._services = {  # noqa: SLF001
+        "first": first,
+        "second": second,
+        "third": third,
+    }
+
+    # When: the registry shuts down every service.
+    with pytest.raises(BrowserAsideError) as captured:
+        registry.close_all()
+
+    # Then: it preserves the first failure after closing every service.
+    assert captured.value is failure
+    assert first.closed is True
+    assert second.closed is True
+    assert third.closed is True
+    assert registry._services == {}  # noqa: SLF001
 
 
 def test_control_sequence_and_expiry_reject_stale_clients() -> None:

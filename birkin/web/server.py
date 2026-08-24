@@ -37,6 +37,8 @@ from urllib.parse import parse_qs, urlsplit
 from weakref import WeakKeyDictionary
 
 from .. import __version__, approvals, config, cron, store
+from ..browser_aside_control import browser_workspace_registry
+from ..browser_aside_errors import BrowserAsideError
 from ..runtime import Session
 from ..skills import build_manager
 from ..workspace import (
@@ -1400,7 +1402,12 @@ def run(port: int | None = None, *, open_browser: bool = True) -> int:
             )
         finally:
             try:
-                session_path.unlink(missing_ok=True)
+                browser_workspace_registry().close_all()
+            except BrowserAsideError:
+                pass
             finally:
-                httpd.server_close()
+                try:
+                    session_path.unlink(missing_ok=True)
+                finally:
+                    httpd.server_close()
     return 0
