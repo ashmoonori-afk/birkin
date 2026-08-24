@@ -19,6 +19,8 @@ public sealed class ShellCoordinatorOfficeWorkflowTests
     [DataRow("file.import")]
     [DataRow("approval.answer")]
     [DataRow("office.create")]
+    [DataRow("office.compare")]
+    [DataRow("office.draft")]
     public async Task Submit_WhenCommandIsUnadvertised_NeverWritesTransport(string commandType)
     {
         // Given
@@ -31,6 +33,8 @@ public sealed class ShellCoordinatorOfficeWorkflowTests
             "file.import" => await fixture.Coordinator.ImportAsync(new FileImportIntent(@"C:\input.xlsx"), CancellationToken.None),
             "approval.answer" => await fixture.Coordinator.AnswerApprovalAsync(new ApprovalAnswerIntent("approval-1", ApprovalDecision.Reject), CancellationToken.None),
             "office.create" => await fixture.Coordinator.CreateOfficeDocumentAsync(new OfficeCreateIntent("docx", new OfficeDocumentContent(["Report"]), "report.docx"), CancellationToken.None),
+            "office.compare" => await fixture.Coordinator.CompareOfficeDocumentsAsync(new OfficeCompareIntent("artifact-left", "artifact-right"), CancellationToken.None),
+            "office.draft" => await fixture.Coordinator.DraftOfficeDocumentAsync(new OfficeDraftIntent("artifact-template", "diff-1", "report.docx"), CancellationToken.None),
             _ => throw new AssertFailedException(),
         };
 
@@ -70,6 +74,8 @@ public sealed class ShellCoordinatorOfficeWorkflowTests
     [DataRow("office.create")]
     [DataRow("office.select")]
     [DataRow("office.open")]
+    [DataRow("office.compare")]
+    [DataRow("office.draft")]
     [DataRow("office.convert")]
     public async Task Submit_WhenReceiptAccepted_UsesHelloScopeWithoutFabricatingVisibleSuccess(string commandType)
     {
@@ -88,6 +94,8 @@ public sealed class ShellCoordinatorOfficeWorkflowTests
             "office.create" => await fixture.Coordinator.CreateOfficeDocumentAsync(new OfficeCreateIntent("docx", new OfficeDocumentContent(["Report"]), "report.docx"), CancellationToken.None),
             "office.select" => await fixture.Coordinator.SelectOfficeDocumentAsync(new OfficeSelectIntent("artifact-1"), CancellationToken.None),
             "office.open" => await fixture.Coordinator.OpenOfficeDocumentAsync(new OfficeOpenIntent(new OfficeArtifact("artifact-1", "hash", "application/test", "file:///test", "private", "acl")), CancellationToken.None),
+            "office.compare" => await fixture.Coordinator.CompareOfficeDocumentsAsync(new OfficeCompareIntent("artifact-left", "artifact-right"), CancellationToken.None),
+            "office.draft" => await fixture.Coordinator.DraftOfficeDocumentAsync(new OfficeDraftIntent("artifact-template", "diff-1", "report.docx"), CancellationToken.None),
             "office.convert" => await fixture.Coordinator.ConvertOfficeDocumentAsync(new OfficeConvertIntent(new OfficeArtifact("artifact-1", "hash", "application/test", "file:///test", "private", "acl"), "txt", "output.txt", OfficeLossBudget.Zero), CancellationToken.None),
             _ => throw new AssertFailedException(),
         };
@@ -103,7 +111,8 @@ public sealed class ShellCoordinatorOfficeWorkflowTests
         Assert.AreEqual(WorkflowCommandState.AcceptedPendingProjection, fixture.Model.OfficeWorkflow.CommandState);
         var availability = fixture.Model.OfficeWorkflow.Availability;
         Assert.IsFalse(new[] { availability.ConversationSend, availability.FileImport, availability.ApprovalAnswer,
-            availability.OfficeCreate, availability.OfficeSelect, availability.OfficeOpen, availability.OfficeConvert }.Any(item => item.IsEnabled));
+            availability.OfficeCreate, availability.OfficeSelect, availability.OfficeOpen, availability.OfficeCompare,
+            availability.OfficeDraft, availability.OfficeConvert }.Any(item => item.IsEnabled));
         await fixture.DisposeAsync();
     }
 

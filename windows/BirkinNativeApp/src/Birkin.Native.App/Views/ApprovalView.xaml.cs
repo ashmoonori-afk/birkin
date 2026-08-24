@@ -1,6 +1,9 @@
 using System.ComponentModel;
 using System.Windows;
 using System.Windows.Controls;
+using Birkin.Native.Protocol.Framing;
+using Birkin.Native.Protocol.Messaging;
+using Birkin.Native.Protocol.Projection;
 using Birkin.Native.Shell;
 using Birkin.Native.Shell.Commands;
 using Birkin.Native.Shell.Presentation;
@@ -11,6 +14,7 @@ public partial class ApprovalView : UserControl, INotifyPropertyChanged
 {
     private readonly ShellPresentationModel? _model;
     private readonly ShellCoordinator? _coordinator;
+    private readonly Dictionary<string, ConversationRowPresentation> _canonicalApprovals = new(StringComparer.Ordinal);
     private IReadOnlyList<ConversationRowPresentation> _approvalRows = [];
 
     public ApprovalView() => InitializeComponent();
@@ -21,6 +25,7 @@ public partial class ApprovalView : UserControl, INotifyPropertyChanged
         _coordinator = coordinator;
         DataContext = model;
         model.PropertyChanged += ModelPropertyChanged;
+        coordinator.ProjectionStore.CanonicalApplied += CanonicalApplied;
         UpdateRows();
         Unloaded += ViewUnloaded;
     }
@@ -60,14 +65,53 @@ public partial class ApprovalView : UserControl, INotifyPropertyChanged
         }
     }
 
-    private void UpdateRows() => ApprovalRows = _model?.Workspace?.Conversation
-        .Where(row => string.Equals(row.Kind, "approval", StringComparison.Ordinal)).ToArray() ?? [];
+    private void CanonicalApplied(NativeEnvelope envelope)
+    {
+        if (envelope.Kind != NativeMessageKind.Event
+            || envelope.Body["type"] is not NativeJsonString type
+            || envelope.Body["payload"] is not NativeJsonObject payload
+            || payload["approval_id"] is not NativeJsonString approvalId)
+        {
+            return;
+        }
+
+        if (type.Value == "approval.requested")
+        {
+            var summary = payload["summary"] is NativeJsonString text ? text.Value : "Approval required";
+            var cursor = envelope.Body["cursor"] is NativeJsonInteger value ? value.Value : 0;
+            _ = Dispatcher.BeginInvoke(() =>
+            {
+                _canonicalApprovals[approvalId.Value] = new ConversationRowPresentation(
+                    approvalId.Value, "approval", summary, "python:authority", cursor);
+                UpdateRows();
+            });
+        }
+        else if (type.Value == "approval.answered")
+        {
+            _ = Dispatcher.BeginInvoke(() =>
+            {
+                _ = _canonicalApprovals.Remove(approvalId.Value);
+                UpdateRows();
+            });
+        }
+    }
+
+    private void UpdateRows()
+    {
+        var projected = _model?.Workspace?.Conversation
+            .Where(row => string.Equals(row.Kind, "approval", StringComparison.Ordinal)) ?? [];
+        ApprovalRows = [.. projected, .. _canonicalApprovals.Values];
+    }
 
     private void ViewUnloaded(object sender, RoutedEventArgs eventArgs)
     {
         if (_model is not null)
         {
             _model.PropertyChanged -= ModelPropertyChanged;
+        }
+        if (_coordinator is not null)
+        {
+            _coordinator.ProjectionStore.CanonicalApplied -= CanonicalApplied;
         }
     }
 }

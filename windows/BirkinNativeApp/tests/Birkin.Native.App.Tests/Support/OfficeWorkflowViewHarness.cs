@@ -53,6 +53,12 @@ internal sealed class OfficeWorkflowViewHarness : IAsyncDisposable
         await Coordinator.ReceiveCanonicalAsync(CancellationToken.None);
     }
 
+    public void ApplyCanonical(string type, NativeJsonObject payload)
+    {
+        _cursor++;
+        Coordinator.ProjectionStore.ApplyEvent(Event(_cursor, "provider-office-test", type, payload));
+    }
+
     public static T Find<T>(DependencyObject root, string automationId) where T : DependencyObject =>
         Descendants<T>(root).Single(element =>
             string.Equals(AutomationProperties.GetAutomationId(element), automationId, StringComparison.Ordinal));
@@ -128,7 +134,14 @@ internal sealed class OfficeWorkflowViewHarness : IAsyncDisposable
             ("duplicate", new NativeJsonBoolean(false)),
             ("outcome", new NativeJsonString("accepted"))));
 
-    private static NativeEnvelope Event(long cursor, string commandId) => new(
+    private static NativeEnvelope Event(long cursor, string commandId) =>
+        Event(cursor, commandId, "command.completed", Object(("summary", new NativeJsonString("canonical completion"))));
+
+    private static NativeEnvelope Event(
+        long cursor,
+        string commandId,
+        string type,
+        NativeJsonObject payload) => new(
         NativeMessageKind.Event,
         $"event-{cursor}",
         Object(
@@ -136,11 +149,11 @@ internal sealed class OfficeWorkflowViewHarness : IAsyncDisposable
             ("event_id", new NativeJsonString($"event-{cursor}")),
             ("session_id", new NativeJsonString("session-1")),
             ("cursor", new NativeJsonInteger(cursor)),
-            ("type", new NativeJsonString("command.completed")),
+            ("type", new NativeJsonString(type)),
             ("timestamp", new NativeJsonString("2026-08-24T01:00:00+00:00")),
             ("actor_id", new NativeJsonString("python:authority")),
             ("command_id", new NativeJsonString(commandId)),
-            ("payload", Object(("summary", new NativeJsonString("canonical completion"))))));
+            ("payload", payload)));
 
     private static NativeJsonObject Object(params (string Key, NativeJsonValue Value)[] pairs) =>
         new(pairs.Select(pair => new KeyValuePair<string, NativeJsonValue>(pair.Key, pair.Value)));

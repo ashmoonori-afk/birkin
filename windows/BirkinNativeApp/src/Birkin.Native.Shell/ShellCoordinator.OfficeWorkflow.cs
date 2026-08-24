@@ -65,6 +65,20 @@ public sealed partial class ShellCoordinator
             new CommandSubmission(OfficeCommands.Open(intent, Context()), true),
             cancellationToken);
 
+    public Task<bool> CompareOfficeDocumentsAsync(
+        OfficeCompareIntent intent,
+        CancellationToken cancellationToken) =>
+        SubmitAsync(
+            new CommandSubmission(OfficeCommands.Compare(intent, Context()), true),
+            cancellationToken);
+
+    public Task<bool> DraftOfficeDocumentAsync(
+        OfficeDraftIntent intent,
+        CancellationToken cancellationToken) =>
+        SubmitAsync(
+            new CommandSubmission(OfficeCommands.Draft(intent, Context()), true),
+            cancellationToken);
+
     public Task<bool> ConvertOfficeDocumentAsync(
         OfficeConvertIntent intent,
         CancellationToken cancellationToken) =>
@@ -257,6 +271,8 @@ public sealed partial class ShellCoordinator
             Availability(OfficeCommands.CreateCommandType, true),
             Availability(OfficeCommands.SelectCommandType, true),
             Availability(OfficeCommands.OpenCommandType, true),
+            Availability(OfficeCommands.CompareCommandType, true),
+            Availability(OfficeCommands.DraftCommandType, true),
             Availability(OfficeCommands.ConvertCommandType, true)));
         PresentWorkflow();
     }

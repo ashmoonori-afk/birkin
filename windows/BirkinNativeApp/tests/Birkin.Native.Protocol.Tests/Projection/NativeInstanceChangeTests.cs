@@ -29,7 +29,8 @@ public sealed class NativeInstanceChangeTests
         Assert.IsTrue(subscription.IsCanonicalRepair);
         Assert.AreEqual(0L, subscription.AfterCursor);
         Assert.IsNull(subscription.KnownInstanceId);
-        Assert.AreEqual(0, subscription.SurfaceRevisions.Count);
+        Assert.AreEqual(1, subscription.SurfaceRevisions.Count);
+        Assert.AreEqual(0L, subscription.SurfaceRevisions["office"]);
     }
 
     private static JsonDocument LoadFixture() => JsonDocument.Parse(File.ReadAllBytes(

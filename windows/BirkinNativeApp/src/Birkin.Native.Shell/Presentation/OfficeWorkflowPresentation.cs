@@ -15,12 +15,14 @@ public sealed record MutationAvailabilitySet(
     MutationAvailability OfficeCreate,
     MutationAvailability OfficeSelect,
     MutationAvailability OfficeOpen,
+    MutationAvailability OfficeCompare,
+    MutationAvailability OfficeDraft,
     MutationAvailability OfficeConvert)
 {
     private static readonly MutationAvailability Disabled = new(false, "E_CONNECTION_NOT_READY");
 
     public static MutationAvailabilitySet None { get; } =
-        new(Disabled, Disabled, Disabled, Disabled, Disabled, Disabled, Disabled);
+        new(Disabled, Disabled, Disabled, Disabled, Disabled, Disabled, Disabled, Disabled, Disabled);
 }
 
 public sealed record OfficeWorkflowPresentation(

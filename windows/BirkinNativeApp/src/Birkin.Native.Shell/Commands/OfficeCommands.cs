@@ -38,6 +38,15 @@ public sealed record OfficeSelectIntent(string ArtifactId);
 
 public sealed record OfficeOpenIntent(OfficeArtifact Artifact);
 
+public sealed record OfficeCompareIntent(
+    string LeftArtifactId,
+    string RightArtifactId);
+
+public sealed record OfficeDraftIntent(
+    string TemplateArtifactId,
+    string DiffId,
+    string OutputName);
+
 public sealed record OfficeConvertIntent(
     OfficeArtifact Artifact,
     string TargetFormat,
@@ -49,6 +58,8 @@ public static class OfficeCommands
     public const string CreateCommandType = "office.create";
     public const string SelectCommandType = "office.select";
     public const string OpenCommandType = "office.open";
+    public const string CompareCommandType = "office.compare";
+    public const string DraftCommandType = "office.draft";
     public const string ConvertCommandType = "office.convert";
 
     public static NativeCommandRequest Create(OfficeCreateIntent intent, CommandRequestContext context) =>
@@ -69,6 +80,19 @@ public static class OfficeCommands
     public static NativeCommandRequest Open(OfficeOpenIntent intent, CommandRequestContext context) =>
         Request(new NativeCommandIntent(OpenCommandType, new NativeJsonObject([
             new("artifact", Artifact(intent.Artifact)),
+        ])), context);
+
+    public static NativeCommandRequest Compare(OfficeCompareIntent intent, CommandRequestContext context) =>
+        Request(new NativeCommandIntent(CompareCommandType, new NativeJsonObject([
+            new("left_artifact_id", new NativeJsonString(intent.LeftArtifactId)),
+            new("right_artifact_id", new NativeJsonString(intent.RightArtifactId)),
+        ])), context);
+
+    public static NativeCommandRequest Draft(OfficeDraftIntent intent, CommandRequestContext context) =>
+        Request(new NativeCommandIntent(DraftCommandType, new NativeJsonObject([
+            new("template_artifact_id", new NativeJsonString(intent.TemplateArtifactId)),
+            new("diff_id", new NativeJsonString(intent.DiffId)),
+            new("output_name", new NativeJsonString(intent.OutputName)),
         ])), context);
 
     public static NativeCommandRequest Convert(OfficeConvertIntent intent, CommandRequestContext context) =>
