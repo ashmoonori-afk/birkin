@@ -229,6 +229,38 @@ def test_builder_rejects_missing_explicit_python(script: Path) -> None:
     assert result.returncode != 0
 
 
+def test_helper_builder_normalizes_msys_interpreter_path(
+    tmp_path: Path,
+) -> None:
+    repository, build_script = _copy_verifier_repository(tmp_path)
+    tools = tmp_path / "tools"
+    tools.mkdir()
+    uname = tools / "uname"
+    _ = uname.write_text("#!/bin/sh\nprintf 'MINGW64_NT\\n'\n", encoding="utf-8")
+    uname.chmod(0o755)
+    cygpath = tools / "cygpath"
+    _ = cygpath.write_text(
+        f"#!/bin/sh\nprintf '%s\\n' '{Path(sys.executable).as_posix()}'\n",
+        encoding="utf-8",
+    )
+    cygpath.chmod(0o755)
+
+    result = subprocess.run(
+        [_bash_executable(), str(build_script), "--verify-inputs"],
+        cwd=repository,
+        env={
+            **os.environ,
+            "BIRKIN_VERIFY_PYTHON": r"C:\Birkin\python.exe",
+            "PATH": str(tools) + os.pathsep + os.environ["PATH"],
+        },
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+
+    assert result.returncode == 0, result.stdout + result.stderr
+
+
 def test_helper_runtime_hash_policy_accepts_only_exact_vcs_source() -> None:
     # Given the exact locked runtime dependency graph.
     with (REPOSITORY / "uv.lock").open("rb") as lock_file:
