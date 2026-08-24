@@ -103,6 +103,15 @@ class OfficeJob:
 
     def request_approval(self) -> dict[str, object]:
         self._require(OfficeJobState.preview_ready)
+        if self._preview is None:
+            raise self._error(DocumentErrorCode.PRECONDITION_FAILED,
+                              "preview is unavailable")
+        source_sha256 = self._preview.get("source_sha256")
+        if not isinstance(source_sha256, str):
+            raise self._error(
+                DocumentErrorCode.PRECONDITION_FAILED,
+                "preview requires source_sha256",
+            )
         self._enter(OfficeJobState.approval_requested)
         return {
             "job_id": self._job_id,
@@ -110,6 +119,8 @@ class OfficeJob:
             "outcome": self._outcome,
             "operations": deepcopy(self._operations),
             "preview": deepcopy(self._preview),
+            "proposal_digest": self._proposal_digest(),
+            "source_sha256": source_sha256,
         }
 
     def approve(self, *, actor: str) -> None:

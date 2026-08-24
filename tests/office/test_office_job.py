@@ -80,6 +80,23 @@ def _assert_error_code(caught: pytest.ExceptionInfo[DocumentError], code: Docume
     assert caught.value.stage == "office_job"
 
 
+def test_approval_request_binds_preview_source_and_proposal_digest() -> None:
+    job, _runner = _job()
+
+    job.declare_outcome("Replace the heading")
+    job.propose_operations([{"type": "replace_text", "value": "New"}])
+    job.build_preview()
+    request = job.request_approval()
+
+    assert request["source_sha256"] == "source-sha"
+    assert isinstance(request["proposal_digest"], str)
+
+    job.approve(actor="reviewer")
+    approval = job.receipt()["approval"]
+    assert isinstance(approval, dict)
+    assert request["proposal_digest"] == approval["proposal_digest"]
+
+
 def test_happy_path_has_exact_state_sequence() -> None:
     job, runner = _job()
 
