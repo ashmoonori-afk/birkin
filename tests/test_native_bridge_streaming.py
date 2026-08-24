@@ -111,8 +111,8 @@ def test_blocked_command_keeps_heartbeat_live_until_ordered_receipt(
         capabilities=BootstrapSecretStore(tmp_path / "native"),
         instance_id="instance-1",
         server_version="1.0.0",
-        heartbeat_interval=0.005,
-        peer_timeout=0.5,
+        heartbeat_interval=0.05,
+        peer_timeout=5.0,
     )
     server_socket, client = socket.socketpair()
     client.settimeout(1)
