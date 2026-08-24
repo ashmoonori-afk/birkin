@@ -3,14 +3,42 @@ using System.IO;
 
 namespace Birkin.Native.App.Tests.Support;
 
-internal sealed class BridgeProcessHarness : IAsyncDisposable
+internal interface IOwnedBridgeProcess : IDisposable
+{
+    int Id { get; }
+
+    bool HasExited { get; }
+
+    void KillEntireProcessTree();
+
+    Task WaitForExitAsync();
+}
+
+internal sealed class OwnedBridgeProcess : IOwnedBridgeProcess
 {
     private readonly Process _process;
+
+    public OwnedBridgeProcess(Process process) => _process = process;
+
+    public int Id => _process.Id;
+
+    public bool HasExited => _process.HasExited;
+
+    public void KillEntireProcessTree() => _process.Kill(entireProcessTree: true);
+
+    public Task WaitForExitAsync() => _process.WaitForExitAsync();
+
+    public void Dispose() => _process.Dispose();
+}
+
+internal sealed class BridgeProcessHarness : IAsyncDisposable
+{
+    private readonly IOwnedBridgeProcess _process;
     private readonly TaskCompletionSource<string> _listening;
     private readonly BridgeStandardErrorCapture _standardError;
 
     private BridgeProcessHarness(
-        Process process,
+        IOwnedBridgeProcess process,
         string temporaryRoot,
         TaskCompletionSource<string> listening,
         BridgeStandardErrorCapture standardError)
@@ -82,7 +110,11 @@ internal sealed class BridgeProcessHarness : IAsyncDisposable
             process.BeginOutputReadLine();
             process.BeginErrorReadLine();
             cancellationToken.Register(() => listening.TrySetCanceled(cancellationToken));
-            return Task.FromResult(new BridgeProcessHarness(process, temporaryRoot, listening, standardError));
+            return Task.FromResult(new BridgeProcessHarness(
+                new OwnedBridgeProcess(process),
+                temporaryRoot,
+                listening,
+                standardError));
         }
         catch
         {
@@ -97,24 +129,27 @@ internal sealed class BridgeProcessHarness : IAsyncDisposable
 
     public async ValueTask DisposeAsync()
     {
-        if (!_process.HasExited)
-        {
-            using var taskkill = Process.Start(new ProcessStartInfo
-            {
-                FileName = "taskkill.exe",
-                UseShellExecute = false,
-                CreateNoWindow = true,
-                ArgumentList = { "/PID", _process.Id.ToString(System.Globalization.CultureInfo.InvariantCulture), "/T", "/F" },
-            }) ?? throw new InvalidOperationException("taskkill did not start");
-            await taskkill.WaitForExitAsync();
-            if (taskkill.ExitCode != 0)
-            {
-                throw new InvalidOperationException($"taskkill failed with code {taskkill.ExitCode}");
-            }
-            await _process.WaitForExitAsync();
-        }
+        await StopOwnedProcessAsync(_process);
         _process.Dispose();
         Directory.Delete(TemporaryRoot, recursive: true);
+    }
+
+    internal static async Task StopOwnedProcessAsync(IOwnedBridgeProcess process)
+    {
+        if (process.HasExited)
+        {
+            return;
+        }
+
+        try
+        {
+            process.KillEntireProcessTree();
+        }
+        catch (InvalidOperationException) when (process.HasExited)
+        {
+        }
+
+        await process.WaitForExitAsync();
     }
 
     private static string FindRepositoryRoot()
