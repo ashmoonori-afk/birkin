@@ -15,17 +15,18 @@ from __future__ import annotations
 from datetime import datetime
 
 from birkin import cron
-
-
-def _next(text: str, now: datetime) -> datetime | None:
-    schedule = cron.parse_schedule(text)
-    assert schedule is not None, f"parse_schedule({text!r}) returned None"
-    nxt = cron.compute_next_run(schedule, None, now)
-    return datetime.fromisoformat(nxt) if nxt else None
+from birkin.cronexpr import normalize
 
 
 # A Wednesday, so every weekday assertion below has somewhere to move to.
 NOW = datetime(2026, 8, 5, 12, 0)
+
+
+def _next(text: str, now: datetime = NOW) -> datetime | None:
+    schedule = cron.parse_schedule(text)
+    assert schedule is not None, f"parse_schedule({text!r}) returned None"
+    nxt = cron.compute_next_run(schedule, None, now)
+    return datetime.fromisoformat(nxt) if nxt else None
 
 
 class TestAlreadySupported:
@@ -63,6 +64,12 @@ class TestSundayAsSeven:
 
     def test_zero_is_still_sunday(self) -> None:
         assert _next("0 9 * * 0", NOW) == datetime(2026, 8, 9, 9, 0)
+
+    def test_stepped_range_normalizes_sunday_to_zero(self) -> None:
+        assert normalize("0 9 * * 1-7/2") == "0 9 * * 1-6/2,0"
+
+    def test_stepped_range_fires_on_sunday(self) -> None:
+        assert _next("0 9 * * 1-7/2", datetime(2026, 8, 7, 12, 0)) == datetime(2026, 8, 9, 9, 0)
 
 
 class TestNameAliases:
@@ -104,3 +111,6 @@ class TestUnfireableExpressionsAreRejected:
 
     def test_unknown_name_is_refused(self) -> None:
         assert cron.parse_schedule("0 9 * * FUNDAY") is None
+
+    def test_six_field_expression_is_refused(self) -> None:
+        assert cron.parse_schedule("0 0 9 * * 1") is None

@@ -63,13 +63,17 @@ def sunday_as_zero(field: str) -> str:
     """
     parts: list[str] = []
     for part in field.split(","):
-        if part == "7":
-            parts.append("0")
-            continue
-        head, sep, tail = part.partition("-")
-        if sep and tail == "7" and head.isdigit():
+        base, sep, raw_step = part.partition("/")
+        head, range_sep, tail = base.partition("-")
+        if range_sep and tail == "7" and head.isdigit():
             start = int(head)
-            parts.append("0-6" if start == 0 else f"{start}-6,0")
+            folded = "0-6" if start == 0 else f"{start}-6"
+            parts.append(folded + (f"/{raw_step}" if sep else ""))
+            if start != 0:
+                parts.append("0")
+            continue
+        if base == "7":
+            parts.append("0")
             continue
         parts.append(part)
     return ",".join(parts)
@@ -86,7 +90,7 @@ def normalize(text: str) -> Optional[str]:
     if macro:
         return macro
     fields = text.split()
-    if len(fields) < 5:
+    if len(fields) != 5:
         return None
     minute_f, hour_f, dom_f, month_f, dow_f = fields[:5]
     month_f = _substitute_names(month_f, _MONTH_NAMES)
