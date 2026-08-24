@@ -26,9 +26,10 @@ def _nested_marker(marker: str, depth: int) -> str:
 
 
 def test_profile_memory_request_requires_observed_host_paths_before_permission_claims() -> None:
+    home = Path("/Users/tester")
     policy = local_environment_policy.render(
         host_os="Darwin",
-        home=Path("/Users/tester"),
+        home=home,
     )
     body = _policy_body(policy)
     required_rules = (
@@ -41,7 +42,7 @@ def test_profile_memory_request_requires_observed_host_paths_before_permission_c
     )
 
     assert json.dumps("Darwin") in body
-    assert json.dumps("/Users/tester") in body
+    assert json.dumps(str(home)) in body
     assert '"instructions": {' in body
     assert '"required_rules": [' in body
     for rule in required_rules:

@@ -1,3 +1,4 @@
+import Dispatch
 import Foundation
 
 /// A full canonical replay followed by the live envelopes on the same socket.
@@ -147,10 +148,10 @@ extension NativeTransportActor {
             )
             let messages = AsyncThrowingStream<NativeEnvelope, any Error> { continuation in
                 continuation.onTermination = { _ in socket.close() }
-                Task.detached {
+                DispatchQueue.global().async {
                     defer { socket.close() }
                     do {
-                        while !Task.isCancelled {
+                        while true {
                             let envelope = try NativeFrameCodec.decode(
                                 frame: socket.receiveFrame()
                             )
