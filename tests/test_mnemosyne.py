@@ -6,6 +6,7 @@ temp vault (isolated BIRKIN_HOME via conftest). No LLM anywhere.
 
 from __future__ import annotations
 
+import json
 import os
 from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
@@ -44,6 +45,26 @@ def test_tokenize_hangul_runs_and_bigrams():
     assert "메모리" in toks and "시스템" in toks
     assert "메모" in toks and "모리" in toks          # bigrams of run 1
     assert "시스" in toks and "스템" in toks          # bigrams of run 2
+
+
+@pytest.mark.parametrize(
+    ("text", "expected"),
+    [
+        ("회의", ["회의", "회", "의"]),
+        ("김철수", ["김철수", "김", "철", "수", "김철", "철수"]),
+        ("ㅋㅋ", ["ㅋㅋ", "ㅋ"]),
+        ("東京", ["東京", "東", "京"]),
+        ("カナ", ["カナ", "カ", "ナ"]),
+    ],
+)
+def test_tokenize_cjk_runs_unigrams_and_bigrams_without_duplicates(
+        text: str, expected: list[str]):
+    # Given: a CJK run whose whole-run, unigram, and bigram representations overlap.
+    # When: it is tokenized for BM25 indexing.
+    tokens = mnemosyne.tokenize(text)
+    # Then: every required representation is indexed exactly once.
+    assert tokens == expected
+    assert len(tokens) == len(set(tokens))
 
 
 def test_tokenize_mixed_korean_ascii():
@@ -207,6 +228,23 @@ def test_corrupted_index_file_triggers_clean_rebuild():
     assert eng.note_meta("solid") is not None
 
 
+def test_search_rebuilds_legacy_index_after_tokenizer_change():
+    # Given: a persisted pre-unigram index for a multi-syllable Korean name.
+    m = _mem()
+    m.write_note("김철수", "프로젝트 담당자")
+    index_path = _vault() / mnemosyne.INDEX_FILE
+    index = json.loads(index_path.read_text(encoding="utf-8"))
+    terms = index["notes"]["김철수"]["terms"]
+    terms.pop("김")
+    index["notes"]["김철수"]["doclen"] -= 1
+    index["version"] = 3
+    index_path.write_text(json.dumps(index), encoding="utf-8")
+    # When: a fresh engine opens the existing cache.
+    eng = mnemosyne.Mnemosyne(_vault())
+    # Then: it rebuilds rather than preserving the incompatible old postings.
+    assert eng.search("김", now=NOW)[0]["slug"] == "김철수"
+
+
 def test_deleted_note_is_pruned_on_refresh():
     m = _mem()
     m.write_note("Ghost", "soon gone")
@@ -257,6 +295,16 @@ def test_search_korean_query_roundtrip():
     m.write_note("메모리 설계", "구역 기반 저장과 인덱스")
     eng = _engine()
     assert eng.search("구역", now=NOW)[0]["slug"] == _slug_kr()
+
+
+def test_search_korean_single_character_matches_longer_name():
+    # Given: a Korean name with more than one syllable.
+    m = _mem()
+    m.write_note("김철수", "프로젝트 담당자")
+    # When: the caller remembers only the first syllable.
+    hits = m.search("김", now=NOW)
+    # Then: lexical retrieval finds the indexed name.
+    assert [hit["title"] for hit in hits] == ["김철수"]
 
 
 def _slug_kr() -> str:
