@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import struct
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 
 from birkin import __version__
 from birkin.native.protocol import (
@@ -13,6 +13,8 @@ from birkin.native.protocol import (
     NATIVE_PROTOCOL_NAME,
     NATIVE_PROTOCOL_VERSION,
 )
+from birkin.workspace.contracts import WorkspaceCommand
+from birkin.workspace.records import CommandReceipt
 
 Envelope = dict[str, JSONValue]
 
@@ -53,6 +55,39 @@ def _nested_body(levels: int) -> dict[str, JSONValue]:
 
 def build_vectors() -> list[tuple[str, Envelope]]:
     """Return every registered kind plus deterministic wire-format edges."""
+    command = WorkspaceCommand.parse({
+        "protocol_version": 1,
+        "command_id": "cmd-1",
+        "expected_cursor": 42,
+        "type": "session.select",
+        "payload": {"session_id": "s-1"},
+        "client_context": {"surface": "windows", "view_id": "conversation"},
+    })
+    command_body = {
+        "protocol_version": command.protocol_version,
+        "command_id": command.command_id,
+        "expected_cursor": command.expected_cursor,
+        "type": command.type,
+        "payload": command.payload,
+        "client_context": command.client_context.to_json(),
+    }
+    receipt = CommandReceipt(
+        protocol_version=1,
+        command_id="cmd-1",
+        session_id="session-1",
+        actor_id="windows:conversation",
+        accepted_cursor=43,
+        state="completed",
+        result_event_cursor=44,
+        fingerprint="fixture-fingerprint",
+    )
+    receipt_body = receipt.to_public_json()
+    receipt_body["outcome"] = "accepted"
+    bounded_receipt_body = replace(
+        receipt,
+        command_id="a.b:c-d_e",
+    ).to_public_json()
+    bounded_receipt_body["outcome"] = "accepted"
     vectors: list[tuple[str, Envelope]] = [
         ("hello", envelope("hello", "hello-1", {
             "client": "birkin-macos", "client_version": "0.1.0",
@@ -98,13 +133,12 @@ def build_vectors() -> list[tuple[str, Envelope]]:
             "surface": "terminal", "cursor": 8,
             "patch": {"op": "line", "index": 0, "text": "$ birkin run"},
         })),
-        ("command", envelope("command", "command-1", {"command": {
-            "protocol_version": 1, "command_id": "cmd-1", "type": "session.select",
-            "params": {"session_id": "s-1"},
-        }})),
-        ("receipt", envelope("receipt", "receipt-1", {
-            "command_id": "cmd-1", "status": "accepted", "cursor": 44,
-        }, "command-1")),
+        ("command", envelope("command", "command-1", {
+            "session_capability": "cap-token-1", "command": command_body,
+        })),
+        ("receipt", envelope(
+            "receipt", "receipt-1", receipt_body, "command-1"
+        )),
         ("error", envelope("error", "error-1", {
             "code": "E_UNSUPPORTED_COMMAND", "message": "unsupported command",
             "retryable": False,
@@ -144,9 +178,9 @@ def build_vectors() -> list[tuple[str, Envelope]]:
             "zulu": 1, "alpha": 2, "mike": 3,
             "bravo": {"zeta": 1, "alpha": 2},
         })),
-        ("bounded_identifiers", envelope("receipt", "i" * 128, {
-            "command_id": "a.b:c-d_e", "status": "accepted",
-        }, "a.b:c-d_e")),
+        ("bounded_identifiers", envelope(
+            "receipt", "i" * 128, bounded_receipt_body, "a.b:c-d_e"
+        )),
     ])
     return vectors
 
