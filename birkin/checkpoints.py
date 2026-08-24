@@ -128,6 +128,31 @@ def _ref_for(workdir: Path) -> str:
     return f"refs/birkin/{digest[:16]}"
 
 
+def _safe_extract(archive: tarfile.TarFile, target: Path) -> None:
+    """Extract an archive safely on Python versions without tar filters."""
+    root = target.resolve()
+    directories: list[tarfile.TarInfo] = []
+    for member in archive.getmembers():
+        member_path = root / member.name
+        destination = member_path.resolve()
+        if destination != root and root not in destination.parents:
+            raise CheckpointError(f"archive member escapes destination: {member.name}")
+        if member.isdev() or not (
+            member.isfile() or member.isdir() or member.issym() or member.islnk()
+        ):
+            raise CheckpointError(f"unsupported archive member: {member.name}")
+        if member.issym() or member.islnk():
+            link_root = member_path.parent.resolve() if member.issym() else root
+            link_target = (link_root / member.linkname).resolve()
+            if link_target != root and root not in link_target.parents:
+                raise CheckpointError(f"archive link escapes destination: {member.name}")
+        archive.extract(member, root, set_attrs=not member.isdir())
+        if member.isdir():
+            directories.append(member)
+    for directory in reversed(directories):
+        archive.extract(directory, root)
+
+
 class CheckpointManager:
     """One bare git store shared by every workspace birkin touches."""
 
@@ -722,7 +747,12 @@ class CheckpointManager:
         if proc.returncode != 0:
             raise CheckpointError("could not export checkpoint tree")
         with tarfile.open(fileobj=io.BytesIO(proc.stdout), mode="r:") as archive:
-            archive.extractall(target, filter="data")
+            try:
+                archive.extractall(target, members=(), filter="data")
+            except TypeError:
+                _safe_extract(archive, target)
+            else:
+                archive.extractall(target, filter="data")
 
     def fork(self, workdir: Any, checkpoint: str, command: Sequence[str], *,
              runner: Any = None, policy: Any = None,

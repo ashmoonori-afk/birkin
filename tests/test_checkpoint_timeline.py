@@ -5,6 +5,7 @@ from __future__ import annotations
 import shutil
 import subprocess
 import sys
+import tarfile
 from copy import deepcopy
 from pathlib import Path
 
@@ -182,7 +183,46 @@ def _repo(tmp_path: Path) -> Path:
     return repo
 
 
-def test_fork_seeds_checkpoint_and_records_lineage(tmp_path: Path) -> None:
+def test_seed_propagates_type_error_from_supported_extraction(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # Given
+    repo = _repo(tmp_path)
+    manager = checkpoints.CheckpointManager(store_dir=tmp_path / "store")
+    checkpoint = manager.ensure_checkpoint(repo, "failure point")
+    assert checkpoint
+    target = tmp_path / "target"
+    target.mkdir()
+
+    def extractall_with_content_failure(
+        _archive: tarfile.TarFile,
+        _path: str | Path = ".",
+        members=None,
+        *,
+        numeric_owner: bool = False,
+        filter: str | None = None,
+    ) -> None:
+        del numeric_owner, filter
+        if members == ():
+            return
+        raise TypeError("member extraction failed")
+
+    monkeypatch.setattr(
+        tarfile.TarFile,
+        "extractall",
+        extractall_with_content_failure,
+    )
+
+    # When / Then
+    with pytest.raises(TypeError):
+        manager._seed(repo, checkpoint, target)
+
+
+def test_fork_seeds_checkpoint_when_extractall_filter_is_unsupported(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     repo = _repo(tmp_path)
     manager = checkpoints.CheckpointManager(store_dir=tmp_path / "store")
     checkpoint = manager.ensure_checkpoint(repo, "failure point")
@@ -195,6 +235,24 @@ def test_fork_seeds_checkpoint_and_records_lineage(tmp_path: Path) -> None:
         "-c",
         "import pathlib; print(pathlib.Path('main.txt').read_text().strip())",
     )
+
+    original_extractall = tarfile.TarFile.extractall
+
+    def extractall_without_filter(
+        archive: tarfile.TarFile,
+        path: str | Path = ".",
+        members=None,
+        *,
+        numeric_owner: bool = False,
+    ) -> None:
+        original_extractall(
+            archive,
+            path,
+            members,
+            numeric_owner=numeric_owner,
+        )
+
+    monkeypatch.setattr(tarfile.TarFile, "extractall", extractall_without_filter)
 
     result = manager.fork(
         repo, checkpoint, command, runner=runner, policy=SandboxPolicy(), on_output=seen.append
