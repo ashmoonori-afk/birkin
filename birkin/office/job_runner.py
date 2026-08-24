@@ -8,6 +8,7 @@ from pathlib import Path
 from typing import BinaryIO, cast, final
 
 from .errors import DocumentError, DocumentErrorCode
+from .export_policy import JSONValue, ExportReceipt, ExportRequest
 from .service import DocumentService
 from .service_workspace import DocumentWorkspace
 
@@ -39,8 +40,12 @@ def _string(value: object, label: str) -> str:
 class DocumentServiceRunner:
     """Run OfficeJob stages through a real DocumentService."""
 
-    def __init__(self, service: DocumentService) -> None:
+    def __init__(
+        self, service: DocumentService, *, export_root: Path | None = None
+    ) -> None:
         self._service = service
+        self._export_root = export_root
+        self._export_receipts: dict[str, ExportReceipt] = {}
 
     def _source_sha256(self, source: Mapping[str, object]) -> str:
         inspection = self._service.inspect_document(source)
@@ -86,6 +91,37 @@ class DocumentServiceRunner:
 
     def validate(self, *, artifact: Mapping[str, object]) -> dict[str, object]:
         return dict(self._service.validate_artifact(artifact))
+
+    def export(
+        self, *, artifact: Mapping[str, object], request: ExportRequest
+    ) -> dict[str, JSONValue]:
+        if self._export_root is None:
+            raise _precondition("export root is not configured")
+        workspace = DocumentWorkspace(self._service.home)
+        policy = workspace.export_policy(self._export_root)
+        snapshot = workspace.artifact_snapshot(artifact)
+        with snapshot:
+            receipt = policy.export(snapshot.path, request)
+        self._export_receipts[receipt.rollback_token] = receipt
+        return receipt.public()
+
+    def rollback_export(
+        self, receipt: Mapping[str, object]
+    ) -> dict[str, JSONValue]:
+        token = _string(receipt.get("rollback_token"), "rollback token")
+        exported = self._export_receipts.get(token)
+        if exported is None:
+            raise _precondition("export receipt is unavailable")
+        if receipt.get("output_sha256") != exported.output_sha256:
+            raise _precondition("export receipt output sha256 changed")
+        if receipt.get("path") != str(exported.destination):
+            raise _precondition("export receipt destination changed")
+        policy = DocumentWorkspace(self._service.home).export_policy(
+            self._export_root or exported.destination.parent
+        )
+        rolled_back = policy.rollback(exported)
+        del self._export_receipts[token]
+        return rolled_back.public()
 
     def publish(
         self, *, artifact: Mapping[str, object], output_name: str
