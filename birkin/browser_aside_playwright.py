@@ -16,6 +16,7 @@ from birkin.browser_aside_engine import (
     SyncApi,
 )
 from birkin.browser_aside_errors import BrowserAsideError
+from birkin.browser_aside_lifecycle import ensure_private_directory
 from birkin.bundled_browser import BundledBrowserRuntimeError
 from birkin.browser_aside_owner import BrowserOwnerLoop, fail_pending
 from birkin.browser_aside_playwright_support import (
@@ -192,7 +193,7 @@ class PersistentBrowserRuntime:
         profile_lock = profile_owner_lock(self._profile_dir)
         try:
             _ = profile_lock.__enter__()
-            self._profile_dir.mkdir(mode=0o700, parents=True, exist_ok=True)
+            _ = ensure_private_directory(self._profile_dir)
             proxy = BrowserFilteringProxy(self._policy)
             proxy.start()
             manager = api.sync_playwright()

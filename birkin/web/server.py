@@ -84,6 +84,8 @@ MAX_POST_BODY_BYTES = 65_536
 POST_BODY_TIMEOUT_SECONDS = 2.0
 MAX_PUBLIC_WORKERS = 4
 PUBLIC_HEADER_TIMEOUT_SECONDS = 5.0
+REJECTED_HEADER_TIMEOUT_SECONDS = 0.5
+MAX_REJECTED_HEADER_BYTES = 16_384
 _APPROVAL_ID_RE = re.compile(r"[0-9a-f]{12}")
 
 
@@ -118,6 +120,7 @@ class BoundedHTTPServer(ThreadingHTTPServer):
         client_address: Any,
     ) -> None:
         if not self._worker_slots.acquire(blocking=False):
+            self._drain_rejected_request(cast(socket.socket, request))
             try:
                 cast(socket.socket, request).sendall(
                     b"HTTP/1.1 503 Service Unavailable\r\n"
@@ -135,6 +138,42 @@ class BoundedHTTPServer(ThreadingHTTPServer):
         except BaseException:
             self._worker_slots.release()
             raise
+
+    @staticmethod
+    def _drain_rejected_request(request: socket.socket) -> None:
+        previous_timeout = request.gettimeout()
+        remaining = MAX_REJECTED_HEADER_BYTES
+        suffix = b""
+        try:
+            request.settimeout(REJECTED_HEADER_TIMEOUT_SECONDS)
+            while remaining > 0:
+                pending = request.recv(
+                    min(remaining, 4096),
+                    socket.MSG_PEEK,
+                )
+                if not pending:
+                    return
+                combined = suffix + pending
+                boundary = combined.find(b"\r\n\r\n")
+                consume = (
+                    boundary + 4 - len(suffix)
+                    if boundary >= 0
+                    else len(pending)
+                )
+                consumed = 0
+                while consumed < consume:
+                    chunk = request.recv(consume - consumed)
+                    if not chunk:
+                        return
+                    consumed += len(chunk)
+                remaining -= consumed
+                if boundary >= 0:
+                    return
+                suffix = combined[-3:]
+        except OSError:
+            return
+        finally:
+            request.settimeout(previous_timeout)
 
     def process_request_thread(
         self,

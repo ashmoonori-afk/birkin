@@ -9,6 +9,10 @@ from contextlib import contextmanager
 from pathlib import Path
 
 from birkin.browser_aside_errors import BrowserAsideError
+from birkin.native.private_storage import (
+    harden_private_directory,
+    harden_private_file,
+)
 from birkin.store import FileLockTimeout, file_lock
 
 
@@ -57,8 +61,7 @@ def purge_stale_profiles(profiles_root: Path) -> int:
 def profile_lock_target(profile: Path) -> Path:
     root = profile.parent.resolve()
     locks = root / ".locks"
-    locks.mkdir(mode=0o700, exist_ok=True)
-    locks.chmod(0o700)
+    harden_private_directory(locks)
     return locks / profile.name
 
 
@@ -67,7 +70,7 @@ def clear_profile_lock(profile: Path) -> None:
     target = profile_lock_target(profile)
     lock_path = Path(f"{target}.lock")
     lock_path.touch(mode=0o600, exist_ok=True)
-    lock_path.chmod(0o600)
+    harden_private_file(lock_path)
 
 
 @contextmanager

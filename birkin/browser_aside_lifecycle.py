@@ -13,6 +13,7 @@ from birkin.browser_aside_artifacts import (
     ArtifactQuotaExceeded,
     BrowserArtifactStore,
 )
+from birkin.native.private_storage import harden_private_directory
 
 __all__ = [
     "ArtifactQuotaExceeded",
@@ -244,8 +245,7 @@ class BrowserRuntimeController:
 
 
 def ensure_private_directory(path: Path) -> Path:
-    path.mkdir(mode=0o700, parents=True, exist_ok=True)
-    path.chmod(0o700)
+    harden_private_directory(path)
     return path
 
 

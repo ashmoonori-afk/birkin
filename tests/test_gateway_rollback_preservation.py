@@ -9,6 +9,7 @@ from pathlib import Path
 import pytest
 
 from birkin.gateway.channels import local_http
+from tests.test_native_private_storage import assert_owner_only
 
 
 def test_gateway_ambiguous_post_link_failure_preserves_complete_capability(
@@ -37,7 +38,7 @@ def test_gateway_ambiguous_post_link_failure_preserves_complete_capability(
     assert list(home.glob(".gateway_http_token.*.tmp")) == []
     capability = home / "gateway_http_token"
     assert len(capability.read_text(encoding="utf-8").strip()) >= 32
-    assert capability.stat().st_mode & 0o777 == 0o600
+    assert_owner_only(capability, posix_mode=0o600)
 
 
 @pytest.mark.skipif(

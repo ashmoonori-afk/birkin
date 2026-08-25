@@ -7,6 +7,13 @@ import secrets
 import stat
 from pathlib import Path
 
+from birkin.native.private_storage import (
+    create_private_temp,
+    harden_private_file,
+)
+
+_IS_WINDOWS = os.name == "nt"
+
 
 class CapabilityFileError(RuntimeError):
     """A gateway capability file violates its persistence contract."""
@@ -27,7 +34,10 @@ def _read_token(path: Path) -> str:
             raise CapabilityFileError(
                 "gateway capability path is not a regular file"
             )
-        os.fchmod(descriptor, 0o600)
+        if _IS_WINDOWS:
+            harden_private_file(path)
+        else:
+            os.chmod(descriptor, 0o600)
         payload = os.read(descriptor, 4097)
     finally:
         os.close(descriptor)
@@ -62,24 +72,30 @@ def load_or_create_token() -> tuple[str, Path]:
     if existing is not None:
         return existing, path
     token = secrets.token_urlsafe(32)
-    temporary = path.with_name(
-        f".{path.name}.{secrets.token_hex(16)}.tmp"
-    )
-    flags = (
-        os.O_WRONLY
-        | os.O_CREAT
-        | os.O_EXCL
-        | getattr(os, "O_NOFOLLOW", 0)
-    )
-    try:
+    if _IS_WINDOWS:
+        descriptor, temporary_name = create_private_temp(
+            path.parent,
+            prefix=f".{path.name}.",
+        )
+        temporary = Path(temporary_name)
+    else:
+        temporary = path.with_name(
+            f".{path.name}.{secrets.token_hex(16)}.tmp"
+        )
+        flags = (
+            os.O_WRONLY
+            | os.O_CREAT
+            | os.O_EXCL
+            | getattr(os, "O_NOFOLLOW", 0)
+        )
         descriptor = os.open(temporary, flags, 0o600)
+    try:
         try:
             payload = f"{token}\n".encode("utf-8")
             view = memoryview(payload)
             while view:
                 written = os.write(descriptor, view)
                 view = view[written:]
-            os.fchmod(descriptor, 0o600)
             os.fsync(descriptor)
         finally:
             os.close(descriptor)

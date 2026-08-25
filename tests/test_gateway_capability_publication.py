@@ -7,7 +7,41 @@ from pathlib import Path
 
 import pytest
 
+from birkin.gateway.channels import capability_file
 from birkin.gateway.channels import local_http
+from birkin.native import private_storage
+from tests.test_native_private_storage import assert_owner_only
+
+
+def test_gateway_windows_read_hardens_before_use_without_fchmod(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    capability = tmp_path / "gateway_http_token"
+    capability.write_text("complete-winner\n", encoding="utf-8")
+    hardened: list[Path] = []
+
+    def reject_fchmod(_descriptor: int, _mode: int) -> None:
+        raise AssertionError(
+            "Windows must not fchmod a read-only capability descriptor"
+        )
+
+    monkeypatch.setattr(
+        capability_file,
+        "_IS_WINDOWS",
+        True,
+        raising=False,
+    )
+    monkeypatch.setattr(
+        capability_file,
+        "harden_private_file",
+        hardened.append,
+        raising=False,
+    )
+    monkeypatch.setattr(capability_file.os, "fchmod", reject_fchmod)
+
+    assert capability_file._read_token(capability) == "complete-winner"
+    assert hardened == [capability]
 
 
 def test_gateway_capability_publication_is_atomic_under_concurrency(
@@ -17,29 +51,31 @@ def test_gateway_capability_publication_is_atomic_under_concurrency(
     monkeypatch.setenv("BIRKIN_HOME", str(tmp_path / "home"))
     created = threading.Event()
     release = threading.Event()
-    original_open = local_http.os.open
+    original_create_private_temp = private_storage.create_private_temp
     creator_results: list[tuple[str, Path]] = []
     creator_errors: list[RuntimeError] = []
 
-    def delayed_open(
-        path: os.PathLike[str] | str,
-        flags: int,
-        mode: int = 0o777,
+    def delayed_private_temp(
+        directory: Path,
         *,
-        dir_fd: int | None = None,
-    ) -> int:
-        descriptor = original_open(path, flags, mode, dir_fd=dir_fd)
-        if (
-            flags & os.O_CREAT
-            and flags & os.O_EXCL
-            and flags & os.O_WRONLY
-            and not created.is_set()
-        ):
+        prefix: str,
+    ) -> tuple[int, str]:
+        descriptor, name = original_create_private_temp(
+            directory,
+            prefix=prefix,
+        )
+        if not created.is_set():
             created.set()
             assert release.wait(timeout=2)
-        return descriptor
+        return descriptor, name
 
-    monkeypatch.setattr(local_http.os, "open", delayed_open)
+    monkeypatch.setattr(
+        capability_file,
+        "create_private_temp",
+        delayed_private_temp,
+        raising=False,
+    )
+    monkeypatch.setattr(capability_file, "_IS_WINDOWS", True)
 
     def create_first() -> None:
         try:
@@ -67,7 +103,7 @@ def test_gateway_capability_publication_is_atomic_under_concurrency(
     assert second_result is not None
     assert creator_results[0] == second_result
     assert len(second_result[0]) >= 32
-    assert second_result[1].stat().st_mode & 0o777 == 0o600
+    assert_owner_only(second_result[1], posix_mode=0o600)
 
 
 @pytest.mark.parametrize(

@@ -16,6 +16,7 @@ from birkin.gateway.channels import build_channels, local_http
 from birkin.gateway.channels.local_http import LocalHTTPChannel
 from birkin.gateway.channels.telegram import verify_token
 from tests.local_http_support import local_http_timeout
+from tests.test_native_private_storage import assert_owner_only
 
 # ---------------- Gateway.handle ----------------
 
@@ -101,7 +102,7 @@ def test_gateway_persistent_codex_timeout_runs_moirai_recovery(monkeypatch):
             return None
 
     gateway._claude_sessions.put(("http", "u1"), TimedOutCodex())
-    recovered: list[dict] = []
+    recovered: list[dict[str, object]] = []
 
     def run_approved(payload, on_event=None):
         recovered.append(payload)
@@ -110,7 +111,7 @@ def test_gateway_persistent_codex_timeout_runs_moirai_recovery(monkeypatch):
         return "moirai: hard-task completed"
 
     monkeypatch.setattr(trigger, "run_approved", run_approved)
-    progress: dict = {}
+    progress: dict[str, object] = {}
 
     # When: the local user sends a request through the persistent gateway.
     reply = gateway.handle("http", "u1", "continue the Kaggle work",
@@ -342,7 +343,7 @@ def test_local_http_default_requires_owner_capability_before_dispatch(
     assert json.loads(payload) == {"reply": "ok"}
     assert calls == [("http", "owner", "hello")]
     assert len(token) >= 32
-    assert token_path.stat().st_mode & 0o777 == 0o600
+    assert_owner_only(token_path, posix_mode=0o600)
 
 
 def test_local_http_timeout_runs_real_moirai_hard_task(
