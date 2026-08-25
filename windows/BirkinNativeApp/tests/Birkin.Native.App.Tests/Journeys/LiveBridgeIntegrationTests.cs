@@ -1,5 +1,4 @@
 using System.IO;
-using System.Reflection;
 using Birkin.Native.App.Startup;
 using Birkin.Native.App.Tests.Support;
 using Birkin.Native.Protocol.Framing;
@@ -50,10 +49,6 @@ public sealed class LiveBridgeIntegrationTests
                 failed.TrySetResult(composition.PresentationModel.Connection.ErrorCode ?? "E_CONNECTION");
             }
         };
-        var connection = composition.Coordinator.GetType()
-            .GetField("_connection", BindingFlags.Instance | BindingFlags.NonPublic)?
-            .GetValue(composition.Coordinator) as INativeClientConnection
-            ?? throw new AssertFailedException("Composition root connection was unavailable.");
         var request = new NativeCommandRequest(
             new NativeCommandIdentity("windows-live-session-rename", snapshot.Cursor),
             new NativeCommandIntent(
@@ -65,7 +60,7 @@ public sealed class LiveBridgeIntegrationTests
             "window-main");
 
         // When
-        await connection.SendCommandAsync(request, deadline.Token);
+        _ = await composition.Session.SendCommandForResultAsync(request, deadline.Token);
         var completed = await Task.WhenAny(updated.Task, failed.Task).WaitAsync(deadline.Token);
         if (completed == failed.Task)
         {
