@@ -5,9 +5,10 @@ import sys
 import tempfile
 from collections.abc import Mapping
 from pathlib import Path
-from typing import Literal, assert_never
+from typing import Literal
 
 import pytest
+from typing_extensions import assert_never
 
 from birkin import plugin_runtime
 from birkin.plugin_install import InstalledPlugin, PluginInstaller, Scope
