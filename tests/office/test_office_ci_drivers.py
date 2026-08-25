@@ -7,8 +7,9 @@ from script.qa import office_base_wheel_smoke
 
 def test_base_wheel_smoke_consumes_current_dogfood_layout(tmp_path: Path) -> None:
     # Given: the paths emitted by the current Office dogfood producer.
-    sources = tmp_path / "sources"
-    drafts = tmp_path / "artifacts" / "drafts"
+    office = tmp_path / "office"
+    sources = office / "sources"
+    drafts = office / "artifacts" / "drafts"
     sources.mkdir(parents=True)
     drafts.mkdir(parents=True)
     expected = {
