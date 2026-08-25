@@ -131,8 +131,9 @@ def test_registered_tools_return_preview_and_structured_visual_refusal(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     monkeypatch.setenv("BIRKIN_HOME", str(tmp_path))
-    service = DocumentService(tmp_path)
-    artifact = _documents(service, tmp_path)["docx"]
+    office_home = tmp_path / "office"
+    service = DocumentService(office_home)
+    artifact = _documents(service, office_home)["docx"]
     registry = build_registry(ToolContext(cfg={}, client=None, cwd=tmp_path), include={"documents"})
 
     rendered = registry.execute(

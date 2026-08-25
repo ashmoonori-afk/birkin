@@ -25,9 +25,9 @@ public sealed partial class NativeClientConnection : INativeClientConnection
     private long _nextId;
     private int _reconnectAttempt;
     private bool _subscribed;
+    private bool _canonicalRepairManagedExternally;
 
-    public NativeClientConnection(NativeProjectionStore? projectionStore = null,
-        Func<TimeSpan, CancellationToken, ValueTask>? delayAsync = null, Func<double>? jitter = null)
+    public NativeClientConnection(NativeProjectionStore? projectionStore = null, Func<TimeSpan, CancellationToken, ValueTask>? delayAsync = null, Func<double>? jitter = null)
     {
         _projectionStore = projectionStore ?? new NativeProjectionStore();
         _delayAsync = delayAsync ?? ((delay, cancellationToken) => new(Task.Delay(delay, cancellationToken)));
@@ -36,7 +36,13 @@ public sealed partial class NativeClientConnection : INativeClientConnection
 
     public bool ContainsBootstrapSecretForTesting => _bootstrapSecret is not null;
     public bool IsProjectionCurrent { get; private set; }
+    public NativeProjectionStore ProjectionStore => _projectionStore;
+
+    public event Action? AuthorityUnavailable;
+    public event Action<NativeReadyIdentity>? SnapshotInFlight;
     public NativeSessionCapability? CurrentCapability => Volatile.Read(ref _currentCapability);
+    public bool HasLiveCapability(DateTimeOffset now) => CurrentCapability is { } capability && capability.ExpiresAt > now && capability.HardExpiresAt > now;
+    public IReadOnlySet<string> AdvertisedCommands => Volatile.Read(ref _session)?.AdvertisedCommands ?? System.Collections.Frozen.FrozenSet<string>.Empty;
     public NativeSessionCapability? PredecessorCapability => Volatile.Read(ref _predecessorCapability);
 
     public async Task ConnectAsync(BridgeAnnouncement announcement, string expectedProductVersion,
@@ -101,8 +107,7 @@ public sealed partial class NativeClientConnection : INativeClientConnection
         return TimeSpan.FromMilliseconds(baseMilliseconds * (0.8 + (0.4 * jitter)));
     }
 
-    private async Task ConnectCoreAsync(BridgeAnnouncement announcement, string expectedProductVersion,
-        CancellationToken cancellationToken)
+    private async Task ConnectCoreAsync(BridgeAnnouncement announcement, string expectedProductVersion, CancellationToken cancellationToken)
     {
         if (!string.Equals(expectedProductVersion, announcement.ServerVersion, StringComparison.Ordinal))
             throw new NativeProtocolError("E_VERSION_MISMATCH", "announcement and client product versions differ");
@@ -144,6 +149,7 @@ public sealed partial class NativeClientConnection : INativeClientConnection
             await transport.SendAsync(subscribe, cancellationToken).ConfigureAwait(false);
             _subscribed = true;
             _reconnectAttempt = 0;
+            SnapshotInFlight?.Invoke(session.Identity);
         }
         catch
         {
@@ -171,7 +177,17 @@ public sealed partial class NativeClientConnection : INativeClientConnection
                 ReplaceCapability(NativeHandshake.ValidateRenewedCapability(envelope));
                 break;
             case "stream.desynchronized":
-                await RequestCanonicalRepairAsync(envelope, cancellationToken).ConfigureAwait(false);
+                if (!_canonicalRepairManagedExternally)
+                {
+                    _projectionStore.ApplyStreamSignal(envelope);
+                    if (_projectionStore.TryBeginReplay())
+                    {
+                        var resumeAfter = envelope.Body["resume_after"] is NativeJsonInteger cursor
+                            ? cursor.Value
+                            : throw new NativeProtocolError("E_BODY", "resume cursor is invalid");
+                        await RequestCanonicalReplayAsync(resumeAfter, cancellationToken).ConfigureAwait(false);
+                    }
+                }
                 break;
             case "snapshot":
                 IsProjectionCurrent = true;
@@ -193,20 +209,20 @@ public sealed partial class NativeClientConnection : INativeClientConnection
         }
     }
 
-    private async Task RequestCanonicalRepairAsync(NativeEnvelope envelope, CancellationToken cancellationToken)
+    internal void UseExternalCanonicalRepairOwner() => _canonicalRepairManagedExternally = true;
+
+    internal async ValueTask RequestCanonicalReplayAsync(
+        long afterCursor,
+        CancellationToken cancellationToken)
     {
-        _projectionStore.ApplyStreamSignal(envelope);
         IsProjectionCurrent = false;
         var session = _session ?? throw new NativeProtocolError("E_STATE", "connection session is unavailable");
-        var resumeAfter = envelope.Body["resume_after"] is NativeJsonInteger cursor
-            ? cursor.Value
-            : throw new NativeProtocolError("E_BODY", "resume cursor is invalid");
         var revisions = _projectionStore.SurfaceRevisions.ToDictionary(
             pair => pair.Key,
             _ => 0L,
             StringComparer.Ordinal);
         var repair = new NativeProjectionSubscription(
-            resumeAfter,
+            afterCursor,
             session.InstanceId,
             revisions,
             isCanonicalRepair: true);
@@ -245,6 +261,8 @@ public sealed partial class NativeClientConnection : INativeClientConnection
         _session = null;
         IsProjectionCurrent = false;
         ClearAuthority();
+        _projectionStore.MarkMutationAuthorityUnavailable();
+        AuthorityUnavailable?.Invoke();
         var transport = _transport;
         _transport = null;
         if (transport is not null)

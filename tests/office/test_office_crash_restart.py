@@ -92,7 +92,7 @@ def test_real_process_crash_resumes_exactly_once(
     assert result["ok"] is True, result
     payload = cast("dict[str, object]", record["payload"])
     runner = DocumentServiceRunner(
-        DocumentService(config.birkin_home()),
+        DocumentService(config.birkin_home() / "office"),
         export_root=Path(cast(str, payload["allowlist_root"])),
     )
     job = OfficeJobJournal(config.birkin_home() / "office" / "jobs").restore(

@@ -33,6 +33,21 @@ memory, use a 15-minute sliding expiry with an eight-hour hard ceiling, rotate
 in band, and are revoked on disconnect, expiry, or bridge teardown. Bootstrap
 secrets and session capabilities cannot approve product actions.
 
+### Windows loopback discovery
+
+The Windows development preview uses the Python-created owner-only discovery
+record, rotating one-shot secret, and authenticated `127.0.0.1` handshake. This
+boundary is proven; no secret or authentication path belongs in evidence.
+Handle-based C# discovery verification of the final opened path, reparse state,
+owner, and protected DACL is explicitly deferred LOW hardening and must not be
+claimed as current coverage.
+
+The Windows sole-reader `BridgeSession` revokes mutation authority on gaps,
+desynchronization, heartbeat loss, and disconnect. External attachment never
+confers kill authority. Only the exact spawned process object is owned; session
+disposal precedes its stop and restart halts after five exits in 60 seconds.
+Visible Terminal and Browser placeholders are presentation only.
+
 ## Strict and bounded input
 
 The boundary refuses oversized or incomplete frames, payloads over 65,536,

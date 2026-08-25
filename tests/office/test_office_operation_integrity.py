@@ -53,10 +53,11 @@ def _queued_docx(
 ) -> tuple[dict[str, object], dict[str, object], Path, Path, str]:
     home = tmp_path / "home"
     caller = tmp_path / "caller"
-    home.mkdir()
+    office_home = home / "office"
+    office_home.mkdir(parents=True)
     caller.mkdir()
     monkeypatch.setenv("BIRKIN_HOME", str(home))
-    source = home / "source.docx"
+    source = office_home / "source.docx"
     destination = caller / "approved.docx"
     document = Document()
     _ = document.add_paragraph("Original credential placeholder")

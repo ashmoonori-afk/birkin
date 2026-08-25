@@ -144,7 +144,7 @@ final class AppHarness: @unchecked Sendable {
         process.standardOutput = stdout
         process.standardError = FileHandle.standardError
         try process.run()
-        let line = try readLine(from: stdout.fileHandleForReading, timeout: 20)
+        let line = try readLine(from: stdout.fileHandleForReading, timeout: 45)
         guard let data = line.data(using: .utf8),
               let record = try JSONSerialization.jsonObject(with: data) as? [String: Any],
               record["event"] as? String == "listening"

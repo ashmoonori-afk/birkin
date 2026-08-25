@@ -54,12 +54,14 @@ def run(output_dir: Path) -> dict[str, object]:
     if not jail.is_dir():
         raise ValueError("output directory is not a directory")
     os.environ["BIRKIN_HOME"] = str(jail)
+    office_home = jail / "office"
+    office_home.mkdir()
     registry = build_registry(
         ToolContext(cfg={"spill_threshold": 1_000_000}, client=None, cwd=jail),
         include={"documents"},
     )
-    service = DocumentService(jail)
-    coordinated = jail / "coordinated"
+    service = DocumentService(office_home)
+    coordinated = office_home / "coordinated"
     coordinated.mkdir(exist_ok=True)
 
     def call(
@@ -99,7 +101,7 @@ def run(output_dir: Path) -> dict[str, object]:
         list[dict[str, object]], call("list_document_adapters", {})["adapters"]
     )
     by_format = {str(item["format"]): item for item in inventory}
-    sources = jail / "sources"
+    sources = office_home / "sources"
     sources.mkdir(exist_ok=True)
     evidence: dict[str, dict[str, object]] = {}
     refusals: list[dict[str, object]] = []

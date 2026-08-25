@@ -12,6 +12,18 @@ public sealed class NativeReconnectTests
     private static readonly NativeReadyIdentity ReadyIdentity = new("session-1", "instance-1", "fixture-version");
 
     [TestMethod]
+    public void Prepare_WhenStoreIsEmpty_RequestsAuthoritativeOfficeProjection()
+    {
+        var subscription = NativeReconnect.Prepare(
+            new NativeProjectionStore(),
+            ReadyIdentity);
+
+        Assert.IsTrue(subscription.IsCanonicalRepair);
+        Assert.AreEqual(1, subscription.SurfaceRevisions.Count);
+        Assert.AreEqual(0L, subscription.SurfaceRevisions["office"]);
+    }
+
+    [TestMethod]
     public void Prepare_WhenInstanceMatches_OffersOnlyContiguousCacheValuesAsReplayHints()
     {
         // Given

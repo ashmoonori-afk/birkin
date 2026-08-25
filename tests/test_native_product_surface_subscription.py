@@ -102,7 +102,7 @@ def test_surface_projection_failure_keeps_the_canonical_command_accepted(
     """Given a surface projection that raises, When a canonical command
     commits, Then the shell still receives an accepted receipt for it."""
     product = _product(tmp_path)
-    monkeypatch.setenv("BIRKIN_HOME", str(product.office.service.home))
+    monkeypatch.setenv("BIRKIN_HOME", str(product.office.service.home.parent))
     artifact = approved_docx(product.office.service.home)
     source = WorkspaceService(
         root=tmp_path / "workspace", session_id="session-1", handlers={}
@@ -189,7 +189,7 @@ def test_real_socket_subscribe_emits_negotiated_surface_snapshots(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     product = _product(tmp_path)
-    monkeypatch.setenv("BIRKIN_HOME", str(product.office.service.home))
+    monkeypatch.setenv("BIRKIN_HOME", str(product.office.service.home.parent))
     artifact = approved_docx(product.office.service.home)
     source = WorkspaceService(
         root=tmp_path / "workspace", session_id="session-1", handlers={}

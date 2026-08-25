@@ -1,4 +1,3 @@
-using System.Reflection;
 using Birkin.Native.App.Startup;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 
@@ -8,23 +7,32 @@ namespace Birkin.Native.App.Tests.Startup;
 public sealed class CompositionRootTests
 {
     [TestMethod]
-    public async Task Create_WhenNativeGraphIsComposed_SharesOneProjectionStore()
+    public async Task Create_GivesSessionAndCoordinatorTheExactSameProjectionStore()
     {
-        // Given
         await using var composition = CompositionRoot.Create(new ImmediateSynchronizationContext());
 
-        // When
-        var coordinatorStore = Field(composition.Coordinator, "_projectionStore");
-        var connection = Field(composition.Coordinator, "_connection");
-        var connectionStore = Field(connection, "_projectionStore");
-
-        // Then
-        Assert.AreSame(coordinatorStore, connectionStore);
+        Assert.AreSame(composition.ProjectionStore, composition.Session.ProjectionStore);
+        Assert.AreSame(composition.ProjectionStore, composition.Coordinator.ProjectionStore);
     }
 
-    private static object Field(object target, string name) =>
-        target.GetType().GetField(name, BindingFlags.Instance | BindingFlags.NonPublic)?.GetValue(target)
-        ?? throw new AssertFailedException($"Expected private field {name} on {target.GetType().Name}.");
+    [TestMethod]
+    public async Task ShutdownAsync_WhenObserverStopFails_StillRunsSupervisorShutdown()
+    {
+        var failure = new InvalidOperationException("replacement reconnect failed");
+        var shutdownCalled = false;
+
+        var thrown = await Assert.ThrowsExceptionAsync<InvalidOperationException>(
+            () => CompositionRoot.ShutdownAsync(
+                () => ValueTask.FromException(failure),
+                () =>
+                {
+                    shutdownCalled = true;
+                    return ValueTask.CompletedTask;
+                }).AsTask());
+
+        Assert.AreSame(failure, thrown);
+        Assert.IsTrue(shutdownCalled);
+    }
 
     private sealed class ImmediateSynchronizationContext : SynchronizationContext
     {

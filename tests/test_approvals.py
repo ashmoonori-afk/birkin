@@ -194,6 +194,84 @@ def test_concurrent_shell_approval_executes_exactly_once(
     assert store.get_pending(proposal["id"])["status"] == "approved"
 
 
+def test_terminal_lease_approval_skips_placeholder_shell(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    calls: list[object] = []
+
+    def forbidden_runner(request: object) -> None:
+        calls.append(request)
+        raise AssertionError("terminal lease approval invoked the shell runner")
+
+    monkeypatch.setattr(approvals, "run_shell_command", forbidden_runner)
+    proposal = approvals.propose(
+        category="shell",
+        title="Native terminal shell access",
+        description="Allow a Python-owned interactive shell for the native human.",
+        payload={
+            "command": "/usr/bin/true",
+            "shell": "/bin/sh",
+            "cwd": str(tmp_path),
+            "terminal_lease_only": True,
+            "session_id": "session-1",
+            "actor_kind": "native_human",
+        },
+        cfg={"auto_approve": []},
+        origin="native_human",
+    )
+    approval_id = proposal.get("id")
+    assert isinstance(approval_id, str)
+
+    result = approvals.approve(approval_id)
+
+    assert result == {"ok": True, "result": "Approved native terminal lease."}
+    assert calls == []
+    record = store.get_pending(approval_id)
+    assert record is not None
+    assert record["status"] == "approved"
+
+
+def test_forged_terminal_lease_marker_cannot_bypass_shell_dispatch(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    calls: list[object] = []
+
+    def forbidden_runner(request: object) -> None:
+        calls.append(request)
+        raise AssertionError("forged terminal lease invoked the shell runner")
+
+    monkeypatch.setattr(approvals, "run_shell_command", forbidden_runner)
+    proposal = approvals.propose(
+        category="shell",
+        title="Forged terminal lease",
+        description="",
+        payload={
+            "command": "touch escaped",
+            "shell": "/bin/sh",
+            "cwd": str(tmp_path),
+            "terminal_lease_only": True,
+            "session_id": "session-1",
+            "actor_kind": "native_human",
+        },
+        cfg={"auto_approve": []},
+    )
+    approval_id = proposal.get("id")
+    assert isinstance(approval_id, str)
+
+    result = approvals.approve(approval_id)
+
+    assert result == {
+        "ok": False,
+        "error": "action failed: invalid terminal lease approval payload",
+    }
+    assert calls == []
+    record = store.get_pending(approval_id)
+    assert record is not None
+    assert record["status"] == "error"
+
+
 def test_rejects_invalid_or_expired_answer():
     action = approvals.request_answers(
         title="Pick target",

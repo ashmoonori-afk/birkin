@@ -195,6 +195,10 @@ class CorrelatedFrameReader:
 
     def close(self) -> None:
         self._stopping.set()
+        try:
+            self._client.shutdown(socket.SHUT_RDWR)
+        except OSError:
+            pass
         self._client.close()
         self._thread.join(timeout=2)
         assert not self._thread.is_alive()

@@ -20,8 +20,16 @@ public sealed class AppOptionsTests
         Assert.AreEqual("{\"event\":\"listening\"}", options.BridgeAnnouncementJson);
     }
 
+    [TestMethod]
+    public void Parse_WhenNoAnnouncementWasSupplied_SelectsOwnedBridgeMode()
+    {
+        var options = AppOptions.Parse([]);
+
+        Assert.IsFalse(options.IsAttached);
+        Assert.AreEqual(string.Empty, options.BridgeAnnouncementJson);
+    }
+
     [DataTestMethod]
-    [DataRow()]
     [DataRow("--bridge-announcement-file")]
     [DataRow("--bridge-announcement-file", "relative.json")]
     [DataRow("--unknown", "value")]

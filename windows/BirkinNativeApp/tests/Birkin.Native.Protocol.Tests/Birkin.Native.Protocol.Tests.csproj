@@ -9,6 +9,7 @@
     <PackageReference Include="MSTest.TestFramework" />
     <PackageReference Include="MSTest.TestAdapter" />
     <ProjectReference Include="..\..\src\Birkin.Native.Protocol\Birkin.Native.Protocol.csproj" />
+    <ProjectReference Include="..\..\src\Birkin.Native.Shell\Birkin.Native.Shell.csproj" />
   </ItemGroup>
 
   <ItemGroup>

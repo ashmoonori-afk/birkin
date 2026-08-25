@@ -56,11 +56,12 @@ def _queue(
 ) -> tuple[dict[str, object], dict[str, object], Path, Path, str]:
     home = tmp_path / "home"
     export_root = tmp_path / "caller"
-    home.mkdir()
+    office_home = home / "office"
+    office_home.mkdir(parents=True)
     export_root.mkdir()
     monkeypatch.setenv("BIRKIN_HOME", str(home))
     destination = export_root / "approved.xlsx"
-    request, source, source_sha256 = _request(home, destination)
+    request, source, source_sha256 = _request(office_home, destination)
     context = ToolContext(
         cfg={},
         client=None,
@@ -91,14 +92,15 @@ def test_docx_paragraph_request_executes_through_registry_and_approval(
     # Given: a real DOCX and a natural-language bilingual paragraph request.
     home = tmp_path / "home"
     caller = tmp_path / "caller"
-    home.mkdir()
+    office_home = home / "office"
+    office_home.mkdir(parents=True)
     caller.mkdir()
     monkeypatch.setenv("BIRKIN_HOME", str(home))
-    source = home / "source.docx"
+    source = office_home / "source.docx"
     destination = caller / "approved.docx"
     document = Document()
     _ = document.add_paragraph("계약 원문 Original contract paragraph.")
-    document.save(source)
+    document.save(str(source))
     source_sha256 = _sha256(source)
     request = {
         "request": (

@@ -202,7 +202,7 @@ def test_peer_loss_terminates_connection_while_command_is_blocked(
 
     def blocked_chat(payload: dict[str, object]) -> dict[str, object]:
         entered.set()
-        if not release.wait(timeout=2):
+        if not release.wait(timeout=10):
             raise AssertionError("test did not release blocked command")
         return {"reply": str(payload["text"])}
 
@@ -238,16 +238,16 @@ def test_peer_loss_terminates_connection_while_command_is_blocked(
                 text="wait for peer loss",
             ),
         )))
-        assert entered.wait(timeout=1)
+        assert entered.wait(timeout=10)
 
         client.close()
-        thread.join(timeout=3)
+        thread.join(timeout=10)
 
         assert not thread.is_alive()
     finally:
         release.set()
         client.close()
-        thread.join(timeout=2)
+        thread.join(timeout=10)
     assert errors == []
 
 

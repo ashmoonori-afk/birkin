@@ -29,22 +29,15 @@ def _managed_fixture(source: Path, incoming: Path) -> dict[str, str]:
 
 
 def fixture_sources(fixtures: Path) -> Mapping[str, Path]:
-    generated = fixtures / "sources"
-    if generated.is_dir():
-        drafts = fixtures / "artifacts" / "drafts"
-        return {
-            "docx": drafts / "created-docx.docx",
-            "xlsx": drafts / "created-xlsx.xlsx",
-            "pptx": drafts / "created-pptx.pptx",
-            "pdf": drafts / "created-pdf.pdf",
-            "hwpx": generated / "source.hwpx",
-        }
+    office = fixtures / "office"
+    generated = office / "sources"
+    drafts = office / "artifacts" / "drafts"
     return {
-        "docx": fixtures / "docx" / "template-fields.docx",
-        "xlsx": fixtures / "xlsx" / "formulas-hidden-chart.xlsx",
-        "pptx": fixtures / "pptx" / "branded-placeholder.pptx",
-        "pdf": fixtures / "pdf" / "native-text.pdf",
-        "hwpx": fixtures / "hwpx" / "form-table.hwpx",
+        "docx": drafts / "created-docx.docx",
+        "xlsx": drafts / "created-xlsx.xlsx",
+        "pptx": drafts / "created-pptx.pptx",
+        "pdf": drafts / "created-pdf.pdf",
+        "hwpx": generated / "source.hwpx",
     }
 
 

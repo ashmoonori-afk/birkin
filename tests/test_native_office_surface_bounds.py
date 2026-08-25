@@ -58,7 +58,7 @@ def test_office_snapshot_is_bounded_when_create_and_open_exceed_the_entry_limit(
     """
     # Given
     authority = OfficeSurfaceAuthority(DocumentService(tmp_path / "office"))
-    monkeypatch.setenv("BIRKIN_HOME", str(authority.service.home))
+    monkeypatch.setenv("BIRKIN_HOME", str(authority.service.home.parent))
 
     # When
     artifacts = [
@@ -72,9 +72,11 @@ def test_office_snapshot_is_bounded_when_create_and_open_exceed_the_entry_limit(
     payload = authority.snapshot()
     documents = _objects(cast(JSONValue, payload["documents"]))
     receipts = _objects(cast(JSONValue, payload["receipts"]))
+    diffs = _objects(cast(JSONValue, payload["diffs"]))
     assert set(payload) == {
-        "inventory", "form", "selected_artifact_id", "documents", "receipts", "refusal",
+        "inventory", "form", "selected_artifact_id", "documents", "receipts", "diffs", "refusal",
     }
+    assert diffs == []
     assert [item["artifact_id"] for item in documents] == [
         item["artifact_id"] for item in artifacts[1:]
     ]
@@ -91,7 +93,7 @@ def test_office_snapshot_discards_unknown_open_artifact_fields_within_frame_cap(
     """
     # Given
     authority = OfficeSurfaceAuthority(DocumentService(tmp_path / "office"))
-    monkeypatch.setenv("BIRKIN_HOME", str(authority.service.home))
+    monkeypatch.setenv("BIRKIN_HOME", str(authority.service.home.parent))
     artifacts = [
         _object(cast(JSONValue, approved_docx(authority.service.home, index)))
         for index in range(_OFFICE_SNAPSHOT_ENTRY_LIMIT)

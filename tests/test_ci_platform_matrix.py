@@ -65,8 +65,9 @@ def test_tests_workflow_has_bounded_native_swift_job() -> None:
     assert 'python-version: "3.13"' in native_job
     assert 'BIRKIN_BROWSER_INTEGRATION: "1"' in native_job
     assert 'SWT_EXPERIMENTAL_MAXIMUM_PARALLELIZATION_WIDTH: "1"' in native_job
-    assert "python -m venv .venv" in native_job
-    assert '.venv/bin/python -m pip install -e ".[browser,office]"' in native_job
+    assert "astral-sh/setup-uv@" in native_job
+    assert "Install isolated Native bridge Browser and Office runtime" in native_job
+    assert "uv sync --frozen --all-extras --all-groups" in native_job
     assert ".venv/bin/python -m playwright install chromium" in native_job
 
 

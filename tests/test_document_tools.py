@@ -1,9 +1,28 @@
 from __future__ import annotations
 
+import hashlib
+import json
+import zipfile
 from pathlib import Path
+from typing import cast
+
+import pytest
 
 from birkin.tools import build_registry
 from birkin.tools._types import Config, ToolContext
+
+def _single_cell_xlsx(path: Path) -> Path:
+    parts = {
+        "[Content_Types].xml": b'<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Override PartName="/xl/workbook.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/></Types>',
+        "xl/workbook.xml": b'<workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"><sheets><sheet name="Revenue" sheetId="1" r:id="rId1"/></sheets></workbook>',
+        "xl/_rels/workbook.xml.rels": b'<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet1.xml"/></Relationships>',
+        "xl/worksheets/sheet1.xml": b'<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><sheetData><row r="1"><c r="A1"><v>7</v></c></row></sheetData></worksheet>',
+    }
+    with zipfile.ZipFile(path, "w", zipfile.ZIP_DEFLATED) as archive:
+        for name, payload in parts.items():
+            archive.writestr(name, payload)
+    return path
+
 
 NAMES = {
     "list_document_adapters",
@@ -56,3 +75,24 @@ def test_registry_removes_direct_mutations_and_keeps_one_coordinator(
     # Then: only reads and the approval coordinator can reach Office work.
     assert names == NAMES
     assert names.isdisjoint(REMOVED_MUTATIONS)
+
+
+def test_document_tool_rejects_hashed_source_outside_dedicated_office_home(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    birkin_home = tmp_path / "home"
+    birkin_home.mkdir()
+    monkeypatch.setenv("BIRKIN_HOME", str(birkin_home))
+    outside = _single_cell_xlsx(birkin_home / "vault.xlsx")
+    digest = hashlib.sha256(outside.read_bytes()).hexdigest()
+    registry = build_registry(_ctx(tmp_path), include={"documents"})
+
+    result = registry.execute(
+        "inspect_document",
+        {"source": {"content_hash": digest, "uri": str(outside)}},
+    )
+
+    body = cast(dict[str, object], json.loads(cast(str, result.content)))
+    error = cast(dict[str, object], body["error"])
+    assert result.is_error
+    assert error["code"] in {"PERMISSION_DENIED", "SOURCE_CHANGED"}

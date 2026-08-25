@@ -5,13 +5,13 @@ namespace Birkin.Native.Protocol.Projection;
 internal static class NativeProjectionReducer
 {
     private static readonly IReadOnlyDictionary<string, string> PanelByEvent = new Dictionary<string, string>(StringComparer.Ordinal)
-        {
-            ["task.updated"] = "tasks_runs",
-            ["approval.requested"] = "approvals",
-            ["receipt.recorded"] = "activity_logs",
-            ["integrity.warning"] = "activity_logs",
-            ["command.completed"] = "activity_logs",
-        };
+    {
+        ["task.updated"] = "tasks_runs",
+        ["approval.requested"] = "approvals",
+        ["receipt.recorded"] = "activity_logs",
+        ["integrity.warning"] = "activity_logs",
+        ["command.completed"] = "activity_logs",
+    };
 
     public static NativeProjectionState Reduce(
         NativeProjectionState state, NativeJsonObject body, HashSet<string> activeCommands)
@@ -158,6 +158,20 @@ internal static class NativeProjectionReducer
             if (OptionalString(payload, field) is { Length: > 0 } value)
             {
                 pairs.Add(new(field, new NativeJsonString(value)));
+            }
+        }
+        if (type == "receipt.recorded")
+        {
+            foreach (var field in new[]
+            {
+                "approval_id", "artifact_id", "draft_id", "diff_id",
+                "request_command_id", "approval_command_id",
+            })
+            {
+                if (OptionalString(payload, field) is { Length: > 0 } value)
+                {
+                    pairs.Add(new(field, new NativeJsonString(value)));
+                }
             }
         }
         foreach (var field in new[] { "sealed", "decided" })

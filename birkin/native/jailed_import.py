@@ -57,7 +57,7 @@ class JailedImportAuthority:
                 f"attachment import is unknown to session {self._session_id}"
             )
         path = self._jail / attachment.jail_name
-        flags = os.O_RDONLY
+        flags = os.O_RDONLY | getattr(os, "O_BINARY", 0)
         if hasattr(os, "O_NOFOLLOW"):
             flags |= os.O_NOFOLLOW
         try:
@@ -150,7 +150,7 @@ class JailedImportAuthority:
         if display_name in {"", ".", ".."}:
             raise ProtocolError("source_path must identify a regular file")
 
-        flags = os.O_RDONLY
+        flags = os.O_RDONLY | getattr(os, "O_BINARY", 0)
         if hasattr(os, "O_NOFOLLOW"):
             flags |= os.O_NOFOLLOW
         try:
@@ -179,7 +179,10 @@ class JailedImportAuthority:
                 try:
                     destination_fd = os.open(
                         partial_destination,
-                        os.O_WRONLY | os.O_CREAT | os.O_EXCL,
+                        os.O_WRONLY
+                        | os.O_CREAT
+                        | os.O_EXCL
+                        | getattr(os, "O_BINARY", 0),
                         0o600,
                     )
                     destination_created = True

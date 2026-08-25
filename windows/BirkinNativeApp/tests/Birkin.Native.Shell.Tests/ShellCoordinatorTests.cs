@@ -10,7 +10,6 @@ namespace Birkin.Native.Shell.Tests;
 [TestClass]
 public sealed class ShellCoordinatorTests
 {
-    private const string AnnouncementVersion = "0.4.276";
     private const string ExpectedProductVersion = "independent-client-version";
     private const string InstanceId = "0123456789abcdef0123456789abcdef";
 
@@ -97,8 +96,7 @@ public sealed class ShellCoordinatorTests
     private static NativeJsonObject Object(params (string Key, NativeJsonValue Value)[] pairs) =>
         new(pairs.Select(pair => new KeyValuePair<string, NativeJsonValue>(pair.Key, pair.Value)));
 
-    private static string AnnouncementJson() =>
-        $$"""{"event":"listening","transport":"loopback","pid":1904,"root":"C:\\root","session_id":"session-1","instance_id":"{{InstanceId}}","server_version":"{{AnnouncementVersion}}","discovery_path":"C:\\root\\native\\endpoint.json"}""";
+    private static string AnnouncementJson() => TestBridgeAnnouncement.Json(1904);
 
     private sealed class FrameConnection : INativeClientConnection
     {

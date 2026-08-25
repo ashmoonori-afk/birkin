@@ -1,6 +1,6 @@
 # Birkin Native Windows Protocol Contract
 
-Status: implementation decision
+Status: implemented Phase 3 development-preview contract
 Wire protocol: `birkin-local-1`
 Native envelope version: `1`
 Transport on Windows: authenticated raw loopback
@@ -82,9 +82,9 @@ fields:
 ```
 
 The PID is diagnostic only for an external attachment. It never grants process
-ownership. The client opens the announced discovery path, refuses a reparse
-point, and parses the owner-DACL-protected record described in
-`architecture.md`. It requires `transport == "loopback"`,
+ownership. The client opens and strictly parses the announced owner-only
+Python discovery record described in `architecture.md`. It requires
+`transport == "loopback"`,
 `host == "127.0.0.1"`, a live expiry, protocol version 1, and agreement between
 the announcement and record for instance and server version.
 
@@ -92,11 +92,15 @@ The bootstrap secret is read once and sent once. It is not logged, included in
 diagnostics, copied to a view model, or retained after `ready`. The app never
 falls back from a refused record to an unauthenticated port.
 
-The phase-one external attach command is
+The development external attach command is
 `Birkin.Native.App.exe --bridge-announcement-file <path>`, where the file
-contains exactly the captured `listening` line. The production launcher will
-feed the same parser directly from its owned child's redirected stdout; there
-is no second attach protocol.
+contains exactly the captured `listening` line. Normal development-preview
+startup spawns an exact owned `Process`, reads the same announcement parser from
+redirected stdout, and retains that process object as the only stop token;
+there is no second attach protocol. Attach never kills. Handle-based discovery
+final-path, reparse, owner, and protected-DACL verification remains deferred LOW
+hardening; current authentication is the Python owner-only record plus one-shot
+secret.
 
 ## 4. Negotiation and handshake
 
@@ -134,9 +138,11 @@ The initial subscription body is exact:
 }
 ```
 
-Phase 1 requires a canonical `snapshot` before it shows `LOCAL · PRIVATE`.
-Later phases request only surfaces advertised by ready. Surface names and
-command names are data advertised by Python, never client feature flags.
+The exact client identity is `surface = "windows"` and
+`view_id = "window-main"`; no alternate Windows view may acquire a second
+capability scope. A canonical `snapshot` is required before the shell shows
+`LOCAL · PRIVATE`. Surfaces and commands remain data advertised by Python,
+never client feature flags.
 
 The client validates all ready limits. It refuses a server-advertised frame or
 payload limit larger than its compiled safety ceiling and obeys a smaller
@@ -158,18 +164,21 @@ C == current_cursor + 1
 
 An event at or behind the current cursor is a protocol refusal, not an
 idempotent UI update. An event ahead by more than one is a gap. On a gap the
-client keeps the previous projection only as visibly stale presentation,
-clears authority-bearing connection state, closes the connection, and performs
-a forced canonical replay with:
+shared store keeps the previous projection only as visibly stale presentation,
+revokes mutation authority, and `BridgeSession` performs one gated canonical
+replay request with:
 
 ```text
-after_cursor = 0
-known_instance_id = null
-all advertised surface revisions = 0
+after_cursor = last accepted cursor (or the server's desync resume hint)
+known_instance_id = negotiated instance
+all known surface revisions = 0
 ```
 
-`stream.desynchronized` takes the same forced-replay path. This deliberately
-prefers one complete authoritative snapshot over a clever client-side repair.
+`stream.desynchronized`, surface gaps, and heartbeat misses enter the same
+repair episode. Additional repair signals cannot send another subscription
+while replay is in flight. A replacement canonical snapshot alone returns the
+store to `Live` and restores mutation authority. This deliberately prefers one
+complete authoritative snapshot over a clever client-side repair.
 
 An ordinary socket reconnect without a detected gap may offer the last
 contiguous cursor, known instance, and known surface revisions. The server may
@@ -178,11 +187,10 @@ then send contiguous `event` frames, a reset `snapshot`, and any required
 existing subscription implementation and does not require a made-up
 "replay complete" message.
 
-A `surface_event` advances only from revision `R` to `R + 1`. A missing surface,
-revision gap, or malformed payload closes the current connection and forces a
-new subscription with that surface at revision 0. The workspace cursor is also
-reset to 0 for this first Windows implementation; targeted replay optimization
-is deferred until measurements show a need.
+A `surface_event` advances only from revision `R` to `R + 1`. A missing surface
+or revision gap enters the same canonical repair episode and requests zero
+revision state rather than being repaired locally. Targeted
+surface-only optimization remains deferred until measurements show a need.
 
 ## 6. Instance reset
 
@@ -204,7 +212,14 @@ revisions. A snapshot with `reset_reason = "instance_changed"`, `"initial"`,
 matches the negotiated ready instance. The reset reason is diagnostic state;
 it never authorizes retrying a mutation.
 
-## 7. Commands, receipts, and errors
+## 7. Sole reader, commands, receipts, and errors
+
+Production composes one `BridgeSession` over one shared
+`NativeProjectionStore`. `BridgeSession` owns the lifetime receive pump and
+routes every snapshot, event, surface update, receipt, heartbeat, renewal,
+desynchronization, and disconnect. Its `ReceiveAsync` rejects callers, so the
+shell cannot race a second reader. One pending command waiter is correlated by
+command ID; disconnect or recovery faults it and revokes mutation authority.
 
 Every command uses a stable command ID, workspace protocol version, expected
 cursor, exact type and payload, plus client context with `surface = "windows"`

@@ -5,7 +5,10 @@ namespace Birkin.Native.Protocol.Transport;
 
 public sealed partial class NativeClientConnection
 {
+    private const int MaxAbandonedCommands = 128;
     private readonly object _commandGate = new();
+    private readonly Dictionary<string, string> _abandonedCommandFrames = new(StringComparer.Ordinal);
+    private readonly Queue<string> _abandonedCommandFrameOrder = new();
     private string? _pendingCommandFrameId;
     private string? _pendingCommandId;
 
@@ -71,22 +74,28 @@ public sealed partial class NativeClientConnection
         string commandId;
         lock (_commandGate)
         {
-            if (!string.Equals(envelope.InReplyTo, _pendingCommandFrameId, StringComparison.Ordinal)
-                || _pendingCommandId is null)
+            if (string.Equals(envelope.InReplyTo, _pendingCommandFrameId, StringComparison.Ordinal)
+                && _pendingCommandId is { } pendingCommandId)
+            {
+                commandId = pendingCommandId;
+                _pendingCommandFrameId = null;
+                _pendingCommandId = null;
+            }
+            else if (_abandonedCommandFrames.Remove(envelope.InReplyTo, out var abandonedCommandId))
+            {
+                commandId = abandonedCommandId;
+            }
+            else
             {
                 throw CorrelationError();
             }
 
-            commandId = _pendingCommandId;
             if (envelope.Kind == NativeMessageKind.Receipt
                 && (!TryString(envelope.Body, "command_id", out var receivedCommandId)
                     || !string.Equals(receivedCommandId, commandId, StringComparison.Ordinal)))
             {
                 throw CorrelationError();
             }
-
-            _pendingCommandFrameId = null;
-            _pendingCommandId = null;
         }
 
         if (envelope.Kind == NativeMessageKind.Error)
@@ -101,6 +110,45 @@ public sealed partial class NativeClientConnection
         }
     }
 
+    internal void AbandonPendingCommand(string commandId)
+    {
+        lock (_commandGate)
+        {
+            if (!string.Equals(commandId, _pendingCommandId, StringComparison.Ordinal)
+                || _pendingCommandFrameId is not { } frameId)
+            {
+                return;
+            }
+
+            _abandonedCommandFrames[frameId] = commandId;
+            _abandonedCommandFrameOrder.Enqueue(frameId);
+            while (_abandonedCommandFrameOrder.Count > MaxAbandonedCommands)
+            {
+                _abandonedCommandFrames.Remove(_abandonedCommandFrameOrder.Dequeue());
+            }
+            _pendingCommandFrameId = null;
+            _pendingCommandId = null;
+        }
+    }
+
+    internal async ValueTask SendGoodbyeAsync(CancellationToken cancellationToken)
+    {
+        var transport = _transport
+            ?? throw new NativeProtocolError("E_STATE", "connection is not active");
+        var capability = CurrentCapability
+            ?? throw new NativeProtocolError("E_CAPABILITY_EXPIRED", "session capability is unavailable");
+        var goodbye = new NativeEnvelope(
+            NativeMessageKind.Goodbye,
+            NextId(),
+            new NativeJsonObject([
+                new("session_capability", new NativeJsonString(capability.Token)),
+                new("reason", new NativeJsonString("app_shutdown")),
+            ]));
+        NativeBodyValidator.Validate(goodbye, NativeMessageOrigin.Client);
+        Claim(goodbye.Id);
+        await transport.SendAsync(goodbye, cancellationToken).ConfigureAwait(false);
+    }
+
     private void ClearPendingCommand(string? expectedFrameId = null)
     {
         lock (_commandGate)
@@ -113,6 +161,8 @@ public sealed partial class NativeClientConnection
 
             _pendingCommandFrameId = null;
             _pendingCommandId = null;
+            _abandonedCommandFrames.Clear();
+            _abandonedCommandFrameOrder.Clear();
         }
     }
 

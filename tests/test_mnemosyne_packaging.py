@@ -8,6 +8,7 @@ import subprocess
 import sys
 import zipfile
 from pathlib import Path
+from unittest.mock import patch
 
 import pytest
 
@@ -33,6 +34,31 @@ def _build_wheel(output: Path) -> Path:
     wheels = tuple(output.glob("birkin-*.whl"))
     assert len(wheels) == 1
     return wheels[0]
+
+
+def test_wheel_builder_uses_pip_frontend(tmp_path: Path) -> None:
+    expected = tmp_path / "birkin-test.whl"
+    expected.touch()
+    completed = subprocess.CompletedProcess[str](args=["build"], returncode=0)
+
+    with patch.object(subprocess, "run", return_value=completed) as run:
+        wheel = _build_wheel(tmp_path)
+
+    assert wheel == expected
+    run.assert_called_once_with(
+        [
+            sys.executable,
+            "-m",
+            "pip",
+            "wheel",
+            "--no-deps",
+            "--wheel-dir",
+            str(tmp_path),
+            str(ROOT),
+        ],
+        cwd=ROOT,
+        check=True,
+    )
 
 
 @pytest.fixture(scope="module")

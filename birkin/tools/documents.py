@@ -2,7 +2,6 @@
 from __future__ import annotations
 
 import json
-import os
 from collections.abc import Callable, Mapping, Sequence
 from pathlib import Path
 from typing import cast
@@ -66,10 +65,11 @@ def _handler(name: str) -> Callable[[ToolInput, ToolContext], ToolResult]:
     def run(data: ToolInput, ctx: ToolContext) -> ToolResult:
         from .. import approvals
         from ..office.coordinator import OfficeCaller, OfficeCoordinator, OfficeMutationRequest
+        from ..office.coordinator_data import canonical_office_home
         from ..office.errors import DocumentError, DocumentErrorCode
         from ..office.service import DocumentService
 
-        home = Path(os.environ.get("BIRKIN_HOME", Path.home() / ".birkin"))
+        home = canonical_office_home()
         service = DocumentService(home)
         try:
             payload = _payload(data)
@@ -91,7 +91,6 @@ def _handler(name: str) -> Callable[[ToolInput, ToolContext], ToolResult]:
             elif name == "office_job_request":
                 coordinator = OfficeCoordinator(
                     OfficeCaller(
-                        home=home,
                         allowlist_root=ctx.cwd,
                         actor=ctx.record_source,
                     )

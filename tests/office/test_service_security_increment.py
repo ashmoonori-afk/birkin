@@ -265,7 +265,9 @@ def test_encrypted_hwpx_service_operations_share_typed_refusal_and_leave_no_trac
 def test_encrypted_hwpx_tools_share_refusal_while_inspect_remains_inventory(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    source = encrypted_hwpx(tmp_path / "protected.hwpx", _valid_declaration())
+    office_home = tmp_path / "office"
+    office_home.mkdir()
+    source = encrypted_hwpx(office_home / "protected.hwpx", _valid_declaration())
     artifact = _artifact(source)
     monkeypatch.setenv("BIRKIN_HOME", str(tmp_path))
     registry = build_registry(

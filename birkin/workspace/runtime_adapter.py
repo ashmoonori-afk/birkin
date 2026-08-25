@@ -10,13 +10,14 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import cast, final
 
-from .. import config, transcripts, uistate, workbench
+from .. import approvals, config, transcripts, uistate, workbench
 from ..browser_aside_control import BrowserControlAuthority
 from ..browser_aside_service import BrowserAsideService
 from ..computer_use.events import ComputerEvent
 from ..computer_use.reducer import ComputerState, reduce_event
 from ..computer_use.runtime import default_backend
 from ..native.jailed_import import JailedImportAuthority
+from ..office.coordinator_data import canonical_office_home
 from ..office.service import DocumentService
 from ..runtime import Session, build_session
 
@@ -127,7 +128,7 @@ class RuntimeWorkspaceAdapter:
                 probe=default_backend().probe()
             ),
             office=OfficeSurfaceAuthority(
-                DocumentService(self._workspace_root / "office")
+                DocumentService(canonical_office_home())
             ),
         )
         self._failed_intent_payload: dict[str, object] | None = None
@@ -147,7 +148,8 @@ class RuntimeWorkspaceAdapter:
             "session.compact": self._session_compact,
             "memory.write": memory_write_handler(self._session_id, self._emit),
             **self._terminal.handlers(),
-            **self._jailed_import.handlers(),
+            "file.import": self._file_import,
+            "office.job_request": self._office_job_request,
             **self.surface_authority.handlers(self._emit),
         }
 
@@ -423,7 +425,116 @@ class RuntimeWorkspaceAdapter:
         _ = self._emit("turn.resumed", {})
         return {"resumed": True}
 
+    def _file_import(self, payload: dict[str, object]) -> dict[str, object]:
+        imported = self._jailed_import.import_file(payload)
+        reference = cast(dict[str, object], imported["reference"])
+        display_name = reference.get("display_name")
+        suffix = (
+            Path(display_name).suffix.casefold()
+            if isinstance(display_name, str)
+            else ""
+        )
+        if suffix not in {".docx", ".xlsx", ".pptx", ".hwpx", ".pdf", ".txt"}:
+            return imported
+        _attachment, source = self._jailed_import.validate_attachment(reference)
+        registered = self.surface_authority.office.register_import(reference, source)
+        result = {
+            "reference": reference,
+            "artifact": registered["artifact"],
+            "receipt": imported["receipt"],
+        }
+        _ = self._emit("office.updated", {"surface": "office", "result": result})
+        return result
+
+    def _office_job_request(self, payload: dict[str, object]) -> dict[str, object]:
+        from ..office.coordinator import (
+            OfficeCaller,
+            OfficeCoordinator,
+            OfficeMutationRequest,
+        )
+
+        required = {"request", "source", "outcome", "operations", "destination"}
+        optional = {"overwrite_approved"}
+        if not required <= set(payload) or set(payload) - required - optional:
+            raise ValueError("office.job_request payload does not match the canonical contract")
+        request = payload["request"]
+        source = payload["source"]
+        outcome = payload["outcome"]
+        operations = payload["operations"]
+        destination = payload["destination"]
+        overwrite_approved = payload.get("overwrite_approved", False)
+        if not isinstance(request, str) or not request:
+            raise ValueError("office.job_request request must be non-empty")
+        if not isinstance(source, dict) or any(
+            not isinstance(key, str) for key in cast(dict[object, object], source)
+        ):
+            raise ValueError("office.job_request source must be an object")
+        if not isinstance(outcome, str) or not outcome:
+            raise ValueError("office.job_request outcome must be non-empty")
+        if not isinstance(operations, list) or not operations:
+            raise ValueError("office.job_request operations must be a non-empty array")
+        parsed_operations: list[Mapping[str, object]] = []
+        for operation in cast(list[object], operations):
+            if not isinstance(operation, dict) or any(
+                not isinstance(key, str)
+                for key in cast(dict[object, object], operation)
+            ):
+                raise ValueError("office.job_request operations must contain objects")
+            parsed_operations.append(cast(dict[str, object], operation))
+        if not isinstance(destination, str) or not destination:
+            raise ValueError("office.job_request destination must be non-empty")
+        if not isinstance(overwrite_approved, bool):
+            raise ValueError("office.job_request overwrite_approved must be boolean")
+
+        approval = OfficeCoordinator(
+            OfficeCaller(
+                allowlist_root=self._workspace_root,
+                actor=f"native:{self._session_id}",
+            )
+        ).request(
+            OfficeMutationRequest(
+                request_text=request,
+                source=cast(dict[str, object], source),
+                outcome=outcome,
+                operations=tuple(parsed_operations),
+                destination=Path(destination),
+                overwrite_approved=overwrite_approved,
+            )
+        )
+        queued = approvals.propose(
+            category="office_job",
+            title=f"Office mutation: {outcome}",
+            description="\n".join(
+                cast(str, item["summary"])
+                for item in cast(list[dict[str, object]], approval["semantic_summaries"])
+            ),
+            payload=approval,
+            cfg={},
+            origin=f"native:{self._session_id}",
+        )
+        approval_id = cast(str, queued["id"])
+        _ = self._emit(
+            "approval.requested",
+            {
+                "approval_id": approval_id,
+                "summary": queued.get("title", f"Office mutation: {outcome}"),
+                "description": "\n".join(
+                    cast(str, item["summary"])
+                    for item in cast(list[dict[str, object]], approval["semantic_summaries"])
+                ),
+                "category": "office_job",
+                "status": "pending",
+                "sealed": True,
+                "decided": False,
+                "job_id": approval["job_id"],
+                "proposal_digest": approval["proposal_digest"],
+            },
+        )
+        return {**queued, "category": "office_job", "approval": approval}
+
     def _approval_answer(self, payload: dict[str, object]) -> dict[str, object]:
+        if set(payload) - {"approval_id", "decision", "reason"}:
+            raise ValueError("approval.answer payload has unsupported fields")
         approval_id = payload.get("approval_id")
         decision = payload.get("decision")
         if not isinstance(approval_id, str):

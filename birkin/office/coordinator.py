@@ -9,6 +9,7 @@ from pathlib import Path
 from typing import final
 
 from .coordinator_data import (
+    canonical_office_home as _office_home,
     coordinator_error as _error,
     job_journal as _journal,
     required_mapping as _mapping,
@@ -28,7 +29,6 @@ from .skill_router import route_office_request
 class OfficeCaller:
     """Trusted actor and filesystem policy supplied by ToolContext."""
 
-    home: Path
     allowlist_root: Path
     actor: str
 
@@ -89,7 +89,8 @@ class OfficeCoordinator:
 
     def __init__(self, caller: OfficeCaller) -> None:
         self._caller = caller
-        self._service = DocumentService(caller.home)
+        self._home = _office_home()
+        self._service = DocumentService(self._home)
 
     def request(self, request: OfficeMutationRequest) -> dict[str, object]:
         """Inspect, preview, summarize, persist, and queue one canonical approval."""
@@ -103,7 +104,7 @@ class OfficeCoordinator:
         )
         if route is None or route.conflict or route.format_name != format_name:
             raise _error(DocumentErrorCode.POLICY_DENIED, "request does not route to the inspected Office format")
-        policy = DocumentWorkspace(self._caller.home).export_policy(
+        policy = DocumentWorkspace(self._home).export_policy(
             self._caller.allowlist_root
         )
         destination = policy.resolve_destination(request.destination)
@@ -118,7 +119,7 @@ class OfficeCoordinator:
             runner=DocumentServiceRunner(
                 self._service, export_root=self._caller.allowlist_root
             ),
-            journal=_journal(self._caller.home),
+            journal=_journal(self._home),
         )
         job.declare_outcome(request.outcome)
         job.propose_operations(request.operations)

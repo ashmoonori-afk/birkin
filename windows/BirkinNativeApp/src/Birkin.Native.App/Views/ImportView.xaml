@@ -1,0 +1,12 @@
+<UserControl x:Class="Birkin.Native.App.Views.ImportView"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:automation="clr-namespace:System.Windows.Automation;assembly=PresentationCore"
+             automation:AutomationProperties.AutomationId="import.landmark"
+             automation:AutomationProperties.Name="Office file import">
+    <UserControl.Resources><ResourceDictionary Source="../Styles/ShellStyles.xaml" /></UserControl.Resources>
+    <DockPanel Margin="0,6,0,0">
+        <Button x:Name="ImportButton" DockPanel.Dock="Right" Content="Import" Margin="6,0,0,0" automation:AutomationProperties.AutomationId="import.submit" automation:AutomationProperties.Name="Import selected office file" Style="{StaticResource DisabledActionStyle}" IsEnabled="{Binding OfficeWorkflow.Availability.FileImport.IsEnabled}" Click="ImportClicked" />
+        <TextBox x:Name="PathBox" automation:AutomationProperties.AutomationId="import.path" automation:AutomationProperties.Name="Selected office file path" Background="{StaticResource RaisedBrush}" BorderBrush="{StaticResource BorderBrush}" Foreground="{StaticResource TextBrush}" Padding="8,6" ToolTip="Python reads the selected file after import is requested." />
+    </DockPanel>
+</UserControl>

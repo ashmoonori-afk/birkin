@@ -169,7 +169,7 @@ def test_product_mutations_push_live_surface_events_without_resubscribe(
     artifact open commit, Then both deliver revisioned live surface frames."""
     browser = _FakeBrowserRuntime()
     product = _live_product(tmp_path, browser)
-    monkeypatch.setenv("BIRKIN_HOME", str(product.office.service.home))
+    monkeypatch.setenv("BIRKIN_HOME", str(product.office.service.home.parent))
     artifact = approved_docx(product.office.service.home)
     source = WorkspaceService(
         root=tmp_path / "workspace", session_id="session-1", handlers={}

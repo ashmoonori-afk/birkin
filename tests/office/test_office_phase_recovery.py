@@ -20,11 +20,11 @@ class SimulatedCrash(BaseException):
 
 
 def _restore(payload: dict[str, object]) -> OfficeJob:
-    home = config.birkin_home()
+    home = config.birkin_home() / "office"
     runner = DocumentServiceRunner(
         DocumentService(home), export_root=Path(cast(str, payload["allowlist_root"]))
     )
-    return OfficeJobJournal(home / "office" / "jobs").restore(
+    return OfficeJobJournal(home / "jobs").restore(
         cast(str, payload["job_id"]), runner=runner
     )
 

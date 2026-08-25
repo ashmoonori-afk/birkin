@@ -11,6 +11,13 @@ from .job_journal import OfficeJobJournal
 from .proposal_integrity import proposal_digest as exact_proposal_digest
 
 
+def canonical_office_home() -> Path:
+    """Return the only production root trusted for Office source access."""
+    from .. import config
+
+    return config.birkin_home() / "office"
+
+
 def coordinator_error(code: DocumentErrorCode, message: str) -> DocumentError:
     return DocumentError(code, "office_coordinator", message)
 
@@ -93,4 +100,4 @@ def proposal_digest(snapshot: Mapping[str, object]) -> str:
 
 
 def job_journal(home: Path) -> OfficeJobJournal:
-    return OfficeJobJournal(home / "office" / "jobs")
+    return OfficeJobJournal(home / "jobs")

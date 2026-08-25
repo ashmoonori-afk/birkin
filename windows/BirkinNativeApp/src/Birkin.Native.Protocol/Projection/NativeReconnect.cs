@@ -15,7 +15,9 @@ public static class NativeReconnect
             store.DiscardForInstanceChange();
             return Canonical(store.SurfaceRevisions);
         }
-        if (state is null || store.Status == NativeProjectionStoreStatus.RepairRequired)
+        if (state is null
+            || store.Status == NativeProjectionStoreStatus.RepairRequired
+            || store.RecoveryState != NativeProjectionRecoveryState.Live)
         {
             return Canonical(store.SurfaceRevisions);
         }
@@ -27,10 +29,17 @@ public static class NativeReconnect
     }
 
     private static NativeProjectionSubscription Canonical(
-        IReadOnlyDictionary<string, long> surfaceRevisions) =>
-        new(
+        IReadOnlyDictionary<string, long> surfaceRevisions)
+    {
+        var revisions = surfaceRevisions.ToDictionary(
+            pair => pair.Key,
+            _ => 0L,
+            StringComparer.Ordinal);
+        revisions.TryAdd("office", 0);
+        return new NativeProjectionSubscription(
             0,
             null,
-            surfaceRevisions.ToDictionary(pair => pair.Key, _ => 0L, StringComparer.Ordinal),
+            revisions,
             isCanonicalRepair: true);
+    }
 }

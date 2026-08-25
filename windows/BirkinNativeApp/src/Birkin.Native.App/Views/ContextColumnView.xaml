@@ -5,104 +5,86 @@
     <UserControl.Resources>
         <ResourceDictionary Source="../Styles/ShellStyles.xaml" />
     </UserControl.Resources>
-    <Grid x:Name="ContextColumn"
-          automation:AutomationProperties.AutomationId="context.column">
+    <ScrollViewer x:Name="ContextScroll"
+                  automation:AutomationProperties.AutomationId="context.scroll"
+                  automation:AutomationProperties.Name="Context panels"
+                  VerticalScrollBarVisibility="Auto"
+                  HorizontalScrollBarVisibility="Disabled"
+                  CanContentScroll="False">
+    <Grid x:Name="ContextColumn" automation:AutomationProperties.AutomationId="context.column">
         <Grid.RowDefinitions>
             <RowDefinition Height="Auto" />
             <RowDefinition Height="5" />
-            <RowDefinition Height="*" />
+            <RowDefinition Height="Auto" />
             <RowDefinition Height="5" />
-            <RowDefinition Height="*" />
+            <RowDefinition Height="Auto" />
             <RowDefinition Height="5" />
-            <RowDefinition Height="*" />
+            <RowDefinition Height="Auto" />
         </Grid.RowDefinitions>
 
         <Border x:Name="ApprovalsRegion"
+                MinHeight="180"
                 automation:AutomationProperties.AutomationId="approvals.landmark"
                 Style="{StaticResource CardStyle}">
-            <StackPanel>
+            <Grid>
+                <Grid.RowDefinitions><RowDefinition Height="Auto" /><RowDefinition Height="Auto" /><RowDefinition Height="Auto" /></Grid.RowDefinitions>
                 <StackPanel Orientation="Horizontal" Margin="0,0,0,8">
                     <TextBlock Text="&#xEA18;" FontFamily="Segoe MDL2 Assets"
                                Foreground="{StaticResource MutedBrush}" FontSize="18" Margin="0,0,9,0" />
                     <TextBlock Text="Approvals" Style="{StaticResource SectionTitleStyle}" />
                 </StackPanel>
-                <ItemsControl x:Name="ApprovalItems"
-                              automation:AutomationProperties.AutomationId="approvals.items"
-                              ItemsSource="{Binding Workspace.Approvals}">
-                    <ItemsControl.ItemTemplate>
-                        <DataTemplate>
-                            <Border Background="{StaticResource RaisedBrush}" CornerRadius="6"
-                                    Padding="9,6" Margin="0,0,0,5">
-                                <Grid>
-                                    <Grid.ColumnDefinitions>
-                                        <ColumnDefinition Width="*" />
-                                        <ColumnDefinition Width="Auto" />
-                                        <ColumnDefinition Width="Auto" />
-                                    </Grid.ColumnDefinitions>
-                                    <StackPanel>
-                                        <TextBlock Text="{Binding Label}" />
-                                        <TextBlock Text="{Binding RequestedState, StringFormat=Requested: {0}}"
-                                                   Foreground="{StaticResource FaintBrush}" FontSize="10" />
-                                    </StackPanel>
-                                    <TextBlock Grid.Column="1" Text="{Binding EffectiveState}"
-                                               Foreground="{StaticResource AccentBrush}"
-                                               VerticalAlignment="Center" Margin="8,0" />
-                                    <Button Grid.Column="2" Content="●" Width="38" Height="25"
-                                            Style="{StaticResource DisabledActionStyle}"
-                                            automation:AutomationProperties.AutomationId="approvals.policy-toggle" />
-                                </Grid>
-                            </Border>
-                        </DataTemplate>
-                    </ItemsControl.ItemTemplate>
+                <ItemsControl Grid.Row="1" automation:AutomationProperties.AutomationId="approvals.items" ItemsSource="{Binding Workspace.Approvals}">
+                    <ItemsControl.ItemTemplate><DataTemplate>
+                        <Border Background="{StaticResource RaisedBrush}" CornerRadius="6" Padding="9,6" Margin="0,0,0,5">
+                            <Grid>
+                                <Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
+                                <TextBlock Text="{Binding Label}" />
+                                <TextBlock Grid.Column="1" Text="{Binding EffectiveState}" Foreground="{StaticResource AccentBrush}" Margin="8,0,0,0" />
+                            </Grid>
+                        </Border>
+                    </DataTemplate></ItemsControl.ItemTemplate>
                 </ItemsControl>
-                <Button Content="Manage approval rules  ›"
-                        HorizontalContentAlignment="Left"
-                        Style="{StaticResource DisabledActionStyle}"
-                        automation:AutomationProperties.AutomationId="approvals.manage" />
-            </StackPanel>
+                <ContentControl x:Name="ApprovalHost" Grid.Row="2" />
+            </Grid>
         </Border>
 
         <Border x:Name="ActivityRegion" Grid.Row="2"
+                Height="220"
                 automation:AutomationProperties.AutomationId="activity.landmark"
                 Style="{StaticResource CardStyle}">
             <Grid>
-                <Grid.RowDefinitions>
-                    <RowDefinition Height="Auto" />
-                    <RowDefinition Height="*" />
-                </Grid.RowDefinitions>
+                <Grid.RowDefinitions><RowDefinition Height="Auto" /><RowDefinition Height="*" /></Grid.RowDefinitions>
                 <DockPanel>
                     <Button DockPanel.Dock="Right" Content="Clear"
                             Style="{StaticResource DisabledActionStyle}"
                             automation:AutomationProperties.AutomationId="activity.clear" />
-                    <TextBlock Text="Activity" Style="{StaticResource SectionTitleStyle}" />
+                    <StackPanel Orientation="Horizontal">
+                        <TextBlock Text="&#xE823;" FontFamily="Segoe MDL2 Assets"
+                                   Foreground="{StaticResource MutedBrush}" FontSize="18" Margin="0,0,9,0" />
+                        <TextBlock Text="Activity" Style="{StaticResource SectionTitleStyle}" />
+                    </StackPanel>
                 </DockPanel>
                 <Grid Grid.Row="1" Margin="0,8,0,0">
-                    <ItemsControl ItemsSource="{Binding Workspace.Activity}">
-                        <ItemsControl.ItemTemplate>
-                            <DataTemplate>
+                    <ScrollViewer automation:AutomationProperties.AutomationId="activity.scroll"
+                                  VerticalScrollBarVisibility="Auto"
+                                  HorizontalScrollBarVisibility="Disabled"
+                                  CanContentScroll="False">
+                        <ItemsControl automation:AutomationProperties.AutomationId="activity.items" ItemsSource="{Binding Workspace.Activity}">
+                            <ItemsControl.ItemTemplate><DataTemplate>
                                 <Border Background="{StaticResource RaisedBrush}" CornerRadius="6" Padding="8" Margin="0,0,0,5">
-                                    <TextBlock Text="{Binding Summary}" TextWrapping="Wrap" />
+                                    <TextBlock automation:AutomationProperties.AutomationId="activity.summary" Text="{Binding Summary}" TextWrapping="Wrap" />
                                 </Border>
-                            </DataTemplate>
-                        </ItemsControl.ItemTemplate>
-                    </ItemsControl>
-                    <Border>
-                        <Border.Style>
-                            <Style TargetType="Border" BasedOn="{StaticResource EmptyStateStyle}">
-                                <Setter Property="Visibility" Value="Collapsed" />
-                                <Style.Triggers>
-                                    <DataTrigger Binding="{Binding Workspace.Activity.Count}" Value="0">
-                                        <Setter Property="Visibility" Value="Visible" />
-                                    </DataTrigger>
-                                </Style.Triggers>
-                            </Style>
-                        </Border.Style>
+                            </DataTemplate></ItemsControl.ItemTemplate>
+                        </ItemsControl>
+                    </ScrollViewer>
+                    <Border IsHitTestVisible="False">
+                        <Border.Style><Style TargetType="Border" BasedOn="{StaticResource EmptyStateStyle}">
+                            <Setter Property="Visibility" Value="Collapsed" />
+                            <Style.Triggers><DataTrigger Binding="{Binding Workspace.Activity.Count}" Value="0"><Setter Property="Visibility" Value="Visible" /></DataTrigger></Style.Triggers>
+                        </Style></Border.Style>
                         <StackPanel VerticalAlignment="Center">
-                            <TextBlock Text="&#xE823;" Style="{StaticResource GlyphStyle}" FontSize="22" />
-                            <TextBlock Text="No recent activity" FontWeight="SemiBold"
-                                       HorizontalAlignment="Center" Margin="0,7,0,2" />
-                            <TextBlock Text="Actions will appear here."
-                                       Style="{StaticResource MutedTextStyle}" HorizontalAlignment="Center" />
+                            <TextBlock Text="&#xE823;" Style="{StaticResource GlyphStyle}" FontSize="18" />
+                            <TextBlock Text="No recent activity" FontWeight="SemiBold" HorizontalAlignment="Center" Margin="0,2,0,0" />
                         </StackPanel>
                     </Border>
                 </Grid>
@@ -110,48 +92,39 @@
         </Border>
 
         <Border x:Name="BrowserRegion" Grid.Row="4"
+                Height="145"
                 automation:AutomationProperties.AutomationId="browser.landmark"
                 Style="{StaticResource CardStyle}">
             <Grid>
-                <Grid.RowDefinitions>
-                    <RowDefinition Height="Auto" />
-                    <RowDefinition Height="*" />
-                </Grid.RowDefinitions>
+                <Grid.RowDefinitions><RowDefinition Height="Auto" /><RowDefinition Height="*" /></Grid.RowDefinitions>
                 <DockPanel>
                     <StackPanel DockPanel.Dock="Right" Orientation="Horizontal">
                         <Button Content="←" Margin="0,0,4,0" Style="{StaticResource DisabledActionStyle}" />
                         <Button Content="→" Margin="0,0,4,0" Style="{StaticResource DisabledActionStyle}" />
                         <Button Content="↻" Style="{StaticResource DisabledActionStyle}" />
                     </StackPanel>
-                    <TextBlock Text="Browser" Style="{StaticResource SectionTitleStyle}" />
+                    <StackPanel Orientation="Horizontal">
+                        <TextBlock Text="&#xE774;" FontFamily="Segoe MDL2 Assets"
+                                   Foreground="{StaticResource MutedBrush}" FontSize="18" Margin="0,0,9,0" />
+                        <TextBlock Text="Browser" Style="{StaticResource SectionTitleStyle}" />
+                    </StackPanel>
                 </DockPanel>
                 <Grid Grid.Row="1" Margin="0,8,0,0">
                     <ItemsControl ItemsSource="{Binding Workspace.Browser}">
-                        <ItemsControl.ItemTemplate>
-                            <DataTemplate>
-                                <Border Background="{StaticResource RaisedBrush}" CornerRadius="6" Padding="8" Margin="0,0,0,5">
-                                    <TextBlock Text="{Binding Summary}" TextWrapping="Wrap" />
-                                </Border>
-                            </DataTemplate>
-                        </ItemsControl.ItemTemplate>
+                        <ItemsControl.ItemTemplate><DataTemplate>
+                            <Border Background="{StaticResource RaisedBrush}" CornerRadius="6" Padding="8" Margin="0,0,0,5">
+                                <TextBlock Text="{Binding Summary}" TextWrapping="Wrap" />
+                            </Border>
+                        </DataTemplate></ItemsControl.ItemTemplate>
                     </ItemsControl>
                     <Border>
-                        <Border.Style>
-                            <Style TargetType="Border" BasedOn="{StaticResource EmptyStateStyle}">
-                                <Setter Property="Visibility" Value="Collapsed" />
-                                <Style.Triggers>
-                                    <DataTrigger Binding="{Binding Workspace.Browser.Count}" Value="0">
-                                        <Setter Property="Visibility" Value="Visible" />
-                                    </DataTrigger>
-                                </Style.Triggers>
-                            </Style>
-                        </Border.Style>
+                        <Border.Style><Style TargetType="Border" BasedOn="{StaticResource EmptyStateStyle}">
+                            <Setter Property="Visibility" Value="Collapsed" />
+                            <Style.Triggers><DataTrigger Binding="{Binding Workspace.Browser.Count}" Value="0"><Setter Property="Visibility" Value="Visible" /></DataTrigger></Style.Triggers>
+                        </Style></Border.Style>
                         <StackPanel VerticalAlignment="Center">
-                            <TextBlock Text="&#xE774;" Style="{StaticResource GlyphStyle}" FontSize="22" />
-                            <TextBlock Text="No page loaded" FontWeight="SemiBold"
-                                       HorizontalAlignment="Center" Margin="0,7,0,2" />
-                            <TextBlock Text="Open a page to view locally."
-                                       Style="{StaticResource MutedTextStyle}" HorizontalAlignment="Center" />
+                            <TextBlock Text="&#xE774;" Style="{StaticResource GlyphStyle}" FontSize="18" />
+                            <TextBlock Text="No page loaded" FontWeight="SemiBold" HorizontalAlignment="Center" Margin="0,2,0,0" />
                         </StackPanel>
                     </Border>
                 </Grid>
@@ -159,55 +132,19 @@
         </Border>
 
         <Border x:Name="OfficeRegion" Grid.Row="6"
+                Height="330"
                 automation:AutomationProperties.AutomationId="office.landmark"
                 Style="{StaticResource CardStyle}">
             <Grid>
-                <Grid.RowDefinitions>
-                    <RowDefinition Height="Auto" />
-                    <RowDefinition Height="*" />
-                </Grid.RowDefinitions>
-                <DockPanel>
-                    <StackPanel DockPanel.Dock="Right" Orientation="Horizontal">
-                        <Button Content="New" Margin="0,0,5,0"
-                                Style="{StaticResource DisabledActionStyle}"
-                                automation:AutomationProperties.AutomationId="office.new" />
-                        <Button Content="Open"
-                                Style="{StaticResource DisabledActionStyle}"
-                                automation:AutomationProperties.AutomationId="office.open" />
-                    </StackPanel>
+                <Grid.RowDefinitions><RowDefinition Height="Auto" /><RowDefinition Height="*" /></Grid.RowDefinitions>
+                <StackPanel Orientation="Horizontal" Margin="0,0,0,8">
+                    <TextBlock Text="&#xE8A5;" FontFamily="Segoe MDL2 Assets"
+                               Foreground="{StaticResource MutedBrush}" FontSize="18" Margin="0,0,9,0" />
                     <TextBlock Text="Office" Style="{StaticResource SectionTitleStyle}" />
-                </DockPanel>
-                <Grid Grid.Row="1" Margin="0,8,0,0">
-                    <ItemsControl ItemsSource="{Binding Workspace.Office}">
-                        <ItemsControl.ItemTemplate>
-                            <DataTemplate>
-                                <Border Background="{StaticResource RaisedBrush}" CornerRadius="6" Padding="8" Margin="0,0,0,5">
-                                    <TextBlock Text="{Binding Summary}" TextWrapping="Wrap" />
-                                </Border>
-                            </DataTemplate>
-                        </ItemsControl.ItemTemplate>
-                    </ItemsControl>
-                    <Border>
-                        <Border.Style>
-                            <Style TargetType="Border" BasedOn="{StaticResource EmptyStateStyle}">
-                                <Setter Property="Visibility" Value="Collapsed" />
-                                <Style.Triggers>
-                                    <DataTrigger Binding="{Binding Workspace.Office.Count}" Value="0">
-                                        <Setter Property="Visibility" Value="Visible" />
-                                    </DataTrigger>
-                                </Style.Triggers>
-                            </Style>
-                        </Border.Style>
-                        <StackPanel VerticalAlignment="Center">
-                            <TextBlock Text="&#xE8A5;" Style="{StaticResource GlyphStyle}" FontSize="22" />
-                            <TextBlock Text="No documents open" FontWeight="SemiBold"
-                                       HorizontalAlignment="Center" Margin="0,7,0,2" />
-                            <TextBlock Text="Create or open a document."
-                                       Style="{StaticResource MutedTextStyle}" HorizontalAlignment="Center" />
-                        </StackPanel>
-                    </Border>
-                </Grid>
+                </StackPanel>
+                <ContentControl x:Name="OfficeHost" Grid.Row="1" />
             </Grid>
         </Border>
     </Grid>
+    </ScrollViewer>
 </UserControl>
