@@ -2,17 +2,25 @@
 
 from __future__ import annotations
 
-import importlib.util
 import shutil
-import sys
 import tempfile
 from collections.abc import Mapping
 from dataclasses import replace
-from pathlib import Path
+from pathlib import Path, PurePosixPath
+from types import MappingProxyType
 
 from .plugin_install import InstalledPlugin, PluginInstallError, PluginInstaller
 from .plugin_manifest import PluginKind, load_manifest
-from .plugin_signature import SignatureError, verify_bundle
+from .plugin_signature import (
+    SignatureError,
+    bundle_digest_bytes,
+    verify_bundle,
+)
+from .plugin_snapshot import (
+    SnapshotImportError,
+    SnapshotLifetime,
+    load_snapshot_module,
+)
 from .tool_effects import ToolOrigin
 from .tools._types import Tool
 
@@ -88,7 +96,11 @@ def _snapshot_plugin(
     plugin: InstalledPlugin,
     trusted_keys: Mapping[str, bytes],
     allow_unsigned: bool,
-) -> tuple[Path, tempfile.TemporaryDirectory[str]]:
+) -> tuple[
+    Path,
+    Mapping[str, bytes],
+    tempfile.TemporaryDirectory[str],
+]:
     owner = tempfile.TemporaryDirectory(prefix="birkin-plugin-")
     snapshot = Path(owner.name) / "bundle"
     try:
@@ -110,7 +122,27 @@ def _snapshot_plugin(
             "plugin activation snapshot does not match its lock record: "
             f"{plugin.name}@{plugin.version}"
         )
-    return snapshot, owner
+    try:
+        captured = MappingProxyType(
+            {
+                path.relative_to(snapshot).as_posix(): path.read_bytes()
+                for path in sorted(snapshot.rglob("*"))
+                if path.is_file()
+            }
+        )
+    except OSError as exc:
+        owner.cleanup()
+        raise PluginActivationError(
+            f"plugin activation snapshot capture failed: "
+            f"{plugin.name}@{plugin.version}"
+        ) from exc
+    if bundle_digest_bytes(captured) != plugin.digest:
+        owner.cleanup()
+        raise PluginActivationError(
+            "captured plugin snapshot does not match its lock record: "
+            f"{plugin.name}@{plugin.version}"
+        )
+    return snapshot, captured, owner
 
 
 def load_agent_tools(
@@ -127,30 +159,41 @@ def load_agent_tools(
         trusted_keys,
         allow_unsigned=allow_unsigned,
     ):
-        snapshot, snapshot_owner = _snapshot_plugin(
+        snapshot, snapshot_files, snapshot_owner = _snapshot_plugin(
             plugin,
             trusted_keys or {},
             allow_unsigned,
         )
-        manifest = load_manifest(snapshot / "birkin-plugin.json")
+        manifest = load_manifest(
+            snapshot / "birkin-plugin.json",
+            data=snapshot_files["birkin-plugin.json"],
+        )
         origin = ToolOrigin(
             "plugin", manifest.name, manifest.version, plugin.digest)
         source = f"plugin:{plugin.name}@{plugin.version}"
+        snapshot_root = snapshot.resolve()
+        snapshot_lifetime = SnapshotLifetime(snapshot_owner)
         for raw in manifest.entry_points.get(PluginKind.AGENT, ()):
             file_part, separator, symbol = raw.partition(":")
             path = (snapshot / file_part).resolve()
-            if snapshot.resolve() not in path.parents:
+            if snapshot_root not in path.parents:
                 raise PluginActivationError(f"entry point escapes bundle: {raw}")
             if not separator or path.suffix != ".py":
                 raise PluginActivationError(f"agent entry point must be file.py:callable: {raw}")
             module_name = f"birkin_plugin_{plugin.digest}_{path.stem}"
-            spec = importlib.util.spec_from_file_location(module_name, path)
-            if spec is None or spec.loader is None:
-                raise PluginActivationError(f"cannot load agent entry point: {raw}")
-            module = importlib.util.module_from_spec(spec)
-            sys.modules[module_name] = module
-            spec.loader.exec_module(module)
-            module.__dict__["__birkin_plugin_snapshot__"] = snapshot_owner
+            relative = PurePosixPath(path.relative_to(snapshot_root).as_posix())
+            try:
+                module = load_snapshot_module(
+                    module_name,
+                    snapshot_root,
+                    relative,
+                    snapshot_files,
+                    snapshot_lifetime,
+                )
+            except SnapshotImportError as exc:
+                raise PluginActivationError(
+                    f"cannot load agent entry point: {raw}"
+                ) from exc
             factory = getattr(module, symbol, None)
             if not callable(factory):
                 raise PluginActivationError(f"agent entry point is not callable: {raw}")

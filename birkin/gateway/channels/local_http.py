@@ -13,13 +13,13 @@ import json
 import os
 import secrets
 import socket
-import stat
 import threading
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 from .base import Channel
+from .capability_file import load_or_create_token as _load_or_create_token
 
 if TYPE_CHECKING:
     from ..core import Gateway
@@ -28,66 +28,6 @@ _ALLOWED_HOSTS = {"127.0.0.1", "localhost"}
 _LOOPBACK_PEERS = {"127.0.0.1", "::1"}
 _MAX_BODY = 1_000_000  # 1 MB cap on a request body — this endpoint takes a chat line
 _BODY_TIMEOUT_SECONDS = 2.0
-
-
-def _token_file() -> Path:
-    from ...config import birkin_home
-    return birkin_home() / "gateway_http_token"
-
-
-def _read_token(path: Path) -> str:
-    flags = os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0)
-    descriptor = os.open(path, flags)
-    try:
-        metadata = os.fstat(descriptor)
-        if not stat.S_ISREG(metadata.st_mode):
-            raise RuntimeError("gateway capability path is not a regular file")
-        os.fchmod(descriptor, 0o600)
-        payload = os.read(descriptor, 4097)
-    finally:
-        os.close(descriptor)
-    token = payload.decode("utf-8").strip()
-    if not token or len(payload) > 4096:
-        raise RuntimeError("gateway capability file is empty or malformed")
-    return token
-
-
-def _load_or_create_token() -> tuple[str, Path]:
-    path = _token_file()
-    path.parent.mkdir(parents=True, exist_ok=True)
-    try:
-        return _read_token(path), path
-    except FileNotFoundError:
-        pass
-    token = secrets.token_urlsafe(32)
-    temporary = path.with_name(
-        f".{path.name}.{secrets.token_hex(16)}.tmp"
-    )
-    flags = (
-        os.O_WRONLY
-        | os.O_CREAT
-        | os.O_EXCL
-        | getattr(os, "O_NOFOLLOW", 0)
-    )
-    descriptor = os.open(temporary, flags, 0o600)
-    try:
-        payload = f"{token}\n".encode("utf-8")
-        view = memoryview(payload)
-        while view:
-            written = os.write(descriptor, view)
-            view = view[written:]
-        os.fchmod(descriptor, 0o600)
-        os.fsync(descriptor)
-    finally:
-        os.close(descriptor)
-    try:
-        os.link(temporary, path)
-    except FileExistsError:
-        return _read_token(path), path
-    finally:
-        temporary.unlink(missing_ok=True)
-    return token, path
-
 
 class LocalHTTPChannel(Channel):
     name = "http"
